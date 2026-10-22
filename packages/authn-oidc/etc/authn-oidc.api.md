@@ -188,7 +188,7 @@ export type OidcMappedClaims = {
     /** The validated ID token's claims, then the userinfo claims it lacks; never a token. */
     readonly raw: Readonly<Record<string, unknown>>;
 };
-/** What OidcStrategy returns and every ExternalLoginHook receives. */
+/** What OidcStrategy returns and every `authn.login.identified` hook receives as `input.external`. */
 export interface OidcExternalSubject extends ExternalSubject {
     readonly provider: OidcStrategyName;
     readonly claims: OidcMappedClaims;

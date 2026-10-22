@@ -4,8 +4,10 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { ExternalLoginHook } from '@spinajs/authn/contracts';
 import type { ExternalSubject, IdentityRef } from '@spinajs/authn/contracts';
+import type { AuthnLoginIdentifiedInput } from '@spinajs/authn';
+import { ActionHook } from '@spinajs/hooks';
+import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
 
 import { OIDC_PRESET_IDS, OIDC_SIGNING_ALGORITHMS } from '../src/contracts.js';
 import type { OidcAppPath, OidcAuthorizationParams, OidcClaimPath, OidcClaimsMapping, OidcClientConfig, OidcConfig, OidcEndpoints, OidcEntraTenantId, OidcExternalSubject, OidcMappedClaims, OidcPreset, OidcPresetId, OidcProviderConfig, OidcProviderSource, OidcReservedParam, OidcSecretRef, OidcSigningAlgorithm, OidcStrategyName, OidcTokenEndpointAuth } from '../src/contracts.js';
@@ -68,10 +70,12 @@ const memberDocs = (name: string): Record<string, string> => {
   return out;
 };
 
-class GroupSync extends ExternalLoginHook {
+class GroupSync extends ActionHook<'authn.login.identified'> {
+  readonly actions: readonly ActionPattern[] = ['authn.login.identified'];
   readonly seen: [IdentityRef, readonly string[] | undefined][] = [];
-  async afterLogin(identity: IdentityRef, external: ExternalSubject): Promise<void> {
-    this.seen.push([identity, (external as OidcExternalSubject).claims.groups]);
+  async before(ctx: BeforeContext<'authn.login.identified'>): Promise<void> {
+    const input: AuthnLoginIdentifiedInput = ctx.input;
+    this.seen.push([input.identity, (input.external as OidcExternalSubject | undefined)?.claims.groups]);
   }
 }
 
@@ -99,10 +103,19 @@ describe('authn-oidc contracts', () => {
       }
     });
 
-    it('mapped claims, groups included, reach an ExternalLoginHook', async () => {
+    it('mapped claims, groups included, reach an authn.login.identified hook as input.external', async () => {
       const external: OidcExternalSubject = { provider: 'oidc:corp', subject: 's-1', email: 'a@b.c', emailVerified: true, claims: { name: 'A', groups: ['eng'], raw: { sub: 's-1', groups: ['eng'] } } };
       const hook = new GroupSync();
-      await hook.afterLogin({ type: 'user', id: 'alice' }, external);
+      const ctx: BeforeContext<'authn.login.identified'> = {
+        action: 'authn.login.identified',
+        input: { identity: { type: 'user', id: 'alice' }, strategy: 'oidc:corp', method: 'oidc', external, attributes: {}, ctx: { now: new Date(), purpose: 'login' } },
+        bag: new Map(),
+        depth: 1,
+        refuse: () => {
+          throw new Error('not refused here');
+        },
+      };
+      await hook.before(ctx);
       expect(hook.seen).to.deep.eq([[{ type: 'user', id: 'alice' }, ['eng']]]);
     });
   });

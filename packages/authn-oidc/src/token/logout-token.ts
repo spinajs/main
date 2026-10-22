@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 import { compactVerify, decodeProtectedHeader } from 'jose';
 import { isFiniteNumber } from '@spinajs/util';
 import { AuthenticationFailed } from '@spinajs/exceptions';
-import type { IdentityLinkStore, SessionIssuer } from '@spinajs/authn/contracts';
+import type { AuthnContext, IdentityLinkStore, SessionIssuer } from '@spinajs/authn/contracts';
+import { hookView } from '@spinajs/authn/hooks';
+import type { Hooks } from '@spinajs/hooks';
 
 import type { OidcSigningAlgorithm } from '../contracts.js';
 import type { OidcJwks } from '../jwks.js';
@@ -11,6 +13,7 @@ import type { OidcStateStore } from '../provider.js';
 import type { OidcStrategy } from '../strategy.js';
 import { MAX_SUBJECT_LENGTH } from '../claims.js';
 import { isPlainObject } from '../support.js';
+import { AUTHN_LOGOUT_BACKCHANNEL } from '../hooks.js';
 
 /** The `events` member that makes a JWT a logout token (OpenID Back-Channel Logout 1.0, section 2.4). */
 export const BACKCHANNEL_LOGOUT_EVENT = 'http://schemas.openid.net/event/backchannel-logout';
@@ -131,6 +134,8 @@ export interface OidcBackchannelLogoutDeps {
   /** Claims each logout token's jti once. */
   readonly nonces: OidcStateStore;
   readonly log?: { warn(...args: unknown[]): void };
+  /** Runs `authn.logout.backchannel` around the revocation; without it no hook runs. */
+  readonly hooks?: Hooks;
 }
 
 const NO_STORE = Object.freeze({ 'cache-control': 'no-store' });
@@ -148,8 +153,11 @@ const jtiKey = (provider: string, iss: string, jti: string): string => `oidc-log
 export class OidcBackchannelLogout {
   constructor(protected readonly d: OidcBackchannelLogoutDeps) {}
 
-  /** `form` is the parsed application/x-www-form-urlencoded body; 200 on success, 400 `{ error: 'invalid_request' }` otherwise (section 2.8). */
-  public async receive(provider: string, form: unknown, now: Date): Promise<OidcAnswer> {
+  /**
+   * `form` is the parsed application/x-www-form-urlencoded body; 200 on success, 400 `{ error: 'invalid_request' }`
+   * otherwise (section 2.8). `ctx` is the context the `authn.logout.backchannel` hooks see.
+   */
+  public async receive(provider: string, form: unknown, now: Date, ctx: AuthnContext = { now, purpose: 'request' }): Promise<OidcAnswer> {
     const strategy = typeof provider === 'string' ? this.d.strategies.get(provider) : undefined;
     const token = isPlainObject(form) ? form.logout_token : undefined;
     const rules = strategy ? this.rulesOf(strategy, now) : null;
@@ -167,7 +175,7 @@ export class OidcBackchannelLogout {
         this.warn(provider, 'refused', new Error('jti replayed'));
         return INVALID;
       }
-      await this.revoke(strategy.name, claims);
+      await this.revokeHooked(strategy.name, claims, ctx);
     } catch (err) {
       this.warn(provider, 'failed', err);
       return INVALID;
@@ -180,6 +188,12 @@ export class OidcBackchannelLogout {
     const o = strategy.provider.options;
     if (strategy.provider.jwks === null || o.issuer === null) return null;
     return { issuer: o.issuer, issuerAliases: o.issuerAliases, clientId: o.clientId, algorithms: o.algorithms, clockSkewSeconds: o.clockSkewSeconds, now };
+  }
+
+  /** The IdP already ended the session, so a hook observes the revocation and cannot keep it (refusable: false). */
+  protected async revokeHooked(provider: string, claims: LogoutTokenClaims, ctx: AuthnContext): Promise<void> {
+    if (!this.d.hooks?.has(AUTHN_LOGOUT_BACKCHANNEL)) return this.revoke(provider, claims);
+    await this.d.hooks.run(AUTHN_LOGOUT_BACKCHANNEL, { provider, ...(claims.sid !== undefined ? { sid: claims.sid } : {}), ctx: hookView(ctx) }, () => this.revoke(provider, claims), { mutable: [], refusable: false });
   }
 
   protected async revoke(provider: string, claims: LogoutTokenClaims): Promise<void> {

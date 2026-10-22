@@ -21,7 +21,7 @@ The service refuses at the first failed check, in this order. The reason goes to
 | The target may log in | `target_<status>` |
 | `ImpersonationGuard.allowed(actor, target)` consents | the guard's code (`forbidden`, `protected_role`, `escalation`), or `guard_error` |
 
-Then:
+Then the `authn.impersonation.start` [action hooks](14-action-hooks.md) run around the steps below. A refusal, or a hook that fails, answers `{ ok: false }` with reason `hook:<code>` or `hook_error`, and the actor keeps its session.
 
 1. `SessionIssuer.issue(target, facts)` creates a session for the target. It keeps the actor's method, strategy, assurance, MFA steps and login time, and sets `facts.impersonator` to the actor.
 2. `SessionIssuer.set(new, 'Impersonation', { startedAt, actorRoles? })` writes the impersonation block. `actorRoles` holds the actor's active role at the start.
@@ -58,7 +58,8 @@ Otherwise the principal is the target, with `principal.authn.impersonator` set. 
 
 1. The session must be a live impersonation (`not_active`, `not_impersonating`, or an ending from the table above).
 2. The impersonator must still be allowed to log in; otherwise the impersonation ends and `stop` returns `null`.
-3. A new session for the impersonator is issued with its own facts. The active role from the block is written back as its `ActiveRole`.
+3. The `authn.impersonation.stop` [action hooks](14-action-hooks.md) run around this step and the next. They cannot keep the impersonation: a refusal or a failing hook is logged and the stop goes on.
+   A new session for the impersonator is issued with its own facts. The active role from the block is written back as its `ActiveRole`.
 4. The old session is revoked, with the same race rule as `start`. `impersonation.end` is audited and the new handle returned.
 
 `endFor(impersonator, { except? })` revokes every session of an identity, the impersonations it runs included. Call it when you ban or deactivate an identity or change or reset its password. It audits nothing itself.

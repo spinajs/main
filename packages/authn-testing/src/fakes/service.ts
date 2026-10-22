@@ -1,6 +1,9 @@
 import { AuthnService } from '@spinajs/authn/contracts';
 import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/authn/ip-key';
-import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, AuthnFailure, AuthnThrottle, Credentials, ExternalLoginHook, ExternalSubject, IdentityLinkStore, IdentityRef, IdentityStatus, IdentityStore, MfaPolicy, MfaStep, PrincipalFactory, Principal, SessionHandle, SessionIssuer, StrategyOutcome, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
+import { hookCopy, hookRefusalOf, hookView } from '@spinajs/authn/hooks';
+import type { Hooks } from '@spinajs/hooks';
+import type { AuthnLoginIdentifiedInput } from '@spinajs/authn/hooks';
+import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, AuthnFailure, AuthnThrottle, Credentials, ExternalSubject, IdentityLinkStore, IdentityRef, IdentityStatus, IdentityStore, MfaPolicy, MfaStep, PrincipalFactory, Principal, SessionHandle, SessionIssuer, StrategyOutcome, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
 
 export interface FakeAuthnServiceDeps {
   readonly strategies: readonly AuthenticationStrategy[];
@@ -16,8 +19,8 @@ export interface FakeAuthnServiceDeps {
   readonly principals: PrincipalFactory;
   /** `authn.throttle.ipv6Prefix`; 64 when unset. */
   readonly ipv6Prefix?: number;
-  /** ExternalLoginHooks, read per login; they run for an interactive external outcome before MFA and the session (RFC N10-1). */
-  readonly hooks?: () => readonly ExternalLoginHook[];
+  /** The runner of `authn.login.identified`, which an interactive login runs after its status check, before MFA and the session. */
+  readonly hooks?: Hooks;
   /** `authn.login.requireVerifiedAddress`: an interactive login of an address the store reports unverified answers `unverified_address`. */
   readonly requireVerifiedAddress?: boolean;
 }
@@ -37,7 +40,7 @@ type Peek = (keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext
  * The authentication flow over the contracts, for lanes that need a `service` port before N1's AuthnService:
  * route by credential kind, count the attempt (strategy keys + ip) before verify (a per-request strategy over a throttle
  * with `peek`: peek before verify and count failures only, K5), audit every failure with its real reason, answer
- * status refusals as invalid_credentials, link or provision external subjects, run the external login hooks before
+ * status refusals as invalid_credentials, link or provision external subjects, run `authn.login.identified` before
  * any session, issue a pending session when MFA is required, elevate on completeMfa, reissue on stepUp, and re-authenticate without
  * touching the session. A fake, not N1's implementation: unlike the core it links before the status check.
  */
@@ -162,18 +165,26 @@ export class FakeAuthnService extends AuthnService {
       await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, identity: id, reason: refused });
       return failure(refused === 'unverified_address' ? 'unverified_address' : 'invalid_credentials');
     }
-    if (s.interactive && r.external && this.d.hooks) {
+    if (s.interactive && this.d.hooks) {
+      const input: AuthnLoginIdentifiedInput = { identity: hookView(id), strategy: s.name, method: r.method, ...(r.external ? { external: hookView(r.external) } : {}), attributes: hookCopy(r.attributes ?? {}), ctx: hookView(ctx) };
       try {
-        for (const hook of this.d.hooks()) await hook.afterLogin(id, r.external);
+        return await this.d.hooks.run('authn.login.identified', input, (i) => this.admit(s, r, id, keys, ctx, i.attributes), { mutable: ['attributes'] });
       } catch (err) {
-        await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, identity: id, reason: 'hook_error', data: { error: err instanceof Error ? err.name : typeof err } });
+        const stopped = hookRefusalOf(err, 'authn.login.identified');
+        if (!stopped) throw err;
+        await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, identity: id, ...stopped });
         return failure('invalid_credentials');
       }
     }
+    return this.admit(s, r, id, keys, ctx, r.attributes);
+  }
+
+  /** The login past its status check; `attributes` are those a hook may have replaced. */
+  private async admit(s: AuthenticationStrategy, r: Extract<StrategyOutcome, { ok: true }>, id: IdentityRef, keys: readonly ThrottleKey[], ctx: AuthnContext, attributes: Readonly<Record<string, unknown>> | undefined): Promise<AuthenticationResult> {
     await this.d.throttle.succeed(keys, 'login');
     const external = r.external ? { external: { provider: r.external.provider, ...(typeof r.external.sid === 'string' && r.external.sid.length > 0 ? { sid: r.external.sid } : {}) } } : {};
     const facts = { method: r.method, strategy: s.name, assurance: 'aal1' as const, mfa: [] as string[], ...external };
-    const extra = { ...(r.ceiling ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(r.attributes ? { attributes: r.attributes } : {}) };
+    const extra = { ...(r.ceiling ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(attributes && (r.attributes || Object.keys(attributes).length > 0) ? { attributes } : {}) };
     if (!s.interactive) {
       await this.audit(ctx, { type: 'token.use', outcome: 'success', strategy: s.name, identity: id });
       return { status: 'success', identity: id, facts, ...extra };

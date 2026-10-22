@@ -33,7 +33,6 @@ Time comes from two places. `ctx.now` (from `FakeClock.ctx()`) drives the thrott
 | `RecordingPrincipalFactory` | `PrincipalFactory` | Builds a `Principal` from the identity, facts and extras | `calls` |
 | `FakeImpersonationGuard` | `ImpersonationGuard` | Allows every impersonation until you deny one target or all | `calls` |
 | `FakeRoleSource` | `RoleSource` | Roles you grant per identity | none |
-| `RecordingExternalLoginHook` | `ExternalLoginHook` | Records each external login; can be set to throw | `calls` |
 | `fakeSeedPort(identities, passwords)` | `SeedPort` | Seeds users into the two fakes; passwords stored with `fakeHash` | none |
 
 ### `FakeClock`

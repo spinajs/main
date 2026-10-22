@@ -11,6 +11,7 @@ import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { BaseController, BasePath, Del, Get, Param, Post, Req, Response, Unauthorized, _setCoockies, _setHeaders, isTrustedPeer } from '@spinajs/http';
 import type { ICookie, Request, ResponseFunction } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
+import { Hooks } from '@spinajs/hooks';
 
 import { OidcLogin } from '../login.js';
 import { OidcBackchannelLogout } from '../token/logout-token.js';
@@ -97,6 +98,9 @@ export class OidcController extends BaseController {
   @Autoinject(NonceStore)
   protected Nonces: NonceStore;
 
+  @Autoinject(Hooks)
+  protected Hooks: Hooks;
+
   @Get(':provider')
   public async begin(@Param() provider: string, @Req() req: Request) {
     const login = await this.login();
@@ -129,10 +133,12 @@ export class OidcController extends BaseController {
       links: this.Links ?? null,
       nonces: this.Nonces,
       log: { warn: (...args: unknown[]) => this.Log?.warn(...(args as Parameters<Log['warn']>)) },
+      hooks: this.Hooks,
     });
     // Section 2.5: the token comes form-encoded only.
     const form = req.is(FORM) ? req.body : undefined;
-    return new OidcResponse(await this.logout.receive(provider, form, new Date()));
+    const now = new Date();
+    return new OidcResponse(await this.logout.receive(provider, form, now, { ...this.contextOf(req, now), purpose: 'request' }));
   }
 
   /** Re-authenticates the current session at the provider; the callback refreshes its authenticatedAt (FreshAuth). */
@@ -142,10 +148,15 @@ export class OidcController extends BaseController {
     return new OidcResponse(await login.beginReauth(provider, this.requestOf(req)));
   }
 
-  protected requestOf(req: Request): OidcRequest {
-    const storage = (req as unknown as { storage?: { ClientIp?: string; AuthnSession?: { handle: SessionHandle } | null } }).storage;
+  protected contextOf(req: Request, now: Date): AuthnContext {
+    const storage = (req as unknown as { storage?: { ClientIp?: string } }).storage;
     const userAgent = req.get('user-agent');
-    const ctx: AuthnContext = { now: new Date(), purpose: 'login', ...(storage?.ClientIp ? { ip: storage.ClientIp } : {}), ...(userAgent ? { userAgent } : {}) };
+    return { now, purpose: 'login', ...(storage?.ClientIp ? { ip: storage.ClientIp } : {}), ...(userAgent ? { userAgent } : {}) };
+  }
+
+  protected requestOf(req: Request): OidcRequest {
+    const storage = (req as unknown as { storage?: { AuthnSession?: { handle: SessionHandle } | null } }).storage;
+    const ctx = this.contextOf(req, new Date());
     return {
       origin: this.originOf(req),
       cookies: (req.cookies ?? {}) as Record<string, string>,
