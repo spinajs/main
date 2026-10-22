@@ -6,12 +6,14 @@ import type { CachedVerdict, ListEntry, ListKind } from '@spinajs/email-verifica
 import { Log, Logger } from '@spinajs/log';
 import { chunk } from '@spinajs/util';
 import { Redis } from 'ioredis';
-import type { RedisOptions } from 'ioredis';
+import type { ChainableCommander, RedisOptions } from 'ioredis';
 
 const INDEX = 'lists';
-const VERSION = 'meta:listVersion';
+const VERSION = 'internal:listVersion';
 const BATCH = 1000;
 const TMP_TTL_MS = 3_600_000;
+const DISPOSE_TIMEOUT_MS = 1000;
+const VERDICTS = new Set(['allow', 'refuse', 'unknown']);
 
 const listKey = (kind: ListKind, source: string) => `list:${kind}:${source}`;
 const member = (kind: ListKind, source: string) => `${kind}:${source}`;
@@ -42,16 +44,35 @@ export class RedisEmailVerificationStore extends EmailVerificationStore {
   }
 
   public async dispose(): Promise<void> {
-    try {
-      await this.Client?.quit();
-    } catch {
-      this.Client?.disconnect();
+    const client = this.Client;
+    if (!client) return;
+    if (client.status !== 'ready') {
+      client.disconnect();
+      return;
     }
+    let timer: NodeJS.Timeout | undefined;
+    const settled = await Promise.race([
+      client.quit().then(
+        () => true,
+        () => false,
+      ),
+      new Promise<false>((resolve) => {
+        timer = setTimeout(() => resolve(false), DISPOSE_TIMEOUT_MS);
+      }),
+    ]);
+    clearTimeout(timer);
+    if (!settled) client.disconnect();
   }
 
   public async getVerdict(verifier: string, domain: string): Promise<CachedVerdict | null> {
     const raw = await this.Client.get(`verdict:${verifier}:${domain}`);
-    return raw === null ? null : (JSON.parse(raw) as CachedVerdict);
+    if (raw === null) return null;
+    try {
+      const parsed = JSON.parse(raw) as CachedVerdict | null;
+      return parsed && VERDICTS.has(parsed.result) ? parsed : null;
+    } catch {
+      return null;
+    }
   }
 
   public async setVerdict(verifier: string, domain: string, verdict: CachedVerdict, ttlSeconds: number): Promise<void> {
@@ -74,33 +95,50 @@ export class RedisEmailVerificationStore extends EmailVerificationStore {
 
   public async upsertEntries(entries: readonly ListEntry[]): Promise<void> {
     if (entries.length === 0) return;
-    const tx = this.Client.multi();
+    const bySource = new Map<string, { kind: ListKind; source: string; domains: string[] }>();
     for (const e of entries) {
-      tx.sadd(listKey(e.kind, e.source), e.domain);
-      tx.sadd(INDEX, member(e.kind, e.source));
+      const m = member(e.kind, e.source);
+      let group = bySource.get(m);
+      if (!group) bySource.set(m, (group = { kind: e.kind, source: e.source, domains: [] }));
+      group.domains.push(e.domain);
+    }
+    const tx = this.Client.multi();
+    for (const [m, g] of bySource) {
+      for (const part of chunk(g.domains, BATCH)) tx.sadd(listKey(g.kind, g.source), ...part);
+      tx.sadd(INDEX, m);
     }
     tx.incr(VERSION);
-    await tx.exec();
+    await this.exec(tx);
   }
 
   public async removeEntries(kind: ListKind, domains: readonly string[], source: string): Promise<void> {
     const tx = this.Client.multi();
-    if (domains.length > 0) tx.srem(listKey(kind, source), ...domains);
+    for (const part of chunk([...domains], BATCH)) tx.srem(listKey(kind, source), ...part);
     tx.incr(VERSION);
-    await tx.exec();
+    await this.exec(tx);
   }
 
   public async replaceSource(source: string, kind: ListKind, domains: readonly string[]): Promise<void> {
     const key = listKey(kind, source);
     if (domains.length === 0) {
-      await this.Client.multi().del(key).srem(INDEX, member(kind, source)).incr(VERSION).exec();
+      await this.exec(this.Client.multi().del(key).srem(INDEX, member(kind, source)).incr(VERSION));
       return;
     }
     const tmp = `${key}:tmp:${randomUUID()}`;
-    for (const part of chunk([...domains], BATCH)) await this.Client.sadd(tmp, ...part);
-    // A crash between the SADDs and the RENAME must not leave the temporary set forever.
-    await this.Client.pexpire(tmp, TMP_TTL_MS);
-    await this.Client.multi().rename(tmp, key).persist(key).sadd(INDEX, member(kind, source)).incr(VERSION).exec();
+    try {
+      let first = true;
+      for (const part of chunk([...domains], BATCH)) {
+        const tx = this.Client.multi().sadd(tmp, ...part);
+        // The TTL goes in with the first batch so a crash mid-load cannot leave the temporary set forever.
+        if (first) tx.pexpire(tmp, TMP_TTL_MS);
+        first = false;
+        await this.exec(tx);
+      }
+      await this.exec(this.Client.multi().rename(tmp, key).persist(key).sadd(INDEX, member(kind, source)).incr(VERSION));
+    } catch (err) {
+      await this.Client.del(tmp).catch(() => undefined);
+      throw err;
+    }
   }
 
   public async getMeta(key: string): Promise<string | null> {
@@ -109,6 +147,12 @@ export class RedisEmailVerificationStore extends EmailVerificationStore {
 
   public async setMeta(key: string, value: string): Promise<void> {
     await this.Client.set(`meta:${key}`, value);
+  }
+
+  protected async exec(tx: ChainableCommander): Promise<void> {
+    const results = await tx.exec();
+    if (results === null) throw new Error('Redis transaction was aborted');
+    for (const [err] of results) if (err) throw err;
   }
 
   protected clientOptions(): RedisOptions {
