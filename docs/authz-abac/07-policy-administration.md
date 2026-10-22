@@ -40,7 +40,8 @@ sequenceDiagram
   H->>M: validate(policy, store.name)
   A->>H: permission(command, ctx)
   H-->>A: authz:policies.manage at the policy's scope
-  A->>A: check the actor, run the AdminGuard, open the transaction
+  A->>A: check the actor, run the authz.admin.command hooks (ListSupportHook last)
+  A->>A: open the transaction, run the AdminGuard
   A->>H: apply(command, ctx, tx)
   H->>S: put(policy, actor, tx)
   H-->>A: tags policy, policy:<id>, event PolicyChanged
@@ -101,7 +102,7 @@ All four register in root DI when the package is imported.
 
 ### Product rule on policies: a before hook
 
-Add product rules on policies with an `ActionHook` on `authz.admin.command`, not by replacing the handler. `AuthzAdmin` runs the hooks after the handler's `validate` and the permission check, for each command of the batch. A refusal fails the batch with `hook:<code>`. (`AuthzCommandValidator`, which did this before 3.x, is removed.)
+Add product rules on policies with an `ActionHook` on `authz.admin.command`, not by replacing the handler. `AuthzAdmin` runs the hooks after the handler's `validate` and the permission check, for each command of the batch. A refusal fails the batch with `hook:<code>`. Moving off `AuthzCommandValidator`: see [Migration](../authz/15-action-hooks.md#migration).
 
 ```ts sample
 import { DI } from '@spinajs/di';

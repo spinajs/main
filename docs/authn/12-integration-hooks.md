@@ -2,7 +2,7 @@
 
 Small contracts through which an app, `@spinajs/users` or `@spinajs/authn-http` plug into the authentication flow without authn importing them. Each is an abstract class you register with `@Injectable(<Hook>)`.
 
-To run code around a login, an MFA completion, the start of a session, a step-up, an impersonation or an account link (to refuse it, change its attributes or observe its result) register an `ActionHook` instead: see [Action hooks](14-action-hooks.md) and [`@spinajs/hooks`](../hooks/README.md). `authn.login.identified` replaces the `ExternalLoginHook` of 3.0, and `authn.session.start` the `SessionStartHook` of 3.0.2.
+To run code around a login, an MFA completion, the start of a session, a step-up, an impersonation or an account link (to refuse it, change its attributes or observe its result) register an `ActionHook` instead: see [Action hooks](14-action-hooks.md) and [`@spinajs/hooks`](../hooks/README.md). `authn.login.identified` replaces the `ExternalLoginHook` of 3.0, and `authn.session.start` the `SessionStartHook` of 3.0.2 ([migration](14-action-hooks.md#sessionstarthook-is-removed)).
 
 | Hook | Called by | Resolved as | Shipped implementation |
 | --- | --- | --- | --- |
@@ -35,7 +35,7 @@ export class AssuranceResponseExtension extends AuthnResponseExtension {
 
 ## The start of a session
 
-The `SessionStartHook` of 3.0.2 is removed. A before hook on [`authn.session.start`](14-action-hooks.md#authnsessionstart) chooses the role a new session starts with: it sets `ctx.input.ceiling`, which the session stores as its `ActiveRole`. `@spinajs/users` registers `OrderedActiveRoleHook` there ([Role switch and access response](../users/14-role-switch-and-access-response.md)).
+A before hook on [`authn.session.start`](14-action-hooks.md#authnsessionstart) chooses the role a new session starts with: it sets `ctx.input.ceiling`, which the session stores as its `ActiveRole`. `@spinajs/users` registers `OrderedActiveRoleHook` there ([Role switch and access response](../users/14-role-switch-and-access-response.md)).
 
 ## `CredentialAdminGuard`
 

@@ -23,7 +23,7 @@ The order inside `AuthzAdmin.execute` is:
 3. A `command` a hook changed is copied, frozen and put through the same `validate()` and permission check again. A `Date` edited in place counts as a change. A command no hook changed is not checked twice.
 4. In phase B (the transaction), `AdminGuard.check()` and `apply()` for the command the hook left.
 
-Product rules on commands (refuse external invites, require an expiry) are before hooks here; they replace `AuthzCommandValidator`, removed in 3.x. Note that they run after the permission check, where the validators ran before it, and that a refusal answers `hook:<code>`.
+Product rules on commands (refuse external invites, require an expiry) are before hooks here. They run after the permission check, and a refusal answers `hook:<code>`. Moving off `AuthzCommandValidator`: see [Migration](#migration).
 
 ### The list-support check
 
@@ -85,6 +85,35 @@ With the switch off, `check`, `can` and `assert` never touch `Hooks`. With it on
 - `after` hooks see the `Decision`. `explain`, `inspect`, `checkMany`, `checkAll` and `filter` are not hooked.
 - The permission check of `AuthzAdmin` goes through `AuthzService.check`, so with the switch on a refusal also makes admin calls fail with `forbidden`: the actor's permission check is hooked like any other check. A hook that refuses broadly can therefore lock admins out; limit it to the principals or permissions it means to stop.
 - A forced deny is audited as a `deny` entry with reason `hook:<code>` when `authz.audit.denials` is on, and keeps the `trace` of an explain request.
+
+## Migration
+
+`AuthzCommandValidator` and `ListSupportValidator` are removed. Move each validator into a before hook on `authz.admin.command` and refuse with `ctx.refuse(code)`:
+
+```ts
+// Before
+@Injectable(AuthzCommandValidator)
+export class ContractorExpiryValidator extends AuthzCommandValidator {
+  async validate(_actor: Principal, c: AuthzCommand): Promise<void> {
+    if (c.kind === 'assignment.grant' && c.role === 'contractor' && !c.expiresAt) throw new AuthzAdminFailure('expiry_required', 'needs an expiry', 'expiresAt');
+  }
+}
+
+// After
+@Injectable(ActionHook)
+export class ContractorExpiryRule extends ActionHook<'authz.admin.command'> {
+  readonly actions: readonly ActionPattern[] = ['authz.admin.command'];
+
+  before(ctx: BeforeContext<'authz.admin.command'>): void {
+    const c = ctx.input.command;
+    if (c.kind === 'assignment.grant' && c.role === 'contractor' && !c.expiresAt) ctx.refuse('expiry_required');
+  }
+}
+```
+
+- The hook runs after the permission check; a validator ran between `validate()` and the permission check. An actor without the permission now gets `forbidden` before any product rule.
+- A refusal answers `hook:<code>` (`hook:expiry_required`), not the validator's own `AuthzAdminFailure` code. Update clients that match on the code.
+- `ListSupportGuard` implementations stay as they are: `ListSupportHook` runs them, with the same answers.
 
 ## Related
 

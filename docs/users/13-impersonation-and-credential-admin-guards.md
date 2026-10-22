@@ -6,7 +6,7 @@ Who may act **as** another user (impersonation) or **on** another user's credent
 
 ### When the impersonation guard is asked
 
-- **At the start.** authn no longer asks the guard itself: the start check is a before hook on `authn.impersonation.start`. users registers `ImpersonationGuardStartHook`, which asks the registered `ImpersonationGuard` (this one, or your subclass) with the actor principal from the hook input and refuses with its code. authn answers `{ ok: false }` and audits `impersonation.start` with `hook:forbidden`, `hook:protected_role` or `hook:escalation`; a guard that throws is audited as `hook_error`.
+- **At the start.** authn does not ask the guard itself: the start check is a before hook on `authn.impersonation.start`. users registers `ImpersonationGuardStartHook`, which asks the registered `ImpersonationGuard` (this one, or your subclass) with the actor principal from the hook input and refuses with its code (`forbidden` for an answer without one). authn answers `{ ok: false }` and audits `impersonation.start` with `hook:forbidden`, `hook:protected_role` or `hook:escalation`; a guard that throws is audited as `hook_error`.
 - **On every request** of the impersonation session, authn asks the guard again and ends the impersonation when it refuses.
 
 ### `AuthzImpersonationGuard.allowed(actor, target)`

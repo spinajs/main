@@ -119,7 +119,7 @@ The guard's rules (escalation, self-lockout, last holder, system roles) and `kee
 | `AuthzAdminBackend` | `AuthzAdminBackend`, chosen by name | `MemoryAuthzAdminBackend` (in memory, one transaction at a time) | `DbAuthzAdminBackend` in authz-rbac | Register a class and name it in `authz.admin.backend`. |
 | `AdminGuard` | `AdminGuard`, chosen by name | none in the core | `DefaultAdminGuard` in authz-rbac | Register a class and name it in `authz.admin.guard.service`. |
 | `AuthzWriteHandler` | `AuthzWriteHandler`, every registration; one per kind | `ScopeAttributeHandler`, `ScopeForgetHandler` | RBAC and ABAC handlers | A model that owns new data registers a handler for new kinds. Two handlers for one kind fail. |
-| `ActionHook` on `authz.admin.command` | `ActionHook`, every registration | `ListSupportHook` (runs last) | your own | Product rules on commands: refuse with `ctx.refuse(code)`. Replaces `AuthzCommandValidator`, removed in 3.x. |
+| `ActionHook` on `authz.admin.command` | `ActionHook`, every registration | `ListSupportHook` (runs last) | your own | Product rules on commands: refuse with `ctx.refuse(code)`. Moving off `AuthzCommandValidator`: [Migration](15-action-hooks.md#migration). |
 | `AuthzEventSink` | `AuthzEventSink`, every registration | `LogAuthzEventSink` | your own | Forward events (`RoleAssigned`, `RoleRevoked`, `ScopeAttributesChanged`, `ScopeForgotten`, ...). Every registered sink runs. |
 | `AuthzAdminReader` | `AuthzAdminReader`, every registration; one per query kind | `ScopeAttributeReader` (`attributes`) | RBAC and ABAC readers | Answers `list()` for its kinds. |
 | `ScopeForgetter` | `ScopeForgetter`, every registration | none in the core | RBAC and ABAC forgetters | Deletes a model's data at a node inside the `scope.forget` transaction. |
@@ -207,7 +207,7 @@ export class ContractorExpiryRule extends ActionHook<'authz.admin.command'> {
 }
 ```
 
-The hook runs after the handler's `validate()` and the permission check. The batch then answers `{ ok: false, kind: 'assignment.grant', error: { code: 'hook:expiry_required', ... } }` and writes nothing. `AuthzCommandValidator`, which ran between `validate()` and the permission check and answered its own `AuthzAdminFailure` code, is removed in 3.x.
+The hook runs after the handler's `validate()` and the permission check. The batch then answers `{ ok: false, kind: 'assignment.grant', error: { code: 'hook:expiry_required', ... } }` and writes nothing.
 
 ### `AuthzEventSink`: custom implementation
 

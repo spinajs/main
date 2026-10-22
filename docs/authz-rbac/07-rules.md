@@ -67,8 +67,8 @@ Rules in `authz.rbac.rules` with no `ConfigRuleStore` in `authz.rbac.stores.rule
 `RbacRuleHandler` writes rules through the domain's `AdminRuleStore` (`DbRuleStore`, registered only when `authz.rbac.stores.rules` names it).
 
 1. `validate`: the shape per kind, a known ladder, `minRole` and `maxRole` on it, registered permission names, subjects, conditions that compile with the domain's `ConditionCompiler` (`rule_not_compilable`), and an existing id at another scope (`conflict`). `DbRuleStore.assertStorable` refuses values longer than their columns.
-2. `RbacRuleListGuard` refuses a rule that can match a `list: true` permission (`not_list_filterable`).
-3. The actor needs `authz:rules.manage` at the rule's scope.
+2. The actor needs `authz:rules.manage` at the rule's scope.
+3. The `authz.admin.command` hooks run. The core's `ListSupportHook` runs last and asks `RbacRuleListGuard`, which refuses a rule that can match a `list: true` permission (`not_list_filterable` on the field `rule`).
 4. `DefaultAdminGuard` refuses a `minRole` or `maxRole` that ranks above the actor's own at the rule's scope (`escalation`).
 5. `DbRuleStore.put` inserts or replaces the rule by id; `rule.delete` removes it. The change tag is `rule:<id>`; the event `RuleChanged`.
 
@@ -85,7 +85,7 @@ await authz().admin().putRule(actor, {
 | --- | --- | --- | --- | --- |
 | Rule store | `RuleStore` (and `AdminRuleStore` for a writable one), per child container, by `registerRbacStores` | `ConfigRuleStore` | `DbRuleStore`, `MemoryRuleStore` | Name classes in `authz.rbac.stores.rules`: one in memory (`all()` and `rulesOn()`), one other. See [Custom stores](11-custom-stores.md). |
 | `RbacRuleHandler` | `AuthzWriteHandler`, singleton, at import | `RbacRuleHandler` | none | Add a before hook on `authz.admin.command` to refuse rules your product forbids. |
-| `RbacRuleListGuard` | `ListSupportGuard`, singleton, at import | `RbacRuleListGuard` | none | none |
+| `RbacRuleListGuard` | `ListSupportGuard`, singleton, at import; run by the core's `ListSupportHook` | `RbacRuleListGuard` | none | none |
 
 `readRuleDefs(rules, source?)` turns config rules into frozen `RuleDef`s (default scope `$global`, `expiresAt` as a `Date`).
 

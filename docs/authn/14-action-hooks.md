@@ -84,7 +84,7 @@ export class IdentityProviderGroups extends ActionHook<'authn.login.identified'>
 
 ## `authn.session.start`
 
-A login route (password, key, email code, passkey), the OIDC callback and an MFA completion all issue the active session through `DefaultAuthnService`, which runs `authn.session.start` on it before the login counts as a success. It replaces the `SessionStartHook` of 3.0.2, which authn-http asked only on its own routes, so the OIDC callback now starts narrowed too.
+A login route (password, key, email code, passkey), the OIDC callback and an MFA completion all issue the active session through `DefaultAuthnService`, which runs `authn.session.start` on it before the login counts as a success. Every session-issuing route is covered, the OIDC callback included. A pending login, a step-up and a re-authentication run none.
 
 - `kind` is `login` or `mfa`; `session` is the new active session; `principal` is the principal the login answers with.
 - A hook may set `ceiling` to `{ roles: [role] }`, or `{ roles: [] }` for no role. The session stores it as its `ActiveRole`, the key a role switch writes, so `GET /auth/active-role` shows it and every later request is narrowed by it. A later hook may overwrite what an earlier one set; check `ctx.input.ceiling` to keep the first choice, as `OrderedActiveRoleHook` of `@spinajs/users` does.
@@ -111,7 +111,30 @@ export class SupportFirst extends ActionHook<'authn.session.start'> {
 
 ## `authn.impersonation.start`: the start check
 
-`AuthnImpersonationService.start` no longer asks the `ImpersonationGuard`: the before hooks on `authn.impersonation.start` decide, after every other check (no nesting, fresh authentication, MFA, the status of both identities). Their input carries `actor`, the principal the guard used to judge: the actor's own facts through this session, narrowed by its role switch. With no hook on the action, every start is refused with `no_guard`. `@spinajs/users` registers `ImpersonationGuardStartHook`, which asks the registered `ImpersonationGuard` and refuses with its code (`hook:forbidden`, `hook:protected_role`, `hook:escalation`). The guard is still asked on every request of the impersonation session and ends it when it refuses.
+`AuthnImpersonationService.start` does not ask the `ImpersonationGuard` itself: the before hooks on `authn.impersonation.start` decide, after every other check (a registered guard, no nesting, fresh authentication, MFA, the status of both identities). Their input carries `actor`, the principal the guard used to judge: the actor's own facts through this session, narrowed by its role switch. With no hook on the action, every start is refused with `no_guard`. `@spinajs/users` registers `ImpersonationGuardStartHook`, which asks the registered `ImpersonationGuard` and refuses with its code (`hook:forbidden`, `hook:protected_role`, `hook:escalation`); a guard that throws is audited as `hook_error`. The guard is also asked on every request of the impersonation session and ends it when it refuses.
+
+An app with its own `ImpersonationGuard` and without `@spinajs/users` registers a before hook of its own; `FakeImpersonationStartHook` of [`@spinajs/authn-testing`](../authn-testing/01-fakes.md) shows the shape:
+
+```ts sample
+import { Autoinject, Injectable } from '@spinajs/di';
+import { ActionHook } from '@spinajs/hooks';
+import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
+import { ImpersonationGuard } from '@spinajs/authn';
+
+/** Lets an impersonation start only when the app's guard allows it. */
+@Injectable(ActionHook)
+export class GuardedImpersonationStart extends ActionHook<'authn.impersonation.start'> {
+  readonly actions: readonly ActionPattern[] = ['authn.impersonation.start'];
+
+  @Autoinject(ImpersonationGuard)
+  protected Guard: ImpersonationGuard;
+
+  async before(ctx: BeforeContext<'authn.impersonation.start'>): Promise<void> {
+    const answer = await this.Guard.allowed(ctx.input.actor, ctx.input.target);
+    if (!answer.ok) ctx.refuse(answer.code);
+  }
+}
+```
 
 ## Non-refusable actions
 
@@ -219,6 +242,40 @@ export class DeviceTrust {
 To run an action without `runHookedAction`, follow the same steps by hand: ask `Hooks.has(action)` first, build the input from `hookView` and `hookCopy`, call `Hooks.run`, and pass its error to `hookRefusalOf`.
 
 `@spinajs/authn/hooks` imports the `@spinajs/hooks` root, which registers `DefaultHooks` as `Hooks` and the `hooks.*` configuration schema.
+
+## Migration
+
+### `SessionStartHook` is removed
+
+Move `onStart` into a before hook on `authn.session.start`. A ceiling the hook sets is stored as the session's `ActiveRole`, as the answer of `onStart` was. To keep "the first ceiling answered wins" with several hooks, set `ceiling` only while it is still `undefined`.
+
+```ts
+// Before
+@Injectable(SessionStartHook)
+export class SupportFirst extends SessionStartHook {
+  async onStart(_kind: 'login' | 'mfa', _session: SessionHandle, principal: Principal): Promise<Ceiling | undefined> {
+    return principal.attributes.team === 'support' ? { roles: ['support'] } : undefined;
+  }
+}
+
+// After
+@Injectable(ActionHook)
+export class SupportFirst extends ActionHook<'authn.session.start'> {
+  readonly actions: readonly ActionPattern[] = ['authn.session.start'];
+
+  before(ctx: BeforeContext<'authn.session.start'>): void {
+    if (ctx.input.ceiling === undefined && ctx.input.principal.attributes.team === 'support') ctx.input.ceiling = { roles: ['support'] };
+  }
+}
+```
+
+A refused or failed session start answers the login failure (401 over HTTP), not a 500.
+
+### The impersonation start check is a before hook
+
+- An app on `@spinajs/users` changes nothing: `ImpersonationGuardStartHook` asks the registered guard.
+- An app with its own `ImpersonationGuard` and without `@spinajs/users` registers a before hook on `authn.impersonation.start` ([example](#authnimpersonationstart-the-start-check)). Without one, every start is refused with `no_guard`.
+- An audit consumer reads a guard refusal as `hook:forbidden`, `hook:protected_role` or `hook:escalation`, and a guard that throws as `hook_error`, where the event carried the bare code and `guard_error`.
 
 ## Related
 
