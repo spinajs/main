@@ -114,12 +114,18 @@ export class UserMetadataService {
     // an admin has dedicated routes for those, so the generic API must refuse them for everyone.
     assertNoProtectedMetadata({ [data.Key]: data.Value });
 
-    for (const stored of await this.twinsOf(scope.ownerId, data.Key)) {
+    const twins = await this.twinsOf(scope.ownerId, data.Key);
+    for (const stored of twins) {
       await this.require(scope, UPDATE, stored);
     }
 
     const entry = this.entryOf(scope.ownerId, data);
     await this.require(scope, CREATE, entry);
+
+    // (owner, Key) is a composite unique index the upsert cannot target; carrying the stored id makes it update that row.
+    if (twins.length === 1) {
+      entry.Id = twins[0].Id;
+    }
 
     await entry.insert(InsertBehaviour.InsertOrUpdate);
   }

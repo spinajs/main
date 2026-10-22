@@ -1,7 +1,7 @@
 import { DI } from '@spinajs/di';
 
 /** What the test apps resolve into the root cache; a sibling suite may have left them behind. */
-export const WORLD_KEYS = ['Configuration', 'UsersHttpAppConfiguration', 'Orm', 'OrmMigrator', 'DefaultAuthzService', 'AuthzService', 'DefaultSessionIssuer', 'SessionIssuer', 'MemorySessionStore', 'AuthnImpersonationService', 'FreshAuthCheck', 'DefaultAuthnService', 'AuthnService', 'StrategyRegistry', 'UsersHttpTestRbac', 'RbacService'];
+export const WORLD_KEYS = ['Configuration', 'UsersHttpAppConfiguration', 'Orm', 'OrmMigrator', 'DefaultAuthzService', 'AuthzService', 'DefaultSessionIssuer', 'SessionIssuer', 'MemorySessionStore', 'AuthnImpersonationService', 'FreshAuthCheck', 'DefaultAuthnService', 'AuthnService', 'StrategyRegistry', 'UsersHttpTestRbac', 'RbacService', 'ConfigRoleStore', 'DbAssignmentStore', 'DefaultAuthzAdmin'];
 
 const cached = (): string[] => [...new Set([...DI.RootContainer.Cache].map((e) => e.key as unknown).filter((k): k is string => typeof k === 'string'))];
 
