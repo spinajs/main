@@ -5,3 +5,7 @@ Redis (or Valkey) store for `@spinajs/email-verification`, built on ioredis. Sel
 (`keyPrefix` defaults to `ev:`).
 
 Redis Cluster is not supported (the store uses multi-key transactions); use a single node or Sentinel.
+
+## Documentation
+
+- [Package overview](../../docs/email-verification-redis/README.md)
