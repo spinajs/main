@@ -10,3 +10,4 @@ export * from './safe-fetch.js';
 export * from './verifiers/list.js';
 export * from './verifiers/dns.js';
 export * from './verifiers/rdap.js';
+export * from './verifiers/http.js';
