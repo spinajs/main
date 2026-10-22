@@ -1,7 +1,8 @@
 import { CliCommand, Command, Option } from '@spinajs/cli';
 import { Log, Logger } from '@spinajs/log-common';
-import { Orm, OrmException, OrmMigration } from '@spinajs/orm';
-import { resolveCliOrm } from '../orm.js';
+import { DI } from '@spinajs/di';
+import { Orm, OrmException, OrmMigration, OrmMigrator } from '@spinajs/orm';
+import { resolveCliMigrator } from '../orm.js';
 
 export interface IMigrateUpCommandOptions {
   name?: string;
@@ -10,16 +11,10 @@ export interface IMigrateUpCommandOptions {
 }
 
 /**
- * `orm.Migration` only exists on a RESOLVED Orm - it is assigned inside `Orm.resolve()`, once the
- * connections it dispatches to have been created. So every command here resolves the Orm first
- * and reaches the facade through it, rather than injecting a migration service directly.
- *
- * Through `resolveCliOrm()`, so that resolve does not run a migration pass of its own: the run
- * below is the one the operator asked for, and it is the only one. Without that, `--fake` on a
- * `Migration.OnStartup` connection would really apply the migrations it promises to merely
- * record, because the boot pass would have executed them before this line is reached.
+ * Runs `OrmMigrator.migrate()`, the same pass an application's boot runs: the pending migrations, a re-read of the
+ * table info they touched, then their `data()` seeds ( none with `--fake` ).
  */
-@Command('migrate-up', 'Runs pending ORM migrations on every configured connection')
+@Command('migrate-up', 'Runs pending ORM migrations and their data() seeds on every configured connection')
 @Option('-n, --name [name]', false, 'run a single migration, by class name')
 @Option('-c, --connection [connection]', false, 'limit the run to one connection, by name')
 @Option('-f, --fake', false, 'record the migrations as applied without executing them')
@@ -28,10 +23,11 @@ export class MigrateUpCommand extends CliCommand {
   protected Log: Log;
 
   public async execute(options: IMigrateUpCommandOptions): Promise<void> {
-    const orm = await resolveCliOrm();
-    const executed = await orm.Migration.up(options.name, { fake: options.fake, connection: options.connection });
+    const migrator = await resolveCliMigrator();
+    const executed = await migrator.migrate({ name: options.name, fake: options.fake, connection: options.connection });
+    const orm = await DI.resolve(Orm);
 
-    await this.reportRun(orm, executed, options);
+    await this.reportRun(migrator, executed, options);
 
     // A run narrowed by --name or --connection says nothing about the tables of the migrations it left out.
     if (!options.name && !options.connection) {
@@ -40,7 +36,7 @@ export class MigrateUpCommand extends CliCommand {
   }
 
   /** Logs what the run applied; an empty named run goes to `explainEmptyNamedRun()`. */
-  protected async reportRun(orm: Orm, executed: OrmMigration[], options: IMigrateUpCommandOptions): Promise<void> {
+  protected async reportRun(migrator: OrmMigrator, executed: OrmMigration[], options: IMigrateUpCommandOptions): Promise<void> {
     if (executed.length > 0) {
       this.Log.success(
         { count: executed.length, migrations: executed.map((m) => m.constructor.name) },
@@ -64,7 +60,7 @@ export class MigrateUpCommand extends CliCommand {
     // `up()` throws outright on a name nothing is registered under, so a typo is already excluded
     // here. `status()` reports exactly the connections that ARE configured, which makes "absent
     // from status" the reliable signal for the second case.
-    await this.explainEmptyNamedRun(orm, options.name, options.connection);
+    await this.explainEmptyNamedRun(migrator, options.name, options.connection);
   }
 
   /**
@@ -98,8 +94,8 @@ export class MigrateUpCommand extends CliCommand {
    * migration lives on a connection this run excluded" is the likeliest reason the run was empty,
    * and a narrowed report could not tell that from "not registered at all".
    */
-  protected async explainEmptyNamedRun(orm: Orm, name: string, connection?: string): Promise<void> {
-    const entry = (await orm.Migration.status()).find((e) => e.name === name);
+  protected async explainEmptyNamedRun(migrator: OrmMigrator, name: string, connection?: string): Promise<void> {
+    const entry = (await migrator.Runner.status()).find((e) => e.name === name);
 
     if (!entry) {
       this.Log.error({ migration: name }, "Migration ${migration} did NOT run: it is registered, but the connection it declares is not configured here ( or the class carries no @Migration('connection') decorator ). Nothing was applied.");

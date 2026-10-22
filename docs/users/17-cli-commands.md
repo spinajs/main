@@ -5,7 +5,7 @@ Five `spinajs` commands manage users from a shell: create, find, activate or dea
 ## How it works
 
 1. users' config adds `node_modules/@spinajs/users/lib/<cjs|mjs>/cli` (and the same one directory up) to `system.dirs.cli`, so `spinajs` discovers the commands.
-2. The CLI resolves only the command it runs. `RbacCliCommand` injects `Orm` (`@Autoinject(Orm)`), which boots the ORM and its connections for that command alone; listing commands (`--help`) opens no connection.
+2. The CLI resolves only the command it runs. `RbacCliCommand` injects `OrmMigrator` and `Orm`, which boots the ORM and runs the `Migration.OnStartup` pass for that command alone, as an app process does before serving; listing commands (`--help`) opens no connection.
 3. `execute()` calls the action and logs the result through the `rbac` logger.
 4. Errors are caught and logged (`Error while ...`), and the command sets `process.exitCode = 1`.
 
@@ -34,7 +34,7 @@ spinajs rbac:user-delete 3f0e1b8c-2a4d-4e6f-9b1a-7c8d9e0f1a2b
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Command base | abstract `RbacCliCommand` (extends `CliCommand`), resolved per run | | your command | Extend it; it gives `this.Orm` booted. Put the file in a `system.dirs.cli` directory. |
+| Command base | abstract `RbacCliCommand` (extends `CliCommand`), resolved per run | | your command | Extend it; it gives `this.Orm` booted and the database migrated (`this.Migrator`). Put the file in a `system.dirs.cli` directory. |
 | Shipped commands | `'__cli_command__'` registrations from `@Command` | the five above | your own command names | Add commands; to change one, write a command with another name. A subclass of a shipped command inherits its `@Command` metadata and would register the same name twice. |
 
 ### Custom command: resend an invite

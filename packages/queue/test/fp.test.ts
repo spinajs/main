@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Constructor, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode, OrmMigrator } from '@spinajs/orm';
 import '@spinajs/orm-sqlite';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -91,7 +91,7 @@ describe('queue fp', function () {
     DI.clearCache();
     DI.register(FpConnectionConf).as(Configuration);
     await DI.resolve(Configuration);
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
     await DI.resolve(QueueService);
   });
 

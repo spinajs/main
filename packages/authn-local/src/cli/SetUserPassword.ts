@@ -3,10 +3,11 @@ import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { Argument, CliCommand, Command, Option } from '@spinajs/cli';
+import { Argument, Command, Option } from '@spinajs/cli';
 import { CLI_ACTOR, IdentityStore, PasswordService, cliContext } from '@spinajs/authn/contracts';
 
 import { LocalPasswordPolicy } from '../policy.js';
+import { LocalCliCommand } from './LocalCliCommand.js';
 
 export interface SetUserPasswordOptions {
   readonly generate?: boolean;
@@ -40,7 +41,7 @@ export async function readPasswordLine(input: NodeJS.ReadableStream): Promise<st
 })
 @Argument('login', true, 'login of the identity')
 @Option('-g, --generate', false, 'generate a password and print it once')
-export class SetUserPassword extends CliCommand {
+export class SetUserPassword extends LocalCliCommand {
   @Logger('authn-local')
   protected Log: Log;
 

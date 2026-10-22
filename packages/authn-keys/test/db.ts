@@ -1,6 +1,6 @@
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm, OrmMigrator } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthnKeys_2026_10_02_00_00_00 } from '../src/migrations/index.js';
 import { AuthnNonce } from '@spinajs/authn-orm';
@@ -42,6 +42,7 @@ export function bootSqlite(): Promise<Orm> {
       await b.bootstrap();
     }
     await DI.resolve(Configuration);
+    await DI.resolve(OrmMigrator);
     return DI.resolve(Orm);
   })();
   return booted;

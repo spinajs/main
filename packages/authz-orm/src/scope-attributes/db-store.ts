@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { AuthzConfigError, SCOPE_ATTRIBUTE_LIMITS, WritableScopeAttributeStore, principalKey, underPath, unflattenAttributes } from '@spinajs/authz';
 import type { AuthzTx, PrincipalRef, ResourceRef, ScopeAttributeLeaf } from '@spinajs/authz';
-import { ormReady } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 import { requireTransaction, selectFrom } from '../records.js';
@@ -51,7 +50,6 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
 
   /** The one row of authz_scope_attribute_version; every write gives it a fresh id inside the write's transaction. */
   async version(): Promise<string> {
-    await ormReady();
     const row = (await selectFrom(ScopeAttributeVersionRecord).where('id', 1).first()) as ScopeAttributeVersionRecord | undefined;
     return row ? row.version : '0';
   }
@@ -60,7 +58,6 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
     const key = keyOf(ref);
     const out: Record<string, ScopeAttributeLeaf> = {};
     if (!fits(key)) return out;
-    await ormReady();
     for (const r of await this.select(key)) out[r.path] = leafOf(r);
     return out;
   }

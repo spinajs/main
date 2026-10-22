@@ -17,6 +17,7 @@ import { Lazy, isNullOrWhitespace, _check_arg, _positive } from '@spinajs/util';
 import { DiscriminationMapMiddleware } from './discrimination-middleware.js';
 import { extractModelDescriptor } from './descriptor.js';
 import { ExistsRelationHandler } from './existsRelationHandlers.js';
+import { executeRecorded, inMigratorPass, SchemaTouch } from './schema-touches.js';
 
 /**
  *  Trick typescript by using the inbuilt interface inheritance and declaration merging
@@ -102,13 +103,18 @@ export class Builder<T = any> implements IBuilder<T> {
       await middleware.beforeQueryExecution(query);
     }
 
-    const result = await this._executeOnDriver();
+    const result = await executeRecorded(this._driver, () => this.schemaTouches(), () => this._executeOnDriver());
 
     for (const middleware of this._queryMiddlewares) {
       await middleware.afterQueryExecution?.(query, result);
     }
 
     return result;
+  }
+
+  /** The tables this statement changes; the migration runner re-reads the table info of their models only. */
+  protected schemaTouches(): SchemaTouch {
+    return this.QueryContext === QueryContext.Schema ? 'all' : [];
   }
 
   /** The driver round trip of one execution; a builder that needs several statements overrides it. */
@@ -2344,6 +2350,10 @@ export class IndexQueryBuilder extends Builder {
     return this;
   }
 
+  protected schemaTouches(): SchemaTouch {
+    return [this.Table];
+  }
+
   public toDB(): ICompilerOutput {
     return this._container.resolve<IndexQueryCompiler>(IndexQueryCompiler, [this]).compile();
   }
@@ -2612,6 +2622,10 @@ export class DropTableQueryBuilder extends QueryBuilder {
     return this;
   }
 
+  protected schemaTouches(): SchemaTouch {
+    return [this.Table];
+  }
+
   public toDB(): ICompilerOutput {
     return this._container.resolve<DropTableCompiler>(DropTableCompiler, [this]).compile();
   }
@@ -2637,6 +2651,10 @@ export class DropViewQueryBuilder extends QueryBuilder {
   public ifExists() {
     this.Exists = true;
     return this;
+  }
+
+  protected schemaTouches(): SchemaTouch {
+    return [this.Table];
   }
 
   public toDB(): ICompilerOutput {
@@ -2741,6 +2759,10 @@ export class CreateViewQueryBuilder extends QueryBuilder {
     return this;
   }
 
+  protected schemaTouches(): SchemaTouch {
+    return [this.Table];
+  }
+
   public toDB(): ICompilerOutput {
     return this._container.resolve<CreateViewCompiler>(CreateViewCompiler, [this]).compile();
   }
@@ -2803,6 +2825,10 @@ export class CreateDatabaseQueryBuilder extends QueryBuilder {
     return this;
   }
 
+  protected schemaTouches(): SchemaTouch {
+    return [];
+  }
+
   public toDB(): ICompilerOutput {
     return this._container.resolve<CreateDatabaseCompiler>(CreateDatabaseCompiler, [this]).compile();
   }
@@ -2829,6 +2855,10 @@ export class DropDatabaseQueryBuilder extends QueryBuilder {
   public ifExists() {
     this.Exists = true;
     return this;
+  }
+
+  protected schemaTouches(): SchemaTouch {
+    return 'all';
   }
 
   public toDB(): ICompilerOutput {
@@ -2901,6 +2931,10 @@ export class AlterTableQueryBuilder extends QueryBuilder {
 
   public dropColumn(column: string) {
     this.DroppedColumns.push(column);
+  }
+
+  protected schemaTouches(): SchemaTouch {
+    return [this.Table, this.NewTableName];
   }
 
   public toDB(): ICompilerOutput[] {
@@ -3043,6 +3077,10 @@ export class TableQueryBuilder extends QueryBuilder {
     return builder;
   }
 
+  protected schemaTouches(): SchemaTouch {
+    return [this.Table];
+  }
+
   public toDB(): ICompilerOutput | ICompilerOutput[] {
     return this._container.resolve<TableQueryCompiler>(TableQueryCompiler, [this]).compile();
   }
@@ -3128,6 +3166,10 @@ export class CloneTableQueryBuilder extends QueryBuilder {
     }
 
     return this;
+  }
+
+  protected schemaTouches(): SchemaTouch {
+    return [this.Table];
   }
 
   public toDB(): ICompilerOutput[] {
@@ -3238,6 +3280,10 @@ export class EventQueryBuilder extends QueryBuilder {
     return this;
   }
 
+  protected schemaTouches(): SchemaTouch {
+    return [];
+  }
+
   public toDB(): ICompilerOutput {
     return this._container.resolve<EventQueryCompiler>(EventQueryCompiler, [this]).compile();
   }
@@ -3264,6 +3310,10 @@ export class DropEventQueryBuilder extends QueryBuilder {
   public ifExists() {
     this.Exists = true;
     return this;
+  }
+
+  protected schemaTouches(): SchemaTouch {
+    return [];
   }
 
   public toDB(): ICompilerOutput {
@@ -3391,6 +3441,10 @@ export class RawSchemaQueryBuilder extends QueryBuilder {
     this.Bindings = bindings || [];
   }
 
+  protected schemaTouches(): SchemaTouch {
+    return 'all';
+  }
+
   public toDB(): ICompilerOutput {
     return this._container.resolve<RawSchemaQueryCompiler>(RawSchemaQueryCompiler, [this]).compile();
   }
@@ -3436,13 +3490,17 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
   }
 
   if (!DI.check('OrmConnection')) {
-    throw new OrmNotResolved(`${model.name}: the Orm has not created its connections yet; await ormReady() first`);
+    throw new OrmNotResolved(`${model.name}: the Orm has not created its connections yet; inject or resolve the Orm first`);
   }
 
   const own = DI.resolve<OrmDriver>('OrmConnection', [dsc.Connection]);
 
   if (!own) {
     throw new OrmConnectionMissing(`model ${model.name} have invalid connection ${dsc.Connection}, please check your db config file or model connection name`, dsc.Connection!);
+  }
+
+  if (own.AwaitsStartupMigration && !inMigratorPass()) {
+    throw new OrmException(`connection ${own.Options.Name} migrates on startup; resolve OrmMigrator before using it`);
   }
 
   const driver = via ?? own;

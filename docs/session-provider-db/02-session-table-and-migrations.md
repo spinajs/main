@@ -9,7 +9,7 @@ The store keeps every session in one table, `user_sessions`, mapped by the `DbSe
 1. `DbSession` carries `@Connection('session-provider-connection')` and `@Model('user_sessions')`.
 2. When `Orm` resolves, it binds the model to the driver stored under `session-provider-connection`: a connection with that `Name`, or a `db.Aliases` entry that points the name at another connection.
 3. The migration carries `@Migration('session-provider-connection')`. Importing the package registers it in DI, and the ORM's `DiRegistryMigrationSource` finds it; no directory scan is needed.
-4. With `Migration.OnStartup: true` on the target connection, the ORM boot pass applies it when it is pending, in timestamp order with the other migrations of the same driver.
+4. With `Migration.OnStartup: true` on the target connection, `OrmMigrator`'s boot pass (`DI.resolve(OrmMigrator)`) applies it when it is pending, in timestamp order with the other migrations of the same driver.
 
 When no connection or alias has the name, `Orm` logs `Cannot find connection session-provider-connection` for the model and skips the migration with a warning. <!-- TODO(docs-hook): verify which error a DbSessionStore call raises when DbSession has no driver -->
 
@@ -42,7 +42,7 @@ When no connection or alias has the name, `Orm` logs `Cannot find connection ses
 | --- | --- | --- | --- | --- |
 | `db.Aliases['session-provider-connection']` | `string` | unset | a connection `Name` | Points the store's connection name at an existing connection. |
 | `db.Connections[].Name` | `string` | | `session-provider-connection` | Alternative to the alias: a dedicated connection with this name. |
-| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | | Applies the migration at boot. |
+| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | | Applies the migration in `OrmMigrator`'s boot pass. See [Migrations](../orm/10-migrations.md#configuration). |
 
 ```ts
 this.Config = _.merge(this.Config, {

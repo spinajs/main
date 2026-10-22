@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 import '@spinajs/log';
 import { DI } from '@spinajs/di';
-import { Orm, OrmDriver } from '@spinajs/orm';
+import { Orm, OrmDriver, OrmMigrator } from '@spinajs/orm';
 import type { ITransactionOptions } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AdminGuard, AuthorizationModel, AuthzAdminBackend, AuthzAdminFailure, AuthzConfigError, AuthzContributor, MemoryScopeAttributeStore, ScopeAttributeStore, WritableScopeAttributeStore } from '@spinajs/authz';
@@ -72,6 +72,7 @@ describe('DbAuthzAdminBackend on SQLite', function () {
     config().set('logger', { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
     config().set('db', DB);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
+    await DI.resolve(OrmMigrator);
     orm = (await DI.resolve(Orm)) as Orm;
     db = orm.Connections.get('default')!;
     // The authz-rbac migration creates authz_version when it runs at boot; create it only when it did not.
@@ -86,6 +87,7 @@ describe('DbAuthzAdminBackend on SQLite', function () {
 
   after(async () => {
     for (const c of new Set(orm?.Connections.values() ?? [])) await c.disconnect();
+    DI.uncache(OrmMigrator);
     DI.uncache(Orm);
     DI.unregister(SqliteOrmDriver);
     await uninstallHost();

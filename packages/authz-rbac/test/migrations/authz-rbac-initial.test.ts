@@ -166,7 +166,7 @@ for (const kind of DB_KINDS) {
     it('is registered from the package root and applied by the boot migration pass', async () => {
       expect(db.orm.Migrations.map((m) => m.type)).to.include(AuthzRbac_2026_10_01_00_00_00);
 
-      const status = (await db.orm.Migration.status()).find((s) => s.name === MIGRATION);
+      const status = (await db.migrator.Runner.status()).find((s) => s.name === MIGRATION);
       expect(status, 'status entry').to.not.be.undefined;
       expect(status!.pending).to.eq(false);
       expect(status!.failed).to.eq(false);
@@ -291,17 +291,17 @@ for (const kind of DB_KINDS) {
     });
 
     it('down() through the migration service drops every table, and up() restores them', async () => {
-      const undone = await db.orm.Migration.down(MIGRATION);
+      const undone = await db.migrator.Runner.down(MIGRATION);
       expect(undone.map((m) => m.constructor)).to.deep.eq([AuthzRbac_2026_10_01_00_00_00]);
 
       for (const table of TABLES) {
         expect(await db.driver.schema().tableExists(table), table).to.eq(false);
       }
 
-      const status = (await db.orm.Migration.status()).find((s) => s.name === MIGRATION);
+      const status = (await db.migrator.Runner.status()).find((s) => s.name === MIGRATION);
       expect(status!.pending).to.eq(true);
 
-      await db.orm.Migration.up(MIGRATION);
+      await db.migrator.Runner.up(MIGRATION);
       for (const table of TABLES) {
         expect(await db.driver.schema().tableExists(table), table).to.eq(true);
       }

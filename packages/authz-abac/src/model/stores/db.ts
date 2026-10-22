@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { AuthzAdminFailure, AuthzConfigError, GLOBAL, parseCondition, principalKey } from '@spinajs/authz';
 import type { AuthzTx, PrincipalRef } from '@spinajs/authz';
 import type { Policy } from '../../contracts.js';
-import { UniqueViolation, ormReady } from '@spinajs/orm';
+import { UniqueViolation } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 import { PolicyStore } from '../../contracts.js';
@@ -64,8 +64,6 @@ export class DbPolicyStore extends PolicyStore {
 
   /** Every row, in code-unit order of the ids: neither the order nor the version depends on a collation. */
   private async records(): Promise<PolicyRecord[]> {
-    // A model loads its policies at domain boot, possibly before anything resolved the Orm.
-    await ormReady();
     const rows = await hydrateRecords(PolicyRecord.query());
     return rows.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   }

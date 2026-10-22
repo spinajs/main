@@ -3,7 +3,7 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import '@spinajs/log';
-import { Orm, QueryContext } from '@spinajs/orm';
+import { Orm, QueryContext, OrmMigrator } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import '@spinajs/authn-orm';
@@ -37,8 +37,10 @@ export async function bootSqlite(name: string): Promise<SqliteDb> {
   container.register(SqliteOrmDriver).as('orm-driver-sqlite');
   // Without a registration here, an Orm another test registered in the root container makes the root cache this one.
   container.register(Orm).asSelf();
+  container.register(OrmMigrator).asSelf();
   await container.resolve(Configuration);
   const orm = await container.resolve(Orm);
+  await container.resolve(OrmMigrator);
   return { container, driver: orm.Connections.get('default')!, dispose: () => orm.dispose() };
 }
 

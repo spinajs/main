@@ -43,7 +43,7 @@ A missing `options.Tenant` or `options.ttl` is the backend's choice. `processIde
 - Register before the first `mutex_*` call you want routed to the backend. Module scope of your bootstrap file works: the helpers resolve lazily.
 - A later registration wins for every later helper call; an instance already injected with `@Autoinject` keeps the old backend.
 - The helpers resolve on the root container. A `Mutex` registered only in a child container (`DI.child()`) is seen by services resolved from that child, **not** by the helpers.
-- `OrmMutex` needs `Configuration` and `Orm` resolved before its first call; see [Custom mutex backends](../orm-threading/02-custom-mutex-backends.md#when-to-register).
+- `OrmMutex` needs `Configuration` and `Orm` resolved before its first call, and `OrmMigrator` when the `default` connection has `Migration.OnStartup`; see [Custom mutex backends](../orm-threading/02-custom-mutex-backends.md#when-to-register).
 
 ### `Mutex`: a lease backend in memory
 

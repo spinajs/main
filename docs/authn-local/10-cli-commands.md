@@ -4,6 +4,8 @@ Two `spinajs` commands: `authn:password` sets the password of an identity, and `
 
 ## How it works
 
+The CLI resolves only the command it runs. Both commands inject `OrmMigrator` (`@spinajs/orm`), so resolving one boots the ORM and runs the `Migration.OnStartup` pass, as an app process does before serving: a database-backed store, such as `@spinajs/users`' `UserIdentityStore`, can then query a `Migration.OnStartup` connection, which throws until that pass ran. Without a `db` configuration the ORM opens no connection.
+
 ### `authn:password <login> [-g, --generate]`
 
 1. `IdentityStore.findByLogin(login)`. No identity: logs an error and throws `InvalidArgument`, so the command exits non-zero. The login is not echoed.

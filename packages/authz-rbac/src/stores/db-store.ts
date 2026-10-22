@@ -1,6 +1,5 @@
 import { AuthzClock } from '@spinajs/authz';
 import type { IContainer } from '@spinajs/di';
-import { ormReady } from '@spinajs/orm';
 
 import { storeDomain } from './context.js';
 
@@ -10,11 +9,6 @@ type AbstractClass<T = object> = abstract new (...args: any[]) => T;
 /** What every DB store reads from the container it was resolved in. */
 export abstract class DbRbacStore {
   protected abstract readonly container: IContainer;
-
-  /** Every read and write awaits it before its first record call. */
-  protected ready(): Promise<void> {
-    return ormReady();
-  }
 
   protected domain(): string {
     return storeDomain(this.container);

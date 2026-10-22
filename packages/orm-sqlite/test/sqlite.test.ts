@@ -25,7 +25,7 @@ import { SqlDriver } from '@spinajs/orm-sql';
 import '@spinajs/log';
 import { Offer } from './models/Offer.js';
 import { SoftDeleteModel } from './models/SoftDeleteModel.js';
-import { ConnectionConf, ConnectionConf2, TEST_MIGRATION_TABLE_NAME, db } from './common.js';
+import { ConnectionConf, ConnectionConf2, TEST_MIGRATION_TABLE_NAME, db, migrations } from './common.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -45,7 +45,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
 
     await DI.resolve(Orm);
 
-    await db().Migration.up();
+    await (await migrations()).up();
     await db().reloadTableInfo();
   });
 
@@ -54,7 +54,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   });
 
   it('Should migrate', async () => {
-    await db().Migration.up();
+    await (await migrations()).up();
 
     await db().Connections.get('sqlite')!.select().from('user');
     await expect(db().Connections.get('sqlite')!.select().from('notexisted')).to.be.rejected;
@@ -74,7 +74,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   });
 
   it('Should check if table exists', async () => {
-    await db().Migration.up();
+    await (await migrations()).up();
 
     const exists = await db().Connections.get('sqlite')!.schema().tableExists('user');
     const notExists = await db().Connections.get('sqlite')!.schema().tableExists('user2');
@@ -84,7 +84,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   });
 
   it('should insert query', async () => {
-    await db().Migration.up();
+    await (await migrations()).up();
     await db().reloadTableInfo();
     const iResult = await db().Connections.get('sqlite')!.insert().into('user').values({
       Name: 'test',
@@ -121,7 +121,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   });
 
   it('should delete', async () => {
-    await db().Migration.up();
+    await (await migrations()).up();
     await db().Connections.get('sqlite')!.insert().into('user').values({
       Name: 'test',
       Password: 'test_password',
@@ -136,7 +136,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   });
 
   it('should update', async () => {
-    await db().Migration.up();
+    await (await migrations()).up();
     await db().Connections.get('sqlite')!.insert().into('user').values({
       Name: 'test',
       Password: 'test_password',
@@ -169,7 +169,7 @@ describe('Sqlite driver migrate', () => {
   });
 
   it('Should migrate create migrate table', async () => {
-    await db().Migration.up();
+    await (await migrations()).up();
     const mTable = await db().Connections.get('sqlite')!.tableInfo(TEST_MIGRATION_TABLE_NAME);
     const mResult = await db().Connections.get('sqlite')!.select().from(TEST_MIGRATION_TABLE_NAME).first();
     expect(mTable).to.be.not.null;
@@ -180,14 +180,14 @@ describe('Sqlite driver migrate', () => {
   it('Should not migrate twice', async () => {
     const spy = sinon.spy(TestMigration_2022_02_08_01_13_00.prototype, 'up');
 
-    await db().Migration.up();
-    await db().Migration.up();
+    await (await migrations()).up();
+    await (await migrations()).up();
 
     expect(spy.calledOnce).to.be.true;
   });
 
   it('Should migrate', async () => {
-    await db().Migration.up();
+    await (await migrations()).up();
     await db().Connections.get('sqlite')!.insert().into('user').values({
       Name: 'test',
       Password: 'test_password',
@@ -218,7 +218,7 @@ describe('Sqlite model functions', function () {
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     await DI.resolve(Orm);
 
-    await db().Migration.up();
+    await (await migrations()).up();
     await db().reloadTableInfo();
   });
 
@@ -742,7 +742,7 @@ describe('Sqlite queries', function () {
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     await DI.resolve(Orm);
 
-    await db().Migration.up();
+    await (await migrations()).up();
     await db().reloadTableInfo();
   });
 
@@ -848,7 +848,7 @@ describe('Relation tests', function () {
 
   it('Populate belongs to in many to many relation', async () => {
     const db = await DI.resolve(Orm);
-    await db.Migration.up();
+    await (await migrations()).up();
     await db.reloadTableInfo();
 
     const result = await Offer.all().populate('Localisations', function () {
@@ -891,7 +891,7 @@ describe('Sqlite driver migrate with transaction', function () {
     const trSpy = sinon.spy(driver, 'transaction');
     const exSpy = sinon.spy(driver as any, 'runStatement');
 
-    await orm.Migration.up();
+    await (await migrations()).up();
 
     // `called`, not `calledOnce`: MigrationTransactionMode.PerMigration opens one
     // transaction per registered migration, and @Migration registers globally on import,
@@ -938,7 +938,7 @@ describe('Sqlite driver migrate with transaction', function () {
     const exSpy = sinon.spy(driver as any, 'runStatement');
 
     try {
-      await orm.Migration.up();
+      await (await migrations()).up();
     } catch {}
 
     try {

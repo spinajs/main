@@ -6,7 +6,7 @@ The package stores model translations in `intl_resources` and phrase translation
 
 1. Importing `@spinajs/intl-orm` evaluates `@Migration('default')` on `IntlOrm_2022_06_28_01_13_00`, which registers it in DI. `DiRegistryMigrationSource` of `@spinajs/orm` finds it with no directory scan.
 2. The models `IntlResource` (`@Model('intl_resources')`) and `IntlTranslation` (`@Model('intl_translations')`) are bound to `@Connection('default')`, the connection named by `db.DefaultConnection`.
-3. At `Orm.resolve()`, the migration runs with the other pending migrations when the connection has `Migration.OnStartup` set, or on `orm.Migration.up()`.
+3. `Orm.resolve()` discovers the migration but applies nothing. It runs with the other pending migrations in `OrmMigrator`'s boot pass (`DI.resolve(OrmMigrator)`) when the connection has `Migration.OnStartup` set, or on `OrmMigrator.migrate()` and `migrate-up`. See [Migrations](../orm/10-migrations.md).
 4. `up()` creates both tables and their unique indexes. `down()` drops both tables.
 
 ## Configuration
@@ -14,7 +14,7 @@ The package stores model translations in `intl_resources` and phrase translation
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `db.DefaultConnection` | `string` | none | a configured connection name | The connection behind `'default'`: where both tables are created and queried. |
-| `db.Connections[].Migration.OnStartup` | `boolean` | `false` | `true`, `false` | Applies the migration when `Orm` boots. See [Migrations](../orm/10-migrations.md#configuration). |
+| `db.Connections[].Migration.OnStartup` | `boolean` | `false` | `true`, `false` | Applies the migration in `OrmMigrator`'s boot pass. See [Migrations](../orm/10-migrations.md#configuration). |
 
 ```ts
 db: {

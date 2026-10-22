@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode, OrmMigrator } from '@spinajs/orm';
 import '@spinajs/orm-sqlite';
 import '@spinajs/log';
 // Registers JobModel and the queue_jobs migrations on the `queue` connection.
@@ -60,7 +60,7 @@ export async function bootTestEnv(options: TestEnvOptions = {}): Promise<{ clock
   DI.register(() => clock.dbSource).as(DbTimeSource);
   DI.register(SchedulerTestConf).as(Configuration);
   await DI.resolve(Configuration);
-  await DI.resolve(Orm);
+  await DI.resolve(OrmMigrator);
   return { clock };
 }
 

@@ -36,11 +36,11 @@ DI.register({ value: 30_000 }).asValue('__config_watch_interval__');
 ## Important behaviour
 
 - **Code decides what is watched.** Only slugs declared with `watch: true` in code are polled. Setting the `Watch` column to `1` in the database has no effect.
-- **The interval is fixed at startup.** Changing `__config_watch_interval__` after `Orm` resolved does nothing until the next process start.
+- **The interval is fixed at startup.** Changing `__config_watch_interval__` after the exposed options were swept into the table does nothing until the next process start.
 - **One query per tick.** All watched slugs are read with a single `WHERE Slug IN (...)` query.
 - **Hidden rows are not polled into the config.** A watched row with `Exposed` = `0` is skipped until the flag is set again.
 - **No schema validation.** A polled value is set as-is; configuration schemas are not re-checked.
-- **One configuration is updated.** The poll writes into the `Configuration` of the container that resolved `Orm`.
+- **One configuration is updated.** The poll writes into the `Configuration` of the container that resolved `OrmMigrator` (or `Orm`, on a pre-migrated database).
 - **Changes are eventually visible.** A change shows up after at most one interval plus the query time.
 
 ## Best practices

@@ -17,7 +17,7 @@
  */
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Orm, QueryContext } from '@spinajs/orm';
+import { Orm, QueryContext, OrmMigrator } from '@spinajs/orm';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import _ from 'lodash';
@@ -68,7 +68,7 @@ export class UowIntegrationConf extends FrameworkConfiguration {
               // OnStartup MUST be true here - see the note in transaction.test.ts.
               // The SAME ledger the other two integration suites use. @Migration registers
               // globally on import and mocha loads every file into one process, so
-              // Migration.up() here also sees theirs. With a private ledger it would find no
+              // the migrator here also sees theirs. With a private ledger it would find no
               // applied migrations and re-run them, failing on `Table ... already exists`.
               Migration: { Table: 'orm_migrations_integration', OnStartup: true },
             },
@@ -96,8 +96,8 @@ describe('MySQL save() integration', function () {
     DI.clearCache();
     DI.register(UowIntegrationConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
-    await DI.resolve(Orm);
-    await db().Migration.up();
+    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(OrmMigrator)).Runner.up();
     await db().reloadTableInfo();
   });
 

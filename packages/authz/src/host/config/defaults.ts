@@ -15,4 +15,5 @@ export const AUTHZ_DEFAULTS = Object.freeze({
   cache: Object.freeze({ maxEntries: cacheMaxEntries, ttlSeconds: cacheTtlSeconds }),
   audit: Object.freeze({ denials: auditDenials, runAs: true, unscoped: true }),
   principals: Object.freeze({ anonymous: Object.freeze({ enabled: true }) }),
+  hooks: Object.freeze({ check: false }),
 });

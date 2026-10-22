@@ -1,0 +1,146 @@
+import { AsyncService, Autoinject, Container } from '@spinajs/di';
+import { Log, Logger } from '@spinajs/log-common';
+import { OrmException } from './exceptions.js';
+import { OrmMigration } from './interfaces.js';
+import { IMigrationUpOptions, MigrationRunner } from './migration-runner.js';
+import { Orm } from './orm.js';
+import { runAsMigrationTool, runAsMigrator } from './schema-touches.js';
+
+/** What `DI.resolve(OrmMigrator, [ ... ])` hands the migrator: a property of the process, not of the deployment. */
+export interface IOrmMigratorOptions {
+  /**
+   * Run the boot pass when the migrator resolves. Default true. `false` is for a process that operates on the
+   * migrations ( `@spinajs/orm-cli` ): it gets `Runner` and `migrate()` without the schema moving on its way in.
+   */
+  MigrateOnStartup?: boolean;
+}
+
+export interface IOrmMigrateOptions extends IMigrationUpOptions {
+  /** Apply only this migration, by class name. */
+  name?: string;
+}
+
+/**
+ * Applies the migrations and their `data()` seeds against a resolved Orm. Kept out of the Orm's resolve so a seed can
+ * resolve any service that injects the Orm: it finds the Orm resolved instead of waiting on the resolve running it.
+ * Such services must not inject the migrator, or the cycle is back.
+ */
+export class OrmMigrator extends AsyncService {
+  /** Resolved by `resolve()` rather than injected: a migration tool's Orm must resolve without the table check. */
+  protected Orm: Orm;
+
+  @Autoinject()
+  protected Container: Container;
+
+  @Logger('ORM')
+  protected Log: Log;
+
+  /** `up`, `down`, `status` and `resolve` over the Orm's migrations and connections. */
+  public Runner: MigrationRunner;
+
+  constructor(protected Options: IOrmMigratorOptions = {}) {
+    super();
+  }
+
+  /** False for a migrator resolved with `MigrateOnStartup: false`: its resolve ran no pass and created no table. */
+  public get MigrateOnStartup(): boolean {
+    return this.Options.MigrateOnStartup !== false;
+  }
+
+  /**
+   * The boot pass: the pending migrations of every connection whose `Migration.OnStartup` is on, their seeds, then
+   * the `db.StrictTableCheck` check over every model. Model queries on those connections stay refused outside the
+   * pass until it succeeded; a failed pass leaves them refused.
+   */
+  public async resolve(): Promise<void> {
+    const tool = this.Options.MigrateOnStartup === false;
+    this.Orm = await (tool ? runAsMigrationTool(async () => await this.Container.resolve(Orm)) : this.Container.resolve(Orm));
+    this.Runner = new MigrationRunner(this.Orm);
+    this.followOrm();
+
+    if (tool) {
+      this.Log.trace('Boot migration pass skipped - OrmMigrator was resolved with MigrateOnStartup: false');
+      this.openGate();
+      return;
+    }
+
+    await runAsMigrator(async () => {
+      // force: false honours each connection's OnStartup gate; a run asked for by hand ( migrate() ) does not
+      await this.migrate({ force: false });
+
+      if (this.Orm.StrictTableCheck) {
+        await this.Orm.reloadTableInfo({ models: [], strict: true });
+      }
+    });
+
+    this.openGate();
+  }
+
+  /**
+   * Drops this migrator from the cache once another Orm resolves ( `DI.uncache(Orm)` alone, as test harnesses do ), so
+   * the next `DI.resolve(OrmMigrator)` migrates and opens that Orm instead of returning a migrator bound to the old one.
+   */
+  protected followOrm(): void {
+    this.Container.once('di.resolved.Orm', (_container: unknown, orm: unknown) => {
+      if (orm !== this.Orm && this.Container.get(OrmMigrator) === this) {
+        this.Container.uncache(OrmMigrator);
+      }
+    });
+  }
+
+  protected openGate(): void {
+    for (const [, driver] of this.Orm.Connections) {
+      driver.AwaitsStartupMigration = false;
+    }
+  }
+
+  /**
+   * Applies the pending migrations ( `force` defaults to true ), re-reads the table info of the models their
+   * statements touched, then runs their `data()`; `fake` records them and seeds nothing. What `migrate-up` runs.
+   */
+  public async migrate(options: IOrmMigrateOptions = {}): Promise<OrmMigration[]> {
+    const { executed, touched } = await this.Runner.up(options.name, options);
+
+    // wireRelations() reads no column info, so the relations wired by the Orm's resolve stay valid
+    if (touched.models.length > 0) {
+      await this.Orm.reloadTableInfo({ models: touched.models });
+    }
+
+    if (!options.fake) {
+      await this.runDataPhase(executed);
+    }
+
+    return executed;
+  }
+
+  /**
+   * Runs the `data()` hook of every migration just applied. Every hook runs even when an earlier one throws, and the
+   * failures are reported together: the migrations are already recorded as applied, so a rerun would not retry the
+   * hooks skipped after the first failure.
+   *
+   * Known loss: a run in which M1 applies and M2 throws never reaches here, M1 is recorded, and `M1.data()` never
+   * runs on any later pass. The tracking table has no "applied but unseeded" state, so `data()` must be safe to rerun
+   * by hand ( docs/orm/10-migrations.md ).
+   */
+  protected async runDataPhase(executed: OrmMigration[]): Promise<void> {
+    const errors: Array<{ name: string; reason: string; error: unknown }> = [];
+
+    for (const m of executed) {
+      this.Log.trace({ migration: m.constructor.name }, 'Migrating data function for migration ${migration} ...');
+
+      try {
+        await m.data();
+      } catch (err) {
+        // a hook may reject with a non-Error ( `throw 'boom'` ), whose .message would name no reason
+        const reason = err instanceof Error ? err.message : String(err);
+
+        this.Log.error({ error: err, migration: m.constructor.name }, 'Migration ${migration}:data() failed');
+        errors.push({ name: m.constructor.name, reason, error: err });
+      }
+    }
+
+    if (errors.length > 0) {
+      throw new OrmException(`Migration data() phase failed for: ${errors.map((e) => `${e.name} (${e.reason})`).join(', ')}`, undefined, undefined, undefined, errors[0].error);
+    }
+  }
+}

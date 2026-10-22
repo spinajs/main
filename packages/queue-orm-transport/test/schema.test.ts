@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { OrmEventTransportInitial_2022_06_28_01_13_00 } from '../src/migrations/OrmEventTransportInitial_2022_06_28_01_13_00.js';
 import { Event } from '../src/models/Event.js';
@@ -40,7 +40,7 @@ describe('event transport schema', () => {
       await b.bootstrap();
     }
     await DI.resolve(Configuration);
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
   });
 
   const driver = () => DI.get(Orm)!.Connections.get('orm-event-transport')!;

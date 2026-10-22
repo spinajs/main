@@ -74,6 +74,7 @@ Config lives under `authz.*` (H3). The schema validates the keys below; other se
 | `authz.impersonation.permission` | `string` | `'user:impersonate'` | | Permission an impersonation needs. Read by `@spinajs/users`. |
 | `authz.impersonation.protectedRoles` | `string[]` | `['admin']` | role names | Roles nobody may impersonate. Read by `@spinajs/users`. |
 | `authz.scopes.attributes.<type>` | `{ schema, defaults? } \| null` | none | a JSON schema | Scope attribute schema of a resource type ([Resource adapters and resolvers](09-adapters-and-resolvers.md#scope-attributes)). |
+| `authz.hooks.check` | `boolean` | `false` | | Run the `authz.check` action hook in `check`, `can` and `assert` ([Action hooks](15-action-hooks.md#the-opt-in-check-hook)). Root only. |
 | `authz.admin.*` | `object` | see [AuthzAdmin](10-authz-admin.md#configuration) | | The write API. |
 
 ```ts

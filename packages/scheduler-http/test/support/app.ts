@@ -5,7 +5,7 @@ import type { Class } from '@spinajs/di';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
 import { AuthorizationModel } from '@spinajs/authz';
 import { PrincipalMiddleware, PrincipalSource } from '@spinajs/authz-http';
 import { testHost } from '@spinajs/authz-testing';
@@ -74,7 +74,7 @@ export async function startApp(opts: { controllers: Class<BaseController>[]; con
   for (const c of opts.controllers) DI.register(c).as(BaseController);
 
   await DI.resolve(fsService);
-  await DI.resolve(Orm);
+  await DI.resolve(OrmMigrator);
   await DI.resolve(Controllers);
   const server = (await DI.resolve(HttpServer)) as HttpServer;
   await server.start();
@@ -108,6 +108,7 @@ export async function stopApp(): Promise<void> {
   if (orm) {
     await orm.dispose();
     DI.uncache(Orm);
+    DI.uncache(OrmMigrator);
   }
 
   await testHost.uninstallHost();

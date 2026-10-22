@@ -1,6 +1,6 @@
-import { Injectable, Singleton } from '@spinajs/di';
+import { Autoinject, Injectable, Singleton } from '@spinajs/di';
 import type { ITransactionOptions, OrmDriver } from '@spinajs/orm';
-import { ormReady } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 import { AuthzAdminBackend, AuthzAdminFailure, AuthzConfigError } from '@spinajs/authz';
 import type { AuthzTx, RememberedBatch } from '@spinajs/authz';
 
@@ -105,9 +105,12 @@ async function lockRow(domain: string): Promise<boolean> {
 @Singleton()
 @Injectable(AuthzAdminBackend)
 export class DbAuthzAdminBackend extends AuthzAdminBackend {
+  /** Never read: injecting it resolves the Orm, which binds the models, before the first query. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   async transaction<T>(domain: string, fn: (tx: AuthzTx) => Promise<T>): Promise<T> {
     checkDomain(domain);
-    await ormReady();
     const driver = recordDriver(VersionRecord);
     refuseNested(driver);
     // Under REPEATABLE READ or a stricter level, the batch's snapshot would hide what the batch before it committed.
@@ -126,7 +129,6 @@ export class DbAuthzAdminBackend extends AuthzAdminBackend {
 
   async recall(domain: string, actorKey: string, key: string, now: Date): Promise<RememberedBatch | undefined> {
     const id = entryKey(domain, actorKey, key);
-    await ormReady();
     const driver = recordDriver(AdminIdempotencyRecord);
     refuseNested(driver);
     await readTable(driver, AUTHZ_ADMIN_IDEMPOTENCY_TABLE, IDEMPOTENCY_MIGRATION, async () => {

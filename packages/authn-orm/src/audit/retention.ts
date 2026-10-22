@@ -1,8 +1,8 @@
 import '@spinajs/authn/register-schema';
-import { AsyncService, Injectable, PerChildInstance } from '@spinajs/di';
+import { AsyncService, Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
-import { ormReady } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 
 import { AuthnAudit } from '../models/AuthnAudit.js';
 import { checkedMs, instant } from '../support/sql.js';
@@ -17,6 +17,10 @@ const PURGE_BATCH = 500;
 @PerChildInstance()
 @Injectable()
 export class AuthnAuditRetention extends AsyncService {
+  /** Never read: injecting it resolves the Orm, which binds `AuthnAudit`, before the first purge. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   @Config('authn.audit.retentionDays')
   protected RetentionDays: number | null | undefined;
 
@@ -55,7 +59,6 @@ export class AuthnAuditRetention extends AsyncService {
     }
 
     const cutoff = instant(checkedMs(now, 'AuthnAuditRetention.purge: now') - days * DAY_MS);
-    await ormReady();
 
     let removed = 0;
     for (;;) {

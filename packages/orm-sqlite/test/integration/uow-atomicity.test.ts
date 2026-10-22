@@ -10,7 +10,7 @@
  */
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Bootstrapper, DI } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import _ from 'lodash';
@@ -70,7 +70,7 @@ async function boot() {
   }
 
   const orm = await DI.resolve(Orm);
-  await orm!.Migration.up();
+  await (await DI.resolve(OrmMigrator)).Runner.up();
   await orm!.reloadTableInfo();
 
   return orm!;

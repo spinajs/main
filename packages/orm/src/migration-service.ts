@@ -7,6 +7,7 @@ import type { TableQueryBuilder } from './builders.js';
 import { OrmDriver } from './driver.js';
 import { MigrationTransactionMode, OrmMigration } from './interfaces.js';
 import { OrmException } from './exceptions.js';
+import { runMigrationUp } from './schema-touches.js';
 
 export const MIGRATION_TABLE_NAME = 'spinajs_migration';
 export const MIGRATION_LOCK_POLL_INTERVAL = 500;
@@ -348,7 +349,7 @@ export class DefaultMigrationService extends OrmMigrationService {
 
     if (failed) {
       throw new OrmException(
-        `Migration ${failed.Migration} on connection ${this.driver.Options.Name} failed previously and blocks migration runs. Inspect Logs column, fix the database manually, then run orm.Migration.resolve('${failed.Migration}', 'applied') or ('rolled-back'). That call reaches registered migrations only - if this one's class is gone, remove its row from ${this.table} by hand instead.`,
+        `Migration ${failed.Migration} on connection ${this.driver.Options.Name} failed previously and blocks migration runs. Inspect Logs column, fix the database manually, then run migrate-resolve ( OrmMigrator.Runner.resolve('${failed.Migration}', 'applied') or ('rolled-back') ). That call reaches registered migrations only - if this one's class is gone, remove its row from ${this.table} by hand instead.`,
       );
     }
   }
@@ -438,7 +439,7 @@ export class DefaultMigrationService extends OrmMigrationService {
 
       this.Log.warn(
         { migration: u.name, connection: this.driver.Options.Name, startedAt: rec.StartedAt },
-        "Migration ${migration} on connection ${connection} was STARTED and never finished - its tracking row carries StartedAt with neither FinishedAt nor Logs, so the process running it was killed mid-migration ( started ${startedAt} ). It is being RE-RUN from the top and nothing recorded how far the first attempt got. Under Migration.Transaction.Mode None ( the default ) whatever it had already applied is still in the database: non-idempotent DDL will fail and land in the failed state, non-idempotent data changes will be applied a second time and nothing will say so. Check what the first attempt left behind, or record the truth with orm.Migration.resolve('${migration}', 'applied') or ('rolled-back') before running again.",
+        "Migration ${migration} on connection ${connection} was STARTED and never finished - its tracking row carries StartedAt with neither FinishedAt nor Logs, so the process running it was killed mid-migration ( started ${startedAt} ). It is being RE-RUN from the top and nothing recorded how far the first attempt got. Under Migration.Transaction.Mode None ( the default ) whatever it had already applied is still in the database: non-idempotent DDL will fail and land in the failed state, non-idempotent data changes will be applied a second time and nothing will say so. Check what the first attempt left behind, or record the truth with migrate-resolve ( OrmMigrator.Runner.resolve('${migration}', 'applied') or ('rolled-back') ) before running again.",
       );
     }
   }
@@ -674,7 +675,7 @@ export class DefaultMigrationService extends OrmMigrationService {
         await this.upsertStart(u.name, existing);
 
         this.warnOnChecksumDrift(u, records);
-        await migration.up(this.driver);
+        await runMigrationUp(() => migration.up(this.driver));
         await this.markFinished(u.name, batch, migrationChecksum(u.type));
 
         executed.push(migration);
@@ -790,7 +791,7 @@ export class DefaultMigrationService extends OrmMigrationService {
         // finds, so resolving one of two leaves the connection just as blocked as before
         this.Log.warn(
           { migrations: failedRows.map((r) => r.Migration), connection: this.driver.Options.Name, firstMigration: failedRows[0].Migration },
-          "Migration(s) ${migrations} on connection ${connection} are in failed state and are skipped by this rollback - the schema may end up reverted while every later up() stays blocked. Clear each of them with orm.Migration.resolve('${firstMigration}', 'applied') or ('rolled-back').",
+          "Migration(s) ${migrations} on connection ${connection} are in failed state and are skipped by this rollback - the schema may end up reverted while every later up() stays blocked. Clear each of them with migrate-resolve ( OrmMigrator.Runner.resolve('${firstMigration}', 'applied') or ('rolled-back') ).",
         );
       }
 

@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Connection, extractModelDescriptor, IOrmOptions, Migration, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, Primary } from '@spinajs/orm';
+import { Connection, extractModelDescriptor, Migration, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, OrmMigrator, Primary } from '@spinajs/orm';
 import { expect } from 'chai';
 import _ from 'lodash';
 import 'mocha';
@@ -125,29 +125,36 @@ describe('sqlite strict table check (db.StrictTableCheck)', function () {
     DI.clearCache();
   });
 
-  it('fails the boot after the migration pass, naming the model, its table and its connection', async () => {
+  it('fails the migrator boot after the migration pass, naming the model, its table and its connection', async () => {
     Missing = defineMissing();
 
-    const err = await rejection(DI.resolve(Orm));
+    await DI.resolve(Orm);
+    const err = await rejection(Promise.resolve(DI.resolve(OrmMigrator)));
 
     expect(err).to.be.instanceOf(OrmException);
     expect((err as Error).message).to.equal('Missing tables (db.StrictTableCheck): model StrictSqliteMissing: table strict_sqlite_missing on connection sqlite-strict. Create them (run their migrations) or set db.StrictTableCheck to false');
   });
 
-  it('disconnects the drivers and stops their health checks when the strict boot check fails', async () => {
+  it('leaves the resolved Orm connected when the strict boot check fails; disposing it disconnects the driver', async () => {
     Missing = defineMissing();
     const disconnect = sinon.spy(SqliteOrmDriver.prototype, 'disconnect');
     const stopHealthCheck = sinon.spy(SqliteOrmDriver.prototype, 'stopHealthCheck');
 
-    expect(await rejection(DI.resolve(Orm))).to.be.instanceOf(OrmException);
+    const orm = await DI.resolve(Orm);
+    expect(await rejection(Promise.resolve(DI.resolve(OrmMigrator)))).to.be.instanceOf(OrmException);
 
     expect(connects.callCount).to.equal(1);
+    expect(disconnect.called).to.equal(false);
+
+    await orm.dispose();
+
     expect(stopHealthCheck.called).to.equal(true);
     expect(disconnect.callCount).to.equal(1);
   });
 
   it('boots when the migration pass created every table', async () => {
     const orm = await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
 
     expect(extractModelDescriptor(schema.Present)!.Driver).to.equal(orm.Connections.get(CONNECTION));
   });
@@ -157,6 +164,7 @@ describe('sqlite strict table check (db.StrictTableCheck)', function () {
     strictSetting = false;
 
     const orm = await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
 
     expect(extractModelDescriptor(Missing)!.Driver).to.equal(orm.Connections.get(CONNECTION));
   });
@@ -168,14 +176,16 @@ describe('sqlite strict table check (db.StrictTableCheck)', function () {
     const orm = await DI.resolve(Orm);
     expect(await rejection(orm.reloadTableInfo({ strict: true }))).to.be.instanceOf(OrmException);
 
-    await orm.Migration.up();
+    await (await DI.resolve(OrmMigrator)).Runner.up();
     await orm.reloadTableInfo({ strict: true });
   });
 
-  it('boots an Orm resolved with MigrateOnStartup: false before the tables exist', async () => {
-    const orm = await DI.resolve(Orm, [{ MigrateOnStartup: false } as IOrmOptions]);
+  it('resolves a migrator with MigrateOnStartup: false before the tables exist; migrate() creates them', async () => {
+    const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+    const orm = await DI.resolve(Orm);
+    expect(await rejection(orm.reloadTableInfo({ strict: orm.StrictTableCheck }))).to.be.instanceOf(OrmException);
 
-    await orm.Migration.up();
+    await migrator.migrate();
     await orm.reloadTableInfo({ strict: orm.StrictTableCheck });
   });
 });

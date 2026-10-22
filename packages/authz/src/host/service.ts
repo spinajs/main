@@ -1,6 +1,7 @@
 import { Container, Inject, Injectable, PerChildInstance, Service } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
+import { ActionHookFailed, ActionRefused, Hooks } from '@spinajs/hooks';
 import { deepFreeze, quote as q } from '@spinajs/util';
 
 import { AccessDenied, AuthzConfigError } from '../contracts/errors.js';
@@ -14,6 +15,7 @@ import type { AccessSummary, AuthzChange, CheckInput } from '../contracts/servic
 import { SYSTEM, UNATTENDED } from '../contracts/principal.js';
 import type { Principal, ResourceRef, ResourceType } from '../contracts/principal.js';
 import type { Permission, PermissionDef } from '../contracts/permission.js';
+import { FALSE } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
 import type { Decision } from '../contracts/decision.js';
 import type { AccessPlan } from '../contracts/plan.js';
@@ -66,6 +68,8 @@ interface Booted {
   readonly authorizer: Authorizer;
   readonly audit: DecisionAudit | undefined;
   readonly admin: AuthzAdmin | undefined;
+  /** Set only when `authz.hooks.check` is on, so a check without it never touches Hooks. */
+  readonly hooks: Hooks | undefined;
   readonly cache: DecisionCache | undefined;
   readonly unsubscribe: (() => void) | undefined;
   /** Root only: the AccessChangeRouter subscription. */
@@ -151,7 +155,7 @@ export class DefaultAuthzService extends AuthzService {
 
   async check(req: CheckInput): Promise<Decision> {
     const s = this.state();
-    return s.authorizer.check(this.withPrincipal(req), requestScope());
+    return this.decide(s, this.withPrincipal(req));
   }
 
   async inspect(req: CheckInput): Promise<Decision> {
@@ -161,12 +165,12 @@ export class DefaultAuthzService extends AuthzService {
 
   async can(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<boolean> {
     const s = this.state();
-    return (await s.authorizer.check(input(principal, permission, resource, subject), requestScope())).allowed;
+    return (await this.decide(s, input(principal, permission, resource, subject))).allowed;
   }
 
   async assert(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<Decision> {
     const s = this.state();
-    const decision = await s.authorizer.check(input(principal, permission, resource, subject), requestScope());
+    const decision = await this.decide(s, input(principal, permission, resource, subject));
     if (!decision.allowed) throw new AccessDenied(decision);
     return decision;
   }
@@ -247,6 +251,24 @@ export class DefaultAuthzService extends AuthzService {
     }
     s.domains.detach(s.name, this);
     await this.release(s.used, []);
+  }
+
+  /** The engine's decision (served from the decision cache when it can be), then the authz.check hook; the hook's answer is never stored. */
+  private async decide(s: Booted, req: CheckInput): Promise<Decision> {
+    const decision = await s.authorizer.check(req, requestScope());
+    if (!s.hooks) return decision;
+    try {
+      return await s.hooks.run('authz.check', { principal: req.principal, permission: decision.permission, resource: decision.resource }, async () => decision, { mutable: [] });
+    } catch (e) {
+      // A hook only narrows: a deny stays the engine's deny, with its reason.
+      if (!decision.allowed) return decision;
+      let code: string;
+      if (e instanceof ActionRefused) code = `hook:${e.code}`;
+      else if (e instanceof ActionHookFailed) code = 'hook_error';
+      else throw e;
+      if (s.audit && s.cfg.audit.denials) this.record(s, { kind: 'deny', principal: decision.principal, permission: decision.permission, resource: decision.resource, reason: code });
+      return deniedByHook(decision, code);
+    }
   }
 
   private state(): Booted {
@@ -450,6 +472,7 @@ export class DefaultAuthzService extends AuthzService {
     const store = (await container.resolveOptional(ScopeAttributeStore)) as ScopeAttributeStore | undefined;
     const conditions = (await container.resolveOptional(ConditionCompiler)) as ConditionCompiler | undefined;
     const admin = (await container.resolveOptional(AuthzAdmin)) as AuthzAdmin | undefined;
+    const hooks = configAt(this.Config, ['hooks', 'check']) === true ? await container.resolve<Hooks>(Hooks) : undefined;
     const clock = (await container.resolve(AuthzClock)) as unknown;
     if (!isObject(clock) || typeof clock.now !== 'function') throw new AuthzConfigError(`${where}: the resolved AuthzClock has no now()`);
     const now = () => (clock as unknown as AuthzClock).now();
@@ -504,6 +527,7 @@ export class DefaultAuthzService extends AuthzService {
       authorizer,
       audit,
       admin,
+      hooks,
       cache,
       unsubscribe: this.bootSubscription,
       stopPush,
@@ -590,6 +614,11 @@ export class DefaultAuthzService extends AuthzService {
       this.log.error({ error: thrownError(e), domain: name }, 'Authz domain ${domain}: applying a published change failed');
     }
   }
+}
+
+function deniedByHook(d: Decision, code: string): Decision {
+  const { validUntil: _validUntil, ...rest } = d;
+  return Object.freeze({ ...rest, allowed: false, residual: FALSE, fields: Object.freeze({ read: [], write: [] }), reason: Object.freeze({ code }) });
 }
 
 function input(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): CheckInput {

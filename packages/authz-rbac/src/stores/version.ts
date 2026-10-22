@@ -1,5 +1,4 @@
 import type { AuthzTx } from '@spinajs/authz';
-import { ormReady } from '@spinajs/orm';
 import type { IUpdateResult, OrmDriver } from '@spinajs/orm';
 
 import { requireTransaction } from './context.js';
@@ -21,7 +20,6 @@ async function increment(driver: OrmDriver, domain: string): Promise<number> {
 
 /** The domain's version; `'0'` when the row is absent. */
 export async function readVersion(domain: string): Promise<string> {
-  await ormReady();
   const [row] = await VersionRecord.where('domain', domain);
   return row?.version ?? '0';
 }

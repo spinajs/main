@@ -1,5 +1,5 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { _modelProxyFactory, MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { _modelProxyFactory, MigrationTransactionMode, Orm, OrmMigrator } from '@spinajs/orm';
 import { __mutex__, OrmMutex, dbNowMs } from '../src/index';
 
 import chaiAsPromised from 'chai-as-promised';
@@ -66,7 +66,7 @@ describe('orm-threading', function () {
 
   beforeEach(async () => {
     await DI.resolve(Configuration, [null, null, [dir('./config')]]);
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
   });
 
   afterEach(async () => {

@@ -10,7 +10,8 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { BaseController, Controllers, HttpServer } from '@spinajs/http';
-import { fsService } from '@spinajs/fs';
+import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
+import type { fs } from '@spinajs/fs';
 import { MemoryTarget } from '@spinajs/log';
 import { AuthenticationStrategy, AuthnEventSink, AuthnResponseExtension, AuthnThrottle, IdentityStore, ImpersonationGuard, PasswordCredentialStore, PrincipalFactory, RoleSource, SessionStartHook } from '@spinajs/authn/contracts';
 import type { Ceiling, IdentityRef, Principal, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
@@ -248,6 +249,8 @@ export async function releaseHttpServer(): Promise<void> {
 
 export async function stopApp(): Promise<void> {
   await releaseHttpServer();
+  // fsTemp's cleanup interval would keep the mocha process alive after the last suite.
+  for (const provider of DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES)?.values() ?? []) await provider.dispose();
   for (const k of ENV_KEYS) {
     if (savedEnv[k] === undefined) delete process.env[k];
     else process.env[k] = savedEnv[k];

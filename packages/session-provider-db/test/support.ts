@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Bootstrapper, DI } from '@spinajs/di';
-import { Orm, OrmDriver } from '@spinajs/orm';
+import { Orm, OrmDriver, OrmMigrator } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import { AbsoluteExpiration, DefaultSessionIssuer, SessionExpirationProvider, SessionProvider, SlidingCappedExpiration, SlidingExpiration } from '@spinajs/authn-session';
@@ -39,7 +39,7 @@ export class DbSessionTestConfiguration extends FrameworkConfiguration {
 }
 
 /** Types these tests resolve; uncached between boots instead of a blanket DI.clearCache(). */
-const OWNED_TYPES: unknown[] = [Configuration, DbSessionTestConfiguration, Orm, SessionProvider, DbSessionStore, SessionExpirationProvider, AbsoluteExpiration, SlidingExpiration, SlidingCappedExpiration, DefaultSessionIssuer, SessionIssuer];
+const OWNED_TYPES: unknown[] = [Configuration, DbSessionTestConfiguration, Orm, OrmMigrator, SessionProvider, DbSessionStore, SessionExpirationProvider, AbsoluteExpiration, SlidingExpiration, SlidingCappedExpiration, DefaultSessionIssuer, SessionIssuer];
 
 let registered = false;
 let current: { orm: Orm; store: DbSessionStore } | undefined;
@@ -72,6 +72,7 @@ export async function bootStore(session: Record<string, unknown> = {}): Promise<
   sessionOverrides = session;
   await DI.resolve(Configuration);
   const orm = await DI.resolve(Orm);
+  await DI.resolve(OrmMigrator);
   const store = await DI.resolve(DbSessionStore);
   current = { orm, store };
   return store;
