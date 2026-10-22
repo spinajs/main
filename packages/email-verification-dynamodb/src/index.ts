@@ -218,8 +218,8 @@ export class DynamoDbEmailVerificationStore extends EmailVerificationStore {
       } catch {
         throw err;
       }
-      if (now?.Gen.S === gen || now?.PrevGen?.S === gen) return true;
       // Two or more writers can swap between our committed put and this read: our change is then replayed on top of theirs.
+      if (now?.Gen.S === gen || now?.PrevGen?.S === gen) return true;
       if (isConditionFailure(err)) return false;
       throw err;
     }

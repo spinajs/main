@@ -223,7 +223,7 @@ describe('DynamoDbEmailVerificationStore writes', () => {
     let fired = false;
     fake.around = async (command, input, run) => {
       const result = await run();
-      if (!fired && (command === 'PutItemCommand' || command === 'DeleteItemCommand') && pkOf(input) === 'S#block#src') {
+      if (!fired && command === 'PutItemCommand' && pkOf(input) === 'S#block#src') {
         fired = true;
         await store.upsertEntries([block('x.com', 'src')]);
       }
@@ -285,6 +285,21 @@ describe('DynamoDbEmailVerificationStore writes', () => {
       expect(keys(await store.loadLists())).to.deep.eq(['block|b|b.com']);
       expect(warnings.messages).to.have.length(1);
       expect(warnings.messages[0]).to.include('block#a').and.not.include('a.com');
+    } finally {
+      warnings.restore();
+    }
+  });
+
+  it('warns that a damaged source is skipped, without leaking its domains', async () => {
+    const store = await bootStore();
+    await store.replaceSource('a', 'block', ['secret-a.com']);
+    await store.replaceSource('b', 'block', ['b.com']);
+    fake.items.delete(chunkKeys().find((k) => k.startsWith('C#block#a#'))!);
+    const warnings = captureWarnings(store);
+    try {
+      expect(keys(await store.loadLists())).to.deep.eq(['block|b|b.com']);
+      expect(warnings.messages).to.have.length(1);
+      expect(warnings.messages[0]).to.match(/email domain list S#block#a is damaged .*; skipped$/).and.not.include('secret-a.com');
     } finally {
       warnings.restore();
     }
