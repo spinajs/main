@@ -5,6 +5,7 @@ import { Log, Logger } from '@spinajs/log';
 import { ADMIN_SOURCE, DomainVerifier, EmailVerificationStore, UNKNOWN } from '../contracts.js';
 import type { DomainVerdict, ListKind } from '../contracts.js';
 import { suffixes } from '../domain.js';
+import { withTimeout } from '../timeout.js';
 
 interface Snapshot {
   readonly version: string | null;
@@ -22,6 +23,12 @@ export class ListVerifier extends DomainVerifier {
   @Config('emailVerification.lists.refreshSeconds')
   protected RefreshSeconds: number;
 
+  @Config('emailVerification.enabled')
+  protected Enabled: boolean;
+
+  @Config('emailVerification.timeoutMs')
+  protected TimeoutMs: number;
+
   @AutoinjectService('emailVerification.store', EmailVerificationStore)
   protected Store: EmailVerificationStore;
 
@@ -29,13 +36,19 @@ export class ListVerifier extends DomainVerifier {
 
   protected Timer: ReturnType<typeof setInterval> | undefined;
 
+  protected Refreshing: Promise<void> | undefined;
+
   protected Generation = 0;
 
   protected Applied = 0;
 
   public async resolve(): Promise<void> {
+    if (!this.Enabled) {
+      await super.resolve();
+      return;
+    }
     try {
-      await this.reload();
+      await withTimeout(this.reload(), this.TimeoutMs);
     } catch (err) {
       this.Log.error(err as Error, 'Cannot load the email domain lists; the list verifier answers unknown until a refresh succeeds');
     }
@@ -52,7 +65,13 @@ export class ListVerifier extends DomainVerifier {
     this.Timer = undefined;
   }
 
-  public async refresh(): Promise<void> {
+  /** Joins the refresh in flight, if any, so a slow store never piles up timer ticks. */
+  public refresh(): Promise<void> {
+    this.Refreshing ??= this.refreshNow().finally(() => (this.Refreshing = undefined));
+    return withTimeout(this.Refreshing, this.TimeoutMs);
+  }
+
+  protected async refreshNow(): Promise<void> {
     if ((await this.Store.listVersion()) !== this.Snapshot.version) await this.reload();
   }
 

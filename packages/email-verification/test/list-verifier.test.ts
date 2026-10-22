@@ -18,6 +18,13 @@ function failLoads(): () => void {
   return () => void Object.defineProperty(proto, 'loadLists', original);
 }
 
+function hangLoads(): () => void {
+  const proto = MemoryEmailVerificationStore.prototype;
+  const original = Object.getOwnPropertyDescriptor(proto, 'loadLists')!;
+  proto.loadLists = () => new Promise<never>(() => undefined);
+  return () => void Object.defineProperty(proto, 'loadLists', original);
+}
+
 describe('ListVerifier', () => {
   afterEach(shutdown);
 
@@ -159,6 +166,53 @@ describe('ListVerifier', () => {
     await s.upsertEntries([{ domain: 'dup.com', kind: 'block', source: 'admin' }]);
     await v.reload();
     expect(await v.verify('dup.com')).to.deep.eq({ result: 'refuse', reason: 'listed', source: 'list:admin' });
+  });
+
+  it('finishes resolving within timeoutMs when the store never answers, then answers unknown', async () => {
+    const restore = hangLoads();
+    try {
+      const started = Date.now();
+      const v = await boot(ListVerifier, { timeoutMs: 50, lists: { refreshSeconds: 1, sources: [] } }, TYPES);
+      expect(Date.now() - started).to.be.lessThan(2000);
+      expect(await v.verify('x.com')).to.deep.eq({ result: 'unknown' });
+    } finally {
+      restore();
+    }
+  });
+
+  it('bounds a refresh by timeoutMs and runs one refresh at a time', async () => {
+    const v = await boot(ListVerifier, { timeoutMs: 50, lists: { refreshSeconds: 1, sources: [] } }, TYPES);
+    const s = await store();
+    const version = s.listVersion.bind(s);
+    let versions = 0;
+    s.listVersion = () => {
+      versions++;
+      return new Promise<string>(() => undefined);
+    };
+    try {
+      const results = await Promise.allSettled([v.refresh(), v.refresh()]);
+      expect(results.map((r) => r.status)).to.deep.eq(['rejected', 'rejected']);
+      expect(versions).to.eq(1);
+    } finally {
+      s.listVersion = version;
+    }
+  });
+
+  it('loads nothing and polls nothing while disabled', async () => {
+    let calls = 0;
+    const proto = MemoryEmailVerificationStore.prototype;
+    const load = Object.getOwnPropertyDescriptor(proto, 'loadLists')!;
+    const version = Object.getOwnPropertyDescriptor(proto, 'listVersion')!;
+    proto.loadLists = async () => (calls++, []);
+    proto.listVersion = async () => (calls++, '');
+    try {
+      const v = await boot(ListVerifier, { enabled: false, lists: { refreshSeconds: 1, sources: [] } }, TYPES);
+      expect(calls).to.eq(0);
+      expect((v as unknown as { Timer: unknown }).Timer).to.eq(undefined);
+    } finally {
+      Object.defineProperty(proto, 'loadLists', load);
+      Object.defineProperty(proto, 'listVersion', version);
+    }
   });
 
   it('is never cached', async () => {
