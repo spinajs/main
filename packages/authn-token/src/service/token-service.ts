@@ -10,7 +10,7 @@ import { Log, Logger } from '@spinajs/log';
 import { Hooks } from '@spinajs/hooks';
 import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
 import type { ActionName, InputOf, OutputOf, RunOptions } from '@spinajs/hooks';
-import { ormReady } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 import { _between, _check_arg, _contains, _custom, _finite, _gte, _integer, _is_array, _is_array_of, _is_number, _is_string, _max_length, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject, toEpochMs } from '@spinajs/util';
 import { CredentialChangeBus, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, CredentialChange, AuthnFailure, Ceiling, IdentityRef, Principal, PrincipalRef, ResourceRef, TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenRotateResult, TokenScope, TokenUpdate, TokenUpdateResult, TokenValidation } from '@spinajs/authn/contracts';
@@ -377,7 +377,6 @@ export class DbTokenService extends TokenService {
 
   protected async revokeOwn(owner: IdentityRef, id: string, ctx: AuthnContext, actor?: PrincipalRef): Promise<boolean> {
     const now = this.nowOf(ctx);
-    await ormReady();
     const rowId = await this.Owners.rowIdOf(owner);
     if (rowId === null) {
       return false;
