@@ -9,6 +9,7 @@ import { SafeFetch } from '../safe-fetch.js';
 
 const DAY_MS = 86_400_000;
 const BOOTSTRAP_MAX_AGE_MS = DAY_MS;
+const BOOTSTRAP_RETRY_MS = 5 * 60_000;
 const BOOTSTRAP_MAX_BYTES = 1024 * 1024;
 const ANSWER_MAX_BYTES = 256 * 1024;
 
@@ -32,11 +33,13 @@ export function parseRdapBootstrap(body: string): Map<string, string> {
   return servers;
 }
 
-export function registrationTime(body: string): number | null {
+export function registrationTime(body: string, now = Date.now()): number | null {
   try {
     const events = (JSON.parse(body) as { events?: { eventAction?: string; eventDate?: string }[] }).events ?? [];
-    const time = Date.parse(events.find((e) => e.eventAction === 'registration')?.eventDate ?? '');
-    return Number.isNaN(time) ? null : time;
+    const times = events.filter((e) => e.eventAction === 'registration').map((e) => Date.parse(e.eventDate ?? '')).filter((t) => !Number.isNaN(t));
+    if (times.length === 0) return null;
+    const earliest = Math.min(...times);
+    return earliest > now ? null : earliest;
   } catch {
     return null;
   }
@@ -57,6 +60,8 @@ export class RdapVerifier extends DomainVerifier {
   protected Log: Log;
 
   protected Bootstrap: { loadedAt: number; servers: Map<string, string> } | undefined;
+
+  protected BootstrapRetryAt = 0;
 
   protected BootstrapLoading: Promise<Map<string, string>> | undefined;
 
@@ -95,6 +100,10 @@ export class RdapVerifier extends DomainVerifier {
 
   protected async servers(): Promise<Map<string, string>> {
     if (this.Bootstrap && Date.now() - this.Bootstrap.loadedAt < BOOTSTRAP_MAX_AGE_MS) return this.Bootstrap.servers;
+    if (Date.now() < this.BootstrapRetryAt) {
+      if (this.Bootstrap) return this.Bootstrap.servers;
+      throw new Error('RDAP bootstrap unavailable');
+    }
     this.BootstrapLoading ??= this.loadBootstrap().finally(() => (this.BootstrapLoading = undefined));
     return this.BootstrapLoading;
   }
@@ -104,9 +113,12 @@ export class RdapVerifier extends DomainVerifier {
       const res = await this.Fetch.get(this.Options.bootstrapUrl, { timeoutMs: this.Options.requestTimeoutMs, maxBytes: BOOTSTRAP_MAX_BYTES });
       if (res.status !== 200) throw new Error(`RDAP bootstrap answered ${res.status}`);
       const servers = parseRdapBootstrap(res.body);
+      if (servers.size === 0) throw new Error('RDAP bootstrap has no https servers');
+      this.BootstrapRetryAt = 0;
       this.Bootstrap = { loadedAt: Date.now(), servers };
       return servers;
     } catch (err) {
+      this.BootstrapRetryAt = Date.now() + BOOTSTRAP_RETRY_MS;
       if (!this.Bootstrap) throw err;
       this.Log.warn({ error: (err as Error).message }, 'RDAP bootstrap refresh failed, keeping the last one: ${error}');
       return this.Bootstrap.servers;

@@ -32,6 +32,22 @@ describe('rdap helpers', () => {
     expect(registrationTime('{"events":[]}')).to.eq(null);
     expect(registrationTime('not json')).to.eq(null);
   });
+
+  it('uses the earliest registration event', () => {
+    const body = JSON.stringify({
+      events: [
+        { eventAction: 'registration', eventDate: '2024-05-01T00:00:00Z' },
+        { eventAction: 'registration', eventDate: '2010-01-01T00:00:00Z' },
+        { eventAction: 'last changed', eventDate: '2001-01-01T00:00:00Z' },
+      ],
+    });
+    expect(registrationTime(body)).to.eq(Date.parse('2010-01-01T00:00:00Z'));
+  });
+
+  it('treats a future registration date as unknown', () => {
+    const body = JSON.stringify({ events: [{ eventAction: 'registration', eventDate: '2030-01-01T00:00:00Z' }] });
+    expect(registrationTime(body, Date.parse('2026-01-01T00:00:00Z'))).to.eq(null);
+  });
 });
 
 describe('RdapVerifier', () => {
@@ -102,18 +118,77 @@ describe('RdapVerifier', () => {
     expect(stub!.calls.filter((c) => c.url === BOOTSTRAP_URL)).to.have.length(1);
   });
 
+  const bootstrapCalls = () => stub!.calls.filter((c) => c.url === BOOTSTRAP_URL).length;
+  const expireBootstrap = (v: RdapVerifier) => ((v as unknown as { Bootstrap: { loadedAt: number } }).Bootstrap.loadedAt = 0);
+
   it('keeps the last bootstrap when a refresh fails', async () => {
     serve({ 'https://rdap.example/com/v1/domain/old.com': () => registered(400) });
     const v = await verifier();
     await v.verify('old.com');
-    (v as unknown as { Bootstrap: { loadedAt: number } }).Bootstrap.loadedAt = 0;
+    expireBootstrap(v);
     stub!.restore();
     stub = stubFetch((url) => (url === BOOTSTRAP_URL ? text(500, '') : registered(400)));
     expect((await v.verify('old.com')).reason).to.eq('registered');
+    expect(bootstrapCalls()).to.eq(1);
+  });
+
+  it('does not retry a failed refresh within the backoff', async () => {
+    serve({ 'https://rdap.example/com/v1/domain/old.com': () => registered(400) });
+    const v = await verifier();
+    await v.verify('old.com');
+    expireBootstrap(v);
+    stub!.restore();
+    stub = stubFetch((url) => (url === BOOTSTRAP_URL ? text(500, '') : registered(400)));
+    await v.verify('old.com');
+    await v.verify('old.com');
+    expect(bootstrapCalls()).to.eq(1);
   });
 
   it('throws when the first bootstrap load fails', async () => {
     stub = stubFetch(() => text(500, ''));
     await expect((await verifier()).verify('x.com')).to.be.rejected;
+  });
+
+  it('does not retry a failed first load within the backoff', async () => {
+    stub = stubFetch(() => text(500, ''));
+    const v = await verifier();
+    await expect(v.verify('x.com')).to.be.rejected;
+    await expect(v.verify('x.com')).to.be.rejectedWith('RDAP bootstrap unavailable');
+    expect(bootstrapCalls()).to.eq(1);
+  });
+
+  it('shares one bootstrap request between concurrent verifies', async () => {
+    serve({});
+    const v = await verifier();
+    await Promise.all([v.verify('one.com'), v.verify('two.com')]);
+    expect(bootstrapCalls()).to.eq(1);
+  });
+
+  it('does not replace a good bootstrap with an empty one', async () => {
+    serve({ 'https://rdap.example/com/v1/domain/old.com': () => registered(400) });
+    const v = await verifier();
+    await v.verify('old.com');
+    expireBootstrap(v);
+    stub!.restore();
+    stub = stubFetch((url) => (url === BOOTSTRAP_URL ? json(200, { services: [] }) : registered(400)));
+    expect((await v.verify('old.com')).reason).to.eq('registered');
+  });
+
+  it('prefers the earliest registration event over the first one', async () => {
+    serve({
+      'https://rdap.example/com/v1/domain/old.com': () =>
+        json(200, {
+          events: [
+            { eventAction: 'registration', eventDate: daysAgo(1) },
+            { eventAction: 'registration', eventDate: daysAgo(400) },
+          ],
+        }),
+    });
+    expect((await (await verifier()).verify('old.com')).reason).to.eq('registered');
+  });
+
+  it('answers unknown for a future registration date', async () => {
+    serve({ 'https://rdap.example/com/v1/domain/odd.com': () => registered(-5) });
+    expect(await (await verifier()).verify('odd.com')).to.deep.eq({ result: 'unknown' });
   });
 });
