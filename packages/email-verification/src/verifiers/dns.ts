@@ -78,7 +78,7 @@ export class DnsVerifier extends DomainVerifier {
   protected logUnexpected(domain: string, err: unknown): void {
     const code = codeOf(err);
     if (typeof code === 'string' && code.startsWith('E')) return;
-    this.Log.warn({ domain, error: (err as Error).message }, 'DNS lookup for ${domain} failed unexpectedly: ${error}');
+    this.Log.warn({ domain, error: err instanceof Error ? err.message : String(err) }, 'DNS lookup for ${domain} failed unexpectedly: ${error}');
   }
 
   /** RFC 5321 §5.1: with no MX, the domain's A or AAAA host receives its mail. */

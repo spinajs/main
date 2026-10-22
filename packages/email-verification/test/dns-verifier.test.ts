@@ -7,10 +7,11 @@ import type { MxResolver } from '../src/verifiers/dns.js';
 import { ListVerifier } from '../src/verifiers/list.js';
 import { boot, shutdown } from './support.js';
 
-type Answer = unknown[] | string;
+type Answer = unknown[] | string | { reject: unknown };
 let zone: Record<string, { mx?: Answer; a?: Answer; aaaa?: Answer }> = {};
 
 const answer = (a: Answer) => {
+  if (!Array.isArray(a) && typeof a === 'object') throw a.reject;
   if (typeof a === 'string') throw Object.assign(new Error(a), { code: a });
   return a;
 };
@@ -124,4 +125,16 @@ describe('DnsVerifier', () => {
     zone['slow.com'] = { mx: 'ENODATA', a: 'ETIMEOUT' };
     await expectVerdict('slow.com', { result: 'unknown' }, 0);
   });
+
+  it('answers an uncached unknown when the lookup rejects with a code-less Error', async () => {
+    zone['odd.com'] = { mx: { reject: new TypeError('boom') } };
+    await expectVerdict('odd.com', { result: 'unknown' }, 0);
+  });
+
+  for (const [name, reject] of [['a bare string', 'boom'], ['null', null], ['undefined', undefined]] as const) {
+    it(`answers an uncached unknown when the lookup rejects with ${name}`, async () => {
+      zone['odd.com'] = { mx: { reject } };
+      await expectVerdict('odd.com', { result: 'unknown' }, 0);
+    });
+  }
 });
