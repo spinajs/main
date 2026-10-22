@@ -17,7 +17,7 @@ function configurationOf(values: Record<string, unknown>): Class<Configuration> 
     protected onLoad(): unknown {
       return JSON.parse(json) as unknown;
     }
-  } as unknown as Class<Configuration>;
+  };
 }
 
 const open: IContainer[] = [];

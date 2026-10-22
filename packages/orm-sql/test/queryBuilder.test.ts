@@ -326,7 +326,7 @@ describe('Where query builder', () => {
     );
 
     const query = sqb().select('*').from('users');
-    inner.correlateWith(query as unknown as IWhereBuilder<unknown>);
+    inner.correlateWith(query);
     query.whereIn('group_id', inner as ISelectQueryBuilder<ModelBase<unknown>>);
 
     const cloned = query.clone();
@@ -631,13 +631,13 @@ describe('Relations query builder', () => {
               PrimaryKey: true,
               AutoIncrement: true,
               Name: 'Id',
-              Converter: null as any,
+              Converter: null,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null as any,
+              ForeignKeyDescription: null,
               Aggregate: false,
               Virtual: false,
             },
@@ -652,13 +652,13 @@ describe('Relations query builder', () => {
               PrimaryKey: true,
               AutoIncrement: true,
               Name: 'relation_id',
-              Converter: null as any,
+              Converter: null,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null as any,
+              ForeignKeyDescription: null,
               Aggregate: false,
               Virtual: false,
             },
@@ -673,13 +673,13 @@ describe('Relations query builder', () => {
               PrimaryKey: true,
               AutoIncrement: true,
               Name: 'relation2_id',
-              Converter: null as any,
+              Converter: null,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null as any,
+              ForeignKeyDescription: null,
               Aggregate: false,
               Virtual: false,
             },
@@ -701,13 +701,13 @@ describe('Relations query builder', () => {
               PrimaryKey: true,
               AutoIncrement: true,
               Name: 'Id',
-              Converter: null as any,
+              Converter: null,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null as any,
+              ForeignKeyDescription: null,
               Aggregate: false,
               Virtual: false,
             },
@@ -722,13 +722,13 @@ describe('Relations query builder', () => {
               PrimaryKey: true,
               AutoIncrement: true,
               Name: 'RelationProperty',
-              Converter: null as any,
+              Converter: null,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null as any,
+              ForeignKeyDescription: null,
               Aggregate: false,
               Virtual: false,
             },
@@ -750,13 +750,13 @@ describe('Relations query builder', () => {
               PrimaryKey: true,
               AutoIncrement: true,
               Name: 'Id',
-              Converter: null as any,
+              Converter: null,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null as any,
+              ForeignKeyDescription: null,
               Aggregate: false,
               Virtual: false,
             },
@@ -771,13 +771,13 @@ describe('Relations query builder', () => {
               PrimaryKey: true,
               AutoIncrement: true,
               Name: 'RelationProperty3',
-              Converter: null as any,
+              Converter: null,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null as any,
+              ForeignKeyDescription: null,
               Aggregate: false,
               Virtual: false,
             },
@@ -799,13 +799,13 @@ describe('Relations query builder', () => {
               PrimaryKey: true,
               AutoIncrement: true,
               Name: 'Id',
-              Converter: null as any,
+              Converter: null,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null as any,
+              ForeignKeyDescription: null,
               Aggregate: false,
               Virtual: false,
             },
@@ -820,13 +820,13 @@ describe('Relations query builder', () => {
               PrimaryKey: false,
               AutoIncrement: false,
               Name: 'owner_id',
-              Converter: null as any,
+              Converter: null,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null as any,
+              ForeignKeyDescription: null,
               Aggregate: false,
               Virtual: false,
             },
@@ -841,13 +841,13 @@ describe('Relations query builder', () => {
               PrimaryKey: false,
               AutoIncrement: false,
               Name: 'target_id',
-              Converter: null as any,
+              Converter: null,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null as any,
+              ForeignKeyDescription: null,
               Aggregate: false,
               Virtual: false,
             },
@@ -869,13 +869,13 @@ describe('Relations query builder', () => {
               PrimaryKey: true,
               AutoIncrement: true,
               Name: 'Id',
-              Converter: null as any,
+              Converter: null,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null as any,
+              ForeignKeyDescription: null,
               Aggregate: false,
               Virtual: false,
             },
@@ -890,13 +890,13 @@ describe('Relations query builder', () => {
               PrimaryKey: false,
               AutoIncrement: false,
               Name: 'Model4Property',
-              Converter: null as any,
+              Converter: null,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null as any,
+              ForeignKeyDescription: null,
               Aggregate: false,
               Virtual: false,
             },
@@ -1675,7 +1675,7 @@ describe('insert query builder', () => {
       .into('users')
       .values({ id: 1, active: true, email: 'spine@spine.pl' })
       .onDuplicate('id')
-      .update([RawQuery.create('`counter` = `counter` + ?', [5])] as any)
+      .update([RawQuery.create('`counter` = `counter` + ?', [5])])
       .toDB() as ICompilerOutput;
 
     expect(result.expression).to.equal('INSERT INTO `users` (`id`,`active`,`email`) VALUES (?,?,?) ON DUPLICATE KEY UPDATE `counter` = `counter` + ?');
@@ -2308,12 +2308,12 @@ describe('Identifier escaping ( A3 )', () => {
 describe('SqlDatetimeValueConverter', () => {
   it('toDB(undefined) should return null, not the epoch ( B16a )', () => {
     const converter = new SqlDatetimeValueConverter();
-    expect(converter.toDB(undefined as any, null as any, null as any)).to.be.null;
+    expect(converter.toDB(undefined, null as any, null as any)).to.be.null;
   });
 
   it('toDB(null) should return null ( B16a )', () => {
     const converter = new SqlDatetimeValueConverter();
-    expect(converter.toDB(null as any, null as any, null as any)).to.be.null;
+    expect(converter.toDB(null, null as any, null as any)).to.be.null;
   });
 });
 

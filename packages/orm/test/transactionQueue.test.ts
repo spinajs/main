@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';

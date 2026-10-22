@@ -116,7 +116,7 @@ export function format(customVars: ConfVariables | null, layout: string): string
       {
         ...customVars,
         message: _format(customVars, customVars.message),
-      } as ConfVariables,
+      },
       layout,
     );
   }
@@ -178,8 +178,8 @@ function _replaceConditionals(text: string, fn: (name: string, body: string) => 
   const closes = new Map<string, number[]>();
   for (const m of text.matchAll(/\$\{\/([a-zA-Z0-9_]+)\}/g)) {
     const at = closes.get(m[1]);
-    if (at) at.push(m.index!);
-    else closes.set(m[1], [m.index!]);
+    if (at) at.push(m.index);
+    else closes.set(m[1], [m.index]);
   }
   if (closes.size === 0) {
     return text;

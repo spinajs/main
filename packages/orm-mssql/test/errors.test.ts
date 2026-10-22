@@ -68,16 +68,16 @@ describe('mssql driver error mapping', function () {
       input: () => request,
       query: () => Promise.reject(native),
     };
-    (driver as any)._connectionPool = { request: () => request };
+    Object.assign(driver, { _connectionPool: { request: () => request } });
 
-    let err: any;
+    let err: UniqueViolation | undefined;
     try {
       await driver.executeOnDb('INSERT INTO t (id) VALUES (?)', [1], QueryContext.Insert);
     } catch (e) {
-      err = e;
+      err = e as UniqueViolation;
     }
 
     expect(err).to.be.instanceOf(UniqueViolation);
-    expect(err.inner).to.eq(native);
+    expect(err?.inner).to.eq(native);
   });
 });

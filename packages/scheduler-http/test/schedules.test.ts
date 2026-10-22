@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 
-import { httpStatusForError, InvalidRunParams, RunConflict, ScheduleNotFound, SchedulePaused } from '@spinajs/scheduler';
+import { ActionContext, httpStatusForError, InvalidRunParams, PauseOptions, RunConflict, RunNowOptions, RunNowResult, ScheduleNotFound, SchedulePaused } from '@spinajs/scheduler';
 
 import { asRole, bootHttp, JSON_HEADERS, req, stopHttp, TEST_USER_UUID } from './common.js';
 import { FakeSchedulerService, makeRun, makeSchedule, OTHER_RUN_ID, RUN_ID, SCHEDULE_NAME } from './fakes/fake-scheduler.js';
@@ -84,13 +84,13 @@ describe('scheduler-http: schedules', function () {
       const res = await req().post(url).set(asRole('scheduler-operator'));
 
       expect(res).to.have.status(202);
-      expect((fake.callsTo('runNow')[0][1] as any).force).to.eq(false);
+      expect((fake.callsTo('runNow')[0][1] as RunNowOptions).force).to.eq(false);
     });
 
     it('records api-token callers as token principals', async () => {
       await req().post(url).set(asRole('scheduler-operator', { 'x-test-token': 'tok-1' })).send({});
 
-      expect((fake.callsTo('runNow')[0][1] as any).triggeredBy.kind).to.eq('token');
+      expect((fake.callsTo('runNow')[0][1] as RunNowOptions).triggeredBy.kind).to.eq('token');
     });
 
     it('passes force and wait through', async () => {
@@ -105,8 +105,9 @@ describe('scheduler-http: schedules', function () {
       const res = await req().post(url).set(asRole('scheduler-operator')).send({ wait: true });
 
       expect(res).to.have.status(200);
-      expect(res.body.runId).to.eq(RUN_ID);
-      expect(res.body.run.status).to.eq('succeeded');
+      const body: RunNowResult = res.body;
+      expect(body.runId).to.eq(RUN_ID);
+      expect(body.run?.status).to.eq('succeeded');
     });
 
     it('answers 409 with the id of the blocking run', async () => {
@@ -117,7 +118,8 @@ describe('scheduler-http: schedules', function () {
 
       expect(res).to.have.status(409);
       expect(res.status).to.eq(httpStatusForError(err));
-      expect(res.body.runId).to.eq(RUN_ID);
+      const body: { runId: string } = res.body;
+      expect(body.runId).to.eq(RUN_ID);
     });
 
     it('answers 400 with the param errors when params do not match the schedule schema', async () => {
@@ -128,7 +130,8 @@ describe('scheduler-http: schedules', function () {
 
       expect(res).to.have.status(400);
       expect(res.status).to.eq(httpStatusForError(err));
-      expect(res.body.errors).to.deep.equal([{ path: '/file', message: 'must be string' }]);
+      const body: { errors: unknown[] } = res.body;
+      expect(body.errors).to.deep.equal([{ path: '/file', message: 'must be string' }]);
     });
 
     it('answers 409 when the schedule is hard-paused', async () => {
@@ -173,7 +176,7 @@ describe('scheduler-http: schedules', function () {
       expect(res).to.have.status(202);
       expect(res.body).to.deep.equal({ runIds: [OTHER_RUN_ID] });
 
-      const [name, since, ctx] = fake.callsTo('retryFailed')[0] as [string, string, any];
+      const [name, since, ctx] = fake.callsTo('retryFailed')[0] as [string, string, ActionContext];
       expect(name).to.eq(SCHEDULE_NAME);
       expect(since).to.eq('2026-10-01T00:00:00.000Z');
       expect(ctx.triggeredBy.id).to.eq(TEST_USER_UUID);
@@ -201,7 +204,7 @@ describe('scheduler-http: schedules', function () {
       expect(res).to.have.status(200);
       expect(res.body).to.containSubset({ name: SCHEDULE_NAME, paused: true, hardPaused: true });
 
-      const [name, options] = fake.callsTo('pause')[0] as [string, any];
+      const [name, options] = fake.callsTo('pause')[0] as [string, PauseOptions];
       expect(name).to.eq(SCHEDULE_NAME);
       expect(options.hard).to.eq(true);
       expect(options.triggeredBy.kind).to.eq('user');
@@ -210,14 +213,15 @@ describe('scheduler-http: schedules', function () {
     it('defaults to a soft pause', async () => {
       await req().post(`scheduler/schedules/${SCHEDULE_NAME}/pause`).set(asRole('scheduler-admin'));
 
-      expect((fake.callsTo('pause')[0][1] as any).hard).to.eq(false);
+      expect((fake.callsTo('pause')[0][1] as PauseOptions).hard).to.eq(false);
     });
 
     it('resumes and returns the schedule', async () => {
       const res = await req().post(`scheduler/schedules/${SCHEDULE_NAME}/resume`).set(asRole('scheduler-admin'));
 
       expect(res).to.have.status(200);
-      expect(res.body.paused).to.eq(false);
+      const body: { paused: boolean } = res.body;
+      expect(body.paused).to.eq(false);
       expect(fake.callsTo('resume')[0][0]).to.eq(SCHEDULE_NAME);
     });
 

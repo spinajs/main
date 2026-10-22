@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 import { expect } from 'chai';
 import 'mocha';
 import '@spinajs/log';

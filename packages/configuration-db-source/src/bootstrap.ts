@@ -72,15 +72,15 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     // A deployment migrated by the CLI resolves no migrator, so the Orm's resolve is the signal when the table is
     // already there; otherwise the migrator creates it.
     this.listen('di.resolved.Orm', (container: unknown, orm: unknown) => {
-      void this.tableExists(orm as Orm)
-        .then((exists) => {
-          if (exists) {
+      void (async () => {
+        try {
+          if (await this.tableExists(orm as Orm)) {
             this.syncExposedOptions(container as IContainer);
           }
-        })
-        .catch((err) => {
+        } catch (err) {
           InternalLogger.error({ error: err }, 'Failed to check the configuration table', LOG_CHANNEL);
-        });
+        }
+      })();
     });
 
     this.listen('di.resolved.OrmMigrator', (container: unknown, migrator: unknown) => {

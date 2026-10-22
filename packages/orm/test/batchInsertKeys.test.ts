@@ -9,6 +9,7 @@ import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
 import '@spinajs/log';
 import { Orm } from '../src/index.js';
+import { InsertQueryBuilder } from '../src/builders.js';
 import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeInsertQueryCompiler, FakeUpdateQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeConverter, FakeTableQueryCompiler } from './misc.js';
 import { DbServerResponse, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, DatetimeValueConverter, TableQueryCompiler, ServerResponseMapper, InsertBehaviour } from '../src/interfaces.js';
 import { Model1 } from './mocks/models/Model1.js';
@@ -17,7 +18,7 @@ chai.use(chaiAsPromised);
 const expect = chai.expect;
 
 /** What the fake server "replies" with. Each test sets this before inserting. */
-let RESPONSE: any = { RowsAffected: 0, LastInsertId: 0, Returning: [] };
+let RESPONSE: DbServerResponse | ((builder: InsertQueryBuilder) => DbServerResponse) = { RowsAffected: 0, LastInsertId: 0, Returning: [] };
 
 /**
  * Whether the fake dialect's LastInsertId is the FIRST id of a multi-row statement ( MySQL ) or
@@ -32,7 +33,7 @@ let MAX_INSERT_ROWS: number | undefined;
  * 3 rows starting at id 10" without going near a real database.
  */
 class PassthroughResponseMapper extends ServerResponseMapper {
-  public read(response: any): DbServerResponse {
+  public read(response: Partial<DbServerResponse> | undefined): DbServerResponse {
     return {
       LastInsertId: response?.LastInsertId ?? 0,
       RowsAffected: response?.RowsAffected ?? 0,
@@ -52,7 +53,7 @@ class BatchInsertDriver extends FakeSqliteDriver {
     return { ...super.supportedFeatures(), insertReturning: false, insertIdIsFirstOfBatch: FIRST_ID };
   }
 
-  public async execute(builder: any): Promise<any> {
+  public async execute(builder: InsertQueryBuilder): Promise<DbServerResponse> {
     builder.toDB();
     return typeof RESPONSE === 'function' ? RESPONSE(builder) : RESPONSE;
   }
@@ -142,7 +143,7 @@ describe('batch insert key backfill', () => {
   it('does not backfill a batch split into several statements', async () => {
     MAX_INSERT_ROWS = 2;
     let firstId = 10;
-    RESPONSE = (builder: any) => {
+    RESPONSE = (builder: InsertQueryBuilder) => {
       const response = { RowsAffected: builder.Values.length, LastInsertId: firstId, Returning: [] };
       firstId += 100;
       return response;
@@ -157,7 +158,7 @@ describe('batch insert key backfill', () => {
   it('RETURNING still backfills a batch split into several statements', async () => {
     MAX_INSERT_ROWS = 2;
     let nextId = 7;
-    RESPONSE = (builder: any) => ({ RowsAffected: builder.Values.length, LastInsertId: 0, Returning: builder.Values.map(() => ({ Id: nextId++ })) });
+    RESPONSE = (builder: InsertQueryBuilder) => ({ RowsAffected: builder.Values.length, LastInsertId: 0, Returning: builder.Values.map(() => ({ Id: nextId++ })) });
 
     const models = [new Model1(), new Model1(), new Model1()];
     await Model1.insert(models);

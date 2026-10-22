@@ -588,7 +588,7 @@ export class DefaultSchedulerService extends SchedulerService {
   protected async waitForEnd(runId: string, timeoutMs?: number): Promise<RunInfo> {
     let finish!: () => void;
     const finished = new Promise<void>((resolve) => (finish = resolve));
-    let timer: TimerHandle | undefined;
+    let timer: TimerHandle = undefined;
     const off = await this.Hub.subscribe({ runId }, (e) => {
       if (e.type === 'status' && isTerminalStatus(e.status)) finish();
     });

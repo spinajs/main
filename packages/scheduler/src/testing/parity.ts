@@ -481,7 +481,7 @@ export async function runParityCases(o: {
       try {
         r = await driver.invoke(action);
       } catch (err) {
-        throw new Error(`parity case '${c.title}', driver ${driver.name}: ${(err as Error).message}`);
+        throw new Error(`parity case '${c.title}', driver ${driver.name}: ${(err as Error).message}`, { cause: err });
       }
       results[driver.name] = r.ok ? { ok: true, value: normalizeForParity(r.value) } : r;
     }

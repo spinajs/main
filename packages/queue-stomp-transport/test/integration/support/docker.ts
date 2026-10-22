@@ -30,7 +30,7 @@ function stompHandshake(timeoutMs = 5000): Promise<boolean> {
     };
     const timer = setTimeout(() => done(false), timeoutMs);
     socket.on('open', () => socket.send(`CONNECT\naccept-version:1.2\nhost:localhost\nlogin:${STOMP_LOGIN}\npasscode:${STOMP_PASSWORD}\n\n\0`));
-    socket.on('message', (data) => done(String(data).startsWith('CONNECTED')));
+    socket.on('message', (data) => done(Buffer.isBuffer(data) && data.toString().startsWith('CONNECTED')));
     socket.on('error', () => done(false));
   });
 }

@@ -14,12 +14,18 @@ interface PrincipalArg {
   readonly id: string;
 }
 
+function isPrincipalArg(p: unknown): p is PrincipalArg {
+  if (p === null || typeof p !== 'object') return false;
+  const { type, id } = p as { type?: unknown; id?: unknown };
+  return typeof type === 'string' && type !== '' && typeof id === 'string';
+}
+
 function principalsOf(args: unknown, op: string): PrincipalArg[] {
   const list = (args as { principals?: unknown } | null)?.principals;
-  if (!Array.isArray(list) || !list.every((p) => p !== null && typeof p === 'object' && typeof p.type === 'string' && p.type !== '' && typeof p.id === 'string')) {
+  if (!Array.isArray(list) || !list.every(isPrincipalArg)) {
     throw new AuthzConfigError(`authz-orm: ${op} args must be { principals: { type, id }[] }, got ${JSON.stringify(args)}`);
   }
-  return list as PrincipalArg[];
+  return list;
 }
 
 function columnsOf(row: PlanRow, name: 'owner' | 'self'): Columns {

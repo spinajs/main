@@ -23,7 +23,7 @@ describe('DbAuthzAdminBackend on Postgres', function () {
   it('runs batches of different domains side by side', async () => {
     const backend = new DbAuthzAdminBackend();
     let release!: () => void;
-    const gate = new Promise<void>((r) => (release = r));
+    const gate = new Promise<void>((resolve) => (release = resolve));
 
     const slow = backend.transaction('pg_d1', async (tx) => {
       await gate;
@@ -34,7 +34,7 @@ describe('DbAuthzAdminBackend on Postgres', function () {
       return 'done';
     });
 
-    const winner = await Promise.race([fast, new Promise((r) => setTimeout(() => r('queued behind pg_d1'), PG_ACQUIRE_TIMEOUT))]);
+    const winner = await Promise.race([fast, new Promise((resolve) => setTimeout(() => resolve('queued behind pg_d1'), PG_ACQUIRE_TIMEOUT))]);
     release();
     await Promise.all([slow, fast]);
 
@@ -48,7 +48,7 @@ describe('DbAuthzAdminBackend on Postgres', function () {
     const before = BigInt(await readVersion('pg_same'));
     const events: string[] = [];
     let release!: () => void;
-    const gate = new Promise<void>((r) => (release = r));
+    const gate = new Promise<void>((resolve) => (release = resolve));
 
     const first = backend.transaction('pg_same', async (tx) => {
       events.push('first:start');
@@ -56,14 +56,14 @@ describe('DbAuthzAdminBackend on Postgres', function () {
       await backend.bumpVersion('pg_same', tx);
       events.push('first:end');
     });
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((resolve) => setTimeout(resolve, 200));
     const second = backend.transaction('pg_same', async (tx) => {
       events.push('second:start');
       await backend.bumpVersion('pg_same', tx);
       events.push('second:end');
     });
 
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
     expect(events).to.deep.eq(['first:start']);
     release();
     await Promise.all([first, second]);

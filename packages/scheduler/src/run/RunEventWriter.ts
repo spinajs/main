@@ -104,7 +104,7 @@ export class RunEventWriter {
           schedule: run.Schedule,
           attempt,
           ts: new Date(ts).toISOString(),
-        } as RunEvent;
+        };
         this.Hub.publish(event);
         if (payload.type === 'status' && isTerminalStatus(payload.status)) this.forget(run.Id);
         return event;

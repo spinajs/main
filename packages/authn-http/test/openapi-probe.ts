@@ -7,7 +7,7 @@ import { bootApp, startServer, stopApp } from './v3-app/app.js';
 
 await bootApp();
 await startServer();
-const spec = await ((await DI.resolve(SwaggerService)) as SwaggerService).buildSpec();
+const spec = await (await DI.resolve(SwaggerService)).buildSpec();
 process.stdout.write(`<<JSON\n${JSON.stringify(spec)}\nJSON>>\n`);
 await stopApp();
 process.exit(0);

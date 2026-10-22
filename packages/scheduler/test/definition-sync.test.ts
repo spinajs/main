@@ -72,7 +72,7 @@ describe('DefinitionSync', () => {
     const stale = await ScheduleModel.all();
     const advanced = Date.parse('2026-01-05T10:10:00Z');
     await ScheduleModel.update({ NextRunAt: advanced }).where('Name', 'a');
-    const all = sinon.stub(ScheduleModel, 'all').resolves(stale as never);
+    const all = sinon.stub(ScheduleModel, 'all').resolves(stale);
     try {
       await sync.sync(defs(['a', { every: '5m', retry: { attempts: 2 } }]), NOW + 60_000);
     } finally {
@@ -91,7 +91,7 @@ describe('DefinitionSync', () => {
     await sync.sync(defs(['a', { every: '5m' }]), NOW);
     const stale = await ScheduleModel.all();
     await ScheduleModel.update({ DefinitionHash: 'written-by-another-replica' }).where('Name', 'a');
-    const all = sinon.stub(ScheduleModel, 'all').resolves(stale as never);
+    const all = sinon.stub(ScheduleModel, 'all').resolves(stale);
     try {
       await sync.sync(defs(['a', { every: '1h' }]), NOW + 60_000);
     } finally {

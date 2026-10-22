@@ -43,10 +43,9 @@ async function main() {
   await DI.resolve(Cli);
 }
 
-main().then(
-  () => process.exit(process.exitCode ?? 0),
-  (err: Error) => {
+main()
+  .then(() => process.exit(process.exitCode ?? 0))
+  .catch((err: Error) => {
     console.error(err.stack ?? err.message);
     process.exit(99);
-  },
-);
+  });

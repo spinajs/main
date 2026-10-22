@@ -16,5 +16,5 @@ export async function reparent(model: Class<ModelBase>, ids: readonly (string | 
   }
   if (ids.length === 0) return 0;
   const records = model as unknown as typeof ModelBase;
-  return driverOf(model).transaction(async () => (await records.update({ [parent.column]: newParentId } as Partial<ModelBase>).whereIn(entry.idColumn, [...ids])).RowsAffected);
+  return driverOf(model).transaction(async () => (await records.update({ [parent.column]: newParentId }).whereIn(entry.idColumn, [...ids])).RowsAffected);
 }

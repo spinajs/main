@@ -20,7 +20,7 @@ const COUNT = 2500;
 
 /** The result of `fn` and the number of statements `driver` executed while it ran. */
 async function statements<T>(driver: OrmDriver, fn: () => Promise<T>): Promise<{ result: T; count: number }> {
-  const spied = driver as unknown as { execute(...args: unknown[]): Promise<unknown> };
+  const spied = driver as unknown as { execute: (this: unknown, ...args: unknown[]) => Promise<unknown> };
   const original = spied.execute;
   let count = 0;
   spied.execute = function (this: unknown, ...args: unknown[]) {

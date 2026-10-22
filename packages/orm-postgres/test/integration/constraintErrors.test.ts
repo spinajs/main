@@ -14,11 +14,13 @@ class PgGapUnique extends ModelBase {
   public Email: string;
 }
 
-async function failure(work: PromiseLike<unknown>): Promise<any> {
+type MappedError = { table?: string; columns?: string[]; kind?: string; inner: { code?: string } };
+
+async function failure(work: PromiseLike<unknown>): Promise<MappedError> {
   try {
     await work;
   } catch (err) {
-    return err;
+    return err as MappedError;
   }
 
   throw new Error('expected the statement to fail');

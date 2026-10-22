@@ -67,7 +67,7 @@ export class OrmMutex extends Mutex {
     const ttl = this.ttlOf(options);
     const now = await this.now();
 
-    const result: IUpdateResult = await (__mutex__ as any)
+    const result: IUpdateResult = await __mutex__
       .update({
         LockedUntil: ttl > 0 ? now + ttl : null,
       })
@@ -86,11 +86,11 @@ export class OrmMutex extends Mutex {
     let result: IUpdateResult = null as any;
 
     if (deleteOnClose) {
-      result = await (__mutex__ as any).destroy(name).where({
+      result = await __mutex__.destroy(name).where({
         Tenant: tenant,
       });
     } else {
-      result = await (__mutex__ as any)
+      result = await __mutex__
         .update({
           Locked: false,
           LockedUntil: null,
@@ -109,7 +109,7 @@ export class OrmMutex extends Mutex {
     const name = this.nameOf(options.Name);
     const tenant = this.tenantOf(options);
 
-    const mutex = await (__mutex__ as any).getOrCreate(name, {
+    const mutex = await __mutex__.getOrCreate(name, {
       Name: name,
       Tenant: tenant,
     });
@@ -123,7 +123,7 @@ export class OrmMutex extends Mutex {
     const name = this.nameOf(options.Name);
     const tenant = this.tenantOf(options);
 
-    const result = await (__mutex__ as any).destroy(name).where({
+    const result = await __mutex__.destroy(name).where({
       Tenant: tenant,
       Locked: false,
     });
@@ -131,7 +131,7 @@ export class OrmMutex extends Mutex {
   }
 
   public async get(name: string): Promise<MutexLock | null> {
-    const row = await (__mutex__ as any).get(this.nameOf(name));
+    const row = await __mutex__.get(this.nameOf(name));
 
     // pg returns BIGINT as a string
     if (row && row.LockedUntil !== null && row.LockedUntil !== undefined) {
@@ -172,7 +172,7 @@ export class OrmMutex extends Mutex {
   protected async tryLock(name: string, tenant: string, ttl: number): Promise<boolean> {
     const now = await this.now();
 
-    const result: IUpdateResult = await (__mutex__ as any)
+    const result: IUpdateResult = await __mutex__
       .update({
         Locked: true,
         Tenant: tenant,
@@ -215,11 +215,13 @@ export class OrmMutex extends Mutex {
   }
 
   protected nameOf(name: string): string {
-    return _check_arg(_trim(), _non_empty())(name, 'Empty mutex name');
+    const checked: string = _check_arg(_trim(), _non_empty())(name, 'Empty mutex name');
+    return checked;
   }
 
   protected tenantOf(options: MutexLockOptions): string {
-    return _check_arg(_trim(), _default(() => this.ConfiguredTenant || processIdentity()))(options.Tenant, '');
+    const tenant: string = _check_arg(_trim(), _default(() => this.ConfiguredTenant || processIdentity()))(options.Tenant, '');
+    return tenant;
   }
 
   protected ttlOf(options: MutexLockOptions): number {

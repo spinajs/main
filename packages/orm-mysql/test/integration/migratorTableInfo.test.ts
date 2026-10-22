@@ -146,7 +146,7 @@ describe('MySQL integration - OrmMigrator table info re-read', function () {
     const tableInfo = sinon.spy(MySqlOrmDriver.prototype, 'tableInfo');
     await migrator.migrate();
 
-    const reads = tableInfo.getCalls().map((c) => c.args[0] as string);
+    const reads = tableInfo.getCalls().map((c) => c.args[0]);
     expect(reads).to.include('mti_mysql_posts');
     expect(reads).to.not.include('mti_mysql_notes');
     expect(names(schema.Post)).to.have.members(['Id', 'Extra']);

@@ -307,7 +307,7 @@ describe('postgres SQL compilation', function () {
         .alterTable('test', (table) => {
           table.int('Id2');
         })
-        .toDB() as unknown as ICompilerOutput[];
+        .toDB();
 
       expect(result[0].expression).to.equal('ALTER TABLE "test" ADD COLUMN "Id2" INTEGER');
     });
@@ -317,7 +317,7 @@ describe('postgres SQL compilation', function () {
         .alterTable('test', (table) => {
           table.dropColumn('Gone');
         })
-        .toDB() as unknown as ICompilerOutput[];
+        .toDB();
 
       expect(result[0].expression).to.equal('ALTER TABLE "test" DROP COLUMN "Gone"');
     });
@@ -327,7 +327,7 @@ describe('postgres SQL compilation', function () {
         .alterTable('test', (table) => {
           table.string('Id2', 128).notNull().modify();
         })
-        .toDB() as unknown as ICompilerOutput[];
+        .toDB();
 
       expect(result[0].expression).to.equal('ALTER TABLE "test" ALTER COLUMN "Id2" TYPE VARCHAR(128) USING "Id2"::VARCHAR(128), ALTER COLUMN "Id2" SET NOT NULL, ALTER COLUMN "Id2" DROP DEFAULT');
     });
@@ -337,7 +337,7 @@ describe('postgres SQL compilation', function () {
         .alterTable('test', (table) => {
           table.boolean('IsActive').modify().notNull().default().value(1);
         })
-        .toDB() as unknown as ICompilerOutput[];
+        .toDB();
 
       expect(result[0].expression).to.contain('ALTER COLUMN "IsActive" SET DEFAULT TRUE');
     });
@@ -347,7 +347,7 @@ describe('postgres SQL compilation', function () {
         .alterTable('test', (table) => {
           table.int('OldName').rename('NewName');
         })
-        .toDB() as unknown as ICompilerOutput[];
+        .toDB();
 
       expect(result[0].expression).to.equal('ALTER TABLE "test" RENAME COLUMN "OldName" TO "NewName"');
     });

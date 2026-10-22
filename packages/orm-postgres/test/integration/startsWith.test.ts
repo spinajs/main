@@ -41,7 +41,7 @@ describe('postgres whereStartsWith (integration)', function () {
 
   for (const [prefix, expected] of CASES) {
     it(`matches ${JSON.stringify(prefix)} literally and case-sensitively`, async () => {
-      const rows = (await pgdb!.driver.select().select('Path').from('pg_starts').whereStartsWith('Path', prefix).asRaw()) as { Path: string }[];
+      const rows = (await pgdb!.driver.select().select('Path').from('pg_starts').whereStartsWith('Path', prefix).asRaw<{ Path: string }[]>());
 
       expect(rows.map((r) => r.Path).sort()).to.deep.eq(expected);
     });

@@ -14,7 +14,7 @@ function driver(): SqliteOrmDriver {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function names(): Promise<string[]> {
-  return ((await driver().select().from('gap_tx').orderBy('Id').asRaw()) as { Name: string }[]).map((r) => r.Name);
+  return (await driver().select().from('gap_tx').orderBy('Id').asRaw<{ Name: string }[]>()).map((r) => r.Name);
 }
 
 /** Opens a transaction that inserts `inside`, then waits for `finish()` and rolls back. */
@@ -91,14 +91,10 @@ describe('sqlite transaction serialisation', function () {
     await tx.isOpen;
 
     let outsideDone = false;
-    const outside = driver()
-      .insert()
-      .into('gap_tx')
-      .values({ Name: 'outside' })
-      .execute()
-      .then(() => {
-        outsideDone = true;
-      });
+    const outside = (async () => {
+      await driver().insert().into('gap_tx').values({ Name: 'outside' }).execute();
+      outsideDone = true;
+    })();
 
     await sleep(30);
     expect(outsideDone, 'the outside write ran inside the open transaction').to.eq(false);
@@ -135,7 +131,7 @@ describe('sqlite transaction serialisation', function () {
         .catch(() => undefined);
       await Promise.all([outside, tx]);
 
-      if (((await driver().select().from('gap_tx').where('Name', `outside-${i}`).asRaw()) as unknown[]).length === 0) {
+      if ((await driver().select().from('gap_tx').where('Name', `outside-${i}`).asRaw<unknown[]>()).length === 0) {
         lost.push(i);
       }
     }

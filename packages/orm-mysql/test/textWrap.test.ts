@@ -2,7 +2,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { ICompilerOutput, Wrapper } from '@spinajs/orm';
+import { Wrapper } from '@spinajs/orm';
 import { MySqlOrmDriver } from '../src/index.js';
 
 describe('mysql Wrapper.Text', function () {
@@ -19,7 +19,7 @@ describe('mysql Wrapper.Text', function () {
   });
 
   it('casts to CHAR in where() and whereIn()', () => {
-    expect((driver.select().from('t', 'i').whereIn(Wrapper.Text('Id'), ['1', '2']).toDB() as ICompilerOutput).expression).to.contain('CAST(`i`.`Id` AS CHAR) IN (?,?)');
-    expect((driver.select().from('t').where(Wrapper.Text('Id'), '=', '1').toDB() as ICompilerOutput).expression).to.contain('CAST(`Id` AS CHAR) = ?');
+    expect((driver.select().from('t', 'i').whereIn(Wrapper.Text('Id'), ['1', '2']).toDB()).expression).to.contain('CAST(`i`.`Id` AS CHAR) IN (?,?)');
+    expect((driver.select().from('t').where(Wrapper.Text('Id'), '=', '1').toDB()).expression).to.contain('CAST(`Id` AS CHAR) = ?');
   });
 });

@@ -57,6 +57,7 @@ export function followInProcess(service: SchedulerService, o: FollowOptions): Pr
       o.signal?.removeEventListener('abort', onAbort);
       off?.();
       if (err === undefined) resolve();
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- rejects with whatever the callback threw, as the SSE path does
       else reject(err);
     };
     const onAbort = () => finish();
@@ -90,6 +91,7 @@ export function followInProcess(service: SchedulerService, o: FollowOptions): Pr
  * repeat the current position: they are delivered and show the stream is alive, but never
  * change the resume point.
  */
+// eslint-disable-next-line complexity -- one reconnect loop owns the empty-stream and downtime budgets; splitting it scatters that state
 export async function followOverSse(http: FollowHttpOptions, o: FollowOptions): Promise<void> {
   const path =
     'runId' in o.target
@@ -152,9 +154,9 @@ export async function followOverSse(http: FollowHttpOptions, o: FollowOptions): 
       const decoder = new TextDecoder();
       // leaving a loop over the body cancels it, which closes the connection
       for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
-        for (const m of parser.push(decoder.decode(chunk, { stream: true }))) if (handle(m)) return;
+        if (parser.push(decoder.decode(chunk, { stream: true })).some(handle)) return;
       }
-      for (const m of parser.end(decoder.decode())) if (handle(m)) return;
+      if (parser.end(decoder.decode()).some(handle)) return;
     } catch (err) {
       if (o.signal?.aborted) return;
       if (err instanceof FinalError) throw err.error;
@@ -178,6 +180,7 @@ export async function followOverSse(http: FollowHttpOptions, o: FollowOptions): 
     failures++;
     downSince ??= Date.now();
     if (Date.now() - downSince >= maxDownMs) {
+      // eslint-disable-next-line @typescript-eslint/no-base-to-string -- fetch and stream reads reject with Errors; String() only covers an odd non-Error reason
       const reason = failure instanceof Error ? failure.message : String(failure);
       throw new Error(`event stream ${url} unreachable for ${Math.round(maxDownMs / 1000)} s: ${reason}`);
     }

@@ -131,7 +131,7 @@ describe('Variable forma test', () => {
       {
         message: 'ignored',
         greet: (name?: string) => `hi ${name ?? 'anon'}`,
-      } as any,
+      },
       '${greet:bob}',
     );
     expect(formatted).to.eq('hi bob');
@@ -142,20 +142,20 @@ describe('Variable forma test', () => {
       {
         message: 'ignored',
         obj: { stamp: () => 'STAMPED' },
-      } as any,
+      },
       '${obj:stamp}',
     );
     expect(formatted).to.eq('STAMPED');
   });
 
   it('Should keep special replacement patterns ($&, $`) literal in values', () => {
-    expect(format({ weird: 'a$&b' } as any, '${weird}')).to.eq('a$&b');
-    expect(format({ weird: 'x$`y' } as any, '${weird}')).to.eq('x$`y');
-    expect(format({ weird: 'price $100 & 50%' } as any, 'cost: ${weird}')).to.eq('cost: price $100 & 50%');
+    expect(format({ weird: 'a$&b' }, '${weird}')).to.eq('a$&b');
+    expect(format({ weird: 'x$`y' }, '${weird}')).to.eq('x$`y');
+    expect(format({ weird: 'price $100 & 50%' }, 'cost: ${weird}')).to.eq('cost: price $100 & 50%');
   });
 
   it('Should replace every occurrence of a string custom var', () => {
-    expect(format({ x: 'Q' } as any, '${x}-${x}-${x}')).to.eq('Q-Q-Q');
+    expect(format({ x: 'Q' }, '${x}-${x}-${x}')).to.eq('Q-Q-Q');
   });
 
   it('Should recursively format the message field before interpolation', () => {
@@ -163,24 +163,24 @@ describe('Variable forma test', () => {
       {
         message: 'hello ${who}',
         who: 'world',
-      } as any,
+      },
       '[${message}]',
     );
     expect(formatted).to.eq('[hello world]');
   });
 
   it('Should render 0 and empty string custom values instead of falling through', () => {
-    expect(format({ count: 0 } as any, '[${count}]')).to.eq('[0]');
-    expect(format({ user: '' } as any, '[${user}]')).to.eq('[]');
+    expect(format({ count: 0 }, '[${count}]')).to.eq('[0]');
+    expect(format({ user: '' }, '[${user}]')).to.eq('[]');
   });
 
   it('Should not render conditional block when variable is false', () => {
-    expect(format({ flag: false } as any, 'a${?flag} on${/flag}')).to.eq('a');
+    expect(format({ flag: false }, 'a${?flag} on${/flag}')).to.eq('a');
   });
 
   it('Should keep replacement patterns literal in function and property values', () => {
-    expect(format({ err: { message: 'a$&b' } } as any, '${err:message}')).to.eq('a$&b');
-    expect(format({ fn: () => 'x$`y' } as any, '${fn}')).to.eq('x$`y');
+    expect(format({ err: { message: 'a$&b' } }, '${err:message}')).to.eq('a$&b');
+    expect(format({ fn: () => 'x$`y' }, '${fn}')).to.eq('x$`y');
   });
 
   it('Should see a variable registered after the first format call', () => {
@@ -212,15 +212,15 @@ describe('Variable forma test', () => {
     expect(format(vars, '${?a}1${/a}2${/a}')).to.eq('12');
     expect(format(vars, '${?a}${?a}x${/a}')).to.eq('x');
     expect(format(vars, '<${?a}x${?b}y${/a}z${/b}>')).to.eq('<xyz>');
-    expect(format({ b: 1 } as any, '${?a}x${/b}${?b}y${/b}${/a}')).to.eq('');
-    expect(format({ a: 1 } as any, '${?b}x${/a}${?a}y${/b}${/a}')).to.eq('');
+    expect(format({ b: 1 }, '${?a}x${/b}${?b}y${/b}${/a}')).to.eq('');
+    expect(format({ a: 1 }, '${?b}x${/a}${?a}y${/b}${/a}')).to.eq('');
     expect(format(vars, '${?a}open ${?b}done${/b}')).to.eq('open done');
   });
 
   it('Should format text with unclosed tags in linear time', () => {
     const started = performance.now();
-    expect(format({ message: '${?0}' + '${?0}a'.repeat(20_000) } as any, '${message}')).to.eq('a'.repeat(20_000));
-    expect(format({ message: '${'.repeat(50_000) } as any, '[${message}]')).to.eq('[' + '${'.repeat(50_000) + ']');
+    expect(format({ message: '${?0}' + '${?0}a'.repeat(20_000) }, '${message}')).to.eq('a'.repeat(20_000));
+    expect(format({ message: '${'.repeat(50_000) }, '[${message}]')).to.eq('[' + '${'.repeat(50_000) + ']');
     expect(format(null, '${?a}'.repeat(50_000) + '${/b}')).to.eq('');
     expect(performance.now() - started).to.be.below(1000);
   });

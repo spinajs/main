@@ -50,8 +50,8 @@ export async function bootUow(): Promise<Orm> {
 }
 
 /** Raw row read, bypassing the model layer — used to assert what actually reached the database. */
-export async function rows(table: string): Promise<any[]> {
-  return (await db().Connections.get('sqlite')!.select().from(table).asRaw<any[]>()) as any[];
+export async function rows<T = any>(table: string): Promise<T[]> {
+  return await db().Connections.get('sqlite')!.select().from(table).asRaw<T[]>();
 }
 
 export interface ICapturedStatement {

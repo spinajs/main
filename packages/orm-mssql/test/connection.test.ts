@@ -11,7 +11,7 @@ class ProbeDriver extends MsSqlOrmDriver {
 
 describe('mssql connection configuration', () => {
   it('binds and decodes datetimes as UTC', () => {
-    const config = new ProbeDriver({ Driver: 'orm-driver-mssql', Name: 'x', Host: 'h', Database: 'd' } as any).probe();
+    const config = new ProbeDriver({ Driver: 'orm-driver-mssql', Name: 'x', Host: 'h', Database: 'd' }).probe();
 
     expect(config.options?.useUTC).to.eq(true);
   });

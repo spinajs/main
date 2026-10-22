@@ -56,7 +56,7 @@ describe('mysql dialect', function () {
     const sent: string[] = [];
     driver.executeOnDb = (stmt: string) => (sent.push(stmt), Promise.resolve([]));
     // a transaction context in scope is all assertInTransaction() checks
-    await (driver as any).TransactionStorage.run({ depth: 0 }, () => driver.lockTableShared('users'));
+    await driver['TransactionStorage'].run({ depth: 0 }, () => driver.lockTableShared('users'));
 
     expect(sent).to.deep.eq(['SELECT COUNT(*) FROM `users` FOR UPDATE']);
   });

@@ -1,5 +1,5 @@
 import { Injectable } from '@spinajs/di';
-import { extractDecoratorPropertyDescriptor, IModelDescriptor, ValueConverter } from '@spinajs/orm';
+import { extractDecoratorPropertyDescriptor, IModelDescriptor, IValueConverterDescriptor, ValueConverter } from '@spinajs/orm';
 
 /**
  * BIGINT column as a JS number; Postgres returns int8 as a string.
@@ -22,23 +22,24 @@ export class EpochMsConverter extends Int8Converter {}
 @Injectable()
 export class DecimalConverter extends Int8Converter {}
 
-export function Int8() {
-  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: unknown, propertyKey: string) => {
-    model.Converters.set(propertyKey, { Class: Int8Converter });
+function converter(Class: IValueConverterDescriptor['Class']): PropertyDecorator {
+  const decorator: PropertyDecorator = extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: unknown, propertyKey: string) => {
+    model.Converters.set(propertyKey, { Class });
   });
+  return decorator;
+}
+
+export function Int8() {
+  return converter(Int8Converter);
 }
 
 export function Decimal() {
-  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: unknown, propertyKey: string) => {
-    model.Converters.set(propertyKey, { Class: DecimalConverter });
-  });
+  return converter(DecimalConverter);
 }
 
 /** BIGINT epoch-ms column. */
 export function EpochMs() {
-  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: unknown, propertyKey: string) => {
-    model.Converters.set(propertyKey, { Class: EpochMsConverter });
-  });
+  return converter(EpochMsConverter);
 }
 
 /**

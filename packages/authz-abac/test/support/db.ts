@@ -50,7 +50,7 @@ async function requirePostgres(ctx: Mocha.Context): Promise<void> {
     await admin.disconnect();
   } catch (err) {
     if (process.env.L2_REQUIRE_PG === '1') {
-      throw new Error(`Postgres at ${PG_SERVER.Host}:${PG_SERVER.Port} is unreachable and L2_REQUIRE_PG=1: ${(err as Error).message}`);
+      throw new Error(`Postgres at ${PG_SERVER.Host}:${PG_SERVER.Port} is unreachable and L2_REQUIRE_PG=1: ${(err as Error).message}`, { cause: err });
     }
 
     console.warn(`      Postgres at ${PG_SERVER.Host}:${PG_SERVER.Port} is unreachable, suite skipped (set L2_REQUIRE_PG=1 to fail instead)`);
@@ -108,7 +108,7 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string): P
       await super.resolve();
 
       // Replaced, not merged: package configs must not add connections here.
-      const config = this.Config as Record<string, unknown>;
+      const config = this.Config;
       const db = (config.db ?? {}) as { Aliases?: Record<string, string> };
       // authz_policy is created by hand after the boot (below).
       config.db = { ...db, DefaultConnection: name, Connections: connections, Aliases: { ...db.Aliases, authz: name }, StrictTableCheck: false };

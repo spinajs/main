@@ -62,16 +62,16 @@ describe('mysql driver error mapping', function () {
       query: (_stmt: string, _params: unknown[], cb: (err: unknown) => void) => cb(native),
       release: () => undefined,
     };
-    (driver as any).Pool = { getConnection: (cb: (err: unknown, connection: unknown) => void) => cb(null, connection) };
+    Object.assign(driver, { Pool: { getConnection: (cb: (err: unknown, connection: unknown) => void) => cb(null, connection) } });
 
-    let err: any;
+    let err: UniqueViolation | undefined;
     try {
       await driver.executeOnDb('INSERT INTO t (id) VALUES (?)', [1], QueryContext.Insert);
     } catch (e) {
-      err = e;
+      err = e as UniqueViolation;
     }
 
     expect(err).to.be.instanceOf(UniqueViolation);
-    expect(err.inner).to.eq(native);
+    expect(err?.inner).to.eq(native);
   });
 });

@@ -5,8 +5,9 @@ import { Class } from '@spinajs/di';
 import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, QueryBuilder, UpdateQueryBuilder } from './builders.js';
 import { extractModelDescriptor } from './descriptor.js';
 import type { OrmDriver } from './driver.js';
+import type { ModelBase } from './model.js';
 import { OrmException } from './exceptions.js';
-import { IInsertResult, ISaveOptions, ISaveResult, OrphanPolicy, ServerResponseMapper } from './interfaces.js';
+import { ISaveOptions, ISaveResult, OrphanPolicy, ServerResponseMapper } from './interfaces.js';
 import { assertAssignedKeys, generateClientSideKeys, pkColumns, pkGeneration, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
 import { ISortedPlan } from './subject-sorter.js';
 import { IJunctionDelta, IOrphanDelta, Subject } from './subject.js';
@@ -98,7 +99,7 @@ export class SubjectExecutor {
       query.returning(pkColumns(descriptor));
     }
 
-    const response = mapper.read((await query.values(this.insertPayload(subject))) as IInsertResult, pkColumns(descriptor));
+    const response = mapper.read((await query.values(this.insertPayload(subject))), pkColumns(descriptor));
 
     this.backfillKey(subject, response.Returning, response.LastInsertId, needsKeyBack);
 
@@ -122,7 +123,7 @@ export class SubjectExecutor {
       }
 
       const { query } = this.query(subject.Model.constructor, UpdateQueryBuilder);
-      const update = (query as UpdateQueryBuilder<unknown>).update(payload);
+      const update = query.update(payload);
       wherePk(update, subject.Descriptor, subject.Model.PrimaryKeyValue);
       await update;
 
@@ -306,7 +307,7 @@ export class SubjectExecutor {
 
     // Written, the junction models are rows: a later change of their columns is an UPDATE.
     for (const target of delta.Added) {
-      const junction = delta.Junctions.get(target) as any;
+      const junction = delta.Junctions.get(target) as (ModelBase & Record<string, unknown>) | undefined;
       if (junction) {
         junction[sourceColumn] = ownerKey;
         junction[targetColumn] = target.PrimaryKeyValue;
@@ -335,7 +336,7 @@ export class SubjectExecutor {
       }
 
       const { query } = this.query(delta.Descriptor.JunctionModel!, UpdateQueryBuilder);
-      const update = (query as UpdateQueryBuilder<unknown>).update(_.pick(junction.toSql() as Record<string, unknown>, changed));
+      const update = query.update(_.pick(junction.toSql() as Record<string, unknown>, changed));
 
       const pk = junction.PrimaryKeyValue;
       const keyed = Array.isArray(pk) ? pk.every((v) => v !== null && v !== undefined) : pk !== null && pk !== undefined;
@@ -411,11 +412,11 @@ export class SubjectExecutor {
 
   protected async updateOrphans(delta: IOrphanDelta, result: ISaveResult): Promise<void> {
     const policy = this.effectivePolicy(delta);
-    const payload = policy === OrphanPolicy.Nullify ? { [delta.Descriptor.ForeignKey]: null } : { [delta.TargetDescriptor.SoftDelete!.DeletedAt]: DateTime.utc() };
+    const payload = policy === OrphanPolicy.Nullify ? { [delta.Descriptor.ForeignKey]: null } : { [delta.TargetDescriptor.SoftDelete.DeletedAt]: DateTime.utc() };
 
     for (const batch of this.chunked(delta.PrimaryKeys)) {
       const { query } = this.query(delta.Descriptor.TargetModel, UpdateQueryBuilder);
-      const update = (query as UpdateQueryBuilder<unknown>).update(payload);
+      const update = query.update(payload);
       whereAnyPk(update, delta.TargetDescriptor, batch);
       await update;
 

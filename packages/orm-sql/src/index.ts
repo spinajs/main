@@ -47,7 +47,7 @@ export abstract class SqlDriver extends OrmDriver {
     }
 
     const converter = this.Container.resolve<DatetimeValueConverter>(DatetimeValueConverter);
-    return params.map((p) => (isDate(p) ? converter.toDB(p, null as any, null as any) : p));
+    return params.map((p): unknown => (isDate(p) ? converter.toDB(p, null as any, null as any) : p));
   }
 
   public execute(builder: Builder<any>) {
@@ -71,7 +71,7 @@ export abstract class SqlDriver extends OrmDriver {
             );
           }
           return results;
-        })() as any;
+        })() as Promise<any>;
       } else {
         this.logQuery(compiled.expression!, compiled.bindings!, builder);
 

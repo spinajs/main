@@ -899,7 +899,7 @@ describe('Sqlite driver migrate with transaction', function () {
     expect(trSpy.called).to.be.true;
     // Assert the migration is wrapped in a committed transaction without
     // coupling to the exact statement count (which changes as tables are added).
-    const commitCalls = exSpy.getCalls().map((c) => c.args[0]);
+    const commitCalls = exSpy.getCalls().map((c): unknown => c.args[0]);
     const beginIdx = commitCalls.indexOf('BEGIN TRANSACTION');
     const commitIdx = commitCalls.indexOf('COMMIT');
     expect(beginIdx).to.be.greaterThan(-1);
@@ -947,7 +947,7 @@ describe('Sqlite driver migrate with transaction', function () {
       // Positional getCall() indices have to move every time boot adds a statement - creating
       // the migration lock table shifted them once already. Assert the ordering instead, the
       // same way the sibling commit test does.
-      const statements = exSpy.getCalls().map((c) => c.args[0]);
+      const statements = exSpy.getCalls().map((c): unknown => c.args[0]);
       const beginIdx = statements.indexOf('BEGIN TRANSACTION');
       const rollbackIdx = statements.indexOf('ROLLBACK');
       expect(beginIdx).to.be.greaterThan(-1);

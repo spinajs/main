@@ -4,7 +4,7 @@ import { expect } from 'chai';
 import '@spinajs/log';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { ICompilerOutput, Orm, SelectQueryBuilder } from '@spinajs/orm';
+import { Orm, SelectQueryBuilder } from '@spinajs/orm';
 import { ConnectionConf, FakePostgresDriver } from './fixture.js';
 
 describe('postgres whereStartsWith', function () {
@@ -22,7 +22,7 @@ describe('postgres whereStartsWith', function () {
 
   it('compiles to LIKE with ESCAPE and the wildcards of the prefix escaped', () => {
     const connection = DI.get(Orm)!.Connections.get('postgres')!;
-    const result = connection.Container.resolve(SelectQueryBuilder, [connection]).select('*').from('t').whereStartsWith('path', '100%_/').toDB() as ICompilerOutput;
+    const result = connection.Container.resolve(SelectQueryBuilder, [connection]).select('*').from('t').whereStartsWith('path', '100%_/').toDB();
 
     expect(result.expression).to.contain(`"path" LIKE ? ESCAPE '~'`);
     expect(result.bindings).to.deep.eq(['100~%~_/%']);
