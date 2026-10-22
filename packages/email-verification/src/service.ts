@@ -129,7 +129,7 @@ export class EmailVerification extends AsyncService {
   }
 
   protected refused(domain: string | null, source: string, reason: string): EmailCheckResult {
-    this.Log.info({ domain, source, reason }, 'Email domain ${domain} refused by ${source}: ${reason}');
+    this.Log.info({ domain: domain ?? '(invalid)', source, reason }, 'Email domain ${domain} refused by ${source}: ${reason}');
     return { allowed: false, code: this.Options.refuseCode, domain, source, reason };
   }
 }

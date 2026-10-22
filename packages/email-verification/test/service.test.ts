@@ -67,6 +67,20 @@ describe('EmailVerification', () => {
     expect(result).to.deep.eq({ allowed: false, code: 'email_domain_refused', domain: null, source: 'address', reason: 'invalid_domain' });
   });
 
+  it('logs an address without a usable domain as (invalid)', async () => {
+    const svc = await service();
+    const logged: unknown[] = [];
+    const log = (svc as unknown as { Log: { info: (vars: unknown) => void } }).Log;
+    const info = log.info;
+    log.info = (vars) => logged.push(vars);
+    try {
+      await svc.check('nobody');
+    } finally {
+      log.info = info;
+    }
+    expect(logged).to.deep.eq([{ domain: '(invalid)', source: 'address', reason: 'invalid_domain' }]);
+  });
+
   it('runs verifiers in config order and stops at the first refusal', async () => {
     answers.first = { result: 'refuse', reason: 'listed' };
     const result = await (await service()).check('a@X.com');
