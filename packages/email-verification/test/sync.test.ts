@@ -132,6 +132,54 @@ describe('DomainListSync', () => {
     expect(entries.map((e) => e.kind)).to.deep.eq(['allow']);
   });
 
+  const failOnce = async (kind: string) => {
+    const st = await store();
+    const original = st.replaceSource.bind(st);
+    let thrown = false;
+    st.replaceSource = async (name, k, domains) => {
+      if (!thrown && k === kind && domains.length === 0) {
+        thrown = true;
+        throw new Error('store down');
+      }
+      return original(name, k, domains);
+    };
+  };
+
+  it('refetches in full after a half-applied kind change is reverted', async () => {
+    stub = stubFetch(() => text(200, 'x.com', { etag: '"v1"' }));
+    const s = await sync();
+    await s.run('a');
+    await failOnce('block');
+    sources(s)[0].kind = 'allow';
+    expect((await s.run('a'))[0].status).to.eq('failed');
+    sources(s)[0].kind = 'block';
+    const calls = stub.calls.length;
+    expect((await s.run('a'))[0].status).to.eq('updated');
+    expect(etagSent(stub.calls, calls)).to.be.undefined;
+    const entries = (await (await store()).loadLists()).filter((e) => e.source === 'a');
+    expect(entries.map((e) => e.kind)).to.deep.eq(['block']);
+  });
+
+  it('clears the old kind on the retry with the new config', async () => {
+    stub = stubFetch(() => text(200, 'x.com', { etag: '"v1"' }));
+    const s = await sync();
+    await s.run('a');
+    await failOnce('block');
+    sources(s)[0].kind = 'allow';
+    expect((await s.run('a'))[0].status).to.eq('failed');
+    expect((await s.run('a'))[0].status).to.eq('updated');
+    const entries = (await (await store()).loadLists()).filter((e) => e.source === 'a');
+    expect(entries.map((e) => e.kind)).to.deep.eq(['allow']);
+  });
+
+  it('ignores an unknown kind in the stored origin', async () => {
+    stub = stubFetch(() => text(200, 'x.com'));
+    const s = await sync();
+    await (await store()).setMeta('sync:a:origin', `bogus|${URL_A}`);
+    expect((await s.run('a'))[0]).to.include({ status: 'updated', count: 1 });
+    expect(await domainsOf('a')).to.deep.eq(['x.com']);
+  });
+
   it('stores neither ETag nor count for a refused sync', async () => {
     let body = lines(10);
     stub = stubFetch(() => text(200, body, { etag: `"${body.length}"` }));

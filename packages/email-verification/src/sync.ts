@@ -3,7 +3,7 @@ import { Autoinject, Injectable } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 
-import { EmailVerificationStore, type ListKind } from './contracts.js';
+import { EmailVerificationStore, LIST_KINDS, type ListKind } from './contracts.js';
 import { normalizeDomain } from './domain.js';
 import type { ListSourceOptions, ListsOptions } from './options.js';
 import { SafeFetch } from './safe-fetch.js';
@@ -71,6 +71,7 @@ export class DomainListSync {
     const etagKey = `sync:${source.name}:etag`;
     const countKey = `sync:${source.name}:count`;
     const originKey = `sync:${source.name}:origin`;
+    const pendingKey = `sync:${source.name}:pendingClear`;
     try {
       const origin = `${source.kind}|${source.url}`;
       const storedOrigin = await this.Store.getMeta(originKey);
@@ -88,9 +89,15 @@ export class DomainListSync {
         return { source: source.name, status: 'refused', count: domains.length, invalid };
       }
 
+      const asKinds = (raw: string | null | undefined) => (raw ?? '').split(',').filter((k): k is ListKind => (LIST_KINDS as readonly string[]).includes(k) && k !== source.kind);
+      const toClear = [...new Set([...asKinds(await this.Store.getMeta(pendingKey)), ...asKinds(storedOrigin?.split('|', 1)[0])])];
+      // A failure past this point must leave the origin mismatched so the next run refetches in full;
+      // pendingClear also names the kind written here, which a reverted config would have to clear.
+      await this.Store.setMeta(pendingKey, [...toClear, source.kind].join(','));
+      await this.Store.setMeta(originKey, '');
       await this.Store.replaceSource(source.name, source.kind, domains);
-      const oldKind = storedOrigin?.split('|', 1)[0];
-      if (oldKind && oldKind !== source.kind) await this.Store.replaceSource(source.name, oldKind as ListKind, []);
+      for (const kind of toClear) await this.Store.replaceSource(source.name, kind, []);
+      await this.Store.setMeta(pendingKey, '');
       await this.Store.setMeta(countKey, String(domains.length));
       await this.Store.setMeta(etagKey, res.headers.get('etag') ?? '');
       await this.Store.setMeta(originKey, origin);
