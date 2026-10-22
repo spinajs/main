@@ -72,6 +72,6 @@ The route answers 401 to an anonymous caller and to a session still waiting for 
 - [`@spinajs/authn-totp`](../authn-totp/README.md): the TOTP step and `TotpService`, the `MfaEnrolmentService` behind the MFA enrolment routes. This package does not depend on it.
 - [`@spinajs/authn-oidc`](../authn-oidc/README.md): OIDC login routes built on this package's 401 body and cookie helpers.
 - [`@spinajs/authz-http`](../authz-http/README.md): turns `req.storage.AuthnPrincipal` into the authorization principal.
-- [`@spinajs/users`](../users/README.md): the identity store, `RoleSource`, `ImpersonationGuard`, `CredentialAdminGuard` and the `Access` answer extension.
+- [`@spinajs/users`](../users/README.md): the identity store, `RoleSource`, `ImpersonationGuard`, the `CredentialAdminRule` (`AuthzCredentialAdminRule`) and the `Access` answer extension.
 - [`@spinajs/http`](../http/README.md): server middlewares, policies, route arguments and responses this package builds on.
 - [`@spinajs/http-socket`](../http-socket/README.md): socket principal sources; see [Socket sessions](18-socket-sessions.md).

@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authn-http",
-  "version": "3.0.8",
+  "version": "3.0.9",
   "description": "HTTP integration for SpinaJS authentication",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -72,22 +72,22 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authn": "3.0.8",
-    "@spinajs/authn-session": "3.0.8",
-    "@spinajs/cli": "3.0.8",
-    "@spinajs/configuration": "3.0.8",
-    "@spinajs/di": "3.0.8",
-    "@spinajs/exceptions": "3.0.8",
-    "@spinajs/hooks": "3.0.8",
-    "@spinajs/http": "3.0.8",
-    "@spinajs/log": "3.0.8",
-    "@spinajs/util": "3.0.8",
-    "@spinajs/validation": "3.0.8",
+    "@spinajs/authn": "3.0.9",
+    "@spinajs/authn-session": "3.0.9",
+    "@spinajs/cli": "3.0.9",
+    "@spinajs/configuration": "3.0.9",
+    "@spinajs/di": "3.0.9",
+    "@spinajs/exceptions": "3.0.9",
+    "@spinajs/hooks": "3.0.9",
+    "@spinajs/http": "3.0.9",
+    "@spinajs/log": "3.0.9",
+    "@spinajs/util": "3.0.9",
+    "@spinajs/validation": "3.0.9",
     "cookie-signature": "^1.2.2",
     "express": "^5.1.0"
   },
   "peerDependencies": {
-    "@spinajs/http-socket": "3.0.8"
+    "@spinajs/http-socket": "3.0.9"
   },
   "peerDependenciesMeta": {
     "@spinajs/http-socket": {
@@ -95,19 +95,19 @@
     }
   },
   "devDependencies": {
-    "@spinajs/authn-keys": "3.0.8",
-    "@spinajs/authn-local": "3.0.8",
-    "@spinajs/authn-orm": "3.0.8",
-    "@spinajs/authn-testing": "3.0.8",
-    "@spinajs/authn-token": "3.0.8",
-    "@spinajs/authn-totp": "3.0.8",
-    "@spinajs/authn-webauthn": "3.0.8",
-    "@spinajs/fs": "3.0.8",
-    "@spinajs/hooks": "3.0.8",
-    "@spinajs/http-socket": "3.0.8",
-    "@spinajs/http-swagger": "3.0.8",
-    "@spinajs/orm": "3.0.8",
-    "@spinajs/orm-sqlite": "3.0.8",
+    "@spinajs/authn-keys": "3.0.9",
+    "@spinajs/authn-local": "3.0.9",
+    "@spinajs/authn-orm": "3.0.9",
+    "@spinajs/authn-testing": "3.0.9",
+    "@spinajs/authn-token": "3.0.9",
+    "@spinajs/authn-totp": "3.0.9",
+    "@spinajs/authn-webauthn": "3.0.9",
+    "@spinajs/fs": "3.0.9",
+    "@spinajs/hooks": "3.0.9",
+    "@spinajs/http-socket": "3.0.9",
+    "@spinajs/http-swagger": "3.0.9",
+    "@spinajs/orm": "3.0.9",
+    "@spinajs/orm-sqlite": "3.0.9",
     "luxon": "^3.6.1",
     "socket.io-client": "^4.8.1"
   }

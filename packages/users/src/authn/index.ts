@@ -6,5 +6,5 @@ export * from './access-response.js';
 export * from './rbac-role-source.js';
 export * from './ordered-active-role.js';
 export * from './access-schema.js';
-export * from './credential-admin-guard.js';
+export * from './credential-admin-rule.js';
 export * from './credential-admin-schema.js';

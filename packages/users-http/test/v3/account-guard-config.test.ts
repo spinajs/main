@@ -7,7 +7,7 @@ import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import type { User } from '@spinajs/users';
 
-import { DefaultAccountGuard } from '../../src/index.js';
+import { AccountStanding } from '../../src/index.js';
 
 /** `authz.admin.guard` as the Configuration of a fresh child, checked by the authz schema; no file source. */
 async function boot(guard: unknown): Promise<IContainer> {
@@ -35,7 +35,7 @@ async function boot(guard: unknown): Promise<IContainer> {
   }
 }
 
-describe('users-http v3: DefaultAccountGuard reads authz.admin.guard through @Config', () => {
+describe('users-http v3: AccountStanding reads authz.admin.guard through @Config', () => {
   const children: IContainer[] = [];
 
   afterEach(async () => {
@@ -45,7 +45,7 @@ describe('users-http v3: DefaultAccountGuard reads authz.admin.guard through @Co
   it('from the Configuration of its container, with every absent switch on', async () => {
     const child = await boot({ service: 'DefaultAdminGuard', privilegedPermission: 'users:update', preventSelfLockout: false });
     children.push(child);
-    const guard = new DefaultAccountGuard();
+    const guard = new AccountStanding();
     (guard as unknown as Record<string, unknown>)[CONFIGURATION_CONTAINER_KEY] = child;
 
     expect((guard as unknown as { Guard: unknown }).Guard).to.deep.include({ privilegedPermission: 'users:update', preventSelfLockout: false, preventLastPrivilegedRemoval: true });
@@ -55,12 +55,12 @@ describe('users-http v3: DefaultAccountGuard reads authz.admin.guard through @Co
     const child = await boot({ service: 'DefaultAdminGuard', privilegedPermission: 'users:update' });
     children.push(child);
     ((await child.resolve(Configuration)) as Configuration).set(['authz', 'admin', 'guard'], { preventSelfLockout: true });
-    const guard = new DefaultAccountGuard();
+    const guard = new AccountStanding();
     (guard as unknown as Record<string, unknown>)[CONFIGURATION_CONTAINER_KEY] = child;
     const actor = { type: 'user', id: 'actor' } as unknown as Principal;
     const target = { Uuid: 'target' } as unknown as User;
 
-    for (const call of [() => guard.assertCanDisable(actor, target, 'ban'), () => guard.assertCanDemote(actor, target, [])]) {
+    for (const call of [() => guard.disableRefusal(actor, target, 'ban'), () => guard.demoteRefusal(actor, target, [])]) {
       let error: unknown;
       try {
         await call();

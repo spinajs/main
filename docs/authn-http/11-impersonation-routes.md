@@ -84,7 +84,7 @@ These keys belong to [`@spinajs/authn`](../authn/11-impersonation-and-active-rol
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `ImpersonationGuard` | its registration switches the group on | `AuthzImpersonationGuard` (`@spinajs/users`) | your own | See [`@spinajs/users`: impersonation and credential admin guards](../users/13-impersonation-and-credential-admin-guards.md). |
+| `ImpersonationGuard` | its registration switches the group on | `AuthzImpersonationGuard` (`@spinajs/users`) | your own | See [`@spinajs/users`: impersonation guard and credential admin rule](../users/13-impersonation-and-credential-admin-guards.md). |
 | `AuthnImpersonationService` | resolved per call | from `@spinajs/authn` | | See [`@spinajs/authn`: impersonation](../authn/11-impersonation-and-active-role.md). |
 
 ## Important behaviour

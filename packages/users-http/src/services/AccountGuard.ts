@@ -9,35 +9,34 @@ import { User, UserPrincipalFactory, userModel } from '@spinajs/users';
 
 import { configuredRoleNames } from './user-roles.js';
 
-/** A route that takes an account out of service. */
+/** An action that takes an account out of service. */
 export type AccountDisableAction = 'delete' | 'deactivate' | 'ban';
+
+/** Why the account rules refuse: the actor's own account or privilege, or the last account in service holding it. */
+export interface AccountRefusal {
+  readonly code: 'self_lockout' | 'last_holder';
+  readonly message: string;
+}
 
 const LOOKUP_CHUNK = 100;
 
 /**
- * Keeps an account in service holding `authz.admin.guard.privilegedPermission`. The lifecycle routes are not
- * AuthzAdmin commands, so AuthzAdmin's guard never sees them.
+ * The rules that keep an account in service holding `authz.admin.guard.privilegedPermission`, read from the switches
+ * AuthzAdmin's guard reads on every call. The lifecycle actions and the role replacement of users-http are not
+ * AuthzAdmin commands, so AuthzAdmin's guard never sees them: AccountDisableHook asks {@link disableRefusal},
+ * DefaultAccountGuard {@link demoteRefusal}.
+ *
+ * Self lockout: the actor may not disable its own account, nor take its own privilege. Last holder: an account holding
+ * `privilegedPermission` unconditionally loses it only while another user in service holds it. A witness is in service
+ * when the registered AccountStatusSource answers exactly `true` for it (users' source also refuses an expired password
+ * and a pending invite) and its row is active, unbanned and undeleted. A source that is missing, throws or answers
+ * anything else counts no witness and ends the search. Witnesses are searched role by role among the GLOBAL user
+ * holders of each configured role, 100 holders per source call, and only the first in-service holder of a role is
+ * tried; a holder reachable only through a subject set, or one who is not the first in-service holder of any role, is
+ * not found, so the check fails closed.
  */
-export abstract class AccountGuard {
-  abstract assertCanDisable(actor: Principal, target: User, action: AccountDisableAction): Promise<void>;
-
-  /** `kept`: the target's GLOBAL roles that a role replacement leaves in place. */
-  abstract assertCanDemote(actor: Principal, target: User, kept: readonly string[]): Promise<void>;
-}
-
-/**
- * Reads `authz.admin.guard` (the switches AuthzAdmin's guard reads) on every call. Self lockout: the actor
- * may not disable its own account, nor take its own privilege. Last holder: an account holding
- * `privilegedPermission` unconditionally loses it only while another user in service holds it. A witness is in
- * service when the registered AccountStatusSource answers exactly `true` for it (users' source also refuses an
- * expired password and a pending invite) and its row is active, unbanned and undeleted. A source that is
- * missing, throws or answers anything else counts no witness and ends the search. Witnesses are searched role by
- * role among the GLOBAL user holders of each configured role, 100 holders per source call, and only the first
- * in-service holder of a role is tried; a holder reachable only through a subject set, or one who is not the
- * first in-service holder of any role, is not found, so the check fails closed.
- */
-@Injectable(AccountGuard)
-export class DefaultAccountGuard extends AccountGuard {
+@Injectable()
+export class AccountStanding {
   @Config('authz.admin.guard')
   protected Guard: unknown;
 
@@ -47,48 +46,54 @@ export class DefaultAccountGuard extends AccountGuard {
   @Autoinject(UserPrincipalFactory)
   protected Users: UserPrincipalFactory;
 
-  public async assertCanDisable(actor: Principal, target: User, action: AccountDisableAction): Promise<void> {
+  /** `target` is the account's row, or its uuid: a row read without its metadata is read again. */
+  public async disableRefusal(actor: PrincipalRef, target: User | { readonly Uuid: string }, action: AccountDisableAction): Promise<AccountRefusal | null> {
     const cfg = guardSwitches(this.Guard, 'users-http AccountGuard');
 
-    if (cfg.preventSelfLockout && isSelf(actor, target)) {
-      throw new Forbidden(`Cannot ${action} your own account`);
+    if (cfg.preventSelfLockout && isSelf(actor, target.Uuid)) {
+      return { code: 'self_lockout', message: `Cannot ${action} your own account` };
     }
 
     if (!cfg.preventLastPrivilegedRemoval || cfg.privilegedPermission === undefined) {
-      return;
+      return null;
     }
 
     const current = await this.reload(target);
     if ((await this.privilegedNow(current, cfg.privilegedPermission)) && !(await this.hasWitness(current, cfg.privilegedPermission))) {
-      throw new Forbidden(`Cannot ${action} this account: it would leave no account in service holding '${cfg.privilegedPermission}'`);
+      return { code: 'last_holder', message: `Cannot ${action} this account: it would leave no account in service holding '${cfg.privilegedPermission}'` };
     }
+
+    return null;
   }
 
-  public async assertCanDemote(actor: Principal, target: User, kept: readonly string[]): Promise<void> {
+  /** `kept`: the target's GLOBAL roles that a role replacement leaves in place. */
+  public async demoteRefusal(actor: PrincipalRef, target: User, kept: readonly string[]): Promise<AccountRefusal | null> {
     const cfg = guardSwitches(this.Guard, 'users-http AccountGuard');
     const permission = cfg.privilegedPermission;
 
     if (permission === undefined || (!cfg.preventSelfLockout && !cfg.preventLastPrivilegedRemoval)) {
-      return;
+      return null;
     }
 
     const current = await this.reload(target);
     if (!(await this.privilegedNow(current, permission))) {
-      return;
+      return null;
     }
 
     // A ceiling role the account does not hold gives nothing, so roles the batch adds are not counted.
     if (kept.length > 0 && (await this.privileged(await this.principalOf(current, kept), permission))) {
-      return;
+      return null;
     }
 
-    if (cfg.preventSelfLockout && isSelf(actor, current)) {
-      throw new Forbidden(`Cannot remove '${permission}' from your own account`);
+    if (cfg.preventSelfLockout && isSelf(actor, current.Uuid)) {
+      return { code: 'self_lockout', message: `Cannot remove '${permission}' from your own account` };
     }
 
     if (cfg.preventLastPrivilegedRemoval && !(await this.hasWitness(current, permission))) {
-      throw new Forbidden(`Cannot change the roles of this account: it would leave no account in service holding '${permission}'`);
+      return { code: 'last_holder', message: `Cannot change the roles of this account: it would leave no account in service holding '${permission}'` };
     }
+
+    return null;
   }
 
   /**
@@ -187,9 +192,9 @@ export class DefaultAccountGuard extends AccountGuard {
     }
   }
 
-  protected async reload(record: User): Promise<User> {
+  protected async reload(record: User | { readonly Uuid: string }): Promise<User> {
     // The ban lives in the metadata; a record read without it would pass as not banned.
-    if (record.Metadata?.Populated === true) {
+    if (record instanceof User && record.Metadata?.Populated === true) {
       return record;
     }
 
@@ -215,8 +220,38 @@ export class DefaultAccountGuard extends AccountGuard {
   }
 }
 
-function isSelf(actor: Principal, target: User): boolean {
-  return actor.type === 'user' && actor.id === target.Uuid;
+/**
+ * The demotion rule of the role replacement of `PATCH /users/:user` ({@link AccountStanding.demoteRefusal}): the
+ * replacement is no users action, so no hook sees it. Taking an account out of service is
+ * users-http's AccountDisableHook, a before hook on `users.deactivate`, `users.ban` and `users.delete`.
+ */
+export abstract class AccountGuard {
+  /** `kept`: the target's GLOBAL roles that a role replacement leaves in place. */
+  abstract assertCanDemote(actor: Principal, target: User, kept: readonly string[]): Promise<void>;
+
+  /**
+   * @deprecated Removed in 3.x (D17): AccountDisableHook judges deactivate, ban and delete. Declared so that an
+   * override fails to compile instead of never being called.
+   */
+  declare readonly assertCanDisable?: never;
+}
+
+/** Forbidden with the reason of {@link AccountStanding.demoteRefusal}. */
+@Injectable(AccountGuard)
+export class DefaultAccountGuard extends AccountGuard {
+  @Autoinject(AccountStanding)
+  protected Standing: AccountStanding;
+
+  public async assertCanDemote(actor: Principal, target: User, kept: readonly string[]): Promise<void> {
+    const refusal = await this.Standing.demoteRefusal(actor, target, kept);
+    if (refusal) {
+      throw new Forbidden(refusal.message);
+    }
+  }
+}
+
+function isSelf(actor: PrincipalRef, uuid: string): boolean {
+  return actor.type === 'user' && actor.id === uuid;
 }
 
 function usable(user: User): boolean {

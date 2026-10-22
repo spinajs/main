@@ -1,4 +1,3 @@
-import { Config } from '@spinajs/configuration';
 import '../../register-schema.js';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
@@ -6,7 +5,7 @@ import { BadRequestResponse, BaseController, BasePath, Policy, Post, Req } from 
 import type { Request } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { AuthnThrottle, IdentityRegistrar, PasswordService } from '@spinajs/authn/contracts';
-import type { AuthnContext, IdentityRef, PasswordViolation } from '@spinajs/authn/contracts';
+import type { AuthnContext, PasswordViolation } from '@spinajs/authn/contracts';
 import { ActionHookFailed, ActionRefused, Hooks } from '@spinajs/hooks';
 import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
 
@@ -15,6 +14,8 @@ import { IdentityRegistrarRegistered } from '../../policies/v3/groups.js';
 import { AcceptedResponse, NO_STORE, badRequest, hookRefusedAnswer } from '../responses.js';
 import { bodyField, boundedString, contextOf, publishAuthnEvent } from '../routes.js';
 import type { RegistrationInput, RegistrationOutput } from '../../hooks.js';
+// Registers the mails of a registration, an after hook on authn.registration.
+import '../registration-mail-hook.js';
 
 const IDENTIFIER_CAP = 254;
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+$/;
@@ -48,17 +49,15 @@ export class AuthnRegistrationController extends BaseController {
   @Autoinject(Container)
   protected Container!: IContainer;
 
-  @Config('authn.http.registration.notifyExisting')
-  protected NotifyExisting: boolean;
-
   @Autoinject(Hooks)
   protected Hooks!: Hooks;
 
   /**
    * Register
    * Body `{ login, email, password, confirmPassword? }`. Answers 202 `{ status: 'accepted' }` whether the account is new or
-   * the address is taken, so it tells a stranger nothing about who has an account. A new account is sent a verification
-   * mail; the owner of a taken address is sent an account-exists mail (`authn.http.registration.notifyExisting`). A
+   * the address is taken, so it tells a stranger nothing about who has an account. RegistrationMailHook, an
+   * `authn.registration` after hook, sends a new account a verification mail and the owner of a taken address an
+   * account-exists mail (`authn.http.registration.notifyExisting`). A
    * password that breaks the policy answers 400 `password_rejected` with its violations: they depend on the input only. 429
    * with Retry-After when throttled (the `reset` flow, per address and per client ip). An `authn.registration` hook may
    * change `login` and `email` (checked again against the policy, then by the registrar) or refuse: 400 `action_refused`
@@ -92,7 +91,6 @@ export class AuthnRegistrationController extends BaseController {
 
     const created = result.status === 'created';
     await publishAuthnEvent(this.Container, req, { type: 'identity.register', outcome: created ? 'success' : 'failure', identity: result.id, ...(created ? {} : { reason: 'exists' }) });
-    await this.mail(passwords, result.id, created, ctx);
     return new AcceptedResponse({ status: 'accepted' }, { Headers: [NO_STORE] });
   }
 
@@ -123,15 +121,5 @@ export class AuthnRegistrationController extends BaseController {
       if (violations.length > 0) throw new RejectedForHookedValues(violations);
     }
     return (await this.Container.resolve(IdentityRegistrar)).register({ login, email, password }, ctx);
-  }
-
-  // The answer is the same whether or not a mail goes out, so a failing queue is logged and not shown.
-  private async mail(passwords: PasswordService, id: IdentityRef, created: boolean, ctx: ReturnType<typeof contextOf>): Promise<void> {
-    try {
-      if (created) await passwords.requestVerification?.(id, ctx);
-      else if (this.NotifyExisting !== false) await passwords.notifyAccountExists?.(id, ctx);
-    } catch (err) {
-      this._log.warn({ errorName: (err as Error)?.name ?? typeof err }, 'A registration mail could not be requested: ${errorName}');
-    }
   }
 }

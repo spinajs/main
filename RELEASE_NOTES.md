@@ -22,6 +22,23 @@ before. A pending login, a step-up and a re-authentication run none.
   login now fails as a wrong password does (401 with the login failure body, the one failure answer in the OIDC
   callback) instead of a 500. The `login` event carries `hook:<code>`, or `hook_error` (`failure: 'ceiling'` for an
   unusable ceiling).
+# Release notes — authn, authn-http, authn-token, users, users-http: guards and mails move onto action hooks (HARD-HOOKS-B)
+
+> Branch `feat/hard-hooks-b`. Docs: `docs/authn/14-action-hooks.md`, `docs/authn-http/16-credential-admin-routes.md`,
+> `docs/authn-http/22-registration-route.md`, `docs/authn-http/23-action-hooks.md`,
+> `docs/users/13-impersonation-and-credential-admin-guards.md`, `docs/users/03-user-actions.md`,
+> `docs/users/04-action-hooks.md`, `docs/users-http/07-lifecycle-and-sessions.md`, `docs/users-http/08-account-guard.md`,
+> `docs/users-http/11-host-services.md`, `docs/authn-token/09-token-profile-policy.md`, `docs/authn-token/10-action-hooks.md`.
+
+## BREAKING CHANGES
+
+### `@spinajs/authn` — `CredentialAdminGuard` is removed
+
+The `CredentialAdminGuard` contract is gone, with no adapter (D17). Who may administer whose credentials is now a
+`CredentialAdminRule` of `@spinajs/authn/hooks`: an `ActionHook` on `authn.admin.credentials` with order `-1000`. Its
+`before` asks `allowed(actor, target, action)`, the same method with the same answers as before, and refuses with the
+answer's code; any answer but `{ ok: true }` refuses `forbidden`. Register it as a class: the credential admin routes
+find a rule by its class (`credentialAdminRuleRegistered()`), so a factory registration does not switch them on.
 
 Before:
 
@@ -30,6 +47,14 @@ Before:
 export class SupportFirst extends SessionStartHook {
   async onStart(_kind: 'login' | 'mfa', _session: SessionHandle, principal: Principal): Promise<Ceiling | undefined> {
     return principal.attributes.team === 'support' ? { roles: ['support'] } : undefined;
+import { Injectable } from '@spinajs/di';
+import { CredentialAdminGuard } from '@spinajs/authn/contracts';
+import type { CredentialAdminAction, IdentityRef, Principal } from '@spinajs/authn/contracts';
+
+@Injectable(CredentialAdminGuard)
+export class HelpdeskGuard extends CredentialAdminGuard {
+  async allowed(actor: Principal, target: IdentityRef, action: CredentialAdminAction) {
+    return action === 'tokens' ? ({ ok: false, code: 'forbidden' } as const) : ({ ok: true } as const);
   }
 }
 ```
@@ -43,6 +68,16 @@ export class SupportFirst extends ActionHook<'authn.session.start'> {
 
   before(ctx: BeforeContext<'authn.session.start'>): void {
     if (ctx.input.ceiling === undefined && ctx.input.principal.attributes.team === 'support') ctx.input.ceiling = { roles: ['support'] };
+import { Injectable } from '@spinajs/di';
+import { ActionHook } from '@spinajs/hooks';
+import { CredentialAdminRule } from '@spinajs/authn/hooks';
+import type { CredentialAdminVerdict } from '@spinajs/authn/hooks';
+import type { CredentialAdminAction, IdentityRef, Principal } from '@spinajs/authn/contracts';
+
+@Injectable(ActionHook)
+export class HelpdeskRule extends CredentialAdminRule {
+  async allowed(actor: Principal, target: IdentityRef, action: CredentialAdminAction): Promise<CredentialAdminVerdict> {
+    return action === 'tokens' ? { ok: false, code: 'forbidden' } : { ok: true };
   }
 }
 ```
@@ -110,6 +145,77 @@ unchanged: `not_list_filterable` with the field `policy` or `rule`, a guard's ow
   command no hook changed (by identity and by its JSON, so a `Date` edited in place still counts) is no longer
   validated and permission-checked a second time.
 - `@spinajs/authn-testing`: `FakeImpersonationStartHook`; A37 covers `authn.session.start`.
+- Every registered rule must allow, and so must every other before hook of the action. A rule that only narrows can sit
+  beside the shipped one; to replace the shipped one, `DI.unregister(AuthzCredentialAdminRule)` first.
+- `runCredentialAdmin(hooks, input, effect)` runs an effect as the action and fails closed. An effect that no rule
+  admitted is refused `ActionRefused('authn.admin.credentials', 'forbidden')`; this covers a rule registered after the
+  hooks runner resolved.
+- A rule that throws or times out now answers 403 `{ error: 'action_refused', code: 'hook_error' }`. A throwing guard
+  used to fail the request.
+
+### `@spinajs/authn`, `@spinajs/authn-http` — `authn.admin.credentials` moves to `@spinajs/authn/hooks`
+
+The action is declared by `@spinajs/authn/hooks`, with `CredentialAdminInput`; `@spinajs/authn-http` re-exports the
+type. `input.actor` is now the caller's whole `Principal` (its authn facts included, as a frozen copy), no longer a
+`PrincipalRef`; `type` and `id` read as before. The rule is the action's first before hook, so the action's hooks
+no longer run "after the guard": a hook of the default order sees only actions a rule admitted.
+
+### `@spinajs/authn-http` — `CredentialAdminGuardRegistered` is now `CredentialAdminRuleRegistered`
+
+The credential admin routes are on while a `CredentialAdminRule` class is registered as an `ActionHook`, and answer 404
+`not_found` otherwise. The rule's refusals keep their answers: 403 `forbidden`, `protected_role`, `escalation`, 404
+`not_found`, not audited. Another hook's refusal still answers 403 `{ error: 'action_refused', code }`, audited.
+
+### `@spinajs/users` — `AuthzCredentialAdminGuard` is now `AuthzCredentialAdminRule`
+
+Same rules, same constructor options (`{ targets }`, now `AuthzCredentialAdminRuleOptions`). It extends
+`CredentialAdminRule` and registers with `@Injectable(ActionHook)`. A subclass registered `.as(CredentialAdminGuard)`
+becomes one registered as an `ActionHook`.
+
+### `@spinajs/users-http` — `assertCredentialAdmin` is now `withCredentialAdmin`
+
+`withCredentialAdmin(actor, uuid, action, effect, hooks?)` runs `effect` as `authn.admin.credentials`, so
+users-http's admin routes and authn-http's credential admin routes share one rule and one set of hooks. Deactivate,
+ban, delete, the admin session list and revoke, and an e-mail or login change of another user run their effect through
+it. The answers are unchanged: 403 `forbidden`, `protected_role`, `escalation`; 404 `not_found`; 403 `forbidden` with
+no rule. New: another hook's refusal answers 403 `{ error: 'action_refused', code }`, and a rule that throws answers
+403 `hook_error`.
+
+### `@spinajs/users-http` — `AccountGuard.assertCanDisable` is removed
+
+The account guard of deactivate, ban and delete is now `AccountDisableHook`, a before hook (order `-1000`) on
+`users.deactivate`, `users.ban` and `users.delete` (D17, no adapter). It refuses `self_lockout` and `last_holder` with
+the reason as the message, and the routes still answer `403 Forbidden` with that message. It judges every actor but
+SYSTEM, so code that calls `deactivate`, `ban` or `deleteUser` with a principal gets the same rule; the CLI runs as
+SYSTEM and is not judged.
+
+The rules moved to `AccountStanding` (`disableRefusal`, `demoteRefusal` and the protected helpers that
+`DefaultAccountGuard` had). `AccountGuard` keeps only `assertCanDemote`, for the role replacement of
+`PATCH /users/:uuid`. `AccountGuard` declares `assertCanDisable?: never`, so a TypeScript subclass that still
+overrides it fails to compile. In JavaScript such an override is silently never called:
+move the rule into an `AccountStanding` subclass or a before hook of your own. `Security` no longer has an
+`AccountGuard` field.
+
+### `@spinajs/users` — `deactivate`, `ban` and `deleteUser` take an actor
+
+`deactivate(identifier, actor = SYSTEM)`, `ban(identifier, reason?, duration?, actor = SYSTEM)` and
+`deleteUser(identifier, actor = SYSTEM)`. Their hooks get it as an `ActorView`: `users.deactivate` and `users.delete`
+take the new `UsersDisableInput` (`user`, `actor`), and `UsersBanInput` gains `actor`. A hook typed on
+`UsersUserInput` for those two actions keeps compiling; the extra key is additive.
+
+## New behavior
+
+- `@spinajs/authn-http`: the mails of `POST /auth/register` moved into `RegistrationMailHook`, an after hook on
+  `authn.registration`. It is registered by authn-http and exported. It requests the verification mail of a created
+  account and the account-exists mail of a taken address (`authn.http.registration.notifyExisting`). Both outcomes
+  take one path, and a failing mail is logged by its error class only, so the route still answers the same 202 either
+  way. The mail now goes out before the `identity.register` audit event and is bounded by `hooks.timeoutMs`. Extend it
+  and override `send(outcome, ctx)`, or `DI.unregister(RegistrationMailHook)` before boot to send none.
+- `@spinajs/authn-token`: the create-time profile check is `TokenProfileHook`, a before hook (order `-1000`) on
+  `authn.token.create`. It refuses a profile the registered `TokenProfilePolicy` does not allow with `profile_refused`
+  (`PROFILE_REFUSED`). `create` answers that refusal `{ ok: false, code: 'invalid_scope' }` and audits nothing, as
+  before. `validate` still asks the policy on every request. A `DbTokenService` built with `new` and no `Hooks` no
+  longer checks the profile at create; its tokens still fail `validate`.
 
 # Release notes — users, users-http, authn-local, authz-convert: users actions on action hooks
 

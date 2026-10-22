@@ -4,7 +4,7 @@ import 'mocha';
 import { ActionHook } from '@spinajs/hooks';
 import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
 
-import { AuthnResponseExtension, CredentialAdminGuard, RoleSource } from '../../src/contracts/hooks.js';
+import { AuthnResponseExtension, RoleSource } from '../../src/contracts/hooks.js';
 import * as hooksModule from '../../src/contracts/hooks.js';
 import type { AuthnLoginIdentifiedInput, AuthnSessionStartInput } from '../../src/hooks.js';
 import type { CredentialAdminAction, IAuthnPrincipalStorage } from '../../src/contracts/hooks.js';
@@ -37,17 +37,6 @@ class Roles extends RoleSource {
           { role: 'user', requirePassword: false },
         ]
       : [];
-  }
-}
-
-type AdminAnswer = { ok: true } | { ok: false; code: 'forbidden' | 'protected_role' | 'escalation' | 'not_found' };
-
-class AdminsOnly extends CredentialAdminGuard {
-  readonly calls: [Principal, IdentityRef, CredentialAdminAction][] = [];
-  async allowed(actor: Principal, target: IdentityRef, action: CredentialAdminAction): Promise<AdminAnswer> {
-    this.calls.push([actor, target, action]);
-    if (target.id === 'ghost') return { ok: false, code: 'not_found' };
-    return actor.id === 'root' ? { ok: true } : { ok: false, code: 'forbidden' };
   }
 }
 
@@ -96,8 +85,7 @@ describe('hand-off and hook contracts', () => {
     it('exports the three hooks from the contracts index as plain abstract classes', () => {
       expect(index.AuthnResponseExtension).to.eq(AuthnResponseExtension);
       expect(index.RoleSource).to.eq(RoleSource);
-      expect(index.CredentialAdminGuard).to.eq(CredentialAdminGuard);
-      for (const c of [AuthnResponseExtension, RoleSource, CredentialAdminGuard]) {
+      for (const c of [AuthnResponseExtension, RoleSource]) {
         expect(c).to.be.a('function');
         expect(Object.getPrototypeOf(c)).to.eq(Function.prototype);
       }
@@ -147,13 +135,9 @@ describe('hand-off and hook contracts', () => {
       for (const h of hooks) expect(h.synced).to.deep.eq([[alice, ['eng', 'ops']]]);
     });
 
-    it('a credential admin guard answers ok or a refusal code for an actor, a target and an action', async () => {
-      const guard = new AdminsOnly();
-      const root: Principal = { ...principal, id: 'root' };
-      expect(await guard.allowed(root, alice, 'password-reset')).to.deep.eq({ ok: true });
-      expect(await guard.allowed(principal, alice, 'tokens')).to.deep.eq({ ok: false, code: 'forbidden' });
-      expect(await guard.allowed(root, { type: 'user', id: 'ghost' }, 'sessions')).to.deep.eq({ ok: false, code: 'not_found' });
-      expect(guard.calls.map((c) => c[2])).to.deep.eq(['password-reset', 'tokens', 'sessions']);
+    it('CredentialAdminGuard is gone (D17): a CredentialAdminRule on authn.admin.credentials (@spinajs/authn/hooks) replaces it', () => {
+      expect((index as unknown as Record<string, unknown>).CredentialAdminGuard).to.eq(undefined);
+      expect((hooksModule as unknown as Record<string, unknown>).CredentialAdminGuard).to.eq(undefined);
     });
   });
 
@@ -162,7 +146,6 @@ describe('hand-off and hook contracts', () => {
       expect(shapeOf(classMembers('hooks.ts'))).to.deep.eq({
         AuthnResponseExtension: { base: null, members: [{ name: 'extend', modifiers: ['abstract'], optional: false, params: ['kind', 'principal', 'body'] }] },
         RoleSource: { base: null, members: [{ name: 'rolesOf', modifiers: ['abstract'], optional: false, params: ['principal'] }] },
-        CredentialAdminGuard: { base: null, members: [{ name: 'allowed', modifiers: ['abstract'], optional: false, params: ['actor', 'target', 'action'] }] },
       });
     });
 
@@ -173,12 +156,6 @@ describe('hand-off and hook contracts', () => {
       expect(docOf(c.AuthnResponseExtension.members, 'extend')).to.contain('body');
       expect(c.RoleSource.doc).to.contain('none registered ⇒ role switch off');
       expect(declarationDocs('hooks.ts').CredentialAdminAction).to.contain('A25');
-      expect(c.CredentialAdminGuard.doc).to.contain('None registered ⇒ the credential admin routes are off (404)');
-      expect(c.CredentialAdminGuard.doc).to.contain('users:credentials at GLOBAL');
-      expect(c.CredentialAdminGuard.doc).to.contain('impersonating');
-      expect(c.CredentialAdminGuard.doc).to.contain('did not sign in interactively');
-      expect(c.CredentialAdminGuard.doc).to.contain('AuthzService.covers');
-      expect(c.CredentialAdminGuard.doc).to.contain('before any effect');
     });
   });
 
@@ -211,9 +188,6 @@ describe('hand-off and hook contracts', () => {
       same<AuthnLoginIdentifiedInput['identity'], IdentityRef>(true);
       same<AuthnLoginIdentifiedInput['external'], ExternalSubject | undefined>(true);
       same<CredentialAdminAction, 'password-reset' | 'mfa-reset' | 'sessions' | 'tokens'>(true);
-      same<Parameters<CredentialAdminGuard['allowed']>, [Principal, IdentityRef, CredentialAdminAction]>(true);
-      same<ReturnType<CredentialAdminGuard['allowed']>, Promise<AdminAnswer>>(true);
-      same<index.CredentialAdminGuard, CredentialAdminGuard>(true);
       same<index.CredentialAdminAction, CredentialAdminAction>(true);
     });
 
@@ -241,18 +215,7 @@ describe('hand-off and hook contracts', () => {
           return [];
         }
       }
-      // @ts-expect-error abstract
-      const e = () => new CredentialAdminGuard();
-      const admin: CredentialAdminGuard = new AdminsOnly();
-      // @ts-expect-error no such action
-      const f = () => admin.allowed(principal, alice, 'password-change');
-      class NoNotFound extends CredentialAdminGuard {
-        // @ts-expect-error the refusal codes are the four of the contract
-        async allowed(): Promise<{ ok: false; code: 'gone' }> {
-          return { ok: false, code: 'gone' };
-        }
-      }
-      expect([a, b, c, d, NoPassword, e, f, NoNotFound]).to.have.length(8);
+      expect([a, b, c, d, NoPassword]).to.have.length(5);
     });
   });
 });

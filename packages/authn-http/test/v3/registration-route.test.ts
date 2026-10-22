@@ -1,21 +1,21 @@
 import 'mocha';
 import { expect } from 'chai';
 import { CONTROLLED_DESCRIPTOR_SYMBOL, RouteType } from '@spinajs/http';
+import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import type { IControllerDescriptor, Request } from '@spinajs/http';
 import { AuthnAudit } from '@spinajs/authn';
 import { AuthnThrottle, IdentityRegistrar, PasswordService } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, IdentityRef, PasswordPolicy, PasswordPolicyContext, PasswordViolation, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
 import { InvalidArgument } from '@spinajs/exceptions';
-import type { Hooks } from '@spinajs/hooks';
+import { ActionHook } from '@spinajs/hooks';
+import type { ActionName, ActionPattern, AfterContext } from '@spinajs/hooks';
 import { kitHooks } from '@spinajs/authn-testing';
 
 import { IdentityRegistrarRegistered } from '../../src/policies/v3/groups.js';
 import { AuthnRegistrationController } from '../../src/v3/controllers/AuthnRegistrationController.js';
+import { RegistrationMailHook } from '../../src/v3/registration-mail-hook.js';
 import { fakeContainer, readingFrom } from '../support/config-boot.js';
-
-/** The Hooks DI injects into the controller, with no hook registered. */
-let hooks: Hooks;
 
 const ROUTE = 'auth/register';
 const IP = '192.0.2.7';
@@ -104,8 +104,19 @@ class CountingThrottle extends AuthnThrottle {
   }
 }
 
+/** Records each `authn.registration` after call, as an application hook would see it. */
+class Recorder extends ActionHook {
+  readonly actions: readonly ActionPattern[] = ['authn.registration'];
+  readonly outputs: unknown[] = [];
+  after(ctx: AfterContext<ActionName>): void {
+    this.outputs.push(ctx.output);
+  }
+}
+
 interface World {
   readonly controller: AuthnRegistrationController;
+  readonly mail: RegistrationMailHook;
+  readonly warnings: unknown[];
   readonly registrar: StubRegistrar;
   readonly passwords: StubPasswords;
   readonly throttle: CountingThrottle;
@@ -113,7 +124,8 @@ interface World {
   request(body: unknown, ip?: string): Request;
 }
 
-function world(config: Record<string, unknown> = { 'authn.http.registration.notifyExisting': true }): World {
+/** `hooks`: the hooks the route runs besides the registration mail hook; `mail: false` leaves that out. */
+async function world(config: Record<string, unknown> = { 'authn.http.registration.notifyExisting': true }, opts: { hooks?: ActionHook[]; mail?: boolean } = {}): Promise<World> {
   const registrar = new StubRegistrar();
   const passwords = new StubPasswords();
   const throttle = new CountingThrottle();
@@ -126,12 +138,17 @@ function world(config: Record<string, unknown> = { 'authn.http.registration.noti
     [AuthnAudit, audit],
   ]);
   const container = { resolve: async (type: unknown) => services.get(type) } as unknown as IContainer;
+  const warnings: unknown[] = [];
+  const mail = readingFrom(new RegistrationMailHook(), fakeContainer(config));
+  Object.assign(mail, { Container: container });
+  Object.defineProperty(mail, 'Log', { value: { warn: (...args: unknown[]) => void warnings.push(args) } });
+  const hooks = await kitHooks([...(opts.mail === false ? [] : [mail]), ...(opts.hooks ?? [])]);
   const controller = readingFrom(new AuthnRegistrationController(), fakeContainer(config));
   Object.assign(controller, { Container: container, Hooks: hooks });
   Object.defineProperty(controller, '_log', { value: { warn: () => undefined } });
 
   const request = (body: unknown, ip: string = IP): Request => ({ body, headers: { 'user-agent': 'mocha' }, storage: { ClientIp: ip } }) as unknown as Request;
-  return { controller, registrar, passwords, throttle, events, request };
+  return { controller, mail, warnings, registrar, passwords, throttle, events, request };
 }
 
 interface Answer {
@@ -155,10 +172,6 @@ function answerOf(res: unknown): Answer {
 const ACCEPTED = { status: 202, body: { status: 'accepted' }, noStore: true };
 
 describe('POST /auth/register (FEAT-4)', () => {
-  before(async () => {
-    hooks = await kitHooks([]);
-  });
-
   describe('route table', () => {
     const descriptor = (): IControllerDescriptor => Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, AuthnRegistrationController.prototype) as IControllerDescriptor;
 
@@ -201,7 +214,7 @@ describe('POST /auth/register (FEAT-4)', () => {
 
   describe('a new address', () => {
     it('answers 202 { status: accepted } with no-store, and registers the login, email and password as given', async () => {
-      const w = world();
+      const w = await world();
       const res = answerOf(await w.controller.register(w.request(BODY)));
 
       expect(res).to.deep.include(ACCEPTED);
@@ -211,7 +224,7 @@ describe('POST /auth/register (FEAT-4)', () => {
     });
 
     it('requests one verification mail for the created account and no account-exists mail', async () => {
-      const w = world();
+      const w = await world();
       await w.controller.register(w.request(BODY));
 
       expect(w.passwords.verifications.map((v) => v.id)).to.deep.eq([{ type: 'user', id: 'created-1' }]);
@@ -219,7 +232,7 @@ describe('POST /auth/register (FEAT-4)', () => {
     });
 
     it('audits identity.register as a success of the new identity', async () => {
-      const w = world();
+      const w = await world();
       await w.controller.register(w.request(BODY));
 
       expect(w.events).to.have.length(1);
@@ -228,7 +241,7 @@ describe('POST /auth/register (FEAT-4)', () => {
     });
 
     it('still answers 202 when the verification mail cannot be requested', async () => {
-      const w = world();
+      const w = await world();
       w.passwords.failMail = true;
       expect(answerOf(await w.controller.register(w.request(BODY)))).to.deep.include(ACCEPTED);
     });
@@ -238,7 +251,7 @@ describe('POST /auth/register (FEAT-4)', () => {
     const taken = { ...BODY, email: TAKEN };
 
     it('answers exactly what a new address answers', async () => {
-      const w = world();
+      const w = await world();
       const created = answerOf(await w.controller.register(w.request(BODY)));
       const exists = answerOf(await w.controller.register(w.request(taken)));
 
@@ -246,7 +259,7 @@ describe('POST /auth/register (FEAT-4)', () => {
     });
 
     it('requests one account-exists mail for the owner, and no verification mail', async () => {
-      const w = world();
+      const w = await world();
       await w.controller.register(w.request(taken));
 
       expect(w.passwords.notified.map((n) => n.id)).to.deep.eq([OWNER]);
@@ -254,7 +267,7 @@ describe('POST /auth/register (FEAT-4)', () => {
     });
 
     it('sends no account-exists mail with authn.http.registration.notifyExisting false', async () => {
-      const w = world({ 'authn.http.registration.notifyExisting': false });
+      const w = await world({ 'authn.http.registration.notifyExisting': false });
       const res = answerOf(await w.controller.register(w.request(taken)));
 
       expect(res).to.deep.include(ACCEPTED);
@@ -263,29 +276,131 @@ describe('POST /auth/register (FEAT-4)', () => {
     });
 
     it('audits identity.register as a failure with the reason exists', async () => {
-      const w = world();
+      const w = await world();
       await w.controller.register(w.request(taken));
 
       expect(w.events[0]).to.deep.include({ type: 'identity.register', outcome: 'failure', reason: 'exists', identity: OWNER });
     });
 
     it('still answers 202 when the mail cannot be requested', async () => {
-      const w = world();
+      const w = await world();
       w.passwords.failMail = true;
       expect(answerOf(await w.controller.register(w.request(taken)))).to.deep.include(ACCEPTED);
     });
   });
 
+  describe('the mails: RegistrationMailHook, an after hook on authn.registration', () => {
+    const taken = { ...BODY, email: TAKEN };
+
+    it('is registered as an ActionHook by loading the route', () => {
+      expect(DI.RootContainer.getRegisteredTypes(ActionHook) ?? []).to.include(RegistrationMailHook);
+    });
+
+    it('watches only authn.registration and defines only an after phase', () => {
+      const hook = new RegistrationMailHook();
+      expect([...hook.actions]).to.deep.eq(['authn.registration']);
+      expect(hook.order).to.eq(0);
+      expect((hook as Partial<ActionHook>).before).to.eq(undefined);
+      expect((hook as Partial<ActionHook>).failed).to.eq(undefined);
+    });
+
+    it('without it the route mails nobody and answers the same 202 for a new and a taken address', async () => {
+      const w = await world(undefined, { mail: false });
+      const created = answerOf(await w.controller.register(w.request(BODY)));
+      const exists = answerOf(await w.controller.register(w.request(taken)));
+
+      expect(created).to.deep.include(ACCEPTED);
+      expect(exists).to.deep.eq(created);
+      expect(w.passwords.verifications).to.have.length(0);
+      expect(w.passwords.notified).to.have.length(0);
+      expect(w.events.map((e) => e.outcome)).to.deep.eq(['success', 'failure']);
+    });
+
+    it('takes one path for both outcomes: one send per registration, with the outcome an application hook sees too', async () => {
+      const recorder = new Recorder();
+      const w = await world(undefined, { hooks: [recorder] });
+      const sent: unknown[] = [];
+      const send = w.mail['send'].bind(w.mail);
+      Object.assign(w.mail, {
+        send: async (outcome: unknown, ctx: AuthnContext) => {
+          sent.push(outcome);
+          return send(outcome as never, ctx);
+        },
+      });
+      await w.controller.register(w.request(BODY));
+      await w.controller.register(w.request(taken));
+
+      expect(sent).to.deep.eq([
+        { status: 'created', id: { type: 'user', id: 'created-1' } },
+        { status: 'exists', id: OWNER },
+      ]);
+      expect(recorder.outputs).to.deep.eq(sent);
+      expect(w.passwords.verifications.map((v) => v.id)).to.deep.eq([{ type: 'user', id: 'created-1' }]);
+      expect(w.passwords.notified.map((n) => n.id)).to.deep.eq([OWNER]);
+    });
+
+    it('passes the request context of the registration to the password service', async () => {
+      const w = await world();
+      await w.controller.register(w.request(BODY));
+      await w.controller.register(w.request(taken));
+
+      for (const { ctx } of [...w.passwords.verifications, ...w.passwords.notified]) expect(ctx).to.deep.include({ ip: IP, userAgent: 'mocha', purpose: 'request' });
+    });
+
+    it('mails nobody for a registration a before hook refused', async () => {
+      const refusing = new (class extends ActionHook {
+        readonly actions: readonly ActionPattern[] = ['authn.registration'];
+        before(ctx: { refuse(code: string): never }): void {
+          ctx.refuse('not-today');
+        }
+      })();
+      const w = await world(undefined, { hooks: [refusing] });
+      const res = answerOf(await w.controller.register(w.request(BODY)));
+
+      expect(res.status).to.eq(400);
+      expect(w.registrar.calls).to.have.length(0);
+      expect(w.passwords.verifications).to.have.length(0);
+      expect(w.passwords.notified).to.have.length(0);
+    });
+
+    it('mails nobody when the registrar fails, and the error still reaches the caller', async () => {
+      const w = await world();
+      w.registrar.refuse = new Error('database down');
+      let failure: unknown;
+      try {
+        await w.controller.register(w.request(BODY));
+      } catch (e) {
+        failure = e;
+      }
+      expect(failure).to.be.instanceOf(Error).and.have.property('message', 'database down');
+      expect(w.passwords.verifications).to.have.length(0);
+    });
+
+    it('logs a mail that cannot be requested by its class only, and the answer does not change', async () => {
+      const w = await world();
+      w.passwords.failMail = true;
+      const created = answerOf(await w.controller.register(w.request(BODY)));
+      const exists = answerOf(await w.controller.register(w.request(taken)));
+
+      expect(created).to.deep.include(ACCEPTED);
+      expect(exists).to.deep.eq(created);
+      expect(w.warnings).to.have.length(2);
+      expect(JSON.stringify(w.warnings)).to.contain('"errorName":"Error"');
+      expect(JSON.stringify(w.warnings)).to.not.contain('mail queue down');
+      expect(JSON.stringify(w.warnings)).to.not.contain(TAKEN);
+    });
+  });
+
   describe('the password policy', () => {
     it('is checked with the login and the email as context, before the registrar is asked', async () => {
-      const w = world();
+      const w = await world();
       await w.controller.register(w.request(BODY));
 
       expect(w.passwords.checks).to.deep.eq([{ password: BODY.password, context: { login: BODY.login, email: BODY.email } }]);
     });
 
     it('answers 400 password_rejected with the violations and registers nothing', async () => {
-      const w = world();
+      const w = await world();
       w.passwords.violations = ['too_short', 'similar_to_identifier'];
       const res = answerOf(await w.controller.register(w.request({ ...BODY, password: 'short' })));
 
@@ -296,7 +411,7 @@ describe('POST /auth/register (FEAT-4)', () => {
     });
 
     it('refuses a password for a taken address the same way, so the refusal tells nothing about the account', async () => {
-      const w = world();
+      const w = await world();
       w.passwords.violations = ['too_short'];
       const fresh = answerOf(await w.controller.register(w.request({ ...BODY, password: 'short' })));
       const taken = answerOf(await w.controller.register(w.request({ ...BODY, email: TAKEN, password: 'short' })));
@@ -306,7 +421,7 @@ describe('POST /auth/register (FEAT-4)', () => {
     });
 
     it('answers 400 password_rejected too_long for a password past the hard cap, without asking the service', async () => {
-      const w = world();
+      const w = await world();
       const res = answerOf(await w.controller.register(w.request({ ...BODY, password: 'x'.repeat(1025) })));
 
       expect(res.status).to.eq(400);
@@ -315,7 +430,7 @@ describe('POST /auth/register (FEAT-4)', () => {
     });
 
     it('answers 400 password_mismatch when confirmPassword differs', async () => {
-      const w = world();
+      const w = await world();
       const res = answerOf(await w.controller.register(w.request({ ...BODY, confirmPassword: 'other' })));
       expect(res.status).to.eq(400);
       expect(res.body).to.deep.include({ error: 'password_mismatch' });
@@ -324,7 +439,7 @@ describe('POST /auth/register (FEAT-4)', () => {
 
   describe('the body', () => {
     it('answers 400 and asks nobody for a missing, blank, non-string or over-long login or email', async () => {
-      const w = world();
+      const w = await world();
       const bad: unknown[] = [undefined, null, 'x', [], {}, { ...BODY, login: '' }, { ...BODY, login: 7 }, { ...BODY, login: 'x'.repeat(256) }, { ...BODY, email: '' }, { ...BODY, email: ['a@b.c'] }, { ...BODY, email: 'x'.repeat(255) }, { ...BODY, email: 'no-at-sign' }, { login: BODY.login, password: BODY.password }];
       for (const body of bad) {
         const res = answerOf(await w.controller.register(w.request(body)));
@@ -336,7 +451,7 @@ describe('POST /auth/register (FEAT-4)', () => {
     });
 
     it('answers 400 invalid_registration when the registrar refuses the input, naming the field and nothing else', async () => {
-      const w = world();
+      const w = await world();
       w.registrar.refuse = new InvalidArgument('Login __system__ is reserved', 'login');
       const res = answerOf(await w.controller.register(w.request(BODY)));
 
@@ -346,7 +461,7 @@ describe('POST /auth/register (FEAT-4)', () => {
     });
 
     it('does not swallow a failure of the registrar that is not about the input', async () => {
-      const w = world();
+      const w = await world();
       w.registrar.refuse = new Error('database down');
       let failure: unknown;
       try {
@@ -360,7 +475,7 @@ describe('POST /auth/register (FEAT-4)', () => {
 
   describe('throttle', () => {
     it('counts each request in the reset flow, keyed on the client ip and the address', async () => {
-      const w = world();
+      const w = await world();
       await w.controller.register(w.request(BODY));
       await w.controller.register(w.request({ ...BODY, email: 'Other@Example.test' }));
 
@@ -371,7 +486,7 @@ describe('POST /auth/register (FEAT-4)', () => {
     });
 
     it('answers 429 with Retry-After to the 11th request from one ip, registers nothing for it, and still serves another ip', async () => {
-      const w = world();
+      const w = await world();
       for (let i = 0; i < FREE; i++) {
         expect(answerOf(await w.controller.register(w.request({ ...BODY, email: `n${i}@example.test` }))).status, `request ${i + 1}`).to.eq(202);
       }
@@ -387,7 +502,7 @@ describe('POST /auth/register (FEAT-4)', () => {
     });
 
     it('refuses an address that has used up its budget, from any ip', async () => {
-      const w = world();
+      const w = await world();
       for (let i = 0; i < FREE; i++) await w.controller.register(w.request({ ...BODY, email: TAKEN }));
 
       const refused = answerOf(await w.controller.register(w.request({ ...BODY, email: TAKEN }, '192.0.2.50')));

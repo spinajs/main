@@ -8,7 +8,6 @@ To run code around a login, an MFA completion, the start of a session, a step-up
 | --- | --- | --- | --- |
 | `AuthnResponseExtension` | `@spinajs/authn-http`, when it builds an answer | Every registration | `AccessResponseExtension` (users) |
 | `RoleSource` | `DefaultMfaPolicy` (`forceForRoles`), `@spinajs/authn-http` (role switch) | One, optional | `RbacRoleSource` (users) |
-| `CredentialAdminGuard` | `@spinajs/authn-http`, the credential admin routes | One, optional | `AuthzCredentialAdminGuard` (users) |
 | `CredentialExtractor` | `@spinajs/authn-http`'s `AuthnMiddleware` | Every registration, by `order` | The extractors of `@spinajs/authn-http` |
 | `ImpersonationGuard` | `AuthnImpersonationService`, on every request of an impersonation session; the start is checked by before hooks on `authn.impersonation.start` | One, optional | `AuthzImpersonationGuard` (users); see [Impersonation](11-impersonation-and-active-role.md) |
 
@@ -37,9 +36,9 @@ export class AssuranceResponseExtension extends AuthnResponseExtension {
 
 A before hook on [`authn.session.start`](14-action-hooks.md#authnsessionstart) chooses the role a new session starts with: it sets `ctx.input.ceiling`, which the session stores as its `ActiveRole`. `@spinajs/users` registers `OrderedActiveRoleHook` there ([Role switch and access response](../users/14-role-switch-and-access-response.md)).
 
-## `CredentialAdminGuard`
+## Who may administer credentials
 
-`allowed(actor, target, action)` decides whether an admin may act on another identity's credentials. `action` is `password-reset`, `mfa-reset`, `sessions` or `tokens`. It answers `{ ok: true }` or `{ ok: false, code }` with `forbidden`, `protected_role`, `escalation` or `not_found`. The routes call it before any effect. Without a registration the credential admin routes answer 404. `@spinajs/users` registers `AuthzCredentialAdminGuard`.
+`CredentialAdminGuard` is gone (D17). The rule is now a `CredentialAdminRule`, an `ActionHook` on `authn.admin.credentials`: see [Action hooks](14-action-hooks.md#authnadmincredentials-and-credentialadminrule).
 
 ## `CredentialExtractor`
 
@@ -51,5 +50,5 @@ The default order: HTTP signature headers give `http-signature`; `Authorization:
 
 - [Action hooks](14-action-hooks.md): the authn actions an `ActionHook` can run around.
 - [Contracts and packages](02-contracts-and-packages.md): every contract and its implementation.
-- [`@spinajs/users`](../users/README.md): the shipped guards, role source and response extension.
+- [`@spinajs/users`](../users/README.md): the shipped guards, the credential admin rule, the role source and the response extension.
 - [`@spinajs/authn-http`](../authn-http/README.md): where the HTTP hooks are called.

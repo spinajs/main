@@ -4,7 +4,8 @@ import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
-import { CredentialAdminGuard, SessionIssuer } from '@spinajs/authn/contracts';
+import { SessionIssuer } from '@spinajs/authn/contracts';
+import { credentialAdminRuleRegistered } from '@spinajs/authn/hooks';
 
 import { mfaEnrolmentOn } from '../mfa/gate.js';
 import { notFound } from '../policies/v3/errors.js';
@@ -13,10 +14,22 @@ import { serviceRegistered } from '../policies/v3/groups.js';
 // Not exported by the package barrel; nothing here registers at import.
 
 /**
- * The first policy of the credential admin controller: 404 `not_found` while no CredentialAdminGuard is registered.
- * Without a guard nobody can tell who may administer whom, so the group is off (design §22.11, RFC N8b-1).
+ * The first policy of the credential admin controller: 404 `not_found` while no CredentialAdminRule (an ActionHook on
+ * `authn.admin.credentials`) is registered as a class. Without a rule nobody can tell who may administer whom, so the
+ * group is off (design §22.11, RFC N8b-1).
  */
-export class CredentialAdminGuardRegistered extends serviceRegistered(CredentialAdminGuard, 'the credential admin routes are off') {}
+export class CredentialAdminRuleRegistered extends BasePolicy {
+  @Autoinject(Container)
+  protected Container!: IContainer;
+
+  public isEnabled(_action: IRoute, _instance: IController): boolean {
+    return true;
+  }
+
+  public async execute(_req: Request, _action: IRoute, _instance: IController): Promise<void> {
+    if (!credentialAdminRuleRegistered(this.Container)) throw notFound('not_found', 'the credential admin routes are off');
+  }
+}
 
 /** 404 `not_found` while no SessionIssuer is registered: the admin sessions revoke is off. */
 export class SessionIssuerRegistered extends serviceRegistered(SessionIssuer, 'the admin sessions route is off') {}

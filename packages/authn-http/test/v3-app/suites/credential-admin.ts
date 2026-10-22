@@ -1,13 +1,17 @@
 import { expect } from 'chai';
 import { randomUUID } from 'node:crypto';
 import { Container, DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import type { IController, IRoute, Request } from '@spinajs/http';
-import { CredentialAdminGuard, MfaEnrolmentService, SessionIssuer } from '@spinajs/authn/contracts';
+import { MfaEnrolmentService, SessionIssuer } from '@spinajs/authn/contracts';
+import { CredentialAdminRule } from '@spinajs/authn/hooks';
+import type { CredentialAdminVerdict } from '@spinajs/authn/hooks';
+import { ActionHook } from '@spinajs/hooks';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { FakeClock, parseOtpauth, totpFromProvisioning } from '@spinajs/authn-testing';
 import type { ConfigOverrides, Harness, HttpRequest, HttpResponse } from '@spinajs/authn-testing';
 
-import { AdminMfaResetOn, CredentialAdminGuardRegistered, SessionIssuerRegistered } from '../../../src/admin/gate.js';
+import { AdminMfaResetOn, CredentialAdminRuleRegistered, SessionIssuerRegistered } from '../../../src/admin/gate.js';
 import { PASSWORD_HARD_CAP } from '../../../src/v3/index.js';
 import { readingFrom } from '../../support/config-boot.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
@@ -36,11 +40,11 @@ const request = (route: AdminRoute, target: IdentityRef, payload?: unknown): Htt
 
 const pathOf = (route: AdminRoute, id: string): string => ADMIN_ROUTES[route]!({ type: 'user', id }).path;
 
-/** The four routes in the shared app, which registers no CredentialAdminGuard. */
+/** The four routes in the shared app, which registers no CredentialAdminRule. */
 export function credentialAdminGateSuite(): void {
   const target = { type: 'user', id: randomUUID() };
 
-  it('without a CredentialAdminGuard every admin route answers 404 not_found, also to a session', async () => {
+  it('without a CredentialAdminRule every admin route answers 404 not_found, also to a session', async () => {
     const anonymous = new Client();
     const session = await loggedIn(await seedUser());
     for (const c of [anonymous, session]) {
@@ -69,10 +73,7 @@ export function credentialAdminGateSuite(): void {
     const route = {} as IRoute;
     const ctrl = {} as IController;
     const req = { storage: {} } as unknown as Request;
-    for (const [Gate, Hook] of [
-      [CredentialAdminGuardRegistered, CredentialAdminGuard],
-      [SessionIssuerRegistered, SessionIssuer],
-    ] as const) {
+    for (const [Gate, Hook] of [[SessionIssuerRegistered, SessionIssuer]] as const) {
       const empty = new Container();
       const gate = new Gate();
       (gate as unknown as { Container: unknown }).Container = empty;
@@ -89,6 +90,38 @@ export function credentialAdminGateSuite(): void {
       (gate as unknown as { Container: unknown }).Container = child;
       await gate.execute(req, route, ctrl);
     }
+  });
+
+  it('the credential admin gate opens for a CredentialAdminRule class registered as an ActionHook in the container it asks', async () => {
+    const route = {} as IRoute;
+    const ctrl = {} as IController;
+    const req = { storage: {} } as unknown as Request;
+    class SpecRule extends CredentialAdminRule {
+      async allowed(): Promise<CredentialAdminVerdict> {
+        return { ok: false, code: 'forbidden' };
+      }
+    }
+    class OtherHook extends ActionHook {
+      readonly actions = ['authn.admin.credentials'] as const;
+    }
+    const closed = async (container: IContainer) => {
+      const gate = new CredentialAdminRuleRegistered();
+      (gate as unknown as { Container: unknown }).Container = container;
+      expect(gate.isEnabled(route, ctrl)).to.eq(true);
+      return gate.execute(req, route, ctrl).then(
+        () => false,
+        (e: { constructor: { name: string }; error?: unknown }) => e.constructor.name === 'ResourceNotFound' && e.error === 'not_found',
+      );
+    };
+    const empty = new Container();
+    expect(await closed(empty), 'nothing registered').to.eq(true);
+    const other = empty.child();
+    other.register(OtherHook).as(ActionHook);
+    other.register(() => new SpecRule()).as(ActionHook);
+    expect(await closed(other), 'another hook, and a rule only a factory names').to.eq(true);
+    const ruled = other.child();
+    ruled.register(SpecRule).as(ActionHook);
+    expect(await closed(ruled), 'a rule class').to.eq(false);
   });
 
   it('the MFA reset gate is closed without an MfaEnrolmentService or while it is not enabled, and names its own route', async () => {
@@ -121,7 +154,7 @@ export function credentialAdminGateSuite(): void {
 
 let users = 0;
 
-/** The routes over authn-local, authn-totp, authn-token, authn-session and N1, behind the lane's CredentialAdminGuard. */
+/** The routes over authn-local, authn-totp, authn-token, authn-session and N1, behind the lane's CredentialAdminRule. */
 export function credentialAdminRoutesSuite(): void {
   let h: Harness;
 

@@ -34,6 +34,40 @@ See [Writing a hook](../hooks/01-writing-a-hook.md) for the hook contract, order
 
 The input and output types are exported from `@spinajs/authn` (`AuthnLoginInput`, `AuthnLoginIdentifiedInput`, and so on) and from `@spinajs/authn-oidc` (`AuthnLogoutBackchannelInput`).
 
+## `authn.admin.credentials` and `CredentialAdminRule`
+
+`@spinajs/authn/hooks` declares `authn.admin.credentials`, the action of an administrator acting on another user's credentials. Two route sets run it: authn-http's [credential admin routes](../authn-http/16-credential-admin-routes.md), and users-http's admin routes that end a user's sessions or change its login ([lifecycle and sessions](../users-http/07-lifecycle-and-sessions.md)).
+
+| Input | Type |
+| --- | --- |
+| `actor` | The caller's whole `Principal`, its authn facts included, as a deep frozen copy |
+| `target` | `IdentityRef` |
+| `action` | `CredentialAdminAction`: `password-reset`, `mfa-reset`, `sessions` or `tokens` |
+
+No key is mutable. The output is the route's answer body, or `{}` for a route that answers none.
+
+`CredentialAdminRule` decides who may administer whom. It is an abstract `ActionHook` with `actions = ['authn.admin.credentials']` and `order = CREDENTIAL_ADMIN_RULE_ORDER` (`-1000`), so it runs before the hooks of the default order. Implement `allowed(actor, target, action)`. It answers `{ ok: true }` or `{ ok: false, code }`, with `code` one of `forbidden`, `protected_role`, `escalation` and `not_found` (`CREDENTIAL_ADMIN_REFUSALS`). Its `before` refuses with that code. Any other answer refuses `forbidden`. `@spinajs/users` registers `AuthzCredentialAdminRule`.
+
+Register a rule as a class, with `@Injectable(ActionHook)`. `credentialAdminRuleRegistered(container)` finds a rule by its class, and authn-http's route gate asks it; a rule registered through a factory does not count.
+
+`runCredentialAdmin(hooks, input, effect, output?)` runs `effect` as the action and fails closed. An effect that no rule admitted in this run is refused with `ActionRefused('authn.admin.credentials', 'forbidden')` and never runs. That covers no rule registered, and a rule registered after the runner resolved. `output` maps the effect's result for the `after` hooks; by default a plain object passes as is and anything else becomes `{}`.
+
+```ts
+import { Injectable } from '@spinajs/di';
+import { ActionHook } from '@spinajs/hooks';
+import { CredentialAdminRule } from '@spinajs/authn/hooks';
+import type { CredentialAdminVerdict } from '@spinajs/authn/hooks';
+import type { CredentialAdminAction, IdentityRef, Principal } from '@spinajs/authn/contracts';
+
+@Injectable(ActionHook)
+export class HelpdeskRule extends CredentialAdminRule {
+  async allowed(actor: Principal, _target: IdentityRef, action: CredentialAdminAction): Promise<CredentialAdminVerdict> {
+    if (actor.attributes.team !== 'helpdesk') return { ok: false, code: 'forbidden' };
+    return action === 'tokens' ? { ok: false, code: 'forbidden' } : { ok: true };
+  }
+}
+```
+
 ## The `authn.login` timing rule
 
 `authn.login` runs before the throttle and before the password hash is verified. A refusal there is fast, so its timing would tell an attacker what the hook decided. A hook on `authn.login` must therefore never branch on whether the account exists:
@@ -163,6 +197,7 @@ The helpers below are exported from `@spinajs/authn` and from the `@spinajs/auth
 | `hookCopy(value)` | A deep copy for a mutable key; for a value `structuredClone` refuses, its plain data is copied and the uncloneable leaves are shared. A hook's in-place change to the plain data never reaches the caller's object. |
 | `hookRefusalOf(err, action)` | Maps an error `Hooks.run(action, ...)` threw to a `HookRefusal`: `{ code, reason: 'hook:<code>' }` for an `ActionRefused`, `{ code: 'hook_error', reason: 'hook_error', data: { hook, failure } }` for an `ActionHookFailed`. Returns `null` for any other error, and for a refusal or failure of another action (a nested run). |
 | `HookRefusal` | `{ code, reason, data? }`: `code` is what the refused action answers with, `reason` and `data` go to the audit event. |
+| `CredentialAdminRule`, `runCredentialAdmin`, `credentialAdminRuleRegistered`, `CREDENTIAL_ADMIN_REFUSALS`, `CREDENTIAL_ADMIN_RULE_ORDER`, `CredentialAdminInput`, `CredentialAdminVerdict`, `CredentialAdminRefusal` | `authn.admin.credentials`; see [above](#authnadmincredentials-and-credentialadminrule). |
 | `AuthnLoginInput`, `AuthnLoginIdentifiedInput`, `AuthnMfaVerifyInput`, `AuthnReauthInput`, `AuthnStepUpInput`, `AuthnSessionStartInput`, `AuthnImpersonationStartInput`, `AuthnImpersonationStopInput`, `AuthnLinkInput`, `AuthnUnlinkInput` | The input types of the authn actions. Importing the module also brings their `HookActions` declaration. |
 
 ### `runHookedAction`

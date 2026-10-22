@@ -35,7 +35,7 @@ export class UserResourceAdapter extends ResourceAdapter<User> {
    * and a glob matching none makes the role ungrantable (RFC C1-1). They come with the adapter, not with users' config
    * fragment, so they register only where `UserMetadataOwnerRelation`, which the `user` role's grant needs, does too.
    * No adapter serves `user.metadata`: its checks are type-level with the row as subject.
-   * `users:credentials` is the default `authz.credentials.permission` that users' AuthzCredentialAdminGuard checks at
+   * `users:credentials` is the default `authz.credentials.permission` that users' AuthzCredentialAdminRule checks at
    * GLOBAL; it registers wherever that guard does, with the types users-http's config gives its `users:*` entries, so the
    * registry's merge of a second registration of the name changes nothing.
    */
