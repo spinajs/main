@@ -14,9 +14,10 @@ export class EmailDomainListSyncTask extends ScheduledTask {
 
   public async execute(ctx: RunContext): Promise<SyncOutcome[]> {
     const outcomes = await this.Sync.run();
+    // The scheduler persists ctx.result only for successful runs, so a failure must carry the per-source errors in its message.
+    const failed = outcomes.filter((o) => o.status === 'failed');
+    if (failed.length > 0) throw new Error(`list sync failed: ${failed.map((o) => `${o.source}: ${o.error}`).join('; ')}`);
     ctx.result(outcomes);
-    const failed = outcomes.filter((o) => o.status === 'failed').map((o) => o.source);
-    if (failed.length > 0) throw new Error(`list sync failed for ${failed.join(', ')}`);
     return outcomes;
   }
 }
