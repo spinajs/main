@@ -210,6 +210,20 @@ describe('User model tests', function () {
       expect(meta.Value).to.be.eq('test-2');
     });
 
+    it('Should update an existing key by assign on a relation that was not populated', async () => {
+      const first = await User.getByEmail('test@spinajs.pl');
+      first.Metadata['upsert:key'] = 'one';
+      await first.Metadata.sync();
+
+      const second = await User.getByEmail('test@spinajs.pl');
+      second.Metadata['upsert:key'] = 'two';
+      await second.Metadata.sync();
+
+      const rows = await UserMetadata.where('Key', 'upsert:key');
+      expect(rows.length).to.be.eq(1);
+      expect(rows[0].Value).to.be.eq('two');
+    });
+
     it('Should automatically convert meta value to number', async () => {
       const user = await User.getByEmail('test@spinajs.pl');
       user.Metadata['test:test'] = 1;

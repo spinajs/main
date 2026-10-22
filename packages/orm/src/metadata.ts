@@ -97,6 +97,32 @@ export class MetadataRelation<R extends MetadataModel<R>, O extends ModelBase<O>
   }
 
 
+  /**
+   * A row is identified by (owner, Key), a composite unique index the generic upsert cannot target:
+   * it conflicts on the primary key only. A new entry whose key already exists in the DB ( the
+   * relation was not populated first ) adopts the stored row's id, so it updates it instead of
+   * violating the index.
+   */
+  protected override async _update() {
+    const fresh = this.filter((x) => _.isNil(x.PrimaryKeyValue));
+
+    if (fresh.length !== 0) {
+      const stored = await this.Relation.TargetModel.where({ [this.Relation.ForeignKey]: this.OwnerJoinValue }).whereIn(
+        'Key',
+        fresh.map((x) => x.Key),
+      );
+
+      for (const row of stored as unknown as R[]) {
+        const match = fresh.find((x) => x.Key === row.Key);
+        if (match) {
+          match.PrimaryKeyValue = row.PrimaryKeyValue;
+        }
+      }
+    }
+
+    await super._update();
+  }
+
   constructor(owner: O, relation: IRelationDescriptor, objects?: R[]) {
     super(owner, relation, objects);
 
