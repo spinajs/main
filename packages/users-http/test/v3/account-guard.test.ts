@@ -7,7 +7,7 @@ import { Configuration } from '@spinajs/configuration';
 import { DefaultQueueService } from '@spinajs/queue';
 import { Ok } from '@spinajs/http';
 import { Forbidden } from '@spinajs/exceptions';
-import { AuthzConfigError, AuthzService, SYSTEM } from '@spinajs/authz';
+import { AuthzService, SYSTEM } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { User, ban } from '@spinajs/users';
 
@@ -15,6 +15,7 @@ import { resetPasswordCalls } from '../support/password-service.js';
 import { globalRolesOf, seedRoles, unseedRoles } from '../support/authz-host.js';
 import { ADMIN2_UUID, ADMIN_UUID, AdminWorld, USER_UUID, bootAdminWorld, byUuid, principalOf, registerAdminWorld } from '../support/admin-world.js';
 import { ownedCache } from '../support/owned-cache.js';
+import { setPastSchema } from '../support/set-past-schema.js';
 import { NO_REQUEST, passLifecycleGates } from '../support/lifecycle-gates.js';
 
 /**
@@ -109,12 +110,13 @@ describe('users-http v3: account guard on the lifecycle routes', function () {
   }
 
   it('fails closed when a check is on but no privilegedPermission is configured', async () => {
-    config().set('authz.admin.guard', { service: 'DefaultAdminGuard' });
-    await expect(world.security.deactivateUser(await admin2(), ADMIN_UUID, NO_REQUEST)).to.be.rejectedWith(AuthzConfigError, /authz.admin.guard.privilegedPermission/);
+    setPastSchema(config(), 'authz.admin.guard', { service: 'DefaultAdminGuard' });
+    // The guard is a before hook: its AuthzConfigError (asserted on AccountStanding in account-guard-config.test.ts) fails the action closed.
+    await expect(world.security.deactivateUser(await admin2(), ADMIN_UUID, NO_REQUEST)).to.be.rejectedWith(Forbidden).and.eventually.include({ error: 'action_refused', code: 'hook_error' });
   });
 
   it('keeps a check on for a non-boolean switch value', async () => {
-    config().set('authz.admin.guard.preventSelfLockout', 0);
+    setPastSchema(config(), 'authz.admin.guard.preventSelfLockout', 0);
     await expect(world.security.deactivateUser(await admin(), ADMIN_UUID, NO_REQUEST)).to.be.rejectedWith(Forbidden, /your own account/);
   });
 
