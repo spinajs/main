@@ -2,7 +2,8 @@ import * as chai from 'chai';
 import 'mocha';
 import { Exception } from '@spinajs/exceptions';
 
-import { AuthzAdmin, AuthzAdminFailure, AdminGuard, AuthzCommandValidator, AuthzEventSink, AuthzWriteHandler } from '../../src/index.js';
+import * as authz from '../../src/index.js';
+import { AuthzAdmin, AuthzAdminFailure, AdminGuard, AuthzEventSink, AuthzWriteHandler } from '../../src/index.js';
 import type { AdminContext, AuthzAdminError, AuthzAdminQuery, AuthzAdminQueryMap, AuthzCommand, AuthzCommandFields, AuthzCommandMap, AuthzCommandOf, AuthzCommandResult, AuthzCommandRow, AuthzEvent, AuthzService, AuthzTx, Principal, PrincipalRef, ResourceRef } from '../../src/index.js';
 import * as root from '../../src/index.js';
 import type { AuthzAdminOptions, Permission } from '../../src/index.js';
@@ -126,9 +127,6 @@ describe('handler, guard, validator, sink', () => {
     class G extends AdminGuard {
       async check(): Promise<void> {}
     }
-    class V extends AuthzCommandValidator {
-      async validate(): Promise<void> {}
-    }
     const published: AuthzEvent[] = [];
     class S extends AuthzEventSink {
       async publish(e: readonly AuthzEvent[]): Promise<void> {
@@ -142,7 +140,6 @@ describe('handler, guard, validator, sink', () => {
     expect((await (new AsyncH() as AuthzWriteHandler).permission(c, ctx)).resource).to.deep.eq({ type: 'file', id: 'root' });
     expect((await h.apply(c, ctx, tx)).affected).to.eq(1);
     await (new G() as AdminGuard).check({} as Principal, c, ctx);
-    await (new V() as AuthzCommandValidator).validate({} as Principal, c, ctx);
     await new S().publish(events);
     expect(published).to.have.length(1);
     expect(ctx.authz).to.not.eq(undefined);
@@ -231,10 +228,13 @@ describe('pinned shapes (copies of design 6.6.1 and 5.8)', () => {
 
     yes<Equal<keyof AdminGuard, 'check'>>();
     yes<Equal<AdminGuard['check'], (actor: Principal, c: DCommand, ctx: AdminContext) => Promise<void>>>();
-    yes<Equal<keyof AuthzCommandValidator, 'validate'>>();
-    yes<Equal<AuthzCommandValidator['validate'], (actor: Principal, c: DCommand, ctx: AdminContext) => Promise<void>>>();
     yes<Equal<keyof AuthzEventSink, 'publish'>>();
     yes<Equal<AuthzEventSink['publish'], (events: readonly AuthzEvent[]) => Promise<void>>>();
+  });
+
+  it('has no AuthzCommandValidator: product rules on commands are before hooks on authz.admin.command (D17)', () => {
+    expect(Object.keys(authz)).to.not.include('AuthzCommandValidator');
+    expect(Object.keys(authz)).to.not.include('ListSupportValidator');
   });
 
   it('pins AuthzAdminFailure', () => {

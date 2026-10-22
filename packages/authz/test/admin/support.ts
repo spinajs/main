@@ -2,7 +2,9 @@ import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { ManualClock, RecordingAudit, RecordingChangeBus, StaticModel, testHost } from '@spinajs/authz-testing';
 
-import { AdminGuard, AuthorizationModel, AuthzAdminBackend, AuthzAdminFailure, AuthzClock, AuthzCommandValidator, AuthzEventSink, AuthzWriteHandler, ChangeBus, DecisionAudit, MemoryAuthzAdminBackend, TRUE, adminContainer, memoryTx, principalKey } from '@spinajs/authz';
+import { ActionHook, ActionRefused } from '@spinajs/hooks';
+import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
+import { AdminGuard, AuthorizationModel, AuthzAdminBackend, AuthzAdminFailure, AuthzClock, AuthzEventSink, AuthzWriteHandler, ChangeBus, DecisionAudit, MemoryAuthzAdminBackend, TRUE, adminContainer, memoryTx, principalKey } from '@spinajs/authz';
 import type { AdminContext, AuthzAdmin, AuthzCommand, AuthzEvent, AuthzService, AuthzTx, Permission, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
 
 // The RBAC and ABAC command kinds the fakes handle.
@@ -84,6 +86,8 @@ export class FakeAssignmentHandler extends AuthzWriteHandler {
     s.trace.push(`validate:${c.kind}`);
     s.contexts.push(ctx);
     if (c.kind === 'assignment.grant' && c.role === 'unknown') throw new AuthzAdminFailure('unknown_role', 'role "unknown" does not exist', 'role');
+    // The refusal of another action escaping a check, which AuthzAdmin must not take for its own hooks' refusal.
+    if (c.kind === 'assignment.grant' && c.role === 'swap') throw new ActionRefused('users.create', 'other-action');
   }
 
   async permission(c: AuthzCommand, ctx: AdminContext): Promise<{ permission: Permission; resource: ResourceRef }> {
@@ -143,12 +147,15 @@ export class FakeGuard extends AdminGuard {
   }
 }
 
-/** Refuses grants to user:external. */
-export class FakeValidator extends AuthzCommandValidator {
-  async validate(_actor: Principal, c: AuthzCommand, ctx: AdminContext): Promise<void> {
-    const s = await storeOf(ctx);
-    s.trace.push(`validator:${c.kind}`);
-    if (c.kind === 'assignment.grant' && (c.subject as PrincipalRef).id === 'external') throw new AuthzAdminFailure('conflict', 'no external invites', 'subject');
+/** Refuses grants to user:external, as an app's before hook on authz.admin.command; traces into `store` once set. */
+export class FakeValidator extends ActionHook<'authz.admin.command'> {
+  readonly actions: readonly ActionPattern[] = ['authz.admin.command'];
+  store: FakeStore | undefined;
+
+  before(ctx: BeforeContext<'authz.admin.command'>): void {
+    const c = ctx.input.command as unknown as AuthzCommand;
+    this.store?.trace.push(`validator:${c.kind}`);
+    if (c.kind === 'assignment.grant' && (c.subject as PrincipalRef).id === 'external') ctx.refuse('no-external-invites');
   }
 }
 
@@ -244,7 +251,6 @@ export async function adminDomain(name = 'test', opts: AdminDomainOptions = {}):
   for (const s of opts.sinks ?? []) c.register(instance(s)).as(AuthzEventSink);
   if (opts.handlers !== false) c.register(FakeAssignmentHandler).as(AuthzWriteHandler);
   c.register(FakeGuard).as(AdminGuard);
-  c.register(FakeValidator).as(AuthzCommandValidator);
   if (opts.backend !== false) c.register(TestBackend).as(AuthzAdminBackend);
   opts.register?.(c);
   const service = await ds.service(name);

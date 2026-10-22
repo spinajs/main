@@ -8,7 +8,7 @@ import { RecordingActionHook } from '@spinajs/hooks/testing';
 import { ActionRefused, DefaultHooks, Hooks } from '@spinajs/hooks';
 import type { ActionName, InputOf, OutputOf, RunOptions } from '@spinajs/hooks';
 
-import { AuthzAdminFailure, AuthzCommandValidator } from '@spinajs/authz';
+import { AuthzAdminFailure } from '@spinajs/authz';
 import type { AuthzCommand, AuthzCommandResult, ResourceRef } from '@spinajs/authz';
 import { adminConfig, installHost, rejection, resetHost, setConfig, uninstallHost } from '../admin/support.js';
 import { PatchCommand, RefuseWhen, hookedAdminDomain } from './support.js';
@@ -230,12 +230,7 @@ describe('authz admin hooks', function () {
   });
 
   describe('an in-place change of a Date inside the command', () => {
-    it('is checked again: a validator cap still applies', async () => {
-      class Cap extends AuthzCommandValidator {
-        async validate(_actor: unknown, c: AuthzCommand): Promise<void> {
-          if (c.kind === 'assignment.grant' && c.expiresAt && c.expiresAt.getFullYear() > 2030) throw new AuthzAdminFailure('too_long', 'expiry past 2030');
-        }
-      }
+    it('is checked again: validate() and the permission check run on the changed command', async () => {
       class Stretch extends ActionHook {
         readonly actions = ['authz.admin.command'] as const;
         before(ctx: BeforeContext<'authz.admin.command'>): void {
@@ -243,10 +238,20 @@ describe('authz admin hooks', function () {
           command.expiresAt.setFullYear(2100);
         }
       }
-      const d = await hookedAdminDomain([new Stretch()], { register: (c) => c.register(Cap).as(AuthzCommandValidator) });
+      const d = await hookedAdminDomain([new Stretch()]);
       const out = await d.admin.execute(alice, [{ ...grant('bob'), expiresAt: new Date('2027-01-01T00:00:00.000Z') } as AuthzCommand]);
-      expect(failure(out[0]).code).to.equal('too_long');
-      expect(d.store.rows.size).to.equal(0);
+      expect(out[0].ok).to.equal(true);
+      expect(d.store.trace.filter((t) => t === 'validate:assignment.grant')).to.have.length(2);
+      expect((d.store.applied[0] as { expiresAt: Date }).expiresAt.getFullYear()).to.equal(2100);
+    });
+  });
+
+  describe('a command no hook changed', () => {
+    it('is validated and permission-checked once', async () => {
+      const d = await hookedAdminDomain([new RecordingActionHook(['authz.admin.command'])]);
+      expect((await d.admin.execute(alice, [grant('bob')]))[0].ok).to.equal(true);
+      expect(d.store.trace.filter((t) => t === 'validate:assignment.grant')).to.have.length(1);
+      expect(d.model.requests.filter((r) => r.permission === 'authz:assignments.manage')).to.have.length(1);
     });
   });
 
@@ -262,12 +267,8 @@ describe('authz admin hooks', function () {
 
   describe('errors of other actions', () => {
     it('are not relabelled as hook failures', async () => {
-      class Foreign extends AuthzCommandValidator {
-        async validate(_actor: unknown, c: AuthzCommand): Promise<void> {
-          if (c.kind === 'assignment.grant' && c.role === 'swap') throw new ActionRefused('users.create', 'other-action');
-        }
-      }
-      const d = await hookedAdminDomain([new PatchCommand((c) => ({ ...c, role: 'swap' }))], { register: (c) => c.register(Foreign).as(AuthzCommandValidator) });
+      // The fake handler's validate() throws the refusal of users.create for role swap.
+      const d = await hookedAdminDomain([new PatchCommand((c) => ({ ...c, role: 'swap' }))]);
       const err = await rejection(d.admin.execute(alice, [grant('bob')]));
       expect(err).to.be.instanceOf(ActionRefused);
       expect((err as ActionRefused).action).to.equal('users.create');
@@ -276,26 +277,26 @@ describe('authz admin hooks', function () {
 
   describe('without a matching hook', () => {
     class SpyHooks extends DefaultHooks {
-      static runs = 0;
+      static runs: string[] = [];
 
       public async run<A extends ActionName>(action: A, input: InputOf<A>, impl: (input: InputOf<A>) => Promise<OutputOf<A>>, opts: RunOptions<A>): Promise<OutputOf<A>> {
-        SpyHooks.runs++;
+        SpyHooks.runs.push(action);
         return super.run(action, input, impl, opts);
       }
     }
 
     it('the admin calls Hooks.run when a hook matches (control)', async () => {
-      SpyHooks.runs = 0;
-      const d = await hookedAdminDomain([new RecordingActionHook(['authz.admin.command'])], { register: (c) => c.register(SpyHooks).as(Hooks) });
+      SpyHooks.runs = [];
+      const d = await hookedAdminDomain([new RecordingActionHook(['authz.admin.batch'])], { register: (c) => c.register(SpyHooks).as(Hooks) });
       await d.admin.execute(alice, [grant('bob')]);
-      expect(SpyHooks.runs).to.be.greaterThan(0);
+      expect(SpyHooks.runs).to.include('authz.admin.batch');
     });
 
-    it('the admin never calls Hooks.run', async () => {
-      SpyHooks.runs = 0;
+    it('the admin runs no batch hooks, and on each command only the built-in ListSupportHook', async () => {
+      SpyHooks.runs = [];
       const d = await hookedAdminDomain([new RecordingActionHook(['authz.check'])], { register: (c) => c.register(SpyHooks).as(Hooks) });
-      expect((await d.admin.execute(alice, [grant('bob')])).every((r) => r.ok)).to.equal(true);
-      expect(SpyHooks.runs).to.equal(0);
+      expect((await d.admin.execute(alice, [grant('bob'), grant('dan')])).every((r) => r.ok)).to.equal(true);
+      expect(SpyHooks.runs).to.deep.equal(['authz.admin.command', 'authz.admin.command']);
     });
   });
 

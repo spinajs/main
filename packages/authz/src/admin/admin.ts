@@ -4,7 +4,7 @@ import { Config } from '@spinajs/configuration';
 import { ActionHookFailed, ActionRefused, Hooks } from '@spinajs/hooks';
 import { deepFreeze, quote as q } from '@spinajs/util';
 
-import { AdminGuard, AuthzAdmin, AuthzAdminFailure, AuthzCommandValidator, AuthzEventSink, AuthzWriteHandler } from '../contracts/admin.js';
+import { AdminGuard, AuthzAdmin, AuthzAdminFailure, AuthzEventSink, AuthzWriteHandler } from '../contracts/admin.js';
 import type { AuthzAdminOptions, AuthzAdminQuery, AuthzCommand, AuthzCommandFields, AuthzCommandOf, AuthzCommandResult, AuthzCommandRow, AuthzEvent, AuthzTx } from '../contracts/admin.js';
 import { AuthzConfigError } from '../contracts/errors.js';
 import { isPermission } from '../contracts/permission.js';
@@ -22,7 +22,9 @@ import { AuthzAdminBackend } from './backend.js';
 import { ADMIN_DEFAULTS, mapPermission } from './config.js';
 import type { AdminConfig, AdminPermissionMap } from './config.js';
 import type { AdminCallContext } from './context.js';
+import { checkListSupport } from './list-guard.js';
 import { requirePermitted } from './permit.js';
+import { bindContext, keptFailure, wasListChecked } from './refusals.js';
 import { AuthzAdminReader } from './ports.js';
 import { isObject } from '../engine/internal/util.js';
 // The default AuthzEventSink registration.
@@ -252,24 +254,29 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
       if (stored !== undefined) return { results: structuredClone(stored.results), rows: structuredClone(stored.rows), replayed: true, dryRun: false };
     }
 
-    // Phase A, outside the transaction: validate, app validators, permission check.
+    // Phase A, outside the transaction: validate and the permission check, then the authz.admin.command hooks (ListSupportHook among them).
     const handlers = await this.handlers(env.where);
-    const validators = await resolveChain(this.container, AuthzCommandValidator);
     const checked: Checked[] = [];
     for (const [i, c] of list.entries()) {
       try {
         let command = c;
-        let verdict = await this.check(env, handlers, validators, actor, command, ctx);
-        // The command a hook leaves meets validate(), the app validators and the permission check again; the guard sees the changed one too.
+        let verdict = await this.check(env, handlers, actor, command, ctx);
+        // The command a hook leaves meets validate() and the permission check again; the guard sees the changed one too.
         if (env.hooks.has('authz.admin.command')) {
+          const seen = fingerprint(command);
+          bindContext(command, ctx);
           await mapRefusal('authz.admin.command', () =>
             env.hooks.run(
               'authz.admin.command',
               { actor, command },
               async (merged) => {
-                // Always: deepFreeze does not stop a hook from changing a Date in place, so identity proves nothing.
+                // ListSupportHook always runs, so a command no hook changed is not checked twice. deepFreeze does not stop
+                // a hook from changing a Date in place, so identity alone proves nothing; the fingerprint shows that change.
+                if (merged.command === command && seen !== undefined && fingerprint(merged.command) === seen) return { command };
                 command = frozenCommand(merged.command, i);
-                verdict = await this.check(env, handlers, validators, actor, command, ctx);
+                verdict = await this.check(env, handlers, actor, command, ctx);
+                // A hook that ran after ListSupportHook replaced the command it judged.
+                if (!wasListChecked(merged.command)) await checkListSupport(command, ctx);
                 return { command };
               },
               { mutable: ['command'] },
@@ -336,12 +343,11 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     return { results: state.results, rows, replayed: false, dryRun: false };
   }
 
-  private async check(env: Env, handlers: ReadonlyMap<string, AuthzWriteHandler>, validators: readonly AuthzCommandValidator[], actor: Principal, c: AuthzCommand, ctx: AdminCallContext): Promise<Checked> {
+  private async check(env: Env, handlers: ReadonlyMap<string, AuthzWriteHandler>, actor: Principal, c: AuthzCommand, ctx: AdminCallContext): Promise<Checked> {
     const kind = kindOf(c);
     const handler = handlers.get(kind);
     if (!handler) throw new AuthzAdminFailure('not_found', `no AuthzWriteHandler handles command kind ${q(kind)}`);
     await handler.validate(c, ctx);
-    for (const v of validators) await v.validate(actor, c, ctx);
     const wanted: unknown = await handler.permission(c, ctx);
     if (!isObject(wanted) || typeof wanted.permission !== 'string' || !isObject(wanted.resource) || typeof wanted.resource.type !== 'string') {
       throw new AuthzConfigError(`${env.where}: ${className(handler)}.permission() for ${q(kind)} must return { permission, resource }, got ${q(wanted)}`);
@@ -552,11 +558,20 @@ function readQuery(query: unknown, readers: ReadonlyMap<string, unknown>): Authz
 }
 
 /** The refusal of a before hook as the failure every admin caller already handles; errors of other actions run inside the impl pass through. */
+/** The command as JSON (a Date as its ISO string), or undefined when it has none. */
+function fingerprint(c: unknown): string | undefined {
+  try {
+    return JSON.stringify(c);
+  } catch {
+    return undefined;
+  }
+}
+
 async function mapRefusal<T>(action: string, fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (e) {
-    if (e instanceof ActionRefused && e.action === action) throw new AuthzAdminFailure(`hook:${e.code}`, e.message);
+    if (e instanceof ActionRefused && e.action === action) throw keptFailure(e) ?? new AuthzAdminFailure(`hook:${e.code}`, e.message);
     if (e instanceof ActionHookFailed && e.action === action) throw new AuthzAdminFailure('hook_error', `an action hook failed on ${e.action}`);
     throw e;
   }
