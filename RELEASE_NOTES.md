@@ -1,3 +1,15 @@
+# Release notes — users: email domain refusal
+
+> Docs: `docs/users/19-email-domains.md`.
+
+## New
+
+- `EmailDomainHook` in `@spinajs/users` refuses an email address whose domain `@spinajs/email-verification` rejects, on `authn.registration` (400 `{ code }`), `users.create` and an email change in `users.update` (403 `{ code }` in users-http). The code is `emailVerification.refuseCode` (default `email_domain_refused`).
+- `users.emailDomains.apply { registration, usersCreate, emailChange }` switches each path; all default to `true`. The check does nothing until `emailVerification.enabled` is `true`.
+- `@spinajs/users` depends on `@spinajs/email-verification`.
+
+---
+
 # Release notes â€” users, users-http, authn-local, authz-convert: users actions on action hooks
 
 > Branch `feat/ory-hook-4`. Docs: `docs/users/04-action-hooks.md`, `docs/users/03-user-actions.md`,
