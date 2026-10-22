@@ -38,6 +38,10 @@ class FpEmailConf extends FrameworkConfiguration {
       email: {
         connections: [],
       },
+      queue: {
+        default: 'test-queue',
+        connections: [{ name: 'test-queue', service: 'BlackHoleQueueClient' }],
+      },
     };
   }
 }

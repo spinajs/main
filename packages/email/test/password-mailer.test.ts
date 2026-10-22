@@ -214,6 +214,10 @@ class PasswordMailConf extends FrameworkConfiguration {
         defaultConnection: 'main',
         password: { from: 'no-reply@example.com', reset: { subject: 'Zmień hasło' }, attachments: [{ name: 'logo.png', path: 'images/logo.png', cid: 'logo' }] },
       },
+      queue: {
+        default: 'test-queue',
+        connections: [{ name: 'test-queue', service: 'BlackHoleQueueClient' }],
+      },
     };
   }
 }

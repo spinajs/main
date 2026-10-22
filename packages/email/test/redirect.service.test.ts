@@ -34,10 +34,13 @@ class TestConf extends FrameworkConfiguration {
 
 let cfg: Configuration;
 
-before(async () => {
-  DI.register(TestConf).as(Configuration);
-  cfg = await DI.resolve(Configuration);
-});
+// A root-level hook would run once for the whole run; other suites clear the container's cache.
+function bootConfiguration() {
+  beforeEach(async () => {
+    DI.register(TestConf).as(Configuration);
+    cfg = await DI.resolve(Configuration);
+  });
+}
 
 /**
  * Builds a service with one connection. `IsProduction` and `Configuration` are `@Config`-decorated
@@ -84,6 +87,8 @@ function serviceWith(isProduction: boolean | undefined, redirectTo?: string[]) {
 const anEmail = (): IEmail => ({ to: ['client@acme.com'], connection: 'test', subject: 'Your invoice' });
 
 describe('DefaultEmailService recipient redirect', () => {
+  bootConfiguration();
+
   it('hands the transport the redirected copy on a dev environment', async () => {
     const { service, sender } = serviceWith(false, ['dev-inbox@screennetwork.pl']);
 

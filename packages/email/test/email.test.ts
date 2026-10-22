@@ -1,4 +1,5 @@
 import { join, normalize, resolve } from 'path';
+import { connect } from 'net';
 import _ from 'lodash';
 import * as chai from 'chai';
 import * as sinon from 'sinon';
@@ -162,8 +163,37 @@ async function wait(amount?: number) {
   });
 }
 
+const reachable = (host: string, port: number) =>
+  new Promise<boolean>((done) => {
+    const socket = connect({ host, port, timeout: 3000 });
+    socket.once('connect', () => (socket.destroy(), done(true)));
+    socket.once('error', () => done(false));
+    socket.once('timeout', () => (socket.destroy(), done(false)));
+  });
+
 describe('smtp email transport', function () {
   this.timeout(15000);
+  let servicesUp = false;
+
+  // Needs an ActiveMQ STOMP websocket ( docker compose --profile test up activemq ) and the Mailtrap SMTP inbox.
+  before(async function () {
+    const missing: string[] = [];
+    if (!(await reachable('localhost', 61614))) missing.push('ActiveMQ at localhost:61614');
+    if (!(await reachable('smtp.mailtrap.io', 2525))) missing.push('SMTP at smtp.mailtrap.io:2525');
+
+    if (missing.length === 0) {
+      servicesUp = true;
+      return;
+    }
+
+    if (process.env.EMAIL_TEST_REQUIRE_SERVICES === '1') {
+      throw new Error(`${missing.join(' and ')} unreachable and EMAIL_TEST_REQUIRE_SERVICES=1`);
+    }
+
+    console.warn(`      ${missing.join(' and ')} unreachable, suite skipped (set EMAIL_TEST_REQUIRE_SERVICES=1 to fail instead)`);
+    this.skip();
+  });
+
   beforeEach(async () => {
     DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
@@ -177,6 +207,7 @@ describe('smtp email transport', function () {
 
   afterEach(async () => {
     sinon.restore();
+    if (!servicesUp) return;
 
     const queue = await q();
 
@@ -184,6 +215,8 @@ describe('smtp email transport', function () {
   });
 
   after(async () => {
+    if (!servicesUp) return;
+
     const queue = await q();
     await queue.dispose();
   });

@@ -3,12 +3,21 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 
 import { InvalidOperation } from '@spinajs/exceptions';
-import { DI } from '@spinajs/di';
+import { Class, DI } from '@spinajs/di';
+import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 
 import '../src/transports.js';
 import { DefaultEmailService, EmailBootstrapper, EmailSender, LogBotstrapper } from '../src/index.js';
 
-describe('email fixes', () => {
+class FixesConf extends FrameworkConfiguration {
+  protected onLoad() {
+    return { email: { connections: [] } };
+  }
+}
+
+describe('email fixes', function () {
+  this.timeout(15000);
+
   it('send() rejects with InvalidOperation when no connections are configured', async () => {
     const service = new DefaultEmailService();
     Object.defineProperty(service, 'Log', { value: { error: sinon.stub() }, configurable: true });
@@ -23,7 +32,13 @@ describe('email fixes', () => {
   });
 
   it('BlackHoleEmailTransport can be named as a connection service', async () => {
-    const sender = await DI.resolve<EmailSender>(EmailSender, [{ name: 'hole', service: 'BlackHoleEmailTransport' }]);
+    DI.clearCache();
+    DI.register(FixesConf).as(Configuration);
+    await DI.resolve(Configuration);
+
+    // Resolved by class name like @AutoinjectService does; several EmailSender implementations may be registered
+    const type = DI.getRegisteredTypes(EmailSender).find((t) => t.name === 'BlackHoleEmailTransport') as Class<EmailSender>;
+    const sender = await DI.resolve<EmailSender>(type, [{ name: 'hole', service: 'BlackHoleEmailTransport' }]);
 
     expect(sender.ServiceName).to.equal('hole');
   });
