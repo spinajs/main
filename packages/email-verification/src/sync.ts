@@ -23,7 +23,12 @@ export interface SyncOutcome {
 export function parseList(body: string, format: 'lines' | 'json'): { domains: string[]; invalid: number } {
   let raw: unknown[];
   if (format === 'json') {
-    const parsed: unknown = JSON.parse(body);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      throw new InvalidArgument('invalid JSON');
+    }
     if (!Array.isArray(parsed)) throw new InvalidArgument('a json list must be an array of domains');
     raw = parsed;
   } else {

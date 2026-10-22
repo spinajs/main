@@ -55,4 +55,18 @@ describe('EmailDomainListSyncTask', () => {
     const stored = (await store.loadLists()).filter((e) => e.source === 'b');
     expect(stored).to.deep.eq([{ domain: 'y.com', kind: 'block', source: 'b' }]);
   });
+
+  it('caps each failed source error at 200 characters', async () => {
+    const stored = new DomainListSync();
+    stored.run = async () => [{ source: 'a', status: 'failed', error: 'e'.repeat(500) }];
+    const t = await task();
+    (t as unknown as { Sync: DomainListSync }).Sync = stored;
+    let message = '';
+    try {
+      await t.execute({ result: () => undefined } as unknown as RunContext);
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).to.match(/^list sync failed: a: e{200}$/);
+  });
 });

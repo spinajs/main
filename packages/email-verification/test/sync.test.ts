@@ -216,10 +216,10 @@ describe('DomainListSync', () => {
   });
 
   it('fails on invalid JSON for a json source', async () => {
-    stub = stubFetch(() => text(200, 'not json'));
+    stub = stubFetch(() => text(200, '<html>secret remote content'));
     const [outcome] = await (await sync()).run('b');
     expect(outcome.status).to.eq('failed');
-    expect(outcome.error).to.be.a('string').and.not.empty;
+    expect(outcome.error).to.eq('invalid JSON');
   });
 
   it('carries on with the next source after a failure', async () => {
