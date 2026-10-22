@@ -106,6 +106,13 @@ sends none.
 
 ## BREAKING CHANGES
 
+# Release notes — authn, authn-oidc, authn-testing: action hooks in the authn core
+
+> Branch `feat/ory-hook-2`. Docs: `docs/authn/14-action-hooks.md`, `docs/authn/12-integration-hooks.md`,
+> `docs/authn/01-authentication-flow.md`, `docs/authn-oidc/07-login-hooks.md`, `docs/authn-testing/02-fake-authn-service.md`.
+
+## BREAKING CHANGES
+
 ### `@spinajs/authn` — `ExternalLoginHook` is removed
 
 `ExternalLoginHook` and its `afterLogin(identity, external)` are gone, with no adapter (D17). Register an
