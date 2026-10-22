@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/intl",
-  "version": "3.0.5",
+  "version": "3.0.6",
   "description": "internationalization for spinajs framework",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -61,10 +61,10 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "3.0.5",
-    "@spinajs/di": "3.0.5",
-    "@spinajs/exceptions": "3.0.5",
-    "@spinajs/log": "3.0.5",
+    "@spinajs/configuration": "3.0.6",
+    "@spinajs/di": "3.0.6",
+    "@spinajs/exceptions": "3.0.6",
+    "@spinajs/log": "3.0.6",
     "glob": "^8.1.0",
     "lodash": "^4.17.21",
     "make-plural": "^7.2.0",
