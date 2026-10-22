@@ -23,7 +23,12 @@ export function rdapCandidates(domain: string, max: number): string[] {
 
 export function parseRdapBootstrap(body: string): Map<string, string> {
   const servers = new Map<string, string>();
-  const parsed = JSON.parse(body) as { services?: [string[], string[]][] };
+  let parsed: { services?: [string[], string[]][] };
+  try {
+    parsed = JSON.parse(body) as typeof parsed;
+  } catch {
+    throw new Error('invalid RDAP bootstrap');
+  }
   for (const [tlds, urls] of parsed.services ?? []) {
     const url = urls.find((u) => u.startsWith('https://'));
     if (!url) continue;

@@ -27,6 +27,10 @@ describe('rdap helpers', () => {
     expect(servers.get('uk')).to.eq('https://rdap.example/uk/');
   });
 
+  it('refuses a bootstrap that is not JSON without quoting it', () => {
+    expect(() => parseRdapBootstrap('<html>secret')).to.throw('invalid RDAP bootstrap').that.satisfies((e: Error) => !e.message.includes('secret') && !JSON.stringify(e).includes('secret'));
+  });
+
   it('reads the registration event', () => {
     expect(registrationTime(JSON.stringify({ events: [{ eventAction: 'registration', eventDate: '2020-01-02T00:00:00Z' }] }))).to.eq(Date.parse('2020-01-02T00:00:00Z'));
     expect(registrationTime('{"events":[]}')).to.eq(null);
