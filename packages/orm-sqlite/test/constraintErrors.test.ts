@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { ResourceDuplicated } from '@spinajs/exceptions';
@@ -22,11 +21,19 @@ function driver(): SqliteOrmDriver {
   return db().Connections.get('sqlite') as SqliteOrmDriver;
 }
 
-async function failure(work: PromiseLike<unknown>): Promise<any> {
+interface CapturedError {
+  message: string;
+  kind?: string;
+  table?: string;
+  columns?: string[];
+  inner: { code?: string };
+}
+
+async function failure(work: PromiseLike<unknown>): Promise<CapturedError> {
   try {
     await work;
   } catch (err) {
-    return err;
+    return err as CapturedError;
   }
 
   throw new Error('expected the statement to fail');

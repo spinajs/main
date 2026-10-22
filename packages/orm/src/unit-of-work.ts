@@ -117,7 +117,7 @@ export class UnitOfWork {
 
       for (const [name, relation] of descriptor.Relations) {
         // eslint-disable-next-line security/detect-object-injection
-        if (relation.Type !== RelationType.ManyToMany || !relation.JunctionModel || (model as any)[name]?.Populated !== true) {
+        if (relation.Type !== RelationType.ManyToMany || !relation.JunctionModel || (model as ModelBase & Record<string, { Populated?: boolean } | undefined>)[name]?.Populated !== true) {
           continue;
         }
 

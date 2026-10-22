@@ -81,7 +81,7 @@ export async function bootFakeOrm(dialect: keyof typeof FAKE_DIALECTS): Promise<
   class FakeOrmConfiguration extends FrameworkConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
-      const config = this.Config as Record<string, unknown>;
+      const config = this.Config;
       config.db = { ...(config.db as object), DefaultConnection: connection.Name, Connections: [connection] };
     }
   }

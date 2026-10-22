@@ -6,27 +6,38 @@ import { BufferResponse, HTTP_STATUS_CODE } from '../src/index.js';
 
 const BYTES = Buffer.from(Array.from({ length: 256 }, (_, i) => i));
 
-function fakeRes() {
-  const res: any = { statusCode: undefined, headers: {} as Record<string, string>, body: undefined };
-  res.status = sinon.stub().callsFake((c: number) => {
+interface FakeRes {
+  statusCode?: number;
+  headers: Record<string, string>;
+  body?: unknown;
+  status: sinon.SinonStub;
+  set: sinon.SinonStub;
+  setHeader: sinon.SinonStub;
+  send: sinon.SinonStub;
+  cookie?: sinon.SinonStub;
+}
+
+function fakeRes(): FakeRes {
+  const set = sinon.stub();
+  const res: FakeRes = { statusCode: undefined, headers: {}, body: undefined, status: sinon.stub(), set, setHeader: set, send: sinon.stub() };
+  res.status.callsFake((c: number) => {
     res.statusCode = c;
     return res;
   });
-  res.set = sinon.stub().callsFake((k: string, v: string) => {
+  set.callsFake((k: string, v: string) => {
     res.headers[k] = v;
     return res;
   });
-  res.setHeader = res.set;
-  res.send = sinon.stub().callsFake((b: unknown) => {
+  res.send.callsFake((b: unknown) => {
     res.body = b;
     return res;
   });
   return res;
 }
 
-async function run(r: BufferResponse) {
+async function run(r: BufferResponse): Promise<FakeRes> {
   const res = fakeRes();
-  const fn = await r.execute({} as any, res);
+  const fn = await r.execute({} as any, res as any);
   (fn as (a: any, b: any) => void)({} as any, res);
   return res;
 }
@@ -37,7 +48,7 @@ describe('BufferResponse', () => {
 
     expect(res.statusCode).to.eq(200);
     expect(res.headers['Content-Type']).to.eq('image/png');
-    expect(Buffer.compare(res.body, BYTES)).to.eq(0);
+    expect(Buffer.compare(res.body as Buffer, BYTES)).to.eq(0);
   });
 
   it('accepts a Uint8Array view without copying the surrounding buffer', async () => {
@@ -66,11 +77,12 @@ describe('BufferResponse', () => {
   it('does not touch cookies when Coockies is empty or absent', async () => {
     for (const options of [undefined, { Coockies: [] }]) {
       const res = fakeRes();
-      res.cookie = sinon.stub();
-      const fn = await new BufferResponse(BYTES, 'image/png', options).execute({} as any, res);
+      const cookie = sinon.stub();
+      res.cookie = cookie;
+      const fn = await new BufferResponse(BYTES, 'image/png', options).execute({} as any, res as any);
       (fn as (a: any, b: any) => void)({} as any, res);
 
-      expect(res.cookie.called).to.be.false;
+      expect(cookie.called).to.be.false;
       expect(res.send.calledOnce).to.be.true;
     }
   });

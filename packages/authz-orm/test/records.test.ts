@@ -2,7 +2,6 @@ import * as chai from 'chai';
 import 'mocha';
 
 import { AuthzConfigError } from '@spinajs/authz';
-import type { AuthzTx } from '@spinajs/authz';
 import { ConnectionMismatch, NotAnOrmDriver, OrmConnectionMissing, TransactionRequired } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { DateTime } from 'luxon';
@@ -109,7 +108,7 @@ describe('authz-orm records', function () {
 
     it('requireTransaction wants an OrmDriver in a transaction on the record connection', async () => {
       const sqlite = db.driver('sqlite');
-      const notADriver = thrown(() => requireTransaction(AncestorRecord, { driver: {} } as AuthzTx, 'w'));
+      const notADriver = thrown(() => requireTransaction(AncestorRecord, { driver: {} }, 'w'));
       expect(notADriver.message).to.equal('w: AuthzTx.driver must be the OrmDriver of an AuthzAdmin transaction');
       expect(notADriver.cause).to.be.instanceOf(NotAnOrmDriver);
       const noTransaction = thrown(() => requireTransaction(AncestorRecord, { driver: sqlite }, 'w'));

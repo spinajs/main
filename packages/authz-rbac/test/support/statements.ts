@@ -7,7 +7,7 @@ export interface SentStatement {
 
 /** The statements `fn` sends through `driver`, with their query context. */
 export async function statementsOf<R>(driver: OrmDriver, fn: () => Promise<R>): Promise<{ result: R; statements: SentStatement[] }> {
-  const target = driver as unknown as { executeOnDb(stmt: string, params: unknown[], context: QueryContext): Promise<unknown> };
+  const target = driver as unknown as { executeOnDb: (this: unknown, stmt: string, params: unknown[], context: QueryContext) => Promise<unknown> };
   const original = target.executeOnDb;
   const statements: SentStatement[] = [];
   target.executeOnDb = function (stmt, params, context) {

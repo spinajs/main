@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { SwaggerService } from '@spinajs/http-swagger';
+import { IOpenApiDocument, SwaggerService } from '@spinajs/http-swagger';
 
 import { bootHttp, stopHttp } from './common.js';
 
@@ -9,7 +9,7 @@ describe('scheduler-http swagger', function () {
   // the first spec build after a rebuild scans every controller and takes tens of seconds
   this.timeout(60000);
 
-  let spec: any;
+  let spec: IOpenApiDocument;
 
   before(async () => {
     await bootHttp();
@@ -55,13 +55,13 @@ describe('scheduler-http swagger', function () {
 
     expect(responses).to.include.keys('202', '400', '404', '409');
     expect(JSON.stringify(responses['202'])).to.contain('ISchedulerRunAccepted');
-    expect(spec.components.schemas.ISchedulerRunAccepted.required).to.deep.equal(['runId']);
+    expect(spec.components?.schemas?.ISchedulerRunAccepted.required).to.deep.equal(['runId']);
   });
 
   it('tags every operation as Scheduler and requires the cookie session', () => {
-    for (const [path, item] of Object.entries<any>(spec.paths)) {
+    for (const [path, item] of Object.entries(spec.paths)) {
       if (!path.startsWith('/scheduler')) continue;
-      for (const operation of Object.values<any>(item)) {
+      for (const operation of Object.values(item)) {
         expect(operation.tags, path).to.deep.equal(['Scheduler']);
         expect(operation.security, path).to.deep.equal([{ cookieAuth: [] }]);
       }

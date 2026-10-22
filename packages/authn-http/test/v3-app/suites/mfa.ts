@@ -55,7 +55,7 @@ export function mfaSuite(): void {
     expect(p.authn).to.include({ assurance: 'aal2' });
     expect(p.authn.mfa).to.deep.eq(['totp']);
     expect((await new Client(before!).get('/auth')).status, 'the pending id is dead').to.eq(401);
-    const [row] = (await c.get('/user/sessions')).body;
+    const [row]: Record<string, unknown>[] = (await c.get('/user/sessions')).body;
     expect(row).to.include({ UserAgent: 'v3-app-mfa', Current: true });
     expect(row.Ip).to.be.a('string');
   });

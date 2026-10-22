@@ -28,12 +28,12 @@ describe('postgres integration - querying', function () {
       { Name: 'Carol', Age: 35, City: null },
       { Name: 'Dave', Age: 40, City: 'Warsaw' },
       { Name: 'Eve', Age: 22, City: 'Gdansk' },
-    ] as any);
+    ]);
     await PgPet.insert([
       { Name: 'Rex', person_id: 1 },
       { Name: 'Tom', person_id: 1 },
       { Name: 'Kit', person_id: 4 },
-    ] as any);
+    ]);
   });
 
   after(async () => {
@@ -87,7 +87,7 @@ describe('postgres integration - querying', function () {
 
   it('filters by a sub-query', async () => {
     const owners = PgPet.query().select('person_id');
-    expect(names(await PgPerson.query().whereIn('Id', owners as any).orderBy('Id'))).to.deep.equal(['Alice', 'Dave']);
+    expect(names(await PgPerson.query().whereIn('Id', owners).orderBy('Id'))).to.deep.equal(['Alice', 'Dave']);
   });
 
   it('filters by existence of a hasMany relation (EXISTS)', async () => {
@@ -113,7 +113,7 @@ describe('postgres integration - querying', function () {
       .whereNotNull('City')
       .groupBy('City')
       .orderBy('City')
-      .asRaw()) as { City: string; n: string | number }[];
+      .asRaw<{ City: string; n: string | number }[]>());
 
     expect(rows.map((r) => [r.City, Number(r.n)])).to.deep.equal([
       ['Gdansk', 1],

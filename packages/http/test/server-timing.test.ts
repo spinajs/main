@@ -9,9 +9,9 @@ function run(entries: { name: string; dur?: number; desc?: string }[]): string {
   const mw = new ServerTiming();
   Object.defineProperty(mw, 'Enabled', { value: true });
   const req = { storage: { serverTiming: entries } } as unknown as sRequest;
-  const res = { headersSent: false, setHeader: sinon.stub(), end: sinon.stub() } as any;
+  const res = { headersSent: false, setHeader: sinon.stub(), end: sinon.stub() };
 
-  mw.before()!(req, res, sinon.spy());
+  mw.before()!(req, res as any, sinon.spy());
   res.end();
 
   return res.setHeader.firstCall.args[1] as string;

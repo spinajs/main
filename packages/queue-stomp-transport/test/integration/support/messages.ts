@@ -7,7 +7,7 @@ export function jobMessage(extra: Record<string, unknown> = {}): IQueueMessage {
 }
 
 export function eventMessage(extra: Record<string, unknown> = {}): IQueueMessage {
-  return { CreatedAt: DateTime.now(), Name: 'ItRawEvent', Type: QueueMessageType.Event, Persistent: false, Priority: 0, ...extra } as unknown as IQueueMessage;
+  return { CreatedAt: DateTime.now(), Name: 'ItRawEvent', Type: QueueMessageType.Event, Persistent: false, Priority: 0, ...extra };
 }
 
 export function jobIdOf(m: IQueueMessage): string {

@@ -173,6 +173,7 @@ export class RunContext {
     this.touch();
   }
 
+  // eslint-disable-next-line complexity -- the step lifecycle (guards, resume skip, journal row, run, close) reads in order here
   public async step<T>(name: string, fn: (s: StepHandle) => Promise<T> | T, opts: StepOptions = {}): Promise<T> {
     const outer = this.open?.name ?? this.starting;
     if (outer !== null) {
@@ -234,7 +235,7 @@ export class RunContext {
       const error = aborted
         ? null
         : toStructuredError(err, { attempt: this.attempt, occurredAt: this.init.clock.now(), step: name });
-      if (err !== null && typeof err === 'object') this.stepErrors.set(err as object, name);
+      if (err !== null && typeof err === 'object') this.stepErrors.set(err, name);
       await this.closeStep(s, aborted ? 'aborted' : 'failed', error);
       throw err;
     }

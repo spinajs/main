@@ -101,7 +101,7 @@ export class EmailPasswordMailer {
 
   protected compose(mail: IPasswordMail, address: string, link: string, secrets: readonly string[]): IEmail {
     const options = (this.Deps ? this.Deps.options : this.Options) ?? {};
-    const connection = options.connection || (this.Deps ? this.Deps.defaultConnection : this.DefaultConnection);
+    const connection = this.connectionName(options);
     if (!connection) {
       throw new InvalidOperation('set email.password.connection or email.defaultConnection');
     }
@@ -134,6 +134,10 @@ export class EmailPasswordMailer {
       ...(options.attachments?.length ? { attachements: options.attachments.map((a) => ({ ...a })) } : {}),
       ...(lang ? { lang } : {}),
     };
+  }
+
+  private connectionName(options: PasswordMailConfiguration): string | undefined {
+    return options.connection || (this.Deps ? this.Deps.defaultConnection : this.DefaultConnection);
   }
 
   private appName(options: PasswordMailConfiguration): string {

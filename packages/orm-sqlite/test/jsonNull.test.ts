@@ -53,7 +53,7 @@ describe('sqlite @Json null', function () {
     await JsonNullDoc.insert({ Id: 1, Data: null });
 
     expect(await raw(1)).to.eq(null);
-    expect(((await JsonNullDoc.where('Id', 1).first()) as JsonNullDoc).Data).to.eq(null);
+    expect(((await JsonNullDoc.where('Id', 1).first())).Data).to.eq(null);
   });
 
   it('a model insert writes null as SQL NULL', async () => {
@@ -67,6 +67,6 @@ describe('sqlite @Json null', function () {
     await driver().insert().into('json_null_doc').values({ Id: 4, Data: 'null' });
 
     expect(await raw(3)).to.eq('{"a":1}');
-    expect(((await JsonNullDoc.where('Id', 4).first()) as JsonNullDoc).Data).to.eq(null);
+    expect(((await JsonNullDoc.where('Id', 4).first())).Data).to.eq(null);
   });
 });

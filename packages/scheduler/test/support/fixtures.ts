@@ -50,13 +50,13 @@ export async function journal(runId: string): Promise<RunEvent[]> {
 }
 
 export function deferred<T = void>(): { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void } {
-  let resolve!: (v: T) => void;
-  let reject!: (e: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
+  let settle!: (v: T) => void;
+  let fail!: (e: unknown) => void;
+  const promise = new Promise<T>((resolve, reject) => {
+    settle = resolve;
+    fail = reject;
   });
-  return { promise, resolve, reject };
+  return { promise, resolve: settle, reject: fail };
 }
 
 /**
@@ -75,8 +75,10 @@ export async function driveUntil(clock: FakeClock, work: Promise<unknown>, stepM
 
 /** Rejects with the signal's reason once it aborts, like well-behaved I/O would. */
 export function untilAborted(signal: AbortSignal): Promise<never> {
-  return new Promise((_, reject) => {
-    if (signal.aborted) return reject(signal.reason);
-    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+  return new Promise((_resolve, reject) => {
+    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- rejects with whatever abort() was given, as real I/O does
+    const fail = () => reject(signal.reason);
+    if (signal.aborted) return fail();
+    signal.addEventListener('abort', fail, { once: true });
   });
 }

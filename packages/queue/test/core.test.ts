@@ -6,7 +6,7 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { v4 as uuidv4 } from 'uuid';
 import { DateTime } from 'luxon';
-import { QueueJob, QueueEvent, Job, Event, QueueService, JobModel, JobRetentionService, QueueClient, IQueueMessage, QueueMessage } from './../src/index.js';
+import { QueueJob, QueueEvent, Job, Event, QueueService, JobModel, JobRetentionService, QueueClient, IQueueMessage, IQueueJob, QueueMessage } from './../src/index.js';
 import '@spinajs/orm-sqlite';
 import { MigrationTransactionMode, OrmMigrator } from '@spinajs/orm';
 
@@ -210,7 +210,7 @@ describe('queue core - dedup & persistence', function () {
     expect(spy.calledOnce).to.be.true;
 
     const delivered = InMemoryQueueClient.Last!;
-    const model = await JobModel.where({ JobId: (delivered as any).JobId }).first();
+    const model = await JobModel.where({ JobId: (delivered as IQueueJob).JobId }).first();
     expect(model.Status).to.eq('success');
 
     // redeliver the exact same message ( at-least-once duplicate )
@@ -228,7 +228,7 @@ describe('queue core - dedup & persistence', function () {
     await queue.consume(SampleJob);
     await SampleJob.emit({ Foo: 'x', RetryCount: 4 } as any);
 
-    const model = await JobModel.where({ JobId: (InMemoryQueueClient.Last as any).JobId }).first();
+    const model = await JobModel.where({ JobId: (InMemoryQueueClient.Last as IQueueJob).JobId }).first();
     expect(model.MaxAttempts).to.eq(5);
   });
 
@@ -239,7 +239,7 @@ describe('queue core - dedup & persistence', function () {
     // consume rethrows on failure, so emit rejects; the JobModel is updated before the throw
     await expect(FailingJob.emit({} as any)).to.be.rejectedWith('kaboom');
 
-    const model = await JobModel.where({ JobId: (InMemoryQueueClient.Last as any).JobId }).first();
+    const model = await JobModel.where({ JobId: (InMemoryQueueClient.Last as IQueueJob).JobId }).first();
     expect(model.Status).to.eq('dead'); // RetryCount 0 -> attempt 1 > 0 -> dead
     expect(model.LastError).to.contain('kaboom');
     expect(model.Result, 'result must not hold the error').to.be.null;
@@ -251,7 +251,7 @@ describe('queue core - dedup & persistence', function () {
     await queue.consume(LongFailingJob);
     await expect(LongFailingJob.emit({} as any)).to.be.rejected;
 
-    const model = await JobModel.where({ JobId: (InMemoryQueueClient.Last as any).JobId }).first();
+    const model = await JobModel.where({ JobId: (InMemoryQueueClient.Last as IQueueJob).JobId }).first();
     expect(model.LastError).to.have.lengthOf(1024);
   });
 
@@ -298,7 +298,7 @@ describe('queue core - dedup & persistence', function () {
     await queue.consume(ProgressJob);
     await ProgressJob.emit({} as any);
 
-    const model = await JobModel.where({ JobId: (InMemoryQueueClient.Last as any).JobId }).first();
+    const model = await JobModel.where({ JobId: (InMemoryQueueClient.Last as IQueueJob).JobId }).first();
     expect(model.Progress).to.eq(100); // final always persisted
     expect(model.Status).to.eq('success');
     // 100 progress callbacks must not translate into 100 writes
@@ -361,7 +361,7 @@ describe('queue core - routing maxRetries', function () {
     const queue = await q();
     await queue.consume(job as any);
     await job.emit(val);
-    const model = await JobModel.where({ JobId: (InMemoryQueueClient.Last as any).JobId }).first();
+    const model = await JobModel.where({ JobId: (InMemoryQueueClient.Last as IQueueJob).JobId }).first();
     return model.MaxAttempts;
   }
 
@@ -377,22 +377,22 @@ describe('queue core - routing maxRetries', function () {
   });
 
   it('returns undefined for unrouted jobs without warning', async () => {
-    const client = (await q()).get('memory') as any;
-    const warn = sinon.stub(client.Log, 'warn');
+    const client = (await q()).get('memory');
+    const warn = sinon.stub(client['Log'], 'warn');
     expect(client.getMaxRetriesForMessage(SampleJob)).to.be.undefined;
     expect(warn.called).to.be.false;
   });
 
   it('ignores a negative maxRetries with one warning', async () => {
-    const client = (await q()).get('memory') as any;
-    const warn = sinon.stub(client.Log, 'warn');
+    const client = (await q()).get('memory');
+    const warn = sinon.stub(client['Log'], 'warn');
     expect(client.getMaxRetriesForMessage(RoutedBadJob)).to.be.undefined;
     expect(warn.calledOnce).to.be.true;
   });
 
   it('warns once per message name across repeated lookups', async () => {
-    const client = (await q()).get('memory') as any;
-    const warn = sinon.stub(client.Log, 'warn');
+    const client = (await q()).get('memory');
+    const warn = sinon.stub(client['Log'], 'warn');
     for (let i = 0; i < 3; i++) {
       expect(client.getMaxRetriesForMessage(RoutedBadJob)).to.be.undefined;
     }
@@ -400,15 +400,15 @@ describe('queue core - routing maxRetries', function () {
   });
 
   it('accepts maxRetries 0', async () => {
-    const client = (await q()).get('memory') as any;
-    const warn = sinon.stub(client.Log, 'warn');
+    const client = (await q()).get('memory');
+    const warn = sinon.stub(client['Log'], 'warn');
     expect(client.getMaxRetriesForMessage(RoutedZeroJob)).to.eq(0);
     expect(warn.called).to.be.false;
   });
 
   it('ignores a fractional maxRetries with one warning', async () => {
-    const client = (await q()).get('memory') as any;
-    const warn = sinon.stub(client.Log, 'warn');
+    const client = (await q()).get('memory');
+    const warn = sinon.stub(client['Log'], 'warn');
     expect(client.getMaxRetriesForMessage(RoutedFractionJob)).to.be.undefined;
     expect(warn.calledOnce).to.be.true;
   });

@@ -212,6 +212,15 @@ function toGrant(permission: string, verb: Verb, g: VerbGrant): Grant {
   return out.relation === undefined && out.fields === undefined ? permission : out;
 }
 
+/** Reports the package roles 2.x joined into the `$extend` of `role`. */
+function packageExtends(role: string, where: string, f: Findings): void {
+  const pkg = RBAC_2X_PACKAGE_EXTENDS[role];
+  if (!pkg) return;
+  const joined = `2.x joined this $extend with the package's ${JSON.stringify(pkg)}; only the app's part was written`;
+  if (PACKAGE_ROLES_3.has(role)) f.info('package-extends', `${joined}, and the 3.0 packages define their own '${role}'.`, where);
+  else f.warn('package-extends', `${joined}. No 3.0 package defines a '${role}' role, so it no longer extends ${JSON.stringify(pkg)}: add them to its extends if its holders need them.`, where);
+}
+
 /** `'user:impersonate': { 'create:any': [...] }` → permission `user:impersonate`. */
 function impersonation(actions: Plain, at: string, f: Findings): Grant[] {
   const entries = readActions(actions, at, f);
@@ -274,12 +283,7 @@ export function convertGrants(rbac: Plain, opts: GrantsOptions, f: Findings, ctx
         else if (actions.length > 0) {
           out.extends = [...new Set(actions as string[])];
           for (const r of out.extends) checkName(r, keyPath(at, '$extend'));
-          const pkg = RBAC_2X_PACKAGE_EXTENDS[role];
-          if (pkg) {
-            const joined = `2.x joined this $extend with the package's ${JSON.stringify(pkg)}; only the app's part was written`;
-            if (PACKAGE_ROLES_3.has(role)) f.info('package-extends', `${joined}, and the 3.0 packages define their own '${role}'.`, keyPath(at, '$extend'));
-            else f.warn('package-extends', `${joined}. No 3.0 package defines a '${role}' role, so it no longer extends ${JSON.stringify(pkg)}: add them to its extends if its holders need them.`, keyPath(at, '$extend'));
-          }
+          packageExtends(role, keyPath(at, '$extend'), f);
         }
         continue;
       }

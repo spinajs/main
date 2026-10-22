@@ -85,6 +85,6 @@ describe('scheduler-http dto', () => {
   it('registers the run-accepted response schema under its documented name', () => {
     const schemas = DI.get<Map<string, any>>('__schemas__')!;
 
-    expect(schemas.get('ISchedulerRunAccepted').required).to.deep.equal(['runId']);
+    expect((schemas.get('ISchedulerRunAccepted') as { required: string[] }).required).to.deep.equal(['runId']);
   });
 });

@@ -791,8 +791,8 @@ export function Json() {
  * Reads a 64-bit integer column as `as` on every driver. `'number'` throws for a value beyond
  * `Number.MAX_SAFE_INTEGER` instead of rounding it.
  */
-export function Int64(as: Int64Mode = 'string') {
-  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _: any, propertyKey: string) => {
+export function Int64(as: Int64Mode = 'string'): PropertyDecorator {
+  const decorator: PropertyDecorator = extractDecoratorPropertyDescriptor((model: IModelDescriptor, _: any, propertyKey: string) => {
     if (as !== 'string' && as !== 'number' && as !== 'bigint') {
       throw new InvalidArgument(`@Int64 mode of ${propertyKey} must be 'string', 'number' or 'bigint', got ${String(as)}`);
     }
@@ -806,6 +806,7 @@ export function Int64(as: Int64Mode = 'string') {
       Options: { as },
     });
   });
+  return decorator;
 }
 
 /**

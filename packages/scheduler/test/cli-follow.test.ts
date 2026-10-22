@@ -73,15 +73,15 @@ async function sseServer(handler: Handler) {
     res.on('close', () => closed.push(n));
     handler(req, res, n);
   });
-  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   return {
     seen,
     closed,
     url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`,
     close: () =>
-      new Promise<void>((r) => {
+      new Promise<void>((resolve) => {
         server.closeAllConnections();
-        server.close(() => r());
+        server.close(() => resolve());
       }),
   };
 }
@@ -90,9 +90,9 @@ const stream = (res: ServerResponse) => res.writeHead(200, { 'Content-Type': 'te
 /** A port nothing listens on, so connecting to it is refused. */
 async function freePort(): Promise<number> {
   const s = createServer();
-  await new Promise<void>((r) => s.listen(0, '127.0.0.1', r));
+  await new Promise<void>((resolve) => s.listen(0, '127.0.0.1', resolve));
   const port = (s.address() as AddressInfo).port;
-  await new Promise<void>((r) => s.close(() => r()));
+  await new Promise<void>((resolve) => s.close(() => resolve()));
   return port;
 }
 
@@ -302,7 +302,7 @@ describe('followOverSse', () => {
         { target: { runId: 'r1' }, onEvent: (e) => got.push(e.seq), until: () => true },
       );
     } finally {
-      await new Promise<void>((r) => (server ? server.close(() => r()) : r()));
+      await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
     }
     expect(got).to.deep.eq([1]);
   });
@@ -502,7 +502,7 @@ describe('scheduler:run:show --follow', () => {
         .where('Id', runId)
         .then(() => {
           stream(res);
-          res.end(formatSseEvent({ runId }, ev(1, 'dead', runId)));
+          return res.end(formatSseEvent({ runId }, ev(1, 'dead', runId)));
         });
     });
     await boot({ baseUrl: srv.url });

@@ -2,7 +2,6 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { ICompilerOutput } from '@spinajs/orm';
 import { MySqlOrmDriver } from '../src/index.js';
 
 describe('mysql whereIn', function () {
@@ -21,7 +20,7 @@ describe('mysql whereIn', function () {
         'id',
         Array.from({ length: 5000 }, (_, i) => i),
       )
-      .toDB() as ICompilerOutput;
+      .toDB();
 
     expect(result.expression).to.contain('`id` IN (?,?,');
     expect(result.bindings).to.have.length(5000);

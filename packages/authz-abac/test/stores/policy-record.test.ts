@@ -49,10 +49,10 @@ for (const kind of DB_KINDS) {
       await db.driver.del().from(AUTHZ_POLICY_TABLE);
     });
 
-    const inTx = <T>(fn: (tx: AuthzTx) => Promise<T>): Promise<T> => db.driver.transaction(() => fn({ driver: db.driver })) as Promise<T>;
+    const inTx = <T>(fn: (tx: AuthzTx) => Promise<T>): Promise<T> => db.driver.transaction<T>(() => fn({ driver: db.driver }));
 
     it('hydrates JSON columns as values, datetimes as DateTime and priority as a number', async () => {
-      await PolicyRecord.insert(FULL as Partial<PolicyRecord>);
+      await PolicyRecord.insert(FULL);
 
       const [row] = await PolicyRecord.where('id', 'full');
       expect(row.permissions).to.deep.equal(['file:read', 'file:write']);
@@ -68,7 +68,7 @@ for (const kind of DB_KINDS) {
     });
 
     it('writes null as SQL NULL and reads it back as null', async () => {
-      await PolicyRecord.insert(BARE as Partial<PolicyRecord>);
+      await PolicyRecord.insert(BARE);
 
       const [raw] = await rawQuery(db.driver, `SELECT resource_types, principal_types, actor_types, condition, fields, reason, priority, expires_at, created_by FROM ${AUTHZ_POLICY_TABLE} WHERE id = 'bare'`);
       expect(raw).to.deep.equal({ resource_types: null, principal_types: null, actor_types: null, condition: null, fields: null, reason: null, priority: null, expires_at: null, created_by: null });

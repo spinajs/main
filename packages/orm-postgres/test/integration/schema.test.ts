@@ -169,7 +169,9 @@ describe('postgres integration - schema builder and migrations', function () {
   });
 
   it('creates a view that can be read', async () => {
-    await suite.driver.schema().createView('pg_view_one', (v) => v.orReplace().as(new RawQuery('SELECT 1 AS one')));
+    await suite.driver.schema().createView('pg_view_one', (v) => {
+      v.orReplace().as(new RawQuery('SELECT 1 AS one'));
+    });
 
     expect(await suite.raw('SELECT one FROM "pg_view_one"')).to.deep.equal([{ one: 1 }]);
   });

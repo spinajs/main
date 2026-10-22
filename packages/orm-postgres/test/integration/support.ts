@@ -40,7 +40,7 @@ export async function requirePostgres(ctx: Mocha.Context): Promise<void> {
     await adminQuery('SELECT 1');
   } catch (err) {
     if (pgRequired()) {
-      throw new Error(`Postgres at ${PG_SERVER.Host}:${PG_SERVER.Port} is unreachable and ORM_TEST_REQUIRE_PG=1: ${(err as Error).message}`);
+      throw new Error(`Postgres at ${PG_SERVER.Host}:${PG_SERVER.Port} is unreachable and ORM_TEST_REQUIRE_PG=1: ${(err as Error).message}`, { cause: err });
     }
 
     console.warn(`      Postgres at ${PG_SERVER.Host}:${PG_SERVER.Port} is unreachable, suite skipped (set ORM_TEST_REQUIRE_PG=1 to fail instead)`);

@@ -84,10 +84,11 @@ export class MsSqlServerResponseMapper extends ServerResponseMapper {
       return { RowsAffected: data.length, LastInsertId: typeof id === 'number' ? id : 0, Returning: [] };
     }
 
+    const response: { RowsAffected?: number; LastInsertId?: unknown; Returning?: unknown } | null | undefined = data;
     return {
-      RowsAffected: data?.RowsAffected ?? 0,
-      LastInsertId: typeof data?.LastInsertId === 'number' ? data.LastInsertId : 0,
-      Returning: Array.isArray(data?.Returning) ? data.Returning : [],
+      RowsAffected: response?.RowsAffected ?? 0,
+      LastInsertId: typeof response?.LastInsertId === 'number' ? response.LastInsertId : 0,
+      Returning: Array.isArray(response?.Returning) ? response.Returning : [],
     };
   }
 }

@@ -54,7 +54,7 @@ function registered(service: Metrics): MetricMap | null {
   for (const def of SCHEDULER_METRIC_DEFS) {
     const metric = registry.getSingleMetric(`${SCHEDULER_METRIC_PREFIX}_${def.name}`);
     if (!metric) return null;
-    map[def.name] = metric as MetricMap[string];
+    map[def.name] = metric;
   }
   return map;
 }

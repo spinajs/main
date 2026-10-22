@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authz-abac",
-  "version": "3.0.11",
+  "version": "3.0.12",
   "description": "ABAC model and policy stores for SpinaJS authorization",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -52,18 +52,18 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authz": "3.0.11",
-    "@spinajs/configuration": "3.0.11",
-    "@spinajs/orm": "3.0.11",
-    "@spinajs/di": "3.0.11",
-    "@spinajs/util": "3.0.11",
+    "@spinajs/authz": "3.0.12",
+    "@spinajs/configuration": "3.0.12",
+    "@spinajs/orm": "3.0.12",
+    "@spinajs/di": "3.0.12",
+    "@spinajs/util": "3.0.12",
     "luxon": "^3.6.1"
   },
   "devDependencies": {
-    "@spinajs/authz-testing": "3.0.11",
-    "@spinajs/log": "3.0.11",
-    "@spinajs/orm-postgres": "3.0.11",
-    "@spinajs/orm-sqlite": "3.0.11",
+    "@spinajs/authz-testing": "3.0.12",
+    "@spinajs/log": "3.0.12",
+    "@spinajs/orm-postgres": "3.0.12",
+    "@spinajs/orm-sqlite": "3.0.12",
     "@types/luxon": "^3.6.1"
   }
 }

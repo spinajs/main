@@ -10,7 +10,7 @@ const expect = chai.expect;
 chai.use(chaiAsPromised);
 
 type Affected = { RowsAffected: number };
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('postgres integration - concurrency', function () {
   let suite: IPgSuite;
@@ -65,6 +65,6 @@ describe('postgres integration - concurrency', function () {
     const inserts = await Promise.allSettled(Array.from({ length: 4 }, () => suite.raw('INSERT INTO "pg_lease" ("Name") VALUES (?)', ['other'])));
 
     expect(inserts.filter((r) => r.status === 'fulfilled')).to.have.length(1);
-    expect(inserts.filter((r) => r.status === 'rejected').map((r) => sqlState((r as PromiseRejectedResult).reason))).to.deep.equal(['23505', '23505', '23505']);
+    expect(inserts.filter((r) => r.status === 'rejected').map((r) => sqlState(r.reason))).to.deep.equal(['23505', '23505', '23505']);
   });
 });

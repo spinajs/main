@@ -2,7 +2,7 @@ import 'mocha';
 
 import { expect } from 'chai';
 import { fixtureDsl, testHost, userPrincipal } from '@spinajs/authz-testing';
-import type { HarnessSession, SetupContext, World } from '@spinajs/authz-testing';
+import type { HarnessSession, World } from '@spinajs/authz-testing';
 
 import { statusHarness } from './support/status-harness.js';
 
@@ -37,7 +37,7 @@ describe('GET jobs/v1/:jobId/status under the job:read grant of @spinajs/authz-q
       // The installed packages' authz.rbac (service roles of roles this world does not define) would fail the model's init.
       config: { rbac: {} },
     };
-    session = await harness.setup(world, { id: 'B30', part: 'status', case: 'job-grant', title: 'job-grant', facets: ['engine', 'http', 'queue'] } as SetupContext);
+    session = await harness.setup(world, { id: 'B30', part: 'status', case: 'job-grant', title: 'job-grant', facets: ['engine', 'http', 'queue'] });
   });
   afterEach(() => session?.dispose());
 

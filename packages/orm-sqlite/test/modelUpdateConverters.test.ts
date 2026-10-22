@@ -61,7 +61,7 @@ describe('sqlite Model.update with column converters', function () {
     const result = await GapDoc.update({ Data: { b: [1, 2] }, At: later }).where('Id', 1);
 
     expect(result.RowsAffected).to.eq(1);
-    const doc = (await GapDoc.where('Id', 1).first()) as GapDoc;
+    const doc = await GapDoc.where('Id', 1).first();
     expect(doc.Data).to.deep.eq({ b: [1, 2] });
     expect(doc.At.toMillis()).to.eq(later.toMillis());
   });
@@ -76,7 +76,7 @@ describe('sqlite Model.update with column converters', function () {
   it('accepts an ISO string for a @DateTime column', async () => {
     await GapDoc.update({ At: '2026-02-03T04:05:06.007' as unknown as DateTime }).where('Id', 1);
 
-    const doc = (await GapDoc.where('Id', 1).first()) as GapDoc;
+    const doc = await GapDoc.where('Id', 1).first();
     expect(doc.At.toMillis()).to.eq(DateTime.utc(2026, 2, 3, 4, 5, 6, 7).toMillis());
   });
 
@@ -87,7 +87,7 @@ describe('sqlite Model.update with column converters', function () {
   it('accepts an SQL-format string for a @DateTime column', async () => {
     await GapDoc.update({ At: '2026-10-19 12:30:00' as unknown as DateTime }).where('Id', 1);
 
-    const doc = (await GapDoc.where('Id', 1).first()) as GapDoc;
+    const doc = await GapDoc.where('Id', 1).first();
     expect(doc.At.toMillis()).to.eq(DateTime.utc(2026, 10, 19, 12, 30, 0).toMillis());
   });
 
