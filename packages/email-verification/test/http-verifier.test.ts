@@ -19,6 +19,10 @@ const verifier = (providers: unknown[]) => boot(HttpDomainVerifier, { http: { pr
 describe('jsonPath', () => {
   it('reads a dotted path', () => expect(jsonPath({ a: { b: [1, { c: 2 }] } }, 'a.b.1.c')).to.eq(2));
   it('is undefined for a missing step', () => expect(jsonPath({ a: 1 }, 'a.b')).to.eq(undefined));
+  it('does not read inherited or built-in properties', () => {
+    expect(jsonPath({ a: [1, 2] }, 'a.length')).to.eq(undefined);
+    expect(jsonPath({}, 'constructor')).to.eq(undefined);
+  });
 });
 
 describe('HttpDomainVerifier', () => {
@@ -70,6 +74,57 @@ describe('HttpDomainVerifier', () => {
       expect(stub.calls).to.have.length(2);
     });
   }
+
+  for (const [title, leaf, refuseWhen] of [
+    ['null', null, [true]],
+    ['a string where a boolean is expected', 'true', [true]],
+    ['an object', {}, [true]],
+  ] as const) {
+    it(`answers an uncached unknown when the answer is ${title}`, async () => {
+      stub = stubFetch(() => json(200, { data: { disposable: leaf } }));
+      const v = await verifier([provider({ refuseWhen })]);
+      const got = await v.verify('x.com');
+      expect(got).to.deep.eq({ result: 'unknown' });
+      expect(v.ttlFor(got)).to.eq(0);
+    });
+  }
+
+  it('compares strings strictly', async () => {
+    stub = stubFetch(() => json(200, { data: { disposable: 'disposable' } }));
+    expect((await (await verifier([provider({ refuseWhen: ['disposable'] })])).verify('x.com')).result).to.eq('refuse');
+  });
+
+  it('answers clean for a string outside refuseWhen', async () => {
+    stub = stubFetch(() => json(200, { data: { disposable: 'ok' } }));
+    expect(await (await verifier([provider({ refuseWhen: ['disposable'] })])).verify('x.com')).to.deep.eq({ result: 'unknown', reason: 'clean' });
+  });
+
+  it('refuses from the second provider after the first answered clean', async () => {
+    let n = 0;
+    stub = stubFetch(() => json(200, { data: { disposable: n++ > 0 } }));
+    const got = await (await verifier([provider(), provider({ name: 'p2' })])).verify('x.com');
+    expect(got).to.deep.eq({ result: 'refuse', reason: 'disposable', source: 'http:p2' });
+  });
+
+  it('refuses from the second provider after the first fetch rejected', async () => {
+    let n = 0;
+    stub = stubFetch(() => {
+      if (n++ === 0) throw new Error('boom');
+      return json(200, { data: { disposable: true } });
+    });
+    const got = await (await verifier([provider(), provider({ name: 'p2' })])).verify('x.com');
+    expect(got.result).to.eq('refuse');
+  });
+
+  it('fails the boot on duplicate provider names', async () => {
+    let err: Error | undefined;
+    try {
+      await verifier([provider(), provider()]);
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err?.message).to.contain('p1');
+  });
 
   it('answers unknown with no providers', async () => {
     expect(await (await verifier([])).verify('x.com')).to.deep.eq({ result: 'unknown' });
