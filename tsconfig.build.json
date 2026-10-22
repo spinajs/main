@@ -47,6 +47,7 @@
     { "path": "packages/email-verification/tsconfig.mjs.json" },
     { "path": "packages/email-verification-orm/tsconfig.mjs.json" },
     { "path": "packages/email-verification-redis/tsconfig.mjs.json" },
+    { "path": "packages/email-verification-dynamodb/tsconfig.mjs.json" },
     { "path": "packages/templates/tsconfig.mjs.json" },
     { "path": "packages/templates-handlebars/tsconfig.mjs.json" },
     { "path": "packages/templates-pug/tsconfig.mjs.json" },
