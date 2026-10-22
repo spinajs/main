@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
 import { EmailVerification } from '../service.js';

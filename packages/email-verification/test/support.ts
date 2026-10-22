@@ -44,7 +44,8 @@ export async function boot<T>(type: Class<T>, options: Record<string, unknown> =
   [type, ...types].forEach((t) => owned.add(t));
   overrides = options;
   await DI.resolve(Configuration);
-  return (await DI.resolve(type)) as T;
+  const instance: unknown = await DI.resolve(type);
+  return instance as T;
 }
 
 export interface FetchCall {
@@ -55,11 +56,11 @@ export interface FetchCall {
 export function stubFetch(handler: (url: string, init: RequestInit) => Response | Promise<Response>): { calls: FetchCall[]; restore(): void } {
   const original = globalThis.fetch;
   const calls: FetchCall[] = [];
-  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+  globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
     const url = input instanceof Request ? input.url : String(input);
     calls.push({ url, init: init ?? {} });
     return handler(url, init ?? {});
-  }) as typeof fetch;
+  };
   return { calls, restore: () => (globalThis.fetch = original) };
 }
 

@@ -7,6 +7,14 @@ import { stubFetch, text } from './support.js';
 chai.use(chaiAsPromised);
 const expect = chai.expect;
 
+const rejection = (work: Promise<unknown>) =>
+  work.then(
+    () => {
+      throw new Error('expected a rejection');
+    },
+    (e: unknown) => e as Error,
+  );
+
 describe('SafeFetch', () => {
   const http = new SafeFetch();
   let stub: ReturnType<typeof stubFetch> | undefined;
@@ -14,7 +22,7 @@ describe('SafeFetch', () => {
 
   it('refuses a URL that is not https without fetching', async () => {
     stub = stubFetch(() => text(200, 'x'));
-    const err = await http.get('http://example.com/x?key=SECRET', { timeoutMs: 100, maxBytes: 10 }).catch((e) => e);
+    const err = await rejection(http.get('http://example.com/x?key=SECRET', { timeoutMs: 100, maxBytes: 10 }));
     expect(err.message).to.contain('only https').and.not.contain('SECRET');
     expect(stub.calls).to.have.length(0);
   });
@@ -37,14 +45,14 @@ describe('SafeFetch', () => {
 
   it('throws ResponseTooLarge past maxBytes', async () => {
     stub = stubFetch(() => text(200, 'x'.repeat(11)));
-    const err = await http.get('https://example.com/x?key=SECRET', { timeoutMs: 100, maxBytes: 10 }).catch((e) => e);
+    const err = await rejection(http.get('https://example.com/x?key=SECRET', { timeoutMs: 100, maxBytes: 10 }));
     expect(err).to.be.instanceOf(ResponseTooLarge);
     expect(err.message).to.not.contain('SECRET');
   });
 
   it('refuses a malformed URL without leaking it', async () => {
     stub = stubFetch(() => text(200, 'x'));
-    const err = await http.get('https://exa mple.com/x?key=SECRET', { timeoutMs: 100, maxBytes: 10 }).catch((e) => e);
+    const err = await rejection(http.get('https://exa mple.com/x?key=SECRET', { timeoutMs: 100, maxBytes: 10 }));
     expect(err).to.be.instanceOf(InvalidArgument);
     expect(err.message).to.not.contain('SECRET');
     expect(JSON.stringify(err)).to.not.contain('SECRET');
@@ -95,7 +103,7 @@ describe('SafeFetch', () => {
   });
 
   it('aborts after timeoutMs', async () => {
-    stub = stubFetch((_, init) => new Promise<Response>((_, reject) => init.signal!.addEventListener('abort', () => reject(init.signal!.reason))));
+    stub = stubFetch((_, init) => new Promise<Response>((_resolve, reject) => init.signal!.addEventListener('abort', () => reject(init.signal!.reason as Error))));
     await expect(http.get('https://example.com/x', { timeoutMs: 20, maxBytes: 10 })).to.be.rejected.and.eventually.have.property('name', 'TimeoutError');
   });
 });

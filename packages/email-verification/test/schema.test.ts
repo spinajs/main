@@ -45,6 +45,17 @@ describe('emailVerification schema', () => {
     await expect(config({ http: { providers: [{ name: 'p', url: 'https://api.example/check', resultPath: 'x' }] } })).to.be.rejectedWith(/emailVerification\.http\.providers\.0\.url must match pattern/);
   });
 
+  [
+    ['an object', { a: 1 }],
+    ['an array', [1]],
+  ].forEach(([what, entry]) => {
+    it(`refuses ${what as string} as a refuseWhen entry`, async () => {
+      await expect(config({ http: { providers: [{ name: 'p', url: 'https://api.example/{domain}', resultPath: 'x', refuseWhen: ['true', entry] }] } })).to.be.rejectedWith(
+        /emailVerification\.http\.providers\.0\.refuseWhen\.1 must NOT be valid/,
+      );
+    });
+  });
+
   it('keeps the type of each refuseWhen value', async () => {
     const cfg = await config({ http: { providers: [{ name: 'p', url: 'https://api.example/{domain}', resultPath: 'x', refuseWhen: ['true', 1, false] }] } });
     expect(cfg.get('emailVerification.http.providers.0.refuseWhen')).to.deep.eq(['true', 1, false]);

@@ -9,6 +9,15 @@ const TYPES = [EmailVerificationStore, MemoryEmailVerificationStore];
 const verifier = () => boot(ListVerifier, { lists: { refreshSeconds: 1, sources: [] } }, TYPES);
 const store = () => DI.resolve(MemoryEmailVerificationStore);
 
+function failLoads(): () => void {
+  const proto = MemoryEmailVerificationStore.prototype;
+  const original = Object.getOwnPropertyDescriptor(proto, 'loadLists')!;
+  proto.loadLists = async () => {
+    throw new Error('down');
+  };
+  return () => void Object.defineProperty(proto, 'loadLists', original);
+}
+
 describe('ListVerifier', () => {
   afterEach(shutdown);
 
@@ -58,27 +67,21 @@ describe('ListVerifier', () => {
   });
 
   it('starts empty when the store cannot load the lists', async () => {
-    const original = MemoryEmailVerificationStore.prototype.loadLists;
-    MemoryEmailVerificationStore.prototype.loadLists = async () => {
-      throw new Error('down');
-    };
+    const restore = failLoads();
     try {
       expect((await (await verifier()).verify('x.com')).result).to.eq('unknown');
     } finally {
-      MemoryEmailVerificationStore.prototype.loadLists = original;
+      restore();
     }
   });
 
   it('recovers on a later refresh after a failed first load', async () => {
-    const original = MemoryEmailVerificationStore.prototype.loadLists;
-    MemoryEmailVerificationStore.prototype.loadLists = async () => {
-      throw new Error('down');
-    };
+    const restore = failLoads();
     let v: ListVerifier;
     try {
       v = await verifier();
     } finally {
-      MemoryEmailVerificationStore.prototype.loadLists = original;
+      restore();
     }
     await (await store()).upsertEntries([{ domain: 'later.com', kind: 'block', source: 'admin' }]);
     await v.refresh();
@@ -90,10 +93,10 @@ describe('ListVerifier', () => {
     const s = await store();
     const load = s.loadLists.bind(s);
     let release!: () => void;
-    const gate = new Promise<void>((r) => (release = r));
+    const gate = new Promise<void>((resolve) => (release = resolve));
     let first = true;
     let started!: () => void;
-    const slowStarted = new Promise<void>((r) => (started = r));
+    const slowStarted = new Promise<void>((resolve) => (started = resolve));
     s.loadLists = async () => {
       const entries = await load();
       if (first) {
@@ -123,10 +126,10 @@ describe('ListVerifier', () => {
     await s.upsertEntries([{ domain: 'old.com', kind: 'block', source: 'admin' }]);
     const load = s.loadLists.bind(s);
     let release!: () => void;
-    const gate = new Promise<void>((r) => (release = r));
+    const gate = new Promise<void>((resolve) => (release = resolve));
     let calls = 0;
     let started!: () => void;
-    const slowStarted = new Promise<void>((r) => (started = r));
+    const slowStarted = new Promise<void>((resolve) => (started = resolve));
     s.loadLists = async () => {
       if (++calls === 1) {
         const entries = await load();

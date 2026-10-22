@@ -15,6 +15,20 @@ const domainsOf = (entries: ListEntry[], kind: string, source: string) =>
     .sort();
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const range = (count: number, name: (i: number) => string) => Array.from({ length: count }, (_, i) => name(i));
+const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((d, i) => d === b.at(i));
+const bigSet = (count: number, prefix: string) => range(count, (i) => `${prefix}${i}.example.com`);
+
+/** Keeps sampling until `work` settles (and at least `minSamples` times), then rethrows its failure. */
+async function sampleWhile(work: Promise<unknown>, sample: () => Promise<void>, minSamples: number): Promise<void> {
+  let settled = false;
+  const mark = () => void (settled = true);
+  work.finally(mark).catch(() => undefined);
+  for (let taken = 0; !settled || taken < minSamples; taken++) {
+    await sample();
+    await sleep(0);
+  }
+  await work;
+}
 
 /** The EmailVerificationStore contract; `makeStore` must return an empty store each time. */
 export function storeContract(title: string, makeStore: () => Promise<EmailVerificationStore>, options: StoreContractOptions = {}): void {
@@ -134,7 +148,7 @@ export function storeContract(title: string, makeStore: () => Promise<EmailVerif
       });
 
       it('replaces a source of 20000 domains', async () => {
-        const domains = range(20000, (i) => `domain-${i}.example.com`);
+        const domains = bigSet(20000, 'domain-');
         await store.replaceSource('big', 'block', domains);
         expect(domainsOf(await store.loadLists(), 'block', 'big')).to.deep.eq([...domains].sort());
       });
@@ -149,24 +163,18 @@ export function storeContract(title: string, makeStore: () => Promise<EmailVerif
       });
 
       it('a reader during replaceSource sees the old set or the new set', async () => {
-        const previous = range(1000, (i) => `o${i}.com`).sort();
-        const next = range(1000, (i) => `n${i}.com`).sort();
-        const same = (a: string[], b: string[]) => a.length === b.length && a.every((d, i) => d === b[i]);
+        const previous = bigSet(1000, 'o').sort();
+        const next = bigSet(1000, 'n').sort();
         await store.replaceSource('src', 'block', previous);
         // A store whose replace completes synchronously passes this trivially; it has teeth for stores with real I/O.
-        let settled = false;
-        const writing = store.replaceSource('src', 'block', next).finally(() => (settled = true));
         const seen: string[][] = [];
-        do {
-          seen.push(domainsOf(await store.loadLists(), 'block', 'src'));
-          await sleep(0);
-        } while (!settled || seen.length < 5);
-        await writing;
-        seen.push(domainsOf(await store.loadLists(), 'block', 'src'));
-        seen.forEach((sample, i) => {
-          const ok = same(sample, previous) || same(sample, next);
+        const read = async () => void seen.push(domainsOf(await store.loadLists(), 'block', 'src'));
+        await sampleWhile(store.replaceSource('src', 'block', next), read, 5);
+        await read();
+        for (const [i, sample] of seen.entries()) {
+          const ok = sameSet(sample, previous) || sameSet(sample, next);
           expect(ok, `read ${i} saw ${sample.length} domains, neither the old nor the new set`).to.eq(true);
-        });
+        }
         expect(seen[seen.length - 1]).to.deep.eq(next);
       });
 
