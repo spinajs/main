@@ -7,7 +7,7 @@ import type { IContainer } from '@spinajs/di';
 import type { Request } from '@spinajs/http';
 import { Forbidden, InvalidArgument } from '@spinajs/exceptions';
 import { ActionRefused } from '@spinajs/hooks';
-import type { Hooks } from '@spinajs/hooks';
+import type { ActionHook, Hooks } from '@spinajs/hooks';
 import { AuthnAudit, FreshAuthCheck } from '@spinajs/authn';
 import { AuthnThrottle, IdentityRegistrar, KeyRegistry, PasskeyService, PasswordService, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, AuthnFacts, IdentityRef, Principal, Session } from '@spinajs/authn/contracts';
@@ -24,6 +24,7 @@ import { AuthnMfaEnrolmentController } from '../../src/v3/controllers/AuthnMfaEn
 import { AuthnPasskeyController } from '../../src/v3/controllers/AuthnPasskeyController.js';
 import { AuthnPasswordController } from '../../src/v3/controllers/AuthnPasswordController.js';
 import { AuthnRegistrationController } from '../../src/v3/controllers/AuthnRegistrationController.js';
+import { RegistrationMailHook } from '../../src/v3/registration-mail-hook.js';
 import { AuthnSessionsController } from '../../src/v3/controllers/AuthnSessionsController.js';
 import { AuthnTokensController } from '../../src/v3/controllers/AuthnTokensController.js';
 import { DEFAULT_LOGOUT_CLEAR_SITE_DATA } from '../../src/schema.js';
@@ -94,9 +95,10 @@ interface World {
   request(body?: unknown, over?: Partial<{ session: Session | null; principal: Principal | null }>): Request;
 }
 
-async function world(): Promise<World> {
+/** `extra`: hooks that run after the scripted one. */
+async function world(extra: readonly ActionHook[] = []): Promise<World> {
   const hook = new ScriptedActionHook();
-  const hooks = await kitHooks([hook]);
+  const hooks = await kitHooks([hook, ...extra]);
   const sessions = new MemorySessionIssuer();
   const events: AuthnEvent[] = [];
   const audit = { publish: async (e: AuthnEvent) => void events.push(e), publishIn: async (_ctx: AuthnContext, e: AuthnEvent) => void events.push(e) };
@@ -312,7 +314,10 @@ describe('action hooks on the 3.0 routes', function () {
     }
 
     async function registration() {
-      const w = await world();
+      const mail = readingFrom(new RegistrationMailHook(), fakeContainer({ 'authn.http.registration.notifyExisting': true }));
+      Object.defineProperty(mail, 'Log', { value: { warn: () => undefined } });
+      const w = await world([mail]);
+      Object.assign(mail, { Container: w.container });
       const registrar = new Registrar();
       const verifications: IdentityRef[] = [];
       w.services.set(IdentityRegistrar, registrar);
