@@ -21,10 +21,10 @@ Keeps the `allow`, `block` and `block-mx` lists in memory, loaded from `store.lo
 
 - Matching is by label suffix: `x.mailinator.com` matches `mailinator.com`, `notmailinator.com` does not. There is no Public Suffix List.
 - An allow entry beats every block entry. The `admin` entry wins over a synced entry of the same domain and kind.
-- It calls `store.listVersion()` every `lists.refreshSeconds` and reloads when the token changed. A tick that finds the previous refresh still running waits for it instead of starting another.
+- It calls `store.listVersion()` every `lists.refreshSeconds` and reloads when the token changed. A tick that finds the previous refresh still running waits for it, up to `timeoutMs`, instead of starting another. A refresh that hangs is dropped after `timeoutMs`, so the next tick starts a new one.
 - The first load and each refresh are bounded by `timeoutMs`. When the first load fails or times out, it logs an error and answers `unknown` until a refresh succeeds, so the other verifiers decide.
 - With `emailVerification.enabled: false` it loads no lists and starts no timer, so `email-verification:check` shows `list unknown`.
-- `block-mx` entries are read by `DnsVerifier`, not here.
+- `block-mx` entries are read by `DnsVerifier`, not here. While the module is disabled, the `dns` line of `email-verification:check` also misses `block-mx` matches (it shows `resolves`), because `block-mx` is read through the list verifier.
 
 ## `DnsVerifier`
 

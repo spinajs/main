@@ -67,8 +67,8 @@ export class ListVerifier extends DomainVerifier {
 
   /** Joins the refresh in flight, if any, so a slow store never piles up timer ticks. */
   public refresh(): Promise<void> {
-    this.Refreshing ??= this.refreshNow().finally(() => (this.Refreshing = undefined));
-    return withTimeout(this.Refreshing, this.TimeoutMs);
+    this.Refreshing ??= withTimeout(this.refreshNow(), this.TimeoutMs).finally(() => (this.Refreshing = undefined));
+    return this.Refreshing;
   }
 
   protected async refreshNow(): Promise<void> {

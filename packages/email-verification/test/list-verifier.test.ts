@@ -198,6 +198,25 @@ describe('ListVerifier', () => {
     }
   });
 
+  it('refreshes again after a store call hung past timeoutMs', async () => {
+    const v = await boot(ListVerifier, { timeoutMs: 50, lists: { refreshSeconds: 1, sources: [] } }, TYPES);
+    const s = await store();
+    const version = s.listVersion.bind(s);
+    let versions = 0;
+    s.listVersion = () => (++versions === 1 ? new Promise<string>(() => undefined) : version());
+    try {
+      let failure: unknown;
+      await v.refresh().catch((e) => (failure = e));
+      expect(failure).to.be.instanceOf(Error);
+      await s.upsertEntries([{ domain: 'after-hang.com', kind: 'block', source: 'admin' }]);
+      await v.refresh();
+      expect(versions).to.be.greaterThan(1);
+      expect((await v.verify('after-hang.com')).result).to.eq('refuse');
+    } finally {
+      s.listVersion = version;
+    }
+  });
+
   it('loads nothing and polls nothing while disabled', async () => {
     let calls = 0;
     const proto = MemoryEmailVerificationStore.prototype;
