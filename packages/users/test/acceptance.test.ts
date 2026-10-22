@@ -19,7 +19,8 @@ import { Argon2PasswordHasher, LocalPasswordPolicy, LocalPasswordService, LocalP
 import type { PasswordMail } from '@spinajs/authn-local';
 
 import usersConfig from '../src/config/users.js';
-import { QueueAuthnEventSink, UserAccountSink, UserIdentityStore, UserPasswordStore, User } from '../src/index.js';
+import { QueueAuthnEventSink, UserIdentityStore, UserPasswordStore, User } from '../src/index.js';
+import { Hooks } from '@spinajs/hooks';
 import { ban, create, deactivate, setUserMeta } from '../src/actions.js';
 import { rootAdmin } from './support/authz-host.js';
 import { TEST_USER_UUID } from './migration/rbac.migration.js';
@@ -213,10 +214,10 @@ describe('plan C1 acceptance', function () {
       await hasher.resolve();
       const throttle = new FakeBackoffThrottle(throttleParams(ctx.config));
       const events = new RecordingEventSink();
-      const sinks = [await DI.resolve(UserAccountSink), await DI.resolve(QueueAuthnEventSink), events];
+      const sinks = [await DI.resolve(QueueAuthnEventSink), events];
       const strategy = new LocalPasswordStrategy({ identities, passwords, hasher });
       await strategy.resolve();
-      const password = new LocalPasswordService({ identities, passwords, sessions: issuer, throttle, tokens: null, secrets: new MemorySecretStore(), mailer: new RecordingMailer(), sinks, hasher, policy: new LocalPasswordPolicy({}) });
+      const password = new LocalPasswordService({ identities, passwords, sessions: issuer, throttle, tokens: null, secrets: new MemorySecretStore(), mailer: new RecordingMailer(), sinks, hasher, policy: new LocalPasswordPolicy({}), hooks: (await DI.resolve(Hooks)) as Hooks });
       const service = new FakeAuthnService({
         strategies: [strategy],
         throttle,

@@ -138,7 +138,7 @@ export const A38: AuthnRule = defineRule('A38', 'action hooks run around the pas
     },
   }),
   defineCase({
-    name: 'A38 a refused reset redemption answers refused and does not spend the secret; after sees status reset with its purpose',
+    name: 'A38 a refused reset redemption answers refused and does not spend the secret; after sees status reset with its purpose and identity',
     facet: 'A38/local',
     needs: [...LOCAL_NEEDS, 'outbox', 'service'],
     async run(h, k) {
@@ -151,7 +151,7 @@ export const A38: AuthnRule = defineRule('A38', 'action hooks run around the pas
       expectSuccess(await auth(h, k, pw(ALICE.login, ALICE.password)), 'the password is unchanged');
       h.flowHooks.reset();
       assert.deepStrictEqual({ ...(await h.password.redeemReset(ALICE.login, secret, NEW_PW, k.ctx({ purpose: 'login' }))) }, { status: 'reset', purpose: 'reset' }, 'the secret was not spent');
-      assert.deepStrictEqual(afterOutput(h.flowHooks, 'authn.password.reset.redeem'), { status: 'reset', purpose: 'reset' });
+      assert.deepStrictEqual(afterOutput(h.flowHooks, 'authn.password.reset.redeem'), { status: 'reset', purpose: 'reset', id: a }, 'after sees the identity it reset');
       assert.ok(!textOf(h.flowHooks.calls()).includes(secret) && !textOf(h.flowHooks.calls()).includes(NEW_PW), 'neither the secret nor the password reaches a hook');
     },
   }),

@@ -33,6 +33,9 @@ export * from './identity/index.js';
 export * from './authn/index.js';
 export * from './mail/check.js';
 export * from './mail/dispatcher.js';
+export * from './hooks.js';
+export * from './hooks/lifecycle-mail.js';
+export * from './hooks/password-state.js';
 
 @Injectable(Bootstrapper)
 export class RbacBootstrapper extends Bootstrapper {

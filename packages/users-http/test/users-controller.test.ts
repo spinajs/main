@@ -9,6 +9,8 @@ import { SortOrder } from '@spinajs/orm';
 import { DefaultQueueService } from '@spinajs/queue';
 import { Ok } from '@spinajs/http';
 import { FreshAuth } from '@spinajs/authn-http';
+import { ScriptedActionHook } from '@spinajs/authn-testing';
+import { Forbidden } from '@spinajs/exceptions';
 import { PaginationDTO, OrderDTO, IFilterRequest, FilterableLogicalOperators } from '@spinajs/orm-http';
 
 import { NO_PASSWORD, User, UserCreated, USER_COMMON_METADATA } from '@spinajs/users';
@@ -22,6 +24,7 @@ import { testHasher } from './support/hasher.js';
 import { ADMIN2_UUID, ADMIN_UUID, INACTIVE_UUID, USER_UUID, bootAdminWorld, byUuid, registerAdminWorld, signedInPrincipalOf } from './support/admin-world.js';
 import { ownedCache } from './support/owned-cache.js';
 import { NO_REQUEST, passLifecycleGates } from './support/lifecycle-gates.js';
+import { withHook } from './support/hooks.js';
 
 /**
  * Integration tests for the admin user-management controllers.
@@ -47,6 +50,8 @@ const body = async <T = any>(r: any): Promise<T> => {
   return Array.isArray(data) ? ((await Promise.all(data)) as any) : await data;
 };
 const headers = (r: any) => (r.options?.Headers ?? []) as Array<{ Name: string; Value: any }>;
+
+const REFUSED = 'not-today';
 
 const filterReq = (Column: string, Operator: string, Value: any): IFilterRequest => ({ filters: [{ Column, Operator, Value }], op: FilterableLogicalOperators.And }) as any;
 
@@ -315,7 +320,7 @@ describe('Admin user controllers', function () {
     // The create action read its middleware lists through a non-nil-checked
     // config helper, so the shipped default (an empty list) — and any app that
     // never declares `users.actions` — made every single user creation fail.
-    it('creates a user even though no create middleware is configured', async () => {
+    it('creates a user even though no users.actions config is declared', async () => {
       const config = DI.get(Configuration)!;
       config.set('users.actions', undefined);
 
@@ -326,32 +331,43 @@ describe('Admin user controllers', function () {
       expect(created.Email).to.eq('nomiddleware@spinajs.pl');
     });
 
-    it('creates a user with an explicitly empty create middleware list', async () => {
+    // D17: the create middleware is gone; a config that still names it changes nothing.
+    it('ignores a legacy create middleware config', async () => {
       const config = DI.get(Configuration)!;
-      config.set('users.actions.create.beforeCreate', []);
-      config.set('users.actions.create.afterCreate', []);
+      const legacy = sinon.spy((u: User) => u);
+      config.set('users.actions.create.beforeCreate', [legacy]);
+      config.set('users.actions.create.afterCreate', [legacy]);
 
       const result = await usersController.addUser(await admin(), { Login: 'emptymw', Email: 'emptymw@spinajs.pl', Role: 'user' } as any);
 
       expect(result).to.be.instanceOf(Ok);
       expect(await User.query().whereLogin('emptymw').firstOrFail()).to.be.not.null;
+      expect(legacy.callCount).to.eq(0);
+      config.set('users.actions', undefined);
     });
 
-    it('runs configured beforeCreate middleware', async () => {
-      const config = DI.get(Configuration)!;
-      config.set('users.actions.create.beforeCreate', [
-        (u: User) => {
-          u.IsActive = true;
-          return u;
-        },
-      ]);
+    it('runs a users.create before hook', async () => {
+      const hook = new ScriptedActionHook();
+      hook.tamper('users.create', (input) => {
+        input.user.IsActive = true;
+      });
 
-      await usersController.addUser(await admin(), { Login: 'premade', Email: 'premade@spinajs.pl', Role: 'user' } as any);
+      await withHook(hook, async () => usersController.addUser(await admin(), { Login: 'premade', Email: 'premade@spinajs.pl', Role: 'user' } as any));
 
       const created = await User.query().whereLogin('premade').firstOrFail();
       expect(created.IsActive).to.eq(true);
+      expect(hook.calls('users.create').map((c) => c.phase)).to.deep.eq(['before', 'after']);
+    });
 
-      config.set('users.actions.create.beforeCreate', []);
+    it('answers a refused users.create with 403 action_refused and its code, and creates nothing', async () => {
+      const hook = new ScriptedActionHook();
+      hook.refuse('users.create', REFUSED);
+
+      const err = await withHook(hook, async () => usersController.addUser(await admin(), { Login: 'refusedadd', Email: 'refusedadd@spinajs.pl', Role: 'user' } as any).catch((e: unknown) => e));
+
+      expect(err).to.be.instanceOf(Forbidden);
+      expect(err).to.include({ error: 'action_refused', code: REFUSED });
+      expect(await User.query().withDeleted().whereLogin('refusedadd').first()).to.not.exist;
     });
 
     it('never returns the generated temporary password nor the hash', async () => {
@@ -572,6 +588,40 @@ describe('Admin user controllers', function () {
     it('allows removing an administrator while another one remains', async () => {
       const result = await securityController.deactivateUser(await admin(), ADMIN2_UUID, NO_REQUEST);
       expect(result).to.be.instanceOf(Ok);
+    });
+  });
+
+  describe('refused users actions', () => {
+    beforeEach(passLifecycleGates);
+
+    const refused = async (action: string, call: () => Promise<unknown>) => {
+      const hook = new ScriptedActionHook();
+      hook.refuse(action, REFUSED);
+      const err = await withHook(hook, () => call().catch((e: unknown) => e));
+      expect(err, action).to.be.instanceOf(Forbidden);
+      expect(err, action).to.include({ error: 'action_refused', code: REFUSED });
+    };
+
+    it('deactivate, activate, ban, unban, delete and restore answer 403 action_refused with the code, and change nothing', async () => {
+      await refused('users.deactivate', async () => securityController.deactivateUser(await admin(), USER_UUID, NO_REQUEST));
+      expect((await byUuid(USER_UUID)).IsActive).to.eq(true);
+
+      await refused('users.activate', async () => securityController.activateUser(await admin(), INACTIVE_UUID));
+      expect((await byUuid(INACTIVE_UUID)).IsActive).to.eq(false);
+
+      await refused('users.ban', async () => securityController.banUser(await admin(), USER_UUID, { reason: 'spam', duration: 3600 } as any, NO_REQUEST));
+      expect((await byUuid(USER_UUID)).IsBanned).to.eq(false);
+
+      await securityController.banUser(await admin(), USER_UUID, { reason: 'spam', duration: 3600 } as any, NO_REQUEST);
+      await refused('users.unban', async () => securityController.unbanUser(await admin(), USER_UUID));
+      expect((await byUuid(USER_UUID)).IsBanned).to.eq(true);
+
+      await refused('users.delete', async () => usersController.removeUser(await admin(), INACTIVE_UUID, NO_REQUEST));
+      expect((await byUuid(INACTIVE_UUID)).DeletedAt).to.not.be.ok;
+
+      await usersController.removeUser(await admin(), INACTIVE_UUID, NO_REQUEST);
+      await refused('users.update', async () => usersController.restoreUser(await admin(), INACTIVE_UUID));
+      expect((await User.query().withDeleted().where('Uuid', INACTIVE_UUID).firstOrFail()).DeletedAt).to.be.ok;
     });
   });
 

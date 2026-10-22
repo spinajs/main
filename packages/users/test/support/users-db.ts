@@ -91,6 +91,7 @@ const USERS_HOST_KEYS = [
   'LogAuthzEventSink',
   'DefaultQueueService',
   'DefaultEmailService',
+  'DefaultHooks',
 ];
 
 export function releaseUsersHost(): void {

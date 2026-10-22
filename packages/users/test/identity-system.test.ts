@@ -11,7 +11,8 @@ import type { Principal } from '@spinajs/authz';
 import { QueryMiddleware } from '@spinajs/orm';
 import type { AuthnEvent, AuthnEventType, IdentityRef } from '@spinajs/authn/contracts';
 
-import { QueueAuthnEventSink, USER_COMMON_METADATA, User, UserAccountSink, UserActivated, UserIdentityStore, UserLogged, UserPasswordAgeSource, UserPasswordStore } from '../src/index.js';
+import type { ActionName, AfterContext } from '@spinajs/hooks';
+import { QueueAuthnEventSink, USER_COMMON_METADATA, User, UserActivated, UserPasswordStateHook, UserIdentityStore, UserLogged, UserPasswordAgeSource, UserPasswordStore } from '../src/index.js';
 import { TEST_USER_UUID } from './migration/rbac.migration.js';
 import { rootAuthz } from './support/authz-host.js';
 import { bootUsersDb, registerUsersTestHost, seedUser, storedUser } from './support/users-db.js';
@@ -185,14 +186,16 @@ describe('the identity stores over a user model that is an @AccessResource', fun
     }
   });
 
-  it('UserAccountSink records PasswordSetAt and activates an invited account', async () => {
+  it('UserPasswordStateHook records PasswordSetAt and activates an invited account', async () => {
     const { ref: reset } = await seedUser({ login: 'scoped-reset', password: HASH });
     const { ref: invited } = await seedUser({ login: 'scoped-invite', active: false, invitePending: true });
     scopeUsers();
-    const sink = await DI.resolve(UserAccountSink);
+    const hook = (await DI.resolve(UserPasswordStateHook)) as UserPasswordStateHook;
+    const after = (input: Record<string, unknown>, output: unknown) => hook.after({ action: 'authn.password.reset.redeem', input, output, bag: new Map(), depth: 1 } as unknown as AfterContext<ActionName>);
+    const ctx = { now: AT, purpose: 'request' };
 
-    expect(await principalAfter(undefined, () => sink.publish(event('password.reset', reset)))).to.eq(UNATTENDED);
-    expect(await principalAfter(ANONYMOUS, () => sink.publish(event('invite.redeem', invited)))).to.eq(ANONYMOUS);
+    expect(await principalAfter(undefined, () => after({ login: 'scoped-reset', ctx }, { status: 'reset', purpose: 'reset', id: reset }))).to.eq(UNATTENDED);
+    expect(await principalAfter(ANONYMOUS, () => after({ login: 'scoped-invite', ctx }, { status: 'reset', purpose: 'invite', id: invited }))).to.eq(ANONYMOUS);
 
     unregisterResource(User);
     expect((await storedUser(reset.id)).PasswordSetAt?.toMillis()).to.eq(AT.getTime());

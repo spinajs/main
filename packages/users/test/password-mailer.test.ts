@@ -9,7 +9,8 @@ import { PasswordService } from '@spinajs/authn/contracts';
 import { DEFAULT_THROTTLE, FakeBackoffThrottle, MemorySecretStore, MemorySessionIssuer } from '@spinajs/authn-testing';
 import { Argon2PasswordHasher, LocalPasswordPolicy, LocalPasswordService, PasswordMailer } from '@spinajs/authn-local';
 
-import { QueueAuthnEventSink, RbacBootstrapper, UserAccountSink, UserIdentityStore, UserPasswordStore } from '../src/index.js';
+import { Hooks } from '@spinajs/hooks';
+import { QueueAuthnEventSink, RbacBootstrapper, UserIdentityStore, UserPasswordStore } from '../src/index.js';
 import { create, expirePassword } from '../src/actions.js';
 import './migration/rbac.migration.js';
 import { TestPasswordService } from './support/password-service.js';
@@ -94,9 +95,10 @@ describe('reset and invite mails (SR-09, C9 EmailPasswordMailer)', function () {
       tokens: null,
       secrets: new MemorySecretStore(),
       mailer: (await DI.resolve(PasswordMailer)) as PasswordMailer,
-      sinks: [await DI.resolve(UserAccountSink), await DI.resolve(QueueAuthnEventSink)],
+      sinks: [await DI.resolve(QueueAuthnEventSink)],
       hasher,
       policy: new LocalPasswordPolicy({}),
+      hooks: (await DI.resolve(Hooks)) as Hooks,
       resetUrl: RESET_URL,
     });
     // create() and expirePassword() resolve the PasswordService the suites register.

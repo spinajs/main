@@ -9,7 +9,8 @@ import type { AuthnContext, IdentityRef } from '@spinajs/authn/contracts';
 import { Argon2PasswordHasher, LocalPasswordPolicy, LocalPasswordService, LocalPasswordStrategy, PasswordMailer } from '@spinajs/authn-local';
 import type { PasswordMail } from '@spinajs/authn-local';
 
-import { QueueAuthnEventSink, USER_COMMON_METADATA, User, UserAccountSink, UserIdentityStore, UserPasswordStore } from '../../src/index.js';
+import { Hooks } from '@spinajs/hooks';
+import { QueueAuthnEventSink, USER_COMMON_METADATA, User, UserIdentityStore, UserPasswordStore } from '../../src/index.js';
 import { ban, deactivate, deleteUser } from '../../src/actions.js';
 import { bootUsersDb, registerUsersTestHost, releaseUsersHost, seedUser, storedUser } from '../support/users-db.js';
 
@@ -64,9 +65,10 @@ describe('reset and invite over the users stores', function () {
       tokens: null,
       secrets,
       mailer,
-      sinks: [await DI.resolve(UserAccountSink), await DI.resolve(QueueAuthnEventSink)],
+      sinks: [await DI.resolve(QueueAuthnEventSink)],
       hasher,
       policy: new LocalPasswordPolicy({}),
+      hooks: (await DI.resolve(Hooks)) as Hooks,
     });
     const strategy = new LocalPasswordStrategy({ identities: new UserIdentityStore(), passwords, hasher });
     await strategy.resolve();
