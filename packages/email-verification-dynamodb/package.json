@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/email-verification-dynamodb",
-  "version": "3.0.2",
+  "version": "3.0.7",
   "description": "DynamoDB store for @spinajs/email-verification",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -56,11 +56,11 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "3.0.2",
-    "@spinajs/di": "3.0.2",
-    "@spinajs/log": "3.0.2",
-    "@spinajs/exceptions": "3.0.2",
-    "@spinajs/email-verification": "3.0.2",
+    "@spinajs/configuration": "3.0.7",
+    "@spinajs/di": "3.0.7",
+    "@spinajs/log": "3.0.7",
+    "@spinajs/exceptions": "3.0.7",
+    "@spinajs/email-verification": "3.0.7",
     "@aws-sdk/client-dynamodb": "^3.658.0"
   },
   "devDependencies": {
