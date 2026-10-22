@@ -1,7 +1,7 @@
 import { Injectable } from '@spinajs/di';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 
-/** The profiles (role names) an owner may pin a token to; asked at create and on every validate. */
+/** The profiles (role names) an owner may pin a token to; asked at create by TokenProfileHook and on every validate. */
 export abstract class TokenProfilePolicy {
   abstract allowedProfiles(owner: IdentityRef): Promise<readonly string[]>;
 }
