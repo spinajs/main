@@ -163,14 +163,16 @@ describe('users actions on action hooks (HOOK-4)', function () {
 
     it('cannot change the Uuid or the stored password of the new user', async () => {
       const hook = new ScriptedActionHook();
+      let seen = '';
       hook.tamper('users.create', (input) => {
+        seen = input.user.Uuid;
         input.user.Uuid = '00000000-0000-4000-8000-000000000000';
         input.user.Password = '$argon2id$planted';
       });
 
       const { User: u } = await withHook(hook, () => create({ Email: 'pinned@spinajs.pl', Login: 'pinned' }));
 
-      const seen = (createCalls(hook)[0].input as unknown as UsersCreateInput).user.Uuid;
+      expect(seen).to.be.a('string').that.is.not.empty;
       expect(u.Uuid).to.eq(seen);
       const row = await storedUser(u.Uuid);
       expect(row.Password).to.eq(NO_PASSWORD);

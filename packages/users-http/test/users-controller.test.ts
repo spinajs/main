@@ -363,7 +363,8 @@ describe('Admin user controllers', function () {
       const hook = new ScriptedActionHook();
       hook.refuse('users.create', REFUSED);
 
-      const err = await withHook(hook, async () => usersController.addUser(await admin(), { Login: 'refusedadd', Email: 'refusedadd@spinajs.pl', Role: 'user' } as any).catch((e: unknown) => e));
+      // No Role: the grant dry run of this suite refuses the admin before any hook runs.
+      const err = await withHook(hook, async () => usersController.addUser(await admin(), { Login: 'refusedadd', Email: 'refusedadd@spinajs.pl' } as any).catch((e: unknown) => e));
 
       expect(err).to.be.instanceOf(Forbidden);
       expect(err).to.include({ error: 'action_refused', code: REFUSED });
