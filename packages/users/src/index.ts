@@ -37,6 +37,8 @@ export { actorView, userView } from './hooks.js';
 export type { ActorView, UserDraft, UserView, UsersBanInput, UsersCreateData, UsersCreateInput, UsersCreateOutput, UsersMetadataSetInput, UsersPasswordExpireInput, UsersUpdateInput, UsersUserInput } from './hooks.js';
 export * from './hooks/lifecycle-mail.js';
 export * from './hooks/password-state.js';
+export * from './email-domains/hook.js';
+export * from './email-domains/schema.js';
 
 @Injectable(Bootstrapper)
 export class RbacBootstrapper extends Bootstrapper {
