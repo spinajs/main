@@ -49,7 +49,7 @@ Each of `pagination`, `order` and `filter` is one JSON-encoded query argument: `
 3. `create()` of `@spinajs/users` creates the account **inactive** and without a password, grants the roles at GLOBAL through `AuthzAdmin` as the caller, and sends the owner an invite through authn's `PasswordService`. One refused role refuses the request; nothing is created.
 4. `UserAlreadyExists` becomes `409` with `parameter: [{ instancePath: '/Email', keyword: 'duplicate', ... }]` naming the clashing fields.
 5. `UserCreatedIncomplete` (a step after the role grants failed): the account exists, so the answer is still `200` with the account and `Incomplete: { resendInvite }`.
-6. A refusal by a `users.create` [action hook](../users/04-action-hooks.md) answers `403` `{ error: 'action_refused', code }` (`hook_error` for a hook that failed); nothing is created. `DELETE /users/:uuid` (`users.delete`) and `PATCH /users/:uuid/restore` (`users.update`) answer their own refusals the same way.
+6. A refusal by a `users.create` [action hook](../users/04-action-hooks.md) answers `403` `{ error: 'action_refused', code }` (`hook_error` for a hook that failed); nothing is created. `PATCH /users/:uuid` and `PATCH /users/:uuid/restore` (`users.update`) and `DELETE /users/:uuid` (`users.delete`) answer their own refusals the same way; a refused `PATCH /users/:uuid` changes nothing, roles included.
 
 ### Update: `PATCH /users/:uuid`
 
