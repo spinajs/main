@@ -25,12 +25,12 @@ Over HTTP, `POST user/mfa/disable` with `{ code, reauthPassword? }` calls it.
 4. It publishes through `AuthnAudit` `mfa.disable` with outcome `success`, `identity: target`, `actor` and `data: { reset: true, existed }`.
 5. It returns `{ reset: true }` when a confirmed or pending enrolment existed, else `{ reset: false }`.
 
-`adminReset` does **not** check who may reset whom. The caller applies the target guard first: `@spinajs/authn-http` mounts it, through the registered `MfaEnrolmentService`, as `POST authn/admin/users/:uuid/mfa-reset` behind the registered `CredentialAdminGuard` (`AuthzCredentialAdminGuard` of `@spinajs/users` checks `users:credentials`), and the `authn:mfa-reset` command runs it as the actor `{ type: 'system', id: 'cli' }`. See [CLI and QR codes](08-cli-and-qr.md).
+`adminReset` does **not** check who may reset whom. The caller applies the target guard first: `@spinajs/authn-http` mounts it, through the registered `MfaEnrolmentService`, as `POST authn/admin/users/:uuid/mfa-reset` behind the registered `CredentialAdminRule`, the first before hook of `authn.admin.credentials` (`AuthzCredentialAdminRule` of `@spinajs/users` checks `users:credentials`), and the `authn:mfa-reset` command runs it as the actor `{ type: 'system', id: 'cli' }`. See [CLI and QR codes](08-cli-and-qr.md).
 
 ```mermaid
 sequenceDiagram
   participant A as Admin route or CLI
-  participant G as CredentialAdminGuard
+  participant G as CredentialAdminRule
   participant S as TotpService
   participant T as TotpMfaStep
   participant M as MfaSecretStore
@@ -113,4 +113,4 @@ export async function supportResetMfa(supportAgent: PrincipalRef, userUuid: stri
 - [Recovery codes](04-recovery-codes.md): accepted by `disable` in place of a TOTP code.
 - [CLI and QR codes](08-cli-and-qr.md): `authn:mfa-reset`.
 - [`@spinajs/authn-http` MFA enrolment routes](../authn-http/13-mfa-enrolment-routes.md): `POST user/mfa/disable`. The admin reset route: [`@spinajs/authn-http`](../authn-http/README.md).
-- [`@spinajs/authn`](../authn/README.md): fresh auth, `CredentialAdminGuard` and audit events.
+- [`@spinajs/authn`](../authn/README.md): fresh auth, `CredentialAdminRule` and audit events.

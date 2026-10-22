@@ -131,6 +131,6 @@ export async function me(principal: Principal): Promise<UserWithAccess> {
 
 ## Related
 
-- [Impersonation and credential admin guards](13-impersonation-and-credential-admin-guards.md): the other hooks reading the access domain.
+- [Impersonation guard and credential admin rule](13-impersonation-and-credential-admin-guards.md): the other hooks reading the access domain.
 - [`@spinajs/authn`](../authn/README.md): role switch, MFA policy and response building.
 - [`@spinajs/authz`](../authz/README.md): `AccessSummary` and domains.

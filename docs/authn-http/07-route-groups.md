@@ -23,7 +23,7 @@ The package mounts its routes from eleven controllers in `lib/<cjs|mjs>/v3/contr
 | API tokens | `TokenServiceRegistered` | a registered `TokenService` ([`@spinajs/authn-token`](../authn-token/README.md)) | [API token routes](14-api-token-routes.md) |
 | Keys | `KeyRoutesOn` | a registered `KeyRegistry` ([`@spinajs/authn-keys`](../authn-keys/README.md)) and `authn.keys.challenge.audience` or `authn.keys.assertion.audience` set | [Key routes](15-key-routes.md) |
 | JWKS | `JwsSignerRegistered` | a registered `JwsSigner` (`authn.keys.signer` of [`@spinajs/authn-keys`](../authn-keys/10-signing-keys.md)) | [JWKS route](20-jwks-route.md) |
-| Credential admin | `CredentialAdminGuardRegistered`, plus a gate per route | a registered `CredentialAdminGuard` (`AuthzCredentialAdminGuard` of `@spinajs/users`); each route also needs its own service | [Credential admin routes](16-credential-admin-routes.md) |
+| Credential admin | `CredentialAdminRuleRegistered`, plus a gate per route | a `CredentialAdminRule` class registered as an `ActionHook` (`AuthzCredentialAdminRule` of `@spinajs/users`); each route also needs its own service | [Credential admin routes](16-credential-admin-routes.md) |
 
 ## Every route
 
@@ -95,7 +95,7 @@ Answers about an account, its session or its credentials carry `Cache-Control: n
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Route controllers | mounted by the controller scan from the shipped `system.dirs.controllers` entry | the eleven `Authn*Controller` classes | | Not exported. Switch a group through its service and add fields to the answers with `AuthnResponseExtension`. <!-- TODO(docs-hook): verify whether an app can replace or drop a single shipped controller (config arrays concatenate across files) --> |
-| Group gates | resolved by class from `@Policy` | `RoleSourceRegistered`, `ImpersonationGuardRegistered`, `PasswordServiceRegistered`, `AddressVerificationRegistered`, `IdentityRegistrarRegistered`, `TotpEnrolmentOn`, `TokenServiceRegistered`, `KeyRoutesOn`, `CredentialAdminGuardRegistered`, `SessionIssuerRegistered`, `AdminMfaResetOn` | | Not exported; switch a group by registering or not registering its service. |
+| Group gates | resolved by class from `@Policy` | `RoleSourceRegistered`, `ImpersonationGuardRegistered`, `PasswordServiceRegistered`, `AddressVerificationRegistered`, `IdentityRegistrarRegistered`, `TotpEnrolmentOn`, `TokenServiceRegistered`, `KeyRoutesOn`, `CredentialAdminRuleRegistered`, `SessionIssuerRegistered`, `AdminMfaResetOn` | | Not exported; switch a group by registering or not registering its service. |
 | `AuthnResponseExtension` | `Array.ofType` | none in this package | `AccessResponseExtension` of `@spinajs/users` | See [Answers and response extensions](17-answers-and-response-extensions.md). |
 
 ## Important behaviour
