@@ -71,8 +71,9 @@ describe('rbac cli commands', function () {
 
     await cmd.execute({ email: 'cli@spinajs.pl', login: 'cli', roles: 'user,editor', password: 'passw0rd123' });
 
-    expect(runAs.calledOnce).to.eq(true);
+    // The command's own run as SYSTEM comes first; UserLifecycleMailHook reads the recipient of the created mail in its own.
     expect(runAs.firstCall.args.slice(0, 2)).to.deep.eq([SYSTEM, 'cli']);
+    expect(runAs.args.map((a) => a[1])).to.deep.eq(['cli', 'lifecycle-mail']);
     const user = await User.query().whereLogin('cli').firstOrFail();
     expect(await globalRolesOf(user.Uuid)).to.have.members(['user', 'editor']);
   });

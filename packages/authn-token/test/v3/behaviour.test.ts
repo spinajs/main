@@ -24,6 +24,8 @@ describe('authn-token behaviour', function () {
 
   runAuthnBehaviour(['A16'], jwtHarness, { title: 'authn-token: A16', claim: ['A16/jwt'] });
 
+  runAuthnBehaviour(['A38'], (ctx) => tokenHarness(ctx, true), { title: 'authn-token: A38 token hooks', facets: ['A38/token'], claim: ['A38/token'] });
+
   it('jwtHarness refuses config it cannot apply and leaves the issuers as they were when the strategy fails boot', async () => {
     const path = ['authn', 'jwt', 'issuers'];
     const configuration = DI.get(Configuration)!;

@@ -7,6 +7,8 @@ import { BaseController, BasePath, Body, BotCheck, Get, HTTP_STATUS_CODE, Header
 import type { Request } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 import { SessionIssuer } from '@spinajs/authn/contracts';
+import { Hooks } from '@spinajs/hooks';
+import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
 
 import { ClientContext } from '../../args/authn.js';
 import { AuthnLoginBody } from '../../dto/login.js';
@@ -16,9 +18,10 @@ import { OnInvalidInput } from '../../validation/answers.js';
 import { IpThrottle } from '../../middleware/ip-throttle.js';
 import { failedLogin, throttledLogin } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
-import { NO_STORE, authnClearedSessionCookie } from '../responses.js';
+import { NO_STORE, authnClearedSessionCookie, hookRefusedAnswer } from '../responses.js';
 import { runLogoutExtensions } from '../logout-extension.js';
-import { answerFor, auditEnded, completeLogin, isNavigation, pendingAnswer, pendingSteps } from '../routes.js';
+import { answerFor, auditEnded, completeLogin, contextOf, isNavigation, pendingAnswer, pendingSteps, publishAuthnEvent } from '../routes.js';
+import '../../hooks.js';
 
 // Sec-Fetch-Mode values are a few characters; an Accept header is bounded by the header size limit alone.
 const FETCH_MODE_HEADER = { type: 'string', maxLength: 64 } as const;
@@ -39,6 +42,9 @@ export class AuthnLoginController extends BaseController {
 
   @Logger('authn-http')
   protected Log!: Log;
+
+  @Autoinject(Hooks)
+  protected Hooks!: Hooks;
 
   @Config('authn.mfa.policy.service')
   protected MfaPolicyService: string;
@@ -69,10 +75,12 @@ export class AuthnLoginController extends BaseController {
    * the site data of `authn.http.logout.clearSiteData` (default cache, cookies and storage). Audited as `logout`, and as
    * `impersonation.end` (reason `logout`) for an impersonation (A20, A21).
    * POST, so no cross-site link can log anyone out. After the revoke every AuthnLogoutExtension may name a redirect (an OIDC
-   * provider's end_session_endpoint): a navigation request gets 303 to it, any other client 200 `{ endSession }`.
+   * provider's end_session_endpoint): a navigation request gets 303 to it, any other client 200 `{ endSession }`. An
+   * `authn.logout` hook that refuses answers 403 `action_refused` with its code and keeps the session and the cookie.
    * @security cookieAuth
    * @response 303 The session ended; continue at the extension's redirect
    * @response 401 {AuthnError} No session
+   * @response 403 {AuthnError} action_refused (with `code`) when an `authn.logout` hook refuses
    */
   @Post('logout')
   public async logout(
@@ -85,8 +93,24 @@ export class AuthnLoginController extends BaseController {
   ) {
     const session = client.session;
     if (!session) throw unauthenticated('there is no session to end');
-    await this.Sessions.revoke(session.handle);
-    await auditEnded(this.Container, client, session, 'logout', 'logout');
+    try {
+      await runHookedAction(
+        this.Hooks,
+        'authn.logout',
+        { session, ctx: contextOf(client, 'request', session.handle) },
+        async () => {
+          await this.Sessions.revoke(session.handle);
+          await auditEnded(this.Container, client, session, 'logout', 'logout');
+        },
+        { mutable: [] },
+      );
+    } catch (err) {
+      const refusal = hookRefusalOf(err, 'authn.logout');
+      if (!refusal) throw err;
+      const { sessionHandle } = session.facts;
+      await publishAuthnEvent(this.Container, client, { type: 'logout', outcome: 'failure', reason: refusal.reason, identity: { type: session.identity.type, id: session.identity.id }, ...(sessionHandle ? { session: sessionHandle } : {}) });
+      return hookRefusedAnswer(refusal.code);
+    }
     const redirect = await runLogoutExtensions(this.Container, session, req, this.Log);
     const directives = this.ClearSiteData;
     const options = {

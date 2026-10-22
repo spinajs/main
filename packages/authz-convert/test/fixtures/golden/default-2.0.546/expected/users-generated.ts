@@ -39,8 +39,5 @@ export default {
       },
     },
     user: { profile: 'BasicProfileProvider' },
-    actions: {
-      create: { beforeCreate: [], afterCreate: [] },
-    },
   },
 };

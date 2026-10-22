@@ -20,6 +20,7 @@ export { registerAuthnHttpV3 } from './v3/register.js';
 export { AUTHN_FAILURE_BODY, authnFailureResponse, authnSessionCookie, authnClearedSessionCookie } from './v3/responses.js';
 export { AUTHN_HTTP_SCHEMAS, AuthnHttpSchemaProvider } from './v3/schemas.js';
 export * from './schema.js';
+export type * from './hooks.js';
 export * from './bootstrap.js';
 export { WebhookAuthnEventSink } from './webhook/sink.js';
 export type { AuthnWebhookTarget } from './webhook/sink.js';

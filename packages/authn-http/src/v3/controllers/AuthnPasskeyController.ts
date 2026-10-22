@@ -19,7 +19,7 @@ import { failedLogin, throttledLogin, uniformFailure } from '../../validation/lo
 import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { tooManyRequests } from '../../password/fields.js';
-import { NO_STORE, ServiceUnavailableResponse, badRequest, instant } from '../responses.js';
+import { NO_STORE, ServiceUnavailableResponse, badRequest, instant, refusedByHook } from '../responses.js';
 import { completeLogin, contextOf } from '../routes.js';
 
 const invalidResponse = invalid('invalid_response', 'challengeId and response are required');
@@ -143,9 +143,11 @@ export class AuthnPasskeyController extends BaseController {
    * Body `{ challengeId, response, name?, reauthPassword? }`: a challenge from POST /user/passkeys/options and the
    * browser's RegistrationResponseJSON. Answers the passkey `{ id, name, transports, createdAt, lastUsedAt }`. 400
    * `invalid_response` (also a used, expired or foreign challenge), `invalid_name` or `invalid_field`; 409
-   * `passkey_taken`. The body is checked before fresh auth.
+   * `passkey_taken`; 403 `action_refused` with `code` when an `authn.passkey.register` hook refuses. The body is checked
+   * before fresh auth.
    * @returns {AuthnPasskeyEntry} The registered passkey
    * @response 400 {AuthnError} invalid_response, invalid_name or invalid_field
+   * @response 403 {AuthnError} action_refused (with `code`) when an `authn.passkey.register` hook refuses
    * @response 409 {AuthnError} passkey_taken
    * @security cookieAuth
    */
@@ -157,7 +159,12 @@ export class AuthnPasskeyController extends BaseController {
     const fresh = await freshAuthOrAnswer(this.Container, client, body.reauthPassword);
     if ('answer' in fresh) return fresh.answer;
     const { challengeId, response, name } = body;
-    const result = await (await this.passkeys()).register(session.identity, { challengeId, response, ...(name !== undefined ? { name } : {}) }, contextOf(client, 'request', session.handle));
+    let result: Awaited<ReturnType<PasskeyService['register']>>;
+    try {
+      result = await (await this.passkeys()).register(session.identity, { challengeId, response, ...(name !== undefined ? { name } : {}) }, contextOf(client, 'request', session.handle));
+    } catch (err) {
+      return refusedByHook(err, 'authn.passkey.register');
+    }
     if (!result.ok) {
       if (result.code === 'duplicate') return new Conflict({ error: 'passkey_taken', message: 'this passkey is already registered' }, { Headers: [NO_STORE] });
       return badRequest('invalid_response', 'the registration does not verify against a registration challenge of this user');
@@ -179,7 +186,9 @@ export class AuthnPasskeyController extends BaseController {
 
   /**
    * Delete an own passkey
-   * 404 `passkey_not_found` for any id that is not a passkey of the caller, whoever holds it.
+   * 404 `passkey_not_found` for any id that is not a passkey of the caller, whoever holds it; 403 `action_refused` with
+   * `code` when an `authn.passkey.revoke` hook refuses.
+   * @response 403 {AuthnError} action_refused (with `code`) when an `authn.passkey.revoke` hook refuses
    * @response 404 {AuthnError} passkey_not_found
    * @security cookieAuth
    */
@@ -188,7 +197,12 @@ export class AuthnPasskeyController extends BaseController {
   @OnInvalidInput(passkeyNotFound)
   public async remove(@Param(PASSKEY_ID_PARAM) id: string, @ClientContext() client: AuthnClientContext) {
     const session = keyManager(client);
-    const removed = await (await this.passkeys()).remove(session.identity, id, contextOf(client, 'request', session.handle));
+    let removed: boolean;
+    try {
+      removed = await (await this.passkeys()).remove(session.identity, id, contextOf(client, 'request', session.handle));
+    } catch (err) {
+      return refusedByHook(err, 'authn.passkey.revoke');
+    }
     if (!removed) return passkeyNotFound();
     return new Ok(null, { Headers: [NO_STORE] });
   }

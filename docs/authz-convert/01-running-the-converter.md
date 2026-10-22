@@ -43,7 +43,7 @@ The `bin` entry calls `process.exit()` with that code, because a config file may
 | File | Holds |
 | --- | --- |
 | `authz-generated.ts`, `authz-generated.<env>.ts` | `authz.rbac.roles`, `authz.permissions`, principals, admin guard, impersonation, token role policy. |
-| `users-generated.ts`, `users-generated.<env>.ts` | `users.user`, `users.email`, `users.actions`. |
+| `users-generated.ts`, `users-generated.<env>.ts` | `users.user`, `users.email`, and `users.actions` but its create middleware. |
 | `authn-generated.ts`, `authn-generated.<env>.ts` | Strategies, local password, session, MFA, token, throttle. |
 | `authz-warnings.md` | What to convert by hand, behaviour changes, notes. See [Findings and refusals](05-findings-and-refusals.md). |
 

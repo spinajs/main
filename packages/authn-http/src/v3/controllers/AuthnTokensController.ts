@@ -27,7 +27,7 @@ import type { InputAnswer } from '../../validation/answers.js';
 import { uniformFailure } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
-import { NO_STORE, badRequest } from '../responses.js';
+import { NO_STORE, badRequest, refusedByHook } from '../responses.js';
 import { contextOf } from '../routes.js';
 
 const TOKEN_ID = TOKEN_ID_PARAM.$id;
@@ -84,7 +84,7 @@ export class AuthnTokensController extends BaseController {
    * @returns {AuthnTokenCreated} The token and its plaintext, shown once
    * @response 400 {AuthnError} A malformed field (invalid_name, invalid_expiry, invalid_kind, invalid_roles, invalid_profile, invalid_scope) or a refused one
    * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
-   * @response 403 {AuthnError} fresh_auth_required, session_required or impersonating
+   * @response 403 {AuthnError} fresh_auth_required, session_required, impersonating, or action_refused (with `code`) when an `authn.token.create` hook refuses
    * @security cookieAuth
    */
   @Post('tokens')
@@ -97,7 +97,12 @@ export class AuthnTokensController extends BaseController {
     const parsed = tokenRequestOf(body);
     if ('answer' in parsed) return parsed.answer;
 
-    const result = await (await this.service()).create(session.identity, parsed.opts, contextOf(client, 'request', session.handle));
+    let result: Awaited<ReturnType<TokenService['create']>>;
+    try {
+      result = await (await this.service()).create(session.identity, parsed.opts, contextOf(client, 'request', session.handle));
+    } catch (err) {
+      return refusedByHook(err, 'authn.token.create');
+    }
     if (!result.ok) {
       return result.code === 'invalid_expiry' ? invalidExpiry() : badRequest('invalid_scope', 'the roles, profile or scope are not allowed for this token');
     }
@@ -107,7 +112,8 @@ export class AuthnTokensController extends BaseController {
   /**
    * Revoke an own token
    * The token stops working on its next request. 404 `token_not_found` for any id that is not a live token of the
-   * caller, whoever owns it.
+   * caller, whoever owns it; 403 `action_refused` with the hook's code when an `authn.token.revoke` hook refuses.
+   * @response 403 {AuthnError} action_refused (with `code`) when an `authn.token.revoke` hook refuses
    * @response 404 {AuthnError} token_not_found
    * @security cookieAuth
    */
@@ -116,7 +122,12 @@ export class AuthnTokensController extends BaseController {
   @OnInvalidInput(tokenNotFound)
   public async revoke(@Param(TOKEN_ID_PARAM) uuid: string, @ClientContext() client: AuthnClientContext) {
     const session = activeSessionOf(client);
-    const revoked = await (await this.service()).revoke(session.identity, uuid, contextOf(client, 'request', session.handle));
+    let revoked: boolean;
+    try {
+      revoked = await (await this.service()).revoke(session.identity, uuid, contextOf(client, 'request', session.handle));
+    } catch (err) {
+      return refusedByHook(err, 'authn.token.revoke');
+    }
     if (!revoked) return tokenNotFound();
     return new Ok(null, { Headers: [NO_STORE] });
   }
@@ -126,9 +137,11 @@ export class AuthnTokensController extends BaseController {
    * Replaces the secret of a live token; the id, name, roles and expiry stay. Needs fresh auth like the create route.
    * Body `{ graceSeconds?, reauthPassword? }`: the old secret works for `graceSeconds` more (0 to 604800, default 0).
    * Answers `{ Token, Plaintext }`; the new plaintext is shown here once. 400 `invalid_grace` or `invalid_field`; 404
-   * `token_not_found` for any id that is not a live token of the caller.
+   * `token_not_found` for any id that is not a live token of the caller; 403 `action_refused` with `code` when an
+   * `authn.token.rotate` hook refuses.
    * @returns {AuthnTokenCreated} The token and its new plaintext, shown once
    * @response 400 {AuthnError} invalid_grace or invalid_field
+   * @response 403 {AuthnError} fresh_auth_required, session_required, impersonating, or action_refused (with `code`) when an `authn.token.rotate` hook refuses
    * @response 404 {AuthnError} token_not_found
    * @security cookieAuth
    */
@@ -143,7 +156,12 @@ export class AuthnTokensController extends BaseController {
     if ('answer' in fresh) return fresh.answer;
     const grace = input?.graceSeconds;
 
-    const result = await (await this.service()).rotate(session.identity, uuid, contextOf(client, 'request', session.handle), grace === undefined ? undefined : { graceSeconds: grace });
+    let result: Awaited<ReturnType<TokenService['rotate']>>;
+    try {
+      result = await (await this.service()).rotate(session.identity, uuid, contextOf(client, 'request', session.handle), grace === undefined ? undefined : { graceSeconds: grace });
+    } catch (err) {
+      return refusedByHook(err, 'authn.token.rotate');
+    }
     if (!result.ok) return tokenNotFound();
     return new Ok({ Token: tokenEntry(result.token, new Date()), Plaintext: result.plaintext }, { Headers: [NO_STORE] });
   }
@@ -152,9 +170,11 @@ export class AuthnTokensController extends BaseController {
    * Narrow an own token
    * Body `{ name?, roles?, expiresAt? }`. Only narrows: roles must be a subset of the token's (or of the owner's, for a token
    * without roles) and expiresAt not later than the current one. No fresh auth. 400 `invalid_name`, `invalid_roles`,
-   * `invalid_expiry`, `invalid_scope` or `invalid_field` (any other key, before the others); 404 `token_not_found`.
+   * `invalid_expiry`, `invalid_scope` or `invalid_field` (any other key, before the others); 404 `token_not_found`; 403
+   * `action_refused` with `code` when an `authn.token.update` hook refuses.
    * @returns {AuthnTokenUpdated} The narrowed token
    * @response 400 {AuthnError} invalid_name, invalid_roles, invalid_expiry, invalid_scope or invalid_field
+   * @response 403 {AuthnError} action_refused (with `code`) when an `authn.token.update` hook refuses
    * @response 404 {AuthnError} token_not_found
    * @security cookieAuth
    */
@@ -167,7 +187,12 @@ export class AuthnTokensController extends BaseController {
     const parsed = tokenUpdateOf(body);
     if ('answer' in parsed) return parsed.answer;
 
-    const result = await (await this.service()).update(session.identity, uuid, parsed.change, contextOf(client, 'request', session.handle));
+    let result: Awaited<ReturnType<TokenService['update']>>;
+    try {
+      result = await (await this.service()).update(session.identity, uuid, parsed.change, contextOf(client, 'request', session.handle));
+    } catch (err) {
+      return refusedByHook(err, 'authn.token.update');
+    }
     if (result.ok) return new Ok({ Token: tokenEntry(result.token, new Date()) }, { Headers: [NO_STORE] });
     if (result.reason === 'not_found') return tokenNotFound();
     return result.reason === 'invalid_expiry' ? invalidExpiry() : badRequest('invalid_scope', 'the roles are not allowed for this token');

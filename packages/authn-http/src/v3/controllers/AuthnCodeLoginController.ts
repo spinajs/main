@@ -2,6 +2,8 @@ import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Body, BotCheck, Policy, Post } from '@spinajs/http';
 import { PasswordService, SessionIssuer } from '@spinajs/authn/contracts';
+import { Hooks } from '@spinajs/hooks';
+import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
 
 import { ClientContext } from '../../args/authn.js';
 import { AuthnCodeLoginBody, AuthnCodeRequestBody } from '../../dto/code-login.js';
@@ -11,7 +13,8 @@ import { IpThrottle } from '../../middleware/ip-throttle.js';
 import { failedLogin, throttledLogin } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { AcceptedResponse, NO_STORE } from '../responses.js';
-import { completeLogin, contextOf } from '../routes.js';
+import { completeLogin, contextOf, publishAuthnEvent } from '../routes.js';
+import '../../hooks.js';
 
 const ACK: Readonly<{ Ok: true }> = Object.freeze({ Ok: true });
 
@@ -33,11 +36,14 @@ export class AuthnCodeLoginController extends BaseController {
   @Autoinject(PasswordService, { optional: true })
   protected Passwords: PasswordService | undefined;
 
+  @Autoinject(Hooks)
+  protected Hooks!: Hooks;
+
   /**
    * Request a login code
    * Body `{ login }`. Answers 202 `{ Ok: true }` at once, whether or not the account exists and whether or not a mail goes
    * out; the code travels only in the mail. 429 with Retry-After when throttled (per login and per client ip), 400
-   * `invalid_login` without a login.
+   * `invalid_login` without a login. An `authn.code.request` hook that refuses gets the same 202, and no mail goes out.
    * @response 202 {AuthnOk} Always { Ok: true }
    * @response 400 {AuthnError} invalid_login or invalid_field
    * @security []
@@ -47,12 +53,26 @@ export class AuthnCodeLoginController extends BaseController {
   @IpThrottle('reset', (retryAfter) => tooManyRequests('too many code requests, try again later', retryAfter))
   @OnInvalidInput(byField({ login: invalidLogin }, unknownField))
   public async request(@Body({ required: true }) body: AuthnCodeRequestBody, @ClientContext() client: AuthnClientContext) {
+    const login = body.login;
+    const ctx = contextOf(client, 'request');
     try {
-      const result = await this.Passwords!.requestCode!(body.login, contextOf(client, 'request'));
+      const result = await runHookedAction(this.Hooks, 'authn.code.request', { login, ctx }, () => this.Passwords!.requestCode!(login, ctx), { mutable: [] });
       if (result.status === 'throttled') return tooManyRequests('too many code requests, try again later', result.retryAfterSeconds);
     } catch (err) {
+      const refusal = hookRefusalOf(err, 'authn.code.request');
+      // The answer of any other login: only the audit tells.
+      if (refusal) return this.refused(client, refusal.reason);
       // The answer must not tell a failed lookup or mail from a sent one; the name only, as an error can carry the login.
       this._log.warn({ errorName: (err as Error)?.name ?? typeof err }, 'A login code request failed: ${errorName}');
+    }
+    return new AcceptedResponse({ ...ACK }, { Headers: [NO_STORE] });
+  }
+
+  private async refused(client: AuthnClientContext, reason: string) {
+    try {
+      await publishAuthnEvent(this.Container, client, { type: 'code.request', outcome: 'failure', reason, data: { via: 'login' } });
+    } catch (err) {
+      this._log.warn({ errorName: (err as Error)?.name ?? typeof err }, 'A refused login code request could not be audited: ${errorName}');
     }
     return new AcceptedResponse({ ...ACK }, { Headers: [NO_STORE] });
   }

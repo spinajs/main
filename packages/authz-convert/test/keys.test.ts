@@ -156,12 +156,30 @@ describe('convertKeys', () => {
       expect(run({ email: { changePassword } }).out.users).to.deep.equal({});
     });
 
-    it('leaves out what a config file cannot hold and keeps the rest', () => {
+    // D17: 3.0 has no create middleware; a users.create ActionHook replaces it.
+    it('refuses the create middleware with a finding to rewrite it as a users.create ActionHook, and carries the other actions keys', () => {
       const hook = () => undefined;
-      const { out, f } = run({ actions: { create: { beforeCreate: [], afterCreate: [hook] } } });
-      expect(out.users).to.deep.equal({ users: { actions: { create: { beforeCreate: [] } } } });
-      expect(run({ actions: { create: { afterCreate: [hook] }, update: {} } }).out.users).to.deep.equal({ users: { actions: { update: {} } } });
-      expect(f.list.filter((x) => x.severity === 'manual').map((x) => x.path)).to.deep.equal(['rbac.actions.create.afterCreate']);
+      const { out, f } = run({ actions: { create: { beforeCreate: [hook], afterCreate: [hook] }, update: { audit: true } } });
+      expect(out.users).to.deep.equal({ users: { actions: { update: { audit: true } } } });
+      const manual = f.list.filter((x) => x.severity === 'manual');
+      expect(manual.map((x) => x.path)).to.deep.equal(['rbac.actions.create.beforeCreate', 'rbac.actions.create.afterCreate']);
+      expect(manual.map((x) => x.code)).to.deep.equal(['create-middleware', 'create-middleware']);
+      for (const x of manual) expect(x.message).to.contain('rewrite as an ActionHook on users.create');
+      expect(f.list.some((x) => x.code === 'not-data'), 'the function is not reported as data').to.equal(false);
+    });
+
+    it('drops an empty create middleware list with a note, and the create block with it', () => {
+      const { out, f } = run({ actions: { create: { beforeCreate: [], afterCreate: [] } } });
+      expect(out.users).to.deep.equal({});
+      expect(f.list.filter((x) => x.severity === 'manual')).to.deep.equal([]);
+      expect(f.list.filter((x) => x.code === 'create-middleware').map((x) => [x.severity, x.path])).to.deep.equal([
+        ['info', 'rbac.actions.create.beforeCreate'],
+        ['info', 'rbac.actions.create.afterCreate'],
+      ]);
+    });
+
+    it('carries other keys of actions.create as found', () => {
+      expect(run({ actions: { create: { afterCreate: [], notify: true }, update: {} } }).out.users).to.deep.equal({ users: { actions: { create: { notify: true }, update: {} } } });
     });
   });
 

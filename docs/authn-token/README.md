@@ -27,6 +27,7 @@ Import the package once in the app's bootstrap (`import '@spinajs/authn-token';`
 | [Token generation](07-token-generation.md) | `AccessTokenGenerationProvider`: the replaceable algorithm that mints and hashes tokens (`authn.token.generation.service`). |
 | [Token owner resolver](08-token-owner-resolver.md) | `TokenOwnerResolver`: maps a token owner to `rbac_access_tokens.user_id` and back. |
 | [Token profile policy](09-token-profile-policy.md) | `TokenProfilePolicy`: the profiles (role names) an owner may pin a token to. |
+| [Action hooks](10-action-hooks.md) | The `authn.token.*` actions: refuse a create, revoke, rotate or update, narrow what a create or update asks for, or observe a self-revocation, with an `ActionHook`. |
 
 ## Quick start
 

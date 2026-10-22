@@ -49,6 +49,7 @@ Each of `pagination`, `order` and `filter` is one JSON-encoded query argument: `
 3. `create()` of `@spinajs/users` creates the account **inactive** and without a password, grants the roles at GLOBAL through `AuthzAdmin` as the caller, and sends the owner an invite through authn's `PasswordService`. One refused role refuses the request; nothing is created.
 4. `UserAlreadyExists` becomes `409` with `parameter: [{ instancePath: '/Email', keyword: 'duplicate', ... }]` naming the clashing fields.
 5. `UserCreatedIncomplete` (a step after the role grants failed): the account exists, so the answer is still `200` with the account and `Incomplete: { resendInvite }`.
+6. A refusal by a `users.create` [action hook](../users/04-action-hooks.md) answers `403` `{ error: 'action_refused', code }` (`hook_error` for a hook that failed); nothing is created. `DELETE /users/:uuid` (`users.delete`) and `PATCH /users/:uuid/restore` (`users.update`) answer their own refusals the same way.
 
 ### Update: `PATCH /users/:uuid`
 
@@ -85,7 +86,7 @@ sequenceDiagram
 ### Delete and restore
 
 1. `DELETE /users/:uuid`: `userActor()`, fresh authentication, `userRowFor(users:delete)`, `assertCredentialAdmin(..., 'sessions')`, `AccountGuard.assertCanDisable(..., 'delete')`, then `deleteUser()` of `@spinajs/users`: `DeletedAt` is stamped and every session of the account ends.
-2. `PATCH /users/:uuid/restore`: `everyUserRow(users:delete)` reads the row including deleted ones; not deleted answers `400`; else `DeletedAt` is cleared. `IsActive` is not changed: restoring is not activating.
+2. `PATCH /users/:uuid/restore`: `everyUserRow(users:delete)` reads the row including deleted ones; not deleted answers `400`; else `updateUser()` clears `DeletedAt`, so the `users.update` hooks run. `IsActive` is not changed: restoring is not activating.
 
 ### Assignable roles: `GET /users/roles`
 
@@ -133,6 +134,8 @@ For every role of authz-rbac's `RoleStore` whose `assignable` is not `false`, it
 - A role-only change, and an `Email` or `Login` sent unchanged, need only `users:update`.
 - An `Email` or `Login` change of the caller's own account needs fresh authentication but not the credential admin guard (users' guard refuses one's own account).
 - `Metadata` is not accepted on `PATCH`; use the [metadata routes](04-user-metadata-routes.md).
+- `PATCH /users/:uuid` writes the row itself, not through `updateUser()`: no `users.update` [action hook](../users/04-action-hooks.md) runs on it. Only `POST /users`, `DELETE /users/:uuid` and `PATCH /users/:uuid/restore` run a users action here.
+- Only the route's own action maps to `403 action_refused`. A refusal of an action it runs inside it is answered as that error is.
 - The `Role` filter reads `authz_assignment` on the users model's connection; assignments kept on another connection are missed. `Role` is not sortable.
 - The list always joins the `user:niceName` metadata value.
 

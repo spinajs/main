@@ -279,7 +279,7 @@ export class UserBase extends ModelBase<UserBase> {
   public RegisteredAt!: DateTime<true>;
 
   /**
-   * When the current password was set, from authn's events (`UserAccountSink`); null: none recorded. Hidden like
+   * When the current password was set (`UserPasswordStateHook`, after authn-local's flows); null: none recorded. Hidden like
    * `Password`: credential state, not profile data.
    */
   @DT()

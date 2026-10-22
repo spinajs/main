@@ -30,6 +30,12 @@
 | `password.reset` | `failure` | `secret` | `identity` | `redeemReset()`: no matching secret |
 | `password.reset` | `success` | | `identity` | `redeemReset()` with a reset secret |
 | `invite.redeem` | `success` | | `identity`, `data: { via: 'reset' }` when a reset secret was used | `redeemReset()` on an invite-pending identity |
+| `password.change` | `failure` | `hook:<code>` or `hook_error` | `identity`, `session` | `change()`: an `authn.password.change` [action hook](16-action-hooks.md) refused or failed |
+| `password.change` | `failure` | `hook:<code>` or `hook_error` | `identity`, `actor?`, `data: { cause: 'set' }` | `set()`: an `authn.password.set` hook refused or failed |
+| `password.change` | `failure` | `hook:<code>` or `hook_error` | `identity`, `actor` (admin only), `data: { cause, expired: false }` | `expire()`: an `authn.password.expire` hook refused or failed |
+| `password.reset.request` | `failure` | `hook:<code>` or `hook_error` | | `requestReset()`: an `authn.password.reset.request` hook refused or failed |
+| `password.reset.request` | `failure` | `hook:<code>` or `hook_error` | `identity`, `actor?`, `data: { purpose: 'invite' }` | `invite()`: an `authn.password.invite` hook refused or failed |
+| `password.reset` | `failure` | `hook:<code>` or `hook_error` | | `redeemReset()`: an `authn.password.reset.redeem` hook refused or failed |
 | `address.verify.request`, `address.verify` | | | | [Address verification](14-address-verification.md#audit-events) |
 | `code.request` | | | | [Email codes](15-email-codes.md#audit-events) |
 
@@ -91,4 +97,4 @@ export class ResetAlertSink extends AuthnEventSink {
 
 - [Change and set](05-change-and-set.md), [Reset and invite](06-reset-and-invite.md), [Password expiry](08-password-expiry.md): the flows behind each event.
 - [`@spinajs/authn-orm`](../authn-orm/06-audit-sink.md): the `authn_audit` table sink.
-- [`@spinajs/users`](../users/08-authn-event-sinks.md): sinks that keep `PasswordSetAt` current and activate invited accounts.
+- [`@spinajs/users`](../users/08-authn-event-sinks.md): the users sinks of authn events. `PasswordSetAt` and invite activation follow the [action hooks](16-action-hooks.md) instead, through [`UserPasswordStateHook`](../users/07-identity-and-password-stores.md#the-password-state).

@@ -23,9 +23,10 @@ Recovery codes let a user who lost the authenticator device finish a login. `Tot
 
 1. `TotpService` restores the session; it must be active and not impersonated. Otherwise `no_session`.
 2. It checks fresh auth as `begin` does: a recent login, or a valid `reauth`. Otherwise `not_fresh`.
-3. `TotpMfaStep.regenerateRecoveryCodes(identity)` throws `TotpNotEnrolled` without a confirmed enrolment; the service answers `not_enrolled`.
-4. Otherwise it issues a new set, voids the old one and returns `{ ok: true, recoveryCodes }`.
-5. Every outcome except `no_session` is audited as `mfa.enrol` with `data.recoveryCodes = 'regenerated'`; a success adds `data.count`. The contract has no event type of its own for regeneration.
+3. The `authn.mfa.recovery.regenerate` [action hooks](10-action-hooks.md) run; a refusal throws and the old codes stay valid.
+4. `TotpMfaStep.regenerateRecoveryCodes(identity)` throws `TotpNotEnrolled` without a confirmed enrolment; the service answers `not_enrolled`.
+5. Otherwise it issues a new set, voids the old one and returns `{ ok: true, recoveryCodes }`.
+6. Every outcome except `no_session` is audited as `mfa.enrol` with `data.recoveryCodes = 'regenerated'`; a success adds `data.count`. The contract has no event type of its own for regeneration.
 
 Over HTTP, `POST user/mfa/recovery-codes` with `{ reauthPassword? }` calls it.
 

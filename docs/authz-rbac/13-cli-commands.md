@@ -40,6 +40,38 @@ Subjects `system:*` and `unattended:*` are refused: those principals cannot hold
 - **Other processes' caches.** `authz:membership-rebuild` bumps the version, but running apps drop cached decisions only when their caches expire or they restart.
 - **`authz:explain`** builds a bare principal (`authenticated: true`, no attributes, no ceiling), so conditions on principal attributes see none.
 
+## Writing your own command
+
+Extend `AuthzCliCommand` (exported by `@spinajs/authz-rbac`) to get the same boot: `authz()`, `admin()` and `asSystem()`.
+
+| Member | Kind | Default | Override to |
+| --- | --- | --- | --- |
+| `touchesDb()` | protected method | `true` | Return `false` when the command reads no RBAC DB store: `authz()` then skips `OrmMigrator` and the command runs without a database. |
+| `authz()` | protected method | resolves `OrmMigrator` when `touchesDb()` is `true`, then `AuthzService`, once | Not meant to be overridden. |
+
+```ts sample
+import { Command } from '@spinajs/cli';
+import { AuthzCliCommand } from '@spinajs/authz-rbac';
+
+/** Prints whether authz boots with the configured role and rule stores; needs no database. */
+@Command('authz:boot-check', 'Boots the authz service and reports success')
+export class BootCheckCommand extends AuthzCliCommand {
+  protected touchesDb(): boolean {
+    return false;
+  }
+
+  public async execute(): Promise<void> {
+    await this.command(
+      () => ({}),
+      async () => {
+        await this.authz();
+        this.out('OK: authz booted');
+      },
+    );
+  }
+}
+```
+
 ## Examples
 
 ### Create the first administrator

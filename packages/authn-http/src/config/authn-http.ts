@@ -14,6 +14,10 @@ const authnHttp = {
         // Tell the owner of a taken address that someone tried to register with it.
         notifyExisting: true,
       },
+      hooks: {
+        // authn.request runs on every request: off unless an app needs it.
+        request: false,
+      },
     },
   },
   http: {

@@ -18,7 +18,7 @@ import { OnInvalidInput, byField, unknownField } from '../../validation/answers.
 import { uniformFailure } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, PendingMfaEnrolment } from '../index.js';
-import { NO_STORE } from '../responses.js';
+import { NO_STORE, refusedByHook } from '../responses.js';
 import { contextOf } from '../routes.js';
 
 /**
@@ -35,8 +35,9 @@ import { contextOf } from '../routes.js';
  * `fresh_auth_required`; a wrong password, a wrong code, or a missing or over-long one the login failure body (A02),
  * with Retry-After only when the mfa throttle refused the code. Enrolment state conflicts answer 409 `mfa_enrolled`,
  * `mfa_not_begun` or `mfa_not_enrolled`. A body with a field the route does not take answers 400 `invalid_field`; a
- * `code` or `reauthPassword` that is no string, or a code over the cap, the login failure body. No route rotates the
- * session id (A07 lists none of them).
+ * `code` or `reauthPassword` that is no string, or a code over the cap, the login failure body. An action hook of the
+ * MfaEnrolmentService that refuses answers 403 `action_refused` with `code`. No route rotates the session id (A07 lists
+ * none of them).
  * @tags Authentication
  */
 @BasePath('user')
@@ -73,7 +74,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
    * enrolment with a new secret.
    * @returns {AuthnMfaProvisioning} The otpauth URI
    * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
-   * @response 403 {AuthnError} fresh_auth_required, enrolment_closed, session_required or impersonating
+   * @response 403 {AuthnError} fresh_auth_required, enrolment_closed, session_required, impersonating or action_refused (with `code`) when an action hook refuses
    * @response 409 {AuthnError} mfa_enrolled
    * @security cookieAuth
    */
@@ -87,7 +88,12 @@ export class AuthnMfaEnrolmentController extends BaseController {
     const session = ownSession(client);
     const reauth = await reauthOf(this.Container, client, session, (body as AuthnReauthPasswordBody | null)?.reauthPassword);
     if ('answer' in reauth) return reauth.answer;
-    const result = await this.MfaEnrolment!.begin(session.handle, contextOf(client, 'reauth', session.handle), reauth.credentials);
+    let result: Awaited<ReturnType<MfaEnrolmentService['begin']>>;
+    try {
+      result = await this.MfaEnrolment!.begin(session.handle, contextOf(client, 'reauth', session.handle), reauth.credentials);
+    } catch (err) {
+      return refusedByHook(err, 'authn.mfa.enrol.begin');
+    }
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined });
     return new Ok({ provisioning: result.provisioning }, { Headers: [NO_STORE] });
   }
@@ -97,7 +103,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
    * Body `{ code }`: a code of the begun secret. Answers `{ recoveryCodes }` once; each is single use.
    * @returns {AuthnRecoveryCodes} The recovery codes, shown once
    * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
-   * @response 403 {AuthnError} enrolment_closed, session_required or impersonating
+   * @response 403 {AuthnError} enrolment_closed, session_required, impersonating or action_refused (with `code`) when an action hook refuses
    * @response 409 {AuthnError} mfa_enrolled or mfa_not_begun
    * @security cookieAuth
    */
@@ -107,7 +113,12 @@ export class AuthnMfaEnrolmentController extends BaseController {
   @OnInvalidInput(byField({ code: uniformFailure }, unknownField))
   public async confirm(@Body({ required: true }) body: AuthnMfaCodeBody, @ClientContext() client: AuthnClientContext) {
     const session = ownSession(client);
-    const result = await this.MfaEnrolment!.confirm(session.handle, body.code, contextOf(client, 'reauth', session.handle));
+    let result: Awaited<ReturnType<MfaEnrolmentService['confirm']>>;
+    try {
+      result = await this.MfaEnrolment!.confirm(session.handle, body.code, contextOf(client, 'reauth', session.handle));
+    } catch (err) {
+      return refusedByHook(err, 'authn.mfa.enrol.confirm');
+    }
     if (!result.ok) return totpRefusal(result.code, { reauthTried: false, retryAfterSeconds: result.retryAfterSeconds });
     return new Ok({ recoveryCodes: [...result.recoveryCodes] }, { Headers: [NO_STORE] });
   }
@@ -116,7 +127,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
    * Disable TOTP
    * Body `{ code, reauthPassword? }`: a TOTP code or a recovery code. Removes the secret and the recovery codes.
    * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
-   * @response 403 {AuthnError} fresh_auth_required, session_required or impersonating
+   * @response 403 {AuthnError} fresh_auth_required, session_required, impersonating or action_refused (with `code`) when an action hook refuses
    * @response 409 {AuthnError} mfa_not_enrolled
    * @security cookieAuth
    */
@@ -127,7 +138,12 @@ export class AuthnMfaEnrolmentController extends BaseController {
     const session = activeSessionOf(client);
     const reauth = await reauthOf(this.Container, client, session, body.reauthPassword);
     if ('answer' in reauth) return reauth.answer;
-    const result = await this.MfaEnrolment!.disable(session.handle, body.code, contextOf(client, 'reauth', session.handle), reauth.credentials);
+    let result: Awaited<ReturnType<MfaEnrolmentService['disable']>>;
+    try {
+      result = await this.MfaEnrolment!.disable(session.handle, body.code, contextOf(client, 'reauth', session.handle), reauth.credentials);
+    } catch (err) {
+      return refusedByHook(err, 'authn.mfa.disable');
+    }
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined, retryAfterSeconds: result.retryAfterSeconds });
     return new Ok(null, { Headers: [NO_STORE] });
   }
@@ -137,7 +153,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
    * Body `{ reauthPassword? }`. Answers `{ recoveryCodes }` once and voids every older code.
    * @returns {AuthnRecoveryCodes} New recovery codes, shown once
    * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
-   * @response 403 {AuthnError} fresh_auth_required, session_required or impersonating
+   * @response 403 {AuthnError} fresh_auth_required, session_required, impersonating or action_refused (with `code`) when an action hook refuses
    * @response 409 {AuthnError} mfa_not_enrolled
    * @security cookieAuth
    */
@@ -148,7 +164,12 @@ export class AuthnMfaEnrolmentController extends BaseController {
     const session = activeSessionOf(client);
     const reauth = await reauthOf(this.Container, client, session, (body as AuthnReauthPasswordBody | null)?.reauthPassword);
     if ('answer' in reauth) return reauth.answer;
-    const result = await this.MfaEnrolment!.regenerateRecoveryCodes(session.handle, contextOf(client, 'reauth', session.handle), reauth.credentials);
+    let result: Awaited<ReturnType<MfaEnrolmentService['regenerateRecoveryCodes']>>;
+    try {
+      result = await this.MfaEnrolment!.regenerateRecoveryCodes(session.handle, contextOf(client, 'reauth', session.handle), reauth.credentials);
+    } catch (err) {
+      return refusedByHook(err, 'authn.mfa.recovery.regenerate');
+    }
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined });
     return new Ok({ recoveryCodes: [...result.recoveryCodes] }, { Headers: [NO_STORE] });
   }

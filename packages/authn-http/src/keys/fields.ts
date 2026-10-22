@@ -1,4 +1,4 @@
-import { BadRequestResponse, Conflict, NotFound, Ok } from '@spinajs/http';
+import { BadRequestResponse, Conflict, ForbiddenResponse, NotFound, Ok } from '@spinajs/http';
 import type { KeyChallenge, KeyProof, KeyRecord, KeyRegisterResult, NewKey, PublicJwk, Session } from '@spinajs/authn/contracts';
 
 import { KEY_NAME_CAP } from '../dto/keys.js';
@@ -11,7 +11,7 @@ import { expiryOf } from '../token/fields.js';
 import type { InputAnswer } from '../validation/answers.js';
 import { unknownField } from '../validation/answers.js';
 import type { AuthnClientContext } from '../v3/client.js';
-import { NO_STORE, badRequest, instant } from '../v3/responses.js';
+import { NO_STORE, badRequest, hookRefusedAnswer, instant } from '../v3/responses.js';
 
 // Answers of the 3.0 key routes; the DTOs of dto/keys.ts check and cap every field before KeyRegistry sees it. No answer
 // but the challenge answer carries a challenge.
@@ -46,8 +46,10 @@ export function keyManager(client: AuthnClientContext): Session {
 /** One answer for a foreign, an unknown and a malformed kid, so the route tells nothing about other owners' keys. */
 export const keyNotFound = (): NotFound => new NotFound({ error: 'key_not_found', message: 'No such key' }, { Headers: [NO_STORE] });
 
-/** KeyRegistry's refusal of a registration. */
-export function registerRefusal(code: Extract<KeyRegisterResult, { ok: false }>['code']): BadRequestResponse {
+/** KeyRegistry's refusal of a registration; an `authn.key.register` hook's is 403 `{ code }`. */
+export function registerRefusal(result: Extract<KeyRegisterResult, { ok: false }>): BadRequestResponse | ForbiddenResponse {
+  if (result.code === 'refused') return hookRefusedAnswer(result.refusal);
+  const code = result.code;
   if (code === 'duplicate') return new Conflict({ error: 'key_taken', message: 'this key or kid is already registered' }, { Headers: [NO_STORE] });
   if (code === 'invalid_proof') return badRequest('invalid_proof', 'the proof must be a signature of the new key over a register challenge of this user');
   return badRequest('invalid_key', 'jwk must be an Ed25519 or P-256 public key');

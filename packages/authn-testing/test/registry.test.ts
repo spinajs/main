@@ -4,7 +4,7 @@ import { AUTHN_RULES, FACET_KINDS, PENDING_TRANSCRIPTION, RULE_IDS, isNeed } fro
 import type { RuleId } from '../src/behaviour/index.js';
 
 // Design §4.4.
-const FACET_MAP = ['A01/core', 'A02/core', 'A02/external', 'A02/local', 'A02/http', 'A03/argon2', 'A04/local', 'A05/store', 'A05/core', 'A05/http', 'A06/store', 'A06/core', 'A07/store', 'A07/http', 'A08/store', 'A08/http', 'A08/lifecycle', 'A09/core', 'A09/store', 'A09/http', 'A10/step', 'A10/totp', 'A10/core', 'A10/flow', 'A10/http', 'A11/store', 'A11/local', 'A11/http', 'A12/api', 'A12/identity', 'A12/flow', 'A13/core', 'A13/local', 'A13/http', 'A13/oidc', 'A14/token', 'A14/http', 'A15/token', 'A15/core', 'A16/jwt', 'A17/keys', 'A17/jws', 'A17/core', 'A17/http', 'A18/core', 'A19/store', 'A19/core', 'A19/oidc', 'A20/core', 'A20/http', 'A21/core', 'A22/http', 'A23/core', 'A23/http', 'A24/boot', 'A25/http', 'A26/http', 'A27/oidc', 'A30/local', 'A30/http', 'A31/http', 'A31/config', 'A32/core', 'A32/local', 'A33/http', 'A34/store', 'A34/http', 'A35/local', 'A36/step', 'A36/local', 'A37/core', 'A37/flow'];
+const FACET_MAP = ['A01/core', 'A02/core', 'A02/external', 'A02/local', 'A02/http', 'A03/argon2', 'A04/local', 'A05/store', 'A05/core', 'A05/http', 'A06/store', 'A06/core', 'A07/store', 'A07/http', 'A08/store', 'A08/http', 'A08/lifecycle', 'A09/core', 'A09/store', 'A09/http', 'A10/step', 'A10/totp', 'A10/core', 'A10/flow', 'A10/http', 'A11/store', 'A11/local', 'A11/http', 'A12/api', 'A12/identity', 'A12/flow', 'A13/core', 'A13/local', 'A13/http', 'A13/oidc', 'A14/token', 'A14/http', 'A15/token', 'A15/core', 'A16/jwt', 'A17/keys', 'A17/jws', 'A17/core', 'A17/http', 'A18/core', 'A19/store', 'A19/core', 'A19/oidc', 'A20/core', 'A20/http', 'A21/core', 'A22/http', 'A23/core', 'A23/http', 'A24/boot', 'A25/http', 'A26/http', 'A27/oidc', 'A30/local', 'A30/http', 'A31/http', 'A31/config', 'A32/core', 'A32/local', 'A33/http', 'A34/store', 'A34/http', 'A35/local', 'A36/step', 'A36/local', 'A37/core', 'A37/flow', 'A38/local', 'A38/token', 'A38/keys'];
 
 // Design §11.1: in-kit SR titles and their facets.
 const SR_TITLES: readonly [string, string][] = [
@@ -44,8 +44,8 @@ const transcribed = (id: RuleId) => !PENDING_TRANSCRIPTION.has(id);
 const allCases = () => [...AUTHN_RULES.values()].flatMap((r) => r.cases.map((c) => ({ rule: r.id, c })));
 
 describe('behaviour registry', () => {
-  it('RULE_IDS are A01–A27, A30, A31, A32, A33, A34, A35, A36 and A37 in order', () => {
-    const expected = [...Array.from({ length: 27 }, (_, i) => `A${String(i + 1).padStart(2, '0')}`), 'A30', 'A31', 'A32', 'A33', 'A34', 'A35', 'A36', 'A37'];
+  it('RULE_IDS are A01–A27, A30, A31, A32, A33, A34, A35, A36, A37 and A38 in order', () => {
+    const expected = [...Array.from({ length: 27 }, (_, i) => `A${String(i + 1).padStart(2, '0')}`), 'A30', 'A31', 'A32', 'A33', 'A34', 'A35', 'A36', 'A37', 'A38'];
     assert.deepStrictEqual([...RULE_IDS], expected);
     assert.deepStrictEqual([...AUTHN_RULES.keys()], expected);
     assert.strictEqual(AUTHN_RULES.has('A28' as RuleId), false);

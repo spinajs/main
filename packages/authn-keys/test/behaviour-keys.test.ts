@@ -11,3 +11,5 @@ for (const kind of ['memory', 'sqlite'] as const) {
     timeoutMs: 30_000,
   });
 }
+
+runAuthnBehaviour(['A38'], (ctx) => keysHarness(ctx, 'memory', true), { title: 'authn-keys: A38 key hooks', facets: ['A38/keys'], claim: ['A38/keys'] });

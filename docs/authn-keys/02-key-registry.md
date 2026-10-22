@@ -17,10 +17,11 @@
 4. The registrant is checked:
    - A `user` key needs `reg.proof`: a signature by the new key over a `register` challenge issued to the same user. `proofHolds()` verifies it and then redeems the challenge. Failure returns `invalid_proof`. See [Challenge login](04-challenge-login.md).
    - A `service` or `agent` key needs `reg.actor`, a `PrincipalRef` whose `<type>:<id>` fits 100 characters. It is stored as `createdBy`. Without one, `register` throws `InvalidArgument`.
-5. `KeyStore.insert()` stores the record. A taken `kid` or thumbprint returns `duplicate`.
-6. The registry reads the stored record back, publishes a `key.register` success event and returns `{ ok: true, key }`.
+5. The registry builds the key record, then runs the `authn.key.register` [action hooks](11-action-hooks.md). A refusal returns `{ ok: false, code: 'refused', refusal }`.
+6. `KeyStore.insert()` stores the record. A taken `kid` or thumbprint returns `duplicate`.
+7. The registry reads the stored record back, publishes a `key.register` success event and returns `{ ok: true, key }`.
 
-Every refusal in steps 3-5 publishes a `key.register` failure event with the code as `reason`.
+Every refusal in steps 3-6 publishes a `key.register` failure event with the code as `reason`; a hook refusal's reason is `hook:<code>` or `hook_error`.
 
 ```mermaid
 sequenceDiagram
@@ -39,6 +40,7 @@ sequenceDiagram
   R->>R: checkPublicJwk, fields
   R->>R: verify the signature with the new key
   R->>S: redeem(user, 'key-challenge:<rid>', nonce)
+  R->>R: authn.key.register hooks
   R->>K: insert(record)
   K-->>R: 'inserted' or 'duplicate'
   R-->>H: { ok: true, key }
@@ -52,7 +54,7 @@ The routes, their status codes and the fresh-auth rule belong to [`@spinajs/auth
 | Method | What it does |
 | --- | --- |
 | `list(owner)` | Every key of the owner, revoked and expired ones included, through `KeyStore.listByOwner()`. |
-| `revoke(owner, kid, ctx, opts?)` | Sets `revokedAt = ctx.now` when the key exists and belongs to `owner` (same type and id). Returns `false` for an unknown or foreign key or a malformed `kid`. Revoking a revoked key returns `true`, keeps the first time, and publishes nothing. Otherwise publishes `key.revoke` with `data: { kid }` and `opts.actor`. |
+| `revoke(owner, kid, ctx, opts?)` | Sets `revokedAt = ctx.now` when the key exists and belongs to `owner` (same type and id). Returns `false` for an unknown or foreign key or a malformed `kid`. A well-formed `kid` first runs the `authn.key.revoke` [action hooks](11-action-hooks.md); a refusal returns `false`. Revoking a revoked key returns `true`, keeps the first time, and publishes nothing. Otherwise publishes `key.revoke` with `data: { kid }` and `opts.actor`. |
 | `byId(kid)` | The record, revoked and expired ones included, or `null`. A malformed `kid` returns `null` without a store read. Served from the [key cache](#key-cache) for `authn.keys.cache.ttlSeconds`. |
 | `touch(kid, at)` | Stamps `lastUsedAt`, at most once a minute per `kid` per registry instance. Optional on the `KeyRegistry` contract; the key strategies call it after a successful verification when the registry implements it. |
 | `challenge(req, ctx)` | Issues a register or login challenge. See [Challenge login](04-challenge-login.md). |
@@ -105,7 +107,7 @@ The registry stores keys through `KeyStore`. The `authn_key` table is in [Key st
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Key registry | `KeyRegistry` (`@spinajs/authn/contracts`), singleton; also registered as `DefaultKeyRegistry` | `DefaultKeyRegistry`; `@Autoinject` properties for `KeyStore`, `SecretStore`, `AuthnThrottle` and `AuthnAudit` | none | Subclass `DefaultKeyRegistry`, decorate it `@Injectable(KeyRegistry)`, and import it after `@spinajs/authn-keys` |
+| Key registry | `KeyRegistry` (`@spinajs/authn/contracts`), singleton; also registered as `DefaultKeyRegistry` | `DefaultKeyRegistry`; `@Autoinject` properties for `KeyStore`, `SecretStore`, `AuthnThrottle`, `AuthnAudit` and `Hooks` | none | Subclass `DefaultKeyRegistry`, decorate it `@Injectable(KeyRegistry)`, and import it after `@spinajs/authn-keys` |
 
 Override points of `DefaultKeyRegistry`:
 
@@ -116,7 +118,7 @@ Override points of `DefaultKeyRegistry`:
 | `publish(ctx, body)` | Change how `key.register` and `key.revoke` events reach the sinks; the default calls `AuthnAudit.publishIn(ctx, body)` |
 | `options` | Read the options from somewhere other than `authn.keys` |
 
-The constructor takes an optional `DefaultKeyRegistryDeps`, a seam for building the registry with `new` in tests. Each field replaces what DI injects: `store`, `secrets`, `throttle`, `audit` (an `AuthnAuditor`, such as `AuthnAudit.over(sinks)`) and `options` (complete `KeysOptions` from `keysOptionsOf()`, which bypass the configuration). The protected `maxStamped` (10,000) caps how many kids `touch` remembers.
+The constructor takes an optional `DefaultKeyRegistryDeps`, a seam for building the registry with `new` in tests. Each field replaces what DI injects: `store`, `secrets`, `throttle`, `audit` (an `AuthnAuditor`, such as `AuthnAudit.over(sinks)`), `options` (complete `KeysOptions` from `keysOptionsOf()`, which bypass the configuration), `bus` (a `CredentialChangeBus`) and `hooks` (a `Hooks`; without it a registry built with `new` runs no action hook). The protected `maxStamped` (10,000) caps how many kids `touch` remembers.
 
 ### Key registry: custom implementation
 

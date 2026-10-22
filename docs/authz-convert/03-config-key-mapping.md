@@ -60,7 +60,7 @@ When the converter writes any `authz.admin.guard` key but no `privilegedPermissi
 | --- | --- | --- |
 | `rbac.user` | `users.user` | Copied with the same sub-paths. |
 | `rbac.email` | `users.email` | Copied with the same sub-paths, except `changePassword`, which nothing in 3.0 reads: it is left out with an `email-change-password` warning. The reset mail takes `email.password.reset.subject` and `.template` ([Password mails](../email/08-password-mailer.md)). |
-| `rbac.actions` | `users.actions` | Copied. Hooks written as functions are left out as manual `not-data` items. |
+| `rbac.actions` | `users.actions` | `create.beforeCreate` and `create.afterCreate` are left out: a list with entries is a manual `create-middleware` item (rewrite it as an `ActionHook` on `users.create`), an empty one a `create-middleware` note. The other keys are copied. |
 
 ## Removed keys
 

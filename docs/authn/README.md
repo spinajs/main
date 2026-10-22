@@ -29,7 +29,7 @@ npm install @spinajs/authn
 | [Impersonation and the active role](11-impersonation-and-active-role.md) | `AuthnImpersonationService`, `ImpersonationGuard`, the role switch and `authn.impersonation.*` |
 | [Integration hooks](12-integration-hooks.md) | `AuthnResponseExtension`, `RoleSource`, `SessionStartHook`, `CredentialAdminGuard`, `CredentialExtractor` |
 | [Configuration and boot checks](13-configuration-and-boot-checks.md) | `AUTHN_CONFIGURATION_SCHEMA`, every `authn.*` key, the secret and env checks, `checkAuthnConfig` |
-| [Action hooks](14-action-hooks.md) | The authn actions of `@spinajs/hooks` (`authn.login`, `authn.login.identified`, MFA, step-up, impersonation, linking): inputs, mutable keys, refused answers, the `authn.login` timing rule, and `hookView`, `hookCopy`, `hookRefusalOf` for packages that run their own actions |
+| [Action hooks](14-action-hooks.md) | The authn actions of `@spinajs/hooks` (`authn.login`, `authn.login.identified`, MFA, step-up, impersonation, linking): inputs, mutable keys, refused answers, the `authn.login` timing rule, the refused members of the password and key results, and `runHookedAction`, `hookView`, `hookCopy`, `hookRefusalOf` for packages that run their own actions |
 | [Input field schemas](15-input-field-schemas.md) | The shared field schemas, `bodyOf`, `isValidField` and the services that check their input again |
 
 ## Quick start

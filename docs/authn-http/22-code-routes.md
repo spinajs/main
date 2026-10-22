@@ -10,7 +10,7 @@ The code as a second factor uses `POST /auth/mfa/challenge` instead; see [Login,
 
 1. The gate `CodeLoginRegistered` answers `404 { "error": "not_found" }` while no `PasswordService` is registered or it has no `requestCode`.
 2. The body is `{ login }`, a non-empty string of at most 1024 characters; a missing or malformed `login` answers `400 { "error": "invalid_login" }`, any other key 400 `invalid_field`.
-3. `PasswordService.requestCode(login, ctx)` runs with purpose `'request'` and the client ip.
+3. `PasswordService.requestCode(login, ctx)` runs with purpose `'request'` and the client ip, inside the `authn.code.request` [action hooks](23-action-hooks.md). A refusal skips it, answers the same 202 and audits a `code.request` failure with `hook:<code>` or `hook_error`.
 4. It answers `202 { "Ok": true }` with `Cache-Control: no-store`, whether or not the account exists and whether or not a mail goes out. A failure of the service is logged by its error name and answers the same 202. A throttled request answers 429 `throttled` with `Retry-After`. The throttle is the `reset` flow, keyed on the login and the client ip.
 
 ### `POST /auth/code/login`

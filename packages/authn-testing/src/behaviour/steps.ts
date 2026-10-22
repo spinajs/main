@@ -46,6 +46,9 @@ export const auth = (h: Harness, k: CaseKit, c: Credentials, over?: Parameters<C
 /** Seeds the user with its password (and status flags); returns the IdentityRef. */
 export const seedUser = (h: Harness, u: KitUser, status?: StatusFlags): Promise<IdentityRef> => h.seed!.user({ login: u.login, password: u.password, ...(status ? { status } : {}) });
 
+/** The hash the lane's PasswordCredentialStore holds for `id`, or null. */
+export const storedHash = (h: Harness, id: IdentityRef): Promise<string | null> => h.passwordStore!.get(id);
+
 export const factsAal1 = (k: CaseKit): AuthnFacts => ({ method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: k.clock.now() });
 
 /** F(r): a failure with that reason and no retryAfterSeconds. */

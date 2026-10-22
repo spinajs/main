@@ -204,6 +204,7 @@ else if (res.ok) showDashboard();
 
 ## Related
 
+- [Action hooks](23-action-hooks.md): `POST /auth/logout` runs `authn.logout`; a refusal answers 403 `{ error: 'action_refused', code }` and keeps the session and the cookie.
 - [`@spinajs/authn`: how a login runs](../authn/01-authentication-flow.md): the steps inside `authenticate()` and `completeMfa()`.
 - [`@spinajs/authn`: MFA](../authn/04-mfa-policy-and-steps.md): MFA policy and steps.
 - [`@spinajs/authn-totp`](../authn-totp/README.md): the TOTP step; enrol it with the [MFA enrolment routes](13-mfa-enrolment-routes.md).

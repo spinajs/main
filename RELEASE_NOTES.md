@@ -305,6 +305,107 @@ Removed and changed exports:
 ## Dependencies
 
 - `@spinajs/authn` depends on `ajv`; `@spinajs/authz-http` and `@spinajs/authn-oidc` on `@spinajs/validation`.
+# Release notes — users, users-http, authn-local, authz-convert: users actions on action hooks
+
+> Branch `feat/ory-hook-4`. Docs: `docs/users/04-action-hooks.md`, `docs/users/03-user-actions.md`,
+> `docs/users/05-lifecycle-mails.md`, `docs/users/07-identity-and-password-stores.md`, `docs/users/08-authn-event-sinks.md`,
+> `docs/authz-convert/05-findings-and-refusals.md`.
+
+## BREAKING CHANGES
+
+### `@spinajs/users` — the create middleware is removed
+
+`users.actions.create.beforeCreate` / `afterCreate` and the `CreateMiddleware` type are gone, with no adapter (D17).
+users no longer reads `users.actions`; a config that still declares it changes nothing. Write an `ActionHook` of
+`@spinajs/hooks` on `users.create` instead.
+
+Before:
+
+```ts
+// config/users.ts
+import type { CreateMiddleware, User } from '@spinajs/users';
+
+const activateTrusted: CreateMiddleware = (u: User) => {
+  if (u.Email.endsWith('@acme.com')) u.IsActive = true;
+  return u;
+};
+const mirror: CreateMiddleware = async (u: User) => {
+  await crm.upsertContact({ externalId: u.Uuid, email: u.Email });
+  return u;
+};
+
+export default {
+  users: { actions: { create: { beforeCreate: [activateTrusted], afterCreate: [mirror] } } },
+};
+```
+
+After:
+
+```ts
+import { Injectable } from '@spinajs/di';
+import { ActionHook } from '@spinajs/hooks';
+import type { ActionPattern, AfterContext, BeforeContext } from '@spinajs/hooks';
+import '@spinajs/users';
+
+@Injectable(ActionHook)
+export class AcmeAccounts extends ActionHook<'users.create'> {
+  readonly actions: readonly ActionPattern[] = ['users.create'];
+
+  before(ctx: BeforeContext<'users.create'>): void {
+    if (ctx.input.user.Email.endsWith('@acme.com')) ctx.input.user.IsActive = true;
+  }
+
+  async after(ctx: AfterContext<'users.create'>): Promise<void> {
+    await crm.upsertContact({ externalId: ctx.output.User.Uuid, email: ctx.output.User.Email });
+  }
+}
+```
+
+What changes for a migrated middleware:
+
+- A hook gets the user's columns as plain data (`UserDraft` before, `UserView` after) and the actor as an
+  `ActorView` (no `identity`), never a `User` model, and no password. `before` may also change `data` (`Email`, `Login`, `Id`, `Metadata`) and `roles`, or refuse with
+  `ctx.refuse(code)`: `create()` then throws `ActionRefused` and writes nothing.
+- What a hook changes is checked again: email and login, uniqueness, the password policy, protected metadata, the
+  role dry run. A middleware that set a taken `Login` used to fail on the unique index; the hook gets
+  `UserAlreadyExists`. `Uuid` and the password marker stay `create()`'s.
+- An `after` hook runs once the invite is out. Its error is logged and `create()` resolves: it is no longer
+  `UserCreatedIncomplete`.
+- Hooks are read when `Hooks` boots: register them before the app boots.
+
+### `@spinajs/users` — `UserAccountSink` is removed
+
+The `AuthnEventSink` that wrote `PasswordSetAt` and activated invited accounts is gone (D17).
+`UserPasswordStateHook`, an after hook on `authn.password.change`, `.set` and `.reset.redeem`, does the same work,
+the FEAT-2 verification mark of an invite redeem and the race guard against a deactivation included. A subclass of
+`UserAccountSink` becomes a subclass of `UserPasswordStateHook` (the protected `recordPasswordSet()` and
+`activateInvited()` stay). A `LocalPasswordService` built with `deps` (tests) needs `hooks` for it to run.
+
+### `@spinajs/users` — a failing lifecycle mail no longer fails the action
+
+The lifecycle mails moved from the actions into `UserLifecycleMailHook` (D18), registered by users and on by default.
+A missing `users.email.<name>` entry or a queue that refuses the mail is logged on the `users` log and the action
+resolves; before, the action threw after its state was stored. `DI.unregister(UserLifecycleMailHook)` before boot
+sends none.
+
+## New behavior
+
+- `@spinajs/users` runs `create`, `updateUser`, `activate` (of an inactive account), `deactivate`, `ban`, `unban`,
+  `deleteUser`, `setUserMeta` and `expirePassword` through `@spinajs/hooks` as `users.create`, `users.update`,
+  `users.activate`, `users.deactivate`, `users.ban`, `users.unban`, `users.delete`, `users.metadata.set` and
+  `users.password.expire`. Mutable: `users.create` `user`, `data`, `roles`; `users.update` `data`; `users.ban`
+  `reason`, `duration`; `users.metadata.set` `meta`. Every action is refusable and throws `ActionRefused`. Session and
+  token revocation, user events and state writes stay inline once an action proceeds. Without a hook nothing changes.
+- `@spinajs/users`: a `users.create` refusal during a self-service registration spends the registrar's equivalent
+  hash, so the route's 202 costs the same for a new and a taken address.
+- `@spinajs/users-http`: the admin routes answer a refusal of their own users action with 403
+  `{ error: 'action_refused', code }` (`hook_error` for a failed hook).
+- `@spinajs/authn-local`: the `authn.password.reset.redeem` after output of a redeem that set a password carries the
+  identity (`PasswordResetOutput`, `{ status: 'reset', purpose, id }`). The answer to the caller is unchanged.
+- `@spinajs/authz-convert`: `rbac.actions.create.beforeCreate` / `afterCreate` with entries are a manual
+  `create-middleware` finding ("rewrite as an ActionHook on users.create"); empty lists are left out with a note. The
+  other keys of `rbac.actions` are carried.
+
 # Release notes — authn, authn-oidc, authn-testing: action hooks in the authn core
 
 > Branch `feat/ory-hook-2`. Docs: `docs/authn/14-action-hooks.md`, `docs/authn/12-integration-hooks.md`,

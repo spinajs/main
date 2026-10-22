@@ -81,6 +81,7 @@ The MFA keys belong to [`@spinajs/authn`](../authn/04-mfa-policy-and-steps.md) a
 
 ## Related
 
+- [Action hooks](23-action-hooks.md#refusals-of-the-services): a refusal of `authn.mfa.enrol.begin`, `.confirm`, `authn.mfa.disable` or `authn.mfa.recovery.regenerate` answers 403 `{ error: 'action_refused', code }`.
 - [`@spinajs/authn-totp`](../authn-totp/README.md): `TotpService`, `TotpMfaStep` and recovery codes.
 - [`@spinajs/authn`: MFA](../authn/04-mfa-policy-and-steps.md): the MFA policy and forced enrolment.
 - [Credential admin routes](16-credential-admin-routes.md): an admin resets a user's TOTP.

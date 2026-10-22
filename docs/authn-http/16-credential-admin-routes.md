@@ -74,6 +74,7 @@ Errors common to all four: 400 `invalid_send_reset` (password reset, `sendReset`
 
 ## Related
 
+- [Action hooks](23-action-hooks.md): after the guard every route runs `authn.admin.credentials`; its refusal, or an `authn.password.expire` refusal of the password reset, answers 403 `{ error: 'action_refused', code }` and changes nothing. A refused `authn.mfa.adminReset` answers 200 `{ reset: false }`.
 - [`@spinajs/users`: impersonation and credential admin guards](../users/13-impersonation-and-credential-admin-guards.md): the shipped guard and its rules.
 - [Password routes](12-password-routes.md), [MFA enrolment routes](13-mfa-enrolment-routes.md), [Session management routes](09-session-management-routes.md), [API token routes](14-api-token-routes.md): the owner's side of each credential.
 - [`@spinajs/users-http`: user administration](../users-http/06-user-administration.md): the user admin routes beside these.

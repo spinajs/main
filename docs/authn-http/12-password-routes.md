@@ -84,6 +84,7 @@ The `password_rejected` body is `{ "error": "password_rejected", "message": "...
 
 ## Related
 
+- [Action hooks](23-action-hooks.md#refusals-of-the-services): a `{ status: 'refused', code }` of `change()` or `redeemReset()` answers 400 `{ error: 'action_refused', code }`; a refused reset request answers the usual 202.
 - [`@spinajs/authn-local`](../authn-local/README.md): hashing, the policy, reset and invite secrets, mails.
 - [Credential admin routes](16-credential-admin-routes.md): an admin expires a user's password and sends a reset mail.
 - [Answers and response extensions](17-answers-and-response-extensions.md#the-shared-401-body): the login failure body.

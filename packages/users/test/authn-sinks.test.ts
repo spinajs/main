@@ -1,24 +1,17 @@
 import { DI } from '@spinajs/di';
-import { renderTemplate } from '@spinajs/log';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { DefaultQueueService } from '@spinajs/queue';
 import { AuthnEventSink } from '@spinajs/authn/contracts';
 import type { AuthnEvent, AuthnEventType, IdentityRef } from '@spinajs/authn/contracts';
 
-import { QueueAuthnEventSink, USER_COMMON_METADATA, User, UserAccountSink, UserActivated, UserChanged, UserImpersonationEnded, UserImpersonationStarted, UserLogged, UserLoginFailed, UserPasswordChangeRequest, UserPasswordChanged } from '../src/index.js';
+import { QueueAuthnEventSink, UserImpersonationEnded, UserImpersonationStarted, UserLogged, UserLoginFailed, UserPasswordChangeRequest, UserPasswordChanged } from '../src/index.js';
 import { UserPasswordExpired } from '../src/events/UserPasswordExpired.js';
-import { MetadataRelation } from '@spinajs/orm';
 import { InvalidCredentials, UserIsBanned, UserNotActive } from '../src/exceptions.js';
-import { deactivate } from '../src/actions.js';
-import { bootUsersDb, registerUsersTestHost, seedUser, storedUser } from './support/users-db.js';
+import { bootUsersDb, registerUsersTestHost, seedUser } from './support/users-db.js';
 
 const HASH = '$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHQ$c2VjcmV0aGFzaA';
 const AT = new Date('2026-10-04T08:30:00.000Z');
-
-async function markerRows(userId: number): Promise<number> {
-  return Number(await User.query().Driver.select().from('users_metadata').where('user_id', userId).where('Key', USER_COMMON_METADATA.USER_INVITE_PENDING).selectCount());
-}
 
 const event = (type: AuthnEventType, identity: IdentityRef | undefined, over: Partial<AuthnEvent> = {}): AuthnEvent => ({ type, at: AT, outcome: 'success', ...(identity ? { identity } : {}), ...over });
 
@@ -42,141 +35,12 @@ describe('users authn event sinks', function () {
     DI.clearCache();
   });
 
-  it('both are registered AuthnEventSinks', async () => {
+  // R2: UserPasswordStateHook (test/hooks/password-state.test.ts) took over what UserAccountSink did.
+  it('QueueAuthnEventSink is a registered AuthnEventSink, and no users sink writes the password state', async () => {
     const sinks = await DI.resolve(Array.ofType(AuthnEventSink));
 
-    expect(sinks.some((s) => s instanceof UserAccountSink)).to.eq(true);
     expect(sinks.some((s) => s instanceof QueueAuthnEventSink)).to.eq(true);
-  });
-
-  describe('UserAccountSink: PasswordSetAt', () => {
-    const recorded = async (ref: IdentityRef) => (await storedUser(ref.id)).PasswordSetAt?.toMillis() ?? null;
-
-    for (const [title, e] of [
-      ['an admin set (password.change, cause set)', (r: IdentityRef) => event('password.change', r, { data: { cause: 'set' } })],
-      ['a change (password.change)', (r: IdentityRef) => event('password.change', r)],
-      ['a reset (password.reset)', (r: IdentityRef) => event('password.reset', r)],
-      ['an invite (invite.redeem)', (r: IdentityRef) => event('invite.redeem', r)],
-    ] as const) {
-      it(`records event.at for ${title}`, async () => {
-        const { ref } = await seedUser({ login: 'age-sink', password: HASH });
-        const sink = await DI.resolve(UserAccountSink);
-
-        await sink.publish(e(ref));
-
-        expect(await recorded(ref)).to.eq(AT.getTime());
-      });
-    }
-
-    for (const [title, e] of [
-      ['an expiry (data.expired)', (r: IdentityRef) => event('password.change', r, { data: { cause: 'aged', expired: true } })],
-      ['a failed change', (r: IdentityRef) => event('password.change', r, { outcome: 'failure', reason: 'wrong_password' })],
-      ['a failed reset', (r: IdentityRef) => event('password.reset', r, { outcome: 'failure', reason: 'secret' })],
-      ['a login', (r: IdentityRef) => event('login', r)],
-      ['a reset request', (r: IdentityRef) => event('password.reset.request', r)],
-      ['a non-user identity', (r: IdentityRef) => event('password.change', { type: 'service', id: r.id })],
-    ] as const) {
-      it(`leaves it alone for ${title}`, async () => {
-        const { ref } = await seedUser({ login: 'age-sink', password: HASH });
-        const sink = await DI.resolve(UserAccountSink);
-
-        await sink.publish(e(ref));
-
-        expect(await recorded(ref)).to.eq(null);
-      });
-    }
-
-    it('never moves it back: an event older than the recorded time leaves it', async () => {
-      const { ref } = await seedUser({ login: 'age-late', password: HASH });
-      const sink = await DI.resolve(UserAccountSink);
-
-      await sink.publish(event('password.reset', ref));
-      await sink.publish(event('password.change', ref, { at: new Date(AT.getTime() - 3_600_000) }));
-      expect(await recorded(ref)).to.eq(AT.getTime());
-
-      await sink.publish(event('password.change', ref, { at: new Date(AT.getTime() + 1000) }));
-      expect(await recorded(ref)).to.eq(AT.getTime() + 1000);
-    });
-  });
-
-  describe('UserAccountSink: invite activation', () => {
-    it('activates an invited account on invite.redeem, drops the marker and emits UserActivated, once', async () => {
-      const { ref } = await seedUser({ login: 'invitee', active: false, invitePending: true });
-      const sink = await DI.resolve(UserAccountSink);
-
-      await sink.publish(event('invite.redeem', ref, { data: { via: 'reset' } }));
-      await sink.publish(event('invite.redeem', ref));
-
-      const u = await storedUser(ref.id);
-      expect(Boolean(u.IsActive)).to.eq(true);
-      expect(await markerRows(u.Id)).to.eq(0);
-      expect(emitted().filter((x) => x instanceof UserActivated).map((x) => (x as UserActivated).UserUUID)).to.deep.eq([ref.id]);
-      expect(emitted().some((x) => x instanceof UserChanged)).to.eq(true);
-    });
-
-    it('loses to a deactivation racing the redeem: deactivate drops the marker before it writes IsActive', async () => {
-      const { ref } = await seedUser({ login: 'invite-race', active: false, invitePending: true });
-      const sink = await DI.resolve(UserAccountSink);
-      const drop = MetadataRelation.prototype.delete;
-      let raced = false;
-      sinon.stub(MetadataRelation.prototype, 'delete').callsFake(async function (this: MetadataRelation<any, any>, key: string) {
-        if (key === USER_COMMON_METADATA.USER_INVITE_PENDING && !raced) {
-          raced = true;
-          await sink.publish(event('invite.redeem', ref));
-        }
-        return drop.call(this, key);
-      });
-
-      await deactivate(await storedUser(ref.id));
-
-      expect(raced).to.eq(true);
-      expect(Boolean((await storedUser(ref.id)).IsActive)).to.eq(false);
-    });
-
-    it('activates only over a marker stored as boolean true, in one statement', async () => {
-      const { user, ref } = await seedUser({ login: 'invite-text', active: false });
-      user.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING] = 'true';
-      await user.Metadata.update();
-      const sink = await DI.resolve(UserAccountSink);
-
-      await sink.publish(event('invite.redeem', ref));
-
-      expect(Boolean((await storedUser(ref.id)).IsActive)).to.eq(false);
-      expect(emitted().some((x) => x instanceof UserActivated)).to.eq(false);
-    });
-
-    it('leaves an identity without the marker alone', async () => {
-      const { ref } = await seedUser({ login: 'not-invited', active: false });
-      const sink = await DI.resolve(UserAccountSink);
-
-      await sink.publish(event('invite.redeem', ref));
-
-      expect(Boolean((await storedUser(ref.id)).IsActive)).to.eq(false);
-      expect(emitted().some((x) => x instanceof UserActivated)).to.eq(false);
-    });
-
-    it('does not activate on a failed redeem', async () => {
-      const { ref } = await seedUser({ login: 'invite-failed', active: false, invitePending: true });
-      const sink = await DI.resolve(UserAccountSink);
-
-      await sink.publish(event('invite.redeem', ref, { outcome: 'failure', reason: 'secret' }));
-
-      expect((await storedUser(ref.id)).Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING]).to.eq(true);
-    });
-
-    it('logs a failure by its class and does not throw', async () => {
-      const { ref } = await seedUser({ login: 'invite-broken', active: false, invitePending: true });
-      const sink = await DI.resolve(UserAccountSink);
-      const warn = sinon.stub((sink as unknown as { Log: { warn: (fields: Record<string, unknown>, template: string) => void } }).Log, 'warn');
-      sinon.stub(UserAccountSink.prototype as unknown as { recordPasswordSet: () => Promise<void> }, 'recordPasswordSet').rejects(new Error(`UPDATE users SET Password = '${HASH}'`));
-      sinon.stub(UserAccountSink.prototype as unknown as { activateInvited: () => Promise<void> }, 'activateInvited').rejects(new TypeError('boom'));
-
-      await sink.publish(event('invite.redeem', ref));
-
-      expect(warn.callCount).to.eq(2);
-      expect(warn.args.map(([fields, template]) => renderTemplate(template, fields))).to.deep.eq([`Could not record when its password was set on invite.redeem of user ${ref.id}: Error`, `Could not activate its invited account on invite.redeem of user ${ref.id}: TypeError`]);
-      expect(JSON.stringify(warn.args)).to.not.contain(HASH);
-    });
+    expect(sinks.map((s) => s.constructor.name)).to.not.include('UserAccountSink');
   });
 
   describe('QueueAuthnEventSink', () => {

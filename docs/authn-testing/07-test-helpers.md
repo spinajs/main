@@ -24,6 +24,7 @@ Every kit password is 14 or 15 characters long, inside the 8 to 128 bounds of ru
 | `pwKeys(login, ip)` | The `account`, `account-ip` and `ip` throttle keys of a password login |
 | `auth(h, k, credentials, over?)` | `h.service.authenticate(credentials, k.ctx(over))` |
 | `seedUser(h, user, status?)` | Seeds a `KitUser` through the `seed` port |
+| `storedHash(h, id)` | The hash the `passwordStore` port holds for `id`, or `null` |
 | `factsAal1(k)` | Password `aal1` facts with `authenticatedAt` from the case clock |
 | `hasEvent(events, type, outcome?)` | Whether the events port holds such an event |
 | `throttleParams(config?)` | `authn.throttle` overrides merged over `DEFAULT_THROTTLE` per flow and key |

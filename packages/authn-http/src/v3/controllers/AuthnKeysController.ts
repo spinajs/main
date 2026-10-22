@@ -98,7 +98,7 @@ export class AuthnKeysController extends BaseController {
     const parsed = keyRequestOf(body, new Date());
     if ('answer' in parsed) return parsed.answer;
     const result = await (await this.registry()).register({ ...parsed.key, owner: { type: 'user', id: session.identity.id } }, contextOf(client, 'request', session.handle));
-    if (!result.ok) return registerRefusal(result.code);
+    if (!result.ok) return registerRefusal(result);
     return new Ok(keyEntry(result.key, new Date()), { Headers: [NO_STORE] });
   }
 

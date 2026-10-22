@@ -2,8 +2,11 @@ import '@spinajs/authn/register-schema';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Body, Del, Ok, Param, Policy, Post } from '@spinajs/http';
+import { Hooks } from '@spinajs/hooks';
+import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
+import type { ActionName } from '@spinajs/hooks';
 import { CredentialAdminGuard, MfaEnrolmentService, PasswordService, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
-import type { AuthnContext, CredentialAdminAction, IdentityRef, PrincipalRef } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnEventType, CredentialAdminAction, IdentityRef, PrincipalRef } from '@spinajs/authn/contracts';
 
 import { guardRefusal, invalidSendReset, targetNotFound } from '../../admin/fields.js';
 import { AdminMfaResetOn, CredentialAdminGuardRegistered, SessionIssuerRegistered } from '../../admin/gate.js';
@@ -19,10 +22,23 @@ import type { InputAnswer } from '../../validation/answers.js';
 import { uniformFailure } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
-import { NO_STORE } from '../responses.js';
+import { NO_STORE, hookRefusedAnswer } from '../responses.js';
 import { contextOf, publishAuthnEvent } from '../routes.js';
+import '../../hooks.js';
+
+/** authn-local declares it, and is no dependency of this package. */
+const PASSWORD_EXPIRE: string = 'authn.password.expire';
+
+/** The event a refused admin action is audited as. */
+const REFUSED_EVENT: ReadonlyMap<CredentialAdminAction, AuthnEventType> = new Map<CredentialAdminAction, AuthnEventType>([
+  ['password-reset', 'password.change'],
+  ['mfa-reset', 'mfa.disable'],
+  ['sessions', 'session.revoke'],
+  ['tokens', 'token.revoke'],
+]);
 
 type Admitted = { readonly answer: unknown } | { readonly actor: PrincipalRef; readonly target: IdentityRef; readonly ctx: AuthnContext };
+type Allowed = Exclude<Admitted, { readonly answer: unknown }>;
 
 /** The `:uuid` first (it is the last parameter, and route args are extracted from the last on): 404, as before. */
 const refusedInput = (fields: Readonly<Record<string, InputAnswer>>): InputAnswer => bySchema(USER_ID_PARAM.$id, targetNotFound, byField({ reauthPassword: uniformFailure, ...fields }, unknownField));
@@ -35,8 +51,9 @@ const refusedInput = (fields: Readonly<Record<string, InputAnswer>>): InputAnswe
  * uuid) and the body (400 `invalid_send_reset`, `invalid_field`; a reauthPassword that is no string the login failure
  * body). Then, in this order: fresh auth (a login within authn.freshAuth.maxAgeSeconds or the admin's password in
  * `reauthPassword`; 403 `fresh_auth_required`, a wrong or throttled password the login failure body without
- * Retry-After), the guard (403 `forbidden`, `protected_role` or `escalation`, 404 `not_found`), and only then the
- * effect, so a refused call changes nothing. Every answer the routes build carries no-store and no secret. The admin is the audit actor.
+ * Retry-After), the guard (403 `forbidden`, `protected_role` or `escalation`, 404 `not_found`), the
+ * `authn.admin.credentials` hooks (403 `action_refused` with the hook's code), and only then the effect, so a refused
+ * call changes nothing. Every answer the routes build carries no-store and no secret. The admin is the audit actor.
  * @tags Authentication
  */
 @BasePath({ config: 'authn.http.admin.basePath', default: 'authn/admin/users' })
@@ -56,6 +73,9 @@ export class AuthnCredentialAdminController extends BaseController {
 
   @Autoinject(MfaEnrolmentService, { optional: true })
   protected MfaEnrolment: MfaEnrolmentService | undefined;
+
+  @Autoinject(Hooks)
+  protected Hooks!: Hooks;
 
   /**
    * Reset a user's password
@@ -77,8 +97,10 @@ export class AuthnCredentialAdminController extends BaseController {
     const sendReset = input?.sendReset ?? true;
     const admitted = await this.admit(client, uuid, 'password-reset', input?.reauthPassword);
     if ('answer' in admitted) return admitted.answer;
-    await this.Passwords!.expire(admitted.target, { cause: 'admin', actor: admitted.actor, sendReset }, admitted.ctx);
-    return new Ok({ expired: true, resetMailRequested: sendReset }, { Headers: [NO_STORE] });
+    return this.effect(client, admitted, 'password-reset', async () => {
+      await this.Passwords!.expire(admitted.target, { cause: 'admin', actor: admitted.actor, sendReset }, admitted.ctx);
+      return { expired: true, resetMailRequested: sendReset };
+    });
   }
 
   /**
@@ -94,8 +116,10 @@ export class AuthnCredentialAdminController extends BaseController {
   public async mfaReset(@Body({ sensitive: ['reauthPassword'] }) body: AuthnReauthPasswordBody, @ClientContext() client: AuthnClientContext, @Param(USER_ID_PARAM) uuid: string) {
     const admitted = await this.admit(client, uuid, 'mfa-reset', (body as AuthnReauthPasswordBody | null)?.reauthPassword);
     if ('answer' in admitted) return admitted.answer;
-    const { reset } = await this.MfaEnrolment!.adminReset(admitted.actor, admitted.target, admitted.ctx);
-    return new Ok({ reset }, { Headers: [NO_STORE] });
+    return this.effect(client, admitted, 'mfa-reset', async () => {
+      const { reset } = await this.MfaEnrolment!.adminReset(admitted.actor, admitted.target, admitted.ctx);
+      return { reset };
+    });
   }
 
   /**
@@ -110,10 +134,12 @@ export class AuthnCredentialAdminController extends BaseController {
   public async sessions(@Body({ sensitive: ['reauthPassword'] }) body: AuthnReauthPasswordBody, @ClientContext() client: AuthnClientContext, @Param(USER_ID_PARAM) uuid: string) {
     const admitted = await this.admit(client, uuid, 'sessions', (body as AuthnReauthPasswordBody | null)?.reauthPassword);
     if ('answer' in admitted) return admitted.answer;
-    const revoked = await this.Sessions!.revokeAll(admitted.target, { includeImpersonations: true });
-    // SessionIssuer audits nothing.
-    await publishAuthnEvent(this.Container, client, { type: 'session.revoke', outcome: 'success', reason: 'admin', identity: admitted.target, actor: admitted.actor, data: { count: revoked } });
-    return new Ok({ revoked }, { Headers: [NO_STORE] });
+    return this.effect(client, admitted, 'sessions', async () => {
+      const revoked = await this.Sessions!.revokeAll(admitted.target, { includeImpersonations: true });
+      // SessionIssuer audits nothing.
+      await publishAuthnEvent(this.Container, client, { type: 'session.revoke', outcome: 'success', reason: 'admin', identity: admitted.target, actor: admitted.actor, data: { count: revoked } });
+      return { revoked };
+    });
   }
 
   /**
@@ -128,9 +154,28 @@ export class AuthnCredentialAdminController extends BaseController {
   public async tokens(@Body({ sensitive: ['reauthPassword'] }) body: AuthnReauthPasswordBody, @ClientContext() client: AuthnClientContext, @Param(USER_ID_PARAM) uuid: string) {
     const admitted = await this.admit(client, uuid, 'tokens', (body as AuthnReauthPasswordBody | null)?.reauthPassword);
     if ('answer' in admitted) return admitted.answer;
-    // Per call: apps that list no token strategy register no TokenService.
-    const revoked = await (await this.Container.resolve(TokenService)).revokeAllFor(admitted.target, admitted.ctx, { actor: admitted.actor });
-    return new Ok({ revoked }, { Headers: [NO_STORE] });
+    return this.effect(client, admitted, 'tokens', async () => {
+      // Per call: apps that list no token strategy register no TokenService.
+      const revoked = await (await this.Container.resolve(TokenService)).revokeAllFor(admitted.target, admitted.ctx, { actor: admitted.actor });
+      return { revoked };
+    });
+  }
+
+  /**
+   * The effect, through the `authn.admin.credentials` hooks: its answer body, or 403 `{ code }` for a refusal, also one
+   * of an action the effect runs (an `authn.password.expire` hook).
+   */
+  protected async effect(client: AuthnClientContext, admitted: Allowed, action: CredentialAdminAction, run: () => Promise<Readonly<Record<string, unknown>>>) {
+    try {
+      return new Ok(await runHookedAction(this.Hooks, 'authn.admin.credentials', { actor: admitted.actor, target: admitted.target, action }, run, { mutable: [] }), { Headers: [NO_STORE] });
+    } catch (err) {
+      const own = hookRefusalOf(err, 'authn.admin.credentials');
+      // The expiry audits its own refusal.
+      const refusal = own ?? hookRefusalOf(err, PASSWORD_EXPIRE as ActionName);
+      if (!refusal) throw err;
+      if (own) await publishAuthnEvent(this.Container, client, { type: REFUSED_EVENT.get(action) ?? 'session.revoke', outcome: 'failure', reason: refusal.reason, identity: admitted.target, actor: admitted.actor, data: { action } });
+      return hookRefusedAnswer(refusal.code);
+    }
   }
 
   /** Fresh auth, then the guard: the answer of the first that refuses, or what the effect needs. */

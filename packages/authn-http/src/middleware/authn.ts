@@ -5,6 +5,9 @@ import { Config, Configuration } from '@spinajs/configuration';
 import '../register-schema.js';
 import '@spinajs/authn-session/register-schema';
 import { Log, Logger } from '@spinajs/log';
+import { Forbidden } from '@spinajs/exceptions';
+import { Hooks } from '@spinajs/hooks';
+import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
 import { ServerMiddleware } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { CredentialExtractor, SessionIssuer, resolveSession } from '@spinajs/authn/contracts';
@@ -18,6 +21,7 @@ import { publicOriginOf } from '../extractors/signature.js';
 import { logHash, unsignSessionCookie, warnNoLiveSession } from '../session-cookie.js';
 import { clientOf } from '../v3/client.js';
 import { contextOf } from '../v3/context.js';
+import '../hooks.js';
 
 const byOrder = (a: { order: number }, b: { order: number }): number => a.order - b.order;
 
@@ -49,7 +53,8 @@ function bodyOf(req: Request): Uint8Array | undefined {
  *
  * The cookie is a browser-session cookie the issuer slides server side (N8a-D7), so it is never re-sent here. Store
  * errors go to next(err): no principal, never a silent anonymous. Registered on the root container when the package loads
- * (registerAuthnHttpV3).
+ * (registerAuthnHttpV3). With authn.http.hooks.request, every request then runs the `authn.request` action hooks; a
+ * refusal answers 403 `{ code }`.
  */
 export class AuthnMiddleware extends ServerMiddleware {
   // Stays an injected Configuration: appEnvOf reads its Env for the SR-16 "no env named" rule, which @Config cannot express.
@@ -64,6 +69,12 @@ export class AuthnMiddleware extends ServerMiddleware {
 
   @Config('authn.http.publicOrigin')
   protected PublicOrigin: string | null | undefined;
+
+  @Config('authn.http.hooks.request')
+  protected HookRequests: boolean | undefined;
+
+  @Autoinject(Hooks)
+  protected Hooks!: Hooks;
 
   @Autoinject(Container)
   protected Container!: IContainer;
@@ -135,6 +146,23 @@ export class AuthnMiddleware extends ServerMiddleware {
     if (principal) res.setHeader('Cache-Control', 'no-store');
     // An active session without a principal has ended (revoked or expired) or gives nothing, so no route may act on it.
     else if (session?.handle.state === 'active') req.storage.AuthnSession = null;
+
+    // Only `=== true`: a malformed value set past the schema must not put a hook on every request.
+    if (this.HookRequests === true) await this.hookRequest(req, principal);
+  }
+
+  protected async hookRequest(req: Request, principal: Principal | null): Promise<void> {
+    const target = req.originalUrl ?? req.url;
+    const ip = req.storage.ClientIp;
+    const input = { principal, method: req.method, path: typeof target === 'string' ? target.split('?')[0] : '', ...(typeof ip === 'string' ? { ip } : {}) };
+    try {
+      await runHookedAction(this.Hooks, 'authn.request', input, async () => undefined, { mutable: [] });
+    } catch (err) {
+      const refusal = hookRefusalOf(err, 'authn.request');
+      if (!refusal) throw err;
+      // @spinajs/http spreads the error's own props into the 403 body.
+      throw Object.assign(new Forbidden('the request was refused'), { error: 'action_refused', code: refusal.code });
+    }
   }
 
   /**
