@@ -9,7 +9,7 @@ How to write a hook, and what `before`, `after` and `failed` mean, is in [Writin
 | Action | Runs | Input | Mutable | `after` sees |
 | --- | --- | --- | --- | --- |
 | `authz.admin.batch` | In `AuthzAdmin.execute` (and every sugar method), before the first command is validated. Not for an empty batch. | `actor`, `commands`, `opts?` | `commands` | `{ results, replayed, dryRun }` of the batch: failed results too, and the results of a dry run or a replay |
-| `authz.admin.command` | Per command, after `validate()` and the app validators, before `AdminGuard.check()`. | `actor`, `command` | `command` | the `command` that passed validation and the hook phase (not yet guarded or committed) |
+| `authz.admin.command` | Per command, after `validate()` and the permission check, before `AdminGuard.check()`. The built-in `ListSupportHook` always matches it. | `actor`, `command` | `command` | the `command` that passed validation and the hook phase (not yet guarded or committed) |
 | `authz.check` | In `check`, `can` and `assert`, after the engine's decision, only when `authz.hooks.check` is `true`. | `principal`, `permission`, `resource` | none | the `Decision` |
 
 All three are refusable. Hooks are application-wide: `Hooks` is resolved from the domain container, which falls back to the root, so register hooks in the root container.
@@ -19,9 +19,17 @@ All three are refusable. Hooks are application-wide: `Hooks` is resolved from th
 The order inside `AuthzAdmin.execute` is:
 
 1. The `authz.admin.batch` hook.
-2. For each command, in phase A (outside the transaction): the handler's `validate()`, the `AuthzCommandValidator`s, the actor's permission check, then the `authz.admin.command` hook.
-3. Whatever `command` the hook leaves, changed or not, is copied, frozen and put through the same `validate()`, validators and permission check again. A `Date` edited in place counts as a change.
+2. For each command, in phase A (outside the transaction): the handler's `validate()`, the actor's permission check, then the `authz.admin.command` hooks, `ListSupportHook` last.
+3. A `command` a hook changed is copied, frozen and put through the same `validate()` and permission check again. A `Date` edited in place counts as a change. A command no hook changed is not checked twice.
 4. In phase B (the transaction), `AdminGuard.check()` and `apply()` for the command the hook left.
+
+Product rules on commands (refuse external invites, require an expiry) are before hooks here. They run after the permission check, and a refusal answers `hook:<code>`. Moving off `AuthzCommandValidator`: see [Migration](#migration).
+
+### The list-support check
+
+`ListSupportHook` is registered by `@spinajs/authz` at import. It runs every `ListSupportGuard` of the domain's container lineage on a `policy.put` or `rule.put` (`AbacListSupportGuard`, `RbacRuleListGuard`), with order `Number.MAX_SAFE_INTEGER`, so it judges the command the other hooks leave. AuthzAdmin checks a command again itself when a hook replaced it after `ListSupportHook` judged it. Its refusals keep their answers: `not_list_filterable` with the field `policy` or `rule`, a guard's own `AuthzAdminFailure` code, or an `AuthzConfigError` that rejects the batch. They never become `hook:<code>`.
+
+Because this hook always matches `authz.admin.command`, every admin command runs through the hooks runner; `authz.admin.batch` still costs nothing without a hook of its own.
 
 A hook can only narrow a command, never widen it. A hook that raises the role of a grant gets `forbidden` or `escalation`, because the permission check and the guard decide on the changed command. A command a hook returns is deep-copied and frozen, so a hook must assign a new object (`ctx.input.command = { ...ctx.input.command, expiresAt }`) instead of editing the one it got. A value that is not plain data fails with `invalid_batch`.
 
@@ -44,7 +52,7 @@ export class DefaultExpiry extends ActionHook<'authz.admin.command'> {
 
 ### What `after` means
 
-- **`authz.admin.command` `after`** runs in phase A, when the command has passed `validate()`, the validators, the permission check and the hook phase. It does **not** mean the command was committed: the guard and `apply()` come later, so the command can still be refused by the guard, roll back with the rest of the batch, or be a dry run.
+- **`authz.admin.command` `after`** runs in phase A, when the command has passed `validate()`, the permission check and the hook phase. It does **not** mean the command was committed: the guard and `apply()` come later, so the command can still be refused by the guard, roll back with the rest of the batch, or be a dry run.
 - **Committed-effect logic** (notify another system, invalidate a copy) belongs in `authz.admin.batch` `after`. It runs once the whole batch is done and gets `{ results, replayed, dryRun }`. It also runs when a command failed (`ok: false`), for a dry run (`dryRun: true`) and for a replay (`replayed: true`, the stored results of a batch committed earlier). Only a batch with all results `ok`, `dryRun: false` and `replayed: false` was committed just now.
 
 ### Answers
@@ -77,6 +85,35 @@ With the switch off, `check`, `can` and `assert` never touch `Hooks`. With it on
 - `after` hooks see the `Decision`. `explain`, `inspect`, `checkMany`, `checkAll` and `filter` are not hooked.
 - The permission check of `AuthzAdmin` goes through `AuthzService.check`, so with the switch on a refusal also makes admin calls fail with `forbidden`: the actor's permission check is hooked like any other check. A hook that refuses broadly can therefore lock admins out; limit it to the principals or permissions it means to stop.
 - A forced deny is audited as a `deny` entry with reason `hook:<code>` when `authz.audit.denials` is on, and keeps the `trace` of an explain request.
+
+## Migration
+
+`AuthzCommandValidator` and `ListSupportValidator` are removed. Move each validator into a before hook on `authz.admin.command` and refuse with `ctx.refuse(code)`:
+
+```ts
+// Before
+@Injectable(AuthzCommandValidator)
+export class ContractorExpiryValidator extends AuthzCommandValidator {
+  async validate(_actor: Principal, c: AuthzCommand): Promise<void> {
+    if (c.kind === 'assignment.grant' && c.role === 'contractor' && !c.expiresAt) throw new AuthzAdminFailure('expiry_required', 'needs an expiry', 'expiresAt');
+  }
+}
+
+// After
+@Injectable(ActionHook)
+export class ContractorExpiryRule extends ActionHook<'authz.admin.command'> {
+  readonly actions: readonly ActionPattern[] = ['authz.admin.command'];
+
+  before(ctx: BeforeContext<'authz.admin.command'>): void {
+    const c = ctx.input.command;
+    if (c.kind === 'assignment.grant' && c.role === 'contractor' && !c.expiresAt) ctx.refuse('expiry_required');
+  }
+}
+```
+
+- The hook runs after the permission check; a validator ran between `validate()` and the permission check. An actor without the permission now gets `forbidden` before any product rule.
+- A refusal answers `hook:<code>` (`hook:expiry_required`), not the validator's own `AuthzAdminFailure` code. Update clients that match on the code.
+- `ListSupportGuard` implementations stay as they are: `ListSupportHook` runs them, with the same answers.
 
 ## Related
 

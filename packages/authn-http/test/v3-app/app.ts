@@ -13,11 +13,14 @@ import { BaseController, Controllers, HttpServer } from '@spinajs/http';
 import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
 import { MemoryTarget } from '@spinajs/log';
-import { AuthenticationStrategy, AuthnEventSink, AuthnResponseExtension, AuthnThrottle, IdentityStore, ImpersonationGuard, PasswordCredentialStore, PrincipalFactory, RoleSource, SessionStartHook } from '@spinajs/authn/contracts';
-import type { Ceiling, IdentityRef, Principal, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
+import { AuthenticationStrategy, AuthnEventSink, AuthnResponseExtension, AuthnThrottle, IdentityStore, ImpersonationGuard, PasswordCredentialStore, PrincipalFactory, RoleSource } from '@spinajs/authn/contracts';
+import type { Ceiling, IdentityRef, Principal, SessionHandle } from '@spinajs/authn/contracts';
+import type {} from '@spinajs/authn/hooks';
 import { appEnvOf, sessionCookieName } from '@spinajs/authn-session';
+import { ActionHook } from '@spinajs/hooks';
+import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
-import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeRoleSource, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
+import { FakeIdentityStore, FakeImpersonationGuard, FakeImpersonationStartHook, FakeMfaStep, FakeRoleSource, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
 
 import { registerAuthnHttpV3 } from '../../src/v3/register.js';
 import { dropOwnCompiledDirs } from '../token-db-common.js';
@@ -90,14 +93,18 @@ export class V3AppResponseExtension extends AuthnResponseExtension {
   }
 }
 
-/** Answers `answer` (none by default, the 3.0.1 behaviour) and records the calls. */
-export class V3AppSessionStartHook extends SessionStartHook {
+/** A before hook on authn.session.start that sets the ceiling `answer` gives (none by default, the 3.0.1 behaviour) and records the calls. */
+export class V3AppSessionStartHook extends ActionHook<'authn.session.start'> {
   public static answer: ((kind: 'login' | 'mfa', principal: Principal) => Ceiling | undefined) | undefined;
   public static calls: { kind: 'login' | 'mfa'; session: SessionHandle; principal: Principal }[] = [];
 
-  public async onStart(kind: 'login' | 'mfa', session: SessionHandle, principal: Principal, _sessions: SessionIssuer): Promise<Ceiling | undefined> {
+  readonly actions: readonly ActionPattern[] = ['authn.session.start'];
+
+  public before(ctx: BeforeContext<'authn.session.start'>): void {
+    const { kind, session, principal } = ctx.input;
     V3AppSessionStartHook.calls.push({ kind, session, principal });
-    return V3AppSessionStartHook.answer?.(kind, principal);
+    const ceiling = V3AppSessionStartHook.answer?.(kind, principal);
+    if (ceiling !== undefined) ctx.input.ceiling = ceiling;
   }
 }
 
@@ -177,7 +184,10 @@ async function wire(): Promise<void> {
   const { MfaStep } = await import('@spinajs/authn/contracts');
   bind(MfaStep, 'V3AppMfaStep', () => current.step);
   DI.register(V3AppResponseExtension).as(AuthnResponseExtension);
-  DI.register(V3AppSessionStartHook).as(SessionStartHook);
+  DI.register(V3AppSessionStartHook).as(ActionHook);
+  // The impersonation start check, as users registers it; the routes stay off until switchHooksOn registers the guard.
+  const startHook = new FakeImpersonationStartHook(() => current.guard);
+  bind(ActionHook, 'V3AppImpersonationStartHook', () => startHook);
   await registerAuthnHttpV3();
 }
 

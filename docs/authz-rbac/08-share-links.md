@@ -71,7 +71,7 @@ authz: {
 | --- | --- | --- | --- | --- |
 | Link store | `LinkStore`, `AdminLinkStore`; per child container; by `registerRbacStores` | `DbLinkStore` | `MemoryLinkStore` (SHA-256 of the token, not registered) | `authz.rbac.stores.links`; see [Custom stores](11-custom-stores.md). |
 | `LinkResolver` (authz-http) | resolved from the root container per request | none: without it every link is dead | `RbacLinkResolver` | Bind `registerRbac(...).linkResolver`: `DI.register(() => rbac.linkResolver).as(LinkResolver)`. `DI.register(RbacLinkResolver).as(LinkResolver)` works only when `registerRbac` ran on the root container. |
-| `RbacLinkHandler` | `AuthzWriteHandler`, singleton, at import | `RbacLinkHandler` | none | Add an `AuthzCommandValidator` to refuse links your product forbids. |
+| `RbacLinkHandler` | `AuthzWriteHandler`, singleton, at import | `RbacLinkHandler` | none | Add a before hook on `authz.admin.command` to refuse links your product forbids. |
 
 `RbacService.linkPrincipal(id, companion?)` builds the principal of a link by id, for a host that resolves tokens itself.
 

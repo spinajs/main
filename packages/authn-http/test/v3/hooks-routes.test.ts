@@ -7,11 +7,13 @@ import type { IContainer } from '@spinajs/di';
 import type { Request } from '@spinajs/http';
 import { Forbidden, InvalidArgument } from '@spinajs/exceptions';
 import { ActionRefused } from '@spinajs/hooks';
-import type { Hooks } from '@spinajs/hooks';
+import type { ActionHook, Hooks } from '@spinajs/hooks';
 import { AuthnAudit, FreshAuthCheck } from '@spinajs/authn';
 import { AuthnThrottle, IdentityRegistrar, KeyRegistry, PasskeyService, PasswordService, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, AuthnFacts, IdentityRef, Principal, Session } from '@spinajs/authn/contracts';
 import { MemorySessionIssuer, ScriptedActionHook, generateKeyPair, kitHooks } from '@spinajs/authn-testing';
+import { CredentialAdminRule } from '@spinajs/authn/hooks';
+import type { CredentialAdminVerdict } from '@spinajs/authn/hooks';
 
 import { AuthnMiddleware } from '../../src/middleware/authn.js';
 import { AuthnLogoutExtension } from '../../src/v3/logout-extension.js';
@@ -24,6 +26,7 @@ import { AuthnMfaEnrolmentController } from '../../src/v3/controllers/AuthnMfaEn
 import { AuthnPasskeyController } from '../../src/v3/controllers/AuthnPasskeyController.js';
 import { AuthnPasswordController } from '../../src/v3/controllers/AuthnPasswordController.js';
 import { AuthnRegistrationController } from '../../src/v3/controllers/AuthnRegistrationController.js';
+import { RegistrationMailHook } from '../../src/v3/registration-mail-hook.js';
 import { AuthnSessionsController } from '../../src/v3/controllers/AuthnSessionsController.js';
 import { AuthnTokensController } from '../../src/v3/controllers/AuthnTokensController.js';
 import { DEFAULT_LOGOUT_CLEAR_SITE_DATA } from '../../src/schema.js';
@@ -31,6 +34,12 @@ import { fakeContainer, readingFrom } from '../support/config-boot.js';
 import { callRoute, withParams } from '../support/route-call.js';
 
 const CODE = 'not-today';
+
+class AllowAll extends CredentialAdminRule {
+  async allowed(): Promise<CredentialAdminVerdict> {
+    return { ok: true };
+  }
+}
 const TARGET_UUID = '0a1b2c3d-0000-4000-8000-000000000001';
 const PASSWORD = 'Newcomer-Pass-6789';
 
@@ -95,9 +104,10 @@ interface World {
   request(body?: unknown, over?: Partial<{ session: Session | null; principal: Principal | null }>): Request;
 }
 
-async function world(): Promise<World> {
+/** `extra`: hooks that run after the scripted one. */
+async function world(extra: readonly ActionHook[] = []): Promise<World> {
   const hook = new ScriptedActionHook();
-  const hooks = await kitHooks([hook]);
+  const hooks = await kitHooks([hook, ...extra]);
   const sessions = new MemorySessionIssuer();
   const events: AuthnEvent[] = [];
   const audit = { publish: async (e: AuthnEvent) => void events.push(e), publishIn: async (_ctx: AuthnContext, e: AuthnEvent) => void events.push(e) };
@@ -244,11 +254,23 @@ describe('action hooks on the 3.0 routes', function () {
   });
 
   describe('credential admin', () => {
-    function admin(w: World, verdict: { ok: true } | { ok: false; code: 'forbidden' }) {
+    /** A CredentialAdminRule answering `verdict`; records what it was asked. */
+    class VerdictRule extends CredentialAdminRule {
+      readonly asked: Principal[] = [];
+      constructor(private readonly verdict: () => unknown) {
+        super();
+      }
+      async allowed(actor: Principal): Promise<CredentialAdminVerdict> {
+        this.asked.push(actor);
+        return this.verdict() as CredentialAdminVerdict;
+      }
+    }
+
+    async function admin(verdict: unknown, rule: CredentialAdminRule | null = new VerdictRule(() => verdict)) {
+      const w = await world(rule ? [rule] : []);
       const revoked: IdentityRef[] = [];
       const controller = w.wire(new AuthnCredentialAdminController());
       Object.assign(controller, {
-        Guard: { allowed: async () => verdict },
         Sessions: {
           revokeAll: async (id: IdentityRef) => {
             revoked.push(id);
@@ -256,21 +278,20 @@ describe('action hooks on the 3.0 routes', function () {
           },
         },
       });
-      return { controller, revoked };
+      return { w, controller, revoked, rule };
     }
 
-    it('refused answers 403 after the guard allowed, and nothing is revoked', async () => {
-      const w = await world();
-      const { controller, revoked } = admin(w, { ok: true });
+    it('refused answers 403 after the rule allowed, and nothing is revoked', async () => {
+      const { w, controller, revoked } = await admin({ ok: true });
       w.hook.refuse('authn.admin.credentials', CODE);
       expectRefused(await callRoute(controller, 'sessions', withParams(w.request(), { uuid: TARGET_UUID })), 403);
       expect(revoked).to.deep.equal([]);
       expect(w.hook.calls('authn.admin.credentials')[0].input).to.deep.include({ action: 'sessions', target: { type: 'user', id: TARGET_UUID } });
+      expect(w.events.map((e) => [e.type, e.outcome, e.reason])).to.deep.equal([['session.revoke', 'failure', `hook:${CODE}`]]);
     });
 
     it('a hook writing the target or the actor in place does not move the effect', async () => {
-      const w = await world();
-      const { controller, revoked } = admin(w, { ok: true });
+      const { w, controller, revoked } = await admin({ ok: true });
       w.hook.tamper('authn.admin.credentials', (i) => {
         i.target.id = 'someone-else';
         i.actor.id = 'someone-else';
@@ -280,14 +301,47 @@ describe('action hooks on the 3.0 routes', function () {
       expect(w.hook.landed()).to.deep.equal([]);
     });
 
-    it('with the guard denying, the hook is not called', async () => {
-      const w = await world();
-      const { controller, revoked } = admin(w, { ok: false, code: 'forbidden' });
+    it("the rule judges the admin's whole principal, its authn facts included", async () => {
+      const { w, controller, rule } = await admin({ ok: true });
+      await callRoute(controller, 'sessions', withParams(w.request(), { uuid: TARGET_UUID }));
+      const [actor] = (rule as VerdictRule).asked;
+      expect(actor).to.deep.include({ type: 'user', id: w.alice.id, authenticated: true });
+      expect(actor.authn).to.deep.include({ method: 'password', strategy: 'local' });
+    });
+
+    for (const [code, status] of [
+      ['forbidden', 403],
+      ['protected_role', 403],
+      ['escalation', 403],
+      ['not_found', 404],
+    ] as const) {
+      it(`with the rule refusing ${code}, the route answers ${status} ${code} as the guard did, unaudited, and no other hook runs`, async () => {
+        const { w, controller, revoked } = await admin({ ok: false, code });
+        const a = answerOf(await callRoute(controller, 'sessions', withParams(w.request(), { uuid: TARGET_UUID })));
+        expect(a.status).to.equal(status);
+        expect(a.body.error).to.equal(code);
+        expect(a.body).to.not.have.property('code');
+        expect(a.headers['Cache-Control']).to.equal('no-store');
+        expect(revoked).to.deep.equal([]);
+        expect(w.hook.calls()).to.deep.equal([]);
+        expect(w.events).to.deep.equal([]);
+      });
+    }
+
+    it('a rule that throws fails the route closed: 403 hook_error, nothing revoked', async () => {
+      const { w, controller, revoked } = await admin(undefined, new VerdictRule(() => {
+        throw new Error('store down');
+      }));
+      expectRefused(await callRoute(controller, 'sessions', withParams(w.request(), { uuid: TARGET_UUID })), 403, 'hook_error');
+      expect(revoked).to.deep.equal([]);
+    });
+
+    it('with no rule in the runner (one registered after it resolved) the route answers 403 forbidden and changes nothing', async () => {
+      const { w, controller, revoked } = await admin(undefined, null);
       const a = answerOf(await callRoute(controller, 'sessions', withParams(w.request(), { uuid: TARGET_UUID })));
       expect(a.status).to.equal(403);
       expect(a.body.error).to.equal('forbidden');
       expect(revoked).to.deep.equal([]);
-      expect(w.hook.calls()).to.deep.equal([]);
     });
   });
 
@@ -313,7 +367,10 @@ describe('action hooks on the 3.0 routes', function () {
     }
 
     async function registration() {
-      const w = await world();
+      const mail = readingFrom(new RegistrationMailHook(), fakeContainer({ 'authn.http.registration.notifyExisting': true }));
+      Object.defineProperty(mail, 'Log', { value: { warn: () => undefined } });
+      const w = await world([mail]);
+      Object.assign(mail, { Container: w.container });
       const registrar = new Registrar();
       const verifications: IdentityRef[] = [];
       w.services.set(IdentityRegistrar, registrar);
@@ -481,9 +538,9 @@ describe('action hooks on the 3.0 routes', function () {
     });
 
     it('POST /authn/admin/users/:uuid/mfa-reset answers { reset: false } when the TotpService refused it', async () => {
-      const w = await world();
+      const w = await world([new AllowAll()]);
       const controller = w.wire(new AuthnCredentialAdminController());
-      Object.assign(controller, { Guard: { allowed: async () => ({ ok: true }) }, MfaEnrolment: { adminReset: async () => ({ reset: false }) } });
+      Object.assign(controller, { MfaEnrolment: { adminReset: async () => ({ reset: false }) } });
       const a = answerOf(await callRoute(controller, 'mfaReset', withParams(w.request(), { uuid: TARGET_UUID })));
       expect(a.status).to.equal(200);
       expect(a.body).to.deep.equal({ reset: false });

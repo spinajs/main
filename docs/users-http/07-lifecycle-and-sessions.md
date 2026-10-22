@@ -1,14 +1,14 @@
 # Account lifecycle and sessions
 
-The `Security` controller at `/users/security` takes accounts out of service and back (deactivate, activate, ban, unban) and lets an administrator list and end one user's sessions. Routes that take access away ask for fresh authentication and authn's credential admin guard, then the [account guard](08-account-guard.md); routes that give access back ask neither.
+The `Security` controller at `/users/security` takes accounts out of service and back (deactivate, activate, ban, unban) and lets an administrator list and end one user's sessions. Routes that take access away ask for fresh authentication, then run their effect as authn's `authn.admin.credentials` action, whose credential admin rule decides first. The users action inside it asks the [account guard](08-account-guard.md). Routes that give access back ask neither.
 
 ## Routes
 
-| Method | Path | Permission | Fresh auth | Credential admin guard | Account guard | Effect |
+| Method | Path | Permission | Fresh auth | `authn.admin.credentials` | Account guard | Effect |
 | --- | --- | --- | --- | --- | --- | --- |
-| `POST` | `/users/security/deactivate/:uuid` | `users:delete` on every user | yes | `sessions` | `assertCanDisable(..., 'deactivate')` | `deactivate()`: inactive, sessions ended |
+| `POST` | `/users/security/deactivate/:uuid` | `users:delete` on every user | yes | `sessions` | `AccountDisableHook` on `users.deactivate` | `deactivate(target, caller)`: inactive, sessions ended |
 | `POST` | `/users/security/activate/:uuid` | `users:update` on every user | no | no | no | `activate()` |
-| `POST` | `/users/security/ban/:uuid` | `users:delete` on every user | yes | `sessions` | `assertCanDisable(..., 'ban')` | `ban(reason, duration)`: banned, sessions ended |
+| `POST` | `/users/security/ban/:uuid` | `users:delete` on every user | yes | `sessions` | `AccountDisableHook` on `users.ban` | `ban(target, reason, duration, caller)`: banned, sessions ended |
 | `POST` | `/users/security/unban/:uuid` | `users:update` on every user | no | no | no | `unban()` |
 | `GET` | `/users/security/sessions/:uuid` | `users:read` on that row, session caller | no | `sessions` | no | `IAdminSessionEntry[]`, newest first |
 | `DELETE` | `/users/security/sessions/:uuid/:handle` | `users:update` on that row, session caller | yes | `sessions` | no | Ends one session; audited |
@@ -40,9 +40,9 @@ A session list entry (`IAdminSessionEntry`):
 1. `userActor(caller)`: a signed-in user principal, else `403`.
 2. `freshAuthRefusal(req, this)` runs authn-http's `FreshAuth` policy in the handler: a login within `authn.freshAuth.maxAgeSeconds`, or `reauthPassword`. A wrong password answers authn's login failure `401`; `403 fresh_auth_required`, `session_required` (token, key or signature caller) or `impersonating` are thrown.
 3. `everyUserRow(users:delete)`: an unconditional grant, then the row with its metadata as `SYSTEM`; `404` when absent.
-4. `assertCredentialAdmin(caller, uuid, 'sessions')`: authn's `CredentialAdminGuard` must answer `{ ok: true }`. Otherwise `403` with `error` `forbidden`, `protected_role` or `escalation`, or `404 not_found`. No guard registered: `403 forbidden`.
-5. `AccountGuard.assertCanDisable(caller, target, action)`: self lockout and last privileged account.
-6. `deactivate(target)` or `ban(target, reason, duration)` of `@spinajs/users`. A refusal by a `users.deactivate` or `users.ban` [action hook](../users/04-action-hooks.md) answers `403 action_refused` with the hook's `code` (`hook_error` for a hook that failed), and nothing changes.
+4. `withCredentialAdmin(caller, uuid, 'sessions', effect)` runs the effect as authn's `authn.admin.credentials` action. Its `CredentialAdminRule` decides first; users' `AuthzCredentialAdminRule` checks `users:credentials`, the target covered, no protected role, never the caller's own account. A rule refusal answers `403` with `error` `forbidden`, `protected_role` or `escalation`, or `404 not_found`. With no rule in the hooks runner the answer is `403 forbidden`. Another hook's refusal answers `403 action_refused` with its `code`. A rule that throws answers `403 action_refused` with `hook_error`; before 3.x a throwing guard failed the request.
+5. The effect is `deactivate(target, caller)` or `ban(target, reason, duration, caller)` of `@spinajs/users`. Its first before hook is the account guard, `AccountDisableHook`: self lockout and last privileged account. That refusal answers `403 Forbidden` with the reason as the message, as before.
+6. A refusal by another `users.deactivate` or `users.ban` [action hook](../users/04-action-hooks.md) answers `403 action_refused` with the hook's `code` (`hook_error` for a hook that failed), and nothing changes.
 
 Fresh authentication runs inside the handler, not as a route policy: `@spinajs/http` runs a route's policies together, so as a policy it would verify and count a password even when `@Access` refuses.
 
@@ -51,7 +51,7 @@ Fresh authentication runs inside the handler, not as a route policy: `@spinajs/h
 1. `@Access(..., { also: SESSION_CALLER })`: `Authenticated`, `NoTokenAuthPolicy`, `NoImpersonationPolicy` of `@spinajs/authn-http`, AND-ed with the permission.
 2. `sessionIssuer()`: no `SessionIssuer` registered answers `404` (`error: 'not_found'`).
 3. For a revoke, fresh authentication as above.
-4. `userRowFor(users:read | users:update)`, then `assertCredentialAdmin(..., 'sessions')`.
+4. `userRowFor(users:read | users:update)`, then the list or the revoke runs inside `withCredentialAdmin(..., 'sessions')`, as above.
 5. List: `SessionIssuer.list({ type: 'user', id })`, sorted by `createdAt` descending, mapped to `IAdminSessionEntry`.
 6. Revoke: `SessionIssuer.revokeHandle(subject, handle)`. It is owner-bound: a handle of another user's session ends nothing and answers `404 session_not_found`.
 7. A revoke publishes `session.revoke` to `AuthnAudit` with reason `admin`, the caller as actor, the handle, and the caller's ip and user agent.
@@ -62,14 +62,14 @@ sequenceDiagram
   participant C as Admin client
   participant S as Security
   participant F as FreshAuth
-  participant G as CredentialAdminGuard
+  participant G as authn.admin.credentials
   participant I as SessionIssuer
   participant A as AuthnAudit
   C->>S: DELETE /users/security/sessions/:uuid/:handle { reauthPassword }
   S->>F: fresh authentication
   S->>S: userRowFor(users:update)
-  S->>G: allowed(caller, user, sessions)
-  S->>I: revokeHandle(user, handle)
+  S->>G: withCredentialAdmin(caller, user, sessions): rule, then hooks
+  G->>I: effect: revokeHandle(user, handle)
   I-->>S: true
   S->>A: publish session.revoke
   S-->>C: 200 (no-store)
@@ -80,18 +80,18 @@ sequenceDiagram
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `Security` controller | Class key `Security`; singleton; mounted by the controller scan | `Security` | none | Subclass and `DI.register(Mine).as(Security)`; see [Controller overrides](10-controller-overrides.md). |
-| `AccountGuard` | Abstract class key; `@Autoinject` into `Security` | `DefaultAccountGuard` | yours | See [Account guard](08-account-guard.md). |
-| `CredentialAdminGuard` | authn contract; checked with `hasImplementation()`, resolved per call | users' `AuthzCredentialAdminGuard` | yours | `DI.register(Mine).as(CredentialAdminGuard)`; see [Host services](11-host-services.md). |
+| `AccountDisableHook` | `ActionHook` on `users.deactivate`, `users.ban`, `users.delete` | `AccountDisableHook` | a hook of yours beside it | See [Account guard](08-account-guard.md). |
+| `CredentialAdminRule` | an `ActionHook` class on `authn.admin.credentials`, run through the DI `Hooks` | users' `AuthzCredentialAdminRule` | yours | See [Host services](11-host-services.md#credentialadminrule-protect-a-break-glass-account). |
 | `SessionIssuer` | authn contract; checked with `hasImplementation()`, resolved per call | authn-session's issuer | yours | Without one the session routes answer `404`. |
 | `AuthnAudit` | authn class; resolved per revoke | authn's | | Subscribe to its events to forward `session.revoke`. |
 | `FreshAuth` | authn-http policy; resolved per call | `FreshAuth` | | Configure `authn.freshAuth.maxAgeSeconds`. |
 
 ## Important behaviour
 
-- The order is fixed: fresh authentication, then the row and permission, then the credential admin guard, then the account guard, then the write. A stale session gets `403 fresh_auth_required` even where a later check would refuse.
-- users' `AuthzCredentialAdminGuard` refuses the caller's own account (`403 forbidden`), so nobody deactivates, bans, deletes or manages the sessions of their own account through these routes, whatever `preventSelfLockout` says. The owner manages its own sessions through `GET /user/sessions` and `DELETE /user/sessions/:handle` of `@spinajs/authn-http`.
-- Activate, unban and restore give access back and ask neither fresh authentication nor the guard. Their `users.activate`, `users.unban` and `users.update` hooks can still refuse them: `403 action_refused`.
-- Only the route's own action maps to `403 action_refused`; a refusal of an action that one runs inside it is answered as that error is.
+- The order is fixed: fresh authentication, then the row and permission, then the credential admin rule and the other `authn.admin.credentials` hooks, then the account guard and the other hooks of the users action, then the write. A stale session gets `403 fresh_auth_required` even where a later check would refuse.
+- users' `AuthzCredentialAdminRule` refuses the caller's own account (`403 forbidden`), so nobody deactivates, bans, deletes or manages the sessions of their own account through these routes, whatever `preventSelfLockout` says. The owner manages its own sessions through `GET /user/sessions` and `DELETE /user/sessions/:handle` of `@spinajs/authn-http`.
+- Activate, unban and restore give access back and ask neither fresh authentication nor the credential admin rule. Their `users.activate`, `users.unban` and `users.update` hooks can still refuse them: `403 action_refused`.
+- Only the route's own actions map to `403 action_refused`: `authn.admin.credentials` and the users action it runs. A refusal of an action nested deeper is answered as that error is.
 - Ban of an already banned account answers `400`; unban of an account that is not banned answers `400`.
 - The forced logout of **every** session is `DELETE /authn/admin/users/:uuid/sessions` of `@spinajs/authn-http`; this controller ends one session by handle.
 - The list includes impersonation sessions of the user.
@@ -153,5 +153,5 @@ export async function endOldestSession(api: Api, uuid: string, reauthPassword: s
 
 - [Account guard](08-account-guard.md): the rules `deactivate`, `ban` and `delete` pass through.
 - [User administration](06-user-administration.md): delete and restore, which follow the same order.
-- [Host services](11-host-services.md): the credential admin guard and session issuer.
-- [`@spinajs/authn`](../authn/README.md): `SessionIssuer`, `CredentialAdminGuard`, `AuthnAudit`.
+- [Host services](11-host-services.md): the credential admin rule and session issuer.
+- [`@spinajs/authn`](../authn/README.md): `SessionIssuer`, [`authn.admin.credentials` and `CredentialAdminRule`](../authn/14-action-hooks.md#authnadmincredentials-and-credentialadminrule), `AuthnAudit`.

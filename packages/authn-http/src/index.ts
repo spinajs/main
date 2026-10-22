@@ -10,6 +10,7 @@ export { SessionPrincipalResolver } from './resolvers/session.js';
 export { Authenticated, NoSession } from './policies/v3/principal.js';
 export { FreshAuth, assertFreshAuth } from './policies/v3/fresh-auth.js';
 export { AuthnLogoutExtension } from './v3/logout-extension.js';
+export { RegistrationMailHook } from './v3/registration-mail-hook.js';
 export { MfaSatisfied } from './policies/v3/mfa.js';
 export { Identity, AuthnSession, ClientContext } from './args/authn.js';
 export type { AuthnClientContext } from './v3/client.js';

@@ -7,7 +7,7 @@ The package ships a config fragment that mounts its controllers and declares the
 1. `@spinajs/configuration` loads `lib/<mjs|cjs>/config/users-http.js` from every installed `@spinajs/*` package; see [Config files](../configuration/03-config-files.md).
 2. The fragment adds `controllers` and `admin/controllers` of the package's `lib/` to `system.dirs.controllers`.
 3. The controller scan of `@spinajs/http` imports those files and mounts `UserController`, `UserMetadataController`, `Users`, `Security` and `Profile`; see [Controller discovery](../http/03-controller-discovery.md).
-4. Importing the files runs their decorators: `DefaultAccountGuard` registers as `AccountGuard`, `UserMetadataService` and `CurrentUserArg` register as themselves, and the `IUserMetadataEntry` response schema joins the `__schemas__` value map.
+4. Importing the files runs their decorators: `DefaultAccountGuard` registers as `AccountGuard`, `AccountDisableHook` as an `ActionHook`, `AccountStanding`, `UserMetadataService` and `CurrentUserArg` register as themselves, and the `IUserMetadataEntry` response schema joins the `__schemas__` value map.
 5. Per request, `@Access(permission)` decides the permission on the type (`users`, `user`, `user.metadata`). A refusal answers `401` (no principal) or `403`.
 6. The handler reads the decision the policy left in `req.storage.AuthzDecision`:
    - **unconditional** (residual `true`): it holds for every row;
@@ -48,12 +48,12 @@ Keys of other packages this one reads:
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `authz.admin.guard.preventSelfLockout` | `boolean` | `true` (absent is on) | `true`, `false` | `AccountGuard`: the caller may not disable its own account or remove its own privilege. See [Account guard](08-account-guard.md). |
-| `authz.admin.guard.preventLastPrivilegedRemoval` | `boolean` | `true` (absent is on) | `true`, `false` | `AccountGuard`: never take the last account in service holding `privilegedPermission` out of service. |
+| `authz.admin.guard.preventSelfLockout` | `boolean` | `true` (absent is on) | `true`, `false` | The account guard (`AccountDisableHook`, `AccountGuard`): the caller may not disable its own account or remove its own privilege. See [Account guard](08-account-guard.md). |
+| `authz.admin.guard.preventLastPrivilegedRemoval` | `boolean` | `true` (absent is on) | `true`, `false` | The account guard: never take the last account in service holding `privilegedPermission` out of service. |
 | `authz.admin.guard.privilegedPermission` | `string` | `'users:update'` (authz-rbac fragment) | a permission | The permission that makes an account privileged. Required while either switch above is on. |
 | `authz.http.access.domain` | `string` | `'root'` (authz-http fragment) | a live authz domain name, or `'root'` | The domain whose `authz.token` rules `GET /user/tokens/roles` applies. |
 | `authz.token.excludedRoles`, `authz.token.rolePolicy` | see `@spinajs/authz-rbac` | | | Roles a token loses at check time; read from the access domain's `Configuration`. |
-| `authz.credentials.permission` | `string` | `'users:credentials'` | a permission | Read by users' `AuthzCredentialAdminGuard`, which the session, lifecycle and identity-change routes ask. |
+| `authz.credentials.permission` | `string` | `'users:credentials'` | a permission | Read by users' `AuthzCredentialAdminRule`, the rule of the `authn.admin.credentials` action that the session, lifecycle and identity-change routes run. |
 | `authn.freshAuth.maxAgeSeconds` | `number` | `300` (authn fragment) | seconds | How recent a login counts as fresh authentication. |
 | `users.user.profile` | `string` | `'BasicProfileProvider'` | a registered `UserProfileProvider` name | The provider `GET /users/profile/:login` asks. See [Admin profile route](09-admin-profile.md). |
 
@@ -62,7 +62,7 @@ module.exports = {
   authz: {
     rbac: {
       roles: {
-        // users:credentials is what the credential admin guard asks on delete, deactivate, ban and the session routes.
+        // users:credentials is what the credential admin rule asks on delete, deactivate, ban and the session routes.
         'user-admin': { grants: ['users:read', 'users:create', 'users:update', 'users:delete', 'users:credentials'] },
         'support': { grants: ['users:read'] },
       },
@@ -100,7 +100,7 @@ module.exports = {
 
 ## Best practices
 
-- Grant `users:credentials` together with `users:delete`: delete, deactivate and ban also ask the credential admin guard, which wants it.
+- Grant `users:credentials` together with `users:delete`: delete, deactivate and ban also ask the credential admin rule, which wants it.
 - Give support staff `users:read` only. They can look accounts up, list a user's sessions only with `users:credentials` as well, and change nothing.
 - Prefer conditional grants (`{ permission: 'users:update', relation: 'self' }`) over writing your own "own account" routes: the single-row routes decide them on the row.
 
@@ -108,7 +108,7 @@ module.exports = {
 
 ```js
 // Don't: users:delete alone. DELETE /users/:uuid, deactivate and ban then answer 403 forbidden:
-// the credential admin guard wants users:credentials.
+// the credential admin rule wants users:credentials.
 'account-closer': { grants: ['users:read', 'users:delete'] },
 
 // Do

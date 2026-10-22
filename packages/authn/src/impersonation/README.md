@@ -26,6 +26,10 @@ and the role ceiling, so it is described here too.
   `allowed(actor, target)` answers `{ ok: true }` or `{ ok: false, code }` with
   `forbidden`, `protected_role` or `escalation`. `AuthzImpersonationGuard` in
   `@spinajs/users` implements it over authz (`authn.*` never imports authz).
+  `principalOf` asks it on every request of an impersonation session. The start
+  is checked by the before hooks on `authn.impersonation.start`, whose input
+  carries the actor principal; `@spinajs/users` registers
+  `ImpersonationGuardStartHook`, which asks the guard there.
 - `ACTIVE_ROLE_KEY` and `activeRoleCeiling(session)`: the role chosen by a role
   switch (`session.activeRole`), as a ceiling `{ roles: [role] }` that narrows the principal.
 
@@ -40,6 +44,7 @@ container. It resolves these neighbours when it starts:
 | `IdentityStore` | `resolve(T, true)` | boot fails |
 | `PrincipalFactory` | `resolve(T, true)` | boot fails |
 | `ImpersonationGuard` | `resolveOptional(T)` | every `start` is refused (`no_guard`); the HTTP routes answer 404 |
+| a before hook on `authn.impersonation.start` | `Hooks.has` | every `start` is refused (`no_guard`) |
 | `FreshAuthCheck`, `AuthnAudit` | `resolve(T)` | in `@spinajs/authn` itself |
 
 Register a guard in the app (or import `@spinajs/users`) to turn impersonation

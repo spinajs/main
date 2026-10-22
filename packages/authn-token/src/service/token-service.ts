@@ -25,6 +25,7 @@ import { DEFAULT_TOKEN_CACHE, TokenValidationCache } from './cache.js';
 import type { TokenCacheConfig, ValidatedToken } from './cache.js';
 import { TokenOwnerResolver } from './owner-resolver.js';
 import { TokenProfilePolicy } from './profile-policy.js';
+import { PROFILE_REFUSED } from './profile-hook.js';
 
 const MAX_NAME_LENGTH = 128;
 /** Width of the comma-joined `Roles` column. */
@@ -263,6 +264,9 @@ export class DbTokenService extends TokenService {
         output: (r) => (r.ok ? { ok: true as const, record: r.record } : r),
       });
     } catch (err) {
+      if (hookRefusalOf(err, 'authn.token.create')?.code === PROFILE_REFUSED) {
+        return INVALID_SCOPE;
+      }
       await this.publishRefusal(err, 'authn.token.create', ctx, 'token.create', owner);
       throw err;
     }
@@ -293,10 +297,11 @@ export class DbTokenService extends TokenService {
       return INVALID_SCOPE;
     }
 
+    // Whether the policy allows the profile is TokenProfileHook's, before this runs.
     let profile: string | undefined;
     if (raw.profile !== undefined) {
       const [ok, requested] = _try_check_arg(_is_string(_non_empty()))(raw.profile, 'profile');
-      if (!ok || !(await this.Profiles.allowedProfiles(owner)).includes(requested)) {
+      if (!ok) {
         return INVALID_SCOPE;
       }
       profile = requested;

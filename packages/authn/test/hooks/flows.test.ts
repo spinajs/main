@@ -216,9 +216,9 @@ describe('action hooks: authn flows', function () {
       assert.deepStrictEqual(await p.sessions.storage.storedKeys().then((k) => k.length), 1, 'no target session');
     });
 
-    it('authn.impersonation.start: the input is the session, the target and the context', async () => {
+    it('authn.impersonation.start: the input is the session, the target, the actor as the guard judges it and the context', async () => {
       const recorder = new RecordingActionHook(['authn.impersonation.start']);
-      const { b, admin, svc } = await bootImpersonation([recorder]);
+      const { a, b, admin, svc } = await bootImpersonation([recorder]);
       const r = await svc.start(admin, b, ictx());
       assert.ok(r.ok);
       assert.deepStrictEqual(
@@ -226,8 +226,9 @@ describe('action hooks: authn flows', function () {
         ['before', 'after'],
       );
       const input = recorder.calls[0].input as Record<string, unknown>;
-      assert.deepStrictEqual(Object.keys(input).sort(), ['ctx', 'session', 'target']);
+      assert.deepStrictEqual(Object.keys(input).sort(), ['actor', 'ctx', 'session', 'target']);
       assert.deepStrictEqual(input.target, b);
+      assert.strictEqual((input.actor as { id: string }).id, a.id);
     });
 
     it('authn.impersonation.stop: a refusing hook is logged and the impersonation still ends', async () => {
@@ -294,15 +295,28 @@ describe('action hooks: authn flows', function () {
   });
 
   describe('zero cost', () => {
-    it('with no hook registered, impersonation start and stop, link and unlink never call the runner', async () => {
-      const p = await boot([], { raw: { authn: { freshAuth: { maxAgeSeconds: 300 } } } });
+    it('with no hook registered, impersonation start is refused (no_guard) and never calls the runner', async () => {
+      const p = await boot([], { raw: { authn: { freshAuth: { maxAgeSeconds: 300 } } }, startHook: false });
       const a = await seed(p);
       const b = await seed(p, BOB);
       const admin = await p.sessions.issue(a, { method: 'password', strategy: 'local', assurance: 'aal2', mfa: ['fake'], authenticatedAt: new Date() });
       const run = sinon.spy(DefaultHooks.prototype, 'run');
       const impersonation = await p.child.resolve(AuthnImpersonationService);
+      assert.deepStrictEqual(await impersonation.start(admin, b, ctx()), { ok: false });
+      assert.deepStrictEqual(failuresOf(p.events.all(), 'impersonation.start'), ['no_guard']);
+      assert.strictEqual(run.callCount, 0);
+    });
+
+    it('with no hook on them, impersonation stop, link and unlink never call the runner', async () => {
+      const p = await boot([], { raw: { authn: { freshAuth: { maxAgeSeconds: 300 } } } });
+      const a = await seed(p);
+      const b = await seed(p, BOB);
+      const admin = await p.sessions.issue(a, { method: 'password', strategy: 'local', assurance: 'aal2', mfa: ['fake'], authenticatedAt: new Date() });
+      const impersonation = await p.child.resolve(AuthnImpersonationService);
+      // The kit's start hook is the only hook: it watches authn.impersonation.start alone.
       const started = await impersonation.start(admin, b, ctx());
       assert.ok(started.ok);
+      const run = sinon.spy(DefaultHooks.prototype, 'run');
       const own = await impersonation.stop(started.session, ctx());
       assert.ok(own);
       const links = await p.child.resolve(AccountLinkService);

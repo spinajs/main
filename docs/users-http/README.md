@@ -22,11 +22,11 @@ Installing is enough. The package's config fragment adds its controller director
 | [User metadata routes](04-user-metadata-routes.md) | `UserMetadataController`: CRUD of key-value metadata, own (`/user/metadata`) and of another user (`/user/:uuid/metadata`), reserved keys hidden |
 | [Metadata service](05-metadata-service.md) | `UserMetadataService` and `MetadataScope`: reuse them in your own routes, subclass or replace them |
 | [User administration](06-user-administration.md) | `Users`: list, filter and sort accounts, read one, create (invite), update login, email and roles, delete and restore |
-| [Account lifecycle and sessions](07-lifecycle-and-sessions.md) | `Security`: activate, deactivate, ban, unban, list and end a user's sessions, with fresh authentication and the credential admin guard |
-| [Account guard](08-account-guard.md) | `AccountGuard` / `DefaultAccountGuard`: self lockout and last privileged account rules; extend or replace them |
+| [Account lifecycle and sessions](07-lifecycle-and-sessions.md) | `Security`: activate, deactivate, ban, unban, list and end a user's sessions, with fresh authentication and the credential admin rule |
+| [Account guard](08-account-guard.md) | `AccountDisableHook` on `users.deactivate`, `users.ban`, `users.delete`, `AccountGuard` for the role replacement, `AccountStanding`: self lockout and last privileged account rules; extend or replace them |
 | [Admin profile route](09-admin-profile.md) | `Profile`: `GET /users/profile/:login` through the config-selected `UserProfileProvider` |
 | [Controller overrides](10-controller-overrides.md) | Replace or extend any shipped controller by subclassing it and registering the subclass in DI |
-| [Host services](11-host-services.md) | The services of other packages this one resolves (credential admin guard, account status source, session issuer, token services, ...), and what happens when one is missing |
+| [Host services](11-host-services.md) | The services of other packages this one resolves (credential admin rule, account status source, session issuer, token services, ...), and what happens when one is missing |
 
 ## Quick start
 
@@ -77,7 +77,7 @@ authz: {
 | Metadata list sorted by any column | `Id`, `Key` or `Type`; anything else `400` |
 | Exports `ChangePasswordDto`, `PasswordDto` | removed |
 
-Delete, deactivate, ban, the session revoke and an `Email` / `Login` change now need fresh authentication (`reauthPassword` in the body), and all but the own-account identity change need the credential admin guard (`users:credentials`). `users:*` covers `users:credentials`: a role manager holding single `users:<action>` grants without it can no longer hand out `admin.users`.
+Delete, deactivate, ban, the session revoke and an `Email` / `Login` change now need fresh authentication (`reauthPassword` in the body), and all but the own-account identity change need the credential admin rule (`users:credentials`). `users:*` covers `users:credentials`: a role manager holding single `users:<action>` grants without it can no longer hand out `admin.users`.
 
 ```js
 // 2.x
@@ -91,9 +91,9 @@ The full mapping of 2.x grants and decorators is in the [authz migration guide](
 
 ## Related packages
 
-- [`@spinajs/users`](../users/README.md): the `User` model, its metadata, account actions, the shipped `user` and `admin.users` roles, `UserProfileProvider`, `AuthzCredentialAdminGuard` and `UserAccountStatusSource`.
+- [`@spinajs/users`](../users/README.md): the `User` model, its metadata, account actions, the shipped `user` and `admin.users` roles, `UserProfileProvider`, `AuthzCredentialAdminRule` and `UserAccountStatusSource`.
 - [`@spinajs/authz`](../authz/README.md): `AuthzService`, `AuthzAdmin` and the decisions every route here asks for.
-- [`@spinajs/authn`](../authn/README.md): the `CredentialAdminGuard`, `SessionIssuer`, `TokenService` and `RoleSource` contracts these routes resolve.
+- [`@spinajs/authn`](../authn/README.md): the `authn.admin.credentials` action these routes run, and the `SessionIssuer`, `TokenService` and `RoleSource` contracts they resolve.
 - `@spinajs/authn-http`: the `FreshAuth` policy, the session-only caller policies, and the credential routes this package does not serve.
 - `@spinajs/authz-http`: `@Access`, `@CurrentPrincipal` and the principal middleware.
 - `@spinajs/authz-rbac`: `AccountStatusSource`, `AssignmentStore`, `RoleStore`, `guardSwitches` and the token role rules.

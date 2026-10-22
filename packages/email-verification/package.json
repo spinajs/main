@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/email-verification",
-  "version": "3.0.8",
+  "version": "3.0.10",
   "description": "Email domain verification: domain lists, DNS/MX, RDAP domain age and HTTP domain-check APIs, with pluggable verdict stores",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -81,14 +81,14 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/cli": "3.0.8",
-    "@spinajs/configuration": "3.0.8",
-    "@spinajs/di": "3.0.8",
-    "@spinajs/exceptions": "3.0.8",
-    "@spinajs/log": "3.0.8"
+    "@spinajs/cli": "3.0.10",
+    "@spinajs/configuration": "3.0.10",
+    "@spinajs/di": "3.0.10",
+    "@spinajs/exceptions": "3.0.10",
+    "@spinajs/log": "3.0.10"
   },
   "peerDependencies": {
-    "@spinajs/scheduler": "3.0.8",
+    "@spinajs/scheduler": "3.0.10",
     "chai": "^4.3.7",
     "mocha": "^10.2.0"
   },
@@ -104,7 +104,7 @@
     }
   },
   "devDependencies": {
-    "@spinajs/scheduler": "3.0.8",
+    "@spinajs/scheduler": "3.0.10",
     "@types/node": "^22.14.1",
     "chai": "^4.3.7",
     "mocha": "^10.2.0"

@@ -21,8 +21,8 @@ type Lifecycle = 'deactivate' | 'ban' | 'delete';
 /**
  * Deactivate, ban and delete end every session of the target and keep it out (review C2b-final, I1): besides
  * `users:delete` they need what authn-http's `DELETE /authn/admin/users/:uuid/sessions` needs, fresh authentication and
- * authn's CredentialAdminGuard (action `sessions`; users': `users:credentials`, the target covered, no protected role),
- * asked in that order before the AccountGuard and any write.
+ * authn's CredentialAdminRule (action `sessions`; users': `users:credentials`, the target covered, no protected role),
+ * asked in that order before the account guard (AccountDisableHook) and any write.
  */
 describe('users-http v3: deactivate, ban and delete ask fresh auth and the credential admin guard', function () {
   this.timeout(120000);

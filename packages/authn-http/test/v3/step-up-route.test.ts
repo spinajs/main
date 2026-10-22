@@ -2,11 +2,10 @@ import 'mocha';
 import { expect } from 'chai';
 import { CONTROLLED_DESCRIPTOR_SYMBOL, HTTP_CONFIGURATION_SCHEMA, RouteType } from '@spinajs/http';
 import type { IControllerDescriptor, Request } from '@spinajs/http';
-import { TypedArray } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
-import { AuthnService, SessionStartHook } from '@spinajs/authn/contracts';
+import { AuthnService } from '@spinajs/authn/contracts';
 import type { AuthenticationResult, AuthnContext, Principal, SessionHandle } from '@spinajs/authn/contracts';
 import { AUTHN_SESSION_CONFIGURATION_SCHEMA } from '@spinajs/authn-session';
 
@@ -59,23 +58,15 @@ class StubAuthnService extends AuthnService {
 interface World {
   readonly controller: AuthnMfaController;
   readonly authn: StubAuthnService;
-  readonly hookCalls: string[];
   request(session: SessionHandle | null, body: unknown): Request;
 }
 
 async function world(): Promise<World> {
   const { configuration } = await boot(SCHEMAS, { http: { cookie: { secret: 'step-up-' + 'Zq8Lw2Rt'.repeat(6) } } });
   const authn = new StubAuthnService();
-  const hookCalls: string[] = [];
-  const hook = {
-    onStart: async (kind: string) => {
-      hookCalls.push(kind);
-      return { roles: [] };
-    },
-  };
   // AuthnResponseExtension lists (Array.ofType) resolve to none.
   const container = {
-    resolve: async (type: unknown) => (type === AuthnService ? authn : type instanceof TypedArray && type.Type === SessionStartHook ? [hook] : []),
+    resolve: async (type: unknown) => (type === AuthnService ? authn : []),
   } as unknown as IContainer;
   const controller = new AuthnMfaController();
   (controller as unknown as { Container: IContainer }).Container = container;
@@ -86,7 +77,7 @@ async function world(): Promise<World> {
       headers: { 'user-agent': 'mocha' },
       storage: { ClientIp: '192.0.2.10', ...(session ? { AuthnSession: { handle: session, identity: ALICE, facts: { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date() } } } : {}) },
     }) as unknown as Request;
-  return { controller, authn, hookCalls, request };
+  return { controller, authn, request };
 }
 
 interface Answer {
@@ -138,13 +129,6 @@ describe('POST /auth/mfa/step-up (FLOW-1)', function () {
     expect((a.body as { Authn?: { assurance?: string; mfa?: string[] } }).Authn).to.include({ assurance: 'aal2' });
     expect(w.authn.calls.map((c) => [c.session.id, c.step, c.response])).to.deep.eq([[AAL1.id, 'totp', GOOD_CODE]]);
     expect(w.authn.calls[0].ctx.ip).to.eq('192.0.2.10');
-  });
-
-  it('asks no SessionStartHook: the session started at login, so an ActiveRole switched since stays', async () => {
-    const w = await world();
-    const a = answerOf(await callRoute(w.controller, 'stepUp', w.request(AAL1, { step: 'totp', code: GOOD_CODE })));
-    expect(a.status).to.eq(200);
-    expect(w.hookCalls).to.deep.eq([]);
   });
 
   it('a wrong code answers the login failure body without a cookie', async () => {

@@ -107,6 +107,7 @@ async function main() {
   await load('@spinajs/log');
   const { fsService } = await load('@spinajs/fs');
   const contracts = await load('@spinajs/authn/contracts');
+  const authnHooks = await load('@spinajs/authn/hooks');
   const kit = await load('@spinajs/authn-testing');
   const express = (await load('express')).default ?? (await load('express'));
   const cookieParser = (await load('cookie-parser')).default ?? (await load('cookie-parser'));
@@ -168,8 +169,16 @@ async function main() {
     if (p === 'local') await load('@spinajs/authn-local');
     else if (p === 'token') await loadFile(lib('authn-token', join('service', 'index.js')));
     else if (p === 'keys') await load('@spinajs/authn-keys');
-    // users' AuthzCredentialAdminGuard needs @spinajs/users; any guard switches the group on.
-    else if (p === 'admin') bind(contracts.CredentialAdminGuard, 'RouteGroupsCredentialAdminGuard', { allowed: async () => ({ ok: false, code: 'forbidden' }) });
+    // users' AuthzCredentialAdminRule needs @spinajs/users; any rule class switches the group on.
+    else if (p === 'admin') {
+      const { ActionHook } = await load('@spinajs/hooks');
+      class RouteGroupsCredentialAdminRule extends authnHooks.CredentialAdminRule {
+        async allowed() {
+          return { ok: false, code: 'forbidden' };
+        }
+      }
+      DI.register(RouteGroupsCredentialAdminRule).as(ActionHook);
+    }
     else if (p === 'totp') {
       await load('@spinajs/authn-totp/service');
       // TotpMfaStep needs a store for login's enrolment check; nobody is enrolled here.
@@ -245,7 +254,7 @@ async function main() {
     TotpService: DI.RootContainer.hasRegistered('TotpService'),
     TokenService: DI.RootContainer.hasRegistered(contracts.TokenService),
     KeyRegistry: DI.RootContainer.hasRegistered(contracts.KeyRegistry),
-    CredentialAdminGuard: DI.RootContainer.hasRegistered(contracts.CredentialAdminGuard),
+    CredentialAdminRule: authnHooks.credentialAdminRuleRegistered(DI.RootContainer),
   };
 
   await server.stop();

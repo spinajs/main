@@ -126,7 +126,7 @@ DI.register(DelegatedUserSelfRelation).as(RelationResolver);
 - `UserMetadataOwnerRelation` caches the principal's `users.Id` per request (`requestScope().cache`), so a list check reads the user once. A failed lookup is not cached.
 - The permissions come with the adapter, not with the config fragment: they register only where `UserResourceAdapter` is registered. A role that names `user:read` in a domain without it cannot be granted.
 - An account holding both `guest` and `user` reads only `Login` of its own row until authz unions same-condition grants (RFC C3-1).
-- `admin.users` holds `users:credentials` through `users:*`; the [credential admin guard](13-impersonation-and-credential-admin-guards.md), not a missing permission, keeps it off accounts it does not cover.
+- `admin.users` holds `users:credentials` through `users:*`; the [credential admin rule](13-impersonation-and-credential-admin-guards.md), not a missing permission, keeps it off accounts it does not cover.
 
 ## Best practices
 

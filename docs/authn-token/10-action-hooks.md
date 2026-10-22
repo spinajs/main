@@ -24,6 +24,15 @@
 
 `update` takes the change as its `change` argument; the hook input names it `opts`.
 
+## The hook authn-token ships
+
+`TokenProfileHook` is a before hook on `authn.token.create`, registered by authn-token with `@Injectable(ActionHook)`. It is the create-time check of a token's profile. Its order is `TOKEN_PROFILE_HOOK_ORDER` (`-1000`), so the hooks of the default order see only a profile the policy allows.
+
+- A create without `profile` passes.
+- A `profile` that is not a non-empty string, or that `TokenProfilePolicy.allowedProfiles(owner)` does not list, is refused with `PROFILE_REFUSED` (`profile_refused`).
+- `create` answers that refusal `{ ok: false, code: 'invalid_scope' }` and publishes no event, as it did when it asked the policy itself. Any other hook's refusal throws, as below.
+- `validate` still asks the policy on every request; see [Token profile policy](09-token-profile-policy.md).
+
 Two methods run no hook:
 
 - `revokeAllFor`: it follows a security event (a password reset, a ban, an admin action), which must not be stopped.
@@ -38,7 +47,7 @@ The input and output types are exported from `@spinajs/authn-token`: `TokenCreat
 
 ## What a hook may change
 
-- **Create.** `opts` goes through every check of a create without hooks: the kind, the scope shape, the profile against `TokenProfilePolicy`, `authn.token.maxTtlDays` and `authn.token.agentMaxTtlMinutes`, the name, the owner's roles. It may then only narrow what the caller asked for: the same `kind` and `profile`, `roles` and `scope.permissions` a subset of the caller's, `scope.resources` among the caller's. A widening answers `{ ok: false, code: 'invalid_scope' }`, an expiry past the cap `invalid_expiry`, a bad name throws `InvalidArgument`.
+- **Create.** `opts` goes through every check of a create without hooks: the kind, the scope shape, the profile's shape (whether the policy allows it is `TokenProfileHook`'s), `authn.token.maxTtlDays` and `authn.token.agentMaxTtlMinutes`, the name, the owner's roles. It may then only narrow what the caller asked for: the same `kind` and `profile`, `roles` and `scope.permissions` a subset of the caller's, `scope.resources` among the caller's. A widening answers `{ ok: false, code: 'invalid_scope' }`, an expiry past the cap `invalid_expiry`, a bad name throws `InvalidArgument`.
 - **Update.** `opts` goes through the narrowing check of `update` as it is: `roles` a subset of the token's (for a token without roles, roles the owner holds; none on an agent token), `expiresAt` after `ctx.now` and not after the token's expiry, `name` 1 to 128 characters. The check compares with the stored token, not with what the caller asked for.
 - **Nothing else.** `owner`, `id`, `actor` and `ctx` are fixed: the action reads them from its own arguments, so a change to them is dropped.
 

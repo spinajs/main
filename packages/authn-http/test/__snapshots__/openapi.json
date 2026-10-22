@@ -255,7 +255,7 @@
           "Authentication"
         ],
         "summary": "Reset a user's password",
-        "description": "Body `{ sendReset?, reauthPassword? }`. The current password stops working at once; every session of the user ends,\r\nthose where it impersonates included, and with authn.local.reset.revokeTokens every token. With `sendReset`\r\n(default true) the owner gets a reset mail; the secret is never in this answer. Answers\r\n`{ expired: true, resetMailRequested }`. `resetMailRequested` echoes `sendReset` only: the password service decides\r\nwhether a mail goes out (none without a PasswordMailer or for a user it finds not eligible). 400\r\n`invalid_send_reset` for a `sendReset` that is not a boolean.\n\n**Policies applied:**\n- [`CredentialAdminGuardRegistered`](#policy-credentialadminguardregistered) (controller) — The first policy of the credential admin controller: 404 `not_found` while no CredentialAdminGuard is registered.\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) — 404 while no PasswordService is registered: the password routes are off (design §22.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "Body `{ sendReset?, reauthPassword? }`. The current password stops working at once; every session of the user ends,\r\nthose where it impersonates included, and with authn.local.reset.revokeTokens every token. With `sendReset`\r\n(default true) the owner gets a reset mail; the secret is never in this answer. Answers\r\n`{ expired: true, resetMailRequested }`. `resetMailRequested` echoes `sendReset` only: the password service decides\r\nwhether a mail goes out (none without a PasswordMailer or for a user it finds not eligible). 400\r\n`invalid_send_reset` for a `sendReset` that is not a boolean.\n\n**Policies applied:**\n- [`CredentialAdminRuleRegistered`](#policy-credentialadminruleregistered) (controller) — The first policy of the credential admin controller: 404 `not_found` while no CredentialAdminRule (an ActionHook on `authn.\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) — 404 while no PasswordService is registered: the password routes are off (design §22.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "parameters": [
           {
             "name": "uuid",
@@ -317,7 +317,7 @@
           }
         },
         "x-policies": [
-          "CredentialAdminGuardRegistered",
+          "CredentialAdminRuleRegistered",
           "PasswordServiceRegistered",
           "Authenticated",
           "NoTokenAuthPolicy",
@@ -332,7 +332,7 @@
           "Authentication"
         ],
         "summary": "Reset a user's TOTP",
-        "description": "Removes the enrolment, confirmed or begun, and its recovery codes; the owner enrols again. Answers `{ reset }`, false\r\nwhen there was nothing to remove. Never a secret. 404 while the MFA enrolment routes are off.\n\n**Policies applied:**\n- [`CredentialAdminGuardRegistered`](#policy-credentialadminguardregistered) (controller) — The first policy of the credential admin controller: 404 `not_found` while no CredentialAdminGuard is registered.\n- [`AdminMfaResetOn`](#policy-adminmfareseton) — 404 `not_found` unless `mfaEnrolmentOn`, as for the enrolment routes: an MFA that login never asks for has nothing to reset.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "Removes the enrolment, confirmed or begun, and its recovery codes; the owner enrols again. Answers `{ reset }`, false\r\nwhen there was nothing to remove. Never a secret. 404 while the MFA enrolment routes are off.\n\n**Policies applied:**\n- [`CredentialAdminRuleRegistered`](#policy-credentialadminruleregistered) (controller) — The first policy of the credential admin controller: 404 `not_found` while no CredentialAdminRule (an ActionHook on `authn.\n- [`AdminMfaResetOn`](#policy-adminmfareseton) — 404 `not_found` unless `mfaEnrolmentOn`, as for the enrolment routes: an MFA that login never asks for has nothing to reset.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "parameters": [
           {
             "name": "uuid",
@@ -380,7 +380,7 @@
           }
         },
         "x-policies": [
-          "CredentialAdminGuardRegistered",
+          "CredentialAdminRuleRegistered",
           "AdminMfaResetOn",
           "Authenticated",
           "NoTokenAuthPolicy",
@@ -395,7 +395,7 @@
           "Authentication"
         ],
         "summary": "End a user's sessions",
-        "description": "Every session of the user, those where it impersonates included. Answers `{ revoked }`, the count.\n\n**Policies applied:**\n- [`CredentialAdminGuardRegistered`](#policy-credentialadminguardregistered) (controller) — The first policy of the credential admin controller: 404 `not_found` while no CredentialAdminGuard is registered.\n- [`SessionIssuerRegistered`](#policy-sessionissuerregistered) — 404 `not_found` while no SessionIssuer is registered: the admin sessions revoke is off.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "Every session of the user, those where it impersonates included. Answers `{ revoked }`, the count.\n\n**Policies applied:**\n- [`CredentialAdminRuleRegistered`](#policy-credentialadminruleregistered) (controller) — The first policy of the credential admin controller: 404 `not_found` while no CredentialAdminRule (an ActionHook on `authn.\n- [`SessionIssuerRegistered`](#policy-sessionissuerregistered) — 404 `not_found` while no SessionIssuer is registered: the admin sessions revoke is off.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "parameters": [
           {
             "name": "uuid",
@@ -443,7 +443,7 @@
           }
         },
         "x-policies": [
-          "CredentialAdminGuardRegistered",
+          "CredentialAdminRuleRegistered",
           "SessionIssuerRegistered",
           "Authenticated",
           "NoTokenAuthPolicy",
@@ -458,7 +458,7 @@
           "Authentication"
         ],
         "summary": "Revoke a user's tokens",
-        "description": "Every API and agent token of the user. Answers `{ revoked }`, the count.\n\n**Policies applied:**\n- [`CredentialAdminGuardRegistered`](#policy-credentialadminguardregistered) (controller) — The first policy of the credential admin controller: 404 `not_found` while no CredentialAdminGuard is registered.\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "Every API and agent token of the user. Answers `{ revoked }`, the count.\n\n**Policies applied:**\n- [`CredentialAdminRuleRegistered`](#policy-credentialadminruleregistered) (controller) — The first policy of the credential admin controller: 404 `not_found` while no CredentialAdminRule (an ActionHook on `authn.\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "parameters": [
           {
             "name": "uuid",
@@ -506,7 +506,7 @@
           }
         },
         "x-policies": [
-          "CredentialAdminGuardRegistered",
+          "CredentialAdminRuleRegistered",
           "TokenServiceRegistered",
           "Authenticated",
           "NoTokenAuthPolicy",
@@ -2609,7 +2609,7 @@
           "Authentication"
         ],
         "summary": "Register",
-        "description": "Body `{ login, email, password, confirmPassword? }`. Answers 202 `{ status: 'accepted' }` whether the account is new or\r\nthe address is taken, so it tells a stranger nothing about who has an account. A new account is sent a verification\r\nmail; the owner of a taken address is sent an account-exists mail (`authn.http.registration.notifyExisting`). A\r\npassword that breaks the policy answers 400 `password_rejected` with its violations: they depend on the input only. 429\r\nwith Retry-After when throttled (the `register` flow, per address and per client ip). An `authn.registration` hook\r\nmay change `login` and `email` (checked again against the policy, then by the registrar) or refuse: 400\r\n`action_refused` with `code`.\n\n**Policies applied:**\n- [`IdentityRegistrarRegistered`](#policy-identityregistrarregistered) (controller) — 404 while no IdentityRegistrar is registered, or the registered factory yields none (users.",
+        "description": "Body `{ login, email, password, confirmPassword? }`. Answers 202 `{ status: 'accepted' }` whether the account is new or\r\nthe address is taken, so it tells a stranger nothing about who has an account. RegistrationMailHook, an\r\n`authn.registration` after hook, sends a new account a verification mail and the owner of a taken address an\r\naccount-exists mail (`authn.http.registration.notifyExisting`). A\r\npassword that breaks the policy answers 400 `password_rejected` with its violations: they depend on the input only. 429\r\nwith Retry-After when throttled (the `register` flow, per address and per client ip). An `authn.registration` hook\r\nmay change `login` and `email` (checked again against the policy, then by the registrar) or refuse: 400\r\n`action_refused` with `code`.\n\n**Policies applied:**\n- [`IdentityRegistrarRegistered`](#policy-identityregistrarregistered) (controller) — 404 while no IdentityRegistrar is registered, or the registered factory yields none (users.",
         "responses": {
           "202": {
             "description": "Always { status: 'accepted' }",
