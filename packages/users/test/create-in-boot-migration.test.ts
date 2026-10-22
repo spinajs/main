@@ -33,7 +33,7 @@ async function localPasswords(): Promise<LocalPasswordService> {
 
 function within<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
+  const timeout = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => reject(new Error(`${what} did not finish within ${ms} ms`)), ms);
   });
   return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
