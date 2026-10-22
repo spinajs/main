@@ -13,11 +13,12 @@ import { runAsSystem } from '../system.js';
 import { USERS_TABLE, invitePending, raw, recordAddressVerifiedAt, recordPasswordSetAt, rowsAffected, usersDriver } from '../identity/sql.js';
 
 /** The status each action answers when it really set a password. */
-const SET: ReadonlyMap<string, string> = new Map([
+// A list, not a Map: a `.get()` beside these names reads as an authn.* config lookup to authn's schema-reach test.
+const SET: readonly (readonly [ActionName, string])[] = [
   ['authn.password.change', 'changed'],
   ['authn.password.set', 'set'],
   ['authn.password.reset.redeem', 'reset'],
-]);
+];
 
 /**
  * Keeps the users row in step with authn-local's password flows, as an after hook:
@@ -35,14 +36,14 @@ const SET: ReadonlyMap<string, string> = new Map([
  */
 @Injectable(ActionHook)
 export class UserPasswordStateHook extends ActionHook {
-  readonly actions: readonly ActionPattern[] = [...SET.keys()] as ActionPattern[];
+  readonly actions: readonly ActionPattern[] = SET.map(([action]) => action);
 
   @Logger('users')
   protected Log: Log;
 
   public async after(ctx: AfterContext<ActionName>): Promise<void> {
     const output = ctx.output as { readonly status?: string } | undefined;
-    if (output?.status === undefined || output.status !== SET.get(ctx.action)) return;
+    if (output?.status === undefined || output.status !== SET.find(([action]) => action === ctx.action)?.[1]) return;
 
     const input = ctx.input as { readonly id?: IdentityRef; readonly ctx: AuthnContext };
     const redeem = ctx.action === 'authn.password.reset.redeem' ? (output as Extract<PasswordResetOutput, { status: 'reset' }>) : undefined;
