@@ -608,12 +608,8 @@ describe('Delete query builder', () => {
   });
 });
 
-describe('Relations query builder', () => {
-  beforeEach(async () => {
-    DI.register(ConnectionConf).as(Configuration);
-    DI.register(FakeSqliteDriver).as('sqlite');
-
-     
+/** The model descriptors read their columns from tableInfo() on every Orm resolve, so each suite that queries these models must stub it. */
+function stubRelationTables() {
     const tableInfoStub = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');
     tableInfoStub
       .withArgs('RelationTable', undefined)
@@ -903,6 +899,16 @@ describe('Relations query builder', () => {
           ]);
         }),
       );
+  return tableInfoStub;
+}
+
+describe('Relations query builder', () => {
+  beforeEach(async () => {
+    DI.register(ConnectionConf).as(Configuration);
+    DI.register(FakeSqliteDriver).as('sqlite');
+
+     
+    stubRelationTables();
 
     await DI.resolve(Orm);
   });
@@ -1114,11 +1120,13 @@ describe('whereOnJoin', () => {
   beforeEach(async () => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(FakeSqliteDriver).as('sqlite');
+    stubRelationTables();
     await DI.resolve(Orm);
   });
 
   afterEach(() => {
     DI.clearCache();
+    sinon.restore();
   });
 
   it('scopes populate condition to the relation JOIN ON clause', () => {
@@ -1220,12 +1228,14 @@ describe('Select query builder', () => {
   beforeEach(async () => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(FakeSqliteDriver).as('sqlite');
+    stubRelationTables();
 
     await DI.resolve(Orm);
   });
 
   afterEach(() => {
     DI.clearCache();
+    sinon.restore();
   });
 
   it('group by simple', () => {
