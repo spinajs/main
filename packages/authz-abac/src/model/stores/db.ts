@@ -69,14 +69,26 @@ export class DbPolicyStore extends PolicyStore {
   }
 }
 
+const JSON_COLUMNS = ['permissions', 'resource_types', 'principal_types', 'actor_types', 'condition', 'fields'] as const;
+
+const notParsing = (detail: string, cause?: unknown) => new AuthzConfigError(`${AUTHZ_POLICY_TABLE}: a row holds a JSON column that does not parse (${detail})`, cause === undefined ? undefined : { cause });
+
 /** Awaits a PolicyRecord query; a JSON column that does not parse becomes an AuthzConfigError naming the table. */
 export async function hydrateRecords(query: PromiseLike<PolicyRecord[]>): Promise<PolicyRecord[]> {
+  let rows: PolicyRecord[];
   try {
-    return await query;
+    rows = await query;
   } catch (err) {
     if (!(err instanceof SyntaxError)) throw err;
-    throw new AuthzConfigError(`${AUTHZ_POLICY_TABLE}: a row holds a JSON column that does not parse (${err.message})`, { cause: err });
+    throw notParsing(err.message, err);
   }
+  // The Postgres converter hands back the raw text of a column it cannot parse; no policy column holds a bare string.
+  for (const r of rows) {
+    for (const column of JSON_COLUMNS) {
+      if (typeof r[column] === 'string') throw notParsing(`${column}: ${JSON.stringify((r[column] as string).slice(0, 40))}`);
+    }
+  }
+  return rows;
 }
 
 const COLUMN_WIDTHS: readonly [string, (p: Policy) => string | undefined, number][] = [
