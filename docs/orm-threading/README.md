@@ -20,7 +20,7 @@ npm install @spinajs/orm-threading
 
 ## Quick start
 
-Register the backend once at startup, then lock with the helpers from `@spinajs/threading`. `Configuration` and `Orm` must be resolved first.
+Register the backend once at startup, then lock with the helpers from `@spinajs/threading`. `Configuration` and `Orm` must be resolved first, or `OrmMigrator` when the `default` connection has `Migration.OnStartup`.
 
 ```ts sample
 import { DI } from '@spinajs/di';

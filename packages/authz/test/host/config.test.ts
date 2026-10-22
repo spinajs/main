@@ -55,7 +55,7 @@ describe('authz config schema', () => {
 
   it('accepts a valid config unchanged', () => {
     const cfg = validConfig();
-    const copy = { ...JSON.parse(JSON.stringify(cfg)), impersonation: { permission: 'user:impersonate', protectedRoles: ['admin'] } };
+    const copy = { ...JSON.parse(JSON.stringify(cfg)), impersonation: { permission: 'user:impersonate', protectedRoles: ['admin'] }, hooks: { check: false } };
     expect(validate(cfg).ok).to.equal(true);
     expect(cfg).to.deep.equal(copy);
   });
@@ -69,6 +69,7 @@ describe('authz config schema', () => {
       fields: AUTHZ_DEFAULTS.fields,
       cache: AUTHZ_DEFAULTS.cache,
       audit: AUTHZ_DEFAULTS.audit,
+      hooks: AUTHZ_DEFAULTS.hooks,
     });
     expect(cfg.principals ?? {}).to.not.have.nested.property('anonymous.enabled');
     expect(cfg.domains).to.deep.equal({ fs: { engine: {} } });

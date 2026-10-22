@@ -55,5 +55,5 @@ isValidField(loginField, 123); // false: no coercion
 
 ## Related
 
-- [Authorization field schemas](../authz/15-input-field-schemas.md)
+- [Authorization field schemas](../authz/16-input-field-schemas.md)
 - [Authentication flow](01-authentication-flow.md#results-and-failure-reasons)

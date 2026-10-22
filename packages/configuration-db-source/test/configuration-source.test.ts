@@ -8,13 +8,15 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import _ from 'lodash';
 import { DateTime } from 'luxon';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import { join, normalize, resolve } from 'path';
 
 import { Bootstrapper, DI, IContainer, Injectable } from '@spinajs/di';
 import '@spinajs/log';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Config, Configuration, ConfigurationSource, FrameworkConfiguration, IConfigLike } from '@spinajs/configuration';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
 
 import { ConfigFileValidator, DbConfig, DbConfigSourceBotstrapper, DbConfigValueConverter } from './../src/index.js';
 import './migration/test_config_data_2022_02_08_01_13_00.js';
@@ -96,7 +98,9 @@ class SampleTemplateValidator extends ConfigFileValidator {
   }
 }
 
+/** The boot an app makes: the migrator resolves the Orm it injects, then migrates. */
 async function db() {
+  await DI.resolve(OrmMigrator);
   return await DI.resolve(Orm);
 }
 
@@ -185,6 +189,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
     const orm = await db();
     orm.dispose();
 
+    DI.uncache(OrmMigrator);
     DI.uncache(Orm);
     DI.uncache(Configuration);
   });
@@ -392,5 +397,71 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
 
   describe('typed rows', () => {
     typedRowCases('sqlite-typed', async () => (await db()).Connections.get('sqlite')!, () => wait(500));
+  });
+});
+
+/**
+ * A deployment that migrates with the CLI and boots no migrator: the configuration table is there before the
+ * app starts, and the Orm's resolve is the only signal. A file, not `:memory:`: the table has to outlive the
+ * process that migrated it.
+ */
+describe('exposed options on a database migrated before the boot', function () {
+  this.timeout(20000);
+
+  const connection = TEST_CONFIG.db.Connections[0] as { Filename: string; Migration: { OnStartup: boolean } };
+  const original = { Filename: connection.Filename, OnStartup: connection.Migration.OnStartup };
+  let scratch = '';
+
+  before(() => {
+    scratch = fs.mkdtempSync(join(os.tmpdir(), 'spinajs-cfg-db-source-'));
+    connection.Filename = join(scratch, 'configuration.sqlite');
+    connection.Migration.OnStartup = false;
+
+    DI.register(ConnectionConf).as(Configuration);
+    DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
+  });
+
+  after(async () => {
+    // also stops the watch timer, which would keep the process alive
+    await DI.dispose();
+
+    connection.Filename = original.Filename;
+    connection.Migration.OnStartup = original.OnStartup;
+
+    try {
+      fs.rmSync(scratch, { recursive: true, force: true });
+    } catch {
+      // windows may still hold the file; nothing depends on the cleanup
+    }
+  });
+
+  it('persists them when the Orm resolves and the configuration table already exists', async () => {
+    // registered here: the suite above ends with DI.dispose(), which drops the module-level @Config registrations
+    DI.register({ path: 'pre-migrated', options: { expose: true, defaultValue: 7, exposeOptions: { type: 'number', group: 'db-config' } } }).asValue('__configuration_property__');
+
+    // migrate-up, in a process of its own
+    DI.uncache(OrmMigrator);
+    DI.uncache(Orm);
+    DI.uncache(Configuration);
+    await (await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])).migrate();
+    const cli = await DI.resolve(Orm);
+    const before = (await cli.Connections.get('sqlite')!.select().from('configuration').where('Slug', 'pre-migrated')) as any[];
+    await cli.dispose();
+    DI.uncache(OrmMigrator);
+    DI.uncache(Orm);
+    DI.uncache(Configuration);
+
+    expect(before, 'migrate-up synced the exposed options itself').to.eql([]);
+
+    // the application: bootstrappers, then the Orm, and no migrator
+    for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
+      await b.bootstrap();
+    }
+
+    const orm = await DI.resolve(Orm);
+    await wait(500);
+
+    const rows = (await orm.Connections.get('sqlite')!.select().from('configuration').where('Slug', 'pre-migrated')) as any[];
+    expect(rows.map((r) => r.Value)).to.eql(['7']);
   });
 });

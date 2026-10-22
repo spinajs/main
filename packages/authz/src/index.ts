@@ -6,3 +6,4 @@ export * from './host/config/index.js';
 export * from './host/index.js';
 export * from './admin/index.js';
 export * from './schemas/fields.js';
+export * from './hooks.js';

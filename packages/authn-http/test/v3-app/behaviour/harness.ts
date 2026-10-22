@@ -3,7 +3,7 @@ import { request } from 'node:http';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { ServerMiddleware } from '@spinajs/http';
@@ -27,7 +27,8 @@ import {
 import type { Credentials, IdentityRef } from '@spinajs/authn/contracts';
 import { MemorySessionStore, PUBLIC_DEFAULT_COOKIE_SECRET, SessionExpirationProvider, SessionProvider, sessionCookieName, appEnvOf } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
-import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeRoleSource, FakeStrategy, KIT_ATTRIBUTES, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
+import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
+import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeRoleSource, FakeStrategy, KIT_ATTRIBUTES, KitActionHooks, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
 import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, HarnessFactory, HttpPort, HttpRequest, HttpResponse, HttpRoutes, PortName } from '@spinajs/authn-testing';
 
 import { AuthnPrincipalResolver } from '../../../src/api.js';
@@ -81,7 +82,10 @@ export const ROUTES: Partial<HttpRoutes> = {
 };
 
 /** The ports every case's harness has; behaviour.test.ts compares the cases' needs with these. */
-export const PORTS: readonly PortName[] = ['service', 'seed', 'sessions', 'throttle', 'events', 'spy', 'mfa', 'impersonation', 'guard', 'roles', 'attributed', 'principals', 'lifecycle', 'tokens', 'boot', 'http'];
+export const PORTS: readonly PortName[] = ['service', 'seed', 'sessions', 'throttle', 'events', 'spy', 'mfa', 'impersonation', 'guard', 'roles', 'attributed', 'principals', 'lifecycle', 'tokens', 'boot', 'http', 'hooks'];
+
+/** The one ActionHook of the app: the hooks runner reads its hooks once, so each case adds its own through it. */
+const kitHooks = new KitActionHooks();
 
 interface CaseFakes extends AppFakes {
   attributedLogin: FakeStrategy;
@@ -297,7 +301,7 @@ async function bootTokenDb(): Promise<void> {
     DefaultConnection: DB_CONNECTION,
     Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: DB_CONNECTION, Migration: { Table: 'orm_migrations', OnStartup: true } }],
   });
-  await DI.resolve(Orm);
+  await DI.resolve(OrmMigrator);
   await tokenDb()
     .schema()
     .createTable('users', (table) => {
@@ -329,6 +333,10 @@ export async function bootBehaviourApp(opts: { beforeDb?: () => Promise<void> } 
     registered = true;
     bind(AuthenticationStrategy, 'V3KitAttributedLogin', () => kitFakes().attributedLogin);
     bind(AuthenticationStrategy, 'V3KitAttributedRequest', () => kitFakes().attributedRequest);
+    bind(ActionHook, 'V3KitActionHooks', () => kitHooks);
+    // The boot may have resolved the runner already, without the hook above.
+    DI.uncache(DefaultHooks);
+    DI.uncache(Hooks);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
   }
   await opts.beforeDb?.();
@@ -343,6 +351,7 @@ export async function shutdownBehaviourApp(): Promise<void> {
   await uncacheCaseServices();
   await DI.get(Orm)?.dispose();
   DI.uncache(Orm);
+  DI.uncache(OrmMigrator);
   // authn-token's owner resolver holds the Orm it was built with.
   const tokens = (await import(new URL('service/index.js', TOKEN_LIB).href)) as Record<'TokenOwnerResolver' | 'UsersTableTokenOwnerResolver', Class<unknown>>;
   DI.uncache(tokens.UsersTableTokenOwnerResolver);
@@ -501,6 +510,7 @@ async function buildHarness(ctx: HarnessContext, lane?: HarnessLane): Promise<Ha
   let started = false;
   let opened = false;
   const release = async () => {
+    kitHooks.clear();
     try {
       if (opened) await lane?.close();
     } finally {
@@ -512,6 +522,7 @@ async function buildHarness(ctx: HarnessContext, lane?: HarnessLane): Promise<Ha
     }
   };
   try {
+    kitHooks.clear();
     const { MemoryAuthnThrottle, AuthnImpersonationService } = await import('@spinajs/authn');
     fakes.throttle = new MemoryAuthnThrottle();
     kit = fakes;
@@ -576,6 +587,7 @@ async function buildHarness(ctx: HarnessContext, lane?: HarnessLane): Promise<Ha
       tokens,
       boot: bootPort(),
       http,
+      hooks: kitHooks,
       dispose: release,
     };
     if (lane) {

@@ -7,7 +7,7 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument, ResourceNotFound } from '@spinajs/exceptions';
-import { Connection, Model, Orm } from '@spinajs/orm';
+import { Connection, Model, OrmMigrator } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService, Job, QueueJob, QueueMessageHook } from '@spinajs/queue';
 import { ChangeBus, SYSTEM, UNATTENDED, currentPrincipal, runWithPrincipal } from '@spinajs/authz';
@@ -79,7 +79,7 @@ describe('UserPrincipalFactory', function () {
     }
 
     await DI.resolve(Configuration, [null, null, [dir('./config')]]);
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
   });
 
   afterEach(() => {

@@ -1,7 +1,7 @@
 import { AuthzAdminFailure } from '@spinajs/authz';
 import { UnknownAuthzDomain } from '@spinajs/authz-http';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { BadRequestResponse, Conflict, ForbiddenResponse, NotFound, Ok } from '@spinajs/http';
+import { BadRequestResponse, Conflict, ForbiddenResponse, NotFound, Ok, ServerError } from '@spinajs/http';
 import type { Response } from '@spinajs/http';
 import { ValidationFailed } from '@spinajs/validation';
 import type { IValidationError } from '@spinajs/validation';
@@ -18,6 +18,8 @@ export function respond(status: number, body: unknown): Response {
       return new NotFound(body);
     case 409:
       return new Conflict(body);
+    case 500:
+      return new ServerError(body);
     default:
       return new BadRequestResponse(body);
   }

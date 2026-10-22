@@ -1,7 +1,7 @@
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { MigrationTransactionMode, Orm, OrmDriver } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm, OrmDriver, OrmMigrator } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { IdentityStore, RoleSource } from '@spinajs/authn/contracts';
 
@@ -51,6 +51,7 @@ export class V3DbConfiguration extends FrameworkConfiguration {
 }
 
 function uncacheOwn(): void {
+  DI.uncache(OrmMigrator);
   DI.uncache(Orm);
   DI.uncache(Configuration);
   DI.uncache(V3DbConfiguration);
@@ -97,7 +98,7 @@ export async function bootV3Db(): Promise<OrmDriver> {
   registerAuthnSchema();
 
   await DI.resolve(Configuration);
-  await DI.resolve(Orm);
+  await DI.resolve(OrmMigrator);
 
   return v3Connection();
 }

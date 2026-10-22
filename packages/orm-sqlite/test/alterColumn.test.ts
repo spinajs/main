@@ -12,7 +12,7 @@ import { Orm, ICompilerOutput, ColumnQueryCompiler, AlterColumnQueryBuilder, Orm
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import '@spinajs/log';
-import { ConnectionConf, db } from './common.js';
+import { ConnectionConf, db, migrations } from './common.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -45,7 +45,7 @@ describe('Sqlite alter column', function () {
     }
 
     await DI.resolve(Orm);
-    await db().Migration.up();
+    await (await migrations()).up();
     await db().reloadTableInfo();
 
     await connection().schema().createTable('alter_test', (table) => {

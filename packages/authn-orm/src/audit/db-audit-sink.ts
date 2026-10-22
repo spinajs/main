@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 
 import { AuthnEventSink } from '@spinajs/authn/contracts';
 import type { AuthnEvent, IdentityRef, PrincipalRef } from '@spinajs/authn/contracts';
-import { Injectable, PerChildInstance } from '@spinajs/di';
-import { ormReady } from '@spinajs/orm';
+import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
 
 import { identityKey } from '../identity.js';
 import { AuthnAudit } from '../models/AuthnAudit.js';
@@ -35,6 +35,10 @@ function json(value: unknown): string {
 @PerChildInstance()
 @Injectable(AuthnEventSink)
 export class DbAuthnAuditSink extends AuthnEventSink {
+  /** Never read: injecting it resolves the Orm, which binds the models, before the first query. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   public async publish(e: AuthnEvent): Promise<void> {
     const identity = keyOrNull(e.identity);
     const actor = keyOrNull(e.actor);
@@ -44,7 +48,6 @@ export class DbAuthnAuditSink extends AuthnEventSink {
     };
     const data = e.data === undefined && Object.keys(extra).length === 0 ? undefined : { ...(e.data ?? {}), ...extra };
     const at = instant(checkedMs(e.at, 'DbAuthnAuditSink.publish: e.at'));
-    await ormReady();
     await AuthnAudit.insert(
       columnValues<AuthnAudit>({
         id: randomUUID(),

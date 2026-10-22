@@ -118,7 +118,7 @@ The migration's `down()` drops the `configuration` table.
 ## Best practices
 
 - Keep the configuration table on the `default` connection unless you only need read-only loading. `expose` and `watch` always write through `DbConfig` on `default`.
-- Turn on `Migration: { OnStartup: true }` on the `default` connection, so the bundled migration creates the table.
+- Turn on `Migration: { OnStartup: true }` on the `default` connection and resolve `OrmMigrator` at boot, so the bundled migration creates the table; or run `migrate-up` before the app starts.
 - Read exposed values through `@Config` or `Configuration.get()`, not through `DbConfig` queries: the configuration already holds the converted value.
 
 ## Patterns and antipatterns

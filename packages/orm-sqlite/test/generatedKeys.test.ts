@@ -7,7 +7,7 @@ import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import '@spinajs/log';
 import { SqliteOrmDriver } from './../src/index.js';
-import { ConnectionConf, db } from './common.js';
+import { ConnectionConf, db, migrations } from './common.js';
 import { AutoKeyModel } from './models/AutoKeyModel.js';
 import { UuidKeyModel } from './models/UuidKeyModel.js';
 import { AssignedKeyModel } from './models/AssignedKeyModel.js';
@@ -33,7 +33,7 @@ describe('Sqlite - generated primary keys', function () {
     }
 
     await DI.resolve(Orm);
-    await db().Migration.up();
+    await (await migrations()).up();
     await db().reloadTableInfo();
   });
 

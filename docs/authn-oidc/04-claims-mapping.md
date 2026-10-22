@@ -1,6 +1,6 @@
 # Claims mapping
 
-The claims mapping turns the IdP's claims into the `OidcExternalSubject` that the core links and every `ExternalLoginHook` receives. `requiredClaims` refuses a login whose claims lack fixed values.
+The claims mapping turns the IdP's claims into the `OidcExternalSubject` that the core links and every [`authn.login.identified` hook](07-login-hooks.md) receives as `input.external`. `requiredClaims` refuses a login whose claims lack fixed values.
 
 ## How it works
 
@@ -70,7 +70,7 @@ corp: {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Mapping functions | none; exported functions | `readClaim`, `rawClaims`, `mapClaims`, `hasRequiredClaims` | none | Not replaceable. To act on more claims, read `external.claims.raw` in an [`ExternalLoginHook`](07-external-login-hooks.md). |
+| Mapping functions | none; exported functions | `readClaim`, `rawClaims`, `mapClaims`, `hasRequiredClaims` | none | Not replaceable. To act on more claims, read `external.claims.raw` in an [`authn.login.identified` hook](07-login-hooks.md). |
 
 ## Important behaviour
 
@@ -140,5 +140,5 @@ console.log(external.subject, external.emailVerified, external.claims.groups); /
 ## Related
 
 - [Presets](03-presets.md): the mapping each preset sets.
-- [External login hooks](07-external-login-hooks.md): where the mapped claims are used.
+- [Login hooks](07-login-hooks.md): where the mapped claims are used.
 - [Identity links](../authn-orm/03-identity-links.md): the `provider` and `subject` columns the mapping fills.

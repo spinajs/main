@@ -7,12 +7,12 @@
 > Docs: `docs/http/11-error-handling.md`, `docs/http/04-route-arguments.md`, `docs/http/01-http-server.md`,
 > `docs/http/18-throttling.md`, `docs/http/23-bot-check.md`, `docs/http/23-csrf-guard.md`, `docs/http-bot/README.md`,
 > `docs/validation/02-validator-options.md`, `docs/validation/08-customizing-the-validator.md`,
-> `docs/authn/05-throttling.md`, `docs/authn/14-input-field-schemas.md`, `docs/authn-orm/01-throttle.md`,
+> `docs/authn/05-throttling.md`, `docs/authn/15-input-field-schemas.md`, `docs/authn-orm/01-throttle.md`,
 > `docs/authn-http/04-csrf-origin-guard.md`, `docs/authn-http/06-route-arguments.md`, `docs/authn-http/07-route-groups.md`,
 > `docs/authn-http/21-verification-routes.md`, `docs/authn-http/22-registration-route.md`, `docs/authn-http/23-bot-checks.md`,
 > `docs/authn-http/24-input-validation.md`, `docs/authn-oidc/04-claims-mapping.md`, `docs/authn-oidc/09-security.md`,
 > `docs/authn-oidc/11-backchannel-logout.md`, `docs/authn-session/07-session-cookie.md`, `docs/authn-webauthn/01-setup.md`,
-> `docs/authn-webauthn/02-passkey-login.md`, `docs/authz/15-input-field-schemas.md`, `docs/authz-http/04-principal-sources.md`,
+> `docs/authn-webauthn/02-passkey-login.md`, `docs/authz/16-input-field-schemas.md`, `docs/authz-http/04-principal-sources.md`,
 > `docs/authz-http/07-client-access-api.md`, `docs/authz-http/09-explain.md`, `docs/authz-http-admin/01-admin-routes.md`,
 > `docs/authz-http-admin/02-command-batches.md`, `docs/authz-http-admin/06-openapi-documentation.md`,
 > `docs/authz-http-admin/07-custom-admin-routes.md`, `docs/authz-queue/04-queue-change-bus.md`,
@@ -305,6 +305,83 @@ Removed and changed exports:
 ## Dependencies
 
 - `@spinajs/authn` depends on `ajv`; `@spinajs/authz-http` and `@spinajs/authn-oidc` on `@spinajs/validation`.
+# Release notes — authn, authn-oidc, authn-testing: action hooks in the authn core
+
+> Branch `feat/ory-hook-2`. Docs: `docs/authn/14-action-hooks.md`, `docs/authn/12-integration-hooks.md`,
+> `docs/authn/01-authentication-flow.md`, `docs/authn-oidc/07-login-hooks.md`, `docs/authn-testing/02-fake-authn-service.md`.
+
+## BREAKING CHANGES
+
+### `@spinajs/authn` — `ExternalLoginHook` is removed
+
+`ExternalLoginHook` and its `afterLogin(identity, external)` are gone, with no adapter (D17). Register an
+`ActionHook<'authn.login.identified'>` of `@spinajs/hooks` instead: it runs at the same point of the login (the identity
+and its status known, before the MFA policy and the session) and reads `ctx.input.identity` and `ctx.input.external`.
+
+Before:
+
+```ts
+import { Injectable } from '@spinajs/di';
+import { ExternalLoginHook } from '@spinajs/authn';
+import type { ExternalSubject, IdentityRef } from '@spinajs/authn';
+
+@Injectable(ExternalLoginHook)
+export class SyncGroups extends ExternalLoginHook {
+  async afterLogin(identity: IdentityRef, external: ExternalSubject): Promise<void> {
+    await syncGroups(identity, external.claims?.groups);
+  }
+}
+```
+
+After:
+
+```ts
+import { Injectable } from '@spinajs/di';
+import { ActionHook } from '@spinajs/hooks';
+import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
+
+@Injectable(ActionHook)
+export class SyncGroups extends ActionHook<'authn.login.identified'> {
+  readonly actions: readonly ActionPattern[] = ['authn.login.identified'];
+
+  async before(ctx: BeforeContext<'authn.login.identified'>): Promise<void> {
+    const { identity, external } = ctx.input;
+    if (external) await syncGroups(identity, external.claims?.groups);
+  }
+}
+```
+
+What changes for a migrated hook:
+
+- It runs for every interactive login, a password login included; `input.external` is set only for an external one.
+  Check it, as above.
+- Hooks are read when the `Hooks` runner boots: register them before the app boots. A hook registered later does not
+  run, and a hook class that cannot be built fails the boot instead of the login.
+- `ctx.refuse(code)` fails the login with the opaque answer and audits `hook:<code>`. A throw, or a hook slower than
+  `hooks.timeoutMs`, still fails it with `hook_error`; the audit data now names the hook class and the failure
+  (`data.hook`, `data.failure`) instead of the error class.
+- A hook may replace `attributes`, which reach the principal as `extra.attributes`.
+
+### `@spinajs/authn-testing` — `RecordingExternalLoginHook` is removed
+
+`FakeAuthnService`'s `hooks` option takes a `Hooks` runner (`@spinajs/hooks`) instead of
+`() => readonly ExternalLoginHook[]`, and runs `authn.login.identified` for interactive logins as the core does.
+
+## New behavior
+
+- `@spinajs/authn` runs its actions through `@spinajs/hooks`: `authn.login` (before the throttle and every strategy;
+  `credentials` mutable; not for `ctx.purpose: 'request'`), `authn.login.identified` (`attributes` mutable),
+  `authn.mfa.verify`, `authn.reauth`, `authn.session.stepUp`, `authn.impersonation.start`, `authn.impersonation.stop`
+  (not refusable), `authn.link` and `authn.unlink`. A refusal keeps each flow's answer of today and audits
+  `hook:<code>`; a failing hook audits `hook_error`. With no hook registered nothing changes.
+- `@spinajs/authn-oidc`: the back-channel logout route runs `authn.logout.backchannel` around the revocation; it is not
+  refusable.
+- `@spinajs/authn-testing`: behaviour rule A37 (`A37/core`, `A37/flow`), the `hooks` port and its `KitActionHooks`
+  adapter.
+- `@spinajs/hooks`: `typesVersions` for the `testing` subpath, so a CommonJS build resolves `@spinajs/hooks/testing`.
+- Hooks get deep, frozen copies of the values they may not change (`hookView`, `hookCopy` for mutable keys, exported
+  from `@spinajs/authn` and the new `@spinajs/authn/hooks` subpath with `hookRefusalOf`). An action with no matching
+  hook runs as before, without building its input.
 
 # Release notes — authn-http, authn-oidc: fresh re-authentication that refreshes the session
 

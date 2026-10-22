@@ -4,7 +4,7 @@ import type { IdentityRef } from '@spinajs/authn/contracts';
 import { DbMfaStore, identityKey, parseIdentityKey, readInstant } from '@spinajs/authn-orm';
 import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
 import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
-import { UniqueViolation, everyNthCall, ormReady } from '@spinajs/orm';
+import { Orm, UniqueViolation, everyNthCall } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 import { WebAuthnCredentialExists, WebAuthnCredentialStore } from '../contracts.js';
@@ -63,10 +63,13 @@ const COLUMNS = ['id_hash', 'credential_id', 'identity', 'public_key', 'counter'
 @PerChildInstance()
 @Injectable(WebAuthnCredentialStore)
 export class DbWebAuthnCredentialStore extends WebAuthnCredentialStore {
+  /** Never read: injecting it resolves the Orm, which binds the models, before the first query. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   async add(c: WebAuthnCredential): Promise<void> {
     const row = checkedCredential(c);
     const identity = identityKey(row.identity);
-    await ormReady();
     try {
       await AuthnWebauthnCredential.insert({
         id_hash: sha256hex(row.credentialId),
@@ -87,7 +90,6 @@ export class DbWebAuthnCredentialStore extends WebAuthnCredentialStore {
 
   async get(credentialId: string): Promise<WebAuthnCredential | null> {
     if (typeof credentialId !== 'string' || credentialId === '') return null;
-    await ormReady();
     const rows = await AuthnWebauthnCredential.query().columns(COLUMNS).where('id_hash', sha256hex(credentialId));
     const r = rows.find((x) => x.credential_id === credentialId);
     return r ? credentialOf(r) : null;
@@ -95,7 +97,6 @@ export class DbWebAuthnCredentialStore extends WebAuthnCredentialStore {
 
   async listFor(id: IdentityRef): Promise<readonly WebAuthnCredential[]> {
     const identity = identityKey(id);
-    await ormReady();
     const rows = await AuthnWebauthnCredential.query().columns(COLUMNS).where('identity', identity).orderBy('created_at').orderBy('id_hash');
     return rows.filter((r) => r.identity === identity).map(credentialOf);
   }
@@ -105,14 +106,12 @@ export class DbWebAuthnCredentialStore extends WebAuthnCredentialStore {
     checkedCounter(expected, 'expected');
     checkedCounter(next, 'next');
     const when = utc(at, 'DbWebAuthnCredentialStore.advance: at');
-    await ormReady();
     return (await AuthnWebauthnCredential.update({ counter: next, last_used_at: when }).where('id_hash', sha256hex(credentialId)).where('counter', expected)).RowsAffected === 1;
   }
 
   async remove(id: IdentityRef, credentialId: string): Promise<boolean> {
     const identity = identityKey(id);
     if (typeof credentialId !== 'string' || credentialId === '') return false;
-    await ormReady();
     return (await AuthnWebauthnCredential.destroy().where('id_hash', sha256hex(credentialId)).where('identity', identity)).RowsAffected === 1;
   }
 }
@@ -124,11 +123,14 @@ export class DbWebAuthnCredentialStore extends WebAuthnCredentialStore {
 @PerChildInstance()
 @Injectable(WebAuthnChallengeStore)
 export class DbWebAuthnChallengeStore extends WebAuthnChallengeStore {
+  /** Never read: injecting it resolves the Orm, which binds the models, before the first query. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   private readonly purgeDue = everyNthCall(PURGE_EVERY);
 
   async put(c: WebAuthnChallenge, maxRows?: number): Promise<void> {
     const row = checkedChallenge(c);
-    await ormReady();
     if (this.purgeDue()) await this.purge(new Date());
     if (maxRows !== undefined && (await AuthnWebauthnChallenge.count()) >= maxRows) throw new PasskeyChallengesFull();
     await AuthnWebauthnChallenge.insert({
@@ -143,7 +145,6 @@ export class DbWebAuthnChallengeStore extends WebAuthnChallengeStore {
   async take(id: string, now: Date): Promise<WebAuthnChallenge | null> {
     if (typeof id !== 'string' || id === '' || id.length > CHALLENGE_ID_MAX) return null;
     const nowMs = utc(now, 'DbWebAuthnChallengeStore.take: now').toMillis();
-    await ormReady();
     const rows = await AuthnWebauthnChallenge.query().columns(['id', 'challenge', 'purpose', 'identity', 'expires_at']).where('id', id);
     const r = rows.find((x) => x.id === id);
     if (!r || (await AuthnWebauthnChallenge.destroy().where('id', id)).RowsAffected !== 1) return null;
@@ -155,7 +156,6 @@ export class DbWebAuthnChallengeStore extends WebAuthnChallengeStore {
   /** Deletes up to one batch of expired challenges; returns how many went. */
   async purge(now: Date = new Date()): Promise<number> {
     const t = utc(now, 'DbWebAuthnChallengeStore.purge: now');
-    await ormReady();
     // MSSQL pages with OFFSET … FETCH, which needs an ORDER BY.
     const ids = (await AuthnWebauthnChallenge.query().columns(['id']).where('expires_at', '<=', t).orderBy('id').take(PURGE_BATCH)).map((r) => r.id);
     if (ids.length === 0) return 0;

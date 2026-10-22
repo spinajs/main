@@ -42,5 +42,5 @@
 
 ## Related
 
-- [Authentication field schemas](../authn/14-input-field-schemas.md)
+- [Authentication field schemas](../authn/15-input-field-schemas.md)
 - [AuthzAdmin](10-authz-admin.md)

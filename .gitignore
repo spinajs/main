@@ -135,6 +135,7 @@ graphify-out/
 !/docs/fs-ftp/
 !/docs/fs-onedrive/
 !/docs/fs-s3/
+!/docs/hooks/
 !/docs/http/
 !/docs/http-bot/
 !/docs/http-lazy-file-uploader/
@@ -168,6 +169,8 @@ graphify-out/
 !/docs/queue-stomp-transport/
 !/docs/queue-templates-pdf/
 !/docs/reflection/
+!/docs/scheduler/
+!/docs/scheduler-http/
 !/docs/session-provider-db/
 !/docs/session-provider-dynamodb/
 !/docs/session-provider-redis/

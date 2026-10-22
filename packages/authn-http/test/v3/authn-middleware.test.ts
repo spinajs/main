@@ -11,7 +11,7 @@ import { Bootstrapper, DI, NewInstance } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
@@ -216,7 +216,7 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
 
     const config = await DI.resolve(Configuration);
     await DI.resolve(fsService);
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
 
     s = await buildSuite();
     authnInChild = buildAuthnMiddlewareIn(s.child);
@@ -244,6 +244,7 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
     DI.uncache(AuthnMiddlewareConfiguration);
     DI.uncache(Configuration);
     DI.uncache(Orm);
+    DI.uncache(OrmMigrator);
   });
 
   describe('exports and registration', () => {

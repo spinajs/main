@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode, OrmMigrator } from '@spinajs/orm';
 import '@spinajs/orm-sqlite';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -45,7 +45,7 @@ describe('JobModel progress columns', function () {
     DI.register(JobModelConnectionConf).as(Configuration);
     await DI.resolve(Configuration);
     // runs the queue migrations (incl. the Phase/Message column migration)
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
   });
 
   it('persists and reads back Phase and Message', async () => {

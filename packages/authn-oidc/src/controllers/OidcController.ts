@@ -12,6 +12,7 @@ import { BaseController, BasePath, Body, CsrfExempt, Del, Get, Header, OnError, 
 import type { ErrorContext, ICookie, Request, ResponseFunction } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
+import { Hooks } from '@spinajs/hooks';
 import { ValidationFailed } from '@spinajs/validation';
 
 import { OidcLogin } from '../login.js';
@@ -141,6 +142,9 @@ export class OidcController extends BaseController {
   @Autoinject(NonceStore)
   protected Nonces: NonceStore;
 
+  @Autoinject(Hooks)
+  protected Hooks: Hooks;
+
   @Get(':provider')
   public async begin(
     @Param(PROVIDER) provider: string,
@@ -216,17 +220,25 @@ export class OidcController extends BaseController {
   @CsrfExempt()
   @OnError([ValidationFailed, InvalidArgument], () => new OidcResponse(OIDC_LOGOUT_INVALID), { stages: ['arguments'] })
   @Post(':provider/backchannel-logout')
-  public async backchannelLogout(@Param(PROVIDER) provider: string, @Header('content-type', oidcHeader(256)) contentType?: string, @Body() logoutForm?: BackchannelForm): Promise<OidcResponse> {
+  public async backchannelLogout(
+    @Param(PROVIDER) provider: string,
+    @Connection() connection: OidcConnection,
+    @Header('content-type', oidcHeader(256)) contentType?: string,
+    @Body() logoutForm?: BackchannelForm,
+    @Header('user-agent', HEADER) userAgent?: string,
+  ): Promise<OidcResponse> {
     this.logout ??= new OidcBackchannelLogout({
       strategies: this.Providers.strategies(),
       sessions: this.Sessions,
       links: this.Links ?? null,
       nonces: this.Nonces,
       log: { warn: (...args: unknown[]) => this.Log?.warn(...(args as Parameters<Log['warn']>)) },
+      hooks: this.Hooks,
     });
     // Section 2.5: the token comes form-encoded only.
     const form = isForm(contentType) ? logoutForm : undefined;
-    return new OidcResponse(await this.logout.receive(provider, form, new Date()));
+    const now = new Date();
+    return new OidcResponse(await this.logout.receive(provider, form, now, { ...this.contextOf({ connection, userAgent }, now), purpose: 'request' }));
   }
 
   /** Re-authenticates the current session at the provider; the callback refreshes its authenticatedAt (FreshAuth). */
@@ -254,8 +266,12 @@ export class OidcController extends BaseController {
     return new OidcResponse(login.failure({ navigation: isNavigation(req.get('sec-fetch-mode'), req.get('accept')) }));
   }
 
+  protected contextOf(f: Pick<RequestFacts, 'connection' | 'userAgent'>, now: Date): AuthnContext {
+    return { now, purpose: 'login', ...(f.connection.clientIp ? { ip: f.connection.clientIp } : {}), ...(f.userAgent ? { userAgent: f.userAgent } : {}) };
+  }
+
   protected requestOf(f: RequestFacts): OidcRequest {
-    const ctx: AuthnContext = { now: new Date(), purpose: 'login', ...(f.connection.clientIp ? { ip: f.connection.clientIp } : {}), ...(f.userAgent ? { userAgent: f.userAgent } : {}) };
+    const ctx = this.contextOf(f, new Date());
     const flowName = flowCookieName(this.env);
     const flow = cookieOf(f.cookie, flowName);
     return {

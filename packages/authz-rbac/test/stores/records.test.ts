@@ -5,7 +5,6 @@ import { AUTHZ_CONNECTION, AuthzConfigError } from '@spinajs/authz';
 import { OrmConnectionMissing, extractModelDescriptor } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
-import * as rbac from '../../src/index.js';
 import { AdminIdempotencyRecord, AssignmentRecord, LinkRecord, MembershipRecord, RuleRecord, RuleSubjectRecord, VersionRecord, fromDateTime, recordDriver, recordValues, toDateTime } from '../../src/index.js';
 import { bootDb, DB_KINDS } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
@@ -38,10 +37,6 @@ describe('authz records', () => {
     expect(toDateTime(null)).to.eq(null);
     expect(toDateTime(undefined)).to.eq(null);
     expect(fromDateTime(null)).to.eq(null);
-  });
-
-  it('leave ormReady to @spinajs/orm', () => {
-    expect(rbac).to.not.have.property('ormReady');
   });
 });
 

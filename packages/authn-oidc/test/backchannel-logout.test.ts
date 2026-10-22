@@ -251,17 +251,18 @@ describe('authn-oidc back-channel logout (FLOW-2)', function () {
 
   describe('POST /auth/oidc/:provider/backchannel-logout', () => {
     const answerOf = (r: unknown): OidcAnswer => (r as { answer: OidcAnswer }).answer;
+    const IDP_PEER = { encrypted: true, peer: '198.51.100.7', clientIp: '198.51.100.7' };
 
     it('reads logout_token from the form body and revokes the sid', async () => {
       const a1 = await w.login('kc-alice', 'idp-1');
-      const res = await w.controller.backchannelLogout('corp', `${FORM}; charset=UTF-8`, new BackchannelForm({ logout_token: await logoutToken(w.idp, { sid: 'idp-1' }) }));
+      const res = await w.controller.backchannelLogout('corp', IDP_PEER, `${FORM}; charset=UTF-8`, new BackchannelForm({ logout_token: await logoutToken(w.idp, { sid: 'idp-1' }) }));
       expect(answerOf(res).status).to.eq(200);
       expect(await alive(w, a1)).to.eq(false);
     });
 
     it('refuses a body that is not application/x-www-form-urlencoded', async () => {
       const a1 = await w.login('kc-alice', 'idp-1');
-      const res = await w.controller.backchannelLogout('corp', 'application/json', new BackchannelForm({ logout_token: await logoutToken(w.idp, { sid: 'idp-1' }) }));
+      const res = await w.controller.backchannelLogout('corp', IDP_PEER, 'application/json', new BackchannelForm({ logout_token: await logoutToken(w.idp, { sid: 'idp-1' }) }));
       expect(answerOf(res).status).to.eq(400);
       expect(answerOf(res).body).to.deep.eq(INVALID);
       expect(await alive(w, a1)).to.eq(true);

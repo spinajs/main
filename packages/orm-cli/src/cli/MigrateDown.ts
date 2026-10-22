@@ -1,6 +1,6 @@
 import { CliCommand, Command, Option } from '@spinajs/cli';
 import { Log, Logger } from '@spinajs/log-common';
-import { resolveCliOrm } from '../orm.js';
+import { resolveCliMigrator } from '../orm.js';
 
 export interface IMigrateDownCommandOptions {
   name?: string;
@@ -24,14 +24,11 @@ export class MigrateDownCommand extends CliCommand {
   protected Log: Log;
 
   public async execute(options: IMigrateDownCommandOptions): Promise<void> {
-    // Not `DI.resolve(Orm)`: a boot migration pass would apply the pending migrations on every
-    // `Migration.OnStartup` connection and this command would then roll back the batch it had
-    // just created. See `resolveCliOrm`.
-    const orm = await resolveCliOrm();
+    const migrator = await resolveCliMigrator();
 
     this.announce(options);
 
-    const executed = await orm.Migration.down(options.name, { all: options.all, fake: options.fake, connection: options.connection });
+    const executed = await migrator.Runner.down(options.name, { all: options.all, fake: options.fake, connection: options.connection });
 
     if (executed.length === 0) {
       if (options.name) {

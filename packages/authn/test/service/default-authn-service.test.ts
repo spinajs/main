@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import 'mocha';
 import { FakeClock, FakeStrategy, fakeHash } from '@spinajs/authn-testing';
 import type { Configuration } from '@spinajs/configuration';
-import type { Class, IContainer } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+import { ActionHook } from '@spinajs/hooks';
+import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
 
-import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS, DefaultAuthnService, ExternalLoginHook, MemoryAuthnThrottle, MfaEnrolments, MfaPolicy, MfaStep } from '../../src/index.js';
+import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS, DefaultAuthnService, MemoryAuthnThrottle, MfaEnrolments, MfaPolicy, MfaStep } from '../../src/index.js';
 import type { AuthenticationResult, AuthnContext, AuthnEvent, AuthnFacts, Credentials, ExternalSubject, IdentityRef, SessionHandle, StrategyOutcome, ThrottleFlow, ThrottleKey } from '../../src/index.js';
 import { KIT_MFA_STEP, bind, buildCore, pinConfiguration, useHarnessLog, violationPaths } from '../behaviour/harness.js';
 import { TestLog } from '../audit/test-log.js';
@@ -963,39 +965,34 @@ describe('DefaultAuthnService', function () {
     });
   });
 
-  describe('external login hooks (RFC N10-1)', () => {
+  describe('login hooks: authn.login.identified', () => {
     const subject = (over: object = {}) => ({ provider: 'kit-idp', subject: 'sub-1', email: ALICE.login, emailVerified: true, ...over });
     const external = { kind: 'external', provider: 'kit-idp', payload: { subject: 'sub-1' } } as Credentials;
 
     interface HookCall {
       readonly hook: string;
       readonly identity: IdentityRef;
-      readonly external: ExternalSubject;
+      readonly external: ExternalSubject | undefined;
       readonly sessionsAtCall: number;
     }
 
     /** Two hooks in registration order; `failing` names the one that throws. */
-    async function bootHooks(o: { linking?: object; failing?: 'first' | 'second'; strategies?: FakeStrategy[]; broken?: boolean } = {}) {
+    async function bootHooks(o: { linking?: object; failing?: 'first' | 'second'; strategies?: FakeStrategy[] } = {}) {
       const calls: HookCall[] = [];
       let p!: CoreParts;
-      const record = async (hook: 'first' | 'second', identity: IdentityRef, ext: ExternalSubject): Promise<void> => {
-        calls.push({ hook, identity, external: ext, sessionsAtCall: (await p.sessions.storage.storedKeys()).length });
-        if (o.failing === hook) throw new RangeError('group sync down');
-      };
-      class FirstHook extends ExternalLoginHook {
-        afterLogin = (identity: IdentityRef, ext: ExternalSubject) => record('first', identity, ext);
-      }
-      class SecondHook extends ExternalLoginHook {
-        afterLogin = (identity: IdentityRef, ext: ExternalSubject) => record('second', identity, ext);
-      }
-      class Broken extends ExternalLoginHook {
-        constructor() {
+      class Recording extends ActionHook<'authn.login.identified'> {
+        readonly actions: readonly ActionPattern[] = ['authn.login.identified'];
+        constructor(private readonly label: 'first' | 'second') {
           super();
-          throw new TypeError('cannot build');
         }
-        async afterLogin(): Promise<void> {}
+        async before(c: BeforeContext<'authn.login.identified'>): Promise<void> {
+          calls.push({ hook: this.label, identity: c.input.identity, external: c.input.external, sessionsAtCall: (await p.sessions.storage.storedKeys()).length });
+          if (o.failing === this.label) throw new RangeError('group sync down');
+        }
       }
-      p = await boot(o.strategies, { register: (c) => [FirstHook, SecondHook, ...(o.broken ? [Broken] : [])].forEach((h) => c.register(h).as(ExternalLoginHook)) }, { authn: { linking: o.linking ?? {} } });
+      class FirstHook extends Recording {}
+      class SecondHook extends Recording {}
+      p = await boot(o.strategies, { hooks: [new FirstHook('first'), new SecondHook('second')] }, { authn: { linking: o.linking ?? {} } });
       p.externalSubjects.set('sub-1', subject());
       return { p, calls };
     }
@@ -1018,6 +1015,19 @@ describe('DefaultAuthnService', function () {
       assert.strictEqual(throttle!.succeeds.length, 1);
     });
 
+    it('runs for a password login too, without an external subject', async () => {
+      const { p, calls } = await bootHooks();
+      const a = await seedAlice(p);
+      success(await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx()));
+      assert.deepStrictEqual(
+        calls.map((c) => [c.hook, c.identity, c.external]),
+        [
+          ['first', a, undefined],
+          ['second', a, undefined],
+        ],
+      );
+    });
+
     for (const failing of ['first', 'second'] as const) {
       it(`a throwing ${failing} hook fails the login: no session, no success event, no throttle reset`, async () => {
         const { p, calls } = await bootHooks({ failing });
@@ -1033,7 +1043,8 @@ describe('DefaultAuthnService', function () {
         assert.ok(!p.events.all().some((e) => e.outcome === 'success'), JSON.stringify(p.events.all()));
         const refused = loginFailures(p);
         assert.strictEqual(refused.length, 1);
-        assert.deepStrictEqual({ type: refused[0].type, reason: refused[0].reason, strategy: refused[0].strategy, identity: refused[0].identity, data: refused[0].data }, { type: 'login', reason: 'hook_error', strategy: 'fake-idp', identity: a, data: { error: 'RangeError' } });
+        const hook = failing === 'first' ? 'FirstHook' : 'SecondHook';
+        assert.deepStrictEqual({ type: refused[0].type, reason: refused[0].reason, strategy: refused[0].strategy, identity: refused[0].identity, data: refused[0].data }, { type: 'login', reason: 'hook_error', strategy: 'fake-idp', identity: a, data: { hook, failure: 'error' } });
       });
     }
 
@@ -1047,25 +1058,15 @@ describe('DefaultAuthnService', function () {
       assert.ok(!p.events.all().some((e) => e.type === 'mfa.challenge'));
     });
 
-    it('skips an instance of the abstract base that a resolve of ExternalLoginHook itself left behind', async () => {
-      const { p, calls } = await bootHooks();
-      await p.child.resolve(ExternalLoginHook as unknown as Class<ExternalLoginHook>);
-      const a = await seedAlice(p);
-      await p.links.link(a, subject());
-      success(await p.service.authenticate(external, ctx()));
-      assert.deepStrictEqual(
-        calls.map((c) => c.hook),
-        ['first', 'second'],
-      );
-    });
-
-    it('a hook that cannot be built fails the login closed', async () => {
-      const { p } = await bootHooks({ broken: true });
-      const a = await seedAlice(p);
-      await p.links.link(a, subject());
-      failure(await p.service.authenticate(external, ctx()), 'invalid_credentials');
-      assert.deepStrictEqual(await p.sessions.storage.storedKeys(), []);
-      assert.ok(loginFailures(p).some((e) => e.reason === 'hook_error'));
+    it('a hook class that cannot be built fails the boot, not a login', async () => {
+      class Broken extends ActionHook {
+        readonly actions: readonly ActionPattern[] = ['authn.login.identified'];
+        constructor() {
+          super();
+          throw new TypeError('cannot build');
+        }
+      }
+      await assert.rejects(boot(undefined, { register: (c) => c.register(Broken).as(ActionHook) }), /Broken/);
     });
 
     it('a login a hook refuses creates no link by verified email', async () => {
@@ -1085,7 +1086,7 @@ describe('DefaultAuthnService', function () {
       assert.strictEqual(calls.length, 0);
     });
 
-    it('runs no hook for an identity outcome or a per-request external outcome', async () => {
+    it('runs no hook for a per-request outcome, identity or external', async () => {
       const OWNER: IdentityRef = { type: 'user', id: 'owner-1' };
       const perRequest = strategy('jwt', { verify: (c) => (tokenOf(c) === 'ext' ? { ok: true, external: { provider: 'kit-idp', subject: 'sub-1' }, method: 'jwt' } : { ok: true, identity: OWNER, method: 'jwt' }) });
       const { p, calls } = await bootHooks({ strategies: [perRequest] });

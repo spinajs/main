@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto';
 
 import { IdentityLinkStore } from '@spinajs/authn/contracts';
 import type { ExternalSubject, IdentityLink, IdentityRef } from '@spinajs/authn/contracts';
-import { Injectable, PerChildInstance } from '@spinajs/di';
+import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
 import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
-import { UniqueViolation, ormReady } from '@spinajs/orm';
+import { Orm, UniqueViolation } from '@spinajs/orm';
 
 import { AuthnIdentity } from '../models/AuthnIdentity.js';
 import { checkedMs, checkedText, dateOf, instant } from '../support/sql.js';
@@ -22,8 +22,11 @@ function identityParts(ref: IdentityRef): { type: string; id: string } {
 @PerChildInstance()
 @Injectable(IdentityLinkStore)
 export class DbIdentityLinkStore extends IdentityLinkStore {
+  /** Never read: injecting it resolves the Orm, which binds the models, before the first query. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   public async find(provider: string, subject: string): Promise<IdentityLink | null> {
-    await ormReady();
     const rows = await AuthnIdentity.query().columns(LINK_COLUMNS).where('provider', provider).where('subject', subject);
     // MySQL and MSSQL default collations ignore case (and accents or trailing spaces): a subject differing only that
     // way must not sign in as another account.
@@ -33,7 +36,6 @@ export class DbIdentityLinkStore extends IdentityLinkStore {
 
   public async list(identity: IdentityRef): Promise<readonly IdentityLink[]> {
     const { type, id } = identityParts(identity);
-    await ormReady();
     const rows = await AuthnIdentity.query().columns(LINK_COLUMNS).where('identity_type', type).where('identity_id', id).orderBy('linked_at');
     return rows.filter((r) => r.identity_type === type && r.identity_id === id).map(toLink);
   }
@@ -45,7 +47,6 @@ export class DbIdentityLinkStore extends IdentityLinkStore {
     const subject = checkedText(external.subject, 255, 'DbIdentityLinkStore: subject');
     const email = external.email === undefined || external.email === null ? undefined : checkedText(external.email, 255, 'DbIdentityLinkStore: email', true);
     const nowMs = checkedMs(new Date(), 'DbIdentityLinkStore.link: the clock');
-    await ormReady();
 
     const linkId = randomUUID();
     try {
@@ -58,14 +59,12 @@ export class DbIdentityLinkStore extends IdentityLinkStore {
   }
 
   public async unlink(id: string): Promise<void> {
-    await ormReady();
     await AuthnIdentity.destroy().where('id', id);
   }
 
   /** Sets `last_used_at` (default now); true when the link exists. */
   public async touch(id: string, at: Date = new Date()): Promise<boolean> {
     const ms = checkedMs(at, 'DbIdentityLinkStore.touch: at');
-    await ormReady();
     const { RowsAffected } = await AuthnIdentity.update({ last_used_at: instant(ms) }).where('id', id);
     return RowsAffected === 1;
   }

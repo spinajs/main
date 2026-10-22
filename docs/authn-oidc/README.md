@@ -27,7 +27,7 @@ It depends on `@spinajs/authn`, `@spinajs/authn-session` and `@spinajs/authn-htt
 | [Claims mapping](04-claims-mapping.md) | Claim paths to subject, email, verified flag, name and groups; `requiredClaims` |
 | [Identity linking](05-identity-linking.md) | Map a `(provider, subject)` to a local identity: stored link, verified email, JIT, both switches |
 | [Account linking](06-account-linking.md) | `POST` and `DELETE /auth/oidc/:provider/link` for a signed-in user; the `OidcAccountLinks` extension point |
-| [External login hooks](07-external-login-hooks.md) | `ExternalLoginHook`: run code with the mapped claims on every OIDC login, or refuse it |
+| [Login hooks](07-login-hooks.md) | `ActionHook` on `authn.login.identified`: run code with the mapped claims on every OIDC login, or refuse it; `authn.logout.backchannel` |
 | [Provider HTTP client, discovery and keys](08-http-client.md) | `OidcHttpClient` extension point; discovery and JWKS caching and validation |
 | [Security guarantees](09-security.md) | Every check of the flow, what is fixed, and the limits of 3.0 |
 | [Back-channel logout](11-backchannel-logout.md) | `POST /auth/oidc/:provider/backchannel-logout`: a logout at the IdP ends the sessions of its `sid` or `sub` |
@@ -66,7 +66,7 @@ Register `https://<your host>/auth/oidc/corp/callback` at the IdP, then link to 
 
 ## Related packages
 
-- [`@spinajs/authn`](../authn/README.md): `AuthnService`, the strategy registry, `authn.linking`, `ExternalLoginHook`, `AccountLinkService`.
+- [`@spinajs/authn`](../authn/README.md): `AuthnService`, the strategy registry, `authn.linking`, the authn [action hooks](../authn/14-action-hooks.md), `AccountLinkService`.
 - [`@spinajs/authn-orm`](../authn-orm/README.md): [identity links](../authn-orm/03-identity-links.md) in `authn_identity` and the [nonce store](../authn-orm/04-nonce-store.md) that claims each state once.
 - [`@spinajs/authn-http`](../authn-http/README.md): session restore, `ClientIp`, the CSRF origin guard and `authn.http.trustProxy`.
 - [`@spinajs/users`](../users/README.md): `UserIdentityStore`, the identity store behind linking and status checks.

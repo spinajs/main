@@ -19,7 +19,7 @@ Callers resolve the `IdentityLinkStore` port of `@spinajs/authn`; this package r
 
 ### Find, `find(provider, subject)`
 
-1. The store awaits `ormReady()` and selects the `authn_identity` rows with that `provider` and `subject`.
+1. The store selects the `authn_identity` rows with that `provider` and `subject`. It injects the `Orm`, so resolving the store binds the models first.
 2. It keeps only the row whose `provider` and `subject` equal the input exactly in Node.
 3. It resolves with an `IdentityLink`, or `null`.
 
@@ -31,7 +31,7 @@ Callers resolve the `IdentityLinkStore` port of `@spinajs/authn`; this package r
 ### Link, `link(identity, external)`
 
 1. The store checks the identity as in `list`, then `external.provider` (1 to 128 characters), `external.subject` (1 to 255) and `external.email` (0 to 255, optional). A bad value throws `InvalidArgument`; nothing is truncated.
-2. It takes "now" from the Node clock and awaits `ormReady()`.
+2. It takes "now" from the Node clock.
 3. `AuthnIdentity.insert()` writes a row with a random UUID `id`, `email_verified` = `external.emailVerified === true`, `attributes` `NULL` and `linked_at` = now.
 4. A duplicate `(provider, subject)` makes the unique index refuse the insert (`UniqueViolation`); the store rejects with `ResourceDuplicated`.
 5. It resolves with the new `IdentityLink`.

@@ -9,14 +9,14 @@ Use it for any app that keeps assignments, links or stored rules in a database. 
 ### Reads
 
 1. `registerRbac(container, configuration)` calls `registerRbacStores`, which registers the classes `authz.rbac.stores.*` names under their ports (`AssignmentStore`, `MembershipStore`, `RuleStore`, `LinkStore`) and, for the DB stores, under the `AuthzAdmin` ports (`AdminAssignmentStore`, `AdminMembershipStore`, `AdminRuleStore`, `AdminLinkStore`).
-2. Every store call first awaits `ormReady()`. When nothing resolved the `Orm` yet (a CLI process boots only its command), the first call resolves it.
+2. Every DB store injects the `Orm` (`@Autoinject(Orm)`), so resolving a store from the domain's container resolves the `Orm` and binds the records, also in a CLI process that boots only its command.
 3. The store queries its record (`AssignmentRecord.query()...`). The record is bound to `authz`, so the query runs on the connection `db.Aliases.authz` names.
 4. A read of live rows keeps `expires_at IS NULL OR expires_at > ?`, with the `AuthzClock` instant of the store's container bound as the parameter.
 
 ### Writes
 
 1. `AuthzAdmin` opens a batch with `DbAuthzAdminBackend.transaction(domain, fn)`.
-2. The backend checks the domain name (at most 64 characters), awaits `ormReady()` and takes the driver of `VersionRecord`.
+2. The backend checks the domain name (at most 64 characters) and takes the driver of `VersionRecord`. It injects the `Orm`, so the records are bound by then.
 3. It refuses to run inside an open transaction on that connection (`AuthzConfigError`).
 4. It makes sure the domain's `authz_version` row exists, then opens a transaction, at `READ COMMITTED` when the driver supports it.
 5. The first statement updates the domain's `authz_version` row. That row lock orders the batches of one domain; other domains do not wait.

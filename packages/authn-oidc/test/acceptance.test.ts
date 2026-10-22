@@ -19,12 +19,16 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
-import { fsService } from '@spinajs/fs';
-import { Orm, OrmDriver, QueryContext, modelDriver } from '@spinajs/orm';
+import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
+import type { fs } from '@spinajs/fs';
+import { Orm, OrmDriver, QueryContext, modelDriver, OrmMigrator } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
-import { AuthenticationStrategy, AuthnService, ExternalLoginHook, IdentityLinkStore, NonceStore, SessionIssuer } from '@spinajs/authn/contracts';
+import { AuthenticationStrategy, AuthnService, IdentityLinkStore, NonceStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { ExternalSubject, IdentityRef } from '@spinajs/authn/contracts';
+import type { AuthnLoginIdentifiedInput } from '@spinajs/authn';
+import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
+import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
 import { AuthnNonce, DbIdentityLinkStore, DbNonceStore } from '@spinajs/authn-orm';
 import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
 
@@ -55,10 +59,12 @@ function registerFactories(): void {
 const PG_SERVER = { Host: '127.0.0.1', Port: 15432, User: 'postgres', Password: 'postgres', Database: 'test' };
 const COOKIE_SECRET = randomBytes(24).toString('hex');
 
-class HookLog extends ExternalLoginHook {
+class HookLog extends ActionHook<'authn.login.identified'> {
   static calls: [IdentityRef, ExternalSubject][] = [];
-  async afterLogin(identity: IdentityRef, external: ExternalSubject): Promise<void> {
-    HookLog.calls.push([identity, external]);
+  readonly actions: readonly ActionPattern[] = ['authn.login.identified'];
+  async before(ctx: BeforeContext<'authn.login.identified'>): Promise<void> {
+    const input: AuthnLoginIdentifiedInput = ctx.input;
+    if (input.external) HookLog.calls.push([input.identity, input.external]);
   }
 }
 
@@ -148,6 +154,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       dbContainer.register(SqliteOrmDriver).as('orm-driver-sqlite');
       dbContainer.register(PostgresOrmDriver).as('orm-driver-postgres');
       orm = await dbContainer.resolve(Orm);
+      await dbContainer.resolve(OrmMigrator);
 
       idp = await FakeIdp.create(FAKE_ISSUER, ['RS256']);
       identities = new FakeIdentityStore();
@@ -161,7 +168,10 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       current.links = links;
       current.sessions = sessions;
       registerFactories();
-      register(HookLog, ExternalLoginHook);
+      register(HookLog, ActionHook);
+      // The runner reads its hooks when it resolves: one an earlier suite resolved would not know HookLog.
+      DI.uncache(DefaultHooks);
+      DI.uncache(Hooks);
 
       // What the app's boot does: bootstrappers, then the core lists 'oidc:corp' among authn.strategies (N1's registry
       // instantiates the registered factory of that name).
@@ -182,7 +192,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
         sessions,
         sinks: [new RecordingEventSink()],
         principals: new RecordingPrincipalFactory(),
-        hooks: () => DI.resolve(Array.ofType(ExternalLoginHook)),
+        hooks: await DI.resolve(Hooks),
       });
       current.service = service;
       register(OidcController, BaseController);
@@ -214,11 +224,14 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       DI.uncache(OidcProviders);
       DI.uncache(Configuration);
       // Resolved in the root while the app ran; later suites resolve these in their own child containers.
-      for (const type of [OidcHttpClient, NonceStore, IdentityLinkStore, SessionIssuer, AuthnService, ExternalLoginHook] as Class<unknown>[]) DI.uncache(type);
+      for (const type of [OidcHttpClient, NonceStore, IdentityLinkStore, SessionIssuer, AuthnService, DefaultHooks, Hooks, HookLog] as Class<unknown>[]) DI.uncache(type);
       HookLog.calls = [];
       await orm?.dispose();
+      // fsTemp's cleanup interval would keep the mocha process alive after the last suite.
+      for (const provider of DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES)?.values() ?? []) await provider.dispose();
       // The app resolved an Orm in the root too; the models write on the latest one, so the next suite needs its own.
       DI.uncache(Orm);
+      DI.uncache(OrmMigrator);
       if (database) {
         const admin = await pgAdmin();
         try {

@@ -28,7 +28,7 @@ npm install @spinajs/orm @spinajs/orm-mysql
 ```ts sample
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
 import '@spinajs/orm-mysql';
 import _ from 'lodash';
 
@@ -58,7 +58,8 @@ export class AppConfiguration extends FrameworkConfiguration {
 }
 
 export async function bootstrap(): Promise<Orm> {
-  // importing @spinajs/orm-mysql registered 'orm-driver-mysql'
+  // importing @spinajs/orm-mysql registered 'orm-driver-mysql'; OrmMigrator resolves the Orm and applies the OnStartup migrations
+  await DI.resolve(OrmMigrator);
   return await DI.resolve(Orm);
 }
 ```

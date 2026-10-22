@@ -16,7 +16,7 @@
  */
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
 // Registers the concrete Log implementation — `Orm` types its logger as the ABSTRACT `Log`
 // from @spinajs/log-common, so without this `Orm.createConnections` dies on
 // `this.Log.trace is not a function`.
@@ -68,9 +68,9 @@ export class IntegrationConf extends FrameworkConfiguration {
               Password: PASSWORD,
               Database: DATABASE,
               PoolLimit: POOL_LIMIT,
-              // OnStartup MUST be true here: `Orm.resolve()` reads every model's table right
-              // after the migration pass, and these migrations are what create the tables of
-              // all three integration suites.
+              // OnStartup MUST be true here: the OrmMigrator boot pass re-reads the tables its
+              // migrations created, and these migrations are what create the tables of all
+              // three integration suites.
               Migration: { Table: 'orm_migrations_integration', OnStartup: true },
             },
           ],
@@ -97,8 +97,8 @@ describe('MySQL transaction contract (integration)', function () {
     DI.clearCache();
     DI.register(IntegrationConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
-    await DI.resolve(Orm);
-    await db().Migration.up();
+    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(OrmMigrator)).Runner.up();
     // model descriptors get their columns from the live schema; without this the
     // insert compiler has no columns to work with
     await db().reloadTableInfo();

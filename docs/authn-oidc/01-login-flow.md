@@ -32,7 +32,7 @@ A user signs in at an external identity provider (IdP) and comes back with a ses
 8. `fetchUserinfo()` reads userinfo when the provider config asks for it. Its `sub` must equal the ID token's.
 9. `rawClaims()` merges the claims, `hasRequiredClaims()` checks `requiredClaims`, and `mapClaims()` builds the `OidcExternalSubject`. See [Claims mapping](04-claims-mapping.md).
 10. `OidcStrategy.gate()` applies the provider's linking switches. An unlinked subject that no switch admits gives `not_linked`. See [Identity linking](05-identity-linking.md).
-11. The core maps the subject to an identity, checks its status, runs every [`ExternalLoginHook`](07-external-login-hooks.md), asks the `MfaPolicy` and issues the session.
+11. The core maps the subject to an identity, checks its status, runs the [`authn.login.identified` hooks](07-login-hooks.md), asks the `MfaPolicy` and issues the session.
 12. `OidcLogin` clears the flow cookie, sets the session cookie, and moves the client on to `returnTo`, else `authn.oidc.redirects.success`.
 
 Any exception in steps 5 to 10 becomes the strategy outcome `invalid_credentials`. The client sees one [failure answer](#answers) for every reason; the reason goes to the audit only.
@@ -58,7 +58,7 @@ sequenceDiagram
   P->>I: POST token endpoint (code, code_verifier)
   P->>I: JWKS (cached 1 h), userinfo
   P-->>A: OidcExternalSubject
-  A->>A: link lookup, status, ExternalLoginHook, MfaPolicy, session
+  A->>A: link lookup, status, authn.login.identified hooks, MfaPolicy, session
   A-->>C: success + session
   C-->>B: 200 same-site page (or 303) + session cookie
   B->>C: GET /reports
@@ -75,7 +75,7 @@ A user who logs in through the provider has no password for a `FreshAuth` route.
 5. `AuthnService.reauthenticate(session, credentials, ctx)` with purpose `reauth` decides: the subject must already be linked to the session's identity (no JIT, no link by email), the `reauth` throttle counts, and an impersonation is refused.
 6. Success: `SessionIssuer.reissue(h, { authenticatedAt: now })` moves the session to a new id. The answer clears the flow cookie, sets the new session cookie and goes on to `returnTo`, or `redirects.success`, as a login does. Any failure is the usual failure answer and leaves the session as it was.
 
-`ExternalLoginHook`s do not run: a re-authentication is no login.
+The `authn.login` and `authn.login.identified` [hooks](07-login-hooks.md) do not run: a re-authentication is no login.
 
 ### Token exchange
 

@@ -88,6 +88,13 @@ describe('status mapping', () => {
     for (const code of ['unknown_role', 'invalid_command', 'invalid_batch', 'invalid_query', 'external_sharing_off', 'rule_not_compilable', 'set_cycle', 'set_too_deep']) expect(adminErrorStatus(code), code).to.equal(400);
   });
 
+  it('answers a hook refusal with 403 and a failing hook with 500', () => {
+    expect(adminErrorStatus('hook:frozen')).to.equal(403);
+    expect(adminErrorStatus('hook_error')).to.equal(500);
+    expect(resultsStatus([{ ok: false, kind: 'assignment.revoke', error: { code: 'hook:frozen', message: 'x' } }])).to.equal(403);
+    expect(resultsStatus([{ ok: false, kind: 'assignment.revoke', error: { code: 'hook_error', message: 'x' } }])).to.equal(500);
+  });
+
   it('answers 200 when every result is ok, else the status of the failed result', () => {
     expect(resultsStatus([])).to.equal(200);
     expect(resultsStatus([{ ok: true, kind: 'assignment.revoke', affected: 1 }])).to.equal(200);

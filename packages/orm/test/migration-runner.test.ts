@@ -165,7 +165,7 @@ describe('MigrationRunner', () => {
     stubDb([]);
     const up = sinon.spy(DefaultMigrationService.prototype, 'up');
 
-    const executed = await new MigrationRunner(
+    const { executed } = await new MigrationRunner(
       ormLike(
         [ci(MigrationRunnerTest_GroupA_2021_03_01_00_00_00), ci(MigrationRunnerTest_GroupB_2021_03_02_00_00_00)],
         [
@@ -280,7 +280,7 @@ describe('MigrationRunner', () => {
     const upB = sinon.spy(MigrationRunnerTest_OnlyB_2021_03_04_00_00_00.prototype, 'up');
     const serviceUp = sinon.spy(DefaultMigrationService.prototype, 'up');
 
-    const executed = await new MigrationRunner(
+    const { executed } = await new MigrationRunner(
       ormLike(
         [ci(MigrationRunnerTest_OnlyA_2021_03_03_00_00_00), ci(MigrationRunnerTest_OnlyB_2021_03_04_00_00_00)],
         [
@@ -358,7 +358,7 @@ describe('MigrationRunner', () => {
       ),
     );
 
-    const executed = await runner.up(undefined, { connection: 'reporting-alias' });
+    const { executed } = await runner.up(undefined, { connection: 'reporting-alias' });
 
     expect(up.calledOnce, 'the alias names the same driver the migration declared').to.be.true;
     expect(executed.map((e) => e.constructor.name)).to.eql(['MigrationRunnerTest_Alias_2021_03_05_00_00_00']);
@@ -416,7 +416,7 @@ describe('MigrationRunner', () => {
     const second = sinon.spy(MigrationRunnerTest_Named2_2021_09_02_00_00_00.prototype, 'up');
     const serviceUp = sinon.spy(DefaultMigrationService.prototype, 'up');
 
-    const executed = await new MigrationRunner(ormLike([ci(MigrationRunnerTest_Named1_2021_09_01_00_00_00), ci(MigrationRunnerTest_Named2_2021_09_02_00_00_00)], [['sqlite', driver]])).up('MigrationRunnerTest_Named2_2021_09_02_00_00_00');
+    const { executed } = await new MigrationRunner(ormLike([ci(MigrationRunnerTest_Named1_2021_09_01_00_00_00), ci(MigrationRunnerTest_Named2_2021_09_02_00_00_00)], [['sqlite', driver]])).up('MigrationRunnerTest_Named2_2021_09_02_00_00_00');
 
     // the filter has to narrow the set the SERVICE is handed, not just the returned report - a
     // dropped filter applies every pending migration behind a `--name` that promised one
@@ -659,7 +659,7 @@ describe('MigrationRunner', () => {
     const runner = new MigrationRunner(ormLike([ci(MigrationRunnerTest_Lost_2021_01_01_00_00_00)], []));
     const warn = sinon.spy((runner as any).Log, 'warn');
 
-    const result = await runner.up();
+    const { executed: result } = await runner.up();
 
     expect(up.called).to.be.false;
     expect(result).to.eql([]);
@@ -684,7 +684,7 @@ describe('MigrationRunner', () => {
     const runner = new MigrationRunner(ormLike([ci(MigrationRunnerTest_Bare_2021_11_01_00_00_00)], [['sqlite', driver]]));
     const warn = sinon.spy((runner as any).Log, 'warn');
 
-    const executed = await runner.up();
+    const { executed } = await runner.up();
 
     expect(executed, 'no descriptor means no connection to run against').to.eql([]);
     expect(up.called).to.be.false;
@@ -734,7 +734,7 @@ describe('MigrationRunner', () => {
     const exec = stubDb([]);
     const up = sinon.spy(MigrationRunnerTest_Fake_2021_07_01_00_00_00.prototype, 'up');
 
-    const executed = await new MigrationRunner(ormLike([ci(MigrationRunnerTest_Fake_2021_07_01_00_00_00)], [['sqlite', driver]])).up(undefined, { fake: true });
+    const { executed } = await new MigrationRunner(ormLike([ci(MigrationRunnerTest_Fake_2021_07_01_00_00_00)], [['sqlite', driver]])).up(undefined, { fake: true });
 
     expect(up.called, 'fake has to reach the service').to.be.false;
     expect(executed).to.have.length(1);

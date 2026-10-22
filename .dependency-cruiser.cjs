@@ -47,6 +47,13 @@ module.exports = {
       to: { couldNotResolve: true, pathNot: '^exiftool-vendored[.](exe|pl)$' },
     },
     {
+      name: 'hooks-not-to-auth',
+      severity: 'error',
+      comment: 'The hooks core stays usable by orm, queue or http: authn, authz and users depend on it, never the reverse.',
+      from: { path: '^packages/hooks/' },
+      to: { path: ['^packages/(authn|authz|users)[^/]*/', '(^|/)node_modules/@spinajs/(authn|authz|users)[^/]*/'] },
+    },
+    {
       name: 'no-deprecated-core',
       severity: 'warn',
       from: {},

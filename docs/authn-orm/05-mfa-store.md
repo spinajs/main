@@ -20,7 +20,7 @@
 
 ## How it works
 
-Every method first builds the identity key with `identityKey(id)` (`<type>:<id>`, at most 100 characters) and checks the step name (1 to 32 characters). A bad value throws `InvalidArgument`. Every method awaits `ormReady()` before its first statement.
+Every method first builds the identity key with `identityKey(id)` (`<type>:<id>`, at most 100 characters) and checks the step name (1 to 32 characters). A bad value throws `InvalidArgument`. The store injects the `Orm`, so resolving it binds the models before any method runs.
 
 ### Enrol, `putPending()`
 

@@ -5,8 +5,8 @@ Every store of the package reads and writes through one of seven ORM models. Eac
 ## How it works
 
 1. Importing `@spinajs/authn-orm` defines the seven models (`@Model`, `@Connection('default')`) and the migration `AuthnInitial_2026_10_02_00_00_00` (`@Migration('default')`).
-2. `Orm.resolve()` binds each model to the driver stored under `default`, which `db.DefaultConnection` creates. With `Migration.OnStartup` on that connection, the boot pass runs the migration first.
-3. A store method awaits `ormReady()` (from `@spinajs/orm`) before its first statement. It resolves the `Orm` from the root container when no one has yet, so a CLI command or a worker needs no explicit `DI.resolve(Orm)`.
+2. `Orm.resolve()` binds each model to the driver stored under `default`, which `db.DefaultConnection` creates. With `Migration.OnStartup` on that connection, resolving `OrmMigrator` at boot runs the migration.
+3. Every store injects the `Orm` (`@Autoinject(Orm)`), so resolving a store resolves the `Orm` and binds the models; a CLI command or a worker needs no explicit `DI.resolve(Orm)`.
 4. Reads hydrate each `@DT()` column into a luxon `DateTime` through the ORM datetime converter. Writes pass `DateTime` values in UTC, computed in Node.
 
 ## Decorators
@@ -40,7 +40,7 @@ The model `AuthnAudit` shares its name with the audit fan-out service of `@spina
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `db.DefaultConnection` | `string` | unset | a connection `Name` | Creates the `default` connection every model and the migration use. Required. |
-| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | | Runs the migration in the boot pass when set on the default connection. |
+| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | | Runs the migration in the boot pass of `OrmMigrator` when set on the default connection. |
 | `db.StrictTableCheck` | `boolean` | `true` | `true`, `false` | Fails `Orm.resolve()` when one of the seven tables is missing. |
 
 The `db.*` keys are owned by `@spinajs/orm`; see [Connections](../orm/01-connections.md#configuration).
@@ -181,8 +181,8 @@ No migration copies 2.x `users_metadata` rows (TOTP secrets, pending resets, inv
 
 ## Best practices
 
-- Run the migration before the app serves traffic (`Migration.OnStartup`, or `migrate-up` in the deploy step), so the strict table check passes.
-- Read the tables through the exported models after `await ormReady()`, not with raw SQL: the models hydrate datetimes the same way the stores write them.
+- Run the migration before the app serves traffic (`Migration.OnStartup` with `OrmMigrator` resolved at boot, or `migrate-up` in the deploy step), so the strict table check passes.
+- Read the tables through the exported models from a service that injects the `Orm`, not with raw SQL: the models hydrate datetimes the same way the stores write them.
 - Build `identity` filters with `identityKey()`, so a query matches what the stores wrote.
 
 ## Patterns and antipatterns
@@ -201,14 +201,21 @@ db: { DefaultConnection: 'main', Connections: [{ Name: 'main', Driver: 'orm-driv
 
 ```ts sample
 import { AuthnAudit } from '@spinajs/authn-orm';
-import { ormReady } from '@spinajs/orm';
+import { Autoinject, Injectable } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
-export async function failedSignInsLastHour(): Promise<number> {
-  await ormReady();
-  const since = DateTime.utc().minus({ hours: 1 });
-  const rows = await AuthnAudit.query().columns(['id']).where('type', 'login').where('outcome', 'failure').where('at', '>=', since);
-  return rows.length;
+@Injectable()
+export class SignInDashboard {
+  // Resolving the service resolves the Orm, which binds AuthnAudit.
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
+  public async failedLastHour(): Promise<number> {
+    const since = DateTime.utc().minus({ hours: 1 });
+    const rows = await AuthnAudit.query().columns(['id']).where('type', 'login').where('outcome', 'failure').where('at', '>=', since);
+    return rows.length;
+  }
 }
 ```
 
@@ -216,12 +223,18 @@ export async function failedSignInsLastHour(): Promise<number> {
 
 ```ts sample
 import { AuthnMfa, parseIdentityKey } from '@spinajs/authn-orm';
-import { ormReady } from '@spinajs/orm';
+import { Autoinject, Injectable } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
 
-export async function usersWithTotp(): Promise<string[]> {
-  await ormReady();
-  const rows = await AuthnMfa.query().columns(['identity', 'step', 'confirmed_at']).where('step', 'totp').whereNotNull('confirmed_at');
-  return rows.map((r) => parseIdentityKey(r.identity)).filter((ref) => ref.type === 'user').map((ref) => ref.id);
+@Injectable()
+export class TotpReport {
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
+  public async users(): Promise<string[]> {
+    const rows = await AuthnMfa.query().columns(['identity', 'step', 'confirmed_at']).where('step', 'totp').whereNotNull('confirmed_at');
+    return rows.map((r) => parseIdentityKey(r.identity)).filter((ref) => ref.type === 'user').map((ref) => ref.id);
+  }
 }
 ```
 

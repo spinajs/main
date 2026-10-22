@@ -7,9 +7,10 @@ import chaiHttp from 'chai-http';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm, OrmMigrator } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { fsService } from '@spinajs/fs';
+import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
+import type { fs } from '@spinajs/fs';
 import { BaseController, Controllers, HttpServer } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { AuthorizationModel, AuthzContributor, ScopeAttributeStore, WritableScopeAttributeStore } from '@spinajs/authz';
@@ -161,7 +162,7 @@ export async function startTeamsApp(): Promise<number> {
   root.register(testHost.instance(new AbacContributor(abac))).as(AuthzContributor);
   await registerRbac(root, config);
   await DI.resolve(fsService);
-  await DI.resolve(Orm);
+  await DI.resolve(OrmMigrator);
 
   for (const c of TEAMS_HTTP_CONTROLLERS) DI.register(c as Class<BaseController>).as(BaseController);
   await DI.resolve(Controllers);
@@ -178,6 +179,8 @@ export async function stopTeamsApp(): Promise<void> {
   running = undefined;
   await server.stop();
   await ((await DI.resolve(Orm)) as Orm).dispose();
+  // fsTemp's cleanup interval would keep the mocha process alive after the last suite.
+  for (const provider of DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES)?.values() ?? []) await provider.dispose();
 }
 
 export function appPort(): number {

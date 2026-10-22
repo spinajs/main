@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Orm, OrmDriver, QueryContext } from '@spinajs/orm';
+import { Orm, OrmDriver, QueryContext, OrmMigrator } from '@spinajs/orm';
 import { Mutex, mutex_acquire, mutex_create, mutex_renew } from '@spinajs/threading';
 import '@spinajs/log';
 import * as chai from 'chai';
@@ -47,7 +47,7 @@ export function mutexContract(title: string, connection: { Name: string; Driver:
 
     beforeEach(async () => {
       await DI.resolve(Configuration);
-      await DI.resolve(Orm);
+      await DI.resolve(OrmMigrator);
       await driver().executeOnDb('DELETE FROM __mutex__', [], QueryContext.Delete);
     });
 

@@ -13,7 +13,7 @@ When a strategy answers an `external` subject, `DefaultAuthnService` resolves it
 3. **JIT provisioning**, when `authn.linking.jit` is on **and** the strategy's own `jit` switch is on **and** the `IdentityStore` implements `provision`. A provisioned identity is linked at once, even when its status then refuses the login, so a retry does not provision again.
 4. Otherwise the login fails with `not_linked`. Without an `IdentityLinkStore` every external login is `not_linked`.
 
-A link by verified email is written only after the status check and the `ExternalLoginHook`s pass. Each new link audits `identity.link`.
+A link by verified email is written only after the status check and the `authn.login.identified` [action hooks](14-action-hooks.md) pass. Each new link audits `identity.link`.
 
 The strategy's own switches come from `linkingFor(external)` (`ExternalLinkingStrategy`), read by `linkingSwitchesOf(strategy, external)`. A strategy without `linkingFor`, or one that throws or answers non-booleans, has both switches off. Turning JIT on for one provider never opens another.
 
@@ -26,7 +26,9 @@ The strategy's own switches come from `linkingFor(external)` (`ExternalLinkingSt
 3. Check the holder's status as at login.
 4. Require fresh authentication through `FreshAuthCheck`, or a successful `reauth`.
 
-Then `link` checks that `external` has a provider and a subject and is not linked yet, and writes the link. The store's unique `(provider, subject)` index decides a race between two links of one subject.
+Then the `authn.link` or `authn.unlink` [action hooks](14-action-hooks.md) run around the rest. A refusal, or a hook that fails, answers `{ ok: false }` with reason `hook:<code>` or `hook_error`, before the link store is asked anything.
+
+`link` checks that `external` has a provider and a subject and is not linked yet, and writes the link. The store's unique `(provider, subject)` index decides a race between two links of one subject.
 
 `unlink` finds the link among the holder's own links, never by id alone. It refuses to remove the last usable credential: another link, a password hash (when a `PasswordCredentialStore` is registered) or a key that is neither revoked nor expired (when a `KeyRegistry` is registered). Unlinks of one identity run one at a time within a process.
 
@@ -44,6 +46,7 @@ Refusals answer `{ ok: false }` only, so the answer never tells whether a subjec
 | `unknown_link` | `linkId` is not among the holder's links |
 | `last_credential` | Unlinking would leave no way to sign in |
 | `store_error` | A store threw; `data.error` holds the error class |
+| `hook:<code>`, `hook_error` | An `authn.link` or `authn.unlink` hook refused or failed |
 
 ## Configuration
 

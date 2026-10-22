@@ -1,10 +1,11 @@
-import { Injectable } from '@spinajs/di';
+import { Autoinject, Injectable } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
 import { IdentityStore } from '@spinajs/authn/contracts';
 import type { IdentityRef, IdentityStatus } from '@spinajs/authn/contracts';
 
 import { USER_COMMON_METADATA, User } from '../models/User.js';
 import { runAsSystem } from '../system.js';
-import { usersMatchingLogin, usersOrmUp } from './sql.js';
+import { usersMatchingLogin } from './sql.js';
 
 const UNKNOWN: IdentityStatus = Object.freeze({ exists: false, active: false, banned: false, deleted: false, invitePending: false, addressVerified: false });
 
@@ -15,6 +16,10 @@ const UNKNOWN: IdentityStatus = Object.freeze({ exists: false, active: false, ba
  */
 @Injectable(IdentityStore)
 export class UserIdentityStore extends IdentityStore {
+  /** Never read: injecting it resolves the Orm, which binds the `User` model, before the first query. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   /**
    * By email or login name, never by Id or Uuid. Case and the normalisation authn-local's throttle applies do not
    * matter, so the throttle and the lookup agree on the account. A value equal to the stored one as typed wins;
@@ -25,7 +30,6 @@ export class UserIdentityStore extends IdentityStore {
       return null;
     }
 
-    await usersOrmUp();
     const typed = login.trim();
     const rows = await runAsSystem('identity-store', () => usersMatchingLogin(login));
 
@@ -70,7 +74,6 @@ export class UserIdentityStore extends IdentityStore {
       return undefined;
     }
 
-    await usersOrmUp();
     return runAsSystem('identity-store', async () => {
       const query = User.query().withDeleted().where('Uuid', id.id);
       return (await (withMetadata ? query.populate('Metadata') : query).first()) ?? undefined;

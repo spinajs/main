@@ -160,7 +160,7 @@ export class StrictMigrationsMySqlDriver extends MySqlOrmDriver {
 
 ## Important behaviour
 
-- A missing table returns `null`, as on SQLite, PostgreSQL and MSSQL. Whether a model whose table is missing fails the `Orm` boot is decided by `db.StrictTableCheck`, the same on every driver; see [Connections](../orm/01-connections.md).
+- A missing table returns `null`, as on SQLite, PostgreSQL and MSSQL. Whether a model whose table is missing fails `OrmMigrator`'s boot pass is decided by `db.StrictTableCheck`, the same on every driver; `Orm.resolve()` only warns. See [Connections](../orm/01-connections.md).
 - `NativeType` is `DATA_TYPE`, so a `BOOLEAN` column reflects as `tinyint` and gets no boolean converter by type. Mark it `@Bool()`.
 - Every column of a multi-column unique index reflects as `Unique: true`, although each column alone is not unique.
 - Reflection issues three queries per table at boot and runs them through `withReconnect()`.
@@ -169,7 +169,7 @@ export class StrictMigrationsMySqlDriver extends MySqlOrmDriver {
 ## Best practices
 
 - Set `Database` on every MySQL connection; reflection, `tableExists()` and the migration table depend on it.
-- Run migrations before the `Orm` boots (`migrate-up`, or `Migration.OnStartup`): the boot reads every model's table after its migration pass.
+- Apply migrations before the app serves (`migrate-up` in the deploy step, or `Migration.OnStartup` with `OrmMigrator` resolved at boot): models then reflect the migrated columns. The `Orm` reads tables `migrate-up` already created, and `OrmMigrator`'s boot pass re-reads the ones its own migrations touched.
 - Declare `@Bool()`, `@DateTime()` and similar converters on columns whose `DATA_TYPE` does not say their JS type.
 
 ## Patterns and antipatterns
