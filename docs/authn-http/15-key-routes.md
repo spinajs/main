@@ -8,8 +8,8 @@
 
 1. `POST /auth/keys/challenge` with `{ "purpose": "register" }` from the user's own full session. The challenge is bound to the user.
 2. The client signs the challenge and sends `POST /user/keys` with the public JWK and `proof: { challengeId, signature }`.
-3. The route takes `reauthPassword` out of the body and runs [`assertFreshAuth()`](05-policies.md#fresh-authentication) in the handler through `freshAuthOrAnswer()`.
-4. The body is checked; then `KeyRegistry.register({ ...key, owner: { type: 'user', id } }, ctx)` verifies the key and the proof.
+3. The body is checked against its DTO first, so a malformed one costs no re-authentication. `@Body({ sensitive })` takes `reauthPassword` out of the request.
+4. The handler runs [`assertFreshAuth()`](05-policies.md#fresh-authentication) through `freshAuthOrAnswer()`, then checks the JWK size and the expiry against now; then `KeyRegistry.register({ ...key, owner: { type: 'user', id } }, ctx)` verifies the key and the proof.
 5. The answer is the key entry.
 
 ### Log in with a key
@@ -42,9 +42,9 @@ sequenceDiagram
 | Method and path | Request body | 200 | Errors |
 | --- | --- | --- | --- |
 | `GET /user/keys` | | list of key entries, revoked and expired ones included and marked | 401, 403 `session_required`, `impersonating` |
-| `POST /user/keys` | `{ "jwk", "proof": { "challengeId", "signature" }, "kid"?, "name"?, "expiresAt"?, "reauthPassword"? }` | the key entry | 400 `invalid_key`, `invalid_kid`, `invalid_name`, `invalid_expiry`, `invalid_scope`, `invalid_proof`; 409 `key_taken`; 403 `fresh_auth_required`; 401 login failure body |
+| `POST /user/keys` | `{ "jwk", "proof": { "challengeId", "signature" }, "kid"?, "name"?, "expiresAt"?, "reauthPassword"? }` | the key entry | 400 `invalid_key`, `invalid_kid`, `invalid_name`, `invalid_expiry`, `invalid_scope`, `invalid_proof`, `invalid_field` (any other key); 409 `key_taken`; 403 `fresh_auth_required`; 401 login failure body |
 | `DELETE /user/keys/:kid` | | no data; the key fails on its next request | 404 `key_not_found` |
-| `POST /auth/keys/challenge` | `{ "purpose": "login", "kid" }` or `{ "purpose": "register" }` | `{ "id", "nonce", "expiresAt" }` | 400 `invalid_purpose`, `invalid_kid`; 429 `throttled`; 401/403 for `register` without a user session |
+| `POST /auth/keys/challenge` | `{ "purpose": "login", "kid" }` or `{ "purpose": "register" }` | `{ "id", "nonce", "expiresAt" }` | 400 `invalid_purpose`, `invalid_kid`, `invalid_field`; 429 `throttled`; 401/403 for `register` without a user session |
 | `POST /auth/keys/login` | `{ "keyId", "challengeId", "signature" }` | principal summary plus extensions and the session cookie, or `{ "MfaRequired", "MfaEnrol" }` | 401 login failure body, `Retry-After` when throttled |
 
 The `/user/keys` routes need `[Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` and the active session of a `user` identity. Every answer carries `Cache-Control: no-store`.
@@ -53,7 +53,7 @@ Field rules for `POST /user/keys`:
 
 | Field | Rule |
 | --- | --- |
-| `jwk` | An object of at most 512 characters as JSON; `KeyRegistry` requires an Ed25519 or P-256 public key. |
+| `jwk` | An object of 1 to 8 members, each a string of at most 128 characters, a boolean, or a list of at most 8 strings of at most 32 characters (a WebCrypto export with `key_ops` and `ext` fits), and at most 512 characters as JSON; `KeyRegistry` requires an Ed25519 or P-256 public key. |
 | `kid` | 1-64 characters of `A-Z a-z 0-9 . _ -`; default: the RFC 7638 thumbprint. |
 | `name` | Non-empty, at most 128 characters, no control characters. |
 | `expiresAt` | ISO 8601 instant after now. |

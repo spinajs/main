@@ -20,14 +20,15 @@ export const AUTHN_HTTP_CONFIGURATION_SCHEMA = {
     csrf: {
       type: 'object',
       default: {},
+      description: 'Deprecated aliases of http.csrf.*, removed in the next major.',
       properties: {
         // Not `type: 'boolean'`: coerceTypes would turn a null into false and switch the guard off.
-        enabled: { enum: [true, false], default: true },
-        allowedOrigins: { type: 'array', default: [], items: { type: 'string', pattern: ORIGIN_PATTERN }, description: 'Besides the same origin, which is always allowed.' },
+        enabled: { enum: [true, false], default: true, description: 'Deprecated: http.csrf.enabled. false here or there switches the guard off.' },
+        allowedOrigins: { type: 'array', default: [], items: { type: 'string', pattern: ORIGIN_PATTERN }, description: 'Deprecated: http.csrf.allowedOrigins. Both lists count.' },
         unauthenticatedRoutes: {
           type: 'array',
           items: { type: 'string', pattern: '^/' },
-          description: 'POST paths (after http.controllers.route.prefix) whose requests without the session cookie must still come from an allowed origin; closes login CSRF.',
+          description: 'Deprecated and ignored: every unsafe request a browser sends is checked now.',
         },
       },
     },

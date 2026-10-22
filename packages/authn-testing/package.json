@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authn-testing",
-  "version": "3.0.12",
+  "version": "3.0.14",
   "description": "Test kit for SpinaJS authentication: fakes, conformance suites, behaviour fixtures",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -55,10 +55,10 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authn": "3.0.12",
-    "@spinajs/exceptions": "3.0.12",
-    "@spinajs/hooks": "3.0.12",
-    "@spinajs/util": "3.0.12",
+    "@spinajs/authn": "3.0.14",
+    "@spinajs/exceptions": "3.0.14",
+    "@spinajs/hooks": "3.0.14",
+    "@spinajs/util": "3.0.14",
     "@sinonjs/fake-timers": "^10.3.0"
   },
   "peerDependencies": {

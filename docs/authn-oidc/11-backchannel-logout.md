@@ -51,7 +51,7 @@ Nothing to configure in the app. Register the URL at the provider:
 https://<your host>/auth/oidc/<provider>/backchannel-logout
 ```
 
-Keycloak calls it "Backchannel logout URL" (keep "Backchannel logout session required" on, so tokens carry `sid`). Auth0, Okta and Entra ID use the same spec. The provider must reach the app; the route needs no session and the CSRF guard of `@spinajs/authn-http` does not apply to it, since the request has no session cookie.
+Keycloak calls it "Backchannel logout URL" (keep "Backchannel logout session required" on, so tokens carry `sid`). Auth0, Okta and Entra ID use the same spec. The provider must reach the app; the route needs no session and is `@CsrfExempt()`, so the [CSRF guard](../http/23-csrf-guard.md) never refuses it.
 
 ## Services and extension points
 

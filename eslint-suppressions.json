@@ -1,12 +1,4 @@
 {
-  "packages/authn-http/src/keys/fields.ts": {
-    "complexity": {
-      "count": 1
-    },
-    "no-control-regex": {
-      "count": 1
-    }
-  },
   "packages/authn-http/src/mfa/gate.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
@@ -15,11 +7,6 @@
   "packages/authn-http/src/middleware/authn.ts": {
     "@typescript-eslint/no-misused-promises": {
       "count": 1
-    }
-  },
-  "packages/authn-http/src/token/fields.ts": {
-    "complexity": {
-      "count": 2
     }
   },
   "packages/authn-http/src/v3/register.ts": {
@@ -94,11 +81,6 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
-    }
-  },
-  "packages/authn-http/test/v3-app/suites/login.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 10
     }
   },
   "packages/authn-http/test/v3-app/suites/mfa.ts": {
@@ -401,11 +383,6 @@
   },
   "packages/authn-local/test/support/recording-log.ts": {
     "@typescript-eslint/no-base-to-string": {
-      "count": 1
-    }
-  },
-  "packages/authn-oidc/src/controllers/OidcController.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
   },
@@ -1221,13 +1198,10 @@
   },
   "packages/authz-http-admin/src/controllers/AuthzAdminController.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 2
+      "count": 1
     }
   },
   "packages/authz-http-admin/src/schemas/document.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 5
-    },
     "complexity": {
       "count": 1
     }
@@ -1251,7 +1225,7 @@
       "count": 2
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 20
+      "count": 21
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 2
@@ -1265,7 +1239,7 @@
       "count": 4
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 101
+      "count": 107
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 11
@@ -1289,16 +1263,16 @@
   },
   "packages/authz-http-admin/test/swagger.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 9
+      "count": 12
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 61
+      "count": 80
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 8
+      "count": 9
     }
   },
   "packages/authz-http/src/access/contributor.ts": {
@@ -1315,11 +1289,6 @@
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     },
-    "complexity": {
-      "count": 1
-    }
-  },
-  "packages/authz-http/src/client-access/checks.ts": {
     "complexity": {
       "count": 1
     }
@@ -1350,7 +1319,7 @@
       "count": 3
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 28
+      "count": 30
     }
   },
   "packages/authz-http/test/access-epoch.test.ts": {
@@ -1627,7 +1596,7 @@
   },
   "packages/authz-queue/src/bus/change-bus.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 2
+      "count": 1
     },
     "complexity": {
       "count": 1
@@ -4564,12 +4533,6 @@
   },
   "packages/http/src/route-args/FromBody.ts": {
     "@typescript-eslint/no-unsafe-enum-comparison": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
-    },
-    "prefer-const": {
       "count": 1
     }
   },

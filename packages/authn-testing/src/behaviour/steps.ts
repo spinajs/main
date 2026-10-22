@@ -126,6 +126,7 @@ export function throttleParams(config: ConfigOverrides = {}): ThrottleParams {
     mfa: mergeFlow(DEFAULT_THROTTLE.mfa, o.mfa),
     reset: mergeFlow(DEFAULT_THROTTLE.reset, o.reset),
     reauth: mergeFlow(DEFAULT_THROTTLE.reauth, o.reauth),
+    register: mergeFlow(DEFAULT_THROTTLE.register, o.register),
     resetAfterSeconds: o.resetAfterSeconds ?? DEFAULT_THROTTLE.resetAfterSeconds,
     global: o.global === undefined ? DEFAULT_THROTTLE.global : (o.global as BackoffParams | null),
   };

@@ -27,6 +27,7 @@ import { requirePermitted } from './permit.js';
 import { bindContext, keptFailure, wasListChecked } from './refusals.js';
 import { AuthzAdminReader } from './ports.js';
 import { isObject } from '../engine/internal/util.js';
+import { idempotencyKeyField, isValidField, reasonField } from '../schemas/fields.js';
 // The default AuthzEventSink registration.
 import './sink.js';
 
@@ -472,8 +473,8 @@ function readOptions(opts: unknown): { readonly reason?: string; readonly idempo
   if (opts === undefined || opts === null) return { dryRun: false };
   if (!isObject(opts)) throw new AuthzAdminFailure('invalid_batch', `options must be an object, got ${q(opts)}`);
   const { reason, idempotencyKey, dryRun } = opts;
-  if (reason !== undefined && typeof reason !== 'string') throw new AuthzAdminFailure('invalid_batch', 'reason must be a string', 'reason');
-  if (idempotencyKey !== undefined && (typeof idempotencyKey !== 'string' || idempotencyKey === '')) throw new AuthzAdminFailure('invalid_batch', 'idempotencyKey must be a non-empty string', 'idempotencyKey');
+  if (reason !== undefined && !isValidField(reasonField, reason)) throw new AuthzAdminFailure('invalid_batch', `reason must be a string of at most ${reasonField.maxLength} characters`, 'reason');
+  if (idempotencyKey !== undefined && !isValidField(idempotencyKeyField, idempotencyKey)) throw new AuthzAdminFailure('invalid_batch', `idempotencyKey must be a non-empty string of at most ${idempotencyKeyField.maxLength} characters`, 'idempotencyKey');
   if (dryRun !== undefined && typeof dryRun !== 'boolean') throw new AuthzAdminFailure('invalid_batch', 'dryRun must be a boolean', 'dryRun');
   return {
     ...(reason === undefined ? {} : { reason }),

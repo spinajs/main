@@ -74,7 +74,7 @@ export class WebAuthnPasskeyService extends PasskeyService {
     const { credentials, challenges, options } = this.deps();
     const challenge = newChallenge(identity ? 'mfa' : 'login', ctx.now, options.challengeTtlSeconds, identity);
     const request = await assertionOptions(options, challenge, identity ? await credentials.listFor(identity) : []);
-    await challenges.put(challenge);
+    await challenges.put(challenge, options.challenges?.maxRows);
     return { challengeId: challenge.id, options: request as unknown as Readonly<Record<string, unknown>> };
   }
 

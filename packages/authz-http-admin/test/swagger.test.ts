@@ -9,11 +9,16 @@ import { OpenApiBuilder, SwaggerDocCache } from '@spinajs/http-swagger';
 import type { IOpenApiDocument } from '@spinajs/http-swagger';
 
 import { AuthzAdminController } from '../src/controllers/AuthzAdminController.js';
-import { AUTHZ_ADMIN_ROUTES, AUTHZ_ADMIN_SCHEMAS, COMMAND_KINDS, commandSchemas, describeAuthzAdminDocument } from '../src/schemas/index.js';
+import { ASSIGNMENT_GRANT_SCHEMA, ASSIGNMENT_PATCH_SCHEMA, LINK_CREATE_SCHEMA, LINK_PATCH_SCHEMA, POLICY_BODY_SCHEMA, RULE_BODY_SCHEMA } from '../src/dto/index.js';
+import { AUTHZ_ADMIN_SCHEMAS, COMMAND_KINDS, commandSchemas, describeAuthzAdminDocument } from '../src/schemas/index.js';
 import { startApp, stopApp } from './support/app.js';
 
 // The controller's JSDoc is read from the compiled declaration file (`pretest` compiles it).
 const COMPILED = resolve(process.cwd(), 'lib', 'mjs', 'controllers', 'AuthzAdminController.js');
+
+const descriptor = Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, AuthzAdminController.prototype) as IControllerDescriptor;
+/** Every route of the controller as its document path. */
+const ROUTES = [...descriptor.Routes.values()].map((r) => ({ method: r.Type as string, path: `/authz/${(r.Path ?? '').replace(/:(\w+)/g, '{$1}')}` }));
 
 // ModelSchemaProvider (@spinajs/orm, loaded by the other tests) iterates the '__models__' registry and fails while it is empty.
 class RegistryPlaceholder {}
@@ -43,13 +48,13 @@ describe('authz-http-admin swagger', function () {
   });
 
   it('documents every route under the Authz admin tag, with a summary', () => {
-    for (const r of AUTHZ_ADMIN_ROUTES) {
+    for (const r of ROUTES) {
       const op = doc.paths[r.path]?.[r.method];
       expect(op, `${r.method} ${r.path}`).to.not.eq(undefined);
       expect(op.tags, `${r.method} ${r.path}`).to.deep.eq(['Authz admin']);
       expect(op.summary, `${r.method} ${r.path}`).to.be.a('string').that.is.not.empty;
     }
-    expect(Object.values(doc.paths).flatMap((p: any) => Object.keys(p))).to.have.length(AUTHZ_ADMIN_ROUTES.length);
+    expect(Object.values(doc.paths).flatMap((p: any) => Object.keys(p))).to.have.length(ROUTES.length);
   });
 
   it('explains on the tag that the routes check authentication only', () => {
@@ -59,7 +64,7 @@ describe('authz-http-admin swagger', function () {
   });
 
   it('documents 401 and 403 on every route, and 404 and 409 on every write', () => {
-    for (const r of AUTHZ_ADMIN_ROUTES) {
+    for (const r of ROUTES) {
       const op = doc.paths[r.path][r.method];
       expect(op.responses, `${r.method} ${r.path}`).to.include.keys(['200', '400', '401', '403']);
       if (r.method !== 'get') expect(op.responses, `${r.method} ${r.path}`).to.include.keys(['404', '409']);
@@ -97,16 +102,40 @@ describe('authz-http-admin swagger', function () {
     expect(grant.properties.expiresAt).to.include({ type: 'string', format: 'date-time' });
   });
 
-  it('documents the per-route bodies', () => {
-    const bodyOf = (path: string, method: string) => doc.paths[path][method].requestBody?.content['application/json'].schema.$ref;
-    expect(bodyOf('/authz/assignments', 'post')).to.eq('#/components/schemas/AuthzAssignmentGrant');
-    expect(bodyOf('/authz/assignments/{id}', 'patch')).to.eq('#/components/schemas/AuthzAssignmentPatch');
-    expect(bodyOf('/authz/rules/{id}', 'put')).to.eq('#/components/schemas/AuthzRuleBody');
-    expect(bodyOf('/authz/policies/{id}', 'put')).to.eq('#/components/schemas/AuthzPolicyBody');
-    expect(bodyOf('/authz/scopes/{type}/{id}/attributes', 'patch')).to.eq('#/components/schemas/AuthzAttributesPatch');
-    expect(bodyOf('/authz/scopes/{type}/{id}/attributes', 'put')).to.eq('#/components/schemas/AuthzAttributesBody');
+  it('documents each request body as the DTO the route validates it against', () => {
+    const bodyOf = (path: string, method: string) => doc.paths[path][method].requestBody?.content['application/json'].schema;
+    for (const [path, method, dto] of [
+      ['/authz/assignments', 'post', ASSIGNMENT_GRANT_SCHEMA],
+      ['/authz/assignments/{id}', 'patch', ASSIGNMENT_PATCH_SCHEMA],
+      ['/authz/links', 'post', LINK_CREATE_SCHEMA],
+      ['/authz/links/{id}', 'patch', LINK_PATCH_SCHEMA],
+      ['/authz/rules/{id}', 'put', RULE_BODY_SCHEMA],
+      ['/authz/policies/{id}', 'put', POLICY_BODY_SCHEMA],
+    ] as const) {
+      const body = bodyOf(path, method);
+      const expected = dto as unknown as { properties: object; required: string[]; description: string };
+      expect(body, `${method} ${path}`).to.not.eq(undefined);
+      expect(Object.keys(body.properties), `${method} ${path}`).to.have.members(Object.keys(expected.properties));
+      expect(body.required ?? [], `${method} ${path}`).to.deep.eq(expected.required);
+      expect(body.additionalProperties, `${method} ${path}`).to.eq(false);
+      expect(body.description, `${method} ${path}`).to.eq(expected.description);
+    }
+    expect(bodyOf('/authz/scopes/{type}/{id}/attributes', 'patch')).to.deep.include({ type: 'object' });
+    expect(bodyOf('/authz/scopes/{type}/{id}/attributes', 'patch').description).to.match(/deep merge/);
+    expect(bodyOf('/authz/scopes/{type}/{id}/attributes', 'put').description).to.match(/replaces all/);
+    expect(bodyOf('/authz/scopes/{type}/{id}/attributes', 'put')).to.not.have.property('$id');
     expect(bodyOf('/authz/assignments/{id}', 'delete')).to.eq(undefined);
-    for (const name of Object.keys(AUTHZ_ADMIN_SCHEMAS)) expect(doc.components.schemas, name).to.have.property(name);
+    expect(bodyOf('/authz/assignments', 'get')).to.eq(undefined);
+  });
+
+  it('keeps the answer schemas as components and refers every answer to one of them', () => {
+    for (const [name, schema] of Object.entries(AUTHZ_ADMIN_SCHEMAS)) expect(doc.components.schemas[name], name).to.deep.eq(schema);
+    for (const r of ROUTES) {
+      for (const [code, response] of Object.entries<any>(doc.paths[r.path][r.method].responses)) {
+        const ref: string | undefined = response.content?.['application/json']?.schema?.$ref;
+        if (ref !== undefined) expect(Object.keys(AUTHZ_ADMIN_SCHEMAS), `${r.method} ${r.path} ${code}`).to.include(ref.replace('#/components/schemas/', ''));
+      }
+    }
   });
 
   it('documents the query parameters with their encodings', () => {
@@ -133,18 +162,25 @@ describe('authz-http-admin swagger', function () {
     expect(described.components.schemas.AuthzAdminPage.required).to.deep.eq(['items', 'total']);
   });
 
-  it('lists every route of the controller in AUTHZ_ADMIN_ROUTES', () => {
-    const descriptor = Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, AuthzAdminController.prototype) as IControllerDescriptor;
-    const routes = [...descriptor.Routes.values()].map((r) => `${r.Type} /authz/${(r.Path ?? '').replace(/:(\w+)/g, '{$1}')}`);
-    expect(routes).to.have.members(AUTHZ_ADMIN_ROUTES.map((r) => `${r.method} ${r.path}`));
-    expect(routes).to.have.length(AUTHZ_ADMIN_ROUTES.length);
+  it('documents a request body exactly on the routes that take one', () => {
+    const withBody = ROUTES.filter((r) => doc.paths[r.path][r.method].requestBody !== undefined).map((r) => `${r.method} ${r.path}`);
+    expect(withBody).to.have.members(['post /authz/commands', 'post /authz/assignments', 'patch /authz/assignments/{id}', 'post /authz/links', 'patch /authz/links/{id}', 'put /authz/rules/{id}', 'put /authz/policies/{id}', 'patch /authz/scopes/{type}/{id}/attributes', 'put /authz/scopes/{type}/{id}/attributes']);
+  });
+
+  it('documents the query and path parameters with the caps the routes enforce', () => {
+    const query = (path: string, method: string) => Object.fromEntries(doc.paths[path][method].parameters.filter((p: any) => p.in === 'query').map((p: any) => [p.name, p]));
+    const options = query('/authz/links', 'post');
+    expect(options.reason.schema.maxLength).to.eq(512);
+    expect(options.idempotencyKey.schema.maxLength).to.eq(128);
+    expect(query('/authz/assignments', 'get').limit.schema).to.include({ type: 'integer', minimum: 0, maximum: 500 });
+    expect(doc.paths['/authz/assignments/{id}'].delete.parameters.find((p: any) => p.in === 'path').schema.maxLength).to.eq(160);
   });
 
   it('documents the link routes: bodies, query, and the token shown once with no-store', () => {
-    const bodyOf = (path: string, method: string) => doc.paths[path][method].requestBody?.content['application/json'].schema.$ref;
+    const bodyOf = (path: string, method: string) => doc.paths[path][method].requestBody?.content['application/json'].schema;
     const query = (path: string, method: string) => doc.paths[path][method].parameters.filter((p: any) => p.in === 'query').map((p: any) => p.name);
-    expect(bodyOf('/authz/links', 'post')).to.eq('#/components/schemas/AuthzLinkCreate');
-    expect(bodyOf('/authz/links/{id}', 'patch')).to.eq('#/components/schemas/AuthzLinkPatch');
+    expect(bodyOf('/authz/links', 'post').required).to.deep.eq(['scope', 'role']);
+    expect(Object.keys(bodyOf('/authz/links/{id}', 'patch').properties)).to.have.members(['id', 'expiresAt', 'attributes', 'role', 'tags']);
     expect(bodyOf('/authz/links/{id}', 'delete')).to.eq(undefined);
     expect(query('/authz/links', 'get')).to.have.members(['scope', 'limit', 'offset', 'after']);
     for (const [path, method] of [
@@ -154,8 +190,6 @@ describe('authz-http-admin swagger', function () {
     ])
       expect(query(path, method), `${method} ${path}`).to.have.members(['reason', 'idempotencyKey', 'dryRun']);
     expect(doc.paths['/authz/links'].get.responses['200'].content['application/json'].schema.$ref).to.eq('#/components/schemas/AuthzAdminPage');
-    expect(doc.components.schemas.AuthzLinkCreate.required).to.deep.eq(['scope', 'role']);
-    expect(Object.keys(doc.components.schemas.AuthzLinkPatch.properties)).to.have.members(['id', 'expiresAt', 'attributes', 'role', 'tags']);
 
     for (const [path, method] of [
       ['/authz/links', 'post'],
@@ -171,7 +205,7 @@ describe('authz-http-admin swagger', function () {
 
   it('names the 400 codes each route can answer', () => {
     const bad = (path: string, method: string): string => doc.paths[path][method].responses['400'].description;
-    for (const r of AUTHZ_ADMIN_ROUTES) {
+    for (const r of ROUTES) {
       const text = bad(r.path, r.method);
       if (r.method === 'get') {
         expect(text, `${r.method} ${r.path}`).to.match(/invalid_query/);

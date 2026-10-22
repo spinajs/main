@@ -69,6 +69,7 @@ const THROTTLE_DEFAULTS = {
   mfa: { account: { free: 3, baseDelayMs: 1000, maxDelayMs: 300000 }, ip: { free: 20, baseDelayMs: 1000, maxDelayMs: 300000 } },
   reset: { account: { free: 1, baseDelayMs: 60000, maxDelayMs: 3600000 }, ip: { free: 5, baseDelayMs: 10000, maxDelayMs: 900000 } },
   reauth: { account: { free: 3, baseDelayMs: 1000, maxDelayMs: 300000 } },
+  register: { account: { free: 3, baseDelayMs: 60000, maxDelayMs: 3600000 }, ip: { free: 10, baseDelayMs: 30000, maxDelayMs: 3600000 } },
   resetAfterSeconds: 86400,
   global: null as null | Json,
   maxRows: 1_000_000,
@@ -347,15 +348,16 @@ describe('authn config boundary', () => {
     expect(Object.keys(contracts)).to.not.include.members(['AUTHN_CONFIGURATION_SCHEMA']);
   });
 
-  it('src/schemas imports nothing but its own files', () => {
+  // fields.ts reads PASSWORD_HARD_CAP from the contracts and checks values with its own ajv; neither has side effects.
+  it('src/schemas imports nothing but its own files, the password contract, ajv and the exceptions', () => {
     const files = readdirSync(SCHEMAS_DIR).filter((f) => f.endsWith('.ts'));
-    expect(files).to.have.members(['authn.configuration.ts', 'index.ts']);
+    expect(files).to.have.members(['authn.configuration.ts', 'fields.ts', 'index.ts']);
     const outside = files.flatMap((f) =>
       ts
         .preProcessFile(readFileSync(join(SCHEMAS_DIR, f), 'utf8'), true, true)
         .importedFiles.map((i) => i.fileName)
         .filter((s) => !/^\.\/[\w.-]+\.js$/.test(s)),
     );
-    expect(outside).to.deep.eq([]);
+    expect(outside).to.have.members(['ajv', 'ajv', '@spinajs/exceptions', '../contracts/password.js']);
   });
 });

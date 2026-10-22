@@ -109,10 +109,10 @@ describe('2.x role tests on the admin routes', function () {
   });
 
   describe('role validation', () => {
-    it('refuses an empty role name with 400 invalid_command (ledger 59)', async () => {
+    it('refuses an empty role name with 400 invalid_request, before AuthzAdmin (ledger 59)', async () => {
       const res = await post(root, 'erin', '');
       expect(res.status).to.equal(400);
-      expect(errorOf(res)).to.deep.include({ code: 'invalid_command', field: 'role' });
+      expect(res.body.error).to.deep.include({ code: 'invalid_request', field: 'role' });
       expect(await rolesOf('erin')).to.deep.equal(['reader']);
     });
 

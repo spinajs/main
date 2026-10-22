@@ -12,13 +12,13 @@ import { FakeIdentityStore, FakeMfaStep, MemoryLinkStore, MemorySessionIssuer, R
 import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 import type { ActionName, ActionPattern, BeforeContext } from '@spinajs/hooks';
 import { RecordingActionHook, mutatingHook, refusingHook } from '@spinajs/hooks/testing';
-import type { Request } from '@spinajs/http';
 
 import { encodeFlow } from '../src/flow/cookie.js';
 import { AUTHN_OIDC_CONFIGURATION_SCHEMA } from '../src/options/schema.js';
 import { OidcHttpClient } from '../src/http/client.js';
 import { OidcProviders, registerOidcStrategies } from '../src/providers.js';
 import { OidcController } from '../src/controllers/OidcController.js';
+import { BackchannelForm } from '../src/dto.js';
 import { OidcLogin } from '../src/login.js';
 import type { OidcAnswer } from '../src/login.js';
 import { BACKCHANNEL_LOGOUT_EVENT } from '../src/token/logout-token.js';
@@ -143,7 +143,7 @@ async function logoutToken(idp: FakeIdp, claims: Record<string, unknown>): Promi
   return idp.sign(idp.keys[0], JSON.stringify(body), { typ: 'logout+jwt' });
 }
 
-const request = (body: unknown) => ({ body, is: (t: string) => (t === FORM ? t : false), get: () => undefined, cookies: {}, query: {}, socket: {} }) as unknown as Request;
+const IDP_PEER = { encrypted: true, peer: '198.51.100.7', clientIp: '198.51.100.7' };
 const answerOf = (r: unknown): OidcAnswer => (r as { answer: OidcAnswer }).answer;
 
 describe('authn-oidc action hooks', function () {
@@ -252,7 +252,7 @@ describe('authn-oidc action hooks', function () {
     await w.links.link(alice, { provider: STRATEGY, subject: 'kc-alice' });
     const a1 = await w.login('kc-alice', 'idp-1');
     const a2 = await w.login('kc-alice', 'idp-2');
-    const res = await w.controller.backchannelLogout('corp', request({ logout_token: await logoutToken(w.idp, { sid: 'idp-1' }) }));
+    const res = await w.controller.backchannelLogout('corp', IDP_PEER, FORM, new BackchannelForm({ logout_token: await logoutToken(w.idp, { sid: 'idp-1' }) }));
     expect(answerOf(res).status).to.eq(200);
     expect(await w.sessions.restore(a1.id), 'the sid is logged out').to.eq(null);
     expect(await w.sessions.restore(a2.id), 'another sid stays').to.not.eq(null);
@@ -271,7 +271,7 @@ describe('authn-oidc action hooks', function () {
     const a1 = await w.login('kc-alice', 'idp-1');
     const run = sinon.spy(DefaultHooks.prototype, 'run');
     try {
-      const res = await w.controller.backchannelLogout('corp', request({ logout_token: await logoutToken(w.idp, { sid: 'idp-1' }) }));
+      const res = await w.controller.backchannelLogout('corp', IDP_PEER, FORM, new BackchannelForm({ logout_token: await logoutToken(w.idp, { sid: 'idp-1' }) }));
       expect(answerOf(res).status).to.eq(200);
       expect(await w.sessions.restore(a1.id)).to.eq(null);
       expect(run.callCount).to.eq(0);

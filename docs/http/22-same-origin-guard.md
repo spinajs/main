@@ -1,6 +1,6 @@
 # Same-origin guard
 
-`checkSameOrigin()` decides whether a request comes from the app's own origin, from the `Origin` and `Sec-Fetch-Site` headers. `SameOriginGuard` is a server middleware built on it that answers 403 to cross-origin state-changing requests. Browsers send cookies with cross-site requests, so this check is the CSRF defence for cookie-authenticated routes. The guard is not registered by default: subclass it, choose which requests it checks, and register the subclass.
+`checkSameOrigin()` decides whether a request comes from the app's own origin, from the `Origin` and `Sec-Fetch-Site` headers. `SameOriginGuard` is a server middleware built on it that answers 403 to cross-origin state-changing requests. Browsers send cookies with cross-site requests, so this check is the CSRF defence for cookie-authenticated routes. `SameOriginGuard` itself is abstract and not registered. Its subclass [`CsrfGuard`](23-csrf-guard.md) is registered and on by default; configure that one through `http.csrf.*` rather than adding your own. Subclass `SameOriginGuard` only for a separate check: a registered subclass runs as a second guard next to `CsrfGuard`.
 
 ## How it works
 
@@ -48,6 +48,8 @@ The guard has no configuration keys of its own. A subclass reads its allowed ori
 ## Examples
 
 ### A guard for cookie-authenticated requests
+
+This guard runs **in addition to** the registered `CsrfGuard`; it does not replace it. For a session cookie, listing it in `http.csrf.ambientCookies` is usually enough.
 
 ```ts sample
 import { Injectable } from '@spinajs/di';

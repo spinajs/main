@@ -47,7 +47,7 @@
           "Authentication"
         ],
         "summary": "Switch the active role",
-        "description": "Body `{ role, password? }`. 400 for a malformed role, 403 for a role not held, 401 with the login failure body when the password fails (no Retry-After). Not while impersonating.\n\n**Policies applied:**\n- [`RoleSourceRegistered`](#policy-rolesourceregistered) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "Body `{ role, password? }`. 400 for a malformed role (`invalid_field` for an unknown field), 403 for a role not held, 401 with the login failure body when the password fails or is no string (no Retry-After). Not while impersonating.\n\n**Policies applied:**\n- [`RoleSourceRegistered`](#policy-rolesourceregistered) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "responses": {
           "200": {
             "description": "The principal summary narrowed to the role",
@@ -96,12 +96,26 @@
           }
         ],
         "requestBody": {
-          "description": "The role, and the password when the role asks for a fresh one",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnActiveRoleBody"
+                "type": "object",
+                "required": [
+                  "role"
+                ],
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "password": {
+                    "type": "string",
+                    "description": "when the role asks for a fresh password"
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -111,6 +125,126 @@
           "Authenticated",
           "NoTokenAuthPolicy",
           "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/auth/code/request": {
+      "post": {
+        "operationId": "AuthnCodeLoginController_request",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Request a login code",
+        "description": "Body `{ login }`. Answers 202 `{ Ok: true }` at once, whether or not the account exists and whether or not a mail goes\r\nout; the code travels only in the mail. 429 with Retry-After when throttled (per login and per client ip), 400\r\n`invalid_login` without a login. An `authn.code.request` hook that refuses gets the same 202, and no mail goes out.\n\n**Policies applied:**\n- [`CodeLoginRegistered`](#policy-codeloginregistered) (controller)",
+        "responses": {
+          "202": {
+            "description": "Always { Ok: true }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnOk"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_login or invalid_field",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "login"
+                ],
+                "properties": {
+                  "login": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "CodeLoginRegistered"
+        ]
+      }
+    },
+    "/auth/code/login": {
+      "post": {
+        "operationId": "AuthnCodeLoginController_login",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Log in with a code",
+        "description": "Body `{ login, code }`. Ends a session the caller already holds. Success: the session cookie and the principal summary\r\nwith the login extensions. Any failure, a wrong or spent code included: 401 with the one login failure body, plus\r\nRetry-After when throttled.\n\n**Policies applied:**\n- [`CodeLoginRegistered`](#policy-codeloginregistered) (controller)",
+        "responses": {
+          "200": {
+            "description": "The principal summary, or the pending answer when MFA is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnLoginAnswer"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The login failed (Retry-After when throttled)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnFailure"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "login",
+                  "code"
+                ],
+                "properties": {
+                  "login": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "CodeLoginRegistered"
         ]
       }
     },
@@ -129,7 +263,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "maxLength": 512
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
             }
           }
         ],
@@ -161,12 +295,23 @@
           }
         ],
         "requestBody": {
-          "description": "Whether to mail a reset link, and the password for a stale session",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnPasswordResetAdminBody"
+                "type": "object",
+                "required": [],
+                "properties": {
+                  "sendReset": {
+                    "type": "boolean",
+                    "description": "also mail the user a reset link (default true)"
+                  },
+                  "reauthPassword": {
+                    "type": "string",
+                    "description": "the account password, when the session is not fresh"
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -195,7 +340,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "maxLength": 512
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
             }
           }
         ],
@@ -217,12 +362,19 @@
           }
         ],
         "requestBody": {
-          "description": "The password, for a stale session",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnReauthBody"
+                "type": "object",
+                "required": [],
+                "properties": {
+                  "reauthPassword": {
+                    "type": "string",
+                    "description": "the account password, when the session is not fresh"
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -251,7 +403,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "maxLength": 512
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
             }
           }
         ],
@@ -273,12 +425,19 @@
           }
         ],
         "requestBody": {
-          "description": "The password, for a stale session",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnReauthBody"
+                "type": "object",
+                "required": [],
+                "properties": {
+                  "reauthPassword": {
+                    "type": "string",
+                    "description": "the account password, when the session is not fresh"
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -307,7 +466,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "maxLength": 512
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
             }
           }
         ],
@@ -329,12 +488,19 @@
           }
         ],
         "requestBody": {
-          "description": "The password, for a stale session",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnReauthBody"
+                "type": "object",
+                "required": [],
+                "properties": {
+                  "reauthPassword": {
+                    "type": "string",
+                    "description": "the account password, when the session is not fresh"
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -384,7 +550,7 @@
           "Impersonation"
         ],
         "summary": "Start impersonating",
-        "description": "Body `{ target, password? }`: `target` is a user id or `{ type, id }`. 400 for a malformed target, 401 with the login failure body when the password fails, 403 when refused.\n\n**Policies applied:**\n- [`ImpersonationGuardRegistered`](#policy-impersonationguardregistered) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`MfaSatisfied`](#policy-mfasatisfied)",
+        "description": "Body `{ target, password? }`: `target` is a user id or `{ type, id }`. 400 for a malformed target (`invalid_field` for an unknown field), 401 with the login failure body when the password fails or is no string, 403 when refused.\n\n**Policies applied:**\n- [`ImpersonationGuardRegistered`](#policy-impersonationguardregistered) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`MfaSatisfied`](#policy-mfasatisfied)",
         "responses": {
           "200": {
             "description": "The principal summary of the target",
@@ -433,12 +599,51 @@
           }
         ],
         "requestBody": {
-          "description": "The target, and the password for a stale session",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnImpersonationBody"
+                "type": "object",
+                "required": [
+                  "target"
+                ],
+                "properties": {
+                  "target": {
+                    "description": "a user id, or { type, id }",
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "type",
+                          "id"
+                        ],
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "password": {
+                    "type": "string",
+                    "description": "the account password, when the session is not fresh"
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -520,7 +725,7 @@
           "Keys"
         ],
         "summary": "Register a key",
-        "description": "Body `{ jwk, proof: { challengeId, signature }, kid?, name?, expiresAt?, reauthPassword? }`: an Ed25519 or P-256\r\npublic JWK and its signature over a register challenge this user asked for (POST /auth/keys/challenge). Needs fresh\r\nauth: a login within authn.freshAuth.maxAgeSeconds or the account password in `reauthPassword`, verified for this\r\nrequest only. Answers the key. 400 `invalid_key`, `invalid_kid`, `invalid_name`, `invalid_expiry`, `invalid_scope`\r\nor `invalid_proof` (also a used, expired or foreign challenge); 409 `key_taken` when the kid or the key is\r\nregistered already; 403 `fresh_auth_required` for a stale session without the password; a wrong or throttled\r\npassword the login failure body without Retry-After.\n\n**Policies applied:**\n- [`KeyRoutesOn`](#policy-keyrouteson) (controller) — The first policy of the key routes: 404 `not_found` while no KeyRegistry is registered, or while authn.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "Body `{ jwk, proof: { challengeId, signature }, kid?, name?, expiresAt?, reauthPassword? }`: an Ed25519 or P-256\r\npublic JWK and its signature over a register challenge this user asked for (POST /auth/keys/challenge). Needs fresh\r\nauth: a login within authn.freshAuth.maxAgeSeconds or the account password in `reauthPassword`, verified for this\r\nrequest only. Answers the key. 400 `invalid_key`, `invalid_kid`, `invalid_name`, `invalid_expiry`, `invalid_scope`\r\nor `invalid_proof` (also a used, expired or foreign challenge), `invalid_field` for another unknown field; 409\r\n`key_taken` when the kid or the key is registered already; 403 `fresh_auth_required` for a stale session without\r\nthe password; a wrong or throttled password, or one that is no string, the login failure body without Retry-After.\r\nThe body is checked before fresh auth, so a malformed one costs no re-authentication.\n\n**Policies applied:**\n- [`KeyRoutesOn`](#policy-keyrouteson) (controller) — The first policy of the key routes: 404 `not_found` while no KeyRegistry is registered, or while authn.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "responses": {
           "200": {
             "description": "The registered key",
@@ -579,12 +784,80 @@
           }
         ],
         "requestBody": {
-          "description": "The public key, its proof, and the password for a stale session",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnKeyRegisterBody"
+                "type": "object",
+                "required": [
+                  "jwk",
+                  "proof"
+                ],
+                "properties": {
+                  "jwk": {
+                    "type": "object",
+                    "description": "an Ed25519 (OKP) or P-256 (EC) public JWK",
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 128
+                        },
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "maxLength": 32
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "proof": {
+                    "type": "object",
+                    "description": "the signature over a register challenge of this user",
+                    "required": [
+                      "challengeId",
+                      "signature"
+                    ],
+                    "properties": {
+                      "challengeId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 600
+                      },
+                      "signature": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "kid": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9._-]{1,64}$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*$"
+                  },
+                  "expiresAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "maxLength": 40
+                  },
+                  "reauthPassword": {
+                    "type": "string",
+                    "description": "the account password, when the session is not fresh"
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -612,7 +885,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "maxLength": 512
+              "pattern": "^[A-Za-z0-9._-]{1,64}$"
             }
           }
         ],
@@ -676,12 +949,29 @@
         },
         "security": [],
         "requestBody": {
-          "description": "The purpose, and the key of a login challenge",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnKeyChallengeBody"
+                "type": "object",
+                "required": [
+                  "purpose"
+                ],
+                "properties": {
+                  "purpose": {
+                    "type": "string",
+                    "enum": [
+                      "login",
+                      "register"
+                    ]
+                  },
+                  "kid": {
+                    "type": "string",
+                    "description": "the key to log in with (purpose login)",
+                    "pattern": "^[A-Za-z0-9._-]{1,64}$"
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -723,12 +1013,33 @@
         },
         "security": [],
         "requestBody": {
-          "description": "The signature over a login challenge",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnKeyLoginBody"
+                "type": "object",
+                "required": [
+                  "keyId",
+                  "challengeId",
+                  "signature"
+                ],
+                "properties": {
+                  "keyId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9._-]{1,64}$"
+                  },
+                  "challengeId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 600
+                  },
+                  "signature": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -745,7 +1056,7 @@
           "Authentication"
         ],
         "summary": "Login",
-        "description": "Body `{ login, password }`. Ends a session the caller already holds. Success: the session cookie and the principal summary with the login extensions. MFA required: 200\r\n`{ MfaRequired: [steps], MfaEnrol: [steps to enrol first] }` with the pending session cookie. Any failure: 401 with one\r\nbody, plus Retry-After when throttled.",
+        "description": "Body `{ login, password }`. Ends a session the caller already holds. Success: the session cookie and the principal summary with the login extensions. MFA required: 200\r\n`{ MfaRequired: [steps], MfaEnrol: [steps to enrol first] }` with the pending session cookie. Any failure, a body\r\nthe schema refuses included: 401 with one body, plus Retry-After when throttled.",
         "responses": {
           "200": {
             "description": "The principal summary, or the pending answer when MFA is required",
@@ -770,12 +1081,28 @@
         },
         "security": [],
         "requestBody": {
-          "description": "The credentials",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnLoginBody"
+                "type": "object",
+                "required": [
+                  "login",
+                  "password"
+                ],
+                "properties": {
+                  "login": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -790,6 +1117,26 @@
         ],
         "summary": "Logout",
         "description": "Ends the session of the cookie, pending ones included (an impersonation ends with it), and clears the cookie and\r\nthe site data of `authn.http.logout.clearSiteData` (default cache, cookies and storage). Audited as `logout`, and as\r\n`impersonation.end` (reason `logout`) for an impersonation (A20, A21).\r\nPOST, so no cross-site link can log anyone out. After the revoke every AuthnLogoutExtension may name a redirect (an OIDC\r\nprovider's end_session_endpoint): a navigation request gets 303 to it, any other client 200 `{ endSession }`. An\r\n`authn.logout` hook that refuses answers 403 `action_refused` with its code and keeps the session and the cookie.",
+        "parameters": [
+          {
+            "name": "accept",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 16384
+            }
+          },
+          {
+            "name": "sec-fetch-mode",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful response"
@@ -799,6 +1146,16 @@
           },
           "401": {
             "description": "No session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "action_refused (with `code`) when an `authn.logout` hook refuses",
             "content": {
               "application/json": {
                 "schema": {
@@ -859,7 +1216,7 @@
           "Authentication"
         ],
         "summary": "Verify an MFA step",
-        "description": "Body `{ code, step? }`: `step` when it is one of the pending steps, else the first pending step.",
+        "description": "Body `{ code, step? }`: `step` when it is one of the pending steps, else the first pending step.\n\n**Policies applied:**\n- [`PendingSessionOnly`](#policy-pendingsessiononly) — 401 without a session, 403 `mfa_not_pending` for an active one: the routes that complete a pending login.",
         "responses": {
           "200": {
             "description": "The principal summary of the elevated session",
@@ -898,16 +1255,35 @@
           }
         ],
         "requestBody": {
-          "description": "A code of a pending step",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnMfaVerifyBody"
+                "type": "object",
+                "required": [
+                  "code"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "step": {
+                    "type": "string",
+                    "description": "one of the pending steps; default the first",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
-        }
+        },
+        "x-policies": [
+          "PendingSessionOnly"
+        ]
       }
     },
     "/auth/mfa/recovery": {
@@ -917,7 +1293,7 @@
           "Authentication"
         ],
         "summary": "Use a recovery code",
-        "description": "Body `{ code }`: a single-use recovery code instead of a step.",
+        "description": "Body `{ code }`: a single-use recovery code instead of a step.\n\n**Policies applied:**\n- [`PendingSessionOnly`](#policy-pendingsessiononly) — 401 without a session, 403 `mfa_not_pending` for an active one: the routes that complete a pending login.",
         "responses": {
           "200": {
             "description": "The principal summary of the elevated session",
@@ -956,16 +1332,156 @@
           }
         ],
         "requestBody": {
-          "description": "A recovery code",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnMfaCodeBody"
+                "type": "object",
+                "required": [
+                  "code"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
-        }
+        },
+        "x-policies": [
+          "PendingSessionOnly"
+        ]
+      }
+    },
+    "/auth/mfa/step-up": {
+      "post": {
+        "operationId": "AuthnMfaController_stepUp",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Step up the active session",
+        "description": "Body `{ step?, code }`: `step` is an MFA step the identity is enrolled in, or `recovery` for a recovery code.\n\n**Policies applied:**\n- [`ActiveSessionOnly`](#policy-activesessiononly) — 401 without a session, 403 `mfa_pending` for a pending one: the routes that raise an active session.",
+        "responses": {
+          "200": {
+            "description": "The principal summary of the session at aal2",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnPrincipalAnswer"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session, or a wrong, malformed or throttled code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnUnauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "mfa_pending: the session is pending",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "code"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "step": {
+                    "type": "string",
+                    "description": "an enrolled step, or 'recovery'; default the first enrolled",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "ActiveSessionOnly"
+        ]
+      }
+    },
+    "/auth/mfa/challenge": {
+      "post": {
+        "operationId": "AuthnMfaController_challenge",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Send the code of an MFA step",
+        "description": "Body `{ step? }`: asks the pending step (as in `mfa/verify`) that delivers its code out of band, such as the email\r\ncode, to send it. 202 `{ Ok: true }` whether or not a step sends anything and whether or not the send worked, so the\r\nanswer tells nothing about the account; a step with no `challenge` needs none. Repeats are throttled by the step.\n\n**Policies applied:**\n- [`PendingSessionOnly`](#policy-pendingsessiononly) — 401 without a session, 403 `mfa_not_pending` for an active one: the routes that complete a pending login.",
+        "responses": {
+          "202": {
+            "description": "Always { Ok: true }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnOk"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [],
+                "properties": {
+                  "step": {
+                    "type": "string",
+                    "description": "one of the pending steps; default the first",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "PendingSessionOnly"
+        ]
       }
     },
     "/user/mfa": {
@@ -1029,7 +1545,7 @@
             }
           },
           "403": {
-            "description": "fresh_auth_required, enrolment_closed, session_required or impersonating",
+            "description": "fresh_auth_required, enrolment_closed, session_required, impersonating or action_refused (with `code`) when an action hook refuses",
             "content": {
               "application/json": {
                 "schema": {
@@ -1055,12 +1571,19 @@
           }
         ],
         "requestBody": {
-          "description": "The password, for a stale session",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnReauthBody"
+                "type": "object",
+                "required": [],
+                "properties": {
+                  "reauthPassword": {
+                    "type": "string",
+                    "description": "the account password, when the session is not fresh"
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -1104,7 +1627,7 @@
             }
           },
           "403": {
-            "description": "enrolment_closed, session_required or impersonating",
+            "description": "enrolment_closed, session_required, impersonating or action_refused (with `code`) when an action hook refuses",
             "content": {
               "application/json": {
                 "schema": {
@@ -1130,12 +1653,22 @@
           }
         ],
         "requestBody": {
-          "description": "A code of the begun secret",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnMfaCodeBody"
+                "type": "object",
+                "required": [
+                  "code"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -1172,7 +1705,7 @@
             }
           },
           "403": {
-            "description": "fresh_auth_required, session_required or impersonating",
+            "description": "fresh_auth_required, session_required, impersonating or action_refused (with `code`) when an action hook refuses",
             "content": {
               "application/json": {
                 "schema": {
@@ -1198,12 +1731,27 @@
           }
         ],
         "requestBody": {
-          "description": "A TOTP code or a recovery code, and the password for a stale session",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnMfaDisableBody"
+                "type": "object",
+                "required": [
+                  "code"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "description": "a TOTP code or a recovery code",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "reauthPassword": {
+                    "type": "string",
+                    "description": "the account password, when the session is not fresh"
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -1246,7 +1794,7 @@
             }
           },
           "403": {
-            "description": "fresh_auth_required, session_required or impersonating",
+            "description": "fresh_auth_required, session_required, impersonating or action_refused (with `code`) when an action hook refuses",
             "content": {
               "application/json": {
                 "schema": {
@@ -1272,18 +1820,456 @@
           }
         ],
         "requestBody": {
-          "description": "The password, for a stale session",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnReauthBody"
+                "type": "object",
+                "required": [],
+                "properties": {
+                  "reauthPassword": {
+                    "type": "string",
+                    "description": "the account password, when the session is not fresh"
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
         },
         "x-policies": [
           "TotpEnrolmentOn",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/auth/passkeys/challenge": {
+      "post": {
+        "operationId": "AuthnPasskeyController_challenge",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Passkey challenge",
+        "description": "Anonymous: assertion options for any discoverable credential. With a pending session, a challenge for the WebAuthn\r\nMFA step that allows only that identity's credentials; its answer goes to POST /auth/mfa/verify as the step code.\r\nAnswers `{ challengeId, options }`. An anonymous caller counts in the `login` throttle on its ip: 429 with Retry-After\r\nwhen refused. 503 with Retry-After while the stored challenges are at `authn.webauthn.challenges.maxRows`.\n\n**Policies applied:**\n- [`PasskeyRoutesOn`](#policy-passkeyrouteson) (controller)",
+        "responses": {
+          "200": {
+            "description": "The challenge and the options for navigator.credentials.get()",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnPasskeyCeremony"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-policies": [
+          "PasskeyRoutesOn"
+        ]
+      }
+    },
+    "/auth/passkeys/login": {
+      "post": {
+        "operationId": "AuthnPasskeyController_login",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Passkey login",
+        "description": "Body `{ challengeId, response }`: a login challenge and the browser's AuthenticationResponseJSON. Logs in as POST\r\n/auth/login does: ends a session the caller already holds, sets the session cookie and answers the principal\r\nsummary with the login extensions. Any failure: 401 with the login failure body, plus Retry-After when throttled.\n\n**Policies applied:**\n- [`PasskeyRoutesOn`](#policy-passkeyrouteson) (controller)",
+        "responses": {
+          "200": {
+            "description": "The principal summary, or the pending answer when MFA is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnLoginAnswer"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The login failed (Retry-After when throttled)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnFailure"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "challengeId",
+                  "response"
+                ],
+                "properties": {
+                  "challengeId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "response": {
+                    "type": "object",
+                    "description": "the browser's credential as JSON (RegistrationResponseJSON or AuthenticationResponseJSON)",
+                    "required": [
+                      "id",
+                      "type",
+                      "response"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_-]{1,1364}$"
+                      },
+                      "rawId": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_-]{1,1364}$"
+                      },
+                      "type": {
+                        "type": "string",
+                        "maxLength": 32
+                      },
+                      "authenticatorAttachment": {
+                        "type": "string",
+                        "maxLength": 32
+                      },
+                      "clientExtensionResults": {
+                        "type": "object"
+                      },
+                      "response": {
+                        "type": "object",
+                        "properties": {
+                          "clientDataJSON": {
+                            "type": "string",
+                            "maxLength": 65536
+                          },
+                          "authenticatorData": {
+                            "type": "string",
+                            "maxLength": 65536
+                          },
+                          "signature": {
+                            "type": "string",
+                            "maxLength": 65536
+                          },
+                          "userHandle": {
+                            "type": "string",
+                            "maxLength": 65536
+                          },
+                          "attestationObject": {
+                            "type": "string",
+                            "maxLength": 65536
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "PasskeyRoutesOn"
+        ]
+      }
+    },
+    "/user/passkeys/options": {
+      "post": {
+        "operationId": "AuthnPasskeyController_options",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Passkey registration options",
+        "description": "Body `{ reauthPassword? }`. Answers `{ challengeId, options }` for navigator.credentials.create(): a discoverable\r\ncredential bound to the caller, the caller's passkeys excluded.\n\n**Policies applied:**\n- [`PasskeyRoutesOn`](#policy-passkeyrouteson) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "responses": {
+          "200": {
+            "description": "The challenge and the options for navigator.credentials.create()",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnPasskeyCeremony"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [],
+                "properties": {
+                  "reauthPassword": {
+                    "type": "string",
+                    "description": "the account password, when the session is not fresh"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "PasskeyRoutesOn",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/user/passkeys": {
+      "post": {
+        "operationId": "AuthnPasskeyController_register",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Register a passkey",
+        "description": "Body `{ challengeId, response, name?, reauthPassword? }`: a challenge from POST /user/passkeys/options and the\r\nbrowser's RegistrationResponseJSON. Answers the passkey `{ id, name, transports, createdAt, lastUsedAt }`. 400\r\n`invalid_response` (also a used, expired or foreign challenge), `invalid_name` or `invalid_field`; 409\r\n`passkey_taken`; 403 `action_refused` with `code` when an `authn.passkey.register` hook refuses. The body is checked\r\nbefore fresh auth.\n\n**Policies applied:**\n- [`PasskeyRoutesOn`](#policy-passkeyrouteson) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "responses": {
+          "200": {
+            "description": "The registered passkey",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnPasskeyEntry"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_response, invalid_name or invalid_field",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "action_refused (with `code`) when an `authn.passkey.register` hook refuses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "passkey_taken",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "challengeId",
+                  "response"
+                ],
+                "properties": {
+                  "challengeId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "response": {
+                    "type": "object",
+                    "description": "the browser's credential as JSON (RegistrationResponseJSON or AuthenticationResponseJSON)",
+                    "required": [
+                      "id",
+                      "type",
+                      "response"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_-]{1,1364}$"
+                      },
+                      "rawId": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_-]{1,1364}$"
+                      },
+                      "type": {
+                        "type": "string",
+                        "maxLength": 32
+                      },
+                      "authenticatorAttachment": {
+                        "type": "string",
+                        "maxLength": 32
+                      },
+                      "clientExtensionResults": {
+                        "type": "object"
+                      },
+                      "response": {
+                        "type": "object",
+                        "properties": {
+                          "clientDataJSON": {
+                            "type": "string",
+                            "maxLength": 65536
+                          },
+                          "authenticatorData": {
+                            "type": "string",
+                            "maxLength": 65536
+                          },
+                          "signature": {
+                            "type": "string",
+                            "maxLength": 65536
+                          },
+                          "userHandle": {
+                            "type": "string",
+                            "maxLength": 65536
+                          },
+                          "attestationObject": {
+                            "type": "string",
+                            "maxLength": 65536
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*$"
+                  },
+                  "reauthPassword": {
+                    "type": "string",
+                    "description": "the account password, when the session is not fresh"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "PasskeyRoutesOn",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      },
+      "get": {
+        "operationId": "AuthnPasskeyController_list",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "List own passkeys",
+        "description": "**Policies applied:**\n- [`PasskeyRoutesOn`](#policy-passkeyrouteson) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "responses": {
+          "200": {
+            "description": "The own passkeys",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AuthnPasskeyEntry"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "x-policies": [
+          "PasskeyRoutesOn",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/user/passkeys/{id}": {
+      "delete": {
+        "operationId": "AuthnPasskeyController_remove",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Delete an own passkey",
+        "description": "404 `passkey_not_found` for any id that is not a passkey of the caller, whoever holds it; 403 `action_refused` with\r\n`code` when an `authn.passkey.revoke` hook refuses.\n\n**Policies applied:**\n- [`PasskeyRoutesOn`](#policy-passkeyrouteson) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,1364}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "403": {
+            "description": "action_refused (with `code`) when an `authn.passkey.revoke` hook refuses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "passkey_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "x-policies": [
+          "PasskeyRoutesOn",
           "Authenticated",
           "NoTokenAuthPolicy",
           "NoImpersonationPolicy"
@@ -1348,12 +2334,22 @@
         },
         "security": [],
         "requestBody": {
-          "description": "The login",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnPasswordResetRequestBody"
+                "type": "object",
+                "required": [
+                  "login"
+                ],
+                "properties": {
+                  "login": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -1370,7 +2366,7 @@
           "Authentication"
         ],
         "summary": "Reset the password",
-        "description": "Body `{ login, secret, password, confirmPassword? }`. Redeems a reset secret, or an invite secret while the\r\naccount is invite-pending (A32), once, and sets the password; ends every session of the account. `{ Ok: true }`\r\non success; 400 `password_rejected` with `violations` before the secret is spent; 400 `password_mismatch` or\r\n`invalid_password`; 400 `action_refused` with `code` when an `authn.password.reset.redeem` hook refuses (the secret is\r\nnot spent); any other failure the login failure body (A02, A11).\n\n**Policies applied:**\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) (controller)",
+        "description": "Body `{ login, secret, password, confirmPassword? }`. Redeems a reset secret, or an invite secret while the\r\naccount is invite-pending (A32), once, and sets the password; ends every session of the account. `{ Ok: true }`\r\non success; 400 `password_rejected` with `violations` before the secret is spent; 400 `password_mismatch` or\r\n`invalid_password`; 400 `action_refused` with `code` when an `authn.password.reset.redeem` hook refuses (the secret is\r\nnot spent); any other failure, a malformed login or secret and an unknown field included, the login failure body\r\n(A02, A11).\n\n**Policies applied:**\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) (controller)",
         "responses": {
           "200": {
             "description": "The password is set",
@@ -1405,12 +2401,39 @@
         },
         "security": [],
         "requestBody": {
-          "description": "The secret and the new password",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnPasswordResetBody"
+                "type": "object",
+                "required": [
+                  "login",
+                  "secret",
+                  "password"
+                ],
+                "properties": {
+                  "login": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "secret": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "confirmPassword": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -1469,12 +2492,33 @@
           }
         ],
         "requestBody": {
-          "description": "The old and the new password",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnPasswordChangeBody"
+                "type": "object",
+                "required": [
+                  "oldPassword",
+                  "password"
+                ],
+                "properties": {
+                  "oldPassword": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "confirmPassword": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -1484,6 +2528,152 @@
           "Authenticated",
           "NoTokenAuthPolicy",
           "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/auth/reauth": {
+      "post": {
+        "operationId": "AuthnReauthController_reauth",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Re-authenticate the session",
+        "description": "Body `{ password }`. Success: the session cookie of the new id and the principal summary. 401 with the login failure body for a wrong or throttled password (no Retry-After); 403 for a pending session or an impersonation.\n\n**Policies applied:**\n- [`ActiveSessionOnly`](#policy-activesessiononly) — 401 without a session, 403 `mfa_pending` for a pending one: the routes that raise an active session.",
+        "responses": {
+          "200": {
+            "description": "The principal summary of the session under its new id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnPrincipalAnswer"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session, or a wrong, malformed or throttled password",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnUnauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "mfa_pending or impersonating",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "password"
+                ],
+                "properties": {
+                  "password": {
+                    "type": "string",
+                    "description": "the account password",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "ActiveSessionOnly"
+        ]
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "operationId": "AuthnRegistrationController_register",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Register",
+        "description": "Body `{ login, email, password, confirmPassword? }`. Answers 202 `{ status: 'accepted' }` whether the account is new or\r\nthe address is taken, so it tells a stranger nothing about who has an account. RegistrationMailHook, an\r\n`authn.registration` after hook, sends a new account a verification mail and the owner of a taken address an\r\naccount-exists mail (`authn.http.registration.notifyExisting`). A\r\npassword that breaks the policy answers 400 `password_rejected` with its violations: they depend on the input only. 429\r\nwith Retry-After when throttled (the `register` flow, per address and per client ip). An `authn.registration` hook\r\nmay change `login` and `email` (checked again against the policy, then by the registrar) or refuse: 400\r\n`action_refused` with `code`.\n\n**Policies applied:**\n- [`IdentityRegistrarRegistered`](#policy-identityregistrarregistered) (controller) — 404 while no IdentityRegistrar is registered, or the registered factory yields none (users.",
+        "responses": {
+          "202": {
+            "description": "Always { status: 'accepted' }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnRegistrationAnswer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_login, invalid_email, invalid_password, password_mismatch, password_rejected, invalid_field, invalid_registration or action_refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "login",
+                  "email",
+                  "password"
+                ],
+                "properties": {
+                  "login": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 254
+                  },
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "minLength": 1,
+                    "maxLength": 254
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "confirmPassword": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "IdentityRegistrarRegistered"
         ]
       }
     },
@@ -1538,6 +2728,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "action_refused (with `code`) when an `authn.sessions.revoke` hook refuses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1567,13 +2767,24 @@
             "required": true,
             "schema": {
               "type": "string",
-              "maxLength": 512
+              "minLength": 1,
+              "maxLength": 128
             }
           }
         ],
         "responses": {
           "200": {
             "description": "Successful response"
+          },
+          "403": {
+            "description": "action_refused (with `code`) when an `authn.sessions.revoke` hook refuses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
           },
           "404": {
             "description": "session_not_found",
@@ -1595,6 +2806,57 @@
           "Authenticated",
           "NoTokenAuthPolicy",
           "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/auth/tokens/revoke": {
+      "post": {
+        "operationId": "AuthnTokenRevocationController_revoke",
+        "tags": [
+          "AccessTokens"
+        ],
+        "summary": "Revoke a token by its plaintext",
+        "description": "Body `{ token }`, as JSON or a form. Answers `200 {}` whether or not a token was revoked (unknown, malformed,\r\nalready revoked, or a previous secret whose grace has ended), so the answer tells nothing about any token. Every\r\nrequest counts in the `reset` throttle flow keyed on the client ip, shared with the password reset routes, before\r\nits body is read; a refused one answers 429 with Retry-After and revokes nothing.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.",
+        "responses": {
+          "200": {
+            "description": "Always {}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnEmpty"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "token"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "token_type_hint": {
+                    "type": "string",
+                    "maxLength": 64
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "TokenServiceRegistered"
         ]
       }
     },
@@ -1639,7 +2901,7 @@
           "AccessTokens"
         ],
         "summary": "Create a token",
-        "description": "Body `{ name, expiresAt, roles?, profile?, kind?, scope?, reauthPassword? }`. Needs fresh auth: a login within\r\nauthn.freshAuth.maxAgeSeconds or the account password in `reauthPassword`, verified for this request only. Answers\r\n`{ Token, Plaintext }`; the plaintext is shown here once and never again. `expiresAt` is mandatory, at most\r\nauthn.token.maxTtlDays ahead (an agent token authn.token.agentMaxTtlMinutes). 400 `invalid_name`,\r\n`invalid_expiry`, `invalid_kind`, `invalid_roles`, `invalid_profile`, or `invalid_scope` (also a role the owner\r\ndoes not hold, a profile the profile policy does not offer, or a scope that does not fit the kind); 403\r\n`fresh_auth_required` for a stale session without the password; a wrong or throttled password the login failure\r\nbody without Retry-After.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "Body `{ name, expiresAt, roles?, profile?, kind?, scope?, reauthPassword? }`. Needs fresh auth: a login within\r\nauthn.freshAuth.maxAgeSeconds or the account password in `reauthPassword`, verified for this request only. Answers\r\n`{ Token, Plaintext }`; the plaintext is shown here once and never again. `expiresAt` is mandatory, at most\r\nauthn.token.maxTtlDays ahead (an agent token authn.token.agentMaxTtlMinutes). 400 `invalid_name`,\r\n`invalid_expiry`, `invalid_kind`, `invalid_roles`, `invalid_profile`, or `invalid_scope` (also a role the owner\r\ndoes not hold, a profile the profile policy does not offer, or a scope that does not fit the kind), `invalid_field`\r\nfor an unknown field; 403 `fresh_auth_required` for a stale session without the password; a wrong or throttled\r\npassword, or one that is no string, the login failure body without Retry-After. The body is checked before fresh\r\nauth.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "responses": {
           "200": {
             "description": "The token and its plaintext, shown once",
@@ -1688,12 +2950,93 @@
           }
         ],
         "requestBody": {
-          "description": "The token to create, and the password for a stale session",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuthnTokenCreateBody"
+                "type": "object",
+                "required": [
+                  "name",
+                  "expiresAt"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "\\S"
+                  },
+                  "expiresAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "maxLength": 40
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "pat",
+                      "service",
+                      "agent"
+                    ]
+                  },
+                  "roles": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    }
+                  },
+                  "profile": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "scope": {
+                    "type": "object",
+                    "properties": {
+                      "permissions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        }
+                      },
+                      "resources": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "type"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256
+                            },
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "agent": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "reauthPassword": {
+                    "type": "string",
+                    "description": "the account password, when the session is not fresh"
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -1721,13 +3064,24 @@
             "required": true,
             "schema": {
               "type": "string",
-              "maxLength": 512
+              "minLength": 1,
+              "maxLength": 64
             }
           }
         ],
         "responses": {
           "200": {
             "description": "Successful response"
+          },
+          "403": {
+            "description": "action_refused (with `code`) when an `authn.token.revoke` hook refuses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
           },
           "404": {
             "description": "token_not_found",
@@ -1750,6 +3104,300 @@
           "Authenticated",
           "NoTokenAuthPolicy",
           "NoImpersonationPolicy"
+        ]
+      },
+      "patch": {
+        "operationId": "AuthnTokensController_update",
+        "tags": [
+          "AccessTokens"
+        ],
+        "summary": "Narrow an own token",
+        "description": "Body `{ name?, roles?, expiresAt? }`. Only narrows: roles must be a subset of the token's (or of the owner's, for a token\r\nwithout roles) and expiresAt not later than the current one. No fresh auth. 400 `invalid_name`, `invalid_roles`,\r\n`invalid_expiry`, `invalid_scope` or `invalid_field` (any other key, before the others); 404 `token_not_found`; 403\r\n`action_refused` with `code` when an `authn.token.update` hook refuses.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The narrowed token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnTokenUpdated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_name, invalid_roles, invalid_expiry, invalid_scope or invalid_field",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "action_refused (with `code`) when an `authn.token.update` hook refuses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "token_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "\\S"
+                  },
+                  "roles": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    }
+                  },
+                  "expiresAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "maxLength": 40
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "TokenServiceRegistered",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/user/tokens/{uuid}/rotate": {
+      "post": {
+        "operationId": "AuthnTokensController_rotate",
+        "tags": [
+          "AccessTokens"
+        ],
+        "summary": "Rotate an own token",
+        "description": "Replaces the secret of a live token; the id, name, roles and expiry stay. Needs fresh auth like the create route.\r\nBody `{ graceSeconds?, reauthPassword? }`: the old secret works for `graceSeconds` more (0 to 604800, default 0).\r\nAnswers `{ Token, Plaintext }`; the new plaintext is shown here once. 400 `invalid_grace` or `invalid_field`; 404\r\n`token_not_found` for any id that is not a live token of the caller; 403 `action_refused` with `code` when an\r\n`authn.token.rotate` hook refuses.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The token and its new plaintext, shown once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnTokenCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_grace or invalid_field",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "fresh_auth_required, session_required, impersonating, or action_refused (with `code`) when an `authn.token.rotate` hook refuses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "token_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [],
+                "properties": {
+                  "graceSeconds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 604800
+                  },
+                  "reauthPassword": {
+                    "type": "string",
+                    "description": "the account password, when the session is not fresh"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "TokenServiceRegistered",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/auth/verify/request": {
+      "post": {
+        "operationId": "AuthnVerificationController_request",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Request a verification mail",
+        "description": "Mails a single-use link to the address of the session's account. 202 `{ Ok: true }` whether or not a mail goes out\r\n(an address already verified gets none); 429 with Retry-After when throttled. A session only: 403\r\n`session_required` for a token or key, 403 `impersonating` while impersonating.\n\n**Policies applied:**\n- [`AddressVerificationRegistered`](#policy-addressverificationregistered) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "responses": {
+          "202": {
+            "description": "Always { Ok: true }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnOk"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "x-policies": [
+          "AddressVerificationRegistered",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/auth/verify": {
+      "post": {
+        "operationId": "AuthnVerificationController_verify",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Verify the address",
+        "description": "Body `{ secret }`, the secret of the verification link. 200 `{ Ok: true }`; any refused secret, a missing one\r\nincluded, 400 `invalid_secret` with one body. 429 with Retry-After while the client ip is throttled (the `reset` flow).\n\n**Policies applied:**\n- [`AddressVerificationRegistered`](#policy-addressverificationregistered) (controller)",
+        "responses": {
+          "200": {
+            "description": "The address is verified",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnOk"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_secret or invalid_field",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "secret"
+                ],
+                "properties": {
+                  "secret": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "AddressVerificationRegistered"
         ]
       }
     }
@@ -1931,123 +3579,17 @@
         }
       ]
     },
-    "AuthnActiveRoleBody": {
+    "AuthnOk": {
       "type": "object",
       "required": [
-        "role"
+        "Ok"
       ],
       "properties": {
-        "role": {
-          "type": "string"
-        },
-        "password": {
-          "type": "string",
-          "description": "when the role asks for a fresh password"
-        }
-      }
-    },
-    "AuthnPasswordResetAdminAnswer": {
-      "type": "object",
-      "required": [
-        "expired",
-        "resetMailRequested"
-      ],
-      "properties": {
-        "expired": {
-          "type": "boolean"
-        },
-        "resetMailRequested": {
-          "type": "boolean"
-        }
-      }
-    },
-    "AuthnPasswordResetAdminBody": {
-      "type": "object",
-      "properties": {
-        "sendReset": {
+        "Ok": {
           "type": "boolean",
-          "description": "also mail the user a reset link"
-        },
-        "reauthPassword": {
-          "type": "string",
-          "description": "the account password, when the session is not fresh"
-        }
-      }
-    },
-    "AuthnMfaResetAnswer": {
-      "type": "object",
-      "required": [
-        "reset"
-      ],
-      "properties": {
-        "reset": {
-          "type": "boolean",
-          "description": "an enrolment or a begun one existed"
-        }
-      }
-    },
-    "AuthnReauthBody": {
-      "type": "object",
-      "properties": {
-        "reauthPassword": {
-          "type": "string",
-          "description": "the account password, when the session is not fresh"
-        }
-      }
-    },
-    "AuthnRevokedCount": {
-      "type": "object",
-      "required": [
-        "revoked"
-      ],
-      "properties": {
-        "revoked": {
-          "type": "integer"
-        }
-      }
-    },
-    "AuthnImpersonationState": {
-      "type": "object",
-      "required": [
-        "Active"
-      ],
-      "properties": {
-        "Active": {
-          "type": "boolean"
-        },
-        "Impersonator": {
-          "type": "object",
-          "required": [
-            "type",
-            "id"
-          ],
-          "properties": {
-            "type": {
-              "type": "string"
-            },
-            "id": {
-              "type": "string"
-            }
-          }
-        },
-        "Target": {
-          "type": "object",
-          "required": [
-            "type",
-            "id"
-          ],
-          "properties": {
-            "type": {
-              "type": "string"
-            },
-            "id": {
-              "type": "string"
-            }
-          }
-        },
-        "StartedAt": {
-          "type": "string",
-          "format": "date-time"
+          "enum": [
+            true
+          ]
         }
       }
     },
@@ -2133,6 +3675,122 @@
       },
       "additionalProperties": true
     },
+    "AuthnPendingAnswer": {
+      "type": "object",
+      "description": "A pending (pre-MFA) session",
+      "required": [
+        "MfaRequired",
+        "MfaEnrol"
+      ],
+      "properties": {
+        "MfaRequired": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "MfaEnrol": {
+          "type": "array",
+          "description": "the steps of MfaRequired to enrol (POST /user/mfa) before they can be verified",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "AuthnLoginAnswer": {
+      "oneOf": [
+        {
+          "$ref": "#/components/schemas/AuthnPrincipalAnswer"
+        },
+        {
+          "$ref": "#/components/schemas/AuthnPendingAnswer"
+        }
+      ]
+    },
+    "AuthnPasswordResetAdminAnswer": {
+      "type": "object",
+      "required": [
+        "expired",
+        "resetMailRequested"
+      ],
+      "properties": {
+        "expired": {
+          "type": "boolean"
+        },
+        "resetMailRequested": {
+          "type": "boolean"
+        }
+      }
+    },
+    "AuthnMfaResetAnswer": {
+      "type": "object",
+      "required": [
+        "reset"
+      ],
+      "properties": {
+        "reset": {
+          "type": "boolean",
+          "description": "an enrolment or a begun one existed"
+        }
+      }
+    },
+    "AuthnRevokedCount": {
+      "type": "object",
+      "required": [
+        "revoked"
+      ],
+      "properties": {
+        "revoked": {
+          "type": "integer"
+        }
+      }
+    },
+    "AuthnImpersonationState": {
+      "type": "object",
+      "required": [
+        "Active"
+      ],
+      "properties": {
+        "Active": {
+          "type": "boolean"
+        },
+        "Impersonator": {
+          "type": "object",
+          "required": [
+            "type",
+            "id"
+          ],
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "Target": {
+          "type": "object",
+          "required": [
+            "type",
+            "id"
+          ],
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "StartedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
     "AuthnImpersonationAnswer": {
       "oneOf": [
         {
@@ -2142,40 +3800,6 @@
           "$ref": "#/components/schemas/AuthnImpersonationState"
         }
       ]
-    },
-    "AuthnImpersonationBody": {
-      "type": "object",
-      "required": [
-        "target"
-      ],
-      "properties": {
-        "target": {
-          "oneOf": [
-            {
-              "type": "string",
-              "description": "a user id"
-            },
-            {
-              "type": "object",
-              "required": [
-                "type",
-                "id"
-              ],
-              "properties": {
-                "type": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                }
-              }
-            }
-          ]
-        },
-        "password": {
-          "type": "string"
-        }
-      }
     },
     "AuthnKeyEntry": {
       "type": "object",
@@ -2261,54 +3885,6 @@
         }
       }
     },
-    "AuthnKeyRegisterBody": {
-      "type": "object",
-      "required": [
-        "jwk",
-        "proof"
-      ],
-      "properties": {
-        "jwk": {
-          "type": "object",
-          "description": "an Ed25519 (OKP) or P-256 (EC) public JWK",
-          "additionalProperties": true
-        },
-        "proof": {
-          "type": "object",
-          "description": "the signature over a register challenge of this user",
-          "required": [
-            "challengeId",
-            "signature"
-          ],
-          "properties": {
-            "challengeId": {
-              "type": "string"
-            },
-            "signature": {
-              "type": "string"
-            }
-          }
-        },
-        "kid": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "expiresAt": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "scope": {
-          "type": "object",
-          "additionalProperties": true
-        },
-        "reauthPassword": {
-          "type": "string",
-          "description": "the account password, when the session is not fresh"
-        }
-      }
-    },
     "AuthnKeyChallenge": {
       "type": "object",
       "required": [
@@ -2326,118 +3902,6 @@
         "expiresAt": {
           "type": "string",
           "format": "date-time"
-        }
-      }
-    },
-    "AuthnKeyChallengeBody": {
-      "type": "object",
-      "required": [
-        "purpose"
-      ],
-      "properties": {
-        "purpose": {
-          "type": "string",
-          "enum": [
-            "login",
-            "register"
-          ]
-        },
-        "kid": {
-          "type": "string",
-          "description": "the key to log in with (purpose login)"
-        }
-      }
-    },
-    "AuthnPendingAnswer": {
-      "type": "object",
-      "description": "A pending (pre-MFA) session",
-      "required": [
-        "MfaRequired",
-        "MfaEnrol"
-      ],
-      "properties": {
-        "MfaRequired": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "MfaEnrol": {
-          "type": "array",
-          "description": "the steps of MfaRequired to enrol (POST /user/mfa) before they can be verified",
-          "items": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    "AuthnLoginAnswer": {
-      "oneOf": [
-        {
-          "$ref": "#/components/schemas/AuthnPrincipalAnswer"
-        },
-        {
-          "$ref": "#/components/schemas/AuthnPendingAnswer"
-        }
-      ]
-    },
-    "AuthnKeyLoginBody": {
-      "type": "object",
-      "required": [
-        "keyId",
-        "challengeId",
-        "signature"
-      ],
-      "properties": {
-        "keyId": {
-          "type": "string"
-        },
-        "challengeId": {
-          "type": "string"
-        },
-        "signature": {
-          "type": "string"
-        }
-      }
-    },
-    "AuthnLoginBody": {
-      "type": "object",
-      "required": [
-        "login",
-        "password"
-      ],
-      "properties": {
-        "login": {
-          "type": "string"
-        },
-        "password": {
-          "type": "string"
-        }
-      }
-    },
-    "AuthnMfaVerifyBody": {
-      "type": "object",
-      "required": [
-        "code"
-      ],
-      "properties": {
-        "code": {
-          "type": "string"
-        },
-        "step": {
-          "type": "string",
-          "description": "one of the pending steps; default the first"
-        }
-      }
-    },
-    "AuthnMfaCodeBody": {
-      "type": "object",
-      "required": [
-        "code"
-      ],
-      "properties": {
-        "code": {
-          "type": "string"
         }
       }
     },
@@ -2494,19 +3958,54 @@
         }
       }
     },
-    "AuthnMfaDisableBody": {
+    "AuthnPasskeyCeremony": {
       "type": "object",
       "required": [
-        "code"
+        "challengeId",
+        "options"
       ],
       "properties": {
-        "code": {
-          "type": "string",
-          "description": "a TOTP code or a recovery code"
+        "challengeId": {
+          "type": "string"
         },
-        "reauthPassword": {
+        "options": {
+          "type": "object",
+          "description": "PublicKeyCredentialRequestOptionsJSON or PublicKeyCredentialCreationOptionsJSON for navigator.credentials",
+          "additionalProperties": true
+        }
+      }
+    },
+    "AuthnPasskeyEntry": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "transports",
+        "createdAt",
+        "lastUsedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
           "type": "string",
-          "description": "the account password, when the session is not fresh"
+          "nullable": true
+        },
+        "transports": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lastUsedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
         }
       }
     },
@@ -2531,68 +4030,18 @@
         }
       }
     },
-    "AuthnOk": {
+    "AuthnRegistrationAnswer": {
       "type": "object",
+      "description": "The same for a new account and a taken address",
       "required": [
-        "Ok"
+        "status"
       ],
       "properties": {
-        "Ok": {
-          "type": "boolean",
+        "status": {
+          "type": "string",
           "enum": [
-            true
+            "accepted"
           ]
-        }
-      }
-    },
-    "AuthnPasswordResetRequestBody": {
-      "type": "object",
-      "required": [
-        "login"
-      ],
-      "properties": {
-        "login": {
-          "type": "string"
-        }
-      }
-    },
-    "AuthnPasswordResetBody": {
-      "type": "object",
-      "required": [
-        "login",
-        "secret",
-        "password"
-      ],
-      "properties": {
-        "login": {
-          "type": "string"
-        },
-        "secret": {
-          "type": "string"
-        },
-        "password": {
-          "type": "string"
-        },
-        "confirmPassword": {
-          "type": "string"
-        }
-      }
-    },
-    "AuthnPasswordChangeBody": {
-      "type": "object",
-      "required": [
-        "oldPassword",
-        "password"
-      ],
-      "properties": {
-        "oldPassword": {
-          "type": "string"
-        },
-        "password": {
-          "type": "string"
-        },
-        "confirmPassword": {
-          "type": "string"
         }
       }
     },
@@ -2637,6 +4086,11 @@
           "type": "integer"
         }
       }
+    },
+    "AuthnEmpty": {
+      "type": "object",
+      "description": "Always {}: the answer tells nothing",
+      "properties": {}
     },
     "AuthnTokenEntry": {
       "type": "object",
@@ -2748,71 +4202,14 @@
         }
       }
     },
-    "AuthnTokenCreateBody": {
+    "AuthnTokenUpdated": {
       "type": "object",
       "required": [
-        "name",
-        "expiresAt"
+        "Token"
       ],
       "properties": {
-        "name": {
-          "type": "string"
-        },
-        "expiresAt": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "roles": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "profile": {
-          "type": "string"
-        },
-        "kind": {
-          "type": "string",
-          "enum": [
-            "pat",
-            "service",
-            "agent"
-          ]
-        },
-        "scope": {
-          "type": "object",
-          "properties": {
-            "permissions": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "resources": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": [
-                  "type"
-                ],
-                "properties": {
-                  "type": {
-                    "type": "string"
-                  },
-                  "id": {
-                    "type": "string"
-                  }
-                }
-              }
-            },
-            "agent": {
-              "type": "boolean"
-            }
-          }
-        },
-        "reauthPassword": {
-          "type": "string",
-          "description": "the account password, when the session is not fresh"
+        "Token": {
+          "$ref": "#/components/schemas/AuthnTokenEntry"
         }
       }
     }

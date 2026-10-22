@@ -8,7 +8,7 @@
 2. **`HttpServer.resolve()`** creates the Express app and sorts the server middlewares by `Order`, ascending.
 3. It creates an HTTPS server when the top-level `https` key is `true` (reading `http.ssl.key` and `http.ssl.cert` from disk), otherwise an HTTP server. Both track open sockets and log server-level `error` events.
 4. It logs where response templates live (`__fs_http_response_templates__` file provider), or that HTML error pages are off when the provider is missing.
-5. It adds the raw Express handlers from `http.middlewares`, in array order.
+5. It adds the per-path body limit gate when `http.bodyLimits` has rules (see [Body size limits](04-route-arguments.md#body-size-limits)), then the raw Express handlers from `http.middlewares`, in array order.
 6. It adds each server middleware's `before()` handler, lowest `Order` first.
 7. It serves every `http.Static` entry with `express.static`, deduplicated by `Path`. A missing directory is skipped with a warning.
 8. **`Controllers.resolve()`** (see [Controllers and routing](02-controllers-and-routing.md)) mounts one router holding every controller with `HttpServer.use()`.
@@ -32,7 +32,7 @@ sequenceDiagram
   S-->>DI: emit http.server.closing / http.server.closed
 ```
 
-The resulting Express stack, top to bottom: `http.middlewares` → `ServerMiddleware.before()` by `Order` → static files → controllers router → `ServerMiddleware.after()` (404 handler, then error handler).
+The resulting Express stack, top to bottom: the body limit gate (only when `http.bodyLimits` has rules) → `http.middlewares` → `ServerMiddleware.before()` by `Order` → static files → controllers router → `ServerMiddleware.after()` (404 handler, then error handler).
 
 ### Lifecycle
 
@@ -54,18 +54,23 @@ Read the state from `server.State` and the Node server from `server.Server`.
 | `http.ssl.key` | `string` | `''` | file path | Private key file, read with `fs.readFileSync` when `https` is `true`. |
 | `http.ssl.cert` | `string` | `''` | file path | Certificate file, read when `https` is `true`. |
 | `http.middlewares` | `express.RequestHandler[]` | `helmet(...)`, `express.json(...)`, `express.urlencoded(...)`, `express.text(...)`, `configuredCookieParser`, `compression()` | any Express handlers | Raw handlers added first, before every server middleware. Replacing the array drops the defaults. |
+| `http.bodyLimits` | `{ path: string; limit: string }[]` | `[]` | `limit` as `16kb`, `1mb` | Per-path body limits, applied before `http.middlewares`; see [Body size limits](04-route-arguments.md#body-size-limits). |
 | `http.Static` | `{ Route: string; Path: string }[]` | `[{ Route: '/_static', Path: <package>/lib/static }]` | | Static directories. `Route` defaults to `/static` when empty. |
 | `http.shutdownTimeout` | `number` | `10000` | milliseconds | Grace period for in-flight requests on `stop()`. |
 | `http.AcceptHeaders` | `HttpAcceptHeaders` | `1 \| 2` (JSON and HTML) | bit flags `JSON` 1, `HTML` 2, `XML` 4 | Formats the response negotiation offers; see [Responses](10-responses.md#content-negotiation). |
 | `http.FatalTemplate` | `string` | built-in "HTTP 500" page | HTML with an optional `{ticket}` | Page sent when even the error page fails to render. |
 | `http.controllers.route.prefix` | `string` | `''` | path without slashes at the ends | Prefix for every controller route; see [Controllers and routing](02-controllers-and-routing.md#path-rules). |
 | `system.dirs.controllers` | `string[]` | not set | directories | Where controllers are scanned; see [Controller discovery](03-controller-discovery.md). |
+| `http.errors.handlers` | `{ service: string }[]` | `[]` | names of registered `ErrorHandlerService` classes | App-wide route error handlers; see [Error handling](11-error-handling.md#app-wide-handlers). |
+| `http.csrf.*` | object | `enabled: true`, empty lists | | The default-deny `CsrfGuard`; see [CSRF guard](23-csrf-guard.md#configuration). |
+| `http.bot.*` | object | `enabled: false` | | `@BotCheck` verifiers and checks; see [Bot checks](23-bot-check.md#configuration). |
+| `http.throttle.*` | object | `enabled: false`, `ipv6Prefix: 64`, `rules: []` | | Per-IP, per-path rate limits; see [Throttling](18-throttling.md). |
 
 The default `http.middlewares` are:
 
 | Handler | Settings | Why |
 | --- | --- | --- |
-| `helmet` | `referrerPolicy: 'strict-origin-when-cross-origin'` | helmet's default `no-referrer` makes browsers send `Origin: null` on same-origin form posts, which the `@spinajs/authn-http` CSRF guard refuses |
+| `helmet` | `referrerPolicy: 'strict-origin-when-cross-origin'` | helmet's default `no-referrer` makes browsers send `Origin: null` on same-origin form posts, which the [CSRF guard](23-csrf-guard.md) (and its `@spinajs/authn-http` subclass) refuses |
 | `express.json` | `limit: '5mb'`, `verify` stores the raw bytes in `req.rawBody` | feeds [`@RawBody()`](04-route-arguments.md) |
 | `express.urlencoded` | `extended: true` | form posts |
 | `express.text` | types `application/xml`, `text/xml`, `application/*+xml`, `limit: '5mb'` | feeds [`@FromXml()`](04-route-arguments.md) |
@@ -106,7 +111,7 @@ export default {
 
 ### Configuration schema and file providers
 
-The package registers the `http.configuration` JSON schema twice: at import (`registerConfigurationSchemaAtImport`) and from `HttpConfigBootstrapper`. The configuration validates the merged tree against it and fills its defaults. It checks `http.cookie.secret`, `http.trustProxy`, `http.cors` and `http.throttle`.
+The package registers the `http.configuration` JSON schema twice: at import (`registerConfigurationSchemaAtImport`) and from `HttpConfigBootstrapper`. The configuration validates the merged tree against it and fills its defaults. It checks `http.cookie.secret`, `http.trustProxy`, `http.cors`, `http.bodyLimits`, `http.errors`, `http.csrf`, `http.throttle` and `http.bot`.
 
 The package configuration also adds three `fs.providers` entries and two `system.dirs` entries:
 

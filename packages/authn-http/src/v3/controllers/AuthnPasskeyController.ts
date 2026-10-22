@@ -1,26 +1,29 @@
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { BaseController, BasePath, Conflict, Del, Get, NotFound, Ok, Param, Policy, Post, Req } from '@spinajs/http';
+import { BaseController, BasePath, Body, BotCheck, Conflict, Del, Get, NotFound, Ok, Param, Policy, Post } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
-import { AuthnService, PasskeyService, SessionIssuer } from '@spinajs/authn/contracts';
-import type { Credentials, PasskeyCeremony, PasskeyEntry } from '@spinajs/authn/contracts';
-import { isPlainObject } from '@spinajs/util';
+import { Config } from '@spinajs/configuration';
+import { AuthnService, AuthnThrottle, PasskeyChallengesFull, PasskeyService, SessionIssuer, ipKey, ipv6PrefixOf } from '@spinajs/authn/contracts';
+import type { PasskeyCeremony, PasskeyEntry } from '@spinajs/authn/contracts';
 
+import { ClientContext } from '../../args/authn.js';
+import { AuthnPasskeyLoginBody, AuthnPasskeyRegisterBody, PASSKEY_ID_PARAM, PASSKEY_NAME_CAP } from '../../dto/passkeys.js';
+import { AuthnReauthPasswordBody } from '../../dto/reauth.js';
 import { keyManager } from '../../keys/fields.js';
 import { notFound } from '../../policies/v3/errors.js';
 import { serviceRegistered } from '../../policies/v3/groups.js';
-import { freshAuthOrAnswer, takeReauthPassword } from '../../policies/v3/fresh-auth.js';
+import { freshAuthOrAnswer } from '../../policies/v3/fresh-auth.js';
+import { OnInvalidInput, byField, invalid, unknownField } from '../../validation/answers.js';
+import { IpThrottle } from '../../middleware/ip-throttle.js';
+import { failedLogin, throttledLogin, uniformFailure } from '../../validation/login.js';
+import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
-import { NO_STORE, badRequest, instant, refusedByHook } from '../responses.js';
-import { bodyField, boundedString, completeLogin, contextOf } from '../routes.js';
+import { tooManyRequests } from '../../password/fields.js';
+import { NO_STORE, ServiceUnavailableResponse, badRequest, instant, refusedByHook } from '../responses.js';
+import { completeLogin, contextOf } from '../routes.js';
 
-/** Above the challenge ids authn-webauthn draws (22 characters). */
-const CHALLENGE_ID_CAP = 64;
-/** WebAuthn caps credential ids at 1023 bytes, 1364 characters of base64url. */
-const CREDENTIAL_ID = /^[A-Za-z0-9_-]{1,1364}$/;
-const NAME_CAP = 64;
-/** C0 and C1 controls and DEL. */
-const hasControlCharacter = (s: string): boolean => [...s].some((ch) => ch.charCodeAt(0) < 0x20 || (ch.charCodeAt(0) >= 0x7f && ch.charCodeAt(0) <= 0x9f));
+const invalidResponse = invalid('invalid_response', 'challengeId and response are required');
+const invalidName = invalid('invalid_name', `name must be 1 to ${PASSKEY_NAME_CAP} characters without control characters`);
 
 /**
  * 404 `not_found` while no PasskeyService is registered or authn.strategies lists no strategy for `webauthn`
@@ -39,13 +42,6 @@ const ceremonyAnswer = (c: PasskeyCeremony): Ok => new Ok({ challengeId: c.chall
 const passkeyEntry = (p: PasskeyEntry): Record<string, unknown> => ({ id: p.id, name: p.name ?? null, transports: p.transports ? [...p.transports] : [], createdAt: instant(p.createdAt), lastUsedAt: instant(p.lastUsedAt) });
 
 const passkeyNotFound = (): NotFound => new NotFound({ error: 'passkey_not_found', message: 'No such passkey' }, { Headers: [NO_STORE] });
-
-/** `{ challengeId, response }` of a ceremony body, the response an object; null when either is missing. */
-function ceremonyBody(req: Request): { challengeId: string; response: Record<string, unknown> } | null {
-  const challengeId = boundedString(bodyField(req, 'challengeId'), CHALLENGE_ID_CAP);
-  const response = bodyField(req, 'response');
-  return challengeId !== null && isPlainObject(response) ? { challengeId, response } : null;
-}
 
 /**
  * Passkeys over the PasskeyService contract (authn-webauthn's WebAuthnPasskeyService; A02, A13, A33). Off (404) unless
@@ -68,19 +64,45 @@ export class AuthnPasskeyController extends BaseController {
   @Autoinject(SessionIssuer)
   protected Sessions!: SessionIssuer;
 
+  @Config('authn.throttle.ipv6Prefix')
+  protected ThrottleIpv6Prefix: unknown;
+
+  private storeFullLogged = false;
+
   /**
    * Passkey challenge
    * Anonymous: assertion options for any discoverable credential. With a pending session, a challenge for the WebAuthn
    * MFA step that allows only that identity's credentials; its answer goes to POST /auth/mfa/verify as the step code.
-   * Answers `{ challengeId, options }`.
+   * Answers `{ challengeId, options }`. An anonymous caller counts in the `login` throttle on its ip: 429 with Retry-After
+   * when refused. 503 with Retry-After while the stored challenges are at `authn.webauthn.challenges.maxRows`.
+   * @returns {AuthnPasskeyCeremony} The challenge and the options for navigator.credentials.get()
    * @security []
    */
   @Post('auth/passkeys/challenge')
-  public async challenge(@Req() req: Request) {
+  @BotCheck('passkey_challenge')
+  public async challenge(@ClientContext() client: AuthnClientContext) {
     const passkeys = await this.passkeys();
-    const session = req.storage.AuthnSession;
-    if (session?.handle.state === 'pending') return ceremonyAnswer(await passkeys.challenge(contextOf(req, 'login', session.handle), session.identity));
-    return ceremonyAnswer(await passkeys.challenge(contextOf(req, 'login')));
+    const session = client.session;
+    if (session?.handle.state === 'pending') return ceremonyAnswer(await passkeys.challenge(contextOf(client, 'login', session.handle), session.identity));
+
+    const ctx = contextOf(client, 'login');
+    const ip = ipKey(ctx, ipv6PrefixOf(this.ThrottleIpv6Prefix));
+    if (ip) {
+      const gate = await (await this.Container.resolve(AuthnThrottle)).attempt([ip], 'login', ctx);
+      if (!gate.allowed) return tooManyRequests('too many passkey challenges, try again later', gate.retryAfterSeconds);
+    }
+    try {
+      const ceremony = await passkeys.challenge(ctx);
+      this.storeFullLogged = false;
+      return ceremonyAnswer(ceremony);
+    } catch (err) {
+      if (!(err instanceof PasskeyChallengesFull)) throw err;
+      if (!this.storeFullLogged) {
+        this.storeFullLogged = true;
+        this._log.warn('passkey challenge store is full (authn.webauthn.challenges.maxRows); anonymous challenges are refused until rows expire');
+      }
+      return new ServiceUnavailableResponse({ error: 'challenge_store_full', message: 'try again later' }, { Headers: [NO_STORE, { Name: 'Retry-After', Value: '30' }] });
+    }
   }
 
   /**
@@ -88,52 +110,58 @@ export class AuthnPasskeyController extends BaseController {
    * Body `{ challengeId, response }`: a login challenge and the browser's AuthenticationResponseJSON. Logs in as POST
    * /auth/login does: ends a session the caller already holds, sets the session cookie and answers the principal
    * summary with the login extensions. Any failure: 401 with the login failure body, plus Retry-After when throttled.
+   * @returns {AuthnLoginAnswer} The principal summary, or the pending answer when MFA is required
+   * @response 401 {AuthnFailure} The login failed (Retry-After when throttled)
    * @security []
    */
   @Post('auth/passkeys/login')
-  public async login(@Req() req: Request) {
-    const body = ceremonyBody(req);
-    const credentials: Credentials | null = body && { kind: 'webauthn', challengeId: body.challengeId, response: body.response };
-    return completeLogin(this.Container, this.Sessions, this._cfg, req, credentials);
+  @IpThrottle('login', throttledLogin)
+  @OnInvalidInput(failedLogin)
+  public async login(@Body({ required: true }) body: AuthnPasskeyLoginBody, @ClientContext() client: AuthnClientContext) {
+    return completeLogin(this.Container, this.Sessions, this._cfg, client, { kind: 'webauthn', challengeId: body.challengeId, response: body.response });
   }
 
   /**
    * Passkey registration options
    * Body `{ reauthPassword? }`. Answers `{ challengeId, options }` for navigator.credentials.create(): a discoverable
    * credential bound to the caller, the caller's passkeys excluded.
+   * @returns {AuthnPasskeyCeremony} The challenge and the options for navigator.credentials.create()
    * @security cookieAuth
    */
   @Post('user/passkeys/options')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
-  public async options(@Req() req: Request) {
-    const session = keyManager(req);
-    const fresh = await freshAuthOrAnswer(this.Container, req, takeReauthPassword(req));
+  @OnInvalidInput(byField({ reauthPassword: uniformFailure }, unknownField))
+  public async options(@Body({ sensitive: ['reauthPassword'] }) body: AuthnReauthPasswordBody, @ClientContext() client: AuthnClientContext) {
+    const session = keyManager(client);
+    const fresh = await freshAuthOrAnswer(this.Container, client, (body as AuthnReauthPasswordBody | null)?.reauthPassword);
     if ('answer' in fresh) return fresh.answer;
-    return ceremonyAnswer(await (await this.passkeys()).registrationOptions(session.identity, contextOf(req, 'request', session.handle)));
+    return ceremonyAnswer(await (await this.passkeys()).registrationOptions(session.identity, contextOf(client, 'request', session.handle)));
   }
 
   /**
    * Register a passkey
    * Body `{ challengeId, response, name?, reauthPassword? }`: a challenge from POST /user/passkeys/options and the
    * browser's RegistrationResponseJSON. Answers the passkey `{ id, name, transports, createdAt, lastUsedAt }`. 400
-   * `invalid_response` (also a used, expired or foreign challenge) or `invalid_name`; 409 `passkey_taken`; 403
-   * `action_refused` with `code` when an `authn.passkey.register` hook refuses.
+   * `invalid_response` (also a used, expired or foreign challenge), `invalid_name` or `invalid_field`; 409
+   * `passkey_taken`; 403 `action_refused` with `code` when an `authn.passkey.register` hook refuses. The body is checked
+   * before fresh auth.
+   * @returns {AuthnPasskeyEntry} The registered passkey
+   * @response 400 {AuthnError} invalid_response, invalid_name or invalid_field
+   * @response 403 {AuthnError} action_refused (with `code`) when an `authn.passkey.register` hook refuses
+   * @response 409 {AuthnError} passkey_taken
    * @security cookieAuth
    */
   @Post('user/passkeys')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
-  public async register(@Req() req: Request) {
-    const session = keyManager(req);
-    const fresh = await freshAuthOrAnswer(this.Container, req, takeReauthPassword(req));
+  @OnInvalidInput(byField({ reauthPassword: uniformFailure, challengeId: invalidResponse, response: invalidResponse, name: invalidName }, unknownField))
+  public async register(@Body({ required: true, sensitive: ['reauthPassword'] }) body: AuthnPasskeyRegisterBody, @ClientContext() client: AuthnClientContext) {
+    const session = keyManager(client);
+    const fresh = await freshAuthOrAnswer(this.Container, client, body.reauthPassword);
     if ('answer' in fresh) return fresh.answer;
-    const body = ceremonyBody(req);
-    if (!body) return badRequest('invalid_response', 'challengeId and response are required');
-    const rawName = bodyField(req, 'name');
-    const name = rawName === undefined ? undefined : boundedString(rawName, NAME_CAP);
-    if (name === null || (name !== undefined && hasControlCharacter(name))) return badRequest('invalid_name', `name must be 1 to ${NAME_CAP} characters without control characters`);
+    const { challengeId, response, name } = body;
     let result: Awaited<ReturnType<PasskeyService['register']>>;
     try {
-      result = await (await this.passkeys()).register(session.identity, { ...body, ...(name !== undefined ? { name } : {}) }, contextOf(req, 'request', session.handle));
+      result = await (await this.passkeys()).register(session.identity, { challengeId, response, ...(name !== undefined ? { name } : {}) }, contextOf(client, 'request', session.handle));
     } catch (err) {
       return refusedByHook(err, 'authn.passkey.register');
     }
@@ -146,12 +174,13 @@ export class AuthnPasskeyController extends BaseController {
 
   /**
    * List own passkeys
+   * @returns {AuthnPasskeyEntry[]} The own passkeys
    * @security cookieAuth
    */
   @Get('user/passkeys')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
-  public async list(@Req() req: Request) {
-    const session = keyManager(req);
+  public async list(@ClientContext() client: AuthnClientContext) {
+    const session = keyManager(client);
     return new Ok((await (await this.passkeys()).list(session.identity)).map(passkeyEntry), { Headers: [NO_STORE] });
   }
 
@@ -159,15 +188,18 @@ export class AuthnPasskeyController extends BaseController {
    * Delete an own passkey
    * 404 `passkey_not_found` for any id that is not a passkey of the caller, whoever holds it; 403 `action_refused` with
    * `code` when an `authn.passkey.revoke` hook refuses.
+   * @response 403 {AuthnError} action_refused (with `code`) when an `authn.passkey.revoke` hook refuses
+   * @response 404 {AuthnError} passkey_not_found
    * @security cookieAuth
    */
   @Del('user/passkeys/:id')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
-  public async remove(@Req() req: Request, @Param() id: string) {
-    const session = keyManager(req);
+  @OnInvalidInput(passkeyNotFound)
+  public async remove(@Param(PASSKEY_ID_PARAM) id: string, @ClientContext() client: AuthnClientContext) {
+    const session = keyManager(client);
     let removed: boolean;
     try {
-      removed = typeof id === 'string' && CREDENTIAL_ID.test(id) && (await (await this.passkeys()).remove(session.identity, id, contextOf(req, 'request', session.handle)));
+      removed = await (await this.passkeys()).remove(session.identity, id, contextOf(client, 'request', session.handle));
     } catch (err) {
       return refusedByHook(err, 'authn.passkey.revoke');
     }

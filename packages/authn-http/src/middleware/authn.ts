@@ -19,6 +19,7 @@ import type * as express from 'express';
 import { AuthnPrincipalResolver } from '../api.js';
 import { publicOriginOf } from '../extractors/signature.js';
 import { logHash, unsignSessionCookie, warnNoLiveSession } from '../session-cookie.js';
+import { clientOf } from '../v3/client.js';
 import { contextOf } from '../v3/context.js';
 import { publishAuthnEvent } from '../policies/v3/audit.js';
 import '../hooks.js';
@@ -134,7 +135,7 @@ export class AuthnMiddleware extends ServerMiddleware {
   protected async authenticate(req: Request, res: express.Response): Promise<void> {
     req.storage.AuthnSession = null;
     req.storage.AuthnPrincipal = null;
-    const ctx = contextOf(req, 'request');
+    const ctx = contextOf(clientOf(req), 'request');
 
     const session = await this.restoreSession(req);
     req.storage.AuthnSession = session;

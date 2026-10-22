@@ -758,6 +758,10 @@ export interface PasskeyCeremony {
     readonly challengeId: string;
     readonly options: Readonly<Record<string, unknown>>;
 }
+/** Thrown by `PasskeyService.challenge` while the stored challenges are at their cap; the login route answers 503. */
+export declare class PasskeyChallengesFull extends Error {
+    constructor();
+}
 /** A registered passkey as its owner sees it; never the public key. */
 export interface PasskeyEntry {
     /** The credential id, base64url. */
@@ -877,11 +881,17 @@ export type AddressVerificationRequestResult = {
     readonly status: "throttled";
     readonly retryAfterSeconds: number;
 };
-/** 'invalid' is the one answer for a wrong, used, expired or other-purpose secret and for an identity that cannot verify (A02). */
+/**
+ * 'invalid' is the one answer for a wrong, used, expired or other-purpose secret and for an identity that cannot verify (A02).
+ * 'throttled': the client ip is in backoff in the 'reset' flow; the secret was not looked at.
+ */
 export type AddressVerificationResult = {
     readonly status: "verified";
 } | {
     readonly status: "invalid";
+} | {
+    readonly status: "throttled";
+    readonly retryAfterSeconds: number;
 };
 export type CodeRequestResult = {
     readonly status: "accepted";
@@ -1231,14 +1241,14 @@ export declare abstract class AuthenticationStrategy extends AsyncService {
 ```ts
 import type { BackoffParams } from "@spinajs/util";
 import type { AuthnContext, IdentityRef } from "./credentials.js";
-export { backoffDelayMs } from "@spinajs/util";
+export { DEFAULT_IPV6_PREFIX, backoffDelayMs } from "@spinajs/util";
 export type { BackoffParams } from "@spinajs/util";
 export interface ThrottleKey {
     readonly kind: "ip" | "account" | "account-ip" | "global" | (string & {});
     /** The caller passes the plain value; stores keep a keyed hash of it, since logins are personal data (SR-19). */
     readonly value: string;
 }
-export type ThrottleFlow = "login" | "mfa" | "reset" | "reauth";
+export type ThrottleFlow = "login" | "mfa" | "reset" | "reauth" | "register";
 /** `clean`: no live row holds any of the keys, so a success has nothing to lower or clear and `succeed` may be skipped. */
 export type PeekVerdict = {
     readonly allowed: true;
@@ -1260,7 +1270,7 @@ export declare abstract class AuthnThrottle {
         allowed: false;
         retryAfterSeconds: number;
     }>;
-    /** Resets the account key and removes that account's attempts from the IP key (A06). For 'reset' nothing is cleared; only time clears those keys (§22.13). */
+    /** Resets the account key and removes that account's attempts from the IP key (A06). For 'reset' nothing is cleared; only time clears those keys (§22.13). Nor for 'register'. */
     abstract succeed(keys: readonly ThrottleKey[], flow: ThrottleFlow): Promise<void>;
     /** Optional; the authn service calls it at boot with its configuration, so a throttle that cannot run on it fails the boot. */
     checkConfiguration?(configuration: {
@@ -1277,6 +1287,7 @@ export interface ThrottleParams {
     readonly mfa: ThrottleFlowParams;
     readonly reset: ThrottleFlowParams;
     readonly reauth: ThrottleFlowParams;
+    readonly register: ThrottleFlowParams;
     readonly resetAfterSeconds: number;
     /** Off (null) unless configured: one attacker could slow every login. */
     readonly global?: BackoffParams | null;
@@ -1284,15 +1295,26 @@ export interface ThrottleParams {
 export declare const THROTTLE_FLOWS: readonly ThrottleFlow[];
 /** Design §22.5 `authn.throttle`; the schema defaults equal it (test/boot/config-defaults.test.ts). */
 export declare const DEFAULT_THROTTLE_PARAMS: ThrottleParams;
-/** The keys of the `mfa` and `reauth` flows: AuthnService, PasswordService.change and MFA enrolment share one budget (D14). */
-export declare function identityThrottleKeys(id: IdentityRef, ctx: AuthnContext): ThrottleKey[];
+/** `authn.throttle.ipv6Prefix` as a config read delivers it: the default for anything but a number. */
+export declare const ipv6PrefixOf: (configured: unknown) => number;
+/**
+ * The `ip` key of the client, or null without an address. An IPv6 client holds a whole prefix of `v6Prefix` bits
+ * (`authn.throttle.ipv6Prefix`), so its addresses share one row (L3).
+ */
+export declare function ipKey(ctx: AuthnContext, v6Prefix: number): ThrottleKey | null;
+/**
+ * The keys of the `mfa` and `reauth` flows: AuthnService, PasswordService.change and MFA enrolment share one budget (D14).
+ * Without `v6Prefix` the address is keyed whole.
+ */
+export declare function identityThrottleKeys(id: IdentityRef, ctx: AuthnContext, v6Prefix?: number): ThrottleKey[];
 
 // values
 const THROTTLE_FLOWS = Object.freeze([
     "login",
     "mfa",
     "reset",
-    "reauth"
+    "reauth",
+    "register"
 ]);
 const DEFAULT_THROTTLE_PARAMS = Object.freeze({
     login: Object.freeze({
@@ -1309,6 +1331,10 @@ const DEFAULT_THROTTLE_PARAMS = Object.freeze({
     }),
     reauth: Object.freeze({
         account: backoff(3, 1000, 300000)
+    }),
+    register: Object.freeze({
+        account: backoff(3, 60000, 3600000),
+        ip: backoff(10, 30000, 3600000)
     }),
     resetAfterSeconds: 86400,
     global: null
@@ -1525,6 +1551,11 @@ export interface Ceiling {
     /** Deny code when the ceiling fails; default 'ceiling'. */
     readonly reason?: string;
 }
+
+// DEFAULT_IPV6_PREFIX (@spinajs/util)
+export declare const DEFAULT_IPV6_PREFIX = 64;
+// value
+const DEFAULT_IPV6_PREFIX = 64;
 
 // IAuthnPrincipalStorage (@spinajs/principal)
 /** req.storage keys written by AuthnMiddleware (D26). */

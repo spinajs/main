@@ -2,18 +2,20 @@ import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import type { Principal, Session } from '@spinajs/authn/contracts';
 
+import { clientOf } from '../../v3/client.js';
+import type { AuthnClientContext } from '../../v3/client.js';
 import { refused, unauthenticated } from './errors.js';
 
-/** The authenticated principal of the request, or a 401. */
-export function authenticatedPrincipal(req: Request): Principal {
-  const principal = req.storage.AuthnPrincipal;
+/** The authenticated principal of the caller, or a 401. */
+export function authenticatedPrincipal(client: AuthnClientContext): Principal {
+  const principal = client.principal;
   if (!principal || principal.authenticated !== true) throw unauthenticated('this route needs an authenticated caller');
   return principal;
 }
 
-/** The request's active session, or a 403 `session_required` without one or for a pending one. */
-export function activeSessionOf(req: Request, message = 'this route needs a session'): Session {
-  const session = req.storage.AuthnSession;
+/** The caller's active session, or a 403 `session_required` without one or for a pending one. */
+export function activeSessionOf(client: AuthnClientContext, message = 'this route needs a session'): Session {
+  const session = client.session;
   if (session?.handle.state !== 'active') throw refused('session_required', message);
   return session;
 }
@@ -31,7 +33,7 @@ export class Authenticated extends BasePolicy {
   }
 
   public async execute(req: Request, _action: IRoute, _instance: IController): Promise<void> {
-    authenticatedPrincipal(req);
+    authenticatedPrincipal(clientOf(req));
   }
 }
 

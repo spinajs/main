@@ -35,7 +35,7 @@ export interface OidcClaimsMapping {
     readonly emailVerified: OidcClaimPath | null;
     /** Default 'name'. */
     readonly name: OidcClaimPath | null;
-    /** Default 'groups'. A string is one group; non-string items are dropped. Unmapped or missing: hooks must leave memberships alone. */
+    /** Default 'groups'. A string is one group; non-string items and items longer than 255 characters are dropped. Unmapped, missing or more than 256 items: hooks must leave memberships alone. */
     readonly groups: OidcClaimPath | null;
 }
 /** Absolute URLs. */

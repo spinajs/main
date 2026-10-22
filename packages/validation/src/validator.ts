@@ -26,6 +26,14 @@ import { default as ajvKeywords } from 'ajv-keywords';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const resolveDefault = (mod: any): any => mod?.default ?? mod;
 
+// The members of the strict Ajv instance used here; `Validator` stays `any` for subclasses.
+interface StrictAjv {
+  addSchema(schema: object, key: string): unknown;
+  removeSchema(key: string): unknown;
+}
+
+export const DEFAULT_STRICT_ID_PREFIXES: readonly string[] = ['authn.', 'authz.'];
+
 const syntheticError = (keyword: string, message: string): IValidationError =>
   ({
     keyword,
@@ -53,6 +61,13 @@ export class DataValidator extends AsyncService {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   protected Validator: any;
 
+  /**
+   * Same options and schemas as `Validator`, with `coerceTypes: false`; used for schemas whose `$id` has a strict prefix.
+   */
+  protected StrictValidator: StrictAjv;
+
+  protected StrictIdPrefixes: readonly string[] = DEFAULT_STRICT_ID_PREFIXES;
+
   @Autoinject()
   protected Container: Container;
 
@@ -61,32 +76,28 @@ export class DataValidator extends AsyncService {
       throw new InvalidOperation('No schema sources avaible. Register any in DI container');
     }
 
+    // An object `strict` holds the strict schema ids; a boolean or 'log' is still Ajv's own strict mode.
+    const { strict, ...ajvOptions } = this.Options ?? ({} as IValidationOptions);
+    const strictIds = typeof strict === 'object' && strict !== null ? strict : undefined;
+    const ajvStrict = strictIds ? strictIds.ajvStrict : strict;
+    this.StrictIdPrefixes = strictIds?.idPrefixes ?? DEFAULT_STRICT_ID_PREFIXES;
+
     const ajvConfig = {
       logger: {
         log: (msg: string) => this.Log.info(msg),
         warn: (msg: string) => this.Log.warn(msg),
         error: (msg: string) => this.Log.error(msg),
       },
-      ...this.Options,
+      ...ajvOptions,
+      ...(ajvStrict === undefined ? {} : { strict: ajvStrict }),
       $data: true,
       // `parentSchema` tells sanitizeError which rules are `$data` refs; no error leaves this class unsanitised.
       verbose: true,
     };
 
 
-    /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call */
-    const AjvConstructor = resolveDefault(Ajv);
-    this.Validator = new AjvConstructor(ajvConfig);
-
-    // add $merge & $patch for json schema
-    resolveDefault(ajvMergePath)(this.Validator);
-
-    // add common formats validation eg: date time
-    resolveDefault(ajvFormats)(this.Validator);
-
-    // add keywords
-    resolveDefault(ajvKeywords)(this.Validator);
-    /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call */
+    this.Validator = this.createAjv(ajvConfig);
+    this.StrictValidator = this.createAjv({ ...ajvConfig, coerceTypes: false });
 
     const pSources = this.Sources.map((x) => x.Load());
     const result = await Promise.all(pSources);
@@ -123,13 +134,42 @@ export class DataValidator extends AsyncService {
     await super.resolve();
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  protected createAjv(options: object): any {
+    /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call */
+    const AjvConstructor = resolveDefault(Ajv);
+    const ajv = new AjvConstructor(options);
+
+    // add $merge & $patch for json schema
+    resolveDefault(ajvMergePath)(ajv);
+
+    // add common formats validation eg: date time
+    resolveDefault(ajvFormats)(ajv);
+
+    // add keywords
+    resolveDefault(ajvKeywords)(ajv);
+    /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call */
+
+    return ajv;
+  }
+
+  /**
+   * True when `schema` ( an object or a registered id ) is validated without type coercion.
+   */
+  public isStrict(schema: object | string): boolean {
+    const id = typeof schema === 'string' ? schema : (schema as Record<string, unknown>)?.$id;
+    return typeof id === 'string' && this.StrictIdPrefixes.some((prefix) => id.startsWith(prefix));
+  }
+
   public addSchema(schemaObject: object, identifier: string) {
     if (this.hasSchema(identifier)) {
       this.Log.warn({ schema: identifier }, 'Schema ${schema} already registered, skipping');
       return;
     }
 
+    // Both instances hold every schema, so a $ref from a strict schema resolves on the strict one.
     this.Validator.addSchema(schemaObject, identifier);
+    this.StrictValidator.addSchema(schemaObject, identifier);
     this.Log.trace({ schema: identifier }, 'Schema ${schema} added !');
   }
 
@@ -141,6 +181,7 @@ export class DataValidator extends AsyncService {
   public removeSchema(schemaId: string): void {
     if (this.hasSchema(schemaId)) {
       this.Validator.removeSchema(schemaId);
+      this.StrictValidator.removeSchema(schemaId);
       this.Log.trace({ schema: schemaId }, 'Schema ${schema} removed !');
     }
   }
@@ -192,9 +233,11 @@ export class DataValidator extends AsyncService {
       return [false, [syntheticError('empty_schema', 'objects schema is not set')]];
     }
 
-    const result = this.Validator.validate(schema, target);
+    const strict = this.isStrict(schema) || (hasSchemaArg && typeof schemaOrData === 'string' && this.isStrict(schemaOrData));
+    const ajv = strict ? this.StrictValidator : this.Validator;
+    const result = ajv.validate(this.uniqueIdSchema(schema, ajv), target);
     if (!result) {
-      return [false, this.sanitizedErrors(schema)];
+      return [false, this.sanitizedErrors(schema, ajv)];
     }
 
     return [true, null];
@@ -232,8 +275,9 @@ export class DataValidator extends AsyncService {
     }
   }
 
-  private sanitizedErrors(schema?: object): IValidationError[] {
-    return ((this.Validator.errors as IValidationError[]) ?? []).map((error) => sanitizeError(error, schema));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private sanitizedErrors(schema?: object, ajv: any = this.Validator): IValidationError[] {
+    return ((ajv.errors as IValidationError[]) ?? []).map((error) => sanitizeError(error, schema));
   }
 
   /**
@@ -254,13 +298,14 @@ export class DataValidator extends AsyncService {
       return this.extractSchema(schemaOrData) ?? null;
     }
 
-    return this.uniqueIdSchema(schemaOrData as ISchemaObject);
+    return schemaOrData as ISchemaObject;
   }
 
   // Ajv registers an inline schema's `$id` globally; a different object reusing a taken `$id` would throw.
-  private uniqueIdSchema(schema: ISchemaObject): ISchemaObject {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private uniqueIdSchema(schema: ISchemaObject, ajv: any): ISchemaObject {
     const id = (schema as Record<string, unknown>).$id;
-    if (typeof id !== 'string' || !this.Validator.getSchema(id) || this.Validator.getSchema(id)?.schema === schema) {
+    if (typeof id !== 'string' || !ajv.getSchema(id) || ajv.getSchema(id)?.schema === schema) {
       return schema;
     }
 

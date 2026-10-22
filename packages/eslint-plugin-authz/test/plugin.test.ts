@@ -10,8 +10,8 @@ const fixtures = fileURLToPath(new URL('./fixtures', import.meta.url));
 
 describe('@spinajs/eslint-plugin-authz', () => {
   it('exports the rule and a recommended config that enables it', () => {
-    expect(Object.keys(rules)).to.deep.eq(['require-accessible', 'require-access']);
-    expect(Object.keys(plugin.rules)).to.deep.eq(['require-accessible', 'require-access']);
+    expect(Object.keys(rules)).to.deep.eq(['require-accessible', 'require-access', 'no-raw-request']);
+    expect(Object.keys(plugin.rules)).to.deep.eq(['require-accessible', 'require-access', 'no-raw-request']);
     expect(plugin.configs.recommended).to.eq(configs.recommended);
     expect(configs.recommended.rules).to.deep.eq({ '@spinajs/authz/require-accessible': 'error', '@spinajs/authz/require-access': 'error' });
   });

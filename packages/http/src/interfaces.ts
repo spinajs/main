@@ -5,6 +5,8 @@ import formidable from 'formidable';
 import { CookieOptions } from 'express';
 import { IPerfScope } from '@spinajs/log';
 import type { ProxyTrust } from './middlewares/RealIp.js';
+import type { IBodyLimitRule } from './body-limits.js';
+import type { ErrorClass, ErrorStage, OnErrorHandler } from './errors/on-error.js';
 
 /**
  * Accept header enum
@@ -77,6 +79,12 @@ export interface IHttpServerConfiguration {
    * Middlewares used by server
    */
   middlewares: express.RequestHandler[];
+
+  /**
+   * Per-path body size limits, applied before `middlewares`. The first prefix match wins; other paths keep the
+   * limits of the `middlewares` parsers ( 5mb JSON by default ).
+   */
+  bodyLimits?: IBodyLimitRule[];
 
   /**
    * Static files folder. Feel free to override this per app
@@ -798,6 +806,17 @@ export interface IRoute {
   Options: any;
 
   Schema: any;
+
+  /**
+   * `@OnError` handlers of this route, in declaration order.
+   */
+  ErrorHandlers?: IOnErrorDescriptor[];
+}
+
+export interface IOnErrorDescriptor {
+  readonly On: readonly ErrorClass[];
+  readonly Handler: OnErrorHandler;
+  readonly Stages?: readonly ErrorStage[];
 }
 
 export interface IMiddlewareDescriptor {
@@ -952,6 +971,11 @@ export interface IControllerDescriptor {
    * Configuration key that overrides `BasePath` when set; `BasePath` then holds the default.
    */
   BasePathConfig?: string | null;
+
+  /**
+   * Controller-wide `@OnError` handlers, in declaration order. They run after the route's own.
+   */
+  ErrorHandlers?: IOnErrorDescriptor[];
 
   /**
    * Absolute path of the source file that declared the controller, captured

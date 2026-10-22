@@ -1,4 +1,5 @@
 import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
+import { BOT_CONFIGURATION_SCHEMA } from '../bot/schema.js';
 
 const nonEmpty = { type: 'string', minLength: 1 };
 
@@ -50,12 +51,56 @@ export const HTTP_CONFIGURATION_SCHEMA = {
       ],
       description: 'Absent or falsy: no CORS middleware. Origins are listed as scheme://host[:port] or the one entry *.',
     },
+    bodyLimits: {
+      type: 'array',
+      default: [],
+      description:
+        'Per-path request body limits, applied before http.middlewares. The first rule whose path prefix (on a segment boundary, matched against the path the client requests) matches wins; other paths keep the 5mb default.',
+      items: {
+        type: 'object',
+        required: ['path', 'limit'],
+        properties: {
+          path: nonEmpty,
+          limit: { type: 'string', pattern: '^\\s*\\d+(\\.\\d+)?\\s*([bB]|[kKmMgG][bB])?\\s*$' },
+        },
+      },
+    },
+    errors: {
+      type: 'object',
+      default: {},
+      properties: {
+        handlers: {
+          type: 'array',
+          default: [],
+          description: 'App-wide route error handlers ( ErrorHandlerService names ), run after the route and controller @OnError handlers, in this order.',
+          items: { type: 'object', required: ['service'], properties: { service: nonEmpty } },
+        },
+      },
+    },
+    csrf: {
+      type: 'object',
+      default: {},
+      description: 'CsrfGuard: an unsafe request that carries Origin, Sec-Fetch-Site or an ambient cookie must come from the own origin or an allowed one.',
+      properties: {
+        // Not `type: 'boolean'`: coerceTypes would turn a null into false and switch the guard off.
+        enabled: { enum: [true, false], default: true },
+        allowedOrigins: { type: 'array', default: [], items: { type: 'string', pattern: ORIGIN_PATTERN }, description: 'Besides the own origin, which is always allowed.' },
+        exempt: {
+          type: 'array',
+          default: [],
+          items: { type: 'string', pattern: '^/' },
+          description: 'Route paths never checked, after http.controllers.route.prefix, matched as the router matches routes (:params allowed). Prefer @CsrfExempt() on routes you own.',
+        },
+        ambientCookies: { type: 'array', default: [], items: nonEmpty, description: 'Cookies browsers attach on their own: a request carrying one is checked even without Origin and Sec-Fetch-Site.' },
+      },
+    },
     throttle: {
       type: 'object',
       default: {},
       description: 'Per-ip, per-route rate limiting (ThrottleMiddleware). Off by default: the authn throttle is the real login limiter.',
       properties: {
         enabled: { type: 'boolean', default: false },
+        ipv6Prefix: { type: 'integer', minimum: 16, maximum: 128, default: 64, description: 'An IPv6 client is counted per prefix of this many bits, so its addresses share one window; IPv4 is counted whole.' },
         rules: {
           type: 'array',
           default: [],
@@ -73,6 +118,7 @@ export const HTTP_CONFIGURATION_SCHEMA = {
         },
       },
     },
+    bot: BOT_CONFIGURATION_SCHEMA,
   },
 };
 

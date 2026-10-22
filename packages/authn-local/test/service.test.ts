@@ -308,6 +308,14 @@ describe('LocalPasswordService', function () {
       ]);
     });
 
+    it('keys an IPv6 client on its /64', async () => {
+      const { service, throttle, alice, session } = await setup();
+      await service.change(alice, 'Wrong-Password-0', NEW, session, ctx({ ip: '2001:db8::1' }));
+      await service.change(alice, 'Wrong-Password-0', NEW, session, ctx({ ip: '2001:db8::ffff' }));
+      expect(throttle.calls[1].keys).to.deep.equal(throttle.calls[0].keys);
+      expect(throttle.calls[0].keys).to.deep.include({ kind: 'ip', value: '2001:db8::/64' });
+    });
+
     it('without an ip there is no ip key and account-ip ends with |', async () => {
       const { service, throttle, alice, session } = await setup();
       await service.change(alice, 'Wrong-Password-0', NEW, session, { now: NOW, purpose: 'reauth' });

@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authz-http",
-  "version": "3.0.12",
+  "version": "3.0.14",
   "description": "HTTP integration for SpinaJS authorization",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -57,17 +57,18 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authz": "3.0.12",
-    "@spinajs/configuration": "3.0.12",
-    "@spinajs/di": "3.0.12",
-    "@spinajs/exceptions": "3.0.12",
-    "@spinajs/http": "3.0.12",
-    "@spinajs/log": "3.0.12",
-    "@spinajs/orm": "3.0.12",
-    "@spinajs/util": "3.0.12"
+    "@spinajs/authz": "3.0.14",
+    "@spinajs/configuration": "3.0.14",
+    "@spinajs/di": "3.0.14",
+    "@spinajs/exceptions": "3.0.14",
+    "@spinajs/http": "3.0.14",
+    "@spinajs/log": "3.0.14",
+    "@spinajs/orm": "3.0.14",
+    "@spinajs/util": "3.0.14",
+    "@spinajs/validation": "3.0.14"
   },
   "peerDependencies": {
-    "@spinajs/authn": "3.0.12"
+    "@spinajs/authn": "3.0.14"
   },
   "peerDependenciesMeta": {
     "@spinajs/authn": {
@@ -75,8 +76,8 @@
     }
   },
   "devDependencies": {
-    "@spinajs/authn": "3.0.12",
-    "@spinajs/authz-testing": "3.0.12",
-    "@spinajs/fs": "3.0.12"
+    "@spinajs/authn": "3.0.14",
+    "@spinajs/authz-testing": "3.0.14",
+    "@spinajs/fs": "3.0.14"
   }
 }

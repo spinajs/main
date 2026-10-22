@@ -8,11 +8,11 @@ import type { IControllerDescriptor, Request } from '@spinajs/http';
 import { AuthnThrottle, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
 
-import authnHttpConfig from '../../src/config/authn-http.js';
 import { CsrfOriginGuard } from '../../src/middleware/csrf.js';
 import { TokenServiceRegistered } from '../../src/token/gate.js';
 import { AuthnTokenRevocationController } from '../../src/v3/controllers/AuthnTokenRevocationController.js';
-import { fakeContainer } from '../support/config-boot.js';
+import { fakeContainer, readingFrom } from '../support/config-boot.js';
+import { callRoute } from '../support/route-call.js';
 
 const ROUTE = '/auth/tokens/revoke';
 const IP = '192.0.2.7';
@@ -100,7 +100,7 @@ function world(): World {
     [AuthnThrottle, throttle],
   ]);
   const container = { resolve: async (type: unknown) => services.get(type) } as unknown as IContainer;
-  const controller = new AuthnTokenRevocationController();
+  const controller = readingFrom(new AuthnTokenRevocationController(), fakeContainer({}));
   (controller as unknown as { Container: IContainer }).Container = container;
 
   // No session, no principal and no cookie: the route is for a caller who holds nothing but the secret.
@@ -143,7 +143,7 @@ describe('POST /auth/tokens/revoke (self-revocation by plaintext)', () => {
   describe('answers', () => {
     it('revokes a live token by its plaintext and answers 200 {} with no-store, for a caller without a session', async () => {
       const w = world();
-      const res = answerOf(await w.controller.revoke(w.request({ token: LIVE })));
+      const res = answerOf(await callRoute(w.controller, 'revoke', w.request({ token: LIVE })));
 
       expect(res).to.deep.include({ status: 200, body: {}, noStore: true });
       expect(w.tokens.raws).to.deep.eq([LIVE]);
@@ -153,9 +153,9 @@ describe('POST /auth/tokens/revoke (self-revocation by plaintext)', () => {
 
     it('answers the same 200 {} for an unknown token and for one that is already revoked, and nothing else tells them apart', async () => {
       const w = world();
-      const live = answerOf(await w.controller.revoke(w.request({ token: LIVE })));
-      const again = answerOf(await w.controller.revoke(w.request({ token: LIVE })));
-      const unknown = answerOf(await w.controller.revoke(w.request({ token: 'spt_never-issued' })));
+      const live = answerOf(await callRoute(w.controller, 'revoke', w.request({ token: LIVE })));
+      const again = answerOf(await callRoute(w.controller, 'revoke', w.request({ token: LIVE })));
+      const unknown = answerOf(await callRoute(w.controller, 'revoke', w.request({ token: 'spt_never-issued' })));
 
       expect(w.tokens.raws).to.deep.eq([LIVE, LIVE, 'spt_never-issued']);
       expect(again).to.deep.eq(live);
@@ -167,7 +167,7 @@ describe('POST /auth/tokens/revoke (self-revocation by plaintext)', () => {
       const w = world();
       const bodies: unknown[] = [undefined, null, 'token=x', [], {}, { token: '' }, { token: 42 }, { token: null }, { token: [LIVE] }, { token: { toString: () => LIVE } }, { token: 'x'.repeat(1025) }];
       for (const body of bodies) {
-        expect(answerOf(await w.controller.revoke(w.request(body))), JSON.stringify(body)).to.deep.include({ status: 200, body: {}, noStore: true });
+        expect(answerOf(await callRoute(w.controller, 'revoke', w.request(body))), JSON.stringify(body)).to.deep.include({ status: 200, body: {}, noStore: true });
       }
       expect(w.tokens.raws).to.deep.eq([]);
     });
@@ -175,22 +175,32 @@ describe('POST /auth/tokens/revoke (self-revocation by plaintext)', () => {
     it('accepts a token of 1024 characters', async () => {
       const w = world();
       const long = 'x'.repeat(1024);
-      expect(answerOf(await w.controller.revoke(w.request({ token: long }))).status).to.eq(200);
+      expect(answerOf(await callRoute(w.controller, 'revoke', w.request({ token: long }))).status).to.eq(200);
       expect(w.tokens.raws).to.deep.eq([long]);
     });
 
-    it('ignores every other field of the body', async () => {
+    it("takes RFC 7009's token_type_hint and ignores it; any other field answers the same 200 {} and revokes nothing (D5)", async () => {
       const w = world();
-      await w.controller.revoke(w.request({ token: LIVE, token_type_hint: 'access_token', id: 'abc', owner: { type: 'user', id: 'x' } }));
+      expect(answerOf(await callRoute(w.controller, 'revoke', w.request({ token: LIVE, token_type_hint: 'access_token' }))).status).to.eq(200);
+      expect(answerOf(await callRoute(w.controller, 'revoke', w.request({ token: LIVE, id: 'abc', owner: { type: 'user', id: 'x' } })))).to.deep.include({ status: 200, body: {}, noStore: true });
       expect(w.tokens.raws).to.deep.eq([LIVE]);
     });
   });
 
   describe('throttle', () => {
+    it('keys an IPv6 client on its /64', async () => {
+      const w = world();
+      await callRoute(w.controller, 'revoke', w.request({}, '2001:db8::1'));
+      await callRoute(w.controller, 'revoke', w.request({}, '2001:db8::ffff'));
+      await callRoute(w.controller, 'revoke', w.request({}, '2001:db8:0:1::1'));
+
+      expect(w.throttle.attempts.map((a) => a.keys)).to.deep.eq([[{ kind: 'ip', value: '2001:db8::/64' }], [{ kind: 'ip', value: '2001:db8::/64' }], [{ kind: 'ip', value: '2001:db8:0:1::/64' }]]);
+    });
+
     it('counts each request in the reset flow, keyed on the client ip alone', async () => {
       const w = world();
-      await w.controller.revoke(w.request({ token: LIVE }));
-      await w.controller.revoke(w.request({}));
+      await callRoute(w.controller, 'revoke', w.request({ token: LIVE }));
+      await callRoute(w.controller, 'revoke', w.request({}));
 
       expect(w.throttle.attempts).to.deep.eq([
         { keys: [{ kind: 'ip', value: IP }], flow: 'reset' },
@@ -201,11 +211,11 @@ describe('POST /auth/tokens/revoke (self-revocation by plaintext)', () => {
     it('answers 429 with Retry-After to the 21st request from one ip, without asking the service, and still serves another ip', async () => {
       const w = world();
       for (let i = 0; i < FREE; i++) {
-        expect(answerOf(await w.controller.revoke(w.request({ token: `spt_guess-${i}` }))).status, `request ${i + 1}`).to.eq(200);
+        expect(answerOf(await callRoute(w.controller, 'revoke', w.request({ token: `spt_guess-${i}` }))).status, `request ${i + 1}`).to.eq(200);
       }
       expect(w.tokens.raws).to.have.length(FREE);
 
-      const refused = answerOf(await w.controller.revoke(w.request({ token: LIVE })));
+      const refused = answerOf(await callRoute(w.controller, 'revoke', w.request({ token: LIVE })));
       expect(refused.status).to.eq(429);
       expect(refused.retryAfter).to.eq(String(RETRY_AFTER));
       expect(refused.noStore).to.eq(true);
@@ -213,7 +223,7 @@ describe('POST /auth/tokens/revoke (self-revocation by plaintext)', () => {
       expect(JSON.stringify(refused.body)).to.not.include(LIVE);
       expect(w.tokens.raws, 'a refused request revokes nothing').to.have.length(FREE);
 
-      const other = answerOf(await w.controller.revoke(w.request({ token: LIVE }, '192.0.2.99')));
+      const other = answerOf(await callRoute(w.controller, 'revoke', w.request({ token: LIVE }, '192.0.2.99')));
       expect(other).to.deep.include({ status: 200, body: {} });
       expect(w.tokens.raws).to.have.length(FREE + 1);
     });
@@ -221,9 +231,9 @@ describe('POST /auth/tokens/revoke (self-revocation by plaintext)', () => {
     it('counts a request with no usable token too, so guessing cannot dodge the budget', async () => {
       const w = world();
       for (let i = 0; i < FREE; i++) {
-        await w.controller.revoke(w.request({}));
+        await callRoute(w.controller, 'revoke', w.request({}));
       }
-      expect(answerOf(await w.controller.revoke(w.request({ token: LIVE }))).status).to.eq(429);
+      expect(answerOf(await callRoute(w.controller, 'revoke', w.request({ token: LIVE }))).status).to.eq(429);
       expect(w.tokens.raws).to.deep.eq([]);
     });
   });
@@ -237,13 +247,13 @@ describe('POST /auth/tokens/revoke (self-revocation by plaintext)', () => {
       const values = {
         'authn.http.csrf.enabled': true,
         'authn.http.csrf.allowedOrigins': [],
-        'authn.http.csrf.unauthenticatedRoutes': authnHttpConfig.authn.http.csrf.unauthenticatedRoutes,
         'authn.session.cookie': { name: 'ssid' },
         'authn.http.trustProxy': null,
         'http.trustProxy': null,
         'http.controllers.route.prefix': '',
       };
       Object.defineProperty(mw, CONFIGURATION_CONTAINER_KEY, { value: fakeContainer(values) });
+      Object.defineProperty(mw, 'Log', { value: { warn: () => undefined } });
       return mw;
     }
 
@@ -255,15 +265,11 @@ describe('POST /auth/tokens/revoke (self-revocation by plaintext)', () => {
       return next.calledOnce;
     }
 
-    it('is not one of the credential-taking routes the guard checks without a cookie', () => {
-      expect(authnHttpConfig.authn.http.csrf.unauthenticatedRoutes).to.not.include(ROUTE);
-    });
-
-    it('lets a cookieless post through whatever its Origin or Sec-Fetch-Site says', () => {
+    it('X1 lets a non-browser client post without a cookie, and checks a browser like on any route', () => {
       expect(passes({})).to.eq(true);
-      expect(passes({ origin: EVIL })).to.eq(true);
       expect(passes({ origin: OWN })).to.eq(true);
-      expect(passes({ 'sec-fetch-site': 'cross-site' })).to.eq(true);
+      expect(passes({ origin: EVIL })).to.eq(false);
+      expect(passes({ 'sec-fetch-site': 'cross-site' })).to.eq(false);
     });
   });
 });

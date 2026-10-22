@@ -9,7 +9,6 @@ export const REFERENCE_SOCKET = '127.0.0.1';
 const PROBE_PATH = '/kit/probe';
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
 const MFA_STEPS = 'KitMfaSteps';
-const UNAUTHENTICATED_ROUTES = ['/auth/login', '/auth/password/reset-request', '/auth/password/reset', '/auth/keys/login', '/auth/mfa/verify', '/auth/mfa/recovery'];
 
 type Restored = NonNullable<Awaited<ReturnType<ReferenceParts['sessions']['restore']>>>;
 
@@ -63,18 +62,15 @@ class ReferenceHttpApp {
     return chain[i];
   }
 
-  /** A22: an unsafe request carrying the session cookie, or posting to a credential route, needs the app's own (or a listed) origin. */
+  /** A22, X1: an unsafe request carrying the session cookie, Origin or Sec-Fetch-Site needs the app's own (or a listed) origin. */
   private csrfRefuses(req: HttpRequest, headers: Record<string, string>): boolean {
     const csrf = this.config?.csrf;
     if (csrf?.enabled === false || SAFE.has(req.method)) {
       return false;
     }
     const origin = headers['origin'];
-    if (req.cookies?.[this.cookie] === undefined) {
-      const listed = csrf?.unauthenticatedRoutes ?? UNAUTHENTICATED_ROUTES;
-      if (!listed.includes(req.path) || (origin === undefined && headers['sec-fetch-site'] === undefined)) {
-        return false;
-      }
+    if (req.cookies?.[this.cookie] === undefined && origin === undefined && headers['sec-fetch-site'] === undefined) {
+      return false;
     }
     if (origin !== undefined) {
       return origin !== REFERENCE_ORIGIN && !(csrf?.allowedOrigins ?? []).includes(origin);

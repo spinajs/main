@@ -7,6 +7,8 @@ import { AuthnService, IdentityStore, PASSWORD_HARD_CAP } from '@spinajs/authn/c
 import type { Credentials, Session } from '@spinajs/authn/contracts';
 import { _check_arg, _gte, _integer, _is_number, isPlainObject } from '@spinajs/util';
 
+import { clientOf } from '../../v3/client.js';
+import type { AuthnClientContext } from '../../v3/client.js';
 import { contextOf } from '../../v3/context.js';
 import { authnFailureResponse } from '../../v3/responses.js';
 import { publishAuthnEvent } from './audit.js';
@@ -37,7 +39,7 @@ export function takeReauthPassword(req: Request): unknown {
  * PASSWORD_HARD_CAP, or an identity without a login (a store defect that looks like a wrong password). Core never sees
  * these attempts, so it cannot audit them.
  */
-export async function reauthCredentials(container: IContainer, req: Request, session: Session, password: string): Promise<Credentials | null> {
+export async function reauthCredentials(container: IContainer, client: AuthnClientContext, session: Session, password: string): Promise<Credentials | null> {
   let reason = 'password_too_long';
   if (password.length <= PASSWORD_HARD_CAP) {
     // The principal carries no login. IdentityStore.findByLogin takes an email, so display's email is one; reauthenticate
@@ -47,7 +49,7 @@ export async function reauthCredentials(container: IContainer, req: Request, ses
     reason = 'no_login';
   }
   const { sessionHandle } = session.facts;
-  await publishAuthnEvent(container, req, { type: 'reauth', outcome: 'failure', reason, identity: { type: session.identity.type, id: session.identity.id }, ...(sessionHandle ? { session: sessionHandle } : {}) });
+  await publishAuthnEvent(container, client, { type: 'reauth', outcome: 'failure', reason, identity: { type: session.identity.type, id: session.identity.id }, ...(sessionHandle ? { session: sessionHandle } : {}) });
   return null;
 }
 
@@ -60,19 +62,24 @@ export async function reauthCredentials(container: IContainer, req: Request, ses
  * credentials it verified, or null when the session was fresh without them.
  */
 export async function assertFreshAuth(container: IContainer, req: Request, maxAgeSeconds?: number, password?: unknown): Promise<Credentials | null> {
-  const principal = authenticatedPrincipal(req);
+  return await freshAuthOf(container, clientOf(req), maxAgeSeconds, password);
+}
+
+/** assertFreshAuth for the caller of a route handler. */
+export async function freshAuthOf(container: IContainer, client: AuthnClientContext, maxAgeSeconds?: number, password?: unknown): Promise<Credentials | null> {
+  const principal = authenticatedPrincipal(client);
   const authn = principal.authn;
-  const session = req.storage.AuthnSession;
+  const session = client.session;
   if (!authn || !isSessionPrincipal(principal) || session?.handle.state !== 'active') throw refused('session_required', 'fresh authentication needs a session');
   if (authn.impersonator !== undefined) throw refused('impersonating', 'no fresh authentication while impersonating another user');
 
   const check = await container.resolve(FreshAuthCheck);
   const maxAge = maxAgeSeconds ?? check.maxAgeSeconds;
-  const ctx = contextOf(req, 'reauth', session.handle);
+  const ctx = contextOf(client, 'reauth', session.handle);
   if (isFresh(authn, ctx.now, maxAge)) return null;
 
   if (typeof password !== 'string' || password === '') throw refused('fresh_auth_required', 'this route needs a recent login or the password');
-  const credentials = await reauthCredentials(container, req, session, password);
+  const credentials = await reauthCredentials(container, client, session, password);
   if (!credentials) throw authnFailed();
   // FreshAuthCheck.check passes a session that is fresh under its own, longer maxAge without verifying the password; a
   // stricter route age therefore verifies through the core re-authentication itself.
@@ -82,13 +89,13 @@ export async function assertFreshAuth(container: IContainer, req: Request, maxAg
 }
 
 /**
- * assertFreshAuth for a route handler, `password` taken from the body: a failed re-authentication becomes the login
+ * freshAuthOf for a route handler, `password` taken from its body DTO: a failed re-authentication becomes the login
  * failure answer, since the thrown error's body carries a stack outside production. In the handler, not as a FreshAuth
  * policy: http runs every policy of a route at once, so the policy would verify a password while a gate answers 404.
  */
-export async function freshAuthOrAnswer(container: IContainer, req: Request, password: unknown): Promise<{ credentials: Credentials | null } | { answer: Unauthorized }> {
+export async function freshAuthOrAnswer(container: IContainer, client: AuthnClientContext, password: unknown): Promise<{ credentials: Credentials | null } | { answer: Unauthorized }> {
   try {
-    return { credentials: await assertFreshAuth(container, req, undefined, password) };
+    return { credentials: await freshAuthOf(container, client, undefined, password) };
   } catch (err) {
     if (isAuthnFailed(err)) return { answer: authnFailureResponse() };
     throw err;
@@ -118,6 +125,6 @@ export class FreshAuth extends BasePolicy {
   }
 
   public async execute(req: Request, _action: IRoute, _instance: IController): Promise<void> {
-    await assertFreshAuth(this.Container, req, this.maxAgeSeconds, takeReauthPassword(req));
+    await freshAuthOf(this.Container, clientOf(req), this.maxAgeSeconds, takeReauthPassword(req));
   }
 }

@@ -90,8 +90,29 @@ describe('credential extractors through @Config', () => {
     });
   });
 
+  describe('V6 the header formats they accept (RFC 6750 b64token)', () => {
+    const B64TOKEN = 'spt_AZaz09-._~+/==';
+
+    it('AuthorizationBearerExtractor: b64token values only; a malformed value of ours is a failing bearer, any other gives nothing', async () => {
+      const e = readingFrom(new AuthorizationBearerExtractor(), (await boot(SCHEMAS, {})).child);
+      const of = (authorization: string) => e.extract(sreq({ authorization }));
+      expect(of(`Bearer ${B64TOKEN}`)).to.deep.eq({ kind: 'bearer', token: B64TOKEN });
+      expect(of('  bEaReR   spt_k  ')).to.deep.eq({ kind: 'bearer', token: 'spt_k' });
+      for (const value of ['spt_a b', 'spt_a"b', 'spt_a=b', 'spt_ä', 'spt_a, Bearer spt_b']) expect(of(`Bearer ${value}`), value).to.deep.eq({ kind: 'bearer', token: value });
+      for (const header of ['Bearer opaque"x', 'Bearer a=b.c.d', 'Bearer a b.c.d', 'Bearer a..b', 'Bearer ', 'Bearerspt_k', 'Basic spt_k', 'spt_k']) expect(of(header), header).to.eq(null);
+    });
+
+    it('ApiKeyHeaderExtractor: one b64token value with the prefix, trimmed; anything else gives nothing', async () => {
+      const e = readingFrom(new ApiKeyHeaderExtractor(), (await boot(SCHEMAS, {})).child);
+      const of = (value: string) => e.extract(sreq({ 'x-api-key': value }));
+      expect(of(B64TOKEN)).to.deep.eq({ kind: 'bearer', token: B64TOKEN });
+      expect(of('  spt_k  ')).to.deep.eq({ kind: 'bearer', token: 'spt_k' });
+      for (const value of ['spt_a b', 'spt_a"b', 'spt_a=b', 'spt_ä', 'spt_a, spt_b', 'Bearer spt_k', '', 'spt']) expect(of(value), value).to.eq(null);
+    });
+  });
+
   describe('HttpSignatureExtractor', () => {
-    const request = (e: HttpSignatureExtractor): Credentials | null => e.extract(sreq(SIGNED));
+    const request =(e: HttpSignatureExtractor): Credentials | null => e.extract(sreq(SIGNED));
 
     it('prefixes the signed target with the normalised public origin', async () => {
       const { child } = await boot(SCHEMAS, { authn: { http: { publicOrigin: 'HTTPS://App.Example.com:443/' } } });

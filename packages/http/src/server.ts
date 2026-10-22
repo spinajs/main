@@ -13,6 +13,7 @@ import _ from 'lodash';
 import fs from 'fs';
 
 import { ServerMiddleware, IHttpServerConfiguration, LifecycleState, Request } from './interfaces.js';
+import { createBodyLimitMiddleware } from './body-limits.js';
 import './transformers/index.js';
 import './middlewares/ResponseTime.js';
 import './middlewares/RequestId.js';
@@ -123,6 +124,12 @@ export class HttpServer extends AsyncService {
       this.Log.info(`No fs provider for __fs_http_response_templates__ registered, response templates will not be available.`);
     } else {
       this.Log.info({ path: f.Options.basePath }, 'Response templates path at ${path}');
+    }
+
+    const bodyLimits = createBodyLimitMiddleware(this.HttpConfig.bodyLimits ?? []);
+    if (bodyLimits) {
+      this.Log.info({ rules: this.HttpConfig.bodyLimits!.length }, 'Using per-path body limits ( ${rules} rules )');
+      this.use(bodyLimits);
     }
 
     this.HttpConfig.middlewares?.forEach((m) => {

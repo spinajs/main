@@ -7,7 +7,7 @@
 Opening a stream:
 
 1. `AccessController.events()` runs behind `IsAuthenticated`: the anonymous principal and a request without a principal get 401.
-2. It returns an `AccessEventStream` response, which hands the Express response to `SseAccessPushTransport.open(req, res, principal)`.
+2. It reads the caller with `@CurrentPrincipal()` (not `@Req()`) and returns an `AccessEventStream` response, which hands the Express response to `SseAccessPushTransport.open(req, res, principal)`.
 3. `open()` answers 200 with `Content-Type: text/event-stream; charset=utf-8`, `Cache-Control: no-cache, no-transform` (the compression middleware skips it) and `X-Accel-Buffering: no` (nginx does not buffer it), flushes the headers and writes `retry: 5000`.
 4. It closes the oldest streams of the same principal past `authz.http.events.maxStreamsPerPrincipal`.
 5. The stream listens under the principal's key and the keys of its companions (`pushKeys(principal)`), and remembers the principal's session handle when a session signed it in.

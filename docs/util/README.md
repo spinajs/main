@@ -33,7 +33,7 @@ The crypto helpers need `node:crypto`, so they live in the Node-only subpath `@s
 | [Resilience pipeline](07-resilience-pipeline.md) | `ResiliencePipelineBuilder`, strategy order, `ResilienceContext`, cancellation, `PredicateBuilder`, retry, timeout, fallback, circuit breaker, hedging, concurrency limiter |
 | [Custom resilience strategies](08-custom-resilience-strategies.md) | `ResilienceStrategy`, `addStrategy`, the low-level primitives, the strategy hooks, sharing a pipeline through DI |
 | [Keyed backoff](09-keyed-backoff.md) | `KeyedBackoff`: per-key exponential backoff in memory, eviction, the `delay` and `onFull` hooks, subclassing |
-| [Throttle](10-throttle.md) | `Throttle` and `MemoryThrottleStore`: flow rules, gates, counted keys, `onSuccess`, `keyId` |
+| [Throttle](10-throttle.md) | `Throttle` and `MemoryThrottleStore`: flow rules, gates, counted keys, `onSuccess`, `keyId`, IPv6 prefix keys with `throttleIp` |
 | [Custom throttle stores](11-custom-throttle-stores.md) | The `ThrottleStore` contract, writing a shared store, the `MemoryThrottleStore` limiter factory |
 | [Collections, objects and JSON](12-collections-objects-and-json.md) | `toArray`, `chunk`, `unique`, `sortedUnique`, `groupBy`, `tryGetHash`, `deepFreeze`, `frozenCopy`, `copyPlainData`, `deepEqual`, `deepMerge`, `getOwnPath`, Map/Set/Date-aware JSON, `stableStringify` |
 | [Strings, functions and type guards](13-strings-functions-and-type-guards.md) | `trimChar`, `truncate`, `asciiLower`, `escapeHtml`, `compareCodePoints`, `quote`, `parseIsoInstant`, `toEpochMs`, `thenMaybe`, `allMaybe`, `Lazy`, `once`, `memoize`, `isPromise`, `isThenable`, `isStringArray`, `isDefined` |

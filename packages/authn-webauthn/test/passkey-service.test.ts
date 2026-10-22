@@ -1,5 +1,6 @@
 import 'mocha';
 import assert from 'node:assert/strict';
+import { PasskeyChallengesFull } from '@spinajs/authn/contracts';
 import type { AuthnContext } from '@spinajs/authn/contracts';
 import { FakeClock, RecordingEventSink } from '@spinajs/authn-testing';
 import type { SoftAuthenticator } from '@spinajs/authn-testing';
@@ -38,6 +39,14 @@ describe('WebAuthnPasskeyService', function () {
 
   afterEach(() => {
     clock.uninstall();
+  });
+
+  it('refuses a login challenge once authn.webauthn.challenges.maxRows are stored, and still serves registration', async () => {
+    const capped = new WebAuthnPasskeyService({ credentials, challenges, options: webauthnOptions({ challenges: { maxRows: 2 } }), identities: null, sinks: [events] });
+    await capped.challenge(ctx());
+    await capped.challenge(ctx());
+    await assert.rejects(capped.challenge(ctx()), PasskeyChallengesFull);
+    assert.ok((await capped.registrationOptions(ALICE, ctx())).challengeId);
   });
 
   it('registration options ask for a discoverable credential of the identity on the configured relying party', async () => {

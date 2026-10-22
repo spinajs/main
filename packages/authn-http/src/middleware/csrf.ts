@@ -1,11 +1,12 @@
-import { Injectable } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
+import { Autoinject, Injectable } from '@spinajs/di';
+import { Config, Configuration } from '@spinajs/configuration';
+import { InvalidOption } from '@spinajs/exceptions';
+import { isLenientAuthnEnv } from '@spinajs/authn/env';
 import '../register-schema.js';
 import '@spinajs/authn-session/register-schema';
-import { InvalidOption } from '@spinajs/exceptions';
-import { HTTP_STATUS_CODE, ServerMiddleware, parseOrigin, requestOrigin } from '@spinajs/http';
-import type { ProxyTrust, Request } from '@spinajs/http';
-import { SESSION_COOKIE_BASE_NAME } from '@spinajs/authn-session';
+import { CsrfGuard, HTTP_STATUS_CODE, CSRF_REFUSED_BODY, ServerMiddleware, parseAllowedOrigins, parseOrigin, requestOrigin } from '@spinajs/http';
+import type { OriginRefusal, ProxyTrust, Request } from '@spinajs/http';
+import { SESSION_COOKIE_BASE_NAME, appEnvOf, sessionCookieSameSite } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { Log, Logger } from '@spinajs/log';
 import type * as express from 'express';
@@ -13,10 +14,30 @@ import type * as express from 'express';
 import { proxyTrustOf } from './client-ip.js';
 import { CSRF_REFUSED_EVENT } from './csrf-log.js';
 
-const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-const ALLOWED_ORIGINS_KEY = 'authn.http.csrf.allowedOrigins';
-const UNAUTHENTICATED_ROUTES_KEY = 'authn.http.csrf.unauthenticatedRoutes';
-const REFUSED = Object.freeze({ error: Object.freeze({ code: 'E_CSRF_ORIGIN', message: 'Cross-origin request refused' }) });
+const DEPRECATED_ALLOWED_ORIGINS_KEY = 'authn.http.csrf.allowedOrigins';
+
+export interface SameSiteNoneCheck {
+  /** From `sessionCookieSameSite`. */
+  readonly sameSite: 'strict' | 'lax' | 'none' | false;
+  readonly csrfEnabled: boolean;
+  readonly allowedOrigins: ReadonlySet<string>;
+  /** From `appEnvOf`; absent means production. */
+  readonly env: string | undefined;
+}
+
+/**
+ * With SameSite=None browsers send the session cookie on cross-site requests, so the origin check is the only CSRF
+ * defence, and a cross-site embed needs its origin listed anyway. Outside development and test, throws when the guard is
+ * off or lists no allowed origin.
+ */
+export function assertSameSiteNoneProtected(check: SameSiteNoneCheck): void {
+  if (check.sameSite !== 'none' || isLenientAuthnEnv(check.env)) return;
+  if (!check.csrfEnabled || check.allowedOrigins.size === 0) {
+    throw new InvalidOption(
+      'authn.session.cookie.sameSite is none, so browsers send the session cookie on cross-site requests: keep the CSRF guard on (http.csrf.enabled) and list the cross-site origins that use the session in http.csrf.allowedOrigins, or use SameSite strict or lax',
+    );
+  }
+}
 
 /**
  * The app's own origin for this request: scheme from the connection and host from Host, or X-Forwarded-Proto and
@@ -24,35 +45,6 @@ const REFUSED = Object.freeze({ error: Object.freeze({ code: 'E_CSRF_ORIGIN', me
  */
 export function ownOrigin(req: Parameters<typeof requestOrigin>[0], trust: ProxyTrust): string | undefined {
   return parseOrigin(requestOrigin(req, trust));
-}
-
-/** The schema judges the shape of each entry; `parseOrigin` normalises it and still refuses what a pattern cannot (a port above 65535). */
-function normalisedOrigins(list: readonly string[]): ReadonlySet<string> {
-  return new Set(
-    list.map((entry) => {
-      const origin = parseOrigin(entry);
-      if (origin === undefined) throw new InvalidOption(`${ALLOWED_ORIGINS_KEY} entry ${JSON.stringify(entry)} is not an origin (scheme://host[:port])`);
-      return origin;
-    }),
-  );
-}
-
-const trimSlashes = (v: string): string => v.replace(/^\/+|\/+$/g, '');
-
-/** Case-insensitive and slash-tolerant like the router, so a variant spelling of a listed path cannot slip past. */
-function routeKey(path: string): string {
-  return `/${trimSlashes(path).toLowerCase()}`;
-}
-
-/** The listed routes as they are requested: behind the global route prefix. */
-function listedPaths(routes: readonly string[], prefix: string | undefined): ReadonlySet<string> {
-  const base = trimSlashes(prefix ?? '');
-  return new Set(
-    routes.map((route) => {
-      if (!route.startsWith('/')) throw new InvalidOption(`${UNAUTHENTICATED_ROUTES_KEY} entry ${JSON.stringify(route)} is not an absolute path`);
-      return routeKey(base === '' ? route : `/${base}${route}`);
-    }),
-  );
 }
 
 const SHOWN_MAX = 120;
@@ -67,37 +59,30 @@ function warnRefused(log: Log, origin: string | undefined, fetchSite: unknown, o
   const site = typeof fetchSite === 'string' && /^[a-z-]{1,16}$/.test(fetchSite) ? fetchSite : 'absent';
   const shown = origin === undefined ? `none (Sec-Fetch-Site ${site})` : (parseOrigin(origin) ?? 'malformed');
   log.warn(
-    { event: CSRF_REFUSED_EVENT, origin: clip(shown), ownOrigin: own === undefined ? 'unknown (no usable Host)' : clip(own), allowedOriginsKey: ALLOWED_ORIGINS_KEY },
+    { event: CSRF_REFUSED_EVENT, origin: clip(shown), ownOrigin: own === undefined ? 'unknown (no usable Host)' : clip(own), allowedOriginsKey: 'http.csrf.allowedOrigins' },
     'CsrfOriginGuard refused a request: Origin ${origin}, own origin ${ownOrigin}. ' +
       'Behind a proxy set authn.http.trustProxy (or http.trustProxy) so the own origin comes from X-Forwarded-Proto/-Host, or list the origin in ${allowedOriginsKey}.',
   );
 }
 
-function carriesCookie(header: string | undefined, names: readonly string[]): boolean {
-  return (header ?? '').split(';').some((pair) => names.includes(pair.split('=')[0].trim()));
-}
-
 /**
- * Order 4, before AuthnMiddleware; off when authn.http.csrf.enabled is false. A request with an unsafe method (any but
- * GET, HEAD and OPTIONS) that carries the session cookie passes only when Origin (or, without it, Sec-Fetch-Site:
- * same-origin) is the app's own origin or in authn.http.csrf.allowedOrigins; else 403 before any controller (A22,
- * SR-12). Without the cookie only the paths in authn.http.csrf.unauthenticatedRoutes (login and the other
- * credential-taking posts) are checked, and then a request with neither Origin nor Sec-Fetch-Site (a non-browser
- * client) passes; this closes login CSRF.
+ * The @spinajs/http CsrfGuard with what authn-http knows: the session cookie (bare and `__Host-`) is an ambient
+ * cookie, the own origin follows authn.http.trustProxy, and refusals are logged. Replaces the plain CsrfGuard.
+ *
+ * `authn.http.csrf.*` are deprecated aliases of `http.csrf.*` until the next major: `enabled: false` in either switches
+ * the guard off, and both allowedOrigins lists count. `unauthenticatedRoutes` is ignored, since every request a
+ * browser sends is checked now.
  */
 @Injectable(ServerMiddleware)
-export class CsrfOriginGuard extends ServerMiddleware {
+export class CsrfOriginGuard extends CsrfGuard {
   @Config('authn.http.csrf.enabled')
-  protected Enabled: boolean;
+  protected DeprecatedEnabled: unknown;
 
   @Config('authn.http.csrf.allowedOrigins')
-  protected AllowedOrigins: string[];
+  protected DeprecatedAllowedOrigins: readonly string[] | null;
 
   @Config('authn.http.csrf.unauthenticatedRoutes')
-  protected UnauthenticatedRoutes: string[];
-
-  @Config('http.controllers.route.prefix')
-  protected RoutePrefix: string;
+  protected DeprecatedUnauthenticatedRoutes: readonly string[] | undefined;
 
   @Config('authn.http.trustProxy')
   protected OwnTrust: unknown;
@@ -108,45 +93,60 @@ export class CsrfOriginGuard extends ServerMiddleware {
   @Config('authn.session.cookie')
   protected SessionCookie: ISessionCookieConfig;
 
+  // An injected Configuration: appEnvOf reads its Env for the SR-16 rule, which @Config cannot express.
+  @Autoinject(Configuration)
+  protected Configuration!: Configuration;
+
   @Logger('authn-http')
   protected Log!: Log;
 
-  constructor() {
-    super();
-    this.Order = 4;
+  protected Trust: ProxyTrust = { hops: 0 };
+
+  protected enabled(): boolean {
+    return super.enabled() && this.DeprecatedEnabled !== false;
   }
 
-  public before(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null {
-    // Built before the enabled check, so a bad setting fails the boot even while the guard is off.
-    const allowed = normalisedOrigins(this.AllowedOrigins);
-    const listed = listedPaths(this.UnauthenticatedRoutes ?? [], this.RoutePrefix);
-    const trust = proxyTrustOf(this.OwnTrust, this.SharedTrust);
-    if (this.Enabled === false) return null;
+  protected allowedOrigins(): ReadonlySet<string> {
+    return new Set([...super.allowedOrigins(), ...parseAllowedOrigins(this.DeprecatedAllowedOrigins, DEPRECATED_ALLOWED_ORIGINS_KEY)]);
+  }
 
+  protected ambientCookies(): readonly string[] {
     // authn-session adds the __Host- prefix only when its `hostPrefix` setting resolves on (`auto` is off in
     // development and test), so either form can be the session cookie.
     const base = this.SessionCookie?.name ?? SESSION_COOKIE_BASE_NAME;
-    const sessionCookies = [base, `__Host-${base}`];
-
-    return (req: Request, res: express.Response, next: express.NextFunction) => {
-      if (SAFE_METHODS.has(req.method)) return next();
-
-      const origin = req.headers.origin;
-      if (!carriesCookie(req.headers.cookie, sessionCookies)) {
-        const checked = listed.has(routeKey(req.path ?? '')) && (origin !== undefined || req.headers['sec-fetch-site'] !== undefined);
-        if (!checked) return next();
-      }
-
-      const own = origin === undefined ? undefined : ownOrigin(req, trust);
-      const allowedRequest = origin === undefined ? req.headers['sec-fetch-site'] === 'same-origin' : allowed.has(origin) || origin === own;
-      if (allowedRequest) return next();
-
-      warnRefused(this.Log, origin, req.headers['sec-fetch-site'], origin === undefined ? ownOrigin(req, trust) : own);
-      res.status(HTTP_STATUS_CODE.FORBIDDEN).json(REFUSED);
-    };
+    return [...super.ambientCookies(), base, `__Host-${base}`];
   }
 
-  public after(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | express.ErrorRequestHandler | null {
-    return null;
+  protected ownOrigin(req: Request): string | undefined {
+    return ownOrigin(req, this.Trust);
+  }
+
+  protected refuse(_reason: OriginRefusal, req: Request, res: express.Response, _next: express.NextFunction): void {
+    warnRefused(this.Log, req.headers.origin, req.headers['sec-fetch-site'], this.ownOrigin(req));
+    res.status(HTTP_STATUS_CODE.FORBIDDEN).json(CSRF_REFUSED_BODY);
+  }
+
+  public async resolve(): Promise<void> {
+    assertSameSiteNoneProtected({ sameSite: sessionCookieSameSite(this.SessionCookie ?? {}), csrfEnabled: this.enabled(), allowedOrigins: this.allowedOrigins(), env: appEnvOf(this.Configuration) });
+    await super.resolve();
+  }
+
+  public before(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null {
+    this.Trust = proxyTrustOf(this.OwnTrust, this.SharedTrust);
+    this.warnDeprecated();
+    return super.before();
+  }
+
+  private warnDeprecated(): void {
+    const used = [
+      this.DeprecatedEnabled === false ? 'enabled' : undefined,
+      (this.DeprecatedAllowedOrigins ?? []).length > 0 ? 'allowedOrigins' : undefined,
+      this.DeprecatedUnauthenticatedRoutes !== undefined ? 'unauthenticatedRoutes' : undefined,
+    ].filter((k) => k !== undefined);
+    if (used.length === 0) return;
+    this.Log?.warn?.(
+      { keys: used.map((k) => `authn.http.csrf.${k}`).join(', ') },
+      '${keys} is deprecated and will be removed in the next major: use http.csrf.* (unauthenticatedRoutes has no successor; every browser request is checked).',
+    );
   }
 }

@@ -65,7 +65,9 @@ class WorldLinkResolver extends LinkResolver {
 
 const LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'security'] as const;
 const records: LogRecord[] = [];
-const isTrace = (v: unknown) => typeof v === 'object' && v !== null && 'votes' in v && 'steps' in v && 'algorithm' in v;
+const isTraceShape = (v: unknown) => typeof v === 'object' && v !== null && 'votes' in v && 'steps' in v && 'algorithm' in v;
+// The engine logs the trace as the `trace` field of the fields object.
+const isTrace = (v: unknown) => isTraceShape(v) || (typeof v === 'object' && v !== null && isTraceShape((v as { trace?: unknown }).trace));
 let restoreLogs: (() => void) | undefined;
 
 function captureLogs(): () => void {

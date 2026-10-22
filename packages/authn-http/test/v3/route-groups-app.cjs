@@ -229,11 +229,11 @@ async function main() {
   };
 
   // The same probe can see a re-authentication: with the token routes on, the stale session's reauthPassword is verified
-  // before the field checks refuse the nameless token.
+  // before TokenService refuses an expiry past its cap (a body the DTO refuses would answer before any re-authentication).
   let control = null;
   if (PACKAGES.includes('token')) {
     const before = { attempts: throttle.attempts.length, events: events.all().length };
-    const res = await send(port, 'POST', '/user/tokens', { reauthPassword: USER.password }, cookie);
+    const res = await send(port, 'POST', '/user/tokens', { name: 'boot', expiresAt: '2999-01-01T00:00:00Z', reauthPassword: USER.password }, cookie);
     control = {
       ...answerOf(res),
       attempts: throttle.attempts.slice(before.attempts).map((a) => a.flow),

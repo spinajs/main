@@ -53,6 +53,14 @@ describe('authn-oidc login', () => {
       expect(mapClaims('oidc:corp', DEFAULT_CLAIMS, { sub: 's', groups: [] }).claims.groups).to.deep.eq([]);
     });
 
+    it('drops a group longer than 255 characters, and leaves groups absent past 256 of them', () => {
+      expect(mapClaims('oidc:corp', DEFAULT_CLAIMS, { sub: 's', groups: ['eng', 'g'.repeat(256), 'g'.repeat(255)] }).claims.groups).to.deep.eq(['eng', 'g'.repeat(255)]);
+      expect(mapClaims('oidc:corp', DEFAULT_CLAIMS, { sub: 's', groups: 'g'.repeat(256) }).claims.groups).to.deep.eq([]);
+      const most = Array.from({ length: 256 }, (_, i) => `g${i}`);
+      expect(mapClaims('oidc:corp', DEFAULT_CLAIMS, { sub: 's', groups: most }).claims.groups).to.deep.eq(most);
+      expect(mapClaims('oidc:corp', DEFAULT_CLAIMS, { sub: 's', groups: [...most, 'one-more'] }).claims).to.not.have.property('groups');
+    });
+
     it("turns GitHub's numeric id into its decimal string and refuses a missing subject", () => {
       expect(mapClaims('oidc:gh', OIDC_PRESETS.github.claims, { id: 583231, login: 'octocat' }).subject).to.eq('583231');
       expect(() => mapClaims('oidc:corp', DEFAULT_CLAIMS, { email: 'a@example.test' })).to.throw();

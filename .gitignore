@@ -141,6 +141,7 @@ graphify-out/
 !/docs/fs-s3/
 !/docs/hooks/
 !/docs/http/
+!/docs/http-bot/
 !/docs/http-lazy-file-uploader/
 !/docs/http-socket/
 !/docs/http-socket-client/

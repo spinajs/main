@@ -133,6 +133,21 @@ describe('AuthnService.stepUp (FLOW-1)', function () {
     assert.ok(p.events.ofType('throttle.block').length > 0);
   });
 
+  it('a step longer than 64 or a response longer than 65536 characters fails as malformed, verifying nothing', async () => {
+    const p = await boot();
+    const { a, session } = await aal1Alice(p);
+    p.events.clear();
+
+    failure(await p.service.stepUp(session, 's'.repeat(65), p.step.nextCode(a), ctx()), 'invalid_credentials');
+    failure(await p.service.stepUp(session, p.step.name, '0'.repeat(65537), ctx()), 'invalid_credentials');
+    assert.strictEqual(p.step.verifyCalls.length, 0);
+    assert.deepStrictEqual(
+      p.events.ofType('mfa.verify').map((e) => `${e.outcome}:${e.reason}`),
+      ['failure:malformed', 'failure:malformed'],
+    );
+    assert.strictEqual((await p.sessions.restore(session.id))?.facts.assurance, 'aal1');
+  });
+
   it('a step the identity is not enrolled in fails with invalid_credentials', async () => {
     const p = await boot();
     const { a, session } = await aal1Alice(p, false);

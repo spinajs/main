@@ -49,16 +49,17 @@ Applied by `POST /auth/password/reset` and `PATCH /user/password` before the ser
 | --- | --- |
 | `password` missing, not a string or empty | 400 `invalid_password` |
 | `password` longer than 1024 characters | 400 `password_rejected` with `violations: ["too_long"]` |
-| `confirmPassword` present and different | 400 `password_mismatch` |
+| `confirmPassword` present and different, or not a non-empty string of at most 1024 characters | 400 `password_mismatch` |
+| any other key | reset: 401 login failure body; change: 400 `invalid_field` |
 
 ## Routes
 
 | Method and path | Request body | 200 | Errors |
 | --- | --- | --- | --- |
 | `GET /auth/password/policy` | | `{ "minLength": number, "maxLength": number, "pattern"?: string, "description"?: string }` | 404 group off |
-| `POST /auth/password/reset-request` | `{ "login" }` | `{ "Ok": true }` | 400 `invalid_login`; 429 `throttled` with `Retry-After` |
+| `POST /auth/password/reset-request` | `{ "login" }` | `{ "Ok": true }` | 400 `invalid_login`, `invalid_field`; 429 `throttled` with `Retry-After` |
 | `POST /auth/password/reset` | `{ "login", "secret", "password", "confirmPassword"? }` | `{ "Ok": true }` | 400 `invalid_password`, `password_rejected`, `password_mismatch`; 401 login failure body |
-| `PATCH /user/password` | `{ "oldPassword", "password", "confirmPassword"? }` | no data, rotated session cookie | 400 as above; 401; 403 `session_required`, `impersonating` |
+| `PATCH /user/password` | `{ "oldPassword", "password", "confirmPassword"? }` | no data, rotated session cookie | 400 as above, `invalid_field`; 401; 403 `session_required`, `impersonating` |
 
 The `password_rejected` body is `{ "error": "password_rejected", "message": "...", "violations": [...] }`; the violations name policy rules and say nothing about the account.
 

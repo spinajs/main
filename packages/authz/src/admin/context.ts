@@ -6,6 +6,7 @@ import { AuthzConfigError } from '../contracts/errors.js';
 import type { Principal, PrincipalRef, ResourceRef } from '../contracts/principal.js';
 import { GLOBAL } from '../contracts/resource.js';
 import { isObject } from '../engine/internal/util.js';
+import { idField, isValidField } from '../schemas/fields.js';
 
 /**
  * What DefaultAuthzAdmin passes as AdminContext; handlers, guards and validators may read the extra fields.
@@ -58,7 +59,7 @@ export async function optionalAdminService<T>(ctx: AdminContext, token: Class<T>
 export const invalid = (field: string | undefined, message: string): AuthzAdminFailure => new AuthzAdminFailure('invalid_command', message, field);
 
 export function readId(v: unknown, field = 'id'): string {
-  if (typeof v !== 'string' || v === '') throw invalid(field, `${field} must be a non-empty string`);
+  if (!isValidField(idField, v)) throw invalid(field, `${field} must be a non-empty string of at most ${idField.maxLength} characters`);
   return v;
 }
 

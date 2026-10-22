@@ -72,6 +72,12 @@ describe('admin command field readers', () => {
     refused(() => readId(3, 'role'), 'role');
   });
 
+  it('readId takes at most 160 characters', () => {
+    expect(readId('i'.repeat(160))).to.equal('i'.repeat(160));
+    refused(() => readId('i'.repeat(161)), 'id');
+    refused(() => readId('r'.repeat(161), 'role'), 'role');
+  });
+
   it('readRef copies a ref, without an id key when it has none', () => {
     const ref = readRef({ type: 'doc', id: '7', extra: 1 }, 'scope');
     expect(ref).to.deep.equal({ type: 'doc', id: '7' });

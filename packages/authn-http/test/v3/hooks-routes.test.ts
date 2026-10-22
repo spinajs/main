@@ -31,6 +31,7 @@ import { AuthnSessionsController } from '../../src/v3/controllers/AuthnSessionsC
 import { AuthnTokensController } from '../../src/v3/controllers/AuthnTokensController.js';
 import { DEFAULT_LOGOUT_CLEAR_SITE_DATA } from '../../src/schema.js';
 import { fakeContainer, readingFrom } from '../support/config-boot.js';
+import { callRoute, withParams } from '../support/route-call.js';
 
 const CODE = 'not-today';
 
@@ -158,7 +159,7 @@ describe('action hooks on the 3.0 routes', function () {
     it('refused answers 403 { code }, the session still restores and no Clear-Site-Data or cleared cookie is sent', async () => {
       const w = await world();
       w.hook.refuse('authn.logout', CODE);
-      const a = expectRefused(await logout(w).logout(w.request()), 403);
+      const a = expectRefused(await callRoute(logout(w), 'logout', w.request()), 403);
       expect(a.headers).to.not.have.property('Clear-Site-Data');
       expect(a.cookies).to.deep.equal([]);
       expect(await w.sessions.restore(w.session.handle.id)).to.not.equal(null);
@@ -170,14 +171,14 @@ describe('action hooks on the 3.0 routes', function () {
       w.hook.tamper('authn.logout', (i) => {
         i.session.handle.id = 'forged';
       });
-      expect(answerOf(await logout(w).logout(w.request())).status).to.equal(200);
+      expect(answerOf(await callRoute(logout(w), 'logout', w.request())).status).to.equal(200);
       expect(await w.sessions.restore(w.session.handle.id)).to.equal(null);
       expect(w.hook.landed()).to.deep.equal([]);
     });
 
     it('without a refusal the session ends and the hook sees it once before and once after', async () => {
       const w = await world();
-      expect(answerOf(await logout(w).logout(w.request())).status).to.equal(200);
+      expect(answerOf(await callRoute(logout(w), 'logout', w.request())).status).to.equal(200);
       expect(await w.sessions.restore(w.session.handle.id)).to.equal(null);
       expect(w.hook.calls('authn.logout').map((c) => c.phase)).to.deep.equal(['before', 'after']);
     });
@@ -189,7 +190,7 @@ describe('action hooks on the 3.0 routes', function () {
       const other = await w.sessions.issue(w.alice, facts());
       const [row] = (await w.sessions.list(w.alice, { current: w.session.handle })).filter((r) => r.current !== true);
       w.hook.refuse('authn.sessions.revoke', CODE);
-      expectRefused(await w.wire(new AuthnSessionsController()).revoke(w.request(), row.handle), 403);
+      expectRefused(await callRoute(w.wire(new AuthnSessionsController()), 'revoke', withParams(w.request(), { handle: row.handle })), 403);
       expect(await w.sessions.restore(other.id)).to.not.equal(null);
       expect(w.hook.calls('authn.sessions.revoke')[0].input.handle).to.equal(row.handle);
     });
@@ -200,7 +201,7 @@ describe('action hooks on the 3.0 routes', function () {
       w.hook.tamper('authn.sessions.revoke', (i) => {
         i.ctx.session.id = other.id;
       });
-      expect(answerOf(await w.wire(new AuthnSessionsController()).revokeOthers(w.request())).body).to.deep.equal({ Revoked: 1 });
+      expect(answerOf(await callRoute(w.wire(new AuthnSessionsController()), 'revokeOthers', w.request())).body).to.deep.equal({ Revoked: 1 });
       expect(await w.sessions.restore(other.id)).to.equal(null);
       expect(await w.sessions.restore(w.session.handle.id)).to.not.equal(null);
       expect(w.hook.landed()).to.deep.equal([]);
@@ -210,7 +211,7 @@ describe('action hooks on the 3.0 routes', function () {
       const w = await world();
       const other = await w.sessions.issue(w.alice, facts());
       w.hook.refuse('authn.sessions.revoke', CODE);
-      expectRefused(await w.wire(new AuthnSessionsController()).revokeOthers(w.request()), 403);
+      expectRefused(await callRoute(w.wire(new AuthnSessionsController()), 'revokeOthers', w.request()), 403);
       expect(await w.sessions.restore(other.id)).to.not.equal(null);
       expect(w.hook.calls('authn.sessions.revoke')[0].input.handle).to.equal('others');
     });
@@ -225,7 +226,7 @@ describe('action hooks on the 3.0 routes', function () {
         Roles: { rolesOf: async () => [{ role: 'viewer', requirePassword: false }] },
       });
       w.hook.refuse('authn.role.switch', CODE);
-      expectRefused(await controller.switch(w.request({ role: 'viewer' })), 403);
+      expectRefused(await callRoute(controller, 'switch', w.request({ role: 'viewer' })), 403);
       const now = await w.sessions.restore(w.session.handle.id);
       expect(now, 'the id did not rotate').to.not.equal(null);
       expect(now!.activeRole).to.equal(undefined);
@@ -257,7 +258,7 @@ describe('action hooks on the 3.0 routes', function () {
         i.session.handle.id = 'forged';
       });
       w.hook.tamper('authn.role.switch', (o) => tamperPrincipal(o), 'after');
-      const a = answerOf(await controller.switch(w.request({ role: 'viewer' })));
+      const a = answerOf(await callRoute(controller, 'switch', w.request({ role: 'viewer' })));
       expect(a.status).to.equal(200);
       expect(await w.sessions.restore(w.session.handle.id), 'the real session rotated').to.equal(null);
       expect(principal).to.deep.include({ id: w.alice.id, ceiling: { roles: ['viewer'] }, attributes: { tier: 'basic' } });
@@ -296,7 +297,7 @@ describe('action hooks on the 3.0 routes', function () {
     it('refused answers 403 after the rule allowed, and nothing is revoked', async () => {
       const { w, controller, revoked } = await admin({ ok: true });
       w.hook.refuse('authn.admin.credentials', CODE);
-      expectRefused(await controller.sessions(w.request(), TARGET_UUID), 403);
+      expectRefused(await callRoute(controller, 'sessions', withParams(w.request(), { uuid: TARGET_UUID })), 403);
       expect(revoked).to.deep.equal([]);
       expect(w.hook.calls('authn.admin.credentials')[0].input).to.deep.include({ action: 'sessions', target: { type: 'user', id: TARGET_UUID } });
       expect(w.events.map((e) => [e.type, e.outcome, e.reason])).to.deep.equal([['session.revoke', 'failure', `hook:${CODE}`]]);
@@ -308,14 +309,14 @@ describe('action hooks on the 3.0 routes', function () {
         i.target.id = 'someone-else';
         i.actor.id = 'someone-else';
       });
-      expect(answerOf(await controller.sessions(w.request(), TARGET_UUID)).status).to.equal(200);
+      expect(answerOf(await callRoute(controller, 'sessions', withParams(w.request(), { uuid: TARGET_UUID }))).status).to.equal(200);
       expect(revoked).to.deep.equal([{ type: 'user', id: TARGET_UUID }]);
       expect(w.hook.landed()).to.deep.equal([]);
     });
 
     it("the rule judges the admin's whole principal, its authn facts included", async () => {
       const { w, controller, rule } = await admin({ ok: true });
-      await controller.sessions(w.request(), TARGET_UUID);
+      await callRoute(controller, 'sessions', withParams(w.request(), { uuid: TARGET_UUID }));
       const [actor] = (rule as VerdictRule).asked;
       expect(actor).to.deep.include({ type: 'user', id: w.alice.id, authenticated: true });
       expect(actor.authn).to.deep.include({ method: 'password', strategy: 'local' });
@@ -329,7 +330,7 @@ describe('action hooks on the 3.0 routes', function () {
     ] as const) {
       it(`with the rule refusing ${code}, the route answers ${status} ${code} as the guard did, unaudited, and no other hook runs`, async () => {
         const { w, controller, revoked } = await admin({ ok: false, code });
-        const a = answerOf(await controller.sessions(w.request(), TARGET_UUID));
+        const a = answerOf(await callRoute(controller, 'sessions', withParams(w.request(), { uuid: TARGET_UUID })));
         expect(a.status).to.equal(status);
         expect(a.body.error).to.equal(code);
         expect(a.body).to.not.have.property('code');
@@ -344,13 +345,13 @@ describe('action hooks on the 3.0 routes', function () {
       const { w, controller, revoked } = await admin(undefined, new VerdictRule(() => {
         throw new Error('store down');
       }));
-      expectRefused(await controller.sessions(w.request(), TARGET_UUID), 403, 'hook_error');
+      expectRefused(await callRoute(controller, 'sessions', withParams(w.request(), { uuid: TARGET_UUID })), 403, 'hook_error');
       expect(revoked).to.deep.equal([]);
     });
 
     it('with no rule in the runner (one registered after it resolved) the route answers 403 forbidden and changes nothing', async () => {
       const { w, controller, revoked } = await admin(undefined, null);
-      const a = answerOf(await controller.sessions(w.request(), TARGET_UUID));
+      const a = answerOf(await callRoute(controller, 'sessions', withParams(w.request(), { uuid: TARGET_UUID })));
       expect(a.status).to.equal(403);
       expect(a.body.error).to.equal('forbidden');
       expect(revoked).to.deep.equal([]);
@@ -362,7 +363,7 @@ describe('action hooks on the 3.0 routes', function () {
       const w = await world();
       const controller = w.wire(new AuthnPasswordController());
       Object.assign(controller, { Passwords: { change: async () => ({ status: 'refused', code: CODE }) } });
-      expectRefused(await controller.change(w.request({ oldPassword: 'Old-Password-1', password: 'New-Password-2' })), 400);
+      expectRefused(await callRoute(controller, 'change', w.request({ oldPassword: 'Old-Password-1', password: 'New-Password-2' })), 400);
     });
   });
 
@@ -389,7 +390,7 @@ describe('action hooks on the 3.0 routes', function () {
       w.services.set(AuthnThrottle, { attempt: async () => ({ allowed: true }) });
       w.services.set(PasswordService, { check: async () => [], requestVerification: async (id: IdentityRef) => void verifications.push(id) });
       const controller = w.wire(new AuthnRegistrationController(), { 'authn.http.registration.notifyExisting': true });
-      const register = (body: Record<string, unknown>) => controller.register(w.request({ login: 'newcomer', email: 'newcomer@example.test', password: PASSWORD, ...body }, { session: null, principal: null }));
+      const register = (body: Record<string, unknown>) => callRoute(controller, 'register', w.request({ login: 'newcomer', email: 'newcomer@example.test', password: PASSWORD, ...body }, { session: null, principal: null }));
       return { w, registrar, verifications, register };
     }
 
@@ -449,12 +450,13 @@ describe('action hooks on the 3.0 routes', function () {
     it('a hook writing ctx.ip in place does not reach the throttled requestCode', async () => {
       const w = await world();
       const ips: unknown[] = [];
+      w.services.set(AuthnThrottle, { attempt: async () => ({ allowed: true }) });
       const controller = w.wire(new AuthnCodeLoginController());
       Object.assign(controller, { Passwords: { requestCode: async (_login: string, c: AuthnContext) => (ips.push(c.ip), { status: 'accepted' }) } });
       w.hook.tamper('authn.code.request', (i) => {
         i.ctx.ip = '203.0.113.9';
       });
-      expect(answerOf(await controller.request(w.request({ login: 'alice@example.test' }, { session: null, principal: null }))).status).to.equal(202);
+      expect(answerOf(await callRoute(controller, 'request', w.request({ login: 'alice@example.test' }, { session: null, principal: null }))).status).to.equal(202);
       expect(ips).to.deep.equal(['192.0.2.7']);
       expect(w.hook.landed()).to.deep.equal([]);
     });
@@ -462,10 +464,11 @@ describe('action hooks on the 3.0 routes', function () {
     it('refused answers the accepted body and sends nothing', async () => {
       const w = await world();
       const requested: string[] = [];
+      w.services.set(AuthnThrottle, { attempt: async () => ({ allowed: true }) });
       const controller = w.wire(new AuthnCodeLoginController());
       Object.assign(controller, { Passwords: { requestCode: async (login: string) => (requested.push(login), { status: 'accepted' }) } });
       w.hook.refuse('authn.code.request', CODE);
-      const a = answerOf(await controller.request(w.request({ login: 'alice@example.test' }, { session: null, principal: null })));
+      const a = answerOf(await callRoute(controller, 'request', w.request({ login: 'alice@example.test' }, { session: null, principal: null })));
       expect(a.status).to.equal(202);
       expect(a.body).to.deep.equal({ Ok: true });
       expect(requested).to.deep.equal([]);
@@ -480,7 +483,7 @@ describe('action hooks on the 3.0 routes', function () {
           throw new ActionRefused('authn.passkey.register', CODE);
         },
       });
-      expectRefused(await w.wire(new AuthnPasskeyController()).register(w.request({ challengeId: 'c-1', response: { id: 'x' } })), 403);
+      expectRefused(await callRoute(w.wire(new AuthnPasskeyController()), 'register', w.request({ challengeId: 'c-1', response: { id: 'x', type: 'public-key', response: {} } })), 403);
     });
 
     it('DELETE /user/passkeys/:id answers 403 { code } when the PasskeyService throws ActionRefused', async () => {
@@ -490,7 +493,7 @@ describe('action hooks on the 3.0 routes', function () {
           throw new ActionRefused('authn.passkey.revoke', CODE);
         },
       });
-      expectRefused(await w.wire(new AuthnPasskeyController()).remove(w.request(), 'cred-1'), 403);
+      expectRefused(await callRoute(w.wire(new AuthnPasskeyController()), 'remove', withParams(w.request(), { id: 'cred-1' })), 403);
     });
 
     it('POST /user/tokens answers 403 { code } when the TokenService throws ActionRefused', async () => {
@@ -500,7 +503,7 @@ describe('action hooks on the 3.0 routes', function () {
           throw new ActionRefused('authn.token.create', CODE);
         },
       });
-      expectRefused(await w.wire(new AuthnTokensController()).create(w.request({ name: 'ci', expiresAt: new Date(Date.now() + 86_400_000).toISOString() })), 403);
+      expectRefused(await callRoute(w.wire(new AuthnTokensController()), 'create', w.request({ name: 'ci', expiresAt: new Date(Date.now() + 86_400_000).toISOString() })), 403);
     });
 
     it('a refusal of another action than the route runs is not answered as the route refusal', async () => {
@@ -510,10 +513,7 @@ describe('action hooks on the 3.0 routes', function () {
           throw new ActionRefused('users.create', CODE);
         },
       });
-      const err = await w
-        .wire(new AuthnTokensController())
-        .create(w.request({ name: 'ci', expiresAt: new Date(Date.now() + 86_400_000).toISOString() }))
-        .then(
+      const err = await callRoute(w.wire(new AuthnTokensController()), 'create', w.request({ name: 'ci', expiresAt: new Date(Date.now() + 86_400_000).toISOString() })).then(
           () => null,
           (e: unknown) => e,
         );
@@ -527,14 +527,14 @@ describe('action hooks on the 3.0 routes', function () {
           throw new ActionRefused('authn.token.revoke', CODE);
         },
       });
-      expectRefused(await w.wire(new AuthnTokensController()).revoke(w.request(), 'token-1'), 403);
+      expectRefused(await callRoute(w.wire(new AuthnTokensController()), 'revoke', withParams(w.request(), { uuid: 'token-1' })), 403);
     });
 
     it("POST /user/keys answers 403 { code } for a { code: 'refused' } of the KeyRegistry", async () => {
       const w = await world();
       w.services.set(KeyRegistry, { register: async () => ({ ok: false, code: 'refused', refusal: CODE }) });
       const jwk = generateKeyPair('EdDSA').publicJwk;
-      expectRefused(await w.wire(new AuthnKeysController()).register(w.request({ jwk, proof: { challengeId: 'c-1', signature: 's-1' } })), 403);
+      expectRefused(await callRoute(w.wire(new AuthnKeysController()), 'register', w.request({ jwk, proof: { challengeId: 'c-1', signature: 's-1' } })), 403);
     });
 
     it('POST /user/mfa answers 403 { code } when the MfaEnrolmentService throws ActionRefused', async () => {
@@ -547,14 +547,14 @@ describe('action hooks on the 3.0 routes', function () {
           },
         },
       });
-      expectRefused(await controller.begin(w.request()), 403);
+      expectRefused(await callRoute(controller, 'begin', w.request()), 403);
     });
 
     it('POST /authn/admin/users/:uuid/mfa-reset answers { reset: false } when the TotpService refused it', async () => {
       const w = await world([new AllowAll()]);
       const controller = w.wire(new AuthnCredentialAdminController());
       Object.assign(controller, { MfaEnrolment: { adminReset: async () => ({ reset: false }) } });
-      const a = answerOf(await controller.mfaReset(w.request(), TARGET_UUID));
+      const a = answerOf(await callRoute(controller, 'mfaReset', withParams(w.request(), { uuid: TARGET_UUID })));
       expect(a.status).to.equal(200);
       expect(a.body).to.deep.equal({ reset: false });
     });

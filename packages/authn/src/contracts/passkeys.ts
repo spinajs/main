@@ -6,6 +6,14 @@ export interface PasskeyCeremony {
   readonly options: Readonly<Record<string, unknown>>;
 }
 
+/** Thrown by `PasskeyService.challenge` while the stored challenges are at their cap; the login route answers 503. */
+export class PasskeyChallengesFull extends Error {
+  constructor() {
+    super('the passkey challenge store is full');
+    this.name = 'PasskeyChallengesFull';
+  }
+}
+
 /** A registered passkey as its owner sees it; never the public key. */
 export interface PasskeyEntry {
   /** The credential id, base64url. */

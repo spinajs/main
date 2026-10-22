@@ -1,5 +1,6 @@
 import { Bootstrapper, Injectable } from '@spinajs/di';
 import { registerConfigurationSchema, registerConfigurationSchemaAtImport } from '@spinajs/configuration';
+import { serviceTokenField } from '@spinajs/authz';
 
 /** One `authz.http.services` entry as configured. */
 export interface ServiceEntry {
@@ -43,6 +44,8 @@ export interface AuthzHttpConfig {
 }
 
 const nonEmpty = { type: 'string', minLength: 1 };
+// A longer header never authenticates (ServicePrincipalSource), so a longer token is refused at boot.
+const serviceToken = { type: 'string', minLength: 1, maxLength: serviceTokenField.maxLength };
 // One type list, not an anyOf with a null branch: coerceTypes would turn '' into null there and accept it.
 const nullableName = { type: ['string', 'null'], minLength: 1 };
 
@@ -61,7 +64,7 @@ export const AUTHZ_HTTP_CONFIGURATION_SCHEMA = {
         properties: {
           name: nonEmpty,
           header: nonEmpty,
-          token: { anyOf: [nonEmpty, { type: 'array', minItems: 1, items: nonEmpty }] },
+          token: { anyOf: [serviceToken, { type: 'array', minItems: 1, items: serviceToken }] },
           attributes: { type: 'object' },
         },
       },

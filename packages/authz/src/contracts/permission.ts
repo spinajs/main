@@ -34,9 +34,11 @@ const NAME = /^[A-Za-z][A-Za-z0-9_.-]*:[A-Za-z][A-Za-z0-9_.-]*$/;
 const GLOB = /^(?:\*|(?:[A-Za-z0-9_.-]|\*(?!\*))+:(?:[A-Za-z0-9_.-]|\*(?!\*))+)$/;
 
 export const PERMISSION_PATTERN: RegExp = Object.freeze(new RegExp(NAME.source));
+/** The longest permission name. */
+export const PERMISSION_MAX_LENGTH = 256;
 export const PERMISSION_GLOB_PATTERN: RegExp = Object.freeze(new RegExp(GLOB.source));
 
-export const isPermission = (name: unknown): name is Permission => typeof name === 'string' && NAME.test(name);
+export const isPermission = (name: unknown): name is Permission => typeof name === 'string' && name.length <= PERMISSION_MAX_LENGTH && NAME.test(name);
 
 export const parsePermission = (name: string): { readonly resource: string; readonly action: string } => {
   assertPermission(name);
@@ -73,7 +75,7 @@ export const matchesPermission = (glob: string, name: Permission): boolean => co
 
 const assertPermission = (name: Permission): void => {
   if (!isPermission(name)) {
-    throw new AuthzConfigError(`Invalid permission name ${quote(name)}: expected <resource>:<action>, each [A-Za-z][A-Za-z0-9_.-]*`);
+    throw new AuthzConfigError(`Invalid permission name ${quote(name)}: expected <resource>:<action>, each [A-Za-z][A-Za-z0-9_.-]*, at most ${PERMISSION_MAX_LENGTH} characters`);
   }
 };
 
