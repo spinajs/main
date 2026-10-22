@@ -329,7 +329,7 @@ describe('authz-http-admin routes', function () {
       // The harness model is not an RbacModel, so the reader is stubbed: this tests the route, not the RBAC answer.
       const seen: AuthzAdminQuery[] = [];
       const original = RbacAdminReader.prototype.list;
-      RbacAdminReader.prototype.list = async function (q: AuthzAdminQuery) {
+      RbacAdminReader.prototype.list = async function (this: RbacAdminReader, q: AuthzAdminQuery) {
         if (q.kind !== 'holders') return original.apply(this, arguments as never);
         seen.push(q);
         return { items: [{ subject: { type: 'user', id: 'root' }, via: [] }], total: 1 };

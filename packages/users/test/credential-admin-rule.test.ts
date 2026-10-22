@@ -15,6 +15,7 @@ import { AuthzCredentialAdminRule, AuthzTargetGuard, CREDENTIAL_ADMIN_PERMISSION
 import { rootAdmin } from './support/authz-host.js';
 import { bootChild, disposeChildren, violationPaths } from './support/child-config.js';
 import { bootUsersDb, registerUsersTestHost, seedUser, setIdentityFlags } from './support/users-db.js';
+import { setPastSchema } from './support/set-past-schema.js';
 
 chai.use(chaiAsPromised);
 
@@ -263,7 +264,7 @@ describe('AuthzCredentialAdminRule (users DB, root authz host)', function () {
       const target = await user('member');
 
       for (const bad of ['', 5, ['users:credentials'], null]) {
-        (await DI.resolve(Configuration)).set(['authz', 'credentials', 'permission'], bad);
+        setPastSchema(await DI.resolve(Configuration), 'authz.credentials.permission', bad);
         await expect(new AuthzCredentialAdminRule().allowed(actor, target, 'password-reset'), JSON.stringify(bad)).to.be.rejectedWith(AuthzConfigError, /authz\.credentials\.permission/);
       }
     });

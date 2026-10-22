@@ -9,6 +9,7 @@ import { Session } from '../../src/contracts/session-state.js';
 import { IMPERSONATION_BLOCK } from '../../src/impersonation/impersonation-service.js';
 import { buildCore, useHarnessLog, violationPaths } from '../behaviour/harness.js';
 import type { CoreOptions, CoreParts } from '../behaviour/harness.js';
+import { setPastSchema } from '../support/set-past-schema.js';
 
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
@@ -266,11 +267,11 @@ describe('AuthnImpersonationService', function () {
       for (const value of [undefined, null, 0, '', 'false']) {
         await booted?.p.dispose();
         booted = await boot({ requirePassword: false });
-        booted.p.configuration.set('authn.impersonation.requireMfa', value);
+        setPastSchema(booted.p.configuration, 'authn.impersonation.requireMfa', value);
         const aal1 = await issue(booted.p, booted.a, { assurance: 'aal1', mfa: [] });
         assert.deepStrictEqual(await booted.svc.start(aal1, booted.b, ctx()), { ok: false }, `requireMfa ${String(value)}`);
         booted.p.configuration.set('authn.impersonation.requireMfa', false);
-        booted.p.configuration.set('authn.impersonation.requirePassword', value);
+        setPastSchema(booted.p.configuration, 'authn.impersonation.requirePassword', value);
         const stale = await issue(booted.p, booted.a);
         assert.deepStrictEqual(await booted.svc.start(stale, booted.b, ctx(at(3600 * SECOND))), { ok: false }, `requirePassword ${String(value)}`);
         assert.deepStrictEqual(reasons(booted.p, 'impersonation.start'), ['mfa_required', 'not_fresh'], String(value));
@@ -928,7 +929,7 @@ describe('AuthnImpersonationService', function () {
         await booted?.p.dispose();
         booted = await boot();
         const { imp } = await started(booted);
-        booted.p.configuration.set(path, bad);
+        setPastSchema(booted.p.configuration, path, bad);
         const label = `${path} ${String(bad)}`;
         assert.strictEqual(await booted.svc.principalOf(imp, ctx(at(MINUTE))), null, label);
         assert.strictEqual(await booted.p.sessions.restore(imp.id), null, label);
@@ -952,7 +953,7 @@ describe('AuthnImpersonationService', function () {
         await booted?.p.dispose();
         booted = await boot();
         const { imp } = await started(booted);
-        booted.p.configuration.set('authn.impersonation.clockSkewSeconds', bad);
+        setPastSchema(booted.p.configuration, 'authn.impersonation.clockSkewSeconds', bad);
         const label = String(bad);
         assert.strictEqual(await booted.svc.principalOf(imp, ctx(at(MINUTE))), null, label);
         assert.deepStrictEqual(reasons(booted.p, 'impersonation.end'), ['invalid_block'], label);

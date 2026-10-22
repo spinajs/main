@@ -193,7 +193,7 @@ export class QuotaHandler extends AuthzWriteHandler {
 import { Injectable } from '@spinajs/di';
 import { ActionHook } from '@spinajs/hooks';
 import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
-import '@spinajs/authz';
+import '@spinajs/authz-rbac';
 
 /** Contractors get access for a limited time only. */
 @Injectable(ActionHook)

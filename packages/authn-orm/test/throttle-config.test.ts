@@ -11,7 +11,7 @@ import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 
 import { DbAuthnThrottle } from '../src/index.js';
 import type { DbThrottleOptions } from '../src/index.js';
-import { boot, disposeBooted, violationsOf } from './support/config-boot.js';
+import { boot, disposeBooted, setPastSchema, violationsOf } from './support/config-boot.js';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA];
 const HASH_KEY = 'k'.repeat(40);
@@ -85,7 +85,7 @@ describe('DbAuthnThrottle configuration', () => {
 
   it('refuses limits set past the schema before init', async () => {
     const { child, configuration } = await boot(SCHEMAS, {});
-    configuration.set('authn.throttle.reset.ip.maxDelayMs', 0);
+    setPastSchema(configuration, 'authn.throttle.reset.ip.maxDelayMs', 0);
     const throttle = await throttleIn(child);
     let error: unknown;
     await throttle.init().catch((e: unknown) => (error = e));
