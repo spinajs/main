@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import type { Readable } from 'node:stream';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
+import { getFs } from '@spinajs/fs';
 import { LogLevel } from '@spinajs/log';
 import { DateTime } from 'luxon';
 import sinon from 'sinon';
@@ -70,6 +71,23 @@ describe('UploadService.putPart', () => {
     expect(existsSync(pathIn('temp', first.storage_key as string))).to.eq(false);
     expect((await rows('upload_blobs', { session_id: session.id })).map((b) => b.key)).to.deep.equal([second.storage_key]);
     expect(emitted('UploadPartStored').map((e): unknown => e.Replaced)).to.deep.equal([false, true]);
+  });
+
+  it('records blobs under the session provider name, so a resend finds the replaced one even when the provider reports another Name', async () => {
+    const provider = getFs('upload-temp');
+    Object.defineProperty(provider, 'Name', { get: () => 'temp-backend', configurable: true });
+    try {
+      const session = await open(service, file);
+      await put(service, session, file, 2);
+      const [first] = await rows('upload_parts', { session_id: session.id, number: 2 });
+      await put(service, session, file, 2);
+      const [second] = await rows('upload_parts', { session_id: session.id, number: 2 });
+
+      expect(existsSync(pathIn('temp', first.storage_key as string))).to.eq(false);
+      expect((await rows('upload_blobs', { session_id: session.id })).map((b) => [b.fs, b.key])).to.deep.equal([['upload-temp', second.storage_key]]);
+    } finally {
+      delete (provider as { Name?: string }).Name;
+    }
   });
 
   /** The refusal leaves no part row, no blob row and no object, emits UploadPartRejected and logs it at warn. */

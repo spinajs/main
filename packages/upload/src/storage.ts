@@ -51,6 +51,7 @@ export interface AssembledFile {
 
 interface OpenObject {
   readonly blobId: string;
+  readonly fsName: string;
   readonly provider: fs;
   readonly key: string;
   readonly out: Writable;
@@ -218,14 +219,18 @@ export class UploadStorage extends AsyncService {
     }
   }
 
+  /**
+   * The row records `fsName`, the fs.providers name the session holds, never provider.Name: the service and the sweeper
+   * match and resolve blobs by the session's name, and a provider may report a Name of its own.
+   */
   private async open(sessionId: string, fsName: string, key: string, kind: BlobKind, options: IWriteStreamOptions): Promise<OpenObject> {
     const provider = this.provider(fsName);
-    const blobId = await this.track(sessionId, provider.Name, key, kind);
+    const blobId = await this.track(sessionId, fsName, key, kind);
     try {
-      return { blobId, provider, key, sessionId, out: await provider.writeStream(key, options) };
+      return { blobId, fsName, provider, key, sessionId, out: await provider.writeStream(key, options) };
     } catch (err) {
       // Only the row goes: a refused exclusive write means whatever is at the key is not ours to remove.
-      await this.forget(blobId, provider.Name, key, sessionId);
+      await this.forget(blobId, fsName, key, sessionId);
       throw err;
     }
   }
@@ -239,7 +244,7 @@ export class UploadStorage extends AsyncService {
       await pipeline([...streams, target.out]);
       await done;
     } catch (err) {
-      await this.discard(target.blobId, target.provider.Name, target.key, target.sessionId);
+      await this.discard(target.blobId, target.fsName, target.key, target.sessionId);
       throw err;
     }
   }
