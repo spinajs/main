@@ -47,7 +47,7 @@ describe('@spinajs/upload package', () => {
 
   it('exports ./scheduler from both builds', () => {
     expect(manifest.exports['./scheduler']).to.deep.equal({ types: './lib/mjs/scheduler.d.ts', import: './lib/mjs/scheduler.js', require: './lib/cjs/scheduler.js' });
-    expect(manifest.typesVersions).to.deep.equal({ '*': { scheduler: ['lib/cjs/scheduler.d.ts'] } });
+    expect(manifest.typesVersions).to.deep.include({ '*': { scheduler: ['lib/cjs/scheduler.d.ts'], http: ['lib/cjs/http/index.d.ts'] } });
   });
 
   it('resolves @spinajs/upload/scheduler to the built module', () => {
