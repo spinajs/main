@@ -37,6 +37,7 @@ export class UploadSession extends ModelBase<UploadSession> {
   @Int64('number')
   public size: number;
 
+  @Int64('number')
   public part_size: number;
 
   public part_count: number;

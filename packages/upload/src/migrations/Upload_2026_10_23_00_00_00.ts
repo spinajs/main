@@ -15,7 +15,7 @@ export class Upload_2026_10_23_00_00_00 extends OrmMigration {
       table.string('owner', 255);
       table.string('name', 255).notNull();
       table.bigint('size').notNull();
-      table.int('part_size').notNull();
+      table.bigint('part_size').notNull();
       table.int('part_count').notNull();
       table.string('declared_sha256', 64);
       table.string('declared_mime', 255);

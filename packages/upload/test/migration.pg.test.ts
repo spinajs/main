@@ -47,4 +47,15 @@ describe('Upload_2026_10_23_00_00_00 on postgres', function () {
     expect(await d.select().from('upload_parts')).to.deep.equal([]);
     expect(await d.select().from('upload_blobs')).to.deep.equal([]);
   });
+
+  it('stores a part size past 32 bits, up to the 5 GiB part ceiling', async () => {
+    const d = driver!;
+    const now = DateTime.utc();
+    const partSize = 5 * 1024 ** 3;
+    await d.insert().into('upload_sessions').values({ id: 's-big-part', name: 'huge.bin', size: 2 * partSize, part_size: partSize, part_count: 2, status: 'open', metadata: '{}', temp_fs: 't', files_fs: 'f', created_at: now, updated_at: now, expires_at: now });
+
+    const [session] = (await d.select().from('upload_sessions').where('id', 's-big-part')) as { part_size: string | number }[];
+    expect(Number(session.part_size)).to.eq(partSize);
+    await d.del().from('upload_sessions').where('id', 's-big-part');
+  });
 });

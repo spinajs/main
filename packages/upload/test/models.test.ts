@@ -2,6 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
+import { Int64ValueConverter } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 import { UploadBlob, UploadPart, UploadSession, toStateView } from '../src/index.js';
@@ -52,6 +53,7 @@ describe('upload tables, models and the state view', () => {
     const [s1] = open;
     expect(s1.metadata).to.deep.equal({ projectId: 'p1' });
     expect(s1.size).to.eq(3_000_000_000);
+    expect(UploadSession.getModelDescriptor().Converters.get('part_size')?.Class).to.eq(Int64ValueConverter);
     expect(DateTime.isDateTime(s1.expires_at)).to.eq(true);
     expect(s1.claimed_at).to.eq(null);
 
