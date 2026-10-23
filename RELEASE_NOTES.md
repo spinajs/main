@@ -1,8 +1,8 @@
 # Release notes — upload: resumable verified uploads; fs write options, digest and limit streams; raw request bodies
 
-> Branch `feat/upload`. Packages: upload (new), fs, fs-s3, fs-ftp, fs-onedrive, exceptions, http, http-swagger.
+> Branch `feat/upload`. Packages: upload (new), fs, fs-s3, fs-ftp, fs-onedrive, exceptions, http, http-swagger, authz-fs.
 >
-> Docs: `docs/upload/README.md`, `docs/exceptions/01-exception-classes.md`,
+> Docs: `docs/upload/README.md`, `docs/authz-fs/03-file-acl.md`, `docs/exceptions/01-exception-classes.md`,
 > `docs/exceptions/03-http-error-mapping.md`, `docs/exceptions/README.md`,
 > `docs/fs-ftp/03-extending-the-ftp-provider.md`, `docs/fs-s3/01-s3-file-provider.md`,
 > `docs/fs-s3/03-object-metadata.md`, `docs/fs-s3/05-custom-s3-provider.md`, `docs/fs-s3/README.md`,
@@ -55,8 +55,8 @@
   `IOFail` too, with the original kept as the inner error.
 - **`rm('')` throws `InvalidArgument`.** It used to go out as `DeleteBucket`.
 - **`move()` and `rename()` delete the exact source key**, never the keys under it.
-- **`@spinajs/authz-fs` keeps the `fs_acl` rows** of the keys a prefix `rm` deletes on S3, until authz-fs handles
-  prefix deletes.
+- **`@spinajs/authz-fs` drops the `fs_acl` rows of a prefix `rm`.** A path with entries under it, with or without a key
+  of its name, loses the rows at it and under it, as a directory does. `move` and `rename` of such a key keep them.
 
 ### `@spinajs/http` — `LimitExceeded` answers 413 everywhere
 
