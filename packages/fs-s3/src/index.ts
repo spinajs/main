@@ -1,6 +1,6 @@
 import { Autoinject, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
-import { fs, IStat, IZipResult, FileSystem, FileInfoService, IFileInfo, IFsUploadOptions, IWriteStreamOptions } from '@spinajs/fs';
+import { fs, IStat, IZipResult, FileSystem, FileInfoService, IFileInfo, IFsUploadOptions, IWriteStreamOptions, DigestStream } from '@spinajs/fs';
 import {
   AbortMultipartUploadCommand,
   S3Client,
@@ -23,7 +23,8 @@ import { InvalidArgument, InvalidOperation, IOFail, MethodNotImplemented, Resour
 import { createReadStream, existsSync } from 'fs';
 import crypto from 'crypto';
 import { DateTime } from 'luxon';
-import { PassThrough, Readable } from 'stream';
+import { PassThrough, Readable, Writable } from 'stream';
+import { pipeline } from 'stream/promises';
 import iconv from 'iconv-lite';
 import { S3UrlSigner, IS3Config } from './interfaces.js';
 
@@ -38,6 +39,9 @@ const toDate = (v: string) => DateTime.fromISO(v);
 
 // 412: the key exists; 409: a concurrent conditional write to the key won (AWS ConditionalRequestConflict)
 const keyTaken = (err: unknown): boolean => err instanceof S3ServiceException && [409, 412].includes(err.$metadata?.httpStatusCode ?? 0);
+
+/** The algorithm of the `hash` metadata that write() and upload() store. */
+const STORED_HASH_ALGORITHM = 'sha256';
 
 /**
  * IFileInfo fields upload() stores as s3 metadata
@@ -351,28 +355,28 @@ export class fsS3 extends fs {
   }
 
   /**
+   * Returns the hex digest of the object. The `hash` metadata that write() and upload() store answers a sha256
+   * request with one HeadObject and is trusted as stored; anything else streams the object through DigestStream.
    *
-   * Returns the SHA-256 hash of file, read from the object's `hash` metadata entry
-   *
-   * @param srcPath file to calculate hash
-   * @param algo not supported, throws when given
+   * @param algo any algorithm node's crypto supports, default sha256
    */
   protected async doHash(path: string, algo?: string): Promise<string> {
-    if (algo) {
-      throw new InvalidArgument(`Hash alghoritm is not supported in s3 filesystem`);
+    const algorithm = (algo ?? STORED_HASH_ALGORITHM).toLowerCase();
+    if (!crypto.getHashes().some((h) => h.toLowerCase() === algorithm)) {
+      throw new InvalidArgument(`Hash algorithm ${algo} is not supported`);
     }
 
-    const command = new HeadObjectCommand({
-      Bucket: this.Options.bucket,
-      Key: path,
-    });
-
-    const result = await this.S3.send(command);
-    if(!result.Metadata || !result.Metadata['hash']){
-      throw new IOFail(`Hash metadata is not available for file ${path}`);
+    if (algorithm === STORED_HASH_ALGORITHM) {
+      const head = await this.S3.send(new HeadObjectCommand({ Bucket: this.Options.bucket, Key: path }));
+      const stored = head.Metadata?.['hash'];
+      if (stored) {
+        return stored;
+      }
     }
 
-    return result.Metadata['hash'];
+    const digest = new DigestStream(algorithm);
+    await pipeline(await this.doReadStream(path), digest, new Writable({ write: (_chunk, _encoding, done) => done() }));
+    return digest.digest('hex');
   }
 
   protected async doUpload(srcPath: string, destPath: string, options?: IFsUploadOptions): Promise<void> {
