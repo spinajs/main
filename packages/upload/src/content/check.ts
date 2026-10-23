@@ -44,29 +44,45 @@ export class ContentTypeCheck {
   }
 
   public async detect(head: Uint8Array): Promise<{ mime: string; detectorId: string } | null> {
-    const match = { id: null as string | null };
-    const { FileTypeParser } = await loadFileType();
-    const result = await new FileTypeParser({ customDetectors: this.adapters(head, match) }).fromBuffer(head);
-    return result ? { mime: result.mime, detectorId: match.id ?? FILE_TYPE_DETECTOR_ID } : null;
+    const found = await this.parse(head);
+    return found ? { mime: found.mime, detectorId: found.detectorId } : null;
   }
 
   public async check(input: ContentCheckInput): Promise<ContentCheckResult> {
-    const detected = await this.detect(input.head);
+    const detected = await this.parse(input.head);
     const found: ContentFound = { detectedMime: detected?.mime ?? null, detectorId: detected?.detectorId ?? null };
-    const refusal = this.refusalOf(input, found.detectedMime);
+    const refusal = this.refusalOf(input, detected);
     return refusal === null ? { ...found, accepted: true } : { ...found, accepted: false, code: refusal };
   }
 
-  private refusalOf(input: ContentCheckInput, detected: string | null): ContentRefusal | null {
+  private async parse(head: Uint8Array): Promise<{ mime: string; ext: string; detectorId: string } | null> {
+    const match = { id: null as string | null };
+    const { FileTypeParser } = await loadFileType();
+    try {
+      const result = await new FileTypeParser({ customDetectors: this.adapters(head, match) }).fromBuffer(head);
+      return result ? { mime: result.mime, ext: result.ext, detectorId: match.id ?? FILE_TYPE_DETECTOR_ID } : null;
+    } catch {
+      // file-type throws EndOfStreamError on a container (zip family) head cut mid-entry
+      this.Log.warn({ detectorId: FILE_TYPE_DETECTOR_ID }, 'Content detector ${detectorId} failed; treated as no match');
+      return null;
+    }
+  }
+
+  /** file-type and mime-db disagree on some names (ico, avi, eps), so the detected extension is compared through mime-types too. */
+  private matchesDeclared(detected: { mime: string; ext: string }, declared: string): boolean {
+    return detected.mime === declared || this.mimeOf(`x.${detected.ext}`) === declared;
+  }
+
+  private refusalOf(input: ContentCheckInput, detected: { mime: string; ext: string } | null): ContentRefusal | null {
     if (detected === null && (input.declaredMime === null || !this.Options.allowUndetected.includes(input.declaredMime))) return 'upload.content_mismatch';
-    if (detected !== null && input.declaredMime !== null && detected !== input.declaredMime) return 'upload.content_mismatch';
-    const effective = detected ?? input.declaredMime;
+    if (detected !== null && input.declaredMime !== null && !this.matchesDeclared(detected, input.declaredMime)) return 'upload.content_mismatch';
+    const effective = detected?.mime ?? input.declaredMime;
     return effective !== null && allowsType(input.allowedTypes, effective) ? null : 'upload.unsupported_type';
   }
 
   /** The app's detectors read the captured head, never the tokenizer, so file-type goes on after a null (file-type/core.d.ts:142-147). */
   private adapters(head: Uint8Array, match: { id: string | null }): Detector[] {
-    const registered = (DI.resolve(Array.ofType(ContentDetector)) as unknown as ContentDetector[] | undefined) ?? [];
+    const registered = DI.resolve(Array.ofType(ContentDetector)) as unknown as ContentDetector[] | undefined ?? [];
     return registered
       .filter((d) => d instanceof ContentDetector)
       .map((d) => ({

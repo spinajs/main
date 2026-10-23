@@ -7,7 +7,7 @@ import { LogLevel } from '@spinajs/log';
 import { ContentTypeCheck } from '../src/index.js';
 import type { AllowedTypes } from '../src/index.js';
 import { uploadLogs } from './support/capture.js';
-import { DWG, DXF, PDF, PNG } from './support/detectors.js';
+import { AVI, CFB, DWG, DXF, EPS, ICO, PDF, PNG, PNG_OVERRIDE, TRUNCATED_ZIP } from './support/detectors.js';
 import { resetUploads, uploadEnv } from './support/env.js';
 
 // Letters only: file-type finds no signature in them.
@@ -39,6 +39,17 @@ describe('ContentTypeCheck', () => {
     expect(await check.detect(Buffer.concat([Buffer.from('    '), PDF]))).to.deep.equal({ mime: 'application/pdf', detectorId: 'test-late-pdf' });
   });
 
+  it('lets an app detector win over file-type on the same bytes', async () => {
+    expect(await check.detect(PNG_OVERRIDE)).to.deep.equal({ mime: 'image/x-test-png', detectorId: 'test-png-override' });
+  });
+
+  it('treats a truncated zip head as nothing detected, and logs without content', async () => {
+    expect(await check.detect(TRUNCATED_ZIP)).to.eq(null);
+    const warns = uploadLogs(LogLevel.Warn);
+    expect(warns.map((e) => e.Variables.detectorId)).to.deep.equal(['file-type']);
+    expect(JSON.stringify(warns.map((e) => e.Variables))).to.not.include('PK');
+  });
+
   it('treats a detector that throws as no match, and logs it at warn', async () => {
     expect(await check.detect(Buffer.from('BOOM and more bytes'))).to.eq(null);
     expect(uploadLogs(LogLevel.Warn).map((e) => e.Variables.detectorId)).to.deep.equal(['test-exploding']);
@@ -53,6 +64,27 @@ describe('ContentTypeCheck', () => {
 
     it('refuses a different detected type with upload.content_mismatch', async () => {
       expect(await run(PDF, 'image/png')).to.deep.equal({ accepted: false, code: 'upload.content_mismatch', detectedMime: 'application/pdf', detectorId: 'file-type' });
+    });
+
+    it('applies the undetected rules to a truncated zip head', async () => {
+      expect(await run(TRUNCATED_ZIP, 'application/zip')).to.include({ accepted: false, code: 'upload.content_mismatch' });
+      expect(await run(TRUNCATED_ZIP, 'text/plain')).to.include({ accepted: true, detectedMime: null });
+    });
+
+    it('accepts a detected type whose extension maps to the declared mime-types name', async () => {
+      const m = (n: string) => check.mimeOf(n);
+      expect(await run(ICO, m('a.ico'))).to.include({ accepted: true, detectedMime: 'image/x-icon' });
+      expect(await run(AVI, m('a.avi'))).to.include({ accepted: true, detectedMime: 'video/vnd.avi' });
+      expect(await run(EPS, m('a.eps'))).to.include({ accepted: true, detectedMime: 'application/eps' });
+    });
+
+    it('still refuses a real mismatch, PNG bytes named .pdf', async () => {
+      expect(await run(PNG, check.mimeOf('a.pdf'))).to.include({ accepted: false, code: 'upload.content_mismatch' });
+    });
+
+    it('refuses .doc and .xls: CFB is a container, the type is unknowable from the head', async () => {
+      expect(await run(CFB, check.mimeOf('a.doc'))).to.include({ accepted: false, code: 'upload.content_mismatch', detectedMime: 'application/x-cfb' });
+      expect(await run(CFB, check.mimeOf('a.xls'))).to.include({ accepted: false, code: 'upload.content_mismatch' });
     });
 
     it('accepts undetected content only when its declared type is in allowUndetected', async () => {
