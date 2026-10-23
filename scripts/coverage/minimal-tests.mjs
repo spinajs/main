@@ -15,6 +15,7 @@
  *     covering test catches it
  *   - tests that cover no mutant: they check what mutation cannot see ( packaging, exports, types )
  *   - tests whose name matches --keep ( known-answer vectors and the like )
+ *   - tests sharing their name with another: removal goes by name and could hit the wrong one
  *   - with --from, tests outside the matching test files: when only some source files were mutated, a
  *     test elsewhere may be the one guarding a file that was not
  * Locality: a mutant that a test of its source file's home test file ( the one killing most of that
@@ -85,7 +86,9 @@ for (const key of [...mustKill]) {
   for (const t of local) t.kills.add(key + '@home');
 }
 
-const kept = [...tests.values()].filter((t) => t.covers.size === 0 || hangs.has(t.id) || keepPattern?.test(t.name) || (fromPattern && !fromPattern.test(t.file)));
+const nameCount = new Map();
+for (const t of tests.values()) nameCount.set(t.name, (nameCount.get(t.name) ?? 0) + 1);
+const kept = [...tests.values()].filter((t) => nameCount.get(t.name) > 1 || t.covers.size === 0 || hangs.has(t.id) || keepPattern?.test(t.name) || (fromPattern && !fromPattern.test(t.file)));
 const unkilled = new Set(mustKill);
 const uncovered = new Set(mustCover);
 kept.forEach((t) => (t.kills.forEach((k) => unkilled.delete(k)), t.covers.forEach((k) => uncovered.delete(k))));

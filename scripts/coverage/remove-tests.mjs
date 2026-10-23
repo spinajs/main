@@ -80,7 +80,10 @@ function cutRows(text, file) {
         const groups = [];
         for (const [name, x] of built) (groups.at(-1)?.suite === x.suite ? groups.at(-1) : groups[groups.push({ suite: x.suite, names: [] }) - 1]).names.push(name);
         if (arrays.length === 1 && groups.length > 1) groups.splice(0, groups.length, { names: built.map(([name]) => name) });
-        if (groups.length === arrays.length) arrays.forEach((array, k) => edits.push(...dropRows(array, groups[k].names, wanted, source)));
+        // A repeated title hides a row of its suite, and every row after it would map one off.
+        const ambiguous = (group) => group.names.some((name) => sites[name].ambiguous);
+        groups.filter(ambiguous).forEach(() => console.log(`  ${rel}:${line}: tests of one suite share a title, its rows left alone`));
+        if (groups.length === arrays.length) arrays.forEach((array, k) => !ambiguous(groups[k]) && edits.push(...dropRows(array, groups[k].names, wanted, source)));
       }
     }
     ts.forEachChild(node, visit);

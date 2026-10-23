@@ -28,7 +28,9 @@ Suite.prototype.addTest = function (test) {
     const key = `${file}:${line}`;
     const index = seen.get(key) ?? 0;
     seen.set(key, index + 1);
-    sites[test.fullTitle()] = { file, line, index, suite: test.parent?.fullTitle() ?? '' };
+    // Two tests with one title ( rows that print alike ) cannot be told apart by name.
+    const title = test.fullTitle();
+    sites[title] = title in sites ? { ...sites[title], ambiguous: true } : { file, line, index, suite: test.parent?.fullTitle() ?? '' };
   }
   return result;
 };
