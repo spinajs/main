@@ -62,7 +62,7 @@ It prints one `<count> <name>` line per `SweepResult` field and exits with code 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `upload.sweeper.every` | `string` | `'15m'` | a duration above zero | Interval of the `upload.sweep` schedule. |
-| `upload.sweeper.retainFinished` | `string` | `'7d'` | a duration (zero allowed) | Age (since `updated_at`) after which finished sessions are purged. |
+| `upload.sweeper.retainFinished` | `string` | `'7d'` | a duration (zero allowed) | Age, counted from the last update and once the final event was delivered, after which the sweeper purges a finished session. A completed session loses its parts; its row and file stay. A failed, aborted or expired session is deleted. |
 | `upload.sweeper.batch` | `integer` | `200` | `>= 1` | Rows read per query. |
 | `upload.assembly.staleAfter` | `string` | `'30m'` | a duration above zero | Age of an abandoned claim or `writing` blob; also the grace before an owed final event is re-emitted. |
 

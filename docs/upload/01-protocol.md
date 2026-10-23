@@ -151,7 +151,7 @@ An `upload.create` or `upload.complete` hook that refuses answers `403` `{ code,
 `upload.internal` replaces the framework's 500 body on the upload routes. The controller logs the original error with the session id.
 
 - Server-side misconfiguration answers it: a `fileDir()` with a `..` segment, or a zero `sessionTtl` from `limitsFor()` (both throw `InvalidOption`), and a provider name that is not defined. A default `upload.fs.*` name that is not defined fails at boot instead; at request time the 500 comes from a name `fsFor()` returns, or from a session's recorded provider that the config no longer defines.
-- A failing `onCompleted` answers it, and runs again on the next complete, unless its error has a mapped status: a `Forbidden` there answers `403`.
+- A failing `onCompleted` answers it (or the error's mapped status, e.g. `Forbidden` answers `403`) and runs again on the next complete.
 - An error that has its own mapped status keeps the framework body. A `ResourceDuplicated` stays a `409`, for example.
 - The app's `http.errors.handlers` do not see these 500s. A class-level `@OnError` of a subclass runs first.
 
@@ -220,7 +220,7 @@ A browser client hashes each part with `crypto.subtle.digest('SHA-256', part)`. 
 - **`Location` is built from the request path**, `req.originalUrl` without the query, plus `/<id>`. Behind a proxy that rewrites paths it holds the path the app saw.
 - **Browser apps must expose the headers.** Add `Upload-Offset`, `Upload-Length`, `Upload-Part-Size` and `Location` to `http.cors.exposedHeaders`, and allow `content-digest` in `http.cors.allowedHeaders` when you set that list. See [CORS](../http/16-cors.md).
 - **CSRF applies.** The controller sets no `@CsrfExempt()`. Every unsafe route (create, part, complete, `DELETE`) from a foreign `Origin` answers `403` `E_CSRF_ORIGIN`; a browser on another origin needs that origin in `http.csrf.allowedOrigins`. See [CSRF guard](../http/23-csrf-guard.md).
-- **A refused part may cost the connection.** A refusal before the body was read is drained first when its `Content-Length` is at most the part's size, or at most the configured `maxPartSize` when the part number is invalid or the refusal came before the session loaded; otherwise the answer carries `Connection: close`. See [Limits](06-limits.md#refused-parts).
+- **A refused part may cost the connection.** A refusal before the body was read is drained first when its `Content-Length` is at most the part's size, or at most the configured `maxPartSize` when the part number is invalid, `authorize` refused it, or the refusal came before the session loaded; otherwise the answer carries `Connection: close`. See [Limits](06-limits.md#refused-parts).
 - **Repeated `complete` is safe.** A completed session answers its view again and runs `onCompleted` only while it has not succeeded.
 
 ## Related

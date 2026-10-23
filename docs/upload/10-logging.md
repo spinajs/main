@@ -8,7 +8,7 @@
 2. Each entry is written in the fields form, `Log.info({ uploadId, ... }, message)`; the message refers to the fields by name (`'Upload ${uploadId} created'`).
 3. The `logger.rules` of your app decide which levels of `upload` reach which target.
 
-| Level | Entries | Fields (`uploadId` on all but the sweep summary and the store warning) |
+| Level | Entries | Fields (`uploadId` on all but the sweep summary, the store warning and the 500 entry on create) |
 | --- | --- | --- |
 | `info` | session created; assembly started; completed; failed; aborted; expired; purged; the sweeper's run summary | `owner` on all but the summary; `size`, `partCount`, `metadataKeys` (created); `partCount` (assembly started); `size`, `sha256` (completed); `code` (failed); `status`, `blobs` (purged); the seven counts (summary) |
 | `debug` | part stored; content checked; claim taken; a final event or handler already recorded by a concurrent request | `part`, `size`, `offset`; `detectedMime`, `detectorId`, `accepted` |

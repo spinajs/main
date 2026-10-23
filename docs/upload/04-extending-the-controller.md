@@ -127,16 +127,26 @@ Put the permission check on the subclass with `@Access` from `@spinajs/authz-htt
 @Access('project:upload', { resource: fromParam('project', 'project') })
 @BasePath('projects/:project/uploads')
 export class ProjectUploadsController extends UploadController {
-  // plus ownerOf(), as in the sample above: @Access checks only the project in the path
+  // @Access checks only the project in the path; these three bind each session to its user and its project
+  protected async ownerOf(req: Request): Promise<string | null> {
+    const user = signedInUserId(req);
+    if (user === undefined) throw new AuthenticationFailed('sign in to upload');
+    return user;
+  }
+
+  protected async metadataFor(req: Request, _dto: CreateUploadDto): Promise<Record<string, unknown>> {
+    return { projectId: projectOf(req) };
+  }
 
   protected async authorize(_action: UploadAction, req: Request, session?: UploadSession): Promise<void> {
+    if (session && session.owner !== (await this.ownerOf(req))) throw new ResourceNotFound('no such upload');
     if (session && session.metadata.projectId !== projectOf(req)) throw new ResourceNotFound('no such upload in this project');
   }
 }
 ```
 
 - The base declares no policy group, so the subclass's `@Access` group gates every route. It runs before the session lookup and before `authorize`.
-- `@Access` does not replace `ownerOf()` or the project check in `authorize()`. It tests the project in the path, not the session id, so without them a holder of `project:upload` on project A reaches any session through `/projects/A/uploads/<id>`.
+- `@Access` does not replace `ownerOf()`, `metadataFor()` or the checks in `authorize()`. `metadataFor()` must take the project from the path: the default stores the client's `metadata`, so a client-sent `projectId` would guard nothing. It tests the project in the path, not the session id, so without them a holder of `project:upload` on project A reaches any session through `/projects/A/uploads/<id>`.
 - To narrow one route, re-declare the method with its own decorator and call `super`. The route keeps its path and its place in the route order:
 
 ```ts
