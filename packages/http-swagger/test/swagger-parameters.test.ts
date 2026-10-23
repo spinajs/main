@@ -69,4 +69,15 @@ describe('Swagger parameters, bodies and paths', function () {
 
     expect(Object.keys(spec.paths)).to.deep.equal(['/api/items']);
   });
+
+  it('drops a route-arg type it has no mapping for', () => {
+    const spec = build({
+      type: RouteType.POST,
+      params: [param(0, 'UnregisteredRouteArg', 'x'), param(1, ParameterType.Ip, 'ip'), param(2, ParameterType.RequestId, 'requestId')],
+    });
+    const op = operation(spec).post;
+
+    expect(op).to.not.have.property('parameters');
+    expect(op).to.not.have.property('requestBody');
+  });
 });
