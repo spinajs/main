@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { InvalidConfiguration } from '@spinajs/configuration';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { ActionHook, ActionRefused } from '@spinajs/hooks';
 import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
 import { DateTime } from 'luxon';
@@ -68,6 +69,11 @@ describe('UploadService.create, get and state', () => {
     const view = await service.create(input({ limits: { partSize: 5, sessionTtl: '1h' } }));
     expect([view.partSize, view.partCount]).to.deep.equal([5, 2]);
     expect(DateTime.fromISO(view.expiresAt).diffNow().as('minutes')).to.be.within(59, 61);
+  });
+
+  it('refuses a controller sessionTtl of zero, which would open an expired session', async () => {
+    expect(await rejection(service.create(input({ limits: { sessionTtl: '0s' } })))).to.be.instanceOf(InvalidArgument);
+    expect(await rows('upload_sessions')).to.deep.equal([]);
   });
 
   it('caps the open sessions of one owner with upload.too_many_sessions (429)', async () => {

@@ -1,8 +1,9 @@
 import { UPLOAD_MAX_PART_BYTES } from './constants.js';
-import { DURATION_PATTERN } from './duration.js';
+import { DURATION_PATTERN, POSITIVE_DURATION_PATTERN } from './duration.js';
 
 const POSITIVE = { type: 'integer', minimum: 1 };
 const DURATION = { type: 'string', pattern: DURATION_PATTERN };
+const POSITIVE_DURATION = { type: 'string', pattern: POSITIVE_DURATION_PATTERN };
 const DIGEST_POLICY = { type: 'string', enum: ['required', 'optional'], default: 'required' };
 const PROVIDER = { type: 'string', minLength: 1 };
 
@@ -35,7 +36,7 @@ export const UPLOAD_CONFIGURATION_SCHEMA = {
         maxPartSize: { ...POSITIVE, maximum: UPLOAD_MAX_PART_BYTES, default: 67_108_864 },
         maxParts: { ...POSITIVE, default: 10_000 },
         maxOpenSessionsPerOwner: { ...POSITIVE, default: 20 },
-        sessionTtl: { ...DURATION, default: '24h' },
+        sessionTtl: { ...POSITIVE_DURATION, default: '24h' },
       },
     },
     integrity: {
@@ -58,14 +59,14 @@ export const UPLOAD_CONFIGURATION_SCHEMA = {
       type: 'object',
       default: {},
       properties: {
-        staleAfter: { ...DURATION, default: '30m' },
+        staleAfter: { ...POSITIVE_DURATION, default: '30m' },
       },
     },
     sweeper: {
       type: 'object',
       default: {},
       properties: {
-        every: { ...DURATION, default: '15m' },
+        every: { ...POSITIVE_DURATION, default: '15m' },
         retainFinished: { ...DURATION, default: '7d' },
         batch: { ...POSITIVE, default: 200 },
       },

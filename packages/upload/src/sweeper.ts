@@ -5,7 +5,7 @@ import { Autoinject, Injectable, Singleton } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { DateTime } from 'luxon';
 
-import { parseDuration } from './duration.js';
+import { parseDuration, parsePositiveDuration } from './duration.js';
 import { UploadEvents } from './events/emitter.js';
 import { UploadAssemblyReleased, UploadPurged } from './events/events.js';
 import { UploadBlob } from './models/UploadBlob.js';
@@ -80,7 +80,7 @@ export class UploadSweeper {
   public async sweep(options: SweepOptions = {}): Promise<SweepResult> {
     const result = emptyResult();
     const now = DateTime.utc();
-    const staleBefore = now.minus(parseDuration(this.Options.assembly.staleAfter, 'upload.assembly.staleAfter'));
+    const staleBefore = now.minus(parsePositiveDuration(this.Options.assembly.staleAfter, 'upload.assembly.staleAfter'));
     const retainedBefore = now.minus(parseDuration(this.Options.sweeper.retainFinished, 'upload.sweeper.retainFinished'));
     const run = <T extends SweepItem>(read: (page: KeysetPage) => Promise<T[]>, handle: (item: T) => Promise<unknown>) => this.each(read, handle, result, options);
 

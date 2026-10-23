@@ -1,4 +1,4 @@
-import { parseDuration } from './duration.js';
+import { parsePositiveDuration } from './duration.js';
 import { UploadError } from './errors.js';
 import { partCountOf } from './parts.js';
 import type { UploadLimits } from './types.js';
@@ -10,7 +10,7 @@ const tighter = (base: number, override: number | undefined): number => (usable(
 
 /** The configured limits with a controller's limitsFor() applied; an override can only tighten them (spec §6.2). */
 export function effectiveLimits(base: UploadLimits, override: Partial<UploadLimits> = {}): UploadLimits {
-  const shorterTtl = override.sessionTtl !== undefined && parseDuration(override.sessionTtl, 'limits.sessionTtl') < parseDuration(base.sessionTtl, 'upload.limits.sessionTtl');
+  const shorterTtl = override.sessionTtl !== undefined && parsePositiveDuration(override.sessionTtl, 'limits.sessionTtl') < parsePositiveDuration(base.sessionTtl, 'upload.limits.sessionTtl');
   return {
     maxFileSize: tighter(base.maxFileSize, override.maxFileSize),
     partSize: override.partSize ?? base.partSize,

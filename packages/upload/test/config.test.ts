@@ -45,6 +45,15 @@ describe('upload configuration', () => {
     expect(await bad({ fs: { prefix: '../outside' } })).to.include('upload.fs.prefix');
   });
 
+  it('refuses a zero duration where one would expire, go stale or sweep at once, and allows a zero retention', async () => {
+    for (const zero of ['0s', '0ms', '0.0h', '00m']) {
+      expect(await bad({ limits: { sessionTtl: zero } }), zero).to.include('upload.limits.sessionTtl');
+      expect(await bad({ assembly: { staleAfter: zero } }), zero).to.include('upload.assembly.staleAfter');
+      expect(await bad({ sweeper: { every: zero } }), zero).to.include('upload.sweeper.every');
+    }
+    expect(await bad({ limits: { sessionTtl: '0.5s' }, assembly: { staleAfter: '10m' }, sweeper: { every: '1ms', retainFinished: '0s' } })).to.deep.equal([]);
+  });
+
   it('ships the upload alias on the default connection and no upload.* values (they live in the schema)', () => {
     expect(shipped.db).to.deep.equal({ Aliases: { upload: 'default' } });
     expect(shipped).to.not.have.property('upload');

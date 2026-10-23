@@ -7,7 +7,7 @@ import { DateTime } from 'luxon';
 
 import { ContentTypeCheck, allowsType } from './content/check.js';
 import type { ContentCheckResult } from './content/check.js';
-import { parseDuration } from './duration.js';
+import { parsePositiveDuration } from './duration.js';
 import { UploadError, isUploadError } from './errors.js';
 import { UploadEvents } from './events/emitter.js';
 import { UploadAssemblyReleased, UploadAssemblyStarted, UploadContentChecked, UploadCreated, UploadPartCorrupted, UploadPartRejected, UploadPartStored } from './events/events.js';
@@ -222,7 +222,7 @@ export class UploadService {
       owner: input.owner ?? null,
       metadata: input.metadata ?? {},
       ...this.providersOf(input),
-      ttlMs: parseDuration(limits.sessionTtl, 'upload.limits.sessionTtl'),
+      ttlMs: parsePositiveDuration(limits.sessionTtl, 'upload.limits.sessionTtl'),
       maxOpenSessions: limits.maxOpenSessionsPerOwner,
     };
   }
@@ -386,7 +386,7 @@ export class UploadService {
   }
 
   private staleBefore(now: DateTime): DateTime {
-    return now.minus(parseDuration(this.Options.assembly.staleAfter, 'upload.assembly.staleAfter'));
+    return now.minus(parsePositiveDuration(this.Options.assembly.staleAfter, 'upload.assembly.staleAfter'));
   }
 
   private heldByAnother(session: UploadSession): boolean {
