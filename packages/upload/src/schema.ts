@@ -1,3 +1,4 @@
+import { UPLOAD_MAX_PART_BYTES } from './constants.js';
 import { DURATION_PATTERN } from './duration.js';
 
 const POSITIVE = { type: 'integer', minimum: 1 };
@@ -31,7 +32,7 @@ export const UPLOAD_CONFIGURATION_SCHEMA = {
         maxFileSize: { ...POSITIVE, default: 1_073_741_824 },
         partSize: { ...POSITIVE, default: 8_388_608 },
         minPartSize: { ...POSITIVE, default: 1_048_576 },
-        maxPartSize: { ...POSITIVE, default: 67_108_864 },
+        maxPartSize: { ...POSITIVE, maximum: UPLOAD_MAX_PART_BYTES, default: 67_108_864 },
         maxParts: { ...POSITIVE, default: 10_000 },
         maxOpenSessionsPerOwner: { ...POSITIVE, default: 20 },
         sessionTtl: { ...DURATION, default: '24h' },

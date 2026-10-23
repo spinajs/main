@@ -184,16 +184,21 @@ export class UploadService {
     return this.finishCompleted(completed, options);
   }
 
-  /** Spec §5: open → aborted only; aborting again is a no-op, and an assembly in progress is never aborted. */
-  public async abort(session: UploadSession): Promise<void> {
+  /** Spec §5: open → aborted only; false when the session was already aborted, and an assembly in progress is never aborted. */
+  public async abort(session: UploadSession): Promise<boolean> {
     if (!(await this.Store.abort(session.id, DateTime.utc()))) {
       const current = await this.Store.requireSession(session.id);
-      if (current.status === 'aborted') return;
+      if (current.status === 'aborted') return false;
       throw current.status === 'assembling' ? new UploadError('upload.assembling', `upload ${session.id} is being assembled`) : notOpen(current);
     }
-    await this.dropParts(session);
+    try {
+      await this.dropParts(session);
+    } catch (err) {
+      this.Log.warn({ uploadId: session.id, error: err }, 'Upload ${uploadId}: parts were not removed; the sweeper removes them');
+    }
     await this.Events.final(await this.Store.requireSession(session.id));
     this.Log.info({ uploadId: session.id, owner: session.owner }, 'Upload ${uploadId} aborted');
+    return true;
   }
 
   /** open → expired once expires_at passed; the sweeper removes the parts (spec §9). false when the session was not due. */

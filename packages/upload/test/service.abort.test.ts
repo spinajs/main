@@ -2,9 +2,10 @@ import 'mocha';
 import { expect } from 'chai';
 import { DateTime } from 'luxon';
 import sinon from 'sinon';
+import { LogLevel } from '@spinajs/log';
 
 import type { UploadService } from '../src/index.js';
-import { emitted } from './support/capture.js';
+import { emitted, uploadLogs } from './support/capture.js';
 import { objectsOf, resetUploads, rows, setSession, uploadEnv } from './support/env.js';
 import { open, put, text, uploadErrorOf } from './support/flow.js';
 import { StrictFs } from './support/strict-fs.js';
@@ -28,7 +29,7 @@ describe('UploadService.abort and expire', () => {
     await put(service, session, file, 1);
     await put(service, session, file, 2);
 
-    await service.abort(session);
+    expect(await service.abort(session)).to.eq(true);
 
     const row = await sessionRow(session.id);
     expect(row).to.include({ status: 'aborted', final_event: 'UploadAborted' });
@@ -38,9 +39,22 @@ describe('UploadService.abort and expire', () => {
     expect(objectsOf('temp', `uploads/${session.id}`)).to.deep.equal([]);
     expect(emitted('UploadAborted').map((e) => [String(e.UploadId), String(e.Owner)])).to.deep.equal([[session.id, 'alice']]);
 
-    await service.abort(session);
+    expect(await service.abort(session)).to.eq(false);
     expect(emitted('UploadAborted')).to.have.length(1);
     expect((await uploadErrorOf(put(service, session, file, 3))).code).to.eq('upload.not_open');
+  });
+
+  it('still emits the final event and reports true when dropping the parts fails after the abort committed', async () => {
+    const session = await open(service, file, { owner: 'alice' });
+    await put(service, session, file, 1);
+    const store = (service as unknown as { Store: { transaction: () => Promise<unknown> } }).Store;
+    sinon.stub(store, 'transaction').rejects(new Error('db gone'));
+
+    expect(await service.abort(session)).to.eq(true);
+
+    expect(await sessionRow(session.id)).to.include({ status: 'aborted', final_event: 'UploadAborted' });
+    expect(emitted('UploadAborted')).to.have.length(1);
+    expect(uploadLogs(LogLevel.Warn).map((l) => l.Variables.uploadId)).to.include(session.id);
   });
 
   it('never aborts an assembly in progress, nor a session that is no longer open', async () => {

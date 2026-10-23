@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 
 import shipped from '../src/config/upload.js';
-import { UPLOAD_CONFIGURATION_SCHEMA } from '../src/index.js';
+import { UPLOAD_CONFIGURATION_SCHEMA, UPLOAD_MAX_PART_BYTES } from '../src/index.js';
 import { boot, disposeBooted, violationsOf } from './support/config-boot.js';
 
 const SCHEMAS = [UPLOAD_CONFIGURATION_SCHEMA];
@@ -54,5 +54,11 @@ describe('upload configuration', () => {
   it('ships the CLI scan dir of the upload:sweep command', () => {
     expect(shipped.system.dirs.cli).to.have.length(2);
     for (const dir of shipped.system.dirs.cli) expect(dir.replace(/\\/g, '/')).to.match(/\/node_modules\/@spinajs\/upload\/lib\/(mjs|cjs)\/cli$/);
+  });
+
+  it('caps maxPartSize at UPLOAD_MAX_PART_BYTES, the controller stream limit', async () => {
+    expect(UPLOAD_MAX_PART_BYTES).to.eq(5 * 1024 ** 3);
+    expect(await bad({ limits: { maxPartSize: UPLOAD_MAX_PART_BYTES } })).to.deep.equal([]);
+    expect(await bad({ limits: { maxPartSize: UPLOAD_MAX_PART_BYTES + 1 } })).to.include('upload.limits.maxPartSize');
   });
 });
