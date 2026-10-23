@@ -159,7 +159,8 @@ describe('UploadStorage', () => {
     const s = await sessionOf();
     const body = new Readable({ read() {} });
     body.push(Buffer.from('ab'));
-    setTimeout(() => body.destroy(new Error('client gone')), 20);
+    // 'resume' fires once the pipeline consumes the body, so its error handler is attached before the destroy.
+    body.once('resume', () => setImmediate(() => body.destroy(new Error('client gone'))));
 
     expect(((await rejection(storage.writePart(s, 1, body, 4, undefined))) as Error).message).to.eq('client gone');
     expect(await rows('upload_blobs', { session_id: s.id })).to.deep.equal([]);
