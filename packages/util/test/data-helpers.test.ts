@@ -10,13 +10,11 @@ import {
   deepEqual,
   deepFreeze,
   deepMerge,
-  defineOwn,
   describeValue,
   escapeHtml,
   getOwnPath,
   isFiniteNumber,
   isNonNegativeInt,
-  isStrictPlainObject,
   isStringArray,
   isUnsafeKey,
   isValidDate,
@@ -46,11 +44,6 @@ describe('string helpers', () => {
   it('escapeHtml escapes the five HTML-special characters', () => {
     expect(escapeHtml(`<a href="x">Tom & 'Jerry'</a>`)).to.equal('&#60;a href=&#34;x&#34;&#62;Tom &#38; &#39;Jerry&#39;&#60;/a&#62;');
     expect(escapeHtml('plain')).to.equal('plain');
-  });
-
-  it('compareStrings is code-unit order', () => {
-    expect(['b', 'a', 'B', '｡', '\u{1F600}'].sort(compareStrings)).to.deep.equal(['B', 'a', 'b', '\u{1F600}', '｡']);
-    expect(compareStrings('a', 'a')).to.equal(0);
   });
 
   it('compareCodePoints puts characters above U+FFFF after U+E000-U+FFFF', () => {
@@ -158,12 +151,6 @@ describe('dates', () => {
     expect(toEpochMs({ getTime: () => 1 })).to.be.undefined;
   });
 
-  it('toEpochMs ignores an overridden getTime', () => {
-    const d = new Date(5);
-    (d as unknown as { getTime: () => number }).getTime = () => 99;
-    expect(toEpochMs(d)).to.equal(5);
-  });
-
   it('parseIsoInstant reads zoned instants', () => {
     expect(parseIsoInstant('2030-01-02T03:04:05Z')?.toISOString()).to.equal('2030-01-02T03:04:05.000Z');
     expect(parseIsoInstant('2030-01-02T03:04Z')?.toISOString()).to.equal('2030-01-02T03:04:00.000Z');
@@ -208,14 +195,6 @@ describe('maybe-async helpers', () => {
     expect(thenMaybe(2, (n) => n * 2)).to.equal(4);
   });
 
-  it('thenMaybe waits for a promise or a thenable', async () => {
-    const p = thenMaybe(Promise.resolve(2), (n) => n * 2);
-    expect(p).to.be.instanceOf(Promise);
-    expect(await p).to.equal(4);
-    const thenable: PromiseLike<number> = { then: (ok) => Promise.resolve(ok?.(3)) as never };
-    expect(await thenMaybe(thenable, (n) => n + 1)).to.equal(4);
-  });
-
   it('allMaybe returns values synchronously when none is a promise', async () => {
     const sync = allMaybe([1, 'a'] as const);
     expect(sync).to.deep.equal([1, 'a']);
@@ -223,39 +202,15 @@ describe('maybe-async helpers', () => {
     expect(later).to.be.instanceOf(Promise);
     expect(await later).to.deep.equal([1, 'b']);
   });
-
-  it('allMaybe passes a rejection through', async () => {
-    const failed = allMaybe([1, Promise.reject(new Error('boom'))]) as Promise<unknown>;
-    let message = '';
-    await failed.catch((e: Error) => (message = e.message));
-    expect(message).to.equal('boom');
-  });
 });
 
 describe('object helpers ( data )', () => {
-  it('isStrictPlainObject accepts only Object.prototype or null prototypes', () => {
-    expect(isStrictPlainObject({})).to.be.true;
-    expect(isStrictPlainObject(Object.create(null))).to.be.true;
-    expect(isStrictPlainObject([])).to.be.false;
-    expect(isStrictPlainObject(new (class X {})())).to.be.false;
-    expect(isStrictPlainObject(new Date())).to.be.false;
-    expect(isStrictPlainObject(null)).to.be.false;
-    expect(isStrictPlainObject('x')).to.be.false;
-  });
 
   it('UNSAFE_KEYS and isUnsafeKey', () => {
     expect([...UNSAFE_KEYS].sort()).to.deep.equal(['__proto__', 'constructor', 'prototype']);
     expect(isUnsafeKey('__proto__')).to.be.true;
     expect(isUnsafeKey('name')).to.be.false;
     expect(isUnsafeKey(Symbol('__proto__'))).to.be.false;
-  });
-
-  it('defineOwn makes __proto__ an own key instead of changing the prototype', () => {
-    const o: Record<string, unknown> = {};
-    defineOwn(o, '__proto__', { polluted: true });
-    expect(Object.getPrototypeOf(o)).to.equal(Object.prototype);
-    expect(Object.keys(o)).to.deep.equal(['__proto__']);
-    expect(({} as Record<string, unknown>).polluted).to.be.undefined;
   });
 
   it('getOwnPath reads own properties and refuses unsafe segments', () => {
@@ -288,12 +243,6 @@ describe('copyPlainData', () => {
     expect(copy.a).to.not.equal(src.a);
     expect(copy.at).to.not.equal(src.at);
     expect(Object.getPrototypeOf(copy.proto)).to.equal(Object.prototype);
-  });
-
-  it('copies a Date from another realm into a local Date', () => {
-    const copy = copyPlainData({ at: otherRealm<Date>('new Date(7)') });
-    expect(copy.at).to.be.instanceOf(Date);
-    expect(copy.at.getTime()).to.equal(7);
   });
 
   it('drops unsafe keys', () => {

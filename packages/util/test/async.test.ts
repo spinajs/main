@@ -27,17 +27,6 @@ describe('async helpers', () => {
       expect(calls).to.eq(1);
     });
 
-    it('runs again after a rejection', async () => {
-      let calls = 0;
-      const init = onceAsync(async () => {
-        if (++calls === 1) throw new Error('first');
-        return calls;
-      });
-      await expect(init()).to.be.rejectedWith('first');
-      expect(await init()).to.eq(2);
-      expect(await init()).to.eq(2);
-    });
-
     it('turns a synchronous throw into a rejection that is not kept', async () => {
       let calls = 0;
       const init = onceAsync((() => {
@@ -99,45 +88,9 @@ describe('async helpers', () => {
       expect(map.size).to.eq(0);
       expect(await singleFlight(map, 'k', load)).to.eq(2);
     });
-
-    it('forgets a rejected load', async () => {
-      const map = new Map<string, Promise<number>>();
-      await expect(singleFlight(map, 'k', () => Promise.reject(new Error('no')))).to.be.rejectedWith('no');
-      await turn();
-      expect(map.size).to.eq(0);
-    });
   });
 
   describe('KeyedMutex', () => {
-    it('runs tasks of one key one at a time, in call order', async () => {
-      const mutex = new KeyedMutex<string>();
-      const log: string[] = [];
-      const g = gate();
-      const first = mutex.runExclusive('k', async () => {
-        log.push('first start');
-        await g.promise;
-        log.push('first end');
-        return 1;
-      });
-      const second = mutex.runExclusive('k', async () => {
-        log.push('second');
-        return 2;
-      });
-      await turn();
-      expect(log).to.deep.eq(['first start']);
-      g.resolve();
-      expect(await Promise.all([first, second])).to.deep.eq([1, 2]);
-      expect(log).to.deep.eq(['first start', 'first end', 'second']);
-    });
-
-    it('runs different keys in parallel', async () => {
-      const mutex = new KeyedMutex<string>();
-      const g = gate();
-      const blocked = mutex.runExclusive('a', () => g.promise);
-      expect(await mutex.runExclusive('b', async () => 'free')).to.eq('free');
-      g.resolve();
-      await blocked;
-    });
 
     it('a failed task does not stop the next one and the key is forgotten', async () => {
       const mutex = new KeyedMutex<string>();

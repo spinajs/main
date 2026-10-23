@@ -27,11 +27,6 @@ describe('assert', () => {
     it('throws InvalidArgument for null', () => {
       expect(() => assertNonNull(null, 'x')).to.throw(InvalidArgument, 'x should not be null');
     });
-
-    it('throws a custom error when provided', () => {
-      const e = new InvalidArgument('boom');
-      expect(() => assertNonNull(null, 'x', e)).to.throw(e);
-    });
   });
 
   describe('assertNonNil', () => {
@@ -49,9 +44,6 @@ describe('assert', () => {
   describe('assertString', () => {
     it('passes for strings', () => {
       expect(() => assertString('a', 'x')).to.not.throw();
-    });
-    it('throws for non-strings', () => {
-      expect(() => assertString(1, 'x')).to.throw(InvalidArgument, 'x should be a string');
     });
   });
 

@@ -52,6 +52,15 @@ describe('process utilities', () => {
   describe('graceful shutdown', () => {
     afterEach(() => clearShutdownHandlers());
 
+    it('clearShutdownHandlers detaches the signal listeners onShutdown attached', () => {
+      clearShutdownHandlers();
+      const before = process.listenerCount('SIGTERM');
+      onShutdown(() => undefined);
+      expect(process.listenerCount('SIGTERM')).to.equal(before + 1);
+      clearShutdownHandlers();
+      expect(process.listenerCount('SIGTERM')).to.equal(before);
+    });
+
     it('runs handlers in LIFO order', async () => {
       const order: number[] = [];
       onShutdown(() => void order.push(1));
