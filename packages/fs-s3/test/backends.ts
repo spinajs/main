@@ -8,6 +8,8 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 
+import type { fs, IWriteStreamOptions } from '@spinajs/fs';
+
 import { fsS3 } from './../src/index.js';
 
 export interface S3Backend {
@@ -84,4 +86,14 @@ export async function dropBucket(client: S3Client, bucket: string): Promise<void
     await client.send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: objects, Quiet: true } }));
   }
   await client.send(new DeleteBucketCommand({ Bucket: bucket }));
+}
+
+/** Writes `body` through writeStream; settles on 'close' or 'error', fsS3's completion signals ('finish' comes first). */
+export async function writeAll(provider: fs, key: string, body: Buffer, options: IWriteStreamOptions = {}): Promise<void> {
+  const ws = await provider.writeStream(key, options);
+  await new Promise<void>((resolve, reject) => {
+    ws.once('close', () => resolve());
+    ws.once('error', reject);
+    ws.end(body);
+  });
 }

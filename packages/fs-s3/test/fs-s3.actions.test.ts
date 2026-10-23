@@ -3,7 +3,7 @@ import sinon from 'sinon';
 import { expect } from 'chai';
 import { CopyObjectCommand, DeleteObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { PassThrough } from 'stream';
-import { InvalidArgument, MethodNotImplemented } from '@spinajs/exceptions';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { fs, IZipResult } from '@spinajs/fs';
 import './common.js';
 import { fsS3 } from './../src/index.js';
@@ -259,13 +259,6 @@ describe('fsS3 – provider hooks', () => {
       ['dir/a.txt', 'abc'],
       ['dir/b.txt', 'de'],
     ]);
-  });
-
-  it('refuses an exclusive stream write before any request', async () => {
-    const { p, send } = streamingProvider();
-
-    await expect(p.writeStream('a.txt', { exclusive: true })).to.be.rejectedWith(MethodNotImplemented);
-    expect(send.called).to.be.false;
   });
 
   it('reads object metadata as a stat action on the normalised key', async () => {

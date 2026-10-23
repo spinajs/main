@@ -2,6 +2,7 @@ import { Autoinject, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { fs, IStat, IZipResult, FileSystem, FileInfoService, IFileInfo, IFsUploadOptions, IWriteStreamOptions } from '@spinajs/fs';
 import {
+  AbortMultipartUploadCommand,
   S3Client,
   S3ClientConfig,
   S3ServiceException,
@@ -34,6 +35,9 @@ export * from './cloudFrontSigner.js';
 const toNumber = (v: string) => Number(v);
 const toText = (v: string) => v;
 const toDate = (v: string) => DateTime.fromISO(v);
+
+// 412: the key exists; 409: a concurrent conditional write to the key won (AWS ConditionalRequestConflict)
+const keyTaken = (err: unknown): boolean => err instanceof S3ServiceException && [409, 412].includes(err.$metadata?.httpStatusCode ?? 0);
 
 /**
  * IFileInfo fields upload() stores as s3 metadata
@@ -432,15 +436,7 @@ export class fsS3 extends fs {
       },
     });
 
-    try {
-      await upload.done();
-    } catch (err) {
-      // 412: the key exists; 409: a concurrent write to the key got there first. Either way the key is not ours to clean up
-      if (options?.exclusive && err instanceof S3ServiceException && [409, 412].includes(err.$metadata?.httpStatusCode ?? 0)) {
-        throw new ResourceDuplicated(`Cannot upload ${srcPath}, ${destPath} already exists`, err);
-      }
-      throw err;
-    }
+    await this.finishUpload(upload, destPath, options?.exclusive, `Cannot upload ${srcPath}`);
   }
 
   /**
@@ -486,26 +482,16 @@ export class fsS3 extends fs {
   }
 
   /**
+   * Returns a writable stream whose data is uploaded with lib-storage: one PutObject up to 5 MiB, a multipart upload
+   * above. `contentType` and `metadata` become ContentType and Metadata; `exclusive` sends IfNoneMatch '*'.
    *
-   * Returns writable stream for given path. Data written to the returned stream
-   * is uploaded to s3 via multipart streaming upload ( @aws-sdk/lib-storage ).
-   *
-   * NOTE: the upload finishes shortly AFTER the stream is ended - the 'close' event
-   * on the returned stream is emitted when the s3 upload has completed.
-   *
-   * @param path file path ( s3 object key )
-   * @param rStream optional readable stream that will be piped into the upload
-   * @param options only `encoding` is used so far
+   * The stream emits 'close' once the object is stored, or 'error' (ResourceDuplicated, IOFail) when the upload
+   * fails, also after 'finish': wait for one of them, not for 'finish'.
    */
   protected async doWriteStream(path: string, rStream: NodeJS.ReadableStream | undefined, options: IWriteStreamOptions): Promise<PassThrough> {
-    // Refused rather than ignored: an ignored exclusive flag would overwrite the object it promises to keep.
-    if (options.exclusive) {
-      throw new MethodNotImplemented('fs-s3 does not support exclusive stream writes yet');
-    }
-
-    // do not auto-emit close on end - we emit it manually when the s3 upload
-    // is fully finalized, so callers waiting for 'close' see completed uploads
-    const pass = new PassThrough({ emitClose: false, defaultEncoding: options.encoding });
+    // lib-storage drains the body with for-await, which destroys an auto-destroying stream after its last chunk; a
+    // failure reported after that (a refused exclusive write) could then never reach the caller
+    const pass = new PassThrough({ emitClose: false, autoDestroy: false, defaultEncoding: options.encoding });
 
     const upload = new Upload({
       client: this.S3,
@@ -513,24 +499,57 @@ export class fsS3 extends fs {
         Bucket: this.Options.bucket,
         Key: path,
         Body: pass,
+        ContentType: options.contentType,
+        Metadata: options.metadata,
+        IfNoneMatch: options.exclusive ? '*' : undefined,
       },
     });
 
-    upload
-      .done()
+    this.finishUpload(upload, path, options.exclusive, `Cannot write stream to ${path}`)
       .then(() => {
         this.Logger.trace({ path, bucket: this.Options.bucket }, 'Stream upload to ${path} finished, bucket: ${bucket}');
+        pass.destroy();
         pass.emit('close');
       })
-      .catch((err) => {
-        pass.destroy(new IOFail(`Cannot write stream to ${path}, bucket ${this.Options.bucket}`, err));
+      .catch((err: unknown) => {
+        pass.destroy(err instanceof ResourceDuplicated ? err : new IOFail(`Cannot write stream to ${path}, bucket ${this.Options.bucket}`, err));
       });
 
     if (rStream) {
+      // pipe() does not forward source errors; the upload would wait for the rest of the body forever
+      rStream.on('error', (err) => pass.destroy(err instanceof Error ? err : new IOFail(String(err))));
       rStream.pipe(pass);
     }
 
     return pass;
+  }
+
+  /**
+   * lib-storage aborts a multipart upload when a part fails, but not when CompleteMultipartUpload is refused
+   * (@aws-sdk/lib-storage dist-cjs/index.js:437-445), so a refused exclusive write would leave its parts stored.
+   */
+  private async finishUpload(upload: Upload, key: string, exclusive: boolean | undefined, action: string): Promise<void> {
+    try {
+      await upload.done();
+    } catch (err) {
+      await this.abortMultipartUpload(key, upload.uploadId);
+      if (exclusive && keyTaken(err)) {
+        throw new ResourceDuplicated(`${action}, ${key} already exists`, err);
+      }
+      throw err;
+    }
+  }
+
+  private async abortMultipartUpload(key: string, uploadId: string | undefined): Promise<void> {
+    if (!uploadId) return;
+    try {
+      await this.S3.send(new AbortMultipartUploadCommand({ Bucket: this.Options.bucket, Key: key, UploadId: uploadId }));
+    } catch (err) {
+      // lib-storage already aborted it after a failed part
+      if ((err as { name?: string }).name !== 'NoSuchUpload') {
+        this.Logger.warn({ error: err, key }, 'Cannot abort the multipart upload of ${key}');
+      }
+    }
   }
 
   /**
