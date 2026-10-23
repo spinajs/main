@@ -43,7 +43,8 @@ Every format applies `options.Headers` and `options.Coockies` (see [Cookies](20-
 | `NotAllowed` | 405 | `not-allowed.pug` | | |
 | `NotAcceptable` | 406 | `not-acceptable.pug` | `ExpectedResponseUnacceptable` | |
 | `Conflict` | 409 | `conflict.pug` | `ResourceDuplicated` | |
-| `EntityTooLarge` | 413 | `entityTooLarge.pug` | `EntityTooLargeException` | |
+| `EntityTooLarge` | 413 | `entityTooLarge.pug` | `EntityTooLargeException`, `LimitExceeded` (`@spinajs/exceptions`) | Every `LimitExceeded` an action lets through answers 413, on any route. |
+| `UnsupportedMediaType` | 415 | `unsupported-media-type.pug` | `UnsupportedMediaTypeException` | Thrown by `@RequestStream()` when a parser took the body. |
 | `TooManyRequests` | 429 | `too-many-requests.pug` | | Options also take `retryAfterSeconds`, sent as `Retry-After` (rounded up, see `retryAfterHeader` in [Header and cookie helpers](22-header-and-cookie-helpers.md)) when it is a finite number. |
 | `ServerError` | 500 | `serverError.pug` | `MethodNotImplemented`, `IOFail`, `UnexpectedServerError`, and every unmapped error | |
 | `Json` | 200 or `options.StatusCode` | none | | Always JSON. |

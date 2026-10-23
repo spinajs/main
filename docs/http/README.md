@@ -43,6 +43,7 @@ The decorators read TypeScript metadata. Set `experimentalDecorators`, `emitDeco
 | [Same-origin guard](22-same-origin-guard.md) | `checkSameOrigin`, `SameOriginGuard`: refuse cross-origin state-changing requests by `Origin` and `Sec-Fetch-Site` |
 | [CSRF guard](23-csrf-guard.md) | `CsrfGuard`, `@CsrfExempt()`, `http.csrf.*`: default-deny CSRF protection by `Origin` and `Sec-Fetch-Site` |
 | [Bot checks](23-bot-check.md) | `@BotCheck`, `BotVerifier`, `BotCheckService`, `http.bot`: captcha or score checks on chosen routes; adapters in [`@spinajs/http-bot`](../http-bot/README.md) |
+| [Raw request bodies and digests](24-raw-body-and-digests.md) | `@RequestStream()`, `@ContentDigest()`, `parseContentDigest()`: the raw body as a capped stream, RFC 9530 digests, the 413 and 415 answers |
 
 ## Quick start
 
