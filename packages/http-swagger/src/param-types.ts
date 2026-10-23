@@ -24,3 +24,20 @@ export function describeRegisteredParam(param: IRouteParameter): OpenApiParamDes
   const described = describe(param);
   return Array.isArray(described) ? described : [described];
 }
+
+// @spinajs/http's raw-body args. Registered here because http must not depend on http-swagger.
+registerOpenApiParamType('RequestStreamArg', () => ({
+  in: 'body',
+  contentType: 'application/octet-stream',
+  required: true,
+  schema: { type: 'string', format: 'binary' },
+}));
+
+registerOpenApiParamType('ContentDigestArg', (param) => ({
+  in: 'header',
+  // The arg reads this header itself, so the argument's own name is never the wire name.
+  name: 'content-digest',
+  required: (param.Options as { required?: boolean } | null | undefined)?.required === true,
+  description: 'RFC 9530 digest of the request body, e.g. `sha-256=:<base64>:`',
+  schema: { type: 'string' },
+}));
