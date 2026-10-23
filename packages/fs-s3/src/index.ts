@@ -517,19 +517,21 @@ export class fsS3 extends fs {
     const onSourceError = (err: unknown) => pass.destroy(err instanceof Error ? err : new IOFail(String(err)));
     rStream?.on('error', onSourceError);
 
-    // two-argument then: a throw from the success path must not be reported as a failed upload of a stored object
-    void this.finishUpload(upload, path, options.exclusive, `Cannot write stream to ${path}`).then(
-      () => {
-        rStream?.off('error', onSourceError);
-        this.Logger.trace({ path, bucket: this.Options.bucket }, 'Stream upload to ${path} finished, bucket: ${bucket}');
-        pass.destroy();
-        pass.emit('close');
-      },
-      (err: unknown) => {
-        rStream?.off('error', onSourceError);
-        pass.destroy(err instanceof ResourceDuplicated ? err : new IOFail(`Cannot write stream to ${path}, bucket ${this.Options.bucket}`, err));
-      },
-    );
+    // two-argument then: a throw from the success path must not be reported as a failed upload of a stored object;
+    // the trailing catch only logs it. The source listener stays after a failure: a late source error must still be handled
+    void this.finishUpload(upload, path, options.exclusive, `Cannot write stream to ${path}`)
+      .then(
+        () => {
+          rStream?.off('error', onSourceError);
+          this.Logger.trace({ path, bucket: this.Options.bucket }, 'Stream upload to ${path} finished, bucket: ${bucket}');
+          pass.destroy();
+          pass.emit('close');
+        },
+        (err: unknown) => {
+          pass.destroy(err instanceof ResourceDuplicated ? err : new IOFail(`Cannot write stream to ${path}, bucket ${this.Options.bucket}`, err));
+        },
+      )
+      .catch((err: unknown) => this.Logger.error({ error: err, path }, 'Stream upload to ${path} was stored, but its completion handling failed'));
 
     rStream?.pipe(pass);
 

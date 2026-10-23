@@ -33,7 +33,7 @@ interface Command {
   input: Record<string, unknown>;
 }
 
-function stubbed(reply: (command: unknown) => unknown) {
+function stubbed(reply: (command: unknown) => unknown, logger: unknown = quiet) {
   // a real client, so lib-storage finds the config it reads (endpoint, requestHandler); only send is replaced
   const client = new S3Client({ region: 'us-west-1', endpoint: 'http://localhost:1', forcePathStyle: true, credentials: { accessKeyId: 'test', secretAccessKey: 'test' } });
   const sent: Command[] = [];
@@ -45,7 +45,7 @@ function stubbed(reply: (command: unknown) => unknown) {
   Object.defineProperty(client, 'send', { value: send });
   const s3 = new fsS3({ name: 's3-ws-unit', bucket: 'b' });
   Object.defineProperty(s3, 'S3', { value: client });
-  Object.defineProperty(s3, 'Logger', { value: quiet });
+  Object.defineProperty(s3, 'Logger', { value: logger });
   return { s3, sent };
 }
 
@@ -93,7 +93,7 @@ describe('fs s3 writeStream options (no server)', function () {
     expect(err).to.not.be.instanceOf(ResourceDuplicated);
   });
 
-  it('removes its error listener from the source stream once the upload settled', async () => {
+  it('removes its error listener from the source stream once the upload succeeded', async () => {
     const { s3 } = stubbed(() => ({}));
     const source = new PassThrough();
     const before = source.listenerCount('error');
@@ -103,6 +103,46 @@ describe('fs s3 writeStream options (no server)', function () {
     await once(ws, 'close');
 
     expect(source.listenerCount('error')).to.equal(before);
+  });
+
+  it('keeps a harmless error listener on the source stream after a failed upload', async () => {
+    const { s3 } = stubbed(refused(412));
+    const source = new PassThrough();
+    const before = source.listenerCount('error');
+
+    const ws = await s3.writeStream('a.txt', source, { exclusive: true });
+    const failed = once(ws, 'error');
+    source.end(SMALL);
+    await failed;
+
+    expect(source.listenerCount('error')).to.equal(before + 1);
+    expect(() => source.emit('error', new Error('late'))).to.not.throw();
+  });
+
+  it('logs, and neither rejects nor reports an IOFail, when handling a stored upload throws', async () => {
+    const error = sinon.spy();
+    const { s3 } = stubbed(() => ({}), new Proxy({ error }, { get: (t, key) => (key in t ? t[key as 'error'] : () => undefined) }));
+    const unhandled = sinon.spy();
+    process.on('unhandledRejection', unhandled);
+    try {
+      const ws = await s3.writeStream('a.txt', {});
+      const errors: unknown[] = [];
+      ws.on('error', (e: unknown) => errors.push(e));
+      ws.on('close', () => {
+        throw new Error('listener failed');
+      });
+      ws.end(SMALL);
+
+      const until = Date.now() + 3000;
+      while (!error.called && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(error.calledOnce).to.be.true;
+      expect(errors).to.have.length(0);
+      expect(unhandled.called).to.be.false;
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
   });
 
   it('forwards an error of the source stream to the returned stream and stores nothing', async () => {
