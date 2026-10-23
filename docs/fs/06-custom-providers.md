@@ -27,7 +27,7 @@ The public methods of `fs` ([File operations](02-file-operations.md#instance-api
 | `doList(path)` returns entry names, `doStat(name)` works on them | [Cleanup strategies](05-temp-cleanup-strategies.md) when your provider is a temp backend |
 | `doStat()` fills `CreationTime` or `ModifiedTime` | Age-based cleanup; entries without either are never deleted |
 | `doUpload(localPath, dest, options?)` accepts a local path and honours `options.exclusive` | `copy()` and `move()` into your provider reach it through `dstFs.upload` |
-| `doWriteStream(path)` | `zip()` into your provider |
+| `doWriteStream(path, readStream, options)` honours `options.exclusive`, or throws `MethodNotImplemented` for it | `zip()` into your provider; callers that must never overwrite, such as `@spinajs/upload` |
 | `resolvePath(path)` returns a local path | the default `doHash()` and `doMetadata()`; override both when you have no local paths |
 | `tmppath(ext)` returns a writable local path | `fsTemp.tmppath()` when you are its backend; remote providers download into it |
 
@@ -38,7 +38,7 @@ The public methods of `fs` ([File operations](02-file-operations.md#instance-api
 ```ts sample
 import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
-import { FileHasher, FileInfoService, fs, fsService, getFs, IFileInfo, IFsUploadOptions, IStat, IZipResult } from '@spinajs/fs';
+import { FileHasher, FileInfoService, fs, fsService, getFs, IFileInfo, IFsUploadOptions, IStat, IWriteStreamOptions, IZipResult } from '@spinajs/fs';
 import { DateTime } from 'luxon';
 import { PassThrough, Readable } from 'stream';
 import { WriteStream } from 'fs';
@@ -61,6 +61,9 @@ interface IMemoryEntry {
 @PerInstanceCheck()
 export class MemoryFs extends fs {
   protected Files = new Map<string, IMemoryEntry>();
+
+  // keys an exclusive writeStream has reserved but not stored yet
+  protected Writing = new Set<string>();
 
   constructor(public Options: IMemoryFsOptions) {
     super();
@@ -126,14 +129,23 @@ export class MemoryFs extends fs {
     this.store(path, typeof data === 'string' ? Buffer.from(data, encoding) : Buffer.from(data));
   }
 
-  protected async doWriteStream(path: string, rStream?: BufferEncoding | NodeJS.ReadableStream, encoding?: BufferEncoding): Promise<WriteStream | PassThrough> {
+  protected async doWriteStream(path: string, rStream: NodeJS.ReadableStream | undefined, options: IWriteStreamOptions): Promise<WriteStream | PassThrough> {
+    if (options.exclusive) {
+      // check and reserve in one synchronous step, so two exclusive writes of one key cannot both pass
+      if (this.Files.has(path) || this.Writing.has(path)) {
+        throw new ResourceDuplicated(`File ${path} already exists in ${this.Name}`);
+      }
+      this.Writing.add(path);
+    }
+
     const target = new PassThrough();
     const chunks: Buffer[] = [];
 
     target.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
     target.on('finish', () => this.store(path, Buffer.concat(chunks)));
+    if (options.exclusive) target.on('close', () => this.Writing.delete(path));
 
-    if (rStream && typeof rStream !== 'string') {
+    if (rStream) {
       rStream.on('error', (err) => target.destroy(err));
       rStream.pipe(target);
     }
@@ -249,6 +261,7 @@ export async function seedTestFiles(): Promise<string[]> {
 - Override `doHash()` and `doMetadata()` when `resolvePath()` cannot return a local path.
 - Make `doUpload()` accept directories if callers will `copy()` directories into your provider from `fsNative`.
 - Honour `options.exclusive` in `doUpload()`: throw `ResourceDuplicated` when `dest` exists, atomically if the backend can create-if-absent. Callers such as `@spinajs/configuration-http` rely on it to not overwrite a file.
+- Honour `options.exclusive` in `doWriteStream()` the same way, or throw `MethodNotImplemented` when it is set and the backend cannot create a key only if it is absent. Never ignore it: `@spinajs/upload` relies on it. `options` arrives normalised: always an object, and `readStream` is `undefined` when the caller passed none.
 
 ## Patterns and antipatterns
 
@@ -279,6 +292,16 @@ class MyFs extends fs {
 ```
 
 A subclass that still overrides a public action makes the base constructor throw `InvalidOperation`. See [Middlewares](07-middlewares.md).
+
+`doWriteStream` receives normalised arguments:
+
+```ts
+// Before: the stream or an encoding, then an encoding
+protected async doWriteStream(path: string, rStream?: BufferEncoding | NodeJS.ReadableStream, encoding?: BufferEncoding) {}
+
+// After: the stream or undefined, then IWriteStreamOptions (encoding, exclusive, contentType, metadata)
+protected async doWriteStream(path: string, rStream: NodeJS.ReadableStream | undefined, options: IWriteStreamOptions) {}
+```
 
 ## Related
 

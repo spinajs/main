@@ -61,7 +61,7 @@ Register by class. `Array.ofType` cannot run a middleware registered through a D
 | `action` | The public method name: `'write'`, `'copy'`, `'signedUrl'`, ... |
 | `fs` | The provider the method was called on. |
 | `targets` | `FsTarget[]`, read-only. |
-| `args` | The non-path arguments in call order, replaceable. `upload`'s options `{ exclusive }` are `ctx.args[1]` (after the local source path). `signedUrl`'s options are `ctx.args[0]`: replace them to cap `until`. |
+| `args` | The non-path arguments in call order, replaceable. `upload`'s options `{ exclusive }` are `ctx.args[1]` (after the local source path). `writeStream`'s are `[readStream \| undefined, options]`, where `options` is an `IWriteStreamOptions` copy: replace it to force `exclusive`, for example. `signedUrl`'s options are `ctx.args[0]`: replace them to cap `until`. |
 | `state` | `Map<symbol, unknown>`, one per action. Use it to hand data from `before` to `after`. |
 | `exists(target)` | Whether the target exists (`dirExists` for a `dir` target, `exists` for a `file`). Memoised per target. |
 | `isDir(target)` | Whether the path is a directory now. Memoised. On `fsS3` it is always `false`: a key is never a directory. |
@@ -169,7 +169,7 @@ A provider implements the protected `doX` hooks; they receive normalised paths. 
 | `doUpload` | `(srcPath, destPath, options?: IFsUploadOptions)` |
 | `doRead` / `doReadStream` | `(path, encoding?)` |
 | `doWrite` / `doAppend` | `(path, data, encoding?)` |
-| `doWriteStream` | `(path, readStream?, encoding?)` |
+| `doWriteStream` | `(path, readStream: NodeJS.ReadableStream \| undefined, options: IWriteStreamOptions)` |
 | `doExists` / `doDirExists` / `doIsDir` / `doStat` / `doList` | `(path)` |
 | `doMkdir` / `doRm` | `(path)` |
 | `doCopy` / `doMove` | `(path, dest, dstFs?)` |
