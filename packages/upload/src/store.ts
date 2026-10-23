@@ -201,7 +201,7 @@ export class UploadStore {
     return matched(
       await this.Driver.update()
         .in(UPLOAD_SESSIONS_TABLE)
-        .update({ status: 'failed', failure_code: code, failure_message: message, updated_at: now, claim_token: null, final_event: final })
+        .update({ status: 'failed', failure_code: code, failure_message: message, updated_at: now, claim_token: null, claimed_at: null, final_event: final })
         .where({ id, status: 'assembling', claim_token: token }),
     );
   }

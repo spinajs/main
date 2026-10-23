@@ -59,7 +59,7 @@ describe('UploadStore transitions', () => {
     await store.claim(failed, 't', now, staleAfter(now), null);
     expect(await store.fail(failed, 'other', 'upload.size_mismatch', 'short', now)).to.eq(false);
     expect(await store.fail(failed, 't', 'upload.size_mismatch', 'short', now)).to.eq(true);
-    expect(await row(failed)).to.include({ status: 'failed', failure_code: 'upload.size_mismatch', failure_message: 'short', claim_token: null, final_event: 'UploadFailed' });
+    expect(await row(failed)).to.include({ status: 'failed', failure_code: 'upload.size_mismatch', failure_message: 'short', claim_token: null, claimed_at: null, final_event: 'UploadFailed' });
   });
 
   it('abort matches only an open session; expire only an open one past expires_at', async () => {
