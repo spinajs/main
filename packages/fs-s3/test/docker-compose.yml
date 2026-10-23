@@ -1,14 +1,9 @@
-version: '3.2'
 services:
   localstack:
-    image: localstack/localstack:latest
-    container_name: localstack_demo
+    # 2026.x images exit with code 55 unless LOCALSTACK_AUTH_TOKEN is set; 3.8.1 runs without one
+    image: localstack/localstack:3.8.1
+    container_name: spinajs-fs-s3-localstack
     ports:
-      - '4563-4599:4563-4599'
-      - '8055:8080'
+      - '4566:4566'
     environment:
       - SERVICES=s3
-      - DEBUG=1
-      - DATA_DIR=/tmp/localstack2/data
-    volumes:
-      - './.localstack2:/tmp/localstack2'
