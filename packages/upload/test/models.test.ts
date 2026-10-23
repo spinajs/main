@@ -23,7 +23,7 @@ describe('upload tables, models and the state view', () => {
     expect(await columns('upload_blobs')).to.have.members(['id', 'session_id', 'fs', 'key', 'kind', 'state', 'created_at', 'updated_at']);
   });
 
-  it('keys parts by (session_id, number) and cascades parts and blobs from their session', async () => {
+  it('keys parts by (session_id, number) and declares the cascade from their session', async () => {
     const pk = (await raw('PRAGMA table_info(upload_parts)')).filter((c) => Number(c.pk) > 0).map((c) => c.name);
     expect(pk).to.have.members(['session_id', 'number']);
     for (const table of ['upload_parts', 'upload_blobs']) {
@@ -56,6 +56,8 @@ describe('upload tables, models and the state view', () => {
 
     expect((await UploadSession.query().ofOwner(null).open()).map((s) => s.id).sort()).to.deep.equal(['s-1', 's-3']);
     expect((await UploadSession.query().open().expiredBefore(now)).map((s) => s.id)).to.deep.equal(['s-1']);
+    const edge = await insertSessionRow({ id: 's-edge', expires_at: now });
+    expect((await UploadSession.query().open().expiredBefore(now)).map((s) => s.id).sort()).to.deep.equal(['s-1', edge]);
   });
 
   it('scopes parts and blobs, and builds the resume view of spec §3', async () => {
@@ -66,7 +68,7 @@ describe('upload tables, models and the state view', () => {
     await store.upsertPart({ session_id: id, number: 1, size: 4, sha256: 'a'.repeat(64), storage_key: 'k1', detected_mime: 'text/plain', received_at: now });
     await store.insertBlob({ id: 'b-1', session_id: id, fs: 'upload-temp', key: 'k1', kind: 'part' }, now);
     await store.insertBlob({ id: 'b-2', session_id: id, fs: 'upload-temp', key: 'k9', kind: 'part' }, now);
-    await store.setBlobState('b-2', 'garbage', now);
+    await store.setBlobState('b-2', 'writing', 'garbage', now);
 
     expect((await UploadPart.query().ofSession(id)).map((p) => p.number).sort()).to.deep.equal([1, 3]);
     expect((await UploadBlob.query().ofSession(id).inState('garbage')).map((b) => b.id)).to.deep.equal(['b-2']);

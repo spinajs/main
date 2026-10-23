@@ -17,7 +17,7 @@ export class UploadSessionScopes implements QueryScope {
   }
 
   public expiredBefore<B extends IWhereBuilder<UploadSession> & UploadSessionScopes>(this: B, at: DateTime): B {
-    return this.where('expires_at', '<', at);
+    return this.where('expires_at', '<=', at);
   }
 }
 

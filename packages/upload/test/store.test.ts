@@ -26,6 +26,7 @@ describe('UploadStore transitions', () => {
   it('claim takes an open session or a stale claim, never a fresh one; release needs the token', async () => {
     const now = DateTime.utc();
     const id = await insertSessionRow();
+    const other = await insertSessionRow({ status: 'assembling', claim_token: 'x', claimed_at: now.minus({ hours: 1 }) });
     expect(await store.claim(id, 't1', now, staleAfter(now), 'a'.repeat(64))).to.eq(true);
     expect(await store.touchOpen(id, now)).to.eq(false);
     expect(await store.claim(id, 't2', now, staleAfter(now), null)).to.eq(false);
@@ -34,6 +35,7 @@ describe('UploadStore transitions', () => {
     expect(await store.release(id, 't1', now)).to.eq(false);
     expect(await store.release(id, 't2', now)).to.eq(true);
     expect(await row(id)).to.include({ status: 'open', claim_token: null, claimed_at: null, declared_sha256: 'a'.repeat(64) });
+    expect(await row(other)).to.include({ status: 'assembling', claim_token: 'x' });
   });
 
   it('complete and fail need the claim token and record the final event owed', async () => {
@@ -65,22 +67,28 @@ describe('UploadStore transitions', () => {
     expect(await store.expire(fresh, now)).to.eq(false);
     expect(await store.expire(past, now)).to.eq(true);
     expect(await row(past)).to.include({ status: 'expired', final_event: 'UploadExpired' });
+
+    const boundary = await insertSessionRow({ expires_at: now });
+    expect(await store.expire(boundary, now.minus({ milliseconds: 1 }))).to.eq(false);
+    expect(await store.expire(boundary, now)).to.eq(true);
   });
 
-  it('markFinalEmitted stamps the owed event once; markHandled stamps once', async () => {
+  it('markFinalEmitted stamps the owed event once; markHandled stamps once; both report who won', async () => {
     const id = await insertSessionRow({ status: 'aborted', final_event: 'UploadAborted' });
     const earlier = DateTime.utc().minus({ minutes: 5 });
-    await store.markFinalEmitted(id, 'UploadCompleted', earlier);
+    expect(await store.markFinalEmitted(id, 'UploadCompleted', earlier)).to.eq(false);
     expect((await row(id)).final_event_at).to.eq(null);
-    await store.markFinalEmitted(id, 'UploadAborted', earlier);
+    expect(await store.markFinalEmitted(id, 'UploadAborted', earlier)).to.eq(true);
     const stamped = (await row(id)).final_event_at;
     expect(stamped).to.not.eq(null);
-    await store.markFinalEmitted(id, 'UploadAborted', DateTime.utc());
+    expect(await store.markFinalEmitted(id, 'UploadAborted', DateTime.utc())).to.eq(false);
     expect((await row(id)).final_event_at).to.eq(stamped);
 
-    await store.markHandled(id, earlier);
+    expect((await row(id)).handled_at).to.eq(null);
+    expect(await store.markHandled(id, earlier)).to.eq(true);
     const handled = (await row(id)).handled_at;
-    await store.markHandled(id, DateTime.utc());
+    expect(handled).to.not.eq(null);
+    expect(await store.markHandled(id, DateTime.utc())).to.eq(false);
     expect((await row(id)).handled_at).to.eq(handled);
   });
 
@@ -102,15 +110,37 @@ describe('UploadStore transitions', () => {
     await store.insertBlob({ id: 'p-live', session_id: id, fs: 'upload-temp', key: 'k1', kind: 'part' }, now);
     await store.insertBlob({ id: 'p-writing', session_id: id, fs: 'upload-temp', key: 'k2', kind: 'part' }, now);
     await store.insertBlob({ id: 'f-live', session_id: id, fs: 'upload-files', key: 'f1', kind: 'file' }, now);
-    await store.setBlobState('p-live', 'live', now);
-    await store.setBlobState('f-live', 'live', now);
+    await store.setBlobState('p-live', 'writing', 'live', now);
+    await store.setBlobState('f-live', 'writing', 'live', now);
     await store.setSessionBlobsState(id, 'part', 'garbage', now);
     const states = Object.fromEntries((await rows('upload_blobs', { session_id: id })).map((b) => [b.id, b.state]));
     expect(states).to.deep.equal({ 'p-live': 'garbage', 'p-writing': 'writing', 'f-live': 'live' });
-    await store.setBlobStateByKey(id, 'upload-files', 'f1', 'garbage', now);
+    await store.setBlobStateByKey(id, 'upload-files', 'f1', 'live', 'garbage', now);
     expect((await store.listBlobs(id, 'garbage')).map((b) => b.id).sort()).to.deep.equal(['f-live', 'p-live']);
     await store.deleteBlob('p-live');
     expect((await store.listBlobs(id, 'garbage')).map((b) => b.id)).to.deep.equal(['f-live']);
+  });
+
+  it('moves a blob only from the allowed states, and reports whether it moved', async () => {
+    const now = DateTime.utc();
+    const id = await insertSessionRow();
+    await store.insertBlob({ id: 'b1', session_id: id, fs: 'upload-temp', key: 'k1', kind: 'part' }, now);
+    await store.insertBlob({ id: 'b2', session_id: id, fs: 'upload-temp', key: 'k2', kind: 'part' }, now);
+    const state = async (blob: string) => (await rows('upload_blobs', { id: blob }))[0]?.state;
+
+    expect(await store.setBlobState('b1', 'writing', 'live', now)).to.eq(true);
+    expect(await store.setBlobState('b1', 'writing', 'live', now)).to.eq(false);
+    expect(await store.setBlobState('b1', ['writing', 'live'], 'garbage', now)).to.eq(true);
+    expect(await store.setBlobState('b1', 'writing', 'live', now)).to.eq(false);
+    expect(await state('b1')).to.eq('garbage');
+    expect(await store.setBlobState('missing', 'writing', 'live', now)).to.eq(false);
+
+    expect(await store.setBlobStateByKey(id, 'upload-temp', 'k2', 'live', 'garbage', now)).to.eq(false);
+    expect(await state('b2')).to.eq('writing');
+    expect(await store.setBlobStateByKey(id, 'upload-temp', 'k2', 'writing', 'live', now)).to.eq(true);
+    await store.setSessionBlobsState(id, 'part', 'garbage', now);
+    expect(await store.setBlobStateByKey(id, 'upload-temp', 'k2', 'writing', 'live', now)).to.eq(false);
+    expect(await state('b2')).to.eq('garbage');
   });
 
   it('finds a session scoped to its owner and counts the open sessions of an owner', async () => {

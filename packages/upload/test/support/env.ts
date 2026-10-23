@@ -111,6 +111,7 @@ export const pathIn = (provider: 'temp' | 'files', key: string): string => join(
 /** Entries of a directory of a test provider, read with node:fs (the providers refuse list). */
 export function objectsOf(provider: 'temp' | 'files', dir: string): string[] {
   const path = join(TEST_ROOT, provider, dir);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- test helper reading a fixture directory under TEST_ROOT
   return existsSync(path) ? readdirSync(path) : [];
 }
 

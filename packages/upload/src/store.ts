@@ -152,12 +152,12 @@ export class UploadStore {
     return matched(await this.Driver.update().in(UPLOAD_SESSIONS_TABLE).update({ status: 'expired', updated_at: now, final_event: final }).where({ id, status: 'open' }).where('expires_at', '<=', now));
   }
 
-  public async markHandled(id: string, now: DateTime): Promise<void> {
-    await this.Driver.update().in(UPLOAD_SESSIONS_TABLE).update({ handled_at: now }).where('id', id).whereNull('handled_at');
+  public async markHandled(id: string, now: DateTime): Promise<boolean> {
+    return matched(await this.Driver.update().in(UPLOAD_SESSIONS_TABLE).update({ handled_at: now }).where('id', id).whereNull('handled_at'));
   }
 
-  public async markFinalEmitted(id: string, event: FinalEventName, now: DateTime): Promise<void> {
-    await this.Driver.update().in(UPLOAD_SESSIONS_TABLE).update({ final_event_at: now }).where({ id, final_event: event }).whereNull('final_event_at');
+  public async markFinalEmitted(id: string, event: FinalEventName, now: DateTime): Promise<boolean> {
+    return matched(await this.Driver.update().in(UPLOAD_SESSIONS_TABLE).update({ final_event_at: now }).where({ id, final_event: event }).whereNull('final_event_at'));
   }
 
   public async listParts(sessionId: string): Promise<UploadPart[]> {
@@ -191,12 +191,19 @@ export class UploadStore {
       .values({ ...row, state, created_at: now, updated_at: now });
   }
 
-  public async setBlobState(id: string, state: BlobState, now: DateTime): Promise<void> {
-    await this.Driver.update().in(UPLOAD_BLOBS_TABLE).update({ state, updated_at: now }).where({ id });
+  /** False when the blob is not in a `from` state any more, e.g. the sweeper already reclaimed it. */
+  public async setBlobState(id: string, from: BlobState | readonly BlobState[], to: BlobState, now: DateTime): Promise<boolean> {
+    return matched(await this.Driver.update().in(UPLOAD_BLOBS_TABLE).update({ state: to, updated_at: now }).where({ id }).whereIn('state', [...[from].flat()]));
   }
 
-  public async setBlobStateByKey(sessionId: string, fsName: string, key: string, state: BlobState, now: DateTime): Promise<void> {
-    await this.Driver.update().in(UPLOAD_BLOBS_TABLE).update({ state, updated_at: now }).where({ session_id: sessionId, fs: fsName, key });
+  public async setBlobStateByKey(sessionId: string, fsName: string, key: string, from: BlobState | readonly BlobState[], to: BlobState, now: DateTime): Promise<boolean> {
+    return matched(
+      await this.Driver.update()
+        .in(UPLOAD_BLOBS_TABLE)
+        .update({ state: to, updated_at: now })
+        .where({ session_id: sessionId, fs: fsName, key })
+        .whereIn('state', [...[from].flat()]),
+    );
   }
 
   /** Live blobs only: a part still being written stays 'writing' and discards itself when its commit fails (spec §4.1). */
