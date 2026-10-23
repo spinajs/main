@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authn",
-  "version": "3.0.16",
+  "version": "3.0.17",
   "description": "Authentication core for SpinaJS: contracts, flow, throttling",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -152,17 +152,17 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "3.0.16",
-    "@spinajs/configuration-common": "3.0.16",
-    "@spinajs/di": "3.0.16",
-    "@spinajs/exceptions": "3.0.16",
-    "@spinajs/hooks": "3.0.16",
-    "@spinajs/log-common": "3.0.16",
-    "@spinajs/principal": "3.0.16",
-    "@spinajs/util": "3.0.16",
+    "@spinajs/configuration": "3.0.17",
+    "@spinajs/configuration-common": "3.0.17",
+    "@spinajs/di": "3.0.17",
+    "@spinajs/exceptions": "3.0.17",
+    "@spinajs/hooks": "3.0.17",
+    "@spinajs/log-common": "3.0.17",
+    "@spinajs/principal": "3.0.17",
+    "@spinajs/util": "3.0.17",
     "ajv": "^8.12.0"
   },
   "devDependencies": {
-    "@spinajs/authn-testing": "3.0.16"
+    "@spinajs/authn-testing": "3.0.17"
   }
 }

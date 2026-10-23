@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/templates-csv",
-  "version": "3.0.16",
+  "version": "3.0.17",
   "description": "CSV template renderer for @spinajs/templates (json2csv-based)",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -57,11 +57,11 @@
     "@types/pug": "^2.0.6"
   },
   "dependencies": {
-    "@spinajs/configuration": "3.0.16",
-    "@spinajs/di": "3.0.16",
-    "@spinajs/exceptions": "3.0.16",
-    "@spinajs/log": "3.0.16",
-    "@spinajs/templates": "3.0.16",
+    "@spinajs/configuration": "3.0.17",
+    "@spinajs/di": "3.0.17",
+    "@spinajs/exceptions": "3.0.17",
+    "@spinajs/log": "3.0.17",
+    "@spinajs/templates": "3.0.17",
     "@json2csv/node": "^6.1.2"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
