@@ -2,7 +2,7 @@ export function partCountOf(size: number, partSize: number): number {
   return Math.ceil(size / partSize);
 }
 
-/** `partSize`, or the remainder for the last part (spec §4.1). */
+/** `partSize`, or the remainder for the last part. */
 export function expectedPartSize(size: number, partSize: number, part: number): number {
   const last = partCountOf(size, partSize);
   return part < last ? partSize : size - partSize * (last - 1);
@@ -17,7 +17,7 @@ export function missingParts(partCount: number, received: Iterable<number>): num
   return missing;
 }
 
-/** Bytes in the run of stored parts from part 1; a sequential client resumes there (spec §3). */
+/** Bytes in the run of stored parts from part 1; a sequential client resumes there. */
 export function contiguousOffset(size: number, partSize: number, received: Iterable<number>): number {
   const have = new Set(received);
   const count = partCountOf(size, partSize);

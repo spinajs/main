@@ -21,7 +21,7 @@ export class UploadSessionScopes implements QueryScope {
   }
 }
 
-/** Read model of upload_sessions. Never saved: every state change is a conditional update in UploadStore (spec §5). */
+/** Read model of upload_sessions. Never saved: every state change is a conditional update in UploadStore (docs/upload/12-database.md). */
 @Connection(UPLOAD_CONNECTION)
 @Model(UPLOAD_SESSIONS_TABLE)
 export class UploadSession extends ModelBase<UploadSession> {

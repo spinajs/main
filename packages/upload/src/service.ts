@@ -81,7 +81,7 @@ interface CheckedContent {
 export interface CompleteOptions {
   /** Directory of the merged file on the files provider; default `<upload.fs.prefix>/files`. The key is `<dir>/<uuid><ext>`. */
   readonly fileDir?: string;
-  /** Runs once per completed session while handled_at is null; a rejection makes the next complete run it again (spec §5). */
+  /** Runs once per completed session while handled_at is null; a rejection makes the next complete run it again. */
   readonly onCompleted?: (session: UploadSession) => Promise<unknown>;
 }
 
@@ -103,8 +103,8 @@ function mismatchOf(session: UploadSession, file: AssembledFile, declared: strin
 const tooManySessions = (cap: number): UploadError => new UploadError('upload.too_many_sessions', `the owner already has ${cap} open uploads`);
 
 /**
- * The upload's domain operations, without HTTP (spec §6.3). A controller looks the session up with get(id, owner),
- * authorizes it, then calls the operation. Every refusal is an UploadError with a stable code (src/errors.ts).
+ * The upload's domain operations, without HTTP (docs/upload/05-service-and-hooks.md). A controller looks the session up
+ * with get(id, owner), authorizes it, then calls the operation. Every refusal is an UploadError with a stable code.
  */
 @Singleton()
 @Injectable()
@@ -135,7 +135,7 @@ export class UploadService {
     return hooks.run('upload.create', hookInputOf(plan), (hooked) => this.insertSession(plan, hooked.metadata), { mutable: ['metadata'], refusable: true });
   }
 
-  /** `owner` null or absent: unscoped. A session of another owner answers upload.not_found, like a missing one (spec §6.5). */
+  /** `owner` null or absent: unscoped. A session of another owner answers upload.not_found, like a missing one, so ids cannot be probed. */
   public async get(id: string, owner: string | null = null): Promise<UploadSession> {
     const session = await this.Store.findSession(id, owner);
     if (!session) throw new UploadError('upload.not_found', `upload ${id} not found`);
@@ -148,8 +148,8 @@ export class UploadService {
   }
 
   /**
-   * Spec §4.1. `digest` is the raw sha-256 of the Content-Digest header and `length` the Content-Length; a refusal
-   * before the read leaves `body` unread for the caller to drain or close.
+   * `digest` is the raw sha-256 of the Content-Digest header and `length` the Content-Length; a refusal before the read
+   * leaves `body` unread for the caller to drain or close (docs/upload/03-integrity.md).
    */
   public async putPart(session: UploadSession, part: number, body: NodeJS.ReadableStream, digest: Buffer | undefined, length: number | undefined, options: PutPartOptions = {}): Promise<PartStoredView> {
     try {
@@ -164,7 +164,7 @@ export class UploadService {
     }
   }
 
-  /** Spec §4.2, §5. Safe to call again: a completed session answers its view, and runs the handler while handled_at is null. */
+  /** Safe to call again: a completed session answers its view, and runs the handler while handled_at is null. */
   public async complete(session: UploadSession, input: CompleteInput = {}, options: CompleteOptions = {}): Promise<UploadStateView> {
     const current = await this.Store.requireSession(session.id);
     if (current.status === 'completed') return this.finishCompleted(current, options);
@@ -184,7 +184,7 @@ export class UploadService {
     return this.finishCompleted(completed, options);
   }
 
-  /** Spec §5: open → aborted only; false when the session was already aborted, and an assembly in progress is never aborted. */
+  /** open → aborted only; false when the session was already aborted, and an assembly in progress is never aborted. */
   public async abort(session: UploadSession): Promise<boolean> {
     if (!(await this.Store.abort(session.id, DateTime.utc()))) {
       const current = await this.Store.requireSession(session.id);
@@ -201,7 +201,7 @@ export class UploadService {
     return true;
   }
 
-  /** open → expired once expires_at passed; the sweeper removes the parts (spec §9). false when the session was not due. */
+  /** open → expired once expires_at passed; the sweeper removes the parts. false when the session was not due. */
   public async expire(session: UploadSession): Promise<boolean> {
     if (!(await this.Store.expire(session.id, DateTime.utc()))) return false;
     await this.Events.final(await this.Store.requireSession(session.id));
@@ -227,7 +227,7 @@ export class UploadService {
     };
   }
 
-  /** From the name only (spec §4.3): a client's Content-Type is never trusted. */
+  /** From the name only: a client's Content-Type is never trusted. */
   private declaredMimeOf(input: CreateUploadInput): string | null {
     const declared = this.Content.mimeOf(input.name);
     if (declared === null && input.allowUnknownType !== true) throw new UploadError('upload.unsupported_type', `no MIME type is known for ${input.name}`);
@@ -235,7 +235,7 @@ export class UploadService {
     return declared;
   }
 
-  /** Fixed at create, so a config change never strands an open session (spec §6.1). */
+  /** Fixed at create, so a config change never strands an open session. */
   private providersOf(input: CreateUploadInput): { tempFs: string; filesFs: string } {
     const tempFs = input.fs?.temp ?? this.Options.fs.temp;
     const filesFs = input.fs?.files ?? this.Options.fs.files;
@@ -314,7 +314,7 @@ export class UploadService {
     return { result, event };
   }
 
-  /** One transaction (spec §4.1 step 4): touchOpen takes the row lock that the complete claim also needs, then the upsert. */
+  /** One transaction: touchOpen takes the row lock that the complete claim also needs, then the upsert. */
   private async commitPart(session: UploadSession, part: number, written: WrittenPart, detectedMime: string | null): Promise<UploadPart | undefined> {
     const now = DateTime.utc();
     try {
@@ -377,7 +377,7 @@ export class UploadService {
     return declared;
   }
 
-  /** Only the request holding the claim lists and assembles the parts (spec §5). null: another request holds it. */
+  /** Only the request holding the claim lists and assembles the parts. null: another request holds it. */
   private async claim(session: UploadSession, declared: string | null): Promise<string | null> {
     const token = randomUUID();
     const now = DateTime.utc();
@@ -428,7 +428,7 @@ export class UploadService {
     return this.commitCompleted(session, token, file, detectedMime);
   }
 
-  /** Spec §4.2: drop the changed parts and the partial file, and open the session again so the client resends only them. */
+  /** Drop the changed parts and the partial file, and open the session again so the client resends only them. */
   private async reopenCorrupted(session: UploadSession, token: string, parts: readonly UploadPart[], file: AssembledFile): Promise<never> {
     const now = DateTime.utc();
     const bad = parts.filter((p) => file.corrupted.includes(p.number));
@@ -451,7 +451,7 @@ export class UploadService {
     throw new UploadError('upload.part_corrupted', `parts ${file.corrupted.join(', ')} changed in storage; send them again`, { parts: [...file.corrupted] });
   }
 
-  /** Spec §4.2: the client sent other bytes than it hashed, so the parts go too. */
+  /** The client sent other bytes than it hashed, so the parts go too. */
   private async failAssembly(session: UploadSession, token: string, file: AssembledFile, mismatch: FileMismatch): Promise<never> {
     const now = DateTime.utc();
     try {
@@ -497,7 +497,7 @@ export class UploadService {
     return view;
   }
 
-  /** At least once: a rejected handler or before hook leaves handled_at null for the next complete (spec §5). */
+  /** At least once: a rejected handler or before hook leaves handled_at null for the next complete. */
   private async runCompletion(session: UploadSession, view: UploadStateView, options: CompleteOptions): Promise<void> {
     const hooks = await DI.resolve<Hooks>(Hooks);
     const input: UploadCompleteHookInput = { upload: view, owner: session.owner, metadata: session.metadata, filesFs: session.files_fs, fileKey: session.file_key ?? '' };
@@ -505,7 +505,7 @@ export class UploadService {
     if (!(await this.Store.markHandled(session.id, DateTime.utc()))) this.Log.debug({ uploadId: session.id }, 'Upload ${uploadId}: a concurrent complete already recorded the handler');
   }
 
-  /** Any failure releases the claim (spec §5); a claim this request no longer holds is left alone. */
+  /** Any failure releases the claim; a claim this request no longer holds is left alone. */
   private async releaseAfterError(id: string, token: string, err: unknown): Promise<void> {
     let released = false;
     try {

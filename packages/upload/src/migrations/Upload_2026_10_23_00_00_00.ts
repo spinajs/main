@@ -4,8 +4,9 @@ import type { OrmDriver } from '@spinajs/orm';
 import { UPLOAD_BLOBS_TABLE, UPLOAD_CONNECTION, UPLOAD_PARTS_TABLE, UPLOAD_SESSIONS_TABLE } from '../constants.js';
 
 /**
- * Spec §6.1. Uuids are varchar(36): table.uuid() is binary(16) for the UuidConverter (orm/src/builders.ts:2961-2967),
- * and these ids are plain strings. metadata is JSON text read through the Json decorator, as queue_jobs.Result is.
+ * The tables of docs/upload/12-database.md. Uuids are varchar(36): table.uuid() is binary(16) for the UuidConverter
+ * (orm/src/builders.ts:2961-2967), and these ids are plain strings. metadata is JSON text read through the Json
+ * decorator, as queue_jobs.Result is.
  */
 @Migration(UPLOAD_CONNECTION)
 export class Upload_2026_10_23_00_00_00 extends OrmMigration {
@@ -39,7 +40,7 @@ export class Upload_2026_10_23_00_00_00 extends OrmMigration {
       table.dateTime('final_event_at');
     });
 
-    // The composite primary key is the unique (session_id, number) the part upsert conflicts on (spike test/spikes/upsert.test.ts).
+    // The composite primary key is the unique (session_id, number) the part upsert conflicts on.
     await connection.schema().createTable(UPLOAD_PARTS_TABLE, (table) => {
       table.string('session_id', 36).notNull().primaryKey();
       table.int('number').notNull().primaryKey();

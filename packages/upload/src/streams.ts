@@ -1,7 +1,7 @@
 import { Transform } from 'node:stream';
 import type { TransformCallback } from 'node:stream';
 
-/** Passes every byte on and keeps the first `limit` of them, for the content check of part 1 (spec §4.3). */
+/** Passes every byte on and keeps the first `limit` of them, for the content check of part 1. */
 export class HeadCapture extends Transform {
   private readonly chunks: Buffer[] = [];
 

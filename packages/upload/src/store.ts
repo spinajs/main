@@ -82,7 +82,8 @@ function isLockConflict(err: unknown): boolean {
 
 /**
  * Every statement on the upload tables. A state change is one conditional UPDATE whose WHERE is the transition rule, so
- * the matched-row count says whether it applied (spec §5); a model save would write every changed column instead.
+ * the matched-row count says whether it applied; a model save would write every changed column instead
+ * (docs/upload/12-database.md).
  */
 @Singleton()
 @Injectable()
@@ -157,14 +158,14 @@ export class UploadStore {
   }
 
   /**
-   * putPart's first statement in its transaction; it takes the row lock the complete claim also needs (spec §4.1 step 4).
+   * putPart's first statement in its transaction; it takes the row lock the complete claim also needs.
    * An open session past expires_at does not match: it may have expired while the body streamed.
    */
   public async touchOpen(id: string, now: DateTime): Promise<boolean> {
     return matched(await this.Driver.update().in(UPLOAD_SESSIONS_TABLE).update({ updated_at: now }).where({ id, status: 'open' }).where('expires_at', '>', now));
   }
 
-  /** Spec §5: an open session not yet past expires_at, or an assembling one whose claim is older than `staleBefore`. */
+  /** An open session not yet past expires_at, or an assembling one whose claim is older than `staleBefore`. */
   public async claim(id: string, token: string, now: DateTime, staleBefore: DateTime, declaredSha256: string | null): Promise<boolean> {
     const data: Record<string, unknown> = { status: 'assembling', claim_token: token, claimed_at: now, updated_at: now };
     if (declaredSha256 !== null) data.declared_sha256 = declaredSha256;
@@ -206,7 +207,7 @@ export class UploadStore {
     );
   }
 
-  /** An assembly in progress is never aborted (spec §5). */
+  /** An assembly in progress is never aborted. */
   public async abort(id: string, now: DateTime): Promise<boolean> {
     const final: FinalEventName = 'UploadAborted';
     return matched(await this.Driver.update().in(UPLOAD_SESSIONS_TABLE).update({ status: 'aborted', updated_at: now, final_event: final }).where({ id, status: 'open' }));
@@ -233,7 +234,7 @@ export class UploadStore {
     return await UploadPart.query().ofSession(sessionId).where('number', part).first();
   }
 
-  /** One row per (session_id, number); a resend replaces it (spike test/spikes/upsert.test.ts). */
+  /** One row per (session_id, number); a resend replaces it. */
   public async upsertPart(row: PartRow): Promise<void> {
     await this.Driver.insert().into(UPLOAD_PARTS_TABLE).values(row).onDuplicate(['session_id', 'number']).update(['size', 'sha256', 'storage_key', 'detected_mime', 'received_at']);
   }
@@ -271,7 +272,7 @@ export class UploadStore {
     );
   }
 
-  /** Live blobs only: a part still being written stays 'writing' and discards itself when its commit fails (spec §4.1). */
+  /** Live blobs only: a part still being written stays 'writing' and discards itself when its commit fails. */
   public async setSessionBlobsState(sessionId: string, kind: BlobKind, state: BlobState, now: DateTime): Promise<void> {
     await this.Driver.update().in(UPLOAD_BLOBS_TABLE).update({ state, updated_at: now }).where({ session_id: sessionId, kind, state: 'live' });
   }

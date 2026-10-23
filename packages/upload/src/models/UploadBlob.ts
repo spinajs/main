@@ -21,7 +21,7 @@ export class UploadBlobScopes implements QueryScope {
   }
 }
 
-/** Every object the upload writes, recorded before writing starts; cleanup reads these rows and never lists storage (spec D13). */
+/** Every object the upload writes, recorded before writing starts; cleanup reads these rows and never lists storage (docs/upload/03-integrity.md). */
 @Connection(UPLOAD_CONNECTION)
 @Model(UPLOAD_BLOBS_TABLE)
 export class UploadBlob extends ModelBase<UploadBlob> {

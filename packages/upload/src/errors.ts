@@ -1,7 +1,7 @@
 import { Exception } from '@spinajs/exceptions';
 
 /**
- * Every refusal of the upload service, with the HTTP status a controller answers (spec §4, §8).
+ * Every refusal of the upload service, with the HTTP status a controller answers (docs/upload/01-protocol.md).
  * upload.unsupported_type is 400 for a name at create and 415 for content; that throw passes 415.
  */
 export const UPLOAD_ERRORS = {

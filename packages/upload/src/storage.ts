@@ -68,7 +68,7 @@ function extensionOf(name: string): string {
 const hashMetadata = (hash: string | null | undefined): Pick<IWriteStreamOptions, 'metadata'> => (hash === undefined || hash === null ? {} : { metadata: { hash } });
 
 /**
- * A refused write does not consume its source (plan 2). A Readable is drained, not destroyed: destroying an
+ * A provider that refuses the write leaves its source unread. A Readable is drained, not destroyed: destroying an
  * IncomingMessage resets the socket, and the client would never see the error response.
  */
 function abandon(body: NodeJS.ReadableStream): void {
@@ -89,8 +89,9 @@ export function assertFsProviders(names: Iterable<string>): void {
 
 /**
  * Every fs call of the upload. It uses only exclusive writeStream, readStream, rm and exists, never mkdir, append, rename,
- * move or list (spec §6.3): an exclusive writeStream creates its parent directories (fs/src/local-provider.ts:189-221).
- * Every object goes to a new key and is recorded in upload_blobs before it is written (spec D10, D13).
+ * move or list, so any provider can hold the objects: an exclusive writeStream creates its parent directories
+ * (fs/src/local-provider.ts:189-221). Every object goes to a new key and is recorded in upload_blobs before it is written
+ * (docs/upload/07-storage-providers.md, docs/upload/03-integrity.md).
  */
 @Singleton()
 @Injectable()
@@ -121,7 +122,7 @@ export class UploadStorage extends AsyncService {
     return SESSION_ID.test(sessionId);
   }
 
-  /** Every part key of the session starts with it (spec §4.1 step 6). */
+  /** Every part key of the session starts with it, so the purge removes the session's parts with one rm. */
   public sessionPrefix(sessionId: string): string {
     if (!SESSION_ID.test(sessionId)) throw new InvalidArgument('upload session id must be non-empty and made of letters, digits, _ and -');
     return `${this.Options.fs.prefix}/${sessionId}`;
@@ -138,7 +139,7 @@ export class UploadStorage extends AsyncService {
   }
 
   /**
-   * Spec §4.1 step 2. A short body is returned as it is: the service compares the size, as it owns the codes and events.
+   * A short body is returned as it is: the service compares the size, as it owns the codes and events.
    * Callers bound the body: its length must equal the expected part size, as a refused body is drained without a cap.
    */
   public async writePart(session: UploadSession, part: number, body: NodeJS.ReadableStream, expected: number, declaredSha256?: string): Promise<WrittenPart> {
@@ -163,7 +164,7 @@ export class UploadStorage extends AsyncService {
     return { blobId: target.blobId, key: target.key, size: digest.bytes, sha256: digest.digest('hex'), head: head.head };
   }
 
-  /** Spec §4.2. The target blob stays 'writing': the service decides what becomes of it. */
+  /** The target blob stays 'writing': the service decides what becomes of it. */
   public async assemble(session: UploadSession, parts: readonly UploadPart[], target: AssemblyTarget): Promise<AssembledFile> {
     const source = this.provider(session.temp_fs);
     const options: IWriteStreamOptions = { exclusive: true, contentType: target.contentType, ...hashMetadata(target.declaredSha256) };
@@ -174,7 +175,7 @@ export class UploadStorage extends AsyncService {
     return { blobId: file.blobId, key: file.key, size: whole.bytes, sha256: whole.digest('hex'), corrupted };
   }
 
-  /** Garbage first, so a crash before the rm leaves a row for the sweeper (spec §4.1 step 5). Never throws. */
+  /** Garbage first, so a crash before the rm leaves a row for the sweeper. Never throws. */
   public async discard(blobId: string, fsName: string, key: string, uploadId?: string): Promise<void> {
     try {
       // False means the sweeper already took the row; removing the object again is harmless.
@@ -197,7 +198,7 @@ export class UploadStorage extends AsyncService {
     }
   }
 
-  /** One rm of the session prefix (spec §9): recursive on fsNative, every key under it on fs-s3 (F4). Best effort. */
+  /** One rm of the session prefix: recursive on fsNative, every key under it on fs-s3. Best effort. */
   public async removePrefix(fsName: string, sessionId: string): Promise<boolean> {
     if (!SESSION_ID.test(sessionId)) {
       this.Log.warn({ uploadId: sessionId, fs: fsName }, 'Upload ${uploadId}: prefix on ${fs} not removed, the session id is not a valid folder name');
@@ -263,7 +264,7 @@ export class UploadStorage extends AsyncService {
     }
   }
 
-  /** Yields the parts in order while each one hashes to its stored sha256 (spec §4.2); after a mismatch it only hashes the rest. */
+  /** Yields the parts in order while each one hashes to its stored sha256; after a mismatch it only hashes the rest. */
   private async *verifiedParts(source: fs, parts: readonly UploadPart[], corrupted: number[]): AsyncGenerator<Buffer> {
     for (const part of parts) {
       const intact = yield* this.readPart(source, part, corrupted.length === 0);

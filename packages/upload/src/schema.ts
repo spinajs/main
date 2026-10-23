@@ -8,7 +8,7 @@ const DIGEST_POLICY = { type: 'string', enum: ['required', 'optional'], default:
 const PROVIDER = { type: 'string', minLength: 1 };
 
 /**
- * The `upload` module (spec §6.2); Ajv fills the defaults and refuses a wrong value at boot (configuration/src/configuration.ts:640-650).
+ * The `upload` module (docs/upload/02-configuration.md); Ajv fills the defaults and refuses a wrong value at boot (configuration/src/configuration.ts:640-650).
  * Every default lives here, not in the shipped config: config files concatenate arrays (configuration/src/util-common.ts:23-27).
  */
 export const UPLOAD_CONFIGURATION_SCHEMA = {

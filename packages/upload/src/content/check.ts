@@ -30,7 +30,7 @@ interface ContentFound {
 
 export type ContentCheckResult = (ContentFound & { readonly accepted: true }) | (ContentFound & { readonly accepted: false; readonly code: ContentRefusal });
 
-/** mime-types maps the client's file name, file-type reads the magic bytes (spec D3, §4.3). */
+/** mime-types maps the client's file name, file-type reads the magic bytes (docs/upload/08-content-checks-and-detectors.md). */
 @Singleton()
 @Injectable()
 export class ContentTypeCheck {

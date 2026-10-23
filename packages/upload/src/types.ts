@@ -1,6 +1,6 @@
 export type UploadStatus = 'open' | 'assembling' | 'completed' | 'failed' | 'aborted' | 'expired';
 
-/** The final event a session owes once it is final (spec §6.6). */
+/** The final event a session owes once it is final (docs/upload/09-events.md). */
 export type FinalEventName = 'UploadCompleted' | 'UploadFailed' | 'UploadAborted' | 'UploadExpired';
 
 export type DigestPolicy = 'required' | 'optional';
@@ -34,7 +34,7 @@ export interface ReceivedPartView {
   sha256: string;
 }
 
-/** Spec §3: the session state, which is also the resume answer. */
+/** The session state, which is also the resume answer (docs/upload/01-protocol.md). */
 export interface UploadStateView {
   id: string;
   status: UploadStatus;
@@ -52,7 +52,7 @@ export interface UploadStateView {
   failure?: { code: string; message: string };
 }
 
-/** Spec §3: the answer to one stored part. */
+/** The answer to one stored part (docs/upload/01-protocol.md). */
 export interface PartStoredView {
   part: number;
   size: number;
@@ -73,14 +73,14 @@ export interface CreateUploadInput {
   /** A controller's limits; they can only tighten the configured ones. */
   limits?: Partial<UploadLimits>;
   allowedTypes?: AllowedTypes;
-  /** Accept a name that mime-types cannot map (spec §4.3). */
+  /** Accept a name that mime-types cannot map; the session then has no declared type. */
   allowUnknownType?: boolean;
   /** Provider names for this session; default upload.fs.temp / upload.fs.files. */
   fs?: { temp?: string; files?: string };
 }
 
 export interface PutPartOptions {
-  /** Checked against part 1's content (spec §4.3); default '*'. */
+  /** Checked against the type detected in part 1; default '*'. */
   allowedTypes?: AllowedTypes;
 }
 

@@ -19,7 +19,7 @@ function completedEventOf(session: UploadSession): UploadCompleted {
   });
 }
 
-/** The final event a row owes (final_event), built from the row alone, so the sweeper can emit it again (spec §6.6, §9). */
+/** The final event a row owes (final_event), built from the row alone, so the sweeper can emit it again. */
 export function finalEventOf(session: UploadSession): UploadEvent | null {
   switch (session.final_event) {
     case 'UploadCompleted':
@@ -44,7 +44,7 @@ export class UploadEvents {
   @Autoinject(UploadStore)
   protected Store: UploadStore;
 
-  /** Stage events are best effort (spec §6.6): a failed emit is logged and the request goes on. */
+  /** Stage events are best effort: a failed emit is logged and the request goes on. */
   public async stage(event: UploadEvent): Promise<void> {
     try {
       await ev(event);
@@ -55,7 +55,7 @@ export class UploadEvents {
 
   /**
    * Emits the final event the session owes and stamps final_event_at. false leaves it owed, for the sweeper to emit again;
-   * consumers dedupe by UploadId (spec §6.6).
+   * consumers dedupe by UploadId (docs/upload/09-events.md).
    */
   public async final(session: UploadSession): Promise<boolean> {
     const event = finalEventOf(session);

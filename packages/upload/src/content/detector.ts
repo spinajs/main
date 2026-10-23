@@ -4,8 +4,8 @@ export interface DetectedContent {
 }
 
 /**
- * Spec §6.4. Apps register one with `@Injectable(ContentDetector)` for formats file-type does not know (DXF, a PDF with
- * leading bytes). The package ships none.
+ * Apps register one with `@Injectable(ContentDetector)` for formats file-type does not know (DXF, a PDF with leading
+ * bytes). The package ships none (docs/upload/08-content-checks-and-detectors.md).
  */
 export abstract class ContentDetector {
   public abstract readonly id: string;

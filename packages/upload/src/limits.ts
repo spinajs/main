@@ -8,7 +8,7 @@ const usable = (override: number | undefined): override is number => override !=
 
 const tighter = (base: number, override: number | undefined): number => (usable(override) ? Math.min(base, override) : base);
 
-/** The configured limits with a controller's limitsFor() applied; an override can only tighten them (spec §6.2). */
+/** The configured limits with a controller's limitsFor() applied; an override can only tighten them (docs/upload/06-limits.md). */
 export function effectiveLimits(base: UploadLimits, override: Partial<UploadLimits> = {}): UploadLimits {
   const shorterTtl = override.sessionTtl !== undefined && parsePositiveDuration(override.sessionTtl, 'limits.sessionTtl') < parsePositiveDuration(base.sessionTtl, 'upload.limits.sessionTtl');
   return {
@@ -22,7 +22,7 @@ export function effectiveLimits(base: UploadLimits, override: Partial<UploadLimi
   };
 }
 
-/** The part size asked for, or the default clamped into min..max; refused with upload.part_size (spec §8). */
+/** The part size asked for, or the default clamped into min..max; refused with upload.part_size. */
 export function planParts(size: number, requested: number | undefined, limits: UploadLimits): { partSize: number; partCount: number } {
   const partSize = requested ?? Math.min(Math.max(limits.partSize, limits.minPartSize), limits.maxPartSize);
   const partCount = partCountOf(size, partSize);

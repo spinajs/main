@@ -28,7 +28,7 @@ export class UploadPart extends ModelBase<UploadPart> {
 
   public storage_key: string;
 
-  /** Part 1 only (spec §4.3). */
+  /** Part 1 only: the content check reads the head of the file. */
   public detected_mime: string | null;
 
   @DT()

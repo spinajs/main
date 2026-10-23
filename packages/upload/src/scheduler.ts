@@ -22,7 +22,7 @@ const SWEEP_SCHEDULE: ScheduleOptions = {
   },
 };
 
-/** Spec §9 as a scheduler task, one replica per occurrence; a `scheduler.schedules` entry of the same name overrides it. */
+/** UploadSweeper as a scheduler task, one replica per occurrence; a `scheduler.schedules` entry of the same name overrides it (docs/upload/11-sweeper.md). */
 @Schedule(UPLOAD_SWEEP_SCHEDULE, SWEEP_SCHEDULE)
 export class UploadSweepTask extends ScheduledTask {
   @Autoinject(UploadSweeper)

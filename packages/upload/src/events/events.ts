@@ -31,7 +31,7 @@ export class UploadEvent extends QueueEvent {
 
   public Size: number;
 
-  /** The app's session metadata; it must not hold secrets (spec §6.6). */
+  /** The app's session metadata; it must not hold secrets, as every consumer of the event sees it. */
   public Metadata: Record<string, unknown>;
 
   public TempFs: string;

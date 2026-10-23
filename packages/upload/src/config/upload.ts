@@ -13,8 +13,9 @@ function dir(path: string) {
 
 /**
  * The alias puts the upload tables on the app's default connection; an app's db.Aliases.upload wins, since package config
- * merges first (authz-orm/src/config/db.ts:1). Every event starts on a black hole (spec §6.2, D14), as users does
- * (users/src/config/users.ts:23-47). The upload.* defaults live in the schema (src/schema.ts).
+ * merges first (authz-orm/src/config/db.ts:1). Every event starts on a black hole until the app routes it to a real
+ * queue (docs/upload/09-events.md), as users does (users/src/config/users.ts:23-47). The upload.* defaults live in the
+ * schema (src/schema.ts).
  */
 const upload = {
   system: {

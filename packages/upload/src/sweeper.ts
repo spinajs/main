@@ -52,9 +52,9 @@ const emptyResult = (): SweepResult => ({ expired: 0, released: 0, reemitted: 0,
 const uploadIdOf = (item: SweepItem): string => (item instanceof UploadBlob ? item.session_id : item.id);
 
 /**
- * Spec §9. Every change is a conditional UPDATE or DELETE, so a second sweep running at the same time (cron next to
- * the scheduler) only finds less to do, and a run after a clean one changes nothing. Objects are found through
- * upload_blobs only; storage is never listed (spec D13).
+ * Every change is a conditional UPDATE or DELETE, so a second sweep running at the same time (cron next to the
+ * scheduler) only finds less to do, and a run after a clean one changes nothing. Objects are found through
+ * upload_blobs only; storage is never listed (docs/upload/11-sweeper.md).
  */
 @Singleton()
 @Injectable()
@@ -145,7 +145,7 @@ export class UploadSweeper {
     return { removed, kept };
   }
 
-  /** Spec §9 step 2. The partial target is the session's 'writing' file blob; its request lost the claim with the release. */
+  /** The partial target is the session's 'writing' file blob; its request lost the claim with the release. */
   private async release(session: UploadSession, now: DateTime, result: SweepResult): Promise<void> {
     const claim = session.claim_token;
     if (claim === null) return;
@@ -164,7 +164,7 @@ export class UploadSweeper {
     await this.removeGarbageOf(session.id, result);
   }
 
-  /** Spec §9 step 1. UploadService.expire emits UploadExpired and logs; it keeps the parts, which go here. */
+  /** UploadService.expire emits UploadExpired and logs; it keeps the parts, which go here. */
   private async expire(session: UploadSession, result: SweepResult): Promise<void> {
     if (!(await this.Service.expire(session))) return;
     result.expired++;
@@ -172,14 +172,14 @@ export class UploadSweeper {
     await this.removeGarbageOf(session.id, result);
   }
 
-  /** Spec §9 step 5. Events.final emits, then stamps final_event_at; false leaves the event owed for the next run. */
+  /** Events.final emits, then stamps final_event_at; false leaves the event owed for the next run. */
   private async reemit(session: UploadSession, result: SweepResult): Promise<void> {
     if (!(await this.Events.final(session))) return;
     result.reemitted++;
     this.Log.warn({ uploadId: session.id, event: session.final_event }, 'Upload ${uploadId}: final event ${event} re-emitted by the sweeper');
   }
 
-  /** Spec §9 step 3 for a completed session: its parts go, its row and merged file stay. */
+  /** A completed session: its parts go, its row and merged file stay. */
   private async purgeParts(session: UploadSession, now: DateTime, result: SweepResult): Promise<void> {
     if (!(await this.Store.dropParts(session.id, now))) return;
     const { removed } = await this.removeGarbageOf(session.id, result);
@@ -187,7 +187,7 @@ export class UploadSweeper {
     await this.purged(session, removed, result);
   }
 
-  /** Spec §9 step 3 for a failed, aborted or expired session: everything goes, the row last, once no object is left. */
+  /** A failed, aborted or expired session: everything goes, the row last, once no object is left. */
   private async purgeSession(session: UploadSession, now: DateTime, result: SweepResult): Promise<void> {
     // A session expired by UploadService.expire outside a sweep still has its parts.
     await this.Store.dropParts(session.id, now);
