@@ -41,7 +41,7 @@ function provider() {
   const p = new fsS3({ name: 's3-unit', bucket: 'unit-bucket' });
   const internals = p as unknown as S3Internals;
   const send = sinon.stub().callsFake(async (cmd: unknown) => {
-    if (cmd instanceof ListObjectsV2Command) return { Contents: [{ Key: 'dir/a.txt' }] };
+    if (cmd instanceof ListObjectsV2Command) return (cmd as unknown as Command).input.Prefix === 'dir/' ? { Contents: [{ Key: 'dir/a.txt' }] } : {};
     if (cmd instanceof HeadObjectCommand) return { Metadata: { hash: 'h' }, ContentType: 'text/plain', ContentLength: 3 };
     return {};
   });
@@ -124,6 +124,8 @@ describe('fsS3 – provider hooks', () => {
       ['unit-bucket/m.txt', 'r.txt'],
     ]);
     expect(sent(send, DeleteObjectCommand).map((c) => c.input.Key)).to.deep.equal(['a.txt', 'a.txt', 'm.txt']);
+    // rm lists the prefix of its key; move and rename delete only their source key
+    expect(sent(send, ListObjectsV2Command).map((c) => c.input.Prefix)).to.deep.equal(['a.txt/']);
   });
 
   it('reports no key and no prefix as a directory', async () => {

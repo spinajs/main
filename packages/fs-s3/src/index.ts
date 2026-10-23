@@ -9,6 +9,7 @@ import {
   HeadObjectCommand,
   CopyObjectCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
   ListObjectsV2Command,
   GetObjectCommand,
   HeadBucketCommand,
@@ -42,6 +43,9 @@ const keyTaken = (err: unknown): boolean => err instanceof S3ServiceException &&
 
 /** The algorithm of the `hash` metadata that write() and upload() store. */
 const STORED_HASH_ALGORITHM = 'sha256';
+
+/** The DeleteObjects key limit on AWS and MinIO (localstack accepts more, so only the unit test pins it). */
+const DELETE_BATCH = 1000;
 
 /**
  * IFileInfo fields upload() stores as s3 metadata
@@ -617,7 +621,8 @@ export class fsS3 extends fs {
    */
   protected async doMove(oldPath: string, newPath: string, dstFs?: fs): Promise<void> {
     await this.copy(oldPath, newPath, dstFs);
-    await this.rm(oldPath);
+    // copy took one key; rm would also remove the keys under oldPath/, which were not copied
+    await this.deleteKey(oldPath);
   }
 
   /**
@@ -628,18 +633,37 @@ export class fsS3 extends fs {
   }
 
   /**
-   *
-   * Deletes dir recursively & all contents inside
-   *
-   * @param path - dir to remove
+   * Deletes the key and every key under `path/`, as fsNative removes a directory with its contents. Removing a path
+   * that does not exist succeeds.
    */
   protected async doRm(path: string): Promise<void> {
-    const command = new DeleteObjectCommand({
-      Bucket: this.Options.bucket,
-      Key: path,
-    });
+    // DeleteObject with an empty key goes out as DeleteBucket, and the prefix of '' is every key in the bucket
+    if (path === '') {
+      throw new InvalidArgument(`fs s3 ${this.Name} does not remove the bucket root`, 'path');
+    }
 
-    await this.S3.send(command);
+    await this.deleteKey(path);
+
+    let token: string | undefined;
+    do {
+      const page = await this.S3.send(new ListObjectsV2Command({ Bucket: this.Options.bucket, Prefix: `${path}/`, MaxKeys: DELETE_BATCH, ContinuationToken: token }));
+      const keys = (page.Contents ?? []).flatMap((o) => (o.Key ? [o.Key] : []));
+      for (let i = 0; i < keys.length; i += DELETE_BATCH) {
+        await this.deleteKeys(keys.slice(i, i + DELETE_BATCH));
+      }
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+  }
+
+  private async deleteKey(key: string): Promise<void> {
+    await this.S3.send(new DeleteObjectCommand({ Bucket: this.Options.bucket, Key: key }));
+  }
+
+  private async deleteKeys(keys: string[]): Promise<void> {
+    const result = await this.S3.send(new DeleteObjectsCommand({ Bucket: this.Options.bucket, Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true } }));
+    if (result.Errors?.length) {
+      throw new IOFail(`Cannot remove ${result.Errors.map((e) => `${e.Key} (${e.Code})`).join(', ')} from bucket ${this.Options.bucket}`);
+    }
   }
 
   /**
