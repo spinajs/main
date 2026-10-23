@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/principal",
-  "version": "3.0.17",
+  "version": "3.0.18",
   "description": "Principal contracts shared by SpinaJS authentication and authorization",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -54,6 +54,6 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
-    "@spinajs/authn": "3.0.17"
+    "@spinajs/authn": "3.0.18"
   }
 }
