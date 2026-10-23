@@ -1,15 +1,20 @@
-import { Config } from '@spinajs/configuration';
+import type { Readable } from 'node:stream';
+import { Config, Configuration } from '@spinajs/configuration';
 import { Autoinject } from '@spinajs/di';
+import { ActionRefused } from '@spinajs/hooks';
 import { Log, Logger } from '@spinajs/log';
-import { BaseController, Body, ContentDigest, Del, Get, HTTP_STATUS_CODE, Head, Json, Param, Post, Put, Req, RequestStream } from '@spinajs/http';
-import type { IResponseHeader, Request } from '@spinajs/http';
+import { BaseController, Body, ContentDigest, Del, Get, HTTP_STATUS_CODE, Head, Json, OnError, Param, Post, Put, Req, RequestStream } from '@spinajs/http';
+import type { ErrorContext, IResponseHeader, Request } from '@spinajs/http';
 
 import { UPLOAD_MAX_PART_BYTES } from '../constants.js';
+import { UploadError } from '../errors.js';
 import type { UploadSession } from '../models/UploadSession.js';
+import { expectedPartSize } from '../parts.js';
 import { UploadService } from '../service.js';
 import type { AllowedTypes, CompleteInput, UploadConfig, UploadLimits, UploadStateView } from '../types.js';
 import { CompleteUploadDto, CreateUploadDto } from './dto.js';
-import { declaredLength } from './request-body.js';
+import { hookRefusalResponse, uploadErrorResponse } from './error-responses.js';
+import { declaredLength, settleUnreadBody } from './request-body.js';
 
 export type UploadAction = 'create' | 'read' | 'putPart' | 'complete' | 'abort';
 
@@ -17,6 +22,15 @@ export type UploadAction = 'create' | 'read' | 'putPart' | 'complete' | 'abort';
 export interface UploadProviders {
   readonly temp: string;
   readonly files: string;
+}
+
+// Drain bound of a refused part: its expected size once putPart knows it, else the configured maximum part size.
+const partBounds = new WeakMap<object, number>();
+
+/** Route-level handler of putPart: every refusal, from the policy stage on, drains or closes the unread body first. */
+async function settleRefusedPart(_err: Error, ctx: ErrorContext): Promise<void> {
+  const configured = ctx.container.get(Configuration)?.get<number>('upload.limits.maxPartSize') ?? 0;
+  await settleUnreadBody(ctx.req, ctx.res, partBounds.get(ctx.req) ?? configured);
 }
 
 const stateHeaders = (view: UploadStateView): IResponseHeader[] => [
@@ -34,7 +48,10 @@ const completeInputOf = (dto: CompleteUploadDto | null): CompleteInput => (dto?.
  * The upload routes of spec §3 (spec §6.5). An app subclasses this with its own `@BasePath`, in its own controllers
  * dir; the package lists none and this file is in none (http/src/controller-sources.ts:25-41), so it is never mounted
  * by itself. `authorize` is abstract, so a subclass that leaves it out does not compile (fail closed, spec D7).
+ * A subclass's own class-level `@OnError` runs before these two (http/src/decorators.ts:184-200).
  */
+@OnError(UploadError, uploadErrorResponse)
+@OnError(ActionRefused, hookRefusalResponse)
 export abstract class UploadController extends BaseController {
   @Autoinject(UploadService)
   protected Uploads: UploadService;
@@ -78,9 +95,17 @@ export abstract class UploadController extends BaseController {
   }
 
   @Put(':upload/parts/:part')
+  @OnError(Error, settleRefusedPart)
   public async putPart(@Param() upload: string, @Param() part: number, @RequestStream({ maxBytes: UPLOAD_MAX_PART_BYTES }) body: NodeJS.ReadableStream, @ContentDigest() digest: Map<string, Buffer>, @Req() req: Request) {
-    const session = await this.sessionFor('putPart', upload, req);
-    return new Json(await this.Uploads.putPart(session, part, body, digest.get('sha-256'), declaredLength(req), { allowedTypes: await this.allowedTypes(req) }));
+    try {
+      const session = await this.sessionFor('putPart', upload, req);
+      if (Number.isInteger(part) && part >= 1 && part <= session.part_count) partBounds.set(req, expectedPartSize(session.size, session.part_size, part));
+      return new Json(await this.Uploads.putPart(session, part, body, digest.get('sha-256'), declaredLength(req), { allowedTypes: await this.allowedTypes(req) }));
+    } catch (err) {
+      // Closing the limited stream unpipes and resumes the request (limit-request-stream.ts:58-68), so the handler can drain it.
+      (body as Readable).destroy();
+      throw err;
+    }
   }
 
   @Post(':upload/complete')
