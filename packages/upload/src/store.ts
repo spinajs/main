@@ -1,5 +1,6 @@
 import { Injectable, Singleton } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
+import { Log, Logger } from '@spinajs/log';
 import { rowsAffected } from '@spinajs/orm';
 import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
 import type { DateTime } from 'luxon';
@@ -64,6 +65,21 @@ export interface CompletedValues {
 // SQLite and Postgres count matched rows; MySQL does through mysql2's default CLIENT_FOUND_ROWS (scheduler/src/store/LeaseStore.ts:37-41).
 const matched = (result: unknown): boolean => rowsAffected(result) === 1;
 
+// MySQL ER_LOCK_DEADLOCK and ER_LOCK_WAIT_TIMEOUT by errno; Postgres serialization_failure and deadlock_detected by SQLSTATE.
+const MYSQL_LOCK_CONFLICTS = new Set([1213, 1205]);
+const POSTGRES_LOCK_CONFLICTS = new Set(['40001', '40P01']);
+
+/** The drivers throw an OrmException that carries the native error in `inner`. */
+function isLockConflict(err: unknown): boolean {
+  let current = err as { errno?: unknown; code?: unknown; inner?: unknown; cause?: unknown } | null | undefined;
+  for (let depth = 0; current && depth < 5; depth++) {
+    if (typeof current.errno === 'number' && MYSQL_LOCK_CONFLICTS.has(current.errno)) return true;
+    if (typeof current.code === 'string' && POSTGRES_LOCK_CONFLICTS.has(current.code)) return true;
+    current = (current.inner ?? current.cause) as typeof current;
+  }
+  return false;
+}
+
 /**
  * Every statement on the upload tables. A state change is one conditional UPDATE whose WHERE is the transition rule, so
  * the matched-row count says whether it applied (spec §5); a model save would write every changed column instead.
@@ -71,6 +87,9 @@ const matched = (result: unknown): boolean => rowsAffected(result) === 1;
 @Singleton()
 @Injectable()
 export class UploadStore {
+  @Logger('upload')
+  protected Log: Log;
+
   public get Driver(): OrmDriver {
     const driver = UploadSession.getModelDescriptor().Driver;
     if (!driver) {
@@ -109,15 +128,27 @@ export class UploadStore {
    * create's count-then-insert in one transaction; false when the owner already has `cap` open sessions. SQLite runs one
    * transaction at a time. On Postgres and MySQL the owner's open rows are locked first, so a second create of the same
    * owner waits for the first to commit and its count then sees the new row. An owner with no open row has nothing to lock,
-   * so its concurrent first creates are not serialised there (test/spikes/owner-lock.test.ts).
+   * so its concurrent first creates are not serialised there: the cap is soft (docs/upload/06-limits.md).
+   *
+   * A transaction the database aborts on a lock conflict (deadlock, lock wait timeout, serialization failure) is retried
+   * once, unless it runs inside a caller's transaction, which the conflict has already rolled back.
    */
   public async insertSessionWithinCap(row: NewSessionRow & { readonly owner: string }, cap: number): Promise<boolean> {
-    return this.transaction(async () => {
-      await this.lockOwner(row.owner);
-      if ((await this.openSessionsOf(row.owner)) >= cap) return false;
-      await this.insertSession(row);
-      return true;
-    });
+    const attempt = () =>
+      this.transaction(async () => {
+        await this.lockOwner(row.owner);
+        if ((await this.openSessionsOf(row.owner)) >= cap) return false;
+        await this.insertSession(row);
+        return true;
+      });
+    const nested = this.Driver.CurrentTransaction !== undefined;
+    try {
+      return await attempt();
+    } catch (err) {
+      if (nested || !isLockConflict(err)) throw err;
+      this.Log.warn({ owner: row.owner, error: err }, 'Upload create for owner ${owner} hit a lock conflict; retrying once');
+      return await attempt();
+    }
   }
 
   /** Writes the owner's own value back: a no-op change that takes the row locks. */

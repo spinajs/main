@@ -1,9 +1,15 @@
 import 'mocha';
 import { expect } from 'chai';
+import { randomUUID } from 'node:crypto';
+import { LogLevel } from '@spinajs/log';
+import { OrmException } from '@spinajs/orm';
 import { DateTime } from 'luxon';
+import sinon from 'sinon';
 
 import type { UploadStore } from '../src/index.js';
+import { uploadLogs } from './support/capture.js';
 import { insertSessionRow, resetUploads, rows, uploadEnv } from './support/env.js';
+import { rejection } from './support/flow.js';
 
 describe('UploadStore transitions', () => {
   let store: UploadStore;
@@ -153,5 +159,71 @@ describe('UploadStore transitions', () => {
     expect((await store.findSession(id))?.id).to.eq(id);
     expect(await store.openSessionsOf('alice')).to.eq(1);
     expect(await store.openSessionsOf('bob')).to.eq(0);
+  });
+});
+
+describe('UploadStore.insertSessionWithinCap on a lock conflict', () => {
+  let store: UploadStore;
+  const newRow = (owner = 'alice') => {
+    const now = DateTime.utc();
+    return { id: randomUUID(), owner, name: 'notes.txt', size: 10, part_size: 4, part_count: 3, declared_sha256: null, declared_mime: 'text/plain', metadata: {}, temp_fs: 'upload-temp', files_fs: 'upload-files', created_at: now, expires_at: now.plus({ hours: 1 }) };
+  };
+  // Shaped as the drivers surface them: an OrmException whose inner error is the native one.
+  const driverError = (native: Record<string, unknown>) => new OrmException('Error executing orm command ', undefined, 'UPDATE upload_sessions', [], Object.assign(new Error(String(native.message ?? 'driver error')), native));
+  const lockOwnerOf = () => sinon.stub(store as unknown as { lockOwner(owner: string): Promise<void> }, 'lockOwner').callThrough();
+
+  before(async () => {
+    ({ store } = await uploadEnv());
+  });
+  beforeEach(resetUploads);
+  afterEach(() => sinon.restore());
+
+  for (const [label, native] of [
+    ['a MySQL deadlock (1213)', { errno: 1213, code: 'ER_LOCK_DEADLOCK', message: 'Deadlock found when trying to get lock' }],
+    ['a MySQL lock wait timeout (1205)', { errno: 1205, code: 'ER_LOCK_WAIT_TIMEOUT', message: 'Lock wait timeout exceeded' }],
+    ['a Postgres serialization failure (40001)', { code: '40001', message: 'could not serialize access' }],
+    ['a Postgres deadlock (40P01)', { code: '40P01', message: 'deadlock detected' }],
+  ] as const) {
+    it(`retries the cap transaction once after ${label}, and logs the owner`, async () => {
+      const lockOwner = lockOwnerOf();
+      lockOwner.onFirstCall().rejects(driverError(native));
+      const row = newRow();
+
+      expect(await store.insertSessionWithinCap(row, 3)).to.eq(true);
+
+      expect(lockOwner.callCount).to.eq(2);
+      expect(await rows('upload_sessions', { id: row.id })).to.have.length(1);
+      const warned = uploadLogs(LogLevel.Warn).filter((e) => /lock conflict/.test(String(e.Variables.message)));
+      expect(warned).to.have.length(1);
+      expect(warned[0].Variables).to.include({ owner: 'alice' }).and.not.have.property('uploadId');
+    });
+  }
+
+  it('gives up after the second lock conflict', async () => {
+    const lockOwner = lockOwnerOf();
+    lockOwner.rejects(driverError({ errno: 1213, code: 'ER_LOCK_DEADLOCK' }));
+    const row = newRow();
+
+    const e = await rejection(store.insertSessionWithinCap(row, 3));
+
+    expect(e).to.be.instanceOf(OrmException);
+    expect(lockOwner.callCount).to.eq(2);
+    expect(await rows('upload_sessions', { id: row.id })).to.deep.equal([]);
+  });
+
+  it('does not retry any other driver error', async () => {
+    const lockOwner = lockOwnerOf();
+    lockOwner.onFirstCall().rejects(driverError({ errno: 1062, code: 'ER_DUP_ENTRY', message: 'Duplicate entry' }));
+
+    expect(await rejection(store.insertSessionWithinCap(newRow(), 3))).to.be.instanceOf(OrmException);
+    expect(lockOwner.callCount).to.eq(1);
+  });
+
+  it("does not retry inside a caller's transaction, which the conflict already rolled back", async () => {
+    const lockOwner = lockOwnerOf();
+    lockOwner.onFirstCall().rejects(driverError({ code: '40P01' }));
+
+    expect(await rejection(store.transaction(() => store.insertSessionWithinCap(newRow(), 3)))).to.be.instanceOf(OrmException);
+    expect(lockOwner.callCount).to.eq(1);
   });
 });
