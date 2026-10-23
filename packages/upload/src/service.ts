@@ -286,14 +286,14 @@ export class UploadService {
     if (written.size !== expected) refusal = new UploadError('upload.part_size', `part ${part} ended after ${written.size} of ${expected} bytes`);
     else if (declared !== undefined && written.sha256 !== declared) refusal = new UploadError('upload.part_digest_mismatch', `part ${part} does not match its Content-Digest`);
     if (refusal !== null) {
-      await this.Storage.discard(written.blobId, session.temp_fs, written.key);
+      await this.Storage.discard(written.blobId, session.temp_fs, written.key, session.id);
       throw refusal;
     }
     return written;
   }
 
   private async checkContent(session: UploadSession, written: WrittenPart, allowedTypes: AllowedTypes): Promise<CheckedContent> {
-    const result = await this.Content.check({ head: written.head, declaredMime: session.declared_mime, allowedTypes });
+    const result = await this.Content.check({ head: written.head, declaredMime: session.declared_mime, allowedTypes, uploadId: session.id });
     this.Log.debug({ uploadId: session.id, part: 1, detectedMime: result.detectedMime, detectorId: result.detectorId, accepted: result.accepted }, 'Upload ${uploadId} content checked');
     const event = new UploadContentChecked(session, {
       DeclaredMime: session.declared_mime,
@@ -302,7 +302,7 @@ export class UploadService {
       Accepted: result.accepted,
     });
     if (!result.accepted) {
-      await this.Storage.discard(written.blobId, session.temp_fs, written.key);
+      await this.Storage.discard(written.blobId, session.temp_fs, written.key, session.id);
       await this.Events.stage(event);
       throw new UploadError(result.code, `the content of ${session.name} is refused`, {}, 415);
     }
@@ -326,7 +326,7 @@ export class UploadService {
         return previous;
       });
     } catch (err) {
-      await this.Storage.discard(written.blobId, session.temp_fs, written.key);
+      await this.Storage.discard(written.blobId, session.temp_fs, written.key, session.id);
       throw err;
     }
   }

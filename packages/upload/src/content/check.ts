@@ -17,6 +17,8 @@ export interface ContentCheckInput {
   readonly head: Uint8Array;
   readonly declaredMime: string | null;
   readonly allowedTypes: AllowedTypes;
+  /** Only for log entries. */
+  readonly uploadId?: string;
 }
 
 export type ContentRefusal = 'upload.content_mismatch' | 'upload.unsupported_type';
@@ -49,21 +51,21 @@ export class ContentTypeCheck {
   }
 
   public async check(input: ContentCheckInput): Promise<ContentCheckResult> {
-    const detected = await this.parse(input.head);
+    const detected = await this.parse(input.head, input.uploadId);
     const found: ContentFound = { detectedMime: detected?.mime ?? null, detectorId: detected?.detectorId ?? null };
     const refusal = this.refusalOf(input, detected);
     return refusal === null ? { ...found, accepted: true } : { ...found, accepted: false, code: refusal };
   }
 
-  private async parse(head: Uint8Array): Promise<{ mime: string; ext: string; detectorId: string } | null> {
+  private async parse(head: Uint8Array, uploadId?: string): Promise<{ mime: string; ext: string; detectorId: string } | null> {
     const match = { id: null as string | null };
     const { FileTypeParser } = await loadFileType();
     try {
-      const result = await new FileTypeParser({ customDetectors: this.adapters(head, match) }).fromBuffer(head);
+      const result = await new FileTypeParser({ customDetectors: this.adapters(head, match, uploadId) }).fromBuffer(head);
       return result ? { mime: result.mime, ext: result.ext, detectorId: match.id ?? FILE_TYPE_DETECTOR_ID } : null;
     } catch {
       // file-type throws EndOfStreamError on a container (zip family) head cut mid-entry
-      this.Log.warn({ detectorId: FILE_TYPE_DETECTOR_ID }, 'Content detector ${detectorId} failed; treated as no match');
+      this.Log.warn({ uploadId, detectorId: FILE_TYPE_DETECTOR_ID }, 'Content detector ${detectorId} failed; treated as no match');
       return null;
     }
   }
@@ -81,7 +83,7 @@ export class ContentTypeCheck {
   }
 
   /** The app's detectors read the captured head, never the tokenizer, so file-type goes on after a null (file-type/core.d.ts:142-147). */
-  private adapters(head: Uint8Array, match: { id: string | null }): Detector[] {
+  private adapters(head: Uint8Array, match: { id: string | null }, uploadId?: string): Detector[] {
     const registered = DI.resolve(Array.ofType(ContentDetector)) as unknown as ContentDetector[] | undefined ?? [];
     return registered
       .filter((d) => d instanceof ContentDetector)
@@ -94,7 +96,7 @@ export class ContentTypeCheck {
             match.id = d.id;
             return found;
           } catch (err) {
-            this.Log.warn({ detectorId: d.id, error: err }, 'Content detector ${detectorId} failed; treated as no match');
+            this.Log.warn({ uploadId, detectorId: d.id, error: err }, 'Content detector ${detectorId} failed; treated as no match');
             return undefined;
           }
         },

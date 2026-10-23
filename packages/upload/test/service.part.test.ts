@@ -11,7 +11,7 @@ import sinon from 'sinon';
 
 import { UploadStorage } from '../src/index.js';
 import type { UploadErrorCode, UploadService, UploadStore } from '../src/index.js';
-import { emitted, uploadLogs } from './support/capture.js';
+import { CaptureQueueClient, emitted, uploadLogs } from './support/capture.js';
 import { DXF, PDF, PNG } from './support/detectors.js';
 import { objectsOf, pathIn, resetUploads, rows, setSession, uploadEnv } from './support/env.js';
 import { bodyOf, chunk, open, put, sha256hex, sha256raw, text, uploadErrorOf } from './support/flow.js';
@@ -22,6 +22,7 @@ describe('UploadService.putPart', () => {
   let store: UploadStore;
   let storage: UploadStorage;
   const file = text(10);
+  const SECRET = 'TOP-SECRET-VALUE';
 
   before(async () => {
     ({ service, store } = await uploadEnv());
@@ -71,22 +72,23 @@ describe('UploadService.putPart', () => {
     expect(emitted('UploadPartStored').map((e): unknown => e.Replaced)).to.deep.equal([false, true]);
   });
 
-  describe('refusals', () => {
-    /** The refusal leaves no part row, no blob row and no object, emits UploadPartRejected and logs it at warn. */
-    async function refused(work: Promise<unknown>, sessionId: string, code: UploadErrorCode, status: number): Promise<void> {
-      const e = await uploadErrorOf(work);
-      expect([e.code, e.status]).to.deep.equal([code, status]);
-      expect(await rows('upload_parts', { session_id: sessionId })).to.deep.equal([]);
-      expect(await rows('upload_blobs', { session_id: sessionId })).to.deep.equal([]);
-      expect(objectsOf('temp', `uploads/${sessionId}`)).to.deep.equal([]);
-      expect(emitted('UploadPartRejected').map((x): unknown[] => [x.Part, x.Code])).to.deep.equal([[1, code]]);
-      expect(uploadLogs(LogLevel.Warn).map((x) => x.Variables.code)).to.include(code);
-    }
+  /** The refusal leaves no part row, no blob row and no object, emits UploadPartRejected and logs it at warn. */
+  async function refused(work: Promise<unknown>, sessionId: string, code: UploadErrorCode, status: number, part = 1): Promise<void> {
+    const e = await uploadErrorOf(work);
+    expect([e.code, e.status]).to.deep.equal([code, status]);
+    expect(await rows('upload_parts', { session_id: sessionId })).to.deep.equal([]);
+    expect(await rows('upload_blobs', { session_id: sessionId })).to.deep.equal([]);
+    expect(objectsOf('temp', `uploads/${sessionId}`)).to.deep.equal([]);
+    expect(emitted('UploadPartRejected').map((x): unknown[] => [x.Part, x.Code])).to.deep.equal([[part, code]]);
+    const warned = uploadLogs(LogLevel.Warn).filter((x) => x.Variables.code === code);
+    expect(warned.map((x) => x.Variables.uploadId)).to.deep.equal([sessionId]);
+    expect(JSON.stringify(uploadLogs().map((x) => x.Variables))).to.not.contain(SECRET);
+  }
 
+  describe('refusals', () => {
     it('a part number outside 1..partCount: upload.part_number', async () => {
-      const session = await open(service, file);
-      const e = await uploadErrorOf(service.putPart(session, 4, bodyOf(Buffer.alloc(2)), sha256raw(Buffer.alloc(2)), 2));
-      expect([e.code, e.status]).to.deep.equal(['upload.part_number', 400]);
+      const session = await open(service, file, { metadata: { apiKey: SECRET } });
+      await refused(service.putPart(session, 4, bodyOf(Buffer.alloc(2)), sha256raw(Buffer.alloc(2)), 2), session.id, 'upload.part_number', 400, 4);
     });
 
     it('no length: upload.length_required (411)', async () => {
@@ -205,13 +207,9 @@ describe('UploadService.putPart', () => {
     });
 
     it('refuses content of another type with upload.content_mismatch (415) and stores nothing', async () => {
-      const session = await open(service, pdf, { name: 'image.png', partSize: 16 });
-      const e = await uploadErrorOf(put(service, session, pdf, 1));
-      expect([e.code, e.status]).to.deep.equal(['upload.content_mismatch', 415]);
-      expect(await rows('upload_parts', { session_id: session.id })).to.deep.equal([]);
-      expect(objectsOf('temp', `uploads/${session.id}`)).to.deep.equal([]);
+      const session = await open(service, pdf, { name: 'image.png', partSize: 16, metadata: { apiKey: SECRET } });
+      await refused(put(service, session, pdf, 1), session.id, 'upload.content_mismatch', 415);
       expect(emitted('UploadContentChecked')[0]).to.include({ DetectedMime: 'application/pdf', Accepted: false });
-      expect(emitted('UploadPartRejected')[0]).to.include({ Part: 1, Code: 'upload.content_mismatch' });
     });
 
     it('accepts a type that only a registered ContentDetector knows', async () => {
@@ -223,9 +221,9 @@ describe('UploadService.putPart', () => {
     });
 
     it('refuses a detected type outside allowedTypes with upload.unsupported_type (415)', async () => {
-      const session = await open(service, pdf, { name: 'blob.unknownext', partSize: 16, allowUnknownType: true });
-      const e = await uploadErrorOf(put(service, session, pdf, 1, { allowedTypes: ['image/png'] }));
-      expect([e.code, e.status]).to.deep.equal(['upload.unsupported_type', 415]);
+      const session = await open(service, pdf, { name: 'blob.unknownext', partSize: 16, allowUnknownType: true, metadata: { apiKey: SECRET } });
+      await refused(put(service, session, pdf, 1, { allowedTypes: ['image/png'] }), session.id, 'upload.unsupported_type', 415);
+      CaptureQueueClient.reset();
       await put(service, session, pdf, 1, { allowedTypes: ['application/pdf'] });
     });
 
