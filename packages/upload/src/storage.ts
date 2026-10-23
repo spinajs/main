@@ -130,7 +130,9 @@ export class UploadStorage extends AsyncService {
     return `${this.sessionPrefix(sessionId)}/${String(part).padStart(5, '0')}-${randomUUID()}`;
   }
 
+  /** A `..` segment is refused: a provider may resolve it and write outside the directory. A backslash separates too, as fsNative does on Windows. */
   public fileKey(dir: string, name: string): string {
+    if (dir.split(/[\\/]/).includes('..')) throw new InvalidArgument(`upload file directory ${dir} must not contain a .. segment`);
     return `${dir.replace(/^\/+|\/+$/g, '')}/${randomUUID()}${extensionOf(name)}`;
   }
 

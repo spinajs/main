@@ -181,6 +181,18 @@ describe('UploadStorage', () => {
     expect((await rows('upload_blobs', { key: assembled.key }))[0]).to.include({ fs: 'upload-files', kind: 'file', state: 'writing' });
   });
 
+  it('refuses a file directory with a .. segment, and records or writes nothing for it', async () => {
+    for (const dir of ['..', '../outside', 'uploads/../../outside', 'uploads/..', 'uploads\\..\\..\\outside']) {
+      expect(() => storage.fileKey(dir, 'notes.txt'), dir).to.throw(InvalidArgument, /\.\./);
+    }
+    expect(storage.fileKey('/projects/p1..x/files/', 'notes.txt')).to.match(/^projects\/p1\.\.x\/files\/[0-9a-f-]{36}\.txt$/);
+
+    const s = await sessionOf();
+    const parts = await storeParts(s, [Buffer.from('abcd')]);
+    expect(await rejection(storage.assemble(s, parts, { dir: '../outside', contentType: 'text/plain', declaredSha256: null }))).to.be.instanceOf(InvalidArgument);
+    expect(await rows('upload_blobs', { session_id: s.id, kind: 'file' })).to.deep.equal([]);
+  });
+
   it('reports every part whose stored bytes changed, and writes nothing after the first one', async () => {
     const file = text(10);
     const s = await sessionOf();
