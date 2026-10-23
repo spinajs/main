@@ -70,12 +70,12 @@ export function parseContentDigest(header: string): Map<string, Buffer> {
 
   while (!s.done) {
     const key = s.expect(KEY, 'expected an algorithm key').toLowerCase();
-    if (s.take(EQUALS) === null) s.fail(`digest '${key}' has no value`);
-    const value = decodeByteSequence(s, s.expect(BYTE_SEQUENCE, `digest '${key}' is not a byte sequence`));
+    if (s.take(EQUALS) === null) s.fail('digest has no value');
+    const value = decodeByteSequence(s, s.expect(BYTE_SEQUENCE, 'digest is not a byte sequence'));
     skipParameters(s);
 
     // RFC 8941 §4.2.2 lets the last duplicate win; two values for one algorithm are ambiguous, so they are refused.
-    if (digests.has(key)) s.fail(`digest '${key}' is given twice`);
+    if (digests.has(key)) s.fail('digest algorithm is given twice');
     digests.set(key, value);
 
     s.take(OWS);

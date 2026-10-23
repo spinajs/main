@@ -70,4 +70,10 @@ describe('parseContentDigest', () => {
   it('does not echo the header value in the error', () => {
     expect(() => parseContentDigest('sha-256=:secret-value:')).to.throw(InvalidArgument).with.property('message').that.does.not.contain('secret-value');
   });
+
+  for (const header of ['secret-key', 'secret-key=secret', 'secret-key=:AAAA:, secret-key=:AAAA:']) {
+    it(`does not echo the key of '${header}' in the error`, () => {
+      expect(() => parseContentDigest(header)).to.throw(InvalidArgument).with.property('message').that.does.not.contain('secret-key');
+    });
+  }
 });
