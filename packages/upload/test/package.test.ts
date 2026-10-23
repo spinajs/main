@@ -17,6 +17,8 @@ const sources = (dir: string): string[] =>
 const REFERENCE = /['"]@spinajs\/scheduler['"]/;
 
 const manifest = JSON.parse(read(join(ROOT, 'package.json'))) as Record<string, Record<string, unknown>>;
+// Internal pins follow the lockstep version, which bump-all.mjs moves on every release.
+const VERSION = manifest.version as unknown as string;
 
 describe('@spinajs/upload package', () => {
   it('imports @spinajs/scheduler only from the ./scheduler subpath', () => {
@@ -36,13 +38,13 @@ describe('@spinajs/upload package', () => {
 
   it('declares @spinajs/scheduler as an optional peer, not as a dependency', () => {
     expect(manifest.dependencies).to.not.have.property('@spinajs/scheduler');
-    expect(manifest.peerDependencies).to.include({ '@spinajs/scheduler': '3.0.16' });
+    expect(manifest.peerDependencies).to.include({ '@spinajs/scheduler': VERSION });
     expect(manifest.peerDependenciesMeta).to.deep.include({ '@spinajs/scheduler': { optional: true } });
-    expect(manifest.devDependencies).to.include({ '@spinajs/scheduler': '3.0.16' });
+    expect(manifest.devDependencies).to.include({ '@spinajs/scheduler': VERSION });
   });
 
   it('depends on @spinajs/cli for the upload:sweep command', () => {
-    expect(manifest.dependencies).to.include({ '@spinajs/cli': '3.0.16' });
+    expect(manifest.dependencies).to.include({ '@spinajs/cli': VERSION });
   });
 
   it('exports ./scheduler from both builds', () => {
