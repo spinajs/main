@@ -80,6 +80,21 @@ describe('UploadController over HTTP: the unread body of a refused part', functi
     expect([res.status, codeOf(res.body), res.headers.connection]).to.deep.equal([404, 'upload.not_found', 'keep-alive']);
   });
 
+  it('bounds the drain of an unknown session by upload.limits.maxPartSize (64 in the test config)', async () => {
+    const within = raw(`${BASE}/${MISSING}/parts/1`, { 'content-length': 64 });
+    within.write(Buffer.alloc(32, 97));
+    await wait(300);
+    expect(within.answered()).to.eq(false);
+    within.end(Buffer.alloc(32, 97));
+    const drained = await within.response;
+    expect([drained.status, drained.headers.connection]).to.deep.equal([404, 'keep-alive']);
+
+    const over = raw(`${BASE}/${MISSING}/parts/1`, { 'content-length': 65 });
+    over.write(Buffer.alloc(2, 97));
+    const closed = await over.response;
+    expect([closed.status, codeOf(closed.body), closed.headers.connection]).to.deep.equal([404, 'upload.not_found', 'close']);
+  });
+
   it('drains the body when the class policy refuses before the action', async () => {
     const exchange = raw(`${BASE}/${id}/parts/1`, { 'content-length': 4, 'content-digest': digestOf(partOf(file, 1)), 'x-test-policy': 'deny' });
     exchange.write(Buffer.from('ab'));

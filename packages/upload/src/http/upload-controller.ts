@@ -1,9 +1,9 @@
 import type { Readable } from 'node:stream';
-import { Config, Configuration } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 import { Autoinject } from '@spinajs/di';
 import { ActionRefused } from '@spinajs/hooks';
 import { Log, Logger } from '@spinajs/log';
-import { BaseController, Body, ContentDigest, Del, Get, HTTP_STATUS_CODE, Head, Json, OnError, Param, Post, Put, Req, RequestStream } from '@spinajs/http';
+import { BaseController, Body, ContentDigest, Del, Get, HTTP_STATUS_CODE, Head, Json, OnError, Param, Post, Put, Req, RequestStream, answeredAsServerError } from '@spinajs/http';
 import type { ErrorContext, IResponseHeader, Request } from '@spinajs/http';
 
 import { UPLOAD_MAX_PART_BYTES } from '../constants.js';
@@ -14,6 +14,7 @@ import { UploadService } from '../service.js';
 import type { AllowedTypes, CompleteInput, UploadConfig, UploadLimits, UploadStateView } from '../types.js';
 import { CompleteUploadDto, CreateUploadDto } from './dto.js';
 import { hookRefusalResponse, uploadErrorResponse } from './error-responses.js';
+import type { UploadErrorBody } from './error-responses.js';
 import { declaredLength, settleUnreadBody } from './request-body.js';
 
 export type UploadAction = 'create' | 'read' | 'putPart' | 'complete' | 'abort';
@@ -24,14 +25,11 @@ export interface UploadProviders {
   readonly files: string;
 }
 
+/** The body of every error the framework would answer as a 500 (see the class's last `@OnError`). */
+export const UPLOAD_INTERNAL_ERROR: Readonly<UploadErrorBody> = Object.freeze({ code: 'upload.internal', message: 'Internal error' });
+
 // Drain bound of a refused part: its expected size once putPart knows it, else the configured maximum part size.
 const partBounds = new WeakMap<object, number>();
-
-/** Route-level handler of putPart: every refusal, from the policy stage on, drains or closes the unread body first. */
-async function settleRefusedPart(_err: Error, ctx: ErrorContext): Promise<void> {
-  const configured = ctx.container.get(Configuration)?.get<number>('upload.limits.maxPartSize') ?? 0;
-  await settleUnreadBody(ctx.req, ctx.res, partBounds.get(ctx.req) ?? configured);
-}
 
 const stateHeaders = (view: UploadStateView): IResponseHeader[] => [
   { Name: 'Upload-Offset', Value: view.offset },
@@ -48,10 +46,14 @@ const completeInputOf = (dto: CompleteUploadDto | null): CompleteInput => (dto?.
  * The upload routes of spec §3 (spec §6.5). An app subclasses this with its own `@BasePath`, in its own controllers
  * dir; the package lists none and this file is in none (http/src/controller-sources.ts:25-41), so it is never mounted
  * by itself. `authorize` is abstract, so a subclass that leaves it out does not compile (fail closed, spec D7).
- * A subclass's own class-level `@OnError` runs before these two (http/src/decorators.ts:184-200).
+ * A subclass's own class-level `@OnError` runs before these (http/src/decorators.ts:184-200); the last one answers
+ * every error the framework would answer as a 500 with {@link UPLOAD_INTERNAL_ERROR}, so no path or stack goes out
+ * (and the app's `http.errors.handlers` never see those errors).
+ * Read {@link UploadController.ownerOf} before shipping a multi-user app: its default leaves every session unscoped.
  */
 @OnError(UploadError, uploadErrorResponse)
 @OnError(ActionRefused, hookRefusalResponse)
+@OnError(Error, (err, ctx) => UploadController.answerInternalError(err, ctx))
 export abstract class UploadController extends BaseController {
   @Autoinject(UploadService)
   protected Uploads: UploadService;
@@ -94,8 +96,9 @@ export abstract class UploadController extends BaseController {
     return new Json(await this.Uploads.state(await this.sessionFor('read', upload, req)));
   }
 
+  // A route handler, so it runs before the class handlers and the drain precedes every answer.
   @Put(':upload/parts/:part')
-  @OnError(Error, settleRefusedPart)
+  @OnError(Error, (_err, ctx) => UploadController.settleRefusedPart(ctx))
   public async putPart(@Param() upload: string, @Param() part: number, @RequestStream({ maxBytes: UPLOAD_MAX_PART_BYTES }) body: NodeJS.ReadableStream, @ContentDigest() digest: Map<string, Buffer>, @Req() req: Request) {
     try {
       const session = await this.sessionFor('putPart', upload, req);
@@ -133,7 +136,17 @@ export abstract class UploadController extends BaseController {
   /** Fail closed: throw Forbidden or ResourceNotFound to refuse. `session` is absent for 'create'. */
   protected abstract authorize(action: UploadAction, req: Request, session?: UploadSession): Promise<void>;
 
-  /** Owner stamped on new sessions and used to scope every lookup; null leaves both unscoped. */
+  /**
+   * Owner stamped on new sessions and used to scope every lookup.
+   *
+   * `null` means unscoped: the request can address every session, whoever created it, and the per-owner cap on open
+   * sessions (`upload.limits.maxOpenSessionsPerOwner`) does not apply. The default returns `null`, which suits only a
+   * single-tenant app that wants exactly that.
+   *
+   * An app with users must override it to return the principal's id, and must throw (e.g. `AuthenticationFailed`, a 401) when the
+   * request has no principal instead of returning `null`; a `null` there fails open. `authorize` should compare
+   * `session.owner` with the principal as well, in depth, rather than rely on the scoped lookup alone.
+   */
   protected async ownerOf(_req: Request): Promise<string | null> {
     return null;
   }
@@ -174,6 +187,24 @@ export abstract class UploadController extends BaseController {
 
   /** Runs once, for the DELETE that aborted the session. */
   protected async onAborted(_session: UploadSession, _req: Request): Promise<void> {}
+
+  /** Every refusal of putPart, from the policy stage on, drains or closes the unread body first. */
+  private static async settleRefusedPart(ctx: ErrorContext): Promise<void> {
+    const controller = ctx.controller as UploadController;
+    await settleUnreadBody(ctx.req, ctx.res, partBounds.get(ctx.req) ?? controller.UploadOptions.limits.maxPartSize);
+  }
+
+  /**
+   * The framework's 500 body spreads the error's own properties (an IOFail's path, a Node error's syscall) and, unless
+   * `configuration.isProduction` is set, its stack. Errors it answers with a status of their own pass through.
+   */
+  private static answerInternalError(err: Error, ctx: ErrorContext): Json<UploadErrorBody> | undefined {
+    if (!answeredAsServerError(err)) return undefined;
+    const upload = ctx.req.params?.upload;
+    const fields = typeof upload === 'string' ? { uploadId: upload } : {};
+    (ctx.controller as UploadController).Log.error({ ...fields, stage: ctx.stage, error: err }, 'Upload request failed at the ${stage} stage; answered as upload.internal');
+    return new Json({ ...UPLOAD_INTERNAL_ERROR }, { StatusCode: HTTP_STATUS_CODE.INTERNAL_ERROR });
+  }
 
   // The abort is committed and its event emitted, so a failing handler is logged, not answered: a retried DELETE finds
   // the session aborted and would not run it again.
