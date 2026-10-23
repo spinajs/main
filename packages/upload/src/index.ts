@@ -7,3 +7,7 @@ export * from './limits.js';
 export * from './schema.js';
 export * from './bootstrap.js';
 export * from './file-type.js';
+export * from './models/index.js';
+export * from './migrations/index.js';
+export * from './store.js';
+export * from './view.js';
