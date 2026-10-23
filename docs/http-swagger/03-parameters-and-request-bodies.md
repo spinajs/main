@@ -12,10 +12,11 @@ The builder turns every route argument into a path, query, header or cookie para
    - body arguments are collected for the request body;
    - a path argument is bound to one placeholder by `resolvePathPlaceholder()`, or the build throws;
    - query, header and cookie arguments become parameters, in argument order;
+   - a type registered with `registerOpenApiParamType()` is described by its registration ([Custom route-arg types](#custom-route-arg-types));
    - any other type is dropped.
 3. **Path parameters.** One required parameter per placeholder, in template order. A bound argument gives it a schema and a description; an unbound placeholder is `{ type: 'string' }`.
 4. **Other parameters** follow the path ones.
-5. **Body.** `buildRequestBody()` builds `requestBody` from the collected body arguments. A route with no body argument gets its `requestBody` from the method's `@body {Type}` tag instead, when it has one.
+5. **Body.** A registered body argument, such as `@RequestStream()`, becomes the whole `requestBody`. Otherwise `buildRequestBody()` builds it from the collected body arguments. A route with no body argument gets its `requestBody` from the method's `@body {Type}` tag instead, when it has one.
 6. Named types in the body are swapped for `$ref`s to components; see [Named schemas and schema providers](04-named-schemas-and-schema-providers.md).
 
 ## Decorators
@@ -30,6 +31,8 @@ The builder turns every route argument into a path, query, header or cookie para
 | `@Body()`, `@BodyField()`, `@Model()` | parameter | none | JSON body, or a property of it |
 | `@RawBody()` | parameter | none | JSON body with an unconstrained schema (`{}`) |
 | `@FromXml()` | parameter | parser options | `application/xml` body |
+| `@RequestStream()` (`@spinajs/http`) | parameter | `maxBytes` | `application/octet-stream` body, `{ type: 'string', format: 'binary' }`, required |
+| `@ContentDigest()` (`@spinajs/http`) | parameter | `required`, `algorithms` | Header parameter `content-digest`, `{ type: 'string' }`, required when `{ required: true }` |
 | `@Form()`, `@FormField()` | parameter | form options | `multipart/form-data` body fields |
 | `@File()`, `@Files()`, `@CsvFile()`, `@JsonFile()` | parameter | upload options, `required` | `multipart/form-data` file field |
 | `@AsModel()` (`@spinajs/orm-http`) | parameter | none | JSON body, like `@Body()` |
@@ -80,14 +83,101 @@ A placeholder without an argument is still documented, so a handler that never r
 | Several, none a form or file | `application/json` | `{ type: 'object', properties }`, one property per argument name |
 | Any `@File()`, `@Files()`, `@Form()`, `@FormField()`, `@CsvFile()`, `@JsonFile()` | `multipart/form-data` | `{ type: 'object', properties }`, one property per argument name |
 | Any `@FromXml()`, none a form or file | `application/xml` | As for JSON |
+| One registered body, eg. `@RequestStream()` | the registration's `contentType`, eg. `application/octet-stream` | the registration's schema; `required` from the registration, default `true` |
 | None, and a `@body {Type} description` tag on the method | `application/json` | The schema of `Type` ([type strings](02-documenting-routes.md#type-strings)), named types as `$ref`s; `description` from the tag; `required: true` |
 | None, and no `@body` tag | | No `requestBody` |
 
 - A `@Form()` DTO is not nested under its argument name: its properties and its `required` list are lifted to the root, as the runtime reads them.
 - `@File({ required: true })` puts the argument name into the body's `required` list.
 - `@CsvFile()` and `@JsonFile()` are one binary file, whatever the argument type says about the parsed rows.
-- The `requestBody` itself is always `required: true`.
+- A `requestBody` built from body arguments is always `required: true`; a registered body takes `required` from its registration.
+- A registered body is the whole body: it wins over `@body`, and a route that also has any other body argument fails the build.
 - A body argument wins over `@body`: the tag is ignored on a route that has one. Use `@body` only for a handler that reads its JSON body from `@Req()`. The `@spinajs/authn-http` routes take `@Body()` DTOs, so their request bodies come from the DTO schemas ([Input validation](../authn-http/24-input-validation.md)).
+
+## Custom route-arg types
+
+A route argument of your own (a `RouteArgs` subclass, see [Custom route arguments](../http/05-custom-route-arguments.md)) has a `Type` the builder does not know, and is dropped from the document. `registerOpenApiParamType(type, describe)` tells the builder how to document it.
+
+1. Call `registerOpenApiParamType('<your IRouteParameter.Type>', describe)` at import, in the module that defines the argument, or in any module loaded before the first build.
+2. On every build, for each argument of an unmapped type, the builder calls `describe(param)`. It returns one `OpenApiParamDescription`, an array of them, or `[]` to document nothing.
+3. Each description becomes:
+   - `in: 'header' | 'query' | 'cookie'`: a parameter named `name`, else the argument name; `required` only when the description says `true`;
+   - `in: 'path'`: the path parameter of the placeholder `name` (else the argument name), always required. A name that is no placeholder of the route fails the build, and so does a second argument for one placeholder;
+   - `in: 'body'`: the whole `requestBody`, with `content: { [contentType]: { schema } }`, `required` from the description (default `true`), and the argument's `@param` text as its description.
+
+```ts
+export type OpenApiParamDescription =
+  | { in: 'header' | 'query' | 'path' | 'cookie'; name?: string; required?: boolean; description?: string; schema: object }
+  | { in: 'body'; contentType: string; required?: boolean; description?: string; schema: object };
+
+export function registerOpenApiParamType(type: string, describe: (param: IRouteParameter) => OpenApiParamDescription | OpenApiParamDescription[]): void;
+```
+
+| Rule | Effect |
+| --- | --- |
+| A type the builder maps itself (`FromQuery`, `FromBody`, the file and form types, `FromDbModel`, `FilterModelRouteArg`, the internal types) | never consults the registry: its mapping carries runtime contracts |
+| A second registration of a type | replaces the first |
+| A registered body next to any other body argument (`@Body()`, `@File()`, a second registered body) | the build fails: one request has one body. Move the other values to the path, query or headers, or split the route |
+| A registered body and a `@body` JSDoc tag | the registered body wins |
+| A `@param` description of the argument | wins over the registration's `description` |
+| `describe()` returns a shared `schema` object | it is cloned per build, so editing the built document never changes it |
+
+`@spinajs/http-swagger` registers the two raw-body arguments of `@spinajs/http`:
+
+| Type | Documented as |
+| --- | --- |
+| `RequestStreamArg` (`@RequestStream()`) | the request body, `application/octet-stream`, `{ type: 'string', format: 'binary' }`, required |
+| `ContentDigestArg` (`@ContentDigest()`) | header `content-digest`, `{ type: 'string' }`, required when the decorator has `{ required: true }` |
+
+The registry is a module-level map, not a DI service: nothing to resolve or replace.
+
+### Document a tenant header argument
+
+```ts sample
+import { Injectable } from '@spinajs/di';
+import { BaseController, BasePath, Get, IRoute, IRouteArgsResult, IRouteCall, IRouteParameter, Ok, Parameter, Request, Route, RouteArgs } from '@spinajs/http';
+import { registerOpenApiParamType } from '@spinajs/http-swagger';
+import * as express from 'express';
+
+const TENANT = { type: 'string', pattern: '^[a-z0-9-]{2,32}$' };
+
+export function TenantId(header = 'x-tenant-id') {
+  return Route(Parameter('TenantIdArg', TENANT, { header }));
+}
+
+@Injectable()
+export class TenantIdArg extends RouteArgs {
+  public get SupportedType(): string {
+    return 'TenantIdArg';
+  }
+
+  public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter<{ header: string }>, req: Request, _res: express.Response, route?: IRoute): Promise<IRouteArgsResult> {
+    const header = param.Options?.header ?? 'x-tenant-id';
+    const tenant = await this.tryHydrateParam(req.headers[header], { ...param, Options: { required: true } }, route!);
+    return { CallData: callData, Args: tenant };
+  }
+}
+
+registerOpenApiParamType('TenantIdArg', (param) => ({
+  in: 'header',
+  name: (param.Options as { header?: string } | null)?.header ?? 'x-tenant-id',
+  required: true,
+  description: 'Tenant the request acts for',
+  schema: TENANT,
+}));
+
+/** @tags Invoices */
+@BasePath('invoices')
+export class InvoicesController extends BaseController {
+  /** List the tenant's invoices */
+  @Get('/')
+  public list(@TenantId() tenant: string) {
+    return new Ok({ tenant, items: [] });
+  }
+}
+```
+
+`GET /invoices` is documented with a required `x-tenant-id` header parameter instead of nothing.
 
 ## `@spinajs/orm-http` arguments
 
@@ -116,6 +206,7 @@ Documented as a query parameter with JSON content: `{ op: 'and' | 'or', filters:
 
 - The builder reads `@spinajs/orm` and `@spinajs/orm-http` metadata through global symbols (`Symbol.for('MODEL_DESCRIPTOR')`, `Symbol.for('orm-http:relations')`). Neither package is a dependency.
 - One unreadable route stops the documentation of its controller at that route, and the whole build fails after every controller was tried.
+- The route-arg type registry is global and filled at import: a registration must be loaded before the first build, and stays for the life of the process.
 
 ## Best practices
 

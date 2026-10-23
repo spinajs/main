@@ -21,6 +21,7 @@
 | --- | --- | --- | --- | --- |
 | `OpenApiBuilder` | class `OpenApiBuilder`, `@NewInstance()`; `SwaggerService.buildSpec()` resolves a new one with `DI.resolve(OpenApiBuilder, [config])` | `OpenApiBuilder` | none | Subclass, override `addController()` and `build()`, and `DI.register(Sub).as(OpenApiBuilder)` before the first build |
 | `SchemaProvider` list | `@Autoinject(SchemaProvider)` on `protected SchemaProviders: SchemaProvider[]`, read on use | every `@Injectable(SchemaProvider)` class | see [Named schemas and schema providers](04-named-schemas-and-schema-providers.md#shipped-providers) | Register another provider |
+| Route-arg type registry | not a DI service: a module-level map filled by `registerOpenApiParamType()` at import, read per argument on every build | `RequestStreamArg` and `ContentDigestArg` of `@spinajs/http` | your registrations | `registerOpenApiParamType(type, describe)`; a later call for a type replaces it. See [Custom route-arg types](03-parameters-and-request-bodies.md#custom-route-arg-types). |
 
 The constructor takes the config as its only argument. `addController()` and `build()` are the only public methods; everything else is private, so a subclass shapes the document through these two.
 

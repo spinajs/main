@@ -18,7 +18,7 @@ Installing the package is enough: `@spinajs/configuration` loads its config file
 | --- | --- |
 | [Spec and UI endpoints](01-spec-and-ui-endpoints.md) | `GET /docs/swagger.json`, the Swagger UI page, `http.swagger` config, custom templates and custom docs controllers |
 | [Documenting routes](02-documenting-routes.md) | JSDoc tags read per route, paths, operation ids, responses, examples, security, file downloads |
-| [Parameters and request bodies](03-parameters-and-request-bodies.md) | Which decorator lands where, strict path placeholders, JSON and multipart bodies, `orm-http` arguments |
+| [Parameters and request bodies](03-parameters-and-request-bodies.md) | Which decorator lands where, strict path placeholders, JSON, multipart and raw bodies, custom route-arg types (`registerOpenApiParamType`), `orm-http` arguments |
 | [Named schemas and schema providers](04-named-schemas-and-schema-providers.md) | How type names become `components.schemas`, request and response flavours, custom `SchemaProvider` |
 | [Policies and access](05-policies-and-access.md) | `x-policies`, the Policies section, `x-authz-*` extensions |
 | [Swagger service](06-swagger-service.md) | `SwaggerService`: build, cache, invalidate, failure; replacing and extending it |
