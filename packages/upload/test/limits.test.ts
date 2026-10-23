@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidOption } from '@spinajs/exceptions';
 
 import { POSITIVE_DURATION_PATTERN, UPLOAD_ERRORS, UploadError, contiguousOffset, effectiveLimits, expectedPartSize, isUploadError, missingParts, parseDuration, parsePositiveDuration, partCountOf, planParts } from '../src/index.js';
 import type { UploadLimits } from '../src/index.js';
@@ -10,14 +10,14 @@ const BASE: UploadLimits = { maxFileSize: 1000, partSize: 100, minPartSize: 10, 
 describe('durations, limits, part math and error codes', () => {
   it('parses durations in ms, s, m, h, d and w', () => {
     expect(['500ms', '10s', '30m', '24h', '7d', '1w', '1.5h'].map((d) => parseDuration(d))).to.deep.equal([500, 10_000, 1_800_000, 86_400_000, 604_800_000, 604_800_000, 5_400_000]);
-    expect(() => parseDuration('soon', 'upload.limits.sessionTtl')).to.throw(InvalidArgument, /upload\.limits\.sessionTtl/);
+    expect(() => parseDuration('soon', 'upload.limits.sessionTtl')).to.throw(InvalidOption, /upload\.limits\.sessionTtl/);
   });
 
   it('parses a positive duration as the schema pattern accepts it: never zero, at least 1 ms', () => {
     // eslint-disable-next-line security/detect-non-literal-regexp -- the package's own constant pattern
     const positive = new RegExp(POSITIVE_DURATION_PATTERN);
     for (const zero of ['0s', '0ms', '0.0h', '00m']) {
-      expect(() => parsePositiveDuration(zero, 'upload.assembly.staleAfter'), zero).to.throw(InvalidArgument, /upload\.assembly\.staleAfter/);
+      expect(() => parsePositiveDuration(zero, 'upload.assembly.staleAfter'), zero).to.throw(InvalidOption, /upload\.assembly\.staleAfter/);
       expect(positive.test(zero), zero).to.eq(false);
     }
     for (const [value, ms] of [['30m', 1_800_000], ['0.5s', 500], ['0.0001ms', 1]] as const) {

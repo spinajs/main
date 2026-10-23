@@ -6,7 +6,7 @@ import { PassThrough, Readable, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { InvalidConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOption, ResourceDuplicated } from '@spinajs/exceptions';
 import { getFs } from '@spinajs/fs';
 import { LogLevel } from '@spinajs/log';
 import { DateTime } from 'luxon';
@@ -185,13 +185,13 @@ describe('UploadStorage', () => {
 
   it('refuses a file directory with a .. segment, and records or writes nothing for it', async () => {
     for (const dir of ['..', '../outside', 'uploads/../../outside', 'uploads/..', 'uploads\\..\\..\\outside']) {
-      expect(() => storage.fileKey(dir, 'notes.txt'), dir).to.throw(InvalidArgument, /\.\./);
+      expect(() => storage.fileKey(dir, 'notes.txt'), dir).to.throw(InvalidOption, /\.\./);
     }
     expect(storage.fileKey('/projects/p1..x/files/', 'notes.txt')).to.match(/^projects\/p1\.\.x\/files\/[0-9a-f-]{36}\.txt$/);
 
     const s = await sessionOf();
     const parts = await storeParts(s, [Buffer.from('abcd')]);
-    expect(await rejection(storage.assemble(s, parts, { dir: '../outside', contentType: 'text/plain', declaredSha256: null }))).to.be.instanceOf(InvalidArgument);
+    expect(await rejection(storage.assemble(s, parts, { dir: '../outside', contentType: 'text/plain', declaredSha256: null }))).to.be.instanceOf(InvalidOption);
     expect(await rows('upload_blobs', { session_id: s.id, kind: 'file' })).to.deep.equal([]);
   });
 

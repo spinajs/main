@@ -5,7 +5,7 @@ import type { Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { Config, InvalidConfiguration } from '@spinajs/configuration';
 import { AsyncService, Autoinject, DI, Injectable, Singleton } from '@spinajs/di';
-import { InvalidArgument, LimitExceeded } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOption, LimitExceeded } from '@spinajs/exceptions';
 import { ByteLimitStream, DigestStream, fsService, publishedFs } from '@spinajs/fs';
 import type { IWriteStreamOptions, fs } from '@spinajs/fs';
 import { Log, Logger } from '@spinajs/log';
@@ -132,9 +132,9 @@ export class UploadStorage extends AsyncService {
     return `${this.sessionPrefix(sessionId)}/${String(part).padStart(5, '0')}-${randomUUID()}`;
   }
 
-  /** A `..` segment is refused: a provider may resolve it and write outside the directory. A backslash separates too, as fsNative does on Windows. */
+  /** A `..` segment is refused: a provider may resolve it and write outside the directory. A backslash separates too, as fsNative does on Windows. InvalidOption, not InvalidArgument: the directory is server configuration, and http answers InvalidArgument as a client 400. */
   public fileKey(dir: string, name: string): string {
-    if (dir.split(/[\\/]/).includes('..')) throw new InvalidArgument(`upload file directory ${dir} must not contain a .. segment`);
+    if (dir.split(/[\\/]/).includes('..')) throw new InvalidOption(`upload file directory ${dir} must not contain a .. segment`);
     return `${dir.replace(/^\/+|\/+$/g, '')}/${randomUUID()}${extensionOf(name)}`;
   }
 

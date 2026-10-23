@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { InvalidConfiguration } from '@spinajs/configuration';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidOption } from '@spinajs/exceptions';
 import { ActionHook, ActionRefused } from '@spinajs/hooks';
 import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
 import { DateTime } from 'luxon';
@@ -72,7 +72,7 @@ describe('UploadService.create, get and state', () => {
   });
 
   it('refuses a controller sessionTtl of zero, which would open an expired session', async () => {
-    expect(await rejection(service.create(input({ limits: { sessionTtl: '0s' } })))).to.be.instanceOf(InvalidArgument);
+    expect(await rejection(service.create(input({ limits: { sessionTtl: '0s' } })))).to.be.instanceOf(InvalidOption);
     expect(await rows('upload_sessions')).to.deep.equal([]);
   });
 
