@@ -3,7 +3,7 @@ import { HTTP_STATUS_CODE, Json } from '@spinajs/http';
 
 import type { UploadError, UploadErrorDetails } from '../errors.js';
 
-/** What every upload refusal answers with; spec §3 makes every response except HEAD JSON. */
+/** What every upload refusal answers with; every response except HEAD is JSON (docs/upload/01-protocol.md). */
 export interface UploadErrorBody {
   code: string;
   message: string;

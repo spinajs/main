@@ -2,7 +2,7 @@ import { Schema } from '@spinajs/validation';
 
 const SHA256_HEX = { type: 'string', pattern: '^[0-9a-fA-F]{64}$' };
 
-/** Body of `POST {base}` (spec §3): its shape only. The service checks the limits, the name's type and the owner's cap. */
+/** Body of `POST {base}`: its shape only. The service checks the limits, the name's type and the owner's cap. */
 export const CREATE_UPLOAD_SCHEMA = {
   $id: 'upload.CreateUploadBody',
   type: 'object',
@@ -17,7 +17,7 @@ export const CREATE_UPLOAD_SCHEMA = {
   },
 };
 
-/** Body of `POST {base}/:upload/complete` (spec §3): the file's sha-256, when it was not declared at create. */
+/** Body of `POST {base}/:upload/complete`: the file's sha-256, when it was not declared at create. */
 export const COMPLETE_UPLOAD_SCHEMA = {
   $id: 'upload.CompleteUploadBody',
   type: 'object',

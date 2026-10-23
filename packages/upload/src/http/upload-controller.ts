@@ -43,9 +43,9 @@ const locationOf = (req: Request, id: string): string => `${req.originalUrl.spli
 const completeInputOf = (dto: CompleteUploadDto | null): CompleteInput => (dto?.sha256 === undefined ? {} : { sha256: dto.sha256 });
 
 /**
- * The upload routes of spec §3 (spec §6.5). An app subclasses this with its own `@BasePath`, in its own controllers
+ * The upload routes (docs/upload/01-protocol.md). An app subclasses this with its own `@BasePath`, in its own controllers
  * dir; the package lists none and this file is in none (http/src/controller-sources.ts:25-41), so it is never mounted
- * by itself. `authorize` is abstract, so a subclass that leaves it out does not compile (fail closed, spec D7).
+ * by itself. `authorize` is abstract, so a subclass that leaves it out does not compile (fail closed).
  * A subclass's own class-level `@OnError` runs before these (http/src/decorators.ts:184-200); the last one answers
  * every error the framework would answer as a 500 with {@link UPLOAD_INTERNAL_ERROR}, so no path or stack goes out
  * (and the app's `http.errors.handlers` never see those errors).
@@ -65,7 +65,7 @@ export abstract class UploadController extends BaseController {
   protected Log: Log;
 
   // Neither create nor complete runs inside a caller's transaction: the service emits its events after its own
-  // commit (spec §6.6), and an outer transaction would let them out before the data they report is committed.
+  // commit, and an outer transaction would let them out before the data they report is committed.
   @Post('/')
   public async create(@Body({ required: true }) dto: CreateUploadDto, @Req() req: Request) {
     await this.authorize('create', req);
@@ -126,7 +126,7 @@ export abstract class UploadController extends BaseController {
     return new Json(null, { StatusCode: HTTP_STATUS_CODE.NO_CONTENT });
   }
 
-  /** Owner-scoped, so a missing and a foreign session both answer upload.not_found before authorize runs (spec §6.5). */
+  /** Owner-scoped, so a missing and a foreign session both answer upload.not_found before authorize runs. */
   protected async sessionFor(action: Exclude<UploadAction, 'create'>, id: string, req: Request): Promise<UploadSession> {
     const session = await this.Uploads.get(id, await this.ownerOf(req));
     await this.authorize(action, req, session);
@@ -166,7 +166,7 @@ export abstract class UploadController extends BaseController {
     return '*';
   }
 
-  /** Accept a name whose extension mime-types does not know (spec §4.3). */
+  /** Accept a name whose extension mime-types does not know (docs/upload/04-extending-the-controller.md). */
   protected async allowUnknownType(_req: Request): Promise<boolean> {
     return false;
   }

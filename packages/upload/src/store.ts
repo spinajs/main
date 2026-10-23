@@ -132,7 +132,8 @@ export class UploadStore {
    * so its concurrent first creates are not serialised there: the cap is soft (docs/upload/06-limits.md).
    *
    * A transaction the database aborts on a lock conflict (deadlock, lock wait timeout, serialization failure) is retried
-   * once, unless it runs inside a caller's transaction, which the conflict has already rolled back.
+   * once, unless it runs inside a caller's transaction: the caller owns that transaction and its retry (MySQL 1205 rolls back
+   * only the statement, and a Postgres savepoint rollback leaves the outer transaction usable).
    */
   public async insertSessionWithinCap(row: NewSessionRow & { readonly owner: string }, cap: number): Promise<boolean> {
     const attempt = () =>
