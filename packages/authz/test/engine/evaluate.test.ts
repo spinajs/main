@@ -274,6 +274,14 @@ describe('engine/evaluate', () => {
       expect(matchGlob('*'.repeat(401), text)).to.equal(undefined);
       expect(matchLike('%'.repeat(401), text)).to.equal(undefined);
     });
+
+    it('the work cap makes the comparison UNKNOWN', async () => {
+      const text = 'a'.repeat(10000);
+      expect(await run(cmp('x', 'wildcard', '*'.repeat(401)), { x: text })).to.equal(undefined);
+      expect(await run(cmp('x', 'like', '%'.repeat(401)), { x: text })).to.equal(undefined);
+      expect(await run(cmp('x', 'glob', '*'.repeat(401)), { x: text })).to.equal(undefined);
+      expect(await run({ op: 'not', arg: cmp('x', 'glob', '*'.repeat(401)) }, { x: text })).to.equal(undefined);
+    });
   });
 
   describe('relation', () => {
