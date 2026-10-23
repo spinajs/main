@@ -201,3 +201,7 @@ graphify-out/
 !/docs/util/
 !/docs/validation/
 # docs-packages-end
+
+# Stryker mutation runs ( scripts/coverage/minimal-tests.mjs )
+.stryker-tmp/
+packages/*/reports/mutation/

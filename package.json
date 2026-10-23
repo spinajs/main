@@ -36,6 +36,8 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
     "@eslint/js": "^10.0.1",
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/mocha-runner": "^10.0.0",
     "@types/bunyan": "^1.8.8",
     "@types/chai": "^4.3.4",
     "@types/chai-as-promised": "^7.1.5",
