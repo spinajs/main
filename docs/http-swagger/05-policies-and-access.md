@@ -106,7 +106,7 @@ export class StockController extends BaseController {
 }
 ```
 
-Both operations get `x-policies: ['OpeningHoursPolicy']`, the line ``- [`OpeningHoursPolicy`](#policy-openinghourspolicy) (controller) — Rejects calls outside the store's opening hours, 8:00 to 20:00 server time.``, and `info.description` gets the full JSDoc under `## Policies`.
+Both operations get `x-policies: ['OpeningHoursPolicy']`, a **Policies applied:** list whose `OpeningHoursPolicy (controller)` entry links to the policy's section and gives the first sentence of its JSDoc ("Rejects calls outside the store's opening hours, 8:00 to 20:00 server time."), and `info.description` gets the full JSDoc under `## Policies`.
 
 ## Related
 

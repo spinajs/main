@@ -3,7 +3,7 @@ import { DI, Injectable, PerInstanceCheck, ResolveException } from '@spinajs/di'
 import { Log, Logger } from '@spinajs/log-common';
 import { WriteStream } from 'fs';
 import { PassThrough } from 'stream';
-import { fs, IFsTempOptions, IFsUploadOptions, IStat, IZipResult } from './interfaces.js';
+import { fs, IFsTempOptions, IFsUploadOptions, IStat, IWriteStreamOptions, IZipResult } from './interfaces.js';
 import { MaxAgeTempCleanupStrategy, TempCleanupStrategy } from './temp-cleanup-strategy.js';
 import { getFs } from './helpers.js';
 
@@ -140,8 +140,8 @@ export class fsTemp extends fs {
     return this.Provider.write(path, data, encoding);
   }
 
-  protected doWriteStream(path: string, rStream?: BufferEncoding | NodeJS.ReadableStream, encoding?: BufferEncoding): Promise<WriteStream | PassThrough> {
-    return this.Provider.writeStream(path, rStream as NodeJS.ReadableStream | BufferEncoding, encoding);
+  protected doWriteStream(path: string, readStream: NodeJS.ReadableStream | undefined, options: IWriteStreamOptions): Promise<WriteStream | PassThrough> {
+    return readStream ? this.Provider.writeStream(path, readStream, options) : this.Provider.writeStream(path, options);
   }
 
   protected doExists(path: string): Promise<boolean> {

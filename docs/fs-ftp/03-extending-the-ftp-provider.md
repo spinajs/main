@@ -142,7 +142,7 @@ process.once('SIGTERM', () => {
 
 ### Add streaming uploads
 
-`fsFTP.doWriteStream()` throws. This subclass returns a `PassThrough` that `basic-ftp` uploads from, plus an `uploaded` promise that settles when the server confirms the transfer.
+`fsFTP.doWriteStream()` throws. This subclass returns a `PassThrough` that `basic-ftp` uploads from, plus an `uploaded` promise that settles when the server confirms the transfer. FTP's `STOR` overwrites and has no create-if-absent, so the subclass refuses `exclusive: true` with `MethodNotImplemented` instead of ignoring it.
 
 ```ts sample
 import { basename } from 'path';
@@ -150,7 +150,9 @@ import { PassThrough } from 'stream';
 import { createReadStream } from 'fs';
 import { pipeline } from 'stream/promises';
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
+import { MethodNotImplemented } from '@spinajs/exceptions';
 import { getFs } from '@spinajs/fs';
+import type { IWriteStreamOptions } from '@spinajs/fs';
 import { fsFTP } from '@spinajs/fs-ftp';
 
 export type FtpUploadStream = PassThrough & { uploaded: Promise<void> };
@@ -158,7 +160,12 @@ export type FtpUploadStream = PassThrough & { uploaded: Promise<void> };
 @Injectable('fs')
 @PerInstanceCheck()
 export class fsFTPStreaming extends fsFTP {
-  protected async doWriteStream(path: string, source?: BufferEncoding | NodeJS.ReadableStream, _encoding?: BufferEncoding): Promise<FtpUploadStream> {
+  protected async doWriteStream(path: string, source: NodeJS.ReadableStream | undefined, options: IWriteStreamOptions): Promise<FtpUploadStream> {
+    // STOR overwrites and FTP has no create-if-absent, so an exclusive write is refused rather than ignored
+    if (options.exclusive) {
+      throw new MethodNotImplemented('fsFTPStreaming cannot write exclusively');
+    }
+
     const pass = new PassThrough();
 
     await this._restoreRootDir();
@@ -167,7 +174,7 @@ export class fsFTPStreaming extends fsFTP {
     const upload = this.FtpClient.uploadFrom(pass, basename(path));
     upload.catch((err: Error) => pass.destroy(err));
 
-    if (source && typeof source !== 'string') {
+    if (source) {
       source.pipe(pass);
     }
 

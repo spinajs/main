@@ -1,10 +1,10 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
 import { IOFail, ResourceDuplicated } from '@spinajs/exceptions';
-import { constants, createReadStream, createWriteStream, existsSync, readFileSync, Stats } from 'fs';
+import { constants, createReadStream, createWriteStream, existsSync, readFileSync, Stats, WriteStream } from 'fs';
 import { rm, stat, readdir, rename, mkdir, access, open, appendFile, readFile, copyFile } from 'node:fs/promises';
 import { DateTime } from 'luxon';
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
-import { fs, IFsLocalOptions, IFsUploadOptions, IStat, IZipResult } from './interfaces.js';
+import { fs, IFsLocalOptions, IFsUploadOptions, IStat, IWriteStreamOptions, IZipResult } from './interfaces.js';
 import { basename, dirname, isAbsolute, join, parse, relative, resolve as pathResolve } from 'path';
 import { Log, Logger } from '@spinajs/log-common';
 import archiver from 'archiver';
@@ -186,21 +186,54 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     }
   }
 
-  protected doWriteStream(path: string, rStream?: BufferEncoding | NodeJS.ReadableStream, encoding?: BufferEncoding) {
-    const enc = typeof rStream === 'string' ? rStream : encoding;
-    const stream = createWriteStream(this.resolvePath(path), enc ? { encoding: enc } : {});
+  /** `options.exclusive` creates missing parent dirs and opens with 'wx', as doUpload's exclusive branch does with COPYFILE_EXCL. */
+  protected async doWriteStream(path: string, rStream: NodeJS.ReadableStream | undefined, options: IWriteStreamOptions): Promise<WriteStream> {
+    const p = this.resolvePath(path);
+    const streamOptions = options.encoding ? { encoding: options.encoding } : {};
+    const stream = options.exclusive ? await this.exclusiveWriteStream(path, p, streamOptions) : createWriteStream(p, streamOptions);
 
     // pipe ANY readable stream, not only fs.ReadStream instances - the contract accepts
     // NodeJS.ReadableStream ( PassThrough, http/s3 bodies etc. ), instanceof would
     // silently skip those and stall the caller
-    if (rStream && typeof rStream !== 'string' && typeof rStream.pipe === 'function') {
+    if (rStream) {
       // pipe() does NOT forward errors - without this, a failing source leaves the
       // write stream open forever and the caller waiting for 'close' hangs
       rStream.on('error', (err) => stream.destroy(err instanceof Error ? err : new IOFail(String(err))));
       rStream.pipe(stream);
     }
 
-    return Promise.resolve(stream);
+    return stream;
+  }
+
+  private async exclusiveWriteStream(path: string, fullPath: string, streamOptions: { encoding?: BufferEncoding }): Promise<WriteStream> {
+    const handle = await this.openExclusive(path, fullPath);
+    try {
+      return handle.createWriteStream(streamOptions);
+    } catch (err) {
+      // 'wx' already created the file: left behind, it would refuse every later exclusive write of this key.
+      await handle.close().catch(() => {});
+      await rm(fullPath, { force: true }).catch(() => {});
+      throw new IOFail(`Cannot write to file ${path}`, err);
+    }
+  }
+
+  private async openExclusive(path: string, fullPath: string): Promise<FileHandle> {
+    // A separate step: mkdir reports a parent that is a file as EEXIST (ENOTDIR for a deeper ancestor on Linux),
+    // which must not read as "the target exists".
+    try {
+      await mkdir(dirname(fullPath), { recursive: true });
+    } catch (err) {
+      throw new IOFail(`Cannot create the directory of ${path}`, err);
+    }
+
+    try {
+      return await open(fullPath, 'wx');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new ResourceDuplicated(`Cannot write ${path}, it already exists`, err);
+      }
+      throw new IOFail(`Cannot open file ${path} for writing`, err);
+    }
   }
 
   /**

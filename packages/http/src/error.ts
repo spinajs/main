@@ -61,6 +61,20 @@ function bodyFailureMessage(err: any, errorMap: Map<string, Constructor<HttpResp
     }
 }
 
+/**
+ * Whether {@link __handle_error__} answers `err` with the generic 500: its response is `ServerError` or none is mapped.
+ * That body spreads the error's own properties and, unless `configuration.isProduction` is set, its stack.
+ */
+export function answeredAsServerError(err: unknown): boolean {
+    const errorMap = DI.get<Map<string, Constructor<HttpResponse>>>('__http_error_map__') ?? null;
+    if (bodyFailureMessage(err, errorMap)) {
+        return false;
+    }
+
+    const response = errorMap ? __resolve_error_response__(errorMap, err) : null;
+    return response === null || response === ServerError || response.prototype instanceof ServerError;
+}
+
 export function __handle_error__() {
 
     const logger = DI.resolve(Log, ['http']);

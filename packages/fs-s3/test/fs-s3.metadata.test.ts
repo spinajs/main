@@ -4,19 +4,7 @@ import { expect } from 'chai';
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
 import { fsS3 } from './../src/index.js';
-
-const ENDPOINT = process.env.FS_S3_TEST_ENDPOINT ?? 'http://localhost:4566';
-
-async function reachable(): Promise<boolean> {
-  try {
-    return (await fetch(`${ENDPOINT}/_localstack/health`, { signal: AbortSignal.timeout(2000) })).ok;
-  } catch {
-    return false;
-  }
-}
-
-// fsS3 logs through @Logger; these tests have no log module.
-const quiet = new Proxy({}, { get: (_t, key) => (key === 'then' ? undefined : () => undefined) });
+import { LOCALSTACK, quiet, requireLocalstack } from './backends.js';
 
 describe('fs s3 setMetadata', function () {
   this.timeout(60000);
@@ -26,13 +14,10 @@ describe('fs s3 setMetadata', function () {
   let client: S3Client;
 
   before(async function () {
-    if (!(await reachable())) {
-      console.warn(`      fs s3 setMetadata skipped: no localstack at ${ENDPOINT}`);
-      this.skip();
-    }
+    await requireLocalstack(this, 'fs s3 setMetadata');
     s3 = new fsS3({ name: 's3-meta', bucket } as never);
     Object.defineProperty(s3, 'Logger', { value: quiet });
-    Object.defineProperty(s3, 'AwsConfig', { value: { forcePathStyle: true, endpoint: ENDPOINT, credentials: { accessKeyId: 'test', secretAccessKey: 'test' }, region: 'us-west-1' } });
+    Object.defineProperty(s3, 'AwsConfig', { value: LOCALSTACK.config });
     await s3.resolve();
     client = (s3 as unknown as { S3: S3Client }).S3;
   });

@@ -1,6 +1,6 @@
 # Object metadata
 
-`fsS3` stores content hashes, and on `upload()` also file info, as S3 user metadata (`x-amz-meta-*`) on the object. `hash()`, `getMetadata()` and `metadata()` read it back with one `HeadObject`, without downloading the file.
+`fsS3` stores content hashes, and on `upload()` also file info, as S3 user metadata (`x-amz-meta-*`) on the object. `getMetadata()` and `metadata()` read it back with one `HeadObject`, without downloading the file. `hash()` does the same when a `hash` metadata value is stored, and streams the object otherwise.
 
 ## How it works
 
@@ -22,7 +22,9 @@
 
 The subset exists because S3 limits user metadata to 2 KB, and `IFileInfo` carries every raw exiftool tag.
 
-`write(path, data, encoding?)` stores only `hash` and `md5`, computed from `data` in memory. `writeStream()` stores no metadata.
+`write(path, data, encoding?)` stores only `hash` and `md5`, computed from `data` in memory. `writeStream()` stores the `options.metadata` you pass, as given, and computes nothing: pass `{ hash: <hex SHA-256> }` yourself when `hash()` should answer from metadata.
+
+**What `hash` means.** The `hash` entry is the hex SHA-256 of the content. `hash(path)` answers a SHA-256 request from it with one `HeadObject` and trusts it as stored: an object whose `hash` does not match its content gets the stored value back. `write()`, `upload()` and `append()` compute it; with `writeStream()` and `setMetadata()` it is whatever the caller wrote.
 
 Reading it back:
 
@@ -30,7 +32,7 @@ Reading it back:
 | --- | --- |
 | `getMetadata(path)` | `Record<string, string> \| undefined`: the user metadata as S3 returns it, with **lowercased** keys (`height`, `mimetype`, `hash`). |
 | `metadata(path)` | the same object as `IFileInfo`: the fields `upload()` stores are restored under their `IFileInfo` names, as numbers and `DateTime` values; other keys stay lowercased strings. |
-| `hash(path)` | the `hash` entry: the SHA-256 hex digest. Throws `InvalidArgument` when an algorithm is passed, and `IOFail` when the object has no `hash` entry. |
+| `hash(path, algo?)` | the hex digest. For `sha256` (the default), the stored `hash` entry, trusted as stored; without one, or for any other algorithm Node's `crypto` supports, the object is streamed through `DigestStream` (a full `GetObject`). An unsupported algorithm throws `InvalidArgument`. |
 | `setMetadata(path, metadata)` | replaces all user metadata; see below. |
 
 `getMetadata` and `setMetadata` are file actions that go through `runAction`: `getMetadata` is checked as `stat` and `setMetadata` as `write`, so `AuthzFsMiddleware` checks them on an `enforce` or `audit` filesystem ([Middlewares](../fs/07-middlewares.md)).
@@ -46,7 +48,7 @@ Reading it back:
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `FileInfoService` (from `@spinajs/fs`) | `FileInfoService`, singleton; injected into `fsS3.FileInfo` with `@Autoinject()` when the provider is created | `DefaultFileInfo` (exiftool based) | your own | `DI.register(MyInfo).as(FileInfoService)` before `fsService` resolves. Its result decides which keys `upload()` stores. |
-| `FileHasher` (from `@spinajs/fs`) | `FileHasher`, `PerInstanceCheck`: one instance per algorithm, resolved as `DI.resolve(FileHasher, [algo])` | `DefaultFileHasher` (node `crypto`) | your own | `DI.register(MyHasher).as(FileHasher)`. Used only for the local file in `upload()`; `write()` hashes with `crypto` directly, and `hash()` on S3 reads metadata. |
+| `FileHasher` (from `@spinajs/fs`) | `FileHasher`, `PerInstanceCheck`: one instance per algorithm, resolved as `DI.resolve(FileHasher, [algo])` | `DefaultFileHasher` (node `crypto`) | your own | `DI.register(MyHasher).as(FileHasher)`. Used only for the local file in `upload()`; `write()` hashes with `crypto` directly, and `hash()` on S3 reads the metadata or streams the object through `DigestStream`, never `FileHasher`. |
 
 ### FileInfoService: custom implementation
 
@@ -91,8 +93,9 @@ DI.register(ExtensionFileInfo).as(FileInfoService);
 ## Important behaviour
 
 - **Keys come back lowercased, values as strings.** S3 normalizes metadata names, so `upload()` stores `Height` and `getMetadata()` returns `height: '1080'`. `metadata()` converts the stored file info back, so `info.Height` is `1080`.
-- **`hash()` is SHA-256, not MD5.** The `md5` entry exists, but `hash()` returns the `hash` entry, and passing an algorithm throws.
-- **Only objects written through `write()`, `upload()` or `append()` have a hash.** Objects from `writeStream()` or from outside the application make `hash()` throw `IOFail`.
+- **`hash()` reads metadata only for SHA-256.** The `md5` entry exists, but `hash(path, 'md5')` streams the object; only a SHA-256 request is answered from `hash`.
+- **Without stored `hash`, `hash()` downloads the object.** Objects from `writeStream()` without `metadata.hash`, or from outside the application, are streamed and hashed on every call: a full `GetObject` each time.
+- **`exclusive` is only as strong as the backend's conditional write.** A backend that ignores `If-None-Match` overwrites silently; see [S3 file provider](01-s3-file-provider.md#important-behaviour).
 - **`setMetadata()` replaces everything.** Keys you leave out, `hash` and `md5` included, are deleted.
 - **`setMetadata()` works up to 5 GB.** It copies the object onto itself, and a single `CopyObject` is limited to 5 GB.
 - **`append()` refreshes the metadata**, because it re-uploads through `upload()`.
@@ -107,7 +110,7 @@ DI.register(ExtensionFileInfo).as(FileInfoService);
 ## Patterns and antipatterns
 
 ```ts
-// Don't: drops hash and md5, so hash() throws afterwards
+// Don't: drops hash and md5, so every later hash() downloads the object
 await files.setMetadata(key, { 'reviewed-by': 'qa' });
 
 // Do: keep the existing entries

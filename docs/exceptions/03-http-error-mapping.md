@@ -55,7 +55,7 @@ These `@spinajs/http` keys change the error answer. The handler reads them once,
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Exception-to-response map | String token `'__http_error_map__'`; one `Map<string, Constructor<Response>>` in the root container cache, filled by `asMapValue` | Entries registered by `@spinajs/http` (table below) | Entries from other packages, for example `ValidationFailed` from `@spinajs/validation` | Add an entry with `@HandleException` on your `Response` subclass; override one by registering the same name again after `@spinajs/http` has loaded. |
-| Error response class | Map value: the constructor, created per error with `new` | `ServerError` for unmapped errors | `BadRequestResponse`, `Unauthorized`, `ForbiddenResponse`, `NotFound`, `Conflict`, `EntityTooLarge`, `ValidationError`, `NotAcceptable` | Subclass `Response` or `BadRequestResponse`; set `_errorCode` and `_template`; override `execute()` for headers. |
+| Error response class | Map value: the constructor, created per error with `new` | `ServerError` for unmapped errors | `BadRequestResponse`, `Unauthorized`, `ForbiddenResponse`, `NotFound`, `Conflict`, `EntityTooLarge`, `UnsupportedMediaType`, `ValidationError`, `NotAcceptable` | Subclass `Response` or `BadRequestResponse`; set `_errorCode` and `_template`; override `execute()` for headers. |
 
 ### Default entries
 
@@ -67,7 +67,8 @@ These `@spinajs/http` keys change the error answer. The handler reads them once,
 | `Forbidden` | `ForbiddenResponse` | 403 |
 | `ResourceNotFound` | `NotFound` | 404 |
 | `ResourceDuplicated` | `Conflict` | 409 |
-| `EntityTooLargeException` (`@spinajs/http`) | `EntityTooLarge` | 413 |
+| `EntityTooLargeException` (`@spinajs/http`), `LimitExceeded` | `EntityTooLarge` | 413 |
+| `UnsupportedMediaTypeException` (`@spinajs/http`) | `UnsupportedMediaType` | 415 |
 | `MethodNotImplemented`, `IOFail`, `UnexpectedServerError` | `ServerError` | 500 |
 
 `Exception`, `ConnectionNotFound`, `NotSupported`, `InvalidOption` and `InvalidOperation` have no entry: they answer 500 through the fallback.

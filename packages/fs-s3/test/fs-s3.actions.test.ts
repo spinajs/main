@@ -1,7 +1,8 @@
 import 'mocha';
 import sinon from 'sinon';
 import { expect } from 'chai';
-import { CopyObjectCommand, DeleteObjectCommand, HeadObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { CopyObjectCommand, DeleteObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { PassThrough } from 'stream';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { fs, IZipResult } from '@spinajs/fs';
 import './common.js';
@@ -40,7 +41,7 @@ function provider() {
   const p = new fsS3({ name: 's3-unit', bucket: 'unit-bucket' });
   const internals = p as unknown as S3Internals;
   const send = sinon.stub().callsFake(async (cmd: unknown) => {
-    if (cmd instanceof ListObjectsV2Command) return { Contents: [{ Key: 'dir/a.txt' }] };
+    if (cmd instanceof ListObjectsV2Command) return (cmd as unknown as Command).input.Prefix === 'dir/' ? { Contents: [{ Key: 'dir/a.txt' }] } : {};
     if (cmd instanceof HeadObjectCommand) return { Metadata: { hash: 'h' }, ContentType: 'text/plain', ContentLength: 3 };
     return {};
   });
@@ -48,6 +49,23 @@ function provider() {
   internals.S3 = { send };
   return { p, internals, send };
 }
+
+// lib-storage's Upload reads the client's config, so a real client with a stubbed send stands in for S3.
+function streamingProvider() {
+  const p = new fsS3({ name: 's3-unit', bucket: 'unit-bucket' });
+  const client = new S3Client({ region: 'us-east-1', credentials: { accessKeyId: 'unit', secretAccessKey: 'unit' } });
+  const send = sinon.stub().resolves({});
+  (client as unknown as { send: sinon.SinonStub }).send = send;
+  Object.defineProperty(p, 'Logger', { value: quiet });
+  (p as unknown as { S3: S3Client }).S3 = client;
+  return { p, send };
+}
+
+const closed = (stream: NodeJS.WritableStream): Promise<void> =>
+  new Promise((resolve, reject) => {
+    stream.on('close', () => resolve());
+    stream.on('error', reject);
+  });
 
 function sent(send: sinon.SinonStub, type: new (...args: never[]) => unknown): Command[] {
   return send
@@ -106,6 +124,8 @@ describe('fsS3 – provider hooks', () => {
       ['unit-bucket/m.txt', 'r.txt'],
     ]);
     expect(sent(send, DeleteObjectCommand).map((c) => c.input.Key)).to.deep.equal(['a.txt', 'a.txt', 'm.txt']);
+    // rm lists the prefix of its key; move and rename delete only their source key
+    expect(sent(send, ListObjectsV2Command).map((c) => c.input.Prefix)).to.deep.equal(['a.txt/']);
   });
 
   it('reports no key and no prefix as a directory', async () => {
@@ -220,6 +240,26 @@ describe('fsS3 – provider hooks', () => {
       ['dir/', '/'],
       ['', '/'],
       ['', '/'],
+    ]);
+  });
+
+  it('uploads a stream write under the normalised key, from a source stream or from the returned stream', async () => {
+    const { p, send } = streamingProvider();
+
+    const source = new PassThrough();
+    const piped = await p.writeStream('/dir/a.txt', source);
+    const pipedClosed = closed(piped);
+    source.end('abc');
+    await pipedClosed;
+
+    const direct = await p.writeStream('dir/b.txt', { encoding: 'utf-8', contentType: 'text/plain', metadata: { hash: 'h' } });
+    const directClosed = closed(direct);
+    direct.end('de');
+    await directClosed;
+
+    expect(sent(send, PutObjectCommand).map((c) => [c.input.Key, String(c.input.Body)])).to.deep.equal([
+      ['dir/a.txt', 'abc'],
+      ['dir/b.txt', 'de'],
     ]);
   });
 

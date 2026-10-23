@@ -97,6 +97,7 @@ Register the subclass before `fsService` resolves: importing the module runs `@I
 - `rm()` deletes recursively, ignores a missing path, and retries 3 times, 1 second apart. Other failures are wrapped in `IOFail`.
 - `download()` returns the resolved local path and copies nothing.
 - `upload(..., { exclusive: true })` copies with `COPYFILE_EXCL`, so the existence check and the copy are one atomic call.
+- `writeStream(path, { exclusive: true })` creates missing parent directories, then opens the file with `wx`: an existing file rejects the call with `ResourceDuplicated`, a parent that cannot be created (for example, it is a file) with `IOFail`. If the write stream cannot be created after the open, the call closes the handle, removes the new file and rejects with `IOFail`. A plain `writeStream()` truncates an existing file and needs its directory to exist. `contentType` and `metadata` are ignored.
 - `tmppath()` returns an absolute path under `basePath`. Without `basePath` it is under the current working directory, where relative paths resolve too.
 - `unzip()` reports a source read error as `IOFail` instead of crashing the process.
 

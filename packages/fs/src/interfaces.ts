@@ -205,6 +205,31 @@ export interface IFsUploadOptions {
   exclusive?: boolean;
 }
 
+export interface IWriteStreamOptions {
+  encoding?: BufferEncoding;
+  /** Fail with ResourceDuplicated when the file exists; never overwrite. */
+  exclusive?: boolean;
+  /** Providers that store a content type use it; fsNative ignores it. */
+  contentType?: string;
+  /** Providers that store object metadata use it; fsNative ignores it. */
+  metadata?: Record<string, string>;
+}
+
+const isReadableStream = (value: unknown): value is NodeJS.ReadableStream =>
+  value !== null && typeof value === 'object' && typeof (value as NodeJS.ReadableStream).pipe === 'function';
+
+// Copied, so a middleware that edits the options in place never edits the caller's object.
+const toWriteStreamOptions = (options: IWriteStreamOptions | BufferEncoding | undefined): IWriteStreamOptions =>
+  typeof options === 'string' ? { encoding: options } : { ...options };
+
+function writeStreamArgs(
+  streamOrOptions: NodeJS.ReadableStream | IWriteStreamOptions | BufferEncoding | undefined,
+  options: IWriteStreamOptions | BufferEncoding | undefined,
+): [NodeJS.ReadableStream | undefined, IWriteStreamOptions] {
+  if (isReadableStream(streamOrOptions)) return [streamOrOptions, toWriteStreamOptions(options)];
+  return [undefined, toWriteStreamOptions(streamOrOptions ?? options)];
+}
+
 const FS_ACTION_METHODS = [
   'download', 'upload', 'hash', 'metadata', 'read', 'readStream', 'write', 'writeStream', 'append',
   'exists', 'dirExists', 'stat', 'isDir', 'list', 'hasEntries', 'mkdir', 'rm', 'copy', 'move', 'rename', 'zip', 'unzip',
@@ -314,14 +339,19 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
     return this.runAction('write', [{ path, kind: 'file', access: ['write'] }], [data, encoding], ([t], [d, e]) => this.doWrite(t.path, d as string | Uint8Array, e as BufferEncoding | undefined));
   }
 
-  public writeStream(path: string, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
-  public writeStream(path: string, readStream: NodeJS.ReadableStream | BufferEncoding, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
-  public writeStream(path: string, readStream?: NodeJS.ReadableStream | BufferEncoding, encoding?: BufferEncoding): Promise<WriteStream | PassThrough> {
+  public writeStream(path: string, options?: IWriteStreamOptions | BufferEncoding): Promise<WriteStream | PassThrough>;
+  public writeStream(path: string, readStream: NodeJS.ReadableStream, options?: IWriteStreamOptions | BufferEncoding): Promise<WriteStream | PassThrough>;
+  public writeStream(
+    path: string,
+    streamOrOptions?: NodeJS.ReadableStream | IWriteStreamOptions | BufferEncoding,
+    options?: IWriteStreamOptions | BufferEncoding,
+  ): Promise<WriteStream | PassThrough> {
+    const [readStream, normalised] = writeStreamArgs(streamOrOptions, options);
     return this.runAction(
       'writeStream',
       [{ path, kind: 'file', access: ['write'] }],
-      [readStream, encoding],
-      ([t], [r, e]) => this.doWriteStream(t.path, r as NodeJS.ReadableStream | BufferEncoding | undefined, e as BufferEncoding | undefined),
+      [readStream, normalised],
+      ([t], [r, o]) => this.doWriteStream(t.path, r as NodeJS.ReadableStream | undefined, (o ?? {}) as IWriteStreamOptions),
       { stream: true },
     );
   }
@@ -503,7 +533,8 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
   protected abstract doRead(path: string, encoding?: BufferEncoding): Promise<string | Buffer>;
   protected abstract doReadStream(path: string, encoding?: BufferEncoding): Promise<NodeJS.ReadableStream>;
   protected abstract doWrite(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void>;
-  protected abstract doWriteStream(path: string, readStream?: NodeJS.ReadableStream | BufferEncoding, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
+  /** Gets the writeStream arguments normalised: no source stream is `undefined`, and `options` is always an object. */
+  protected abstract doWriteStream(path: string, readStream: NodeJS.ReadableStream | undefined, options: IWriteStreamOptions): Promise<WriteStream | PassThrough>;
   protected abstract doAppend(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void>;
   protected abstract doExists(path: string): Promise<boolean>;
   protected abstract doDirExists(path: string): Promise<boolean>;
@@ -591,14 +622,14 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
     return path.Fs.write(path.Path, data, encoding);
   }
 
-  public static writeStream(path: URI, encoding: BufferEncoding): Promise<WriteStream | PassThrough>;
-  public static writeStream(path: URI, readStream: NodeJS.ReadableStream | BufferEncoding, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
+  public static writeStream(path: URI, options?: IWriteStreamOptions | BufferEncoding): Promise<WriteStream | PassThrough>;
+  public static writeStream(path: URI, readStream: NodeJS.ReadableStream, options?: IWriteStreamOptions | BufferEncoding): Promise<WriteStream | PassThrough>;
   public static writeStream(
     path: URI,
-    readStream: NodeJS.ReadableStream | BufferEncoding,
-    encoding?: BufferEncoding,
+    streamOrOptions?: NodeJS.ReadableStream | IWriteStreamOptions | BufferEncoding,
+    options?: IWriteStreamOptions | BufferEncoding,
   ): Promise<WriteStream | PassThrough> {
-    return path.Fs.writeStream(path.Path, readStream, encoding);
+    return isReadableStream(streamOrOptions) ? path.Fs.writeStream(path.Path, streamOrOptions, options) : path.Fs.writeStream(path.Path, streamOrOptions ?? options);
   }
 
   public static exists(path: URI): Promise<boolean> {

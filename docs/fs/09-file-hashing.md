@@ -1,6 +1,6 @@
 # File hashing
 
-`FileHasher` computes a digest of a file, an in-memory buffer or a stream. Providers use it in `hash()`; you can resolve it directly for deduplication, integrity checks or cache keys.
+`FileHasher` computes a digest of a file, an in-memory buffer or a stream. Providers with local paths use it in `hash()`; `fsS3` reads the stored `hash` metadata or streams the object through [`DigestStream`](12-streams.md) instead. You can resolve it directly for deduplication, integrity checks or cache keys.
 
 ## How it works
 

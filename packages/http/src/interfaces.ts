@@ -426,6 +426,11 @@ export enum HTTP_STATUS_CODE {
   ENTITY_TOO_LARGE = 413,
 
   /**
+   * The route does not take the request's content type
+   */
+  UNSUPPORTED_MEDIA_TYPE = 415,
+
+  /**
    * Rate limit exceeded ( see ThrottleMiddleware )
    */
   TOO_MANY_REQUESTS = 429,

@@ -2,7 +2,7 @@
 
 Parameter decorators tell a route where each action argument comes from: query string, URL parameter, body, header, cookie, the request itself, or the DI container. Before the action runs, each value is filtered, converted to the declared TypeScript type, validated against a JSON schema and, for classes, built into an instance.
 
-File and form arguments (`@File`, `@Files`, `@CsvFile`, `@JsonFile`, `@Form`, `@FormField`) are on [File uploads](08-file-uploads.md). Writing your own decorator is on [Custom route arguments](05-custom-route-arguments.md).
+File and form arguments (`@File`, `@Files`, `@CsvFile`, `@JsonFile`, `@Form`, `@FormField`) are on [File uploads](08-file-uploads.md). Raw bodies (`@RequestStream`, `@ContentDigest`) are on [Raw request bodies and digests](24-raw-body-and-digests.md). Writing your own decorator is on [Custom route arguments](05-custom-route-arguments.md).
 
 ## How it works
 
@@ -77,6 +77,8 @@ export default {
 | `@Cookie(secure = false)` | parameter | `secure`: verify the signature | `req.cookies[name]`; see [Cookies](20-cookies.md). |
 | `@FromXml(options?)` | parameter | `fast-xml-parser` `X2jOptions` | Parses an XML body (`application/xml`, `text/xml`, `*+xml`). `ignoreAttributes` is `false` unless you set it. Invalid XML throws `BadRequest` (400). |
 | `@RawBody()` | parameter | none | `req.rawBody`: the exact JSON body bytes as a `Buffer`, for webhook signatures; `undefined` for other content types. |
+| `@RequestStream(options?)` | parameter | `{ maxBytes?: number }` | The unparsed body as a stream, capped at `maxBytes` (413 past it); 415 when a body parser took the body. See [Raw request bodies and digests](24-raw-body-and-digests.md). |
+| `@ContentDigest(options?)` | parameter | `{ required?: boolean; algorithms?: string[] }` | The RFC 9530 `Content-Digest` header as `Map<algorithm, Buffer>`; 400 when malformed, or absent while `required`. See [Raw request bodies and digests](24-raw-body-and-digests.md). |
 | `@Ip()` | parameter | none | `req.storage.realIp`; see [Client IP](17-client-ip-and-trust-proxy.md). |
 | `@RequestId()` | parameter | none | `req.storage.requestId`, the value of the `x-request-id` response header. |
 | `@UserAgent()` | parameter | none | `User-Agent` header. |
@@ -110,6 +112,7 @@ export default {
 | `FromXml` | `FromXmlRouteArgs` | `FromXmlRouteArgs` |
 | `RawBody`, `Ip`, `RequestId`, `UserAgent`, `Referer` | `RawBodyRouteArgs`, `IpRouteArgs`, `RequestIdRouteArgs`, `UserAgentRouteArgs`, `RefererRouteArgs` | same names |
 | `RequestType` | `RequestTypeRouteArgs` | `RequestTypeRouteArgs` |
+| none (string types) | `RequestStreamArg`, `ContentDigestArg` | same names |
 | `FromDi` | `FromDi` | `FromDi` |
 | `Req`, `Res` | `ArgAsRequest`, `ArgAsResponse` | same names |
 | `FromFile`, `FromCSV`, `FormField`, `FromForm` | `FromFile`, `FromCSV`, `FromFormField`, `FromForm` | same names |

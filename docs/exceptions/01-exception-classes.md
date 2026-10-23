@@ -1,6 +1,6 @@
 # Exception classes
 
-`@spinajs/exceptions` exports `Exception` and fifteen subclasses, each naming one kind of failure. Throw the class that says what went wrong; callers branch on it with `instanceof`, and `@spinajs/http` picks the HTTP status from it.
+`@spinajs/exceptions` exports `Exception` and sixteen subclasses, each naming one kind of failure. Throw the class that says what went wrong; callers branch on it with `instanceof`, and `@spinajs/http` picks the HTTP status from it.
 
 ## How it works
 
@@ -66,8 +66,9 @@ The status column applies when `@spinajs/http` handles the error. "Unmapped" cla
 | `ResourceDuplicated` | A unique resource already exists, for example a unique constraint failed. | 409 | `Conflict` |
 | `JsonValidationFailed` | A JSON entity does not match its schema. | 400 | `BadRequestResponse` |
 | `ExpectedResponseUnacceptable` | The client's `Accept` header asks for a format the server cannot produce. | 400 | `BadRequestResponse` |
+| `LimitExceeded` | A stream or input went over a configured size limit, for example `ByteLimitStream` of `@spinajs/fs`. | 413 | `EntityTooLarge` |
 
-`@spinajs/http` also maps `ValidationFailed` from `@spinajs/validation` to 400 and its own `EntityTooLargeException` to 413. Those classes extend `Exception` but live in their packages.
+`@spinajs/http` also maps `ValidationFailed` from `@spinajs/validation` to 400, and its own `EntityTooLargeException` to 413 and `UnsupportedMediaTypeException` to 415. Those classes extend `Exception` but live in their packages.
 
 ## Services and extension points
 

@@ -75,7 +75,7 @@ fs: {
 | Method | S3 call | Behaviour |
 | --- | --- | --- |
 | `write(path, data, encoding?)` | `Upload` (multipart) | Stores `hash` (SHA-256) and `md5` metadata. A string `data` is stored as bytes in `encoding` (default `utf8`). |
-| `writeStream(path, encodingOrStream?, encoding?)` | `Upload` with a `PassThrough` body | Returns the `PassThrough`, whose default string encoding is `encoding`. It emits `close` when the upload finished, and is destroyed with `IOFail` when the upload fails. Stores no hash metadata. |
+| `writeStream(path, options?)`, `writeStream(path, source, options?)` | `Upload` with a `PassThrough` body: one `PutObject` up to 5 MiB, a multipart upload above | Returns the `PassThrough`. `options.contentType` becomes `ContentType`, `options.metadata` becomes `Metadata` (stored as given; S3 lower-cases the keys; the 2 KB metadata limit applies), `options.exclusive` sends `IfNoneMatch: '*'`. The stream emits `close` once the object is stored, and `error` when the upload fails (`ResourceDuplicated` for a refused exclusive write, else `IOFail`), also after `finish`. A source-stream error is forwarded; a destroyed stream stores nothing. Computes no `hash` metadata. See [Write stream options](../fs/02-file-operations.md#write-stream-options). |
 | `upload(srcPath, destPath?)` | `Upload` | `srcPath` must be an **absolute** local path. `destPath` defaults to `basename(srcPath)`. Sets `ContentType` to the detected `MimeType`. Stores file info and hashes; see [Object metadata](03-object-metadata.md). |
 | `read(path, encoding?)` | `GetObject` | Downloads to `fs-temp-s3`, reads, deletes the local copy. |
 | `readStream(path, encoding?)` | `GetObject` | Returns the response body. With `encoding`, pipes it through `iconv-lite` `decodeStream`. |
@@ -84,8 +84,8 @@ fs: {
 | `exists(path)` | `HeadObject` | `false` on a `NotFound` error; any other error is rethrown. |
 | `stat(path)` | `HeadObject` | `IsFile: true`, `IsDirectory: false`, `Size` from `ContentLength`, `ModifiedTime` from `LastModified`, `Version` from `ETag`. |
 | `copy(path, dest, dstFs?)` | `CopyObject`, or download + `dstFs.upload()` | Without `dstFs`, a server-side copy in the same bucket; the key in `CopySource` is URL-encoded per segment. With `dstFs`, a download and an upload. |
-| `move(old, new, dstFs?)`, `rename(old, new)` | `copy()` then `rm()` | Two steps, not atomic. |
-| `rm(path)` | `DeleteObject` | Deletes one key. It does **not** delete a prefix. |
+| `move(old, new, dstFs?)`, `rename(old, new)` | `copy()`, then `DeleteObject` of the source key | Two steps, not atomic. Keys under the source key stay. |
+| `rm(path)` | `DeleteObject`, then `ListObjectsV2` and `DeleteObjects` | Deletes the key and every key under `path/`, in batches of 1000, as `fsNative` removes a directory with its content. A missing path succeeds. `rm('')` throws `InvalidArgument`: the bucket root is never removed. Any S3 error from the delete or list calls is wrapped in `IOFail` with the original error kept; a batch with failed keys throws `IOFail` naming them. |
 | `list(path)` | `ListObjectsV2` with `Delimiter: '/'` | Full keys directly under the prefix `path`, from every result page. `doList` adds the trailing `/` to a non-empty `path` itself. |
 | `hasEntries(path)` | `ListObjectsV2`, `MaxKeys: 1`, no delimiter | `true` when any key lives under `path/`, nested keys included. |
 | `metadata`, `getMetadata`, `setMetadata`, `hash` | `HeadObject`, `CopyObject` | See [Object metadata](03-object-metadata.md). |
@@ -102,13 +102,14 @@ fs: {
 
 - **One AWS client config for all buckets.** Every `fsS3` provider reads `fs.s3.config`. Buckets in other accounts or regions need a subclass; see [Custom S3 provider](05-custom-s3-provider.md).
 - **A missing bucket is created by default.** Set `createBucketIfNotExists: false` in production, where the bucket and its policies come from infrastructure code.
-- **No `Content-Type` is set** by `write` or `writeStream`. S3 stores its default, which browsers then receive from signed URLs. `upload()` sets the detected `MimeType` when file info found one.
-- **`isDir` is always `false` and `dirExists` always `true`.** A middleware's `ctx.isDir(target)` is `false` for every key, so `AuthzFsMiddleware` drops only that key's `fs_acl` rows on `rm` ([File ACL](../authz-fs/03-file-acl.md)).
+- **`write` sets no `Content-Type`.** S3 stores its default, which browsers then receive from signed URLs. `writeStream()` sets it from `options.contentType`, and `upload()` from the detected `MimeType` when file info found one.
+- **`isDir` is always `false` and `dirExists` always `true`.** A middleware's `ctx.isDir(target)` is `false` for every key, so `AuthzFsMiddleware` asks `hasEntries` as well: on `rm` a path with keys under it loses the `fs_acl` rows at it and under it, like a directory ([File ACL](../authz-fs/03-file-acl.md)).
+- **`rm` removes a prefix.** `rm('reports')` deletes `reports` and every key under `reports/`. There is no public single-key delete, so do not keep a key and keys under it (`a` next to `a/b`) when you mean to remove only one of them.
 - **Calls inside an action are unchecked.** `read()` calls `download()`, `copy()` calls `dstFs.upload()` and the `fs-temp-s3` calls run inside the action frame, so middlewares see only the outer call.
 - **`list()` is shallow.** Keys under deeper prefixes and the sub-prefixes themselves are not returned.
 - **`stat()` has no creation or access time.** `CreationTime` and `AccessTime` are `undefined`.
 - **`stat().Version` is the ETag.** For multipart uploads it is not the content MD5; compare it only for equality.
-- **`upload(src, dest, { exclusive: true })` is a conditional write.** The check of every middleware runs first, before the conditional write. The provider then sends `IfNoneMatch: '*'`; the 412 or 409 that S3 returns for an existing key becomes `ResourceDuplicated`. An S3-compatible store without conditional writes may overwrite.
+- **Exclusive writes are conditional writes.** `upload(src, dest, { exclusive: true })` and `writeStream(path, { exclusive: true })` send `IfNoneMatch: '*'` after every middleware's check. The 412 that S3 returns for an existing key, or the 409 for a concurrent conditional write that won, becomes `ResourceDuplicated`, and a refused multipart upload is aborted. The guarantee is only as strong as the backend: AWS S3 enforces it, a store without conditional writes overwrites, and LocalStack 3.8.1 lets two concurrent exclusive multipart writes of one key both succeed.
 - **Errors are AWS SDK errors.** A missing key on `read`, `stat` or `getMetadata` rejects with the SDK's `NotFound` or `NoSuchKey` error, not with an `@spinajs/exceptions` type.
 
 ## Best practices
@@ -117,7 +118,7 @@ fs: {
 - Use `forcePathStyle: true` and `endpoint` for LocalStack or MinIO in tests.
 - Prefer `readStream()` over `read()` for large objects: `read()` writes the whole object to local disk first.
 - Prefer `writeStream()` with a source stream for large uploads: it streams a multipart upload without a local copy.
-- Wait for the `close` event of the stream returned by `writeStream()` before reading the object back.
+- Wait for `close` or `error` of the stream returned by `writeStream()` before reading the object back, not for `finish`; `stream/promises` `pipeline()` resolves on `finish`.
 - Call `dispose()` on S3 providers in test teardown, or Mocha keeps running on the open sockets.
 
 ## Patterns and antipatterns
@@ -127,7 +128,7 @@ fs: {
 const out = await media.writeStream('videos/intro.mp4', source);
 out.on('finish', () => publish('videos/intro.mp4'));
 
-// Do: fsS3 emits 'close' after the multipart upload completed
+// Do: 'close' comes once the object is stored; a failed upload (also a refused exclusive write) emits 'error', possibly after 'finish'
 const out = await media.writeStream('videos/intro.mp4', source);
 out.on('close', () => publish('videos/intro.mp4'));
 out.on('error', (err) => logger.error(err));

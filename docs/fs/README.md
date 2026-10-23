@@ -25,6 +25,7 @@ npm install @spinajs/fs
 | [File hashing](09-file-hashing.md) | `FileHasher`: hashes files, buffers and streams; the default `DefaultFileHasher` and custom hashers |
 | [File metadata](10-file-metadata.md) | `FileInfoService`: image, video and document metadata through `exiftool`, file type checks |
 | [CLI commands](11-cli-commands.md) | `spinajs fs-*` commands to inspect and change any configured file system |
+| [Streams](12-streams.md) | `DigestStream` and `ByteLimitStream`: hash or cap the bytes on their way to a provider |
 
 ## Extension points at a glance
 

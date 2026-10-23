@@ -17,6 +17,7 @@ import {
   IMethodDocumentation,
 } from './interfaces.js';
 import { accessLine, swaggerAccess } from './access.js';
+import { describeRegisteredParam, type OpenApiParamDescription } from './param-types.js';
 
 /**
  * Set of ParameterType values that map to internal framework params (not API params).
@@ -195,6 +196,32 @@ type SchemaKind = 'request' | 'response';
 function pathTemplatePlaceholders(template: string): string[] {
   const names = (template.match(/{([a-zA-Z_][a-zA-Z0-9_]*)}/g) ?? []).map((p) => p.slice(1, -1));
   return [...new Set(names)];
+}
+
+type ParamDoc = { name: string; description?: string; type?: string };
+
+type RegisteredBody = { param: IRouteParameter; description: Extract<OpenApiParamDescription, { in: 'body' }>; doc?: ParamDoc };
+
+/** `built` is set when a registered type already described the parameter. */
+type DeclaredPlaceholder = { param: IRouteParameter; doc?: ParamDoc; built?: IOpenApiParameter };
+
+/** The registry never overrides these: their mappings carry runtime contracts (strict path binding, multipart detection). */
+function isNativeParamType(type: string): boolean {
+  return (
+    INTERNAL_PARAMS.has(type) ||
+    BODY_PARAMS.has(type) ||
+    Object.prototype.hasOwnProperty.call(PARAM_LOCATION_MAP, type) ||
+    type === 'FromDbModel' ||
+    type === 'FilterModelRouteArg'
+  );
+}
+
+function argumentName(param: IRouteParameter): string {
+  return param.Name || `argument #${param.Index}`;
+}
+
+function availablePlaceholders(placeholders: string[]): string {
+  return placeholders.length > 0 ? `Available placeholders: ${placeholders.join(', ')}.` : 'The route declares no path placeholders at all.';
 }
 
 // Each build documents the current controllers with the current config; a cached builder
@@ -468,14 +495,15 @@ ${line}` : line;
       security: methodDoc?.security,
     };
 
-    const bodyParams: { param: IRouteParameter; doc?: { name: string; description?: string; type?: string } }[] = [];
+    const bodyParams: { param: IRouteParameter; doc?: ParamDoc }[] = [];
+    const registeredBodies: RegisteredBody[] = [];
 
     // The URL template owns the path parameters. Arguments only enrich them.
     const placeholders = pathTemplatePlaceholders(fullPath);
 
     // Placeholder -> the argument that declares it. At most one argument per placeholder;
     // a second one is a defect in the controller, not something to reconcile here.
-    const declaredPlaceholders = new Map<string, { param: IRouteParameter; doc?: { name: string; description?: string; type?: string } }>();
+    const declaredPlaceholders = new Map<string, DeclaredPlaceholder>();
 
     // Parameters other than path ones, kept in argument order.
     const otherParams: IOpenApiParameter[] = [];
@@ -483,6 +511,33 @@ ${line}` : line;
     // Process route parameters
     for (const [, param] of route.Parameters) {
       if (INTERNAL_PARAMS.has(param.Type as string)) {
+        continue;
+      }
+
+      // JSDoc is written against the argument name.
+      const paramDoc = methodDoc?.params?.[param.Name];
+
+      const registered = isNativeParamType(param.Type) ? undefined : describeRegisteredParam(param);
+      if (registered) {
+        for (const description of registered) {
+          if (description.in === 'body') {
+            registeredBodies.push({ param, description, doc: paramDoc });
+            continue;
+          }
+
+          const name = description.name || param.Name || `param_${param.Index}`;
+
+          if (description.in === 'path') {
+            this.assertPlaceholder(controllerName, methodName, param, name, placeholders, fullPath);
+
+            const doc = paramDoc ?? methodDoc?.params?.[name];
+            this.declarePlaceholder(controllerName, methodName, fullPath, declaredPlaceholders, name, { param, doc, built: this.registeredParameter(description, name, doc) });
+            continue;
+          }
+
+          otherParams.push(this.registeredParameter(description, name, paramDoc));
+        }
+
         continue;
       }
 
@@ -508,9 +563,6 @@ ${line}` : line;
         }
       }
 
-      // JSDoc is written against the argument name.
-      const paramDoc = methodDoc?.params?.[param.Name];
-
       if (BODY_PARAMS.has(param.Type as string)) {
         bodyParams.push({ param, doc: paramDoc });
         continue;
@@ -518,18 +570,7 @@ ${line}` : line;
 
       if (location === 'path') {
         const placeholder = this.resolvePathPlaceholder(controllerName, methodName, param, placeholders, fullPath);
-        const previous = declaredPlaceholders.get(placeholder);
-
-        if (previous) {
-          throw new InvalidArgument(
-            `${controllerName}.${methodName}: path placeholder \`${placeholder}\` is declared twice, ` +
-              `by \`${previous.param.Name}\` and by \`${param.Name}\`, in route \`${fullPath}\`. ` +
-              `Each placeholder must be declared by at most one argument — drop one of them, ` +
-              `or point its paramField at a different placeholder.`,
-          );
-        }
-
-        declaredPlaceholders.set(placeholder, { param, doc: paramDoc ?? methodDoc?.params?.[placeholder] });
+        this.declarePlaceholder(controllerName, methodName, fullPath, declaredPlaceholders, placeholder, { param, doc: paramDoc ?? methodDoc?.params?.[placeholder] });
         continue;
       }
 
@@ -546,7 +587,7 @@ ${line}` : line;
       const declared = declaredPlaceholders.get(name);
       operation.parameters!.push(
         declared
-          ? this.buildParameter(declared.param, 'path', declared.doc, name)
+          ? (declared.built ?? this.buildParameter(declared.param, 'path', declared.doc, name))
           : { name, in: 'path', required: true, schema: { type: 'string' } },
       );
     }
@@ -554,7 +595,9 @@ ${line}` : line;
     operation.parameters!.push(...otherParams);
 
     // Build request body from body params; a route that reads its body without one may name its type with `@body`.
-    if (bodyParams.length > 0) {
+    if (registeredBodies.length > 0) {
+      operation.requestBody = this.registeredRequestBody(controllerName, methodName, registeredBodies, bodyParams);
+    } else if (bodyParams.length > 0) {
       operation.requestBody = this.buildRequestBody(bodyParams, route);
     } else if (methodDoc?.body?.type) {
       operation.requestBody = {
@@ -802,12 +845,8 @@ ${line}` : line;
     fullPath: string,
   ): string {
     const paramField = (param.Options as { paramField?: string } | undefined)?.paramField;
-    const argument = param.Name || `argument #${param.Index}`;
-
-    const available =
-      placeholders.length > 0
-        ? `Available placeholders: ${placeholders.join(', ')}.`
-        : 'The route declares no path placeholders at all.';
+    const argument = argumentName(param);
+    const available = availablePlaceholders(placeholders);
     const suggestion = placeholders.length > 0 ? placeholders[0] : 'name';
     const fix =
       `Either rename the argument to a placeholder the route really has, or name one explicitly ` +
@@ -959,6 +998,76 @@ ${line}` : line;
       ...base,
       schema,
       ...(isArray && location === 'query' ? { style: 'form', explode: true } : {}),
+    };
+  }
+
+  private assertPlaceholder(controllerName: string, methodName: string, param: IRouteParameter, name: string, placeholders: string[], fullPath: string): void {
+    if (!placeholders.includes(name)) {
+      throw new InvalidArgument(
+        `${controllerName}.${methodName}: argument \`${argumentName(param)}\` (${String(param.Type)}) describes path parameter \`${name}\`, ` +
+          `which matches no placeholder in route \`${fullPath}\`. ${availablePlaceholders(placeholders)}`,
+      );
+    }
+  }
+
+  private declarePlaceholder(
+    controllerName: string,
+    methodName: string,
+    fullPath: string,
+    declared: Map<string, DeclaredPlaceholder>,
+    placeholder: string,
+    entry: DeclaredPlaceholder,
+  ): void {
+    const previous = declared.get(placeholder);
+
+    if (previous) {
+      throw new InvalidArgument(
+        `${controllerName}.${methodName}: path placeholder \`${placeholder}\` is declared twice, ` +
+          `by \`${previous.param.Name}\` and by \`${entry.param.Name}\`, in route \`${fullPath}\`. ` +
+          `Each placeholder must be declared by at most one argument — drop one of them, ` +
+          `or point its paramField at a different placeholder.`,
+      );
+    }
+
+    declared.set(placeholder, entry);
+  }
+
+  private registeredParameter(description: Exclude<OpenApiParamDescription, { in: 'body' }>, name: string, doc?: ParamDoc): IOpenApiParameter {
+    return {
+      name,
+      in: description.in,
+      description: doc?.description ?? description.description,
+      required: description.in === 'path' || description.required === true,
+      // describe() may return one shared object, and the built document is handed out for editing.
+      schema: structuredClone(description.schema),
+    };
+  }
+
+  /**
+   * A registered body is the whole payload (e.g. the raw request stream), so no other body
+   * argument can be read from the same request; a merged schema would describe an impossible request.
+   */
+  private registeredRequestBody(
+    controllerName: string,
+    methodName: string,
+    bodies: RegisteredBody[],
+    bodyParams: { param: IRouteParameter }[],
+  ): IOpenApiRequestBody {
+    const [body, ...more] = bodies;
+    const others = [...more.map((b) => b.param), ...bodyParams.map((b) => b.param)];
+
+    if (others.length > 0) {
+      throw new InvalidArgument(
+        `${controllerName}.${methodName}: argument \`${argumentName(body.param)}\` is the whole request body (${body.description.contentType}), ` +
+          `so the route cannot take another body argument, but it also has ${others.map((p) => `\`${argumentName(p)}\``).join(', ')}. ` +
+          `Move those values to the path, query or headers, or split the route.`,
+      );
+    }
+
+    return {
+      description: body.doc?.description ?? body.description.description,
+      required: body.description.required ?? true,
+      content: { [body.description.contentType]: { schema: structuredClone(body.description.schema) } },
     };
   }
 

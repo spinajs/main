@@ -61,7 +61,7 @@ sequenceDiagram
 | `ErrorHandlerMiddleware` | `ServerMiddleware` list, `Order` `Number.MIN_SAFE_INTEGER - 1` | `ErrorHandlerMiddleware` | | `DI.register(Mine).as(ErrorHandlerMiddleware)`; `after()` must return a 4-argument Express error handler. |
 | `ErrorHandlerService` | Abstract class, resolved by class name from `http.errors.handlers` when each controller builds its router | none | | Extend it, register it as `ErrorHandlerService`, list it in `http.errors.handlers`; see [App-wide handlers](#app-wide-handlers). |
 
-The building blocks of the route error handlers are exported for code that builds its own route chain (a custom controller base, a test):
+The building blocks of the route error handlers are exported for custom route chains and error handlers (a custom controller base, a test, an `@OnError` handler):
 
 | Export | What it does |
 | --- | --- |
@@ -70,6 +70,7 @@ The building blocks of the route error handlers are exported for code that build
 | `createOnErrorHandler(descriptors, route, controller, container, log)` | The Express error handler that runs the descriptors in order, as described in [Order](#order). With no descriptors, or once headers are sent, it passes the error on. |
 | `resolveConfigErrorHandlers(cfg, container)` | Resolves the `http.errors.handlers` entries into descriptors, in config order; `[]` when the list is empty. Throws `InvalidOption` for a name no registered `ErrorHandlerService` has. |
 | `toErrorDescriptor(service)` | Turns an `ErrorHandlerService` into an `IOnErrorDescriptor` (`On`, `Handler`, `Stages`). |
+| `answeredAsServerError(err)` | `true` when the error handler answers `err` with the generic 500: no response is mapped for its class chain, or the mapped one is `ServerError` or a subclass. Such a body carries the error's own fields and, outside production, its stack. A body-parser failure that answers 400 gives `false`. Use it in an `@OnError` handler to replace the body of an unexpected error. |
 
 ### Error map: custom implementation
 

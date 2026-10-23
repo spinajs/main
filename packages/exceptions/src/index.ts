@@ -103,4 +103,7 @@ export class JsonValidationFailed extends Exception {}
  */
 export class ExpectedResponseUnacceptable extends Exception {}
 
+/** A stream or input went over a configured size limit. */
+export class LimitExceeded extends Exception {}
+
 export * from './describe.js';

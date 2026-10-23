@@ -6,7 +6,7 @@ import path from 'path';
 import { errorMessage, IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
 import { PassThrough, Readable } from 'stream';
-import type { IFsUploadOptions } from '@spinajs/fs';
+import type { IFsUploadOptions, IWriteStreamOptions } from '@spinajs/fs';
 
 export interface IFtpConfig {
   host: string;
@@ -217,15 +217,7 @@ export class fsFTP extends fs {
     await this.FtpClient.uploadFrom(srcPath, path.basename(destPath));
   }
 
-  /**
-   *
-   * Returns writable stream for given path
-   *
-   * @param path file path ( relative to base path of provider)
-   * @param rStream readable stream, must be provided beforehand
-   * @param encoding optional stream encoding
-   */
-  protected async doWriteStream(_path: string, _readStream?: NodeJS.ReadableStream | BufferEncoding, _encoding?: BufferEncoding): Promise<PassThrough> {
+  protected async doWriteStream(_path: string, _readStream: NodeJS.ReadableStream | undefined, _options: IWriteStreamOptions): Promise<PassThrough> {
     throw new MethodNotImplemented('fs ftp does not support writing streams');
   }
 

@@ -1,13 +1,15 @@
 import { Autoinject, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
-import { fs, IStat, IZipResult, FileSystem, FileInfoService, IFileInfo, IFsUploadOptions } from '@spinajs/fs';
+import { fs, IStat, IZipResult, FileSystem, FileInfoService, IFileInfo, IFsUploadOptions, IWriteStreamOptions, DigestStream } from '@spinajs/fs';
 import {
+  AbortMultipartUploadCommand,
   S3Client,
   S3ClientConfig,
   S3ServiceException,
   HeadObjectCommand,
   CopyObjectCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
   ListObjectsV2Command,
   GetObjectCommand,
   HeadBucketCommand,
@@ -22,7 +24,8 @@ import { InvalidArgument, InvalidOperation, IOFail, MethodNotImplemented, Resour
 import { createReadStream, existsSync } from 'fs';
 import crypto from 'crypto';
 import { DateTime } from 'luxon';
-import { PassThrough, Readable } from 'stream';
+import { PassThrough, Readable, Writable } from 'stream';
+import { pipeline } from 'stream/promises';
 import iconv from 'iconv-lite';
 import { S3UrlSigner, IS3Config } from './interfaces.js';
 
@@ -34,6 +37,15 @@ export * from './cloudFrontSigner.js';
 const toNumber = (v: string) => Number(v);
 const toText = (v: string) => v;
 const toDate = (v: string) => DateTime.fromISO(v);
+
+// 412: the key exists; 409: a concurrent conditional write to the key won (AWS ConditionalRequestConflict)
+const keyTaken = (err: unknown): boolean => err instanceof S3ServiceException && [409, 412].includes(err.$metadata?.httpStatusCode ?? 0);
+
+/** The algorithm of the `hash` metadata that write() and upload() store. */
+const STORED_HASH_ALGORITHM = 'sha256';
+
+/** The DeleteObjects key limit on AWS and MinIO (localstack accepts more, so only the unit test pins it). */
+const DELETE_BATCH = 1000;
 
 /**
  * IFileInfo fields upload() stores as s3 metadata
@@ -347,28 +359,28 @@ export class fsS3 extends fs {
   }
 
   /**
+   * Returns the hex digest of the object. The `hash` metadata that write() and upload() store answers a sha256
+   * request with one HeadObject and is trusted as stored; anything else streams the object through DigestStream.
    *
-   * Returns the SHA-256 hash of file, read from the object's `hash` metadata entry
-   *
-   * @param srcPath file to calculate hash
-   * @param algo not supported, throws when given
+   * @param algo any algorithm node's crypto supports, default sha256
    */
   protected async doHash(path: string, algo?: string): Promise<string> {
-    if (algo) {
-      throw new InvalidArgument(`Hash alghoritm is not supported in s3 filesystem`);
+    const algorithm = (algo ?? STORED_HASH_ALGORITHM).toLowerCase();
+    if (!crypto.getHashes().some((h) => h.toLowerCase() === algorithm)) {
+      throw new InvalidArgument(`Hash algorithm ${algo} is not supported`);
     }
 
-    const command = new HeadObjectCommand({
-      Bucket: this.Options.bucket,
-      Key: path,
-    });
-
-    const result = await this.S3.send(command);
-    if(!result.Metadata || !result.Metadata['hash']){
-      throw new IOFail(`Hash metadata is not available for file ${path}`);
+    if (algorithm === STORED_HASH_ALGORITHM) {
+      const head = await this.S3.send(new HeadObjectCommand({ Bucket: this.Options.bucket, Key: path }));
+      const stored = head.Metadata?.['hash'];
+      if (stored) {
+        return stored;
+      }
     }
 
-    return result.Metadata['hash'];
+    const digest = new DigestStream(algorithm);
+    await pipeline(await this.doReadStream(path), digest, new Writable({ write: (_chunk, _encoding, done) => done() }));
+    return digest.digest('hex');
   }
 
   protected async doUpload(srcPath: string, destPath: string, options?: IFsUploadOptions): Promise<void> {
@@ -432,15 +444,7 @@ export class fsS3 extends fs {
       },
     });
 
-    try {
-      await upload.done();
-    } catch (err) {
-      // 412: the key exists; 409: a concurrent write to the key got there first. Either way the key is not ours to clean up
-      if (options?.exclusive && err instanceof S3ServiceException && [409, 412].includes(err.$metadata?.httpStatusCode ?? 0)) {
-        throw new ResourceDuplicated(`Cannot upload ${srcPath}, ${destPath} already exists`, err);
-      }
-      throw err;
-    }
+    await this.finishUpload(upload, destPath, options?.exclusive, `Cannot upload ${srcPath}`);
   }
 
   /**
@@ -486,23 +490,16 @@ export class fsS3 extends fs {
   }
 
   /**
+   * Returns a writable stream whose data is uploaded with lib-storage: one PutObject up to 5 MiB, a multipart upload
+   * above. `contentType` and `metadata` become ContentType and Metadata; `exclusive` sends IfNoneMatch '*'.
    *
-   * Returns writable stream for given path. Data written to the returned stream
-   * is uploaded to s3 via multipart streaming upload ( @aws-sdk/lib-storage ).
-   *
-   * NOTE: the upload finishes shortly AFTER the stream is ended - the 'close' event
-   * on the returned stream is emitted when the s3 upload has completed.
-   *
-   * @param path file path ( s3 object key )
-   * @param rStream optional readable stream that will be piped into the upload
-   * @param encoding optional stream encoding
+   * The stream emits 'close' once the object is stored, or 'error' (ResourceDuplicated, IOFail) when the upload
+   * fails, also after 'finish': wait for one of them, not for 'finish'.
    */
-  protected async doWriteStream(path: string, rStream?: NodeJS.ReadableStream | BufferEncoding, encoding?: BufferEncoding): Promise<PassThrough> {
-    const enc = typeof rStream === 'string' ? rStream : encoding;
-
-    // do not auto-emit close on end - we emit it manually when the s3 upload
-    // is fully finalized, so callers waiting for 'close' see completed uploads
-    const pass = new PassThrough({ emitClose: false, defaultEncoding: enc });
+  protected async doWriteStream(path: string, rStream: NodeJS.ReadableStream | undefined, options: IWriteStreamOptions): Promise<PassThrough> {
+    // lib-storage drains the body with for-await, which destroys an auto-destroying stream after its last chunk; a
+    // failure reported after that (a refused exclusive write) could then never reach the caller
+    const pass = new PassThrough({ emitClose: false, autoDestroy: false, defaultEncoding: options.encoding });
 
     const upload = new Upload({
       client: this.S3,
@@ -510,24 +507,63 @@ export class fsS3 extends fs {
         Bucket: this.Options.bucket,
         Key: path,
         Body: pass,
+        ContentType: options.contentType,
+        Metadata: options.metadata,
+        IfNoneMatch: options.exclusive ? '*' : undefined,
       },
     });
 
-    upload
-      .done()
-      .then(() => {
-        this.Logger.trace({ path, bucket: this.Options.bucket }, 'Stream upload to ${path} finished, bucket: ${bucket}');
-        pass.emit('close');
-      })
-      .catch((err) => {
-        pass.destroy(new IOFail(`Cannot write stream to ${path}, bucket ${this.Options.bucket}`, err));
-      });
+    // pipe() does not forward source errors; the upload would wait for the rest of the body forever
+    const onSourceError = (err: unknown) => pass.destroy(err instanceof Error ? err : new IOFail(String(err)));
+    rStream?.on('error', onSourceError);
 
-    if (rStream && typeof rStream !== 'string' && typeof rStream.pipe === 'function') {
-      rStream.pipe(pass);
-    }
+    // two-argument then: a throw from the success path must not be reported as a failed upload of a stored object;
+    // the trailing catch only logs it. The source listener stays after a failure: a late source error must still be handled
+    void this.finishUpload(upload, path, options.exclusive, `Cannot write stream to ${path}`)
+      .then(
+        () => {
+          rStream?.off('error', onSourceError);
+          this.Logger.trace({ path, bucket: this.Options.bucket }, 'Stream upload to ${path} finished, bucket: ${bucket}');
+          pass.destroy();
+          pass.emit('close');
+        },
+        (err: unknown) => {
+          pass.destroy(err instanceof ResourceDuplicated ? err : new IOFail(`Cannot write stream to ${path}, bucket ${this.Options.bucket}`, err));
+        },
+      )
+      .catch((err: unknown) => this.Logger.error({ error: err, path }, 'Stream upload to ${path} was stored, but its completion handling failed'));
+
+    rStream?.pipe(pass);
 
     return pass;
+  }
+
+  /**
+   * lib-storage aborts a multipart upload when a part fails, but not when CompleteMultipartUpload is refused
+   * (@aws-sdk/lib-storage dist-cjs/index.js:437-445), so a refused exclusive write would leave its parts stored.
+   */
+  private async finishUpload(upload: Upload, key: string, exclusive: boolean | undefined, action: string): Promise<void> {
+    try {
+      await upload.done();
+    } catch (err) {
+      await this.abortMultipartUpload(key, upload.uploadId);
+      if (exclusive && keyTaken(err)) {
+        throw new ResourceDuplicated(`${action}, ${key} already exists`, err);
+      }
+      throw err;
+    }
+  }
+
+  private async abortMultipartUpload(key: string, uploadId: string | undefined): Promise<void> {
+    if (!uploadId) return;
+    try {
+      await this.S3.send(new AbortMultipartUploadCommand({ Bucket: this.Options.bucket, Key: key, UploadId: uploadId }));
+    } catch (err) {
+      // lib-storage already aborted it after a failed part
+      if ((err as { name?: string } | undefined)?.name !== 'NoSuchUpload') {
+        this.Logger.warn({ error: err, key }, 'Cannot abort the multipart upload of ${key}');
+      }
+    }
   }
 
   /**
@@ -591,7 +627,8 @@ export class fsS3 extends fs {
    */
   protected async doMove(oldPath: string, newPath: string, dstFs?: fs): Promise<void> {
     await this.copy(oldPath, newPath, dstFs);
-    await this.rm(oldPath);
+    // copy took one key; rm would also remove the keys under oldPath/, which were not copied
+    await this.deleteKey(oldPath);
   }
 
   /**
@@ -602,18 +639,42 @@ export class fsS3 extends fs {
   }
 
   /**
-   *
-   * Deletes dir recursively & all contents inside
-   *
-   * @param path - dir to remove
+   * Deletes the key and every key under `path/`, as fsNative removes a directory with its contents. Removing a path
+   * that does not exist succeeds.
    */
   protected async doRm(path: string): Promise<void> {
-    const command = new DeleteObjectCommand({
-      Bucket: this.Options.bucket,
-      Key: path,
-    });
+    // DeleteObject with an empty key goes out as DeleteBucket, and the prefix of '' is every key in the bucket
+    if (path === '') {
+      throw new InvalidArgument(`fs s3 ${this.Name} does not remove the bucket root`, 'path');
+    }
 
-    await this.S3.send(command);
+    try {
+      await this.deleteKey(path);
+
+      let token: string | undefined;
+      do {
+        const page = await this.S3.send(new ListObjectsV2Command({ Bucket: this.Options.bucket, Prefix: `${path}/`, MaxKeys: DELETE_BATCH, ContinuationToken: token }));
+        const keys = (page.Contents ?? []).flatMap((o) => (o.Key ? [o.Key] : []));
+        for (let i = 0; i < keys.length; i += DELETE_BATCH) {
+          await this.deleteKeys(keys.slice(i, i + DELETE_BATCH));
+        }
+        token = page.IsTruncated ? page.NextContinuationToken : undefined;
+      } while (token);
+    } catch (err) {
+      if (err instanceof IOFail) throw err;
+      throw new IOFail(`Cannot remove ${path} from bucket ${this.Options.bucket}`, err);
+    }
+  }
+
+  private async deleteKey(key: string): Promise<void> {
+    await this.S3.send(new DeleteObjectCommand({ Bucket: this.Options.bucket, Key: key }));
+  }
+
+  private async deleteKeys(keys: string[]): Promise<void> {
+    const result = await this.S3.send(new DeleteObjectsCommand({ Bucket: this.Options.bucket, Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true } }));
+    if (result.Errors?.length) {
+      throw new IOFail(`Cannot remove ${result.Errors.map((e) => `${e.Key} (${e.Code})`).join(', ')} from bucket ${this.Options.bucket}`);
+    }
   }
 
   /**

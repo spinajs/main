@@ -13,3 +13,6 @@ export class ControllerRegistrationException extends Exception {}
  * missing route member). Thrown during startup — fail fast.
  */
 export class RouteRegistrationException extends Exception {}
+
+/** The route does not take the request's content type, e.g. a raw-body route sent a body that a parser already read. */
+export class UnsupportedMediaTypeException extends Exception {}

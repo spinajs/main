@@ -196,6 +196,7 @@ graphify-out/
 !/docs/templates-puppeteer/
 !/docs/templates-xlsx/
 !/docs/threading/
+!/docs/upload/
 !/docs/users/
 !/docs/users-http/
 !/docs/util/
