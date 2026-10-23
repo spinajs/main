@@ -47,4 +47,14 @@ describe('UploadStorage session prefix', () => {
     expect(await storage.removePrefix('upload-temp', 's-1')).to.eq(false);
     expect(uploadLogs(LogLevel.Warn).map((l) => [l.Variables.uploadId, l.Variables.key, l.Variables.fs])).to.deep.equal([['s-1', 'uploads/s-1', 'upload-temp']]);
   });
+
+  for (const id of ['', 'a/b', '..', 'x y']) {
+    it(`refuses the session id ${JSON.stringify(id)}: no prefix, no rm`, async () => {
+      const rm = sinon.spy(getFs('upload-temp'), 'rm');
+      expect(() => storage.sessionPrefix(id)).to.throw().with.property('name', 'InvalidArgument');
+      expect(await storage.removePrefix('upload-temp', id)).to.eq(false);
+      expect(rm.callCount).to.eq(0);
+      expect(uploadLogs(LogLevel.Warn).map((l) => l.Variables.uploadId)).to.deep.equal([id]);
+    });
+  }
 });

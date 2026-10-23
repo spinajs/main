@@ -87,6 +87,9 @@ describe('UploadStore sweeper statements', () => {
     await insertSessionRow({ status: 'aborted', final_event: 'UploadAborted', updated_at: old });
     await insertSessionRow({ status: 'aborted', final_event: 'UploadAborted', updated_at: t, final_event_at: t });
     expect(ids(await store.retainedFinished(t.minus({ days: 7 }), page()))).to.deep.equal(sorted(failed, aborted, expired));
+    const [first, second] = sorted(failed, aborted, expired);
+    expect(ids(await store.retainedFinished(t.minus({ days: 7 }), page(1)))).to.deep.equal([first]);
+    expect(ids(await store.retainedFinished(t.minus({ days: 7 }), page(1, first)))).to.deep.equal([second]);
   });
 
   it('sweepableBlobs reads one state, optionally only rows updated before a time', async () => {
@@ -98,6 +101,11 @@ describe('UploadStore sweeper statements', () => {
     await blob(s, { state: 'live', updated_at: t.minus({ hours: 1 }) });
     expect(ids(await store.sweepableBlobs('garbage', null, page()))).to.deep.equal([garbage]);
     expect(ids(await store.sweepableBlobs('writing', t.minus({ minutes: 30 }), page()))).to.deep.equal([staleWriting]);
+
+    const other = await blob(s, { state: 'garbage', updated_at: t });
+    const [low, high] = sorted(garbage, other);
+    expect(ids(await store.sweepableBlobs('garbage', null, page(1)))).to.deep.equal([low]);
+    expect(ids(await store.sweepableBlobs('garbage', null, page(1, low)))).to.deep.equal([high]);
   });
 
   it('dropParts turns live part blobs into garbage and deletes the part rows, once', async () => {

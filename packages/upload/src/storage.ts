@@ -5,7 +5,7 @@ import type { Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { Config, InvalidConfiguration } from '@spinajs/configuration';
 import { AsyncService, Autoinject, DI, Injectable, Singleton } from '@spinajs/di';
-import { LimitExceeded } from '@spinajs/exceptions';
+import { InvalidArgument, LimitExceeded } from '@spinajs/exceptions';
 import { ByteLimitStream, DigestStream, fsService, publishedFs } from '@spinajs/fs';
 import type { IWriteStreamOptions, fs } from '@spinajs/fs';
 import { Log, Logger } from '@spinajs/log';
@@ -18,6 +18,9 @@ import type { UploadSession } from './models/UploadSession.js';
 import { UploadStore } from './store.js';
 import { HeadCapture, closed } from './streams.js';
 import type { UploadConfig } from './types.js';
+
+/** Anything else could make the prefix rm reach beyond the session folder. */
+const SESSION_ID = /^[A-Za-z0-9_-]+$/;
 
 export interface WrittenPart {
   readonly blobId: string;
@@ -112,6 +115,7 @@ export class UploadStorage extends AsyncService {
 
   /** Every part key of the session starts with it (spec §4.1 step 6). */
   public sessionPrefix(sessionId: string): string {
+    if (!SESSION_ID.test(sessionId)) throw new InvalidArgument('upload session id must be non-empty and made of letters, digits, _ and -');
     return `${this.Options.fs.prefix}/${sessionId}`;
   }
 
@@ -186,6 +190,10 @@ export class UploadStorage extends AsyncService {
 
   /** One rm of the session prefix (spec §9): recursive on fsNative, every key under it on fs-s3 (F4). Best effort. */
   public async removePrefix(fsName: string, sessionId: string): Promise<boolean> {
+    if (!SESSION_ID.test(sessionId)) {
+      this.Log.warn({ uploadId: sessionId, fs: fsName }, 'Upload ${uploadId}: prefix on ${fs} not removed, the session id is not a valid folder name');
+      return false;
+    }
     const prefix = this.sessionPrefix(sessionId);
     try {
       await this.provider(fsName).rm(prefix);

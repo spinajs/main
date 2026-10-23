@@ -7,7 +7,7 @@ import { DateTime } from 'luxon';
 
 import { parseDuration } from './duration.js';
 import { UploadEvents } from './events/emitter.js';
-import { UploadAssemblyReleased } from './events/events.js';
+import { UploadAssemblyReleased, UploadPurged } from './events/events.js';
 import { UploadBlob } from './models/UploadBlob.js';
 import type { UploadSession } from './models/UploadSession.js';
 import { UploadService } from './service.js';
@@ -80,14 +80,18 @@ export class UploadSweeper {
     const result = emptyResult();
     const now = DateTime.utc();
     const staleBefore = now.minus(parseDuration(this.Options.assembly.staleAfter, 'upload.assembly.staleAfter'));
+    const retainedBefore = now.minus(parseDuration(this.Options.sweeper.retainFinished, 'upload.sweeper.retainFinished'));
     const run = <T extends SweepItem>(read: (page: KeysetPage) => Promise<T[]>, handle: (item: T) => Promise<unknown>) => this.each(read, handle, result, options);
 
     // Leftovers first, so an object a later step fails to remove is tried once per run. Releases before expiry, so a
-    // released session past expires_at expires in the same run.
+    // released session past expires_at expires in the same run; final events before the purge, which skips owed ones.
     await run((page) => this.Store.sweepableBlobs('garbage', null, page), (blob) => this.removeBlob(blob, result));
     await run((page) => this.Store.sweepableBlobs('writing', staleBefore, page), (blob) => this.reclaimWriting(blob, now, result));
     await run((page) => this.Store.staleClaims(staleBefore, page), (session) => this.release(session, now, result));
     await run((page) => this.Store.openExpiredBy(now, page), (session) => this.expire(session, result));
+    await run((page) => this.Store.owedFinalEvents(staleBefore, page), (session) => this.reemit(session, result));
+    await run((page) => this.Store.retainedCompleted(retainedBefore, page), (session) => this.purgeParts(session, now, result));
+    await run((page) => this.Store.retainedFinished(retainedBefore, page), (session) => this.purgeSession(session, now, result));
 
     this.Log.info(
       { ...result },
@@ -163,5 +167,42 @@ export class UploadSweeper {
     result.expired++;
     await this.Store.dropParts(session.id, DateTime.utc());
     await this.removeGarbageOf(session.id, result);
+  }
+
+  /** Spec §9 step 5. Events.final emits, then stamps final_event_at; false leaves the event owed for the next run. */
+  private async reemit(session: UploadSession, result: SweepResult): Promise<void> {
+    if (!(await this.Events.final(session))) return;
+    result.reemitted++;
+    this.Log.warn({ uploadId: session.id, event: session.final_event }, 'Upload ${uploadId}: final event ${event} re-emitted by the sweeper');
+  }
+
+  /** Spec §9 step 3 for a completed session: its parts go, its row and merged file stay. */
+  private async purgeParts(session: UploadSession, now: DateTime, result: SweepResult): Promise<void> {
+    if (!(await this.Store.dropParts(session.id, now))) return;
+    const { removed } = await this.removeGarbageOf(session.id, result);
+    if (!this.fileUnderPrefix(session)) await this.Storage.removePrefix(session.temp_fs, session.id);
+    await this.purged(session, removed, result);
+  }
+
+  /** Spec §9 step 3 for a failed, aborted or expired session: everything goes, the row last, once no object is left. */
+  private async purgeSession(session: UploadSession, now: DateTime, result: SweepResult): Promise<void> {
+    // A session expired by UploadService.expire outside a sweep still has its parts.
+    await this.Store.dropParts(session.id, now);
+    await this.Store.abandonBlobs(session.id, now);
+    const { removed, kept } = await this.removeGarbageOf(session.id, result);
+    if (kept > 0) return;
+    await this.Storage.removePrefix(session.temp_fs, session.id);
+    if (await this.Store.deleteFinishedSession(session.id)) await this.purged(session, removed, result);
+  }
+
+  /** An app's fileDir may put the merged file under the session prefix; one rm of the prefix would take it too. */
+  private fileUnderPrefix(session: UploadSession): boolean {
+    return session.file_key !== null && session.file_key.startsWith(`${this.Storage.sessionPrefix(session.id)}/`);
+  }
+
+  private async purged(session: UploadSession, blobs: number, result: SweepResult): Promise<void> {
+    result.purged++;
+    this.Log.info({ uploadId: session.id, owner: session.owner, status: session.status, blobs }, 'Upload ${uploadId} purged');
+    await this.Events.stage(new UploadPurged(session, { Blobs: blobs }));
   }
 }
