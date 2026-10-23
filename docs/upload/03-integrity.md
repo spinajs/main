@@ -26,7 +26,7 @@ Every part is checked against its own SHA-256 before it is stored, and every sto
 
 ### The file (`UploadService.complete`)
 
-1. **Declared hash:** from create, or from the complete body. While `upload.integrity.fileDigest` is `required`, complete without one answers `upload.file_digest_required`. A complete hash that differs from the create hash answers `upload.file_digest_mismatch`.
+1. **Declared hash,** after the status checks (a completed, not open or freshly claimed session answers first): from create, or from the complete body. While `upload.integrity.fileDigest` is `required`, complete without one answers `upload.file_digest_required`. A complete hash that differs from the create hash answers `upload.file_digest_mismatch`.
 2. **Claim:** a conditional `UPDATE` sets `status: 'assembling'` and a claim token, on an `open` session not past `expiresAt`, or on an `assembling` one whose claim is older than `upload.assembly.staleAfter`. Only the claim holder lists and reads the parts. A request that loses the claim answers from the session's state: the completed view, `upload.assembling`, `upload.expired` or `upload.not_open`.
 3. **Missing parts** answer `upload.parts_missing` with `details.parts`, and release the claim.
 4. **Assembly** (`UploadStorage.assemble`): a `writing` blob row records the file key `<fileDir>/<uuid><ext>` first. Each part is read with `readStream()`, hashed, and compared with its row's SHA-256. All the bytes go through one whole-file `DigestStream` into `writeStream(key, { exclusive: true, contentType, metadata: { hash } })` on the files provider. `contentType` is the detected MIME type, else the declared one, else `application/octet-stream`. `hash` is the declared file hash, and is absent when none was declared.

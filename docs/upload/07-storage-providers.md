@@ -49,17 +49,17 @@ export default {
 
 ## Important behaviour
 
-- **Never wrap the temp provider in an `fsTemp` with cleanup on.** Its strategy removes first-level entries by creation time, not by activity, so it deletes the parts of sessions still being uploaded. The [sweeper](11-sweeper.md) owns cleanup of upload objects.
+- **Never wrap the temp provider in an `fsTemp` with cleanup on.** Its strategy removes first-level entries by creation time (modified time when the provider reports none), not by activity, so it deletes the parts of sessions still being uploaded. The [sweeper](11-sweeper.md) owns cleanup of upload objects.
 - **No listing, no rename.** The upload never calls `list`, `append`, `rename`, `move` or `mkdir`: rename and move are copy plus delete on S3, and `list` returns names on `fsNative` but full keys on S3. Cleanup reads `upload_blobs` instead.
 - **Exclusive writes create their parent directories** on `fsNative`, so no `mkdir` is needed for the nested part keys.
 - **Exclusive is only as strong as the backend.** `fsNative` opens with `wx`, which is atomic. `fsS3` sends `IfNoneMatch: '*'`; AWS S3 refuses the second of two concurrent writes, but a backend that ignores the header, or does not enforce it between concurrent multipart uploads (LocalStack 3.8.1), lets both succeed (a known limit, not fixed by the upload). The upload's keys are unique, so this never matters for its own writes; it matters only if something else writes under the same prefix.
-- **S3 objects carry metadata.** A part stores `hash` (the declared hex SHA-256) as user metadata; the merged file stores `hash` and its content type (detected, else declared, else `application/octet-stream`). `fsS3.hash()` returns that stored `hash` without reading the object.
+- **S3 objects carry metadata.** A part stores `hash` (the declared hex SHA-256) as user metadata only when a digest was declared; part digests can be optional. The merged file stores the declared file digest, absent when none was declared, and its content type (detected, else declared, else `application/octet-stream`). `fsS3.hash()` returns a stored `hash` without reading the object, and streams the object when there is none.
 - **The session folder goes in one `rm`.** On S3 that needs the prefix removal of `@spinajs/fs-s3` (`rm('a')` also deletes `a/…`). Every object was removed by key first, so a provider whose `rm` removes one key leaves nothing behind on S3 and only empty folders on disk.
 - **authz-fs keeps ACL rows after a prefix `rm`.** On a filesystem under `@spinajs/authz-fs` enforcement, an S3 prefix `rm` deletes the keys under the prefix, but `fs_acl` rows of those keys stay until `@spinajs/authz-fs` handles prefix deletes.
 - **The merged file can sit under the session folder.** If your `fileDir()` puts it under `<prefix>/<session id>/`, the sweeper does not remove that folder when it purges a completed session.
 - **`fileDir()` must not contain a `..` segment.** The write throws `InvalidOption`, answered `500` `upload.internal`; a backslash counts as a separator.
 - **`staleAfter` must exceed the slowest part transfer and the slowest assembly.** The [sweeper](11-sweeper.md) reclaims an object still being written once it is older than `staleAfter`. The upload then answers `409` `upload.part_lost` or `upload.file_lost`, and the client retries.
-- **A failed exclusive write cleans up.** `fsNative` closes the handle, removes the file and throws `IOFail`. `fsS3` wraps S3 errors of `rm` in `IOFail`.
+- **A failed exclusive open cleans up.** When creating the stream throws after the `wx` open succeeded, `fsNative` closes the handle, removes the file and throws `IOFail`. A failure while bytes stream is discarded by `UploadStorage`; a partial object it cannot remove stays recorded as garbage for the sweeper. `fsS3` wraps S3 errors of `rm` in `IOFail`.
 - **Unknown providers fail at boot or at create.** `upload.fs.*` are checked when `UploadStorage` resolves; a name from `fsFor()` is checked at create and throws `InvalidConfiguration` (`500`).
 
 ## Best practices

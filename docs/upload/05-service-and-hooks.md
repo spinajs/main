@@ -15,10 +15,10 @@
 | `state(session)` | `Promise<UploadStateView>` | The resume state, read fresh from the database. |
 | `putPart(session, part, body, digest, length, options?)` | `Promise<PartStoredView>` | Stores one part ([Integrity](03-integrity.md#a-part-uploadserviceputpart)). `digest` is the raw 32-byte SHA-256 or `undefined`, `length` the declared byte count or `undefined`, `options.allowedTypes` defaults to `'*'`. |
 | `complete(session, input?, options?)` | `Promise<UploadStateView>` | Assembles and verifies the file, then runs the `upload.complete` hook action and `options.onCompleted` while `handled_at` is null. `input.sha256` is the file hash when create had none; `options.fileDir` defaults to `<upload.fs.prefix>/files`. |
-| `abort(session)` | `Promise<boolean>` | `open` → `aborted`; `false` when it was already aborted. Removes the parts and emits `UploadAborted`. |
+| `abort(session)` | `Promise<boolean>` | `open` → `aborted`; `false` when it was already aborted. Throws `upload.assembling` while the session assembles, and `upload.not_open` when it is completed, failed or expired. Removes the parts and emits `UploadAborted`. |
 | `expire(session)` | `Promise<boolean>` | `open` → `expired` once `expiresAt` passed; `false` when it was not due. Emits `UploadExpired`; the sweeper removes the parts. |
 
-`CreateUploadInput` is `{ name, size, sha256?, partSize?, metadata?, owner?, limits?, allowedTypes?, allowUnknownType?, fs? }`; the last five are what the controller fills from `ownerOf`, `limitsFor`, `allowedTypes`, `allowUnknownType` and `fsFor`.
+`CreateUploadInput` is `{ name, size, sha256?, partSize?, metadata?, owner?, limits?, allowedTypes?, allowUnknownType?, fs? }`; `metadata` and the last five are what the controller fills from `metadataFor`, `ownerOf`, `limitsFor`, `allowedTypes`, `allowUnknownType` and `fsFor`.
 
 ### Hook actions
 
@@ -42,7 +42,7 @@
 
 ### `upload.create` hook: custom implementation
 
-Refuse uploads that would take a project over its storage quota, and stamp the quota plan on the session:
+Refuse uploads that would take a project over its storage quota, and stamp the check time on the session:
 
 ```ts sample
 import { Injectable } from '@spinajs/di';
@@ -90,7 +90,7 @@ The client gets `403 { "code": "project.quota_exceeded", "message": "..." }`. Im
 - Pass the owner to `get()` whenever the caller acts for a user; `get(id)` alone ignores ownership.
 - Use hook codes from your own namespace (`project.quota_exceeded`), so clients can tell them from `upload.*` codes.
 - Keep `upload.create` hooks fast: they run inside the create request, before the session exists.
-- Throw a client mistake as `UploadError`; any other error from the service reaches the controller as `500 upload.internal`. Codes are in [Errors](01-protocol.md#errors).
+- Refuse from a hook with `ctx.refuse(code)`; the controller answers `403 { code, message }`. `UploadError` codes are fixed to the list in [Errors](01-protocol.md#errors).
 
 ## Examples
 

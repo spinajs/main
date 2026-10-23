@@ -15,6 +15,7 @@ The upload compares two MIME types: the one the file name declares and the one t
 | --- | --- |
 | Nothing detected, and the declared type is in `upload.detect.allowUndetected` (default `text/plain`, `text/csv`) | the declared type goes on to the last rule |
 | Nothing detected otherwise, also with no declared type | `415` `upload.content_mismatch` |
+| Detected, and no declared type (`allowUnknownType()` is `true`) | the mismatch test is skipped; the detected type goes on to the last rule |
 | Detected type equals the declared type, or the detected extension maps (with `mime-types`) to the declared type | the detected type goes on to the last rule |
 | Detected type differs from the declared type | `415` `upload.content_mismatch` |
 | The detected type (or the declared one, when nothing was detected) is not in `allowedTypes()` | `415` `upload.unsupported_type` |

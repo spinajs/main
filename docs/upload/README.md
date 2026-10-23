@@ -21,7 +21,7 @@ npm install @spinajs/scheduler
 | Import path | What it holds |
 | --- | --- |
 | `@spinajs/upload` | `UploadService`, `UploadStorage`, `UploadStore`, `ContentTypeCheck`, `ContentDetector`, `UploadSweeper`, models, migration, events, errors, config schema |
-| `@spinajs/upload/http` | `UploadController`, `CreateUploadDto`, `CompleteUploadDto`, `uploadErrorResponse`, `hookRefusalResponse` |
+| `@spinajs/upload/http` | `UploadController`, `CreateUploadDto`, `CompleteUploadDto`, `uploadErrorResponse`, `hookRefusalResponse`, `UPLOAD_INTERNAL_ERROR` |
 | `@spinajs/upload/scheduler` | `UploadSweepTask`, the `upload.sweep` schedule |
 
 ## Features
@@ -65,7 +65,7 @@ export default {
 Then subclass the controller in a directory listed in `system.dirs.controllers`:
 
 ```ts sample
-import { Forbidden } from '@spinajs/exceptions';
+import { AuthenticationFailed, Forbidden, ResourceNotFound } from '@spinajs/exceptions';
 import { BasePath } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import type { UploadSession } from '@spinajs/upload';
@@ -83,13 +83,14 @@ declare function mayUploadDocuments(userId: string, action: UploadAction): boole
 export class DocumentUploadsController extends UploadController {
   protected async ownerOf(req: Request): Promise<string | null> {
     const user = signedInUserId(req);
-    if (user === undefined) throw new Forbidden('sign in to upload documents');
+    if (user === undefined) throw new AuthenticationFailed('sign in to upload documents');
     return user;
   }
 
-  protected async authorize(action: UploadAction, req: Request, _session?: UploadSession): Promise<void> {
-    const user = signedInUserId(req);
-    if (user === undefined || !mayUploadDocuments(user, action)) throw new Forbidden(`${action} is not allowed`);
+  protected async authorize(action: UploadAction, req: Request, session?: UploadSession): Promise<void> {
+    const user = await this.ownerOf(req);
+    if (user === null || !mayUploadDocuments(user, action)) throw new Forbidden(`${action} is not allowed`);
+    if (session && session.owner !== user) throw new ResourceNotFound('no such upload');
   }
 }
 ```

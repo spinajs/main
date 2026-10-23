@@ -34,7 +34,7 @@
 | `allowUnknownType(req)` | `false` | Return `true` to accept a name whose extension maps to no MIME type. |
 | `fsFor(req, dto)` | `{ temp: upload.fs.temp, files: upload.fs.files }` | Pick the providers per session, for example a bucket per tenant. They are fixed at create. |
 | `fileDir(session)` | `` `${upload.fs.prefix}/files` `` | Put the merged file elsewhere on the files provider. The key is `<fileDir>/<uuid><ext>`, so keys stay unique. Synchronous. A directory with a `..` segment is refused with `InvalidOption`, answered `500 upload.internal`. |
-| `onCompleted(session, req)` | does nothing | Your domain work once the file is verified: attach it to a record, start processing. Runs until it succeeds: a rejection answers `500` and runs again on the next complete. |
+| `onCompleted(session, req)` | does nothing | Your domain work once the file is verified: attach it to a record, start processing. Runs until it succeeds: a rejection answers `500` `upload.internal`, or the error's mapped status, and runs again on the next complete. |
 | `onAborted(session, req)` | does nothing | Clean up your own records. Runs once, for the `DELETE` that aborted the session; a failure is logged at `error` and the `DELETE` still answers `204`. |
 | `sessionFor(action, id, req)` | owner-scoped lookup, then `authorize` | Call it from your own routes on the same controller to load a session the same way. |
 
@@ -52,7 +52,7 @@ Accept drawings and PDFs into a project, scope uploads to the signed-in user, st
 
 ```ts sample
 import { Injectable } from '@spinajs/di';
-import { Forbidden, ResourceNotFound } from '@spinajs/exceptions';
+import { AuthenticationFailed, Forbidden, ResourceNotFound } from '@spinajs/exceptions';
 import { BasePath } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import type { AllowedTypes, UploadLimits, UploadSession } from '@spinajs/upload';
@@ -85,7 +85,7 @@ export class ProjectUploadsController extends UploadController {
 
   protected async ownerOf(req: Request): Promise<string | null> {
     const user = signedInUserId(req);
-    if (user === undefined) throw new Forbidden('sign in to upload');
+    if (user === undefined) throw new AuthenticationFailed('sign in to upload');
     return user;
   }
 
@@ -127,13 +127,16 @@ Put the permission check on the subclass with `@Access` from `@spinajs/authz-htt
 @Access('project:upload', { resource: fromParam('project', 'project') })
 @BasePath('projects/:project/uploads')
 export class ProjectUploadsController extends UploadController {
-  protected async authorize(): Promise<void> {
-    // @Access already refused everyone without project:upload on this project
+  // plus ownerOf(), as in the sample above: @Access checks only the project in the path
+
+  protected async authorize(_action: UploadAction, req: Request, session?: UploadSession): Promise<void> {
+    if (session && session.metadata.projectId !== projectOf(req)) throw new ResourceNotFound('no such upload in this project');
   }
 }
 ```
 
 - The base declares no policy group, so the subclass's `@Access` group gates every route. It runs before the session lookup and before `authorize`.
+- `@Access` does not replace `ownerOf()` or the project check in `authorize()`. It tests the project in the path, not the session id, so without them a holder of `project:upload` on project A reaches any session through `/projects/A/uploads/<id>`.
 - To narrow one route, re-declare the method with its own decorator and call `super`. The route keeps its path and its place in the route order:
 
 ```ts
@@ -152,11 +155,12 @@ public async abort(@Param() upload: string, @Req() req: Request) {
 5. **Derive metadata on the server.** `metadataFor()` should build or whitelist the metadata. The client's `metadata` is untrusted, has no bound of its own (only `http.bodyLimits` caps the request body), and reaches every event consumer.
 6. **Keep CSRF on.** Leave `http.csrf` enabled, never put `@CsrfExempt()` on upload routes, add your SPA's origin to `http.csrf.allowedOrigins`, and list your session cookie in `http.csrf.ambientCookies` when you authenticate with cookies.
 7. **CORS for browser clients.** Expose `Location`, `Upload-Offset`, `Upload-Length` and `Upload-Part-Size` in `http.cors.exposedHeaders`, and allow the `content-digest` request header in `http.cors.allowedHeaders` when you set that list. `PUT`, `DELETE` and `HEAD` are in the preflight's allowed methods already.
-8. **Expect `upload.internal` for unmapped errors.** A failing `onCompleted` or a server misconfiguration answers `500 { code: 'upload.internal' }` in every environment, with no stack or error fields; the original is logged with the `uploadId`. Your `http.errors.handlers` do not see these `500`s. To answer them yourself, add a class-level `@OnError` on the subclass.
-9. **Expect resets from server-level refusals.** Throttling, the CSRF guard, `http.bodyLimits` and unmatched routes answer before routing, without draining the body, so a client may see a reset. Keep the throttle limit on the part path generous and any body limit well above `maxPartSize`, and have clients treat a reset `PUT` as retryable and check the state with `HEAD` first.
-10. **Size the request timeout.** Set `server.requestTimeout` so a `maxPartSize` part arrives within it from the slowest client you support. Never set it to `0`: that turns the timeout off, and a drained refusal could then hold a connection forever.
-11. **Clients send exact parts.** The exact `Content-Length`, `Content-Type: application/octet-stream` (or none), and `Content-Digest: sha-256=:…:`.
-12. **When you re-declare routes:**
+8. **Expect `upload.internal` for unmapped errors.** A failing `onCompleted` or a server misconfiguration answers `500 { code: 'upload.internal' }` in every environment, with no stack or error fields; the original is logged with the `uploadId`. Your `http.errors.handlers` do not see these `500`s. To answer them yourself, add a class-level `@OnError(Error, handler)` on the subclass: it runs before the base's `UploadError` and `ActionRefused` handlers, so return nothing unless `answeredAsServerError(err)` (from `@spinajs/http`) is true.
+9. **Run in production mode.** Set `APP_ENV` to `production` (or `prod`); when `APP_ENV` is unset, `NODE_ENV` decides. Mapped errors such as `Forbidden`, `ResourceNotFound` and `ValidationFailed` keep the framework body, which carries the stack outside production and the error's enumerable fields in every environment. Keep secrets out of the properties of errors your `authorize`, `ownerOf` and hooks throw.
+10. **Expect resets from server-level refusals.** Throttling, the CSRF guard, `http.bodyLimits` and unmatched routes answer before routing, without draining the body, so a client may see a reset. Keep the throttle limit on the part path generous and any body limit well above `maxPartSize`, and have clients treat a reset `PUT` as retryable and check the state with `HEAD` first.
+11. **Size the request timeout.** Set `server.requestTimeout` so a `maxPartSize` part arrives within it from the slowest client you support. Never set it to `0`: that turns the timeout off, and a drained refusal could then hold a connection forever.
+12. **Clients send exact parts.** The exact `Content-Length`, `Content-Type: application/octet-stream` (or none), and `Content-Digest: sha-256=:…:`.
+13. **When you re-declare routes:**
     - to add error handling to `putPart`, use a class-level `@OnError`: route-level handlers run before the base's drain step, and one that answers skips it;
     - new routes for one path declare `HEAD` before `GET`;
     - reuse `sessionFor()` to load sessions;
@@ -167,18 +171,18 @@ public async abort(@Param() upload: string, @Req() req: Request) {
 
 - **Fail closed.** `authorize` is abstract. Any throw refuses; returning means allowed. For every route but `create` it runs after the owner-scoped lookup, so it sees the session row as loaded before the operation.
 - **Body validation runs before `authorize`.** `@Body` DTOs are validated in the arguments stage, before the action. A caller that `authorize` would refuse gets `400` (the framework's `ValidationFailed` body), not `403`, when its create or complete body is invalid. Only a policy (`@Access`, `@Policy`) refuses before validation.
-- **Validation coerces types.** `"10"` becomes `10`: the DTO schema ids start with `upload.`, which is not a strict prefix. Add `'upload.'` to `validation.strict.idPrefixes` to turn coercion off.
+- **Validation coerces types.** `"10"` becomes `10`: the DTO schema ids start with `upload.`, which is not a strict prefix. Set `validation.strict.idPrefixes` to `['authn.', 'authz.', 'upload.']` (the default is `['authn.', 'authz.']`) to turn coercion off.
 - **Policy groups are OR'd.** A class-level `@Policy(X)` next to `@Access(...)` adds a second group, and a request passing either group passes. Put extra conditions inside `@Access(..., { also: [X] })` to AND them.
 - **`@Access` on a subclass replaces an inherited `@Access`** of the same place; a plain `@Policy` adds a group.
 - **HEAD before GET.** The base declares `HEAD :upload` before `GET :upload`; a re-declared method keeps its place. If your subclass adds its own `GET` and `HEAD` for one path, declare `HEAD` first, or `GET` answers `HEAD` requests.
 - **Never wrap create or complete in a transaction.** The service commits its own transactions and emits its events after them; inside an outer transaction the events go out before the data they report is committed.
 - **`onCompleted` is at least once.** It runs while `handled_at` is null and sets it after success. A crash between your work and that update runs it again: make it idempotent, keyed by `session.id`.
 - **`onAborted` gets the aborted row.** It is loaded again after the abort, without owner scoping.
-- **No CSRF exemption.** Browser writes need their origin in `http.csrf.allowedOrigins`. A `create` or `DELETE` from a foreign `Origin` answers `403` with `E_CSRF_ORIGIN`.
+- **No CSRF exemption.** Browser writes need their origin in `http.csrf.allowedOrigins`. Every unsafe upload route (create, `PUT` part, `POST` complete, `DELETE`) from a foreign `Origin` answers `403` with `E_CSRF_ORIGIN`.
 - **`upload.internal` hides the cause.** It covers only errors the framework would answer as a generic `500`. A mapped error, such as `ResourceDuplicated` (`409`), keeps the framework body. A subclass's own class-level `@OnError` runs first.
 - **Server misconfiguration is a `500`.** A `fileDir` with a `..` segment, or a zero duration from `limitsFor`, throws `InvalidOption`, answered `500 upload.internal`, not `400`.
 - **Metadata has no size bound.** The service checks only that it is an object; `http.bodyLimits` caps the request body.
-- **Part drain falls back to `upload.limits.maxPartSize`.** A part refused before its session is loaded has no expected size, so the drain bound is the configured maximum part size. A body declared above the bound closes the connection.
+- **Part drain falls back to `upload.limits.maxPartSize`.** The expected size is known only after `authorize` passed and the part number is in range. A part refused earlier, or by `authorize` itself, or with an out-of-range part number, is drained up to the configured maximum part size. A body declared above the bound, or with no `Content-Length`, closes the connection.
 
 ## Best practices
 
@@ -194,12 +198,16 @@ public async abort(@Param() upload: string, @Req() req: Request) {
 @Policy(AdminIp)
 @Access('project:upload')
 @BasePath('projects/:project/uploads')
-export class ProjectUploadsController extends UploadController {}
+export class ProjectUploadsController extends UploadController {
+  /* authorize, ownerOf */
+}
 
 // Do: AND the extra policy into the @Access group
 @Access('project:upload', { also: [AdminIp] })
 @BasePath('projects/:project/uploads')
-export class ProjectUploadsController extends UploadController {}
+export class ProjectUploadsController extends UploadController {
+  /* authorize, ownerOf */
+}
 ```
 
 ```ts

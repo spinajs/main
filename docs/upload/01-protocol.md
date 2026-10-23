@@ -50,7 +50,7 @@ sequenceDiagram
 
 | Field | Type | Rule |
 | --- | --- | --- |
-| `name` | `string` | 1 to 255 characters. Its extension gives the declared MIME type (`mime-types` `lookup`); the client's `Content-Type` is never used. |
+| `name` | `string` | 1 to 255 characters, and not only whitespace. Its extension gives the declared MIME type (`mime-types` `lookup`); the client's `Content-Type` is never used. |
 | `size` | `integer` | Bytes, at least 1, at most `upload.limits.maxFileSize`. |
 | `sha256` | `string` | Optional. 64 hex characters, any case, stored lower case: the SHA-256 of the whole file. Required here or at complete while `upload.integrity.fileDigest` is `required`. |
 | `partSize` | `integer` | Optional. Bytes per part, within `minPartSize`..`maxPartSize` (at most 5 GiB), giving at most `maxParts` parts. Default: `upload.limits.partSize`, clamped into that range. |
@@ -79,12 +79,12 @@ Other fields are refused (`additionalProperties: false`).
 | `status` | `'open' \| 'assembling' \| 'completed' \| 'failed' \| 'aborted' \| 'expired'` | See [Statuses](#statuses). |
 | `name`, `size` | `string`, `number` | As created. |
 | `partSize`, `partCount` | `number` | As fixed at create. |
-| `receivedParts` | `{ number, size, sha256 }[]` | Stored parts in part order; `sha256` is hex. Empty once the sweeper purged the parts of a finished session. |
+| `receivedParts` | `{ number, size, sha256 }[]` | Stored parts in part order; `sha256` is hex. Empty for an aborted, failed or expired session, and for a completed one once the sweeper purged its parts. |
 | `missingParts` | `number[]` | Parts not stored yet. Always empty for a `completed` session. |
 | `offset` | `number` | Bytes in the run of stored parts that starts at part 1. Equals `size` for a `completed` session. |
 | `expiresAt` | `string` | ISO time; parts are refused after it. |
 | `sha256` | `string` | Hex SHA-256 of the merged file; only once `completed`. |
-| `mime` | `string` | The detected MIME type; once part 1 is stored. |
+| `mime` | `string` | The detected MIME type; once part 1 is stored. Absent when part 1 was accepted with nothing detected. |
 | `failure` | `{ code, message }` | Only for a `failed` session. |
 
 `PUT` answers `PartStoredView`: `{ part, size, sha256, offset, missingParts }`, with the same meanings.
@@ -98,7 +98,8 @@ Other fields are refused (`additionalProperties: false`).
 
 ```text
 open ──complete (claim)──▶ assembling ──verified──▶ completed
-  │                          │  └─stored part changed──▶ open
+  │                          │  └─stored part changed, missing parts, another assembly error,
+  │                          │    or a stale claim released by the sweeper──▶ open
   │                          └─file hash or size mismatch──▶ failed
   ├─DELETE──▶ aborted
   └─sweeper, past expiresAt──▶ expired
@@ -112,7 +113,7 @@ open ──complete (claim)──▶ assembling ──verified──▶ complete
 | `aborted` | `409` `upload.not_open` | `409` `upload.not_open` | `204` again; `onAborted` does not run again |
 | `failed`, `expired` | `409` `upload.not_open` | `409` `upload.not_open` | `409` `upload.not_open` |
 
-An `open` session past `expiresAt` can still be aborted until the sweeper expires it.
+An `open` session past `expiresAt` can still be aborted until the sweeper expires it. Once `upload.sweeper.retainFinished` has passed, the sweeper deletes a failed, aborted or expired session, and every route answers `404` `upload.not_found` for it.
 
 ## Errors
 
@@ -120,7 +121,7 @@ Every upload refusal answers `{ code, message, details? }` with the status below
 
 | Code | Status | Route | When |
 | --- | --- | --- | --- |
-| `upload.invalid` | 400 | create, complete | `name`, `size`, `sha256` or `metadata` is malformed; an `upload.create` hook replaced `metadata` with a non-object |
+| `upload.invalid` | 400 | create, complete | `name`, `size`, `sha256` or `metadata` is malformed; `ownerOf()` returned a value that is not a string or `null`; an `upload.create` hook replaced `metadata` with a non-object |
 | `upload.not_found` | 404 | every `:upload` route | No such session, or a session of another owner |
 | `upload.too_large` | 400 | create | `size` is over `maxFileSize` |
 | `upload.part_size` | 400 | create, part | `partSize` is outside `minPartSize`..`maxPartSize` or gives more than `maxParts` parts; a part's `Content-Length` is not its size; a part body ended early |
@@ -145,10 +146,12 @@ Every upload refusal answers `{ code, message, details? }` with the status below
 | `upload.size_mismatch` | 400 | complete | The merged file is not `size` bytes; the session is now `failed` |
 | `upload.internal` | 500 | every route | An error the framework would answer as a generic 500: the body is `{ code: 'upload.internal', message: 'Internal error' }`, with no path or stack. See below |
 
+An `upload.create` or `upload.complete` hook that refuses answers `403` `{ code, message }`, where `code` is the hook's code. The controller builds this body itself (`hookRefusalResponse`).
+
 `upload.internal` replaces the framework's 500 body on the upload routes. The controller logs the original error with the session id.
 
-- Server-side misconfiguration answers it: a `fileDir()` with a `..` segment, or a zero `sessionTtl` from `limitsFor()` (both throw `InvalidOption`), and a missing provider.
-- A failing `onCompleted` answers it, and runs again on the next complete.
+- Server-side misconfiguration answers it: a `fileDir()` with a `..` segment, or a zero `sessionTtl` from `limitsFor()` (both throw `InvalidOption`), and a provider name that is not defined. A default `upload.fs.*` name that is not defined fails at boot instead; at request time the 500 comes from a name `fsFor()` returns, or from a session's recorded provider that the config no longer defines.
+- A failing `onCompleted` answers it, and runs again on the next complete, unless its error has a mapped status: a `Forbidden` there answers `403`.
 - An error that has its own mapped status keeps the framework body. A `ResourceDuplicated` stays a `409`, for example.
 - The app's `http.errors.handlers` do not see these 500s. A class-level `@OnError` of a subclass runs first.
 
@@ -159,8 +162,7 @@ Other answers come from the framework, in its own body shape:
 | 400 | The create or complete body fails its schema (`ValidationFailed`). This runs before the action, so before `authorize`: see [Extending the controller](04-extending-the-controller.md#important-behaviour). |
 | 400 | A malformed `Content-Digest` header. |
 | 401, 403 | A policy refuses, or `authorize` throws `Forbidden` or `AuthenticationFailed`. |
-| 403 `{ code, message }` | An `upload.create` or `upload.complete` hook refused; `code` is the hook's code. |
-| 403 `{ error: { code: 'E_CSRF_ORIGIN', message } }` | `create` or `DELETE` came from a foreign `Origin`. The CSRF guard answers before `authorize`, in its own body shape. |
+| 403 `{ error: { code: 'E_CSRF_ORIGIN', message } }` | Any unsafe route (create, part, complete, `DELETE`) came from a foreign `Origin`. The CSRF guard answers before routing and `authorize`, in its own body shape, so `settleRefusedPart` does not drain a refused part's body. |
 | 415 | The part body was JSON, urlencoded or XML. |
 
 ## Client flow
@@ -217,8 +219,8 @@ A browser client hashes each part with `crypto.subtle.digest('SHA-256', part)`. 
 - **`HEAD` is its own route.** It is declared before `GET`; in the other order Express answers `HEAD` with the `GET` route and the `Upload-*` headers never go out.
 - **`Location` is built from the request path**, `req.originalUrl` without the query, plus `/<id>`. Behind a proxy that rewrites paths it holds the path the app saw.
 - **Browser apps must expose the headers.** Add `Upload-Offset`, `Upload-Length`, `Upload-Part-Size` and `Location` to `http.cors.exposedHeaders`, and allow `content-digest` in `http.cors.allowedHeaders` when you set that list. See [CORS](../http/16-cors.md).
-- **CSRF applies.** The controller sets no `@CsrfExempt()`. A `create` or `DELETE` from a foreign `Origin` answers `403` `E_CSRF_ORIGIN`; a browser on another origin needs that origin in `http.csrf.allowedOrigins`. See [CSRF guard](../http/23-csrf-guard.md).
-- **A refused part may cost the connection.** A refusal before the body was read is drained first when its `Content-Length` is at most the part's size; otherwise the answer carries `Connection: close`. See [Limits](06-limits.md#refused-parts).
+- **CSRF applies.** The controller sets no `@CsrfExempt()`. Every unsafe route (create, part, complete, `DELETE`) from a foreign `Origin` answers `403` `E_CSRF_ORIGIN`; a browser on another origin needs that origin in `http.csrf.allowedOrigins`. See [CSRF guard](../http/23-csrf-guard.md).
+- **A refused part may cost the connection.** A refusal before the body was read is drained first when its `Content-Length` is at most the part's size, or at most the configured `maxPartSize` when the part number is invalid or the refusal came before the session loaded; otherwise the answer carries `Connection: close`. See [Limits](06-limits.md#refused-parts).
 - **Repeated `complete` is safe.** A completed session answers its view again and runs `onCompleted` only while it has not succeeded.
 
 ## Related

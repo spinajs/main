@@ -40,7 +40,7 @@ The upload refuses a file, a part or a session that is too large, too fragmented
 | `sessionTtl` | the override when it is shorter; a zero duration throws `InvalidOption` |
 | `partSize` | the override as given; it is still clamped into `minPartSize`..`maxPartSize` |
 
-A `NaN` or infinite number in the override is ignored. A `sessionTtl` of zero (`'0s'`) is server misconfiguration, not a client error: it throws `InvalidOption`, answered `500` `upload.internal`.
+A `NaN` or infinite number in the override is ignored for every numeric limit except `partSize`; a non-finite `partSize` reaches the part planning and answers `400` `upload.part_size`. A `sessionTtl` of zero (`'0s'`) is server misconfiguration, not a client error: it throws `InvalidOption`, answered `500` `upload.internal`.
 
 The metadata of a session has no limit of its own; the body limits of `http` cap it (below).
 
@@ -121,7 +121,7 @@ await server.start();
 
 - **The owner cap is soft on Postgres and MySQL.** The insert counts the owner's open sessions after locking their rows. An owner with **no** open session has no row to lock, so concurrent first creates of that owner are not serialised: N such requests can leave the owner with up to `maxOpenSessionsPerOwner + N - 1` open sessions. SQLite runs one transaction at a time and is exact.
 - **Sessions without an owner are never capped.** `ownerOf()` returning `null` turns the cap off, and the count is skipped.
-- **A lock conflict is retried once.** The insert transaction retries once after a deadlock, lock wait timeout (MySQL 1213, 1205) or serialization failure (Postgres `40001`, `40P01`), unless a caller's transaction is open. A second `1205` can double the latency of a `create`.
+- **A lock conflict is retried once.** The insert transaction retries once after a deadlock, lock wait timeout (MySQL 1213, 1205) or serialization failure (Postgres `40001`, `40P01`), unless a caller's transaction is open. After a first `1205` the retry waits for the lock again, which can double the latency of a `create`.
 - **`maxPartSize` is also the drain bound** for refusals whose part size is unknown: an unknown session, a refusing policy or `authorize`, or a part number out of range. Keep it near your real part size.
 - **A refusal answers after the drain.** A client sending a refused part at full speed sees the answer once its body is sent; a slow one waits up to the request timeout.
 

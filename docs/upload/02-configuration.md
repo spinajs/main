@@ -29,7 +29,7 @@ Every `upload.*` key, with its default. The defaults live in the `upload` JSON s
 | `upload.detect.allowUndetected` | `string[]` | `['text/plain', 'text/csv']` | MIME types | Declared types accepted when no detector recognises the content. |
 | `upload.assembly.staleAfter` | `string` | `'30m'` | a duration above zero | Age after which an assembly claim, or a blob still being written, counts as abandoned. Also the grace before the sweeper re-emits an owed final event. Must exceed the slowest part transfer and assembly you expect. |
 | `upload.sweeper.every` | `string` | `'15m'` | a duration above zero | Interval of the `upload.sweep` schedule. |
-| `upload.sweeper.retainFinished` | `string` | `'7d'` | a duration | How long finished sessions are kept before the sweeper purges them. |
+| `upload.sweeper.retainFinished` | `string` | `'7d'` | a duration | Age, counted from the last update and once the final event was delivered, after which the sweeper purges a finished session. A completed session loses its parts; its row and file stay. A failed, aborted or expired session is deleted. |
 | `upload.sweeper.batch` | `integer` | `200` | `>= 1` | Rows the sweeper reads per query. |
 | `db.Aliases.upload` | `string` | `'default'` | a connection name | Connection of the upload tables and the migration. See [Database](12-database.md). |
 | `queue.routing.<UploadEvent>.connection` | `string` | `'upload-events'` | a `queue.connections` name | Where each upload event goes. See [Events](09-events.md). |
@@ -70,7 +70,7 @@ export default {
 
 - **Package config merges first.** Your `db.Aliases.upload` and `queue.routing` entries replace the shipped ones.
 - **Arrays concatenate across config files.** That is why the defaults live in the schema: an `allowUndetected` list in the package's config file would be added to yours, not replaced by it.
-- **A controller can only tighten limits.** `limitsFor()` may lower `maxFileSize`, `maxPartSize`, `maxParts`, `maxOpenSessionsPerOwner` and `sessionTtl` and raise `minPartSize`; it may set `partSize` freely. A non-finite value is ignored. A `sessionTtl` of zero is server misconfiguration and answers `500` `upload.internal`. See [Limits](06-limits.md).
+- **A controller can only tighten limits.** `limitsFor()` may lower `maxFileSize`, `maxPartSize`, `maxParts`, `maxOpenSessionsPerOwner` and `sessionTtl` and raise `minPartSize`; it may set `partSize` freely. A non-finite value in any other limit is ignored; a non-finite `partSize` is not, and answers `400` `upload.part_size`. A `sessionTtl` of zero is server misconfiguration and answers `500` `upload.internal`. See [Limits](06-limits.md).
 - **Providers are fixed per session.** A session keeps the provider names it was created with, so changing `upload.fs.*` never strands an open session.
 - **`maxPartSize` cannot exceed 5 GiB.** The part route's `@RequestStream({ maxBytes })` is fixed when the class is declared, at `UPLOAD_MAX_PART_BYTES`, so the schema caps the setting at the same value.
 
