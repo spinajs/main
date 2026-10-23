@@ -17,6 +17,8 @@ const REFERENCE = /['"]@spinajs\/(http|validation)['"]/;
 const rel = (file: string): string => relative(ROOT, file).replace(/\\/g, '/');
 
 const manifest = JSON.parse(read(join(ROOT, 'package.json'))) as Record<string, Record<string, unknown>>;
+// Internal pins follow the lockstep version, which bump-all.mjs moves on every release.
+const VERSION = manifest.version as unknown as string;
 
 describe('@spinajs/upload/http packaging', () => {
   it('exports the controller from the ./http subpath', () => {
@@ -44,8 +46,8 @@ describe('@spinajs/upload/http packaging', () => {
 
   it('declares @spinajs/http and @spinajs/validation as optional peers, not as dependencies', () => {
     expect(manifest.dependencies).to.not.have.any.keys('@spinajs/http', '@spinajs/validation');
-    expect(manifest.peerDependencies).to.include({ '@spinajs/http': '3.0.16', '@spinajs/validation': '3.0.16' });
+    expect(manifest.peerDependencies).to.include({ '@spinajs/http': VERSION, '@spinajs/validation': VERSION });
     expect(manifest.peerDependenciesMeta).to.deep.include({ '@spinajs/http': { optional: true }, '@spinajs/validation': { optional: true } });
-    expect(manifest.devDependencies).to.include({ '@spinajs/http': '3.0.16', '@spinajs/validation': '3.0.16' });
+    expect(manifest.devDependencies).to.include({ '@spinajs/http': VERSION, '@spinajs/validation': VERSION });
   });
 });

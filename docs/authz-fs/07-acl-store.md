@@ -22,8 +22,8 @@
 | `revoke(fs, path, subjectKey, relation)` | `FsAcl.revoke`. |
 | `ownerOf(fs, path)` | The principal of the oldest `owner` row at exactly `path`; `null` without one. `authz-fs` does not call it; it is for your own code. |
 | `setOwnerIfAbsent(fs, path, owner)` | `AuthzFsMiddleware` with `stampOwner`: first writer wins. |
-| `deleteTree(fs, path)` | The rows at `path` and under it; `''` takes the whole filesystem. Used for stale rows, for `rm` of a directory and when a `move` or `rename` lands on an occupied destination. |
-| `deletePath(fs, path)` | The rows at exactly `path`. Used for `rm` of a file and when a `move` or `rename` lands on an occupied destination. |
+| `deleteTree(fs, path)` | The rows at `path` and under it; `''` takes the whole filesystem. Used for stale rows, for `rm` of a directory or of a path with entries under it (an S3 prefix), and when a `move` or `rename` lands on an occupied destination. |
+| `deletePath(fs, path)` | The rows at exactly `path`. Used for `rm` of a file with nothing under it and when a `move` or `rename` lands on an occupied destination. |
 | `moveTree(fromFs, from, toFs, to)` | `move` and `rename` of a directory: rows at `from` and under it move; a moved row replaces an equal one. A row whose new path would exceed 512 characters is deleted. |
 | `movePath(fromFs, from, toFs, to)` | `move` and `rename` of anything else: only the rows at exactly `from`. |
 
