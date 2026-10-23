@@ -1,11 +1,12 @@
 import 'mocha';
 import { expect } from 'chai';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { Readable, Writable } from 'node:stream';
+import { EventEmitter } from 'node:events';
+import { PassThrough, Readable, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { InvalidConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { ResourceDuplicated } from '@spinajs/exceptions';
+import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
 import { getFs } from '@spinajs/fs';
 import { LogLevel } from '@spinajs/log';
 import { DateTime } from 'luxon';
@@ -109,15 +110,50 @@ describe('UploadStorage', () => {
     expect((await storage.writePart(s, 1, bodyOf(Buffer.from('abc')), 4, undefined)).size).to.eq(3);
   });
 
-  it('destroys the body when the provider refuses the write, and leaves no row', async () => {
+  it('drains the body when the provider refuses the write, so its client still gets a response, and leaves no row', async () => {
     const s = await sessionOf();
-    sinon.stub(getFs('upload-temp'), 'writeStream').rejects(new ResourceDuplicated('taken'));
-    const body = Readable.from([Buffer.from('abcd')], { objectMode: false });
+    const writeStream = sinon.stub(getFs('upload-temp'), 'writeStream').rejects(new ResourceDuplicated('taken'));
+    const rm = sinon.spy(getFs('upload-temp'), 'rm');
+    const body = new PassThrough();
 
     expect(await rejection(storage.writePart(s, 1, body, 4, undefined))).to.be.instanceOf(ResourceDuplicated);
-    expect(body.destroyed).to.eq(true);
+    expect(writeStream.callCount).to.eq(1);
+    expect([body.readableFlowing, body.destroyed]).to.deep.equal([true, false]);
+    expect(rm.callCount).to.eq(0);
     expect(await rows('upload_blobs', { session_id: s.id })).to.deep.equal([]);
   });
+
+  it('destroys a refused body that is not a Readable but can be destroyed', async () => {
+    const s = await sessionOf();
+    sinon.stub(getFs('upload-temp'), 'writeStream').rejects(new ResourceDuplicated('taken'));
+    const body = Object.assign(new EventEmitter(), { destroy: sinon.spy(), resume: sinon.spy() });
+
+    await rejection(storage.writePart(s, 1, body as unknown as NodeJS.ReadableStream, 4, undefined));
+    expect([body.destroy.callCount, body.resume.callCount]).to.deep.equal([1, 0]);
+  });
+
+  it('reports the failure of the pipeline even when the target destroys itself with another error', async () => {
+    const s = await sessionOf();
+    sinon.stub(getFs('upload-temp'), 'writeStream').callsFake(async () => new Writable({ write: (_c, _e, done) => done(), destroy: (_err, done) => done(new Error('substituted')) }) as never);
+
+    const e = await uploadErrorOf(storage.writePart(s, 1, bodyOf(Buffer.from('abcde')), 4, undefined));
+    expect(e.code).to.eq('upload.part_too_large');
+    expect(await rows('upload_blobs', { session_id: s.id })).to.deep.equal([]);
+  });
+
+  for (const expected of [-1, 1.5]) {
+    it(`refuses expected=${expected} before opening anything`, async () => {
+      const s = await sessionOf();
+      const writeStream = sinon.spy(getFs('upload-temp'), 'writeStream');
+      const body = new PassThrough();
+
+      expect(await rejection(storage.writePart(s, 1, body, expected, undefined))).to.be.instanceOf(InvalidArgument);
+      expect(writeStream.callCount).to.eq(0);
+      expect([body.readableFlowing, body.destroyed]).to.deep.equal([true, false]);
+      expect(await rows('upload_blobs', { session_id: s.id })).to.deep.equal([]);
+      expect(objectsOf('temp', `uploads/${s.id}`)).to.deep.equal([]);
+    });
+  }
 
   it('removes the partial object and its row when the body fails mid-write', async () => {
     const s = await sessionOf();
@@ -172,10 +208,11 @@ describe('UploadStorage', () => {
     const written = await storage.writePart(s, 1, bodyOf(Buffer.from('abcd')), 4, undefined);
     const rm = sinon.stub(getFs('upload-temp'), 'rm').rejects(new Error('disk busy'));
 
-    await storage.discard(written.blobId, 'upload-temp', written.key);
+    await storage.discard(written.blobId, 'upload-temp', written.key, s.id);
 
     expect((await rows('upload_blobs', { id: written.blobId }))[0].state).to.eq('garbage');
     expect(uploadLogs(LogLevel.Warn).map((l) => l.Variables.key)).to.deep.equal([written.key]);
+    expect(uploadLogs(LogLevel.Warn).map((l) => l.Variables.uploadId)).to.deep.equal([s.id]);
 
     rm.resetBehavior();
     rm.callThrough();

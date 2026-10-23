@@ -48,6 +48,7 @@ interface OpenObject {
   readonly provider: fs;
   readonly key: string;
   readonly out: Writable;
+  readonly sessionId: string;
 }
 
 const EXTENSION = /^\.[a-z0-9]{1,16}$/;
@@ -59,11 +60,17 @@ function extensionOf(name: string): string {
 
 const hashMetadata = (hash: string | null | undefined): Pick<IWriteStreamOptions, 'metadata'> => (hash === undefined || hash === null ? {} : { metadata: { hash } });
 
-/** A refused write neither consumes nor destroys its source (plan 2), so an unread request body would hang its client. */
+/**
+ * A refused write does not consume its source (plan 2). A Readable is drained, not destroyed: destroying an
+ * IncomingMessage resets the socket, and the client would never see the error response.
+ */
 function abandon(body: NodeJS.ReadableStream): void {
-  if (body instanceof Readable) body.destroy();
+  if (body instanceof Readable) body.resume();
+  else if (typeof (body as { destroy?: unknown }).destroy === 'function') (body as unknown as Readable).destroy();
   else body.resume();
 }
+
+const logFields = (fsName: string, key: string, error: unknown, uploadId?: string) => (uploadId === undefined ? { fs: fsName, key, error } : { uploadId, fs: fsName, key, error });
 
 /** getFs throws a bare ResolveException for an unknown name (fs/src/index.ts:96-100); a boot error should name the providers. */
 export function assertFsProviders(names: Iterable<string>): void {
@@ -114,7 +121,10 @@ export class UploadStorage extends AsyncService {
   /** Spec §4.1 step 2. A short body is returned as it is: the service compares the size, as it owns the codes and events. */
   public async writePart(session: UploadSession, part: number, body: NodeJS.ReadableStream, expected: number, declaredSha256?: string): Promise<WrittenPart> {
     let target: OpenObject;
+    let limit: ByteLimitStream;
     try {
+      // Built first: an invalid `expected` throws here, before anything is opened or recorded.
+      limit = new ByteLimitStream(expected);
       target = await this.open(session.id, session.temp_fs, this.partKey(session.id, part), 'part', { exclusive: true, ...hashMetadata(declaredSha256) });
     } catch (err) {
       abandon(body);
@@ -123,7 +133,7 @@ export class UploadStorage extends AsyncService {
     const digest = new DigestStream();
     const head = new HeadCapture(part === 1 ? this.Options.detect.headBytes : 0);
     try {
-      await this.pour(target, [body, new ByteLimitStream(expected), digest, head]);
+      await this.pour(target, [body, limit, digest, head]);
     } catch (err) {
       if (err instanceof LimitExceeded) throw new UploadError('upload.part_too_large', `part ${part} is longer than ${expected} bytes`);
       throw err;
@@ -143,32 +153,32 @@ export class UploadStorage extends AsyncService {
   }
 
   /** Garbage first, so a crash before the rm leaves a row for the sweeper (spec §4.1 step 5). Never throws. */
-  public async discard(blobId: string, fsName: string, key: string): Promise<void> {
+  public async discard(blobId: string, fsName: string, key: string, uploadId?: string): Promise<void> {
     try {
       // False means the sweeper already took the row; removing the object again is harmless.
       await this.Store.setBlobState(blobId, ['writing', 'live'], 'garbage', DateTime.utc());
     } catch (err) {
-      this.Log.warn({ fs: fsName, key, error: err }, 'Upload object ${key} on ${fs} could not be marked garbage');
+      this.Log.warn(logFields(fsName, key, err, uploadId), 'Upload object ${key} on ${fs} could not be marked garbage');
       return;
     }
-    await this.removeObject(blobId, fsName, key);
+    await this.removeObject(blobId, fsName, key, uploadId);
   }
 
   /** Best effort: a failure keeps the garbage row, which the sweeper removes later. */
-  public async removeObject(blobId: string, fsName: string, key: string): Promise<boolean> {
+  public async removeObject(blobId: string, fsName: string, key: string, uploadId?: string): Promise<boolean> {
     try {
       await this.provider(fsName).rm(key);
       await this.Store.deleteBlob(blobId);
       return true;
     } catch (err) {
-      this.Log.warn({ fs: fsName, key, error: err }, 'Upload object ${key} on ${fs} was not removed; the sweeper removes it');
+      this.Log.warn(logFields(fsName, key, err, uploadId), 'Upload object ${key} on ${fs} was not removed; the sweeper removes it');
       return false;
     }
   }
 
   public async removeGarbage(sessionId: string): Promise<void> {
     for (const blob of await this.Store.listBlobs(sessionId, 'garbage')) {
-      await this.removeObject(blob.id, blob.fs, blob.key);
+      await this.removeObject(blob.id, blob.fs, blob.key, sessionId);
     }
   }
 
@@ -176,10 +186,10 @@ export class UploadStorage extends AsyncService {
     const provider = this.provider(fsName);
     const blobId = await this.track(sessionId, provider.Name, key, kind);
     try {
-      return { blobId, provider, key, out: await provider.writeStream(key, options) };
+      return { blobId, provider, key, sessionId, out: await provider.writeStream(key, options) };
     } catch (err) {
       // Only the row goes: a refused exclusive write means whatever is at the key is not ours to remove.
-      await this.forget(blobId, provider.Name, key);
+      await this.forget(blobId, provider.Name, key, sessionId);
       throw err;
     }
   }
@@ -187,9 +197,13 @@ export class UploadStorage extends AsyncService {
   /** On any failure the blob is discarded; a partial object the rm cannot remove stays recorded as garbage. */
   private async pour(target: OpenObject, streams: (NodeJS.ReadableStream | NodeJS.ReadWriteStream)[]): Promise<void> {
     try {
-      await Promise.all([pipeline([...streams, target.out]), closed(target.out)]);
+      // The pipeline's first error is the cause; a target that substitutes its own error in _destroy must not win the race.
+      const done = closed(target.out);
+      done.catch(() => undefined);
+      await pipeline([...streams, target.out]);
+      await done;
     } catch (err) {
-      await this.discard(target.blobId, target.provider.Name, target.key);
+      await this.discard(target.blobId, target.provider.Name, target.key, target.sessionId);
       throw err;
     }
   }
@@ -200,11 +214,11 @@ export class UploadStorage extends AsyncService {
     return id;
   }
 
-  private async forget(blobId: string, fsName: string, key: string): Promise<void> {
+  private async forget(blobId: string, fsName: string, key: string, uploadId?: string): Promise<void> {
     try {
       await this.Store.deleteBlob(blobId);
     } catch (err) {
-      this.Log.warn({ fs: fsName, key, error: err }, 'Upload blob row of ${key} on ${fs} was not deleted');
+      this.Log.warn(logFields(fsName, key, err, uploadId), 'Upload blob row of ${key} on ${fs} was not deleted');
     }
   }
 
