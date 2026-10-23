@@ -47,7 +47,7 @@ interface Checked {
   readonly dir?: boolean;
   /**
    * Deleted targets that are no directory: whether keys sat under the path as a prefix before the IO. On a key store
-   * the key and the prefix share the ACL path, so its rows belong to the prefix as well and stay.
+   * the key and the prefix share the ACL path: rm removes both, move and rename only the key, so there the rows stay.
    */
   readonly shared?: boolean;
 }
@@ -200,8 +200,8 @@ export class AuthzFsMiddleware extends FsMiddleware {
     if (action === 'rm') {
       const store = await this.store();
       for (const c of plan.checked.filter((c) => holdsRows(c.target))) {
-        if (c.dir) await store.deleteTree(c.target.fs.Name, c.target.path);
-        else if (!c.shared) await store.deletePath(c.target.fs.Name, c.target.path);
+        if (c.dir || c.shared) await store.deleteTree(c.target.fs.Name, c.target.path);
+        else await store.deletePath(c.target.fs.Name, c.target.path);
       }
       return;
     }
