@@ -18,3 +18,4 @@ export * from './content/detector.js';
 export * from './content/check.js';
 export * from './hooks.js';
 export * from './service.js';
+export * from './sweeper.js';
