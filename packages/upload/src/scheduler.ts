@@ -3,13 +3,14 @@ import { Autoinject, DI } from '@spinajs/di';
 import { Schedule, ScheduledTask } from '@spinajs/scheduler';
 import type { RunContext, ScheduleOptions } from '@spinajs/scheduler';
 
+import { UPLOAD_CONFIGURATION_SCHEMA } from './schema.js';
 import { UploadSweeper } from './sweeper.js';
 import type { SweepResult } from './sweeper.js';
 
 export const UPLOAD_SWEEP_SCHEDULE = 'upload.sweep';
 
 /** The schema default of upload.sweeper.every, for a read before the Configuration resolved. */
-const DEFAULT_EVERY = '15m';
+const DEFAULT_EVERY = UPLOAD_CONFIGURATION_SCHEMA.properties.sweeper.properties.every.default;
 
 const SWEEP_SCHEDULE: ScheduleOptions = {
   runOn: 'leader',

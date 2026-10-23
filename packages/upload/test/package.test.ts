@@ -13,14 +13,25 @@ const sources = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? sources(join(dir, e.name)) : e.name.endsWith('.ts') ? [join(dir, e.name)] : []));
 /* eslint-enable security/detect-non-literal-fs-filename */
 
-const manifest = JSON.parse(read(join(ROOT, 'package.json'))) as Record<string, Record<string, unknown>>;
+// from '…', require('…') and import('…'), in either quote style.
+const REFERENCE = /['"]@spinajs\/scheduler['"]/;
+
+const manifest =JSON.parse(read(join(ROOT, 'package.json'))) as Record<string, Record<string, unknown>>;
 
 describe('@spinajs/upload package', () => {
   it('imports @spinajs/scheduler only from the ./scheduler subpath', () => {
     const importers = sources(join(ROOT, 'src'))
-      .filter((file) => read(file).includes("from '@spinajs/scheduler'"))
+      .filter((file) => REFERENCE.test(read(file)))
       .map((file) => relative(ROOT, file).replace(/\\/g, '/'));
     expect(importers).to.deep.equal(['src/scheduler.ts']);
+  });
+
+  it('has no @spinajs/scheduler reference in the built entry points', () => {
+    for (const build of ['mjs', 'cjs']) {
+      const entry = join(ROOT, 'lib', build, 'index.js');
+      expect(present(entry), entry).to.eq(true);
+      expect(read(entry), entry).to.not.match(REFERENCE);
+    }
   });
 
   it('declares @spinajs/scheduler as an optional peer, not as a dependency', () => {

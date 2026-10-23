@@ -249,8 +249,9 @@ export class UploadStore {
     return await UploadBlob.query().ofSession(sessionId).inState(state);
   }
 
-  public async deleteBlob(id: string): Promise<void> {
-    await this.Driver.del().from(UPLOAD_BLOBS_TABLE).where({ id });
+  /** False when the row was already deleted, e.g. by a concurrent sweep. */
+  public async deleteBlob(id: string): Promise<boolean> {
+    return matched(await this.Driver.del().from(UPLOAD_BLOBS_TABLE).where({ id }));
   }
 
   public async openExpiredBy(now: DateTime, page: KeysetPage): Promise<UploadSession[]> {

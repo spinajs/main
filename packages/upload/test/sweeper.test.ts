@@ -10,7 +10,7 @@ import { LogLevel } from '@spinajs/log';
 import { DateTime } from 'luxon';
 import sinon from 'sinon';
 
-import { UploadSweeper } from '../src/index.js';
+import { UploadStorage, UploadSweeper } from '../src/index.js';
 import type { SweepResult, UploadConfig, UploadService, UploadSession, UploadStore } from '../src/index.js';
 import { CaptureLogTarget, CaptureQueueClient, emitted, emittedNames, uploadLogs } from './support/capture.js';
 import { insertSessionRow, objectsOf, pathIn, resetUploads, rows, setSession, uploadEnv } from './support/env.js';
@@ -419,5 +419,117 @@ describe('UploadSweeper', () => {
     expect(await sessionRow(live.id)).to.include({ status: 'open' });
     expect(await rows('upload_parts', { session_id: live.id })).to.have.length(1);
     expect((await rows('upload_blobs', { session_id: live.id })).map((b) => b.state)).to.deep.equal(['live']);
+  });
+
+  it('stages UploadAssemblyReleased even when removing the partial target fails afterwards', async () => {
+    const stale = await open(service, file);
+    await setSession(stale.id, { status: 'assembling', claim_token: 'crashed', claimed_at: DateTime.utc().minus({ hours: 1 }) });
+    const list = store.listBlobs.bind(store);
+    sinon.stub(store, 'listBlobs').callsFake(async (id, state) => {
+      if (state === 'garbage') throw new Error('db hiccup');
+      return list(id, state);
+    });
+    CaptureQueueClient.reset();
+
+    expect(await sweeper.sweep()).to.deep.equal({ ...nothing, released: 1, errors: 1 });
+    expect(emitted('UploadAssemblyReleased').map((e) => String(e.UploadId))).to.deep.equal([stale.id]);
+  });
+
+  it('counts a removed blob once when another sweep deleted its row first', async () => {
+    const storage = await DI.resolve(UploadStorage);
+    const s = await insertSessionRow();
+    const garbage = await object(s, { state: 'garbage' });
+
+    expect(await storage.removeObject(garbage.id, 'upload-temp', garbage.key, s)).to.eq('removed');
+    expect(await storage.removeObject(garbage.id, 'upload-temp', garbage.key, s)).to.eq('gone');
+    expect(await store.deleteBlob(garbage.id)).to.eq(false);
+  });
+
+  it('stops after the first batch when the signal aborts during it, without reading the next page', async () => {
+    await withBatch(2);
+    const due = DateTime.utc().minus({ seconds: 1 });
+    for (let i = 0; i < 5; i++) await insertSessionRow({ expires_at: due });
+    const controller = new AbortController();
+    const expire = service.expire.bind(service);
+    sinon.stub(service, 'expire').callsFake(async (session) => {
+      const done = await expire(session);
+      controller.abort();
+      return done;
+    });
+    const reads = sinon.spy(store, 'openExpiredBy');
+
+    expect((await sweeper.sweep({ signal: controller.signal })).expired).to.eq(2);
+    expect(reads.callCount).to.eq(1);
+  });
+
+  it('counts an error on a blob item, logs its uploadId and goes on with the next blob', async () => {
+    const s = await insertSessionRow();
+    const bad = await object(s, { state: 'garbage' });
+    const good = await object(s, { state: 'garbage' });
+    const storage = await DI.resolve(UploadStorage);
+    const remove = storage.removeObject.bind(storage);
+    sinon.stub(storage, 'removeObject').callsFake(async (id, fsName, key, uploadId) => {
+      if (id === bad.id) throw new Error('db hiccup');
+      return remove(id, fsName, key, uploadId);
+    });
+
+    expect(await sweeper.sweep()).to.deep.equal({ ...nothing, removedBlobs: 1, errors: 1 });
+    expect(uploadLogs(LogLevel.Error).map((l) => l.Variables.uploadId)).to.deep.equal([s]);
+    expect(await rows('upload_blobs', { id: bad.id })).to.have.length(1);
+    expect(await rows('upload_blobs', { id: good.id })).to.deep.equal([]);
+  });
+
+  it('two sweeps at once emit one UploadExpired and one UploadAssemblyReleased per session', async () => {
+    const stale = await open(service, file);
+    await put(service, stale, file, 1);
+    await setSession(stale.id, { status: 'assembling', claim_token: 'crashed', claimed_at: DateTime.utc().minus({ hours: 1 }) });
+    const due = await open(service, file);
+    await put(service, due, file, 1);
+    await setSession(due.id, { expires_at: DateTime.utc().minus({ seconds: 1 }) });
+    CaptureQueueClient.reset();
+
+    const [a, b] = await Promise.all([sweeper.sweep(), sweeper.sweep()]);
+
+    expect(a.released + b.released).to.eq(1);
+    expect(a.expired + b.expired).to.eq(1);
+    expect(emitted('UploadAssemblyReleased').map((e) => String(e.UploadId))).to.deep.equal([stale.id]);
+    expect(emitted('UploadExpired').map((e) => String(e.UploadId))).to.deep.equal([due.id]);
+    expect(a.removedBlobs + b.removedBlobs).to.eq(1);
+  });
+
+  it('does not drop the parts of a session that another sweep expired first', async () => {
+    const due = await open(service, file);
+    await put(service, due, file, 1);
+    await setSession(due.id, { expires_at: DateTime.utc().minus({ seconds: 1 }) });
+    sinon.stub(service, 'expire').resolves(false);
+    const dropParts = sinon.spy(store, 'dropParts');
+
+    expect((await sweeper.sweep()).expired).to.eq(0);
+    expect(dropParts.args.map((a) => a[0])).to.not.include(due.id);
+    expect(await rows('upload_parts', { session_id: due.id })).to.have.length(1);
+  });
+
+  it('purges a completed session whose id is not a valid folder name without an error and without the prefix rm', async () => {
+    const { driver } = await uploadEnv();
+    const odd = 'odd id/x';
+    await insertSessionRow({
+      id: odd,
+      status: 'completed',
+      file_key: 'uploads/files/odd.txt',
+      final_event: 'UploadCompleted',
+      final_event_at: longAgo(),
+      updated_at: longAgo(),
+    });
+    await driver
+      .insert()
+      .into('upload_parts')
+      .values({ session_id: odd, number: 1, size: 4, sha256: sha256hex(Buffer.from('abcd')), storage_key: 'uploads/odd/00001-x', detected_mime: null, received_at: longAgo() });
+    const rm = sinon.spy(getFs('upload-temp'), 'rm');
+
+    expect((await sweeper.sweep()).purged).to.eq(1);
+
+    expect(uploadLogs(LogLevel.Error)).to.deep.equal([]);
+    expect(rm.args.map((a) => a[0])).to.deep.equal([]);
+    expect(await rows('upload_parts', { session_id: odd })).to.deep.equal([]);
   });
 });

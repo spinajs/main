@@ -22,6 +22,9 @@ import type { UploadConfig } from './types.js';
 /** Anything else could make the prefix rm reach beyond the session folder. */
 const SESSION_ID = /^[A-Za-z0-9_-]+$/;
 
+/** Whether the object's row was deleted here, was already deleted by a concurrent remover, or is kept after a failed rm. */
+export type ObjectRemoval = 'removed' | 'gone' | 'kept';
+
 export interface WrittenPart {
   readonly blobId: string;
   readonly key: string;
@@ -113,6 +116,10 @@ export class UploadStorage extends AsyncService {
     return provider;
   }
 
+  public isValidSessionId(sessionId: string): boolean {
+    return SESSION_ID.test(sessionId);
+  }
+
   /** Every part key of the session starts with it (spec §4.1 step 6). */
   public sessionPrefix(sessionId: string): string {
     if (!SESSION_ID.test(sessionId)) throw new InvalidArgument('upload session id must be non-empty and made of letters, digits, _ and -');
@@ -176,15 +183,14 @@ export class UploadStorage extends AsyncService {
     await this.removeObject(blobId, fsName, key, uploadId);
   }
 
-  /** Best effort: a failure keeps the garbage row, which the sweeper removes later. */
-  public async removeObject(blobId: string, fsName: string, key: string, uploadId?: string): Promise<boolean> {
+  /** Best effort: a failure keeps the garbage row, which the sweeper removes later. 'gone' means a concurrent remover deleted the row first. */
+  public async removeObject(blobId: string, fsName: string, key: string, uploadId?: string): Promise<ObjectRemoval> {
     try {
       await this.provider(fsName).rm(key);
-      await this.Store.deleteBlob(blobId);
-      return true;
+      return (await this.Store.deleteBlob(blobId)) ? 'removed' : 'gone';
     } catch (err) {
       this.Log.warn(logFields(fsName, key, err, uploadId), 'Upload object ${key} on ${fs} was not removed; the sweeper removes it');
-      return false;
+      return 'kept';
     }
   }
 

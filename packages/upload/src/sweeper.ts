@@ -12,6 +12,7 @@ import { UploadBlob } from './models/UploadBlob.js';
 import type { UploadSession } from './models/UploadSession.js';
 import { UploadService } from './service.js';
 import { UploadStorage } from './storage.js';
+import type { ObjectRemoval } from './storage.js';
 import { UploadStore } from './store.js';
 import type { KeysetPage } from './store.js';
 import type { UploadConfig } from './types.js';
@@ -121,11 +122,11 @@ export class UploadSweeper {
     }
   }
 
-  private async removeBlob(blob: UploadBlob, result: SweepResult): Promise<boolean> {
-    const removed = await this.Storage.removeObject(blob.id, blob.fs, blob.key, blob.session_id);
-    if (removed) result.removedBlobs++;
-    else result.keptBlobs++;
-    return removed;
+  private async removeBlob(blob: UploadBlob, result: SweepResult): Promise<ObjectRemoval> {
+    const removal = await this.Storage.removeObject(blob.id, blob.fs, blob.key, blob.session_id);
+    if (removal === 'removed') result.removedBlobs++;
+    else if (removal === 'kept') result.keptBlobs++;
+    return removal;
   }
 
   /** Only while the row is still 'writing': a blob that went live since the read is a committed part or file. */
@@ -137,8 +138,9 @@ export class UploadSweeper {
     let removed = 0;
     let kept = 0;
     for (const blob of await this.Store.listBlobs(sessionId, 'garbage')) {
-      if (await this.removeBlob(blob, result)) removed++;
-      else kept++;
+      const removal = await this.removeBlob(blob, result);
+      if (removal === 'removed') removed++;
+      else if (removal === 'kept') kept++;
     }
     return { removed, kept };
   }
@@ -157,8 +159,9 @@ export class UploadSweeper {
     if (!released) return;
     result.released++;
     this.Log.warn({ uploadId: session.id }, 'Upload ${uploadId}: stale claim released by the sweeper');
-    await this.removeGarbageOf(session.id, result);
+    // Staged before the removal: a failure there must not lose the event.
     await this.Events.stage(new UploadAssemblyReleased(await this.Store.requireSession(session.id), { Reason: 'stale' }));
+    await this.removeGarbageOf(session.id, result);
   }
 
   /** Spec §9 step 1. UploadService.expire emits UploadExpired and logs; it keeps the parts, which go here. */
@@ -197,6 +200,10 @@ export class UploadSweeper {
 
   /** An app's fileDir may put the merged file under the session prefix; one rm of the prefix would take it too. */
   private fileUnderPrefix(session: UploadSession): boolean {
+    if (!this.Storage.isValidSessionId(session.id)) {
+      this.Log.warn({ uploadId: session.id }, 'Upload ${uploadId}: the session id is not a valid folder name, its prefix is not removed');
+      return true;
+    }
     return session.file_key !== null && session.file_key.startsWith(`${this.Storage.sessionPrefix(session.id)}/`);
   }
 
