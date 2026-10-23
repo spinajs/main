@@ -160,9 +160,9 @@ export class fsS3Versioned extends fsS3 {
 - **The subclass must be imported before `fsService` resolves.** Decorators register the class when its module loads.
 - **`AwsConfig` is read once,** in `resolve()`, when the `S3Client` is created.
 - **`fsService` sorts providers only by their `provider` key.** `fs-temp-s3` is read lazily, so its position in the list does not matter.
-- **Overrides bypass base behaviour you do not repeat.** A `doWrite` override that omits the `hash` metadata makes `hash()` throw for those objects.
+- **Overrides bypass base behaviour you do not repeat.** A `doWrite` override that omits the `hash` metadata makes `hash()` download and hash those objects on every call.
 - **`doList` adds the trailing `/` to a non-empty path itself.** Paths reach the hooks normalised, without a trailing slash; an override of `doList` does the same.
-- **`doUpload` must keep `IfNoneMatch: '*'` for `exclusive`.** Without it `upload(..., { exclusive: true })` overwrites.
+- **`doUpload` and `doWriteStream` must keep `IfNoneMatch: '*'` for `exclusive`.** Without it `upload(..., { exclusive: true })` and `writeStream(..., { exclusive: true })` overwrite.
 
 ## Best practices
 

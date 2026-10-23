@@ -70,6 +70,20 @@ export class InvoiceArchive {
 }
 ```
 
+## Running the package tests
+
+The S3 suites run against LocalStack:
+
+```sh
+docker compose -f packages/fs-s3/test/docker-compose.yml up -d localstack
+FS_S3_LOCALSTACK=required npm test --workspace=packages/fs-s3
+docker compose -f packages/fs-s3/test/docker-compose.yml down
+```
+
+- The compose file pins `localstack/localstack:3.8.1`: newer images exit unless `LOCALSTACK_AUTH_TOKEN` is set.
+- Without LocalStack the suites skip; `FS_S3_LOCALSTACK=required` makes them fail instead. `FS_S3_TEST_ENDPOINT` points them at another endpoint (default `http://localhost:4566`).
+- LocalStack does not enforce `If-None-Match` between two concurrent multipart writes. The concurrent exclusive-write test runs only with `FS_S3_ATOMIC_ENDPOINT` (and `FS_S3_ATOMIC_ACCESS_KEY`, `FS_S3_ATOMIC_SECRET_KEY`, `FS_S3_ATOMIC_REGION`) set to an S3 that does, such as AWS.
+
 ## Related packages
 
 - [`@spinajs/fs`](../fs/README.md): the `fs` abstraction, `fsService` that creates providers, `fsTemp`, `FileInfoService` and `FsMiddleware`.
