@@ -16,3 +16,5 @@ export * from './streams.js';
 export * from './storage.js';
 export * from './content/detector.js';
 export * from './content/check.js';
+export * from './hooks.js';
+export * from './service.js';

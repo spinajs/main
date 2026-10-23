@@ -96,6 +96,26 @@ export class UploadStore {
     return (await UploadSession.query().ofOwner(owner).open()).length;
   }
 
+  /**
+   * create's count-then-insert in one transaction; false when the owner already has `cap` open sessions. SQLite runs one
+   * transaction at a time. On Postgres and MySQL the owner's open rows are locked first, so a second create of the same
+   * owner waits for the first to commit and its count then sees the new row. An owner with no open row has nothing to lock,
+   * so its concurrent first creates are not serialised there (test/spikes/owner-lock.test.ts).
+   */
+  public async insertSessionWithinCap(row: NewSessionRow & { readonly owner: string }, cap: number): Promise<boolean> {
+    return this.transaction(async () => {
+      await this.lockOwner(row.owner);
+      if ((await this.openSessionsOf(row.owner)) >= cap) return false;
+      await this.insertSession(row);
+      return true;
+    });
+  }
+
+  /** Writes the owner's own value back: a no-op change that takes the row locks. */
+  protected async lockOwner(owner: string): Promise<void> {
+    await this.Driver.update().in(UPLOAD_SESSIONS_TABLE).update({ owner }).where({ owner, status: 'open' });
+  }
+
   /** putPart's first statement in its transaction; it takes the row lock the complete claim also needs (spec §4.1 step 4). */
   public async touchOpen(id: string, now: DateTime): Promise<boolean> {
     return matched(await this.Driver.update().in(UPLOAD_SESSIONS_TABLE).update({ updated_at: now }).where({ id, status: 'open' }));

@@ -15,7 +15,7 @@ import type { OrmDriver } from '@spinajs/orm';
 import { QueueService } from '@spinajs/queue';
 import { DateTime } from 'luxon';
 
-import { Upload_2026_10_23_00_00_00, UploadStore } from '../../src/index.js';
+import { Upload_2026_10_23_00_00_00, UploadService, UploadStore } from '../../src/index.js';
 import { CaptureLogTarget, CaptureQueueClient } from './capture.js';
 import { TEST_ROOT, bootConfiguration } from './config.js';
 import { StrictFs } from './strict-fs.js';
@@ -26,6 +26,7 @@ export interface UploadEnv {
   readonly orm: Orm;
   readonly driver: OrmDriver;
   readonly store: UploadStore;
+  readonly service: UploadService;
 }
 
 let opened: Promise<UploadEnv> | undefined;
@@ -40,7 +41,7 @@ async function open(): Promise<UploadEnv> {
   // The Orm read the table info before the tables existed.
   await orm.reloadTableInfo();
   CaptureQueueClient.Probe = () => driver.CurrentTransaction !== undefined;
-  return { orm, driver, store: await DI.resolve(UploadStore) };
+  return { orm, driver, store: await DI.resolve(UploadStore), service: await DI.resolve(UploadService) };
 }
 
 /** One in-memory database and one pair of providers per mocha process, shared by every test file. */
