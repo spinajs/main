@@ -6,7 +6,7 @@ import { Controllers, HttpServer } from '@spinajs/http';
 
 import { uploadEnv } from '../../support/env.js';
 
-/** The suite's controllers dir, which holds TestUploadController only. */
+/** The suite's controllers dir: TestUploadController and UnguardedUploadController. */
 export const TEST_CONTROLLERS_DIR = join(process.cwd(), 'test', 'http', 'controllers');
 
 let started: Promise<HttpServer> | undefined;

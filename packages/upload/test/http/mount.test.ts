@@ -4,15 +4,13 @@ import { DI } from '@spinajs/di';
 import { BaseController } from '@spinajs/http';
 
 import shipped from '../../src/config/upload.js';
-import { UploadController } from '../../src/http/index.js';
 import type { UploadStateView } from '../../src/index.js';
-import { resetUploads } from '../support/env.js';
+import { CaptureQueueClient, emitted } from '../support/capture.js';
+import { resetUploads, rows } from '../support/env.js';
 import { text } from '../support/flow.js';
+import { Seen } from './support/calls.js';
 import { uploadApp } from './support/app.js';
-import { BASE, bodyOf, call, createUpload } from './support/client.js';
-
-// @ts-expect-error authorize is abstract: a subclass that leaves it out does not compile (fail closed, spec D7).
-class Unguarded extends UploadController {}
+import { BASE, bodyOf, call, createUpload, partOf, sendPart } from './support/client.js';
 
 describe('UploadController mounting', function () {
   this.timeout(30000);
@@ -53,7 +51,28 @@ describe('UploadController mounting', function () {
     expect(shipped).to.not.have.nested.property('system.dirs.controllers');
   });
 
-  it('gives a subclass no authorize of its own', () => {
-    expect(Unguarded.prototype).to.not.have.property('authorize');
+  // TypeScript refuses such a subclass (controllers/UnguardedUploadController.ts); this is the run-time side (spec D7).
+  it('fails closed for a JavaScript subclass without authorize: 500 on every route, and nothing changes', async () => {
+    const file = text(10);
+    const id = bodyOf<UploadStateView>(await createUpload(file)).id;
+    Seen.reset();
+    CaptureQueueClient.reset();
+    const own = '/unguarded/uploads';
+    const internal = { code: 'upload.internal', message: 'Internal error' };
+
+    const answers = [
+      await call('post', own).send({ name: 'notes.txt', size: 10 }),
+      await call('get', `${own}/${id}`),
+      await call('put', `${own}/${id}/parts/1`).set('Content-Type', 'application/octet-stream').send(partOf(file, 1)),
+      await call('post', `${own}/${id}/complete`).send({}),
+      await call('delete', `${own}/${id}`),
+    ];
+
+    expect(answers.map((res) => [res.status, bodyOf<unknown>(res)])).to.deep.equal(answers.map(() => [500, internal]));
+    expect((await rows('upload_sessions')).map((r) => [r.id, r.status])).to.deep.equal([[id, 'open']]);
+    expect(await rows('upload_parts', { session_id: id })).to.deep.equal([]);
+    expect(Seen.hooks).to.deep.equal([]);
+    expect(emitted()).to.deep.equal([]);
+    expect(await sendPart(id, 1, partOf(file, 1))).to.have.status(200);
   });
 });
