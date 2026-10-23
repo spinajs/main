@@ -10,7 +10,7 @@ import { CaptureQueueClient, emitted } from '../support/capture.js';
 import { objectsOf, resetUploads, rows, setSession } from '../support/env.js';
 import { text, withHook } from '../support/flow.js';
 import { Seen } from './support/calls.js';
-import { uploadApp } from './support/app.js';
+import { appPort, uploadApp } from './support/app.js';
 import { BASE, bodyOf, call, createUpload, digestOf, partOf, sendPart } from './support/client.js';
 
 class CreateHook extends ActionHook<'upload.create'> {
@@ -116,6 +116,24 @@ describe('UploadController over HTTP: refusals', function () {
     expect((await createUpload(file, {}, policy)).status).to.eq(403);
     expect(Seen.authorized).to.deep.equal([]);
     expect((await rows('upload_sessions')).map((r) => r.id)).to.deep.equal([id]);
+  });
+
+  it('lets http.csrf refuse a create and a DELETE from a foreign Origin with 403, before authorize and the service', async () => {
+    const id = await created();
+    Seen.reset();
+    CaptureQueueClient.reset();
+    const evil = { headers: { Origin: 'http://evil.example' } };
+
+    const create = await createUpload(file, {}, evil);
+    const abort = await call('delete', `${BASE}/${id}`, evil);
+
+    for (const res of [create, abort]) expect([res.status, res.body]).to.deep.equal([403, { error: { code: 'E_CSRF_ORIGIN', message: 'Cross-origin request refused' } }]);
+    expect(Seen.authorized).to.deep.equal([]);
+    expect(Seen.hooks).to.deep.equal([]);
+    expect((await rows('upload_sessions')).map((r) => [r.id, r.status])).to.deep.equal([[id, 'open']]);
+    expect(emitted()).to.deep.equal([]);
+
+    expect(await createUpload(file, {}, { headers: { Origin: `http://127.0.0.1:${appPort()}` } })).to.have.status(201);
   });
 
   it('refuses a body that does not fit the DTO with the framework 400, before authorize and the service', async () => {
