@@ -1,9 +1,10 @@
 import 'mocha';
 import { expect } from 'chai';
 
+import type { UploadErrorBody } from '../../src/http/index.js';
 import type { PartStoredView, UploadStateView } from '../../src/index.js';
 import { CaptureQueueClient, emitted } from '../support/capture.js';
-import { resetUploads, rows } from '../support/env.js';
+import { resetUploads, rows, uploadEnv } from '../support/env.js';
 import { sha256hex, text } from '../support/flow.js';
 import { Seen } from './support/calls.js';
 import { appPort, uploadApp } from './support/app.js';
@@ -100,9 +101,21 @@ describe('UploadController over HTTP: the resumable flow', function () {
   });
 
   it('creates a session for a name without a known type only when allowUnknownType says so', async () => {
+    const refused = await createUpload(file, { name: 'blob.unknownext' });
+    expect([refused.status, bodyOf<UploadErrorBody>(refused).code]).to.deep.equal([400, 'upload.unsupported_type']);
+    expect(await rows('upload_sessions')).to.deep.equal([]);
+
     const res = await createUpload(file, { name: 'blob.unknownext' }, { headers: { 'x-test-unknown-type': 'allow' } });
 
     expect(res).to.have.status(201);
     expect(bodyOf<UploadStateView>(res)).to.not.have.property('mime');
+  });
+
+  // The positive control of the "no event inside a transaction" assertions.
+  it('has a capture probe that sees a transaction in scope', async () => {
+    const { driver } = await uploadEnv();
+
+    expect(CaptureQueueClient.Probe()).to.eq(false);
+    expect(await driver.transaction(async () => CaptureQueueClient.Probe())).to.eq(true);
   });
 });

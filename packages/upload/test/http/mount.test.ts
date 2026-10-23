@@ -50,7 +50,7 @@ describe('UploadController mounting', function () {
 
   it('ships no system.dirs.controllers entry (spec D6)', () => {
     // system.dirs.cli is shipped for upload:sweep (plan 8); a controllers entry next to it would mount the base.
-    expect(shipped.system.dirs).to.not.have.property('controllers');
+    expect(shipped).to.not.have.nested.property('system.dirs.controllers');
   });
 
   it('gives a subclass no authorize of its own', () => {
