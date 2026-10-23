@@ -12,3 +12,5 @@ export * from './migrations/index.js';
 export * from './store.js';
 export * from './view.js';
 export * from './events/index.js';
+export * from './content/detector.js';
+export * from './content/check.js';
