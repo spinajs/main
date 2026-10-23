@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-threading",
-  "version": "3.0.19",
+  "version": "3.0.20",
   "description": "database-backed mutex for @spinajs/threading, stored in the __mutex__ table",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -52,18 +52,18 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "dependencies": {
-    "@spinajs/configuration": "3.0.19",
-    "@spinajs/exceptions": "3.0.19",
-    "@spinajs/di": "3.0.19",
-    "@spinajs/log-common": "3.0.19",
-    "@spinajs/orm": "3.0.19",
-    "@spinajs/threading": "3.0.19",
-    "@spinajs/util": "3.0.19",
+    "@spinajs/configuration": "3.0.20",
+    "@spinajs/exceptions": "3.0.20",
+    "@spinajs/di": "3.0.20",
+    "@spinajs/log-common": "3.0.20",
+    "@spinajs/orm": "3.0.20",
+    "@spinajs/threading": "3.0.20",
+    "@spinajs/util": "3.0.20",
     "luxon": "^3.6.1"
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee",
   "devDependencies": {
-    "@spinajs/orm-mysql": "3.0.19"
+    "@spinajs/orm-mysql": "3.0.20"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/configuration-common",
-  "version": "3.0.19",
+  "version": "3.0.20",
   "description": "> TODO: description",
   "author": "Grzegorz Beń <grzegorz.ben@coderush.pl>",
   "homepage": "https://github.com/spinajs/main#readme",
@@ -57,7 +57,7 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "dependencies": {
-    "@spinajs/di": "3.0.19",
+    "@spinajs/di": "3.0.20",
     "luxon": "^3.6.1"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
