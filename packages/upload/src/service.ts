@@ -432,11 +432,12 @@ export class UploadService {
     const bad = parts.filter((p) => file.corrupted.includes(p.number));
     try {
       await this.Store.transaction(async () => {
+        // The session row first: the sweeper's release locks it before the blob rows, and the other order can deadlock.
+        if (!(await this.Store.release(session.id, token, now))) throw lostClaim(session.id);
         await this.Store.deleteParts(session.id, bad);
         // Results ignored: false means already garbage or gone, which is the target state.
         for (const part of bad) await this.Store.setBlobStateByKey(session.id, session.temp_fs, part.storage_key, 'live', 'garbage', now);
         await this.Store.setBlobState(file.blobId, ['writing', 'live'], 'garbage', now);
-        if (!(await this.Store.release(session.id, token, now))) throw lostClaim(session.id);
       });
     } catch (err) {
       await this.Storage.discard(file.blobId, session.files_fs, file.key, session.id);

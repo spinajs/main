@@ -121,6 +121,20 @@ describe('UploadService.complete', () => {
     expect((await service.complete(session)).status).to.eq('completed');
   });
 
+  it('reopens a corrupted session with the session row first, in the lock order of the sweeper release', async () => {
+    const session = await uploaded();
+    const [part2] = await rows('upload_parts', { session_id: session.id, number: 2 });
+    writeFileSync(pathIn('temp', part2.storage_key as string), 'zzzz');
+    const release = sinon.spy(store, 'release');
+    const deleteParts = sinon.spy(store, 'deleteParts');
+    const byKey = sinon.spy(store, 'setBlobStateByKey');
+    const byId = sinon.spy(store, 'setBlobState');
+
+    expect((await uploadErrorOf(service.complete(session))).code).to.eq('upload.part_corrupted');
+
+    for (const later of [deleteParts, byKey, byId]) expect(release.firstCall.calledBefore(later.firstCall)).to.eq(true);
+  });
+
   it('fails the session on a file hash mismatch: parts and objects removed, UploadFailed emitted', async () => {
     const session = await uploaded({ sha256: sha256hex(text(10, 3)) });
     const e = await uploadErrorOf(service.complete(session));
