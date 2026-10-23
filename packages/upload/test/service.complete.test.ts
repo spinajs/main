@@ -210,6 +210,16 @@ describe('UploadService.complete', () => {
     expect(emitted('UploadCompleted')).to.have.length(1);
   });
 
+  it('answers a complete view, with no part missing, after the sweeper purged the parts', async () => {
+    const session = await uploaded();
+    await service.complete(session);
+    expect(await store.dropParts(session.id, DateTime.utc())).to.eq(true);
+
+    for (const view of [await service.state(session), await service.complete(session)]) {
+      expect(view).to.deep.include({ status: 'completed', receivedParts: [], missingParts: [], offset: 10, sha256: sha256hex(file) });
+    }
+  });
+
   it('lets a before hook of upload.complete hold the completion back until it passes', async () => {
     const session = await uploaded();
     const refused = await withHook(
