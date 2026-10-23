@@ -1,6 +1,7 @@
 import 'mocha';
 import chai, { expect } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
+import { Readable } from 'stream';
 import { MethodNotImplemented } from '@spinajs/exceptions';
 import { fsOneDrive } from '../src/index.js';
 
@@ -41,6 +42,8 @@ describe('fsOneDrive', () => {
       () => od.readStream('a.txt'),
       () => od.write('a.txt', 'x'),
       () => od.writeStream('a.txt'),
+      () => od.writeStream('a.txt', { exclusive: true }),
+      () => od.writeStream('a.txt', Readable.from(['x']), { exclusive: true }),
       () => od.append('a.txt', 'x'),
       () => od.exists('a.txt'),
       () => od.dirExists('dir'),

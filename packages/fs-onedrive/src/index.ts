@@ -3,7 +3,7 @@ import { Client } from '@microsoft/microsoft-graph-client';
 
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
-import { fs, FileSystem, IFsUploadOptions, IStat, IZipResult } from '@spinajs/fs';
+import { fs, FileSystem, IFsUploadOptions, IStat, IWriteStreamOptions, IZipResult } from '@spinajs/fs';
 import { Config } from '@spinajs/configuration';
 import { MethodNotImplemented } from '@spinajs/exceptions';
 import { PassThrough } from 'stream';
@@ -109,7 +109,7 @@ export class fsOneDrive extends fs {
     return this.notImplemented('write');
   }
 
-  protected async doWriteStream(_path: string, _readStream?: NodeJS.ReadableStream | BufferEncoding, _encoding?: BufferEncoding): Promise<PassThrough> {
+  protected async doWriteStream(_path: string, _readStream: NodeJS.ReadableStream | undefined, _options: IWriteStreamOptions): Promise<PassThrough> {
     return this.notImplemented('writeStream');
   }
 

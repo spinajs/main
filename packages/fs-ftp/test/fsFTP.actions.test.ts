@@ -2,8 +2,8 @@ import 'mocha';
 import sinon from 'sinon';
 import { expect } from 'chai';
 import { posix } from 'path';
-import { PassThrough } from 'stream';
-import { ResourceDuplicated } from '@spinajs/exceptions';
+import { PassThrough, Readable } from 'stream';
+import { MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
 import { fs, IZipResult } from '@spinajs/fs';
 import './common.js';
 import { fsFTP } from '../src/index.js';
@@ -151,6 +151,19 @@ describe('fsFTP – provider hooks', () => {
 
     await p.upload('/local/a.txt', 'sub/c.txt', { exclusive: true });
     expect(ftp.calls).to.include('uploadFrom /sub/c.txt');
+  });
+
+  it('refuses every writeStream form with MethodNotImplemented, options included', async () => {
+    const { p } = provider();
+    const calls: Array<() => Promise<unknown>> = [
+      () => p.writeStream('a.txt'),
+      () => p.writeStream('a.txt', { exclusive: true }),
+      () => p.writeStream('a.txt', Readable.from(['x']), { encoding: 'utf-8' }),
+    ];
+
+    for (const call of calls) {
+      await expect(call()).to.be.rejectedWith(MethodNotImplemented);
+    }
   });
 
   it('writes a Uint8Array as bytes', async () => {

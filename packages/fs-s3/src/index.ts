@@ -1,6 +1,6 @@
 import { Autoinject, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
-import { fs, IStat, IZipResult, FileSystem, FileInfoService, IFileInfo, IFsUploadOptions } from '@spinajs/fs';
+import { fs, IStat, IZipResult, FileSystem, FileInfoService, IFileInfo, IFsUploadOptions, IWriteStreamOptions } from '@spinajs/fs';
 import {
   S3Client,
   S3ClientConfig,
@@ -495,14 +495,17 @@ export class fsS3 extends fs {
    *
    * @param path file path ( s3 object key )
    * @param rStream optional readable stream that will be piped into the upload
-   * @param encoding optional stream encoding
+   * @param options only `encoding` is used so far
    */
-  protected async doWriteStream(path: string, rStream?: NodeJS.ReadableStream | BufferEncoding, encoding?: BufferEncoding): Promise<PassThrough> {
-    const enc = typeof rStream === 'string' ? rStream : encoding;
+  protected async doWriteStream(path: string, rStream: NodeJS.ReadableStream | undefined, options: IWriteStreamOptions): Promise<PassThrough> {
+    // Refused rather than ignored: an ignored exclusive flag would overwrite the object it promises to keep.
+    if (options.exclusive) {
+      throw new MethodNotImplemented('fs-s3 does not support exclusive stream writes yet');
+    }
 
     // do not auto-emit close on end - we emit it manually when the s3 upload
     // is fully finalized, so callers waiting for 'close' see completed uploads
-    const pass = new PassThrough({ emitClose: false, defaultEncoding: enc });
+    const pass = new PassThrough({ emitClose: false, defaultEncoding: options.encoding });
 
     const upload = new Upload({
       client: this.S3,
@@ -523,7 +526,7 @@ export class fsS3 extends fs {
         pass.destroy(new IOFail(`Cannot write stream to ${path}, bucket ${this.Options.bucket}`, err));
       });
 
-    if (rStream && typeof rStream !== 'string' && typeof rStream.pipe === 'function') {
+    if (rStream) {
       rStream.pipe(pass);
     }
 
