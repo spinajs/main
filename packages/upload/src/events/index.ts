@@ -1,2 +1,2 @@
 export * from './events.js';
-export * from './emitter.js';
+export { UploadEvents } from './emitter.js';

@@ -55,4 +55,10 @@ describe('@spinajs/upload package', () => {
     expect(file.replace(/\\/g, '/')).to.match(/\/packages\/upload\/lib\/mjs\/scheduler\.js$/);
     expect(present(file)).to.eq(true);
   });
+
+  it('keeps internal helpers out of the main entry, and the documented services in it', async () => {
+    const root = (await import('../src/index.js')) as Record<string, unknown>;
+    expect(root).to.not.have.any.keys('HeadCapture', 'closed', 'loadFileType', 'finalEventOf', 'PURGED_STATUSES', 'toStateView', 'isoOf');
+    expect(root).to.include.keys('UploadService', 'UploadStorage', 'UploadStore', 'UploadEvents', 'UploadSweeper', 'ContentTypeCheck', 'ContentDetector', 'parseDuration', 'DURATION_PATTERN');
+  });
 });

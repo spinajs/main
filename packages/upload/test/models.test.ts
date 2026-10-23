@@ -5,7 +5,8 @@ import { DI } from '@spinajs/di';
 import { Int64ValueConverter } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
-import { UploadBlob, UploadPart, UploadSession, toStateView } from '../src/index.js';
+import { UploadBlob, UploadPart, UploadSession } from '../src/index.js';
+import { toStateView } from '../src/view.js';
 import { insertSessionRow, raw, resetUploads, uploadEnv } from './support/env.js';
 
 describe('upload tables, models and the state view', () => {

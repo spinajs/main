@@ -19,8 +19,8 @@ export interface KeysetPage {
   readonly limit: number;
 }
 
-/** Purged whole after upload.sweeper.retainFinished; a completed session keeps its row and file (spec §9). */
-export const PURGED_STATUSES: readonly UploadStatus[] = ['failed', 'aborted', 'expired'];
+/** Purged whole after upload.sweeper.retainFinished; a completed session keeps its row and file (docs/upload/11-sweeper.md). */
+const PURGED_STATUSES: readonly UploadStatus[] = ['failed', 'aborted', 'expired'];
 
 export interface NewSessionRow {
   readonly id: string;

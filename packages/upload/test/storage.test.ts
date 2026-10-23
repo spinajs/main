@@ -12,8 +12,9 @@ import { LogLevel } from '@spinajs/log';
 import { DateTime } from 'luxon';
 import sinon from 'sinon';
 
-import { HeadCapture, UploadStorage, assertFsProviders } from '../src/index.js';
+import { UploadStorage, assertFsProviders } from '../src/index.js';
 import type { UploadPart, UploadSession } from '../src/index.js';
+import { HeadCapture } from '../src/streams.js';
 import { uploadLogs } from './support/capture.js';
 import { insertSessionRow, objectsOf, pathIn, resetUploads, rows, uploadEnv } from './support/env.js';
 import { bodyOf, rejection, sha256hex, text, uploadErrorOf } from './support/flow.js';

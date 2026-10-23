@@ -6,7 +6,8 @@ import { LogLevel } from '@spinajs/log';
 import { DateTime } from 'luxon';
 
 import shipped from '../src/config/upload.js';
-import { UPLOAD_EVENTS, UPLOAD_EVENT_NAMES, UploadAborted, UploadCompleted, UploadCreated, UploadEvents, UploadExpired, UploadFailed, UploadPartStored, finalEventOf } from '../src/index.js';
+import { finalEventOf } from '../src/events/emitter.js';
+import { UPLOAD_EVENTS, UPLOAD_EVENT_NAMES, UploadAborted, UploadCompleted, UploadCreated, UploadEvents, UploadExpired, UploadFailed, UploadPartStored } from '../src/index.js';
 import type { UploadEvent } from '../src/index.js';
 import { CaptureQueueClient, emitted, emittedNames, uploadLogs } from './support/capture.js';
 import { insertSessionRow, resetUploads, rows, uploadEnv } from './support/env.js';
