@@ -16,7 +16,7 @@ const sources = (dir: string): string[] =>
 // from '…', require('…') and import('…'), in either quote style.
 const REFERENCE = /['"]@spinajs\/scheduler['"]/;
 
-const manifest =JSON.parse(read(join(ROOT, 'package.json'))) as Record<string, Record<string, unknown>>;
+const manifest = JSON.parse(read(join(ROOT, 'package.json'))) as Record<string, Record<string, unknown>>;
 
 describe('@spinajs/upload package', () => {
   it('imports @spinajs/scheduler only from the ./scheduler subpath', () => {
