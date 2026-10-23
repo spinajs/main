@@ -3,7 +3,10 @@ import { UploadError } from './errors.js';
 import { partCountOf } from './parts.js';
 import type { UploadLimits } from './types.js';
 
-const tighter = (base: number, override: number | undefined): number => (override === undefined ? base : Math.min(base, override));
+// Math.min/max return NaN for a NaN operand, which every later comparison passes, so a non-finite override is ignored.
+const usable = (override: number | undefined): override is number => override !== undefined && Number.isFinite(override);
+
+const tighter = (base: number, override: number | undefined): number => (usable(override) ? Math.min(base, override) : base);
 
 /** The configured limits with a controller's limitsFor() applied; an override can only tighten them (spec §6.2). */
 export function effectiveLimits(base: UploadLimits, override: Partial<UploadLimits> = {}): UploadLimits {
@@ -11,7 +14,7 @@ export function effectiveLimits(base: UploadLimits, override: Partial<UploadLimi
   return {
     maxFileSize: tighter(base.maxFileSize, override.maxFileSize),
     partSize: override.partSize ?? base.partSize,
-    minPartSize: Math.max(base.minPartSize, override.minPartSize ?? base.minPartSize),
+    minPartSize: usable(override.minPartSize) ? Math.max(base.minPartSize, override.minPartSize) : base.minPartSize,
     maxPartSize: tighter(base.maxPartSize, override.maxPartSize),
     maxParts: tighter(base.maxParts, override.maxParts),
     maxOpenSessionsPerOwner: tighter(base.maxOpenSessionsPerOwner, override.maxOpenSessionsPerOwner),

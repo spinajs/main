@@ -19,6 +19,10 @@ describe('durations, limits, part math and error codes', () => {
     expect(effectiveLimits(BASE, { minPartSize: 50, sessionTtl: '1h', partSize: 150 })).to.deep.equal({ ...BASE, minPartSize: 50, sessionTtl: '1h', partSize: 150 });
   });
 
+  it('ignores an override that is not a finite number instead of loosening the limit', () => {
+    expect(effectiveLimits(BASE, { maxFileSize: NaN, maxPartSize: Infinity, maxParts: -Infinity, maxOpenSessionsPerOwner: NaN, minPartSize: NaN })).to.deep.equal(BASE);
+  });
+
   it('splits a file into fixed parts with a shorter last one', () => {
     expect(partCountOf(250, 100)).to.eq(3);
     expect([1, 2, 3].map((n) => expectedPartSize(250, 100, n))).to.deep.equal([100, 100, 50]);
@@ -63,6 +67,7 @@ describe('durations, limits, part math and error codes', () => {
       'upload.assembling': 409,
       'upload.parts_missing': 409,
       'upload.part_corrupted': 409,
+      'upload.part_lost': 409,
       'upload.file_digest_required': 400,
       'upload.file_digest_mismatch': 400,
       'upload.size_mismatch': 400,

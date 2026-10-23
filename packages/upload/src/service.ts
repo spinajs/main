@@ -6,17 +6,21 @@ import { Log, Logger } from '@spinajs/log';
 import { DateTime } from 'luxon';
 
 import { ContentTypeCheck, allowsType } from './content/check.js';
+import type { ContentCheckResult } from './content/check.js';
 import { parseDuration } from './duration.js';
-import { UploadError } from './errors.js';
+import { UploadError, isUploadError } from './errors.js';
 import { UploadEvents } from './events/emitter.js';
-import { UploadCreated } from './events/events.js';
+import { UploadContentChecked, UploadCreated, UploadPartRejected, UploadPartStored } from './events/events.js';
 import type { UploadCreateHookInput } from './hooks.js';
 import { effectiveLimits, planParts } from './limits.js';
+import type { UploadPart } from './models/UploadPart.js';
 import type { UploadSession } from './models/UploadSession.js';
+import { expectedPartSize } from './parts.js';
 import { UploadStorage, assertFsProviders } from './storage.js';
+import type { WrittenPart } from './storage.js';
 import { UploadStore } from './store.js';
 import type { NewSessionRow } from './store.js';
-import type { CreateUploadInput, UploadConfig, UploadLimits, UploadStateView } from './types.js';
+import type { AllowedTypes, CreateUploadInput, PartStoredView, PutPartOptions, UploadConfig, UploadLimits, UploadStateView } from './types.js';
 import { isoOf, toStateView } from './view.js';
 
 const SHA256_HEX = /^[0-9a-f]{64}$/;
@@ -67,6 +71,11 @@ const hookInputOf = (plan: SessionPlan): UploadCreateHookInput => ({
   metadata: { ...plan.metadata },
 });
 
+interface CheckedContent {
+  readonly result: ContentCheckResult;
+  readonly event: UploadContentChecked;
+}
+
 const tooManySessions = (cap: number): UploadError => new UploadError('upload.too_many_sessions', `the owner already has ${cap} open uploads`);
 
 /**
@@ -112,6 +121,23 @@ export class UploadService {
   public async state(session: UploadSession): Promise<UploadStateView> {
     const fresh = await this.Store.requireSession(session.id);
     return toStateView(fresh, await this.Store.listParts(fresh.id));
+  }
+
+  /**
+   * Spec §4.1. `digest` is the raw sha-256 of the Content-Digest header and `length` the Content-Length; a refusal
+   * before the read leaves `body` unread for the caller to drain or close.
+   */
+  public async putPart(session: UploadSession, part: number, body: NodeJS.ReadableStream, digest: Buffer | undefined, length: number | undefined, options: PutPartOptions = {}): Promise<PartStoredView> {
+    try {
+      const expected = this.preflightPart(session, part, digest, length);
+      const written = await this.receivePart(session, part, body, expected, digest);
+      const checked = part === 1 ? await this.checkContent(session, written, options.allowedTypes ?? '*') : undefined;
+      const previous = await this.commitPart(session, part, written, checked?.result.detectedMime ?? null);
+      return await this.partStored(session, part, written, previous, checked?.event);
+    } catch (err) {
+      if (isUploadError(err)) await this.partRejected(session, part, err);
+      throw err;
+    }
   }
 
   private planSession(input: CreateUploadInput, limits: UploadLimits): SessionPlan {
@@ -174,5 +200,93 @@ export class UploadService {
     );
     this.Log.info({ uploadId: row.id, owner: plan.owner, size: plan.size, partCount: plan.partCount, metadataKeys: Object.keys(metadata) }, 'Upload ${uploadId} created');
     return toStateView(session, []);
+  }
+
+  private preflightPart(session: UploadSession, part: number, digest: Buffer | undefined, length: number | undefined): number {
+    if (!Number.isInteger(part) || part < 1 || part > session.part_count) throw new UploadError('upload.part_number', `part ${part} is outside 1..${session.part_count}`);
+    if (session.status !== 'open') throw new UploadError('upload.not_open', `upload ${session.id} is ${session.status}`);
+    if (session.expires_at.toMillis() <= Date.now()) throw new UploadError('upload.expired', `upload ${session.id} expired`);
+    const expected = expectedPartSize(session.size, session.part_size, part);
+    if (length === undefined) throw new UploadError('upload.length_required', 'the part length is required');
+    if (length !== expected) throw new UploadError('upload.part_size', `part ${part} must be ${expected} bytes, not ${length}`);
+    if (digest === undefined && this.Options.integrity.partDigest === 'required') throw new UploadError('upload.digest_required', 'a sha-256 Content-Digest is required');
+    return expected;
+  }
+
+  private async receivePart(session: UploadSession, part: number, body: NodeJS.ReadableStream, expected: number, digest: Buffer | undefined): Promise<WrittenPart> {
+    const declared = digest === undefined ? undefined : digest.toString('hex');
+    const written = await this.Storage.writePart(session, part, body, expected, declared);
+    let refusal: UploadError | null = null;
+    if (written.size !== expected) refusal = new UploadError('upload.part_size', `part ${part} ended after ${written.size} of ${expected} bytes`);
+    else if (declared !== undefined && written.sha256 !== declared) refusal = new UploadError('upload.part_digest_mismatch', `part ${part} does not match its Content-Digest`);
+    if (refusal !== null) {
+      await this.Storage.discard(written.blobId, session.temp_fs, written.key);
+      throw refusal;
+    }
+    return written;
+  }
+
+  private async checkContent(session: UploadSession, written: WrittenPart, allowedTypes: AllowedTypes): Promise<CheckedContent> {
+    const result = await this.Content.check({ head: written.head, declaredMime: session.declared_mime, allowedTypes });
+    this.Log.debug({ uploadId: session.id, part: 1, detectedMime: result.detectedMime, detectorId: result.detectorId, accepted: result.accepted }, 'Upload ${uploadId} content checked');
+    const event = new UploadContentChecked(session, {
+      DeclaredMime: session.declared_mime,
+      ...(result.detectedMime !== null ? { DetectedMime: result.detectedMime } : {}),
+      ...(result.detectorId !== null ? { DetectorId: result.detectorId } : {}),
+      Accepted: result.accepted,
+    });
+    if (!result.accepted) {
+      await this.Storage.discard(written.blobId, session.temp_fs, written.key);
+      await this.Events.stage(event);
+      throw new UploadError(result.code, `the content of ${session.name} is refused`, {}, 415);
+    }
+    return { result, event };
+  }
+
+  /** One transaction (spec §4.1 step 4): touchOpen takes the row lock that the complete claim also needs, then the upsert. */
+  private async commitPart(session: UploadSession, part: number, written: WrittenPart, detectedMime: string | null): Promise<UploadPart | undefined> {
+    const now = DateTime.utc();
+    try {
+      return await this.Store.transaction(async () => {
+        if (!(await this.Store.touchOpen(session.id, now))) throw new UploadError('upload.not_open', `upload ${session.id} is no longer open`);
+        const previous = await this.Store.findPart(session.id, part);
+        await this.Store.upsertPart({ session_id: session.id, number: part, size: written.size, sha256: written.sha256, storage_key: written.key, detected_mime: part === 1 ? detectedMime : null, received_at: now });
+        // The sweeper reclaims a blob that stayed 'writing' too long; the row must not point at an object it removed.
+        if (!(await this.Store.setBlobState(written.blobId, 'writing', 'live', now))) {
+          throw new UploadError('upload.part_lost', `part ${part} of upload ${session.id} was reclaimed before it committed`);
+        }
+        // false: the replaced blob is already garbage or gone, which is what this asks for.
+        if (previous !== undefined) await this.Store.setBlobStateByKey(session.id, session.temp_fs, previous.storage_key, 'live', 'garbage', now);
+        return previous;
+      });
+    } catch (err) {
+      await this.Storage.discard(written.blobId, session.temp_fs, written.key);
+      throw err;
+    }
+  }
+
+  private async partStored(session: UploadSession, part: number, written: WrittenPart, previous: UploadPart | undefined, checked: UploadContentChecked | undefined): Promise<PartStoredView> {
+    if (previous !== undefined) await this.removeGarbage(session.id);
+    const view = toStateView(session, await this.Store.listParts(session.id));
+    if (checked !== undefined) await this.Events.stage(checked);
+    await this.Events.stage(
+      new UploadPartStored(session, { Part: part, PartSize: written.size, PartSha256: written.sha256, Offset: view.offset, ReceivedParts: view.receivedParts.length, PartCount: session.part_count, Replaced: previous !== undefined }),
+    );
+    this.Log.debug({ uploadId: session.id, part, size: written.size, offset: view.offset }, 'Upload ${uploadId} part ${part} stored');
+    return { part, size: written.size, sha256: written.sha256, offset: view.offset, missingParts: view.missingParts };
+  }
+
+  /** After the commit the part is stored, so a failure here must not refuse it; the sweeper removes what is left. */
+  private async removeGarbage(sessionId: string): Promise<void> {
+    try {
+      await this.Storage.removeGarbage(sessionId);
+    } catch (err) {
+      this.Log.warn({ uploadId: sessionId, error: err }, 'Upload ${uploadId}: garbage was not removed; the sweeper removes it');
+    }
+  }
+
+  private async partRejected(session: UploadSession, part: number, err: UploadError): Promise<void> {
+    this.Log.warn({ uploadId: session.id, part, code: err.code }, 'Upload ${uploadId} part ${part} rejected: ${code}');
+    await this.Events.stage(new UploadPartRejected(session, { Part: part, Code: err.code }));
   }
 }

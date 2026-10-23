@@ -118,7 +118,10 @@ export class UploadStorage extends AsyncService {
     return `${dir.replace(/^\/+|\/+$/g, '')}/${randomUUID()}${extensionOf(name)}`;
   }
 
-  /** Spec §4.1 step 2. A short body is returned as it is: the service compares the size, as it owns the codes and events. */
+  /**
+   * Spec §4.1 step 2. A short body is returned as it is: the service compares the size, as it owns the codes and events.
+   * Callers bound the body: its length must equal the expected part size, as a refused body is drained without a cap.
+   */
   public async writePart(session: UploadSession, part: number, body: NodeJS.ReadableStream, expected: number, declaredSha256?: string): Promise<WrittenPart> {
     let target: OpenObject;
     let limit: ByteLimitStream;

@@ -5,7 +5,7 @@ import { DI } from '@spinajs/di';
 import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 
 import { UploadError } from '../../src/index.js';
-import type { CreateUploadInput, UploadService, UploadSession } from '../../src/index.js';
+import type { CreateUploadInput, PartStoredView, PutPartOptions, UploadService, UploadSession } from '../../src/index.js';
 
 /** Lowercase letters: neither file-type nor a test detector recognises them, and notes.txt declares text/plain. */
 export function text(size: number, seed = 0): Buffer {
@@ -39,6 +39,17 @@ export async function uploadErrorOf(work: Promise<unknown>): Promise<UploadError
 export async function open(service: UploadService, file: Buffer, input: Partial<CreateUploadInput> = {}): Promise<UploadSession> {
   const view = await service.create({ name: 'notes.txt', size: file.length, sha256: sha256hex(file), ...input });
   return service.get(view.id);
+}
+
+export const chunk = (session: UploadSession, file: Buffer, part: number): Buffer => file.subarray((part - 1) * session.part_size, part * session.part_size);
+
+export function put(service: UploadService, session: UploadSession, file: Buffer, part: number, options?: PutPartOptions): Promise<PartStoredView> {
+  const bytes = chunk(session, file, part);
+  return service.putPart(session, part, bodyOf(bytes), sha256raw(bytes), bytes.length, options);
+}
+
+export async function putAll(service: UploadService, session: UploadSession, file: Buffer, options?: PutPartOptions): Promise<void> {
+  for (let n = 1; n <= session.part_count; n++) await put(service, session, file, n, options);
 }
 
 function freshHooks(): void {
