@@ -153,6 +153,37 @@ describe('Swagger file uploads and downloads', function () {
         expect(Object.keys(content), path).to.deep.equal(['multipart/form-data']);
       }
     });
+
+    it('keeps the full multipart request bodies unchanged', () => {
+      const { paths } = spec as { paths: Record<string, { post: { requestBody: unknown } }> };
+      const body = (path: string) => paths[`/files/${path}`].post.requestBody;
+      const binary = { type: 'string', format: 'binary' };
+
+      expect(body('single')).to.deep.equal({
+        required: true,
+        content: { 'multipart/form-data': { schema: { type: 'object', properties: { file: binary }, required: ['file'] } } },
+      });
+      expect(body('with-fields')).to.deep.equal({
+        required: true,
+        content: { 'multipart/form-data': { schema: { type: 'object', properties: { file: binary, title: { type: 'string', maxLength: 512 } } } } },
+      });
+      expect(body('form-with-file')).to.deep.equal({
+        required: true,
+        content: {
+          'multipart/form-data': {
+            schema: {
+              type: 'object',
+              properties: {
+                comment: { type: 'string', maxLength: 128 },
+                state: { type: 'string', enum: ['open', 'closed'] },
+                attachment: binary,
+              },
+              required: ['state'],
+            },
+          },
+        },
+      });
+    });
   });
 
   describe('downloads', () => {

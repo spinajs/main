@@ -2,13 +2,14 @@ import { HTTP_STATUS_CODE, IResponseOptions, Response } from '../interfaces.js';
 import { HandleException } from '../decorators.js';
 import { EntityTooLargeException } from '../exceptions.js';
 import { Injectable } from '@spinajs/di';
+import { LimitExceeded } from '@spinajs/exceptions';
 
 /**
  * Internall response function.
  * Returns HTTP 413 ENTITY TOO LARGE
  * @param data - additional data eg. model pk
  */
-@HandleException(EntityTooLargeException)
+@HandleException([EntityTooLargeException, LimitExceeded])
 @Injectable(Response)
 export class EntityTooLarge<T = any> extends Response<T> {
   protected _errorCode = HTTP_STATUS_CODE.ENTITY_TOO_LARGE;
