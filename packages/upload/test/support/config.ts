@@ -7,10 +7,15 @@ import { join } from 'node:path';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Bootstrapper, DI } from '@spinajs/di';
 
+import { UPLOAD_EVENT_NAMES } from '../../src/index.js';
+
 /** Base directory of the two test providers; env.ts removes it after the run. */
 export const TEST_ROOT = mkdtempSync(join(tmpdir(), 'spinajs-upload-'));
 
 const CAPTURE_LOGGER = { targets: [{ name: 'capture', type: 'CaptureLogTarget' }], rules: [{ name: '*', level: 'trace', target: 'capture' }] };
+
+// The shipped config routes every upload event to a black hole; onLoad merges after it and points them here instead.
+const CAPTURED = Object.fromEntries(UPLOAD_EVENT_NAMES.map((name) => [name, { connection: 'capture' }]));
 
 /** Tiny limits keep parts a few bytes long: a 10-byte file is parts of 4, 4 and 2 bytes. */
 export const TEST_CONFIG = {
@@ -24,7 +29,7 @@ export const TEST_CONFIG = {
       { service: 'StrictFs', name: 'upload-files', basePath: join(TEST_ROOT, 'files') },
     ],
   },
-  queue: { default: 'capture', connections: [{ name: 'capture', service: 'CaptureQueueClient', defaultQueueChannel: 'upload-test-jobs', defaultTopicChannel: 'upload-test-events' }] },
+  queue: { default: 'capture', routing: CAPTURED, connections: [{ name: 'capture', service: 'CaptureQueueClient', defaultQueueChannel: 'upload-test-jobs', defaultTopicChannel: 'upload-test-events' }] },
   upload: {
     fs: { temp: 'upload-temp', files: 'upload-files', prefix: 'uploads' },
     limits: { maxFileSize: 1024, partSize: 4, minPartSize: 1, maxPartSize: 64, maxParts: 100, maxOpenSessionsPerOwner: 3 },

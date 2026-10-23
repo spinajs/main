@@ -11,3 +11,4 @@ export * from './models/index.js';
 export * from './migrations/index.js';
 export * from './store.js';
 export * from './view.js';
+export * from './events/index.js';
