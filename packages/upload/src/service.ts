@@ -10,20 +10,22 @@ import type { ContentCheckResult } from './content/check.js';
 import { parseDuration } from './duration.js';
 import { UploadError, isUploadError } from './errors.js';
 import { UploadEvents } from './events/emitter.js';
-import { UploadContentChecked, UploadCreated, UploadPartRejected, UploadPartStored } from './events/events.js';
-import type { UploadCreateHookInput } from './hooks.js';
+import { UploadAssemblyReleased, UploadAssemblyStarted, UploadContentChecked, UploadCreated, UploadPartCorrupted, UploadPartRejected, UploadPartStored } from './events/events.js';
+import type { UploadCompleteHookInput, UploadCreateHookInput } from './hooks.js';
 import { effectiveLimits, planParts } from './limits.js';
 import type { UploadPart } from './models/UploadPart.js';
 import type { UploadSession } from './models/UploadSession.js';
-import { expectedPartSize } from './parts.js';
+import { expectedPartSize, missingParts } from './parts.js';
 import { UploadStorage, assertFsProviders } from './storage.js';
-import type { WrittenPart } from './storage.js';
+import type { AssembledFile, WrittenPart } from './storage.js';
 import { UploadStore } from './store.js';
 import type { NewSessionRow } from './store.js';
-import type { AllowedTypes, CreateUploadInput, PartStoredView, PutPartOptions, UploadConfig, UploadLimits, UploadStateView } from './types.js';
+import type { AllowedTypes, CompleteInput, CreateUploadInput, PartStoredView, PutPartOptions, UploadConfig, UploadLimits, UploadStateView } from './types.js';
 import { isoOf, toStateView } from './view.js';
 
 const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+const SHA256_BYTES = 32;
 
 const MAX_NAME_LENGTH = 255;
 
@@ -74,6 +76,28 @@ const hookInputOf = (plan: SessionPlan): UploadCreateHookInput => ({
 interface CheckedContent {
   readonly result: ContentCheckResult;
   readonly event: UploadContentChecked;
+}
+
+export interface CompleteOptions {
+  /** Directory of the merged file on the files provider; default `<upload.fs.prefix>/files`. The key is `<dir>/<uuid><ext>`. */
+  readonly fileDir?: string;
+  /** Runs once per completed session while handled_at is null; a rejection makes the next complete run it again (spec §5). */
+  readonly onCompleted?: (session: UploadSession) => Promise<unknown>;
+}
+
+interface FileMismatch {
+  readonly code: 'upload.size_mismatch' | 'upload.file_digest_mismatch';
+  readonly message: string;
+}
+
+const notOpen = (session: UploadSession): UploadError => new UploadError('upload.not_open', `upload ${session.id} is ${session.status}`);
+
+const lostClaim = (id: string): UploadError => new UploadError('upload.assembling', `upload ${id}: another request holds the assembly claim`);
+
+function mismatchOf(session: UploadSession, file: AssembledFile, declared: string | null): FileMismatch | null {
+  if (file.size !== session.size) return { code: 'upload.size_mismatch', message: `assembled ${file.size} bytes, declared ${session.size}` };
+  if (declared !== null && file.sha256 !== declared) return { code: 'upload.file_digest_mismatch', message: 'the assembled file does not match the declared sha256' };
+  return null;
 }
 
 const tooManySessions = (cap: number): UploadError => new UploadError('upload.too_many_sessions', `the owner already has ${cap} open uploads`);
@@ -138,6 +162,24 @@ export class UploadService {
       if (isUploadError(err)) await this.partRejected(session, part, err);
       throw err;
     }
+  }
+
+  /** Spec §4.2, §5. Safe to call again: a completed session answers its view, and runs the handler while handled_at is null. */
+  public async complete(session: UploadSession, input: CompleteInput = {}, options: CompleteOptions = {}): Promise<UploadStateView> {
+    const current = await this.Store.requireSession(session.id);
+    if (current.status === 'completed') return this.finishCompleted(current, options);
+    if (current.status !== 'open' && current.status !== 'assembling') throw notOpen(current);
+    const declared = this.declaredFileHash(current, input);
+    const token = await this.claim(current, declared);
+    if (token === null) return this.afterLostClaim(current.id, options);
+    let completed: UploadSession;
+    try {
+      completed = await this.assembleClaimed(current.id, token, declared, options.fileDir ?? `${this.Options.fs.prefix}/files`);
+    } catch (err) {
+      await this.releaseAfterError(current.id, token, err);
+      throw err;
+    }
+    return this.finishCompleted(completed, options);
   }
 
   private planSession(input: CreateUploadInput, limits: UploadLimits): SessionPlan {
@@ -210,6 +252,8 @@ export class UploadService {
     if (length === undefined) throw new UploadError('upload.length_required', 'the part length is required');
     if (length !== expected) throw new UploadError('upload.part_size', `part ${part} must be ${expected} bytes, not ${length}`);
     if (digest === undefined && this.Options.integrity.partDigest === 'required') throw new UploadError('upload.digest_required', 'a sha-256 Content-Digest is required');
+    // No body of any length hashes to it, so the bytes need not be read to know the answer.
+    if (digest !== undefined && digest.length !== SHA256_BYTES) throw new UploadError('upload.part_digest_mismatch', `a sha-256 digest is ${SHA256_BYTES} bytes, not ${digest.length}`);
     return expected;
   }
 
@@ -248,7 +292,7 @@ export class UploadService {
     const now = DateTime.utc();
     try {
       return await this.Store.transaction(async () => {
-        if (!(await this.Store.touchOpen(session.id, now))) throw new UploadError('upload.not_open', `upload ${session.id} is no longer open`);
+        if (!(await this.Store.touchOpen(session.id, now))) throw await this.notCommittable(session.id);
         const previous = await this.Store.findPart(session.id, part);
         await this.Store.upsertPart({ session_id: session.id, number: part, size: written.size, sha256: written.sha256, storage_key: written.key, detected_mime: part === 1 ? detectedMime : null, received_at: now });
         // The sweeper reclaims a blob that stayed 'writing' too long; the row must not point at an object it removed.
@@ -288,5 +332,148 @@ export class UploadService {
   private async partRejected(session: UploadSession, part: number, err: UploadError): Promise<void> {
     this.Log.warn({ uploadId: session.id, part, code: err.code }, 'Upload ${uploadId} part ${part} rejected: ${code}');
     await this.Events.stage(new UploadPartRejected(session, { Part: part, Code: err.code }));
+  }
+
+  /** touchOpen matched nothing: a session still open expired while the body streamed. */
+  private async notCommittable(id: string): Promise<UploadError> {
+    const fresh = await this.Store.findSession(id);
+    if (fresh?.status === 'open') return new UploadError('upload.expired', `upload ${id} expired`);
+    return new UploadError('upload.not_open', `upload ${id} is no longer open`);
+  }
+
+  private declaredFileHash(session: UploadSession, input: CompleteInput): string | null {
+    const given = input.sha256 === undefined ? null : String(input.sha256).toLowerCase();
+    if (given !== null && !SHA256_HEX.test(given)) throw invalid('sha256 must be 64 hex characters');
+    if (given !== null && session.declared_sha256 !== null && given !== session.declared_sha256) throw new UploadError('upload.file_digest_mismatch', 'the sha256 differs from the one declared at create');
+    const declared = session.declared_sha256 ?? given;
+    if (declared === null && this.Options.integrity.fileDigest === 'required') throw new UploadError('upload.file_digest_required', 'the sha256 of the file is required');
+    return declared;
+  }
+
+  /** Only the request holding the claim lists and assembles the parts (spec §5). null: another request holds it. */
+  private async claim(session: UploadSession, declared: string | null): Promise<string | null> {
+    const token = randomUUID();
+    const now = DateTime.utc();
+    const staleBefore = now.minus(parseDuration(this.Options.assembly.staleAfter, 'upload.assembly.staleAfter'));
+    if (!(await this.Store.claim(session.id, token, now, staleBefore, declared))) return null;
+    const claimed = await this.Store.requireSession(session.id);
+    if (session.status === 'assembling') {
+      this.Log.warn({ uploadId: session.id }, 'Upload ${uploadId}: stale claim taken over');
+      await this.Events.stage(new UploadAssemblyReleased(claimed, { Reason: 'stale' }));
+    }
+    this.Log.debug({ uploadId: session.id }, 'Upload ${uploadId}: claim taken');
+    this.Log.info({ uploadId: session.id, owner: session.owner, partCount: session.part_count }, 'Upload ${uploadId}: assembly started');
+    await this.Events.stage(new UploadAssemblyStarted(claimed, { ClaimToken: token, PartCount: session.part_count }));
+    return token;
+  }
+
+  private async afterLostClaim(id: string, options: CompleteOptions): Promise<UploadStateView> {
+    const fresh = await this.Store.requireSession(id);
+    if (fresh.status === 'completed') return this.finishCompleted(fresh, options);
+    if (fresh.status === 'assembling') throw new UploadError('upload.assembling', `upload ${id} is being assembled`);
+    throw notOpen(fresh);
+  }
+
+  private async assembleClaimed(id: string, token: string, declared: string | null, dir: string): Promise<UploadSession> {
+    const session = await this.Store.requireSession(id);
+    const parts = await this.Store.listParts(id);
+    const missing = missingParts(session.part_count, parts.map((p) => p.number));
+    if (missing.length > 0) throw new UploadError('upload.parts_missing', `parts ${missing.join(', ')} are missing`, { parts: missing });
+    const detectedMime = parts[0].detected_mime;
+    const file = await this.Storage.assemble(session, parts, { dir, contentType: detectedMime ?? session.declared_mime ?? 'application/octet-stream', declaredSha256: declared });
+    if (file.corrupted.length > 0) return this.reopenCorrupted(session, token, parts, file);
+    const mismatch = mismatchOf(session, file, declared);
+    if (mismatch !== null) return this.failAssembly(session, token, file, mismatch);
+    return this.commitCompleted(session, token, file, detectedMime);
+  }
+
+  /** Spec §4.2: drop the changed parts and the partial file, and open the session again so the client resends only them. */
+  private async reopenCorrupted(session: UploadSession, token: string, parts: readonly UploadPart[], file: AssembledFile): Promise<never> {
+    const now = DateTime.utc();
+    const bad = parts.filter((p) => file.corrupted.includes(p.number));
+    try {
+      await this.Store.transaction(async () => {
+        await this.Store.deleteParts(session.id, bad);
+        // Results ignored: false means already garbage or gone, which is the target state.
+        for (const part of bad) await this.Store.setBlobStateByKey(session.id, session.temp_fs, part.storage_key, 'live', 'garbage', now);
+        await this.Store.setBlobState(file.blobId, ['writing', 'live'], 'garbage', now);
+        if (!(await this.Store.release(session.id, token, now))) throw lostClaim(session.id);
+      });
+    } catch (err) {
+      await this.Storage.discard(file.blobId, session.files_fs, file.key, session.id);
+      throw err;
+    }
+    await this.removeGarbage(session.id);
+    await this.Events.stage(new UploadPartCorrupted(await this.Store.requireSession(session.id), { Parts: [...file.corrupted] }));
+    this.Log.warn({ uploadId: session.id, parts: file.corrupted }, 'Upload ${uploadId}: stored parts changed; the session is open again');
+    throw new UploadError('upload.part_corrupted', `parts ${file.corrupted.join(', ')} changed in storage; send them again`, { parts: [...file.corrupted] });
+  }
+
+  /** Spec §4.2: the client sent other bytes than it hashed, so the parts go too. */
+  private async failAssembly(session: UploadSession, token: string, file: AssembledFile, mismatch: FileMismatch): Promise<never> {
+    const now = DateTime.utc();
+    try {
+      await this.Store.transaction(async () => {
+        if (!(await this.Store.fail(session.id, token, mismatch.code, mismatch.message, now))) throw lostClaim(session.id);
+        await this.Store.setBlobState(file.blobId, ['writing', 'live'], 'garbage', now);
+        await this.Store.setSessionBlobsState(session.id, 'part', 'garbage', now);
+        await this.Store.deleteAllParts(session.id);
+      });
+    } catch (err) {
+      await this.Storage.discard(file.blobId, session.files_fs, file.key, session.id);
+      throw err;
+    }
+    await this.removeGarbage(session.id);
+    await this.Events.final(await this.Store.requireSession(session.id));
+    this.Log.info({ uploadId: session.id, owner: session.owner, code: mismatch.code }, 'Upload ${uploadId} failed: ${code}');
+    throw new UploadError(mismatch.code, mismatch.message);
+  }
+
+  private async commitCompleted(session: UploadSession, token: string, file: AssembledFile, detectedMime: string | null): Promise<UploadSession> {
+    const now = DateTime.utc();
+    try {
+      await this.Store.transaction(async () => {
+        if (!(await this.Store.complete(session.id, token, { sha256: file.sha256, file_key: file.key, detected_mime: detectedMime }, now))) throw lostClaim(session.id);
+        // The sweeper reclaims a blob that stayed 'writing' too long; file_key must not point at an object it removed.
+        if (!(await this.Store.setBlobState(file.blobId, 'writing', 'live', now))) {
+          throw new UploadError('upload.file_lost', `assembled file of upload ${session.id} was reclaimed before it committed`);
+        }
+      });
+    } catch (err) {
+      await this.Storage.discard(file.blobId, session.files_fs, file.key, session.id);
+      throw err;
+    }
+    const completed = await this.Store.requireSession(session.id);
+    await this.Events.final(completed);
+    this.Log.info({ uploadId: session.id, owner: session.owner, size: file.size, sha256: file.sha256 }, 'Upload ${uploadId} completed');
+    return completed;
+  }
+
+  private async finishCompleted(session: UploadSession, options: CompleteOptions): Promise<UploadStateView> {
+    const view = toStateView(session, await this.Store.listParts(session.id));
+    if (session.handled_at === null) await this.runCompletion(session, view, options);
+    return view;
+  }
+
+  /** At least once: a rejected handler or before hook leaves handled_at null for the next complete (spec §5). */
+  private async runCompletion(session: UploadSession, view: UploadStateView, options: CompleteOptions): Promise<void> {
+    const hooks = await DI.resolve<Hooks>(Hooks);
+    const input: UploadCompleteHookInput = { upload: view, owner: session.owner, metadata: session.metadata, filesFs: session.files_fs, fileKey: session.file_key ?? '' };
+    await hooks.run('upload.complete', input, async () => (options.onCompleted ? options.onCompleted(session) : undefined), { mutable: [], refusable: true });
+    if (!(await this.Store.markHandled(session.id, DateTime.utc()))) this.Log.debug({ uploadId: session.id }, 'Upload ${uploadId}: a concurrent complete already recorded the handler');
+  }
+
+  /** Any failure releases the claim (spec §5); a claim this request no longer holds is left alone. */
+  private async releaseAfterError(id: string, token: string, err: unknown): Promise<void> {
+    let released = false;
+    try {
+      released = await this.Store.release(id, token, DateTime.utc());
+    } catch (releaseError) {
+      this.Log.error({ uploadId: id, error: releaseError }, 'Upload ${uploadId}: the claim was not released and goes stale');
+    }
+    if (!released) return;
+    if (isUploadError(err)) this.Log.warn({ uploadId: id, code: err.code }, 'Upload ${uploadId}: assembly stopped: ${code}');
+    else this.Log.error({ uploadId: id, error: err }, 'Upload ${uploadId}: assembly failed; the claim was released');
+    await this.Events.stage(new UploadAssemblyReleased(await this.Store.requireSession(id), { Reason: 'error' }));
   }
 }

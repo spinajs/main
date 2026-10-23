@@ -68,6 +68,7 @@ describe('durations, limits, part math and error codes', () => {
       'upload.parts_missing': 409,
       'upload.part_corrupted': 409,
       'upload.part_lost': 409,
+      'upload.file_lost': 409,
       'upload.file_digest_required': 400,
       'upload.file_digest_mismatch': 400,
       'upload.size_mismatch': 400,

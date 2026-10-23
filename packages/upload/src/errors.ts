@@ -24,6 +24,8 @@ export const UPLOAD_ERRORS = {
   'upload.part_corrupted': 409,
   /** The part's temp object was reclaimed before its commit (the write outlived the writing grace); the client resends it. */
   'upload.part_lost': 409,
+  /** The assembled file was reclaimed before its commit; the claim is released with the parts intact and the client retries complete. */
+  'upload.file_lost': 409,
   'upload.file_digest_required': 400,
   'upload.file_digest_mismatch': 400,
   'upload.size_mismatch': 400,

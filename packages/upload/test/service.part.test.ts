@@ -134,6 +134,25 @@ describe('UploadService.putPart', () => {
       await refused(service.putPart(session, 1, bodyOf(chunk(session, file, 1)), sha256raw(Buffer.from('zzzz')), 4), session.id, 'upload.part_digest_mismatch', 400);
     });
 
+    it('a digest that is not 32 bytes, before the body is read: upload.part_digest_mismatch', async () => {
+      const session = await open(service, file);
+      const writePart = sinon.spy(storage, 'writePart');
+      const bytes = chunk(session, file, 1);
+      await refused(service.putPart(session, 1, bodyOf(bytes), sha256raw(bytes).subarray(0, 31), 4), session.id, 'upload.part_digest_mismatch', 400);
+      expect(writePart.callCount).to.eq(0);
+    });
+
+    it('a session that expires while the body streams: upload.expired (410) at the commit', async () => {
+      const session = await open(service, file);
+      const original = storage.writePart.bind(storage);
+      sinon.stub(storage, 'writePart').callsFake(async (...args: Parameters<UploadStorage['writePart']>) => {
+        const written = await original(...args);
+        await setSession(session.id, { expires_at: DateTime.utc().minus({ seconds: 1 }) });
+        return written;
+      });
+      await refused(put(service, session, file, 1), session.id, 'upload.expired', 410);
+    });
+
     it('a session past expires_at: upload.expired (410)', async () => {
       const session = await open(service, file);
       await setSession(session.id, { expires_at: DateTime.utc().minus({ minutes: 1 }) });

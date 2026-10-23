@@ -67,7 +67,9 @@ export class UploadEvents {
       return false;
     }
     try {
-      await this.Store.markFinalEmitted(session.id, event.Name as FinalEventName, DateTime.utc());
+      if (!(await this.Store.markFinalEmitted(session.id, event.Name as FinalEventName, DateTime.utc()))) {
+        this.Log.debug({ uploadId: session.id, event: event.Name }, 'Upload ${uploadId}: final event ${event} was already recorded by another emit');
+      }
     } catch (err) {
       this.Log.warn({ uploadId: session.id, event: event.Name, error: err }, 'Upload ${uploadId}: final event ${event} emitted but not recorded; it may be emitted again');
     }

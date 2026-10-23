@@ -116,9 +116,12 @@ export class UploadStore {
     await this.Driver.update().in(UPLOAD_SESSIONS_TABLE).update({ owner }).where({ owner, status: 'open' });
   }
 
-  /** putPart's first statement in its transaction; it takes the row lock the complete claim also needs (spec §4.1 step 4). */
+  /**
+   * putPart's first statement in its transaction; it takes the row lock the complete claim also needs (spec §4.1 step 4).
+   * An open session past expires_at does not match: it may have expired while the body streamed.
+   */
   public async touchOpen(id: string, now: DateTime): Promise<boolean> {
-    return matched(await this.Driver.update().in(UPLOAD_SESSIONS_TABLE).update({ updated_at: now }).where({ id, status: 'open' }));
+    return matched(await this.Driver.update().in(UPLOAD_SESSIONS_TABLE).update({ updated_at: now }).where({ id, status: 'open' }).where('expires_at', '>', now));
   }
 
   /** Spec §5: an open session, or an assembling one whose claim is older than `staleBefore`. */

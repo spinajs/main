@@ -15,12 +15,14 @@ describe('UploadStore transitions', () => {
   });
   beforeEach(resetUploads);
 
-  it('touchOpen matches only an open session', async () => {
+  it('touchOpen matches only an open session that has not expired', async () => {
     const now = DateTime.utc();
     const open = await insertSessionRow();
     const aborted = await insertSessionRow({ status: 'aborted' });
+    const expired = await insertSessionRow({ expires_at: now.minus({ seconds: 1 }) });
     expect(await store.touchOpen(open, now)).to.eq(true);
     expect(await store.touchOpen(aborted, now)).to.eq(false);
+    expect(await store.touchOpen(expired, now)).to.eq(false);
   });
 
   it('claim takes an open session or a stale claim, never a fresh one; release needs the token', async () => {
