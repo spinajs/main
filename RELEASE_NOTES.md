@@ -1,3 +1,161 @@
+# Release notes — upload: resumable verified uploads; fs write options, digest and limit streams; raw request bodies
+
+> Branch `feat/upload`. Packages: upload (new), fs, fs-s3, fs-ftp, fs-onedrive, exceptions, http, http-swagger.
+>
+> Docs: `docs/upload/README.md`, `docs/exceptions/01-exception-classes.md`,
+> `docs/exceptions/03-http-error-mapping.md`, `docs/exceptions/README.md`,
+> `docs/fs-ftp/03-extending-the-ftp-provider.md`, `docs/fs-s3/01-s3-file-provider.md`,
+> `docs/fs-s3/03-object-metadata.md`, `docs/fs-s3/05-custom-s3-provider.md`, `docs/fs-s3/README.md`,
+> `docs/fs/02-file-operations.md`, `docs/fs/03-local-provider.md`, `docs/fs/06-custom-providers.md`,
+> `docs/fs/07-middlewares.md`, `docs/fs/09-file-hashing.md`, `docs/fs/12-streams.md`, `docs/fs/README.md`,
+> `docs/http-swagger/03-parameters-and-request-bodies.md`, `docs/http-swagger/05-policies-and-access.md`,
+> `docs/http-swagger/07-openapi-builder.md`, `docs/http-swagger/README.md`, `docs/http/04-route-arguments.md`,
+> `docs/http/10-responses.md`, `docs/http/11-error-handling.md`, `docs/http/24-raw-body-and-digests.md`,
+> `docs/http/README.md`, `docs/upload/01-protocol.md`, `docs/upload/02-configuration.md`,
+> `docs/upload/03-integrity.md`, `docs/upload/04-extending-the-controller.md`, `docs/upload/05-service-and-hooks.md`,
+> `docs/upload/06-limits.md`, `docs/upload/07-storage-providers.md`,
+> `docs/upload/08-content-checks-and-detectors.md`, `docs/upload/09-events.md`, `docs/upload/10-logging.md`,
+> `docs/upload/11-sweeper.md`, `docs/upload/12-database.md`, `packages/upload/README.md`.
+
+## BREAKING CHANGES
+
+### `@spinajs/fs` — the `doWriteStream` hook takes normalised options
+
+- A provider's protected hook is now `doWriteStream(path, readStream: NodeJS.ReadableStream | undefined, options: IWriteStreamOptions)`.
+  The base class normalises the public arguments: no source stream is `undefined`, an encoding string becomes
+  `{ encoding }`, and `options` is always an object. Third-party providers must change their override:
+
+  ```ts
+  // Before
+  protected async doWriteStream(path: string, rStream?: BufferEncoding | NodeJS.ReadableStream, encoding?: BufferEncoding) {}
+  // After
+  protected async doWriteStream(path: string, rStream: NodeJS.ReadableStream | undefined, options: IWriteStreamOptions) {}
+  ```
+
+- **A provider must honour `options.exclusive` or refuse it.** An exclusive write never overwrites: it fails with
+  `ResourceDuplicated` when the key exists. A provider that cannot create a key only if it is absent throws
+  `MethodNotImplemented` for `exclusive: true`; it never ignores the flag. `fsFTP` and `fsOneDrive` refuse every
+  `writeStream()` as before.
+- **`FsMiddleware` sees new `ctx.args` for `writeStream`:** `[readStream | undefined, options]`, with `options` an
+  `IWriteStreamOptions` object (a copy: editing it never edits the caller's object). Before, the args were the raw
+  `(readStream | encoding, encoding)` pair.
+- **The union-typed overload is gone.** `writeStream(path, readStreamOrEncoding, encoding?)` no longer compiles; call
+  `writeStream(path, options?)` or `writeStream(path, readStream, options?)`. `options` may still be a
+  `BufferEncoding` string. The static `fs.writeStream(uri, …)` changed the same way.
+
+### `@spinajs/fs-s3` — `hash()` computes, `rm()` removes a prefix
+
+- **`hash(path, algo?)` no longer throws for an object without stored `hash` metadata, or for an algorithm.** For
+  `sha256` it returns the stored `hash` metadata, trusted as stored, and streams the object through `DigestStream` when
+  there is none. Any other algorithm Node supports always streams the object (a full `GetObject`). An unknown
+  algorithm throws `InvalidArgument`.
+- **`rm(path)` also deletes every key under `path/`** (`ListObjectsV2`, then `DeleteObjects` in batches of 1000), as
+  `fsNative` removes a directory with its contents. `rm('a')` on a key `a` that has `a/b` next to it now removes both.
+  A path that does not exist still succeeds. A failed batch throws `IOFail` naming the keys. S3 errors from `DeleteObject` and `ListObjectsV2` are wrapped in
+  `IOFail` too, with the original kept as the inner error.
+- **`rm('')` throws `InvalidArgument`.** It used to go out as `DeleteBucket`.
+- **`move()` and `rename()` delete the exact source key**, never the keys under it.
+- **`@spinajs/authz-fs` keeps the `fs_acl` rows** of the keys a prefix `rm` deletes on S3, until authz-fs handles
+  prefix deletes.
+
+### `@spinajs/http` — `LimitExceeded` answers 413 everywhere
+
+- `EntityTooLarge` is now mapped from `LimitExceeded` (`@spinajs/exceptions`) too. Any `LimitExceeded` an action lets
+  through answers `413` instead of `500`, on every route.
+
+## New behavior
+
+### `@spinajs/upload` (new package)
+
+- Resumable, verified chunked uploads: sessions, numbered parts with a SHA-256 each (`Content-Digest`), resume from the
+  stored parts, assembly with re-verification of every part and of the whole file, content type checks with
+  app-registered `ContentDetector`s, limits, twelve queue events (final ones at least once), and a sweeper.
+- Three tables (`upload_sessions`, `upload_parts`, `upload_blobs`) on the connection alias `upload` (default
+  `'default'`), migration `Upload_2026_10_23_00_00_00`. Run it before the app serves: the models are registered on import.
+- **`@spinajs/upload/http`:** the abstract `UploadController`. Subclass it with your own `@BasePath` and `authorize()`;
+  the package mounts no route. Needs `@spinajs/http` and `@spinajs/validation` (optional peers).
+- **`@spinajs/upload/scheduler`:** the `upload.sweep` schedule (`runOn: 'leader'`). Needs `@spinajs/scheduler`
+  (optional peer). Without it, run `npx spinajs upload:sweep` from cron.
+- Parts up to 5 GiB: the `part_size` column is `bigint`.
+- Every duration must be above zero: `upload.limits.sessionTtl`, `upload.assembly.staleAfter` and `upload.sweeper.every`
+  (`upload.sweeper.retainFinished` may be `0`). `upload.detect.headBytes` accepts 1 to 65536. The package exports
+  `POSITIVE_DURATION_PATTERN` and `parsePositiveDuration`; `parseDuration` and `parsePositiveDuration` throw
+  `InvalidOption`, not `InvalidArgument`.
+- Server-side misconfiguration (a `..` segment in `fileDir`, a zero duration from `limitsFor`, a missing provider) answers
+  `500 { "code": "upload.internal", "message": "Internal error" }` (`UPLOAD_INTERNAL_ERROR`), never a 400. An app's
+  `http.errors.handlers` do not see the 500s of upload routes; a mapped error such as `ResourceDuplicated` keeps its own body.
+- The open-session cap per owner retries its transaction once on a lock or serialization conflict (MySQL 1213 and 1205,
+  SQLSTATE 40001 and 40P01). The MySQL path is tested with stubs only.
+- `UploadController.ownerOf` returns `null` by default: sessions are unscoped and the per-owner cap does not apply. A
+  multi-user app must override it and throw when the request has no principal.
+- The sweep task does not retry: a failed run is recorded and the next run retries the items. After
+  `upload.sweeper.retainFinished` the purge deletes failed, aborted and expired sessions with their rows; completed
+  sessions keep their row and file.
+- Requires Node `>=20.19`.
+
+### `@spinajs/fs`
+
+- `writeStream(path, options?)` / `writeStream(path, readStream, options?)` with
+  `IWriteStreamOptions { encoding?, exclusive?, contentType?, metadata? }`.
+  - `fsNative`: `exclusive` opens with `wx` and creates missing parent directories; an existing file rejects the
+    `writeStream()` promise with `ResourceDuplicated`. `contentType` and `metadata` are ignored.
+  - `fsNative` exclusive write that fails after `open('wx')` closes the handle, removes the half-written file and throws `IOFail`.
+- `DigestStream(algorithm = 'sha256')` and `ByteLimitStream(maxBytes)`: pass-through streams that hash, or fail with
+  `LimitExceeded` past a byte limit.
+
+### `@spinajs/fs-s3`
+
+- `writeStream()` maps `contentType` to `ContentType`, `metadata` to `Metadata` (keys come back lower-cased; S3's 2 KB
+  limit applies) and `exclusive` to `IfNoneMatch: '*'`. A refused exclusive write fails the returned stream with
+  `ResourceDuplicated` in an `'error'` event, possibly after `'finish'`: wait for `'close'` or `'error'`.
+- A refused `CompleteMultipartUpload` aborts the multipart upload, so its parts are not left stored.
+- **Exclusive writes are only as atomic as the backend.** AWS S3 enforces `If-None-Match` between concurrent writes.
+  A backend that ignores it, or does not enforce it between concurrent multipart uploads (LocalStack 3.8.1), lets two
+  exclusive writes of one key both succeed.
+- Tests run against `localstack/localstack:3.8.1` (`packages/fs-s3/test/docker-compose.yml`); newer images need an auth
+  token. `FS_S3_LOCALSTACK=required` fails the suites instead of skipping them when LocalStack is down.
+
+### `@spinajs/exceptions`
+
+- `LimitExceeded`: a stream or input went over a configured size limit.
+
+### `@spinajs/http`
+
+- `@RequestStream({ maxBytes? })`: the raw request body as a stream, capped at `maxBytes` (413 after the rest of the
+  body was read off). A body that a parser took (JSON, urlencoded, XML) answers the new **415**
+  (`UnsupportedMediaTypeException`, `UnsupportedMediaType` response, `HTTP_STATUS_CODE.UNSUPPORTED_MEDIA_TYPE`).
+- `@ContentDigest({ required?, algorithms? })` and `parseContentDigest(header)`: RFC 9530 `Content-Digest` as
+  `Map<algorithm, Buffer>`. A repeated key is refused, and upper-case keys are accepted, unlike RFC 8941.
+- `limitRequestStream(req, maxBytes)`, the stream behind `@RequestStream({ maxBytes })`. An error on its returned stream that no reader has
+  observed yet (a client abort before the action reads) no longer crashes the process; a late reader still gets the error.
+- `answeredAsServerError(err)`: new public export, `true` when the error middleware answers `err` as a generic 500.
+  Use it to tell a mapped error from an unexpected one in custom error handling.
+
+### `@spinajs/http-swagger`
+
+- `registerOpenApiParamType(type, describe)` documents a custom route-arg type. A registered body is the whole request
+  body: a route that also takes another body argument fails the build. `@RequestStream()` is documented as an
+  `application/octet-stream` body and `@ContentDigest()` as a `content-digest` header.
+
+## Upgrade notes
+
+- Install and upgrade `@spinajs/upload` with `@spinajs/http`, `@spinajs/scheduler` and `@spinajs/validation`: it pins them to
+  its own version exactly.
+- Run the app with `APP_ENV` or `NODE_ENV` set to `production`; otherwise mapped error responses carry the stack.
+- Multi-user apps: override `UploadController.ownerOf` before serving users (see above).
+- Exclusive multipart writes on LocalStack are not atomic under concurrency; this is accepted and documented.
+- Third-party `fs` providers: change `doWriteStream` to the new signature, and implement or refuse `exclusive`.
+- `FsMiddleware`s that read `ctx.args` of `writeStream`: read `ctx.args[1]` as an options object.
+- Code that relied on `fsS3.hash()` throwing for objects without metadata, or on `fsS3.rm()` leaving keys under the
+  path, must change.
+- Apps that answer their own `LimitExceeded` must catch it in the route or map it with `@HandleException`.
+
+## Dependencies
+
+- `@spinajs/upload` depends on `file-type ^20.5.0` and `mime-types ^3.0.2`.
+
+---
+
 # Release notes — authn/authz hardening: validated inputs, default-deny CSRF, bot checks, rate limits
 
 > Features HARD-VAL0 to HARD-VAL6, HARD-CSRF, HARD-BOT and HARD-RL. Packages: http, http-bot, validation, authn,
