@@ -39,9 +39,11 @@ describe('Swagger raw-body route args, end to end', function () {
     await server.stop();
     DI.clearCache();
   });
-
   const put = (path: string): SpecNode => {
-    const op = spec.paths[path]?.put;
+    const op = Object.entries(spec.paths).find(([p]) => p === path)?.[1]?.put;
+    if (!op) {
+      throw new Error(`no PUT documented for ${path}`);
+    }
     expect(op, `no PUT documented for ${path}`).to.exist;
     return op;
   };
