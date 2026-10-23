@@ -1,6 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
-import { PassThrough, type Readable } from 'node:stream';
+import { PassThrough, type Readable, Writable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { IOFail, LimitExceeded } from '@spinajs/exceptions';
 
 import { limitRequestStream } from '../src/index.js';
@@ -16,6 +18,20 @@ async function readAll(stream: Readable): Promise<Buffer> {
   const chunks: Buffer[] = [];
   for await (const chunk of stream) chunks.push(chunk as Buffer);
   return Buffer.concat(chunks);
+}
+
+// Mocha's own handler would only report an uncaught error on some later test; this pins it to the one that caused it.
+async function expectNothingUncaught(run: () => Promise<void>): Promise<void> {
+  const uncaught: unknown[] = [];
+  const record = (err: unknown) => uncaught.push(err);
+  process.on('uncaughtException', record);
+  try {
+    await run();
+    await nextTurn();
+  } finally {
+    process.off('uncaughtException', record);
+  }
+  expect(uncaught).to.deep.eq([]);
 }
 
 // A PassThrough stands in for the IncomingMessage: both are Readables that end, error and close the same way.
@@ -155,5 +171,84 @@ describe('limitRequestStream', () => {
 
     expect(failure).to.eq(null);
     expect(request.readableLength).to.eq(0);
+  });
+
+  describe('when the stream fails before anything reads it', () => {
+    it('keeps a request closed before the call for a later reader', () =>
+      expectNothingUncaught(async () => {
+        const request = new PassThrough();
+        request.destroy();
+        await nextTurn();
+
+        const body = limitRequestStream(request, 100);
+        await sleep(10);
+
+        expect(await settled(readAll(body).catch((err: unknown) => err))).to.be.instanceOf(IOFail);
+      }));
+
+    it('keeps the error of a request failed before the call for a later reader', () =>
+      expectNothingUncaught(async () => {
+        const request = new PassThrough();
+        const aborted = new Error('aborted');
+        request.on('error', () => undefined);
+        request.destroy(aborted);
+        await nextTurn();
+
+        const body = limitRequestStream(request, 100);
+        await sleep(10);
+
+        expect(await settled(readAll(body).catch((err: unknown) => err))).to.eq(aborted);
+      }));
+
+    it('keeps the request error for a later reader', () =>
+      expectNothingUncaught(async () => {
+        const request = new PassThrough();
+        const body = limitRequestStream(request, 100);
+        const aborted = new Error('aborted');
+        request.write(Buffer.from('ab'));
+        await nextTurn();
+
+        request.destroy(aborted);
+        await sleep(10);
+
+        expect(await settled(readAll(body).catch((err: unknown) => err))).to.eq(aborted);
+      }));
+
+    it('keeps the IOFail of a request closed mid-body for a later reader', () =>
+      expectNothingUncaught(async () => {
+        const request = new PassThrough();
+        const body = limitRequestStream(request, 100);
+        request.write(Buffer.from('ab'));
+        await nextTurn();
+
+        request.destroy();
+        await sleep(10);
+
+        expect(await settled(readAll(body).catch((err: unknown) => err))).to.be.instanceOf(IOFail);
+      }));
+
+    it('keeps LimitExceeded for a later reader', () =>
+      expectNothingUncaught(async () => {
+        const request = new PassThrough();
+        const body = limitRequestStream(request, 1024);
+
+        request.end(Buffer.alloc(4096));
+        await sleep(10);
+
+        expect(await settled(readAll(body).catch((err: unknown) => err))).to.be.instanceOf(LimitExceeded);
+      }));
+
+    it('rejects a later pipeline with the error', () =>
+      expectNothingUncaught(async () => {
+        const request = new PassThrough();
+        const body = limitRequestStream(request, 100);
+        const aborted = new Error('aborted');
+
+        request.destroy(aborted);
+        await sleep(10);
+
+        const sink = new Writable({ write: (_chunk, _encoding, done) => done() });
+        expect(await settled(pipeline(body, sink).catch((err: unknown) => err))).to.eq(aborted);
+      }));
   });
 });

@@ -50,6 +50,8 @@ function postOctets(agent: Agent, path: string, payload: Buffer): Promise<{ stat
 }
 
 let reportAbort: (err: unknown) => void = () => undefined;
+let reportEntered: () => void = () => undefined;
+let readGate: Promise<void> = Promise.resolve();
 
 @BasePath('request-stream')
 class RequestStreamController extends BaseController {
@@ -67,6 +69,19 @@ class RequestStreamController extends BaseController {
   public async unbounded(@RequestStream() body: Readable, @Req() request: Request) {
     const isRequest = body === request;
     return new Ok({ ...(await drain(body)), isRequest });
+  }
+
+  @Post()
+  public async abortedBeforeRead(@RequestStream({ maxBytes: MiB }) body: Readable) {
+    reportEntered();
+    await readGate;
+    try {
+      await drain(body);
+      reportAbort(null);
+    } catch (err) {
+      reportAbort(err);
+    }
+    return new Ok({});
   }
 
   @Post()
@@ -181,6 +196,37 @@ describe('@RequestStream', function () {
     expect(err).to.be.instanceOf(Error);
     expect(err).to.not.be.instanceOf(LimitExceeded);
     expect(err.code).to.eq('ECONNRESET');
+  });
+
+  it('stays up when the client aborts while the action awaits before reading', async () => {
+    const uncaught: unknown[] = [];
+    const record = (err: unknown) => uncaught.push(err);
+    process.on('uncaughtException', record);
+    let openGate: () => void = () => undefined;
+    readGate = new Promise((resolve) => (openGate = resolve));
+    const entered = new Promise<void>((resolve) => (reportEntered = resolve));
+    const outcome = new Promise<unknown>((resolve) => (reportAbort = resolve));
+    try {
+      const socket = connect(appPort(), 'localhost', () => {
+        socket.write('POST /request-stream/abortedBeforeRead HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/octet-stream\r\nContent-Length: 1000\r\n\r\n');
+        socket.write(Buffer.alloc(10));
+      });
+      socket.on('error', () => undefined);
+      await entered;
+      socket.destroy();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      openGate();
+
+      const err = (await outcome) as NodeJS.ErrnoException;
+      expect(err).to.be.instanceOf(Error);
+      expect(err.code).to.eq('ECONNRESET');
+      const next = await octets('request-stream/bounded', randomBytes(10));
+      expect(next).to.have.status(200);
+    } finally {
+      openGate();
+      process.off('uncaughtException', record);
+    }
+    expect(uncaught).to.deep.eq([]);
   });
 
   it('refuses a maxBytes that is not a non-negative integer', () => {

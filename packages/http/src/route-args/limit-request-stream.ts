@@ -15,12 +15,16 @@ export function limitRequestStream(req: Readable, maxBytes: number): Readable {
   // A client abort during async middleware leaves `req` destroyed; it emits no more events to settle on.
   if (req.destroyed && !req.readableEnded) {
     const out = new PassThrough();
+    out.on('error', ignoreError);
     out.destroy(req.errored ?? closedEarly());
     return out;
   }
 
   const limiter = new ByteLimitStream(maxBytes);
   const out = new PassThrough();
+  // The action may await before it reads, and pipe() re-throws an error that `out` has no other listener for.
+  // A reader that attaches later still gets the error: iterating or piping a destroyed stream rejects with it.
+  out.on('error', ignoreError);
   let failAfterEnd: (() => void) | null = null;
 
   const discardRest = () => {
