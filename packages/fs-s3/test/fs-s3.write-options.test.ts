@@ -1,15 +1,23 @@
 import 'mocha';
 import { once } from 'events';
+import { mkdtempSync, rmSync } from 'fs';
+import { writeFile } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { PassThrough, Readable } from 'stream';
 import sinon from 'sinon';
 import { expect } from 'chai';
 import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
   GetObjectCommand,
   HeadObjectCommand,
   ListMultipartUploadsCommand,
   PutObjectCommand,
   S3Client,
   S3ServiceException,
+  UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import { IOFail, ResourceDuplicated } from '@spinajs/exceptions';
 
@@ -29,10 +37,12 @@ function stubbed(reply: (command: unknown) => unknown) {
   // a real client, so lib-storage finds the config it reads (endpoint, requestHandler); only send is replaced
   const client = new S3Client({ region: 'us-west-1', endpoint: 'http://localhost:1', forcePathStyle: true, credentials: { accessKeyId: 'test', secretAccessKey: 'test' } });
   const sent: Command[] = [];
-  sinon.stub(client, 'send').callsFake((async (command: unknown) => {
+  // send is overloaded ( promise / callback ), which makes stub(client, 'send') type a promise-returning fake as a misuse
+  const send = sinon.stub<[unknown], Promise<unknown>>().callsFake((command) => {
     sent.push(command as Command);
-    return reply(command);
-  }) as never);
+    return new Promise((resolve) => resolve(reply(command)));
+  });
+  Object.defineProperty(client, 'send', { value: send });
   const s3 = new fsS3({ name: 's3-ws-unit', bucket: 'b' });
   Object.defineProperty(s3, 'S3', { value: client });
   Object.defineProperty(s3, 'Logger', { value: quiet });
@@ -83,6 +93,18 @@ describe('fs s3 writeStream options (no server)', function () {
     expect(err).to.not.be.instanceOf(ResourceDuplicated);
   });
 
+  it('removes its error listener from the source stream once the upload settled', async () => {
+    const { s3 } = stubbed(() => ({}));
+    const source = new PassThrough();
+    const before = source.listenerCount('error');
+
+    const ws = await s3.writeStream('a.txt', source, {});
+    source.end(SMALL);
+    await once(ws, 'close');
+
+    expect(source.listenerCount('error')).to.equal(before);
+  });
+
   it('forwards an error of the source stream to the returned stream and stores nothing', async () => {
     const { s3, sent } = stubbed(() => ({}));
     const source = new PassThrough();
@@ -95,6 +117,48 @@ describe('fs s3 writeStream options (no server)', function () {
     const [err] = await failed;
     expect((err as Error).message).to.equal('source failed');
     expect(sent.filter((c) => c instanceof PutObjectCommand)).to.have.length(0);
+  });
+});
+
+// CompleteMultipartUpload is refused with 412 and the cleanup AbortMultipartUpload fails with 500
+function multipartRefusedThenAbortFails(command: unknown): unknown {
+  if (command instanceof CreateMultipartUploadCommand) return { UploadId: 'u-1' };
+  if (command instanceof UploadPartCommand) return { ETag: '"e"' };
+  if (command instanceof CompleteMultipartUploadCommand) return refused(412)();
+  if (command instanceof AbortMultipartUploadCommand) {
+    throw new S3ServiceException({ name: 'InternalError', $fault: 'server', $metadata: { httpStatusCode: 500 } });
+  }
+  return {};
+}
+
+describe('fs s3 exclusive multipart refusal, abort failing (no server)', function () {
+  this.timeout(10000);
+
+  let dir: string;
+  before(() => {
+    dir = mkdtempSync(join(tmpdir(), 'fs-s3-excl-'));
+  });
+  after(() => rmSync(dir, { recursive: true, force: true }));
+  afterEach(() => sinon.restore());
+
+  it('writeStream: still ResourceDuplicated, and an AbortMultipartUpload was sent', async () => {
+    const { s3, sent } = stubbed(multipartRefusedThenAbortFails);
+
+    await expect(writeAll(s3, 'taken.bin', BIG, { exclusive: true })).to.be.rejectedWith(ResourceDuplicated);
+
+    expect(sent.filter((c) => c instanceof AbortMultipartUploadCommand)).to.have.length(1);
+  });
+
+  it('upload: still ResourceDuplicated, and an AbortMultipartUpload was sent', async () => {
+    const { s3, sent } = stubbed(multipartRefusedThenAbortFails);
+    const src = join(dir, 'big.bin');
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- temp path of this test
+    await writeFile(src, BIG);
+    const doUpload = (s3 as unknown as { doUpload(src: string, dest: string, options: { exclusive: boolean }): Promise<void> }).doUpload.bind(s3);
+
+    await expect(doUpload(src, 'taken.bin', { exclusive: true })).to.be.rejectedWith(ResourceDuplicated);
+
+    expect(sent.filter((c) => c instanceof AbortMultipartUploadCommand)).to.have.length(1);
   });
 });
 

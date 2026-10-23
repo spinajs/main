@@ -513,21 +513,25 @@ export class fsS3 extends fs {
       },
     });
 
-    this.finishUpload(upload, path, options.exclusive, `Cannot write stream to ${path}`)
-      .then(() => {
+    // pipe() does not forward source errors; the upload would wait for the rest of the body forever
+    const onSourceError = (err: unknown) => pass.destroy(err instanceof Error ? err : new IOFail(String(err)));
+    rStream?.on('error', onSourceError);
+
+    // two-argument then: a throw from the success path must not be reported as a failed upload of a stored object
+    void this.finishUpload(upload, path, options.exclusive, `Cannot write stream to ${path}`).then(
+      () => {
+        rStream?.off('error', onSourceError);
         this.Logger.trace({ path, bucket: this.Options.bucket }, 'Stream upload to ${path} finished, bucket: ${bucket}');
         pass.destroy();
         pass.emit('close');
-      })
-      .catch((err: unknown) => {
+      },
+      (err: unknown) => {
+        rStream?.off('error', onSourceError);
         pass.destroy(err instanceof ResourceDuplicated ? err : new IOFail(`Cannot write stream to ${path}, bucket ${this.Options.bucket}`, err));
-      });
+      },
+    );
 
-    if (rStream) {
-      // pipe() does not forward source errors; the upload would wait for the rest of the body forever
-      rStream.on('error', (err) => pass.destroy(err instanceof Error ? err : new IOFail(String(err))));
-      rStream.pipe(pass);
-    }
+    rStream?.pipe(pass);
 
     return pass;
   }
@@ -554,7 +558,7 @@ export class fsS3 extends fs {
       await this.S3.send(new AbortMultipartUploadCommand({ Bucket: this.Options.bucket, Key: key, UploadId: uploadId }));
     } catch (err) {
       // lib-storage already aborted it after a failed part
-      if ((err as { name?: string }).name !== 'NoSuchUpload') {
+      if ((err as { name?: string } | undefined)?.name !== 'NoSuchUpload') {
         this.Logger.warn({ error: err, key }, 'Cannot abort the multipart upload of ${key}');
       }
     }

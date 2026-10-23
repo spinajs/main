@@ -54,6 +54,17 @@ describe('fs s3 hash (no server)', () => {
     expect([sent(HeadObjectCommand), sent(GetObjectCommand)]).to.deep.equal([0, 1]);
   });
 
+  it('rejects with the read error and destroys the body when the fallback read fails', async () => {
+    const { s3, send } = stubbed({});
+    const body = new Readable({ read() { this.destroy(new Error('read failed')); } });
+    const bodyClosed = new Promise((resolve) => body.once('close', resolve));
+    send.callsFake(async (cmd: unknown) => (cmd instanceof GetObjectCommand ? { Body: body } : { Metadata: {} }));
+
+    await expect(s3.hash('a.txt')).to.be.rejectedWith('read failed');
+    await bodyClosed;
+    expect(body.destroyed).to.be.true;
+  });
+
   it('refuses an unsupported algorithm before any request', async () => {
     const { s3, send } = stubbed({});
     await expect(s3.hash('a.txt', 'no-such-digest')).to.be.rejectedWith(InvalidArgument);
