@@ -37,7 +37,7 @@
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit --composite false --incremental false",
-    "coverage": "nyc npm run test"
+    "coverage": "c8 npm run test"
   },
   "files": [
     "lib/**/*"

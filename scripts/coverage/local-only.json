@@ -1,0 +1,12 @@
+{
+  "packages": [
+    "email",
+    "email-smtp-transport",
+    "fs-ftp",
+    "fs-s3",
+    "orm-mssql",
+    "orm-mysql",
+    "queue-amqp-transport",
+    "queue-sqs-transport"
+  ]
+}

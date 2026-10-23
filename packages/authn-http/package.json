@@ -47,7 +47,7 @@
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "pretest": "npm run clean && npm run compile && cd ../.. && node node_modules/typescript-7/lib/tsc.js -b packages/authn-http/tsconfig.cjs.json && node scripts/generate-packages-for-modules.mjs",
     "test": "ts-mocha -p tsconfig.json && ts-mocha -p tsconfig.json --config .mocharc.v3-app.json && ts-mocha -p tsconfig.json --config .mocharc.v3-socket.json",
-    "coverage": "nyc npm run test",
+    "coverage": "c8 npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "cd ../.. && npm run lint -- packages/authn-http",

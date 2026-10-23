@@ -27,7 +27,7 @@
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/*.test.ts && ts-mocha -p tsconfig.json --config .mocharc.authz.json",
     "test:e2e": "ts-mocha -p tsconfig.json test/durable-e2e.test.ts",
-    "coverage": "nyc npm run test",
+    "coverage": "c8 npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "cd ../.. && npm run lint -- packages/http-socket",

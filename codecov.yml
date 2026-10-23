@@ -1,0 +1,13 @@
+# Coverage is reported, not enforced: Codecov statuses never fail a PR.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: 'diff, files'
+  require_changes: true

@@ -1,0 +1,8 @@
+{
+  "all": true,
+  "include": ["src/**", "packages/*/src/**"],
+  "exclude": ["**/*.d.ts", "**/node_modules/**"],
+  "exclude-after-remap": true,
+  "reporter": ["text-summary", "html", "lcov"],
+  "reports-dir": "coverage"
+}

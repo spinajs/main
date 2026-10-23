@@ -1,0 +1,67 @@
+# Test coverage and per-test overlap of the whole monorepo ( scripts/coverage/run.mjs ).
+#
+# The report lands in the run's job summary and as the `coverage` artifact ( HTML, lcov,
+# per-test-report.json ). Packages in scripts/coverage/local-only.json need external services and
+# are measured locally only ( `npm run coverage` ).
+#
+# Secrets
+#   CODECOV_TOKEN - optional; when set, lcov is uploaded to Codecov for history and PR comments.
+
+name: coverage
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    concurrency:
+      group: coverage-${{ github.ref }}
+      cancel-in-progress: true
+
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      - name: build monorepo (esm + cjs)
+        run: npm run build
+
+      - name: tests with coverage
+        run: node scripts/coverage/run.mjs --ci
+
+      - name: upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            coverage/
+            !coverage/tmp/
+            !coverage/per-test/
+          if-no-files-found: ignore
+
+      - name: upload to Codecov
+        if: env.CODECOV_TOKEN != ''
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ env.CODECOV_TOKEN }}
+          files: coverage/lcov.info
+          fail_ci_if_error: false
