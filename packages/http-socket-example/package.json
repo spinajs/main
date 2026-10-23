@@ -12,7 +12,8 @@
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "compile": "tsc -b tsconfig.mjs.json",
     "start": "node lib/mjs/main.js",
-    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts"
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "coverage": "c8 npm run test"
   },
   "license": "MIT",
   "dependencies": {

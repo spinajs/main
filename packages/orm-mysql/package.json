@@ -27,7 +27,7 @@
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/*.test.ts",
     "test:integration": "ts-mocha -p tsconfig.json test/integration/**/*.test.ts",
-    "coverage": "nyc npm run test",
+    "coverage": "c8 npm run test",
     "build-docs": "rimraf api-docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "cd ../.. && npm run lint -- packages/orm-mysql",
