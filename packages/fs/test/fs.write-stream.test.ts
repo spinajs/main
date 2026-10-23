@@ -216,6 +216,15 @@ describe('fs writeStream options', function () {
       expect(err).to.not.be.instanceOf(ResourceDuplicated);
     });
 
+    it('removes the file it created when the stream cannot be made, so the key stays writable', async () => {
+      const bogus = { exclusive: true, encoding: 'not-an-encoding' as BufferEncoding };
+      await expect(local.writeStream('ws/enc.txt', bogus)).to.be.rejectedWith(IOFail);
+      expect(readdirSync(root())).to.deep.equal([]);
+
+      await writeAll(await local.writeStream('ws/enc.txt', { exclusive: true }), 'ok');
+      expect(await readFile(join(root(), 'enc.txt'), 'utf-8')).to.equal('ok');
+    });
+
     it('writes with the encoding from the options or a bare encoding', async () => {
       await writeAll(await local.writeStream('ws/options.txt', { exclusive: true, encoding: 'latin1' }), 'é');
       await writeAll(await local.writeStream('ws/bare.txt', 'latin1'), 'é');

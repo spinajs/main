@@ -190,7 +190,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   protected async doWriteStream(path: string, rStream: NodeJS.ReadableStream | undefined, options: IWriteStreamOptions): Promise<WriteStream> {
     const p = this.resolvePath(path);
     const streamOptions = options.encoding ? { encoding: options.encoding } : {};
-    const stream = options.exclusive ? (await this.openExclusive(path, p)).createWriteStream(streamOptions) : createWriteStream(p, streamOptions);
+    const stream = options.exclusive ? await this.exclusiveWriteStream(path, p, streamOptions) : createWriteStream(p, streamOptions);
 
     // pipe ANY readable stream, not only fs.ReadStream instances - the contract accepts
     // NodeJS.ReadableStream ( PassThrough, http/s3 bodies etc. ), instanceof would
@@ -203,6 +203,18 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     }
 
     return stream;
+  }
+
+  private async exclusiveWriteStream(path: string, fullPath: string, streamOptions: { encoding?: BufferEncoding }): Promise<WriteStream> {
+    const handle = await this.openExclusive(path, fullPath);
+    try {
+      return handle.createWriteStream(streamOptions);
+    } catch (err) {
+      // 'wx' already created the file: left behind, it would refuse every later exclusive write of this key.
+      await handle.close().catch(() => {});
+      await rm(fullPath, { force: true }).catch(() => {});
+      throw new IOFail(`Cannot write to file ${path}`, err);
+    }
   }
 
   private async openExclusive(path: string, fullPath: string): Promise<FileHandle> {
