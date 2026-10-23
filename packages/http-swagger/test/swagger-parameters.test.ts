@@ -75,7 +75,7 @@ describe('Swagger parameters, bodies and paths', function () {
       type: RouteType.POST,
       params: [param(0, 'UnregisteredRouteArg', 'x'), param(1, ParameterType.Ip, 'ip'), param(2, ParameterType.RequestId, 'requestId')],
     });
-    const op = operation(spec).post;
+    const { post: op } = operation(spec) as { post: object };
 
     expect(op).to.not.have.property('parameters');
     expect(op).to.not.have.property('requestBody');

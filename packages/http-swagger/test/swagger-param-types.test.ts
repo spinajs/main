@@ -43,11 +43,24 @@ describe('Swagger custom route-arg types (registerOpenApiParamType)', function (
     };
   }
 
+  interface JsonParameter {
+    name: string;
+    in: string;
+    required: boolean;
+    description?: string;
+    schema?: unknown;
+  }
+
+  interface JsonOperation {
+    parameters?: JsonParameter[];
+    requestBody?: { description?: string; required: boolean; content: Record<string, { schema: unknown }> };
+  }
+
   /** The route's only operation, as the JSON a client receives (undefined fields dropped). */
-  function operation(opts: BuildOptions): any {
+  function operation(opts: BuildOptions): JsonOperation {
     const spec = builderFor(opts)();
     const item = Object.values(spec.paths)[0];
-    return JSON.parse(JSON.stringify(Object.values(item)[0]));
+    return JSON.parse(JSON.stringify(Object.values(item)[0])) as JsonOperation;
   }
 
   before(() => {
@@ -82,7 +95,7 @@ describe('Swagger custom route-arg types (registerOpenApiParamType)', function (
     it('lets the @param text win over the registered description', () => {
       const op = operation({ params: [param(0, 'TestTraceArg', 'trace')], doc: { params: { trace: { name: 'trace', description: 'Per-call trace' } } } });
 
-      expect(op.parameters[0].description).to.equal('Per-call trace');
+      expect(op.parameters![0].description).to.equal('Per-call trace');
     });
 
     it('emits query and cookie parameters in argument order, after the path ones', () => {
@@ -91,14 +104,14 @@ describe('Swagger custom route-arg types (registerOpenApiParamType)', function (
         params: [param(0, 'TestQueryArg', 'page'), param(1, ParameterType.FromParams, 'id'), param(2, 'TestCookieArg', 'session')],
       });
 
-      expect(op.parameters.map((p: any) => `${p.in}:${p.name}`)).to.deep.equal(['path:id', 'query:page', 'cookie:sid']);
-      expect(op.parameters[1]).to.deep.equal({ name: 'page', in: 'query', required: false, schema: { type: 'integer' } });
+      expect(op.parameters!.map((p) => `${p.in}:${p.name}`)).to.deep.equal(['path:id', 'query:page', 'cookie:sid']);
+      expect(op.parameters![1]).to.deep.equal({ name: 'page', in: 'query', required: false, schema: { type: 'integer' } });
     });
 
     it("calls describe for every argument, with that argument's options", () => {
       const op = operation({ params: [param(0, 'TestOptionsArg', 'a', { required: true }), param(1, 'TestOptionsArg', 'b')] });
 
-      expect(op.parameters.map((p: any) => [p.name, p.required])).to.deep.equal([
+      expect(op.parameters!.map((p) => [p.name, p.required])).to.deep.equal([
         ['a', true],
         ['b', false],
       ]);
@@ -151,7 +164,7 @@ describe('Swagger custom route-arg types (registerOpenApiParamType)', function (
       registerOpenApiParamType('TestNamedSchemaArg', () => ({ in: 'body', contentType: 'application/json', schema: { type: 'object', description: 'Pet' } }));
 
       const spec = builderFor({ path: 'named', params: [param(0, 'TestNamedSchemaArg', 'pet')] })();
-      const schema = JSON.parse(JSON.stringify(spec.paths['/items/named'].put.requestBody!.content['application/json'].schema));
+      const schema: unknown = JSON.parse(JSON.stringify(spec.paths['/items/named'].put.requestBody!.content['application/json'].schema));
 
       expect(schema).to.deep.equal({ type: 'object', description: 'Pet' });
       expect(spec.components).to.not.have.property('schemas');
@@ -160,7 +173,7 @@ describe('Swagger custom route-arg types (registerOpenApiParamType)', function (
     it('wins over a @body tag', () => {
       const op = operation({ params: [param(0, 'TestBodyArg', 'blob')], doc: { body: { type: 'string' } } });
 
-      expect(Object.keys(op.requestBody.content)).to.deep.equal(['application/octet-stream']);
+      expect(Object.keys(op.requestBody!.content)).to.deep.equal(['application/octet-stream']);
     });
 
     it('documents a body and a header described by one argument', () => {
@@ -216,7 +229,7 @@ describe('Swagger custom route-arg types (registerOpenApiParamType)', function (
 
       const op = operation({ params: [param(0, 'TestReplacedArg', 'x')] });
 
-      expect(op.parameters.map((p: any) => p.in)).to.deep.equal(['header']);
+      expect(op.parameters!.map((p) => p.in)).to.deep.equal(['header']);
     });
 
     it('never overrides a type the builder maps itself', () => {
@@ -224,7 +237,7 @@ describe('Swagger custom route-arg types (registerOpenApiParamType)', function (
 
       const op = operation({ params: [param(0, ParameterType.FromQuery, 'page')] });
 
-      expect(op.parameters.map((p: any) => `${p.in}:${p.name}`)).to.deep.equal(['query:page']);
+      expect(op.parameters!.map((p) => `${p.in}:${p.name}`)).to.deep.equal(['query:page']);
     });
 
     it('is exported from the package index, without the internal lookup', () => {

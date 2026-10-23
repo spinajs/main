@@ -517,7 +517,7 @@ ${line}` : line;
       // JSDoc is written against the argument name.
       const paramDoc = methodDoc?.params?.[param.Name];
 
-      const registered = isNativeParamType(param.Type as string) ? undefined : describeRegisteredParam(param);
+      const registered = isNativeParamType(param.Type) ? undefined : describeRegisteredParam(param);
       if (registered) {
         for (const description of registered) {
           if (description.in === 'body') {
@@ -1039,7 +1039,7 @@ ${line}` : line;
       description: doc?.description ?? description.description,
       required: description.in === 'path' || description.required === true,
       // describe() may return one shared object, and the built document is handed out for editing.
-      schema: structuredClone(description.schema) as IOpenApiSchema,
+      schema: structuredClone(description.schema),
     };
   }
 
@@ -1067,7 +1067,7 @@ ${line}` : line;
     return {
       description: body.doc?.description ?? body.description.description,
       required: body.description.required ?? true,
-      content: { [body.description.contentType]: { schema: structuredClone(body.description.schema) as IOpenApiSchema } },
+      content: { [body.description.contentType]: { schema: structuredClone(body.description.schema) } },
     };
   }
 

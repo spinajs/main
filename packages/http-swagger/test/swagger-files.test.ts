@@ -155,7 +155,8 @@ describe('Swagger file uploads and downloads', function () {
     });
 
     it('keeps the full multipart request bodies unchanged', () => {
-      const body = (path: string) => spec.paths[`/files/${path}`].post.requestBody;
+      const { paths } = spec as { paths: Record<string, { post: { requestBody: unknown } }> };
+      const body = (path: string) => paths[`/files/${path}`].post.requestBody;
       const binary = { type: 'string', format: 'binary' };
 
       expect(body('single')).to.deep.equal({
