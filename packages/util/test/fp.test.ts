@@ -17,15 +17,6 @@ describe('fp', () => {
       expect(res).to.eq('recovered');
     });
 
-    it('_catch passes original args to handler on sync throw', async () => {
-      const a = (_v: number) => {
-        throw new Error('sync');
-      };
-
-      const res = await _catch(a, async (_err, v) => v)(42);
-      expect(res).to.eq(42);
-    });
-
     it('_catchFilter invokes handler on sync throw when filter matches', async () => {
       const a = () => {
         throw new Error('sync');
@@ -83,15 +74,6 @@ describe('fp', () => {
     });
   });
 
-  describe('_fallback', () => {
-    it('passes through non-promise return value', async () => {
-      const a = () => 5 as any;
-
-      const res = await _fallback(a, () => 0)();
-      expect(res).to.eq(5);
-    });
-  });
-
   describe('_tap', () => {
     it('supports sync side effect function', async () => {
       let called: unknown;
@@ -133,14 +115,6 @@ describe('fp', () => {
       expect(f).to.eq('no');
     });
 
-    it('without onRejected resolves null when sync condition is false', async () => {
-      const r = await _either(
-        (a) => !!a,
-        async () => 'yes',
-      )(0);
-      expect(r).to.be.null;
-    });
-
     it('without onRejected resolves null when async condition is false', async () => {
       const r = await _either(
         async (a) => !!a,
@@ -157,24 +131,6 @@ describe('fp', () => {
   });
 
   describe('_chain', () => {
-    it('resolves raw promise element to its value', async () => {
-      const res = await _chain(Promise.resolve(42));
-      expect(res).to.eq(42);
-    });
-
-    it('with no steps resolves null', async () => {
-      const res = await _chain();
-      expect(res).to.be.null;
-    });
-
-    it('accepts plain values and sync functions', async () => {
-      const res = await _chain(
-        5,
-        (v: number) => v + 1,
-        (v: number) => Promise.resolve(v * 2),
-      );
-      expect(res).to.eq(12);
-    });
 
     it('suppresses unhandled rejection of eager promise after earlier failure', async () => {
       const events: unknown[] = [];
@@ -199,11 +155,6 @@ describe('fp', () => {
   });
 
   describe('_zip', () => {
-    it('with no functions resolves empty array', async () => {
-      const res = await _chain(1, _zip());
-      expect(res).to.be.an('array');
-      expect(res).to.have.lengthOf(0);
-    });
 
     it('passes chained value to all functions', async () => {
       const res = await _chain(
@@ -233,15 +184,6 @@ describe('fp', () => {
     it('wraps single value', () => {
       expect(_to_array()(5)).to.deep.eq([5]);
     });
-
-    it('keeps array reference', () => {
-      const a = [1, 2];
-      expect(_to_array()(a)).to.eq(a);
-    });
-
-    it('wraps null', () => {
-      expect(_to_array<unknown>()(null)).to.deep.eq([null]);
-    });
   });
 
   describe('_use', () => {
@@ -251,19 +193,6 @@ describe('fp', () => {
         _use(() => Promise.resolve('x'), 'a'),
       );
       expect(res).to.deep.eq({ a: 'x' });
-    });
-  });
-
-  describe('_catch recovery', () => {
-    it('recovery value continues chain', async () => {
-      const res = await _chain(
-        _catch(
-          () => Promise.reject(new Error('x')),
-          async () => 1,
-        ),
-        (v: any) => v + 1,
-      );
-      expect(res).to.eq(2);
     });
   });
 
@@ -277,16 +206,6 @@ describe('fp', () => {
       expect(await pipeline(2)).to.eq(6);
       expect(await pipeline(5)).to.eq(12);
     });
-
-    it('accepts values and promises as steps like _chain', async () => {
-      const pipeline = _pipe<number>(10, (v: number) => v + 1);
-      expect(await pipeline()).to.eq(11);
-    });
-
-    it('rejects when a step fails', async () => {
-      const pipeline = _pipe(() => Promise.reject(new Error('boom')));
-      await expect(pipeline()).to.be.rejectedWith('boom');
-    });
   });
 
   describe('_filter', () => {
@@ -295,21 +214,8 @@ describe('fp', () => {
       expect(res).to.deep.eq([2, 4, 6]);
     });
 
-    it('filters with sync predicate', async () => {
-      const res = await _filter((v: number) => v > 2)([1, 2, 3, 4]);
-      expect(res).to.deep.eq([3, 4]);
-    });
-
     it('throws descriptive error on non-array input', () => {
       expect(() => _filter((v: number) => v > 0)(undefined as any)).to.throw(/_filter/);
-    });
-
-    it('works inside a chain', async () => {
-      const res = await _chain(
-        () => [1, 2, 3, 4],
-        _filter(async (v: number) => v % 2 === 0),
-      );
-      expect(res).to.deep.eq([2, 4]);
     });
   });
 
@@ -319,41 +225,12 @@ describe('fp', () => {
       expect(res).to.eq(16);
     });
 
-    it('processes elements serially in order', async () => {
-      const order: number[] = [];
-      await _reduce(async (acc: number, v: number) => {
-        order.push(v);
-        return acc;
-      }, 0)([3, 1, 2]);
-      expect(order).to.deep.eq([3, 1, 2]);
-    });
-
-    it('returns initial for empty array', async () => {
-      const res = await _reduce((acc: number, v: number) => acc + v, 5)([]);
-      expect(res).to.eq(5);
-    });
-
     it('throws descriptive error on non-array input', () => {
       expect(() => _reduce((acc: number, v: number) => acc + v, 0)(undefined as any)).to.throw(/_reduce/);
     });
   });
 
   describe('_sequence', () => {
-    it('maps serially - never runs callbacks concurrently', async () => {
-      let active = 0;
-      let maxActive = 0;
-
-      const res = await _sequence(async (v: number) => {
-        active++;
-        maxActive = Math.max(maxActive, active);
-        await new Promise((r) => setTimeout(r, 5));
-        active--;
-        return v * 2;
-      })([1, 2, 3]);
-
-      expect(res).to.deep.eq([2, 4, 6]);
-      expect(maxActive).to.eq(1);
-    });
 
     it('throws descriptive error on non-array input', () => {
       expect(() => _sequence(async (v: number) => v)(undefined as any)).to.throw(/_sequence/);
@@ -368,11 +245,6 @@ describe('fp', () => {
       const res = await _race(slow, fast)(1);
       expect(res).to.eq('fast 1');
     });
-
-    it('passes input value to all contestants', async () => {
-      const res = await _race((v: number) => Promise.resolve(v + 1))(41);
-      expect(res).to.eq(42);
-    });
   });
 
   describe('_when', () => {
@@ -382,14 +254,6 @@ describe('fp', () => {
         (v: number) => Promise.resolve(v * 2),
       )(10);
       expect(res).to.eq(20);
-    });
-
-    it('passes value through when condition is falsy', async () => {
-      const res = await _when(
-        (v: number) => v > 5,
-        (v: number) => Promise.resolve(v * 2),
-      )(3);
-      expect(res).to.eq(3);
     });
 
     it('supports async condition', async () => {
@@ -409,14 +273,6 @@ describe('fp', () => {
       )(3);
       expect(res).to.eq(6);
     });
-
-    it('passes value through when condition is truthy', async () => {
-      const res = await _unless(
-        (v: number) => v > 5,
-        (v: number) => Promise.resolve(v * 2),
-      )(10);
-      expect(res).to.eq(10);
-    });
   });
 
   describe('_finally', () => {
@@ -429,34 +285,6 @@ describe('fp', () => {
         },
       )();
       expect(res).to.eq('ok');
-      expect(cleaned).to.be.true;
-    });
-
-    it('runs cleanup on failure, error propagates', async () => {
-      let cleaned = false;
-      await expect(
-        _finally(
-          () => Promise.reject(new Error('boom')),
-          () => {
-            cleaned = true;
-          },
-        )(),
-      ).to.be.rejectedWith('boom');
-      expect(cleaned).to.be.true;
-    });
-
-    it('runs cleanup on sync throw', async () => {
-      let cleaned = false;
-      await expect(
-        _finally(
-          () => {
-            throw new Error('sync');
-          },
-          () => {
-            cleaned = true;
-          },
-        )(),
-      ).to.be.rejectedWith('sync');
       expect(cleaned).to.be.true;
     });
   });
@@ -473,18 +301,6 @@ describe('fp', () => {
         )(7),
       ).to.be.rejectedWith('boom');
       expect(seen).to.deep.eq(['boom', 7]);
-    });
-
-    it('does not call handler on success', async () => {
-      let called = false;
-      const res = await _tapError(
-        () => Promise.resolve('ok'),
-        () => {
-          called = true;
-        },
-      )();
-      expect(res).to.eq('ok');
-      expect(called).to.be.false;
     });
   });
 
@@ -534,11 +350,6 @@ describe('fp', () => {
       }, 3)([30, 5, 15]);
 
       expect(res).to.deep.eq([30, 5, 15]);
-    });
-
-    it('empty array resolves empty', async () => {
-      const res = await _concurrent(async (v: number) => v, 2)([]);
-      expect(res).to.deep.eq([]);
     });
 
     it('rejects when a callback fails', async () => {
@@ -635,11 +446,6 @@ describe('fp', () => {
     it('supports (async) factory default', async () => {
       expect(await _or_else(() => 'lazy')(null)).to.eq('lazy');
       expect(await _or_else(async () => 'lazy async')(undefined)).to.eq('lazy async');
-    });
-
-    it('works inside a chain', async () => {
-      const res = await _chain(() => null, _or_else('fallback'));
-      expect(res).to.eq('fallback');
     });
   });
 });

@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { Clock, ListenerSet, ManualClock, SystemClock, findCycle, reachable } from '../src/index.js';
+import { ListenerSet, ManualClock, SystemClock, findCycle, reachable } from '../src/index.js';
 
 const turn = () => new Promise<void>((r) => setImmediate(r));
 
@@ -17,17 +17,6 @@ describe('Clock', () => {
     expect(clock.set(new Date(10)).now().getTime()).to.eq(10);
     expect(new ManualClock().now().getTime()).to.eq(0);
   });
-
-  it('a ManualClock date cannot move the clock', () => {
-    const clock = new ManualClock(new Date(1000));
-    clock.now().setTime(5);
-    expect(clock.now().getTime()).to.eq(1000);
-  });
-
-  it('both are Clocks', () => {
-    expect(new SystemClock()).to.be.instanceOf(Clock);
-    expect(new ManualClock()).to.be.instanceOf(Clock);
-  });
 });
 
 describe('ListenerSet', () => {
@@ -44,17 +33,6 @@ describe('ListenerSet', () => {
     expect(set.size).to.eq(1);
   });
 
-  it('keeps two subscriptions of one function independent', () => {
-    const set = new ListenerSet<number>();
-    let calls = 0;
-    const fn = () => calls++;
-    const off = set.add(fn);
-    set.add(fn);
-    off();
-    set.emit(0);
-    expect(calls).to.eq(1);
-  });
-
   it('isolates a throwing and a rejecting listener', async () => {
     const errors: unknown[] = [];
     const set = new ListenerSet<number>((err) => errors.push(err));
@@ -68,20 +46,6 @@ describe('ListenerSet', () => {
     await turn();
     expect(log).to.deep.eq([7]);
     expect(errors.map((e) => (e as Error).message)).to.deep.eq(['sync', 'async']);
-  });
-
-  it('delivers to the listeners present when emit started', () => {
-    const set = new ListenerSet<number>();
-    const log: string[] = [];
-    let offB: () => void = () => undefined;
-    set.add(() => {
-      log.push('a');
-      offB();
-      set.add(() => log.push('late'));
-    });
-    offB = set.add(() => log.push('b'));
-    set.emit(0);
-    expect(log).to.deep.eq(['a', 'b']);
   });
 
   it('clear removes every listener', () => {

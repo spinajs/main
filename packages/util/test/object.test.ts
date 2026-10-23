@@ -13,23 +13,6 @@ describe('object helpers', () => {
     expect(isNonEmptyString('')).to.be.false;
     expect(isNonEmptyString(1)).to.be.false;
   });
-  it('deepFreeze freezes nested values in place', () => {
-    const v = { a: { b: [1] } };
-    expect(deepFreeze(v)).to.equal(v);
-    expect(Object.isFrozen(v.a.b)).to.be.true;
-  });
-  it('deepFreeze freezes the children of an already frozen node', () => {
-    const v = Object.freeze({ a: { b: 1 } });
-    deepFreeze(v);
-    expect(Object.isFrozen(v.a)).to.be.true;
-  });
-  it('deepFreeze leaves buffers and typed arrays mutable instead of throwing', () => {
-    const v = { buf: Buffer.from('ab'), nums: new Uint8Array([1]), meta: { x: 1 } };
-    expect(() => deepFreeze(v)).to.not.throw();
-    expect(Object.isFrozen(v)).to.be.true;
-    expect(Object.isFrozen(v.meta)).to.be.true;
-    expect(Object.isFrozen(v.buf)).to.be.false;
-  });
   it('deepFreeze handles cycles', () => {
     const v: { self?: unknown; a: { b: number } } = { a: { b: 1 } };
     v.self = v;

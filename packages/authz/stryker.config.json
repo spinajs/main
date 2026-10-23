@@ -1,0 +1,29 @@
+{
+  "$schema": "../../node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "mocha",
+  "mochaOptions": {
+    "config": ".mocharc.stryker.json"
+  },
+  "testRunnerNodeArgs": [
+    "--experimental-specifier-resolution=node",
+    "--loader=ts-node/esm"
+  ],
+  "coverageAnalysis": "perTest",
+  "disableBail": true,
+  "inPlace": true,
+  "mutate": [
+    "src/engine/evaluate.ts",
+    "src/engine/combinators.ts"
+  ],
+  "reporters": [
+    "json",
+    "progress",
+    "clear-text"
+  ],
+  "jsonReporter": {
+    "fileName": "reports/mutation/mutation.json"
+  },
+  "concurrency": 12,
+  "timeoutMS": 60000,
+  "tempDirName": "../../.stryker-tmp/authz"
+}

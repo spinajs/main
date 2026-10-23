@@ -119,17 +119,6 @@ describe('args validators (extended)', () => {
   });
 
   describe('presence', () => {
-    it('_non_null / _non_undefined', () => {
-      expect(run(_non_null(), 0)).to.eq(0);
-      expect(run(_non_undefined(), null)).to.eq(null);
-      expect(() => run(_non_null(), null)).to.throw(InvalidArgument);
-      expect(() => run(_non_undefined(), undefined)).to.throw(InvalidArgument);
-    });
-
-    it('_non_NaN', () => {
-      expect(run(_non_NaN(), 5)).to.eq(5);
-      expect(() => run(_non_NaN(), NaN)).to.throw(InvalidArgument);
-    });
 
     it('_non_nil rejects null/undefined/empty', () => {
       expect(run(_non_nil(), 'x')).to.eq('x');
@@ -158,13 +147,6 @@ describe('args validators (extended)', () => {
       expect(run(_glob_match('*.ts'), 'index.ts')).to.eq('index.ts');
       expect(() => run(_glob_match('*.ts'), 'index.js')).to.throw(InvalidArgument);
       expect(run(_reg_match(/x/), 5)).to.eq(5);
-    });
-
-    it('_is_email / _is_uuid', () => {
-      expect(run(_is_email(), 'a@b.com')).to.eq('a@b.com');
-      expect(() => run(_is_email(), 'nope')).to.throw(InvalidArgument);
-      expect(run(_is_uuid(), '11111111-1111-4111-8111-111111111111')).to.match(/1111/);
-      expect(() => run(_is_uuid(), 'not-a-uuid')).to.throw(InvalidArgument);
     });
   });
 

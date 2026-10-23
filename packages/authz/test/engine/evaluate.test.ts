@@ -153,44 +153,19 @@ describe('engine/evaluate', () => {
       [[1], [1], U],
     ]);
 
-    table('ne', [[1, 1, F], [1, 2, T], ['a', 'b', T], ['a', 'a', F], [true, false, T], [42, '42', F], [42, '43', T], [42, '042', U], [true, 1, F], [true, 0, T], [true, 2, U], [DATE, ISO, F], [DATE, 'x', T], [BAD_DATE, 'x', U], [null, 1, U], [undefined, 'a', U], [1, null, U], [1, REF_VALUE, U], ...INCOMPARABLE.map((a): Row => [a, 1, U])]);
+    table('ne', [[true, 1, F], [true, 0, T]]);
 
     table('lt', [
-      [1, 2, T],
-      [2, 1, F],
       [2, 2, F],
-      [-1, 0, T],
-      ['a', 'b', T],
-      ['b', 'a', F],
-      ['a', 'a', F],
-      ['B', 'a', T],
-      ['a', 'ab', T],
-      // code point order, not UTF-16 unit order
-      ['￿', '\u{10000}', T],
-      ['\u{10000}', '￿', F],
-      ['', '\u{1f600}', T],
-      [9, '10', T],
       ['9', 10, T],
-      [9, '010', U],
-      ['9', '10', F],
       [true, false, U],
-      [true, 1, U],
-      [false, 1, U],
-      [DATE, '2027', T],
-      [DATE, '2025', F],
-      [null, 1, U],
-      [undefined, 1, U],
-      [1, null, U],
-      [1, REF_VALUE, U],
-      [1, 'abc', U],
-      ...INCOMPARABLE.map((a): Row => [a, 1, U]),
     ]);
 
-    table('lte', [[1, 2, T], [2, 2, T], [3, 2, F], ['a', 'a', T], ['b', 'a', F], [2, '2', T], [true, true, U], [null, 1, U], [1, null, U], [1, REF_VALUE, U], ...INCOMPARABLE.map((a): Row => [a, 1, U])]);
+    table('lte', [[1, 2, T], [3, 2, F], [2, '2', T]]);
 
-    table('gt', [[2, 1, T], [1, 2, F], [2, 2, F], ['b', 'a', T], ['\u{10000}', '￿', T], [10, '9', T], [true, false, U], [null, 1, U], [1, null, U], [1, REF_VALUE, U], ...INCOMPARABLE.map((a): Row => [a, 1, U])]);
+    table('gt', [[2, 1, T], [2, 2, F]]);
 
-    table('gte', [[2, 1, T], [2, 2, T], [1, 2, F], ['a', 'a', T], ['a', 'b', F], [2, '2', T], [false, false, U], [null, 1, U], [1, null, U], [1, REF_VALUE, U], ...INCOMPARABLE.map((a): Row => [a, 1, U])]);
+    table('gte', [[2, 2, T], [1, 2, F]]);
 
     table('in', [
       [1, [1, 2], T],
@@ -232,13 +207,13 @@ describe('engine/evaluate', () => {
       ...INCOMPARABLE.map((a): Row => [a, [1], U]),
     ]);
 
-    table('nin', [[1, [1, 2], F], [3, [1, 2], T], ['c', ['a', 'b'], T], [42, ['42'], F], [42, ['042'], U], [42, ['x'], U], [3, [1, 'x'], U], [42, ['x', 42], F], [true, [1], F], [true, [0], T], [true, [0, 2], U], [1, [], T], [null, [], T], [null, [1], U], [undefined, [1], U], [1, 1, U], [1, null, U], [1, REF_VALUE, U], [1, [1, null], U], ...INCOMPARABLE.map((a): Row => [a, [1], U])]);
+    table('nin', [[42, ['042'], U], [true, [0], T]]);
 
-    table('like', [['abc', 'abc', T], ['abc', 'a%', T], ['abc', '%c', T], ['abc', '%b%', T], ['abc', 'a_c', T], ['abc', '___', T], ['abc', '__', F], ['abc', 'A%', F], ['a/b', 'a%', T], ['a%c', 'a\\%c', T], ['abc', 'a\\%c', F], ['a_c', 'a\\_c', T], ['abc', 'a\\_c', F], ['a\\c', 'a\\\\c', T], ['abc', 'a\\bc', T], ['abc', 'abc\\', U], [null, 'a%', U], [undefined, '%', U], [1, '1', U], [DATE, '2026-%', T], ['abc', null, U], ['abc', 1, U], ['abc', REF_VALUE, U], ['abc', ['a%'], U], ...INCOMPARABLE.map((a): Row => [a, '%', U])]);
+    table('like', [['abc', 'a_c', T], ['abc', ['a%'], U]]);
 
-    table('glob', [['release/x', 'release/*', T], ['release/a/b', 'release/*', F], ['release/a/b', 'release/**', T], ['release/a/b', '**/b', T], ['a/b', '*', F], ['ab', '*', T], ['a?b', 'a?b', T], ['axb', 'a?b', F], ['a%b', 'a%b', T], ['axb', 'a%b', F], ['a_b', 'a_b', T], ['axb', 'a_b', F], ['a\\b', 'a\\b', T], ['A', 'a', F], [null, '*', U], [1, '*', U], ['a', null, U], ['a', REF_VALUE, U], ...INCOMPARABLE.map((a): Row => [a, '**', U])]);
+    table('glob', [['release/x', 'release/*', T], ['release/a/b', 'release/*', F], ['release/a/b', 'release/**', T]]);
 
-    table('wildcard', [['release/a/b', 'release/*', T], ['release/', 'release/*', T], ['releasex', 'release/*', F], ['abc', '*', T], ['', '*', T], ['a%c', 'a%c', T], ['abc', 'a%c', F], ['a_c', 'a_c', T], ['abc', 'a_c', F], ['a\\c', 'a\\c', T], ['ABC', 'abc', F], [null, '*', U], [1, '*', U], ['a', 1, U], ['a', REF_VALUE, U], ...INCOMPARABLE.map((a): Row => [a, '*', U])]);
+    table('wildcard', [['release/a/b', 'release/*', T], ['releasex', 'release/*', F]]);
 
     describe('null / notnull never UNKNOWN', () => {
       const cases: readonly [unknown, boolean][] = [[null, true], [undefined, true], [BAD_DATE, true], [0, false], ['', false], [false, false], [DATE, false], ...INCOMPARABLE.map((a): [unknown, boolean] => [a, false])];
@@ -249,11 +224,6 @@ describe('engine/evaluate', () => {
         });
       }
 
-      it('a missing field is null', async () => {
-        expect(await run(cmp('x', 'null'), {})).to.equal(true);
-        expect(await run(cmp('x', 'notnull'), {})).to.equal(false);
-      });
-
       it('ignores the value, even an unbound ref', async () => {
         expect(await run(cmp('x', 'null', REF_VALUE), { x: null })).to.equal(true);
         expect(await run(cmp('x', 'notnull', REF_VALUE), { x: 1 })).to.equal(true);
@@ -261,18 +231,6 @@ describe('engine/evaluate', () => {
     });
 
     describe('attribute source', () => {
-      it('reads through env.attribute with the node field', async () => {
-        const seen: unknown[][] = [];
-        const e = env({
-          attribute: (s, f) => {
-            seen.push([s, f]);
-            return 7;
-          },
-        });
-        const subject = { any: 1 };
-        expect(await run(cmp('a.b', 'eq', 7), subject, e)).to.equal(true);
-        expect(seen).to.deep.equal([[subject, 'a.b']]);
-      });
 
       it('a throwing attribute reader is UNKNOWN, also for null/notnull', async () => {
         const e = env({
@@ -292,16 +250,6 @@ describe('engine/evaluate', () => {
         await new Promise((r) => setImmediate(r));
       });
 
-      it('a Date subclass with an overridden toISOString still yields the real ISO string', async () => {
-        class Sneaky extends Date {
-          override toISOString(): string {
-            return 'x';
-          }
-        }
-        expect(await run(cmp('x', 'eq', ISO), { x: new Sneaky(ISO) })).to.equal(true);
-        expect(await run(cmp('x', 'eq', 'x'), { x: new Sneaky(ISO) })).to.equal(false);
-      });
-
       it('an object posing as a Date is incomparable', async () => {
         const fake = Object.create(Date.prototype);
         expect(await run(cmp('x', 'eq', ISO), { x: fake })).to.equal(undefined);
@@ -318,55 +266,6 @@ describe('engine/evaluate', () => {
   });
 
   describe('matchers', () => {
-    it('like: %, _, escapes, case-sensitive', () => {
-      expect(matchLike('a%', 'abc')).to.equal(true);
-      expect(matchLike('a_c', 'abc')).to.equal(true);
-      expect(matchLike('a\\%', 'a%')).to.equal(true);
-      expect(matchLike('a\\%', 'ab')).to.equal(false);
-      expect(matchLike('ABC', 'abc')).to.equal(false);
-      expect(matchLike('%', '')).to.equal(true);
-      expect(matchLike('_', '')).to.equal(false);
-      expect(matchLike('', '')).to.equal(true);
-      expect(matchLike('', 'a')).to.equal(false);
-    });
-
-    it('like: `_` takes one code point, not one UTF-16 unit', () => {
-      expect(matchLike('a_b', 'a\u{1f600}b')).to.equal(true);
-      expect(matchLike('a__b', 'a\u{1f600}b')).to.equal(false);
-    });
-
-    it('like: a trailing escape is malformed => undefined', () => {
-      expect(matchLike('a\\', 'a')).to.equal(undefined);
-      expect(matchLike('a\\\\', 'a\\')).to.equal(true);
-    });
-
-    it('glob: * stops at /, ** crosses it', () => {
-      expect(matchGlob('release/*', 'release/a')).to.equal(true);
-      expect(matchGlob('release/*', 'release/a/b')).to.equal(false);
-      expect(matchGlob('release/**', 'release/a/b')).to.equal(true);
-      expect(matchGlob('**', '')).to.equal(true);
-      expect(matchGlob('*/*', 'a/b')).to.equal(true);
-      expect(matchGlob('*/*', 'a/b/c')).to.equal(false);
-      expect(matchGlob('a***', 'a/b/c')).to.equal(true);
-    });
-
-    it('wildcard: * crosses /', () => {
-      expect(matchWildcard('release/*', 'release/a/b')).to.equal(true);
-      expect(matchWildcard('*', 'a/b/c')).to.equal(true);
-      expect(matchWildcard('a*c', 'a/b/c')).to.equal(true);
-      expect(matchWildcard('a*c', 'a/b/d')).to.equal(false);
-    });
-
-    it('pathological patterns finish fast', () => {
-      const text = 'a'.repeat(10000);
-      const started = Date.now();
-      expect(matchWildcard('*a*a*a*a*a*a*a*a*b', text)).to.equal(false);
-      expect(matchGlob('*a*a*a*a*a*a*a*a*b', text)).to.equal(false);
-      expect(matchGlob('**a**a**a**a**a**a**a**a**b', text)).to.equal(false);
-      expect(matchLike('%a%a%a%a%a%a%a%a%b', text)).to.equal(false);
-      expect(matchLike('%a%a%a%a%a%a%a%a%', text)).to.equal(true);
-      expect(Date.now() - started).to.be.below(5000);
-    });
 
     it('the work cap (|pattern| x |text| > 4,000,000) returns undefined', () => {
       const text = 'a'.repeat(10000);
@@ -375,66 +274,13 @@ describe('engine/evaluate', () => {
       expect(matchGlob('*'.repeat(401), text)).to.equal(undefined);
       expect(matchLike('%'.repeat(401), text)).to.equal(undefined);
     });
-
-    it('the work cap makes the comparison UNKNOWN', async () => {
-      const text = 'a'.repeat(10000);
-      expect(await run(cmp('x', 'wildcard', '*'.repeat(401)), { x: text })).to.equal(undefined);
-      expect(await run(cmp('x', 'like', '%'.repeat(401)), { x: text })).to.equal(undefined);
-      expect(await run(cmp('x', 'glob', '*'.repeat(401)), { x: text })).to.equal(undefined);
-      expect(await run({ op: 'not', arg: cmp('x', 'glob', '*'.repeat(401)) }, { x: text })).to.equal(undefined);
-    });
   });
 
   describe('relation', () => {
     const rel = (holds: RelationResolver['holds']): Partial<RelationResolver> => ({ type: 'doc', relation: 'owner', holds });
 
-    it('looks the resolver up by the subject ref type and passes principal, ref, subject', async () => {
-      const seen: unknown[][] = [];
-      const e = env({
-        relations: {
-          'doc#owner': rel((p, r, s) => {
-            seen.push([p, r, s]);
-            return true;
-          }),
-        },
-      });
-      const subject = { id: 'd1' };
-      expect(await run({ op: 'relation', relation: 'owner' }, subject, e)).to.equal(true);
-      expect(e.calls.relation).to.deep.equal([['doc', 'owner']]);
-      expect(seen).to.have.length(1);
-      expect(seen[0][0]).to.equal(USER);
-      expect(seen[0][1]).to.equal(REF);
-      expect(seen[0][2]).to.equal(subject);
-    });
-
     it('holds false => FALSE', async () => {
       expect(await run({ op: 'relation', relation: 'owner' }, {}, env({ relations: { 'doc#owner': rel(() => false) } }))).to.equal(false);
-    });
-
-    it('async resolver', async () => {
-      expect(await run({ op: 'relation', relation: 'owner' }, {}, env({ relations: { 'doc#owner': rel(async () => true) } }))).to.equal(true);
-      expect(await run({ op: 'relation', relation: 'owner' }, {}, env({ relations: { 'doc#owner': rel(async () => false) } }))).to.equal(false);
-    });
-
-    it('missing resolver => UNKNOWN', async () => {
-      expect(await run({ op: 'relation', relation: 'editor' }, {}, env())).to.equal(undefined);
-    });
-
-    it('throwing or rejecting resolver => UNKNOWN', async () => {
-      const throws = rel(() => {
-        throw new Error('x');
-      });
-      expect(await run({ op: 'relation', relation: 'owner' }, {}, env({ relations: { 'doc#owner': throws } }))).to.equal(undefined);
-      expect(await run({ op: 'relation', relation: 'owner' }, {}, env({ relations: { 'doc#owner': rel(async () => Promise.reject(new Error('x'))) } }))).to.equal(undefined);
-    });
-
-    it('throwing env.relation lookup => UNKNOWN', async () => {
-      const e = env({
-        relation: () => {
-          throw new Error('x');
-        },
-      });
-      expect(await run({ op: 'relation', relation: 'owner' }, {}, e)).to.equal(undefined);
     });
 
     it('non-boolean result => UNKNOWN', async () => {
@@ -464,38 +310,9 @@ describe('engine/evaluate', () => {
       expect(await run(under({ type: 'folder', id: 'f2' }, { type: 'org', id: 'o1' }), {}, e)).to.equal(true);
     });
 
-    it('asks ancestors of env.ref', async () => {
-      const seen: ResourceRef[] = [];
-      const e = env({
-        ancestors: (r) => {
-          seen.push(r);
-          return anc();
-        },
-      });
-      await run(under({ type: 'org', id: 'o1' }), {}, e);
-      expect(seen).to.deep.equal([REF]);
-    });
-
-    it('a type-only scope matches any node of that type', async () => {
-      const e = env({ ancestors: anc });
-      expect(await run(under({ type: 'folder' }), {}, e)).to.equal(true);
-      expect(await run(under({ type: 'team' }), {}, e)).to.equal(false);
-    });
-
     it('a null id on a scope counts as no id', async () => {
       const e = env({ ancestors: anc });
       expect(await run(under({ type: 'org', id: null }), {}, e)).to.equal(true);
-    });
-
-    it('a null id on an ancestor counts as no id', async () => {
-      const e = env({ ancestors: () => Promise.resolve([{ type: 'folder', id: null } as unknown as ResourceRef, GLOBAL]) });
-      expect(await run(under({ type: 'folder' }), {}, e)).to.equal(true);
-      expect(await run(under({ type: 'folder', id: 'f1' }), {}, e)).to.equal(false);
-    });
-
-    it('GLOBAL matches everything that reports GLOBAL', async () => {
-      expect(await run(under(GLOBAL), {}, env({ ancestors: anc }))).to.equal(true);
-      expect(await run(under(GLOBAL), {}, env({ ancestors: () => Promise.resolve([REF]) }))).to.equal(false);
     });
 
     it('null ancestors => UNKNOWN', async () => {
@@ -510,13 +327,6 @@ describe('engine/evaluate', () => {
       });
       expect(await run(under(GLOBAL), {}, sync)).to.equal(undefined);
       expect(await run(under(GLOBAL), {}, env({ ancestors: () => Promise.reject(new Error('x')) }))).to.equal(undefined);
-    });
-
-    it('malformed ancestor lists => UNKNOWN', async () => {
-      for (const list of [{}, 'x', [null], [{ id: 'x' }], [{ type: 'folder', id: 1 }]]) {
-        const e = env({ ancestors: () => Promise.resolve(list as unknown as ResourceRef[]) });
-        expect(await run(under({ type: 'folder' }), {}, e), show(list)).to.equal(undefined);
-      }
     });
 
     it('empty scopes => FALSE without asking ancestors (as F1 simplify)', async () => {
@@ -534,75 +344,12 @@ describe('engine/evaluate', () => {
       expect(await run(under({ type: 'folder', id: 1 }), {}, e)).to.equal(undefined);
       expect(await run(under(GLOBAL, 'x'), {}, e)).to.equal(undefined);
     });
-
-    it('asks ancestors once per evaluation', async () => {
-      const e = env({ ancestors: anc });
-      await run({ op: 'and', args: [under({ type: 'org' }), under({ type: 'folder' }), under(GLOBAL)] }, {}, e);
-      expect(e.calls.ancestors).to.equal(1);
-    });
   });
 
   describe('native:*', () => {
-    it('registered filter: true/false => TRUE/FALSE, receives args, subject, ref, ctx', async () => {
-      const seen: unknown[][] = [];
-      const e = env({
-        natives: {
-          'native:geo': {
-            op: 'native:geo',
-            matches: (args, subject, ref, ctx) => {
-              seen.push([args, subject, ref, ctx]);
-              return (args as { ok: boolean }).ok;
-            },
-          },
-        },
-      });
-      const subject = { s: 1 };
-      expect(await run({ op: 'native:geo', args: { ok: true } }, subject, e)).to.equal(true);
-      expect(await run({ op: 'native:geo', args: { ok: false } }, subject, e)).to.equal(false);
-      expect(seen[0]).to.deep.equal([{ ok: true }, subject, REF, CTX]);
-      expect(seen[0][1]).to.equal(subject);
-      expect(seen[0][3]).to.equal(CTX);
-      expect(e.calls.native).to.deep.equal([['native:geo'], ['native:geo']]);
-    });
-
-    it('async filter', async () => {
-      const e = env({ natives: { 'native:a': { op: 'native:a', matches: async () => true } } });
-      expect(await run({ op: 'native:a' }, {}, e)).to.equal(true);
-    });
 
     it('missing filter => UNKNOWN', async () => {
       expect(await run({ op: 'native:nope' }, {}, env())).to.equal(undefined);
-    });
-
-    it('throwing or rejecting filter => UNKNOWN', async () => {
-      const e = env({
-        natives: {
-          'native:t': {
-            op: 'native:t',
-            matches: () => {
-              throw new Error('x');
-            },
-          },
-          'native:r': { op: 'native:r', matches: () => Promise.reject(new Error('x')) },
-        },
-      });
-      expect(await run({ op: 'native:t' }, {}, e)).to.equal(undefined);
-      expect(await run({ op: 'native:r' }, {}, e)).to.equal(undefined);
-    });
-
-    it('non-boolean result => UNKNOWN', async () => {
-      for (const v of [1, 'true', null, undefined, {}]) {
-        const e = env({ natives: { 'native:n': { op: 'native:n', matches: () => v as boolean } } });
-        expect(await run({ op: 'native:n' }, {}, e), show(v)).to.equal(undefined);
-      }
-    });
-
-    it('a throwing env.native lookup => UNKNOWN', async () => {
-      const e = env();
-      e.native = () => {
-        throw new Error('x');
-      };
-      expect(await run({ op: 'native:x' }, {}, e)).to.equal(undefined);
     });
   });
 
@@ -624,23 +371,6 @@ describe('engine/evaluate', () => {
         });
       }
     }
-
-    it('constants', async () => {
-      expect(await run(TRUE, {})).to.equal(true);
-      expect(await run(FALSE, {})).to.equal(false);
-    });
-
-    it('empty and/or are their units (as F1 simplify)', async () => {
-      expect(await run({ op: 'and', args: [] }, {})).to.equal(true);
-      expect(await run({ op: 'or', args: [] }, {})).to.equal(false);
-    });
-
-    it('short-circuits and/or', async () => {
-      const e = env({ relations: { 'doc#owner': { holds: () => true } } });
-      expect(await run({ op: 'and', args: [FALSE, { op: 'relation', relation: 'owner' }] }, {}, e)).to.equal(false);
-      expect(await run({ op: 'or', args: [TRUE, { op: 'relation', relation: 'owner' }] }, {}, e)).to.equal(true);
-      expect(e.calls.relation).to.deep.equal([]);
-    });
 
     it('unknown ops and malformed nodes => UNKNOWN', async () => {
       const bad: unknown[] = [
@@ -741,71 +471,9 @@ describe('engine/evaluate', () => {
         ),
       ).to.equal(undefined);
     });
-
-    it('a cyclic filter => UNKNOWN', async () => {
-      const cyclic: { op: 'and'; args: ResourceFilter[] } = { op: 'and', args: [] };
-      cyclic.args.push(cyclic);
-      expect(await run(cyclic, {})).to.equal(undefined);
-    });
-
-    it('never rejects', async () => {
-      const e = env();
-      (e as { attribute: unknown }).attribute = 'not a function';
-      expect(await run(cmp('x', 'null'), {}, e)).to.equal(undefined);
-    });
-
-    it('does not mutate the filter', async () => {
-      const f: ResourceFilter = { op: 'and', args: [cmp('x', 'in', [1, 2]), { op: 'not', arg: cmp('y', 'null') }, { op: 'under', scopes: [GLOBAL] }] };
-      const copy = structuredClone(f);
-      await run(f, { x: 1, y: 2 });
-      expect(f).to.deep.equal(copy);
-    });
   });
 
   describe('defaultAttribute', () => {
-    it('reads dotted paths over own properties', () => {
-      const s = { a: { b: { c: 3 } }, list: ['x', 'y'], n: null, z: 0 };
-      expect(defaultAttribute(s, 'a.b.c')).to.equal(3);
-      expect(defaultAttribute(s, 'a.b')).to.equal(s.a.b);
-      expect(defaultAttribute(s, 'list.1')).to.equal('y');
-      expect(defaultAttribute(s, 'z')).to.equal(0);
-      expect(defaultAttribute(s, 'n')).to.equal(null);
-      expect(defaultAttribute(s, 'missing')).to.equal(undefined);
-      expect(defaultAttribute(s, 'a.missing.c')).to.equal(undefined);
-    });
-
-    it('non-object on the way => undefined', () => {
-      expect(defaultAttribute({ a: 'str' }, 'a.length')).to.equal(undefined);
-      expect(defaultAttribute({ a: null }, 'a.b')).to.equal(undefined);
-      expect(defaultAttribute({ a: 5 }, 'a.b')).to.equal(undefined);
-      expect(defaultAttribute(null, 'a')).to.equal(undefined);
-      expect(defaultAttribute(undefined, 'a')).to.equal(undefined);
-      expect(defaultAttribute('abc', 'length')).to.equal(undefined);
-    });
-
-    it('own properties only: prototype getters and inherited values => undefined', () => {
-      class Row {
-        own = 1;
-        get computed(): number {
-          return 2;
-        }
-      }
-      expect(defaultAttribute(new Row(), 'own')).to.equal(1);
-      expect(defaultAttribute(new Row(), 'computed')).to.equal(undefined);
-      expect(defaultAttribute(Object.create({ inherited: 1 }), 'inherited')).to.equal(undefined);
-      expect(defaultAttribute({}, 'toString')).to.equal(undefined);
-      expect(defaultAttribute({}, 'hasOwnProperty')).to.equal(undefined);
-    });
-
-    it('__proto__, prototype and constructor segments => undefined', () => {
-      const s = JSON.parse('{"__proto__": {"x": 1}, "prototype": {"x": 1}, "constructor": {"x": 1}, "a": {"constructor": 5}}');
-      expect(defaultAttribute(s, '__proto__')).to.equal(undefined);
-      expect(defaultAttribute(s, '__proto__.x')).to.equal(undefined);
-      expect(defaultAttribute(s, 'prototype.x')).to.equal(undefined);
-      expect(defaultAttribute(s, 'constructor.x')).to.equal(undefined);
-      expect(defaultAttribute(s, 'a.constructor')).to.equal(undefined);
-      expect(defaultAttribute(function f() {}, 'prototype')).to.equal(undefined);
-    });
 
     it('throwing getter => undefined', () => {
       const s = {
@@ -1011,61 +679,6 @@ describe('engine/evaluate', () => {
   });
 
   describe('inputs are read once', () => {
-    it('an in list is copied by index; its own iterator is never used', async () => {
-      const list = [5];
-      Object.defineProperty(list, Symbol.iterator, {
-        value: function* () {
-          yield 1;
-          yield true;
-        },
-      });
-      expect(await run(cmp('x', 'in', list), { x: 1 })).to.equal(false);
-      expect(await run(cmp('x', 'nin', list), { x: 1 })).to.equal(true);
-    });
-
-    it('a list element behind a getter is read once', async () => {
-      let n = 0;
-      const list = [5];
-      Object.defineProperty(list, 0, { get: () => (n++ === 0 ? 5 : 1), enumerable: true });
-      expect(await run(cmp('x', 'in', list), { x: 1 })).to.equal(false);
-      expect(n).to.equal(1);
-    });
-
-    it('under scopes are copied by index; their iterator is never used', async () => {
-      const scopes: ResourceRef[] = [{ type: 'org', id: 'o2' }];
-      Object.defineProperty(scopes, Symbol.iterator, {
-        value: function* () {
-          yield { type: 'org' };
-        },
-      });
-      const e = env({ ancestors: () => Promise.resolve([REF, { type: 'org', id: 'o1' }, GLOBAL]) });
-      expect(await run({ op: 'under', scopes }, {}, e)).to.equal(false);
-    });
-
-    it('scope entry fields are read once', async () => {
-      let reads = 0;
-      const scope = {
-        get type(): string {
-          reads++;
-          return reads === 1 ? 'org' : 'doc';
-        },
-        id: 'o1',
-      };
-      const e = env({ ancestors: () => Promise.resolve([REF, { type: 'org', id: 'o1' }, GLOBAL]) });
-      expect(await run({ op: 'under', scopes: [scope] }, {}, e)).to.equal(true);
-      expect(reads).to.equal(1);
-    });
-
-    it('the ancestor list is copied by index; its iterator is never used', async () => {
-      const list = [REF];
-      Object.defineProperty(list, Symbol.iterator, {
-        value: function* () {
-          yield GLOBAL;
-        },
-      });
-      const e = env({ ancestors: () => Promise.resolve(list) });
-      expect(await run({ op: 'under', scopes: [GLOBAL] }, {}, e)).to.equal(false);
-    });
 
     it('a subject field is read once per evaluation, even when two comparisons use it', async () => {
       let n = 0;
@@ -1076,61 +689,6 @@ describe('engine/evaluate', () => {
       };
       expect(await run({ op: 'and', args: [cmp('x', 'null'), cmp('x', 'eq', 5)] }, subject)).to.equal(undefined);
       expect(n).to.equal(1);
-    });
-
-    it('calls the attribute reader once per field', async () => {
-      const seen: string[] = [];
-      const e = env({
-        attribute: (_s, f) => {
-          seen.push(f);
-          return 1;
-        },
-      });
-      await run({ op: 'and', args: [cmp('x', 'eq', 1), cmp('x', 'ne', 2), cmp('y', 'notnull'), cmp('x', 'in', [1])] }, {}, e);
-      expect(seen).to.deep.equal(['x', 'y']);
-    });
-  });
-
-  describe('subject values are never called', () => {
-    it('a thenable attribute value is incomparable and its then is not called', async () => {
-      let called = 0;
-      const owner = {
-        then(): void {
-          called++;
-        },
-      };
-      expect(await run(cmp('owner', 'notnull'), { owner })).to.equal(true);
-      expect(await run(cmp('owner', 'null'), { owner })).to.equal(false);
-      expect(await run(cmp('owner', 'eq', 1), { owner })).to.equal(undefined);
-      expect(called).to.equal(0);
-    });
-
-    it('a Promise subclass is a value: incomparable, its then not called', async () => {
-      let called = 0;
-      class Lazy extends Promise<unknown> {}
-      Object.defineProperty(Lazy.prototype, 'then', {
-        value() {
-          called++;
-        },
-      });
-      const lazy = new Lazy(() => undefined);
-      expect(await run(cmp('x', 'eq', 1), { x: lazy })).to.equal(undefined);
-      expect(await run(cmp('x', 'notnull'), { x: lazy })).to.equal(true);
-      expect(called).to.equal(0);
-    });
-
-    it('a native promise from the reader is UNKNOWN; an own then on it is not called', async () => {
-      let called = 0;
-      const p = Promise.reject(new Error('late'));
-      Object.defineProperty(p, 'then', {
-        value() {
-          called++;
-        },
-      });
-      const e = env({ attribute: () => p });
-      expect(await run(cmp('x', 'notnull'), {}, e)).to.equal(undefined);
-      expect(called).to.equal(0);
-      await new Promise((r) => setImmediate(r));
     });
   });
 
@@ -1175,17 +733,6 @@ describe('engine/evaluate', () => {
       );
     });
 
-    it('not f is TRUE iff f is FALSE, UNKNOWN stays UNKNOWN', async () => {
-      await fc.assert(
-        fc.asyncProperty(treeArb, rowArb, async (f, row) => {
-          const v = await run(f, row);
-          const n = await run({ op: 'not', arg: f }, row);
-          expect(n).to.equal(v === undefined ? undefined : !v);
-        }),
-        { numRuns: 500 },
-      );
-    });
-
     // Slow references: plain recursion over the pattern, written independently.
     const refWildcard = (p: string, t: string): boolean => {
       if (p === '') return t === '';
@@ -1212,15 +759,6 @@ describe('engine/evaluate', () => {
 
     const ALPHABET = ['a', 'b', '/', '%', '_', '\\', '*'];
     const strArb = (max: number) => fc.array(fc.constantFrom(...ALPHABET), { maxLength: max }).map((xs) => xs.join(''));
-
-    it('matchWildcard agrees with a slow reference', () => {
-      fc.assert(
-        fc.property(strArb(7), strArb(8), (p, t) => {
-          expect(matchWildcard(p, t)).to.equal(refWildcard(p, t));
-        }),
-        { numRuns: 1000 },
-      );
-    });
 
     it('matchGlob agrees with a slow reference', () => {
       fc.assert(

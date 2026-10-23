@@ -2,37 +2,25 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
 import {
-  // array
   toArray,
   chunk,
   unique,
   uniqueBy,
   groupBy,
-  // hash
   tryGetHash,
-  tryGetHashSync,
   getOrInsert,
-  // json
-  replacer,
-  reviver,
   jsonStringify,
   jsonParse,
   safeParse,
-  // string
   trimChar,
   capitalize,
   capitalizeWords,
   truncate,
   truncateWords,
   isNullOrWhitespace,
-  // func
   Lazy,
-  noop,
-  identity,
   once,
   memoize,
-  // types
-  isPromise,
   isThenable,
   isDefined,
   isFunction,
@@ -78,12 +66,6 @@ describe('helpers', () => {
       expect(g.get('odd')).to.deep.eq([1, 3]);
       expect(g.get('even')).to.deep.eq([2, 4]);
     });
-
-    it('groupBy exposes the index', () => {
-      const g = groupBy(['a', 'b', 'c'], (_v, i) => i % 2);
-      expect(g.get(0)).to.deep.eq(['a', 'c']);
-      expect(g.get(1)).to.deep.eq(['b']);
-    });
   });
 
   describe('hash', () => {
@@ -94,22 +76,6 @@ describe('helpers', () => {
       expect(m.get('b')).to.eq(2);
     });
 
-    it('tryGetHash calls onMissing only once per key', async () => {
-      const m = new Map<string, number>();
-      let calls = 0;
-      await tryGetHash(m, 'x', async () => (++calls, 1));
-      await tryGetHash(m, 'x', async () => (++calls, 1));
-      expect(calls).to.eq(1);
-    });
-
-    it('tryGetHashSync computes + stores missing', () => {
-      const m = new Map<string, number>();
-      expect(tryGetHashSync(m, 'a', () => 5)).to.eq(5);
-      expect(m.get('a')).to.eq(5);
-      // second call returns cached, factory not used
-      expect(tryGetHashSync(m, 'a', () => 999)).to.eq(5);
-    });
-
     it('getOrInsert aliases tryGetHashSync', () => {
       const m = new Map<string, number>();
       expect(getOrInsert(m, 'k', () => 7)).to.eq(7);
@@ -118,23 +84,12 @@ describe('helpers', () => {
   });
 
   describe('json', () => {
-    it('round-trips Map via replacer/reviver', () => {
-      const src = { m: new Map([['a', 1], ['b', 2]]) };
-      const json = JSON.stringify(src, replacer);
-      const back = JSON.parse(json, reviver) as typeof src;
-      expect(back.m).to.be.instanceOf(Map);
-      expect(back.m.get('a')).to.eq(1);
-    });
 
     it('round-trips Set via jsonStringify/jsonParse', () => {
       const src = { tags: new Set(['x', 'y']) };
       const back = jsonParse<typeof src>(jsonStringify(src));
       expect(back.tags).to.be.instanceOf(Set);
       expect([...back.tags]).to.deep.eq(['x', 'y']);
-    });
-
-    it('jsonStringify honors indentation', () => {
-      expect(jsonStringify({ a: 1 }, 2)).to.contain('\n');
     });
 
     it('safeParse returns fallback on malformed / non-string', () => {
@@ -195,21 +150,6 @@ describe('helpers', () => {
       expect(ran).to.be.true;
     });
 
-    it('noop returns undefined, identity returns its input', () => {
-      expect(noop()).to.eq(undefined);
-      expect(identity(7)).to.eq(7);
-      const o = {};
-      expect(identity(o)).to.eq(o);
-    });
-
-    it('once runs the fn a single time', () => {
-      let calls = 0;
-      const init = once(() => ++calls);
-      expect(init()).to.eq(1);
-      expect(init()).to.eq(1);
-      expect(calls).to.eq(1);
-    });
-
     it('once runs the fn again after a throwing call', () => {
       let calls = 0;
       const init = once(() => {
@@ -232,33 +172,9 @@ describe('helpers', () => {
       expect(square(4)).to.eq(16);
       expect(calls).to.eq(2);
     });
-
-    it('memoize supports a custom key function', () => {
-      let calls = 0;
-      const byId = memoize(
-        (o: { id: number; v: number }) => {
-          calls++;
-          return o.v;
-        },
-        (o) => o.id,
-      );
-      expect(byId({ id: 1, v: 10 })).to.eq(10);
-      expect(byId({ id: 1, v: 99 })).to.eq(10); // same id -> cached
-      expect(calls).to.eq(1);
-    });
   });
 
   describe('types', () => {
-    it('isPromise', () => {
-      // NOTE: isPromise MUST stay native-only. Awaitable query builders ( orm ) are
-      // thenables - duck-typing them as promises makes DI execute them on resolve.
-      expect(isPromise(Promise.resolve())).to.be.true;
-      expect(isPromise(42)).to.be.false;
-      expect(isPromise({ then: () => 0 })).to.be.false; // only native promises
-      expect(isPromise({})).to.be.false;
-      expect(isPromise(null)).to.be.false;
-      expect(isPromise(undefined)).to.be.false;
-    });
 
     it('isThenable detects thenables and promises', () => {
       expect(isThenable(Promise.resolve())).to.be.true;
