@@ -9,6 +9,18 @@
       "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
+    },
+    "./scheduler": {
+      "types": "./lib/mjs/scheduler.d.ts",
+      "import": "./lib/mjs/scheduler.js",
+      "require": "./lib/cjs/scheduler.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "scheduler": [
+        "lib/cjs/scheduler.d.ts"
+      ]
     }
   },
   "type": "module",
@@ -66,10 +78,19 @@
     "luxon": "^3.6.1",
     "mime-types": "^3.0.2"
   },
+  "peerDependencies": {
+    "@spinajs/scheduler": "3.0.16"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/scheduler": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@spinajs/orm-mysql": "3.0.16",
     "@spinajs/orm-postgres": "3.0.16",
     "@spinajs/orm-sqlite": "3.0.16",
+    "@spinajs/scheduler": "3.0.16",
     "@types/luxon": "^3.4.2",
     "@types/mime-types": "^3.0.1"
   }
