@@ -1,8 +1,8 @@
 /**
  * Mocha --require hook for `mocha --dry-run`: records where each test is declared, so remove-tests.mjs
- * can delete a row from the table a loop builds tests from. Writes { [fullTitle]: { file, line, index } }
- * to TEST_SITES_OUT, where index counts the tests declared earlier at the same file and line ( the loop
- * iteration ).
+ * can delete a row from the table a loop builds tests from. Writes { [fullTitle]: { file, line, index,
+ * suite } } to TEST_SITES_OUT, where index counts the tests declared earlier at the same file and line
+ * ( the loop iteration ) and suite is the enclosing describe's full title.
  */
 'use strict';
 
@@ -28,7 +28,7 @@ Suite.prototype.addTest = function (test) {
     const key = `${file}:${line}`;
     const index = seen.get(key) ?? 0;
     seen.set(key, index + 1);
-    sites[test.fullTitle()] = { file, line, index };
+    sites[test.fullTitle()] = { file, line, index, suite: test.parent?.fullTitle() ?? '' };
   }
   return result;
 };

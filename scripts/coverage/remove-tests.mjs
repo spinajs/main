@@ -5,8 +5,10 @@
  *
  * Tests a loop builds ( titles from template literals ) need --sites, the output of test-sites.cjs: the
  * line of the it() call and the loop iteration. The row is deleted from the array the loop runs over,
- * when that is one for...of over an array literal ( inline, or a const used nowhere else ). Anything
- * else ( nested loops, spreads, shared arrays ) is reported instead.
+ * when that is one for...of over an array literal: inline, a const used nowhere else, or a parameter of
+ * a helper ( table(op, rows) ), whose calls then hold the rows, the k-th call building the k-th suite.
+ * A trailing spread ( ...SHARED.map(...) ) goes only when every row it adds goes. Anything else ( nested
+ * loops, other spreads, shared arrays ) is reported instead.
  *
  * Usage
  * -----
@@ -71,20 +73,14 @@ function cutRows(text, file) {
     if (ts.isCallExpression(node) && TEST.has(callee(node))) {
       const line = runtimeLineOf.get(node);
       const wanted = rows.get(line);
-      const array = wanted && loopArray(node, source);
-      if (array) {
-        const total = Object.values(sites).filter((x) => x.file === rel && x.line === line).length;
-        if (total === array.elements.length) {
-          const drop = new Set(wanted.map((w) => w.index));
-          wanted.forEach((w) => matched.add(w.name));
-          removedTests += drop.size;
-          if (drop.size === array.elements.length) {
-            const loop = enclosingLoop(node);
-            edits.push([loop.getFullStart(), loop.getEnd(), '']);
-          } else {
-            array.elements.forEach((el, i) => drop.has(i) && edits.push(elementRange(array, i, source)));
-          }
-        }
+      const arrays = wanted && loopArrays(node, source);
+      if (arrays) {
+        // The tests this it() built, in run order, split per suite: one suite per array.
+        const built = Object.entries(sites).filter(([, x]) => x.file === rel && x.line === line).sort((a, b) => a[1].index - b[1].index);
+        const groups = [];
+        for (const [name, x] of built) (groups.at(-1)?.suite === x.suite ? groups.at(-1) : groups[groups.push({ suite: x.suite, names: [] }) - 1]).names.push(name);
+        if (arrays.length === 1 && groups.length > 1) groups.splice(0, groups.length, { names: built.map(([name]) => name) });
+        if (groups.length === arrays.length) arrays.forEach((array, k) => edits.push(...dropRows(array, groups[k].names, wanted, source)));
       }
     }
     ts.forEachChild(node, visit);
@@ -98,6 +94,66 @@ function enclosingLoop(node) {
   let n = node.parent;
   while (n && !ts.isForOfStatement(n) && !ts.isSourceFile(n)) n = n.parent;
   return n && ts.isForOfStatement(n) ? n : undefined;
+}
+
+// The rows of one array: literal elements one to one, then at most one trailing spread whose rows go
+// only all together.
+function dropRows(array, names, wanted, source) {
+  const spreadAt = array.elements.findIndex(ts.isSpreadElement);
+  if (spreadAt !== -1 && spreadAt !== array.elements.length - 1) return [];
+  const literal = spreadAt === -1 ? array.elements.length : spreadAt;
+  if (names.length < literal || (spreadAt === -1 && names.length !== literal)) return [];
+  const removable = new Set(wanted.map((w) => w.name));
+  const drop = names.map((name) => removable.has(name));
+  const spreadGoes = spreadAt !== -1 && drop.slice(literal).every(Boolean);
+  const gone = new Set();
+  names.forEach((name, j) => {
+    if (!drop[j] || (j >= literal && !spreadGoes)) return;
+    matched.add(name);
+    removedTests++;
+    if (j < literal) gone.add(j);
+  });
+  if (spreadGoes) gone.add(spreadAt);
+  if (!gone.size) return [];
+  // A one-line array is rewritten from what stays; a multi-line one loses whole lines.
+  if (!array.getText().includes('\n')) {
+    const kept = array.elements.filter((_, i) => !gone.has(i)).map((e) => e.getText());
+    return [[array.getStart(), array.getEnd(), `[${kept.join(', ')}]`]];
+  }
+  return [...gone].map((i) => elementRange(array, i, source));
+}
+
+// The arrays a test-building loop runs over: one, or one per call of the helper the loop sits in.
+function loopArrays(call, source) {
+  const loop = enclosingLoop(call);
+  if (!loop) return undefined;
+  const param = ts.isIdentifier(loop.expression) ? parameterOf(loop, loop.expression.text) : undefined;
+  if (!param) {
+    const array = loopArray(call, source);
+    return array && [array];
+  }
+  const { fn, index } = param;
+  const arrays = [];
+  const find = (n) => {
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === fn.name?.text) {
+      let arg = n.arguments[index];
+      while (arg && (ts.isAsExpression(arg) || ts.isParenthesizedExpression(arg))) arg = arg.expression;
+      arrays.push(arg && ts.isArrayLiteralExpression(arg) ? arg : undefined);
+    }
+    ts.forEachChild(n, find);
+  };
+  find(source);
+  return arrays.length && arrays.every(Boolean) ? arrays : undefined;
+}
+
+function parameterOf(node, name) {
+  for (let n = node.parent; n && !ts.isSourceFile(n); n = n.parent) {
+    if (ts.isFunctionDeclaration(n)) {
+      const index = n.parameters.findIndex((p) => ts.isIdentifier(p.name) && p.name.text === name);
+      return index === -1 ? undefined : { fn: n, index };
+    }
+  }
+  return undefined;
 }
 
 // The array literal one for...of runs over, when the it() sits in exactly one loop below its describe.

@@ -8,16 +8,22 @@
  * the most still-uncovered ones ).
  *
  * Kept regardless:
- *   - every test covering a Timeout mutant: Stryker does not say which one hung
+ *   - every test covering a Timeout mutant: Stryker does not say which one hung. Narrow that with
+ *     --timeouts, a report of the Timeout mutants rerun without disableBail ( and a mocha timeout below
+ *     Stryker's ): the first test to hang then fails and is named as the killer. What still times out
+ *     there blocks the event loop ( a synchronous endless loop ), which every test running it hits, so any
+ *     covering test catches it
  *   - tests that cover no mutant: they check what mutation cannot see ( packaging, exports, types )
  *   - tests whose name matches --keep ( known-answer vectors and the like )
+ *   - with --from, tests outside the matching test files: when only some source files were mutated, a
+ *     test elsewhere may be the one guarding a file that was not
  * Locality: a mutant that a test of its source file's home test file ( the one killing most of that
  * source file's mutants ) kills must stay killed from that file, not only by some distant test that
  * happens to run the code.
  *
  * Usage
  * -----
- *   node scripts/coverage/minimal-tests.mjs packages/util/reports/mutation/mutation.json [--json out.json] [--keep regex]
+ *   node scripts/coverage/minimal-tests.mjs packages/util/reports/mutation/mutation.json [--json out.json] [--keep regex] [--from regex] [--timeouts rerun.json]
  */
 
 import { readFileSync, writeFileSync } from 'fs';
@@ -26,7 +32,18 @@ const [reportPath, ...rest] = process.argv.slice(2);
 const option = (name) => (rest.includes(name) ? rest[rest.indexOf(name) + 1] : undefined);
 const jsonOut = option('--json');
 const keepPattern = option('--keep') && new RegExp(option('--keep'), 'i');
+const fromPattern = option('--from') && new RegExp(option('--from'));
 const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+const rerun = option('--timeouts') && JSON.parse(readFileSync(option('--timeouts'), 'utf8'));
+const where = (file, m) => `${file}:${m.location.start.line}:${m.location.start.column}:${m.mutatorName}:${m.replacement}`;
+const rerunOf = new Map();
+if (rerun) {
+  const idOf = new Map(Object.values(report.testFiles).flatMap((f) => f.tests.map((t) => [t.name, t.id])));
+  const nameOf = new Map(Object.values(rerun.testFiles).flatMap((f) => f.tests.map((t) => [t.id, t.name])));
+  for (const [file, { mutants }] of Object.entries(rerun.files)) {
+    for (const m of mutants) rerunOf.set(where(file, m), { status: m.status, killedBy: (m.killedBy ?? []).map((id) => idOf.get(nameOf.get(id))).filter(Boolean) });
+  }
+}
 
 const tests = new Map();
 for (const [file, { tests: list }] of Object.entries(report.testFiles ?? {})) {
@@ -40,8 +57,10 @@ const hangs = new Set();
 for (const [file, { mutants }] of Object.entries(report.files)) {
   for (const m of mutants) {
     const key = `${file}#${m.id}`;
-    const killers = m.status === 'Killed' ? (m.killedBy ?? []) : [];
-    if (m.status === 'Timeout') for (const id of m.coveredBy ?? []) hangs.add(id);
+    const again = m.status === 'Timeout' ? rerunOf.get(where(file, m)) : undefined;
+    const status = again?.status ?? m.status;
+    const killers = status === 'Killed' ? (again?.killedBy ?? m.killedBy ?? []) : again && status === 'Timeout' ? (m.coveredBy ?? []) : [];
+    if (!again && status === 'Timeout') for (const id of m.coveredBy ?? []) hangs.add(id);
     if (killers.length) mustKill.add(key);
     killersOf.set(key, killers);
     for (const id of killers) tests.get(id)?.kills.add(key);
@@ -66,7 +85,7 @@ for (const key of [...mustKill]) {
   for (const t of local) t.kills.add(key + '@home');
 }
 
-const kept = [...tests.values()].filter((t) => t.covers.size === 0 || hangs.has(t.id) || keepPattern?.test(t.name));
+const kept = [...tests.values()].filter((t) => t.covers.size === 0 || hangs.has(t.id) || keepPattern?.test(t.name) || (fromPattern && !fromPattern.test(t.file)));
 const unkilled = new Set(mustKill);
 const uncovered = new Set(mustCover);
 kept.forEach((t) => (t.kills.forEach((k) => unkilled.delete(k)), t.covers.forEach((k) => uncovered.delete(k))));
