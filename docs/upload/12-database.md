@@ -6,7 +6,7 @@ The upload keeps its state in three tables on the connection alias `upload`: ses
 
 1. The package config sets `db.Aliases.upload: 'default'`, so the tables live on your default connection. Point the alias elsewhere in your own config.
 2. `Upload_2026_10_23_00_00_00` is decorated `@Migration('upload')` and exported from `@spinajs/upload`, so importing the package registers it. The package sets no `system.dirs.migrations` and leaves yours alone.
-3. Run it like any migration: `Migration: { OnStartup: true }` on the connection the alias names, or `npx spinajs migrate-up`.
+3. Run it like any migration: `Migration: { OnStartup: true }` on the connection the alias names, or `npx spinajs migrate-up`, a command that comes from `@spinajs/orm-cli`, which you install.
 4. `UploadSession`, `UploadPart` and `UploadBlob` are `@Connection('upload')` models. Importing the package registers them, so with `db.StrictTableCheck` on (the default) the tables must exist on that connection.
 5. State changes never go through a model save. `UploadStore` runs one conditional `UPDATE` per transition whose `WHERE` is the transition rule; the matched-row count says whether it applied.
 

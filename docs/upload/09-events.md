@@ -16,8 +16,8 @@ Every stage of an upload emits a `@spinajs/queue` event: other services can inde
 | --- | --- | --- | --- |
 | `UploadCreated` | Session created | `PartSize`, `PartCount`, `DeclaredMime` (`string \| null`), `DeclaredSha256?`, `ExpiresAt` | `UploadService.create` |
 | `UploadPartStored` | A part passed every check and was committed | `Part`, `PartSize`, `PartSha256`, `Offset`, `ReceivedParts`, `PartCount`, `Replaced` (a resend replaced a stored copy) | `putPart` |
-| `UploadPartRejected` | A part was refused; nothing was stored | `Part`, `Code` (the `upload.*` code) | `putPart` |
-| `UploadContentChecked` | Part 1's content type was checked, accepted or not | `DeclaredMime`, `DetectedMime?`, `DetectorId?`, `Accepted` | `putPart` (part 1) |
+| `UploadPartRejected` | A part was refused with an upload error; nothing was stored. An unexpected storage error emits none | `Part`, `Code` (the `upload.*` code) | `putPart` |
+| `UploadContentChecked` | Part 1's content type was checked. A refusal is emitted at once; an accepted check only after the part is committed | `DeclaredMime`, `DetectedMime?`, `DetectorId?`, `Accepted` | `putPart` (part 1) |
 | `UploadAssemblyStarted` | A complete took the assembly claim | `ClaimToken`, `PartCount` | `complete` |
 | `UploadPartCorrupted` | Stored parts failed their hash at assembly; the session is `open` again | `Parts` (numbers) | `complete` |
 | `UploadAssemblyReleased` | A claim was released after an error, or a stale one was taken over or released | `Reason`: `'error'` or `'stale'` | `complete`, the sweeper |

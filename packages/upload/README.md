@@ -8,7 +8,7 @@ npm install @spinajs/http @spinajs/validation   # for UploadController (@spinajs
 npm install @spinajs/scheduler                  # for the scheduled sweeper (@spinajs/upload/scheduler)
 ```
 
-`@spinajs/upload` pins `@spinajs/http` to one exact version: install and upgrade the two together, at the version of your other `@spinajs/*` packages.
+`@spinajs/upload` pins its optional peers `@spinajs/http`, `@spinajs/scheduler` and `@spinajs/validation` to one exact version: install and upgrade them together with it, at the version of your other `@spinajs/*` packages.
 
 Subclass `UploadController` from `@spinajs/upload/http` with your own `@BasePath`, `ownerOf()` and `authorize()`, define the `upload-temp` and `upload-files` providers in `fs.providers`, and run the `Upload_2026_10_23_00_00_00` migration.
 

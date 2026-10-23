@@ -1,6 +1,6 @@
 # Logging
 
-`UploadService`, `UploadStorage`, `ContentTypeCheck`, `UploadEvents`, `UploadSweeper` and `UploadController` log through one `@spinajs/log` logger named `upload`. Every entry carries its data as fields, so a log target can filter by upload.
+`UploadService`, `UploadStorage`, `UploadStore`, `ContentTypeCheck`, `UploadEvents`, `UploadSweeper` and `UploadController` log through one `@spinajs/log` logger named `upload`. Every entry carries its data as fields, so a log target can filter by upload.
 
 ## How it works
 
@@ -8,11 +8,11 @@
 2. Each entry is written in the fields form, `Log.info({ uploadId, ... }, message)`; the message refers to the fields by name (`'Upload ${uploadId} created'`).
 3. The `logger.rules` of your app decide which levels of `upload` reach which target.
 
-| Level | Entries | Fields besides `uploadId` |
+| Level | Entries | Fields (`uploadId` on all but the sweep summary and the store warning) |
 | --- | --- | --- |
-| `info` | session created; assembly started; completed; failed; aborted; expired; purged; the sweeper's run summary | `owner`, `size`, `partCount`, `metadataKeys` (created); `sha256` (completed); `code` (failed); `status`, `blobs` (purged); the seven counts (summary) |
+| `info` | session created; assembly started; completed; failed; aborted; expired; purged; the sweeper's run summary | `owner` on all but the summary; `size`, `partCount`, `metadataKeys` (created); `partCount` (assembly started); `size`, `sha256` (completed); `code` (failed); `status`, `blobs` (purged); the seven counts (summary) |
 | `debug` | part stored; content checked; claim taken; a final event or handler already recorded by a concurrent request | `part`, `size`, `offset`; `detectedMime`, `detectorId`, `accepted` |
-| `warn` | part rejected; stored parts changed at assembly; a stale claim taken over or released by the sweeper; assembly stopped by an upload refusal; an event not emitted; a final event re-emitted by the sweeper; a final event emitted but not recorded; an object, blob row or session folder not removed; a stored part that cannot be read; a content detector that failed | `part`, `code`, `parts`, `event`, `fs`, `key`, `detectorId`, `error` |
+| `warn` | part rejected; stored parts changed at assembly; a stale claim taken over or released by the sweeper; assembly stopped by an upload refusal; an event not emitted; a final event re-emitted by the sweeper; a final event emitted but not recorded; an object, blob row or session folder not removed; a stored part that cannot be read; a content detector that failed; an object that could not be marked garbage; a release event that was not built; a session id that is not a valid folder name; the owner's create insert retried after a lock conflict (`Upload create for owner ${owner} hit a lock conflict; retrying once`, from `UploadStore`) | `part`, `code`, `parts`, `event`, `fs`, `key`, `detectorId`, `error`; `owner` and `error` (lock conflict, no `uploadId`) |
 | `error` | an unexpected assembly failure (after the claim was released); a claim that could not be released; `onAborted` failed; the sweeper failed on one item; a request the controller answered as `500` `upload.internal` | `error`; `stage` (request stage), and `uploadId` when the route has one, for the last |
 
 ## Configuration
@@ -44,7 +44,7 @@ export default {
 - **No metadata values are logged.** The created entry logs `metadataKeys` only, because metadata carries app data.
 - **Object keys are logged** in removal warnings (`fs`, `key`), so a failed removal can be found and cleaned by hand.
 - **A part refusal is logged once**, at `warn`, with its `code`. Requests refused before the service runs (a policy, the lookup, `authorize`) are not logged by the upload.
-- **A `500` is logged, not echoed.** The controller answers an error the framework would turn into a generic `500` with `{ code: 'upload.internal', message: 'Internal error' }` and logs the original error at `error` with the `uploadId`, so no path or stack reaches the client. Handlers in `http.errors.handlers` do not see these upload-route errors.
+- **A `500` is logged, not echoed.** The controller answers an error the framework would turn into a generic `500` with `{ code: 'upload.internal', message: 'Internal error' }` and logs the original error at `error`, with the `uploadId` when the route has an `:upload` parameter, so no path or stack reaches the client. Handlers in `http.errors.handlers` do not see these upload-route errors.
 - **`error` entries carry the error object** in `error`; the target's serializer decides how much of it is written.
 
 ## Best practices

@@ -41,7 +41,7 @@ import '@spinajs/upload/scheduler';
 - This registers the upload configuration schema and `UploadSweepTask` under the schedule `upload.sweep`: every `upload.sweeper.every` (default 15 minutes), `runOn: 'leader'` (one node in a cluster), `overlap: 'skip'`, and the scheduler's default misfire `run-once`.
 - `every` is read when the scheduler builds its definitions, so it follows the configuration, not the import order.
 - A `scheduler.schedules` entry named `upload.sweep` overrides the options, for example `{ name: 'upload.sweep', every: '5m' }`.
-- A run with `errors > 0` fails, with the counts in its error message, so the scheduler records and retries it. A successful run stores the `SweepResult` as its result.
+- A run with `errors > 0` fails, with the counts in its error message, so the scheduler records it as failed; the next run tries the failed items again. The task declares no retry: add a `retry` to the `upload.sweep` entry of `scheduler.schedules` to retry a failed run sooner. A successful run stores the `SweepResult` as its result.
 - Stopping the scheduler aborts the run before its next batch; the next run goes on from the rows that are left.
 - Do not add the package's `lib` folder to `system.dirs.schedules`: the scan would import every file of the package.
 
@@ -53,7 +53,7 @@ Without the scheduler, run the command from cron:
 npx spinajs upload:sweep
 ```
 
-It prints one `<count> <name>` line per `SweepResult` field and exits with code `1` when `errors > 0`. The package adds its command folder to `system.dirs.cli`.
+It prints one `<count> <name>` line per `SweepResult` field and exits with code `1` when `errors > 0`. The package adds its command folder to `system.dirs.cli`. The command first runs the connection's `Migration.OnStartup` pass, as an app boot does.
 
 `npx spinajs` is its own process: it loads your config files but not your app's entry module. Define the fs providers, the database connection and the queue routes in config files, and import provider packages such as `@spinajs/fs-s3` from a config module, so the command sees the same storage as the app.
 
