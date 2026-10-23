@@ -1,7 +1,7 @@
 import 'mocha';
 import sinon from 'sinon';
 import { expect } from 'chai';
-import { CopyObjectCommand, DeleteObjectCommand, DeleteObjectsCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { CopyObjectCommand, DeleteObjectCommand, DeleteObjectsCommand, ListObjectsV2Command, PutObjectCommand, S3Client, S3ServiceException } from '@aws-sdk/client-s3';
 import { InvalidArgument, IOFail } from '@spinajs/exceptions';
 
 import './common.js';
@@ -63,6 +63,24 @@ describe('fs s3 prefix rm (no server)', () => {
     });
 
     await expect(s3.rm('d')).to.be.rejectedWith(IOFail, 'd/b (AccessDenied)');
+  });
+
+  it('wraps a failing DeleteObject or ListObjectsV2 in IOFail, keeping the S3 error as the cause', async () => {
+    const denied = () => new S3ServiceException({ name: 'AccessDenied', $fault: 'client', $metadata: { httpStatusCode: 403 }, message: 'Access Denied' });
+
+    for (const failing of [DeleteObjectCommand, ListObjectsV2Command]) {
+      const { s3 } = stubbed((cmd) => {
+        if (cmd instanceof failing) throw denied();
+        return undefined;
+      });
+
+      const err = await s3.rm('d').then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(err, failing.name).to.be.instanceOf(IOFail);
+      expect((err as IOFail).inner, failing.name).to.be.instanceOf(S3ServiceException);
+    }
   });
 
   it('removing a path that does not exist sends no DeleteObjects and succeeds', async () => {

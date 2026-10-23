@@ -648,17 +648,22 @@ export class fsS3 extends fs {
       throw new InvalidArgument(`fs s3 ${this.Name} does not remove the bucket root`, 'path');
     }
 
-    await this.deleteKey(path);
+    try {
+      await this.deleteKey(path);
 
-    let token: string | undefined;
-    do {
-      const page = await this.S3.send(new ListObjectsV2Command({ Bucket: this.Options.bucket, Prefix: `${path}/`, MaxKeys: DELETE_BATCH, ContinuationToken: token }));
-      const keys = (page.Contents ?? []).flatMap((o) => (o.Key ? [o.Key] : []));
-      for (let i = 0; i < keys.length; i += DELETE_BATCH) {
-        await this.deleteKeys(keys.slice(i, i + DELETE_BATCH));
-      }
-      token = page.IsTruncated ? page.NextContinuationToken : undefined;
-    } while (token);
+      let token: string | undefined;
+      do {
+        const page = await this.S3.send(new ListObjectsV2Command({ Bucket: this.Options.bucket, Prefix: `${path}/`, MaxKeys: DELETE_BATCH, ContinuationToken: token }));
+        const keys = (page.Contents ?? []).flatMap((o) => (o.Key ? [o.Key] : []));
+        for (let i = 0; i < keys.length; i += DELETE_BATCH) {
+          await this.deleteKeys(keys.slice(i, i + DELETE_BATCH));
+        }
+        token = page.IsTruncated ? page.NextContinuationToken : undefined;
+      } while (token);
+    } catch (err) {
+      if (err instanceof IOFail) throw err;
+      throw new IOFail(`Cannot remove ${path} from bucket ${this.Options.bucket}`, err);
+    }
   }
 
   private async deleteKey(key: string): Promise<void> {
