@@ -25,8 +25,8 @@ Neither decorator has configuration of its own. They depend on:
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `http.middlewares` | `express.RequestHandler[]` | JSON, urlencoded and XML-text parsers | | A body these take arrives empty: `@RequestStream()` answers `415`. |
-| `http.bodyLimits` | `{ path, limit }[]` | `[]` | | Refuses a declared `Content-Length` over the limit with `413` before routing, for any content type. See [Body size limits](04-route-arguments.md#body-size-limits). |
+| `http.middlewares` | `express.RequestHandler[]` | helmet, the JSON, urlencoded and XML-text parsers, the cookie parser and `compression()` | | A body these take arrives empty: `@RequestStream()` answers `415`. |
+| `http.bodyLimits` | `{ path, limit }[]` | `[]` | | On a path under a configured rule (first match wins), refuses a declared `Content-Length` over the limit with `413` before routing, for any content type; that rule's parser also parses JSON, urlencoded and XML bodies there. See [Body size limits](04-route-arguments.md#body-size-limits). |
 
 ## `Content-Digest` parsing
 

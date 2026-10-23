@@ -115,7 +115,7 @@ export function registerOpenApiParamType(type: string, describe: (param: IRouteP
 
 | Rule | Effect |
 | --- | --- |
-| A type the builder maps itself (`FromQuery`, `FromBody`, the file and form types, `FromDbModel`, `FilterModelRouteArg`, the internal types) | never consults the registry: its mapping carries runtime contracts |
+| A type the builder maps itself (for example the query, path, header and cookie types such as `FromQuery`, the body types such as `FromBody`, `FromForm` and `FromFile`, the internal types such as `Req`, `FromDi` and `FromSession`, `FromDbModel` and `FilterModelRouteArg`) | never consults the registry: its mapping carries runtime contracts |
 | A second registration of a type | replaces the first |
 | A registered body next to any other body argument (`@Body()`, `@File()`, a second registered body) | the build fails: one request has one body. Move the other values to the path, query or headers, or split the route |
 | A registered body and a `@body` JSDoc tag | the registered body wins |

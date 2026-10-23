@@ -26,7 +26,7 @@ Plain classes, exported from `@spinajs/fs`; nothing is registered in DI.
 ## Important behaviour
 
 - **The digest exists only after the input ended.** Read `digest()` after the pipeline resolved, not on `'data'`.
-- **`ByteLimitStream` fails on byte `maxBytes + 1`**, so exactly `maxBytes` bytes pass. It does not check that enough bytes arrived: compare `bytes` with the expected count yourself.
+- **`ByteLimitStream` fails on the first chunk that would cross `maxBytes`**, and drops that whole chunk, so exactly `maxBytes` bytes pass and `bytes` never exceeds the limit. It does not check that enough bytes arrived: compare `bytes` with the expected count yourself.
 - **The over-limit chunk is dropped whole.** The destination never receives a partial chunk past the limit, but it may hold the bytes before it: remove the partial object after a `LimitExceeded`.
 - **`FileHasher.hashStream()` consumes its stream.** Use `DigestStream` when the bytes must also reach a destination.
 

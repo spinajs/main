@@ -1,6 +1,6 @@
 # Object metadata
 
-`fsS3` stores content hashes, and on `upload()` also file info, as S3 user metadata (`x-amz-meta-*`) on the object. `hash()`, `getMetadata()` and `metadata()` read it back with one `HeadObject`, without downloading the file.
+`fsS3` stores content hashes, and on `upload()` also file info, as S3 user metadata (`x-amz-meta-*`) on the object. `getMetadata()` and `metadata()` read it back with one `HeadObject`, without downloading the file. `hash()` does the same when a `hash` metadata value is stored, and streams the object otherwise.
 
 ## How it works
 
