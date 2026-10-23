@@ -50,6 +50,7 @@ describe('UploadController over HTTP: refusals', function () {
   it('answers 404 upload.not_found for another owner session on every route, before authorize', async () => {
     const id = await created('alice');
     Seen.reset();
+    CaptureQueueClient.reset();
     const bob = { owner: 'bob' };
 
     refusal(await call('get', `${BASE}/${id}`, bob), 404, 'upload.not_found');
@@ -61,6 +62,9 @@ describe('UploadController over HTTP: refusals', function () {
     expect(Seen.authorized).to.deep.equal([]);
     expect((await rows('upload_sessions', { id }))[0]).to.include({ status: 'open' });
     expect(await rows('upload_parts', { session_id: id })).to.deep.equal([]);
+    expect(await rows('upload_blobs')).to.deep.equal([]);
+    expect(objectsOf('temp', `uploads/${id}`)).to.deep.equal([]);
+    expect(emitted()).to.deep.equal([]);
   });
 
   it('answers a missing session exactly like a foreign one', async () => {
@@ -111,6 +115,7 @@ describe('UploadController over HTTP: refusals', function () {
     expect((await call('get', `${BASE}/${id}`, policy)).status).to.eq(403);
     expect((await createUpload(file, {}, policy)).status).to.eq(403);
     expect(Seen.authorized).to.deep.equal([]);
+    expect((await rows('upload_sessions')).map((r) => r.id)).to.deep.equal([id]);
   });
 
   it('refuses a body that does not fit the DTO with the framework 400, before authorize and the service', async () => {
@@ -141,6 +146,7 @@ describe('UploadController over HTTP: refusals', function () {
     refusal(await sendPart(id, 1, partOf(file, 1)), 410, 'upload.expired');
 
     expect(await rows('upload_parts', { session_id: id })).to.deep.equal([]);
+    expect(objectsOf('temp', `uploads/${id}`)).to.deep.equal([]);
   });
 
   it('maps the complete and abort refusals, with the part numbers in details', async () => {

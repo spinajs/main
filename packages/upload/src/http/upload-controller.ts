@@ -102,7 +102,8 @@ export abstract class UploadController extends BaseController {
       if (Number.isInteger(part) && part >= 1 && part <= session.part_count) partBounds.set(req, expectedPartSize(session.size, session.part_size, part));
       return new Json(await this.Uploads.putPart(session, part, body, digest.get('sha-256'), declaredLength(req), { allowedTypes: await this.allowedTypes(req) }));
     } catch (err) {
-      // Closing the limited stream unpipes and resumes the request (limit-request-stream.ts:58-68), so the handler can drain it.
+      // Frees the limiter and its PassThrough, and keeps an over-bound body flowing (discarded) while the
+      // Connection: close answer goes out (limit-request-stream.ts:58-68).
       (body as Readable).destroy();
       throw err;
     }

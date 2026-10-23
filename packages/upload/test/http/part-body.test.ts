@@ -59,6 +59,16 @@ describe('UploadController over HTTP: the unread body of a refused part', functi
     expect(await rows('upload_parts', { session_id: id })).to.deep.equal([]);
   });
 
+  // Raw, not superagent: the harness's chai client always sends Connection: close (support/client.ts).
+  it('keeps the connection when an unread body over the part size has already arrived whole', async () => {
+    const long = Buffer.alloc(10, 97);
+    const exchange = raw(`${BASE}/${id}/parts/1`, { 'content-length': 10, 'content-digest': digestOf(long) });
+    exchange.end(long);
+
+    const res = await exchange.response;
+    expect([res.status, codeOf(res.body), res.headers.connection]).to.deep.equal([400, 'upload.part_size', 'keep-alive']);
+  });
+
   it('drains the body of a part for a session that does not exist, then answers 404', async () => {
     const exchange = raw(`${BASE}/${MISSING}/parts/1`, { 'content-length': 4, 'content-digest': digestOf(partOf(file, 1)) });
     exchange.write(Buffer.from('ab'));
@@ -84,10 +94,14 @@ describe('UploadController over HTTP: the unread body of a refused part', functi
 
   it('drains the body when the route args refuse a malformed Content-Digest', async () => {
     const exchange = raw(`${BASE}/${id}/parts/1`, { 'content-length': 4, 'content-digest': 'sha-256=not-a-byte-sequence' });
-    exchange.end(partOf(file, 1));
+    exchange.write(Buffer.from('ab'));
+    await wait(300);
+    expect(exchange.answered()).to.eq(false);
 
+    exchange.end(Buffer.from('cd'));
     const res = await exchange.response;
     expect([res.status, res.headers.connection]).to.deep.equal([400, 'keep-alive']);
+    expect(await rows('upload_parts', { session_id: id })).to.deep.equal([]);
   });
 
   it('answers a refusal after the body was read without closing the connection', async () => {
