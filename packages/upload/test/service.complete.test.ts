@@ -57,7 +57,7 @@ describe('UploadService.complete', () => {
 
     expect(view).to.deep.include({ status: 'completed', sha256: sha256hex(file), offset: 10, missingParts: [] });
     const row = await sessionRow(session.id);
-    expect(row).to.include({ status: 'completed', sha256: sha256hex(file), claim_token: null, final_event: 'UploadCompleted' });
+    expect(row).to.include({ status: 'completed', sha256: sha256hex(file), claim_token: null, claimed_at: null, final_event: 'UploadCompleted' });
     expect(row.file_key).to.match(/^uploads\/files\/[0-9a-f-]{36}\.txt$/);
     expect(row.final_event_at).to.not.eq(null);
     expect(row.handled_at).to.not.eq(null);
@@ -239,5 +239,38 @@ describe('UploadService.complete', () => {
     expect(await sessionRow(session.id)).to.include({ status: 'open', claim_token: null });
     expect(emitted('UploadAssemblyReleased')[0]).to.include({ Reason: 'error' });
     expect(uploadLogs(LogLevel.Error).map((l) => l.Variables.uploadId)).to.deep.equal([session.id]);
+  });
+
+  it('answers upload.expired (410) for an open session past expires_at and leaves it for the sweeper', async () => {
+    const session = await uploaded();
+    await setSession(session.id, { expires_at: DateTime.utc().minus({ seconds: 1 }) });
+    const e = await uploadErrorOf(service.complete(session));
+    expect([e.code, e.status]).to.deep.equal(['upload.expired', 410]);
+    expect(await sessionRow(session.id)).to.include({ status: 'open', claim_token: null });
+    expect(emitted('UploadAssemblyStarted')).to.deep.equal([]);
+  });
+
+  it('answers upload.assembling before upload.file_digest_required while a fresh claim is held', async () => {
+    const session = await uploaded({ sha256: undefined });
+    await setSession(session.id, { status: 'assembling', claim_token: 'other', claimed_at: DateTime.utc() });
+    expect((await uploadErrorOf(service.complete(session))).code).to.eq('upload.assembling');
+  });
+
+  it('releases the claim when reading the session right after the claim fails', async () => {
+    const session = await uploaded();
+    const read = sinon.stub(store, 'requireSession').callThrough();
+    read.onSecondCall().rejects(new Error('db hiccup'));
+    expect(await rejection(service.complete(session))).to.have.property('message', 'db hiccup');
+    expect(await sessionRow(session.id)).to.include({ status: 'open', claim_token: null });
+  });
+
+  it('keeps the original error when the read after the release fails', async () => {
+    const session = await uploaded();
+    sinon.stub(storage, 'assemble').rejects(new Error('disk on fire'));
+    const release = sinon.spy(store, 'release');
+    const original = store.requireSession.bind(store);
+    sinon.stub(store, 'requireSession').callsFake((id: string) => (release.called ? Promise.reject(new Error('db hiccup')) : original(id)));
+    expect(await rejection(service.complete(session))).to.have.property('message', 'disk on fire');
+    expect(await sessionRow(session.id)).to.include({ status: 'open', claim_token: null });
   });
 });

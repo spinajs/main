@@ -169,17 +169,39 @@ export class UploadService {
     const current = await this.Store.requireSession(session.id);
     if (current.status === 'completed') return this.finishCompleted(current, options);
     if (current.status !== 'open' && current.status !== 'assembling') throw notOpen(current);
+    if (this.heldByAnother(current)) throw new UploadError('upload.assembling', `upload ${current.id} is being assembled`);
     const declared = this.declaredFileHash(current, input);
     const token = await this.claim(current, declared);
     if (token === null) return this.afterLostClaim(current.id, options);
     let completed: UploadSession;
     try {
+      await this.announceClaim(current, token);
       completed = await this.assembleClaimed(current.id, token, declared, options.fileDir ?? `${this.Options.fs.prefix}/files`);
     } catch (err) {
       await this.releaseAfterError(current.id, token, err);
       throw err;
     }
     return this.finishCompleted(completed, options);
+  }
+
+  /** Spec §5: open → aborted only; aborting again is a no-op, and an assembly in progress is never aborted. */
+  public async abort(session: UploadSession): Promise<void> {
+    if (!(await this.Store.abort(session.id, DateTime.utc()))) {
+      const current = await this.Store.requireSession(session.id);
+      if (current.status === 'aborted') return;
+      throw current.status === 'assembling' ? new UploadError('upload.assembling', `upload ${session.id} is being assembled`) : notOpen(current);
+    }
+    await this.dropParts(session);
+    await this.Events.final(await this.Store.requireSession(session.id));
+    this.Log.info({ uploadId: session.id, owner: session.owner }, 'Upload ${uploadId} aborted');
+  }
+
+  /** open → expired once expires_at passed; the sweeper removes the parts (spec §9). false when the session was not due. */
+  public async expire(session: UploadSession): Promise<boolean> {
+    if (!(await this.Store.expire(session.id, DateTime.utc()))) return false;
+    await this.Events.final(await this.Store.requireSession(session.id));
+    this.Log.info({ uploadId: session.id, owner: session.owner }, 'Upload ${uploadId} expired');
+    return true;
   }
 
   private planSession(input: CreateUploadInput, limits: UploadLimits): SessionPlan {
@@ -354,8 +376,20 @@ export class UploadService {
   private async claim(session: UploadSession, declared: string | null): Promise<string | null> {
     const token = randomUUID();
     const now = DateTime.utc();
-    const staleBefore = now.minus(parseDuration(this.Options.assembly.staleAfter, 'upload.assembly.staleAfter'));
-    if (!(await this.Store.claim(session.id, token, now, staleBefore, declared))) return null;
+    if (!(await this.Store.claim(session.id, token, now, this.staleBefore(now), declared))) return null;
+    return token;
+  }
+
+  private staleBefore(now: DateTime): DateTime {
+    return now.minus(parseDuration(this.Options.assembly.staleAfter, 'upload.assembly.staleAfter'));
+  }
+
+  private heldByAnother(session: UploadSession): boolean {
+    return session.status === 'assembling' && session.claimed_at !== null && session.claimed_at >= this.staleBefore(DateTime.utc());
+  }
+
+  /** Runs inside complete()'s try, so a failure here releases the claim instead of leaving it stuck. */
+  private async announceClaim(session: UploadSession, token: string): Promise<void> {
     const claimed = await this.Store.requireSession(session.id);
     if (session.status === 'assembling') {
       this.Log.warn({ uploadId: session.id }, 'Upload ${uploadId}: stale claim taken over');
@@ -364,13 +398,13 @@ export class UploadService {
     this.Log.debug({ uploadId: session.id }, 'Upload ${uploadId}: claim taken');
     this.Log.info({ uploadId: session.id, owner: session.owner, partCount: session.part_count }, 'Upload ${uploadId}: assembly started');
     await this.Events.stage(new UploadAssemblyStarted(claimed, { ClaimToken: token, PartCount: session.part_count }));
-    return token;
   }
 
   private async afterLostClaim(id: string, options: CompleteOptions): Promise<UploadStateView> {
     const fresh = await this.Store.requireSession(id);
     if (fresh.status === 'completed') return this.finishCompleted(fresh, options);
     if (fresh.status === 'assembling') throw new UploadError('upload.assembling', `upload ${id} is being assembled`);
+    if (fresh.status === 'open' && fresh.expires_at.toMillis() <= Date.now()) throw new UploadError('upload.expired', `upload ${id} expired`);
     throw notOpen(fresh);
   }
 
@@ -474,6 +508,19 @@ export class UploadService {
     if (!released) return;
     if (isUploadError(err)) this.Log.warn({ uploadId: id, code: err.code }, 'Upload ${uploadId}: assembly stopped: ${code}');
     else this.Log.error({ uploadId: id, error: err }, 'Upload ${uploadId}: assembly failed; the claim was released');
-    await this.Events.stage(new UploadAssemblyReleased(await this.Store.requireSession(id), { Reason: 'error' }));
+    try {
+      await this.Events.stage(new UploadAssemblyReleased(await this.Store.requireSession(id), { Reason: 'error' }));
+    } catch (eventError) {
+      this.Log.warn({ uploadId: id, error: eventError }, 'Upload ${uploadId}: the release event was not built');
+    }
+  }
+
+  private async dropParts(session: UploadSession): Promise<void> {
+    const now = DateTime.utc();
+    await this.Store.transaction(async () => {
+      await this.Store.setSessionBlobsState(session.id, 'part', 'garbage', now);
+      await this.Store.deleteAllParts(session.id);
+    });
+    await this.removeGarbage(session.id);
   }
 }

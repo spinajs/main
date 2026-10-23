@@ -124,7 +124,7 @@ export class UploadStore {
     return matched(await this.Driver.update().in(UPLOAD_SESSIONS_TABLE).update({ updated_at: now }).where({ id, status: 'open' }).where('expires_at', '>', now));
   }
 
-  /** Spec §5: an open session, or an assembling one whose claim is older than `staleBefore`. */
+  /** Spec §5: an open session not yet past expires_at, or an assembling one whose claim is older than `staleBefore`. */
   public async claim(id: string, token: string, now: DateTime, staleBefore: DateTime, declaredSha256: string | null): Promise<boolean> {
     const data: Record<string, unknown> = { status: 'assembling', claim_token: token, claimed_at: now, updated_at: now };
     if (declaredSha256 !== null) data.declared_sha256 = declaredSha256;
@@ -133,7 +133,9 @@ export class UploadStore {
       .update(data)
       .where('id', id)
       .where(function (this: IWhereBuilder<unknown>) {
-        this.where('status', 'open').orWhere(function (this: IWhereBuilder<unknown>) {
+        this.where(function (this: IWhereBuilder<unknown>) {
+          this.where('status', 'open').where('expires_at', '>', now);
+        }).orWhere(function (this: IWhereBuilder<unknown>) {
           this.where('status', 'assembling').where('claimed_at', '<', staleBefore);
         });
       });
@@ -149,7 +151,7 @@ export class UploadStore {
     return matched(
       await this.Driver.update()
         .in(UPLOAD_SESSIONS_TABLE)
-        .update({ ...values, status: 'completed', completed_at: now, updated_at: now, claim_token: null, final_event: final })
+        .update({ ...values, status: 'completed', completed_at: now, updated_at: now, claim_token: null, claimed_at: null, final_event: final })
         .where({ id, status: 'assembling', claim_token: token }),
     );
   }
