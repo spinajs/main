@@ -51,7 +51,8 @@ export const UPLOAD_CONFIGURATION_SCHEMA = {
       type: 'object',
       default: {},
       properties: {
-        headBytes: { ...POSITIVE, default: 4100 },
+        // Held in memory per part-1 request; file-type reads 4100 bytes, a custom detector rarely needs more.
+        headBytes: { ...POSITIVE, maximum: 65_536, default: 4100 },
         allowUndetected: { type: 'array', items: { type: 'string', minLength: 1 }, default: ['text/plain', 'text/csv'] },
       },
     },

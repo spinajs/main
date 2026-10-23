@@ -41,6 +41,8 @@ describe('upload configuration', () => {
     expect(await bad({ assembly: { staleAfter: '5 minutes' } })).to.include('upload.assembly.staleAfter');
     expect(await bad({ limits: { maxParts: 0 } })).to.include('upload.limits.maxParts');
     expect(await bad({ detect: { headBytes: 0 } })).to.include('upload.detect.headBytes');
+    expect(await bad({ detect: { headBytes: 65_536 } })).to.deep.equal([]);
+    expect(await bad({ detect: { headBytes: 65_537 } })).to.include('upload.detect.headBytes');
     expect(await bad({ fs: { temp: '' } })).to.include('upload.fs.temp');
     expect(await bad({ fs: { prefix: '../outside' } })).to.include('upload.fs.prefix');
   });
