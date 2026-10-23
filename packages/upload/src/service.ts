@@ -410,6 +410,8 @@ export class UploadService {
     if (fresh.status === 'completed') return this.finishCompleted(fresh, options);
     if (fresh.status === 'assembling') throw new UploadError('upload.assembling', `upload ${id} is being assembled`);
     if (fresh.status === 'open' && fresh.expires_at.toMillis() <= Date.now()) throw new UploadError('upload.expired', `upload ${id} expired`);
+    // Open again: another request held the claim and released it in the meantime, so a retry can take it.
+    if (fresh.status === 'open') throw new UploadError('upload.assembling', `upload ${id}: another request held the assembly claim; retry`);
     throw notOpen(fresh);
   }
 

@@ -274,6 +274,15 @@ describe('UploadService.complete', () => {
     expect(emitted('UploadAssemblyStarted')).to.deep.equal([]);
   });
 
+  it('answers upload.assembling (409) when the claim is lost to a request that has since released it', async () => {
+    const session = await uploaded();
+    // The other request claimed between the read and this claim, then released it: the session is open again.
+    sinon.stub(store, 'claim').resolves(false);
+    const e = await uploadErrorOf(service.complete(session));
+    expect([e.code, e.status]).to.deep.equal(['upload.assembling', 409]);
+    expect(await sessionRow(session.id)).to.include({ status: 'open', claim_token: null });
+  });
+
   it('answers upload.assembling before upload.file_digest_required while a fresh claim is held', async () => {
     const session = await uploaded({ sha256: undefined });
     await setSession(session.id, { status: 'assembling', claim_token: 'other', claimed_at: DateTime.utc() });
