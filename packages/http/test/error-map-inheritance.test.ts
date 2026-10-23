@@ -1,13 +1,14 @@
 import 'mocha';
 import { expect } from 'chai';
 import { Constructor } from '@spinajs/di';
-import { BadRequest, Forbidden, JsonValidationFailed } from '@spinajs/exceptions';
+import { BadRequest, Forbidden, InvalidOperation, IOFail, JsonValidationFailed, ResourceNotFound, UnexpectedServerError } from '@spinajs/exceptions';
 import { DI } from '@spinajs/di';
 
-import { __resolve_error_response__ } from '../src/error.js';
+import { __resolve_error_response__, answeredAsServerError } from '../src/error.js';
 import { Response as HttpResponse } from '../src/interfaces.js';
 import { ForbiddenResponse } from '../src/response-methods/forbidden.js';
 import { BadRequestResponse } from '../src/response-methods/badRequest.js';
+import '../src/response-methods/index.js';
 
 /**
  * `@HandleException` keys the map by class NAME, so an exception the framework knows by name is an
@@ -57,6 +58,27 @@ describe('http error map resolution', () => {
     // Forbidden and BadRequest are siblings, not a chain - a Forbidden must never resolve to the
     // BadRequest response just because both are registered.
     expect(__resolve_error_response__(map, new BadRequest('bad'))).to.equal(map.get('BadRequest'));
+  });
+});
+
+describe('answeredAsServerError', () => {
+  it('is true for an error mapped to ServerError and for an unmapped one', () => {
+    expect(answeredAsServerError(new IOFail('cannot open /srv/data/x'))).to.eq(true);
+    expect(answeredAsServerError(new UnexpectedServerError('boom'))).to.eq(true);
+    expect(answeredAsServerError(new NotAnHttpError('boom'))).to.eq(true);
+    expect(answeredAsServerError(new InvalidOperation('boom'))).to.eq(true);
+  });
+
+  it('is false for an error with a client response of its own, also through a subclass', () => {
+    expect(answeredAsServerError(new Forbidden('nope'))).to.eq(false);
+    expect(answeredAsServerError(new GroupNotOwned('nope'))).to.eq(false);
+    expect(answeredAsServerError(new ResourceNotFound('gone'))).to.eq(false);
+    expect(answeredAsServerError(new BadRequest('bad'))).to.eq(false);
+  });
+
+  it('is false for a body-parser parse failure, which answers 400', () => {
+    const err = Object.assign(new Error('Unexpected token'), { type: 'entity.parse.failed', body: '{' });
+    expect(answeredAsServerError(err)).to.eq(false);
   });
 });
 
