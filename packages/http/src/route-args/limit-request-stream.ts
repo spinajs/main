@@ -2,17 +2,23 @@ import { PassThrough, type Readable } from 'node:stream';
 import { IOFail } from '@spinajs/exceptions';
 import { ByteLimitStream } from '@spinajs/fs';
 
+const ignoreError = () => undefined;
+
 /**
- * The request body through a ByteLimitStream: the returned stream errors with LimitExceeded once `maxBytes` is passed,
- * with the request's own error when the request fails, and with IOFail when the request closes before its body ended.
- *
- * When reading stops early (the limit, or a consumer that destroyed the stream), the rest of the body is read off and
- * dropped, and the limit error is raised only once the request has ended, as body-parser does
- * (body-parser/lib/read.js:128-137,240-247). A client that is still sending would otherwise get a reset connection
- * instead of the error answer. `pipe()` is used because `stream.pipeline` would destroy `req` on a downstream error,
- * and that destroys its socket.
+ * The limit error waits until the rest of the body is read off, as body-parser does (body-parser/lib/read.js:128-137,240-247):
+ * a client that is still sending would otherwise get a reset connection instead of the 413.
+ * `pipe()` because `stream.pipeline` destroys `req` on a downstream error, and with it the socket.
  */
 export function limitRequestStream(req: Readable, maxBytes: number): Readable {
+  const closedEarly = () => new IOFail('request closed before its body ended');
+
+  // A client abort during async middleware leaves `req` destroyed; it emits no more events to settle on.
+  if (req.destroyed && !req.readableEnded) {
+    const out = new PassThrough();
+    out.destroy(req.errored ?? closedEarly());
+    return out;
+  }
+
   const limiter = new ByteLimitStream(maxBytes);
   const out = new PassThrough();
   let failAfterEnd: (() => void) | null = null;
@@ -23,7 +29,7 @@ export function limitRequestStream(req: Readable, maxBytes: number): Readable {
   };
   const onRequestError = (err: Error) => out.destroy(err);
   const onRequestClose = () => {
-    if (!req.readableEnded) out.destroy(new IOFail('request closed before its body ended'));
+    if (!req.readableEnded) out.destroy(closedEarly());
   };
   const onLimiterError = (err: Error) => {
     discardRest();
@@ -34,6 +40,17 @@ export function limitRequestStream(req: Readable, maxBytes: number): Readable {
     failAfterEnd = () => out.destroy(err);
     req.once('end', failAfterEnd);
   };
+  // Nobody reads the errors of a drain the consumer gave up on; without a listener a generic Readable would throw them.
+  const drainUnobserved = () => {
+    const stop = () => {
+      req.off('error', ignoreError);
+      req.off('end', stop);
+      req.off('close', stop);
+    };
+    req.on('error', ignoreError);
+    req.once('end', stop);
+    req.once('close', stop);
+  };
 
   req.on('error', onRequestError);
   req.on('close', onRequestClose);
@@ -42,8 +59,11 @@ export function limitRequestStream(req: Readable, maxBytes: number): Readable {
     req.off('error', onRequestError);
     req.off('close', onRequestClose);
     if (failAfterEnd) req.off('end', failAfterEnd);
+    // A LimitExceeded already queued on the limiter is still emitted after this point.
     limiter.off('error', onLimiterError);
+    limiter.on('error', ignoreError);
     discardRest();
+    if (!req.readableEnded && !req.destroyed) drainUnobserved();
     limiter.destroy();
   });
 
