@@ -106,9 +106,10 @@ describe('settleUnreadBody', function () {
     expect([res.status, res.headers.connection]).to.deep.equal([400, 'keep-alive']);
   });
 
+  // The body stays in flight in the next two; one that has arrived whole keeps the connection (below).
   it('answers at once with Connection: close when the body declares more than the bound', async () => {
     const exchange = rawRequest(await refusing(4), 'PUT', '/', { ...OCTETS, 'content-length': 10 });
-    exchange.end(Buffer.alloc(10, 97));
+    exchange.write(Buffer.alloc(2, 97));
 
     const res = await exchange.response;
     expect([res.status, res.headers.connection]).to.deep.equal([400, 'close']);
@@ -117,10 +118,28 @@ describe('settleUnreadBody', function () {
   it('answers with Connection: close when the body has no Content-Length', async () => {
     const exchange = rawRequest(await refusing(4), 'PUT', '/', { ...OCTETS, 'transfer-encoding': 'chunked' });
     exchange.write(Buffer.from('abcd'));
-    exchange.end();
 
     const res = await exchange.response;
     expect([res.status, res.headers.connection]).to.deep.equal([400, 'close']);
+  });
+
+  it('keeps the connection of a request without a body', async () => {
+    const exchange = rawRequest(await refusing(4), 'GET', '/', {});
+    exchange.end();
+
+    const res = await exchange.response;
+    expect([res.status, res.headers.connection]).to.deep.equal([400, 'keep-alive']);
+  });
+
+  it('keeps the connection when an unread body over the bound has already arrived whole', async () => {
+    const arrived: Before = async (req) => {
+      while (!req.complete) await wait(5);
+    };
+    const exchange = rawRequest(await refusing(4, arrived), 'PUT', '/', { ...OCTETS, 'content-length': 10 });
+    exchange.end(Buffer.alloc(10, 97));
+
+    const res = await exchange.response;
+    expect([res.status, res.headers.connection]).to.deep.equal([400, 'keep-alive']);
   });
 
   it('returns at once for a body that was already read, whatever its length', async () => {
