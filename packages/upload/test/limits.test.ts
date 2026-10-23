@@ -14,12 +14,14 @@ describe('durations, limits, part math and error codes', () => {
   });
 
   it('parses a positive duration as the schema pattern accepts it: never zero, at least 1 ms', () => {
+    // eslint-disable-next-line security/detect-non-literal-regexp -- the package's own constant pattern
+    const positive = new RegExp(POSITIVE_DURATION_PATTERN);
     for (const zero of ['0s', '0ms', '0.0h', '00m']) {
       expect(() => parsePositiveDuration(zero, 'upload.assembly.staleAfter'), zero).to.throw(InvalidArgument, /upload\.assembly\.staleAfter/);
-      expect(new RegExp(POSITIVE_DURATION_PATTERN).test(zero), zero).to.eq(false);
+      expect(positive.test(zero), zero).to.eq(false);
     }
     for (const [value, ms] of [['30m', 1_800_000], ['0.5s', 500], ['0.0001ms', 1]] as const) {
-      expect(new RegExp(POSITIVE_DURATION_PATTERN).test(value), value).to.eq(true);
+      expect(positive.test(value), value).to.eq(true);
       expect(parsePositiveDuration(value), value).to.eq(ms);
     }
     expect(parseDuration('0s')).to.eq(0);

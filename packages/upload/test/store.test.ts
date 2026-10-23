@@ -169,7 +169,8 @@ describe('UploadStore.insertSessionWithinCap on a lock conflict', () => {
     return { id: randomUUID(), owner, name: 'notes.txt', size: 10, part_size: 4, part_count: 3, declared_sha256: null, declared_mime: 'text/plain', metadata: {}, temp_fs: 'upload-temp', files_fs: 'upload-files', created_at: now, expires_at: now.plus({ hours: 1 }) };
   };
   // Shaped as the drivers surface them: an OrmException whose inner error is the native one.
-  const driverError = (native: Record<string, unknown>) => new OrmException('Error executing orm command ', undefined, 'UPDATE upload_sessions', [], Object.assign(new Error(String(native.message ?? 'driver error')), native));
+  const driverError = (native: { readonly message?: string; readonly errno?: number; readonly code?: string }) =>
+    new OrmException('Error executing orm command ', undefined, 'UPDATE upload_sessions', [], Object.assign(new Error(native.message ?? 'driver error'), native));
   const lockOwnerOf = () => sinon.stub(store as unknown as { lockOwner(owner: string): Promise<void> }, 'lockOwner').callThrough();
 
   before(async () => {
