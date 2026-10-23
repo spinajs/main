@@ -1,0 +1,105 @@
+import { Config } from '@spinajs/configuration';
+import { DI, Injectable, Singleton } from '@spinajs/di';
+import { Log, Logger } from '@spinajs/log';
+import mime from 'mime-types';
+import type { Detector } from 'file-type';
+
+import { loadFileType } from '../file-type.js';
+import type { AllowedTypes, UploadConfig } from '../types.js';
+import { ContentDetector } from './detector.js';
+
+/** The detector id reported when file-type's built-in detectors matched. */
+export const FILE_TYPE_DETECTOR_ID = 'file-type';
+
+export const allowsType = (types: AllowedTypes, type: string): boolean => types === '*' || types.includes(type);
+
+export interface ContentCheckInput {
+  readonly head: Uint8Array;
+  readonly declaredMime: string | null;
+  readonly allowedTypes: AllowedTypes;
+  /** Only for log entries. */
+  readonly uploadId?: string;
+}
+
+export type ContentRefusal = 'upload.content_mismatch' | 'upload.unsupported_type';
+
+interface ContentFound {
+  readonly detectedMime: string | null;
+  readonly detectorId: string | null;
+}
+
+export type ContentCheckResult = (ContentFound & { readonly accepted: true }) | (ContentFound & { readonly accepted: false; readonly code: ContentRefusal });
+
+/** mime-types maps the client's file name, file-type reads the magic bytes (spec D3, §4.3). */
+@Singleton()
+@Injectable()
+export class ContentTypeCheck {
+  @Config('upload.detect')
+  protected Options: UploadConfig['detect'];
+
+  @Logger('upload')
+  protected Log: Log;
+
+  public mimeOf(name: string): string | null {
+    const found = mime.lookup(name);
+    return found === false ? null : found;
+  }
+
+  public async detect(head: Uint8Array): Promise<{ mime: string; detectorId: string } | null> {
+    const found = await this.parse(head);
+    return found ? { mime: found.mime, detectorId: found.detectorId } : null;
+  }
+
+  public async check(input: ContentCheckInput): Promise<ContentCheckResult> {
+    const detected = await this.parse(input.head, input.uploadId);
+    const found: ContentFound = { detectedMime: detected?.mime ?? null, detectorId: detected?.detectorId ?? null };
+    const refusal = this.refusalOf(input, detected);
+    return refusal === null ? { ...found, accepted: true } : { ...found, accepted: false, code: refusal };
+  }
+
+  private async parse(head: Uint8Array, uploadId?: string): Promise<{ mime: string; ext: string; detectorId: string } | null> {
+    const match = { id: null as string | null };
+    const { FileTypeParser } = await loadFileType();
+    try {
+      const result = await new FileTypeParser({ customDetectors: this.adapters(head, match, uploadId) }).fromBuffer(head);
+      return result ? { mime: result.mime, ext: result.ext, detectorId: match.id ?? FILE_TYPE_DETECTOR_ID } : null;
+    } catch {
+      // file-type throws EndOfStreamError on a container (zip family) head cut mid-entry
+      this.Log.warn({ uploadId, detectorId: FILE_TYPE_DETECTOR_ID }, 'Content detector ${detectorId} failed; treated as no match');
+      return null;
+    }
+  }
+
+  /** file-type and mime-db disagree on some names (ico, avi, eps), so the detected extension is compared through mime-types too. */
+  private matchesDeclared(detected: { mime: string; ext: string }, declared: string): boolean {
+    return detected.mime === declared || this.mimeOf(`x.${detected.ext}`) === declared;
+  }
+
+  private refusalOf(input: ContentCheckInput, detected: { mime: string; ext: string } | null): ContentRefusal | null {
+    if (detected === null && (input.declaredMime === null || !this.Options.allowUndetected.includes(input.declaredMime))) return 'upload.content_mismatch';
+    if (detected !== null && input.declaredMime !== null && !this.matchesDeclared(detected, input.declaredMime)) return 'upload.content_mismatch';
+    const effective = detected?.mime ?? input.declaredMime;
+    return effective !== null && allowsType(input.allowedTypes, effective) ? null : 'upload.unsupported_type';
+  }
+
+  /** The app's detectors read the captured head, never the tokenizer, so file-type goes on after a null (file-type/core.d.ts:142-147). */
+  private adapters(head: Uint8Array, match: { id: string | null }, uploadId?: string): Detector[] {
+    const registered = DI.resolve(Array.ofType(ContentDetector)) as unknown as ContentDetector[] | undefined ?? [];
+    return registered
+      .filter((d) => d instanceof ContentDetector)
+      .map((d) => ({
+        id: d.id,
+        detect: async () => {
+          try {
+            const found = await d.detect(head);
+            if (!found) return undefined;
+            match.id = d.id;
+            return found;
+          } catch (err) {
+            this.Log.warn({ uploadId, detectorId: d.id, error: err }, 'Content detector ${detectorId} failed; treated as no match');
+            return undefined;
+          }
+        },
+      }));
+  }
+}
