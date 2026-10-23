@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/hooks",
-  "version": "3.0.18",
+  "version": "3.0.19",
   "description": "Action hooks for SpinaJS: before, after and failed hooks around named actions",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -64,9 +64,9 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "3.0.18",
-    "@spinajs/di": "3.0.18",
-    "@spinajs/exceptions": "3.0.18",
-    "@spinajs/log-common": "3.0.18"
+    "@spinajs/configuration": "3.0.19",
+    "@spinajs/di": "3.0.19",
+    "@spinajs/exceptions": "3.0.19",
+    "@spinajs/log-common": "3.0.19"
   }
 }

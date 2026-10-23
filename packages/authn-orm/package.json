@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authn-orm",
-  "version": "3.0.18",
+  "version": "3.0.19",
   "description": "ORM stores and migrations for SpinaJS authentication",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -72,21 +72,21 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authn": "3.0.18",
-    "@spinajs/cli": "3.0.18",
-    "@spinajs/configuration": "3.0.18",
-    "@spinajs/di": "3.0.18",
-    "@spinajs/exceptions": "3.0.18",
-    "@spinajs/log": "3.0.18",
-    "@spinajs/orm": "3.0.18",
-    "@spinajs/util": "3.0.18",
+    "@spinajs/authn": "3.0.19",
+    "@spinajs/cli": "3.0.19",
+    "@spinajs/configuration": "3.0.19",
+    "@spinajs/di": "3.0.19",
+    "@spinajs/exceptions": "3.0.19",
+    "@spinajs/log": "3.0.19",
+    "@spinajs/orm": "3.0.19",
+    "@spinajs/util": "3.0.19",
     "luxon": "^3.6.1"
   },
   "devDependencies": {
-    "@spinajs/authn-testing": "3.0.18",
-    "@spinajs/orm-mssql": "3.0.18",
-    "@spinajs/orm-mysql": "3.0.18",
-    "@spinajs/orm-postgres": "3.0.18",
-    "@spinajs/orm-sqlite": "3.0.18"
+    "@spinajs/authn-testing": "3.0.19",
+    "@spinajs/orm-mssql": "3.0.19",
+    "@spinajs/orm-mysql": "3.0.19",
+    "@spinajs/orm-postgres": "3.0.19",
+    "@spinajs/orm-sqlite": "3.0.19"
   }
 }
