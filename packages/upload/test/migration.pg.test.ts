@@ -27,6 +27,12 @@ describe('Upload_2026_10_23_00_00_00 on postgres', function () {
     await postgresAdmin(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`);
   });
 
+  it('indexes the owed final events', async () => {
+    const found = (await driver!.select().from('pg_indexes').where('indexname', 'upload_sessions_final_event')) as { indexdef: string }[];
+    expect(found).to.have.length(1);
+    expect(found[0].indexdef).to.match(/\(final_event, final_event_at\)/);
+  });
+
   it('stores a size past 32 bits, and deleting a session removes its parts and blobs', async () => {
     const d = driver!;
     const now = DateTime.utc();

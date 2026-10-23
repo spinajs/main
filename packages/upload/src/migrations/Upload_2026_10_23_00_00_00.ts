@@ -65,6 +65,7 @@ export class Upload_2026_10_23_00_00_00 extends OrmMigration {
 
     await connection.index().table(UPLOAD_SESSIONS_TABLE).name('upload_sessions_status_expires').columns(['status', 'expires_at']);
     await connection.index().table(UPLOAD_SESSIONS_TABLE).name('upload_sessions_owner_status').columns(['owner', 'status']);
+    await connection.index().table(UPLOAD_SESSIONS_TABLE).name('upload_sessions_final_event').columns(['final_event', 'final_event_at']);
     await connection.index().table(UPLOAD_BLOBS_TABLE).name('upload_blobs_state_updated').columns(['state', 'updated_at']);
     await connection.index().table(UPLOAD_BLOBS_TABLE).name('upload_blobs_session').columns(['session_id']);
   }

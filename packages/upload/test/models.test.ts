@@ -36,6 +36,7 @@ describe('upload tables, models and the state view', () => {
     const indexColumns = async (index: string) => (await raw(`PRAGMA index_info(${index})`)).map((c) => c.name);
     expect(await indexColumns('upload_sessions_status_expires')).to.deep.equal(['status', 'expires_at']);
     expect(await indexColumns('upload_sessions_owner_status')).to.deep.equal(['owner', 'status']);
+    expect(await indexColumns('upload_sessions_final_event')).to.deep.equal(['final_event', 'final_event_at']);
     expect(await indexColumns('upload_blobs_state_updated')).to.deep.equal(['state', 'updated_at']);
     expect(await indexColumns('upload_blobs_session')).to.deep.equal(['session_id']);
   });

@@ -110,8 +110,13 @@ export class UploadStorage extends AsyncService {
     return provider;
   }
 
+  /** Every part key of the session starts with it (spec §4.1 step 6). */
+  public sessionPrefix(sessionId: string): string {
+    return `${this.Options.fs.prefix}/${sessionId}`;
+  }
+
   public partKey(sessionId: string, part: number): string {
-    return `${this.Options.fs.prefix}/${sessionId}/${String(part).padStart(5, '0')}-${randomUUID()}`;
+    return `${this.sessionPrefix(sessionId)}/${String(part).padStart(5, '0')}-${randomUUID()}`;
   }
 
   public fileKey(dir: string, name: string): string {
@@ -175,6 +180,18 @@ export class UploadStorage extends AsyncService {
       return true;
     } catch (err) {
       this.Log.warn(logFields(fsName, key, err, uploadId), 'Upload object ${key} on ${fs} was not removed; the sweeper removes it');
+      return false;
+    }
+  }
+
+  /** One rm of the session prefix (spec §9): recursive on fsNative, every key under it on fs-s3 (F4). Best effort. */
+  public async removePrefix(fsName: string, sessionId: string): Promise<boolean> {
+    const prefix = this.sessionPrefix(sessionId);
+    try {
+      await this.provider(fsName).rm(prefix);
+      return true;
+    } catch (err) {
+      this.Log.warn(logFields(fsName, prefix, err, sessionId), 'Upload ${uploadId}: prefix ${key} on ${fs} was not removed');
       return false;
     }
   }

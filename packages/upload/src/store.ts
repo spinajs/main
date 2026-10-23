@@ -10,7 +10,16 @@ import { UploadBlob } from './models/UploadBlob.js';
 import type { BlobKind, BlobState } from './models/UploadBlob.js';
 import { UploadPart } from './models/UploadPart.js';
 import { UploadSession } from './models/UploadSession.js';
-import type { FinalEventName } from './types.js';
+import type { FinalEventName, UploadStatus } from './types.js';
+
+/** A keyset page: up to `limit` rows whose id sorts after `after`, in id order. */
+export interface KeysetPage {
+  readonly after: string;
+  readonly limit: number;
+}
+
+/** Purged whole after upload.sweeper.retainFinished; a completed session keeps its row and file (spec §9). */
+export const PURGED_STATUSES: readonly UploadStatus[] = ['failed', 'aborted', 'expired'];
 
 export interface NewSessionRow {
   readonly id: string;
@@ -242,5 +251,65 @@ export class UploadStore {
 
   public async deleteBlob(id: string): Promise<void> {
     await this.Driver.del().from(UPLOAD_BLOBS_TABLE).where({ id });
+  }
+
+  public async openExpiredBy(now: DateTime, page: KeysetPage): Promise<UploadSession[]> {
+    return await UploadSession.query().open().expiredBefore(now).where('id', '>', page.after).orderBy('id').take(page.limit);
+  }
+
+  public async staleClaims(staleBefore: DateTime, page: KeysetPage): Promise<UploadSession[]> {
+    return await UploadSession.query().where('status', 'assembling').where('claimed_at', '<', staleBefore).where('id', '>', page.after).orderBy('id').take(page.limit);
+  }
+
+  /** Made final before `before`: a session made final since may still have its own emit in flight. */
+  public async owedFinalEvents(before: DateTime, page: KeysetPage): Promise<UploadSession[]> {
+    return await UploadSession.query().whereNotNull('final_event').whereNull('final_event_at').where('updated_at', '<', before).where('id', '>', page.after).orderBy('id').take(page.limit);
+  }
+
+  /** Only sessions that still have part rows: a purged one has none, so later runs do not read it again. */
+  public async retainedCompleted(before: DateTime, page: KeysetPage): Promise<UploadSession[]> {
+    return await UploadSession.query()
+      .where('status', 'completed')
+      .where('updated_at', '<', before)
+      .whereNotNull('final_event_at')
+      .whereIn('id', this.Driver.select().columns(['session_id']).from(UPLOAD_PARTS_TABLE))
+      .where('id', '>', page.after)
+      .orderBy('id')
+      .take(page.limit);
+  }
+
+  public async retainedFinished(before: DateTime, page: KeysetPage): Promise<UploadSession[]> {
+    return await UploadSession.query()
+      .whereIn('status', [...PURGED_STATUSES])
+      .where('updated_at', '<', before)
+      .whereNotNull('final_event_at')
+      .where('id', '>', page.after)
+      .orderBy('id')
+      .take(page.limit);
+  }
+
+  /** `updatedBefore` null: any age. */
+  public async sweepableBlobs(state: BlobState, updatedBefore: DateTime | null, page: KeysetPage): Promise<UploadBlob[]> {
+    const query = UploadBlob.query().inState(state).where('id', '>', page.after);
+    return await (updatedBefore === null ? query : query.updatedBefore(updatedBefore)).orderBy('id').take(page.limit);
+  }
+
+  /** Live part blobs become garbage and the part rows go, together; false when the session had no part rows left. */
+  public async dropParts(sessionId: string, now: DateTime): Promise<boolean> {
+    return this.transaction(async () => {
+      await this.setSessionBlobsState(sessionId, 'part', 'garbage', now);
+      return rowsAffected(await this.Driver.del().from(UPLOAD_PARTS_TABLE).where({ session_id: sessionId })) > 0;
+    });
+  }
+
+  /** Every writing or live blob of the session becomes garbage; false when there was none. */
+  public async abandonBlobs(sessionId: string, now: DateTime): Promise<boolean> {
+    const state: BlobState = 'garbage';
+    return rowsAffected(await this.Driver.update().in(UPLOAD_BLOBS_TABLE).update({ state, updated_at: now }).where({ session_id: sessionId }).whereIn('state', ['writing', 'live'])) > 0;
+  }
+
+  /** Only a failed, aborted or expired session whose final event was delivered; false when it is not one (any more). */
+  public async deleteFinishedSession(id: string): Promise<boolean> {
+    return matched(await this.Driver.del().from(UPLOAD_SESSIONS_TABLE).where('id', id).whereIn('status', [...PURGED_STATUSES]).whereNotNull('final_event_at'));
   }
 }
