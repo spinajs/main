@@ -50,4 +50,9 @@ describe('upload configuration', () => {
     expect(shipped).to.not.have.property('upload');
     expect(shipped.queue.connections).to.deep.equal([{ name: 'upload-events', service: 'BlackHoleQueueClient', defaultQueueChannel: 'upload-jobs', defaultTopicChannel: 'upload-events' }]);
   });
+
+  it('ships the CLI scan dir of the upload:sweep command', () => {
+    expect(shipped.system.dirs.cli).to.have.length(2);
+    for (const dir of shipped.system.dirs.cli) expect(dir.replace(/\\/g, '/')).to.match(/\/node_modules\/@spinajs\/upload\/lib\/(mjs|cjs)\/cli$/);
+  });
 });

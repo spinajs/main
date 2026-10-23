@@ -1,4 +1,15 @@
+import { join, normalize, resolve } from 'path';
+
 const EVENTS = 'upload-events';
+
+function dir(path: string) {
+  const inCommonJs = typeof module !== 'undefined';
+  return [
+    resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), 'node_modules', '@spinajs', 'upload', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
+    // one up if we run from app or build folder
+    resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), '../', 'node_modules', '@spinajs', 'upload', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
+  ];
+}
 
 /**
  * The alias puts the upload tables on the app's default connection; an app's db.Aliases.upload wins, since package config
@@ -6,6 +17,12 @@ const EVENTS = 'upload-events';
  * (users/src/config/users.ts:23-47). The upload.* defaults live in the schema (src/schema.ts).
  */
 const upload = {
+  system: {
+    dirs: {
+      // CLI commands are found by a filesystem scan; without this entry upload:sweep is unreachable in a consuming app.
+      cli: [...dir('cli')],
+    },
+  },
   db: {
     Aliases: {
       upload: 'default',

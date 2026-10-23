@@ -66,6 +66,7 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
+    "@spinajs/cli": "3.0.16",
     "@spinajs/configuration": "3.0.16",
     "@spinajs/di": "3.0.16",
     "@spinajs/exceptions": "3.0.16",
