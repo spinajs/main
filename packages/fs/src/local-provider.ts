@@ -1,6 +1,6 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
 import { IOFail, ResourceDuplicated } from '@spinajs/exceptions';
-import { constants, createReadStream, createWriteStream, existsSync, readFileSync, Stats } from 'fs';
+import { constants, createReadStream, createWriteStream, existsSync, readFileSync, Stats, WriteStream } from 'fs';
 import { rm, stat, readdir, rename, mkdir, access, open, appendFile, readFile, copyFile } from 'node:fs/promises';
 import { DateTime } from 'luxon';
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
@@ -186,8 +186,11 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     }
   }
 
-  protected doWriteStream(path: string, rStream: NodeJS.ReadableStream | undefined, options: IWriteStreamOptions) {
-    const stream = createWriteStream(this.resolvePath(path), options.encoding ? { encoding: options.encoding } : {});
+  /** `options.exclusive` creates missing parent dirs and opens with 'wx', as doUpload's exclusive branch does with COPYFILE_EXCL. */
+  protected async doWriteStream(path: string, rStream: NodeJS.ReadableStream | undefined, options: IWriteStreamOptions): Promise<WriteStream> {
+    const p = this.resolvePath(path);
+    const streamOptions = options.encoding ? { encoding: options.encoding } : {};
+    const stream = options.exclusive ? (await this.openExclusive(path, p)).createWriteStream(streamOptions) : createWriteStream(p, streamOptions);
 
     // pipe ANY readable stream, not only fs.ReadStream instances - the contract accepts
     // NodeJS.ReadableStream ( PassThrough, http/s3 bodies etc. ), instanceof would
@@ -199,7 +202,26 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
       rStream.pipe(stream);
     }
 
-    return Promise.resolve(stream);
+    return stream;
+  }
+
+  private async openExclusive(path: string, fullPath: string): Promise<FileHandle> {
+    // A separate step: mkdir reports a parent that is a file as EEXIST (ENOTDIR for a deeper ancestor on Linux),
+    // which must not read as "the target exists".
+    try {
+      await mkdir(dirname(fullPath), { recursive: true });
+    } catch (err) {
+      throw new IOFail(`Cannot create the directory of ${path}`, err);
+    }
+
+    try {
+      return await open(fullPath, 'wx');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new ResourceDuplicated(`Cannot write ${path}, it already exists`, err);
+      }
+      throw new IOFail(`Cannot open file ${path} for writing`, err);
+    }
   }
 
   /**
