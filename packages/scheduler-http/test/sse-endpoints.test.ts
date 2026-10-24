@@ -121,8 +121,10 @@ describe('scheduler-http: SSE endpoints', function () {
     });
 
     it('answers 400 to a malformed Last-Event-ID', async () => {
-      const res = await req().get(runPath.slice(1)).set({ ...asRole('scheduler-reader'), 'Last-Event-ID': 'abc' });
-      expect(res).to.have.status(400);
+      for (const id of ['abc', '1'.repeat(20)]) {
+        const res = await req().get(runPath.slice(1)).set({ ...asRole('scheduler-reader'), 'Last-Event-ID': id });
+        expect(res, id).to.have.status(400);
+      }
     });
 
     it('answers 401 and 403 before opening a stream', async () => {
