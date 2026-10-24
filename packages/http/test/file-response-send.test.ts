@@ -38,6 +38,28 @@ class VanishingFileResponse extends FileResponse {
   }
 }
 
+/** Drops a header a middleware set, once send has found the file and before it fails. */
+class HeaderDroppingResponse extends FileResponse {
+  private res?: express.Response;
+
+  public execute(req: express.Request, res: express.Response): Promise<void> {
+    this.res = res;
+    return super.execute(req, res);
+  }
+
+  protected fileHeaders(): Record<string, unknown> {
+    const headers = super.fileHeaders();
+    return Object.defineProperty({ ...headers }, 'X-Vanish', {
+      enumerable: true,
+      get: () => {
+        this.res!.removeHeader('X-Middleware');
+        rmSync(join(root, 'dropping.txt'), { force: true });
+        return '1';
+      },
+    });
+  }
+}
+
 @BasePath('sent')
 class SentFilesController extends BaseController {
   @Get()
@@ -54,6 +76,12 @@ class SentFilesController extends BaseController {
   public vanishing() {
     writeFileSync(join(root, 'vanishing.txt'), REPORT);
     return new VanishingFileResponse({ provider: PROVIDER, path: 'vanishing.txt', filename: 'vanishing.txt' });
+  }
+
+  @Get()
+  public dropping() {
+    writeFileSync(join(root, 'dropping.txt'), REPORT);
+    return new HeaderDroppingResponse({ provider: PROVIDER, path: 'dropping.txt', filename: 'dropping.txt' }, { Headers: [{ Name: 'X-Middleware', Value: 'kept' }] });
   }
 
   @Get()
@@ -83,6 +111,21 @@ async function bytes(res: Response): Promise<Buffer> {
 function executed(): () => Promise<unknown> {
   const execute = sinon.spy(FileResponse.prototype, 'execute');
   return () => execute.firstCall.returnValue;
+}
+
+/** The errors send's callback gets, in order; `undefined` for a successful send. */
+function sendFileErrors(): () => (NodeJS.ErrnoException | undefined)[] {
+  const errors: (NodeJS.ErrnoException | undefined)[] = [];
+  const sendFile = Reflect.get(express.response, 'sendFile') as (...args: unknown[]) => void;
+  sinon.stub(express.response, 'sendFile').callsFake(function (this: unknown, ...args: unknown[]) {
+    const done = args[args.length - 1] as (err?: NodeJS.ErrnoException) => void;
+    args[args.length - 1] = (err?: NodeJS.ErrnoException) => {
+      errors.push(err);
+      done(err);
+    };
+    return sendFile.apply(this, args);
+  });
+  return () => errors;
 }
 
 /** The warnings of the `http` logger about a file that failed while it was sent. */
@@ -301,6 +344,7 @@ describe('FileResponse over send', function () {
   it('lets a client hang up during the body without failing the action or a warning', async () => {
     const settled = executed();
     const warnings = sendWarnings();
+    const sendErrors = sendFileErrors();
 
     await new Promise<void>((resolve, reject) => {
       const request = httpGet({ host: 'localhost', port: appPort(), path: '/sent/large' }, (res) => {
@@ -313,6 +357,37 @@ describe('FileResponse over send', function () {
     });
 
     await settled();
+    expect(sendErrors().map((err) => err?.code)).to.deep.eq(['ECONNABORTED']);
     expect(warnings()).to.have.length(0);
+  });
+
+  it('puts back the range header a long suffix or a bare dash made it rewrite', async () => {
+    const request = sinon.spy(FileResponse.prototype, 'execute');
+
+    for (const range of ['bytes=-99999', 'bytes=-']) {
+      request.resetHistory();
+      const res = await get('report', { Range: range });
+      expect(res.ok, range).to.eq(true);
+      await request.firstCall.returnValue;
+      expect(request.firstCall.args[0].headers.range, range).to.eq(range);
+    }
+  });
+
+  it('puts back the range header when the send fails', async () => {
+    const request = sinon.spy(FileResponse.prototype, 'execute');
+    failingRead('report.txt', Buffer.alloc(0), Object.assign(new Error('EIO'), { code: 'EIO' }));
+
+    const res = await get('report', { Range: 'bytes=-99999' });
+    await request.firstCall.returnValue.catch(() => undefined);
+
+    expect(res.status).to.eq(500);
+    expect(request.firstCall.args[0].headers.range).to.eq('bytes=-99999');
+  });
+
+  it('puts back a header a middleware set and the send removed before it failed', async () => {
+    const res = await get('dropping');
+
+    expect(res.status).to.eq(404);
+    expect(res.headers.get('x-middleware')).to.eq('kept');
   });
 });

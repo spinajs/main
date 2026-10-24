@@ -105,6 +105,8 @@ export class FileResponse extends Response {
     const basePath = (provider as any).Options?.basePath as string | undefined;
     const isLocalRealFile = !!basePath && resolvePath(file).startsWith(resolvePath(basePath));
 
+    // wholeFileForLongSuffix rewrites the header for send; later middleware and logs must still see the client's.
+    const clientRange = req.headers.range;
     await this.wholeFileForLongSuffix(req, file);
 
     return new Promise((resolve, reject) => {
@@ -114,6 +116,12 @@ export class FileResponse extends Response {
       const headersBeforeFile = res.getHeaders();
 
       sendFileAt(res, file, (err) => {
+        if (clientRange === undefined) {
+          delete req.headers.range;
+        } else {
+          req.headers.range = clientRange;
+        }
+
         const cleanups: Promise<unknown>[] = [];
 
         // Remove the source file on the provider when requested.
@@ -189,7 +197,7 @@ export class FileResponse extends Response {
       return null;
     }
 
-    for (const name of res.getHeaderNames()) {
+    for (const name of new Set([...res.getHeaderNames(), ...Object.keys(headersBeforeFile)])) {
       if (err.status === 416 && name === 'content-range') {
         continue;
       }
