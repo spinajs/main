@@ -51,6 +51,61 @@ export function normalizeHeaders(req: { readonly rawHeaders?: readonly string[] 
   return headers;
 }
 
+export interface StrictHeaderOptions {
+  /** The longest value accepted. Node decodes header bytes as latin1, so this counts bytes too. */
+  readonly maxLength: number;
+  /** Matched against the whole value. It must start with `^`, end with `$` and have no `g`, `y` or `m` flag. */
+  readonly pattern?: RegExp;
+}
+
+/** The request parts {@link strictHeader} reads: an express request, a Node `IncomingMessage` or a socket handshake. */
+export interface HeaderSource {
+  readonly headers: Readonly<Record<string, string | readonly string[] | undefined>>;
+  readonly rawHeaders?: readonly string[];
+}
+
+function assertAnchored(pattern: RegExp): void {
+  const { source, flags } = pattern;
+  // `m` makes ^ and $ match at line breaks; `g` and `y` make exec() start where the previous call left lastIndex.
+  if (!source.startsWith('^') || !source.endsWith('$') || source.endsWith('\\$') || /[gym]/.test(flags)) {
+    throw new TypeError(`strictHeader pattern ${String(pattern)} must be anchored with ^ and $ and have no g, y or m flag`);
+  }
+}
+
+function sentTimes(rawHeaders: readonly string[], name: string): number {
+  let times = 0;
+  for (let i = 0; i < rawHeaders.length; i += 2) {
+    if (rawHeaders[i].length === name.length && rawHeaders[i].toLowerCase() === name) times++;
+  }
+  return times;
+}
+
+/**
+ * Request header `name` when the client sent it exactly once, at most `maxLength` long and, with `pattern`, matching it
+ * in full; otherwise undefined. Node joins most repeated headers with ", " and keeps only the first of others, so a
+ * repeat is found in `rawHeaders`; a value the app itself put in `headers` is read as it is.
+ *
+ * `pattern` runs on client input: keep it free of nested or overlapping quantifiers (`(a+)+`, `(a|ab)*`, `\s*\s*`).
+ * `maxLength` bounds the input, not the time of a pattern that backtracks.
+ */
+export function strictHeader(req: HeaderSource, name: string, options: StrictHeaderOptions): string | undefined {
+  const { maxLength, pattern } = options;
+  if (!Number.isSafeInteger(maxLength) || maxLength < 0) {
+    throw new TypeError(`strictHeader maxLength must be a non-negative integer, got ${String(maxLength)}`);
+  }
+  if (pattern !== undefined) assertAnchored(pattern);
+
+  const key = name.toLowerCase();
+  const value = req.headers[key];
+  if (typeof value !== 'string' || value.length > maxLength) return undefined;
+  if (req.rawHeaders !== undefined && sentTimes(req.rawHeaders, key) > 1) return undefined;
+  if (pattern === undefined) return value;
+
+  // A top-level alternation (`^a|b$`) anchors each side once only, so the match must also span the whole value.
+  const match = pattern.exec(value);
+  return match !== null && match.index === 0 && match[0].length === value.length ? value : undefined;
+}
+
 const formEncode = (s: string): string => new URLSearchParams({ v: s }).toString().slice(2);
 
 /**
