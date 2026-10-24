@@ -19,5 +19,6 @@ export * from './validationError.js';
 export * from './entityTooLarge.js';
 export * from './unsupportedMediaType.js';
 export * from './tooManyRequests.js';
+export * from './codedHttpException.js';
 
 export * from './sse.js';
