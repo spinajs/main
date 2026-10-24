@@ -1,7 +1,10 @@
+import { DI } from '@spinajs/di';
 import { IOFail, ResourceNotFound } from '@spinajs/exceptions';
+import { Log } from '@spinajs/log';
 import * as express from 'express';
 import _ from 'lodash';
 import { promises } from 'fs';
+import type { OutgoingHttpHeaders } from 'http';
 import { resolve as resolvePath } from 'path';
 import { IFileResponseOptions, IResponseOptions, Response } from './../interfaces.js';
 import { getFs } from '@spinajs/fs';
@@ -58,10 +61,16 @@ export class ZipResponse extends Response {
   }
 }
 
+/** What `send` reports on a failure: an http-errors status, or a Node error code. */
+type SendFailure = Error & { status?: number; code?: string };
+
+const SUFFIX_RANGE = /^\s*bytes=\s*-\s*(\d*)\s*$/;
+
 export class FileResponse extends Response {
   /**
    * Sends file to client at given path & filename. If file exists
-   * it will send file with 200 OK, if not exists 404 NOT FOUND
+   * it will send file with 200 OK, if not exists 404 NOT FOUND.
+   * Single byte ranges, `ETag` / `Last-Modified` validators, 304, 412, 416 and HEAD come from Express' `res.sendFile`.
    */
   constructor(protected Options: IFileResponseOptions, protected responseOptions?: IResponseOptions) {
     super(null);
@@ -74,7 +83,7 @@ export class FileResponse extends Response {
     this.Options.provider = Options.provider ?? 'local';
   }
 
-  public async execute(_req: express.Request, res: express.Response): Promise<void> {
+  public async execute(req: express.Request, res: express.Response): Promise<void> {
     const provider = await getFs(this.Options.provider!);
     if (!provider) {
       throw new IOFail(`Provider ${this.Options.provider} not registered in configuration. Use default or check configuration.`);
@@ -95,19 +104,13 @@ export class FileResponse extends Response {
     const basePath = (provider as any).Options?.basePath as string | undefined;
     const isLocalRealFile = !!basePath && resolvePath(file).startsWith(resolvePath(basePath));
 
+    await this.wholeFileForLongSuffix(req, file);
+
     return new Promise((resolve, reject) => {
-
-      const encodedFilename = encodeURIComponent(this.Options.filename);
-
       _setCoockies(res, this.responseOptions);
       _setHeaders(res, this.responseOptions);
 
-      // Only pin the Content-Type when the caller gave an explicit mime type;
-      // otherwise let sendFile set it from the file (correct charset / type).
-      if (this.Options.mimeType) {
-        res.setHeader('Content-Type', this.Options.mimeType);
-      }
-      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);
+      const headersBeforeFile = res.getHeaders();
 
       sendFileAt(res, file, (err) => {
         const cleanups: Promise<unknown>[] = [];
@@ -124,14 +127,86 @@ export class FileResponse extends Response {
         }
 
         Promise.allSettled(cleanups).finally(() => {
-          if (!_.isNil(err)) {
-            reject(err);
+          const unanswered = _.isNil(err) ? null : this.answerSendFailure(res, err, headersBeforeFile);
+          if (unanswered) {
+            reject(unanswered);
           } else {
             resolve();
           }
         });
-      });
+      }, { headers: this.fileHeaders() });
     });
+  }
+
+  protected fileHeaders(): Record<string, unknown> {
+    return {
+      // Without an explicit mime type send derives it from the extension, with the charset of a text type.
+      ...(this.Options.mimeType ? { 'Content-Type': this.Options.mimeType } : {}),
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(this.Options.filename)}`,
+    };
+  }
+
+  /**
+   * range-parser refuses `bytes=-N` with N past the size (416); RFC 9110 §14.1.2 sends the whole file for it.
+   * `bytes=-` names no range at all, so it gets the whole file too.
+   */
+  private async wholeFileForLongSuffix(req: express.Request, file: string): Promise<void> {
+    const suffix = typeof req.headers.range === 'string' ? SUFFIX_RANGE.exec(req.headers.range) : null;
+    if (!suffix) {
+      return;
+    }
+
+    if (suffix[1] === '') {
+      delete req.headers.range;
+      return;
+    }
+
+    const size = (await promises.stat(file).catch(() => null))?.size;
+    if (size !== undefined && Number(suffix[1]) >= size) {
+      req.headers.range = 'bytes=0-';
+    }
+  }
+
+  /**
+   * Answers what `send` leaves to its caller (Express' sendFile listens for its errors, so send answers none itself),
+   * or returns the error for the error handler. While nothing is sent yet, it first puts the headers back as they were
+   * before the file: a file header that replaced a middleware's value gets that value back.
+   */
+  private answerSendFailure(res: express.Response, err: SendFailure, headersBeforeFile: OutgoingHttpHeaders): Error | null {
+    if (err.code === 'ECONNABORTED') {
+      return null;
+    }
+
+    if (res.headersSent) {
+      DI.resolve(Log, ['http']).warn({ error: err, path: this.Options.path }, 'File ${path} failed after its headers were sent');
+      res.destroy();
+      return null;
+    }
+
+    for (const name of res.getHeaderNames()) {
+      if (err.status === 416 && name === 'content-range') {
+        continue;
+      }
+
+      const before = headersBeforeFile[name];
+      if (before === undefined) {
+        res.removeHeader(name);
+      } else if (!_.isEqual(res.getHeader(name), before)) {
+        res.setHeader(name, before);
+      }
+    }
+
+    if (err.status === 412 || err.status === 416) {
+      res.status(err.status).end();
+      return null;
+    }
+
+    if (err.status === 404 || err.code === 'EISDIR') {
+      return new ResourceNotFound(`File ${this.Options.path} not exists`);
+    }
+
+    // send's own errors carry the fs error's fields (path, syscall, errno), which the error map would put in the body.
+    return new IOFail(`File ${this.Options.path} cannot be sent`, err);
   }
 }
 
