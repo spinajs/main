@@ -73,7 +73,7 @@ export default {
 | `@Param(schema?, options?)` | parameter | JSON schema; `{ required?: boolean }` | `req.params[name]`, same `_` fallback. Converted and validated. |
 | `@Body(options?)` | parameter | `{ required?: boolean; sensitive?: string[] }` | `req.body[name]` when the body has that field; the whole body when the route has exactly one `@Body`; else `null`. Converted and validated. |
 | `@BodyField()` | parameter | none | The whole `req.body`, through the input filters, without validation or hydration. |
-| `@Header(key?, schema?, options?)` | parameter | header name (default: parameter name in lower case); JSON schema; `{ required?: boolean }` | `req.headers[key]`. Converted and validated. |
+| `@Header(key?, schema?, options?)` | parameter | header name in any case (default: the parameter name); JSON schema; `{ required?: boolean }` | `req.headers[key]`, looked up in lower case. Converted and validated. |
 | `@Cookie(secure = false)` | parameter | `secure`: verify the signature | `req.cookies[name]`; see [Cookies](20-cookies.md). |
 | `@FromXml(options?)` | parameter | `fast-xml-parser` `X2jOptions` | Parses an XML body (`application/xml`, `text/xml`, `*+xml`). `ignoreAttributes` is `false` unless you set it. Invalid XML throws `BadRequest` (400). |
 | `@RawBody()` | parameter | none | `req.rawBody`: the exact JSON body bytes as a `Buffer`, for webhook signatures; `undefined` for other content types. |
@@ -147,6 +147,7 @@ export default {
 - `@Body({ sensitive: ['reauthPassword'] })`: once the argument holds its value (or failed validation), the named fields are deleted from `req.body` and `req.rawBody` is dropped, so no later reader of the request, a log or another argument, gets them. An untyped body argument, which is `req.body` itself, receives a copy that keeps them.
 - `@FromDI()` resolves from the **root** container on every request; the service's own lifetime decides whether it is shared.
 - `@Header()` without a key reads the header named like the parameter in lower case: `@Header() authorization: string`.
+- `@Header()` gives the value as Node folded it: a repeated header joined with `, `, or only the first copy of `Authorization`, `Host` and a few others. Give it a schema with `maxLength` and a `pattern`, or read the header with [`strictHeader`](22-header-and-cookie-helpers.md#reading-an-untrusted-header) when a repeat must be refused.
 - Validation errors throw `ValidationFailed`, answered as 400 by `ValidationError`; see [Error handling](11-error-handling.md). An action cannot catch it, because it is thrown before the action runs; use `@OnError` with `stages: ['arguments']`.
 - The action also receives `req`, `res` and `next` after the decorated arguments.
 

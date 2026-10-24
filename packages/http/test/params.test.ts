@@ -164,6 +164,11 @@ describe('controller action test params', function () {
       assert.calledWith(DI.get(HeaderParams)!.headerParam as sinon.SinonSpy, 'hello world');
     });
 
+    it('headerParamMixedCase', async () => {
+      await req().get('params/headers/headerParamMixedCase').set('x-custom-header', 'hello world');
+      assert.calledWith((DI.get(HeaderParams) as unknown as Record<string, sinon.SinonSpy>).headerParamMixedCase, 'hello world');
+    });
+
     it('headerDate', async () => {
       const spy = DI.get(HeaderParams)!.headerDate as sinon.SinonSpy;
 
