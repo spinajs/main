@@ -5,7 +5,7 @@ import * as express from 'express';
 import _ from 'lodash';
 import { promises } from 'fs';
 import type { OutgoingHttpHeaders } from 'http';
-import { resolve as resolvePath } from 'path';
+import { basename, resolve as resolvePath } from 'path';
 import { IFileResponseOptions, IResponseOptions, Response } from './../interfaces.js';
 import { getFs } from '@spinajs/fs';
 // import from the defining module, not the package barrel - '../index.js' pulls
@@ -16,9 +16,10 @@ import { _setCoockies, _setHeaders } from '../responses.js';
 export class ZipResponse extends Response {
   /**
    * Sends zipped file to client at given path & filename. If file exists
-   * it will send file with 200 OK, if not exists 404 NOT FOUND
+   * it will send file with 200 OK, if not exists 404 NOT FOUND.
+   * Always an attachment: `disposition` and `headers` are `FileResponse` only.
    */
-  constructor(protected Options: IFileResponseOptions, protected responseOptions?: IResponseOptions) {
+  constructor(protected Options: Omit<IFileResponseOptions, 'disposition' | 'headers'>, protected responseOptions?: IResponseOptions) {
     super(null);
 
     // The payload is always a zip archive — default to application/zip rather
@@ -40,7 +41,7 @@ export class ZipResponse extends Response {
     const fPath = zippedFile.asFilePath();
 
     return new Promise((resolve, reject) => {
-      const encodedFilename = encodeURIComponent(this.Options.filename);
+      const encodedFilename = encodeURIComponent(this.Options.filename ?? `${basename(this.Options.path)}.zip`);
 
       _setCoockies(res, this.responseOptions);
       _setHeaders(res, this.responseOptions);
@@ -139,10 +140,15 @@ export class FileResponse extends Response {
   }
 
   protected fileHeaders(): Record<string, unknown> {
+    const disposition = this.Options.disposition ?? 'attachment';
+    const filename = this.Options.filename ?? (disposition === 'attachment' ? basename(this.Options.path) : undefined);
+
     return {
+      ...(disposition === 'inline' ? { 'X-Content-Type-Options': 'nosniff' } : {}),
+      ...this.Options.headers,
       // Without an explicit mime type send derives it from the extension, with the charset of a text type.
       ...(this.Options.mimeType ? { 'Content-Type': this.Options.mimeType } : {}),
-      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(this.Options.filename)}`,
+      'Content-Disposition': filename === undefined ? disposition : `${disposition}; filename*=UTF-8''${encodeURIComponent(filename)}`,
     };
   }
 
