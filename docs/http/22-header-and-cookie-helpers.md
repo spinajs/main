@@ -10,12 +10,13 @@ Small, dependency-free functions for code that reads request headers or builds c
 | `normalizeHeaders(req)` | Lower-cased headers built from `req.rawHeaders`, with a repeated header joined with `, `, in an object without a prototype. Node's `req.headers` keeps only the first of a repeated `Authorization`; read it from here so a second credential is seen and refused. |
 | `parseCookieHeader(header)` | The cookies of a `Cookie` header as a prototype-less `name → value` map. Pairs without `=` (cookie-parser skips them too) or with an empty name are skipped, the first of a repeated name wins, surrounding quotes are dropped, and the value is URI-decoded (kept raw when the escape is malformed). |
 | `strictHeader(req, name, { maxLength, pattern? })` | The value of header `name` (any case) when the client sent it exactly once, it is at most `maxLength` long and, with `pattern`, the pattern matches all of it. `undefined` otherwise: absent, an array, repeated, too long or not matching. See [Reading an untrusted header](#reading-an-untrusted-header). |
+| `strictHeaderReader(name, { maxLength, pattern? })` | `strictHeader` for one header: it checks `maxLength` and `pattern` once, when called (a bad option throws `TypeError` at startup, not on the first request), and returns `(req) => string | undefined`. |
 
 ### Reading an untrusted header
 
 Request headers come from the client. `req.headers` hides two things: Node joins most repeated headers with `, ` and keeps only the first of others (`Authorization`, `Host`, `Content-Type`), and it puts no bound on a value below the 16 KiB of all headers. `strictHeader` reads one header by a grammar you state:
 
-- It counts the header in `req.rawHeaders`, so a repeat is refused whichever way Node folded it. A value your own code put in `req.headers` is read as it is.
+- It counts the header in `req.rawHeaders`, so a repeat is refused whichever way Node folded it. A value your own code put in `req.headers` is read as it is, unless the client sent that header more than once.
 - `maxLength` is required. Node decodes header bytes as latin1, so it bounds bytes too.
 - `pattern` must start with `^` and end with `$`, and have no `g`, `y` or `m` flag; any other pattern throws `TypeError`. The match must also cover the whole value, so `/^a|b$/` matches neither `xb` nor `ab`: group an alternation, `/^(?:a|b)$/`.
 - Keep `pattern` free of nested or overlapping quantifiers (`(a+)+`, `(a|ab)*`, `\s*-?\s*`). `maxLength` bounds the input, not the time a backtracking pattern takes on it.

@@ -4,6 +4,7 @@ import { Config } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log';
 
+import { FIELD_NAME_PATTERN } from '../headers.js';
 import { ServerMiddleware, Request as sRequest } from '../interfaces.js';
 
 const ALLOWED_METHODS = 'GET,HEAD,PUT,PATCH,POST,DELETE';
@@ -42,8 +43,7 @@ const withoutProxyHeaders = (list: string | undefined, keep: (name: string) => b
 };
 
 // RFC 9110 field-name: anything else in Access-Control-Request-Headers names no header and is not echoed back.
-const FIELD_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
-const isFieldName = (name: string): boolean => FIELD_NAME.test(name);
+const isFieldName = (name: string): boolean => FIELD_NAME_PATTERN.test(name);
 
 /**
  * CORS by rule A31: only listed origins get CORS headers.

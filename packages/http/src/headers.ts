@@ -64,10 +64,21 @@ export interface HeaderSource {
   readonly rawHeaders?: readonly string[];
 }
 
+/** RFC 9110 token, which is also a field name. */
+export const FIELD_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+function endsWithAnchor(source: string): boolean {
+  if (!source.endsWith('$')) return false;
+  let backslashes = 0;
+  for (let i = source.length - 2; i >= 0 && source[i] === '\\'; i--) backslashes++;
+  // an odd run escapes the $
+  return backslashes % 2 === 0;
+}
+
 function assertAnchored(pattern: RegExp): void {
   const { source, flags } = pattern;
   // `m` makes ^ and $ match at line breaks; `g` and `y` make exec() start where the previous call left lastIndex.
-  if (!source.startsWith('^') || !source.endsWith('$') || source.endsWith('\\$') || /[gym]/.test(flags)) {
+  if (!source.startsWith('^') || !endsWithAnchor(source) || /[gym]/.test(flags)) {
     throw new TypeError(`strictHeader pattern ${String(pattern)} must be anchored with ^ and $ and have no g, y or m flag`);
   }
 }
@@ -89,12 +100,24 @@ function sentTimes(rawHeaders: readonly string[], name: string): number {
  * `maxLength` bounds the input, not the time of a pattern that backtracks.
  */
 export function strictHeader(req: HeaderSource, name: string, options: StrictHeaderOptions): string | undefined {
-  const { maxLength, pattern } = options;
+  assertStrictOptions(options);
+  return readStrictHeader(req, name, options);
+}
+
+function assertStrictOptions({ maxLength, pattern }: StrictHeaderOptions): void {
   if (!Number.isSafeInteger(maxLength) || maxLength < 0) {
     throw new TypeError(`strictHeader maxLength must be a non-negative integer, got ${String(maxLength)}`);
   }
   if (pattern !== undefined) assertAnchored(pattern);
+}
 
+/** {@link strictHeader} with the options checked once, for a header read on every request. */
+export function strictHeaderReader(name: string, options: StrictHeaderOptions): (req: HeaderSource) => string | undefined {
+  assertStrictOptions(options);
+  return (req) => readStrictHeader(req, name, options);
+}
+
+function readStrictHeader(req: HeaderSource, name: string, { maxLength, pattern }: StrictHeaderOptions): string | undefined {
   const key = name.toLowerCase();
   const value = req.headers[key];
   if (typeof value !== 'string' || value.length > maxLength) return undefined;

@@ -17,11 +17,10 @@ import { getFs } from '@spinajs/fs';
 import { UnexpectedServerError } from '@spinajs/exceptions';
 import * as cs from 'cookie-signature';
 import { XMLBuilder } from 'fast-xml-parser';
-import { strictHeader } from './headers.js';
+import { FIELD_NAME_PATTERN, strictHeader } from './headers.js';
 
 const TRANSFORMER_HEADER_MAX_LENGTH = 256;
 // RFC 9110 token: only such a name is repeated back in the 400 for an unknown transformer.
-const ECHOED_TRANSFORMER = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 
 export function _setCoockies(res: express.Response, options?: IResponseOptions) {
   const cfg = DI.get(Configuration);
@@ -241,7 +240,7 @@ export function httpResponse(model: any, template: string, options?: IResponseOp
       jsonResponse(
         {
           error: {
-            message: dataTransformer !== undefined && ECHOED_TRANSFORMER.test(dataTransformer) ? `invalid data transformer ${dataTransformer}` : 'invalid data transformer',
+            message: dataTransformer !== undefined && FIELD_NAME_PATTERN.test(dataTransformer) ? `invalid data transformer ${dataTransformer}` : 'invalid data transformer',
             code: HTTP_STATUS_CODE.BAD_REQUEST,
           },
         },

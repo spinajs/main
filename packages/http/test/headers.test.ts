@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 
-import { basicAuthHeader, normalizeHeaders, parseBearer, parseCookieHeader, strictHeader } from '../src/index.js';
+import { basicAuthHeader, normalizeHeaders, parseBearer, parseCookieHeader, strictHeader, strictHeaderReader } from '../src/index.js';
 
 describe('strictHeader', () => {
   const once = (name: string, value: string) => ({ headers: { [name.toLowerCase()]: value }, rawHeaders: [name, value] });
@@ -44,6 +44,11 @@ describe('strictHeader', () => {
     expect(strictHeader(once('X-Mode', 'ab'), 'x-mode', { maxLength: 16, pattern: /^a|ab$/ })).to.eq(undefined);
   });
 
+  it('tells an escaped $ from the anchor by counting the backslashes before it', () => {
+    expect(strictHeader(once('X-Path', 'a\\'), 'x-path', { maxLength: 16, pattern: /^a\\$/ })).to.eq('a\\');
+    expect(() => strictHeader(once('X-Path', 'a\\$'), 'x-path', { maxLength: 16, pattern: /^a\\\$/ })).to.throw(TypeError);
+  });
+
   it('throws for a pattern that is not anchored or keeps state, and for a bad maxLength', () => {
     for (const pattern of [/[a-z]+$/, /^[a-z]+/, /^[a-z]+\$/, /^[a-z]+$/g, /^[a-z]+$/y, /^[a-z]+$/m]) {
       expect(() => strictHeader(once('X-Tenant', 'acme'), 'x-tenant', { maxLength: 16, pattern }), String(pattern)).to.throw(TypeError);
@@ -51,6 +56,22 @@ describe('strictHeader', () => {
     for (const maxLength of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(() => strictHeader(once('X-Tenant', 'acme'), 'x-tenant', { maxLength }), String(maxLength)).to.throw(TypeError);
     }
+  });
+});
+
+describe('strictHeaderReader', () => {
+  const once = (name: string, value: string) => ({ headers: { [name.toLowerCase()]: value }, rawHeaders: [name, value] });
+  const read = strictHeaderReader('X-Tenant', { maxLength: 8, pattern: /^[a-z]+$/ });
+
+  it('reads like strictHeader, once per request', () => {
+    expect(read(once('x-tenant', 'acme'))).to.eq('acme');
+    expect(read(once('x-tenant', 'ACME'))).to.eq(undefined);
+    expect(read({ headers: { 'x-tenant': 'acme' }, rawHeaders: ['X-Tenant', 'acme', 'x-tenant', 'acme'] })).to.eq(undefined);
+  });
+
+  it('validates the options when it is built, not when it reads', () => {
+    expect(() => strictHeaderReader('x', { maxLength: -1 })).to.throw(TypeError);
+    expect(() => strictHeaderReader('x', { maxLength: 1, pattern: /[a-z]/ })).to.throw(TypeError);
   });
 });
 

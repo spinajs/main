@@ -11,7 +11,7 @@ Node's HTTP parser (llhttp, with `insecureHTTPParser` off, the default) runs bef
 3. Drops the spaces and tabs around a value, and decodes its bytes as latin1.
 4. Folds a repeated header into `req.headers`: `Cookie` is joined with `; `, `Set-Cookie` becomes an array, `Authorization`, `Host`, `Content-Type`, `User-Agent`, `Referer` and a few others keep the first copy only, and every other header is joined with `, `. `req.rawHeaders` keeps each copy.
 
-So a header value can never inject a line into a log or a response, and it is never longer than 16 KiB. What the framework must still check: the grammar of the value, a bound below 16 KiB where the value is stored or parsed, and a repeat that Node folded.
+So no CR/LF reaches a log or a response (NEL, U+0085, and tab pass the parser), and it is never longer than 16 KiB. What the framework must still check: the grammar of the value, a bound below 16 KiB where the value is stored or parsed, and a repeat that Node folded.
 
 ## Audit
 
