@@ -46,6 +46,7 @@ export function toHandshake(socket: Socket, trust: ProxyTrust): ISocketHandshake
   return {
     auth: { ...(h.auth as Record<string, unknown>) },
     headers: h.headers,
+    rawHeaders: socket.request?.rawHeaders,
     cookies: parseCookies(h.headers.cookie),
     address: clientAddressOf(h.address, h.headers, trust),
     peerAddress: h.address,
