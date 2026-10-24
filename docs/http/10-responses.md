@@ -47,7 +47,7 @@ Every format applies `options.Headers` and `options.Coockies` (see [Cookies](20-
 | `UnsupportedMediaType` | 415 | `unsupported-media-type.pug` | `UnsupportedMediaTypeException` | Thrown by `@RequestStream()` when a parser took the body. |
 | `TooManyRequests` | 429 | `too-many-requests.pug` | | Options also take `retryAfterSeconds`, sent as `Retry-After` (rounded up, see `retryAfterHeader` in [Header and cookie helpers](22-header-and-cookie-helpers.md)) when it is a finite number. |
 | `ServerError` | 500 | `serverError.pug` | `MethodNotImplemented`, `IOFail`, `UnexpectedServerError`, and every unmapped error | |
-| `CodedHttpExceptionResponse` | the exception's `status` | none | `CodedHttpException` (`@spinajs/http`) | Always JSON `{ code, message, details? }`, never a stack. See [Coded errors](11-error-handling.md#coded-errors). |
+| `CodedHttpExceptionResponse` | the exception's `status` | none | `CodedHttpException` (defined in `@spinajs/exceptions`, re-exported by `@spinajs/http`) | Always JSON `{ code, message, details? }`, never a stack. See [Coded errors](11-error-handling.md#coded-errors). |
 | `Json` | 200 or `options.StatusCode` | none | | Always JSON. |
 | `Xml` | 200 or `options.StatusCode` | none | | Always XML. Third argument: `XMLBuilder` options. |
 | `TemplateResponse` | 200 or `options.StatusCode` | the given file | | Renders `file` from the `__fs_http_templates__` provider, or `{ template, provider }` from another provider. Throws `IOFail` when the provider is missing. |

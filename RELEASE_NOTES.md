@@ -82,8 +82,10 @@
   ```
 
 - An `UploadError` that escapes to the error map, from a route outside `UploadController`, answers its own status
-  (`404 upload.not_found`, `409 upload.parts_missing`, ...) instead of 500. A class-level `@OnError(Error, ...)` that
-  answers only when `answeredAsServerError(err)` is `true` no longer receives `UploadError`s.
+  (`404 upload.not_found`, `409 upload.parts_missing`, ...) instead of 500. A class-level `@OnError(Error, ...)` still
+  receives `UploadError`s, but `answeredAsServerError(err)` is now `false` for them: a handler guarded by it lets them
+  pass to `UploadController`'s handler instead of answering 500. An `UploadError` that escapes `UploadController` answers
+  its own status as JSON only, with no `Accept` negotiation and no `x-error-transform`.
 - `FileResponse` keeps `attachment` as its default and sets the same headers on a successful answer.
   `Content-Disposition` and an explicit `Content-Type` are now set when `send` has found the file, so an error answer
   no longer has them.
