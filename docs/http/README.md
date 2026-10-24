@@ -27,8 +27,8 @@ The decorators read TypeScript metadata. Set `experimentalDecorators`, `emitDeco
 | [Argument input filters](07-argument-input-filters.md) | `ArgInputFilter`: inspect, rewrite or reject every argument before validation |
 | [File uploads](08-file-uploads.md) | `@File`, `@Files`, `@CsvFile`, `@JsonFile`, `@Form`, `@FormField`; the upload flow and its options |
 | [Upload middlewares and uploaders](09-upload-middlewares-and-uploaders.md) | `FileUploadMiddleware` (info, validation, zip, unzip) and `FormFileUploader`: transform, validate and store uploaded files |
-| [Responses](10-responses.md) | `Ok`, `NotFound`, `Json`, `Xml`, `FileResponse`, `TemplateResponse`, `Redirect` and the rest; content negotiation; writing your own response |
-| [Error handling](11-error-handling.md) | How a thrown exception becomes a response; `@HandleException` and the error map; `@OnError` route error handlers and `http.errors.handlers`; 404 for unmatched routes |
+| [Responses](10-responses.md) | `Ok`, `NotFound`, `Json`, `Xml`, `FileResponse` (download or inline, byte ranges, conditional requests), `TemplateResponse`, `Redirect` and the rest; content negotiation; writing your own response |
+| [Error handling](11-error-handling.md) | How a thrown exception becomes a response; `@HandleException` and the error map; `CodedHttpException` and its `{ code, message, details? }` answer; `@OnError` route error handlers and `http.errors.handlers`; 404 for unmatched routes |
 | [Data transformers](12-data-transformers.md) | `DataTransformer`: reshape a JSON answer on request with `x-data-transform` and `x-error-transform` |
 | [Policies](13-policies.md) | `BasePolicy`, `@Policy`: AND groups, OR alternatives, controller and route scopes, policies named in configuration |
 | [Route middlewares](14-route-middlewares.md) | `RouteMiddleware`, `@Middleware`, `@Accepts`: code around one route or controller |

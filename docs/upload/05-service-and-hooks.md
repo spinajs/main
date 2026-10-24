@@ -6,7 +6,7 @@
 
 1. The caller loads the session with `get(id, owner)`: a missing session, or one whose `owner` differs, throws `UploadError('upload.not_found')`. `owner: null` leaves the lookup unscoped.
 2. The caller authorizes the session itself; the service does not know your users.
-3. It calls the operation. Every refusal is an `UploadError` with a stable `code` and the HTTP `status` a controller answers.
+3. It calls the operation. Every refusal is an `UploadError` with a stable `code` and the HTTP `status` a controller answers. `UploadError` is a `CodedHttpException` (`@spinajs/exceptions`): thrown from your own route, the `@spinajs/http` error map answers it with that status and the same `{ code, message, details? }` body as `UploadController`.
 
 | Method | Returns | What it does |
 | --- | --- | --- |

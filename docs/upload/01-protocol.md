@@ -117,7 +117,7 @@ An `open` session past `expiresAt` can still be aborted until the sweeper expire
 
 ## Errors
 
-Every upload refusal answers `{ code, message, details? }` with the status below. `details.parts` lists the part numbers to send again; it comes with `upload.parts_missing` and `upload.part_corrupted`.
+Every upload refusal answers `{ code, message, details? }` with the status below. `details.parts` lists the part numbers to send again; it comes with `upload.parts_missing` and `upload.part_corrupted`. No answer carries an empty `details`.
 
 | Code | Status | Route | When |
 | --- | --- | --- | --- |

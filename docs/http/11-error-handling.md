@@ -6,6 +6,8 @@ The exception side of this mapping, with the full list of mapped exceptions, is 
 
 A route or controller can handle its own errors first with [`@OnError`](#route-error-handlers): answer them, replace them, or only observe them.
 
+An API whose clients branch on a stable error code throws a [`CodedHttpException`](#coded-errors): it carries its own status and code, and answers `{ code, message, details? }`.
+
 ## How it works
 
 Errors reach the handler from two places:
@@ -120,6 +122,66 @@ export class InvoiceActionsController extends BaseController {
 
 The exception's public fields (`renewUrl` above) are copied into the error body, so the client can act on them.
 
+## Coded errors
+
+`CodedHttpException` is a refusal with its own HTTP status and a stable, machine-readable code. It is defined in `@spinajs/exceptions` and re-exported by `@spinajs/http`, so a package with no HTTP layer can throw it. `CodedHttpExceptionResponse` is mapped to it with `@HandleException` when `@spinajs/http` loads, so every subclass answers the same way. `UploadError` of `@spinajs/upload` is one.
+
+`new CodedHttpException<TCode, TDetails>(status, code, message?, details?, inner?)`:
+
+| Parameter | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `status` | `number` | | An integer from 400 to 599. Anything else throws `UnexpectedServerError`, which answers 500: the status is the server's mistake, not the client's. |
+| `code` | `TCode extends string` | | Stable code the client branches on, such as `invoice.locked`. |
+| `message` | `string` | `code` | Text for people. |
+| `details` | `TDetails` (default `unknown`) | | Data the client acts on, such as the parts to resend. Sent as `details`. Plain JSON data only, see below. |
+| `inner` | `unknown` | | The cause. Kept as `inner` and `cause`, never sent. |
+
+`status`, `code` and `details` are own enumerable fields; `name`, `inner` and `cause` are not.
+
+`CodedHttpExceptionResponse` answers:
+
+1. The status: `IResponseOptions.StatusCode` when given, else the exception's `status`, else 500.
+2. The body, as `CodedErrorBody`: `{ code, message }`, plus `details` when the exception has them. No other field of the exception, and no `stack`, whatever `configuration.isProduction` says.
+3. Always JSON through `jsonResponse`: no `Accept` negotiation, no `x-error-transform` transformer. A browser asking for HTML gets the same JSON.
+
+`details` goes through `res.json()`, so it must survive `JSON.stringify`: no cycles, no `BigInt`. When it does not, the coded answer fails and one of the error handler's fallbacks answers 500 instead, which is not the coded body and, outside production, can carry a `stack`.
+
+```json
+{ "code": "invoice.locked", "message": "The invoice is sent and cannot change", "details": { "invoice": "2026-0042" } }
+```
+
+Narrow the code with one subclass per app. It inherits the mapping, because the lookup walks the prototype chain:
+
+```ts sample
+import { BaseController, BasePath, CodedHttpException, Get, OnError, Ok, Param } from '@spinajs/http';
+
+type ApiErrorCode = 'input.invalid' | 'invoice.locked' | 'invoice.missing' | 'storage.unavailable';
+
+/** Every refusal of the API; a code outside ApiErrorCode does not compile. */
+export class ApiException extends CodedHttpException<ApiErrorCode> {}
+
+class InvoiceLockedError extends Error {}
+
+@BasePath('invoices')
+// A domain error of any route of this controller becomes a coded 409.
+@OnError(InvoiceLockedError, (err) => new ApiException(409, 'invoice.locked', err.message))
+export class InvoicesController extends BaseController {
+  @Get(':number')
+  public read(@Param() number: string) {
+    if (!/^\d{4}-\d{4}$/.test(number)) {
+      // 400 { "code": "input.invalid", "message": "An invoice number is YYYY-NNNN" }
+      throw new ApiException(400, 'input.invalid', 'An invoice number is YYYY-NNNN');
+    }
+    if (number.endsWith('0000')) {
+      throw new InvoiceLockedError(`invoice ${number} is sent and cannot change`);
+    }
+    return new Ok({ number });
+  }
+}
+```
+
+An `@OnError` handler can also return `new CodedHttpExceptionResponse(exception)` to answer at once, without the later handlers and the error map.
+
 ## Route error handlers
 
 `@OnError(on, handler, { stages? })` lets a controller answer, replace or observe an error of its own route chain before the error map sees it. Use it when one route must answer differently from the global mapping, for example a login that answers invalid input with the same 401 as a wrong password.
@@ -219,7 +281,7 @@ A name in `http.errors.handlers` that no registered `ErrorHandlerService` has fa
 
 - Lookup is by class **name**. Two exception classes with the same name share one mapping.
 - An exact registration wins over an inherited one, because the walk starts at the concrete class.
-- Every own enumerable field of the exception goes into the body. Do not put secrets, SQL or tokens on exceptions.
+- Every own enumerable field of the exception goes into the body. Do not put secrets, SQL or tokens on exceptions. `CodedHttpExceptionResponse` does not: it sends `code`, `message` and `details` only.
 - Unmapped errors (a plain `Error`, a `TypeError`) answer 500 and log `Error type X dont have assigned http response`.
 - Outside production the body carries `stack`. Set `configuration.isProduction` in production.
 - The map and the configuration are read when each handler is created (controller startup and `HttpServer.start()`). Register mappings before that.
@@ -231,6 +293,7 @@ A name in `http.errors.handlers` that no registered `ErrorHandlerService` has fa
 - Model refusals as exception subclasses of `BadRequest`, `Forbidden`, `ResourceNotFound`, `ResourceDuplicated`; the status follows with no HTTP code in the service layer.
 - Keep the HTTP mapping in the HTTP layer: put `@HandleException` on a response class in your HTTP package, not on the exception.
 - Use one response class per status, mapped to many exceptions with an array.
+- For an API with error codes, subclass `CodedHttpException` once with the app's code union, and map domain errors to it in `@OnError` at the controller.
 
 ## Patterns and antipatterns
 

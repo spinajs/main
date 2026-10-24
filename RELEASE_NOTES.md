@@ -1,3 +1,95 @@
+# Release notes — exceptions, http, upload: coded HTTP errors; inline file responses with byte ranges
+
+> Branch `feat/http-coded-error-inline-file`. Packages: exceptions, http, upload.
+>
+> Docs: `docs/exceptions/README.md`, `docs/exceptions/01-exception-classes.md`, `docs/exceptions/02-domain-exceptions.md`,
+> `docs/exceptions/03-http-error-mapping.md`, `docs/http/10-responses.md`, `docs/http/11-error-handling.md`,
+> `docs/http/README.md`, `docs/upload/01-protocol.md`, `docs/upload/05-service-and-hooks.md`.
+
+## New behavior
+
+### `@spinajs/exceptions` — `CodedHttpException`
+
+- `new CodedHttpException<TCode extends string = string, TDetails = unknown>(status, code, message?, details?, inner?)`:
+  a refusal with its own status and a stable code. A status that is not an integer from 400 to 599 throws
+  `UnexpectedServerError`, which answers 500. `message` defaults to the code; `inner` is kept as `inner` and `cause`
+  and never sent. `details` must survive `JSON.stringify`.
+- `CodedErrorBody<TCode, TDetails>` is the body type, `{ code, message, details? }`.
+- It lives in `@spinajs/exceptions` so a package with no HTTP layer can throw it. `@spinajs/http` re-exports the class
+  and the type: `import { CodedHttpException } from '@spinajs/http'` gives the same class.
+
+### `@spinajs/http` — `CodedHttpExceptionResponse`
+
+- Mapped to `CodedHttpException`; answers `{ code, message }`, plus `details` when given, with the exception's status
+  (`IResponseOptions.StatusCode` wins when given). Always JSON (no `Accept` negotiation, no `x-error-transform`), never
+  a stack, in every environment.
+- A subclass narrows the code union and inherits the mapping: `class ApiException extends CodedHttpException<ApiErrorCode> {}`.
+  An `@OnError` handler at route or controller level may return the exception (answered through the error map) or
+  `new CodedHttpExceptionResponse(exception)`.
+
+### `@spinajs/http` — inline `FileResponse`
+
+- `IFileResponseOptions.disposition`: `'attachment'` (default) or `'inline'`. Inline adds
+  `X-Content-Type-Options: nosniff`; without a `filename` it sends a bare `Content-Disposition: inline`.
+- `IFileResponseOptions.headers`: headers of the file answer only (200, 206, 304, HEAD), such as `Cache-Control` or
+  `Content-Security-Policy`. They are set through `res.sendFile`'s `headers` option, after the file is found. Before
+  any error answer the headers go back to what they were before the file: the file headers are removed, and a value
+  they replaced (a middleware's `Cache-Control`, helmet's CSP) comes back. `IResponseOptions.Headers` still go on
+  every answer.
+- `IFileResponseOptions.filename` is optional: it defaults to the last segment of `path` (`ZipResponse`: with `.zip`).
+- `ZipResponse` takes `Omit<IFileResponseOptions, 'disposition' | 'headers'>`: it is always an attachment and keeps
+  its own failure handling.
+- Content type: `mimeType` when given, else from the file extension.
+- Single byte ranges (206), `ETag` / `Last-Modified`, `If-None-Match` / `If-Modified-Since` (304), `If-Range`,
+  `If-Match` / `If-Unmodified-Since` (412), unsatisfiable or malformed `bytes=` ranges (416 with `bytes */<size>`)
+  and HEAD come from Express 5's `res.sendFile` (`send` 1.2). `If-Range` matches the weak `ETag` too. The table is
+  in `docs/http/10-responses.md#file-responses`.
+
+### `@spinajs/upload` — `UploadError` is a `CodedHttpException`
+
+- `UploadError` extends `CodedHttpException<UploadErrorCode, UploadErrorDetails>`. Its constructor, `code`, `status`
+  and `details` are the same, and `UploadController` answers exactly as before. Empty `details` stay readable as `{}`
+  but are not an enumerable field, so no answer carries `details: {}`.
+- An `UploadError` thrown outside `UploadController`, for example from an app route that calls `UploadService`, is
+  answered by the error map with its own status and `{ code, message, details? }`, the body `UploadController`
+  sends. `answeredAsServerError()` is `false` for it.
+- `@spinajs/upload` still has no dependency on `@spinajs/http`.
+
+## Fixes
+
+- `FileResponse` answers 416 and 412 itself. Both reached the error handler as an unmapped error and answered 500,
+  with the error's fields and, outside production, its stack.
+- `FileResponse` answers a suffix range longer than the file (`bytes=-N`, `N` at least the size) with 206 and the
+  whole file, as RFC 9110 §14.1.2 says, and `bytes=-` with 200 and the whole file. `send` answered both 416.
+- A file that disappears between the existence check and the send, or a `path` that is a directory, answers
+  `ResourceNotFound` (404) instead of 500, and no longer carries `Content-Disposition` or `Content-Type` from the file.
+- Any other failure of `send` before the body, such as a read error (`EACCES`, `EMFILE`), answers `IOFail` (500). The
+  body no longer carries the fs error's `path`, `syscall` and `errno`, in production too.
+- A client that hangs up during a `FileResponse` no longer reaches the error handler. A read error after the headers
+  went out closes the connection and logs a warning on the `http` logger, instead of trying to answer a second time.
+- `ZipResponse` without a `filename` sends `<name>.zip`, not `undefined`.
+
+## Migration
+
+- `IFileResponseOptions.filename` is optional (`filename?: string`). A `FileResponse` or `ZipResponse` subclass that
+  reads `this.Options.filename` as a `string` no longer compiles under `strictNullChecks`. Default it where it is read:
+
+  ```ts
+  // Before
+  const name: string = this.Options.filename;
+  // After
+  const name: string = this.Options.filename ?? basename(this.Options.path);
+  ```
+
+- An `UploadError` that escapes to the error map, from a route outside `UploadController`, answers its own status
+  (`404 upload.not_found`, `409 upload.parts_missing`, ...) instead of 500. A class-level `@OnError(Error, ...)` that
+  answers only when `answeredAsServerError(err)` is `true` no longer receives `UploadError`s.
+- `FileResponse` keeps `attachment` as its default and sets the same headers on a successful answer.
+  `Content-Disposition` and an explicit `Content-Type` are now set when `send` has found the file, so an error answer
+  no longer has them.
+
+---
+
 # Release notes — upload: resumable verified uploads; fs write options, digest and limit streams; raw request bodies
 
 > Branch `feat/upload`. Packages: upload (new), fs, fs-s3, fs-ftp, fs-onedrive, exceptions, http, http-swagger, authz-fs.
