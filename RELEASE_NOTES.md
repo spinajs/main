@@ -15,7 +15,7 @@
   the client sent it exactly once, it is at most `maxLength` long and, with `pattern`, the pattern matches all of it;
   otherwise `undefined`. A repeat is counted in `req.rawHeaders`, so it is refused whether Node joined the copies with
   `, ` or kept only the first (`Authorization`, `Host`, `Content-Type`). A value the app itself put in `req.headers`
-  is read as it is. Exported with `StrictHeaderOptions` and `HeaderSource`.
+  is read as it is, unless the client sent that header more than once. Exported with `StrictHeaderOptions` and `HeaderSource`.
 - `maxLength` must be a non-negative integer. `pattern` must start with `^`, end with `$` and have no `g`, `y` or `m`
   flag; anything else throws `TypeError`. Keep patterns free of nested or overlapping quantifiers: `maxLength` bounds
   the input, not the time a backtracking pattern takes.
@@ -47,12 +47,13 @@
 - The CORS preflight echo of `Access-Control-Request-Headers` keeps only entries that are RFC 9110 field names.
 - `@spinajs/scheduler-http`: `Last-Event-ID` is at most 15 digits. A longer id lost precision in `Number()` and
   resumed the stream at a wrong position, or from the start.
-- `@spinajs/http-socket`: a repeated `Authorization` header reaches the authn extractors joined, so the handshake
-  fails as the same request over http does. `handshake.headers` keeps only the first copy.
+- `@spinajs/http-socket`: a repeated `Authorization` header reaches the authn extractors joined, as over http. The
+  joined value is no credential: a token with the configured prefix fails, any other bearer gives no principal from authn
+  and the handshake falls through to the next principal source. `handshake.headers` keeps only the first copy.
 
 ## Migration
 
-Valid input is answered as before. These malformed requests are answered differently:
+Valid input is answered as before. These requests are answered differently (all are malformed input except the `@Header('X-Mixed-Case')` row, which is a code fix):
 
 | Request | Before | After |
 | --- | --- | --- |
@@ -64,7 +65,7 @@ Valid input is answered as before. These malformed requests are answered differe
 | CORS preflight asking for a header that is not a field name (`x a`, `<b>`) | echoed | dropped from `Access-Control-Allow-Headers` |
 | `@Header('X-Mixed-Case')` | `undefined` | the header's value |
 | `Last-Event-ID` of 16 or more digits (scheduler-http) | stream from a rounded position | 400 |
-| socket handshake with `Authorization` sent twice | first copy authenticated | refused, `unauthenticated` |
+| socket handshake with `Authorization` sent twice | first copy authenticated | no credential: a prefixed token fails, any other bearer gives no principal from authn |
 
 ```ts
 // Before: a mixed-case key never matched, the argument was undefined

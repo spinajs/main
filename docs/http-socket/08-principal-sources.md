@@ -127,7 +127,7 @@ export class ServiceKeySource extends SocketPrincipalSource {
 
 ### `AuthnCredentialSource`: accept a token from another header
 
-`AuthnCredentialSource` turns the handshake into an authn `SignedRequest` (`credentialRequest()`): every header but `Cookie`, plus `auth.token` as `Authorization: Bearer` when no `Authorization` header is set. A header the client sent twice is joined with `, ` from `rawHeaders`, as in `@spinajs/authn-http`, so a second `Authorization` is seen and the credential fails; a value a subclass put in `headers` in place of the received one is kept. A subclass can map another header before the default runs; override both methods so revalidation reads the same credential.
+`AuthnCredentialSource` turns the handshake into an authn `SignedRequest` (`credentialRequest()`): every header but `Cookie`, plus `auth.token` as `Authorization: Bearer` when no `Authorization` header is set. A header the client sent twice is joined with `, ` from `rawHeaders`, as in `@spinajs/authn-http`, so a second `Authorization` is seen and the joined value is no credential (a token with the configured prefix fails, any other bearer gives no principal from authn and the handshake falls through to the next source); a value a subclass put in `headers` in place of the received one is kept. A subclass can map another header before the default runs; override both methods so revalidation reads the same credential.
 
 ```ts sample
 import { DI, Injectable } from '@spinajs/di';
