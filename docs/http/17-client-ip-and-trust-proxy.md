@@ -8,7 +8,7 @@ At startup, `RealIp.before()` (Order 1) calls its protected `proxyTrust()`, whic
 
 Per request, RealIp stores that trust in `req.storage.proxyTrust`, so later middlewares and controllers read it with `requestProxyTrust(req)` instead of parsing a setting again. Then it computes `trustedClientAddress(socketAddress, xForwardedFor, trust)`:
 
-1. Starts from the socket address (IPv4-mapped IPv6 such as `::ffff:10.0.0.5` becomes `10.0.0.5`). No socket address: `undefined`.
+1. Starts from the socket address (IPv4-mapped IPv6 such as `::ffff:10.0.0.5` becomes `10.0.0.5`). Node appends a zone id to a link-local peer (`fe80::1%eth0`); it is dropped, so the peer is `fe80::1` and matches `linklocal`. No socket address: `undefined`.
 2. Walks the `X-Forwarded-For` entries from right to left. It steps to the next entry only while the current address is trusted:
    - hop count `n`: for the first `n` steps;
    - address list: while the current address is in the list.
@@ -112,7 +112,7 @@ DI.register(AppRealIp).as(RealIp);
 - Without `http.trustProxy`, behind a proxy every request shows the proxy's address: rate limits and logs then treat all clients as one.
 - Trusting too much lets clients forge their address: with `trustProxy: 2` and only one real proxy, a client-sent `X-Forwarded-For` entry is believed.
 - A hop count trusts any peer for that many steps; an address list trusts only listed peers. Prefer a list when proxy addresses are known.
-- A non-IP entry in `X-Forwarded-For` (eg. `unknown`, or `fe80::1%eth0` with a zone id) stops the walk at the last good address, so a zone id never reaches `realIp` or a throttle key. A socket address with a zone id gives no client address, and is no trusted peer.
+- A non-IP entry in `X-Forwarded-For` (eg. `unknown`, or `fe80::1%eth0` with a zone id) stops the walk at the last good address, so a zone id never reaches `realIp` or a throttle key. The zone id of a link-local socket address comes from the kernel, not the client, so it is dropped instead: the peer is a client address and a trusted peer like any other.
 - `requestOrigin()` takes only the first `X-Forwarded-Proto` and `X-Forwarded-Host` value, as express does; the trusted proxy must overwrite both headers, not append to them. This is kept on purpose: reading the hop-aligned entry would change what `http.trustProxy` means.
 
 ## Best practices

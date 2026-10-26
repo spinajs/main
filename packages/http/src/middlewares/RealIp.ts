@@ -32,6 +32,14 @@ function ipOf(value: string | undefined): string | undefined {
   return isIP(addr) === 0 ? undefined : addr;
 }
 
+/**
+ * {@link ipOf} of the socket's own address, without the zone id Node appends to a link-local peer (`fe80::1%eth0`).
+ * The kernel sets it, not the client, so it is dropped here, while one in X-Forwarded-For or a trust entry is refused.
+ */
+function peerIpOf(value: string | undefined): string | undefined {
+  return ipOf(typeof value === 'string' ? value.split('%')[0] : undefined);
+}
+
 const familyOf = (addr: string) => (isIP(addr) === 4 ? 'ipv4' : 'ipv6');
 
 /** Parses a {@link TrustProxySetting}; anything else, or a list entry that is no address or CIDR, throws an InvalidOption naming `key`. */
@@ -77,7 +85,7 @@ export function requestProxyTrust(req: { storage?: { proxyTrust?: ProxyTrust } }
 
 /** Whether the immediate peer is a trusted proxy: any peer for a hop count >= 1, a listed peer for a list. */
 export function isTrustedPeer(trust: ProxyTrust, peer: string | undefined): boolean {
-  const ip = ipOf(peer);
+  const ip = peerIpOf(peer);
   if (ip === undefined) return false;
   return 'hops' in trust ? trust.hops > 0 : trust.list.check(ip, familyOf(ip));
 }
@@ -88,7 +96,7 @@ export function isTrustedPeer(trust: ProxyTrust, peer: string | undefined): bool
  * the result is always an IP, or undefined without a socket address.
  */
 export function trustedClientAddress(socketAddress: string | undefined, forwardedFor: string | readonly string[] | undefined, trust: ProxyTrust): string | undefined {
-  let client = ipOf(socketAddress);
+  let client = peerIpOf(socketAddress);
   if (client === undefined) return undefined;
 
   const xff = typeof forwardedFor === 'string' ? forwardedFor : (forwardedFor ?? []).join(',');
