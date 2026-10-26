@@ -5,7 +5,7 @@ import { Config, Configuration } from '@spinajs/configuration';
 import '../register-schema.js';
 import '@spinajs/authn-session/register-schema';
 import { Log, Logger } from '@spinajs/log';
-import { BadRequest, Forbidden } from '@spinajs/exceptions';
+import { CodedHttpException, Forbidden } from '@spinajs/exceptions';
 import { Hooks } from '@spinajs/hooks';
 import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
 import { SINGLETON_CREDENTIAL_HEADERS, ServerMiddleware, repeatedHeader } from '@spinajs/http';
@@ -204,7 +204,7 @@ export class AuthnMiddleware extends ServerMiddleware {
    */
   protected extract(req: Request): Credentials | null {
     const repeated = repeatedHeader(req, this.singletonHeaders());
-    if (repeated !== undefined) throw Object.assign(new BadRequest(`the ${repeated} header was sent more than once`), { code: 'E_REPEATED_CREDENTIAL_HEADER' });
+    if (repeated !== undefined) throw new CodedHttpException(400, 'E_REPEATED_CREDENTIAL_HEADER', `the ${repeated} header was sent more than once`);
 
     const target = req.originalUrl ?? req.url;
     // An absolute-form or '*' target is no target any client signs.

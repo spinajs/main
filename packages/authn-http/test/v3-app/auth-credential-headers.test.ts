@@ -35,22 +35,24 @@ describe('singleton credential headers over HTTP, with the real extractors (RFC 
     const before = tokenStrategy.verifyCalls.length;
     const res = await new Client().get('/user/sessions', { Authorization: lines(`Bearer ${token}`, `Bearer ${token}`) });
     expect(res.status).to.eq(400);
-    expect(JSON.stringify(res.body)).to.include('the authorization header was sent more than once').and.include('E_REPEATED_CREDENTIAL_HEADER');
-    expect(JSON.stringify(res.body)).to.not.include(token);
+    expect(res.body, 'a CodedHttpException body: no stack, the same for every Accept').to.deep.eq({ code: 'E_REPEATED_CREDENTIAL_HEADER', message: 'the authorization header was sent more than once' });
     expect(tokenStrategy.verifyCalls.length - before).to.eq(0);
   });
 
   it('answers 400 for a repeated non-prefixed bearer too: it no longer falls through to x-api-key', async () => {
     const res = await new Client().get('/user/sessions', { Authorization: lines('Bearer someone-else', 'Bearer other'), 'x-api-key': await bearer() });
     expect(res.status).to.eq(400);
+    expect((res.body as { code?: string }).code).to.eq('E_REPEATED_CREDENTIAL_HEADER');
   });
 
   it('answers 400 for Proxy-Authorization and the authn.token.headerName header sent twice', async () => {
     const token = await bearer();
-    expect((await new Client().get('/user/sessions', { 'Proxy-Authorization': lines('Basic a', 'Basic b') })).status).to.eq(400);
+    const proxy = await new Client().get('/user/sessions', { 'Proxy-Authorization': lines('Basic a', 'Basic b'), Accept: 'text/html' });
+    expect(proxy.status).to.eq(400);
+    expect(proxy.body).to.deep.eq({ code: 'E_REPEATED_CREDENTIAL_HEADER', message: 'the proxy-authorization header was sent more than once' });
     const res = await new Client().get('/user/sessions', { 'X-Api-Key': lines(token, token) });
     expect(res.status).to.eq(400);
-    expect(JSON.stringify(res.body)).to.include('the x-api-key header was sent more than once');
+    expect(res.body).to.deep.eq({ code: 'E_REPEATED_CREDENTIAL_HEADER', message: 'the x-api-key header was sent more than once' });
   });
 
   it('leaves a request with an active session alone: the session ignores credential headers', async () => {
