@@ -43,4 +43,24 @@ export class HeaderParams extends BaseController {
   public headerParamMixedCase(@Header('X-Custom-Header') val: string) {
     return new Ok({ val });
   }
+
+  @Get()
+  public headerOnce(@Header('x-custom-header', null, { once: true }) val?: string) {
+    return new Ok({ val: val ?? null });
+  }
+
+  @Get()
+  public headerMaxLength(@Header('x-custom-header', null, { maxLength: 5 }) val?: string) {
+    return new Ok({ val: val ?? null });
+  }
+
+  @Get()
+  public headerPattern(@Header('x-custom-header', null, { pattern: /^[a-z]{1,8}$/ }) val?: string) {
+    return new Ok({ val: val ?? null });
+  }
+
+  @Get()
+  public headerStrictRequired(@Header('x-custom-header', null, { required: true, maxLength: 5 }) val: string) {
+    return new Ok({ val });
+  }
 }

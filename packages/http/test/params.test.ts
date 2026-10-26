@@ -212,6 +212,46 @@ describe('controller action test params', function () {
       expect(badResult).to.be.json;
       expect(badResult.body).to.be.not.null;
     });
+
+    // An array value makes Node write one header line per element.
+    const lines = (...values: string[]) => values as unknown as string;
+
+    it('a plain @Header() still gets a repeated header as Node joined it', async () => {
+      const res = await req().get('params/headers/headerParam').set('x-custom-header', lines('a', 'b'));
+      expect(res.body).to.deep.eq({ val: 'a, b' });
+    });
+
+    describe('strict options', () => {
+      const send = (route: string, value?: string | string[]) => {
+        const call = req().get(`params/headers/${route}`).set('Accept', 'application/json');
+        return value === undefined ? call : call.set('x-custom-header', typeof value === 'string' ? value : lines(...value));
+      };
+
+      it('once: a header sent once passes, a repeat answers 400 without echoing it, an absent one is undefined', async () => {
+        expect((await send('headerOnce', 'abc')).body).to.deep.eq({ val: 'abc' });
+        const repeated = await send('headerOnce', ['abc', 'def']);
+        expect(repeated).to.have.status(400);
+        expect(JSON.stringify(repeated.body)).to.not.include('def');
+        expect((await send('headerOnce')).body).to.deep.eq({ val: null });
+      });
+
+      it('maxLength: a longer value answers 400, and so does a repeat', async () => {
+        expect((await send('headerMaxLength', 'abcde')).body).to.deep.eq({ val: 'abcde' });
+        expect(await send('headerMaxLength', 'abcdef')).to.have.status(400);
+        expect(await send('headerMaxLength', ['ab', 'cd'])).to.have.status(400);
+      });
+
+      it('pattern: a value that does not match in full answers 400', async () => {
+        expect((await send('headerPattern', 'abc')).body).to.deep.eq({ val: 'abc' });
+        for (const bad of ['ABC', 'abc def', 'abcdefghi']) expect(await send('headerPattern', bad), bad).to.have.status(400);
+        expect(await send('headerPattern', ['abc', 'abc'])).to.have.status(400);
+      });
+
+      it('required still refuses an absent header', async () => {
+        expect(await send('headerStrictRequired')).to.have.status(400);
+        expect((await send('headerStrictRequired', 'abc')).body).to.deep.eq({ val: 'abc' });
+      });
+    });
   });
 
   describe('url params', function () {

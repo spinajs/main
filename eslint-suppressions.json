@@ -4561,11 +4561,6 @@
       "count": 4
     }
   },
-  "packages/http/src/route-args/FromHeaderArg.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    }
-  },
   "packages/http/src/route-args/FromParams.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 1

@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 
-import { basicAuthHeader, normalizeHeaders, parseBearer, parseCookieHeader, strictHeader, strictHeaderReader } from '../src/index.js';
+import { Header, basicAuthHeader, normalizeHeaders, parseBearer, parseCookieHeader, strictHeader, strictHeaderReader } from '../src/index.js';
 
 describe('strictHeader', () => {
   const once = (name: string, value: string) => ({ headers: { [name.toLowerCase()]: value }, rawHeaders: [name, value] });
@@ -151,5 +151,20 @@ describe('basicAuthHeader', () => {
 
   it('form-urlencodes both parts first with formEncode (RFC 6749 §2.3.1)', () => {
     expect(decoded(basicAuthHeader('my client', 'p:s&s/+', { formEncode: true }))).to.eq('my+client:p%3As%26s%2F%2B');
+  });
+});
+
+describe('@Header() strict options', () => {
+  it('checks maxLength and pattern when the decorator is built, not on the first request', () => {
+    for (const options of [{ pattern: /abc/ }, { pattern: /^a$/m }, { maxLength: -1 }, { maxLength: 1.5 }, { once: false, maxLength: 5 }, { once: false, pattern: /^a$/ }]) {
+      expect(() => Header('x-tenant', null, options), JSON.stringify(String(options.pattern ?? options.maxLength))).to.throw(TypeError);
+    }
+  });
+
+  it('builds without strict options, and with once alone', () => {
+    expect(() => Header('x-tenant')).to.not.throw();
+    expect(() => Header('x-tenant', null, { once: true })).to.not.throw();
+    expect(() => Header('x-tenant', null, { once: false })).to.not.throw();
+    expect(() => Header('x-tenant', null, { maxLength: 32, pattern: /^[a-z0-9-]{1,32}$/ })).to.not.throw();
   });
 });
