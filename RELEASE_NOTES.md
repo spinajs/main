@@ -1,3 +1,107 @@
+# Release notes — http, http-socket, authn, authn-http, authn-oidc: credential and origin headers
+
+> Branch `feat/authn-header-hardening`, stacked on `feat/http-untrusted-headers`. Packages: http, http-socket, authn,
+> authn-http, authn-oidc.
+>
+> Docs: `docs/http/25-untrusted-headers.md` (the open questions are now decisions), `docs/http/04-route-arguments.md`,
+> `docs/http/17-client-ip-and-trust-proxy.md`, `docs/http/22-header-and-cookie-helpers.md`,
+> `docs/http-socket/08-principal-sources.md`, `docs/authn/12-integration-hooks.md`,
+> `docs/authn/13-configuration-and-boot-checks.md`, `docs/authn-http/01-request-authentication.md`,
+> `docs/authn-http/02-credential-extractors.md`, `docs/authn-oidc/01-login-flow.md`,
+> `docs/authn-oidc/02-provider-configuration.md`, `docs/authn-oidc/09-security.md`,
+> `docs/authn-oidc/10-programmatic-api.md`, `docs/authn-oidc/12-rp-initiated-logout.md`.
+
+## New behavior
+
+### `@spinajs/http` — strict `@Header()` options
+
+- `@Header(key, schema, { once?, maxLength?, pattern? })` (`IHeaderArgOptions`) reads the header with
+  `strictHeaderReader`. A header the client sent that is repeated (`once`), longer than `maxLength` or not matched in
+  full by `pattern` throws `ValidationFailed` (400) naming the header and the rules, never the value. `maxLength` and
+  `pattern` imply `once`. An absent header stays `undefined`; `required: true` still refuses it.
+- The options are checked when the decorator runs: a bad `maxLength` or `pattern`, or `once: false` with either,
+  throws `TypeError` when the controller loads.
+- Without these options `@Header()` is unchanged: Node's folded value. The next major makes `once` the default.
+
+### `@spinajs/http` — `repeatedHeader`, `SINGLETON_CREDENTIAL_HEADERS`
+
+- `repeatedHeader(req, names)`: the first of `names`, lower-cased, that `req.rawHeaders` holds more than once.
+- `SINGLETON_CREDENTIAL_HEADERS`: `['authorization', 'proxy-authorization']`.
+
+### `@spinajs/authn-oidc` — the redirect origin
+
+- The default `redirect_uri` and `post_logout_redirect_uri` use `authn.http.publicOrigin` when it is set, and no
+  longer read `Host` or `X-Forwarded-*` then.
+- Without it, the request's origin must pass `parseOrigin()`, with `Host`, `X-Forwarded-Proto` and `X-Forwarded-Host`
+  at most 2048 characters each (`OIDC_ORIGIN_HEADER_MAX`); `checkedRequestOrigin(facts, trusted)` is exported.
+- `OidcRequest.origin` is `string | undefined`; `OidcRpLogout.endSessionUrl(session, origin)` accepts `undefined`.
+- Outside development and test, `OidcProviders` warns at boot for each provider without `redirectUri` when
+  `authn.http.publicOrigin` is unset.
+
+### `@spinajs/http-socket` — `credentialRequest(handshake, singletons?)`
+
+- `credentialRequest()` throws `SocketException('invalid_argument')` when a header of `singletons` (default
+  `SINGLETON_CREDENTIAL_HEADERS`) was sent more than once. `AuthnCredentialSource` passes those plus
+  `authn.token.headerName`.
+
+### `@spinajs/authn` — `CredentialExtractor` contract
+
+- The contract now says that a header sent on several lines reaches an extractor joined with `, `, and that the
+  transports refuse a repeated `Authorization`, `Proxy-Authorization` or `authn.token.headerName` header first.
+
+## Fixes
+
+- A repeated singleton credential header is refused centrally, before any extractor or strategy runs:
+  `@spinajs/authn-http` answers 400 (`BadRequest`, `code: 'E_REPEATED_CREDENTIAL_HEADER'`, message
+  `the <name> header was sent more than once`), and `@spinajs/http-socket` refuses the handshake with
+  `invalid_argument` and the same message (revalidation answers `'invalid'`). Both name a malformed request, which a
+  retry cannot fix, and say nothing about the credential. Before, a repeated `Authorization` whose value was not a
+  prefixed token gave no credential, so `x-api-key` on the same request still authenticated. A request whose active
+  session reads no credential header is not refused. `Signature`, `Signature-Input` and every other header are
+  still joined, as RFC 9421 §2.1 signs them.
+- `@spinajs/http`: an IPv6 address with a zone id (`fe80::1%eth0`) is no address. It stops the `X-Forwarded-For`
+  walk, is no trusted peer and gives no client address, so it never reaches `realIp`, `ClientIp`, the socket client
+  address or a throttle key.
+- `@spinajs/authn-oidc`: a `Host` (or trusted `X-Forwarded-Host`) that is no origin answers 400
+  `{ error: { code: 'E_OIDC_ORIGIN' } }` on the flow-start routes (login, link, reauth) of a provider without
+  `redirectUri`, instead of a redirect URI built from it. The logout extension bounds the headers it reads and leaves
+  out `post_logout_redirect_uri` for such a request.
+
+## Migration
+
+Well-formed requests are answered as before, except where `authn.http.publicOrigin` is set (the OIDC row). These
+requests are answered differently:
+
+| Request | Before | After |
+| --- | --- | --- |
+| HTTP, no active session, `Authorization` sent twice | a prefixed token failed (no principal); any other value gave no credential, and `x-api-key` was tried | 400 `E_REPEATED_CREDENTIAL_HEADER` |
+| HTTP, no active session, `Proxy-Authorization` or the `authn.token.headerName` header sent twice | not read, or no principal | 400 `E_REPEATED_CREDENTIAL_HEADER` |
+| socket handshake with `Authorization` sent twice | a prefixed token: `unauthenticated`; any other bearer: the next source, or `UNATTENDED` | `invalid_argument`, `the authorization header was sent more than once` |
+| socket handshake with `Proxy-Authorization` or the `authn.token.headerName` header sent twice | joined, no principal from authn | `invalid_argument` |
+| `X-Forwarded-For` entry with a zone id, through a trusted proxy | the zone id was `realIp`, `ClientIp` and the throttle key | the walk stops before it |
+| `http.trustProxy` or `authn.http.trustProxy` entry with a zone id | accepted | boot fails with `InvalidOption` naming the key |
+| OIDC flow start, provider without `redirectUri`, `Host` or trusted `X-Forwarded-Host` that is no origin (`a/b`, `u@h`, `h:99999`, empty, over 2048 characters) | 302 to the IdP with a `redirect_uri` built from it | 400 `E_OIDC_ORIGIN`, no flow cookie |
+| OIDC flow start or RP logout with `authn.http.publicOrigin` set | origin from `Host` or `X-Forwarded-Host` | origin from `authn.http.publicOrigin`: register `<publicOrigin>/auth/oidc/<name>/callback` at the IdP, or set the provider's `redirectUri` |
+| RP logout with a `Host` that is no origin | `post_logout_redirect_uri` on it | no `post_logout_redirect_uri`; the provider still ends its session |
+
+```ts
+// Before: a programmatic OidcLogin caller passed Host as the origin
+await login.begin('corp', { origin: `https://${req.get('host')}`, cookies: {}, query: req.query, navigation: true, ctx });
+
+// After: pass a fixed origin or a checked one; undefined answers 400 E_OIDC_ORIGIN for a provider without redirectUri
+await login.begin('corp', { origin: checkedRequestOrigin(facts, trusted), cookies: {}, query: req.query, navigation: true, ctx });
+```
+
+```ts
+// Before: a schema bounded the joined value of a repeated header
+public tenant(@Header('x-tenant', { type: 'string', maxLength: 32 }) tenant?: string) {}
+
+// After: refuse a repeat too
+public tenant(@Header('x-tenant', null, { maxLength: 32, pattern: /^[a-z0-9-]{1,32}$/ }) tenant?: string) {}
+```
+
+---
+
 # Release notes — http, http-socket, scheduler-http: untrusted request headers
 
 > Branch `feat/http-untrusted-headers`, stacked on `feat/http-coded-error-inline-file`. Packages: http, http-socket,
@@ -26,7 +130,7 @@
   use, the risk and the status: 7 fixed (below), 56 safe with the code that makes them so, 2 left open. It also
   records what Node's parser refuses before any framework code runs, and 5 open questions that need a design decision
   (Host in OIDC redirect URIs, the first `X-Forwarded-Proto`/`-Host` value, repeats in `@Header()`, IPv6 zone ids in
-  `X-Forwarded-For`, a repeated bot token).
+  `X-Forwarded-For`, a repeated bot token). `feat/authn-header-hardening` above decides all five.
 
 ### `@spinajs/http-socket` — `ISocketHandshake.rawHeaders`
 
@@ -47,9 +151,9 @@
 - The CORS preflight echo of `Access-Control-Request-Headers` keeps only entries that are RFC 9110 field names.
 - `@spinajs/scheduler-http`: `Last-Event-ID` is at most 15 digits. A longer id lost precision in `Number()` and
   resumed the stream at a wrong position, or from the start.
-- `@spinajs/http-socket`: a repeated `Authorization` header reaches the authn extractors joined, as over http. The
-  joined value is no credential: a token with the configured prefix fails, any other bearer gives no principal from authn
-  and the handshake falls through to the next principal source. `handshake.headers` keeps only the first copy.
+- `@spinajs/http-socket`: a header the client sent twice reaches the authn extractors joined from `rawHeaders`, as
+  over http; `handshake.headers` keeps only the first copy. A repeated `Authorization` is refused outright: see
+  `feat/authn-header-hardening` above.
 
 ## Migration
 
@@ -65,7 +169,7 @@ Valid input is answered as before. These requests are answered differently (all 
 | CORS preflight asking for a header that is not a field name (`x a`, `<b>`) | echoed | dropped from `Access-Control-Allow-Headers` |
 | `@Header('X-Mixed-Case')` | `undefined` | the header's value |
 | `Last-Event-ID` of 16 or more digits (scheduler-http) | stream from a rounded position | 400 |
-| socket handshake with `Authorization` sent twice | first copy authenticated | no credential: a prefixed token fails, any other bearer gives no principal from authn |
+| socket handshake with `Authorization` sent twice | first copy authenticated | refused with `invalid_argument` (`feat/authn-header-hardening` above) |
 
 ```ts
 // Before: a mixed-case key never matched, the argument was undefined
