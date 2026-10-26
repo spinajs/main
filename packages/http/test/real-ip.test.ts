@@ -190,7 +190,7 @@ describe('trusted client address (RealIp)', () => {
     it('a link-local socket peer is the client address, without its zone id', async () => {
       const req = fakeReq(SPOOF, 'fe80::1%eth0');
       (await realIp(undefined)).before()(req, {} as any, () => undefined);
-      expect(req.storage.realIp).to.eq('fe80::1');
+      expect((req as { storage: { realIp?: string } }).storage.realIp).to.eq('fe80::1');
     });
 
     it('a bad http.trustProxy fails when the middleware is built', async () => {

@@ -979,7 +979,7 @@ ${line}` : line;
     doc?: { name: string; description?: string; type?: string },
     resolvedName?: string,
   ): IOpenApiParameter {
-    const schema = this.withHeaderLimits(param, this.schemaFromParam(param, doc?.type));
+    const schema = location === 'header' ? this.withHeaderLimits(param, this.schemaFromParam(param, doc?.type)) : this.schemaFromParam(param, doc?.type);
     const isArray = schema?.type === 'array';
     const isObject = schema?.type === 'object';
 
@@ -1007,7 +1007,7 @@ ${line}` : line;
    * OpenAPI pattern would document a different, usually stricter, match.
    */
   private withHeaderLimits(param: IRouteParameter, schema: IOpenApiSchema): IOpenApiSchema {
-    if (param.Type !== ParameterType.FromHeader || schema.$ref !== undefined || (schema.type !== undefined && schema.type !== 'string')) return schema;
+    if (schema.$ref !== undefined || (schema.type !== undefined && schema.type !== 'string')) return schema;
     const { maxLength, pattern } = (param.Options ?? {}) as { maxLength?: number; pattern?: RegExp };
     const limited: IOpenApiSchema = { ...schema };
     if (typeof maxLength === 'number') limited.maxLength = Math.min(maxLength, schema.maxLength ?? maxLength);

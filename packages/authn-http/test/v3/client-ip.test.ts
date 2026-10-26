@@ -127,9 +127,9 @@ describe('ClientIp (A05, SR-03)', function () {
 
   it('a link-local socket peer is the client, without the zone id Node appends, and matches linklocal', () => {
     const run = (values: Record<string, unknown>) => {
-      const r = { headers: { 'x-forwarded-for': SPOOF }, socket: { remoteAddress: 'fe80::1%eth0' }, storage: {} as Record<string, unknown> } as any;
-      unitClientIp(values).before()!(r, {} as any, () => undefined);
-      return r.storage.ClientIp;
+      const storage: Record<string, unknown> = {};
+      unitClientIp(values).before()!({ headers: { 'x-forwarded-for': SPOOF }, socket: { remoteAddress: 'fe80::1%eth0' }, storage } as never, {} as never, () => undefined);
+      return storage.ClientIp;
     };
     expect(run({})).to.eq('fe80::1');
     expect(run({ 'authn.http.trustProxy': 'linklocal' })).to.eq(SPOOF);

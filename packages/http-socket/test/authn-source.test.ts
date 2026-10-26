@@ -111,7 +111,7 @@ describe('credentialRequest', () => {
       expect(err, JSON.stringify(headers)).to.be.instanceOf(SocketException);
       expect((err as SocketException).toWire().code).to.equal('invalid_argument');
     }
-    expect(refusedFor(handshake({ 'x-api-key': ['spt_a', 'spt_b'] } as unknown as ISocketHandshake['headers']), ['authorization', 'x-api-key'])).to.be.instanceOf(SocketException);
+    expect(refusedFor(handshake({ 'x-api-key': ['spt_a', 'spt_b'] }), ['authorization', 'x-api-key'])).to.be.instanceOf(SocketException);
     expect(refusedFor(handshake({ authorization: 'Bearer a', accept: ['text/html', 'application/json'] } as unknown as ISocketHandshake['headers'])), 'only singletons count').to.equal(undefined);
     expect(credentialRequest(handshake({ authorization: 'Bearer a' })).headers.authorization).to.equal('Bearer a');
   });

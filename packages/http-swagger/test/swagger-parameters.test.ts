@@ -46,7 +46,7 @@ describe('Swagger parameters, bodies and paths', function () {
         param(2, ParameterType.FromHeader, 'region', { key: 'x-region', pattern: /^[a-z]+$/i }),
       ],
     });
-    const [tenant, trace, region] = operation(spec).get.parameters;
+    const [tenant, trace, region] = (operation(spec) as { get: { parameters: { schema: object }[] } }).get.parameters;
 
     expect(tenant.schema).to.deep.include({ type: 'string', maxLength: 32, pattern: '^[a-z0-9-]{1,32}$' });
     expect(trace.schema).to.not.have.any.keys('maxLength', 'pattern');

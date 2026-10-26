@@ -13,7 +13,13 @@ import type { OidcStrategy } from './strategy.js';
 
 export { OIDC_ID_TOKEN_KEY };
 
-const postLogoutRedirectOf = (configured: string | null, origin: string | undefined): string | undefined => configured ?? (origin === undefined ? undefined : `${origin}/`);
+/** `logout.postLogoutRedirectUri`, else `/` on the origin of the provider's `redirectUri`, else on `origin`. */
+function postLogoutRedirectOf(options: { readonly logout: { readonly postLogoutRedirectUri: string | null }; readonly redirectUri: string | null }, origin: string | undefined): string | undefined {
+  if (options.logout.postLogoutRedirectUri !== null) return options.logout.postLogoutRedirectUri;
+  // The registered redirectUri names the app's origin; the request's comes from Host, which the client chooses.
+  const base = options.redirectUri === null ? origin : new URL(options.redirectUri).origin;
+  return base === undefined ? undefined : `${base}/`;
+}
 
 /**
  * The RP-initiated logout (OpenID Connect RP-Initiated Logout 1.0) of an OIDC session, without a framework: the
@@ -46,11 +52,9 @@ export class OidcRpLogout {
     }
     if (endpoint === undefined) return undefined;
 
-    const { clientId, logout, redirectUri } = strategy.provider.options;
     const url = new URL(endpoint);
-    url.searchParams.set('client_id', clientId);
-    // The registered redirectUri names the app's origin; the request's comes from Host, which the client chooses.
-    const postLogout = postLogoutRedirectOf(logout.postLogoutRedirectUri, redirectUri === null ? origin : new URL(redirectUri).origin);
+    url.searchParams.set('client_id', strategy.provider.options.clientId);
+    const postLogout = postLogoutRedirectOf(strategy.provider.options, origin);
     if (postLogout !== undefined) url.searchParams.set('post_logout_redirect_uri', postLogout);
     if (external.sid !== undefined) url.searchParams.set('logout_hint', external.sid);
     const idToken = session.get(OIDC_ID_TOKEN_KEY);
