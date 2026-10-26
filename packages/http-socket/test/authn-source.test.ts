@@ -105,6 +105,17 @@ describe('credentialRequest', () => {
     expect(request.headers).to.include({ signature: 'sig1=:a:, sig2=:b:', accept: 'text/html, application/json', authorization: 'Bearer a' });
   });
 
+  it('without rawHeaders (a custom handshake builder) fails closed: a singleton that is not a single string is a repeat', () => {
+    for (const headers of [{ authorization: ['Bearer a', 'Bearer b'] }, { authorization: ['Bearer a'] }, { 'Proxy-Authorization': ['Basic a', 'Basic b'] }, { Authorization: 'Bearer a', authorization: 'Bearer b' }]) {
+      const err = refusedFor(handshake(headers as unknown as ISocketHandshake['headers']));
+      expect(err, JSON.stringify(headers)).to.be.instanceOf(SocketException);
+      expect((err as SocketException).toWire().code).to.equal('invalid_argument');
+    }
+    expect(refusedFor(handshake({ 'x-api-key': ['spt_a', 'spt_b'] } as unknown as ISocketHandshake['headers']), ['authorization', 'x-api-key'])).to.be.instanceOf(SocketException);
+    expect(refusedFor(handshake({ authorization: 'Bearer a', accept: ['text/html', 'application/json'] } as unknown as ISocketHandshake['headers'])), 'only singletons count').to.equal(undefined);
+    expect(credentialRequest(handshake({ authorization: 'Bearer a' })).headers.authorization).to.equal('Bearer a');
+  });
+
   it('keeps a value a subclass put in place of the received one, and works without rawHeaders', () => {
     const raw = ['User-Agent', 'a', 'user-agent', 'b'];
     expect(credentialRequest(handshake({ 'user-agent': 'mapped' }, raw)).headers['user-agent']).to.equal('mapped');

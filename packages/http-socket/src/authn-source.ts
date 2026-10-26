@@ -30,6 +30,22 @@ function withRepeatedHeaders(handshake: ISocketHandshake): Readonly<Record<strin
 }
 
 /**
+ * The first of `singletons` a handshake without `rawHeaders` (a custom builder) may hold more than once. A repeat then
+ * shows only in `headers`, so it fails closed: a value that is not a single string, or a name under two spellings.
+ */
+function repeatedInHeaders(headers: ISocketHandshake['headers'], singletons: readonly string[]): string | undefined {
+  const wanted = new Set(singletons.map((name) => name.toLowerCase()));
+  const seen = new Set<string>();
+  for (const [name, value] of Object.entries(headers)) {
+    const key = name.toLowerCase();
+    if (!wanted.has(key) || value === undefined) continue;
+    if (typeof value !== 'string' || seen.has(key)) return key;
+    seen.add(key);
+  }
+  return undefined;
+}
+
+/**
  * The handshake as authn's `SignedRequest`. Browsers cannot set WebSocket headers, so a token in
  * `auth.token` becomes `Authorization: Bearer`. The Cookie header is left out: a browser sends
  * cookies with a socket opened from any site, so they are no credential here ( SR-12 ).
@@ -38,7 +54,7 @@ function withRepeatedHeaders(handshake: ISocketHandshake): Readonly<Record<strin
  * credential would be a guess. Any other repeated header reaches the extractors joined with ", ", as in authn-http.
  */
 export function credentialRequest(handshake: ISocketHandshake, singletons: readonly string[] = SINGLETON_CREDENTIAL_HEADERS): SignedRequest {
-  const repeated = handshake.rawHeaders === undefined ? undefined : repeatedHeader({ rawHeaders: handshake.rawHeaders }, singletons);
+  const repeated = handshake.rawHeaders === undefined ? repeatedInHeaders(handshake.headers, singletons) : repeatedHeader({ rawHeaders: handshake.rawHeaders }, singletons);
   if (repeated !== undefined) {
     throw new SocketException('invalid_argument', `the ${repeated} header was sent more than once`);
   }
