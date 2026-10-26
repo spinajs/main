@@ -1,6 +1,6 @@
 # Responses
 
-An action returns a `Response` object; the framework turns it into the HTTP answer. Most response classes pick the format from the request's `Accept` header (JSON, HTML from a pug template, XML or text) and set their own status code. `Json` and `Xml` always answer in one format; `FileResponse`, `ZipResponse`, `JsonFileResponse` send a download; `TemplateResponse` renders a page; `Redirect` redirects.
+An action returns a `Response` object; the framework turns it into the HTTP answer. Most response classes pick the format from the request's `Accept` header (JSON, HTML from a pug template, XML or text) and set their own status code. `Json` and `Xml` always answer in one format; `FileResponse` sends a file as a download or inline, with byte ranges; `ZipResponse` and `JsonFileResponse` send a download; `TemplateResponse` renders a page; `Redirect` redirects.
 
 ## How it works
 
@@ -47,10 +47,11 @@ Every format applies `options.Headers` and `options.Coockies` (see [Cookies](20-
 | `UnsupportedMediaType` | 415 | `unsupported-media-type.pug` | `UnsupportedMediaTypeException` | Thrown by `@RequestStream()` when a parser took the body. |
 | `TooManyRequests` | 429 | `too-many-requests.pug` | | Options also take `retryAfterSeconds`, sent as `Retry-After` (rounded up, see `retryAfterHeader` in [Header and cookie helpers](22-header-and-cookie-helpers.md)) when it is a finite number. |
 | `ServerError` | 500 | `serverError.pug` | `MethodNotImplemented`, `IOFail`, `UnexpectedServerError`, and every unmapped error | |
+| `CodedHttpExceptionResponse` | the exception's `status` | none | `CodedHttpException` (defined in `@spinajs/exceptions`, re-exported by `@spinajs/http`) | Always JSON `{ code, message, details? }`, never a stack. See [Coded errors](11-error-handling.md#coded-errors). |
 | `Json` | 200 or `options.StatusCode` | none | | Always JSON. |
 | `Xml` | 200 or `options.StatusCode` | none | | Always XML. Third argument: `XMLBuilder` options. |
 | `TemplateResponse` | 200 or `options.StatusCode` | the given file | | Renders `file` from the `__fs_http_templates__` provider, or `{ template, provider }` from another provider. Throws `IOFail` when the provider is missing. |
-| `FileResponse` | 200 | none | | Sends a file from a provider (default `local`) as an attachment. See below. |
+| `FileResponse` | 200, 206, 304, 412 or 416 | none | | Sends a file from a provider (default `local`) as an attachment or inline. See [File responses](#file-responses). |
 | `ZipResponse` | 200 | none | | Zips a file from a provider and sends the archive; the archive is deleted afterwards. |
 | `JsonFileResponse` | 200 | none | | Writes `data` as JSON to the `fs-temp` provider and sends it as an attachment named `filename`. |
 | `Redirect` | 302 or the given status | none | | `new Redirect(url, status?, responseOptions?)`. |
@@ -70,12 +71,71 @@ Every class except `Redirect`, `FileResponse`, `ZipResponse`, `JsonFileResponse`
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `path` | `string` | | Path inside the provider. |
-| `filename` | `string` | | Download name, sent as `Content-Disposition: attachment; filename*=UTF-8''...`. |
+| `filename` | `string` | last segment of `path` (`ZipResponse`: with `.zip` added) | Name sent as `Content-Disposition: <disposition>; filename*=UTF-8''...`. An inline `FileResponse` without one sends a bare `Content-Disposition: inline`. |
 | `provider` | `string` | `'local'` | File provider name. |
-| `mimeType` | `string` | from the file (`FileResponse`), `application/zip` (`ZipResponse`) | `Content-Type`. |
-| `deleteAfterDownload` | `boolean` | `false` | `FileResponse` removes the source file after sending. |
+| `mimeType` | `string` | from the file extension (`FileResponse`), `application/zip` (`ZipResponse`) | `Content-Type`. |
+| `deleteAfterDownload` | `boolean` | `false` | `FileResponse` removes the source file after any answer, a 206 or 304 too. |
+| `disposition` | `'attachment' \| 'inline'` | `'attachment'` | `FileResponse` only; the options type of `ZipResponse` leaves it out. `inline` lets the browser display the file and adds `X-Content-Type-Options: nosniff`. |
+| `headers` | `Record<string, string \| number \| readonly string[]>` | | `FileResponse` only; the options type of `ZipResponse` leaves it out. Headers of the file answer (200, 206, 304, HEAD), such as `Cache-Control` or `Content-Security-Policy`. An error answer never carries them. |
 
-`FileResponse` throws `ResourceNotFound` (404) when the file does not exist and `IOFail` when the provider is not registered. For a remote provider it downloads a temporary copy and deletes it after sending; a local file is sent in place.
+## File responses
+
+`FileResponse` checks the file on its provider, then sends it with Express' `res.sendFile` (the `send` module). For a remote provider it downloads a temporary copy and deletes it after sending; a local file is sent in place.
+
+1. `getFs(provider)`: a missing provider throws `IOFail` (500).
+2. `provider.exists(path)`: `false` throws `ResourceNotFound` (404).
+3. `provider.download(path)`: the local path of the file.
+4. A `Range: bytes=-N` with `N` at least the file size becomes `bytes=0-`, the whole file (RFC 9110 §14.1.2), and `Range: bytes=-` is dropped. `send` would answer both with 416.
+5. `IResponseOptions.Headers` and `Coockies` are set. They stay on every answer, an error too.
+6. `res.sendFile` finds the file, then sets the file headers: `X-Content-Type-Options: nosniff` (inline), then `headers`, then `Content-Type` from `mimeType`, then `Content-Disposition`. A later one wins over an earlier one with the same name, and over a value a middleware or step 5 set.
+7. `send` adds `Accept-Ranges: bytes`, a weak `ETag` (`W/"<size>-<mtime>"`), `Last-Modified`, `Cache-Control: public, max-age=0` when no `Cache-Control` is set, and `Content-Type` from the extension when none is set (text types with `charset=utf-8`; unknown extensions `application/octet-stream`).
+8. It answers the request as in the table below. A failure before the body starts puts the headers back as they were before step 6: it removes those steps 6 and 7 added, and gives back a value they replaced, such as a middleware's `Cache-Control`.
+
+| Request | Answer |
+| --- | --- |
+| No `Range` | 200 with the whole file. |
+| `Range: bytes=0-1023`, `bytes=1024-`, `bytes=-500` | 206 with `Content-Range: bytes <first>-<last>/<size>` and that part only. A last byte past the end is cut to the end. |
+| `bytes=-N` with `N` at least the file size | 206 with the whole file, `Content-Range: bytes 0-<size - 1>/<size>`. |
+| `bytes=-` | 200 with the whole file. |
+| Several ranges | One 206 when they overlap or touch (`bytes=0-9,10-19`); otherwise 200 with the whole file. Unusable ranges in the list are dropped (`bytes=0-1,abc` answers `0-1`). |
+| A `Range` in another unit (`items=0-9`) | 200 with the whole file. |
+| A `bytes=` range with no usable part: reversed (`bytes=5-2`), malformed (`bytes=abc`), `bytes=-0`, or starting past the end | 416 with `Content-Range: bytes */<size>` and no body. |
+| `If-Range` with an ETag or a date, and `Range` | 206 when it matches the current `ETag`, or is not older than `Last-Modified`; else 200 with the whole file. `send` matches the ETag by its text, so the weak `ETag` it sends matches too, although RFC 9110 asks for a strong one. |
+| `If-None-Match` or `If-Modified-Since` that matches | 304 with no body. A request with `Cache-Control: no-cache` gets the whole file instead. |
+| `If-Match` or `If-Unmodified-Since` that fails | 412 with no body. |
+| `HEAD` | The headers of the `GET` answer (200 or 206), no body. |
+| The file is gone when it is sent, or `path` is a directory | `ResourceNotFound` (404), without the file headers. |
+| Any other failure before the body, such as a read error (`EACCES`, `EMFILE`) | `IOFail` (500). The body carries none of the fields of the fs error (`path`, `syscall`, `errno`); the error is its `inner`. |
+| The client hangs up | Nothing more is sent; the action does not fail. |
+| A read error after the headers went out | The connection is closed and a warning is logged on the `http` logger. |
+
+### Serve viewer tiles inline
+
+```ts sample
+import { BaseController, BasePath, FileResponse, Get, Param } from '@spinajs/http';
+
+const TILE_HEADERS = {
+  // no-transform keeps the compression middleware off, so a 206 carries the bytes on disk.
+  'Cache-Control': 'private, no-transform',
+  // Tiles come from parsers fed untrusted files: an SVG opened on its own runs no script.
+  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
+};
+
+@BasePath('plans')
+export class PlanTilesController extends BaseController {
+  /** GET /plans/42/tiles/floor-1.svg, Range requests included. */
+  @Get(':plan/tiles/:tile')
+  public tile(@Param() plan: string, @Param() tile: string) {
+    return new FileResponse({
+      provider: 'plan-tiles',
+      path: `${plan}/${tile}`,
+      filename: tile,
+      disposition: 'inline',
+      headers: TILE_HEADERS,
+    });
+  }
+}
+```
 
 ## Configuration
 
@@ -192,6 +252,10 @@ export class CustomersExportController extends BaseController {
 - `JsonFileResponse` needs a provider named `fs-temp`.
 - An action must return a `Response`. A plain object fails with 500; `undefined` answers 404.
 - Response data is serialized as is with `res.json()` (`JSON.stringify`); map domain objects to plain data before returning them.
+- `FileResponse` with a remote provider downloads a temporary copy on every request. A range request transfers the whole object first, and the copy's `ETag` and `Last-Modified` change on every request, so 304 and `If-Range` never match. Serve ranges from a local provider; redirect to a presigned URL for a remote one.
+- The `compression` middleware compresses a 200 or 206 of a compressible type (SVG, JSON, text) of 1 KiB or more, unless `Cache-Control` holds `no-transform`. A compressed 206 is a gzip of a part, which range clients cannot use. Put `no-transform` in `headers` for ranged files.
+- The `ETag` of a file is weak and built from its size and modification time. Express' `etag` setting only turns it on or off.
+- `ZipResponse` is always an attachment and takes neither `disposition` nor `headers`. It hands every failure of `send` to the error handler as it is, so a 412 or 416 of a zip answers 500.
 
 ## Best practices
 
@@ -213,6 +277,14 @@ public ping(@Res() res: express.Response) {
 public ping() {
   return new Ok({ pong: true });
 }
+```
+
+```ts
+// Don't: IResponseOptions.Headers stay on every answer, so a missing file is a 404 cached for a year.
+return new FileResponse({ provider: 'plan-tiles', path, disposition: 'inline' }, { Headers: [{ Name: 'Cache-Control', Value: 'public, max-age=31536000, immutable' }] });
+
+// Do: headers of the file answer go in `headers`; an error answer never carries them.
+return new FileResponse({ provider: 'plan-tiles', path, disposition: 'inline', headers: { 'Cache-Control': 'public, max-age=31536000, immutable' } });
 ```
 
 ## Examples

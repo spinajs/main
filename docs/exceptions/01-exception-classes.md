@@ -1,6 +1,6 @@
 # Exception classes
 
-`@spinajs/exceptions` exports `Exception` and sixteen subclasses, each naming one kind of failure. Throw the class that says what went wrong; callers branch on it with `instanceof`, and `@spinajs/http` picks the HTTP status from it.
+`@spinajs/exceptions` exports `Exception` and seventeen subclasses, each naming one kind of failure. Throw the class that says what went wrong; callers branch on it with `instanceof`, and `@spinajs/http` picks the HTTP status from it.
 
 ## How it works
 
@@ -42,7 +42,29 @@ class InvalidArgument extends Exception {
 | `fieldName` | `string` | The argument or field that failed, for example `'email'`. |
 | `errorCode` | `string` | A machine-readable reason, for example `'TYPE_MISMATCH'` or `'MISSING_KEY'` (used by `@spinajs/util`'s argument checks). |
 
-`InvalidArgument` is the only class with extra constructor parameters. Every other subclass takes `(message?, inner?)`.
+`InvalidArgument` and `CodedHttpException` are the only classes with other constructor parameters. Every other subclass takes `(message?, inner?)`.
+
+### `CodedHttpException`
+
+```ts
+class CodedHttpException<TCode extends string = string, TDetails = unknown> extends Exception {
+  readonly status: number;
+  readonly code: TCode;
+  readonly details?: TDetails;
+  constructor(status: number, code: TCode, message?: string, details?: TDetails, inner?: unknown);
+}
+```
+
+| Member | Type | Meaning |
+| --- | --- | --- |
+| `status` | `number` | The HTTP status, an integer from 400 to 599. Any other value throws `UnexpectedServerError`, so a wrong status answers 500, not a client error. |
+| `code` | `TCode` | A stable code the client branches on, for example `'invoice.locked'`. |
+| `message` | `string` | Defaults to `code`. |
+| `details` | `TDetails` | Data the client acts on. Set only when given. It must survive `JSON.stringify`. |
+
+`status`, `code` and `details` are own enumerable fields. `@spinajs/http` re-exports the class and answers it with `CodedHttpExceptionResponse`: `{ code, message, details? }` and `status`, never a stack. A package with no HTTP layer, such as `@spinajs/upload`, throws it without depending on `@spinajs/http`. See [Coded errors](../http/11-error-handling.md#coded-errors).
+
+The body type is `CodedErrorBody<TCode, TDetails>`: `{ code: TCode; message: string; details?: TDetails }`.
 
 ### Semantic subclasses and their HTTP status
 
@@ -67,6 +89,7 @@ The status column applies when `@spinajs/http` handles the error. "Unmapped" cla
 | `JsonValidationFailed` | A JSON entity does not match its schema. | 400 | `BadRequestResponse` |
 | `ExpectedResponseUnacceptable` | The client's `Accept` header asks for a format the server cannot produce. | 400 | `BadRequestResponse` |
 | `LimitExceeded` | A stream or input went over a configured size limit, for example `ByteLimitStream` of `@spinajs/fs`. | 413 | `EntityTooLarge` |
+| `CodedHttpException` | A refusal the client tells apart by a stable code, with a status of its own. | its `status` | `CodedHttpExceptionResponse` |
 
 `@spinajs/http` also maps `ValidationFailed` from `@spinajs/validation` to 400, and its own `EntityTooLargeException` to 413 and `UnsupportedMediaTypeException` to 415. Those classes extend `Exception` but live in their packages.
 
@@ -82,6 +105,7 @@ The package registers nothing in DI and has no abstract classes or factories. It
 ## Important behaviour
 
 - `name` and `inner` are non-enumerable own properties, so the HTTP error handler's spread does not copy them into the response body. Stack traces and logs print `<ClassName>: <message>`.
+- `CodedHttpExceptionResponse` sends `code`, `message` and `details` only, whatever other own fields a subclass adds.
 - `fieldName` and `errorCode` are own enumerable properties. The `@spinajs/http` error handler spreads them into the JSON response body, in production too.
 - `stack` is added to the response body only when `configuration.isProduction` is not `true`.
 - `instanceof` checks need a single installed copy of `@spinajs/exceptions`. Two copies give two `Forbidden` classes; the HTTP mapping still works, because it matches by class name.

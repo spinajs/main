@@ -1,4 +1,4 @@
-import { Exception } from '@spinajs/exceptions';
+import { CodedHttpException } from '@spinajs/exceptions';
 
 /**
  * Every refusal of the upload service, with the HTTP status a controller answers (docs/upload/01-protocol.md).
@@ -40,17 +40,18 @@ export interface UploadErrorDetails {
   readonly parts?: readonly number[];
 }
 
-export class UploadError extends Exception {
-  public readonly status: number;
+/** Answered by `uploadErrorResponse` in `UploadController`, and by `CodedHttpExceptionResponse` on any other route. */
+export class UploadError extends CodedHttpException<UploadErrorCode, UploadErrorDetails> {
+  declare public readonly details: UploadErrorDetails;
 
-  constructor(
-    public readonly code: UploadErrorCode,
-    message?: string,
-    public readonly details: UploadErrorDetails = {},
-    status?: number,
-  ) {
-    super(message ?? code);
-    this.status = status ?? UPLOAD_ERRORS[code];
+  constructor(code: UploadErrorCode, message?: string, details: UploadErrorDetails = {}, status?: number) {
+    const empty = Object.keys(details).length === 0;
+    super(status ?? UPLOAD_ERRORS[code], code, message, empty ? undefined : details);
+
+    if (empty) {
+      // Readable, but not spread: the error map answers `{ ...err }`, and an upload answer never carries `details: {}`.
+      Object.defineProperty(this, 'details', { value: details, enumerable: false, writable: true, configurable: true });
+    }
   }
 }
 

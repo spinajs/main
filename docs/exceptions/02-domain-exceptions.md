@@ -18,7 +18,7 @@ An exact registration for `InvoiceLocked` wins over the inherited `Forbidden` on
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `Exception` and its subclasses | None: plain classes, not in DI | The sixteen exported classes | Domain subclasses in `@spinajs/orm` (`OrmException`), `@spinajs/validation` (`ValidationFailed`), `@spinajs/util` (`TimeoutRejectedException`), `@spinajs/teams` (`InvitationRefused`), `@spinajs/configuration-http` (`ConfigWriteRefused`) | Subclass the class whose meaning and HTTP status fit; add fields in the constructor; set `name`. |
+| `Exception` and its subclasses | None: plain classes, not in DI | The seventeen exported classes | Domain subclasses in `@spinajs/orm` (`OrmException`), `@spinajs/upload` (`UploadError`, a `CodedHttpException`), `@spinajs/validation` (`ValidationFailed`), `@spinajs/util` (`TimeoutRejectedException`), `@spinajs/teams` (`InvitationRefused`), `@spinajs/configuration-http` (`ConfigWriteRefused`) | Subclass the class whose meaning and HTTP status fit; add fields in the constructor; set `name`. |
 
 ### Which base class to extend
 
@@ -30,6 +30,7 @@ An exact registration for `InvoiceLocked` wins over the inherited `Forbidden` on
 | The request as a whole is wrong | `BadRequest` | 400 |
 | The target does not exist | `ResourceNotFound` | 404 |
 | The target already exists, or the state conflicts | `ResourceDuplicated` | 409 |
+| Clients branch on a stable code, and the status varies per code | `CodedHttpException` | the `status` you pass |
 | An internal fault the client cannot fix | `UnexpectedServerError` or `IOFail` | 500 |
 | A programming or state error that never reaches HTTP | `InvalidOperation` or `Exception` | 500 (unmapped) |
 

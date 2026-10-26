@@ -16,3 +16,7 @@ export class RouteRegistrationException extends Exception {}
 
 /** The route does not take the request's content type, e.g. a raw-body route sent a body that a parser already read. */
 export class UnsupportedMediaTypeException extends Exception {}
+
+// Defined in @spinajs/exceptions so a package can throw it without depending on @spinajs/http.
+export { CodedHttpException } from '@spinajs/exceptions';
+export type { CodedErrorBody } from '@spinajs/exceptions';

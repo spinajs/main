@@ -1025,9 +1025,10 @@ export interface IFileResponseOptions {
   provider?: string;
 
   /**
-   * File name ( for browser )
+   * File name for the browser, sent in `Content-Disposition`. Defaults to the last segment of `path`
+   * ( `ZipResponse`: with `.zip` added ); an inline `FileResponse` without one sends a bare `inline`.
    */
-  filename: string;
+  filename?: string;
 
   /**
    * If not provided, it will be guessed
@@ -1038,6 +1039,18 @@ export interface IFileResponseOptions {
    * Should delete file after downloaded eg. generated temp file
    */
   deleteAfterDownload?: boolean;
+
+  /**
+   * `FileResponse` only. `inline` lets the browser display the file and adds `X-Content-Type-Options: nosniff`.
+   * Default `attachment`.
+   */
+  disposition?: 'attachment' | 'inline';
+
+  /**
+   * `FileResponse` only. Headers of the file answer ( 200, 206, 304, HEAD ), e.g. `Cache-Control` or
+   * `Content-Security-Policy`. Unlike `IResponseOptions.Headers`, an error answer never carries them.
+   */
+  headers?: Record<string, string | number | readonly string[]>;
 }
 
 export interface ITemplateResponseOptions {

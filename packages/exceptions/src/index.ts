@@ -77,6 +77,48 @@ export class IOFail extends Exception {}
  */
 export class ResourceNotFound extends Exception {}
 
+/** The body `CodedHttpExceptionResponse` ( `@spinajs/http` ) answers a `CodedHttpException` with. */
+export interface CodedErrorBody<TCode extends string = string, TDetails = unknown> {
+  code: TCode;
+  message: string;
+  details?: TDetails;
+}
+
+/**
+ * A refusal with its own HTTP status and a stable, machine-readable code. `CodedHttpExceptionResponse` ( `@spinajs/http` )
+ * answers it with `{ code, message, details? }` and `status`, never with a stack.
+ *
+ * Narrow the code to the app's own union with a subclass: `class ApiException extends CodedHttpException<ApiErrorCode> {}`.
+ */
+export class CodedHttpException<TCode extends string = string, TDetails = unknown> extends Exception {
+  // Own enumerable fields: the error handler hands the response `{ ...err, message }`, not the exception.
+  public readonly status: number;
+  public readonly code: TCode;
+  public readonly details?: TDetails;
+
+  /**
+   * @param status - a 4xx or 5xx status
+   * @param code - stable code the client branches on, e.g. `invoice.locked`
+   * @param message - text for people; defaults to the code
+   * @param details - extra data the client acts on, sent as `details`; must survive `JSON.stringify`
+   * @param inner - the cause; kept off the response body
+   */
+  constructor(status: number, code: TCode, message?: string, details?: TDetails, inner?: unknown) {
+    super(message ?? code, inner);
+
+    if (!Number.isInteger(status) || status < 400 || status > 599) {
+      // Not InvalidArgument: the error map answers that 400, and a bad status is the server's bug.
+      throw new UnexpectedServerError(`CodedHttpException status must be an integer from 400 to 599, got ${status}`);
+    }
+
+    this.status = status;
+    this.code = code;
+    if (details !== undefined) {
+      this.details = details;
+    }
+  }
+}
+
 /**
  * The exception that is thrown when method is not implemented
  */
