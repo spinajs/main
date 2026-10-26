@@ -4,6 +4,8 @@ import sinon from 'sinon';
 import express from 'express';
 import fs, { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { get as httpGet } from 'node:http';
+import type { Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -103,6 +105,27 @@ function get(path: string, headers: Record<string, string> = {}) {
   return fetch(`${appOrigin()}/sent/${path}`, { headers });
 }
 
+let plainServer: Server | undefined;
+
+/** What express' own sendFile answers `range` with: range-parser as send runs it, with no rewrite in front. */
+async function plainSend(range: string) {
+  if (!plainServer) {
+    const app = express();
+    app.get('/report', (_req, res) => res.sendFile(join(root, 'report.txt')));
+    await new Promise<void>((resolve) => {
+      plainServer = app.listen(0, '127.0.0.1', () => resolve());
+    });
+  }
+  const { port } = plainServer!.address() as AddressInfo;
+  return answerOf(await fetch(`http://127.0.0.1:${port}/report`, { headers: { Range: range } }));
+}
+
+/** The body only for a success: plain express renders its own page for a 416. */
+async function answerOf(res: Response) {
+  const body = await res.text();
+  return { status: res.status, contentRange: res.headers.get('content-range'), ...(res.ok ? { body } : {}) };
+}
+
 async function bytes(res: Response): Promise<Buffer> {
   return Buffer.from(await res.arrayBuffer());
 }
@@ -178,6 +201,8 @@ describe('FileResponse over send', function () {
   });
 
   after(async () => {
+    await new Promise((resolve) => (plainServer ? plainServer.close(resolve) : resolve(undefined)));
+    plainServer = undefined;
     await releaseHttpServer();
     DI.unregister(SentFilesController as Class<unknown>);
     DI.uncache(SentFilesController);
@@ -243,6 +268,69 @@ describe('FileResponse over send', function () {
     expect(res.status).to.eq(200);
     expect(res.headers.get('content-range')).to.eq(null);
     expect(await res.text()).to.eq(REPORT);
+  });
+
+  it('rewrites a suffix with leading zeros like the same number', async () => {
+    const long = await get('report', { Range: 'bytes=-0001000' });
+    expect(long.status).to.eq(206);
+    expect(await long.text()).to.eq(REPORT);
+
+    const short = await get('report', { Range: 'bytes=-005' });
+    expect(short.status).to.eq(206);
+    expect(await short.text()).to.eq(REPORT.slice(-5));
+  });
+
+  it('leaves every other spelling of a suffix range to range-parser, as send answers it', async () => {
+    const ranges = [
+      'bytes=	-1000',
+      'bytes=-	1000',
+      'bytes= -1000',
+      'bytes= -1000',
+      'bytes=- 1000',
+      'bytes= -',
+      'BYTES=-1000',
+      'Bytes=-',
+      'bytes=-5,-6',
+      'bytes=-1000,-2000',
+      `bytes=-${'9'.repeat(20)}`,
+      // 71 characters, past the 64 the rewrite reads; range-parser takes it as a 1000-byte suffix.
+      `bytes=-${'0'.repeat(60)}1000`,
+      `bytes=${' '.repeat(8000)}-1000`,
+    ];
+
+    for (const range of ranges) {
+      expect(await answerOf(await get('report', { Range: range })), JSON.stringify(range)).to.deep.eq(await plainSend(range));
+    }
+  });
+
+  it('rejects a long range header without scanning it', async () => {
+    const response = new FileResponse({ provider: PROVIDER, path: 'report.txt' }) as unknown as { wholeFileForLongSuffix(req: unknown, file: string): Promise<void> };
+    const range = `bytes=${' '.repeat(16 * 1024)}-${'1'.repeat(16 * 1024)}x`;
+    const req = { headers: { range }, rawHeaders: ['Range', range] };
+
+    const started = process.hrtime.bigint();
+    await response.wholeFileForLongSuffix(req, join(root, 'report.txt'));
+    const ms = Number(process.hrtime.bigint() - started) / 1e6;
+
+    expect(req.headers.range).to.eq(range);
+    expect(ms).to.be.below(1000);
+  });
+
+  it('leaves a repeated range header to range-parser', async () => {
+    const request = sinon.spy(FileResponse.prototype, 'execute');
+    const answer = await new Promise<{ status?: number; body: string }>((resolve, reject) => {
+      const url = new URL(`${appOrigin()}/sent/report`);
+      httpGet({ host: url.hostname, port: url.port, path: url.pathname, headers: { Range: ['bytes=-1000', 'bytes=-2000'] } }, (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => (body += chunk));
+        res.on('end', () => resolve({ status: res.statusCode, body }));
+      }).on('error', reject);
+    });
+    await request.firstCall.returnValue;
+
+    expect(answer.status).to.eq(416);
+    expect(request.firstCall.args[0].headers.range).to.eq('bytes=-1000, bytes=-2000');
   });
 
   it('answers 304 to If-Modified-Since at the file time', async () => {

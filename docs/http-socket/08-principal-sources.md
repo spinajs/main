@@ -8,7 +8,7 @@ A socket handshake is turned into an authz-v3 `Principal` by the registered `Soc
    - a JSONP polling request (query parameter `j`) is refused;
    - a request without `Origin` whose `Sec-Fetch-Site` is `cross-site` or `same-site` is refused.
 2. The handshake middleware runs `isAllowedOrigin()` first, so no source reads the credentials of a hijacked cross-site socket. A refusal answers `forbidden`.
-3. `toHandshake()` builds the `ISocketHandshake`: `auth`, `headers`, raw `cookies`, the client `address`, `peerAddress`, `url`, `query`, `secure`, `issuedAt`.
+3. `toHandshake()` builds the `ISocketHandshake`: `auth`, `headers`, the request's `rawHeaders`, raw `cookies`, the client `address`, `peerAddress`, `url`, `query`, `secure`, `issuedAt`.
 4. After the protocol and `clientId` checks, `SocketServer.identify()` sorts the sources by ascending `order` and calls `authenticate(handshake)` on each:
    - the first non-null principal wins, and its source `name` is stored with it;
    - a throw refuses the handshake with the mapped error (`AuthenticationFailed` answers `unauthenticated`);
@@ -127,7 +127,7 @@ export class ServiceKeySource extends SocketPrincipalSource {
 
 ### `AuthnCredentialSource`: accept a token from another header
 
-`AuthnCredentialSource` turns the handshake into an authn `SignedRequest` (`credentialRequest()`): every header but `Cookie`, plus `auth.token` as `Authorization: Bearer` when no `Authorization` header is set. A subclass can map another header before the default runs; override both methods so revalidation reads the same credential.
+`AuthnCredentialSource` turns the handshake into an authn `SignedRequest` (`credentialRequest()`): every header but `Cookie`, plus `auth.token` as `Authorization: Bearer` when no `Authorization` header is set. A header the client sent twice is joined with `, ` from `rawHeaders`, as in `@spinajs/authn-http`, so a second `Authorization` is seen and the joined value is no credential (a token with the configured prefix fails, any other bearer gives no principal from authn and the handshake falls through to the next source); a value a subclass put in `headers` in place of the received one is kept. A subclass can map another header before the default runs; override both methods so revalidation reads the same credential.
 
 ```ts sample
 import { DI, Injectable } from '@spinajs/di';

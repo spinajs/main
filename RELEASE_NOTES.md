@@ -1,3 +1,82 @@
+# Release notes — http, http-socket, scheduler-http: untrusted request headers
+
+> Branch `feat/http-untrusted-headers`, stacked on `feat/http-coded-error-inline-file`. Packages: http, http-socket,
+> scheduler-http.
+>
+> Docs: `docs/http/25-untrusted-headers.md` (new), `docs/http/22-header-and-cookie-helpers.md`,
+> `docs/http/10-responses.md`, `docs/http/12-data-transformers.md`, `docs/http/16-cors.md`,
+> `docs/http/04-route-arguments.md`, `docs/http/README.md`, `docs/http-socket/08-principal-sources.md`.
+
+## New behavior
+
+### `@spinajs/http` — `strictHeader`
+
+- `strictHeader(req, name, { maxLength, pattern? })` returns the value of request header `name` (any case) only when
+  the client sent it exactly once, it is at most `maxLength` long and, with `pattern`, the pattern matches all of it;
+  otherwise `undefined`. A repeat is counted in `req.rawHeaders`, so it is refused whether Node joined the copies with
+  `, ` or kept only the first (`Authorization`, `Host`, `Content-Type`). A value the app itself put in `req.headers`
+  is read as it is, unless the client sent that header more than once. Exported with `StrictHeaderOptions` and `HeaderSource`.
+- `maxLength` must be a non-negative integer. `pattern` must start with `^`, end with `$` and have no `g`, `y` or `m`
+  flag; anything else throws `TypeError`. Keep patterns free of nested or overlapping quantifiers: `maxLength` bounds
+  the input, not the time a backtracking pattern takes.
+
+### Request header audit
+
+- `docs/http/25-untrusted-headers.md` lists the 65 places in `packages/*/src` that read a request header, with the
+  use, the risk and the status: 7 fixed (below), 56 safe with the code that makes them so, 2 left open. It also
+  records what Node's parser refuses before any framework code runs, and 5 open questions that need a design decision
+  (Host in OIDC redirect URIs, the first `X-Forwarded-Proto`/`-Host` value, repeats in `@Header()`, IPv6 zone ids in
+  `X-Forwarded-For`, a repeated bot token).
+
+### `@spinajs/http-socket` — `ISocketHandshake.rawHeaders`
+
+- `ISocketHandshake.rawHeaders?: readonly string[]`, filled by `toHandshake()` from the handshake request.
+  `credentialRequest()` joins a header the client sent twice from it, as `@spinajs/authn-http` does; a value a
+  subclass put in `handshake.headers` in place of the received one is kept.
+
+## Fixes
+
+- `FileResponse` rewrites a long suffix range only in its exact forms: `Range` sent once, at most 64 characters, and
+  exactly `bytes=-` (dropped, whole file) or `bytes=-N` with `N` of 1 to 15 digits (`bytes=0-` when `N` is at least
+  the size). Every other `Range` reaches `send` as the client sent it, so range-parser is the only judge. The old
+  pattern took spaces and Unicode spaces anywhere and any number of digits.
+- `@Header('X-Signature')` reads the header: the key is looked up in lower case, as Node stores header names. A key
+  with an upper-case letter read `undefined`.
+- `x-data-transform` and `x-error-transform` name a transformer only when sent once and at most 256 characters long.
+  The 400 for an unknown transformer repeats the name only when it is an RFC 9110 token.
+- The CORS preflight echo of `Access-Control-Request-Headers` keeps only entries that are RFC 9110 field names.
+- `@spinajs/scheduler-http`: `Last-Event-ID` is at most 15 digits. A longer id lost precision in `Number()` and
+  resumed the stream at a wrong position, or from the start.
+- `@spinajs/http-socket`: a repeated `Authorization` header reaches the authn extractors joined, as over http. The
+  joined value is no credential: a token with the configured prefix fails, any other bearer gives no principal from authn
+  and the handshake falls through to the next principal source. `handshake.headers` keeps only the first copy.
+
+## Migration
+
+Valid input is answered as before. These requests are answered differently (all are malformed input except the `@Header('X-Mixed-Case')` row, which is a code fix):
+
+| Request | Before | After |
+| --- | --- | --- |
+| `FileResponse` with `Range: bytes= -1000`, `bytes=-\t1000`, `bytes=\u00a0-1000` on a smaller file | 206, whole file | 416, as range-parser answers |
+| `FileResponse` with `Range: bytes= -` | 200, whole file | 416 |
+| `FileResponse` with `Range: bytes=-` and 16 or more digits, at least the file size | 206, whole file | 416 |
+| `x-data-transform` / `x-error-transform` sent twice or longer than 256 characters | 400 `invalid data transformer <value>` | 400 `invalid data transformer` |
+| an unknown transformer name that is not a token (`a <b>`) | 400 naming it | 400 `invalid data transformer` |
+| CORS preflight asking for a header that is not a field name (`x a`, `<b>`) | echoed | dropped from `Access-Control-Allow-Headers` |
+| `@Header('X-Mixed-Case')` | `undefined` | the header's value |
+| `Last-Event-ID` of 16 or more digits (scheduler-http) | stream from a rounded position | 400 |
+| socket handshake with `Authorization` sent twice | first copy authenticated | no credential: a prefixed token fails, any other bearer gives no principal from authn |
+
+```ts
+// Before: a mixed-case key never matched, the argument was undefined
+public sign(@Header('X-Signature') signature?: string) {}
+
+// After: the same declaration reads x-signature; drop any workaround that read req.headers['x-signature'] by hand
+public sign(@Header('X-Signature') signature?: string) {}
+```
+
+---
+
 # Release notes — exceptions, http, upload: coded HTTP errors; inline file responses with byte ranges
 
 > Branch `feat/http-coded-error-inline-file`. Packages: exceptions, http, upload.

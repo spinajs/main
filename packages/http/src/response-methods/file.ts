@@ -12,6 +12,7 @@ import { getFs } from '@spinajs/fs';
 // the whole export graph back through interfaces.js and re-forms an import cycle
 import { sendFileAt } from './send-file.js';
 import { _setCoockies, _setHeaders } from '../responses.js';
+import { strictHeader } from '../headers.js';
 
 export class ZipResponse extends Response {
   /**
@@ -65,7 +66,9 @@ export class ZipResponse extends Response {
 /** What `send` reports on a failure: an http-errors status, or a Node error code. */
 type SendFailure = Error & { status?: number; code?: string };
 
-const SUFFIX_RANGE = /^\s*bytes=\s*-\s*(\d*)\s*$/;
+// Only these exact forms are rewritten; anything else goes to send as the client sent it, so range-parser alone judges it.
+const SUFFIX_RANGE = /^bytes=-(\d{1,15})$/;
+const SUFFIX_RANGE_MAX_LENGTH = 64;
 
 export class FileResponse extends Response {
   /**
@@ -165,13 +168,14 @@ export class FileResponse extends Response {
    * `bytes=-` names no range at all, so it gets the whole file too.
    */
   private async wholeFileForLongSuffix(req: express.Request, file: string): Promise<void> {
-    const suffix = typeof req.headers.range === 'string' ? SUFFIX_RANGE.exec(req.headers.range) : null;
-    if (!suffix) {
+    const range = strictHeader(req, 'range', { maxLength: SUFFIX_RANGE_MAX_LENGTH });
+    if (range === 'bytes=-') {
+      delete req.headers.range;
       return;
     }
 
-    if (suffix[1] === '') {
-      delete req.headers.range;
+    const suffix = range === undefined ? null : SUFFIX_RANGE.exec(range);
+    if (!suffix) {
       return;
     }
 

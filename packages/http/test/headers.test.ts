@@ -1,7 +1,79 @@
 import 'mocha';
 import { expect } from 'chai';
 
-import { basicAuthHeader, normalizeHeaders, parseBearer, parseCookieHeader } from '../src/index.js';
+import { basicAuthHeader, normalizeHeaders, parseBearer, parseCookieHeader, strictHeader, strictHeaderReader } from '../src/index.js';
+
+describe('strictHeader', () => {
+  const once = (name: string, value: string) => ({ headers: { [name.toLowerCase()]: value }, rawHeaders: [name, value] });
+
+  it('returns a header sent once, by a name in any case', () => {
+    expect(strictHeader(once('X-Tenant', 'acme'), 'x-tenant', { maxLength: 16 })).to.eq('acme');
+    expect(strictHeader(once('x-tenant', 'acme'), 'X-Tenant', { maxLength: 16 })).to.eq('acme');
+    expect(strictHeader(once('X-Tenant', ''), 'x-tenant', { maxLength: 16 })).to.eq('');
+  });
+
+  it('returns undefined for an absent header and for an array', () => {
+    expect(strictHeader({ headers: {}, rawHeaders: [] }, 'x-tenant', { maxLength: 16 })).to.eq(undefined);
+    expect(strictHeader({ headers: { 'set-cookie': ['a=1'] }, rawHeaders: ['Set-Cookie', 'a=1'] }, 'set-cookie', { maxLength: 16 })).to.eq(undefined);
+  });
+
+  it('returns undefined for a header sent twice, whether Node joined the values or kept the first', () => {
+    const joined = { headers: { 'x-tenant': 'acme, evil' }, rawHeaders: ['X-Tenant', 'acme', 'x-tenant', 'evil'] };
+    const first = { headers: { authorization: 'Bearer a' }, rawHeaders: ['Authorization', 'Bearer a', 'AUTHORIZATION', 'Bearer b'] };
+
+    expect(strictHeader(joined, 'x-tenant', { maxLength: 64 })).to.eq(undefined);
+    expect(strictHeader(first, 'authorization', { maxLength: 64 })).to.eq(undefined);
+  });
+
+  it('reads a value the app set itself, and a request without rawHeaders', () => {
+    expect(strictHeader({ headers: { range: 'bytes=0-' }, rawHeaders: ['Range', 'bytes=-99'] }, 'range', { maxLength: 16 })).to.eq('bytes=0-');
+    expect(strictHeader({ headers: { range: 'bytes=0-' } }, 'range', { maxLength: 16 })).to.eq('bytes=0-');
+  });
+
+  it('returns undefined past maxLength', () => {
+    expect(strictHeader(once('X-Tenant', 'a'.repeat(16)), 'x-tenant', { maxLength: 16 })).to.eq('a'.repeat(16));
+    expect(strictHeader(once('X-Tenant', 'a'.repeat(17)), 'x-tenant', { maxLength: 16 })).to.eq(undefined);
+  });
+
+  it('returns the value only when the pattern matches all of it', () => {
+    const tenant = /^[a-z]{1,16}$/;
+    expect(strictHeader(once('X-Tenant', 'acme'), 'x-tenant', { maxLength: 16, pattern: tenant })).to.eq('acme');
+    expect(strictHeader(once('X-Tenant', 'ac me'), 'x-tenant', { maxLength: 16, pattern: tenant })).to.eq(undefined);
+    // Each side of an ungrouped alternation is anchored at one end only; `^(?:a|ab)$` is the form that works.
+    expect(strictHeader(once('X-Mode', 'xb'), 'x-mode', { maxLength: 16, pattern: /^a|b$/ })).to.eq(undefined);
+    expect(strictHeader(once('X-Mode', 'ab'), 'x-mode', { maxLength: 16, pattern: /^a|ab$/ })).to.eq(undefined);
+  });
+
+  it('tells an escaped $ from the anchor by counting the backslashes before it', () => {
+    expect(strictHeader(once('X-Path', 'a\\'), 'x-path', { maxLength: 16, pattern: /^a\\$/ })).to.eq('a\\');
+    expect(() => strictHeader(once('X-Path', 'a\\$'), 'x-path', { maxLength: 16, pattern: /^a\\\$/ })).to.throw(TypeError);
+  });
+
+  it('throws for a pattern that is not anchored or keeps state, and for a bad maxLength', () => {
+    for (const pattern of [/[a-z]+$/, /^[a-z]+/, /^[a-z]+\$/, /^[a-z]+$/g, /^[a-z]+$/y, /^[a-z]+$/m]) {
+      expect(() => strictHeader(once('X-Tenant', 'acme'), 'x-tenant', { maxLength: 16, pattern }), String(pattern)).to.throw(TypeError);
+    }
+    for (const maxLength of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => strictHeader(once('X-Tenant', 'acme'), 'x-tenant', { maxLength }), String(maxLength)).to.throw(TypeError);
+    }
+  });
+});
+
+describe('strictHeaderReader', () => {
+  const once = (name: string, value: string) => ({ headers: { [name.toLowerCase()]: value }, rawHeaders: [name, value] });
+  const read = strictHeaderReader('X-Tenant', { maxLength: 8, pattern: /^[a-z]+$/ });
+
+  it('reads like strictHeader, once per request', () => {
+    expect(read(once('x-tenant', 'acme'))).to.eq('acme');
+    expect(read(once('x-tenant', 'ACME'))).to.eq(undefined);
+    expect(read({ headers: { 'x-tenant': 'acme' }, rawHeaders: ['X-Tenant', 'acme', 'x-tenant', 'acme'] })).to.eq(undefined);
+  });
+
+  it('validates the options when it is built, not when it reads', () => {
+    expect(() => strictHeaderReader('x', { maxLength: -1 })).to.throw(TypeError);
+    expect(() => strictHeaderReader('x', { maxLength: 1, pattern: /[a-z]/ })).to.throw(TypeError);
+  });
+});
 
 describe('parseBearer', () => {
   it('returns the b64token after the scheme, in any case and with any spacing', () => {

@@ -38,4 +38,9 @@ export class HeaderParams extends BaseController {
   public headerDate(@Header('x-custom-header') val: DateTime) {
     return new Ok({ val });
   }
+
+  @Get()
+  public headerParamMixedCase(@Header('X-Custom-Header') val: string) {
+    return new Ok({ val });
+  }
 }

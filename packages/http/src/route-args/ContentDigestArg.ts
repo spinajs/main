@@ -23,7 +23,7 @@ export class ContentDigestArg extends RouteArgs {
 
   public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter, req: express.Request) {
     const { required = false, algorithms } = (param.Options ?? {}) as IContentDigestOptions;
-    // Node lower-cases header names (FromHeaderArg.ts:14 relies on the same).
+    // Node lower-cases header names (FromHeaderArg relies on the same).
     const header = req.headers['content-digest'];
     const digests = parseContentDigest(Array.isArray(header) ? header.join(', ') : (header ?? ''));
 
