@@ -26,6 +26,7 @@ The checks run in the order of the [login flow](01-login-flow.md). Any failed ch
 | IdP mix-up | The flow's provider must be the callback's provider. The RFC 9207 `iss` must equal the issuer when sent, and must be sent when discovery advertises it. | `OidcProvider.complete()` |
 | Code interception | The token request carries the PKCE verifier, derived from a 32-byte random seed. | `exchangeCode()` |
 | Open redirect | `returnTo` and `redirects.*` must be app-relative paths: one leading `/`, never `//` or `/\`, no space, backslash or control character. | `appPathOrNull()`, the schema's `OIDC_APP_PATH_PATTERN` |
+| Host header injection in the redirect URI | The default `redirect_uri` and `post_logout_redirect_uri` use `authn.http.publicOrigin` when set. Otherwise `Host`, or `X-Forwarded-Host` from a trusted proxy, must give an origin `parseOrigin()` accepts, or the flow answers 400 `E_OIDC_ORIGIN`. A well-formed forged `Host` is refused by the IdP's exact match of the registered URI. | `checkedRequestOrigin()`, `OidcLogin`, `OidcProviders` (boot warning) |
 | Account-linking CSRF | Link flows start by `POST` only, refuse a cross-site `Sec-Fetch-Site`, and are bound to the starting session. | `OidcLogin.beginLink()`, `OidcStrategy.verifyLink()` |
 
 ### ID token checks
@@ -80,6 +81,8 @@ The controller reads its input through decorated arguments (no `@Req()`), each c
 | `DELETE /:provider/link` query | `subject` of 1 to 255 characters (an empty `?subject=` is refused); any other key is refused |
 | `POST /:provider/backchannel-logout` | form only; `logout_token` required, 1 to 16384 characters; other form fields are ignored, because the sender is the IdP |
 | Headers | `user-agent`, `accept`, `sec-fetch-*`, `cookie`: at most 16384 characters; `host`, `x-forwarded-proto`, `x-forwarded-host`: at most 2048; `content-type` of the back-channel route: at most 256 |
+
+A `host` or trusted `x-forwarded-host` within those bounds that gives no valid origin answers `400 { error: { code: 'E_OIDC_ORIGIN' } }` on the routes that start a flow, unless `authn.http.publicOrigin` or the provider's `redirectUri` is set (see [Login flow](01-login-flow.md#important-behaviour)).
 
 Input that fails these rules answers exactly as the login failure does (see [Login flow](01-login-flow.md)): `303` to the failure page for a browser navigation, otherwise `401` with the uniform failure body, and the flow cookie is cleared. The back-channel route answers `400 {"error":"invalid_request"}`. A `:provider` outside the pattern is an unknown provider, so the link routes answer the login failure for it where an unknown but well-formed name still answers `404`.
 

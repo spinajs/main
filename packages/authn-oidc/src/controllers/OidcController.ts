@@ -5,7 +5,7 @@ import { Config } from '@spinajs/configuration';
 import '@spinajs/authn-session/register-schema';
 import { AuthnService, IdentityLinkStore, NonceStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnContext, SessionHandle } from '@spinajs/authn/contracts';
-import { AuthnSession, proxyTrustOf } from '@spinajs/authn-http';
+import { AuthnSession, proxyTrustOf, publicOriginOf } from '@spinajs/authn-http';
 import { sessionCookie } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { BaseController, BasePath, Body, CsrfExempt, Del, Get, Header, OnError, Param, Post, Response, Unauthorized, _setCoockies, _setHeaders, isTrustedPeer } from '@spinajs/http';
@@ -20,7 +20,7 @@ import { OIDC_LOGOUT_INVALID, OidcBackchannelLogout } from '../token/logout-toke
 import type { OidcAnswer, OidcRequest } from '../login.js';
 import { OidcAccountLinks } from '../links.js';
 import { OidcProviders } from '../providers.js';
-import { requestOrigin } from '../origin.js';
+import { OIDC_ORIGIN_HEADER_MAX, checkedRequestOrigin } from '../origin.js';
 import { isRelaxedEnv } from '../support.js';
 import { flowCookieName } from '../flow/cookie.js';
 import { OidcBeginQuery, OidcCallbackQueryDto, OidcUnlinkQuery, oidcHeader, oidcProviderParam } from '../dto.js';
@@ -90,7 +90,7 @@ interface RequestFacts {
 
 const PROVIDER = oidcProviderParam;
 const HEADER = oidcHeader();
-const HOST = oidcHeader(2048);
+const HOST = oidcHeader(OIDC_ORIGIN_HEADER_MAX);
 
 /**
  * Input that fails validation answers as the login's failure does (303 to the failure page for a navigation, 401
@@ -123,6 +123,9 @@ export class OidcController extends BaseController {
 
   @Config('http.trustProxy')
   protected SharedTrust: unknown;
+
+  @Config('authn.http.publicOrigin')
+  protected PublicOrigin: string | null | undefined;
 
   @Config('authn.session.cookie')
   protected SessionCookie: ISessionCookieConfig;
@@ -285,11 +288,16 @@ export class OidcController extends BaseController {
     };
   }
 
-  protected originOf(f: RequestFacts): string {
-    const origin = requestOrigin({ encrypted: f.connection.encrypted, peer: f.connection.peer, host: f.host, forwardedProto: f.forwardedProto, forwardedHost: f.forwardedHost }, this.trusted);
+  /** `authn.http.publicOrigin` when set; else the request's origin, undefined when it is no valid origin. */
+  protected originOf(f: RequestFacts): string | undefined {
+    const configured = publicOriginOf(this.PublicOrigin);
+    if (configured !== undefined) return configured;
+
+    const origin = checkedRequestOrigin({ encrypted: f.connection.encrypted, peer: f.connection.peer, host: f.host, forwardedProto: f.forwardedProto, forwardedHost: f.forwardedHost }, this.trusted);
+    if (origin === undefined) return undefined;
     if (!this.warnedHttpOrigin && origin.startsWith('http:') && !isRelaxedEnv(this.env)) {
       this.warnedHttpOrigin = true;
-      this.Log?.warn('authn-oidc: the default redirect_uri has an http origin; behind a TLS proxy set authn.http.trustProxy (or http.trustProxy) or the provider redirectUri');
+      this.Log?.warn('authn-oidc: the default redirect_uri has an http origin; set authn.http.publicOrigin, or behind a TLS proxy authn.http.trustProxy (or http.trustProxy), or the provider redirectUri');
     }
     return origin;
   }

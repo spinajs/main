@@ -17,7 +17,7 @@ The redirect is the endpoint with these query parameters added to any it already
 | Parameter | Value |
 | --- | --- |
 | `client_id` | The provider's `clientId` |
-| `post_logout_redirect_uri` | `authn.oidc.providers.<name>.logout.postLogoutRedirectUri`, else `/` on the request's origin (resolved through `authn.http.trustProxy` as the default `redirect_uri` is) |
+| `post_logout_redirect_uri` | `authn.oidc.providers.<name>.logout.postLogoutRedirectUri`, else `/` on `authn.http.publicOrigin`, else `/` on the request's origin (resolved and checked as the default `redirect_uri` is). Left out when the request gives no valid origin: the provider ends its session and shows its own page |
 | `logout_hint` | The IdP session id (`sid` of the ID token), when the login had one |
 | `id_token_hint` | The ID token of the login, when the session holds it (see below) |
 
@@ -49,7 +49,7 @@ Any other key under `logout` fails validation. Register the `post_logout_redirec
 | --- | --- |
 | `AuthnLogoutExtension` (`@spinajs/authn-http`) | The extension point; register your own with `@Injectable(AuthnLogoutExtension)`. The first redirect any extension answers wins |
 | `OidcLogoutExtension` | Built-in implementation; resolves the origin and calls `OidcRpLogout` |
-| `OidcRpLogout` (internal, `src/logout-extension.ts`) | Framework-free: `endSessionUrl(session, origin)` answers the URL or `undefined` |
+| `OidcRpLogout` (internal, `src/logout-extension.ts`) | Framework-free: `endSessionUrl(session, origin)` answers the URL or `undefined`; `origin` may be `undefined` |
 | `OIDC_ID_TOKEN_KEY` | The session data key of the stored ID token; read it with `session.get(OIDC_ID_TOKEN_KEY)` |
 
 ## Important behaviour
@@ -57,6 +57,7 @@ Any other key under `logout` fails validation. Register the `post_logout_redirec
 - The redirect leaves the app, so an XHR logout must follow `endSession` itself. A form post follows the `303` on its own.
 - Only a navigation request is redirected: a logout from a script that ignores `endSession` leaves the IdP session alive.
 - `Clear-Site-Data: "cache", "cookies", "storage"` applies to the app's origin, not the provider's.
+- A `Host` or trusted `X-Forwarded-Host` that gives no valid origin (a path, credentials, a bad port, nothing, more than 2048 characters) still ends the provider session, without `post_logout_redirect_uri`. The app session is already revoked, so the logout is never refused.
 
 ## Related
 

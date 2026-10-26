@@ -70,7 +70,7 @@ Keys of the other packages. Each is validated by the schema of the package in th
 | `authn.jwt.issuers` | object[] | `[]` | Unique `issuer`; asymmetric algorithms only; `jwksUri` or `keys` | `authn-token` |
 | `authn.keys.algorithms` | `string[]` | `['EdDSA', 'ES256']` | `EdDSA`, `ES256` | [`authn-keys`](../authn-keys/README.md) |
 | `authn.keys.challenge.*`, `.assertion.*`, `.httpSignature.*` | object | see owner | | `authn-keys` |
-| `authn.http.publicOrigin` | `string \| null` | unset | `scheme://host[:port]` | [`authn-http`](../authn-http/README.md) |
+| `authn.http.publicOrigin` | `string \| null` | unset | `scheme://host[:port]` | [`authn-http`](../authn-http/README.md); also read by [`authn-oidc`](../authn-oidc/01-login-flow.md) |
 | `authn.http.trustProxy` | `string[] \| integer \| null` | unset | CIDRs or a hop count; `null` falls back to `http.trustProxy` | `authn-http`, `authn-oidc` |
 | `authn.http.csrf.enabled`, `.allowedOrigins`, `.unauthenticatedRoutes` | `boolean`, `string[]`, `string[]` | `true`, `[]`, not set | origins, absolute paths | `authn-http`; deprecated aliases of `http.csrf.*`, `unauthenticatedRoutes` is ignored |
 | `authn.http.logout.clearSiteData` | `string[]` | `['cache', 'cookies', 'storage']` | `cache`, `cookies`, `storage`, `executionContexts`, `*` | `authn-http` |

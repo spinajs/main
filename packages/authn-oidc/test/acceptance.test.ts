@@ -10,6 +10,7 @@ import 'mocha';
 import '@spinajs/log';
 import { expect } from 'chai';
 import { randomBytes } from 'node:crypto';
+import { request as httpRequest } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -278,6 +279,51 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       const set = res.headers.getSetCookie().find((l) => l.startsWith(`${flowName}=`))!;
       expect(set).to.match(/HttpOnly/i).and.match(/SameSite=Lax/i);
       expect(res.headers.get('cache-control')).to.eq('no-store');
+    });
+
+    /** GET with the Host and other headers exactly as given; fetch would set Host itself. */
+    const rawGet = (path: string, headers: Record<string, string>) =>
+      new Promise<{ status: number; location?: string; body: string }>((resolve, reject) => {
+        const url = new URL(path, base);
+        const r = httpRequest({ host: url.hostname, port: url.port, path: url.pathname, method: 'GET', headers: { accept: 'application/json', ...headers }, setHost: false }, (res) => {
+          let body = '';
+          res.setEncoding('utf8');
+          res.on('data', (chunk: string) => (body += chunk));
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, location: res.headers.location, body }));
+        });
+        r.on('error', reject);
+        r.end();
+      });
+    const redirectUriOf = (location: string | undefined) => new URL(location!).searchParams.get('redirect_uri');
+
+    it('answers 400 for a forged Host that is no origin, and starts no flow', async () => {
+      for (const host of ['evil.example/x', 'evil.example?x', 'user@evil.example', 'evil.example:99999']) {
+        const res = await rawGet('/auth/oidc/corp', { host });
+        expect(res.status, host).to.eq(400);
+        expect(JSON.parse(res.body), host).to.deep.eq({ error: { code: 'E_OIDC_ORIGIN' } });
+        expect(res.body, host).to.not.include('evil');
+      }
+    });
+
+    it('ignores X-Forwarded-Host and -Proto from an untrusted peer: the redirect URI is on Host', async () => {
+      const host = new URL(base).host;
+      const res = await rawGet('/auth/oidc/corp', { host, 'x-forwarded-host': 'evil.example', 'x-forwarded-proto': 'https' });
+      expect(res.status).to.eq(302);
+      expect(redirectUriOf(res.location)).to.eq(`${base}/auth/oidc/corp/callback`);
+    });
+
+    it('builds the redirect URI on authn.http.publicOrigin when set, whatever Host says', async () => {
+      const config = DI.get(Configuration)!;
+      config.set(['authn', 'http', 'publicOrigin'], 'https://app.example.test');
+      try {
+        for (const host of ['evil.example', 'evil.example/x']) {
+          const res = await rawGet('/auth/oidc/corp', { host });
+          expect(res.status, host).to.eq(302);
+          expect(redirectUriOf(res.location), host).to.eq('https://app.example.test/auth/oidc/corp/callback');
+        }
+      } finally {
+        config.set(['authn', 'http', 'publicOrigin'], null);
+      }
     });
 
     it('a user linked in authn_identity logs in and gets a session; the hooks get the mapped claims', async () => {

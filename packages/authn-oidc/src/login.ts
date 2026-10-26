@@ -13,8 +13,11 @@ import type { OidcCallbackPayload, OidcStrategy } from './strategy.js';
 
 /** What the HTTP layer knows about the request. */
 export interface OidcRequest {
-  /** The app's origin as the client sees it (scheme://host[:port]), from the trusted-proxy chain. */
-  readonly origin: string;
+  /**
+   * The app's origin as the client sees it (scheme://host[:port]): `authn.http.publicOrigin`, else the request's own
+   * through the trusted-proxy chain. undefined when the request gives no valid one; a flow that needs it answers 400.
+   */
+  readonly origin: string | undefined;
   readonly cookies: Readonly<Record<string, string | undefined>>;
   readonly query: Readonly<Record<string, unknown>>;
   /** A browser navigation (Sec-Fetch-Mode: navigate, or Accept lists text/html): failures redirect instead of 401. */
@@ -69,6 +72,8 @@ export interface OidcLoginDeps {
 /** An answer without a body that says nothing about why: the link routes' refusals. */
 const NOT_FOUND: Omit<OidcAnswer, 'cookies'> = { status: 404 };
 const REFUSED_BODY = Object.freeze({ error: Object.freeze({ code: 'E_LINK_REFUSED' }) });
+/** No redirect URI without an origin: the client's Host (or its trusted proxy's X-Forwarded-Host) is malformed. */
+const BAD_ORIGIN: OidcAnswer = Object.freeze({ status: 400, cookies: Object.freeze([]), body: Object.freeze({ error: Object.freeze({ code: 'E_OIDC_ORIGIN' }) }) });
 
 const QUERY_KEYS = ['code', 'state', 'iss', 'error'] as const;
 const MAX_QUERY_VALUE = 4096;
@@ -98,8 +103,10 @@ export class OidcLogin {
   public async begin(provider: string, req: OidcRequest): Promise<OidcAnswer> {
     const strategy = this.d.strategies.get(provider);
     if (!strategy) return this.failure(req);
+    const redirectUri = this.redirectUriOf(strategy, provider, req);
+    if (redirectUri === undefined) return BAD_ORIGIN;
     try {
-      const { flow, location } = await strategy.provider.begin({ redirectUri: `${req.origin}${this.d.callbackPath(provider)}`, returnTo: req.query.returnTo, mode: 'login', now: req.ctx.now });
+      const { flow, location } = await strategy.provider.begin({ redirectUri, returnTo: req.query.returnTo, mode: 'login', now: req.ctx.now });
       return { status: 302, location, cookies: [flowCookie(flow, this.d.env)] };
     } catch (err) {
       this.d.log?.warn({ provider, errorName: errorName(err) }, 'authn-oidc: could not start a login with provider ${provider}: ${errorName}');
@@ -161,8 +168,10 @@ export class OidcLogin {
     const strategy = this.d.strategies.get(provider);
     const session = req.session;
     if (!strategy || !session || session.state !== 'active') return this.failure(req);
+    const redirectUri = this.redirectUriOf(strategy, provider, req);
+    if (redirectUri === undefined) return BAD_ORIGIN;
     try {
-      const { flow, location } = await strategy.provider.begin({ redirectUri: `${req.origin}${this.d.callbackPath(provider)}`, returnTo: req.query.returnTo, mode: 'reauth', sessionHash: sessionBindingOf(session.id), now: req.ctx.now });
+      const { flow, location } = await strategy.provider.begin({ redirectUri, returnTo: req.query.returnTo, mode: 'reauth', sessionHash: sessionBindingOf(session.id), now: req.ctx.now });
       return { status: 302, location, cookies: [flowCookie(flow, this.d.env)] };
     } catch (err) {
       this.d.log?.warn({ provider, errorName: errorName(err) }, 'authn-oidc: could not start a re-authentication with provider ${provider}: ${errorName}');
@@ -202,13 +211,22 @@ export class OidcLogin {
     const session = req.session;
     if (!session || session.state !== 'active') return this.failure(req);
     if (req.fetchSite !== undefined && req.fetchSite !== 'same-origin' && req.fetchSite !== 'none') return this.failure(req);
+    const redirectUri = this.redirectUriOf(strategy, provider, req);
+    if (redirectUri === undefined) return BAD_ORIGIN;
     try {
-      const { flow, location } = await strategy.provider.begin({ redirectUri: `${req.origin}${this.d.callbackPath(provider)}`, mode: 'link', sessionHash: sessionBindingOf(session.id), now: req.ctx.now });
+      const { flow, location } = await strategy.provider.begin({ redirectUri, mode: 'link', sessionHash: sessionBindingOf(session.id), now: req.ctx.now });
       return { status: 302, location, cookies: [flowCookie(flow, this.d.env)] };
     } catch (err) {
       this.d.log?.warn({ provider, errorName: errorName(err) }, 'authn-oidc: could not start linking with provider ${provider}: ${errorName}');
       return this.failure(req);
     }
+  }
+
+  /** The provider's own `redirectUri`, else the callback route on the request's origin; undefined without an origin. */
+  protected redirectUriOf(strategy: OidcStrategy, provider: string, req: OidcRequest): string | undefined {
+    const own = strategy.provider.options.redirectUri;
+    if (own !== null) return own;
+    return req.origin === undefined ? undefined : `${req.origin}${this.d.callbackPath(provider)}`;
   }
 
   /** A link flow's callback: the same session must come back, then the link service decides (fresh auth, A19). */

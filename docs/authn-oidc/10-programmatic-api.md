@@ -30,7 +30,7 @@ The layers, from the outside in:
 | Registration | `OidcBootstrapper`, `OidcProviders`, `registerOidcStrategies`, `providerNamesOf`, `OidcStrategyName` |
 | Strategy | `OidcStrategy`, `OidcStrategyDeps`, `OidcCallbackPayload` |
 | Provider runtime | `OidcProvider`, `OidcStateStore`, `OidcEndpointSet`, `OidcCallbackQuery` |
-| Routes | `OidcLogin`, `OidcLoginDeps`, `OidcRequest`, `OidcAnswer`, `requestOrigin`, `OriginFacts` |
+| Routes | `OidcLogin`, `OidcLoginDeps`, `OidcRequest`, `OidcAnswer`, `requestOrigin`, `checkedRequestOrigin`, `OIDC_ORIGIN_HEADER_MAX`, `OriginFacts` |
 | Flow cookie | `OidcFlow`, `OidcFlowSecrets`, `FlowCookie`, `newFlow`, `flowSecrets`, `encodeFlow`, `decodeFlow`, `flowIsLive`, `stateClaim`, `flowCookie`, `clearFlowCookie`, `flowCookieName`, `sessionBindingOf`, `sha256hex`, `codeChallengeOf`, `appPathOrNull`, `OIDC_FLOW_TTL_SECONDS`, `OIDC_FLOW_FUTURE_SKEW_SECONDS`, `OIDC_FLOW_COOKIE_BASE_NAME`, `OIDC_FLOW_COOKIE_MAX_LENGTH` |
 | Authorization request | `authorizationUrl`, `AuthorizationRequest` |
 | Tokens | `exchangeCode`, `CodeExchange`, `OidcTokenSet`, `validateIdToken`, `IdTokenRules`, `IdTokenClaims`, `atHashOf`, `fetchUserinfo`, `OidcSigningAlgorithm`, `OIDC_SIGNING_ALGORITHMS` ([Security guarantees](09-security.md)) |
@@ -65,6 +65,8 @@ const answer = await login.callback('corp', {
 ```
 
 Register the callback path you pass in `callbackPath` at the IdP, since it builds the default redirect URI.
+
+`OidcRequest.origin` is the origin of that default. Pass a fixed one (your public origin) or `checkedRequestOrigin(facts, trusted)`, never `Host` as sent. With `origin: undefined`, `begin`, `beginLink` and `beginReauth` answer `400 { error: { code: 'E_OIDC_ORIGIN' } }` for a provider without `redirectUri`; the callback does not read it.
 
 The route schemas of `OidcController` (the `:provider` pattern, the closed begin and unlink queries, the header caps; see [Route inputs](09-security.md#route-inputs)) are not exported and do not apply to a direct `OidcLogin` call. `OidcLogin` still checks what it reads: the callback's `code`, `state`, `iss` and `error` must each be one string of at most 4096 characters, and `returnTo` is kept only as an app-relative path of at most 1024 characters. Validate the provider name, the other query keys and the headers in your own route.
 

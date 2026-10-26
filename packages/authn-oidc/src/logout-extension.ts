@@ -1,17 +1,19 @@
 import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import type { Session } from '@spinajs/authn/contracts';
-import { AuthnLogoutExtension, proxyTrustOf } from '@spinajs/authn-http';
+import { AuthnLogoutExtension, proxyTrustOf, publicOriginOf } from '@spinajs/authn-http';
 import { isTrustedPeer } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 
 import { OIDC_ID_TOKEN_KEY } from './id-token-key.js';
-import { requestOrigin } from './origin.js';
+import { checkedRequestOrigin } from './origin.js';
 import { OidcProviders } from './providers.js';
 import type { OidcStrategy } from './strategy.js';
 
 export { OIDC_ID_TOKEN_KEY };
+
+const postLogoutRedirectOf = (configured: string | null, origin: string | undefined): string | undefined => configured ?? (origin === undefined ? undefined : `${origin}/`);
 
 /**
  * The RP-initiated logout (OpenID Connect RP-Initiated Logout 1.0) of an OIDC session, without a framework: the
@@ -23,8 +25,12 @@ export class OidcRpLogout {
     protected readonly log?: Pick<Log, 'warn'>,
   ) {}
 
-  /** @param origin - the app's origin as the client sees it, for the default post_logout_redirect_uri */
-  public async endSessionUrl(session: Session, origin: string, now: Date = new Date()): Promise<string | undefined> {
+  /**
+   * @param origin - the app's origin as the client sees it, for the default post_logout_redirect_uri. Without it (and
+   * without the provider's `logout.postLogoutRedirectUri`) the URL has no post_logout_redirect_uri: the provider still
+   * ends its session and shows its own page.
+   */
+  public async endSessionUrl(session: Session, origin: string | undefined, now: Date = new Date()): Promise<string | undefined> {
     const external = session.facts.external;
     const strategy = external === undefined ? undefined : [...this.strategies.values()].find((s) => s.name === external.provider);
     const discovery = strategy?.provider.discovery;
@@ -42,7 +48,8 @@ export class OidcRpLogout {
     const { clientId, logout } = strategy.provider.options;
     const url = new URL(endpoint);
     url.searchParams.set('client_id', clientId);
-    url.searchParams.set('post_logout_redirect_uri', logout.postLogoutRedirectUri ?? `${origin}/`);
+    const postLogout = postLogoutRedirectOf(logout.postLogoutRedirectUri, origin);
+    if (postLogout !== undefined) url.searchParams.set('post_logout_redirect_uri', postLogout);
     if (external.sid !== undefined) url.searchParams.set('logout_hint', external.sid);
     const idToken = session.get(OIDC_ID_TOKEN_KEY);
     if (idToken !== undefined) url.searchParams.set('id_token_hint', idToken);
@@ -65,6 +72,9 @@ export class OidcLogoutExtension extends AuthnLogoutExtension {
   @Config('http.trustProxy')
   protected SharedTrust: unknown;
 
+  @Config('authn.http.publicOrigin')
+  protected PublicOrigin: string | null | undefined;
+
   public async afterLogout(session: Session, req: Request): Promise<{ readonly redirect?: string } | void> {
     // The session is already revoked: a logger that cannot be built must not fail the logout.
     const log = {
@@ -80,10 +90,14 @@ export class OidcLogoutExtension extends AuthnLogoutExtension {
     return url === undefined ? undefined : { redirect: url };
   }
 
-  protected originOf(req: Request): string {
+  /** `authn.http.publicOrigin` when set; else the request's origin, undefined when it is no valid origin. */
+  protected originOf(req: Request): string | undefined {
+    const configured = publicOriginOf(this.PublicOrigin);
+    if (configured !== undefined) return configured;
+
     const socket = req.socket as { encrypted?: boolean; remoteAddress?: string };
     const trust = proxyTrustOf(this.OwnTrust, this.SharedTrust);
-    return requestOrigin(
+    return checkedRequestOrigin(
       { encrypted: socket.encrypted === true, peer: socket.remoteAddress, host: req.get('host'), forwardedProto: req.get('x-forwarded-proto'), forwardedHost: req.get('x-forwarded-host') },
       (peer) => isTrustedPeer(trust, peer),
     );
