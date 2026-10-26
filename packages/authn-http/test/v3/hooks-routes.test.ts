@@ -240,7 +240,7 @@ describe('action hooks on the 3.0 routes', function () {
         Roles: { rolesOf: async () => [{ role: 'viewer', requirePassword: false }] },
       });
       w.hook.refuse('authn.role.switch', CODE);
-      expectRefused(await controller.switch(w.request({ role: 'viewer' })), 403);
+      expectRefused(await callRoute(controller, 'switch', w.request({ role: 'viewer' })), 403);
       expect(w.events.map((e) => [e.type, e.outcome, e.reason])).to.deep.equal([['role.switch', 'failure', `hook:${CODE}`]]);
       expect(w.events[0].identity).to.deep.equal({ type: w.alice.type, id: w.alice.id });
     });
