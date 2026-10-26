@@ -86,7 +86,7 @@ The skip is decided once, when the route registers. `telemetrySkipsAuth(settings
 
 Naming `'TelemetryTokenPolicy'` in a slot compares the presented token with `telemetry.auth.token` itself, without authz:
 
-- it reads `x-metrics-token`, else the credentials of `Authorization: Bearer <token>`;
+- it reads `x-metrics-token`, else the credentials of `Authorization: Bearer <token>`; each only when the client sent it once and at most 4096 characters long (`strictHeader`), else it counts as absent;
 - it compares SHA-256 digests with `timingSafeEqual`;
 - a missing token and a wrong token both answer 403 (`access token is not set`, `invalid access token`), not 401;
 - an empty configured token refuses every request;

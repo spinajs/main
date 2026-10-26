@@ -19,11 +19,12 @@ function tokenPolicy(token: unknown) {
   return p;
 }
 
-const request = (headers: Record<string, string> = {}) => ({ headers, storage: { realIp: '10.0.0.1' } }) as any;
+/** `headers` as Node folds them; `rawHeaders` as the client sent them, when the case needs a repeat. */
+const request = (headers: Record<string, string> = {}, rawHeaders?: string[]) => ({ headers, ...(rawHeaders ? { rawHeaders } : {}), storage: { realIp: '10.0.0.1' } }) as any;
 
-async function refusal(p: TelemetryTokenPolicy, headers: Record<string, string>): Promise<unknown> {
+async function refusal(p: TelemetryTokenPolicy, headers: Record<string, string>, rawHeaders?: string[]): Promise<unknown> {
   try {
-    await p.execute(request(headers));
+    await p.execute(request(headers, rawHeaders));
   } catch (err) {
     return err;
   }
@@ -73,6 +74,20 @@ describe('TelemetryTokenPolicy (deprecated)', function () {
   it('refuses a wrong token of another length', async () => {
     expect(await refusal(tokenPolicy(TOKEN), { 'x-metrics-token': 'secret' })).to.be.instanceOf(Forbidden);
     expect(await refusal(tokenPolicy(TOKEN), { authorization: `Bearer ${TOKEN}${TOKEN}` })).to.be.instanceOf(Forbidden);
+  });
+
+  it('refuses the right token sent on a repeated x-metrics-token or Authorization header', async () => {
+    // Node joins a repeated x-metrics-token with ", " and keeps only the first Authorization.
+    expect(await refusal(tokenPolicy(TOKEN), { 'x-metrics-token': `${TOKEN}, ${TOKEN}` }, ['x-metrics-token', TOKEN, 'X-Metrics-Token', TOKEN])).to.be.instanceOf(Forbidden);
+    expect(await refusal(tokenPolicy(TOKEN), { authorization: `Bearer ${TOKEN}` }, ['Authorization', `Bearer ${TOKEN}`, 'authorization', 'Bearer other'])).to.be.instanceOf(Forbidden);
+    expect(await refusal(tokenPolicy(TOKEN), { authorization: `Bearer ${TOKEN}` }, ['Authorization', `Bearer ${TOKEN}`]), 'sent once').to.eq(undefined);
+  });
+
+  it('refuses a token header over 4096 characters', async () => {
+    const long = 'x'.repeat(4097);
+    const p = tokenPolicy(long);
+    expect(await refusal(p, { 'x-metrics-token': long })).to.be.instanceOf(Forbidden);
+    expect(await refusal(p, { authorization: `Bearer ${long}` })).to.be.instanceOf(Forbidden);
   });
 
   it('refuses an empty token', async () => {
