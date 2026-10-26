@@ -34,7 +34,7 @@ A route whose method is not in the parsed class (inherited from a base class in 
 | `@summary` | `summary` (overrides the first line) |
 | `@security cookieAuth, bearerAuth` / `@security []` | `security` (`[]` marks the route public) |
 
-`getPolicyDocumentation(controller, names)` finds the JSDoc of policy classes through the controller's compiled imports.
+`getPolicyDocumentation(controller, names)` finds the JSDoc of policy classes through the controller's compiled imports. It is not stored in the cache provider: every call parses the controller's `.js` and each policy file with `ts.createSourceFile()`.
 
 ### The CLI command
 

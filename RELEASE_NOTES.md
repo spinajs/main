@@ -23,6 +23,8 @@
 
   A warm on-disk cache skipped only the `getCache()` parse; the policy documentation was parsed on every first
   swagger build.
+- A controller whose file is neither `.js` nor `.d.ts` (for example `.mjs` or `.cjs`) used to yield no parameter
+  names and a warning, because its program had no `allowJs`. It is now parsed like any other file.
 
 ---
 

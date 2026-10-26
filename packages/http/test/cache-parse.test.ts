@@ -42,7 +42,10 @@ function makeCache(): DefaultControllerCache {
   return cache;
 }
 
-/** Same options the extractors used when each call built its own `ts.Program`. */
+/**
+ * Same options the extractors used when each call built its own `ts.Program`, chosen here by file extension rather
+ * than by extractor: the module setting does not change the syntax tree.
+ */
 function programParser(): (file: string) => ts.SourceFile | undefined {
   const declarations = ts.createProgram(FILES.filter((f) => !isJs(f)), {
     module: ts.ModuleKind.CommonJS,
@@ -97,8 +100,9 @@ describe('DefaultControllerCache source parsing', function () {
       documentedMethods += expected.reduce((n, e) => n + Object.keys(e.all.documentation.methods).length, 0);
     }
 
-    // Guards against a vacuous pass: fixtures not found, or a parse that yields nothing on both sides.
-    expect(FILES.length).to.be.greaterThan(20);
+    // Guards against a vacuous pass: fixtures not found (the .js ones need a monorepo build), or a parse that yields nothing on both sides.
+    for (const dir of FIXTURE_DIRS) expect(sourcesUnder(dir), dir).to.not.be.empty;
+    expect(FILES.filter(isJs)).to.not.be.empty;
     expect(documentedMethods).to.be.greaterThan(20);
   });
 
