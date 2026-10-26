@@ -26,9 +26,10 @@ export class OidcRpLogout {
   ) {}
 
   /**
-   * @param origin - the app's origin as the client sees it, for the default post_logout_redirect_uri. Without it (and
-   * without the provider's `logout.postLogoutRedirectUri`) the URL has no post_logout_redirect_uri: the provider still
-   * ends its session and shows its own page.
+   * @param origin - the app's origin as the client sees it, for the default post_logout_redirect_uri of a provider
+   * without `redirectUri`; a provider with one takes the origin of its `redirectUri`. Without either (and without the
+   * provider's `logout.postLogoutRedirectUri`) the URL has no post_logout_redirect_uri: the provider still ends its
+   * session and shows its own page.
    */
   public async endSessionUrl(session: Session, origin: string | undefined, now: Date = new Date()): Promise<string | undefined> {
     const external = session.facts.external;
@@ -45,10 +46,11 @@ export class OidcRpLogout {
     }
     if (endpoint === undefined) return undefined;
 
-    const { clientId, logout } = strategy.provider.options;
+    const { clientId, logout, redirectUri } = strategy.provider.options;
     const url = new URL(endpoint);
     url.searchParams.set('client_id', clientId);
-    const postLogout = postLogoutRedirectOf(logout.postLogoutRedirectUri, origin);
+    // The registered redirectUri names the app's origin; the request's comes from Host, which the client chooses.
+    const postLogout = postLogoutRedirectOf(logout.postLogoutRedirectUri, redirectUri === null ? origin : new URL(redirectUri).origin);
     if (postLogout !== undefined) url.searchParams.set('post_logout_redirect_uri', postLogout);
     if (external.sid !== undefined) url.searchParams.set('logout_hint', external.sid);
     const idToken = session.get(OIDC_ID_TOKEN_KEY);

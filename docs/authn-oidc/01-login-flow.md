@@ -140,7 +140,7 @@ The flow reads these keys; the provider keys are on [Provider configuration](02-
 | --- | --- | --- | --- | --- |
 | `authn.oidc.redirects.success` | string | `'/'` | app-relative path | Where a login or link goes when the flow has no `returnTo`. |
 | `authn.oidc.redirects.failure` | string | `'/'` | app-relative path | Where a failed browser navigation goes. |
-| `authn.http.publicOrigin` | see `authn-http` | unset | `scheme://host[:port]` | The origin of the default redirect URI and `post_logout_redirect_uri`. Set: `Host` and `X-Forwarded-*` are not read. Unset outside development and test: `OidcProviders` warns at boot for each provider without `redirectUri`. |
+| `authn.http.publicOrigin` | see `authn-http` | unset | `scheme://host[:port]` | The origin of the default redirect URI and, for a provider without `redirectUri`, of the default `post_logout_redirect_uri`. Set: `Host` and `X-Forwarded-*` are not read for them, and an `http` origin outside development and test logs a warning. Unset outside development and test: `OidcProviders` warns at boot for each provider without `redirectUri`. |
 | `authn.http.trustProxy` | see `authn-http` | `null` | addresses and CIDR ranges | Which peers may set `X-Forwarded-Proto` and `X-Forwarded-Host` for the default redirect URI. `null` or absent: `http.trustProxy`. An entry that is no address or CIDR throws on the first OIDC request. |
 | `authn.session.cookie` | object | see `authn-session` | see `authn-session` | The session cookie the callback sets. |
 
@@ -169,13 +169,14 @@ authn: {
 - **One answer.** Every failure, from an unknown provider to a bad signature, gets the same answer. Read the audit (`AuthnService` events) for the reason.
 - **Throttle.** The core throttles the callback like any interactive login. `OidcStrategy.throttleKeys()` returns no key: no account is known before verification, and a per-provider key would let one client slow every login. The core adds the `ip` key when `authn-http` set `ClientIp`.
 - **Redirect URI.** The flow keeps the redirect URI it sent and sends it unchanged to the token endpoint. Default: `<origin>/auth/oidc/<name>/callback`. The origin is `authn.http.publicOrigin` when set. Otherwise it comes from `Host`, with `X-Forwarded-Proto` and `X-Forwarded-Host` (first value) only from a trusted proxy, and must pass `parseOrigin()`. The first request with an `http` origin outside development and test logs a warning.
+- **The flow cookie stays on the host the flow started on.** It is host-only, so with `authn.http.publicOrigin` set, a login started on another host (`Host`, or a trusted `X-Forwarded-Host`) than publicOrigin's sends the browser to a callback that does not get the cookie, and the login fails. The first such flow start logs a warning naming both origins. Serve the app on publicOrigin only, have a trusted proxy send `X-Forwarded-Host`, or set the provider's `redirectUri`: a provider with its own `redirectUri` takes neither origin. Scheme and port do not count, as for cookies.
 - **A malformed origin answers 400.** Without `authn.http.publicOrigin` and the provider's `redirectUri`, a `Host` or trusted `X-Forwarded-Host` that gives no valid origin (a path, credentials, a bad port, nothing, more than 2048 characters) answers `400 { error: { code: 'E_OIDC_ORIGIN' } }` on the routes that start a flow (login, link, reauth). No flow cookie is set and the provider is not called. A well-formed forged `Host` still passes this check: the IdP's exact match of the registered URI refuses it.
 - **Return path.** `returnTo` is kept only when it is an app-relative path of at most 1024 printable ASCII characters. A `returnTo` over 1024 characters is refused by the route's query schema and gets the failure answer. Any other value that is no such path falls back to `redirects.success`, so there is no open redirect. See [Route inputs](09-security.md#route-inputs).
 - **Flow expiry.** A user who waits more than 10 minutes at the IdP gets the failure answer and must start again.
 
 ## Best practices
 
-- Set `authn.http.publicOrigin` in production, or each provider's `redirectUri`, so no redirect URI depends on `Host`.
+- Set `authn.http.publicOrigin` in production, or each provider's `redirectUri`, so no redirect URI depends on `Host`. publicOrigin must be the host browsers use: the flow cookie does not reach a callback on another host.
 - Register `<origin>/auth/oidc/<name>/callback` at the IdP exactly. The IdP's exact match is the guard against a forged `Host`.
 - Behind a TLS proxy, set `authn.http.trustProxy`. Without it the default redirect URI is `http://…` and the IdP refuses it.
 - Import `@spinajs/authn-http` too: it restores the session cookie on later requests and writes `ClientIp` for the `ip` throttle key.

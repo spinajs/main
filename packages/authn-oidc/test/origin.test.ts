@@ -129,5 +129,60 @@ describe('authn-oidc request origin', () => {
       expect(() => controller(['not-an-ip'], null).trusts('10.0.0.5')).to.throw(InvalidOption, 'authn.http.trustProxy');
       expect(() => controller(null, 'not-an-ip').trusts('10.0.0.5')).to.throw(InvalidOption, 'http.trustProxy');
     });
+
+    describe('origin warnings', () => {
+      class Warner extends OidcController {
+        public readonly lines: string[] = [];
+        public start(provider: string, host: string, forwardedHost?: string): string | undefined {
+          const f = { host, forwardedHost, forwardedProto: forwardedHost === undefined ? undefined : 'https', connection: { encrypted: true, peer: '10.0.0.5', clientIp: undefined }, session: null };
+          this.warnFlowCookieHost(provider, f);
+          return this.originOf(f);
+        }
+      }
+      const warner = (o: { env?: string; publicOrigin?: string | null; trust?: unknown; redirectUri?: string | null }) => {
+        const c = readingFrom(new Warner(), fakeContainer({ 'authn.http.trustProxy': o.trust ?? null, 'http.trustProxy': null, 'authn.http.publicOrigin': o.publicOrigin ?? null }));
+        const strategies = new Map([['corp', { provider: { options: { redirectUri: o.redirectUri ?? null } } }]]);
+        Object.defineProperty(c, 'Providers', { value: { env: o.env, strategies: () => strategies } });
+        Object.defineProperty(c, 'Log', { value: recordingLog(c.lines) });
+        return c;
+      };
+
+      it('warns once when a flow starts on another host than authn.http.publicOrigin: the host-only flow cookie misses the callback', () => {
+        const c = warner({ env: 'test', publicOrigin: 'https://app.example.test' });
+        expect(c.start('corp', 'other.example.test')).to.eq('https://app.example.test');
+        c.start('corp', 'third.example.test');
+        expect(c.lines).to.have.length(1);
+        expect(c.lines[0]).to.contain('corp').and.contain('https://other.example.test').and.contain('https://app.example.test').and.contain('flow cookie').and.contain('redirectUri');
+      });
+
+      it('says nothing for the same host (scheme and port aside), a trusted X-Forwarded-Host on it, a provider redirectUri, no publicOrigin or a Host that is no origin', () => {
+        const same = warner({ publicOrigin: 'https://app.example.test', trust: 1 });
+        same.start('corp', 'app.example.test');
+        same.start('corp', 'app.example.test:8080');
+        same.start('corp', 'backend:3000', 'app.example.test');
+        expect(same.lines).to.deep.eq([]);
+        const other = warner({ publicOrigin: 'https://app.example.test', redirectUri: 'https://login.example.test/cb' });
+        other.start('corp', 'other.example.test');
+        other.start('unknown', 'other.example.test');
+        expect(other.lines, 'the callback is not on publicOrigin, or no such provider').to.deep.eq([]);
+        const junk = warner({ publicOrigin: 'https://app.example.test' });
+        junk.start('corp', 'evil.example/x');
+        expect(junk.lines).to.deep.eq([]);
+        const none = warner({ env: 'test' });
+        none.start('corp', 'other.example.test');
+        expect(none.lines).to.deep.eq([]);
+      });
+
+      it('warns once in production for an http authn.http.publicOrigin, as for an http request origin', () => {
+        const c = warner({ publicOrigin: 'http://app.example.test' });
+        c.start('corp', 'app.example.test');
+        c.start('corp', 'app.example.test');
+        expect(c.lines).to.have.length(1);
+        expect(c.lines[0]).to.contain('authn.http.publicOrigin').and.contain('http origin');
+        const relaxed = warner({ env: 'development', publicOrigin: 'http://app.example.test' });
+        relaxed.start('corp', 'app.example.test');
+        expect(relaxed.lines).to.deep.eq([]);
+      });
+    });
   });
 });

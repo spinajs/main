@@ -114,6 +114,7 @@ export class OidcController extends BaseController {
   protected logout: OidcBackchannelLogout | undefined;
   protected peerTrusted: ((peer: string | undefined) => boolean) | undefined;
   protected warnedHttpOrigin = false;
+  protected warnedFlowCookieHost = false;
 
   @Autoinject(Container)
   protected Container!: IContainer;
@@ -163,7 +164,9 @@ export class OidcController extends BaseController {
     @Header('accept', HEADER) accept?: string,
   ) {
     const login = await this.login();
-    return new OidcResponse(await login.begin(provider, this.requestOf({ session, connection, userAgent, host, forwardedProto, forwardedHost, fetchMode, fetchSite, accept, query })));
+    const facts = { session, connection, userAgent, host, forwardedProto, forwardedHost, fetchMode, fetchSite, accept, query };
+    this.warnFlowCookieHost(provider, facts);
+    return new OidcResponse(await login.begin(provider, this.requestOf(facts)));
   }
 
   @Get(':provider/callback')
@@ -199,7 +202,9 @@ export class OidcController extends BaseController {
     @Header('accept', HEADER) accept?: string,
   ) {
     const login = await this.login();
-    return new OidcResponse(await login.beginLink(provider, this.requestOf({ session, connection, userAgent, host, forwardedProto, forwardedHost, fetchMode, fetchSite, accept })));
+    const facts = { session, connection, userAgent, host, forwardedProto, forwardedHost, fetchMode, fetchSite, accept };
+    this.warnFlowCookieHost(provider, facts);
+    return new OidcResponse(await login.beginLink(provider, this.requestOf(facts)));
   }
 
   @Del(':provider/link')
@@ -260,7 +265,9 @@ export class OidcController extends BaseController {
     @Header('accept', HEADER) accept?: string,
   ) {
     const login = await this.login();
-    return new OidcResponse(await login.beginReauth(provider, this.requestOf({ session, connection, userAgent, host, forwardedProto, forwardedHost, fetchMode, fetchSite, accept, query })));
+    const facts = { session, connection, userAgent, host, forwardedProto, forwardedHost, fetchMode, fetchSite, accept, query };
+    this.warnFlowCookieHost(provider, facts);
+    return new OidcResponse(await login.beginReauth(provider, this.requestOf(facts)));
   }
 
   /** The answer to input that failed validation; public for the class-level `@OnError`. */
@@ -291,15 +298,39 @@ export class OidcController extends BaseController {
   /** `authn.http.publicOrigin` when set; else the request's origin, undefined when it is no valid origin. */
   protected originOf(f: RequestFacts): string | undefined {
     const configured = publicOriginOf(this.PublicOrigin);
-    if (configured !== undefined) return configured;
-
-    const origin = checkedRequestOrigin({ encrypted: f.connection.encrypted, peer: f.connection.peer, host: f.host, forwardedProto: f.forwardedProto, forwardedHost: f.forwardedHost }, this.trusted);
+    const origin = configured ?? this.checkedOriginOf(f);
     if (origin === undefined) return undefined;
     if (!this.warnedHttpOrigin && origin.startsWith('http:') && !isRelaxedEnv(this.env)) {
       this.warnedHttpOrigin = true;
-      this.Log?.warn('authn-oidc: the default redirect_uri has an http origin; set authn.http.publicOrigin, or behind a TLS proxy authn.http.trustProxy (or http.trustProxy), or the provider redirectUri');
+      this.Log?.warn(
+        configured === undefined
+          ? 'authn-oidc: the default redirect_uri has an http origin; set authn.http.publicOrigin, or behind a TLS proxy authn.http.trustProxy (or http.trustProxy), or the provider redirectUri'
+          : 'authn-oidc: authn.http.publicOrigin is an http origin, and so is the default redirect_uri; set it to the https origin the browser uses',
+      );
     }
     return origin;
+  }
+
+  protected checkedOriginOf(f: RequestFacts): string | undefined {
+    return checkedRequestOrigin({ encrypted: f.connection.encrypted, peer: f.connection.peer, host: f.host, forwardedProto: f.forwardedProto, forwardedHost: f.forwardedHost }, this.trusted);
+  }
+
+  /**
+   * Once per process, at a flow start: the flow cookie is host-only, so a flow started on another host than
+   * `authn.http.publicOrigin`, where the default redirect_uri points, reaches its callback without it and fails.
+   */
+  protected warnFlowCookieHost(provider: string, f: RequestFacts): void {
+    if (this.warnedFlowCookieHost) return;
+    const configured = publicOriginOf(this.PublicOrigin);
+    if (configured === undefined || this.Providers.strategies().get(provider)?.provider.options.redirectUri !== null) return;
+    const origin = this.checkedOriginOf(f);
+    // Cookies ignore scheme and port, so only the host decides whether the callback gets the cookie.
+    if (origin === undefined || new URL(origin).hostname === new URL(configured).hostname) return;
+    this.warnedFlowCookieHost = true;
+    this.Log?.warn(
+      { provider, origin, publicOrigin: configured },
+      'authn-oidc: a ${provider} flow started on ${origin}, but its redirect_uri is on authn.http.publicOrigin ${publicOrigin}; the flow cookie is host-only, so the callback arrives without it and the login fails. Serve the app on publicOrigin only, have a trusted proxy send X-Forwarded-Host, or set authn.oidc.providers.${provider}.redirectUri',
+    );
   }
 
   protected get env(): string | undefined {

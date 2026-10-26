@@ -63,7 +63,7 @@ Each provider takes exactly one source: an `issuer`, or a `preset` with the extr
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `…<name>.logout.storeIdToken` | boolean | `false` | | Keep the validated ID token in the session and send it as `id_token_hint` at logout. See [RP-initiated logout](12-rp-initiated-logout.md). |
-| `…<name>.logout.postLogoutRedirectUri` | string | `<origin>/` | absolute https URL without credentials or fragment; a query is allowed | The `post_logout_redirect_uri` sent to the provider's `end_session_endpoint`. |
+| `…<name>.logout.postLogoutRedirectUri` | string | `/` on the origin of `redirectUri` when it is set, else `<origin>/` | absolute https URL without credentials or fragment; a query is allowed | The `post_logout_redirect_uri` sent to the provider's `end_session_endpoint`. |
 
 `OIDC_RESERVED_PARAMS` lists the keys `authorizationParams` refuses: the flow's own `response_type`, `response_mode`, `client_id`, `redirect_uri`, `scope`, `state`, `nonce`, `code_challenge`, `code_challenge_method`, and `request`, `request_uri`, `max_age`, `acr_values`. Nothing checks `auth_time` or `acr`, so `max_age` and `acr_values` would promise a check that does not happen.
 

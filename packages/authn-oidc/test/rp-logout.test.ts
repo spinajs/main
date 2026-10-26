@@ -96,6 +96,21 @@ describe('authn-oidc RP-initiated logout (FLOW-3)', () => {
       expect(u.searchParams.get('post_logout_redirect_uri')).to.eq('https://app.example.test/signed-out');
     });
 
+    it('takes the default post_logout_redirect_uri from the origin of the provider redirectUri, never from the request', async () => {
+      const w = await worldWith(END, { provider: { redirectUri: 'https://login.example.test/auth/oidc/corp/callback' } });
+      const session = await loggedIn(w);
+      for (const origin of [ORIGIN, 'https://evil.example', undefined]) {
+        const u = new URL((await rp(w).endSessionUrl(session, origin))!);
+        expect(u.searchParams.get('post_logout_redirect_uri'), String(origin)).to.eq('https://login.example.test/');
+      }
+    });
+
+    it('a configured logout.postLogoutRedirectUri still wins over the redirectUri origin', async () => {
+      const w = await worldWith(END, { provider: { redirectUri: 'https://login.example.test/cb', logout: { postLogoutRedirectUri: 'https://app.example.test/signed-out' } } });
+      const u = new URL((await rp(w).endSessionUrl(await loggedIn(w), ORIGIN))!);
+      expect(u.searchParams.get('post_logout_redirect_uri')).to.eq('https://app.example.test/signed-out');
+    });
+
     it('leaves out logout_hint for a login whose ID token had no sid', async () => {
       const w = await worldWith();
       const u = new URL((await rp(w).endSessionUrl(await loggedIn(w, { sub: 'kc-1' }), ORIGIN))!);

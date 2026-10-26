@@ -17,7 +17,7 @@ The redirect is the endpoint with these query parameters added to any it already
 | Parameter | Value |
 | --- | --- |
 | `client_id` | The provider's `clientId` |
-| `post_logout_redirect_uri` | `authn.oidc.providers.<name>.logout.postLogoutRedirectUri`, else `/` on `authn.http.publicOrigin`, else `/` on the request's origin (resolved and checked as the default `redirect_uri` is). Left out when the request gives no valid origin: the provider ends its session and shows its own page |
+| `post_logout_redirect_uri` | `authn.oidc.providers.<name>.logout.postLogoutRedirectUri`, else `/` on the origin of the provider's `redirectUri`, else `/` on `authn.http.publicOrigin`, else `/` on the request's origin (resolved and checked as the default `redirect_uri` is). Left out when the request gives no valid origin: the provider ends its session and shows its own page |
 | `logout_hint` | The IdP session id (`sid` of the ID token), when the login had one |
 | `id_token_hint` | The ID token of the login, when the session holds it (see below) |
 
