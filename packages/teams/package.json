@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/teams",
-  "version": "3.0.20",
+  "version": "3.0.21",
   "description": "Teams, groups and invitations for SpinaJS, built on authz-v3",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -53,21 +53,21 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authz": "3.0.20",
-    "@spinajs/authz-orm": "3.0.20",
-    "@spinajs/authz-rbac": "3.0.20",
-    "@spinajs/configuration": "3.0.20",
-    "@spinajs/di": "3.0.20",
-    "@spinajs/email": "3.0.20",
-    "@spinajs/exceptions": "3.0.20",
-    "@spinajs/log": "3.0.20",
-    "@spinajs/orm": "3.0.20",
+    "@spinajs/authz": "3.0.21",
+    "@spinajs/authz-orm": "3.0.21",
+    "@spinajs/authz-rbac": "3.0.21",
+    "@spinajs/configuration": "3.0.21",
+    "@spinajs/di": "3.0.21",
+    "@spinajs/email": "3.0.21",
+    "@spinajs/exceptions": "3.0.21",
+    "@spinajs/log": "3.0.21",
+    "@spinajs/orm": "3.0.21",
     "luxon": "^3.6.1"
   },
   "devDependencies": {
-    "@spinajs/authz-abac": "3.0.20",
-    "@spinajs/authz-testing": "3.0.20",
-    "@spinajs/orm-sqlite": "3.0.20",
+    "@spinajs/authz-abac": "3.0.21",
+    "@spinajs/authz-testing": "3.0.21",
+    "@spinajs/orm-sqlite": "3.0.21",
     "@types/luxon": "^3.4.2"
   }
 }

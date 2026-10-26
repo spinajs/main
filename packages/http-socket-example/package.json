@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/http-socket-example",
-  "version": "3.0.20",
+  "version": "3.0.21",
   "private": true,
   "description": "Example app for the spinajs WebSocket layer: a notes server with commands, rooms, a resumable snapshot stream and binary blobs, and its client",
   "type": "module",
@@ -17,13 +17,13 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@spinajs/authz": "3.0.20",
-    "@spinajs/configuration": "3.0.20",
-    "@spinajs/di": "3.0.20",
-    "@spinajs/exceptions": "3.0.20",
-    "@spinajs/http-socket": "3.0.20",
-    "@spinajs/http-socket-client": "3.0.20",
-    "@spinajs/http-socket-common": "3.0.20",
-    "@spinajs/log": "3.0.20"
+    "@spinajs/authz": "3.0.21",
+    "@spinajs/configuration": "3.0.21",
+    "@spinajs/di": "3.0.21",
+    "@spinajs/exceptions": "3.0.21",
+    "@spinajs/http-socket": "3.0.21",
+    "@spinajs/http-socket-client": "3.0.21",
+    "@spinajs/http-socket-common": "3.0.21",
+    "@spinajs/log": "3.0.21"
   }
 }

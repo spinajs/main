@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authz-orm",
-  "version": "3.0.20",
+  "version": "3.0.21",
   "description": "ORM resources, closure table and list helpers for SpinaJS authorization",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -80,19 +80,19 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authz": "3.0.20",
-    "@spinajs/cli": "3.0.20",
-    "@spinajs/configuration": "3.0.20",
-    "@spinajs/di": "3.0.20",
-    "@spinajs/exceptions": "3.0.20",
-    "@spinajs/orm": "3.0.20",
+    "@spinajs/authz": "3.0.21",
+    "@spinajs/cli": "3.0.21",
+    "@spinajs/configuration": "3.0.21",
+    "@spinajs/di": "3.0.21",
+    "@spinajs/exceptions": "3.0.21",
+    "@spinajs/orm": "3.0.21",
     "luxon": "^3.6.1"
   },
   "devDependencies": {
-    "@spinajs/authz-testing": "3.0.20",
-    "@spinajs/log": "3.0.20",
-    "@spinajs/orm-postgres": "3.0.20",
-    "@spinajs/orm-sqlite": "3.0.20",
+    "@spinajs/authz-testing": "3.0.21",
+    "@spinajs/log": "3.0.21",
+    "@spinajs/orm-postgres": "3.0.21",
+    "@spinajs/orm-sqlite": "3.0.21",
     "@types/luxon": "^3.6.1"
   }
 }
