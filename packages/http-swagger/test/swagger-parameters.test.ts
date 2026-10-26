@@ -38,6 +38,21 @@ describe('Swagger parameters, bodies and paths', function () {
     expect(query).to.include({ name: 'page', in: 'query', required: true });
   });
 
+  it('documents the @Header() maxLength and pattern options in the parameter schema', () => {
+    const spec = build({
+      params: [
+        param(0, ParameterType.FromHeader, 'tenant', { key: 'x-tenant', maxLength: 32, pattern: /^[a-z0-9-]{1,32}$/ }),
+        param(1, ParameterType.FromHeader, 'trace', { key: 'x-trace', once: true }),
+        param(2, ParameterType.FromHeader, 'region', { key: 'x-region', pattern: /^[a-z]+$/i }),
+      ],
+    });
+    const [tenant, trace, region] = operation(spec).get.parameters;
+
+    expect(tenant.schema).to.deep.include({ type: 'string', maxLength: 32, pattern: '^[a-z0-9-]{1,32}$' });
+    expect(trace.schema).to.not.have.any.keys('maxLength', 'pattern');
+    expect(region.schema, 'a flag the OpenAPI pattern cannot carry: left out rather than documented stricter').to.not.have.property('pattern');
+  });
+
   it('documents @UserAgent() and @Referer() as header parameters', () => {
     const spec = build({ params: [param(0, ParameterType.UserAgent, 'ua'), param(1, ParameterType.Referer, 'ref')] });
 

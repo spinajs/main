@@ -979,7 +979,7 @@ ${line}` : line;
     doc?: { name: string; description?: string; type?: string },
     resolvedName?: string,
   ): IOpenApiParameter {
-    const schema = this.schemaFromParam(param, doc?.type);
+    const schema = this.withHeaderLimits(param, this.schemaFromParam(param, doc?.type));
     const isArray = schema?.type === 'array';
     const isObject = schema?.type === 'object';
 
@@ -999,6 +999,20 @@ ${line}` : line;
       schema,
       ...(isArray && location === 'query' ? { style: 'form', explode: true } : {}),
     };
+  }
+
+  /**
+   * `@Header()`'s `maxLength` and `pattern`, which the runtime checks on the raw value, as `maxLength` and `pattern` of
+   * a string schema. `once` has no OpenAPI keyword. A pattern with a flag (`i`, `s`, `u`, `v`) is left out: a bare
+   * OpenAPI pattern would document a different, usually stricter, match.
+   */
+  private withHeaderLimits(param: IRouteParameter, schema: IOpenApiSchema): IOpenApiSchema {
+    if (param.Type !== ParameterType.FromHeader || schema.$ref !== undefined || (schema.type !== undefined && schema.type !== 'string')) return schema;
+    const { maxLength, pattern } = (param.Options ?? {}) as { maxLength?: number; pattern?: RegExp };
+    const limited: IOpenApiSchema = { ...schema };
+    if (typeof maxLength === 'number') limited.maxLength = Math.min(maxLength, schema.maxLength ?? maxLength);
+    if (pattern instanceof RegExp && pattern.flags === '' && schema.pattern === undefined) limited.pattern = pattern.source;
+    return limited;
   }
 
   private assertPlaceholder(controllerName: string, methodName: string, param: IRouteParameter, name: string, placeholders: string[], fullPath: string): void {
