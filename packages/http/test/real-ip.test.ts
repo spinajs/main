@@ -102,6 +102,16 @@ describe('trusted client address (RealIp)', () => {
       expect(trustedClientAddress('::1', '2001:4860::8888', hops(1))).to.eq('2001:4860::8888');
     });
 
+    it('refuses an IPv6 zone id, which isIP accepts: it never becomes the client address or a trusted peer', () => {
+      expect(trustedClientAddress(SOCKET, 'fe80::1%eth0', hops(1))).to.eq(SOCKET);
+      expect(trustedClientAddress(SOCKET, `${SPOOF}, fe80::1%25eth0`, hops(2)), 'the walk stops at it').to.eq(SOCKET);
+      expect(trustedClientAddress(SOCKET, '::ffff:192.0.2.1%1', hops(1))).to.eq(SOCKET);
+      expect(trustedClientAddress('fe80::1%eth0', SPOOF, hops(1))).to.eq(undefined);
+      expect(isTrustedPeer(hops(1), 'fe80::1%eth0')).to.eq(false);
+      expect(() => parseTrustProxy(['fe80::1%eth0'], 'http.trustProxy')).to.throw(InvalidOption, 'http.trustProxy');
+      expect(() => parseTrustProxy('fe80::%eth0/64', 'http.trustProxy')).to.throw(InvalidOption, 'http.trustProxy');
+    });
+
     it('normalises IPv4-mapped IPv6 for matching and output', () => {
       expect(trustedClientAddress(`::ffff:${SOCKET}`, SPOOF, hops(0))).to.eq(SOCKET);
       expect(trustedClientAddress(`::ffff:${SOCKET}`, `::ffff:${SPOOF}`, parseTrustProxy(['203.0.113.0/24'], 'k'))).to.eq(SPOOF);

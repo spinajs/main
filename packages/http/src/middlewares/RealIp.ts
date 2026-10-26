@@ -26,7 +26,8 @@ const unmapped = (addr: string): string => (addr.toLowerCase().startsWith('::fff
 
 /** The address with IPv4-mapped IPv6 unmapped, or undefined when it is not an IP. */
 function ipOf(value: string | undefined): string | undefined {
-  if (typeof value !== 'string') return undefined;
+  // isIP accepts an IPv6 zone id (`fe80::1%eth0`, any text after the %), which would reach realIp and the throttle key.
+  if (typeof value !== 'string' || value.includes('%')) return undefined;
   const addr = unmapped(value.trim());
   return isIP(addr) === 0 ? undefined : addr;
 }

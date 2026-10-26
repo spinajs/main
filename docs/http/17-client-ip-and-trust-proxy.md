@@ -12,8 +12,8 @@ Per request, RealIp stores that trust in `req.storage.proxyTrust`, so later midd
 2. Walks the `X-Forwarded-For` entries from right to left. It steps to the next entry only while the current address is trusted:
    - hop count `n`: for the first `n` steps;
    - address list: while the current address is in the list.
-3. Stops at the first entry that is not an IP address.
-4. The result is always an IP address.
+3. Stops at the first entry that is not an IP address. An IPv6 address with a zone id (`fe80::1%eth0`) counts as none, though `isIP` accepts it.
+4. The result is always an IP address without a zone id.
 
 `requestOrigin(req, trust)` returns the app's origin as the client sees it: `X-Forwarded-Proto` and `X-Forwarded-Host` (first value) count only when the socket peer is trusted.
 
@@ -23,7 +23,7 @@ Express's own `trust proxy` setting and `req.ip` are not used.
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `http.trustProxy` | `number \| string \| string[] \| boolean \| null` | `null` | hop count ≥ 0; addresses and CIDRs (`10.0.0.0/8`, `::1`) and the names `loopback`, `linklocal`, `uniquelocal`, as an array or a comma-separated string; `true` = one hop; `false`, `0`, `null` = none | Which proxies' `X-Forwarded-For` counts. |
+| `http.trustProxy` | `number \| string \| string[] \| boolean \| null` | `null` | hop count ≥ 0; addresses and CIDRs (`10.0.0.0/8`, `::1`, no zone id) and the names `loopback`, `linklocal`, `uniquelocal`, as an array or a comma-separated string; `true` = one hop; `false`, `0`, `null` = none | Which proxies' `X-Forwarded-For` counts. |
 
 | Name | Ranges |
 | --- | --- |
@@ -112,8 +112,8 @@ DI.register(AppRealIp).as(RealIp);
 - Without `http.trustProxy`, behind a proxy every request shows the proxy's address: rate limits and logs then treat all clients as one.
 - Trusting too much lets clients forge their address: with `trustProxy: 2` and only one real proxy, a client-sent `X-Forwarded-For` entry is believed.
 - A hop count trusts any peer for that many steps; an address list trusts only listed peers. Prefer a list when proxy addresses are known.
-- A non-IP entry in `X-Forwarded-For` (eg. `unknown`) stops the walk at the last good address.
-- `requestOrigin()` takes only the first `X-Forwarded-Proto` and `X-Forwarded-Host` value; the trusted proxy must overwrite both headers, not append to them.
+- A non-IP entry in `X-Forwarded-For` (eg. `unknown`, or `fe80::1%eth0` with a zone id) stops the walk at the last good address, so a zone id never reaches `realIp` or a throttle key. A socket address with a zone id gives no client address, and is no trusted peer.
+- `requestOrigin()` takes only the first `X-Forwarded-Proto` and `X-Forwarded-Host` value, as express does; the trusted proxy must overwrite both headers, not append to them. This is kept on purpose: reading the hop-aligned entry would change what `http.trustProxy` means.
 
 ## Best practices
 
