@@ -9,6 +9,8 @@ import { RequestTypeRouteArgs } from './route-args/RequestFields.js';
 import { ExpectedResponseUnacceptable } from '@spinajs/exceptions';
 import * as express from 'express';
 import type { ErrorClass, OnErrorHandler, OnErrorOptions } from './errors/on-error.js';
+import { strictHeaderReader } from './headers.js';
+import type { StrictHeaderOptions } from './headers.js';
 
 
 export const CONTROLLED_DESCRIPTOR_SYMBOL = Symbol('CONTROLLER_SYMBOL');
@@ -496,15 +498,45 @@ export function Param(schema?: any, options?: { required?: boolean }) {
 }
 
 /**
+ * Options of {@link Header}. `once`, `maxLength` and `pattern` read the header with {@link strictHeader}: a header the
+ * client sent but that fails them answers 400 (`ValidationFailed`); an absent one stays undefined.
+ */
+export interface IHeaderArgOptions {
+  /** An absent (or empty) header fails validation. */
+  required?: boolean;
+  /** Refuse a header sent on more than one line, which Node joins with `, ` or cuts to its first copy. */
+  once?: boolean;
+  /** The longest value accepted. Implies `once`. */
+  maxLength?: number;
+  /** Must match the whole value: anchored with `^` and `$`, no `g`, `y` or `m` flag. Implies `once`. */
+  pattern?: RegExp;
+}
+
+/** The strictHeader options of a `@Header()`, checked here so a bad one throws when the controller loads. */
+function strictHeaderOptionsOf(options: IHeaderArgOptions | undefined): StrictHeaderOptions | undefined {
+  const { once, maxLength, pattern } = options ?? {};
+  if (maxLength === undefined && pattern === undefined) return once === true ? { maxLength: Number.MAX_SAFE_INTEGER } : undefined;
+  if (once === false) throw new TypeError('@Header() maxLength and pattern refuse a repeated header too; drop once: false');
+
+  const strict: StrictHeaderOptions = { maxLength: maxLength ?? Number.MAX_SAFE_INTEGER, ...(pattern === undefined ? {} : { pattern }) };
+  strictHeaderReader('', strict);
+  return strict;
+}
+
+/**
  * Gets parameter from request header. If not keyname is provided
  * variable name is used as header key name
  *
+ * Without `once`, `maxLength` or `pattern` the value is Node's folded one: a repeat joined with `, `, or only the first
+ * copy of `Authorization`, `Host` and a few others. The next major makes `once` the default.
+ *
  * @param keyName - header key name ( optional )
  * @param schema - schema for validation ( optional )
- * @returns
+ * @param options - see {@link IHeaderArgOptions}; `maxLength` or `pattern` with a bad value throws `TypeError` here
  */
-export function Header(keyName?: string, schema?: any, options?: { required?: boolean }) {
-  return Route(Parameter(ParameterType.FromHeader, schema, { key: keyName, ...options }));
+export function Header(keyName?: string, schema?: any, options?: IHeaderArgOptions) {
+  const strict = strictHeaderOptionsOf(options);
+  return Route(Parameter(ParameterType.FromHeader, schema, { key: keyName, ...options, ...(strict === undefined ? {} : { strict }) }));
 }
 
 /**

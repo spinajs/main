@@ -125,6 +125,16 @@ describe('ClientIp (A05, SR-03)', function () {
     expect(await clientIp(`198.51.100.1, ${SPOOF}`)).to.eq(socketAddress);
   });
 
+  it('a link-local socket peer is the client, without the zone id Node appends, and matches linklocal', () => {
+    const run = (values: Record<string, unknown>) => {
+      const storage: Record<string, unknown> = {};
+      unitClientIp(values).before()!({ headers: { 'x-forwarded-for': SPOOF }, socket: { remoteAddress: 'fe80::1%eth0' }, storage } as never, {} as never, () => undefined);
+      return storage.ClientIp;
+    };
+    expect(run({})).to.eq('fe80::1');
+    expect(run({ 'authn.http.trustProxy': 'linklocal' })).to.eq(SPOOF);
+  });
+
   it('a bad value fails when the middleware is built, naming the key', () => {
     expect(() => unitClientIp({ 'authn.http.trustProxy': 'nope' }).before()).to.throw(InvalidOption, 'authn.http.trustProxy');
     expect(() => unitClientIp({ 'authn.http.trustProxy': null, 'http.trustProxy': -1 }).before()).to.throw(InvalidOption, 'http.trustProxy');

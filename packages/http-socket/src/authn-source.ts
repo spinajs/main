@@ -1,10 +1,11 @@
 import { DI, Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { AuthnService, CredentialExtractor } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, SignedRequest } from '@spinajs/authn/contracts';
 import { Unauthenticated, principalKey } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
-import { normalizeHeaders } from '@spinajs/http';
+import { SINGLETON_CREDENTIAL_HEADERS, normalizeHeaders, repeatedHeader } from '@spinajs/http';
 import { SocketException } from '@spinajs/http-socket-common';
 import { ISocketHandshake, SocketPrincipalSource, SocketRevalidationResult } from './interfaces.js';
 
@@ -12,9 +13,8 @@ import { ISocketHandshake, SocketPrincipalSource, SocketRevalidationResult } fro
 export const AUTHENTICATION_FAILED = 'authentication failed';
 
 /**
- * `handshake.headers` with every repeated header joined from `rawHeaders`. Node keeps only the first of a repeated
- * Authorization (or Host, User-Agent...), which would hide a second credential. A value a subclass put in place of
- * Node's own is kept.
+ * `handshake.headers` with every repeated header joined from `rawHeaders`, as authn-http builds them: Node keeps only
+ * the first of some (Host, User-Agent...). A value a subclass put in place of Node's own is kept.
  */
 function withRepeatedHeaders(handshake: ISocketHandshake): Readonly<Record<string, string | string[] | undefined>> {
   const raw = handshake.rawHeaders;
@@ -30,12 +30,35 @@ function withRepeatedHeaders(handshake: ISocketHandshake): Readonly<Record<strin
 }
 
 /**
+ * The first of `singletons` a handshake without `rawHeaders` (a custom builder) may hold more than once. A repeat then
+ * shows only in `headers`, so it fails closed: a value that is not a single string, or a name under two spellings.
+ */
+function repeatedInHeaders(headers: ISocketHandshake['headers'], singletons: readonly string[]): string | undefined {
+  const wanted = new Set(singletons.map((name) => name.toLowerCase()));
+  const seen = new Set<string>();
+  for (const [name, value] of Object.entries(headers)) {
+    const key = name.toLowerCase();
+    if (!wanted.has(key) || value === undefined) continue;
+    if (typeof value !== 'string' || seen.has(key)) return key;
+    seen.add(key);
+  }
+  return undefined;
+}
+
+/**
  * The handshake as authn's `SignedRequest`. Browsers cannot set WebSocket headers, so a token in
  * `auth.token` becomes `Authorization: Bearer`. The Cookie header is left out: a browser sends
  * cookies with a socket opened from any site, so they are no credential here ( SR-12 ).
- * A repeated header reaches the extractors joined with ", ", as in authn-http.
+ *
+ * A header of `singletons` sent more than once throws `invalid_argument`, as authn-http answers 400: which copy is the
+ * credential would be a guess. Any other repeated header reaches the extractors joined with ", ", as in authn-http.
  */
-export function credentialRequest(handshake: ISocketHandshake): SignedRequest {
+export function credentialRequest(handshake: ISocketHandshake, singletons: readonly string[] = SINGLETON_CREDENTIAL_HEADERS): SignedRequest {
+  const repeated = handshake.rawHeaders === undefined ? repeatedInHeaders(handshake.headers, singletons) : repeatedHeader({ rawHeaders: handshake.rawHeaders }, singletons);
+  if (repeated !== undefined) {
+    throw new SocketException('invalid_argument', `the ${repeated} header was sent more than once`);
+  }
+
   const headers: Record<string, string> = Object.create(null);
 
   for (const [name, value] of Object.entries(withRepeatedHeaders(handshake))) {
@@ -67,12 +90,21 @@ export class AuthnCredentialSource extends SocketPrincipalSource {
   @Logger('http-socket')
   protected Log: Log;
 
+  // authn's own default, for an app whose configuration has no authn.token section
+  @Config('authn.token.headerName', { defaultValue: 'x-api-key' })
+  protected ApiKeyHeader: string | undefined;
+
+  /** The headers whose repeat refuses the handshake: the singleton credential fields and `authn.token.headerName`. */
+  protected get singletonHeaders(): readonly string[] {
+    return typeof this.ApiKeyHeader === 'string' ? [...SINGLETON_CREDENTIAL_HEADERS, this.ApiKeyHeader] : SINGLETON_CREDENTIAL_HEADERS;
+  }
+
   public async authenticate(handshake: ISocketHandshake): Promise<Principal | null> {
     if (!DI.check(AuthnService)) {
       return null;
     }
 
-    const credentials = await this.extract(credentialRequest(handshake));
+    const credentials = await this.extract(credentialRequest(handshake, this.singletonHeaders));
     if (!credentials) {
       return null;
     }
@@ -99,7 +131,7 @@ export class AuthnCredentialSource extends SocketPrincipalSource {
         return 'unavailable';
       }
 
-      const credentials = await this.extract(credentialRequest(handshake));
+      const credentials = await this.extract(credentialRequest(handshake, this.singletonHeaders));
       if (!credentials) {
         return 'invalid';
       }
@@ -114,6 +146,9 @@ export class AuthnCredentialSource extends SocketPrincipalSource {
 
       return result.status === 'failure' && result.reason === 'throttled' ? 'unavailable' : 'invalid';
     } catch (err) {
+      if (err instanceof SocketException && err.code === 'invalid_argument') {
+        return 'invalid';
+      }
       this.Log.warn(err as Error, 'AuthnService failed to revalidate a socket credential');
       return 'unavailable';
     }

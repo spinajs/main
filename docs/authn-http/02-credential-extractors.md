@@ -5,9 +5,10 @@ A `CredentialExtractor` reads request headers and returns `Credentials`, or `nul
 ## How it works
 
 1. `AuthnMiddleware.extract()` runs when the request has no active session. A target that does not start with `/` (absolute-form, `*`) gives no credentials.
-2. It builds a `SignedRequest`: `method`, `targetUri` (path and query), `headers` (lower-case names from `req.rawHeaders`, repeated headers joined with `, `), and `body`, read on first access.
-3. It calls `extract(signed)` on each extractor in ascending `order`. The first non-null answer is the credentials; the rest are not asked.
-4. The credentials go to the [principal resolvers](03-principal-resolvers.md). They are never stored on the request.
+2. A singleton credential header sent more than once (`Authorization`, `Proxy-Authorization`, the `authn.token.headerName` header) answers 400 `E_REPEATED_CREDENTIAL_HEADER`; no extractor runs.
+3. It builds a `SignedRequest`: `method`, `targetUri` (path and query), `headers` (lower-case names from `req.rawHeaders`, any other repeated header joined with `, `), and `body`, read on first access.
+4. It calls `extract(signed)` on each extractor in ascending `order`. The first non-null answer is the credentials; the rest are not asked.
+5. The credentials go to the [principal resolvers](03-principal-resolvers.md). They are never stored on the request.
 
 The shipped extractors, in order:
 
@@ -25,7 +26,7 @@ The shipped extractors, in order:
 | --- | --- | --- | --- | --- |
 | `authn.http.publicOrigin` | `string` or `null` | unset | `scheme://host[:port]` | Prefix of an HTTP signature's target. Never taken from `Host`. Unset or `null`: signature headers give no credentials. |
 | `authn.token.prefix` | `string` | `'spt_'` | non-empty | Marks API tokens. `AuthorizationBearerExtractor` and `ApiKeyHeaderExtractor` accept only values with it (apart from JWTs). |
-| `authn.token.headerName` | `string` | `'x-api-key'` | non-empty header name | Header `ApiKeyHeaderExtractor` reads. |
+| `authn.token.headerName` | `string` | `'x-api-key'` | non-empty header name | Header `ApiKeyHeaderExtractor` reads. A repeat of it answers 400, as one of `Authorization`. The default comes from the `@spinajs/authn` configuration schema, which this package registers when it loads; `@spinajs/http-socket` falls back to the same `'x-api-key'` in code. |
 | `authn.keys.assertion.typ` | `string` | `'spinajs-client+jwt'` | non-empty | JWS `typ` that marks a key assertion. |
 
 The token and key keys belong to [`@spinajs/authn-token`](../authn-token/README.md) and [`@spinajs/authn-keys`](../authn-keys/README.md); the extractors read them at call time.
@@ -72,10 +73,10 @@ DI.register(XAuthTokenExtractor).as(CredentialExtractor);
 ## Important behaviour
 
 - **Foreign tokens are ignored.** An `Authorization` bearer without the token prefix that is not a three-part value gives no credentials: no strategy runs and no failure is counted. A telemetry service's token on the same header costs nothing.
-- **A malformed bearer of ours stops resolution.** A malformed or repeated `Authorization` header whose value starts with the token prefix still gives a `bearer` credential. It fails, and `x-api-key` is not tried.
+- **A malformed bearer of ours stops resolution.** A malformed `Authorization` header whose value starts with the token prefix still gives a `bearer` credential. It fails, and `x-api-key` is not tried.
 - **An opaque bearer lets `x-api-key` through.** When `Authorization` carries someone else's token, `ApiKeyHeaderExtractor` still answers.
 - **Signatures win.** Signature headers are asked first, so they win over an `Authorization` header on the same request.
-- **Repeated headers fail.** A header sent twice reaches the extractors joined with `, `, which the token patterns never match.
+- **Repeated credential headers never reach an extractor.** `Authorization`, `Proxy-Authorization` and the `authn.token.headerName` header sent twice answer 400 first. Any other header sent twice arrives joined with `, `: a custom extractor that reads a credential from its own header must refuse a joined value itself, as the `CredentialExtractor` contract says.
 - **Any session state is checked first.** With an active session cookie no extractor runs.
 - A malformed `authn.http.publicOrigin` set at runtime fails only signed requests; anonymous ones still pass.
 

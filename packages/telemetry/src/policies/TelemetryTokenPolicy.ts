@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 
 import { Config } from '@spinajs/configuration';
-import { BasePolicy, IController, IRoute, Request } from '@spinajs/http';
+import { BasePolicy, IController, IRoute, Request, strictHeader } from '@spinajs/http';
 import { Forbidden } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { Injectable } from '@spinajs/di';
@@ -9,6 +9,9 @@ import { Injectable } from '@spinajs/di';
 import { configuredEnvOf, telemetrySkipsAuth } from './development.js';
 
 const digest = (value: string) => createHash('sha256').update(value).digest();
+
+/** A token header longer than this, or sent twice, counts as absent. */
+const TOKEN_HEADER = { maxLength: 4096 };
 
 /**
  * Shared-token guard for the telemetry endpoints. Reads the expected token from
@@ -48,8 +51,9 @@ export class TelemetryTokenPolicy extends BasePolicy {
       return;
     }
 
-    const header = req.headers[this.HEADER_TOKEN_FIELD];
-    const token = typeof header === 'string' && header.length > 0 ? header : this.bearerToken(req);
+    // Node joins a repeated x-metrics-token and keeps only the first Authorization, so both are read sent-once only.
+    const header = strictHeader(req, this.HEADER_TOKEN_FIELD, TOKEN_HEADER);
+    const token = header !== undefined && header.length > 0 ? header : this.bearerToken(req);
     if (typeof token !== 'string' || token.length === 0) {
       this.Log.warn(
         { headerField: this.HEADER_TOKEN_FIELD, ip: req.storage.realIp },
@@ -75,8 +79,8 @@ export class TelemetryTokenPolicy extends BasePolicy {
 
   /** The credentials of an `Authorization: Bearer <token>` header, if present. */
   protected bearerToken(req: Request): string | undefined {
-    const auth = req.headers.authorization;
-    if (typeof auth !== 'string' || !auth.startsWith('Bearer ')) {
+    const auth = strictHeader(req, 'authorization', TOKEN_HEADER);
+    if (auth === undefined || !auth.startsWith('Bearer ')) {
       return undefined;
     }
     const token = auth.slice('Bearer '.length).trim();

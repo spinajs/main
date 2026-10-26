@@ -7,10 +7,12 @@ Small, dependency-free functions for code that reads request headers or builds c
 | Function | Returns |
 | --- | --- |
 | `parseBearer(header)` | The token of `Authorization: Bearer <token>`, or `null`. The scheme matches in any case, followed by one or more spaces; the token must be an RFC 6750 `b64token` (`A-Z a-z 0-9 - . _ ~ + /`, then optional `=`). Surrounding whitespace is trimmed. An array, a malformed value or a repeated header joined with `, ` gives `null`. |
-| `normalizeHeaders(req)` | Lower-cased headers built from `req.rawHeaders`, with a repeated header joined with `, `, in an object without a prototype. Node's `req.headers` keeps only the first of a repeated `Authorization`; read it from here so a second credential is seen and refused. |
+| `normalizeHeaders(req)` | Lower-cased headers built from `req.rawHeaders`, with a repeated header joined with `, `, in an object without a prototype. Node's `req.headers` keeps only the first of a repeated `Authorization`; read it from here, or check it with `repeatedHeader`, so a second credential is seen and refused. |
 | `parseCookieHeader(header)` | The cookies of a `Cookie` header as a prototype-less `name → value` map. Pairs without `=` (cookie-parser skips them too) or with an empty name are skipped, the first of a repeated name wins, surrounding quotes are dropped, and the value is URI-decoded (kept raw when the escape is malformed). |
 | `strictHeader(req, name, { maxLength, pattern? })` | The value of header `name` (any case) when the client sent it exactly once, it is at most `maxLength` long and, with `pattern`, the pattern matches all of it. `undefined` otherwise: absent, an array, repeated, too long or not matching. See [Reading an untrusted header](#reading-an-untrusted-header). |
-| `strictHeaderReader(name, { maxLength, pattern? })` | `strictHeader` for one header: it checks `maxLength` and `pattern` once, when called (a bad option throws `TypeError` at startup, not on the first request), and returns `(req) => string | undefined`. |
+| `strictHeaderReader(name, { maxLength, pattern? })` | `strictHeader` for one header: it checks `maxLength` and `pattern` once, when called (a bad option throws `TypeError` at startup, not on the first request), and returns `(req) => string | undefined`. `@Header()` with `once`, `maxLength` or `pattern` uses it (see [Route arguments](04-route-arguments.md)). |
+| `repeatedHeader(req, names)` | The first of `names`, in lower case, that the client sent on more than one line of `req.rawHeaders`, or `undefined`. For singleton fields, whose repeat Node hides by keeping the first copy. |
+| `SINGLETON_CREDENTIAL_HEADERS` | `['authorization', 'proxy-authorization']`: the credential fields a client sends once (RFC 9110 §11.6.2, §11.7.2). `@spinajs/authn-http` and `@spinajs/http-socket` refuse a request that repeats one of them, or the `authn.token.headerName` header. |
 
 ### Reading an untrusted header
 

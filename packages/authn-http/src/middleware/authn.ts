@@ -5,10 +5,10 @@ import { Config, Configuration } from '@spinajs/configuration';
 import '../register-schema.js';
 import '@spinajs/authn-session/register-schema';
 import { Log, Logger } from '@spinajs/log';
-import { Forbidden } from '@spinajs/exceptions';
+import { CodedHttpException, Forbidden } from '@spinajs/exceptions';
 import { Hooks } from '@spinajs/hooks';
 import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
-import { ServerMiddleware } from '@spinajs/http';
+import { SINGLETON_CREDENTIAL_HEADERS, ServerMiddleware, repeatedHeader } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { CredentialExtractor, SessionIssuer, resolveSession } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, Principal, Session, SignedRequest } from '@spinajs/authn/contracts';
@@ -26,8 +26,8 @@ import '../hooks.js';
 
 const byOrder = (a: { order: number }, b: { order: number }): number => a.order - b.order;
 
+/** From rawHeaders, a repeated header joined with ", ": req.headers keeps only the first copy of some (Host, User-Agent). */
 function headersOf(req: Request): Record<string, string> {
-  // From rawHeaders: req.headers keeps only the first of a repeated Authorization header.
   const headers: Record<string, string> = Object.create(null);
   const raw = req.rawHeaders ?? [];
   for (let i = 0; i + 1 < raw.length; i += 2) {
@@ -73,6 +73,9 @@ export class AuthnMiddleware extends ServerMiddleware {
 
   @Config('authn.http.hooks.request')
   protected HookRequests: boolean | undefined;
+
+  @Config('authn.token.headerName')
+  protected ApiKeyHeader: string | undefined;
 
   @Autoinject(Hooks)
   protected Hooks!: Hooks;
@@ -194,8 +197,15 @@ export class AuthnMiddleware extends ServerMiddleware {
     return restored ? resolveSession(this.Container, restored) : restored;
   }
 
-  /** `targetUri` is the origin-form target (path and query); the signature extractor adds authn.http.publicOrigin. */
+  /**
+   * `targetUri` is the origin-form target (path and query); the signature extractor adds authn.http.publicOrigin. A
+   * singleton credential header sent twice answers 400 before any extractor runs: which copy is the credential would be
+   * a guess, and a refused `Authorization` must not fall through to `x-api-key`.
+   */
   protected extract(req: Request): Credentials | null {
+    const repeated = repeatedHeader(req, this.singletonHeaders());
+    if (repeated !== undefined) throw new CodedHttpException(400, 'E_REPEATED_CREDENTIAL_HEADER', `the ${repeated} header was sent more than once`);
+
     const target = req.originalUrl ?? req.url;
     // An absolute-form or '*' target is no target any client signs.
     if (typeof target !== 'string' || !target.startsWith('/')) return null;
@@ -215,6 +225,11 @@ export class AuthnMiddleware extends ServerMiddleware {
       if (credentials !== null) return credentials;
     }
     return null;
+  }
+
+  /** Authorization, Proxy-Authorization and `authn.token.headerName`. */
+  protected singletonHeaders(): readonly string[] {
+    return typeof this.ApiKeyHeader === 'string' ? [...SINGLETON_CREDENTIAL_HEADERS, this.ApiKeyHeader] : SINGLETON_CREDENTIAL_HEADERS;
   }
 
   protected async principalOf(req: Request, credentials: Credentials | null, ctx: AuthnContext): Promise<Principal | null> {

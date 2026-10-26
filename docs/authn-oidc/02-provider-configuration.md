@@ -47,7 +47,7 @@ Each provider takes exactly one source: an `issuer`, or a `preset` with the extr
 | `…<name>.clientId` | string | none | non-empty | Required. The client id at the IdP. |
 | `…<name>.clientSecret` | object | none | `{ secret: string }` | Required. A secret reference (for example `env://OIDC_SECRET`) that the configuration resolves. A bare string fails validation. |
 | `…<name>.tokenEndpointAuth` | string | the preset's, else `'client_secret_basic'` | `client_secret_basic`, `client_secret_post` | How the client authenticates at the token endpoint. |
-| `…<name>.redirectUri` | string | `<origin>/auth/oidc/<name>/callback` | absolute https URL without credentials or fragment; a query is allowed | The `redirect_uri`. The IdP must have it registered exactly. |
+| `…<name>.redirectUri` | string | `<origin>/auth/oidc/<name>/callback`, the origin being `authn.http.publicOrigin` or the request's own | absolute https URL without credentials or fragment; a query is allowed | The `redirect_uri`. The IdP must have it registered exactly. Unset in production without `authn.http.publicOrigin`: a boot warning. |
 | `…<name>.scopes` | string[] | the preset's, else `['openid', 'email', 'profile']` | unique RFC 6749 scope tokens | Requested scopes. An ID token provider always gets `openid`, prepended when missing. |
 | `…<name>.claims` | object | the preset's mapping | `subject`, `email`, `emailVerified`, `name`, `groups` | Merged member by member over the preset's mapping. See [Claims mapping](04-claims-mapping.md). |
 | `…<name>.algorithms` | string[] | all of `OIDC_SIGNING_ALGORITHMS` | `RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`, `ES256`, `ES384`, `ES512`, `EdDSA` | Allowed ID token algorithms; at least one, unique. |
@@ -63,7 +63,7 @@ Each provider takes exactly one source: an `issuer`, or a `preset` with the extr
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `…<name>.logout.storeIdToken` | boolean | `false` | | Keep the validated ID token in the session and send it as `id_token_hint` at logout. See [RP-initiated logout](12-rp-initiated-logout.md). |
-| `…<name>.logout.postLogoutRedirectUri` | string | `<origin>/` | absolute https URL without credentials or fragment; a query is allowed | The `post_logout_redirect_uri` sent to the provider's `end_session_endpoint`. |
+| `…<name>.logout.postLogoutRedirectUri` | string | `/` on the origin of `redirectUri` when it is set, else `<origin>/` | absolute https URL without credentials or fragment; a query is allowed | The `post_logout_redirect_uri` sent to the provider's `end_session_endpoint`. |
 
 `OIDC_RESERVED_PARAMS` lists the keys `authorizationParams` refuses: the flow's own `response_type`, `response_mode`, `client_id`, `redirect_uri`, `scope`, `state`, `nonce`, `code_challenge`, `code_challenge_method`, and `request`, `request_uri`, `max_age`, `acr_values`. Nothing checks `auth_time` or `acr`, so `max_age` and `acr_values` would promise a check that does not happen.
 

@@ -46,6 +46,12 @@ A `CredentialAdminRule`, the first before hook on `authn.admin.credentials`, dec
 
 The default order: HTTP signature headers give `http-signature`; `Authorization: Bearer` with a JWS of the assertion `typ` gives `jws-assertion`; other bearer values give `bearer`; `x-api-key` gives `bearer`. Add an extractor for a new header format, and a strategy for its kind. See [`@spinajs/authn-http`](../authn-http/README.md).
 
+Repeated headers:
+
+- `Authorization`, `Proxy-Authorization` and the `authn.token.headerName` header never reach an extractor repeated. `@spinajs/authn-http` answers 400 and `@spinajs/http-socket` refuses the handshake with `invalid_argument` first.
+- Any other header the client sent on several lines arrives as one value joined with `, ` (RFC 9110 §5.3). `Signature`, `Signature-Input` and the fields a signature covers may arrive so, and RFC 9421 §2.1 signs that joined value.
+- An extractor that reads a credential from a header of its own must refuse a joined value itself: return `null`, or a credential that fails, never one of the copies.
+
 ## Related
 
 - [Action hooks](14-action-hooks.md): the authn actions an `ActionHook` can run around.

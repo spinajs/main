@@ -1,3 +1,129 @@
+# Release notes — http, http-socket, authn, authn-http, authn-oidc, telemetry, http-swagger: credential and origin headers
+
+> Branch `feat/authn-header-hardening`, stacked on `feat/http-untrusted-headers`. Packages: http, http-socket, authn,
+> authn-http, authn-oidc, telemetry, http-swagger.
+>
+> Docs: `docs/http/25-untrusted-headers.md` (the open questions are now decisions), `docs/http/04-route-arguments.md`,
+> `docs/http/17-client-ip-and-trust-proxy.md`, `docs/http/22-header-and-cookie-helpers.md`,
+> `docs/http-socket/08-principal-sources.md`, `docs/authn/12-integration-hooks.md`,
+> `docs/authn/13-configuration-and-boot-checks.md`, `docs/authn-http/01-request-authentication.md`,
+> `docs/authn-http/02-credential-extractors.md`, `docs/authn-oidc/01-login-flow.md`,
+> `docs/authn-oidc/02-provider-configuration.md`, `docs/authn-oidc/09-security.md`,
+> `docs/authn-oidc/10-programmatic-api.md`, `docs/authn-oidc/12-rp-initiated-logout.md`,
+> `docs/telemetry/10-endpoint-access.md`, `docs/http-swagger/03-parameters-and-request-bodies.md`.
+
+## New behavior
+
+### `@spinajs/http` — strict `@Header()` options
+
+- `@Header(key, schema, { once?, maxLength?, pattern? })` (`IHeaderArgOptions`) reads the header with
+  `strictHeaderReader`. A header the client sent that is repeated (`once`), longer than `maxLength` or not matched in
+  full by `pattern` throws `ValidationFailed` (400) naming the header and the rules, never the value. `maxLength` and
+  `pattern` imply `once`. An absent header stays `undefined`; `required: true` still refuses it.
+- The options are checked when the decorator runs: a bad `maxLength` or `pattern`, or `once: false` with either,
+  throws `TypeError` when the controller loads.
+- Without these options `@Header()` is unchanged: Node's folded value. The next major makes `once` the default.
+- `@spinajs/http-swagger` documents `maxLength` and `pattern` (its source, when it has no flag) in the parameter's
+  schema. `once` has no OpenAPI keyword.
+
+### `@spinajs/http` — `repeatedHeader`, `SINGLETON_CREDENTIAL_HEADERS`
+
+- `repeatedHeader(req, names)`: the first of `names`, lower-cased, that `req.rawHeaders` holds more than once.
+- `SINGLETON_CREDENTIAL_HEADERS`: `['authorization', 'proxy-authorization']`.
+
+### `@spinajs/authn-oidc` — the redirect origin
+
+- The default `redirect_uri` and `post_logout_redirect_uri` use `authn.http.publicOrigin` when it is set, and no
+  longer read `Host` or `X-Forwarded-*` then.
+- A provider with `redirectUri` takes the default `post_logout_redirect_uri` from the origin of its `redirectUri`,
+  never from the request; `logout.postLogoutRedirectUri` still wins.
+- With `authn.http.publicOrigin` set, the first flow start (login, link, reauth) of a provider without `redirectUri`
+  on another host than publicOrigin's logs a warning: the flow cookie is host-only, so the callback on publicOrigin
+  arrives without it and the login fails.
+- An `http` `authn.http.publicOrigin` outside development and test logs a warning on the first flow, as an `http`
+  request origin does.
+- Without it, the request's origin must pass `parseOrigin()`, with `Host`, `X-Forwarded-Proto` and `X-Forwarded-Host`
+  at most 2048 characters each (`OIDC_ORIGIN_HEADER_MAX`); `checkedRequestOrigin(facts, trusted)` is exported.
+- `OidcRequest.origin` is `string | undefined`; `OidcRpLogout.endSessionUrl(session, origin)` accepts `undefined`.
+- Outside development and test, `OidcProviders` warns at boot for each provider without `redirectUri` when
+  `authn.http.publicOrigin` is unset.
+
+### `@spinajs/http-socket` — `credentialRequest(handshake, singletons?)`
+
+- `credentialRequest()` throws `SocketException('invalid_argument')` when a header of `singletons` (default
+  `SINGLETON_CREDENTIAL_HEADERS`) was sent more than once. `AuthnCredentialSource` passes those plus
+  `authn.token.headerName`.
+- A handshake without `rawHeaders` (a custom handshake builder) fails closed: a singleton whose `headers` value is
+  not a single string, or that appears under two spellings, counts as sent more than once.
+
+### `@spinajs/authn` — `CredentialExtractor` contract
+
+- The contract now says that a header sent on several lines reaches an extractor joined with `, `, and that the
+  transports refuse a repeated `Authorization`, `Proxy-Authorization` or `authn.token.headerName` header first.
+
+## Fixes
+
+- A repeated singleton credential header is refused centrally, before any extractor or strategy runs:
+  `@spinajs/authn-http` answers 400 with a `CodedHttpException` (`{ code: 'E_REPEATED_CREDENTIAL_HEADER', message:
+  'the <name> header was sent more than once' }` as JSON, no stack, whatever `Accept` says; the http error handler
+  still logs it at error level), and `@spinajs/http-socket` refuses the handshake with
+  `invalid_argument` and the same message (revalidation answers `'invalid'`). Both name a malformed request, which a
+  retry cannot fix, and say nothing about the credential. Before, a repeated `Authorization` whose value was not a
+  prefixed token gave no credential, so `x-api-key` on the same request still authenticated. A request whose active
+  session reads no credential header is not refused. `Signature`, `Signature-Input` and every other header are
+  still joined, as RFC 9421 §2.1 signs them.
+- `@spinajs/http`: an `X-Forwarded-For` entry with a zone id (`fe80::1%eth0`) is no address and stops the walk, and
+  a trust entry with one fails the boot. The zone id Node appends to a link-local socket address is dropped instead,
+  since the kernel chose it: the peer is `fe80::1`, a client address that matches `linklocal`. A zone id never
+  reaches `realIp`, `ClientIp`, the socket client address or a throttle key.
+- `@spinajs/telemetry`: `TelemetryTokenPolicy` reads `x-metrics-token` and `Authorization` with `strictHeader`: sent
+  once and at most 4096 characters, else the header counts as absent. Before, a repeated `Authorization` was read as
+  its first copy.
+- `@spinajs/authn-oidc`: a `Host` (or trusted `X-Forwarded-Host`) that is no origin answers 400
+  `{ error: { code: 'E_OIDC_ORIGIN' } }` on the flow-start routes (login, link, reauth) of a provider without
+  `redirectUri`, instead of a redirect URI built from it. The logout extension bounds the headers it reads and leaves
+  out `post_logout_redirect_uri` for such a request.
+
+## Migration
+
+Well-formed requests are answered as before, except where `authn.http.publicOrigin` or a provider `redirectUri`
+is set (the OIDC rows) and for a link-local socket peer. These requests are answered differently:
+
+| Request | Before | After |
+| --- | --- | --- |
+| HTTP, no active session, `Authorization` sent twice | a prefixed token failed (no principal); any other value gave no credential, and `x-api-key` was tried | 400 `{ code: 'E_REPEATED_CREDENTIAL_HEADER', message }` |
+| HTTP, no active session, `Proxy-Authorization` or the `authn.token.headerName` header sent twice | not read, or no principal | 400 `{ code: 'E_REPEATED_CREDENTIAL_HEADER', message }` |
+| telemetry endpoint under `TelemetryTokenPolicy`, `Authorization` or `x-metrics-token` sent twice, or over 4096 characters | the first `Authorization`, or the joined `x-metrics-token`, was compared | the header counts as absent: 403 unless the other one carries the token |
+| socket handshake with `Authorization` sent twice | a prefixed token: `unauthenticated`; any other bearer: the next source, or `UNATTENDED` | `invalid_argument`, `the authorization header was sent more than once` |
+| socket handshake with `Proxy-Authorization` or the `authn.token.headerName` header sent twice | joined, no principal from authn | `invalid_argument` |
+| socket handshake from a custom builder without `rawHeaders`, a singleton credential header an array or under two spellings | not checked | `invalid_argument` |
+| `X-Forwarded-For` entry with a zone id, through a trusted proxy | the zone id was `realIp`, `ClientIp` and the throttle key | the walk stops before it |
+| link-local socket peer (`remoteAddress` `fe80::1%eth0`) | `realIp`, `ClientIp`, the socket client address and the throttle keys were `fe80::1%eth0` | `fe80::1`; `linklocal` and `fe80::/10` trust still match it |
+| `http.trustProxy` or `authn.http.trustProxy` entry with a zone id | accepted | boot fails with `InvalidOption` naming the key |
+| OIDC flow start, provider without `redirectUri`, `Host` or trusted `X-Forwarded-Host` that is no origin (`a/b`, `u@h`, `h:99999`, empty, over 2048 characters) | 302 to the IdP with a `redirect_uri` built from it | 400 `E_OIDC_ORIGIN`, no flow cookie |
+| OIDC flow start or RP logout with `authn.http.publicOrigin` set | origin from `Host` or `X-Forwarded-Host` | origin from `authn.http.publicOrigin`: register `<publicOrigin>/auth/oidc/<name>/callback` at the IdP, or set the provider's `redirectUri` |
+| OIDC login started on another host than `authn.http.publicOrigin`'s (provider without `redirectUri`) | the callback was on the host the login started on, which had the flow cookie | the callback is on publicOrigin, where the host-only flow cookie is missing, so the login fails; a warning is logged once. Serve the app on publicOrigin only, have a trusted proxy send `X-Forwarded-Host`, or set the provider's `redirectUri` |
+| RP logout, provider with `redirectUri` and no `logout.postLogoutRedirectUri` | `post_logout_redirect_uri` on `Host` | `/` on the origin of `redirectUri`: register it at the IdP |
+| RP logout with a `Host` that is no origin | `post_logout_redirect_uri` on it | no `post_logout_redirect_uri`; the provider still ends its session |
+
+```ts
+// Before: a programmatic OidcLogin caller passed Host as the origin
+await login.begin('corp', { origin: `https://${req.get('host')}`, cookies: {}, query: req.query, navigation: true, ctx });
+
+// After: pass a fixed origin or a checked one; undefined answers 400 E_OIDC_ORIGIN for a provider without redirectUri
+await login.begin('corp', { origin: checkedRequestOrigin(facts, trusted), cookies: {}, query: req.query, navigation: true, ctx });
+```
+
+```ts
+// Before: a schema bounded the joined value of a repeated header
+public tenant(@Header('x-tenant', { type: 'string', maxLength: 32 }) tenant?: string) {}
+
+// After: refuse a repeat too
+public tenant(@Header('x-tenant', null, { maxLength: 32, pattern: /^[a-z0-9-]{1,32}$/ }) tenant?: string) {}
+```
+
+---
+
 # Release notes — http, http-socket, scheduler-http: untrusted request headers
 
 > Branch `feat/http-untrusted-headers`, stacked on `feat/http-coded-error-inline-file`. Packages: http, http-socket,
@@ -26,7 +152,7 @@
   use, the risk and the status: 7 fixed (below), 56 safe with the code that makes them so, 2 left open. It also
   records what Node's parser refuses before any framework code runs, and 5 open questions that need a design decision
   (Host in OIDC redirect URIs, the first `X-Forwarded-Proto`/`-Host` value, repeats in `@Header()`, IPv6 zone ids in
-  `X-Forwarded-For`, a repeated bot token).
+  `X-Forwarded-For`, a repeated bot token). `feat/authn-header-hardening` above decides all five.
 
 ### `@spinajs/http-socket` — `ISocketHandshake.rawHeaders`
 
@@ -47,9 +173,9 @@
 - The CORS preflight echo of `Access-Control-Request-Headers` keeps only entries that are RFC 9110 field names.
 - `@spinajs/scheduler-http`: `Last-Event-ID` is at most 15 digits. A longer id lost precision in `Number()` and
   resumed the stream at a wrong position, or from the start.
-- `@spinajs/http-socket`: a repeated `Authorization` header reaches the authn extractors joined, as over http. The
-  joined value is no credential: a token with the configured prefix fails, any other bearer gives no principal from authn
-  and the handshake falls through to the next principal source. `handshake.headers` keeps only the first copy.
+- `@spinajs/http-socket`: a header the client sent twice reaches the authn extractors joined from `rawHeaders`, as
+  over http; `handshake.headers` keeps only the first copy. A repeated `Authorization` is refused outright: see
+  `feat/authn-header-hardening` above.
 
 ## Migration
 
@@ -65,7 +191,7 @@ Valid input is answered as before. These requests are answered differently (all 
 | CORS preflight asking for a header that is not a field name (`x a`, `<b>`) | echoed | dropped from `Access-Control-Allow-Headers` |
 | `@Header('X-Mixed-Case')` | `undefined` | the header's value |
 | `Last-Event-ID` of 16 or more digits (scheduler-http) | stream from a rounded position | 400 |
-| socket handshake with `Authorization` sent twice | first copy authenticated | no credential: a prefixed token fails, any other bearer gives no principal from authn |
+| socket handshake with `Authorization` sent twice | first copy authenticated | refused with `invalid_argument` (`feat/authn-header-hardening` above) |
 
 ```ts
 // Before: a mixed-case key never matched, the argument was undefined

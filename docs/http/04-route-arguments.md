@@ -73,7 +73,7 @@ export default {
 | `@Param(schema?, options?)` | parameter | JSON schema; `{ required?: boolean }` | `req.params[name]`, same `_` fallback. Converted and validated. |
 | `@Body(options?)` | parameter | `{ required?: boolean; sensitive?: string[] }` | `req.body[name]` when the body has that field; the whole body when the route has exactly one `@Body`; else `null`. Converted and validated. |
 | `@BodyField()` | parameter | none | The whole `req.body`, through the input filters, without validation or hydration. |
-| `@Header(key?, schema?, options?)` | parameter | header name in any case (default: the parameter name); JSON schema; `{ required?: boolean }` | `req.headers[key]`, looked up in lower case. Converted and validated. |
+| `@Header(key?, schema?, options?)` | parameter | header name in any case (default: the parameter name); JSON schema; `IHeaderArgOptions`: `{ required?, once?, maxLength?, pattern? }` | `req.headers[key]`, looked up in lower case. Converted and validated. With `once`, `maxLength` or `pattern`, a header the client sent that fails them answers 400; see [Strict headers](#strict-headers). |
 | `@Cookie(secure = false)` | parameter | `secure`: verify the signature | `req.cookies[name]`; see [Cookies](20-cookies.md). |
 | `@FromXml(options?)` | parameter | `fast-xml-parser` `X2jOptions` | Parses an XML body (`application/xml`, `text/xml`, `*+xml`). `ignoreAttributes` is `false` unless you set it. Invalid XML throws `BadRequest` (400). |
 | `@RawBody()` | parameter | none | `req.rawBody`: the exact JSON body bytes as a `Buffer`, for webhook signatures; `undefined` for other content types. |
@@ -96,6 +96,34 @@ export default {
 | `@Model(type)` | parameter | model class | Records `ParameterType.FromModel`. **No package registers a `FromModel` handler**; use `@FromModel()` or `@AsModel()` from [`@spinajs/orm-http`](../orm-http/README.md). |
 
 `@PKey` and `@Uuid` take the source as a `ParameterType`: `@PKey(ParameterType.FromQuery)` reads the query string.
+
+### Strict headers
+
+`@Header(key, schema, { once, maxLength, pattern })` reads the header with [`strictHeaderReader`](22-header-and-cookie-helpers.md#reading-an-untrusted-header):
+
+| Option | Refuses |
+| --- | --- |
+| `once: true` | A header sent on more than one line, whichever way Node folded it. |
+| `maxLength` | A longer value. Implies `once`. |
+| `pattern` | A value the pattern does not match in full. Implies `once`. It must start with `^`, end with `$` and have no `g`, `y` or `m` flag. |
+
+- A refused header throws `ValidationFailed` (400) naming the header and the rules, never the value. An absent header is `undefined`, and `required: true` refuses it.
+- A bad `maxLength` or `pattern`, or `once: false` together with either, throws `TypeError` when the decorator runs, so the controller fails to load instead of the first request.
+- The value then goes through the schema, the conversion and the hydrator as before.
+- Keep `pattern` free of nested or overlapping quantifiers: `maxLength` bounds the input, not the time a backtracking pattern takes.
+
+```ts sample
+import { BaseController, BasePath, Get, Header, Ok } from '@spinajs/http';
+
+@BasePath('tenants')
+export class TenantController extends BaseController {
+  /** GET /tenants/current with `X-Tenant: acme-eu`, set once by the gateway */
+  @Get('current')
+  public current(@Header('x-tenant', null, { required: true, maxLength: 32, pattern: /^[a-z0-9-]{1,32}$/ }) tenant: string) {
+    return new Ok({ tenant });
+  }
+}
+```
 
 ### Parameter types
 
@@ -147,7 +175,7 @@ export default {
 - `@Body({ sensitive: ['reauthPassword'] })`: once the argument holds its value (or failed validation), the named fields are deleted from `req.body` and `req.rawBody` is dropped, so no later reader of the request, a log or another argument, gets them. An untyped body argument, which is `req.body` itself, receives a copy that keeps them.
 - `@FromDI()` resolves from the **root** container on every request; the service's own lifetime decides whether it is shared.
 - `@Header()` without a key reads the header named like the parameter in lower case: `@Header() authorization: string`.
-- `@Header()` gives the value as Node folded it: a repeated header joined with `, `, or only the first copy of `Authorization`, `Host` and a few others. Give it a schema with `maxLength` and a `pattern`, or read the header with [`strictHeader`](22-header-and-cookie-helpers.md#reading-an-untrusted-header) when a repeat must be refused.
+- `@Header()` without `once`, `maxLength` or `pattern` gives the value as Node folded it: a repeated header joined with `, `, or only the first copy of `Authorization`, `Host` and a few others. The next major makes `once` the default.
 - Validation errors throw `ValidationFailed`, answered as 400 by `ValidationError`; see [Error handling](11-error-handling.md). An action cannot catch it, because it is thrown before the action runs; use `@OnError` with `stages: ['arguments']`.
 - The action also receives `req`, `res` and `next` after the decorated arguments.
 

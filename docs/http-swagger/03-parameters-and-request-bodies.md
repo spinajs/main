@@ -25,7 +25,7 @@ The builder turns every route argument into a path, query, header or cookie para
 | --- | --- | --- | --- |
 | `@Query()`, `@QueryField()` | parameter | `schema`, `{ required }` | Query parameter |
 | `@Param()`, `@ParamField()`, `@PKey()`, `@Uuid()` | parameter | `schema` | Path parameter, bound to the placeholder of the same name |
-| `@Header()`, `@HeadersField()` | parameter | `keyName`, `schema`, `{ required }` | Header parameter |
+| `@Header()`, `@HeadersField()` | parameter | `keyName`, `schema`, `{ required, maxLength, pattern }` | Header parameter |
 | `@UserAgent()`, `@Referer()` | parameter | none | `User-Agent` / `Referer` header parameter |
 | `@Cookie()` | parameter | `secure` | Cookie parameter |
 | `@Body()`, `@BodyField()`, `@Model()` | parameter | none | JSON body, or a property of it |
@@ -50,6 +50,7 @@ The builder turns every route argument into a path, query, header or cookie para
 | Description | The argument's `@param` text. For a path parameter, also the `@param` named after the placeholder |
 | Object in the query | `content: { 'application/json': { schema } }` instead of `schema` |
 | Array in the query | `style: 'form'`, `explode: true` |
+| `@Header()` `maxLength`, `pattern` | `maxLength` and `pattern` (the `RegExp` source, without slashes) of a string schema; the smaller `maxLength` when the schema has its own, and the schema's own `pattern` when it has one. A `pattern` with a flag is left out, since OpenAPI has none. `once` has no keyword |
 
 ### Schema of an argument
 

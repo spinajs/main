@@ -96,6 +96,21 @@ describe('authn-oidc RP-initiated logout (FLOW-3)', () => {
       expect(u.searchParams.get('post_logout_redirect_uri')).to.eq('https://app.example.test/signed-out');
     });
 
+    it('takes the default post_logout_redirect_uri from the origin of the provider redirectUri, never from the request', async () => {
+      const w = await worldWith(END, { provider: { redirectUri: 'https://login.example.test/auth/oidc/corp/callback' } });
+      const session = await loggedIn(w);
+      for (const origin of [ORIGIN, 'https://evil.example', undefined]) {
+        const u = new URL((await rp(w).endSessionUrl(session, origin))!);
+        expect(u.searchParams.get('post_logout_redirect_uri'), String(origin)).to.eq('https://login.example.test/');
+      }
+    });
+
+    it('a configured logout.postLogoutRedirectUri still wins over the redirectUri origin', async () => {
+      const w = await worldWith(END, { provider: { redirectUri: 'https://login.example.test/cb', logout: { postLogoutRedirectUri: 'https://app.example.test/signed-out' } } });
+      const u = new URL((await rp(w).endSessionUrl(await loggedIn(w), ORIGIN))!);
+      expect(u.searchParams.get('post_logout_redirect_uri')).to.eq('https://app.example.test/signed-out');
+    });
+
     it('leaves out logout_hint for a login whose ID token had no sid', async () => {
       const w = await worldWith();
       const u = new URL((await rp(w).endSessionUrl(await loggedIn(w, { sub: 'kc-1' }), ORIGIN))!);
@@ -144,8 +159,8 @@ describe('authn-oidc RP-initiated logout (FLOW-3)', () => {
   });
 
   describe('OidcLogoutExtension', () => {
-    const extensionFor = (w: World, trust: { own?: unknown; shared?: unknown } = {}): OidcLogoutExtension => {
-      const ext = readingFrom(new OidcLogoutExtension(), fakeContainer({ 'authn.http.trustProxy': trust.own ?? null, 'http.trustProxy': trust.shared ?? null }));
+    const extensionFor = (w: World, trust: { own?: unknown; shared?: unknown; publicOrigin?: string } = {}): OidcLogoutExtension => {
+      const ext = readingFrom(new OidcLogoutExtension(), fakeContainer({ 'authn.http.trustProxy': trust.own ?? null, 'http.trustProxy': trust.shared ?? null, 'authn.http.publicOrigin': trust.publicOrigin ?? null }));
       Object.defineProperty(ext, 'Providers', { value: { strategies: () => new Map([[w.name, w.strategy]]) } });
       return ext;
     };
@@ -172,6 +187,35 @@ describe('authn-oidc RP-initiated logout (FLOW-3)', () => {
       expect(new URL(trusted.redirect).searchParams.get('post_logout_redirect_uri')).to.eq('https://public.example.test/');
       const untrusted = (await extensionFor(w).afterLogout(session, requestOf(forwarded))) as { redirect: string };
       expect(new URL(untrusted.redirect).searchParams.get('post_logout_redirect_uri')).to.eq(`${ORIGIN}/`);
+    });
+
+    const postLogoutOf = (answer: unknown) => new URL((answer as { redirect: string }).redirect).searchParams.get('post_logout_redirect_uri');
+
+    it('ends the provider session without a post_logout_redirect_uri when the request gives no valid origin', async () => {
+      const w = await worldWith();
+      const session = await loggedIn(w);
+      for (const headers of [{ host: 'evil.example/x' }, { host: 'a@evil.example' }, { host: 'h'.repeat(2049) }, { host: '' }]) {
+        const answer = await extensionFor(w).afterLogout(session, requestOf(headers));
+        const u = new URL((answer as { redirect: string }).redirect);
+        expect(`${u.origin}${u.pathname}`, headers.host.slice(0, 20)).to.eq(END);
+        expect(u.searchParams.has('post_logout_redirect_uri'), headers.host.slice(0, 20)).to.eq(false);
+      }
+    });
+
+    it('ignores a forged X-Forwarded-Host from an untrusted peer', async () => {
+      const w = await worldWith();
+      const answer = await extensionFor(w).afterLogout(await loggedIn(w), requestOf({ 'x-forwarded-host': 'evil.example' }));
+      expect(postLogoutOf(answer)).to.eq(`${ORIGIN}/`);
+    });
+
+    it('takes the origin from authn.http.publicOrigin when set, whatever Host and X-Forwarded-Host say', async () => {
+      const w = await worldWith();
+      const session = await loggedIn(w);
+      const ext = extensionFor(w, { shared: 1, publicOrigin: 'https://public.example.test' });
+      const forged: Record<string, string>[] = [{}, { host: 'evil.example' }, { host: 'evil.example/x' }, { 'x-forwarded-host': 'evil.example' }];
+      for (const headers of forged) {
+        expect(postLogoutOf(await ext.afterLogout(session, requestOf(headers))), JSON.stringify(headers)).to.eq('https://public.example.test/');
+      }
     });
 
     it('answers nothing for a session without an OIDC login', async () => {

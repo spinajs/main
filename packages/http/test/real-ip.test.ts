@@ -102,6 +102,26 @@ describe('trusted client address (RealIp)', () => {
       expect(trustedClientAddress('::1', '2001:4860::8888', hops(1))).to.eq('2001:4860::8888');
     });
 
+    it('refuses an IPv6 zone id in X-Forwarded-For and in the trust setting, which isIP accepts', () => {
+      expect(trustedClientAddress(SOCKET, 'fe80::1%eth0', hops(1))).to.eq(SOCKET);
+      expect(trustedClientAddress(SOCKET, `${SPOOF}, fe80::1%25eth0`, hops(2)), 'the walk stops at it').to.eq(SOCKET);
+      expect(trustedClientAddress(SOCKET, '::ffff:192.0.2.1%1', hops(1))).to.eq(SOCKET);
+      expect(trustedClientAddress('fe80::2%eth0', 'fe80::1%eth0', hops(1)), 'from a link-local proxy too').to.eq('fe80::2');
+      expect(() => parseTrustProxy(['fe80::1%eth0'], 'http.trustProxy')).to.throw(InvalidOption, 'http.trustProxy');
+      expect(() => parseTrustProxy('fe80::%eth0/64', 'http.trustProxy')).to.throw(InvalidOption, 'http.trustProxy');
+    });
+
+    it('drops the zone id Node appends to a link-local socket address: the peer is a client and matches linklocal', () => {
+      expect(trustedClientAddress('fe80::1%eth0', SPOOF, hops(0))).to.eq('fe80::1');
+      expect(trustedClientAddress('fe80::1%12', undefined, hops(0)), 'a Windows interface index').to.eq('fe80::1');
+      expect(trustedClientAddress('fe80::1%eth0', SPOOF, parseTrustProxy('linklocal', 'k'))).to.eq(SPOOF);
+      expect(isTrustedPeer(parseTrustProxy('linklocal', 'k'), 'fe80::1%eth0')).to.eq(true);
+      expect(isTrustedPeer(parseTrustProxy(['fe80::1'], 'k'), 'fe80::1%eth0')).to.eq(true);
+      expect(isTrustedPeer(hops(1), 'fe80::1%eth0')).to.eq(true);
+      expect(trustedClientAddress('%eth0', SPOOF, hops(1)), 'nothing before the zone id').to.eq(undefined);
+      expect(trustedClientAddress('not-an-ip%eth0', SPOOF, hops(1))).to.eq(undefined);
+    });
+
     it('normalises IPv4-mapped IPv6 for matching and output', () => {
       expect(trustedClientAddress(`::ffff:${SOCKET}`, SPOOF, hops(0))).to.eq(SOCKET);
       expect(trustedClientAddress(`::ffff:${SOCKET}`, `::ffff:${SPOOF}`, parseTrustProxy(['203.0.113.0/24'], 'k'))).to.eq(SPOOF);
@@ -165,6 +185,12 @@ describe('trusted client address (RealIp)', () => {
         (await realIp(trustProxy)).before()(req, {} as any, () => undefined);
         expect(req.storage.realIp, JSON.stringify(trustProxy)).to.eq(client);
       }
+    });
+
+    it('a link-local socket peer is the client address, without its zone id', async () => {
+      const req = fakeReq(SPOOF, 'fe80::1%eth0');
+      (await realIp(undefined)).before()(req, {} as any, () => undefined);
+      expect((req as { storage: { realIp?: string } }).storage.realIp).to.eq('fe80::1');
     });
 
     it('a bad http.trustProxy fails when the middleware is built', async () => {

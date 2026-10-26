@@ -5,6 +5,7 @@ import '@spinajs/authn/register-schema';
 import { AuthenticationStrategy, IdentityLinkStore, IdentityStore, NonceStore } from '@spinajs/authn/contracts';
 import { Log, Logger } from '@spinajs/log';
 import { appEnvOf } from '@spinajs/authn-session';
+import { publicOriginOf } from '@spinajs/authn-http';
 import { InvalidArgument } from '@spinajs/exceptions';
 
 import { buildOidcOptions } from './options/options.js';
@@ -45,6 +46,9 @@ export class OidcProviders extends AsyncService {
   @Config('authn.linking')
   protected GlobalLinking: { jit: boolean; byVerifiedEmail: boolean } | undefined;
 
+  @Config('authn.http.publicOrigin')
+  protected PublicOrigin: string | null | undefined;
+
   public options!: OidcOptions;
   public env: string | undefined;
   public linking = { jit: false, byVerifiedEmail: false };
@@ -66,7 +70,23 @@ export class OidcProviders extends AsyncService {
         this.byName.set(name, new OidcStrategy({ provider: new OidcProvider(options, this.Http, this.Nonces, relaxed), links: this.Links, identities, linking: this.linking }));
       }
     }
+    this.warnRequestOrigins();
     await super.resolve();
+  }
+
+  /**
+   * Outside development and test, warns for each provider whose redirect_uri comes from the request's Host, which the
+   * client chooses: only the provider's exact match of the registered URI guards it then.
+   */
+  protected warnRequestOrigins(): void {
+    if (isRelaxedEnv(this.env) || publicOriginOf(this.PublicOrigin) !== undefined) return;
+    for (const [name, options] of this.options.providers) {
+      if (options.redirectUri !== null) continue;
+      this.Log?.warn(
+        { provider: name },
+        'authn-oidc: provider ${provider} builds its redirect_uri (and the default post_logout_redirect_uri) from the request Host; set authn.http.publicOrigin or authn.oidc.providers.${provider}.redirectUri',
+      );
+    }
   }
 
   public strategies(): ReadonlyMap<string, OidcStrategy> {

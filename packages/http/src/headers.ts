@@ -92,6 +92,22 @@ function sentTimes(rawHeaders: readonly string[], name: string): number {
 }
 
 /**
+ * Credential fields a client sends once (RFC 9110 §11.6.2 and §11.7.2). Node keeps only the first copy of a repeated
+ * `Authorization` and joins a repeated `Proxy-Authorization`, so a repeat is found with {@link repeatedHeader}.
+ */
+export const SINGLETON_CREDENTIAL_HEADERS: readonly string[] = Object.freeze(['authorization', 'proxy-authorization']);
+
+/** The first of `names` the client sent on more than one header line, in lower case; undefined when none was. */
+export function repeatedHeader(req: { readonly rawHeaders?: readonly string[] }, names: Iterable<string>): string | undefined {
+  const raw = req.rawHeaders ?? [];
+  for (const name of names) {
+    const key = name.toLowerCase();
+    if (sentTimes(raw, key) > 1) return key;
+  }
+  return undefined;
+}
+
+/**
  * Request header `name` when the client sent it exactly once, at most `maxLength` long and, with `pattern`, matching it
  * in full; otherwise undefined. Node joins most repeated headers with ", " and keeps only the first of others, so a
  * repeat is found in `rawHeaders`; a value the app itself put in `headers` is read as it is.
