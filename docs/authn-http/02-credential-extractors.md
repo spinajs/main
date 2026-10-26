@@ -26,7 +26,7 @@ The shipped extractors, in order:
 | --- | --- | --- | --- | --- |
 | `authn.http.publicOrigin` | `string` or `null` | unset | `scheme://host[:port]` | Prefix of an HTTP signature's target. Never taken from `Host`. Unset or `null`: signature headers give no credentials. |
 | `authn.token.prefix` | `string` | `'spt_'` | non-empty | Marks API tokens. `AuthorizationBearerExtractor` and `ApiKeyHeaderExtractor` accept only values with it (apart from JWTs). |
-| `authn.token.headerName` | `string` | `'x-api-key'` | non-empty header name | Header `ApiKeyHeaderExtractor` reads. A repeat of it answers 400, as one of `Authorization`. |
+| `authn.token.headerName` | `string` | `'x-api-key'` | non-empty header name | Header `ApiKeyHeaderExtractor` reads. A repeat of it answers 400, as one of `Authorization`. The default comes from the `@spinajs/authn` configuration schema, which this package registers when it loads; `@spinajs/http-socket` falls back to the same `'x-api-key'` in code. |
 | `authn.keys.assertion.typ` | `string` | `'spinajs-client+jwt'` | non-empty | JWS `typ` that marks a key assertion. |
 
 The token and key keys belong to [`@spinajs/authn-token`](../authn-token/README.md) and [`@spinajs/authn-keys`](../authn-keys/README.md); the extractors read them at call time.
