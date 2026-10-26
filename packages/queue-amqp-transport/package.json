@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/queue-amqp-transport",
-  "version": "3.0.21",
+  "version": "3.0.22",
   "description": "spinajs queue transport based on AMQP 0-9-1 ( RabbitMQ ). Sends & reads queue messages ( jobs & events ) from an amqp compatible broker.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -58,13 +58,13 @@
     "@types/node": "^18.11.18"
   },
   "dependencies": {
-    "@spinajs/configuration": "3.0.21",
-    "@spinajs/di": "3.0.21",
-    "@spinajs/exceptions": "3.0.21",
-    "@spinajs/log": "3.0.21",
-    "@spinajs/queue": "3.0.21",
+    "@spinajs/configuration": "3.0.22",
+    "@spinajs/di": "3.0.22",
+    "@spinajs/exceptions": "3.0.22",
+    "@spinajs/log": "3.0.22",
+    "@spinajs/queue": "3.0.22",
     "amqplib": "^0.10.9",
-    "@spinajs/util": "3.0.21"
+    "@spinajs/util": "3.0.22"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }
