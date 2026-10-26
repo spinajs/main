@@ -10,9 +10,7 @@ A `DataTransformer` reshapes the data of a JSON answer when the client asks for 
    - otherwise, with an `x-data-transform` header: the transformer whose `Type` equals the header;
    - otherwise no transformer runs.
 3. It calls `transformer.transform(data, req)` and sends the result with `res.json()`, keeping the status, headers and cookies.
-4. No transformer with that name: 400 with `{ error: { message: 'invalid data transformer <name>', code: 400 } }`. The name is repeated back only when it is an RFC 9110 token (letters, digits and ``!#$%&'*+-.^_`|~``); otherwise the message is `invalid data transformer`.
-
-A header sent twice, or longer than 256 characters, names no transformer: it answers that 400 too, even when each copy names one.
+4. No transformer with that name: 400 with `{ error: { message: 'invalid data transformer <name>', code: 400 } }`.
 
 Transformers do not run for HTML, XML or text answers, nor for `Json`, `Xml`, file and redirect responses.
 

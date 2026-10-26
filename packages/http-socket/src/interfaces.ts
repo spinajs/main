@@ -92,8 +92,6 @@ export interface ISocketHandshake {
   /** `io(url, { auth })`: protocol, clientId, token and any app fields */
   readonly auth: Readonly<Record<string, unknown>>;
   readonly headers: Readonly<IncomingHttpHeaders>;
-  /** The handshake request's `rawHeaders`: names and values as sent, a repeated header kept apart. */
-  readonly rawHeaders?: readonly string[];
   /** Unsigned raw cookie values; signed-cookie checks belong to the source. */
   readonly cookies: Readonly<Record<string, string>>;
   /**

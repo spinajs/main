@@ -7,7 +7,7 @@ import { AuthnService, CredentialExtractor } from '@spinajs/authn/contracts';
 import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, Credentials, SignedRequest } from '@spinajs/authn/contracts';
 import { UNATTENDED } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
-import { AuthnCredentialSource, credentialRequest } from '../src/authn-source.js';
+import { AuthnCredentialSource } from '../src/authn-source.js';
 import { SocketHub } from '../src/hub.js';
 import { ISocketHandshake, SocketPrincipalSource } from '../src/interfaces.js';
 import { IConnectOptions, ITestServer, connect, open, refusalOf, startServer } from './harness.js';
@@ -71,20 +71,6 @@ export class AuthnTestService extends AuthnService {
   }
 }
 
-describe('credentialRequest', () => {
-  const handshake = (headers: ISocketHandshake['headers'], rawHeaders?: string[]): ISocketHandshake => ({ auth: {}, headers, rawHeaders, cookies: {}, address: '127.0.0.1', peerAddress: '127.0.0.1', url: '/socket.io/', query: {}, secure: false, issuedAt: 0 });
-  const twice = ['Authorization', 'Bearer a', 'authorization', 'Bearer b'];
-
-  it('joins a header Node kept only the first of', () => {
-    expect(credentialRequest(handshake({ authorization: 'Bearer a' }, twice)).headers.authorization).to.equal('Bearer a, Bearer b');
-  });
-
-  it('keeps a value a subclass put in place of the received one, and works without rawHeaders', () => {
-    expect(credentialRequest(handshake({ authorization: 'Bearer mapped' }, twice)).headers.authorization).to.equal('Bearer mapped');
-    expect(credentialRequest(handshake({ authorization: 'Bearer a' })).headers.authorization).to.equal('Bearer a');
-  });
-});
-
 describe('AuthnCredentialSource', function () {
   this.timeout(15000);
 
@@ -131,14 +117,6 @@ describe('AuthnCredentialSource', function () {
 
     it('reads the Authorization header too', async () => {
       expect(await principalOf({ headers: { authorization: 'Bearer authn-ok' } })).to.equal(BOB);
-    });
-
-    it('sees a repeated Authorization header whole, as authn-http does, and refuses it', async () => {
-      AuthnTestExtractor.seen = [];
-      const twice = { authorization: ['Bearer authn-ok', 'Bearer authn-other'] } as unknown as Record<string, string>;
-
-      expect(await refusal({ headers: twice })).to.deep.equal(FAILED);
-      expect(AuthnTestExtractor.seen[AuthnTestExtractor.seen.length - 1].headers.authorization).to.equal('Bearer authn-ok, Bearer authn-other');
     });
 
     it('A02 refuses every failure with one answer', async () => {

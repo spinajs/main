@@ -73,8 +73,6 @@ describe('scheduler-http dto', () => {
     expect(validAgainst(RUN_ID_SCHEMA, 'not-a-uuid')).to.eq(false);
     expect(validAgainst(LAST_EVENT_ID_SCHEMA, '42')).to.eq(true);
     expect(validAgainst(LAST_EVENT_ID_SCHEMA, 'abc')).to.eq(false);
-    expect(validAgainst(LAST_EVENT_ID_SCHEMA, '9'.repeat(15))).to.eq(true);
-    expect(validAgainst(LAST_EVENT_ID_SCHEMA, '9'.repeat(16))).to.eq(false);
   });
 
   it('maps the InvalidOperation-based scheduler errors to 409', () => {

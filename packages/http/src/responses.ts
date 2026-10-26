@@ -17,10 +17,6 @@ import { getFs } from '@spinajs/fs';
 import { UnexpectedServerError } from '@spinajs/exceptions';
 import * as cs from 'cookie-signature';
 import { XMLBuilder } from 'fast-xml-parser';
-import { FIELD_NAME_PATTERN, strictHeader } from './headers.js';
-
-const TRANSFORMER_HEADER_MAX_LENGTH = 256;
-// RFC 9110 token: only such a name is repeated back in the 400 for an unknown transformer.
 
 export function _setCoockies(res: express.Response, options?: IResponseOptions) {
   const cfg = DI.get(Configuration);
@@ -220,27 +216,25 @@ export function httpResponse(model: any, template: string, options?: IResponseOp
   const acceptedHeaders = cfg.get<HttpAcceptHeaders>('http.AcceptHeaders');
   const transformers = DI.resolve(Array.ofType(DataTransformer));
 
-  // A repeated or oversized header names no transformer.
-  const requestedTransformer = (req: express.Request, header: string) => strictHeader(req, header, { maxLength: TRANSFORMER_HEADER_MAX_LENGTH });
-
   const errorTransform = function (req: express.Request, res: express.Response) {
-    const transformerName = req.headers['x-error-transform'] === undefined ? 'default-http-error-transform' : requestedTransformer(req, 'x-error-transform');
+    const transformerName = (req.headers['x-error-transform'] as string) ?? 'default-http-error-transform';
     return transform(req, res, transformerName);
   };
 
   const dataTransform = function (req: express.Request, res: express.Response) {
-    return transform(req, res, requestedTransformer(req, 'x-data-transform'));
+    const transformerName = (req.headers['x-data-transform'] as string) ?? 'invalid-x-data-transform-header';
+    return transform(req, res, transformerName);
   }
 
-  const transform = function (req: express.Request, res: express.Response, dataTransformer: string | undefined) {
-    const transformer = dataTransformer === undefined ? undefined : transformers.find((t) => t.Type === dataTransformer);
+  const transform = function (req: express.Request, res: express.Response, dataTransformer: string) {
+    const transformer = transformers.find((t) => t.Type === dataTransformer);
     if (transformer) {
       jsonResponse(transformer.transform(model, req), options)(req, res);
     } else {
       jsonResponse(
         {
           error: {
-            message: dataTransformer !== undefined && FIELD_NAME_PATTERN.test(dataTransformer) ? `invalid data transformer ${dataTransformer}` : 'invalid data transformer',
+            message: `invalid data transformer ${dataTransformer}`,
             code: HTTP_STATUS_CODE.BAD_REQUEST,
           },
         },

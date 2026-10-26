@@ -31,8 +31,6 @@ export interface SocketOptions {
   /** sent as `auth.token`, as a browser client sends a bearer token */
   token?: string;
   origin?: string;
-  /** sent as repeated `Authorization` header lines */
-  repeatedAuthorization?: string[];
 }
 
 const opened: ClientSocket[] = [];
@@ -43,8 +41,6 @@ export function socketTo(o: SocketOptions = {}): ClientSocket {
   const headers: Record<string, string> = {};
   if (o.cookie) headers.cookie = `${cookieName()}=${encodeURIComponent(o.cookie)}`;
   if (o.origin) headers.origin = o.origin;
-  // an array value makes Node write one header line per element
-  if (o.repeatedAuthorization) headers.authorization = o.repeatedAuthorization as unknown as string;
 
   const socket = io(appOrigin(), {
     path: config().get<string>('http.socket.path'),

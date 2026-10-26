@@ -286,32 +286,6 @@ describe('http & controller tests', function () {
     });
   });
 
-  const messageOf = (response: { body: unknown }) => (response.body as { error: { message: string } }).error.message;
-
-  it('answers 400 for an unknown transformer, naming it only when it is a token', async () => {
-    const transformed = (value: string) => req().get('responses/testDataTransformer').set('Accept', 'application/json').set('x-data-transform', value).send();
-
-    const unknown = await transformed('datatables');
-    expect(unknown).to.have.status(400);
-    expect(messageOf(unknown)).to.eq('invalid data transformer datatables');
-
-    const markup = await transformed('a <b>');
-    expect(markup).to.have.status(400);
-    expect(messageOf(markup)).to.eq('invalid data transformer');
-  });
-
-  it('answers 400 for a repeated or oversized transformer header, even when it names a transformer', async () => {
-    for (const value of [['test-transform', 'test-transform'], 'test-transform'.padEnd(257, '-')]) {
-      const response = await req().get('responses/testDataTransformer').set('Accept', 'application/json').set('x-data-transform', value as string).send();
-      expect(response, String(value)).to.have.status(400);
-      expect(messageOf(response)).to.eq('invalid data transformer');
-    }
-
-    const error = await req().get('responses/testError').set('Accept', 'application/json').set('x-error-transform', ['default-http-error-transform', 'default-http-error-transform'] as unknown as string).send();
-    expect(error).to.have.status(400);
-    expect(messageOf(error)).to.eq('invalid data transformer');
-  });
-
   it('Should get file', async () => {
     const response = await req().get('files/file').send();
 

@@ -4563,7 +4563,10 @@
   },
   "packages/http/src/route-args/FromHeaderArg.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
+      "count": 3
+    },
+    "prefer-const": {
+      "count": 1
     }
   },
   "packages/http/src/route-args/FromParams.ts": {

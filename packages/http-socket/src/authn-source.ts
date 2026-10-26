@@ -4,7 +4,6 @@ import { AuthnService, CredentialExtractor } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, SignedRequest } from '@spinajs/authn/contracts';
 import { Unauthenticated, principalKey } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
-import { normalizeHeaders } from '@spinajs/http';
 import { SocketException } from '@spinajs/http-socket-common';
 import { ISocketHandshake, SocketPrincipalSource, SocketRevalidationResult } from './interfaces.js';
 
@@ -12,33 +11,14 @@ import { ISocketHandshake, SocketPrincipalSource, SocketRevalidationResult } fro
 export const AUTHENTICATION_FAILED = 'authentication failed';
 
 /**
- * `handshake.headers` with every repeated header joined from `rawHeaders`. Node keeps only the first of a repeated
- * Authorization (or Host, User-Agent...), which would hide a second credential. A value a subclass put in place of
- * Node's own is kept.
- */
-function withRepeatedHeaders(handshake: ISocketHandshake): Readonly<Record<string, string | string[] | undefined>> {
-  const raw = handshake.rawHeaders;
-  if (!raw) return handshake.headers;
-
-  const joined = normalizeHeaders({ rawHeaders: raw });
-  const headers: Record<string, string | string[] | undefined> = { ...handshake.headers };
-  for (let i = 0; i + 1 < raw.length; i += 2) {
-    const name = raw[i].toLowerCase();
-    if (Object.hasOwn(headers, name) && headers[name] === raw[i + 1] && joined[name] !== raw[i + 1]) headers[name] = joined[name];
-  }
-  return headers;
-}
-
-/**
  * The handshake as authn's `SignedRequest`. Browsers cannot set WebSocket headers, so a token in
  * `auth.token` becomes `Authorization: Bearer`. The Cookie header is left out: a browser sends
  * cookies with a socket opened from any site, so they are no credential here ( SR-12 ).
- * A repeated header reaches the extractors joined with ", ", as in authn-http.
  */
 export function credentialRequest(handshake: ISocketHandshake): SignedRequest {
-  const headers: Record<string, string> = Object.create(null);
+  const headers: Record<string, string> = {};
 
-  for (const [name, value] of Object.entries(withRepeatedHeaders(handshake))) {
+  for (const [name, value] of Object.entries(handshake.headers)) {
     const key = name.toLowerCase();
     if (key === 'cookie' || value === undefined) {
       continue;

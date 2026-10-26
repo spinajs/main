@@ -4,7 +4,6 @@ import { Config } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log';
 
-import { FIELD_NAME_PATTERN } from '../headers.js';
 import { ServerMiddleware, Request as sRequest } from '../interfaces.js';
 
 const ALLOWED_METHODS = 'GET,HEAD,PUT,PATCH,POST,DELETE';
@@ -33,17 +32,14 @@ const headerList = (value: unknown): string | undefined => {
 // the client address and the app's own origin (authn-http's CSRF guard compares Origin with it).
 const PROXY_HEADER = /^(forwarded|x-forwarded-[a-z0-9-]*)$/i;
 
-const withoutProxyHeaders = (list: string | undefined, keep: (name: string) => boolean = () => true): string | undefined => {
+const withoutProxyHeaders = (list: string | undefined): string | undefined => {
   const kept = (list ?? '')
     .split(',')
     .map((h) => h.trim())
-    .filter((h) => h !== '' && !PROXY_HEADER.test(h) && keep(h))
+    .filter((h) => h !== '' && !PROXY_HEADER.test(h))
     .join(',');
   return kept === '' ? undefined : kept;
 };
-
-// RFC 9110 field-name: anything else in Access-Control-Request-Headers names no header and is not echoed back.
-const isFieldName = (name: string): boolean => FIELD_NAME_PATTERN.test(name);
 
 /**
  * CORS by rule A31: only listed origins get CORS headers.
@@ -117,7 +113,7 @@ export class CorsMiddleware extends ServerMiddleware {
           res.setHeader('Access-Control-Allow-Headers', allowed);
         } else if (requested) {
           res.vary('Access-Control-Request-Headers');
-          const echoed = withoutProxyHeaders(requested, isFieldName);
+          const echoed = withoutProxyHeaders(requested);
           if (echoed) res.setHeader('Access-Control-Allow-Headers', echoed);
         }
         res.statusCode = 204;

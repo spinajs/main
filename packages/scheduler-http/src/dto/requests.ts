@@ -14,8 +14,7 @@ export const RUN_TRIGGERS = Object.keys(RUN_TRIGGER_KEYS) as RunTrigger[];
 export const ERROR_GROUP_STATUSES = Object.keys(ERROR_GROUP_STATUS_KEYS) as ErrorGroupStatus[];
 
 export const RUN_ID_SCHEMA = { type: 'string', format: 'uuid' };
-// 15 digits stay a safe integer; a longer id would resume from a rounded position.
-export const LAST_EVENT_ID_SCHEMA = { type: 'string', pattern: '^\\d{1,15}$' };
+export const LAST_EVENT_ID_SCHEMA = { type: 'string', pattern: '^\\d+$' };
 
 @Schema({
   $id: 'scheduler.http.runNow',

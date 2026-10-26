@@ -85,7 +85,7 @@ Every class except `Redirect`, `FileResponse`, `ZipResponse`, `JsonFileResponse`
 1. `getFs(provider)`: a missing provider throws `IOFail` (500).
 2. `provider.exists(path)`: `false` throws `ResourceNotFound` (404).
 3. `provider.download(path)`: the local path of the file.
-4. A `Range: bytes=-N` with `N` at least the file size becomes `bytes=0-`, the whole file (RFC 9110 §14.1.2), and `Range: bytes=-` is dropped. `send` would answer both with 416. Only these exact spellings are rewritten, sent once and at most 64 characters long, with `N` of 1 to 15 digits (leading zeros count as digits). Any other `Range` (spaces or tabs inside, `BYTES=`, a list, more digits, a repeated header) reaches `send` as the client sent it, and range-parser alone judges it.
+4. A `Range: bytes=-N` with `N` at least the file size becomes `bytes=0-`, the whole file (RFC 9110 §14.1.2), and `Range: bytes=-` is dropped. `send` would answer both with 416.
 5. `IResponseOptions.Headers` and `Coockies` are set. They stay on every answer, an error too.
 6. `res.sendFile` finds the file, then sets the file headers: `X-Content-Type-Options: nosniff` (inline), then `headers`, then `Content-Type` from `mimeType`, then `Content-Disposition`. A later one wins over an earlier one with the same name, and over a value a middleware or step 5 set.
 7. `send` adds `Accept-Ranges: bytes`, a weak `ETag` (`W/"<size>-<mtime>"`), `Last-Modified`, `Cache-Control: public, max-age=0` when no `Cache-Control` is set, and `Content-Type` from the extension when none is set (text types with `charset=utf-8`; unknown extensions `application/octet-stream`).
@@ -95,7 +95,7 @@ Every class except `Redirect`, `FileResponse`, `ZipResponse`, `JsonFileResponse`
 | --- | --- |
 | No `Range` | 200 with the whole file. |
 | `Range: bytes=0-1023`, `bytes=1024-`, `bytes=-500` | 206 with `Content-Range: bytes <first>-<last>/<size>` and that part only. A last byte past the end is cut to the end. |
-| `bytes=-N` with `N` at least the file size | 206 with the whole file, `Content-Range: bytes 0-<size - 1>/<size>`. With a space or tab inside (`bytes= -1000`), or `N` longer than 15 digits, 416 as range-parser answers it. |
+| `bytes=-N` with `N` at least the file size | 206 with the whole file, `Content-Range: bytes 0-<size - 1>/<size>`. |
 | `bytes=-` | 200 with the whole file. |
 | Several ranges | One 206 when they overlap or touch (`bytes=0-9,10-19`); otherwise 200 with the whole file. Unusable ranges in the list are dropped (`bytes=0-1,abc` answers `0-1`). |
 | A `Range` in another unit (`items=0-9`) | 200 with the whole file. |

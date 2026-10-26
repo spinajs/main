@@ -11,9 +11,7 @@ export class FromHeader extends RouteArgs {
   }
 
   public async extract(callData: IRouteCall,_args : unknown [],  param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
-    const name: string = param.Options?.key ? param.Options.key : param.Name;
-    // Node lower-cases the names in req.headers, so `@Header('X-Signature')` must look up `x-signature`.
-    const arg = req.headers[name.toLowerCase()];
+    let arg = param.Options && param.Options.key ? req.headers[param.Options.key] : req.headers[param.Name.toLowerCase()];
     return { CallData: callData, Args: await this.tryHydrateParam(arg, param, route) };
   }
 

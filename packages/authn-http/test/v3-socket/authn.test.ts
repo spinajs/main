@@ -104,18 +104,6 @@ describe('@spinajs/authn-http/socket: authn and the 3.0 authn-http policies on s
       expect(resultOf(await command(await opened({ token: 'someone-elses-token' }), 'authnsock.who'))).to.deep.equal({ type: 'unattended', id: 'unattended', source: null });
     });
 
-    it('refuses a repeated Authorization of prefixed tokens, even when the first one is valid', async () => {
-      const { token } = await bearerFor();
-
-      expect(await refusalOf(socketTo({ repeatedAuthorization: [`Bearer ${token}`, `Bearer ${token}`] }))).to.deep.equal({ code: 'unauthenticated', message: 'authentication failed', retryable: false });
-    });
-
-    it('gives a repeated Authorization of other bearers no principal from authn: UNATTENDED', async () => {
-      const socket = await opened({ repeatedAuthorization: ['Bearer someone-else-1', 'Bearer someone-else-2'] });
-
-      expect(resultOf(await command(socket, 'authnsock.who'))).to.deep.equal({ type: 'unattended', id: 'unattended', source: null });
-    });
-
     it('SR-08 closes an open socket at the next revalidation once its token is revoked', async () => {
       const { token } = await bearerFor();
       const socket = await opened({ token });

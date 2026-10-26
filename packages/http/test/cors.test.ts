@@ -140,18 +140,6 @@ describe('CorsMiddleware (A31)', () => {
     expect(configured.header['access-control-allow-headers']).to.eq('content-type');
   });
 
-  it('A31 echoes only the requested entries that are header names', async () => {
-    const res = await chai
-      .request(await app({ origins: [PARTNER] }))
-      .options('/probe')
-      .set('Origin', PARTNER)
-      .set('Access-Control-Request-Method', 'POST')
-      .set('Access-Control-Request-Headers', 'content-type, x a, x-tenant, <b>, x-é, , authorization');
-
-    expect(res.status).to.eq(204);
-    expect((res.header as Record<string, string>)['access-control-allow-headers']).to.eq('content-type,x-tenant,authorization');
-  });
-
   it('A31 an origin entry that is not a URL origin fails the boot', async () => {
     for (const entry of ['partner.example.test', 'localhost:3000', 'null', '', 'https://partner.example.test/app', 'https://partner.example.test?x=1', 'https://*.example.test', 'https://user@partner.example.test']) {
       expect(await violationsOf([HTTP_CONFIGURATION_SCHEMA], { http: { cors: { origins: [entry] } } }), entry).to.include('http.cors.origins.0');
