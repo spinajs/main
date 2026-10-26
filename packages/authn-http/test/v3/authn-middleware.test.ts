@@ -516,19 +516,24 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
       expect(s.tokenStrategy.verifyCalls.at(-1)).to.deep.eq({ kind: 'bearer', token });
     });
 
-    it('a duplicated Authorization or api-key header gives no principal', async () => {
+    it('a repeated Authorization, Proxy-Authorization or api-key header answers 400 before any strategy runs, the action does not run', async () => {
       const token = tokenFor(alice);
-      expect(await principalWith({ Authorization: [`Bearer ${token}`, `Bearer ${token}`] })).to.eq(null);
-      expect(await principalWith({ 'X-Api-Key': [token, token] })).to.eq(null);
-      expect(s.tokenStrategy.verifyCalls, 'the repeated Authorization is a failing credential; the api key none').to.have.length(1);
+      const repeats: Record<string, string | string[]>[] = [{ Authorization: [`Bearer ${token}`, `Bearer ${token}`] }, { 'Proxy-Authorization': ['Basic a', 'Basic b'] }, { 'X-Api-Key': [token, token] }, { Authorization: ['Bearer other', 'Bearer other'], 'X-Api-Key': token }];
+      for (const headers of repeats) {
+        const res = await probe(headers);
+        expect(res.status, JSON.stringify(headers)).to.eq(400);
+        expect(res.ran).to.eq(false);
+        expect(JSON.stringify(res.body)).to.match(/the (authorization|proxy-authorization|x-api-key) header was sent more than once/).and.not.include(token);
+      }
+      expect(s.tokenStrategy.verifyCalls).to.have.length(0);
     });
 
-    it('M2 a malformed or repeated Authorization bearer with the token prefix stops resolution: our x-api-key does not answer', async () => {
+    it('M2 a malformed Authorization bearer with the token prefix stops resolution: our x-api-key does not answer', async () => {
       const good = tokenFor(alice);
-      for (const authorization of [`Bearer ${good} extra`, `Bearer spt_bad!value`, [`Bearer ${good}`, `Bearer ${good}`]]) {
+      for (const authorization of [`Bearer ${good} extra`, `Bearer spt_bad!value`]) {
         expect(await principalWith({ Authorization: authorization, 'X-Api-Key': good }), String(authorization)).to.eq(null);
       }
-      expect(s.tokenStrategy.verifyCalls.map((c) => (c as { token: string }).token)).to.deep.eq([`${good} extra`, 'spt_bad!value', `${good}, Bearer ${good}`]);
+      expect(s.tokenStrategy.verifyCalls.map((c) => (c as { token: string }).token)).to.deep.eq([`${good} extra`, 'spt_bad!value']);
       expect((await principalWith({ Authorization: 'Bearer ', 'X-Api-Key': good }))?.id, 'an empty bearer is no credential').to.eq(alice.id);
     });
 
@@ -609,6 +614,17 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
       expect(c.request.headers['x-extra']).to.eq('Mixed-Case');
       expect(Object.keys(c.request.headers).every((k) => k === k.toLowerCase())).to.eq(true);
       expect(c.request.body).to.eq(undefined);
+    });
+
+    it('Signature and a covered field sent on several lines reach the strategy joined, as RFC 9421 §2.1 signs them', async () => {
+      const sig = `sig=:${randomBytes(8).toString('base64')}:`;
+      const joined = `${sig}, other=:AAAA:`;
+      s.signatures.set(joined, { ok: true, identity: alice, method: 'http-signature' });
+      const res = await probe({ ...sigHeaders(sig), Signature: [sig, 'other=:AAAA:'], 'X-Extra': ['a', 'b'] });
+      expect((res.body as { principal: object }).principal).to.include({ id: alice.id });
+      const c = s.keyStrategy.verifyCalls.at(-1) as { request: SignedRequest };
+      expect(c.request.headers.signature).to.eq(joined);
+      expect(c.request.headers['x-extra']).to.eq('a, b');
     });
 
     it('a JSON body reaches the strategy as the exact raw bytes', async () => {

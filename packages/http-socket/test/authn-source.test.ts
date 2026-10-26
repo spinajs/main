@@ -7,6 +7,7 @@ import { AuthnService, CredentialExtractor } from '@spinajs/authn/contracts';
 import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, Credentials, SignedRequest } from '@spinajs/authn/contracts';
 import { UNATTENDED } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
+import { SocketException } from '@spinajs/http-socket-common';
 import { AuthnCredentialSource, credentialRequest } from '../src/authn-source.js';
 import { SocketHub } from '../src/hub.js';
 import { ISocketHandshake, SocketPrincipalSource } from '../src/interfaces.js';
@@ -75,12 +76,39 @@ describe('credentialRequest', () => {
   const handshake = (headers: ISocketHandshake['headers'], rawHeaders?: string[]): ISocketHandshake => ({ auth: {}, headers, rawHeaders, cookies: {}, address: '127.0.0.1', peerAddress: '127.0.0.1', url: '/socket.io/', query: {}, secure: false, issuedAt: 0 });
   const twice = ['Authorization', 'Bearer a', 'authorization', 'Bearer b'];
 
-  it('joins a header Node kept only the first of', () => {
-    expect(credentialRequest(handshake({ authorization: 'Bearer a' }, twice)).headers.authorization).to.equal('Bearer a, Bearer b');
+  const refusedFor = (h: ISocketHandshake, names?: readonly string[]): unknown => {
+    try {
+      credentialRequest(h, names);
+    } catch (err) {
+      return err;
+    }
+    return undefined;
+  };
+
+  it('refuses Authorization or Proxy-Authorization sent more than once, in any case, as invalid_argument', () => {
+    for (const raw of [twice, ['Proxy-Authorization', 'Basic a', 'PROXY-AUTHORIZATION', 'Basic b']]) {
+      const err = refusedFor(handshake({ authorization: 'Bearer a' }, raw));
+      expect(err, raw[0]).to.be.instanceOf(SocketException);
+      expect((err as SocketException).toWire()).to.deep.equal({ code: 'invalid_argument', message: `the ${raw[0].toLowerCase()} header was sent more than once`, retryable: false });
+    }
+  });
+
+  it('refuses a repeat of the other singleton names it is given, such as the API key header', () => {
+    const raw = ['X-Api-Key', 'spt_a', 'x-api-key', 'spt_b'];
+    expect(refusedFor(handshake({ 'x-api-key': 'spt_a, spt_b' }, raw), ['authorization', 'x-api-key'])).to.be.instanceOf(SocketException);
+    expect(refusedFor(handshake({ 'x-api-key': 'spt_a, spt_b' }, raw)), 'not a singleton by default').to.equal(undefined);
+  });
+
+  it('joins any other repeated header, as Node and authn-http do: a signature and its covered fields still verify', () => {
+    const raw = ['Signature', 'sig1=:a:', 'signature', 'sig2=:b:', 'Accept', 'text/html', 'accept', 'application/json', 'authorization', 'Bearer a'];
+    const request = credentialRequest(handshake({ signature: 'sig1=:a:', accept: 'text/html, application/json', authorization: 'Bearer a' }, raw));
+    expect(request.headers).to.include({ signature: 'sig1=:a:, sig2=:b:', accept: 'text/html, application/json', authorization: 'Bearer a' });
   });
 
   it('keeps a value a subclass put in place of the received one, and works without rawHeaders', () => {
-    expect(credentialRequest(handshake({ authorization: 'Bearer mapped' }, twice)).headers.authorization).to.equal('Bearer mapped');
+    const raw = ['User-Agent', 'a', 'user-agent', 'b'];
+    expect(credentialRequest(handshake({ 'user-agent': 'mapped' }, raw)).headers['user-agent']).to.equal('mapped');
+    expect(credentialRequest(handshake({ 'user-agent': 'a' }, raw)).headers['user-agent']).to.equal('a, b');
     expect(credentialRequest(handshake({ authorization: 'Bearer a' })).headers.authorization).to.equal('Bearer a');
   });
 });
@@ -133,12 +161,20 @@ describe('AuthnCredentialSource', function () {
       expect(await principalOf({ headers: { authorization: 'Bearer authn-ok' } })).to.equal(BOB);
     });
 
-    it('sees a repeated Authorization header whole, as authn-http does, and refuses it', async () => {
+    it('refuses a repeated Authorization header before any extractor or AuthnService runs, as authn-http does', async () => {
       AuthnTestExtractor.seen = [];
-      const twice = { authorization: ['Bearer authn-ok', 'Bearer authn-other'] } as unknown as Record<string, string>;
+      AuthnTestService.contexts = [];
+      const twice = { authorization: ['Bearer authn-ok', 'Bearer authn-ok'] } as unknown as Record<string, string>;
 
-      expect(await refusal({ headers: twice })).to.deep.equal(FAILED);
-      expect(AuthnTestExtractor.seen[AuthnTestExtractor.seen.length - 1].headers.authorization).to.equal('Bearer authn-ok, Bearer authn-other');
+      expect(await refusal({ headers: twice })).to.deep.equal({ code: 'invalid_argument', message: 'the authorization header was sent more than once', retryable: false });
+      expect(AuthnTestExtractor.seen).to.deep.equal([]);
+      expect(AuthnTestService.contexts).to.deep.equal([]);
+    });
+
+    it('refuses a repeated authn.token.headerName header', async () => {
+      const twice = { 'x-api-key': ['spt_a', 'spt_b'] } as unknown as Record<string, string>;
+
+      expect(await refusal({ headers: twice })).to.deep.include({ code: 'invalid_argument', message: 'the x-api-key header was sent more than once' });
     });
 
     it('A02 refuses every failure with one answer', async () => {
@@ -191,6 +227,11 @@ describe('AuthnCredentialSource', function () {
       it('answers invalid when the handshake carries no credential any more, or another principal', async () => {
         expect(await source.revalidate(handshakeWith(), BOB)).to.equal('invalid');
         expect(await source.revalidate(handshakeWith('authn-ok'), { ...BOB, id: 'mallory' })).to.equal('invalid');
+      });
+
+      it('answers invalid for a handshake whose credential header was sent twice', async () => {
+        const repeated: ISocketHandshake = { ...handshakeWith(), headers: { authorization: 'Bearer authn-ok' }, rawHeaders: ['authorization', 'Bearer authn-ok', 'authorization', 'Bearer authn-ok'] };
+        expect(await source.revalidate(repeated, BOB)).to.equal('invalid');
       });
 
       it('answers unavailable when AuthnService fails or throttles', async () => {

@@ -206,7 +206,14 @@ import type { Credentials, SignedRequest } from "./credentials.js";
 export declare abstract class CredentialExtractor {
     /** Lower is asked first. */
     abstract readonly order: number;
-    /** `req.headers` keys are lower case; `body` is set when the request has one. null: no credentials this extractor reads. */
+    /**
+     * `req.headers` keys are lower case; `body` is set when the request has one. null: no credentials this extractor reads.
+     *
+     * A header the client sent on several lines arrives as one value joined with ", " (RFC 9110 §5.3), as `Signature` and
+     * the fields a signature covers may be. `Authorization`, `Proxy-Authorization` and `authn.token.headerName` never
+     * arrive repeated: the transports (authn-http, http-socket) refuse such a request before any extractor runs. A
+     * credential header of your own is not on that list, so refuse a joined value of it here.
+     */
     abstract extract(req: SignedRequest): Credentials | null;
 }
 ```

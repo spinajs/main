@@ -4,7 +4,8 @@ import '@spinajs/authn/register-schema';
 import { CredentialExtractor } from '@spinajs/authn/contracts';
 import type { Credentials, SignedRequest } from '@spinajs/authn/contracts';
 
-// RFC 6750 b64token. A header sent twice reaches the extractors joined with ", ", which never matches.
+// RFC 6750 b64token. The transports refuse a repeated Authorization or API key header; a joined one (another caller's
+// SignedRequest) never matches.
 const TOKEN = /^[A-Za-z0-9\-._~+/]+=*$/;
 const BEARER = /^Bearer +([A-Za-z0-9\-._~+/]+=*)$/i;
 const MALFORMED_BEARER = /^Bearer +(.+)$/is;
