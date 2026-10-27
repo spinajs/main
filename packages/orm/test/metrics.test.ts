@@ -4,7 +4,6 @@ import 'mocha';
 import { DI } from '@spinajs/di';
 import { useTestApp } from '@spinajs/testing';
 import { Metrics } from '@spinajs/telemetry-common';
-import '../src/index.js';
 import { ORM_METRIC_POOL_SIZE, ORM_METRIC_POOL_IN_USE, ORM_METRIC_POOL_WAITING, ORM_METRIC_CONNECTION_STATE, ORM_METRIC_ACQUIRE_SECONDS } from '../src/metrics.js';
 import { ConnectionState } from '../src/resilience.js';
 import { OrmDriver } from '../src/driver.js';

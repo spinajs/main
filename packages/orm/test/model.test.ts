@@ -49,10 +49,10 @@ describe('General model tests', () => {
     const orm = await db();
     const models = await orm.Models;
 
-    // Cardinality of the '__models__' DI bag: every @Model in test/mocks/models counts, so this
-    // number moves whenever a mock model is added or removed. Other files loaded in the same
-    // process add their own, hence the lower bound.
-    expect(models.length).to.be.at.least(20);
+    // Other files in the same process add their own models to the bag, so assert membership, not size.
+    expect(models.map((m) => m.name)).to.include.members([
+      'JunctionModel', 'Model1', 'Model2', 'Model3', 'Model4', 'Model5', 'Model6', 'ModelArchived', 'ModelDisc1', 'ModelDisc2', 'ModelDiscBase', 'ModelNested1', 'ModelNested2', 'ModelNested3', 'ModelNoConnection', 'ModelWithScope', 'RawModel', 'RelationModel1', 'RelationModel2', 'RelationRecursive'
+    ]);
   });
 
   it('Should set different connections to model', async () => {
