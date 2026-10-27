@@ -1,6 +1,6 @@
 /**
  * Checks what every public workspace package would publish: publint for package.json / exports
- * mistakes, and @arethetypeswrong/cli for types that do not resolve under node16 ESM and CJS.
+ * mistakes, and @arethetypeswrong/cli for types that do not resolve for ESM consumers.
  * Runs against the built lib/, so build first.
  *
  * Usage
@@ -21,8 +21,6 @@ const ARGS = process.argv.slice(2);
 const ATTW = !ARGS.includes('--no-attw');
 const ONLY = ARGS.filter((a) => !a.startsWith('--'));
 
-// false-esm: every package points CJS consumers at the ESM .d.ts; fixing it means per-condition types in all exports.
-const ATTW_IGNORE = ['false-esm'];
 const ATTW_IGNORE_PER_PACKAGE = {
   // Exports only node / browser conditions, so a bundler has to pick one.
   electron: ['no-resolution'],
@@ -45,7 +43,9 @@ for (const { name, dir, pkg } of packages) {
 
   if (ATTW) {
     // attw is a .cmd shim on windows, so it goes through a shell.
-    const proc = spawnSync(`npx --no-install attw --pack "${dir}" --profile node16 --ignore-rules ${[...ATTW_IGNORE, ...(ATTW_IGNORE_PER_PACKAGE[name] ?? [])].join(' ')} --format ascii`, { shell: true, encoding: 'utf8' });
+    const ignores = ATTW_IGNORE_PER_PACKAGE[name] ?? [];
+    const ignoreFlag = ignores.length ? `--ignore-rules ${ignores.join(' ')}` : '';
+    const proc = spawnSync(`npx --no-install attw --pack "${dir}" --profile esm-only ${ignoreFlag} --format ascii`, { shell: true, encoding: 'utf8' });
     if (proc.status !== 0) problems.push(`attw:\n${`${proc.stdout ?? ''}${proc.stderr ?? ''}`.trim()}`);
   }
 

@@ -2,23 +2,19 @@
   "name": "@spinajs/intl",
   "version": "3.0.23",
   "description": "internationalization for spinajs framework",
-  "main": "lib/cjs/index.js",
-  "module": "lib/mjs/index.js",
+  "main": "./lib/index.js",
   "exports": {
     "node": {
-      "types": "./lib/mjs/index.node.d.ts",
-      "import": "./lib/mjs/index.node.js",
-      "require": "./lib/cjs/index.node.js"
+      "types": "./lib/index.node.d.ts",
+      "import": "./lib/index.node.js"
     },
     "browser": {
-      "types": "./lib/mjs/index.browser.d.ts",
-      "import": "./lib/mjs/index.browser.js",
-      "require": "./lib/cjs/index.browser.js"
+      "types": "./lib/index.browser.d.ts",
+      "import": "./lib/index.browser.js"
     },
     "default": {
-      "types": "./lib/mjs/index.node.d.ts",
-      "import": "./lib/mjs/index.node.js",
-      "require": "./lib/cjs/index.node.js"
+      "types": "./lib/index.node.d.ts",
+      "import": "./lib/index.node.js"
     }
   },
   "type": "module",
@@ -31,8 +27,7 @@
   },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "compile": "tsc -b tsconfig.build.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -70,5 +65,5 @@
     "make-plural": "^7.2.0",
     "math-interval-parser": "^2.0.1"
   },
-  "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
+  "types": "./lib/index.d.ts"
 }

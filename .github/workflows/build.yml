@@ -1,7 +1,7 @@
 name: build
 
 # Verifies that the monorepo actually installs from the committed lock file and
-# compiles end to end (esm + cjs) before anything is published. `npm ci` is the
+# compiles end to end (esm) before anything is published. `npm ci` is the
 # step that catches package.json / package-lock.json drift - a dependency range
 # edited in a package without regenerating the lock fails here instead of at
 # publish time.
@@ -52,9 +52,8 @@ jobs:
       - name: install
         run: npm ci
 
-      # Root `build` = clean + tsc -b (esm) + tsc -b (cjs) + static asset copy +
-      # per-module package.json generation, across every workspace package.
-      - name: build monorepo (esm + cjs)
+      # Root `build` = clean + tsc -b + static asset copy, across every workspace package.
+      - name: build monorepo
         run: npm run build
 
   # Lint and dependency rules fail only on findings newer than their baselines
@@ -79,7 +78,7 @@ jobs:
       - name: install
         run: npm ci
 
-      - name: build monorepo (esm + cjs)
+      - name: build monorepo
         run: npm run build
 
       - name: eslint
@@ -165,7 +164,7 @@ jobs:
         run: npm ci
 
       # Build artifacts do not cross jobs, so the release compiles its own.
-      - name: build monorepo (esm + cjs)
+      - name: build monorepo
         run: npm run build
 
       # A re-run of a failed release checks out a master whose HEAD already is

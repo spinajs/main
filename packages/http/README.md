@@ -397,8 +397,8 @@ The command exits non-zero when any controller fails to parse, failing the image
 npm run test --workspace=packages/http
 ```
 
-The suites import the other `@spinajs/*` packages from their built `lib/mjs` output, so
-`pretest` builds this package and its references first (`tsc -b tsconfig.mjs.json` with the
+The suites import the other `@spinajs/*` packages from their built `lib` output, so
+`pretest` builds this package and its references first (`tsc -b tsconfig.build.json` with the
 repo's `typescript-7`). It is incremental: a no-op when the tree is already built.
 
 All suites share one mocha process and one DI root container. `test/setup.ts`, loaded by

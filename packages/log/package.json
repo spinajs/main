@@ -2,24 +2,14 @@
   "name": "@spinajs/log",
   "version": "3.0.23",
   "description": "Log lib for all spinejs related libs",
-  "main": "lib/cjs/index.js",
-  "module": "lib/mjs/index.js",
+  "main": "./lib/index.js",
   "exports": {
     ".": {
-      "types": "./lib/mjs/index.d.ts",
-      "node": {
-        "import": "./lib/mjs/index.js",
-        "require": "./lib/cjs/index.js"
-      },
-      "browser": {
-        "import": "./lib/mjs/index.browser.js",
-        "require": "./lib/cjs/index.browser.js"
-      }
+      "types": "./lib/index.d.ts",
+      "node": "./lib/index.js",
+      "browser": "./lib/index.browser.js"
     },
-    "./browser": {
-      "import": "./lib/mjs/index.browser.js",
-      "require": "./lib/cjs/index.browser.js"
-    }
+    "./browser": "./lib/index.browser.js"
   },
   "type": "module",
   "private": false,
@@ -34,8 +24,7 @@
   ],
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "compile": "tsc -b tsconfig.build.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts --exit",
@@ -73,5 +62,5 @@
     "@types/glob-to-regexp": "^0.4.1",
     "@types/node-schedule": "^2.1.0"
   },
-  "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
+  "types": "./lib/index.d.ts"
 }

@@ -2,13 +2,11 @@
   "name": "@spinajs/authn-testing",
   "version": "3.0.23",
   "description": "Test kit for SpinaJS authentication: fakes, conformance suites, behaviour fixtures",
-  "main": "lib/cjs/index.js",
-  "module": "lib/mjs/index.js",
+  "main": "./lib/index.js",
   "exports": {
     ".": {
-      "types": "./lib/mjs/index.d.ts",
-      "import": "./lib/mjs/index.js",
-      "require": "./lib/cjs/index.js"
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
     },
     "./fixtures/c8/*": "./fixtures/c8/*"
   },
@@ -22,8 +20,7 @@
   },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "compile": "tsc -b tsconfig.build.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "pretest": "npm run compile",
@@ -63,5 +60,6 @@
   },
   "peerDependencies": {
     "mocha": ">=10"
-  }
+  },
+  "types": "./lib/index.d.ts"
 }

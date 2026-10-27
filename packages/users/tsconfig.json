@@ -2,10 +2,33 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "rootDir": "./",
-    "outDir": "./lib/mjs",
+    "outDir": "./lib",
     "module": "node16",
     "moduleResolution": "node16"
   },
-  "include": ["src/**/*","test/**/*", "../authn-http/src/route-args"],
-  "references": [{ "path": "../queue/tsconfig.json" },{ "path": "../configuration/tsconfig.json" }, { "path": "../di/tsconfig.json" }, { "path": "../exceptions/tsconfig.json" }, { "path": "../log/tsconfig.json" }, { "path": "../orm/tsconfig.json" }]
+  "include": [
+    "src/**/*",
+    "test/**/*",
+    "../authn-http/src/route-args"
+  ],
+  "references": [
+    {
+      "path": "../queue/tsconfig.json"
+    },
+    {
+      "path": "../configuration/tsconfig.json"
+    },
+    {
+      "path": "../di/tsconfig.json"
+    },
+    {
+      "path": "../exceptions/tsconfig.json"
+    },
+    {
+      "path": "../log/tsconfig.json"
+    },
+    {
+      "path": "../orm/tsconfig.json"
+    }
+  ]
 }

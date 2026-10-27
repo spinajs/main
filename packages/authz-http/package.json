@@ -2,18 +2,15 @@
   "name": "@spinajs/authz-http",
   "version": "3.0.23",
   "description": "HTTP integration for SpinaJS authorization",
-  "main": "lib/cjs/index.js",
-  "module": "lib/mjs/index.js",
+  "main": "./lib/index.js",
   "exports": {
     ".": {
-      "types": "./lib/mjs/index.d.ts",
-      "import": "./lib/mjs/index.js",
-      "require": "./lib/cjs/index.js"
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
     },
     "./authn": {
-      "types": "./lib/mjs/authn/index.d.ts",
-      "import": "./lib/mjs/authn/index.js",
-      "require": "./lib/cjs/authn/index.js"
+      "types": "./lib/authn/index.d.ts",
+      "import": "./lib/authn/index.js"
     }
   },
   "type": "module",
@@ -26,8 +23,7 @@
   },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "compile": "tsc -b tsconfig.build.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "pretest": "npm run compile",
@@ -79,5 +75,6 @@
     "@spinajs/authn": "3.0.23",
     "@spinajs/authz-testing": "3.0.23",
     "@spinajs/fs": "3.0.23"
-  }
+  },
+  "types": "./lib/index.d.ts"
 }

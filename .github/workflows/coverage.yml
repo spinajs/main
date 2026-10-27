@@ -41,7 +41,7 @@ jobs:
       - name: install
         run: npm ci
 
-      - name: build monorepo (esm + cjs)
+      - name: build monorepo
         run: npm run build
 
       - name: tests with coverage

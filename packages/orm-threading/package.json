@@ -2,13 +2,11 @@
   "name": "@spinajs/orm-threading",
   "version": "3.0.23",
   "description": "database-backed mutex for @spinajs/threading, stored in the __mutex__ table",
-  "main": "lib/cjs/index.js",
-  "module": "lib/mjs/index.js",
+  "main": "./lib/index.js",
   "exports": {
     ".": {
-      "types": "./lib/mjs/index.d.ts",
-      "import": "./lib/mjs/index.js",
-      "require": "./lib/cjs/index.js"
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
     }
   },
   "type": "module",
@@ -21,9 +19,8 @@
   },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "compile:cjs": "tsc -b tsconfig.cjs.json",
-    "watch": "tsc -b tsconfig.mjs.json -w",
+    "compile": "tsc -b tsconfig.build.json",
+    "watch": "tsc -b tsconfig.build.json -w",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/*.test.ts",
@@ -62,8 +59,8 @@
     "luxon": "^3.6.1"
   },
   "homepage": "https://github.com/spinajs/main#readme",
-  "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee",
   "devDependencies": {
     "@spinajs/orm-mysql": "3.0.23"
-  }
+  },
+  "types": "./lib/index.d.ts"
 }

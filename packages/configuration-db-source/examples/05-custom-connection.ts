@@ -20,7 +20,7 @@
  * default connection.
  *
  * Run:
- *   node lib/mjs/examples/05-custom-connection.js
+ *   node lib/examples/05-custom-connection.js
  */
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import { Migration, OrmMigration, OrmDriver } from '@spinajs/orm';

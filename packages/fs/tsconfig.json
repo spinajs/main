@@ -2,11 +2,27 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "rootDir": "./",
-    "outDir": "./lib/mjs",
+    "outDir": "./lib",
     "module": "node16",
-    "moduleResolution": "node16",
+    "moduleResolution": "node16"
   },
-  "typeRoots": ["node_modules/@types", "./src/typings"],
-  "include": ["src/**/*", "test/**/*"],
-  "references": [{ "path": "../exceptions/tsconfig.json" }, { "path": "../log-common/tsconfig.json" },  { "path": "../threading/tsconfig.json" }]
+  "typeRoots": [
+    "node_modules/@types",
+    "./src/typings"
+  ],
+  "include": [
+    "src/**/*",
+    "test/**/*"
+  ],
+  "references": [
+    {
+      "path": "../exceptions/tsconfig.json"
+    },
+    {
+      "path": "../log-common/tsconfig.json"
+    },
+    {
+      "path": "../threading/tsconfig.json"
+    }
+  ]
 }

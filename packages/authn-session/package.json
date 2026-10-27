@@ -2,32 +2,28 @@
   "name": "@spinajs/authn-session",
   "version": "3.0.23",
   "description": "Session issuing, stores and codecs for SpinaJS authentication",
-  "main": "lib/cjs/index.js",
-  "module": "lib/mjs/index.js",
+  "main": "./lib/index.js",
   "exports": {
     ".": {
-      "types": "./lib/mjs/index.d.ts",
-      "import": "./lib/mjs/index.js",
-      "require": "./lib/cjs/index.js"
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
     },
     "./schemas": {
-      "types": "./lib/mjs/schema.d.ts",
-      "import": "./lib/mjs/schema.js",
-      "require": "./lib/cjs/schema.js"
+      "types": "./lib/schema.d.ts",
+      "import": "./lib/schema.js"
     },
     "./register-schema": {
-      "types": "./lib/mjs/register-schema.d.ts",
-      "import": "./lib/mjs/register-schema.js",
-      "require": "./lib/cjs/register-schema.js"
+      "types": "./lib/register-schema.d.ts",
+      "import": "./lib/register-schema.js"
     }
   },
   "typesVersions": {
     "*": {
       "schemas": [
-        "lib/cjs/schema.d.ts"
+        "lib/schema.d.ts"
       ],
       "register-schema": [
-        "lib/cjs/register-schema.d.ts"
+        "lib/register-schema.d.ts"
       ]
     }
   },
@@ -41,11 +37,10 @@
   },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "compile": "tsc -b tsconfig.build.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
-    "pretest": "npm run compile && cd ../.. && node node_modules/typescript-7/lib/tsc.js -b packages/authn-session/tsconfig.cjs.json && node scripts/generate-packages-for-modules.mjs",
+    "pretest": "npm run compile",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
     "coverage": "c8 npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
@@ -83,5 +78,6 @@
   },
   "devDependencies": {
     "@spinajs/authn-testing": "3.0.23"
-  }
+  },
+  "types": "./lib/index.d.ts"
 }

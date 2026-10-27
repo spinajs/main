@@ -4,14 +4,14 @@
   "private": true,
   "description": "Example app for the spinajs WebSocket layer: a notes server with commands, rooms, a resumable snapshot stream and binary blobs, and its client",
   "type": "module",
-  "main": "lib/mjs/main.js",
+  "main": "./lib/main.js",
   "engines": {
     "node": ">=18.2"
   },
   "scripts": {
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "start": "node lib/mjs/main.js",
+    "compile": "tsc -b tsconfig.build.json",
+    "start": "node lib/main.js",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
     "coverage": "c8 npm run test"
   },
@@ -25,5 +25,6 @@
     "@spinajs/http-socket-client": "3.0.23",
     "@spinajs/http-socket-common": "3.0.23",
     "@spinajs/log": "3.0.23"
-  }
+  },
+  "types": "./lib/main.d.ts"
 }

@@ -1,13 +1,11 @@
 {
   "version": "3.0.23",
   "description": "OTLP/HTTP log export target for @spinajs/log ( OpenTelemetry Protocol )",
-  "main": "lib/cjs/index.js",
-  "module": "lib/mjs/index.js",
+  "main": "./lib/index.js",
   "exports": {
     ".": {
-      "types": "./lib/mjs/index.d.ts",
-      "import": "./lib/mjs/index.js",
-      "require": "./lib/cjs/index.js"
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
     }
   },
   "type": "module",
@@ -17,8 +15,7 @@
   },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "compile": "tsc -b tsconfig.build.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha --exit -p tsconfig.json test/**/*.test.ts",
@@ -58,5 +55,6 @@
     "@spinajs/util": "3.0.23",
     "axios": "^1.2.3",
     "lodash": "^4.17.21"
-  }
+  },
+  "types": "./lib/index.d.ts"
 }

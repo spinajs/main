@@ -1,0 +1,39 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./lib",
+    "tsBuildInfoFile": "./lib/tsconfig.build.tsbuildinfo",
+    "module": "node16",
+    "moduleResolution": "node16"
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "references": [
+    {
+      "path": "../internal-logger/tsconfig.build.json"
+    },
+    {
+      "path": "../configuration/tsconfig.build.json"
+    },
+    {
+      "path": "../di/tsconfig.build.json"
+    },
+    {
+      "path": "../exceptions/tsconfig.build.json"
+    },
+    {
+      "path": "../reflection/tsconfig.build.json"
+    },
+    {
+      "path": "../util/tsconfig.build.json"
+    },
+    {
+      "path": "../configuration-common/tsconfig.build.json"
+    },
+    {
+      "path": "../log-common/tsconfig.build.json"
+    }
+  ]
+}

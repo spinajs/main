@@ -21,7 +21,7 @@ From the repository root, after `npm run build`:
 ```
 cd packages/http-socket-example
 npm run compile
-npm start            # or: node lib/mjs/main.js --verbose
+npm start            # or: node lib/main.js --verbose
 ```
 
 ## Test
