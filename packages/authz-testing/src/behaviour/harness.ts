@@ -106,8 +106,8 @@ export interface SetupContext {
  * - Create a test domain (child container) per case and register the lane's models in the child, so
  *   it owns and creates them; the kit's `scopedContainer` does this. A root-registered singleton first
  *   resolved through a child lives in root and survives `child.dispose()`, so a child never yields
- *   fresh root singletons. Child-only model classes must not carry `@Injectable(AuthorizationModel)`;
- *   register them imperatively in the child.
+ *   fresh root singletons. A registered model is only available: list its class (or `named()` factory)
+ *   name in the test domain's `authz.domains.<name>.models` to activate it.
  * - Uncache only the root types the harness itself causes to be created (`uncacheOwned`, or
  *   `scopedContainer({ uncache })`). Never call `DI.clearCache()`: it wipes entries other packages
  *   write at import time, which nothing rebuilds.

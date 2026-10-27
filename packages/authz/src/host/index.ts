@@ -9,6 +9,6 @@ export * from './di.js';
 export * from './contributor.js';
 export * from './service.js';
 export * from './domains.js';
-export * from './used-models.js';
+export * from './listed-models.js';
 export * from './authz.js';
 export * from './push.js';

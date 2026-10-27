@@ -161,7 +161,7 @@ export const AUTHZ_CONFIGURATION_SCHEMA = {
   type: 'object',
   properties: {
     permissions,
-    use: stringList,
+    models: stringList,
     combine: combine(true),
     domains: {
       type: 'object',
@@ -172,7 +172,7 @@ export const AUTHZ_CONFIGURATION_SCHEMA = {
           parent: { type: 'string', pattern: DOMAIN_NAME_PATTERN },
           combine: combine(false),
           disable: stringList,
-          use: stringList,
+          models: stringList,
           permissions,
           engine: engine(false),
           fields: fields(false),

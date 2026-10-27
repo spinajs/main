@@ -1,8 +1,8 @@
 import * as chai from 'chai';
 import 'mocha';
-import { StaticModel } from '@spinajs/authz-testing';
+import { StaticModel, TestLog } from '@spinajs/authz-testing';
 import { AuthorizationModel, AuthzConfigError, TRUE } from '@spinajs/authz';
-import { domains, installHost, instance, registerInRoot, resetHost, rootService, setConfig, uninstallHost } from './support.js';
+import { domains, installHost, instance, named, registerInRoot, resetHost, rootService, setConfig, uninstallHost } from './support.js';
 
 const expect = chai.expect;
 const silent = (name: string) => new StaticModel({ name });
@@ -18,7 +18,7 @@ async function rejection(p: Promise<unknown>): Promise<Error> {
   throw new Error('expected a rejection');
 }
 
-describe('authz.use', function () {
+describe('authz.models', function () {
   this.timeout(10000);
   before(installHost);
   after(uninstallHost);
@@ -28,25 +28,29 @@ describe('authz.use', function () {
   });
 
   describe('activation', () => {
-    it('root without use keeps every root registration under AuthorizationModel active', async () => {
-      registerInRoot(AuthorizationModel, instance(silent('legacy')));
-      expect(names((await rootService()).models())).to.deep.equal(['legacy']);
+    it('root without models activates nothing, denies every check and warns with the registered names', async () => {
+      registerInRoot(AuthorizationModel, named('A', instance(allowing('a'))));
+      const root = await rootService();
+      expect(root.models()).to.deep.equal([]);
+      expect((await root.check({ principal: { type: 'user', id: 'u', authenticated: true, source: 'test', attributes: {} }, permission: 'doc:read' })).allowed).to.equal(false);
+      expect(TestLog.messages('warn').some((w) => w.includes('authz.models is not set') && w.includes('A'))).to.equal(true);
     });
 
-    it('root with use activates only the listed names', async () => {
-      registerInRoot(AuthorizationModel, instance(silent('legacy')));
-      registerInRoot('a', () => silent('a'));
-      setConfig(['authz', 'use'], ['a']);
-      expect(names((await rootService()).models())).to.deep.equal(['a']);
+    it('root with models activates only the listed names', async () => {
+      registerInRoot(AuthorizationModel, named('A', instance(silent('a'))));
+      registerInRoot(AuthorizationModel, named('B', instance(silent('b'))));
+      setConfig(['authz', 'models'], ['B']);
+      expect(names((await rootService()).models())).to.deep.equal(['b']);
     });
 
     it('a child inherits the instances root activated, without running their factory again', async () => {
       let made = 0;
-      registerInRoot('a', () => {
+      const A = () => {
         made++;
         return silent('a');
-      });
-      setConfig(['authz', 'use'], ['a']);
+      };
+      registerInRoot(AuthorizationModel, A);
+      setConfig(['authz', 'models'], ['A']);
       const d = await domains();
       d.create('kid');
       const root = await rootService();
@@ -55,22 +59,23 @@ describe('authz.use', function () {
       expect(made).to.equal(1);
     });
 
-    it('a child use adds to the inherited models and honours disable', async () => {
-      registerInRoot('a', () => silent('a'));
-      registerInRoot('b', () => silent('b'));
-      registerInRoot('c', () => allowing('c'));
-      setConfig(['authz', 'use'], ['a', 'b']);
-      setConfig(['authz', 'domains', 'kid'], { use: ['c'], disable: ['b'] });
+    it('a child models list adds to the inherited models and honours disable', async () => {
+      registerInRoot(AuthorizationModel, named('A', instance(silent('a'))));
+      registerInRoot(AuthorizationModel, named('B', instance(silent('b'))));
+      registerInRoot(AuthorizationModel, named('C', instance(allowing('c'))));
+      setConfig(['authz', 'models'], ['A', 'B']);
+      setConfig(['authz', 'domains', 'kid'], { models: ['C'], disable: ['b'] });
       const d = await domains();
       d.create('kid');
       expect(names((await d.service('kid')).models())).to.deep.equal(['a', 'c']);
       expect(names((await rootService()).models())).to.deep.equal(['a', 'b']);
     });
 
-    it('a child listing an inherited name gets its own instance in its place', async () => {
-      registerInRoot('a', () => silent('a'));
-      setConfig(['authz', 'use'], ['a']);
-      setConfig(['authz', 'domains', 'kid'], { use: ['a'] });
+    it('a child listing an inherited factory gets its own instance in its place', async () => {
+      const A = () => silent('a');
+      registerInRoot(AuthorizationModel, A);
+      setConfig(['authz', 'models'], ['A']);
+      setConfig(['authz', 'domains', 'kid'], { models: ['A'] });
       const d = await domains();
       d.create('kid');
       const root = await rootService();
@@ -79,16 +84,15 @@ describe('authz.use', function () {
       expect(kid.models()[0]).to.not.equal(root.models()[0]);
     });
 
-    it('a child with use ignores what its container registers under AuthorizationModel', async () => {
-      setConfig(['authz', 'domains', 'kid'], { use: [] });
+    it('what a child container registers stays inactive until its models list names it', async () => {
       const d = await domains();
-      d.create('kid').register(instance(allowing('own'))).as(AuthorizationModel);
+      d.create('kid').register(named('Own', instance(allowing('own')))).as(AuthorizationModel);
       expect(names((await d.service('kid')).models())).to.deep.equal([]);
     });
 
-    it('a grandchild without use still inherits through a child with use', async () => {
-      registerInRoot('c', () => allowing('c'));
-      setConfig(['authz', 'domains', 'kid'], { use: ['c'] });
+    it('a grandchild without models inherits through a child that lists some', async () => {
+      registerInRoot(AuthorizationModel, named('C', instance(allowing('c'))));
+      setConfig(['authz', 'domains', 'kid'], { models: ['C'] });
       setConfig(['authz', 'domains', 'kid.sub'], { parent: 'kid' });
       const d = await domains();
       d.create('kid');
@@ -100,10 +104,10 @@ describe('authz.use', function () {
   });
 
   describe('configured domains', () => {
-    it('root boot creates the domains a use list names, parents first', async () => {
-      registerInRoot('a', () => allowing('a'));
-      setConfig(['authz', 'domains', 'arch'], { use: ['a'] });
-      setConfig(['authz', 'domains', 'arch.sub'], { parent: 'arch', use: [] });
+    it('root boot creates the domains a models list names, parents first', async () => {
+      registerInRoot(AuthorizationModel, named('A', instance(allowing('a'))));
+      setConfig(['authz', 'domains', 'arch'], { models: ['A'] });
+      setConfig(['authz', 'domains', 'arch.sub'], { parent: 'arch', models: [] });
       setConfig(['authz', 'domains', 'plain'], { cache: { ttlSeconds: 1 } });
       await rootService();
       const d = await domains();
@@ -112,8 +116,8 @@ describe('authz.use', function () {
     });
 
     it('leaves a domain the app created itself', async () => {
-      registerInRoot('a', () => allowing('a'));
-      setConfig(['authz', 'domains', 'arch'], { use: ['a'] });
+      registerInRoot(AuthorizationModel, named('A', instance(allowing('a'))));
+      setConfig(['authz', 'domains', 'arch'], { models: ['A'] });
       const d = await domains();
       const own = d.create('arch');
       await rootService();
@@ -121,7 +125,7 @@ describe('authz.use', function () {
     });
 
     it('a configured parent that does not resolve fails the root boot', async () => {
-      setConfig(['authz', 'domains', 'orphan'], { parent: 'nowhere', use: [] });
+      setConfig(['authz', 'domains', 'orphan'], { parent: 'nowhere', models: [] });
       setConfig(['authz', 'domains', 'nowhere'], { parent: 'orphan' });
       const err = await rejection(rootService());
       expect(err).to.be.instanceOf(AuthzConfigError);
@@ -131,19 +135,19 @@ describe('authz.use', function () {
 
   describe('boot failures', () => {
     it('an unknown name fails the domain boot, naming the key', async () => {
-      setConfig(['authz', 'domains', 'kid'], { use: ['ghost'] });
+      setConfig(['authz', 'domains', 'kid'], { models: ['Ghost'] });
       const d = await domains();
       d.create('kid');
       const err = await rejection(d.service('kid'));
       expect(err).to.be.instanceOf(AuthzConfigError);
-      expect(err.message).to.contain('authz.domains.kid.use lists "ghost"');
+      expect(err.message).to.contain('authz.domains.kid.models lists "Ghost"');
     });
 
-    it('an unknown name in authz.use fails the root boot', async () => {
-      setConfig(['authz', 'use'], ['ghost']);
+    it('an unknown name in authz.models fails the root boot', async () => {
+      setConfig(['authz', 'models'], ['Ghost']);
       const err = await rejection(rootService());
       expect(err).to.be.instanceOf(AuthzConfigError);
-      expect(err.message).to.contain('authz.use lists "ghost"');
+      expect(err.message).to.contain('authz.models lists "Ghost"');
     });
   });
 });

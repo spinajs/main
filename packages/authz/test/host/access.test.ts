@@ -2,9 +2,9 @@ import * as chai from 'chai';
 import 'mocha';
 import { StaticModel, userPrincipal } from '@spinajs/authz-testing';
 
-import { AuthorizationModel, AuthzConfigError, TRUE } from '@spinajs/authz';
+import { AuthzConfigError, TRUE } from '@spinajs/authz';
 import type { ListPlanRequest, ListSupport, ModelListPlan } from '@spinajs/authz';
-import { installHost, instance, registerInRoot, resetHost, rootService, setConfig, uninstallHost } from './support.js';
+import { activateInRoot, installHost, resetHost, rootService, setConfig, uninstallHost } from './support.js';
 
 const expect = chai.expect;
 
@@ -47,7 +47,7 @@ describe('DefaultAuthzService: accessPlan, checkAll and boot rule 12', function 
 
   it('accessPlan answers through the domain service', async () => {
     setConfig('authz.permissions', { 'doc:read': { list: true } });
-    registerInRoot(AuthorizationModel, instance(new PlanningModel({ name: 'planner' })));
+    activateInRoot(new PlanningModel({ name: 'planner' }));
     const svc = await rootService();
     expect(await svc.accessPlan(alice, 'doc:read', 'doc')).to.deep.equal({ kind: 'filter', permit: [{ op: 'test.owner', args: { id: 'alice' } }], deny: [] });
   });
@@ -61,7 +61,7 @@ describe('DefaultAuthzService: accessPlan, checkAll and boot rule 12', function 
       }
     }
     setConfig('authz.permissions', { 'doc:read': { list: true } });
-    registerInRoot(AuthorizationModel, instance(new EnvModel({ name: 'planner' })));
+    activateInRoot(new EnvModel({ name: 'planner' }));
     const svc = await rootService();
     await svc.accessPlan(alice, 'doc:read', 'doc', { ip: '10.0.0.1' });
     expect(seen[0].env?.ip).to.equal('10.0.0.1');
@@ -70,7 +70,7 @@ describe('DefaultAuthzService: accessPlan, checkAll and boot rule 12', function 
 
   it('boot refuses a list permission routed to a model that cannot plan it', async () => {
     setConfig('authz.permissions', { 'doc:read': { list: true } });
-    registerInRoot(AuthorizationModel, instance(new StaticModel({ name: 'plain' })));
+    activateInRoot(new StaticModel({ name: 'plain' }));
     const err = await rejection(rootService());
     expect(err).to.be.instanceOf(AuthzConfigError);
     expect(err.message).to.contain('[6.5/12] domain "root", type "doc", permission "doc:read", model "plain": cannot plan lists: it has no listSupport()');
@@ -78,7 +78,7 @@ describe('DefaultAuthzService: accessPlan, checkAll and boot rule 12', function 
 
   it('checkAll answers each request in input order', async () => {
     setConfig('authz.permissions', { 'doc:read': {}, 'doc:write': {} });
-    registerInRoot(AuthorizationModel, instance(new StaticModel({ name: 'reader', votes: (req) => (req.permission === 'doc:read' ? { permitWhen: TRUE } : {}) })));
+    activateInRoot(new StaticModel({ name: 'reader', votes: (req) => (req.permission === 'doc:read' ? { permitWhen: TRUE } : {}) }));
     const svc = await rootService();
     const doc = { type: 'doc', id: '1' };
     const out = await svc.checkAll(alice, [

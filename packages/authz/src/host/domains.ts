@@ -88,12 +88,12 @@ export class DefaultAuthzDomains extends AuthzDomains {
     return container;
   }
 
-  /** Creates each domain `authz.domains` gives a `use` list, and its missing ancestors, parents first; existing ones stay. */
+  /** Creates each domain `authz.domains` gives a `models` list, and its missing ancestors, parents first; existing ones stay. */
   createConfigured(): void {
     const entries = configAt(this.Config, ['domains']);
     if (!isPlainObject(entries)) return;
     for (const name of Object.keys(entries)) {
-      if (configAt(entries, [name, 'use']) === undefined) continue;
+      if (configAt(entries, [name, 'models']) === undefined) continue;
       for (const domain of configuredLineage(this.Config, name)) {
         if (domain !== ROOT_DOMAIN && !this.records.has(domain)) this.create(domain);
       }

@@ -19,8 +19,8 @@ export interface DomainConfig {
   readonly permissions: Readonly<Record<string, PermissionConfig>>;
   readonly combine: CombineConfig;
   readonly disable: readonly string[];
-  /** The models this level activates, by registered name; undefined: the level activates what its container registers under AuthorizationModel. */
-  readonly use?: readonly string[];
+  /** The models this level activates, by the class (or factory function) name they are registered under AuthorizationModel with; undefined: none of its own. */
+  readonly models?: readonly string[];
   readonly engine: { readonly explain: boolean; readonly modelTimeoutMs: number; readonly maxDelegation: number };
   readonly fields: { readonly neverRead: readonly string[]; readonly writeMode: 'strip' | 'reject' };
   readonly cache: { readonly maxEntries: number; readonly ttlSeconds: number };
@@ -81,12 +81,12 @@ export function readDomainConfig(tree: unknown, lineage: readonly string[]): Dom
   const busService = configAt(tree, ['bus', 'service']) as string | undefined;
   const anonymous = configAt(tree, ['principals', 'anonymous', 'enabled']) as boolean | undefined;
   const parent = levels.length > 1 ? (configAt(own, ['parent']) as string | undefined) : undefined;
-  const use = configAt(own, ['use']) as string[] | undefined;
+  const models = configAt(own, ['models']) as string[] | undefined;
 
   const result: DomainConfig = {
     domain,
     ...(parent !== undefined ? { parent } : {}),
-    ...(use !== undefined ? { use: clone(use) } : {}),
+    ...(models !== undefined ? { models: clone(models) } : {}),
     permissions: clone((configAt(own, ['permissions']) ?? {}) as Record<string, PermissionConfig>),
     combine,
     disable: clone((configAt(own, ['disable']) ?? []) as string[]),

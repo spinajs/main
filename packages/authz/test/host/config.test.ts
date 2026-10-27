@@ -187,12 +187,12 @@ describe('readDomainConfig', () => {
     expect(Object.keys(readDomainConfig(authz, ['root']).permissions)).to.deep.equal(['r.p']);
   });
 
-  it('reads use of the own level only, never inherited', () => {
-    const authz = { use: ['rbac'], domains: { a: { use: ['read-only'] }, b: { parent: 'a' } } };
-    expect(readDomainConfig(authz, ['root']).use).to.deep.equal(['rbac']);
-    expect(readDomainConfig(authz, ['root', 'a']).use).to.deep.equal(['read-only']);
-    expect(readDomainConfig(authz, ['root', 'a', 'b']).use).to.equal(undefined);
-    expect(readDomainConfig({}, ['root'])).to.not.have.property('use');
+  it('reads models of the own level only, never inherited', () => {
+    const authz = { models: ['RbacModel'], domains: { a: { models: ['ReadOnlyModel'] }, b: { parent: 'a' } } };
+    expect(readDomainConfig(authz, ['root']).models).to.deep.equal(['RbacModel']);
+    expect(readDomainConfig(authz, ['root', 'a']).models).to.deep.equal(['ReadOnlyModel']);
+    expect(readDomainConfig(authz, ['root', 'a', 'b']).models).to.equal(undefined);
+    expect(readDomainConfig({}, ['root'])).to.not.have.property('models');
   });
 
   it('reads domains whose name contains a dot', () => {
@@ -268,8 +268,8 @@ describe('authz configuration through a child Configuration', function () {
     expect(await violationsOf({ authz: { engine: { modelTimeoutMs: 0 }, domains: { 'a.b': { cache: { ttlSeconds: -1 } } } } })).to.include.members(['authz.engine.modelTimeoutMs', 'authz.domains.a.b.cache.ttlSeconds']);
   });
 
-  it('refuses a use that is not a list of names', async () => {
-    expect(await violationsOf({ authz: { use: 'rbac', domains: { a: { use: [{}] } } } })).to.include.members(['authz.use', 'authz.domains.a.use.0']);
+  it('refuses models that is not a list of names', async () => {
+    expect(await violationsOf({ authz: { models: 'RbacModel', domains: { a: { models: [{}] } } } })).to.include.members(['authz.models', 'authz.domains.a.models.0']);
   });
 
   it('boots a valid child Configuration with its values', async () => {
