@@ -70,6 +70,13 @@ test('rewriteTsconfig: test config keeps references and only moves outDir', () =
   );
 });
 
+test('rewriteTsconfig: a test config reference to a tsconfig.mjs.json follows its rename', () => {
+  assert.deepEqual(
+    rewriteTsconfig({ compilerOptions: { outDir: './lib/mjs' }, references: [{ path: '../orm/tsconfig.json' }, { path: '../orm-http/tsconfig.mjs.json' }] }, 'test'),
+    { compilerOptions: { outDir: './lib' }, references: [{ path: '../orm/tsconfig.json' }, { path: '../orm-http/tsconfig.build.json' }] },
+  );
+});
+
 test('rewriteRootBuildTsconfig', () => {
   assert.deepEqual(rewriteRootBuildTsconfig({ files: [], references: [{ path: 'packages/cli/tsconfig.mjs.json' }] }), { files: [], references: [{ path: 'packages/cli/tsconfig.build.json' }] });
 });

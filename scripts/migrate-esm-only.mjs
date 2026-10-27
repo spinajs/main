@@ -75,10 +75,10 @@ export function rewritePackageJson(pkg, { engines } = {}) {
   return out;
 }
 
-export function rewriteTsconfig(json, kind) {
+export function rewriteTsconfig(json) {
   const out = { ...json, compilerOptions: { ...json.compilerOptions } };
   if (out.compilerOptions.outDir) out.compilerOptions.outDir = out.compilerOptions.outDir.replace(/lib\/mjs\/?$/, 'lib');
-  if (kind === 'build' && out.references) out.references = out.references.map((r) => ({ path: r.path.replace(/tsconfig\.mjs\.json$/, 'tsconfig.build.json') }));
+  if (out.references) out.references = out.references.map((r) => ({ path: r.path.replace(/tsconfig\.mjs\.json$/, 'tsconfig.build.json') }));
   return out;
 }
 
@@ -122,11 +122,11 @@ function applyTsconfigs(dryRun) {
     const cjs = join(dir, 'tsconfig.cjs.json');
     const test = join(dir, 'tsconfig.json');
     if (existsSync(mjs)) {
-      writeJson(join(dir, 'tsconfig.build.json'), rewriteTsconfig(readJson(mjs), 'build'), dryRun);
+      writeJson(join(dir, 'tsconfig.build.json'), rewriteTsconfig(readJson(mjs)), dryRun);
       if (!dryRun) rmSync(mjs);
     }
     if (existsSync(cjs) && !dryRun) rmSync(cjs);
-    if (existsSync(test)) writeJson(test, rewriteTsconfig(readJson(test), 'test'), dryRun);
+    if (existsSync(test)) writeJson(test, rewriteTsconfig(readJson(test)), dryRun);
   }
   writeJson(join(ROOT, 'tsconfig.build.json'), rewriteRootBuildTsconfig(readJson(join(ROOT, 'tsconfig.build.json'))), dryRun);
   const rootCjs = join(ROOT, 'tsconfig.build.cjs.json');
