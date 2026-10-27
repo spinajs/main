@@ -95,9 +95,33 @@ jobs:
       - name: package exports and types ( publint, attw )
         run: npm run check:packages
 
+  # Every package suite must pass before a release. Suites that are red on master are tracked in
+  # scripts/known-failing.json ( warning only ); packages needing external services are skipped under --ci.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    concurrency:
+      group: test-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - run: node scripts/test-all.mjs --ci --concurrency 4
+
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    needs: build
+    needs: [build, analysis, test]
     runs-on: ubuntu-latest
 
     permissions:
