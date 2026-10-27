@@ -17,8 +17,8 @@ import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegu
 import type { TotpOptions } from '../../src/step/index.js';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { AUTHN_TOTP_CONFIGURATION_SCHEMA } from '../../src/schema.js';
-import { boot, disposeBooted, readingFrom } from '../support/config-boot.js';
 import { TOTP_DEFAULTS, totpOpts } from './support/totp-defaults.js';
+import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 const KEY = '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f';
 const ALICE: IdentityRef = { type: 'user', id: '00000000-0000-4000-8000-000000000001' };
@@ -492,12 +492,12 @@ describe('v3 step: TotpMfaStep', () => {
   });
 
   it('refuses to work without an encryption key', async () => {
-    const { child } = await boot([AUTHN_CONFIGURATION_SCHEMA, AUTHN_TOTP_CONFIGURATION_SCHEMA], {});
+    const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [AUTHN_CONFIGURATION_SCHEMA, AUTHN_TOTP_CONFIGURATION_SCHEMA], config: {} });
     const step = readingFrom(new TotpMfaStep({ store, options: totpOpts(), identities: null }), child);
     try {
       await assert.rejects(step.beginEnrolment(ALICE), (e: Error) => e instanceof InvalidOption && /authn\.mfa\.encryptionKey/.test(e.message));
     } finally {
-      await disposeBooted();
+      await disposeTestApps();
     }
     assert.strictEqual(await store.get(ALICE, 'totp'), null);
   });

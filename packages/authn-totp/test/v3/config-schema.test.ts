@@ -14,16 +14,16 @@ import authnTotp from '../../src/config/authn-totp.js';
 import { MemoryMfaSecretStore } from '../../src/store/index.js';
 import { TotpMfaStep } from '../../src/step/index.js';
 import { TotpService } from '../../src/service/index.js';
-import { boot, disposeBooted, readingFrom, violationsOf } from '../support/config-boot.js';
 import { TOTP_DEFAULTS } from './support/totp-defaults.js';
+import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_TOTP_CONFIGURATION_SCHEMA];
-const bad = (authn: Record<string, unknown>) => violationsOf(SCHEMAS, { authn });
+const bad = (authn: Record<string, unknown>) => configurationViolations({ schemas: SCHEMAS, config: { authn } });
 const KEY = randomBytes(32).toString('hex');
 const OLD = randomBytes(32).toString('base64url');
 
 describe('authn.mfa.totp, authn.mfa.encryptionKey and authn.freshAuth through the schema', () => {
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   describe('defaults', () => {
     it('AuthnTotpConfigBootstrapper registers the authn.mfa.totp fragment', () => {
@@ -32,12 +32,12 @@ describe('authn.mfa.totp, authn.mfa.encryptionKey and authn.freshAuth through th
     });
 
     it('with no user config, the effective authn.mfa.totp equals the defaults of the former single authn schema', async () => {
-      const { configuration } = await boot(SCHEMAS, {});
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
       expect(configuration.get('authn.mfa.totp')).to.deep.eq({ issuer: 'SpinaJS', algorithm: 'SHA1', digits: 6, period: 30, window: 1, recoveryCodes: 10 });
     });
 
     it('fills authn.mfa.totp and authn.freshAuth', async () => {
-      const { configuration } = await boot(SCHEMAS, {});
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
       expect(configuration.get('authn.mfa.totp')).to.deep.eq({ ...TOTP_DEFAULTS });
       expect(configuration.get('authn.freshAuth.maxAgeSeconds')).to.eq(300);
     });
@@ -47,7 +47,7 @@ describe('authn.mfa.totp, authn.mfa.encryptionKey and authn.freshAuth through th
     });
 
     it('keeps a configured value and fills the rest', async () => {
-      const { configuration } = await boot(SCHEMAS, { authn: { mfa: { totp: { issuer: 'Acme', digits: 8 } } } });
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { mfa: { totp: { issuer: 'Acme', digits: 8 } } } } });
       expect(configuration.get('authn.mfa.totp')).to.deep.eq({ ...TOTP_DEFAULTS, issuer: 'Acme', digits: 8 });
     });
   });
@@ -99,7 +99,7 @@ describe('authn.mfa.totp, authn.mfa.encryptionKey and authn.freshAuth through th
 
   describe('through @Config', () => {
     it('TotpMfaStep builds its options and key ring from the booted configuration', async () => {
-      const { child } = await boot(SCHEMAS, { authn: { mfa: { totp: { issuer: 'Acme', digits: 8 }, encryptionKey: { secret: KEY } } } });
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { mfa: { totp: { issuer: 'Acme', digits: 8 }, encryptionKey: { secret: KEY } } } } });
       const step = readingFrom(new TotpMfaStep({ store: new MemoryMfaSecretStore(), identities: null }), child);
       const { provisioning } = await step.beginEnrolment({ type: 'user', id: 'u1' });
       expect(new URL(provisioning).searchParams.get('issuer')).to.eq('Acme');
@@ -107,7 +107,7 @@ describe('authn.mfa.totp, authn.mfa.encryptionKey and authn.freshAuth through th
     });
 
     it('TotpMfaStep refuses to work when no encryption key is set', async () => {
-      const { child } = await boot(SCHEMAS, {});
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
       const step = readingFrom(new TotpMfaStep({ store: new MemoryMfaSecretStore(), identities: null }), child);
       let error: unknown;
       try {
@@ -120,7 +120,7 @@ describe('authn.mfa.totp, authn.mfa.encryptionKey and authn.freshAuth through th
     });
 
     it('TotpService reads the fresh-auth lifetime and lets deps override it', async () => {
-      const { child } = await boot(SCHEMAS, { authn: { freshAuth: { maxAgeSeconds: 120 } } });
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { freshAuth: { maxAgeSeconds: 120 } } } });
       const service = readingFrom(new TotpService(), child) as unknown as { maxAgeSeconds(): number };
       expect(service.maxAgeSeconds()).to.eq(120);
       const seam = readingFrom(new TotpService({ maxAgeSeconds: 5 }), child) as unknown as { maxAgeSeconds(): number };
@@ -128,7 +128,7 @@ describe('authn.mfa.totp, authn.mfa.encryptionKey and authn.freshAuth through th
     });
 
     it('TotpService injects its steps and services from the container that resolves it', async () => {
-      const { child } = await boot(SCHEMAS, {});
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
       class SpecSessions {}
       class SpecAuthn {}
       class SpecThrottle {}
@@ -151,14 +151,14 @@ describe('authn.mfa.totp, authn.mfa.encryptionKey and authn.freshAuth through th
       const step = new TotpMfaStep({ store: new MemoryMfaSecretStore(), identities: null });
       const subclass = new (class SpecTotpMfaStep extends TotpMfaStep {})({ store: new MemoryMfaSecretStore(), identities: null });
       const other = new FakeMfaStep({ name: 'totp' });
-      const keyed = readingFrom(new TotpService(), (await boot(SCHEMAS, { authn: { mfa: { encryptionKey: { secret: KEY } } } })).child);
+      const keyed = readingFrom(new TotpService(), (await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { mfa: { encryptionKey: { secret: KEY } } } } })).container);
       expect(keyed).to.be.instanceOf(MfaEnrolmentService);
       expect(keyed.enabled([other, step]), 'listed').to.eq(true);
       expect(keyed.enabled(new Map([['totp', step]]).values()), 'an iterator').to.eq(true);
       expect(keyed.enabled([]), 'no step').to.eq(false);
       expect(keyed.enabled([other]), 'another step named totp').to.eq(false);
       expect(keyed.enabled([subclass]), 'a subclass').to.eq(false);
-      const unkeyed = readingFrom(new TotpService(), (await boot(SCHEMAS, {})).child);
+      const unkeyed = readingFrom(new TotpService(), (await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} })).container);
       expect(unkeyed.enabled([step]), 'no key').to.eq(false);
     });
   });
