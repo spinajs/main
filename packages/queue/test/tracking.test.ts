@@ -6,7 +6,7 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { QueueJob, Job, QueueService, JobModel, QueueClient, IQueueMessage, QueueMessage, IJobFailureContext } from './../src/index.js';
 import '@spinajs/orm-sqlite';
-import { MigrationTransactionMode, OrmMigrator } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 
 chai.use(chaiAsPromised);
 
@@ -149,7 +149,7 @@ describe('queue tracking (producer generates JobId, consumer find-or-create)', f
     DI.register(TrackingConnectionConf).as(Configuration);
 
     await DI.resolve(Configuration);
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
   });
 
   afterEach(async () => {
@@ -330,7 +330,7 @@ describe('queue dedup OFF ( queue.deduplicate: false )', function () {
     DI.register(TrackingConnectionConf).as(Configuration);
 
     await DI.resolve(Configuration);
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
   });
 
   afterEach(async () => {

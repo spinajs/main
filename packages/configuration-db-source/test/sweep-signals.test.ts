@@ -8,7 +8,7 @@ import '@spinajs/log';
 
 import { DbConfigSourceBotstrapper } from './../src/index.js';
 
-const EVENTS = ['di.registered.__configuration_property__', 'di.resolved.Orm', 'di.resolved.OrmMigrator'];
+const EVENTS = ['di.registered.__configuration_property__', 'di.resolved.Orm'];
 
 /** The private members these tests drive: the sweep and its inputs. */
 interface Internals {
@@ -26,7 +26,7 @@ function wait(ms: number): Promise<void> {
 /** A container holding one exposed option and an Orm whose `configuration` table does not exist. */
 function containerWithoutTable(): IContainer {
   const orm = {
-    Connections: new Map([['default', { AwaitsStartupMigration: false, schema: () => ({ tableExists: async () => false }) }]]),
+    Connections: new Map([['default', { schema: () => ({ tableExists: async () => false }) }]]),
   };
   const vars = [{ path: 'swept', options: { expose: true, exposeOptions: { type: 'string', group: 'g' } } }];
 
@@ -54,12 +54,11 @@ describe('DbConfigSourceBotstrapper signals', function () {
     await DI.dispose();
   });
 
-  it('sweeps nothing for a migrator resolved with MigrateOnStartup: false; it created no table', () => {
-    DI.emit('di.resolved.OrmMigrator', DI.RootContainer, { MigrateOnStartup: false });
-    expect(swept).to.have.length(0);
-
+  it('does not sweep on di.resolved.OrmMigrator; the Orm resolves after its migrations', () => {
     DI.emit('di.resolved.OrmMigrator', DI.RootContainer, { MigrateOnStartup: true });
-    expect(swept).to.have.length(1);
+
+    expect(swept).to.have.length(0);
+    expect(DI.listenerCount('di.resolved.OrmMigrator')).to.equal(0);
   });
 
   it('removes the DI listeners it added once the container is disposed', async () => {

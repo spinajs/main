@@ -111,7 +111,7 @@ Register the class before `QueueService` resolves: an `import` of the file at st
 ```ts sample
 import { DateTime } from 'luxon';
 import { Constructor, DI, Injectable, NewInstance } from '@spinajs/di';
-import { Connection, CreatedAt, Json, Migration, Model, ModelBase, OrmDriver, OrmMigration, OrmMigrator, Primary } from '@spinajs/orm';
+import { Connection, CreatedAt, Json, Migration, Model, ModelBase, Orm, OrmDriver, OrmMigration, Primary } from '@spinajs/orm';
 import { IQueueMessage, Job, QueueClient, QueueJob, QueueMessage, QueueService } from '@spinajs/queue';
 
 @Migration('queue-db')
@@ -243,8 +243,8 @@ export class SendInvoiceEmail extends QueueJob {
 }
 
 export async function startInvoiceMailer(): Promise<void> {
-  // queue-db migrates on startup: model queries on it throw until the migrator resolved
-  await DI.resolve(OrmMigrator);
+  // applies the queue-db Migration.OnStartup migrations
+  await DI.resolve(Orm);
   const queue = await DI.resolve(QueueService);
 
   await queue.consume(SendInvoiceEmail);
@@ -324,6 +324,6 @@ public async emit(message: IQueueMessage): Promise<void> {
 
 - [Event transport schema](01-event-transport-schema.md): the inactive design this package ships in source.
 - [`@spinajs/queue`](../queue/README.md): `QueueClient`, `QueueService`, routing, jobs and events.
-- [Migrations](../orm/10-migrations.md): how the sample migration is discovered at `Orm.resolve()` and applied by `OrmMigrator`'s boot pass.
+- [Migrations](../orm/10-migrations.md): how the sample migration is discovered at `Orm.resolve()` and applied when the `Orm` resolves.
 - [Query builder](../orm/05-query-builder.md): `where()`, `whereNull()`, `orderBy()`, `take()` and update builders used by the poller.
 - [`@spinajs/queue-amqp-transport`](../queue-amqp-transport/README.md): a broker transport with the same `QueueClient` contract.

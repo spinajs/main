@@ -72,7 +72,7 @@ export async function bootStore(session: Record<string, unknown> = {}): Promise<
   sessionOverrides = session;
   await DI.resolve(Configuration);
   const orm = await DI.resolve(Orm);
-  await DI.resolve(OrmMigrator);
+  await (await DI.resolve(Orm)).Migrator.ready();
   const store = await DI.resolve(DbSessionStore);
   current = { orm, store };
   return store;

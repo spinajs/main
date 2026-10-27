@@ -150,7 +150,7 @@ describe('queue message hooks', function () {
     DI.register(OuterHook).as(QueueMessageHook);
     DI.register(InnerHook).as(QueueMessageHook);
     await DI.resolve(Configuration);
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
     // the transport instance outlives a test; start each one with an empty wire
     (await client()).Emitted.length = 0;
   });
@@ -286,7 +286,7 @@ describe('queue without message hooks', function () {
     trace.length = 0;
     DI.register(HookConf).as(Configuration);
     await DI.resolve(Configuration);
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
     // the transport instance outlives a test; start each one with an empty wire
     (await client()).Emitted.length = 0;
   });
@@ -344,7 +344,7 @@ describe('queue tracking hook', () => {
     DI.register(HookConf).as(Configuration);
     DI.register(TrackingHook).as(QueueTrackingHook);
     await DI.resolve(Configuration);
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
   });
 
   afterEach(() => {
@@ -383,7 +383,7 @@ describe('queue job owned by another initiator', () => {
     trace.length = 0;
     DI.register(HookConf).as(Configuration);
     await DI.resolve(Configuration);
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
   });
 
   const firstAttempt = async () => {

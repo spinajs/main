@@ -55,7 +55,7 @@ export class MailService {
 For this to work:
 
 1. A source that loads before this one (a config file) provides `db.Connections`.
-2. The `default` connection has `Migration: { OnStartup: true }` and the app resolves `OrmMigrator`, so the bundled migration creates the `configuration` table.
+2. The `default` connection has `Migration: { OnStartup: true }` and the app resolves the `Orm`, so the bundled migration creates the `configuration` table.
 3. Something in the app resolves `Orm`. Exposed options are written and watched only after that.
 
 ## Related packages

@@ -313,7 +313,7 @@ export async function startUsersHttpApp(opts: StartOptions = {}): Promise<UsersH
 
   opts.register?.();
   await DI.resolve(fsService);
-  await DI.resolve(OrmMigrator);
+  await (await DI.resolve(Orm)).Migrator.ready();
 
   const before = new Set(DI.getRegisteredTypes(BaseController) ?? []);
   for (const c of [...authnControllers, AccessController, UsersHttpProbeController] as Class<BaseController>[]) DI.register(c).as(BaseController);

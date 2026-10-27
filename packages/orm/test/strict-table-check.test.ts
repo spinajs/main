@@ -4,7 +4,7 @@ import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
 import '@spinajs/log';
-import { Connection, extractModelDescriptor, IColumnDescriptor, Model, ModelBase, Orm, ORM_CONFIGURATION_SCHEMA, OrmConfigurationBootstrapper, OrmException, OrmMigrator, Primary } from '../src/index.js';
+import { Connection, extractModelDescriptor, IColumnDescriptor, Model, ModelBase, Orm, ORM_CONFIGURATION_SCHEMA, OrmConfigurationBootstrapper, OrmException, Primary, resolveMigrationTool } from '../src/index.js';
 import { FakeSqliteDriver } from './misc.js';
 
 const expect = chai.expect;
@@ -125,7 +125,7 @@ describe('Orm strict table check (db.StrictTableCheck)', () => {
     ALL_TABLES.forEach((t) => TABLES.add(t));
 
     const orm = await DI.resolve(Orm);
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
 
     expect(orm.StrictTableCheck).to.equal(true);
     expect(extractModelDescriptor(models.StrictPresent)!.Driver).to.equal(orm.Connections.get(CONNECTION));
@@ -142,7 +142,7 @@ describe('Orm strict table check (db.StrictTableCheck)', () => {
   });
 
   it('the Orm of a migrator resolved with MigrateOnStartup: false boots before the tables exist', async () => {
-    await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+    await resolveMigrationTool();
     const orm = await DI.resolve(Orm);
 
     expect(await rejection(orm.reloadTableInfo({ strict: orm.StrictTableCheck }))).to.be.instanceOf(OrmException);

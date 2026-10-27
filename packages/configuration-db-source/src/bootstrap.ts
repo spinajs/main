@@ -10,7 +10,6 @@ import { DbConfigValueConverter } from './converter.js';
 import CONFIGURATION_SCHEMA from './schemas/configuration.db.source.schema.js';
 import { Configuration, IConfigEntryOptions, IConfigEntryOptions as IConfigEntryOptionsCommon } from '@spinajs/configuration-common';
 import { extractModelDescriptor, InsertBehaviour, Orm } from '@spinajs/orm';
-import type { OrmMigrator } from '@spinajs/orm';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { normalizeFileEntryOptions } from './file.js';
 import { asSystem } from './system.js';
@@ -69,8 +68,8 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
       void this.syncConfigOption(v);
     });
 
-    // A deployment migrated by the CLI resolves no migrator, so the Orm's resolve is the signal when the table is
-    // already there; otherwise the migrator creates it.
+    // The Orm resolves after its Migration.OnStartup migrations, so the table exists then unless the deployment has
+    // yet to migrate.
     this.listen('di.resolved.Orm', (container: unknown, orm: unknown) => {
       void (async () => {
         try {
@@ -81,15 +80,6 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
           InternalLogger.error({ error: err }, 'Failed to check the configuration table', LOG_CHANNEL);
         }
       })();
-    });
-
-    this.listen('di.resolved.OrmMigrator', (container: unknown, migrator: unknown) => {
-      // a migration tool's migrator ran no pass; when the table was already there, the Orm's resolve swept
-      if ((migrator as OrmMigrator).MigrateOnStartup === false) {
-        return;
-      }
-
-      this.syncExposedOptions(container as IContainer);
     });
 
     this.listen('di.dispose', () => this.unbind());
@@ -109,12 +99,11 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     this.listeners.push([event, listener]);
   }
 
-  /** False on a `Migration.OnStartup` connection until the migrator runs: its model queries throw until then. */
   private async tableExists(orm: Orm): Promise<boolean> {
     const descriptor = extractModelDescriptor(DbConfig)!;
     const driver = orm.Connections.get(descriptor.Connection!);
 
-    if (!driver || driver.AwaitsStartupMigration) {
+    if (!driver) {
       return false;
     }
 

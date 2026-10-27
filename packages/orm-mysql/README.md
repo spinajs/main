@@ -14,12 +14,12 @@ npm install @spinajs/orm @spinajs/orm-mysql
 
 ```ts
 import { DI } from '@spinajs/di';
-import { OrmMigrator } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 import { MySqlOrmDriver } from '@spinajs/orm-mysql';
 
 DI.register(MySqlOrmDriver).as('orm-driver-mysql');
-// Migration.OnStartup (below): OrmMigrator resolves the Orm, then applies the migrations
-await DI.resolve(OrmMigrator);
+// Migration.OnStartup (below): the Orm applies the migrations as it resolves
+await DI.resolve(Orm);
 ```
 
 ```ts

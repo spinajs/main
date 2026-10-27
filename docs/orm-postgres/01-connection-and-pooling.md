@@ -58,7 +58,7 @@ sequenceDiagram
 | `db.Connections[].Pool.AcquireTimeout` | `number` | `10000` | ms | Passed as `connectionTimeoutMillis`: how long a query waits for a client. |
 | `db.Connections[].PoolLimit` | `number` | | | Deprecated. Used as `Pool.Max` when `Pool.Max` is absent. |
 | `db.Connections[].Resilience.*` | object | see [Observability and resilience](../orm/13-observability-and-resilience.md#configuration) | | Health-check interval and retry backoff. |
-| `db.Connections[].Migration.*` | object | see [Connections](../orm/01-connections.md#configuration) | | Migrations in `OrmMigrator`'s boot pass (`OnStartup`), migration table and transaction mode. See [Migrations](../orm/10-migrations.md#configuration). |
+| `db.Connections[].Migration.*` | object | see [Connections](../orm/01-connections.md#configuration) | | Migrations applied when the `Orm` resolves (`OnStartup`), migration table and transaction mode. See [Migrations](../orm/10-migrations.md#configuration). |
 
 `pg` default: a key that is not set reaches `pg` as `undefined`, and `pg` falls back to its own default (the matching `PG*` environment variable, then its built-in value).
 

@@ -124,11 +124,11 @@ export class CmsLabelTranslationSource extends TranslationSource {
 - On a key present in a file and in the table for the same language, the file wins: the file sources are registered first, and `Intl` keeps phrases already loaded.
 - Two rows with the same `Key` and `Lang` cannot exist: the migration adds the unique index `intl_translations_idx`.
 - `intl_translations.Key` is `string(32)`. Longer phrase keys need your own migration that widens the column.
-- `load()` queries through the `IntlTranslation` model, so `Orm` must have opened the `default` connection before `Intl` resolves. When that connection has `Migration.OnStartup`, `OrmMigrator` must have resolved too: model queries on it throw until then.
+- `load()` queries through the `IntlTranslation` model, so `Orm` must have opened the `default` connection before `Intl` resolves.
 
 ## Best practices
 
-- Resolve `Orm` (or `OrmMigrator`, when the `default` connection has `Migration.OnStartup`) before `Intl` in your bootstrap.
+- Resolve `Orm` before `Intl` in your bootstrap.
 - Use short, stable keys (`cart.empty`) rather than full sentences as `Key`, given the 32-character column.
 - Keep a phrase in one place, file or table, to avoid the file silently winning.
 

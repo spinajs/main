@@ -1,5 +1,5 @@
 import { DI } from '@spinajs/di';
-import { MigrationTransactionMode, Orm, OrmMigrator } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 import { QueueService } from '@spinajs/queue';
 import '@spinajs/orm-sqlite';
 import '../../../src/index.js';
@@ -61,7 +61,7 @@ export async function startApp(o: IAppOptions): Promise<QueueService> {
   return retryConnect(async () => {
     try {
       await useConfig(appConfig(o));
-      await DI.resolve(OrmMigrator);
+      await (await DI.resolve(Orm)).Migrator.ready();
       return await DI.resolve(QueueService);
     } catch (err) {
       await DI.get(Orm)

@@ -216,7 +216,7 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
 
     const config = await DI.resolve(Configuration);
     await DI.resolve(fsService);
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
 
     s = await buildSuite();
     authnInChild = buildAuthnMiddlewareIn(s.child);

@@ -17,7 +17,7 @@
  */
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Orm, QueryContext, OrmMigrator } from '@spinajs/orm';
+import { Orm, QueryContext } from '@spinajs/orm';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import _ from 'lodash';
@@ -96,8 +96,8 @@ describe('MySQL save() integration', function () {
     DI.clearCache();
     DI.register(UowIntegrationConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
-    await DI.resolve(OrmMigrator);
-    await (await DI.resolve(OrmMigrator)).Runner.up();
+    await (await DI.resolve(Orm)).Migrator.ready();
+    await (await DI.resolve(Orm)).Migrator.Runner.up();
     await db().reloadTableInfo();
   });
 

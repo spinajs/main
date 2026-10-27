@@ -5,7 +5,7 @@
 ## How it works
 
 1. Importing `@spinajs/tasks` registers the `__task` and `__task_history` models (`@Model`) and the `Task_2024_12_03_11_41_00` migration (`@Migration('default')`).
-2. `OrmMigrator`'s boot pass (`DI.resolve(OrmMigrator)`) runs the migration on the connection named by `db.DefaultConnection` when that connection has `Migration.OnStartup: true`. Otherwise run it with the ORM CLI. `Orm.resolve()` alone applies nothing.
+2. `Orm.resolve()` (`DI.resolve(Orm)`) runs the migration on the connection named by `db.DefaultConnection` when that connection has `Migration.OnStartup: true`. Otherwise run it with the ORM CLI.
 3. The migration creates `__tasks` and `__task_history`.
 4. When the driver reports `supportedFeatures().events` (MySQL only), it also creates the database event `__task_delete_old_entries`, which deletes history rows older than 7 days once a day.
 5. At run time the `@Task()` wrapper reads and writes the rows; see [Task decorator](01-task-decorator.md#how-it-works).
@@ -49,7 +49,7 @@ The cutoff is computed by the engine on each run. The MySQL event scheduler must
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `db.DefaultConnection` | `string` | none | a connection `Name` | The connection stored as `default`; the models and the migration use it. See [Connections](../orm/01-connections.md#configuration). |
-| `db.Connections[].Migration.OnStartup` | `boolean` | `false` | | Runs pending migrations, including this one, in `OrmMigrator`'s boot pass. See [Migrations](../orm/10-migrations.md#configuration). |
+| `db.Connections[].Migration.OnStartup` | `boolean` | `false` | | Runs pending migrations, including this one, when the `Orm` resolves. See [Migrations](../orm/10-migrations.md#configuration). |
 
 ## Services and extension points
 

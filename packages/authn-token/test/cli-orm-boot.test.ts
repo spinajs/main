@@ -20,7 +20,7 @@ import { AccessToken } from '../src/models/AccessToken.js';
 class OrmBootIdentityStore extends FakeIdentityStore {}
 
 // v3/cli.test.ts resolves the Orm itself; the cli does not, so this one must not. The connection has
-// Migration.OnStartup on, so a model query throws until the command's OrmMigrator ran the boot pass.
+// Migration.OnStartup on: the command's Orm applies the migrations before its first model query.
 describe('token cli commands boot the Orm', function () {
   this.timeout(15000);
 

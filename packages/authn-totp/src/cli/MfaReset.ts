@@ -1,6 +1,6 @@
 import { Autoinject } from '@spinajs/di';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
-import { OrmMigrator } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 import { Log, Logger } from '@spinajs/log';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { CLI_ACTOR, IdentityStore, cliContext } from '@spinajs/authn/contracts';
@@ -10,9 +10,15 @@ import { TotpService } from '../service/totp-service.js';
 @Command('authn:mfa-reset', 'Removes the MFA enrolment and recovery codes of an account; prints no secret')
 @Argument('login', true, 'login or email')
 export class MfaReset extends CliCommand {
-  // Boots the ORM and its Migration.OnStartup pass before the command runs; the identity store needs both.
-  @Autoinject(OrmMigrator)
-  protected Migrator: OrmMigrator;
+  // Boots the ORM, which applies its Migration.OnStartup migrations, before the command runs; the identity store needs it.
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
+  /** Waits for the Orm's `data()` seeds too: an app process serves only after them. */
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    await this.Orm.Migrator.ready();
+  }
 
   @Logger('authn-totp')
   protected Log: Log;

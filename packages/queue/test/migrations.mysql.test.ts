@@ -3,7 +3,7 @@ import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
-import { MigrationTransactionMode, Orm, OrmDriver, QueryContext, OrmMigrator } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm, OrmDriver, QueryContext } from '@spinajs/orm';
 import '@spinajs/orm-mysql';
 // registers the log targets ( incl. BlackHoleTarget ) referenced by the logger config below;
 // importing the migration files directly ( rather than the queue barrel ) does not pull it in
@@ -134,7 +134,7 @@ suite('queue migrations against MySQL (dialect regression: Status default across
 
     // the actual exercise: every queue migration ( incl. the MySQL-only MODIFY / ENUM branches )
     // must apply without a dialect error. This line alone catches the enum / MODIFY regressions.
-    await (await DI.resolve(OrmMigrator)).Runner.up();
+    await (await DI.resolve(Orm)).Migrator.Runner.up();
   });
 
   after(async () => {

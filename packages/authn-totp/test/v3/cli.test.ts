@@ -5,7 +5,7 @@ import type { ICommand } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
-import { OrmMigrator } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 import { DbAuthnAuditSink, DbAuthnThrottle } from '@spinajs/authn-orm';
 import { AuthnEventSink, AuthnService, AuthnThrottle, CLI_ACTOR, IdentityStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnEvent, IdentityRef } from '@spinajs/authn/contracts';
@@ -163,7 +163,9 @@ describe('v3 cli: authn:mfa-reset', () => {
       }
     }
     /** MfaReset autoinjects the migrator; the reset never touches it. */
-    class KitMigrator {}
+    class KitOrm {
+      public Migrator = { ready: async () => undefined };
+    }
 
     before(async () => {
       DI.clearCache();
@@ -173,7 +175,7 @@ describe('v3 cli: authn:mfa-reset', () => {
       DI.register(KitSink).as(AuthnEventSink);
       DI.register(KitIdentities).as(IdentityStore);
       DI.register(KitTotp).as(TotpService);
-      DI.register(KitMigrator).as(OrmMigrator);
+      DI.register(KitOrm).as(Orm);
       // DI.clearCache() dropped the schema registered at import; AuthnAudit reads authn.audit when MfaReset resolves.
       DI.register(AUTHN_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
       await DI.resolve(Configuration);
@@ -183,7 +185,7 @@ describe('v3 cli: authn:mfa-reset', () => {
       DI.unregister(KitSink);
       DI.unregister(KitIdentities);
       DI.unregister(KitTotp);
-      DI.unregister(KitMigrator);
+      DI.unregister(KitOrm);
       DI.register(DbAuthnAuditSink).as(AuthnEventSink);
       DI.register(DbAuthnThrottle).as(AuthnThrottle);
       DI.clearCache();
@@ -235,13 +237,15 @@ describe('v3 support', () => {
   });
 
   it('MfaReset does not resolve without a registered IdentityStore', async () => {
-    class KitMigrator {}
-    DI.register(KitMigrator).as(OrmMigrator);
+    class KitOrm {
+      public Migrator = { ready: async () => undefined };
+    }
+    DI.register(KitOrm).as(Orm);
     try {
       assert.strictEqual(DI.hasImplementation(IdentityStore), false);
       await assert.rejects(Promise.resolve(DI.resolve(MfaReset)), /Type IdentityStore is not registered/);
     } finally {
-      DI.unregister(KitMigrator);
+      DI.unregister(KitOrm);
     }
   });
 });

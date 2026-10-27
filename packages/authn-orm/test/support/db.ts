@@ -166,7 +166,7 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
 
   try {
     await container.resolve(Configuration);
-    migrator = await container.resolve(OrmMigrator);
+    migrator = (await container.resolve(Orm)).Migrator;
     orm = await container.resolve(Orm);
   } catch (err) {
     if (database) {

@@ -62,8 +62,7 @@ import { Scheduler } from '@spinajs/scheduler';
 await DI.resolve(Scheduler); // validates every schedule, syncs them, starts the loop
 ```
 
-Resolve it after the ORM, or after `OrmMigrator` when the scheduler's connection has
-`Migration.OnStartup`: model queries there throw until the migrator resolved. Boot
+Resolve it after the ORM. Boot
 fails with `ScheduleValidationError` listing every invalid schedule (bad cron,
 unknown time zone, unknown task, duplicate name, name over 128 characters, invalid
 `params` schema, `emit` with `runOn: 'all'`).
@@ -219,7 +218,7 @@ Config form only; the definition shows the task as `Task:<name>`.
 | `scheduler:errors [<name>] [--status <s>]`, `scheduler:errors:resolve <fingerprint> [--status <s>]` | grouped errors |
 | `scheduler:prune` | schedules a loop replica orphaned, and runs, logs and errors past retention |
 
-- Every command resolves `OrmMigrator` before `SchedulerService`, so it boots the ORM and runs the `Migration.OnStartup` boot pass, as an app process does.
+- Every command resolves the `Orm` before `SchedulerService`, so it boots the ORM and applies the `Migration.OnStartup` migrations, as an app process does.
 - Every command accepts `--json`. Exit codes: `0` ok, `1` run did not succeed (with `--wait`/`--local`) or unexpected error, `2` invalid parameters (also a bad `--limit` or an unknown `--status`), `3` conflict or invalid state, `4` not found.
 - `--follow` reads the HTTP live stream of `@spinajs/scheduler-http` when `scheduler.cli.http.baseUrl` (and `headers`) is set, otherwise it subscribes in-process. With `--json` it prints one event per line, then the result. It reconnects with `Last-Event-ID`, retries a refused connection or a 502/503/504 for up to 60 s, and gives up after 5 streams in a row without an event.
 - `--local` claims and executes the run in the CLI process (implies `--wait`; follows in-process). Automatic retries run in the same process once due by database time; a retry another replica claims is followed. A `--local` run of an emit schedule stops at `emitted` (exit 1): the CLI does not mirror queue jobs. `--local` replaces a system-cron `npx spinajs scheduler:run` when no replica runs the loop.

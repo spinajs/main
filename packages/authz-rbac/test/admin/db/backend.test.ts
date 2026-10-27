@@ -72,7 +72,7 @@ describe('DbAuthzAdminBackend on SQLite', function () {
     config().set('logger', { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
     config().set('db', DB);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
     orm = (await DI.resolve(Orm)) as Orm;
     db = orm.Connections.get('default')!;
     // The authz-rbac migration creates authz_version when it runs at boot; create it only when it did not.

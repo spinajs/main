@@ -12,7 +12,7 @@ spinajs migrate-down --fake                                     # drop the track
 
 ## How it works
 
-1. `MigrateDownCommand.execute(options)` calls [`resolveCliMigrator()`](06-cli-orm.md). Without it, a boot pass would apply pending migrations and this command would then roll back the batch it had just created.
+1. `MigrateDownCommand.execute(options)` calls [`resolveCliMigrator()`](06-cli-orm.md). Without it, the `Orm`'s resolve would apply pending migrations and this command would then roll back the batch it had just created.
 2. `MigrateDownCommand.announce(options)` logs the scope before anything changes:
    - `--connection`: `Limited to connection <name> - no other configured connection is touched`, always first;
    - `--name`: a `warn` that the migration service may report other rows as having no registered class, and that those rows are fine (see [Important behaviour](#important-behaviour));
