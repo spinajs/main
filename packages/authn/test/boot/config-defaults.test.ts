@@ -70,14 +70,14 @@ describe('authn shipped config', () => {
     expect(authn.login).to.deep.eq(check({}).config.login);
     expect(authn.login).to.deep.eq({ requireVerifiedAddress: false });
     expect(authn.mfa.policy).to.deep.eq({ service: 'DefaultMfaPolicy', force: false, forceForRoles: [] });
-    expect(check({}).config.mfa.policy.methods).to.deep.eq(['password']);
+    expect((check({}).config.mfa as Json).policy).to.deep.include({ methods: ['password'] });
     expect(authn).to.not.have.property('config');
   });
 
   it('passes the schema unchanged', () => {
     const r = check(authn);
     expect(r.paths).to.deep.eq([]);
-    expect(r.config).to.deep.eq({ ...clone(authn), mfa: { ...clone(authn.mfa), policy: { ...clone(authn.mfa.policy), methods: ['password'] }, steps: [] }, throttle: { ...clone(authn.throttle), maxRows: DEFAULT_THROTTLE_MAX_ROWS }, token: check({}).config.token, keys: check({}).config.keys, http: {}, session: { expiration: { maxLifetime: 480 } } });
+    expect(r.config).to.deep.eq({ ...clone(authn), mfa: { ...clone(authn.mfa), policy: { ...clone((authn.mfa as Json).policy as Json), methods: ['password'] }, steps: [] }, throttle: { ...clone(authn.throttle), maxRows: DEFAULT_THROTTLE_MAX_ROWS }, token: check({}).config.token, keys: check({}).config.keys, http: {}, session: { expiration: { maxLifetime: 480 } } });
   });
 });
 

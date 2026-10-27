@@ -20,7 +20,7 @@ describe('the @spinajs/authn/boot entry', () => {
     expect(root).to.have.property('AuthnConfigBootstrapper');
   });
 
-  it('is a package subpath, ESM and CommonJS', () => {
+  it('is a package subpath', () => {
     const exports = (JSON.parse(readFileSync(PACKAGE_JSON, 'utf8')) as { exports: Record<string, Record<string, string>> }).exports;
     expect(exports['./boot']).to.deep.eq({ types: './lib/service/boot/index.d.ts', import: './lib/service/boot/index.js' });
   });

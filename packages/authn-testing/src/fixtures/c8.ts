@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { JwsErrorCode } from '@spinajs/authn/contracts';
 
 export type C8ErrorCode = JwsErrorCode;
@@ -73,9 +73,9 @@ function readVerified(dir: string, file: keyof typeof C8_SOURCE.files): string {
   return bytes.toString('utf8');
 }
 
-/** Without `dir`, the package's own `fixtures/c8/`, found by package name from the cwd (neither import.meta nor __dirname works in both builds). */
+/** Without `dir`, the package's own `fixtures/c8/`. */
 export function loadC8Fixtures(dir?: string): { keys: C8KeysFile; tickets: C8TicketsFile } {
-  const root = dir ?? dirname(createRequire(`${process.cwd()}/`).resolve('@spinajs/authn-testing/fixtures/c8/keys.json'));
+  const root = dir ?? fileURLToPath(new URL('../../fixtures/c8/', import.meta.url));
   return {
     keys: JSON.parse(readVerified(root, 'keys.json')) as C8KeysFile,
     tickets: JSON.parse(readVerified(root, 'tickets.json')) as C8TicketsFile,
