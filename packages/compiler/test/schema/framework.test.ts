@@ -1,5 +1,6 @@
 import { expect } from 'chai';
-import { extract, extractModelsOf, published, registered, registeredIds } from './framework-harness.js';
+import ts from 'typescript';
+import { aliasProperties, extract, extractModelsOf, published, registered, registeredIds } from './framework-harness.js';
 
 describe('schema derivation: injected route params', () => {
   const { controller, diagnostics } = extract('injected');
@@ -175,5 +176,79 @@ describe('schema derivation: types derived from the real @spinajs/users User', (
     for (const hidden of ['Password', 'PasswordSetAt', 'IDriverOptions']) expect(all, hidden).not.to.include(hidden);
     expect(registered('IUserView')).to.deep.equal({ $id: 'spinajs/fw/IUserView', type: 'object' });
     expect(diagnostics.filter((d) => d.severity !== 'info')).to.deep.equal([]);
+  });
+});
+
+/** TS-internal links of a mapped property (`MappedSymbolLinks`) that the derivation reads when present. */
+type MappedLinks = { links?: { syntheticOrigin?: ts.Symbol; mappedType?: { declaration?: ts.Node } } };
+
+describe('schema derivation: key-remapped and hand-mapped model members', () => {
+  for (const property of aliasProperties('remapped', 'RenamedAuthorUnlinked')) delete (property as MappedLinks).links?.syntheticOrigin;
+  const { controller, diagnostics } = extract('remapped');
+  const route = (handler: string) => controller.routes.find((r) => r.handler === handler)!;
+  const bare = (id: string): unknown => {
+    const { $id: _id, ...schema } = registered(id.replace('spinajs/fw/', '')) as Record<string, unknown>;
+    return schema;
+  };
+  const returned = (handler: string): unknown => bare(route(handler).returnType.schema!);
+  const books = { type: 'array', items: { $ref: 'spinajs/fw/Book' } };
+  const renamed = (prefix: string, name: (key: string) => string = (key) => `${prefix}${key}`) => ({
+    type: 'object',
+    properties: { [name('Id')]: { type: 'number' }, [name('Name')]: { type: 'string' }, [name('Books')]: books },
+    required: [name('Id'), name('Name')],
+    additionalProperties: false,
+  });
+
+  it('keeps TS linking a remapped property to the member it maps (a TS upgrade that drops it must fail here)', () => {
+    const password = aliasProperties('remapped', 'RenamedAuthor').find((p) => p.name === 'getPassword')! as ts.Symbol & MappedLinks;
+    const origin = password.links?.syntheticOrigin?.valueDeclaration;
+    expect(origin && ts.isPropertyDeclaration(origin) && origin.name.getText()).to.equal('Password');
+    expect(origin && ts.isClassDeclaration(origin.parent) && origin.parent.name?.text).to.equal('Author');
+    expect(password.declarations).to.equal(undefined);
+    const mapped = password.links?.mappedType?.declaration;
+    expect(mapped && ts.isMappedTypeNode(mapped)).to.equal(true);
+  });
+  it('follows the original member of an as-remapped key: hidden and ModelBase members are left out', () => {
+    expect(returned('author')).to.deep.equal(renamed('get'));
+    expect(returned('generic')).to.deep.equal(renamed('x_'));
+    expect(returned('upper')).to.deep.equal(renamed('', (key) => key.toUpperCase()));
+    expect(returned('conditional')).to.deep.equal(renamed('api_'));
+    expect(bare(route('body').params[0].runtimeType.schema!)).to.deep.equal(renamed('x_'));
+    expect(bare(route('listing').returnType.schema!)).to.deep.include({ properties: { items: { type: 'array', items: renamed('get') }, total: { type: 'number' } } });
+    const { properties: viewProperties, required } = registered('IRenamedView') as { properties: object; required: string[] };
+    expect(viewProperties).to.deep.equal({ Shown: { type: 'boolean' }, ...renamed('get').properties });
+    expect(required).to.deep.equal(['Shown', 'getId', 'getName']);
+  });
+  it('derives an object open when a key-dependent value cannot be traced to its member', () => {
+    expect(returned('unlinked'), 'remapped without TS origin links').to.deep.equal({ type: 'object' });
+    expect(returned('inline'), 'literal key union over a model').to.deep.equal({ type: 'object' });
+    expect(returned('shelfInline'), 'literal key union over a declaration-file model').to.deep.equal({ type: 'object' });
+  });
+  it('derives a remapped declaration-file model open', () => {
+    expect(returned('shelf')).to.deep.equal({ type: 'object' });
+    expect(returned('user')).to.deep.equal({ type: 'object' });
+  });
+  it('keeps typed mapped shapes whose members are not a model', () => {
+    expect(returned('body')).to.deep.equal({
+      type: 'object',
+      properties: { x_X: { type: 'number' }, x_Y: { type: 'string' } },
+      required: ['x_X'],
+      additionalProperties: false,
+    });
+    expect(returned('labels')).to.deep.equal({ type: 'object', properties: { en: { type: 'string' }, pl: { type: 'string' } }, required: ['en', 'pl'], additionalProperties: false });
+  });
+  it('publishes no hidden column, ModelBase internal or driver option under any name', () => {
+    const all = published();
+    for (const hidden of ['Password', 'PasswordSetAt', 'Token', 'IDriverOptions', 'ModelDescriptor', 'Container', 'PrimaryKey']) expect(all, hidden).not.to.include(hidden);
+  });
+  it('reports each open object as SCH001 info naming the type, and no warning', () => {
+    expect(diagnostics.filter((d) => d.severity !== 'info'), JSON.stringify(diagnostics)).to.deep.equal([]);
+    const messages = diagnostics.map((d) => d.message);
+    for (const name of ['RenamedAuthorUnlinked', 'InlineKeys', 'InlineShelfKeys']) {
+      expect(messages.some((m) => m.startsWith(`${name} maps `) && m.includes('@Hidden')), `${name}: ${JSON.stringify(messages)}`).to.equal(true);
+    }
+    expect(messages.some((m) => /^Renamed<Shelf> has members of model Shelf/.test(m)), JSON.stringify(messages)).to.equal(true);
+    expect(messages.some((m) => /^{ api_Id: number; .* has members of model UserBase/.test(m)), JSON.stringify(messages)).to.equal(true);
+    expect(diagnostics).to.have.length(5);
   });
 });

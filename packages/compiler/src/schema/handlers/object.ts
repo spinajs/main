@@ -1,6 +1,7 @@
 import ts from 'typescript';
 import { modelOrigin, type ModelMember, type ModelOrigin } from '../../model-members.js';
 import { deriveType, diagnose, type DeriveContext, type JsonSchema, type TypeHandler } from '../derive.js';
+import { UNTRACEABLE, valueDeclaration } from '../mapped-origin.js';
 import { opaqueModel, relationSchema } from './model.js';
 
 type PropertyConstraints = (ctx: DeriveContext, symbol: ts.Symbol, declaration: ts.Node | undefined) => JsonSchema;
@@ -40,12 +41,16 @@ interface DataProperty {
 
 type OpaqueOrigin = Extract<ModelOrigin, { kind: 'opaque' }>;
 
-/** Own public data properties of the type, with the framework-excluded and callable ones removed; members declared by a model follow `modelOrigin`. */
-function dataProperties(ctx: DeriveContext, type: ts.Type): { properties: DataProperty[]; opaque?: OpaqueOrigin } {
+/**
+ * Own public data properties of the type, with the framework-excluded and callable ones removed; members declared by a model,
+ * also under a remapped key, follow `modelOrigin`.
+ */
+function dataProperties(ctx: DeriveContext, type: ts.Type): { properties: DataProperty[]; opaque?: OpaqueOrigin; untraceable?: true } {
   const properties: DataProperty[] = [];
   for (const property of ctx.checker.getPropertiesOfType(type)) {
     if (property.flags & (ts.SymbolFlags.Method | ts.SymbolFlags.Signature)) continue;
-    const declaration = property.valueDeclaration ?? property.declarations?.[0];
+    const declaration = valueDeclaration(property, type);
+    if (declaration === UNTRACEABLE) return { properties: [], untraceable: true };
     if (declaration && (!isPublicMember(declaration) || ctx.options.excludeMembersOf?.(declaration))) continue;
     const origin: ModelOrigin = declaration ? modelOrigin(ctx.checker, declaration) : { kind: 'none' };
     if (origin.kind === 'opaque') return { properties: [], opaque: origin };
@@ -62,12 +67,19 @@ function additionalProperties(ctx: DeriveContext, type: ts.Type): JsonSchema | f
   return indexSchema(ctx, index.type);
 }
 
+function untraceableMapping(ctx: DeriveContext, type: ts.Type): JsonSchema {
+  const subject = ctx.checker.typeToString(type);
+  diagnose(ctx, 'SCH001', 'info', `${subject} maps members of another type that cannot be traced to their declarations, so @Hidden columns are invisible; emitted as an open object`);
+  return { type: 'object' };
+}
+
 export const objectType: TypeHandler = (ctx, type) => {
   if (!(type.flags & ts.TypeFlags.Object)) return undefined;
   if (isCallable(ctx.checker, type)) return undefined;
 
-  const { properties: members, opaque } = dataProperties(ctx, type);
+  const { properties: members, opaque, untraceable } = dataProperties(ctx, type);
   if (opaque) return opaqueModel(ctx, opaque.model, opaque.declarationFile, ctx.checker.typeToString(type));
+  if (untraceable) return untraceableMapping(ctx, type);
   const properties: Record<string, JsonSchema> = {};
   const required: string[] = [];
   for (const { property, declaration, type: propertyType, member } of members) {

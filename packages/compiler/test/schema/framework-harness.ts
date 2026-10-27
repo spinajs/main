@@ -1,4 +1,5 @@
 import type { ControllerEntry, Diagnostic, ModelEntry } from '@spinajs/manifest';
+import ts from 'typescript';
 import { createContext, createProgramFromTsconfig, extractControllers, extractModels, type ExtractorContext } from '../../src/index.js';
 
 let shared: { loaded: ReturnType<typeof createProgramFromTsconfig>; ctx: ExtractorContext } | undefined;
@@ -30,3 +31,11 @@ export const registered = (name: string): unknown => context().ctx.schemaRegistr
 export const registeredIds = (): string[] => [...context().ctx.schemaRegistry.keys()];
 /** Every registered schema, serialized, for assertions about what is published anywhere. */
 export const published = (): string => JSON.stringify([...context().ctx.schemaRegistry.values()]);
+
+/** The properties of the type alias `alias` declared in `src/<name>.ts`, as the checker resolves them for derivation. */
+export function aliasProperties(name: string, alias: string): ts.Symbol[] {
+  const { loaded } = context();
+  const file = loaded.sourceFiles.find((f) => f.fileName.endsWith(`/${name}.ts`))!;
+  const declaration = file.statements.find((s): s is ts.TypeAliasDeclaration => ts.isTypeAliasDeclaration(s) && s.name.text === alias)!;
+  return loaded.checker.getPropertiesOfType(loaded.checker.getTypeAtLocation(declaration.name));
+}
