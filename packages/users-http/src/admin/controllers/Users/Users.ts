@@ -111,7 +111,7 @@ export class CreateUserDto {
   public Email: string;
   public Role: string | string[];
 
-  public Metadata?: { [key: string]: any };
+  public Metadata?: { [key: string]: unknown };
 
   constructor(data: Partial<CreateUserDto>) {
     Object.assign(this, data);
