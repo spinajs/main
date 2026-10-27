@@ -75,9 +75,15 @@ export function rewritePackageJson(pkg, { engines } = {}) {
   return out;
 }
 
-export function rewriteTsconfig(json) {
-  const out = { ...json, compilerOptions: { ...json.compilerOptions } };
-  if (out.compilerOptions.outDir) out.compilerOptions.outDir = out.compilerOptions.outDir.replace(/lib\/mjs\/?$/, 'lib');
+// A build config's rootDir is ./src, so tsc would put its build info beside the tsconfig, where `clean` (rimraf lib/)
+// leaves it behind and the next `tsc -b` skips a package whose lib/ is gone.
+export function rewriteTsconfig(json, kind) {
+  const compilerOptions = {};
+  for (const [key, value] of Object.entries(json.compilerOptions ?? {})) {
+    compilerOptions[key] = key === 'outDir' ? value.replace(/lib\/mjs\/?$/, 'lib') : value;
+    if (key === 'outDir' && kind === 'build') compilerOptions.tsBuildInfoFile = './lib/tsconfig.build.tsbuildinfo';
+  }
+  const out = { ...json, compilerOptions };
   if (out.references) out.references = out.references.map((r) => ({ path: r.path.replace(/tsconfig\.mjs\.json$/, 'tsconfig.build.json') }));
   return out;
 }
@@ -122,7 +128,7 @@ function applyTsconfigs(dryRun) {
     const cjs = join(dir, 'tsconfig.cjs.json');
     const test = join(dir, 'tsconfig.json');
     if (existsSync(mjs)) {
-      writeJson(join(dir, 'tsconfig.build.json'), rewriteTsconfig(readJson(mjs)), dryRun);
+      writeJson(join(dir, 'tsconfig.build.json'), rewriteTsconfig(readJson(mjs), 'build'), dryRun);
       if (!dryRun) rmSync(mjs);
     }
     if (existsSync(cjs) && !dryRun) rmSync(cjs);

@@ -56,10 +56,10 @@ test('rewriteScriptsField: authn-http style pretest drops the cjs tsc call', () 
   assert.deepEqual(rewriteScriptsField({ pretest: 'node ../../node_modules/typescript-7/lib/tsc.js -b tsconfig.mjs.json' }), { pretest: 'node ../../node_modules/typescript-7/lib/tsc.js -b tsconfig.build.json' });
 });
 
-test('rewriteTsconfig: build config', () => {
+test('rewriteTsconfig: build config; its build info moves under lib/ so `clean` removes it with the output', () => {
   assert.deepEqual(
     rewriteTsconfig({ extends: '../../tsconfig.json', compilerOptions: { rootDir: './src', outDir: './lib/mjs', module: 'node16', moduleResolution: 'node16', paths: { '@spinajs': ['../'] } }, references: [{ path: '../util/tsconfig.mjs.json' }], include: ['src/**/*'] }, 'build'),
-    { extends: '../../tsconfig.json', compilerOptions: { rootDir: './src', outDir: './lib', module: 'node16', moduleResolution: 'node16', paths: { '@spinajs': ['../'] } }, references: [{ path: '../util/tsconfig.build.json' }], include: ['src/**/*'] },
+    { extends: '../../tsconfig.json', compilerOptions: { rootDir: './src', outDir: './lib', tsBuildInfoFile: './lib/tsconfig.build.tsbuildinfo', module: 'node16', moduleResolution: 'node16', paths: { '@spinajs': ['../'] } }, references: [{ path: '../util/tsconfig.build.json' }], include: ['src/**/*'] },
   );
 });
 
