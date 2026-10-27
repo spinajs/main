@@ -140,3 +140,7 @@ export type TSuffix = `${string}.json`;
 export type TInfix = `a${string}b${string}c`;
 export type TNumber = `v${number}`;
 export type TUpper = Uppercase<string>;
+
+// --- recursive aliases
+export type RFilter = { op: 'not'; arg: RFilter } | { op: 'and'; args: readonly RFilter[] } | { op: 'leaf'; field: string };
+export interface RHolder { filter: RFilter; again: RFilter }
