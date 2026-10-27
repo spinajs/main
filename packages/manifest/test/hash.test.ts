@@ -35,3 +35,10 @@ describe('canonicalize / hashManifest', () => {
     expect(hashManifest(minimal)).to.match(/^[0-9a-f]{64}$/);
   });
 });
+
+describe('hashManifest machine independence', () => {
+  it('ignores the absolute app root', () => {
+    const other = { ...minimal, app: { ...minimal.app, root: '/somewhere/else' } };
+    expect(hashManifest(other)).to.equal(hashManifest(minimal));
+  });
+});
