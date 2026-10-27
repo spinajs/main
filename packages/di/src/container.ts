@@ -17,12 +17,13 @@ import { ServiceNotFound } from './exceptions.js';
 const MAX_RESTORE_GENERATIONS = 5;
 
 // Kept beside the snapshot so ContainerSnapshot keeps the shape of the public contract.
-const snapshotMaps = new WeakMap<ContainerSnapshot, ValueMapContents>();
+const snapshotExtras = new WeakMap<ContainerSnapshot, { maps: ValueMapContents; children: ReadonlySet<IContainer> }>();
 
 type Disposable = IContainer | Service;
 
 interface RestoreRun {
   snapshot: ContainerSnapshot;
+  keptChildren: ReadonlySet<IContainer>;
   /** Everything already queued, disposed or dropped, so no rescan hands it out again. */
   claimed: Set<Disposable>;
   errors: Error[];
@@ -185,12 +186,13 @@ export class Container extends EventEmitter implements IContainer {
     }
 
     const snapshot: ContainerSnapshot = { registry, values, cache: this.cache.snapshotState(), listeners };
-    snapshotMaps.set(snapshot, maps);
+    snapshotExtras.set(snapshot, { maps, children: new Set(this.children) });
     return snapshot;
   }
 
   public async restore(snapshot: ContainerSnapshot): Promise<void> {
-    const run: RestoreRun = { snapshot, claimed: new Set(), errors: [] };
+    const extras = snapshotExtras.get(snapshot);
+    const run: RestoreRun = { snapshot, keptChildren: extras?.children ?? new Set(), claimed: new Set(), errors: [] };
 
     // Disposal runs while the state the services were created in is still live, so a dispose() can read its config and injections.
     for (let round = 0; ; round++) {
@@ -205,16 +207,16 @@ export class Container extends EventEmitter implements IContainer {
       }
     }
 
-    this.swapBack(snapshot);
+    this.swapBack(snapshot, run.keptChildren);
 
     if (run.errors.length > 0) {
       console.warn(`${run.errors.length} services failed to dispose properly during restore:`, run.errors);
     }
   }
 
-  /** Children and Services cached since the snapshot that are not claimed yet, children first, then latest cached first. */
+  /** Children created and Services cached since the snapshot that are not claimed yet, children first, then latest cached first. */
   private claimUndisposed(run: RestoreRun): Disposable[] {
-    const children = [...this.children].filter((child) => !run.claimed.has(child));
+    const children = [...this.children].filter((child) => !run.keptChildren.has(child) && !run.claimed.has(child));
     const services = this.cache.droppedSince(run.snapshot.cache).filter((instance): instance is Service => instance instanceof Service && !run.claimed.has(instance));
     const generation = [...children, ...services];
     generation.forEach((item) => run.claimed.add(item));
@@ -250,10 +252,14 @@ export class Container extends EventEmitter implements IContainer {
   }
 
   /** One synchronous step, so the container is never seen half-restored. */
-  private swapBack(snapshot: ContainerSnapshot): void {
-    this.children.clear();
+  private swapBack(snapshot: ContainerSnapshot, keptChildren: ReadonlySet<IContainer>): void {
+    for (const child of this.children) {
+      if (!keptChildren.has(child)) {
+        this.children.delete(child);
+      }
+    }
     this.cache.restoreState(snapshot.cache);
-    this.registry.restoreState(snapshot.registry, snapshot.values, snapshotMaps.get(snapshot));
+    this.registry.restoreState(snapshot.registry, snapshot.values, snapshotExtras.get(snapshot)?.maps);
     this.restoreListeners(snapshot.listeners);
   }
 
