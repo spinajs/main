@@ -64,6 +64,24 @@ describe('schema derivation: ORM models', () => {
       additionalProperties: false,
     });
   });
+  it('derives the dehydrated data of a model as the model', () => {
+    const route = controller.routes.find((r) => r.handler === 'dehydrated')!;
+    expect(registered('AuthorsController_dehydrated_Response')).to.deep.equal({
+      $id: 'spinajs/fw/AuthorsController_dehydrated_Response',
+      type: 'array',
+      items: { $ref: 'spinajs/fw/Author' },
+    });
+    expect(route.returnType.schema).to.equal('spinajs/fw/AuthorsController_dehydrated_Response');
+  });
+  it('recognizes relations by type in a model from a declaration file', () => {
+    expect(registered('Shelf')).to.deep.equal({
+      $id: 'spinajs/fw/Shelf',
+      type: 'object',
+      properties: { Id: { type: 'number' }, Books: { type: 'array', items: { $ref: 'spinajs/fw/Book' } } },
+      required: ['Id'],
+      additionalProperties: false,
+    });
+  });
   it('does not walk into ModelBase internals', () => {
     expect(diagnostics).to.deep.equal([]);
   });

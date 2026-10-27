@@ -5,9 +5,9 @@ import { extendsFrameworkClass, isDeclaredIn } from '../framework-members.js';
 import { includesUndefined, isCallable, isPublicMember, propertyConstraints } from './object.js';
 
 const ORM = '@spinajs/orm';
-const SINGLE_RELATIONS = new Set(['BelongsTo', 'ForwardBelongsTo']);
-const MANY_RELATIONS = new Set(['HasMany', 'HasManyToMany']);
-// Computed members and `@Hidden` columns never appear in a dehydrated model.
+const MODEL_DATA = new Set(['ModelData', 'ModelDataWithRelationData', 'ModelDataWithRelationDataSearchable']);
+// Computed members and `@Hidden` columns never appear in a dehydrated model. Declaration files drop decorators, so
+// this only applies to models whose source is in the program.
 const NOT_SERIALIZED = new Set(['Virtual', 'Query', 'Historical', 'Hidden']);
 
 interface Column {
@@ -15,18 +15,25 @@ interface Column {
   required: boolean;
 }
 
+const isModel = (checker: ts.TypeChecker, type: ts.Type): boolean => !!(type.flags & ts.TypeFlags.Object) && extendsFrameworkClass(checker, type, 'ModelBase', ORM);
+
 /** ModelBase's own getters (Container, ModelDescriptor, ...) are ORM plumbing; columns start at its subclasses. */
 function isModelBaseMember(declaration: ts.Declaration): boolean {
   const owner = declaration.parent;
   return ts.isClassLike(owner) && owner.name?.text === 'ModelBase' && isDeclaredIn(declaration, ORM);
 }
 
-/** `SingleRelation<T>`, `Relation<T, O>` and their subclasses carry the related model as the first type argument. */
-function relationSchema(ctx: DeriveContext, type: ts.Type, many: boolean): JsonSchema {
+function firstTypeArgument(checker: ts.TypeChecker, type: ts.Type): ts.Type | undefined {
   const isReference = type.flags & ts.TypeFlags.Object && (type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference;
-  const [target] = isReference ? ctx.checker.getTypeArguments(type as ts.TypeReference) : [];
-  if (!target) return deriveType(ctx, type);
-  const schema = deriveType(ctx, target);
+  return isReference ? checker.getTypeArguments(type as ts.TypeReference)[0] : undefined;
+}
+
+/** Recognized by type, not by decorator, so models read from declaration files keep their relations. */
+function relationSchema(ctx: DeriveContext, type: ts.Type): JsonSchema | undefined {
+  const many = extendsFrameworkClass(ctx.checker, type, 'Relation', ORM);
+  if (!many && !extendsFrameworkClass(ctx.checker, type, 'SingleRelation', ORM)) return undefined;
+  const target = firstTypeArgument(ctx.checker, type);
+  const schema = target ? deriveType(ctx, target) : {};
   return many ? { type: 'array', items: schema } : schema;
 }
 
@@ -34,14 +41,13 @@ function columnOf(ctx: DeriveContext, property: ts.Symbol): Column | undefined {
   if (property.flags & (ts.SymbolFlags.Method | ts.SymbolFlags.Signature)) return undefined;
   const declaration = property.valueDeclaration ?? property.declarations?.[0];
   if (!declaration || !isPublicMember(declaration) || isModelBaseMember(declaration)) return undefined;
-  const decorators = ts.canHaveDecorators(declaration) ? decoratorsOf(declaration).map((d) => d.name) : [];
-  if (decorators.some((name) => NOT_SERIALIZED.has(name))) return undefined;
+  if (ts.canHaveDecorators(declaration) && decoratorsOf(declaration).some((d) => NOT_SERIALIZED.has(d.name))) return undefined;
 
   const type = ctx.checker.getTypeOfSymbolAtLocation(property, declaration);
   const columnContext: DeriveContext = { ...ctx, node: declaration };
-  const relation = decorators.find((name) => SINGLE_RELATIONS.has(name) || MANY_RELATIONS.has(name));
+  const relation = relationSchema(columnContext, ctx.checker.getNonNullableType(type));
   // A relation is dehydrated only when populated, so it is never required.
-  if (relation) return { schema: relationSchema(columnContext, type, MANY_RELATIONS.has(relation)), required: false };
+  if (relation) return { schema: relation, required: false };
   if (isCallable(ctx.checker, type)) return undefined;
   return {
     schema: { ...deriveType(columnContext, type), ...propertyConstraints(columnContext, property, declaration) },
@@ -51,7 +57,7 @@ function columnOf(ctx: DeriveContext, property: ts.Symbol): Column | undefined {
 
 /** An ORM model derives to its declared columns and relations, never through ModelBase internals or its index signature. */
 export const modelType: TypeHandler = (ctx, type) => {
-  if (!(type.flags & ts.TypeFlags.Object) || !extendsFrameworkClass(ctx.checker, type, 'ModelBase', ORM)) return undefined;
+  if (!isModel(ctx.checker, type)) return undefined;
   const properties: Record<string, JsonSchema> = {};
   const required: string[] = [];
   for (const property of ctx.checker.getPropertiesOfType(type)) {
@@ -65,4 +71,12 @@ export const modelType: TypeHandler = (ctx, type) => {
   if (required.length) schema.required = required;
   schema.additionalProperties = false;
   return schema;
+};
+
+/** `ModelData<M>` and its relation variants are what `dehydrate()` returns for M: they derive as M itself. */
+export const modelDataType: TypeHandler = (ctx, type) => {
+  const alias = type.aliasSymbol;
+  if (!alias || !MODEL_DATA.has(alias.name) || !isDeclaredIn(alias.declarations?.[0], ORM)) return undefined;
+  const model = type.aliasTypeArguments?.[0];
+  return model && isModel(ctx.checker, model) ? deriveType(ctx, model) : undefined;
 };
