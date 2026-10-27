@@ -295,7 +295,10 @@ describe('users-http v3: admin session routes on the SessionIssuer', function ()
         expect(res.status, res.text).to.eq(status);
         if (error) expect(res.body.error, res.text).to.eq(error);
         // `instance` of the problem body is the request path, which holds the handle the caller sent
-        expect(JSON.stringify({ ...(res.body as object), instance: undefined })).to.not.contain(handle);
+        expect(res.headers['content-type'], res.text).to.contain('application/problem+json');
+        const problem = res.body as { instance?: string };
+        expect(problem.instance, res.text).to.be.a('string');
+        expect(res.text.replace(JSON.stringify(problem.instance), '')).to.not.contain(handle);
       }
       expect(await isLive(victim, t.Uuid)).to.eq(true);
     }

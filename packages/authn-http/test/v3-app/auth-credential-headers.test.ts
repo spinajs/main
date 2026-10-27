@@ -14,10 +14,12 @@ async function bearer(): Promise<string> {
   return token;
 }
 
-// A problem document: the stable members only, without its status, type, title and instance
+// A problem document: the stable members, with the exact key set so an extra member fails the test
 const body = (res: { body: unknown }): object => {
-  const { code, detail } = res.body as { code?: string; detail?: string };
-  return { code, detail };
+  const problem = res.body as { code?: string; detail?: string };
+  expect(problem, 'a problem document: no stack, no other member').to.have.all.keys('type', 'title', 'status', 'detail', 'instance', 'code');
+  expect(problem).to.include({ type: 'about:blank', status: 400, instance: '/user/sessions' });
+  return { code: problem.code, detail: problem.detail };
 };
 
 describe('singleton credential headers over HTTP, with the real extractors (RFC 9110 §11.6.2)', function () {
@@ -41,7 +43,7 @@ describe('singleton credential headers over HTTP, with the real extractors (RFC 
     const before = tokenStrategy.verifyCalls.length;
     const res = await new Client().get('/user/sessions', { Authorization: lines(`Bearer ${token}`, `Bearer ${token}`) });
     expect(res.status).to.eq(400);
-    expect(body(res), 'a CodedHttpException body: no stack, the same for every Accept').to.deep.eq({ code: 'E_REPEATED_CREDENTIAL_HEADER', detail: 'the authorization header was sent more than once' });
+    expect(body(res), 'a CodedHttpException problem body').to.deep.eq({ code: 'E_REPEATED_CREDENTIAL_HEADER', detail: 'the authorization header was sent more than once' });
     expect(tokenStrategy.verifyCalls.length - before).to.eq(0);
   });
 

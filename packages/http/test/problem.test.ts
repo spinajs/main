@@ -56,6 +56,18 @@ describe('toProblem', () => {
     expect(problem).to.not.have.property('message');
   });
 
+  it('does not let a global includeFields entry set or replace errors', () => {
+    class Plain extends Error {
+      public errors = ['injected'];
+    }
+    class Invalid extends ValidationFailed {
+      public errors = ['shadow'];
+    }
+    expect(toProblem(new Plain('x'), 500, { ...options, includeFields: ['errors'] })).to.not.have.property('errors');
+    const invalid = new Invalid('bad', [{ keyword: 'required', instancePath: '', schemaPath: '#/required', params: {} }]);
+    expect(toProblem(invalid, 400, { ...options, includeFields: ['errors'] }).errors).to.deep.eq(invalid.parameter);
+  });
+
   it('omits the stack by default and adds it only outside production when asked', () => {
     const err = new Error('boom');
 
@@ -287,7 +299,14 @@ describe('problem+json error bodies', function () {
       const res = await req().get('problem/pg').set('Accept', 'application/json');
 
       expect(res.status).to.eq(500);
-      expect(res.body).to.deep.eq({ type: 'about:blank', title: 'Pg Like Error', status: 500, detail: 'Internal server error', instance: '/problem/pg' });
+      expect(res.body).to.deep.eq({ type: 'about:blank', title: 'Internal Server Error', status: 500, detail: 'Internal server error', instance: '/problem/pg' });
+    });
+
+    it('copies no extension field into a redacted 500', async () => {
+      const res = await req().get('problem/leaky').set('Accept', 'application/json');
+
+      expect(res.status).to.eq(500);
+      expect(res.body).to.deep.eq({ type: 'about:blank', title: 'Internal Server Error', status: 500, detail: 'Internal server error', instance: '/problem/leaky' });
     });
 
     it('keeps the message of a mapped error', async () => {

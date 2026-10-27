@@ -25,7 +25,7 @@ export interface ProblemOptions {
   includeFields: string[];
   isProduction: boolean;
   instance?: string;
-  /** Hide the message and code: the answer is the generic server error of a production app. */
+  /** Hide the message, code, title and extension members: the answer is the generic server error of a production app. */
   redact?: boolean;
 }
 
@@ -90,7 +90,7 @@ function listedFields(err: Error): string[] {
 }
 
 function allowedFields(err: Error, configured: string[]): Record<string, unknown> {
-  const fields = [...configured, ...listedFields(err)];
+  const fields = [...configured.filter((f) => f !== 'errors'), ...listedFields(err)];
 
   return Object.fromEntries(Object.entries(err).filter(([key, value]) => fields.includes(key) && !RESERVED.has(key) && value !== undefined));
 }
@@ -100,15 +100,17 @@ function exposesCode(err: Error): boolean {
   return err instanceof Exception || listedFields(err).includes('code');
 }
 
+function headOf(err: Error, status: number, redact: boolean | undefined): ProblemDetails {
+  if (redact) {
+    return { type: 'about:blank', title: 'Internal Server Error', status };
+  }
+  const problemType = declared<unknown>(err, 'problemType');
+  return { type: typeof problemType === 'string' && problemType.length > 0 ? problemType : 'about:blank', title: titleOf(err), status };
+}
+
 export function toProblem(err: Error, status: number, options: ProblemOptions): ProblemDetails {
   const source = err as Error & Record<string, unknown>;
-  const problemType = declared<unknown>(err, 'problemType');
-
-  const problem: ProblemDetails = {
-    type: typeof problemType === 'string' && problemType.length > 0 ? problemType : 'about:blank',
-    title: titleOf(err),
-    status,
-  };
+  const problem = headOf(err, status, options.redact);
 
   if (options.redact) {
     problem.detail = GENERIC_DETAIL;
@@ -122,11 +124,12 @@ export function toProblem(err: Error, status: number, options: ProblemOptions): 
   if (!options.redact && typeof source.code === 'string' && typeof source.syscall !== 'string' && exposesCode(err)) {
     problem.code = source.code;
   }
+  if (!options.redact) {
+    Object.assign(problem, allowedFields(err, options.includeFields));
+  }
   if (err instanceof ValidationFailed) {
     problem.errors = err.parameter;
   }
-
-  Object.assign(problem, allowedFields(err, options.includeFields));
 
   if (options.includeStack && !options.isProduction && typeof err.stack === 'string') {
     problem.stack = err.stack;
