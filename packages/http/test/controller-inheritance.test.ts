@@ -2,7 +2,8 @@ import 'mocha';
 import { expect } from 'chai';
 import { ClassInfo, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { FrameworkConfiguration } from '@spinajs/configuration';
+import { useTestApp } from '@spinajs/testing';
 import { BaseController, BasePath, Controllers, ControllerSource, Get, Middleware, Ok, Policy, Query, CONTROLLED_DESCRIPTOR_SYMBOL } from '../src/index.js';
 import { BasePolicy, RouteMiddleware } from '../src/interfaces.js';
 import type { IControllerDescriptor, IRoute, IController, Response } from '../src/interfaces.js';
@@ -166,20 +167,7 @@ async function runLoader(scanned: Array<Class<BaseController>>) {
 const descriptorOf = (c: object) => Reflect.getOwnMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, c) as IControllerDescriptor;
 
 describe('controller descriptor inheritance', () => {
-  before(() => {
-    DI.register(MinimalTestConfiguration).as(Configuration);
-  });
-
-  // The registry keeps the first position of a re-registered type, so a later
-  // suite's `register(TestConfiguration)` would not override this one.
-  after(() => {
-    DI.unregister(MinimalTestConfiguration);
-    DI.uncache(MinimalTestConfiguration);
-  });
-
-  beforeEach(async () => {
-    await DI.resolve(Configuration);
-  });
+  useTestApp({ configuration: MinimalTestConfiguration, bootstrap: false });
 
   it('gives the subclass its own descriptor', () => {
     expect(descriptorOf(AppUserController.prototype), 'subclass owns no descriptor of its own').to.exist;
@@ -255,21 +243,6 @@ describe('controller descriptor inheritance', () => {
   });
 
   describe('override reporting from the Controllers loader', () => {
-    afterEach(() => {
-      // Controllers.resolve() registers the scanned types on the ROOT container
-      // ( it uses the global DI, not this.Container ), so each test has to hand
-      // them back or they leak into every later suite in this process.
-      for (const type of [LoaderAppController, LoaderPkgController, LoaderSoloController]) {
-        DI.unregister(type);
-        DI.uncache(type);
-      }
-
-      // The BaseController collection is cached as a whole and is only rebuilt
-      // when a registered type is missing from it - dropping a registration is
-      // not enough on its own, the cached array has to go too.
-      DI.uncache(BaseController);
-    });
-
     it('reports an override at info and mounts the subclass alone', async () => {
       // The shape the whole feature exists for: the app replaces a controller
       // shipped by a package.

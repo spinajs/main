@@ -1,14 +1,12 @@
 import 'mocha';
 import { expect } from 'chai';
-import { Bootstrapper, DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { fsService } from '@spinajs/fs';
 import { Intl } from '@spinajs/intl';
 import { Schema, ValidationFailed } from '@spinajs/validation';
 
-import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
+import { httpApp, req } from './common.js';
 import { BaseController, BasePath, Body, Controllers, HttpServer, Ok, OnError, Post, Req } from '../src/index.js';
 import type { Request } from '../src/index.js';
+import type { TestApp } from '@spinajs/testing';
 
 @Schema({ type: 'object', additionalProperties: false, required: ['name'], properties: { name: { type: 'string', maxLength: 8 }, secret: { type: 'string' } } })
 class SecretInput {
@@ -44,23 +42,18 @@ class SensitiveParams extends BaseController {
 describe('@Body({ sensitive })', function () {
   this.timeout(60000);
 
+  let app: TestApp;
+
   before(async () => {
-    uncacheControllers();
-    for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
-    DI.register(TestConfiguration).as(Configuration);
-    DI.register(SensitiveParams).as(BaseController);
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
-    await DI.resolve(Intl);
-    await DI.resolve(Controllers);
-    await (await DI.resolve<HttpServer>(HttpServer)).start();
+    app = await httpApp({
+      register: (c) => c.register(SensitiveParams).as(BaseController),
+      resolve: [Intl, Controllers],
+    });
+    await (await app.resolve(HttpServer)).start();
   });
 
   after(async () => {
-    await releaseHttpServer();
-    DI.unregister(SensitiveParams);
-    DI.uncache(SensitiveParams);
-    DI.uncache(BaseController);
+    await app.dispose();
   });
 
   it('hands the field to the argument and takes it, with the raw bytes, off the request', async () => {

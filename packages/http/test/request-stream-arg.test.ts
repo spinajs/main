@@ -4,16 +4,14 @@ import { createHash, randomBytes } from 'node:crypto';
 import { Agent, request } from 'node:http';
 import { connect } from 'node:net';
 import type { Readable } from 'node:stream';
-import { Bootstrapper, DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { DI } from '@spinajs/di';
 import { InvalidArgument, LimitExceeded } from '@spinajs/exceptions';
-import { fsService } from '@spinajs/fs';
 import { Intl } from '@spinajs/intl';
 
-import { appPort, releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
+import { appPort, httpApp, req } from './common.js';
 import { BaseController, BasePath, Controllers, HttpServer, Ok, Post, Req, RequestStream, RequestStreamArg } from '../src/index.js';
 import type { Request } from '../src/index.js';
+import type { TestApp } from '@spinajs/testing';
 
 interface IDrained {
   bytes: number;
@@ -99,24 +97,18 @@ class RequestStreamController extends BaseController {
 describe('@RequestStream', function () {
   this.timeout(15000);
 
+  let app: TestApp;
+
   before(async () => {
-    uncacheControllers();
-    for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
-    DI.register(TestConfiguration).as(Configuration);
-    DI.register(RequestStreamController).as(BaseController);
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
-    await DI.resolve(Intl);
-    await DI.resolve(Controllers);
-    await (await DI.resolve<HttpServer>(HttpServer)).start();
+    app = await httpApp({
+      register: (c) => c.register(RequestStreamController).as(BaseController),
+      resolve: [Intl, Controllers],
+    });
+    await (await app.resolve(HttpServer)).start();
   });
 
   after(async () => {
-    await releaseHttpServer();
-    DI.unregister(RequestStreamController as Class<unknown>);
-    DI.uncache(RequestStreamController);
-    DI.uncache(BaseController);
-    DI.uncache(Configuration);
+    await app.dispose();
   });
 
   const octets = (path: string, payload: Buffer) => req().post(path).set('content-type', 'application/octet-stream').send(payload);

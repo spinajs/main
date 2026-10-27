@@ -1,15 +1,13 @@
 import 'mocha';
 import { expect } from 'chai';
 import { createHash } from 'node:crypto';
-import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { fsService } from '@spinajs/fs';
 import { Intl } from '@spinajs/intl';
 
-import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
+import { httpApp, req, TestConfiguration } from './common.js';
 import { BaseController, BasePath, Controllers, Get, HttpServer, Ok, Param } from '../src/index.js';
 import { GetFirstBase, ScopedUploadsBase } from './base-path-params-fixture.js';
+import type { TestApp } from '@spinajs/testing';
 
 @BasePath('projects/:project/uploads')
 class ScopedUploadsController extends ScopedUploadsBase {
@@ -29,27 +27,21 @@ const CONTROLLERS: Class<BaseController>[] = [ScopedUploadsController, GetFirstC
 describe('route params in @BasePath on an inherited controller (spec §11.1)', function () {
   this.timeout(15000);
 
+  let app: TestApp;
+
   before(async () => {
-    uncacheControllers();
-    for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
-    DI.register(BasePathParamsConfiguration).as(Configuration);
-    for (const c of CONTROLLERS) DI.register(c).as(BaseController);
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
-    await DI.resolve(Intl);
-    await DI.resolve(Controllers);
-    await (await DI.resolve<HttpServer>(HttpServer)).start();
+    app = await httpApp({
+      configuration: BasePathParamsConfiguration,
+      register: (c) => {
+        for (const type of CONTROLLERS) c.register(type).as(BaseController);
+      },
+      resolve: [Intl, Controllers],
+    });
+    await (await app.resolve(HttpServer)).start();
   });
 
   after(async () => {
-    await releaseHttpServer();
-    for (const c of CONTROLLERS) {
-      DI.unregister(c as Class<unknown>);
-      DI.uncache(c);
-    }
-    DI.uncache(BaseController);
-    DI.unregister(BasePathParamsConfiguration);
-    DI.uncache(Configuration);
+    await app.dispose();
   });
 
   it('mounts the inherited routes under the subclass path, with the placeholder in req.params', async () => {

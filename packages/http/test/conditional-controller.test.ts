@@ -3,7 +3,8 @@ import { expect } from 'chai';
 import { existsSync } from 'fs';
 
 import { DI } from '@spinajs/di';
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { FrameworkConfiguration } from '@spinajs/configuration';
+import { useTestApp } from '@spinajs/testing';
 import { BaseController, CONTROLLED_DESCRIPTOR_SYMBOL, Get, Ok } from '../src/index.js';
 import type { IControllerDescriptor } from '../src/interfaces.js';
 
@@ -45,42 +46,7 @@ class ControllerB extends BaseController {
 }
 
 describe('Conditional controller registration (Array.ofType<BaseController>)', () => {
-  before(() => {
-    DI.register(MinimalTestConfiguration).as(Configuration);
-  });
-
-  after(() => {
-    // Root-container registrations outlive this file and would inflate the
-    // controller counts of later suites.
-    for (const type of [ControllerA, ControllerB]) {
-      DI.unregister(type);
-      DI.uncache(type);
-    }
-    DI.uncache(BaseController);
-
-    // The registry keeps the first position of a re-registered type, so a later
-    // suite's `register(TestConfiguration)` would not override this one.
-    DI.unregister(MinimalTestConfiguration);
-    DI.uncache(MinimalTestConfiguration);
-  });
-
-  beforeEach(async () => {
-    await DI.resolve(Configuration);
-  });
-
-  afterEach(() => {
-    // Each test starts with a clean BaseController collection; registrations
-    // persist across tests intentionally so we can also assert dedupe across
-    // re-registers.
-    //
-    // Uncache ONLY the collection - a blanket DI.clearCache() is destructive
-    // beyond this suite: `@HandleException` stores the '__http_error_map__'
-    // Map straight into the container cache at decoration time, with no
-    // registry entry to rebuild it from. Wiping it leaves every later suite in
-    // the same process without an error map, so all its 4xx responses come
-    // back as 500.
-    DI.uncache(BaseController);
-  });
+  useTestApp({ configuration: MinimalTestConfiguration, bootstrap: false });
 
   it('a class registered as BaseController is resolved via Array.ofType', async () => {
     DI.register(ControllerA).as(BaseController);

@@ -1,15 +1,12 @@
 import 'mocha';
 import { expect } from 'chai';
-import { Bootstrapper, DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
 import { LimitExceeded } from '@spinajs/exceptions';
-import { fsService } from '@spinajs/fs';
 import { Intl } from '@spinajs/intl';
 import '@spinajs/templates-pug';
 
-import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
+import { httpApp, req } from './common.js';
 import { BaseController, BasePath, Controllers, Get, HTTP_STATUS_CODE, HttpServer, UnsupportedMediaTypeException } from '../src/index.js';
+import type { TestApp } from '@spinajs/testing';
 
 @BasePath('raw-body-errors')
 class RawBodyErrorsController extends BaseController {
@@ -27,24 +24,18 @@ class RawBodyErrorsController extends BaseController {
 describe('raw body error responses', function () {
   this.timeout(15000);
 
+  let app: TestApp;
+
   before(async () => {
-    uncacheControllers();
-    for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
-    DI.register(TestConfiguration).as(Configuration);
-    DI.register(RawBodyErrorsController).as(BaseController);
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
-    await DI.resolve(Intl);
-    await DI.resolve(Controllers);
-    await (await DI.resolve<HttpServer>(HttpServer)).start();
+    app = await httpApp({
+      register: (c) => c.register(RawBodyErrorsController).as(BaseController),
+      resolve: [Intl, Controllers],
+    });
+    await (await app.resolve(HttpServer)).start();
   });
 
   after(async () => {
-    await releaseHttpServer();
-    DI.unregister(RawBodyErrorsController as Class<unknown>);
-    DI.uncache(RawBodyErrorsController);
-    DI.uncache(BaseController);
-    DI.uncache(Configuration);
+    await app.dispose();
   });
 
   it('answers 413 for a LimitExceeded', async () => {
