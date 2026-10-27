@@ -1,5 +1,6 @@
 import { BaseController, BasePath, Get, Ok } from '@spinajs/http';
-import { BelongsTo, HasMany, Hidden, Model, ModelBase, Primary, Relation, SingleRelation } from '@spinajs/orm';
+import { BelongsTo, HasMany, Hidden, Model, ModelBase, ModelDataWithRelationData, Primary, Relation, SingleRelation } from '@spinajs/orm';
+import type { Shelf } from './shelf.js';
 
 @Model('books')
 export class Book extends ModelBase<Book> {
@@ -21,5 +22,15 @@ export class AuthorsController extends BaseController {
   @Get(':id')
   public async read(): Promise<Ok<Author>> {
     return new Ok(new Author());
+  }
+
+  @Get('dehydrated')
+  public async dehydrated(): Promise<Ok<ModelDataWithRelationData<Author>[]>> {
+    return new Ok([new Author().dehydrateWithRelations()]);
+  }
+
+  @Get('shelf')
+  public async shelf(): Promise<Ok<Shelf>> {
+    return new Ok(undefined as unknown as Shelf);
   }
 }

@@ -2,7 +2,7 @@ import ts from 'typescript';
 import type { Diagnostic, SourceRef } from '@spinajs/manifest';
 import { arrayType, tupleType } from './handlers/array.js';
 import { enumType } from './handlers/enum.js';
-import { modelType } from './handlers/model.js';
+import { modelDataType, modelType } from './handlers/model.js';
 import { objectType, setPropertyConstraints } from './handlers/object.js';
 import { primitive } from './handlers/primitive.js';
 import { jsdocConstraints } from './jsdoc.js';
@@ -49,10 +49,10 @@ export type TypeHandler = (ctx: DeriveContext, type: ts.Type) => JsonSchema | un
 
 let handlerList: TypeHandler[] | undefined;
 
-/** Built on first use: the handler modules import this one, so a top-level list would hit a TDZ when one of them loads first. Order matters (enum before primitive, well-known and model before object). */
+/** Built on first use: the handler modules import this one, so a top-level list would hit a TDZ when one of them loads first. Order matters (enum before primitive, model data before intersection, well-known and model before object). */
 export function handlers(): TypeHandler[] {
   if (!handlerList) setPropertyConstraints(jsdocConstraints);
-  handlerList ??= [enumType, primitive, wellKnown, arrayType, tupleType, unionType, intersectionType, modelType, objectType];
+  handlerList ??= [enumType, primitive, wellKnown, modelDataType, arrayType, tupleType, unionType, intersectionType, modelType, objectType];
   return handlerList;
 }
 
