@@ -1,5 +1,5 @@
-import { Configuration } from '@spinajs/configuration';
 import { ClassInfo, DI } from '@spinajs/di';
+import { createTestApp, useTestApp } from '@spinajs/testing';
 import * as chai from 'chai';
 import 'mocha';
 import * as fs from 'node:fs';
@@ -7,7 +7,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as sinon from 'sinon';
 import { DEFAULT_MIGRATION_DIRS, DiRegistryMigrationSource, FilesystemMigrationSource, MIGRATION_DI_SOURCE, Migration, OrmDriver, OrmException, OrmMigration } from '../src/index.js';
-import { ConnectionConf, registerFakes, logText } from './misc.js';
+import { ConnectionConf, ormApp, logText } from './misc.js';
 import '@spinajs/log';
 
 const expect = chai.expect;
@@ -35,24 +35,24 @@ class MigrationSourcesTest_Registered_2026_07_29_10_00_00 extends OrmMigration {
   public async down(_c: OrmDriver): Promise<void> {}
 }
 
+/** Boots a fresh app on the current `MigrationSourcesConf` statics, so every call sees its own Env and Dirs. */
+async function withSource<T>(use: (source: FilesystemMigrationSource) => Promise<T>): Promise<T> {
+  const app = await createTestApp(ormApp({ configuration: MigrationSourcesConf }));
+  try {
+    return await use(await app.resolve(FilesystemMigrationSource));
+  } finally {
+    await app.dispose();
+  }
+}
+
 async function discover(): Promise<Array<ClassInfo<OrmMigration>>> {
-  DI.clearCache();
-  // `FilesystemMigrationSource` loads fixture files via `DI.__spinajs_require__`, which falls back
-  // to CJS `require` unless ESM mode is switched on ( the same setup every other file-discovery
-  // suite in the repo does - schema-providers.test.ts, http's controllers.test.ts... ). `asValue`
-  // registrations live in the container CACHE, so the `clearCache()` above wipes this out on every
-  // call and it must be re-applied after, not once in `before()`.
-  DI.setESMModuleSupport();
-  return await (await DI.resolve(FilesystemMigrationSource)).getMigrations();
+  return withSource((source) => source.getMigrations());
 }
 
 describe('FilesystemMigrationSource under prod', () => {
   let found: Array<ClassInfo<OrmMigration>>;
 
   before(async () => {
-    registerFakes();
-    DI.register(MigrationSourcesConf).as(Configuration);
-
     MigrationSourcesConf.Env = 'prod';
     MigrationSourcesConf.Dirs = [FIXTURES];
     found = await discover();
@@ -311,16 +311,13 @@ describe('FilesystemMigrationSource import failures', () => {
     const brokenFile = path.join(scratch, 'BrokenTsLog_2026_07_29_10_07_00.ts');
     fs.writeFileSync(brokenFile, "throw new Error('boom - intentional ts import failure for log level check');\n");
 
-    // inlined rather than routed through discover(): a spy needs the resolved instance, which
-    // discover() does not hand back - see its own comment for why clearCache() then
-    // setESMModuleSupport() is the required order
-    DI.clearCache();
-    DI.setESMModuleSupport();
-    const source = await DI.resolve(FilesystemMigrationSource);
-    const trace = sinon.spy((source as any).Log, 'trace');
-    const warn = sinon.spy((source as any).Log, 'warn');
-
-    await source.getMigrations();
+    let trace!: sinon.SinonSpy;
+    let warn!: sinon.SinonSpy;
+    await withSource(async (source) => {
+      trace = sinon.spy((source as any).Log, 'trace');
+      warn = sinon.spy((source as any).Log, 'warn');
+      return source.getMigrations();
+    });
 
     expect(warn.called, 'a .ts import failure must not be logged at warn').to.equal(false);
     expect(trace.getCalls().some((c) => logText(c).includes(brokenFile)), 'expected the failure to be logged at trace, naming the file').to.equal(true);
@@ -412,26 +409,23 @@ describe('FilesystemMigrationSource import failures - fallback directory', () =>
     // comment on `isConfigured`
     MigrationSourcesConf.Dirs = [];
 
-    // inlined rather than routed through discover(): a spy needs the resolved instance, same as
-    // the .ts trace-vs-warn test above
-    DI.clearCache();
-    DI.setESMModuleSupport();
-    const source = await DI.resolve(FilesystemMigrationSource);
-    const warn = sinon.spy((source as any).Log, 'warn');
-
+    let warn: sinon.SinonSpy | undefined;
     let found: Array<ClassInfo<OrmMigration>> | undefined;
     let caught: unknown;
 
     try {
-      found = await source.getMigrations();
+      found = await withSource(async (source) => {
+        warn = sinon.spy((source as any).Log, 'warn');
+        return source.getMigrations();
+      });
     } catch (err) {
       caught = err;
     }
 
     expect(caught, 'a broken .js migration in a FALLBACK directory must not throw').to.equal(undefined);
 
-    expect(warn.called, 'the failure must be logged at warn').to.equal(true);
-    const call = warn.getCalls().find((c) => logText(c).includes(brokenFile));
+    expect(warn!.called, 'the failure must be logged at warn').to.equal(true);
+    const call = warn!.getCalls().find((c) => logText(c).includes(brokenFile));
     expect(call, 'the warning must name the file').to.not.equal(undefined);
     expect(call!.args[0].error, 'the warning must carry the original error so the stack survives').to.be.instanceOf(Error);
     expect(logText(call!), 'the warning must say the migration was not registered').to.match(/not registered/i);
@@ -507,19 +501,13 @@ describe('FilesystemMigrationSource skips non-migration classes', () => {
 });
 
 describe('DiRegistryMigrationSource', () => {
+  useTestApp(() => ormApp({ configuration: MigrationSourcesConf }));
+
   after(() => {
     DI.unregister(MigrationSourcesTest_Registered_2026_07_29_10_00_00);
-
-    // `MigrationSourcesConf` was registered as `Configuration` in the very first `before()` in
-    // this file and never unregistered - this is the LAST describe this file defines, so this is
-    // where that registration stops leaking `system.dirs.migrations` and `process.env.APP_ENV`
-    // into whatever test file a full-glob mocha run moves on to next. `migration-env.test.ts`
-    // does this cleanup properly; this matches it.
-    DI.unregister(MigrationSourcesConf);
   });
 
   it('yields DI-registered migrations with the file the decorator captured', async () => {
-    DI.clearCache();
     const found = await (await DI.resolve(DiRegistryMigrationSource)).getMigrations();
     const entry = found.find((f) => f.name === 'MigrationSourcesTest_Registered_2026_07_29_10_00_00');
 

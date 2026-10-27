@@ -3,14 +3,15 @@ import './../src/bootstrap.js';
 import 'mocha';
 import * as chai from 'chai';
 import { Configuration } from '@spinajs/configuration';
-import { Bootstrapper, DI } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 import '@spinajs/log';
 import { Orm } from '../src/index.js';
 import { ModelBase, updateModelDescriptor } from './../src/model.js';
 import { extractModelDescriptor } from './../src/descriptor.js';
 import { BelongsTo, Hidden, Primary } from './../src/decorators.js';
 import { SingleRelation } from './../src/relation-objects.js';
-import { ConnectionConf, FakeMysqlDriver, FakeSqliteDriver } from './misc.js';
+import { ConnectionConf, FakeMysqlDriver, FakeSqliteDriver, ormApp } from './misc.js';
+import { useTestApp } from '@spinajs/testing';
 import { Model4 } from './mocks/models/Model4.js';
 
 const expect = chai.expect;
@@ -119,20 +120,7 @@ describe('@Hidden() property decorator', () => {
 describe('Model hidden columns', function () {
   this.timeout(15000);
 
-  beforeEach(async () => {
-    DI.register(ConnectionConf).as(Configuration);
-    DI.register(FakeSqliteDriver).as('sqlite');
-    DI.register(FakeMysqlDriver).as('mysql');
-    DI.removeAllListeners('di.resolve.Configuration');
-
-    for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
-      await b.bootstrap();
-    }
-  });
-
-  afterEach(() => {
-    DI.clearCache();
-  });
+  useTestApp(() => ormApp());
 
   /**
    * Boots an Orm whose only extra model is `model`, so `reloadTableInfo` runs the whole

@@ -1,15 +1,15 @@
 /* eslint-disable prettier/prettier */
+import { useTestApp } from '@spinajs/testing';
 import { ModelNested1 } from './mocks/models/ModelNested1.js';
 import { ManyToManyRelation } from './../src/relations.js';
-import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator, OneToManyRelationHydrator } from './../src/hydrators.js';
+import { DbPropertyHydrator } from './../src/hydrators.js';
 import { Model1 } from './mocks/models/Model1.js';
-import { Configuration } from '@spinajs/configuration';
-import { Bootstrapper, DI } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import _ from 'lodash';
 import 'mocha';
-import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeInsertQueryCompiler, FakeUpdateQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeTableQueryCompiler } from './misc.js';
-import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, RelationType, TableQueryCompiler } from '../src/interfaces.js';
+import { FakeSqliteDriver, ormApp, registerRelationHydrators } from './misc.js';
+import { RelationType } from '../src/interfaces.js';
 import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
 import { extractModelDescriptor } from './../src/descriptor.js';
@@ -34,32 +34,9 @@ async function db() {
 }
 
 describe('Orm relations tests', () => {
+  useTestApp(() => ormApp({ register: registerRelationHydrators }));
+
   beforeEach(() => {
-    DI.register(ConnectionConf).as(Configuration);
-    DI.register(FakeSqliteDriver).as('sqlite');
-    DI.register(FakeMysqlDriver).as('mysql');
-
-    DI.register(FakeSelectQueryCompiler).as(SelectQueryCompiler);
-    DI.register(FakeDeleteQueryCompiler).as(DeleteQueryCompiler);
-    DI.register(FakeUpdateQueryCompiler).as(UpdateQueryCompiler);
-    DI.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
-    DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
-
-    DI.register(DbPropertyHydrator).as(ModelHydrator);
-    DI.register(NonDbPropertyHydrator).as(ModelHydrator);
-    DI.register(OneToOneRelationHydrator).as(ModelHydrator);
-    DI.register(JunctionModelPropertyHydrator).as(ModelHydrator);
-    DI.register(OneToManyRelationHydrator).as(ModelHydrator);
-
-    beforeEach(async () => {
-      DI.removeAllListeners('di.resolved.Configuration');
-
-      const bootstrappers = DI.resolve(Array.ofType(Bootstrapper));
-      for (const b of bootstrappers) {
-        await b.bootstrap();
-      }
-    });
-
     DI.resolve<Orm>(Orm);
 
     const tableInfoStub = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');
@@ -626,12 +603,13 @@ describe('Orm relations tests', () => {
     );
   });
 
-  afterEach(async () => {
-    DI.clearCache();
+  afterEach(() => {
     sinon.restore();
   });
 
   it('Belongs to relation decorator', async () => {
+    await db();
+
     const descriptor = extractModelDescriptor(RelationModel1);
 
     expect(descriptor!.Relations.size).to.eq(1);

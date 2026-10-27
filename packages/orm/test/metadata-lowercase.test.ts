@@ -1,27 +1,8 @@
 import * as chai from 'chai';
 import 'mocha';
-import { Configuration } from '@spinajs/configuration';
-import { Bootstrapper, DI } from '@spinajs/di';
-import {
-  ConnectionConf,
-  FakeSqliteDriver,
-  FakeMysqlDriver,
-  FakeSelectQueryCompiler,
-  FakeDeleteQueryCompiler,
-  FakeInsertQueryCompiler,
-  FakeUpdateQueryCompiler,
-  FakeTableQueryCompiler,
-  FakeConverter,
-} from './misc.js';
-import {
-  SelectQueryCompiler,
-  DeleteQueryCompiler,
-  UpdateQueryCompiler,
-  InsertQueryCompiler,
-  TableQueryCompiler,
-  DatetimeValueConverter,
-} from '../src/interfaces.js';
-import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator } from './../src/hydrators.js';
+import { DI } from '@spinajs/di';
+import { useTestApp } from '@spinajs/testing';
+import { ormApp } from './misc.js';
 import { Orm } from '../src/orm.js';
 import { LowercaseMeta } from './mocks/models/LowercaseMeta.js';
 import { LowercaseMetaOwner } from './mocks/models/LowercaseMetaOwner.js';
@@ -34,30 +15,7 @@ async function db() {
 }
 
 describe('MetadataRelation lowercase columns', () => {
-  before(() => {
-    DI.register(ConnectionConf).as(Configuration);
-    DI.register(FakeSqliteDriver).as('sqlite');
-    DI.register(FakeMysqlDriver).as('mysql');
-    DI.register(FakeSelectQueryCompiler).as(SelectQueryCompiler);
-    DI.register(FakeDeleteQueryCompiler).as(DeleteQueryCompiler);
-    DI.register(FakeUpdateQueryCompiler).as(UpdateQueryCompiler);
-    DI.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
-    DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
-    DI.register(DbPropertyHydrator).as(ModelHydrator);
-    DI.register(NonDbPropertyHydrator).as(ModelHydrator);
-    DI.register(FakeConverter).as(DatetimeValueConverter);
-  });
-
-  beforeEach(async () => {
-    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
-    for (const b of bootstrappers) {
-      await b.bootstrap();
-    }
-  });
-
-  afterEach(() => {
-    DI.clearCache();
-  });
+  useTestApp(() => ormApp());
 
   it('Should report the value as changed when it is set through the metadata proxy', async () => {
     await db();

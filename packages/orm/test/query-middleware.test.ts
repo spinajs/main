@@ -1,12 +1,11 @@
 /* eslint-disable prettier/prettier */
-import { Configuration } from '@spinajs/configuration';
-import { Bootstrapper, DI, Injectable } from '@spinajs/di';
+import { Injectable } from '@spinajs/di';
+import { useTestApp } from '@spinajs/testing';
 import * as chai from 'chai';
 import 'mocha';
-import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeInsertQueryCompiler, FakeUpdateQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeTableQueryCompiler } from './misc.js';
-import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, TableQueryCompiler, QueryMiddleware } from '../src/interfaces.js';
+import { ormApp, registerRelationHydrators } from './misc.js';
+import { QueryMiddleware } from '../src/interfaces.js';
 import { QueryBuilder } from '../src/builders.js';
-import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator, OneToManyRelationHydrator } from '../src/hydrators.js';
 import { Orm } from '../src/orm.js';
 import { extractModelDescriptor } from '../src/descriptor.js';
 import { Model1 } from './mocks/models/Model1.js';
@@ -38,37 +37,10 @@ export class RecordingMiddleware extends QueryMiddleware {
 }
 
 describe('Query middlewares', () => {
-  beforeEach(async () => {
-    DI.register(ConnectionConf).as(Configuration);
-    DI.register(FakeSqliteDriver).as('sqlite');
-    DI.register(FakeMysqlDriver).as('mysql');
+  useTestApp(() => ormApp({ register: registerRelationHydrators, resolve: [Orm] }));
 
-    DI.register(FakeSelectQueryCompiler).as(SelectQueryCompiler);
-    DI.register(FakeDeleteQueryCompiler).as(DeleteQueryCompiler);
-    DI.register(FakeUpdateQueryCompiler).as(UpdateQueryCompiler);
-    DI.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
-    DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
-
-    DI.register(DbPropertyHydrator).as(ModelHydrator);
-    DI.register(NonDbPropertyHydrator).as(ModelHydrator);
-    DI.register(OneToOneRelationHydrator).as(ModelHydrator);
-    DI.register(JunctionModelPropertyHydrator).as(ModelHydrator);
-    DI.register(OneToManyRelationHydrator).as(ModelHydrator);
-
-    DI.removeAllListeners('di.resolved.Configuration');
-
-    const bootstrappers = DI.resolve(Array.ofType(Bootstrapper)) as Bootstrapper[];
-    for (const b of bootstrappers) {
-      await b.bootstrap();
-    }
-
-    await DI.resolve(Orm);
-
+  beforeEach(() => {
     SEEN.length = 0;
-  });
-
-  afterEach(() => {
-    DI.clearCache();
   });
 
   it('runs once for a plain select', () => {

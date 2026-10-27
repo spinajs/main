@@ -1,14 +1,15 @@
 /* eslint-disable prettier/prettier */
-import { NonDbPropertyHydrator } from './../src/hydrators.js';
+import '../src/index.js';
+import { useTestApp } from '@spinajs/testing';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { Class, DI } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import _ from 'lodash';
 import 'mocha';
 import { Orm } from '../src/orm.js';
-import { FakeSqliteDriver, FakeMysqlDriver, TEST_TABLE_INFO, bootstrapAll, mergeArrays, registerFakes, stubDb } from './misc.js';
+import { FakeSqliteDriver, TEST_TABLE_INFO, mergeArrays, stubDb, ormApp, registerMigrationFakes } from './misc.js';
 import * as sinon from 'sinon';
-import { ModelToSqlConverter, DbPropertyHydrator, ModelHydrator, OrmMigration, Migration, MigrationTransactionMode, StandardModelToSqlConverter, ObjectToSqlConverter, StandardObjectToSqlConverter, IMigrationRecord, MIGRATION_TABLE_NAME, OrmException, MigrationRunner, OrmMigrator } from '../src/index.js';
+import { ModelToSqlConverter, OrmMigration, Migration, MigrationTransactionMode, StandardModelToSqlConverter, ObjectToSqlConverter, StandardObjectToSqlConverter, IMigrationRecord, MIGRATION_TABLE_NAME, OrmException, MigrationRunner, OrmMigrator } from '../src/index.js';
 import { Migration1_2021_12_01_12_00_00, Migration2_2021_12_02_12_00_00 } from './mocks/migrations/index.js';
 import { OrmDriver } from '../src/driver.js';
 import '@spinajs/log';
@@ -45,51 +46,24 @@ async function runner() {
 }
 
 describe('Orm migrations', () => {
-  /**
-   * `@Migration()` registers the decorated class into the ROOT container under `__migrations__`
-   * and that registration outlives the test that declared it - so the fixture declared inside
-   * 'Should register migration programatically' would otherwise still be there when the next
-   * test asserts on how many migrations the Orm found.
-   *
-   * Identity decides what to remove, but `DI.unregister` removes by TYPE NAME across every
-   * registry bucket, so a fixture sharing a name with another suite's registration would delete
-   * THAT entry instead - see the longer note in `migration-runner.test.ts`.
-   */
-  let preRegistered: unknown[] = [];
+  useTestApp(() =>
+    ormApp({
+      register: (c) => {
+        registerMigrationFakes(c);
+        c.register(StandardModelToSqlConverter).as(ModelToSqlConverter);
+        c.register(StandardObjectToSqlConverter).as(ObjectToSqlConverter);
+      },
+    }),
+  );
 
-  before(() => {
-    registerFakes();
-    DI.register(FakeMysqlDriver).as('mysql');
-
-    DI.register(DbPropertyHydrator).as(ModelHydrator);
-    DI.register(NonDbPropertyHydrator).as(ModelHydrator);
-    DI.register(StandardModelToSqlConverter).as(ModelToSqlConverter);
-    DI.register(StandardObjectToSqlConverter).as(ObjectToSqlConverter);
-  });
-
-  beforeEach(async () => {
-    DI.removeAllListeners('di.resolve.Configuration');
-
-    await bootstrapAll();
-
+  beforeEach(() => {
     // tracking table already in its current shape, so ensureStorage() has nothing to create or
     // upgrade and the tests below observe only the statements their own migration run issued
     TEST_TABLE_INFO[MIGRATION_TABLE_NAME] = ['Migration', 'CreatedAt', 'StartedAt', 'FinishedAt', 'RolledBackAt', 'Logs', 'Checksum', 'Batch'].map((Name) => ({ Name })) as any;
-
-    // copied, not aliased: getRegisteredTypes hands back the registry's own array, which a
-    // decorator running inside a test then pushes into
-    preRegistered = [...(DI.getRegisteredTypes('__migrations__') ?? [])];
   });
 
   afterEach(() => {
-    for (const t of [...(DI.getRegisteredTypes('__migrations__') ?? [])]) {
-      if (!preRegistered.includes(t)) {
-        DI.unregister(t as Class<unknown>);
-      }
-    }
-
     delete TEST_TABLE_INFO[MIGRATION_TABLE_NAME];
-    DI.clearCache();
     sinon.restore();
   });
 

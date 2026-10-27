@@ -1,5 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { useTestApp, createTestApp, disposeTestApps } from '@spinajs/testing';
+import type { TestAppOptions } from '@spinajs/testing';
+import { FrameworkConfiguration } from '@spinajs/configuration';
 import { AsyncService, Autoinject, Class, DI, NewInstance } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
@@ -246,13 +248,24 @@ const TRACKING_COLUMNS = ['Migration', 'CreatedAt', 'StartedAt', 'FinishedAt', '
 describe('OrmMigrator', function () {
   this.timeout(10000);
 
-  let preRegistered: unknown[] = [];
+  const appOptions = (): TestAppOptions => ({
+    configuration: MigratorTestConf,
+    register: (c) => {
+      c.register(MigratorTestDriver).as('migrator-test-driver');
+      // models register through the root container, so they have to follow the snapshot a reboot restores
+      models = defineModels();
+    },
+  });
+
+  useTestApp(appOptions);
+
+  // the configuration reads `onStartup` and `strictSetting` when the app boots
+  async function reboot(): Promise<void> {
+    await disposeTestApps();
+    await createTestApp(appOptions());
+  }
 
   beforeEach(() => {
-    DI.clearCache();
-    DI.register(MigratorTestConf).as(Configuration);
-    DI.register(MigratorTestDriver).as('migrator-test-driver');
-
     TABLES.clear();
     TABLES.set(MIGRATION_TABLE_NAME, TRACKING_COLUMNS);
     TABLES.set(LOCK_TABLE, [column('Id'), column('AcquiredAt', 'DATETIME'), column('Owner', 'VARCHAR')]);
@@ -264,23 +277,11 @@ describe('OrmMigrator', function () {
     EXECUTED = [];
     onStartup = true;
     strictSetting = false;
-
-    preRegistered = [...(DI.getRegisteredTypes('__migrations__') ?? [])];
-    models = defineModels();
   });
 
   afterEach(async () => {
-    for (const t of [...(DI.getRegisteredTypes('__migrations__') ?? [])]) {
-      if (!preRegistered.includes(t)) {
-        DI.unregister(t);
-      }
-    }
-
-    Object.values(models).forEach((m) => DI.unregister(m));
-    DI.unregister(MigratorTestConf);
-    DI.unregister(MigratorTestDriver);
-    DI.clearCache();
     sinon.restore();
+    await disposeTestApps();
   });
 
   function createUsersMigration() {
@@ -480,6 +481,7 @@ describe('OrmMigrator', function () {
 
   it('the strict check asks the driver again about a table the Orm resolve found missing', async () => {
     strictSetting = true;
+    await reboot();
     TABLES.set('mig_users', [column('Id', 'INT', { PrimaryKey: true })]);
     TABLES.delete('mig_other');
 
@@ -670,6 +672,7 @@ describe('OrmMigrator', function () {
 
   it('(g) a connection with OnStartup off is not gated', async () => {
     onStartup = false;
+    await reboot();
 
     await DI.resolve(Orm);
 
@@ -692,6 +695,7 @@ describe('OrmMigrator', function () {
 
   it('the Orm resolve is lenient about missing tables; the migrator fails with db.StrictTableCheck on', async () => {
     strictSetting = true;
+    await reboot();
     TABLES.delete('mig_other');
     createUsersMigration();
 
@@ -705,6 +709,7 @@ describe('OrmMigrator', function () {
   it('the Orm resolve fails with db.StrictTableCheck on when a connection without Migration.OnStartup misses a table', async () => {
     onStartup = false;
     strictSetting = true;
+    await reboot();
     TABLES.set('mig_users', [column('Id', 'INT', { PrimaryKey: true })]);
     TABLES.delete('mig_other');
 
@@ -717,6 +722,7 @@ describe('OrmMigrator', function () {
   it('a migrator with MigrateOnStartup: false resolves its Orm without the table check, as a migration tool runs before the tables exist', async () => {
     onStartup = false;
     strictSetting = true;
+    await reboot();
     TABLES.delete('mig_other');
 
     const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);

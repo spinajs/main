@@ -1,17 +1,15 @@
 /* eslint-disable prettier/prettier */
 import './../src/bootstrap.js';
-import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator } from './../src/hydrators.js';
-import { Configuration } from '@spinajs/configuration';
-import { Bootstrapper, DI } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
 import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
 import '@spinajs/log';
+import { useTestApp } from '@spinajs/testing';
 import { Orm } from '../src/index.js';
 import { InsertQueryBuilder } from '../src/builders.js';
-import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeInsertQueryCompiler, FakeUpdateQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeConverter, FakeTableQueryCompiler } from './misc.js';
-import { DbServerResponse, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, DatetimeValueConverter, TableQueryCompiler, ServerResponseMapper, InsertBehaviour } from '../src/interfaces.js';
+import { FakeSqliteDriver, ormApp } from './misc.js';
+import { DbServerResponse, ServerResponseMapper, InsertBehaviour } from '../src/interfaces.js';
 import { Model1 } from './mocks/models/Model1.js';
 
 chai.use(chaiAsPromised);
@@ -60,36 +58,23 @@ class BatchInsertDriver extends FakeSqliteDriver {
 }
 
 describe('batch insert key backfill', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     RESPONSE = { RowsAffected: 0, LastInsertId: 0, Returning: [] };
     FIRST_ID = true;
     MAX_INSERT_ROWS = undefined;
-
-    DI.register(ConnectionConf).as(Configuration);
-    DI.register(BatchInsertDriver).as('sqlite');
-    DI.register(FakeMysqlDriver).as('mysql');
-
-    DI.register(FakeSelectQueryCompiler).as(SelectQueryCompiler);
-    DI.register(FakeDeleteQueryCompiler).as(DeleteQueryCompiler);
-    DI.register(FakeUpdateQueryCompiler).as(UpdateQueryCompiler);
-    DI.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
-    DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
-
-    DI.register(DbPropertyHydrator).as(ModelHydrator);
-    DI.register(NonDbPropertyHydrator).as(ModelHydrator);
-    DI.register(FakeConverter).as(DatetimeValueConverter);
-    DI.register(PassthroughResponseMapper).as(ServerResponseMapper);
-
-    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
-    for (const b of bootstrappers) {
-      await b.bootstrap();
-    }
-
-    await DI.resolve(Orm);
   });
 
+  useTestApp(() =>
+    ormApp({
+      register: (c) => {
+        c.register(BatchInsertDriver).as('sqlite');
+        c.register(PassthroughResponseMapper).as(ServerResponseMapper);
+      },
+      resolve: [Orm],
+    }),
+  );
+
   afterEach(() => {
-    DI.clearCache();
     sinon.restore();
   });
 
