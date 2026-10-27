@@ -331,6 +331,19 @@ export class ContainerCache {
     };
   }
 
+  /** Waits until no resolution started in this container is in flight, including ones started while waiting. */
+  public async settle(): Promise<void> {
+    for (;;) {
+      const checked = [...this.pendingChecked.values()].flat().map((p) => p.promise);
+      const pending = [...this.resolutionPromises.values(), ...checked];
+      if (pending.length === 0) {
+        return;
+      }
+
+      await Promise.allSettled(pending);
+    }
+  }
+
   public snapshotState(): Map<string, unknown[]> {
     return new Map([...this.cache].map(([key, list]) => [key, [...list]]));
   }

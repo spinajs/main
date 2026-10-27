@@ -101,4 +101,70 @@ describe('container snapshot / restore', () => {
     expect([...restored.keys()]).to.deep.equal(['local']);
     expect(restored.get('local')).to.equal(local);
   });
+
+  it('restore waits for a resolve in flight and disposes what it built', async () => {
+    class Slow extends AsyncService {
+      public disposed = false;
+      public async resolve(): Promise<void> {
+        await new Promise((r) => setTimeout(r, 20));
+        await super.resolve();
+      }
+      public async dispose(): Promise<void> {
+        this.disposed = true;
+      }
+    }
+
+    const c = new Container();
+    const before = c.snapshot();
+    const pending = c.resolve(Slow);
+    await c.restore(before);
+    const slow = await pending;
+
+    expect(slow.disposed).to.be.true;
+    expect(c.Cache.has(Slow)).to.be.false;
+    expect(c.getCacheStats().size).to.equal(before.cache.size);
+  });
+
+  it('restore also drops and disposes what a disposing service resolved', async () => {
+    class Late extends AsyncService {
+      public disposed = false;
+      public async dispose(): Promise<void> {
+        this.disposed = true;
+      }
+    }
+
+    let late: Late | undefined;
+    const c = new Container();
+    class Leaky extends AsyncService {
+      public async dispose(): Promise<void> {
+        late = await c.resolve(Late);
+      }
+    }
+
+    const before = c.snapshot();
+    await c.resolve(Leaky);
+    await c.restore(before);
+
+    expect(late).to.be.instanceOf(Late);
+    expect(late!.disposed).to.be.true;
+    expect(c.Cache.has(Late)).to.be.false;
+    expect(c.getCacheStats().size).to.equal(before.cache.size);
+  });
+
+  it('restore swaps the registry back before it disposes anything', async () => {
+    const c = new Container();
+    let registeredDuringDispose: boolean | undefined;
+    class Checking extends AsyncService {
+      public async dispose(): Promise<void> {
+        registeredDuringDispose = c.hasRegistered(Base);
+      }
+    }
+
+    const before = c.snapshot();
+    c.register(Impl).as(Base);
+    await c.resolve(Checking);
+    await c.restore(before);
+
+    expect(registeredDuringDispose).to.be.false;
+  });
 });

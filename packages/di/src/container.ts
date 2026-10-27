@@ -181,12 +181,36 @@ export class Container extends EventEmitter implements IContainer {
   public async restore(snapshot: ContainerSnapshot): Promise<void> {
     const errors: Error[] = [];
 
-    for (const child of [...this.children]) {
-      await child.dispose().catch((err: Error) => errors.push(err));
+    // The second pass takes back what a disposing service resolved or registered.
+    for (let pass = 0; pass < 2; pass++) {
+      await this.cache.settle();
+      const { children, dropped } = this.swapBack(snapshot);
+      await this.disposeDetached(children, dropped, errors);
     }
+
+    if (errors.length > 0) {
+      console.warn(`${errors.length} services failed to dispose properly during restore:`, errors);
+    }
+  }
+
+  /** One synchronous step, so no dispose() runs against a half-restored container. */
+  private swapBack(snapshot: ContainerSnapshot): { children: IContainer[]; dropped: unknown[] } {
+    const children = [...this.children];
     this.children.clear();
 
-    for (const instance of this.cache.restoreState(snapshot.cache)) {
+    const dropped = this.cache.restoreState(snapshot.cache);
+    this.registry.restoreState(snapshot.registry, snapshot.values, snapshotMaps.get(snapshot));
+    this.restoreListeners(snapshot.listeners);
+
+    return { children, dropped };
+  }
+
+  private async disposeDetached(children: IContainer[], dropped: unknown[], errors: Error[]): Promise<void> {
+    for (const child of children) {
+      await child.dispose().catch((err: Error) => errors.push(err));
+    }
+
+    for (const instance of dropped) {
       if (instance instanceof Service) {
         try {
           await instance.dispose();
@@ -194,13 +218,6 @@ export class Container extends EventEmitter implements IContainer {
           errors.push(err as Error);
         }
       }
-    }
-
-    this.registry.restoreState(snapshot.registry, snapshot.values, snapshotMaps.get(snapshot));
-    this.restoreListeners(snapshot.listeners);
-
-    if (errors.length > 0) {
-      console.warn(`${errors.length} services failed to dispose properly during restore:`, errors);
     }
   }
 
