@@ -23,7 +23,10 @@ export class GenerateAsyncApi extends CliCommand {
   public async execute(options: GenerateAsyncApiOptions): Promise<void> {
     // Loaded lazily: the generator packages are ESM-only, command discovery must not require them.
     const { readManifest } = await import('@spinajs/manifest');
-    const { manifestToAsyncApi } = await import('@spinajs/asyncapi');
+    const { manifestToAsyncApi } = await import('@spinajs/asyncapi').catch((err: NodeJS.ErrnoException) => {
+      if (err.code === 'ERR_MODULE_NOT_FOUND') throw new Error('install @spinajs/asyncapi to use generate:asyncapi', { cause: err });
+      throw err;
+    });
 
     const manifest = await readManifest(options.manifest);
     const doc = manifestToAsyncApi(manifest, {

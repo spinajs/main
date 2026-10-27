@@ -47,7 +47,6 @@
   },
   "homepage": "https://github.com/spinajs/reflection#readme",
   "dependencies": {
-    "@spinajs/asyncapi": "3.0.23",
     "@spinajs/configuration": "3.0.23",
     "@spinajs/configuration-common": "3.0.23",
     "@spinajs/di": "3.0.23",
@@ -61,7 +60,16 @@
     "reflect-metadata": "^0.1.13"
   },
   "devDependencies": {
-    "@types/node": "^18.11.18"
+    "@types/node": "^18.11.18",
+    "@spinajs/asyncapi": "3.0.23"
   },
-  "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
+  "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee",
+  "peerDependencies": {
+    "@spinajs/asyncapi": "3.0.23"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/asyncapi": {
+      "optional": true
+    }
+  }
 }
