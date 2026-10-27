@@ -544,11 +544,23 @@ export class Container extends EventEmitter implements IContainer {
     return resolved as ResolveChainResult<T>;
   }
 
-  /** A class of a chain resolves in the container that registered it, a PerChildContainer one in this container. */
+  /**
+   * A class of a chain resolves in the container that registered it, or in the nearest isolating
+   * container below that one; a PerChildContainer class resolves in this container.
+   */
   private resolveChainClass<T>(base: Class<T> | string, entry: Class<T>, owner: Container) {
     const target = owner.followRegistered(entry);
-    const resolver = resolverOf(target) === ResolveType.PerChildContainer ? this : owner;
+    const resolver = resolverOf(target) === ResolveType.PerChildContainer ? this : this.isolatingBelow(owner);
     return resolver.resolveType(base, target, undefined, true);
+  }
+
+  /** The nearest isolating container from this one up to, not including, `owner`; `owner` when there is none. */
+  private isolatingBelow(owner: Container): Container {
+    if (this === owner || this.isolateSingletons) {
+      return this;
+    }
+
+    return this.parent instanceof Container ? this.parent.isolatingBelow(owner) : owner;
   }
 
   private getCurrentType<T>(type: Class<T> | string, tType?: Class<T>, check?: boolean) {
