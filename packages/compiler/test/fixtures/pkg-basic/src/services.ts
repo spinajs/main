@@ -1,4 +1,4 @@
-import { Injectable, Inject, Autoinject, Singleton, NewInstance, PerChildInstance, AsyncService, SyncService, Bootstrapper, LazyInject } from '@spinajs/di';
+import { DI, Injectable, Inject, Autoinject, Singleton, NewInstance, PerChildInstance, AsyncService, SyncService, Bootstrapper, LazyInject } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log-common';
 
@@ -23,6 +23,10 @@ export class Greeter extends AsyncService {
   @Logger('basic') public log: Log;
   @LazyInject(Clock) public lazyClock: Clock;
   constructor(public clock2: Clock) { super(); }
+  public async load(): Promise<void> {
+    await DI.resolve(Clock);
+    DI.resolve(Mailer);
+  }
 }
 
 @Injectable(Bootstrapper)

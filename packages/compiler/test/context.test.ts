@@ -17,6 +17,11 @@ describe('ExtractorContext', () => {
     expect(ctx.isSubclassOf(cls('Leaf'), 'Base')).to.be.true;
     expect(ctx.isSubclassOf(cls('Base'), 'Leaf')).to.be.false;
   });
+  it('isSubclassOf does not throw on a base that is a non-class object type', () => {
+    const casted = loaded.sourceFiles.find((f) => f.fileName.endsWith('casted-base.ts'))!;
+    const weird = casted.statements.find((st): st is ts.ClassDeclaration => ts.isClassDeclaration(st))!;
+    expect(ctx.isSubclassOf(weird, 'Base')).to.be.false;
+  });
   it('typeRef unwraps Promise and Ok', () => {
     const svc = cls('Svc');
     expect(ctx.typeRef(returnOf(method(svc, 'one')), svc).text).to.equal('Dto');
