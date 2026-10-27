@@ -67,7 +67,6 @@ class TaggedMigrateUpCommand extends MigrateUpCommand {
 }
 
 async function acme(): Promise<void> {
-  DI.setESMModuleSupport();
   DI.register(LoudMigrateStatusCommand).as(MigrateStatusCommand);
   DI.register(TaggedMigrateUpCommand).as(MigrateUpCommand);
 

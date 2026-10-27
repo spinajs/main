@@ -45,8 +45,6 @@ class AppConfiguration extends FrameworkConfiguration {
 
 async function main() {
   DI.register(AppConfiguration).as(Configuration);
-  DI.setESMModuleSupport();
-
   const intl = await DI.resolve(Intl);
 
   console.log(intl.__('hello %s', 'Anna')); // "witaj Anna"

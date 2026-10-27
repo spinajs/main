@@ -402,8 +402,7 @@ The suites import the other `@spinajs/*` packages from their built `lib` output,
 repo's `typescript-7`). It is incremental: a no-op when the tree is already built.
 
 All suites share one mocha process and one DI root container. `test/setup.ts`, loaded by
-`.mocharc.json` before any suite, puts DI in ESM mode, so the suites pass the same way with or
-without the CJS build and `npm run prepare-module-support`. A new suite must not call
+`.mocharc.json` before any suite, prepares the shared DI root. A new suite must not call
 `DI.clearCache()`: uncache only the types it registered. A suite that starts the server calls
 `releaseHttpServer()` from `test/common.ts` in its `after()` hook.
 

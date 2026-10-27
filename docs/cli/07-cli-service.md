@@ -79,7 +79,6 @@ export class OpsCli extends Cli {
 }
 
 export async function main(): Promise<void> {
-  DI.setESMModuleSupport();
   DI.register(() => process.argv).as('__cli_argv_provider__');
   DI.register(OpsCli).as(Cli);
 
@@ -110,8 +109,6 @@ import '@spinajs/log';
 
 /** Bin of an app that ships as `acme`: same flow as `spinajs`, a different exit code policy. */
 async function acme(): Promise<void> {
-  DI.setESMModuleSupport();
-
   // Same filter as the spinajs bin: these options belong to @spinajs/configuration.
   DI.register(() => {
     const out: string[] = [];

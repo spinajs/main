@@ -71,7 +71,7 @@ export default {
 };
 ```
 
-A package config points `system.dirs` at its own build with `packageLibDirs(pkg, sub)`. It returns two paths, `<root>/node_modules/<pkg>/lib/<sub>` and the same one directory up (for a process started from an app or build folder), where `<root>` is `WORKSPACE_ROOT_PATH`, else the working directory. `cjs` or `mjs` follows how `@spinajs/configuration` was loaded. Node only.
+A package config points `system.dirs` at its own build with `packageLibDirs(pkg, sub)`. It returns two paths, `<root>/node_modules/<pkg>/lib/<sub>` and the same one directory up (for a process started from an app or build folder), where `<root>` is `WORKSPACE_ROOT_PATH`, else the working directory. Node only.
 
 ```ts
 // src/config/my-package.ts
@@ -198,8 +198,6 @@ import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 
 async function main() {
-  DI.setESMModuleSupport();
-
   const configuration = await DI.resolve(Configuration, [
     { cfgCustomPaths: [join(process.cwd(), 'test', 'fixtures', 'config')] },
   ]);

@@ -194,7 +194,6 @@ export class HealthSocket extends BaseSocketController {
 }
 
 export async function main() {
-  DI.setESMModuleSupport();
   await DI.resolve(Configuration);
 
   const server = await DI.resolve(SocketServer);

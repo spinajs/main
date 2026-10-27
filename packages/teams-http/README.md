@@ -80,7 +80,7 @@ principal whose verified email (`VerifiedEmailSource`) is the invited one.
 
 ## Setup
 
-- Install the package: its config fragment adds `lib/<mjs|cjs>/controllers` to
+- Install the package: its config fragment adds `lib/controllers` to
   `system.dirs.controllers`. An app that mounts controllers by hand registers
   `TEAMS_HTTP_CONTROLLERS`.
 - `@spinajs/teams` brings the roles, permissions, migrations, guard rules and the archived policies;

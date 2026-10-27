@@ -97,7 +97,7 @@ export default {
 - **Resolution errors are logged, not thrown.** A synchronous `DI.resolve()` error or a rejected `AsyncService.resolve()` is logged at `error` (`Cannot resolve type ${type} from file ${file}`) and the file is skipped.
 - **Importing runs decorators.** A file is imported even by `@ListFromFiles`, so its class decorators (`@Injectable`, `@Command`, `@SocketController`) run. That is how `@spinajs/http-socket` registers socket controllers.
 - **The property is read-only.** It has a getter and no setter. Assigning to it, eg. through a field initializer, throws a `TypeError` in strict mode.
-- **A default-exported class is listed under its class name.** In ESM mode `DI.__spinajs_require__` returns the default export itself, so named exports next to it are not seen.
+- **A default-exported class is listed under its class name.** `DI.__spinajs_require__` returns the default export itself, so named exports next to it are not seen.
 
 ## Best practices
 

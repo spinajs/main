@@ -122,8 +122,8 @@ void main();
 
 ## Important behaviour
 
-- **A default-exported class is seen under its class name.** In ESM mode `DI.__spinajs_require__` unwraps a default export, so the named exports next to it are not seen.
-- **Order depends on the module mode.** Entries of one file follow its export order: alphabetical for an ESM namespace object, assignment order for a CommonJS `exports` object.
+- **A default-exported class is seen under its class name.** `DI.__spinajs_require__` unwraps a default export, so the named exports next to it are not seen.
+- **Order follows the module namespace.** Entries of one file come in alphabetical export order.
 - **The matcher is called once per export key.** It receives the file name and the export key; a one-parameter matcher returns the same name for every key.
 - **A non-`AsyncService` instance is not awaited.** If `DI.resolve()` returns a `Promise` for it, `instance` holds that `Promise`.
 - **`@NewInstance()` classes are built once per scan, not per read.** The scan's `Promise` is cached, so later reads return the same instances.

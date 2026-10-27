@@ -62,7 +62,7 @@ console.log(matches('svc-token-1'), taggedHash('app:log', 'session-123', 16));
 ## Important behaviour
 
 - Nothing here is exported from `@spinajs/util`; import from `@spinajs/util/crypto`.
-- `processSecret()` is per module copy: a process that loads both the ESM and the CommonJS build gets two different secrets. Values keyed with it do not survive a restart, so never store them.
+- `processSecret()` is per module copy: a process that loads two copies of the module gets two different secrets. Values keyed with it do not survive a restart, so never store them.
 - `parseKeyMaterial` returns `null` rather than throwing, so the caller words the error for its own config key. Do not put the rejected value in that message.
 - `taggedHash` output is a fingerprint, not a MAC: anyone who knows the input can recompute it. Use `hmacSha256` under a secret when the input is guessable.
 

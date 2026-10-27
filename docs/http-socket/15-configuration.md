@@ -72,7 +72,6 @@ export class SocketAppConfiguration extends FrameworkConfiguration {
   }
 }
 
-DI.setESMModuleSupport();
 DI.register(SocketAppConfiguration).as(Configuration);
 ```
 

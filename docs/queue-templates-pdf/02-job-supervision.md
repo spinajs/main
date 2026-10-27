@@ -5,7 +5,7 @@
 ## How it works
 
 1. `DefaultQueueService.consume(RenderPdfJob)` receives a message, resolves `RenderPdfJob` from DI, calls `hydrate()` with the message, marks the row `executing` and calls `execute(progress)`.
-2. `execute()` calls `spawnWorker()`, which runs `child_process.fork()` on `render-worker.js` next to the package's compiled `RenderPdfJob.js` (CommonJS or ESM build alike).
+2. `execute()` calls `spawnWorker()`, which runs `child_process.fork()` on `render-worker.js` next to the package's compiled `RenderPdfJob.js`.
 3. `superviseChild(child, progress)` arms a timer of `timeoutMs` (default `120000`), attaches `message`, `error` and `exit` listeners, then sends `buildRequest()` to the child over IPC.
 4. For each `WorkerMessage` from the child:
    - `progress`: calls `progress(percent, { phase, message })` without awaiting it; a failed write is logged as a warning.

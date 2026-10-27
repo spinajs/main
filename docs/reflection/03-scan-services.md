@@ -6,7 +6,7 @@
 
 1. **Configuration.** On the first read, the scan calls `DI.get(Configuration)` and reads `configPath` from it. `DI.get()` returns the instance already in the root cache; it does not build one.
 2. **Logger.** It calls `DI.check(Log)`. When a `Log` implementation is registered (importing `@spinajs/log` registers one), it resolves `DI.resolve(Log, ['reflection'])`. Otherwise it resolves `DI.resolve(InternalLoggerProxy, ['reflection'])`.
-3. **Module loader.** For each file it calls `DI.__spinajs_require__(file)`. That function delegates to the value registered as `__module_loader__` when there is one, else to `import()` in ESM mode or `require()`.
+3. **Module loader.** For each file it calls `DI.__spinajs_require__(file)`. That function delegates to the value registered as `__module_loader__` when there is one, else to `import()`.
 
 Each service is looked up per scan, on its first read, not at decoration time.
 
