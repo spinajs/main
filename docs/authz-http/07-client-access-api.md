@@ -75,7 +75,7 @@ The value, `accessEpoch(principal)`, is the first 16 hex characters of a SHA-256
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `authz.http.access.domain` | `string` | `'root'` | a domain name | The domain `GET /user/access`, `POST /user/access/checks` and the explain route answer for; the fallback of the `AuthzDomainResolver`. |
-| `system.dirs.controllers` | `string[]` | the package's `lib/<mjs\|cjs>/controllers` folder (added by the package config) | | Where http finds `AccessController`. |
+| `system.dirs.controllers` | `string[]` | the package's `lib/controllers` folder (added by the package config) | | Where http finds `AccessController`. |
 | `http.cors.exposedHeaders` | `string[] \| string \| null` | not set | header names | Add `X-Access-Epoch` so cross-origin browser clients can read it ([CORS](../http/16-cors.md)). |
 
 ```ts

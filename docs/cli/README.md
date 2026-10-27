@@ -12,7 +12,7 @@ It does **not** scaffold projects or generate code, and it does **not** import y
 npm install @spinajs/cli
 ```
 
-The package ships the `spinajs` bin (`lib/mjs/cli.js`).
+The package ships the `spinajs` bin (`lib/cli.js`).
 
 ## Features
 

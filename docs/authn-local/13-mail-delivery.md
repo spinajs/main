@@ -62,7 +62,7 @@ Outside development and test, that factory refuses `'queue'` when `queue.routing
 | `authn.local.mail.delivery` | `string` | `'queue'` | `'queue'`, `'inline'` | How reset and invite mails are delivered. |
 | `queue.routing.AuthnMailJob` | routing option | `{ connection: 'authn-mail' }` | a connection name | Connection the job goes to. |
 | `queue.connections` (entry `authn-mail`) | connection | `BlackHoleQueueClient` | any queue client | Shipped so the app boots; it drops every job. Replace it with a real connection. |
-| `system.dirs.jobs` | `string[]` | the package's `lib/<cjs or mjs>/queue` | directory paths | Where a consumer finds `AuthnMailJob`. |
+| `system.dirs.jobs` | `string[]` | the package's `lib/queue` | directory paths | Where a consumer finds `AuthnMailJob`. |
 
 ```ts
 // config/queue.ts in your app

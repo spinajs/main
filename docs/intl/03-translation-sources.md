@@ -49,7 +49,7 @@ sequenceDiagram
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `system.dirs.locales` | `string[]` | `[]` in code; `@spinajs/http` and `@spinajs/users-http` add their own `lib/<mjs\|cjs>/locales` directories | Absolute directory paths | Directories the file sources scan recursively |
+| `system.dirs.locales` | `string[]` | `[]` in code; `@spinajs/http` and `@spinajs/users-http` add their own `lib/locales` directories | Absolute directory paths | Directories the file sources scan recursively |
 
 Configuration arrays from several files are concatenated, so your directory is added to the package directories, not substituted for them (see [Config files](../configuration/03-config-files.md)).
 

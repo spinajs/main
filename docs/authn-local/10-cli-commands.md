@@ -32,7 +32,7 @@ Both commands inject the `Container` that resolves them and resolve their servic
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `system.dirs.cli` | `string[]` | the package's `lib/<mjs\|cjs>/cli` directory, under the workspace root and one level up | | Shipped by the package config; makes the commands discoverable. |
+| `system.dirs.cli` | `string[]` | the package's `lib/cli` directory, under the workspace root and one level up | | Shipped by the package config; makes the commands discoverable. |
 | `authn.local.generator.*` | | | | Used by `--generate`; see [Password policy](03-password-policy.md#configuration). |
 | `authn.local.expiration.*` | | | | Used by `authn:password-expire`; see [Password expiry](08-password-expiry.md#configuration). |
 

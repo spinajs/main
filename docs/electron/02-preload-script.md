@@ -43,7 +43,7 @@ Any preload that exposes an object of this shape under `ipc` works with the rend
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Preload bridge | Not in DI; `window.ipc` set once per page through `contextBridge` | `lib/mjs/preload.js` | Your own preload | Point `webPreferences.preload` at your script. Keep the `IIpcRendererBridge` shape. |
+| Preload bridge | Not in DI; `window.ipc` set once per page through `contextBridge` | `lib/preload.js` | Your own preload | Point `webPreferences.preload` at your script. Keep the `IIpcRendererBridge` shape. |
 
 ### Preload bridge: custom implementation
 

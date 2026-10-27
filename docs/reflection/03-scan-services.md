@@ -17,7 +17,7 @@ Each service is looked up per scan, on its first read, not at decoration time.
 | Configuration | `Configuration` (from `@spinajs/configuration-common`, re-exported by `@spinajs/configuration`); singleton; read with `DI.get()` from the root container | `FrameworkConfiguration` | Any `Configuration` subclass, eg. a test configuration | `DI.register(MyConfig).as(Configuration)`, then `await DI.resolve(Configuration)` before the first read |
 | Logger | `Log` from `@spinajs/log-common`, resolved by type with the constructor argument `'reflection'` | The `@spinajs/log` logger named `reflection` | `InternalLoggerProxy` when no `Log` is registered; your own `Log` | Register a `Log` implementation, or configure a `logger.rules` entry for `reflection` |
 | Fallback logger | `InternalLoggerProxy`; singleton (no decorator) | `InternalLoggerProxy` | Your subclass | `DI.register(MyProxy).as(InternalLoggerProxy)` before the first scan |
-| Module loader | Value `__module_loader__` in the root container; read on every file | none: `import()` in ESM mode, `require()` otherwise | Your `DI.IModuleLoader` | `DI.register(loader).asValue('__module_loader__')` before `Configuration` resolves, because config files load through it too |
+| Module loader | Value `__module_loader__` in the root container; read on every file | none: `import()` | Your `DI.IModuleLoader` | `DI.register(loader).asValue('__module_loader__')` before `Configuration` resolves, because config files load through it too |
 
 ### Configuration: custom implementation
 

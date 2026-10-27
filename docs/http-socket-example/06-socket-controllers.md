@@ -70,9 +70,9 @@ A controller is the extension unit: add commands by adding a class, not by editi
 ```ts sample
 import { Autoinject } from '@spinajs/di';
 import { BaseSocketController, Command, Connection, Payload, SocketConnection, SocketController, SocketHub } from '@spinajs/http-socket';
-import { NotesStore } from '@spinajs/http-socket-example/lib/mjs/store.js';
-import type { DemoUser } from '@spinajs/http-socket-example/lib/mjs/auth.js';
-import { startNotesServer } from '@spinajs/http-socket-example/lib/mjs/server.js';
+import { NotesStore } from '@spinajs/http-socket-example/lib/store.js';
+import type { DemoUser } from '@spinajs/http-socket-example/lib/auth.js';
+import { startNotesServer } from '@spinajs/http-socket-example/lib/server.js';
 
 const SearchSchema = {
   type: 'object',

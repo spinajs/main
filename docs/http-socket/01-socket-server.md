@@ -141,7 +141,6 @@ DI.register(CompressedSocketServer).as(SocketServer);
 - Socket controllers must be registered before `SocketServer` resolves: `SocketHandlerRegistry.build()` runs once. A controller imported later is never routed.
 - Keep socket controllers out of `system.dirs.controllers`: the http loader scans those folders.
 - With `@spinajs/authz-http`, the root authz domain boots when the http server starts listening. Resolve `SocketServer` **before** `http.start()`, or the domain's boot checks skip the `@SocketAccess` permissions; `SocketServer` then logs a warning that names them. Resolved after `start()`, sockets still work.
-- An ES module app must call `DI.setESMModuleSupport()` before it resolves the configuration. Without it, the configuration sources look for the CommonJS builds and the `http.socket` defaults of this package are not loaded.
 - `SocketServer.dispose()` runs the graceful shutdown (see [Shutdown](14-shutdown-and-recovery.md)) and never closes the host's http server: socket.io's `io.close()` is not used.
 - The http server's `http.server.closing` DI event starts the same shutdown, but only for the server `SocketHttpHost` returned.
 - A handshake refusal message is logged at debug level; the client sees only the `SocketError` in `connect_error.data`.

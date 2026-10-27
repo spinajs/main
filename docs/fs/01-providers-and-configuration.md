@@ -50,7 +50,7 @@ sequenceDiagram
 | `fs.providers[].*` | | | | Every other key goes to the provider's constructor. See [Local provider](03-local-provider.md#configuration) and [Temp file system](04-temp-file-system.md#configuration). |
 | `fs.hasher.defaultAlgorithm` | `string` | `sha256` | any `crypto.getHashes()` name | See [File hashing](09-file-hashing.md#configuration). |
 | `fs.fileInfo.*` | | | | See [File metadata](10-file-metadata.md#configuration). |
-| `system.dirs.cli` | `string[]` | the package's `lib/<cjs or mjs>/cli` under `node_modules/@spinajs/fs`, from `WORKSPACE_ROOT_PATH` or `cwd`, and one level up | directory paths | Shipped by the package config, so `@spinajs/cli` finds the [CLI commands](11-cli-commands.md). |
+| `system.dirs.cli` | `string[]` | the package's `lib/cli` under `node_modules/@spinajs/fs`, from `WORKSPACE_ROOT_PATH` or `cwd`, and one level up | directory paths | Shipped by the package config, so `@spinajs/cli` finds the [CLI commands](11-cli-commands.md). |
 
 The package config contains **no** providers. Configure at least the default provider, and `fs-temp` when you zip with a local source (see [File operations](02-file-operations.md#zip-and-unzip)).
 

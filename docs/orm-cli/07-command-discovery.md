@@ -4,7 +4,7 @@ The package ships a config file that adds its compiled `cli` directory to `syste
 
 ## How it works
 
-1. `@spinajs/configuration` loads `node_modules/@spinajs/orm-cli/lib/<mjs|cjs>/config/orm-cli.js` with every other `@spinajs/*` config file.
+1. `@spinajs/configuration` loads `node_modules/@spinajs/orm-cli/lib/config/orm-cli.js` with every other `@spinajs/*` config file.
 2. Its default export appends two directories to `system.dirs.cli`; arrays merge by concatenation, so the entries of `@spinajs/cli` and your application stay.
 3. `Cli.resolve()` lists every exported class of every file in those directories and keeps the ones decorated with `@Command`. See [`@spinajs/cli`: command discovery](../cli/05-command-discovery.md).
 4. `Cli` reads the `@Command` and `@Option` metadata of each kept class and builds the commander command. It resolves the class from DI only when the command is invoked.
@@ -21,20 +21,20 @@ The package ships a config file that adds its compiled `cli` directory to `syste
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `system.dirs.cli` | `string[]` | appends `<root>/node_modules/@spinajs/orm-cli/lib/<flavour>/cli` and `<root>/../node_modules/@spinajs/orm-cli/lib/<flavour>/cli` | absolute directory paths | Where `Cli` looks for this package's commands. `<root>` is `process.env.WORKSPACE_ROOT_PATH ?? process.cwd()`; `<flavour>` is `cjs` when `module` is defined, else `mjs` |
+| `system.dirs.cli` | `string[]` | appends `<root>/node_modules/@spinajs/orm-cli/lib/cli` and `<root>/../node_modules/@spinajs/orm-cli/lib/cli` | absolute directory paths | Where `Cli` looks for this package's commands. `<root>` is `process.env.WORKSPACE_ROOT_PATH ?? process.cwd()`; `<flavour>` is `cjs` when `module` is defined, else `mjs` |
 
 | Environment variable | Meaning |
 | --- | --- |
 | `WORKSPACE_ROOT_PATH` | The directory holding `node_modules`, when the process starts elsewhere |
 
 ```ts
-// lib/mjs/config/orm-cli.js, as shipped
+// lib/config/orm-cli.js, as shipped
 export default {
   system: {
     dirs: {
       cli: [
-        '<root>/node_modules/@spinajs/orm-cli/lib/mjs/cli',
-        '<root>/../node_modules/@spinajs/orm-cli/lib/mjs/cli',
+        '<root>/node_modules/@spinajs/orm-cli/lib/cli',
+        '<root>/../node_modules/@spinajs/orm-cli/lib/cli',
       ],
     },
   },
@@ -77,7 +77,7 @@ void main();
 
 ## Important behaviour
 
-- **Only `lib/` is scanned.** A checkout of this package that was never built has no `lib/<flavour>/cli`, and `Cli` warns `Directory ... not exists`.
+- **Only `lib/` is scanned.** A checkout of this package that was never built has no `lib/cli`, and `Cli` warns `Directory ... not exists`.
 - **`<root>` is the working directory.** Start the bin from the directory that holds `node_modules`, from one level below it, or set `WORKSPACE_ROOT_PATH`.
 - **Command classes are not instantiated at discovery.** Only the invoked command resolves an `Orm`; `spinajs --help` opens no database connection.
 - **The bin exits with `process.exitCode`.** `migrate-up` and `migrate-status` report "not current" through it. A `@spinajs/cli` whose bin ends with a bare `process.exit(0)` loses it; run the classes directly in that case.

@@ -81,7 +81,7 @@ The login strategy follows the same rule. When the common view holds `rbac` keys
 import { loadLayers } from '@spinajs/authz-convert';
 
 export async function listLayers(): Promise<void> {
-  const layers = await loadLayers(['lib/mjs/config']);
+  const layers = await loadLayers(['lib/config']);
   console.log('envs:', [...layers.envs.keys()].join(', '));
   console.log('skipped:', layers.skipped);
   for (const [layer, paths] of layers.computed) console.log(`${layer} computes`, paths);

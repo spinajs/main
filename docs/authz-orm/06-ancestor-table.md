@@ -62,7 +62,7 @@ sequenceDiagram
 | `authz.orm.domain` | `string` | `'root'` | a domain name | The domain whose stores a delete cleans and whose `ChangeBus` and audit it uses. |
 | `authz.admin.backend` | `string` | `'MemoryAuthzAdminBackend'` | the class name of a registered `AuthzAdminBackend` | Read to decide where the forget of a delete runs. Owned by `@spinajs/authz` ([AuthzAdmin](../authz/10-authz-admin.md)). |
 
-The CLI commands come from the package config `system.dirs.cli`, which points at `node_modules/@spinajs/authz-orm/lib/<cjs|mjs>/cli/commands` ([command discovery](../cli/05-command-discovery.md)). The CLI resolves only the command, so a command resolves [`OrmMigrator`](../orm/10-migrations.md) before it reads: the ORM boots and the `Migration.OnStartup` pass runs, as in an app process.
+The CLI commands come from the package config `system.dirs.cli`, which points at `node_modules/@spinajs/authz-orm/lib/cli/commands` ([command discovery](../cli/05-command-discovery.md)). The CLI resolves only the command, so a command resolves [`OrmMigrator`](../orm/10-migrations.md) before it reads: the ORM boots and the `Migration.OnStartup` pass runs, as in an app process.
 
 ## Schema
 

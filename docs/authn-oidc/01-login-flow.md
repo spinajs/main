@@ -130,7 +130,7 @@ The controller has the fixed prefix `auth/oidc`.
 | `DELETE /auth/oidc/:provider/link` | Removes a link of the current identity. | [Account linking](06-account-linking.md) |
 | `GET /auth/oidc/:provider/reauth` | Re-authenticates the current session. Optional `?returnTo=/path`; any other query key is refused. | this page |
 
-`OidcController` is not exported. The package config file adds its `lib/<cjs|mjs>/controllers` directory to `system.dirs.controllers`, and the HTTP server finds it by that scan.
+`OidcController` is not exported. The package config file adds its `lib/controllers` directory to `system.dirs.controllers`, and the HTTP server finds it by that scan.
 
 ## Configuration
 

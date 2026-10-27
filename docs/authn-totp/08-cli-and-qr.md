@@ -50,7 +50,7 @@ npx spinajs authn:mfa-qr "JBSW Y3DP EHPK 3PXP" --label jane.doe@acme.example --o
 | `authn.mfa.totp.algorithm` | `string` | `'SHA1'` | `'SHA1'`, `'SHA256'`, `'SHA512'` | Algorithm written into the URI. |
 | `authn.mfa.totp.digits` | `number` | `6` | 6 to 10 | Digits written into the URI. |
 | `authn.mfa.totp.period` | `number` | `30` | 1 to 300 | Period written into the URI. |
-| `system.dirs.cli` | `string[]` | adds `node_modules/@spinajs/authn-totp/lib/<cjs\|mjs>/cli` under `WORKSPACE_ROOT_PATH`, else under the working directory | | Where the CLI loads commands from. Set by the package config. |
+| `system.dirs.cli` | `string[]` | adds `node_modules/@spinajs/authn-totp/lib/cli` under `WORKSPACE_ROOT_PATH`, else under the working directory | | Where the CLI loads commands from. Set by the package config. |
 
 ## Services and extension points
 

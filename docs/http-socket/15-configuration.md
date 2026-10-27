@@ -83,7 +83,6 @@ DI.register(SocketAppConfiguration).as(Configuration);
 - `auth.required` takes only `true` or `false`; `'true'` or `1` fail.
 - `rate`, `maxPayloadBytes`, `maxInFlightPerConnection`, `maxInFlightEventsPerConnection`, `auth`, `hooks`, `ordering` and `streams` are required; removing one fails the boot.
 - `idempotency.maxEntries` is checked even when another store is selected.
-- An ES module app must call `DI.setESMModuleSupport()` before resolving the configuration, or the configuration sources look for the CommonJS builds and the package defaults are not loaded.
 - `system.dirs.socketControllers` must not overlap `system.dirs.controllers`: the http loader scans those.
 
 ## Best practices

@@ -2,7 +2,7 @@
 
 A runnable notes server on [`@spinajs/http-socket`](../http-socket/README.md) and its typed client on [`@spinajs/http-socket-client`](../http-socket-client/README.md). Read it to see every extension point of the WebSocket layer wired into one small app: a shared contract, a custom configuration, a custom HTTP host, a principal source, socket controllers, a stream reply with resume, binary payloads and an injectable store.
 
-It is **not** a library. The package is private, has no `index.ts` and its `main` (`lib/mjs/main.js`) starts a server and runs a demo. It is **not** a storage design either: `NotesStore` keeps everything in memory in one process.
+It is **not** a library. The package is private, has no `index.ts` and its `main` (`lib/main.js`) starts a server and runs a demo. It is **not** a storage design either: `NotesStore` keeps everything in memory in one process.
 
 ## Install
 
@@ -18,8 +18,8 @@ npm run compile
 
 ```sh
 cd packages/http-socket-example
-npm start                    # node lib/mjs/main.js
-node lib/mjs/main.js --verbose   # log to the console
+npm start                    # node lib/main.js
+node lib/main.js --verbose   # log to the console
 ```
 
 `main.ts` starts the server, connects as `alice-token`, opens the `welcome` document, reads its snapshot with a credit window of 4, and stores and reads back a binary blob.
@@ -50,16 +50,16 @@ The end-to-end tests in `test/example.test.ts` cover the refused handshake, payl
 
 ## Module map
 
-The example has no entry point. Samples that build on its classes import the compiled modules, which `npm run compile` writes to `lib/mjs/`. Inside the package, import `./<module>.js` instead.
+The example has no entry point. Samples that build on its classes import the compiled modules, which `npm run compile` writes to `lib/`. Inside the package, import `./<module>.js` instead.
 
 | Module | Exports |
 | --- | --- |
-| `@spinajs/http-socket-example/lib/mjs/contract.js` | `NotesContract`, `notesContract`, `NoteEntity`, `SnapshotFrame`, `Bytes` |
-| `@spinajs/http-socket-example/lib/mjs/server.js` | `startNotesServer`, `INotesServer`, `INotesServerOptions`, `NotesConfiguration`, `NotesHttpHost` |
-| `@spinajs/http-socket-example/lib/mjs/auth.js` | `DemoTokenSource`, `DemoUser` |
-| `@spinajs/http-socket-example/lib/mjs/notes.socket.js` | `NotesSocket`, `BlobSocket` |
-| `@spinajs/http-socket-example/lib/mjs/store.js` | `NotesStore`, `INoteDoc`, `chunkCount`, `ENTITIES_PER_CHUNK`, `NOTES_PER_DOC` |
-| `@spinajs/http-socket-example/lib/mjs/client.js` | `connectNotes`, `NotesClient`, `loadSnapshot`, `ISnapshot`, `ILoadSnapshotOptions`, `toBytes` |
+| `@spinajs/http-socket-example/lib/contract.js` | `NotesContract`, `notesContract`, `NoteEntity`, `SnapshotFrame`, `Bytes` |
+| `@spinajs/http-socket-example/lib/server.js` | `startNotesServer`, `INotesServer`, `INotesServerOptions`, `NotesConfiguration`, `NotesHttpHost` |
+| `@spinajs/http-socket-example/lib/auth.js` | `DemoTokenSource`, `DemoUser` |
+| `@spinajs/http-socket-example/lib/notes.socket.js` | `NotesSocket`, `BlobSocket` |
+| `@spinajs/http-socket-example/lib/store.js` | `NotesStore`, `INoteDoc`, `chunkCount`, `ENTITIES_PER_CHUNK`, `NOTES_PER_DOC` |
+| `@spinajs/http-socket-example/lib/client.js` | `connectNotes`, `NotesClient`, `loadSnapshot`, `ISnapshot`, `ILoadSnapshotOptions`, `toBytes` |
 
 Importing `server.js` imports `auth.js` and `notes.socket.js` too, which registers `DemoTokenSource`, both controllers and `NotesHttpHost` in DI.
 
@@ -77,8 +77,8 @@ Importing `server.js` imports `auth.js` and `notes.socket.js` too, which registe
 ## Quick start
 
 ```ts sample
-import { connectNotes, loadSnapshot } from '@spinajs/http-socket-example/lib/mjs/client.js';
-import { startNotesServer } from '@spinajs/http-socket-example/lib/mjs/server.js';
+import { connectNotes, loadSnapshot } from '@spinajs/http-socket-example/lib/client.js';
+import { startNotesServer } from '@spinajs/http-socket-example/lib/server.js';
 
 async function demo(): Promise<void> {
   const server = await startNotesServer();

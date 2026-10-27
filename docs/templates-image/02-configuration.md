@@ -1,10 +1,10 @@
 # Configuration
 
-`templates.image` controls how `ImageRenderer` launches Chromium, serves assets and times out. The package ships defaults in `lib/<mjs|cjs>/config/image.js`; your config files merge over them.
+`templates.image` controls how `ImageRenderer` launches Chromium, serves assets and times out. The package ships defaults in `lib/config/image.js`; your config files merge over them.
 
 ## How it works
 
-1. `@spinajs/configuration` loads the package config file from `node_modules/@spinajs/templates-image/lib/<mjs|cjs>/config` with every other package config, then your app's files ([Config files](../configuration/03-config-files.md)).
+1. `@spinajs/configuration` loads the package config file from `node_modules/@spinajs/templates-image/lib/config` with every other package config, then your app's files ([Config files](../configuration/03-config-files.md)).
 2. `ImageRenderer.Options` is a `@Config('templates.image')` getter: every read returns the current value of the section.
 3. `PuppeteerRenderer` reads `static.portRange` when it starts the asset server, timeouts and `debug.close` when a render starts, and `renderDurationWarning` when it ends. Changes apply from the next render.
 4. `args` and `executablePath` are read when `BrowserPool` launches Chromium: on the first render, after a crash, or after `dispose()`. A change does not affect a browser that is already running.
@@ -20,7 +20,7 @@
 | `templates.image.navigationTimeout` | `number` (ms) | `30000` | Positive number | `page.setDefaultNavigationTimeout()`. `0` or no value falls back to `30000`. |
 | `templates.image.renderTimeout` | `number` (ms) | `30000` | Positive number | `page.setDefaultTimeout()` and the watchdog that closes the page when a render runs longer. `0` or no value falls back to `30000`. |
 | `templates.image.debug.close` | `boolean` | not set (pages close) | `false` | `false` keeps each page open after the render and disarms timeouts and the watchdog. Combine with `args.headless: false` to inspect the page. |
-| `system.dirs.cli` | `string[]` | this package's `lib/<mjs|cjs>/cli` under `WORKSPACE_ROOT_PATH ?? cwd`, and the same path one directory up | Absolute paths | Appended so `@spinajs/cli` finds the `render-image` command. |
+| `system.dirs.cli` | `string[]` | this package's `lib/cli` under `WORKSPACE_ROOT_PATH ?? cwd`, and the same path one directory up | Absolute paths | Appended so `@spinajs/cli` finds the `render-image` command. |
 
 The package config file:
 
