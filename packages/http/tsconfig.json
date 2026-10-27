@@ -45,6 +45,9 @@
     },
     {
       "path": "../templates-pug/tsconfig.json"
+    },
+    {
+      "path": "../testing/tsconfig.json"
     }
   ]
 }

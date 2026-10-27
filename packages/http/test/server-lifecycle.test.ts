@@ -3,10 +3,11 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 import http from 'http';
 import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
 import { HttpServer } from '../src/server.js';
 import { LifecycleState } from '../src/interfaces.js';
-import { releaseHttpServer, TestConfiguration } from './common.js';
+import { fsService } from '@spinajs/fs';
+import { useTestApp } from '@spinajs/testing';
+import { TestConfiguration } from './common.js';
 
 /**
  * Fire one request through a keep-alive agent and wait for the full response,
@@ -39,22 +40,20 @@ function restoreShutdownTimeout(s: HttpServer): void {
 describe('HttpServer lifecycle', () => {
   let server: HttpServer;
 
-  beforeEach(async () => {
-    DI.register(TestConfiguration).as(Configuration);
-    await DI.resolve(Configuration);
-    server = await DI.resolve<HttpServer>(HttpServer);
+  useTestApp(() => ({ configuration: TestConfiguration, resolve: [fsService, HttpServer] }));
+
+  beforeEach(() => {
+    server = DI.get(HttpServer)!;
   });
 
   afterEach(async () => {
-    // always land in a closed state so the next test can re-listen the singleton
+    // always land in a closed state so dispose() of the app finds a stopped server
     try {
       await server.stop();
     } catch {
       /* stop must not throw; swallow just in case so teardown never masks a test */
     }
   });
-
-  after(releaseHttpServer);
 
   describe('shutdown (bugs 1, 2, 3)', () => {
     it('stop() then dispose() both resolve without rejecting (bug 2)', async () => {

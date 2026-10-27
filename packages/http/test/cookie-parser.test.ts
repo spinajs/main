@@ -2,6 +2,7 @@ import "mocha";
 import { expect } from "chai";
 import { DI } from "@spinajs/di";
 import { Configuration } from "@spinajs/configuration";
+import { useTestApp } from "@spinajs/testing";
 import { TestConfiguration } from "./common.js";
 import { configuredCookieParser, resetCookieParser } from "../src/cookie.js";
 import { _setCoockies } from "../src/responses.js";
@@ -14,18 +15,10 @@ import { FromCookie } from "../src/route-args/FromCookie.js";
  * sets a signed `ssid` cookie, so a secretless parser breaks auth outright.
  */
 describe("configured cookie parser", () => {
-  beforeEach(async () => {
-    // Not DI.clearCache(): it also wipes cache-only maps such as __http_error_map__.
-    DI.uncache(TestConfiguration);
-    resetCookieParser();
-    DI.register(TestConfiguration).as(Configuration);
-    await DI.resolve(Configuration);
-  });
+  useTestApp(() => ({ configuration: TestConfiguration, bootstrap: false }));
 
-  afterEach(() => {
-    DI.uncache(TestConfiguration);
-    resetCookieParser();
-  });
+  beforeEach(() => resetCookieParser());
+  afterEach(() => resetCookieParser());
 
   function run(): Record<string, any> {
     const req: Record<string, any> = { headers: { cookie: "" } };

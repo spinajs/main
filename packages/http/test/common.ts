@@ -2,6 +2,8 @@ import type { AddressInfo } from 'node:net';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { FrameworkConfiguration } from '@spinajs/configuration';
+import { createTestApp } from '@spinajs/testing';
+import type { TestApp, TestAppOptions } from '@spinajs/testing';
 import { Forbidden } from '@spinajs/exceptions';
 import chai from 'chai';
 import { BaseController, Controllers, HttpServer } from '../src/index.js';
@@ -241,4 +243,12 @@ export async function releaseHttpServer() {
   DI.uncache(HttpServer);
   DI.uncache(Controllers);
   uncacheControllers();
+}
+
+/**
+ * The http test app: TestConfiguration, every Bootstrapper, then the services a suite names.
+ * Dispose it in `after`; it stops a started HttpServer through its dispose().
+ */
+export function httpApp(options: Omit<TestAppOptions, 'configuration' | 'config'> = {}): Promise<TestApp> {
+  return createTestApp({ configuration: TestConfiguration, ...options });
 }
