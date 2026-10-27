@@ -43,6 +43,26 @@ class ConfiguredService extends AsyncService {
   }
 }
 
+// dispose() starts a reconnect loop that resolves a failing connection again as soon as it fails.
+function reconnecting() {
+  const loop = { running: true };
+  class Connection extends AsyncService {
+    public async resolve(): Promise<void> {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      throw new Error('connection refused');
+    }
+  }
+  class Client extends AsyncService {
+    public async dispose(): Promise<void> {
+      const connect = (): void => {
+        DI.resolve(Connection).catch(() => loop.running && connect());
+      };
+      connect();
+    }
+  }
+  return { loop, Client };
+}
+
 describe('createTestApp (root scope)', () => {
   afterEach(disposeTestApps);
 
@@ -176,6 +196,38 @@ describe('createTestApp (root scope)', () => {
     expect(error!.constructor.name).to.equal('InvalidConfiguration');
     expect(error!.message).to.include('schema spec/y');
     expect(rootState()).to.deep.equal(before);
+  });
+
+  it('dispose rejects with the restore error when resolutions keep starting, and still restores root', async () => {
+    const { loop, Client } = reconnecting();
+    const before = rootState();
+    const app = await createTestApp({ config: {}, register: (c) => c.register(Client).asSelf(), resolve: [Client] });
+    let error: Error | undefined;
+    try {
+      await app.dispose().catch((e: Error) => (error = e));
+    } finally {
+      loop.running = false;
+    }
+
+    expect(error?.constructor.name).to.equal('RestoreIncomplete');
+    expect(error?.message).to.match(/Still resolving: Connection/);
+    expect(rootState()).to.deep.equal(before);
+  });
+
+  it('disposeTestApps disposes every app before it rethrows a restore error', async () => {
+    const { loop, Client } = reconnecting();
+    const child = await createTestApp({ scope: 'child', config: {}, register: (c) => c.register(SpecService).asSelf(), resolve: [SpecService] });
+    const svc = await child.resolve(SpecService);
+    await createTestApp({ config: {}, register: (c) => c.register(Client).asSelf(), resolve: [Client] });
+    let error: Error | undefined;
+    try {
+      await disposeTestApps().catch((e: Error) => (error = e));
+    } finally {
+      loop.running = false;
+    }
+
+    expect(error?.constructor.name).to.equal('RestoreIncomplete');
+    expect(svc.disposed).to.be.true;
   });
 
   it('dispose is idempotent', async () => {

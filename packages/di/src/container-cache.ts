@@ -1,7 +1,7 @@
 import _ from 'lodash';
 import { TypedArray } from './array.js';
 import { getTypeName, isTypedArray } from './helpers.js';
-import { IContainer, IInjectDescriptor, IInstanceCheck } from './interfaces.js';
+import { IContainer, IInjectDescriptor, IInstanceCheck, Service } from './interfaces.js';
 import { Class } from './types.js';
 import { ResolveType } from './enums.js';
 import { ResolveException } from './exceptions.js';
@@ -14,6 +14,8 @@ export class ContainerCache {
   // Track keys currently being created synchronously
   private creatingKeys: Set<string> = new Set();
   private pendingChecked: Map<string, { options?: unknown[]; promise: Promise<unknown> }[]> = new Map();
+  // Bumped whenever the tracked resolutions are dropped, so a creation that finishes later cannot write into the new state.
+  private epoch = 0;
 
   constructor(private container: IContainer) {
     this.cache = new Map<string, any[]>();
@@ -227,15 +229,21 @@ export class ContainerCache {
 
     // If factory returns a Promise, handle async resolution
     if (instance instanceof Promise) {
+      const epoch = this.epoch;
       const creation = instance.then(resolvedInstance => {
+        if (epoch !== this.epoch) {
+          return this.discardLate(keyName, resolvedInstance);
+        }
         this.creatingKeys.delete(keyName);
         this.resolutionPromises.delete(keyName);
 
         return _checkCache(resolvedInstance);
 
       }).catch(error => {
-        this.creatingKeys.delete(keyName);
-        this.resolutionPromises.delete(keyName);
+        if (epoch === this.epoch) {
+          this.creatingKeys.delete(keyName);
+          this.resolutionPromises.delete(keyName);
+        }
         throw error;
       });
 
@@ -293,6 +301,7 @@ export class ContainerCache {
       return store(created);
     }
 
+    const epoch = this.epoch;
     const entry: { options?: unknown[]; promise: Promise<unknown> } = { options, promise: created };
     const settle = () => {
       const list = this.pendingChecked.get(keyName) ?? [];
@@ -303,7 +312,7 @@ export class ContainerCache {
     entry.promise = created.then(
       (instance) => {
         settle();
-        return store(instance);
+        return epoch === this.epoch ? store(instance) : this.discardLate(keyName, instance);
       },
       (err) => {
         settle();
@@ -325,17 +334,52 @@ export class ContainerCache {
     };
   }
 
-  /** Waits until no resolution started in this container is in flight, including ones started while waiting. */
-  public async settle(): Promise<void> {
-    for (;;) {
+  /**
+   * The instance was built from state that is gone ( restoreState() or abandonPending() ran meanwhile ), so it is disposed
+   * instead of cached, and whoever awaits it gets the rejection.
+   */
+  private async discardLate(keyName: string, instance: unknown): Promise<never> {
+    let disposeError: Error | undefined;
+    if (instance instanceof Service) {
+      try {
+        await instance.dispose();
+      } catch (err) {
+        disposeError = err as Error;
+      }
+    }
+    throw new ResolveException(`${keyName} finished resolving after the container was restored; it was disposed instead of cached`, disposeError);
+  }
+
+  /**
+   * Waits until no resolution started in this container is in flight, including ones started while waiting.
+   * Gives up after `maxPasses` rounds of waiting and returns false when resolutions are still in flight.
+   */
+  public async settle(maxPasses = Infinity): Promise<boolean> {
+    for (let pass = 0; ; pass++) {
       const checked = [...this.pendingChecked.values()].flat().map((p) => p.promise);
       const pending = [...this.resolutionPromises.values(), ...checked];
       if (pending.length === 0) {
-        return;
+        return true;
+      }
+      if (pass >= maxPasses) {
+        return false;
       }
 
       await Promise.allSettled(pending);
     }
+  }
+
+  /** The type names of the resolutions in flight. */
+  public pendingKeys(): string[] {
+    return [...new Set([...this.resolutionPromises.keys(), ...this.pendingChecked.keys()])];
+  }
+
+  /** Stops tracking the resolutions in flight: each one is disposed when it finishes, never cached. */
+  public abandonPending(): void {
+    this.epoch++;
+    this.resolutionPromises.clear();
+    this.creatingKeys.clear();
+    this.pendingChecked.clear();
   }
 
   /** Synchronous, unlike settle(): true while a resolution started in this container is in flight. */
@@ -363,11 +407,10 @@ export class ContainerCache {
     return [...dropped].reverse();
   }
 
+  /** Resolutions still in flight are abandoned ( see abandonPending() ). */
   public restoreState(state: ReadonlyMap<string, unknown[]>): void {
     this.cache = new Map([...state].map(([key, list]) => [key, [...list]]));
-    this.resolutionPromises.clear();
-    this.creatingKeys.clear();
-    this.pendingChecked.clear();
+    this.abandonPending();
   }
 
   public clear() {

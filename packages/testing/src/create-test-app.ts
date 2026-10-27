@@ -161,9 +161,13 @@ export function useTestApp(options: TestAppOptions | (() => TestAppOptions) = {}
   };
 }
 
-/** Disposes every app created by createTestApp that has not been disposed yet. */
+/** Disposes every app created by createTestApp that has not been disposed yet, then rethrows the first dispose error. */
 export async function disposeTestApps(): Promise<void> {
+  const errors: unknown[] = [];
   for (const app of [...open].reverse()) {
-    await app.dispose();
+    await app.dispose().catch((err: unknown) => errors.push(err));
+  }
+  if (errors.length > 0) {
+    throw errors[0];
   }
 }

@@ -36,7 +36,7 @@ export class fsService extends AsyncService {
   @Config('fs')
   protected Config: IFsConfiguration;
 
-  private published = new Map<string, fs>();
+  private readonly published = new Map<string, fs>();
 
   public async resolve() {
 
