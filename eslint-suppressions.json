@@ -3417,10 +3417,10 @@
   },
   "packages/di/src/container-cache.ts": {
     "@typescript-eslint/no-unsafe-call": {
-      "count": 5
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 8
+      "count": 5
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 7

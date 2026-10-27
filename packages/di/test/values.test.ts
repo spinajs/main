@@ -3,6 +3,8 @@ import { expect } from 'chai';
 import { Container, SyncService } from '../src/index.js';
 
 class Cached {}
+class Shape {}
+class Square extends Shape {}
 class Closable extends SyncService {
   public disposed = 0;
   public dispose(): Promise<void> {
@@ -101,5 +103,21 @@ describe('values registered with asValue / asMapValue', () => {
     c.register({ mjs: true }).asValue('__flag__', true);
     c.register({ mjs: true }).asValue('__flag__', true);
     expect(c.get(Array.ofType('__flag__'))).to.have.length(1);
+  });
+
+  it('a key holding a value and a class registration lists both and never writes instances into the value list', () => {
+    const c = new Container();
+    const value = { kind: 'value' };
+    c.register(value).asValue('Shape');
+    c.register(Square).as(Shape);
+
+    const list = c.resolve(Array.ofType(Shape)) as unknown[];
+    expect(list).to.have.length(2);
+    expect(list[0]).to.equal(value);
+    expect(list[1]).to.be.instanceOf(Square);
+    expect(c.Registry.getValues('Shape')).to.deep.equal([value]);
+
+    c.clearCache();
+    expect(c.get(Array.ofType('Shape'))).to.deep.equal([value]);
   });
 });

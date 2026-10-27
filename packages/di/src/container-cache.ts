@@ -82,16 +82,18 @@ export class ContainerCache {
     return false;
   }
 
-  /** A cached instance under `key` wins over a value registered under the same key. */
+  /** Under a key that holds both, a copy: the values first, then the cached instances. */
   public get(key: string | Class<any> | TypedArray<any>, parent?: boolean): any {
     const name = getTypeName(key);
-    if (this.cache.has(name)) {
-      return this.cache.get(name);
+    const instances = this.cache.get(name);
+    const values = this.container.Registry.getValues(name);
+    if (instances && values) {
+      return [...values, ...instances];
     }
 
-    const values = this.container.Registry.getValues(name);
-    if (values) {
-      return values;
+    const found = instances ?? values;
+    if (found) {
+      return found;
     }
 
     if (parent && this.container.Parent) {
@@ -153,12 +155,7 @@ export class ContainerCache {
         // collection - otherwise the fast path returns early and the type is
         // silently MISSING from the resolved array.
         if (isTypedArray(sourceType) && getTypeName(targetType) !== sourceTypeKey) {
-          const collection = this.get(sourceTypeKey);
-          if (!this.has(sourceTypeKey)) {
-            this.add(sourceTypeKey, instance);
-          } else if (!collection.includes(instance)) {
-            collection.push(instance);
-          }
+          this.add(sourceTypeKey, instance);
         }
 
         return instance;
@@ -204,18 +201,10 @@ export class ContainerCache {
 
     const _checkCache = (resolvedInstance: T) => {
       if (isTypedArray(sourceType)) {
-        // If sourceType is a TypedArray, we need to ensure we cache it correctly
-        if (!this.has(sourceTypeKey)) {
+        // Through add(), never by pushing into get()'s result: that can be the registry's value list.
+        if (!this.get(sourceTypeKey).includes(resolvedInstance)) {
           this.add(sourceTypeKey, resolvedInstance);
           emit(resolvedInstance);
-
-        } else {
-          // If it already exists, we should merge the new instance into the existing array
-          const existingInstances = this.get(sourceTypeKey);
-          if (!existingInstances.includes(resolvedInstance)) {
-            existingInstances.push(resolvedInstance);
-            emit(resolvedInstance);
-          }
         }
         // Also cache under the concrete type. Resolving a collection
         // ( eg. Array.ofType(BaseController) ) used to register the instance
