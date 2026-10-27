@@ -2,6 +2,7 @@ import ts from 'typescript';
 import type { MigrationEntry } from '@spinajs/manifest';
 import type { Extractor } from '../context.js';
 import { findDecorator, literalValue } from '../decorators.js';
+import { stringArg } from './string-arg.js';
 
 export const extractMigrations: Extractor<MigrationEntry> = (ctx, file) => {
   const out: MigrationEntry[] = [];
@@ -15,7 +16,7 @@ export const extractMigrations: Extractor<MigrationEntry> = (ctx, file) => {
     out.push({
       id: `${ctx.packageName}:${st.name.text}`,
       className: st.name.text,
-      connection: String(literalValue(d.args[0], ctx) ?? ''),
+      connection: stringArg(d.args[0], ctx),
       ...(env ? { env } : {}),
       file: source.file,
       source,
