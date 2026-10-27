@@ -83,7 +83,6 @@
     "eslint-plugin-tsdoc": "^0.5.4",
     "fast-check": "^4.0.0",
     "knip": "^6.42.0",
-    "lerna": "^6.4.1",
     "mocha": "^10.2.0",
     "prettier": "^2.8.3",
     "publint": "^0.3.25",
@@ -153,7 +152,6 @@
     "@spinajs/orm-threading": "file:packages\\orm-threading",
     "@spinajs/queue": "file:packages\\queue",
     "@spinajs/queue-http-progress": "file:packages\\queue-http-progress",
-    "@spinajs/queue-orm-transport": "file:packages/queue-orm-transport",
     "@spinajs/queue-stomp-transport": "file:packages/queue-stomp-transport",
     "@spinajs/reflection": "file:packages\\reflection",
     "@spinajs/session-provider-db": "file:packages\\session-provider-db",
@@ -174,14 +172,7 @@
     "@spinajs/util": "file:packages\\util",
     "@spinajs/validation": "file:packages\\validation",
     "@types/ajv-merge-patch": "^4.1.2",
-    "@types/mjml": "^4.7.4",
-    "degenerator": "^5.0.1",
-    "ip": "^2.0.1",
-    "mkdirp-classic": "^0.5.3",
-    "pac-proxy-agent": "^7.2.0",
-    "pac-resolver": "^7.0.1",
-    "proxy-agent": "^6.5.0",
-    "vm2": "^3.9.19"
+    "@types/mjml": "^4.7.4"
   },
   "engines": {
     "node": ">=22.0.0"
