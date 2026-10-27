@@ -4,3 +4,4 @@ export * from './validator.js';
 export * from './read.js';
 export * from './hash.js';
 export * from './merge.js';
+export * from './diff.js';
