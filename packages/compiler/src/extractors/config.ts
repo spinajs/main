@@ -2,13 +2,12 @@ import ts from 'typescript';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ConfigModuleEntry, ConfigUsageEntry } from '@spinajs/manifest';
-import type { Extractor, ExtractorContext } from '../context.js';
+import type { Extractor } from '../context.js';
 import { decoratorsOf, literalValue } from '../decorators.js';
 import { registerChainOf } from './register-chain.js';
 import { tokenKey } from './injections.js';
 import { SCHEMA_REGISTRARS } from './values.js';
-
-const CONFIG_TYPES = new Set(['Configuration', 'FrameworkConfiguration']);
+import { isConfigurationReceiver } from './config-receiver.js';
 
 export const extractConfigModules: Extractor<ConfigModuleEntry> = (ctx, file) => {
   const out: ConfigModuleEntry[] = [];
@@ -40,13 +39,6 @@ export const extractConfigModules: Extractor<ConfigModuleEntry> = (ctx, file) =>
   return out;
 };
 
-function isConfigurationReceiver(expr: ts.Expression, ctx: ExtractorContext): boolean {
-  const receiver = ctx.checker.getTypeAtLocation(expr);
-  if (CONFIG_TYPES.has(receiver.getSymbol()?.name ?? '')) return true;
-  if (!(receiver.flags & ts.TypeFlags.Object) || !((receiver as ts.ObjectType).objectFlags & ts.ObjectFlags.ClassOrInterface)) return false;
-  return ctx.checker.getBaseTypes(receiver as ts.InterfaceType).some((b) => CONFIG_TYPES.has(b.getSymbol()?.name ?? ''));
-}
-
 export const extractConfigUsages: Extractor<ConfigUsageEntry> = (ctx, file) => {
   const out: ConfigUsageEntry[] = [];
   const add = (expr: ts.Expression | undefined, node: ts.Node): void => {
@@ -59,7 +51,7 @@ export const extractConfigUsages: Extractor<ConfigUsageEntry> = (ctx, file) => {
       }
     }
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'get') {
-      if (isConfigurationReceiver(node.expression.expression, ctx)) add(node.arguments[0], node);
+      if (isConfigurationReceiver(ctx.checker.getTypeAtLocation(node.expression.expression), ctx)) add(node.arguments[0], node);
     }
     ts.forEachChild(node, visit);
   };

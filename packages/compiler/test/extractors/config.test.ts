@@ -25,4 +25,8 @@ describe('config extractors', () => {
     ]);
     expect(extractConfigUsages(ctx, conditions).map((u) => u.path)).to.deep.equal(['basic.featureB', 'basic.featureC']);
   });
+  it('recognises Configuration subclasses and Configuration | undefined receivers', () => {
+    const receivers = loaded.sourceFiles.find((f) => f.fileName.endsWith('config-receivers.ts'))!;
+    expect(extractConfigUsages(ctx, receivers).map((u) => u.path)).to.deep.equal(['basic.sub', 'basic.maybe']);
+  });
 });

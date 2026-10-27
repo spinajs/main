@@ -2,14 +2,13 @@ import ts from 'typescript';
 import type { Condition } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
 import { decoratorsOf } from '../decorators.js';
-
-const CONFIG_TYPES = new Set(['Configuration', 'FrameworkConfiguration']);
+import { isConfigurationReceiver } from './config-receiver.js';
 
 function configGetPath(expr: ts.CallExpression, ctx: ExtractorContext): string | undefined {
   if (!ts.isPropertyAccessExpression(expr.expression) || expr.expression.name.text !== 'get') return undefined;
   const arg = expr.arguments[0];
-  const receiver = ctx.checker.getTypeAtLocation(expr.expression.expression).getSymbol()?.name ?? '';
-  return arg && ts.isStringLiteralLike(arg) && CONFIG_TYPES.has(receiver) ? arg.text : undefined;
+  const receiver = ctx.checker.getTypeAtLocation(expr.expression.expression);
+  return arg && ts.isStringLiteralLike(arg) && isConfigurationReceiver(receiver, ctx) ? arg.text : undefined;
 }
 
 function configPropertyPath(expr: ts.PropertyAccessExpression, ctx: ExtractorContext): string | undefined {
