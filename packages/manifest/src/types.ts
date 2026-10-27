@@ -48,7 +48,7 @@ export interface RouteEntry {
   method: 'get' | 'post' | 'put' | 'patch' | 'delete' | 'head' | 'file';
   path: string;
   handler: string;                   // method name
-  fullPath: string;                  // basePath + path, computed at merge
+  fullPath: string;                  // basePath + path; computed by the extractor, kept at merge
   params: ParamEntry[];
   returnType: TypeRef;
   policies: PolicyRef[][];           // groups: OR between groups, AND inside
@@ -71,7 +71,8 @@ export interface ControllerEntry {
 
 export interface SocketCommandEntry { name: string; handler: string; payload: TypeRef; result: TypeRef; options: { idempotent?: boolean; ordered?: boolean; timeoutMs?: number }; access?: string[]; policies: PolicyRef[][]; source: SourceRef }
 export interface SocketControllerEntry { id: string; className: string; prefix: string; commands: SocketCommandEntry[]; events: { name: string; payload: TypeRef }[]; source: SourceRef }
-export interface SocketContractEntry { id: string; commands: Record<string, { payload: TypeRef; result: TypeRef }>; events: Record<string, TypeRef>; clientEvents: Record<string, TypeRef>; source: SourceRef }
+export interface SocketContractCommand { payload: TypeRef; result: TypeRef }
+export interface SocketContractEntry { id: string; commands: Record<string, SocketContractCommand>; events: Record<string, TypeRef>; clientEvents: Record<string, TypeRef>; source: SourceRef }
 
 export interface ConfigModuleEntry { module: string; schemaId: string; defaultsFile?: string; source: SourceRef }
 export interface ConfigUsageEntry { path: string; source: SourceRef }   // every @Config('x.y') / config.get('x.y') literal

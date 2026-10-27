@@ -18,6 +18,10 @@ describe('manifest types and schema', () => {
     expect(JSON.parse(readFileSync(file('../src/schema.json'), 'utf8'))).to.deep.equal(generate());
   });
 
+  it('has no offset-derived definition names', () => {
+    expect(Object.keys(manifestSchema.definitions).filter((n) => /src_types.ts|structure-/.test(n))).to.deep.equal([]);
+  });
+
   it('schema.ts mirrors schema.json', () => {
     expect(manifestSchema).to.deep.equal(JSON.parse(readFileSync(file('../src/schema.json'), 'utf8')));
   });
