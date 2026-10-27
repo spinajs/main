@@ -77,11 +77,11 @@ export function createContext(loaded: LoadedProgram, packageName: string, packag
   };
 
   const textOf = (payload: ts.Type): string =>
-    wrapperName(payload) ?? checker.typeToString(payload, undefined, ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope);
+    wrapperName(checker, payload) ?? checker.typeToString(payload, undefined, ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope);
 
   const typeRef = (type: ts.Type, node: ts.Node, nameHint?: string, derive: Pick<DeriveOptions, 'excludeMembersOf'> = {}): TypeRef => {
     const payload = unwrapTransparent(checker, type);
-    const bare = wrapperName(payload);
+    const bare = wrapperName(checker, payload);
     const ref: TypeRef = { text: textOf(payload) };
     if (!schemaDerivation || bare || payload.flags & (ts.TypeFlags.Void | ts.TypeFlags.Undefined)) return ref;
 

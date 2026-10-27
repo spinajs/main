@@ -22,13 +22,20 @@ function indexSchema(ctx: DeriveContext, type: ts.Type): JsonSchema {
   return {};
 }
 
-/** Own data properties of the type, with the framework-excluded and callable ones removed. */
+const NON_PUBLIC = ts.ModifierFlags.Private | ts.ModifierFlags.Protected;
+
+export function isPublicMember(declaration: ts.Declaration): boolean {
+  const name = ts.getNameOfDeclaration(declaration);
+  return !(ts.getCombinedModifierFlags(declaration) & NON_PUBLIC) && !(name && ts.isPrivateIdentifier(name));
+}
+
+/** Own public data properties of the type, with the framework-excluded and callable ones removed. */
 function dataProperties(ctx: DeriveContext, type: ts.Type): Array<{ property: ts.Symbol; declaration: ts.Declaration | undefined; type: ts.Type }> {
   const out: Array<{ property: ts.Symbol; declaration: ts.Declaration | undefined; type: ts.Type }> = [];
   for (const property of ctx.checker.getPropertiesOfType(type)) {
     if (property.flags & (ts.SymbolFlags.Method | ts.SymbolFlags.Signature)) continue;
     const declaration = property.valueDeclaration ?? property.declarations?.[0];
-    if (declaration && ctx.options.excludeMembersOf?.(declaration)) continue;
+    if (declaration && (!isPublicMember(declaration) || ctx.options.excludeMembersOf?.(declaration))) continue;
     const propertyType = ctx.checker.getTypeOfSymbolAtLocation(property, declaration ?? ctx.node);
     if (!isCallable(ctx.checker, propertyType)) out.push({ property, declaration, type: propertyType });
   }

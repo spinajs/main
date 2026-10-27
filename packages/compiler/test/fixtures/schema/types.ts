@@ -144,3 +144,12 @@ export type TUpper = Uppercase<string>;
 // --- recursive aliases
 export type RFilter = { op: 'not'; arg: RFilter } | { op: 'and'; args: readonly RFilter[] } | { op: 'leaf'; field: string };
 export interface RHolder { filter: RFilter; again: RFilter }
+
+// --- class member visibility
+export class CVisibility {
+  public a: string;
+  protected b: any;
+  private c: number;
+  #d = 1;
+  constructor(protected e?: string) {}
+}
