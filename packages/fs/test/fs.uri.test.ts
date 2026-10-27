@@ -1,24 +1,23 @@
 import 'mocha';
+import { fsApp } from './common.js';
 import { expect } from 'chai';
 import sinon from 'sinon';
 
-import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { FsBootsrapper, fs, fsService, URI } from '../src/index.js';
-import { TestConfiguration } from './common.js';
+import { fs, fsService, URI } from '../src/index.js';
 import { InvalidArgument } from '@spinajs/exceptions';
+import type { TestApp } from '@spinajs/testing';
 
 describe('fs URI & static facade', function () {
   this.timeout(15000);
 
+  let app: TestApp;
+
   before(async () => {
-    const bootstrapper = DI.resolve(FsBootsrapper);
-    bootstrapper.bootstrap();
+    app = await fsApp({ resolve: [fsService] });
+  });
 
-    DI.register(TestConfiguration).as(Configuration);
-    await DI.resolve(Configuration);
-
-    await DI.resolve(fsService);
+  after(async () => {
+    await app.dispose();
   });
 
   afterEach(() => {

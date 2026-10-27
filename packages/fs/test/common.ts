@@ -8,7 +8,13 @@ import chaiAsPromised from 'chai-as-promised';
 import chaiSubset from 'chai-subset';
 import chaiLike from 'chai-like';
 import chaiThings from 'chai-things';
-import { Singleton } from '@spinajs/di';
+import { Injectable, PerInstanceCheck, Singleton } from '@spinajs/di';
+import { fsNative } from '../src/local-provider.js';
+import type { IFsLocalOptions } from '../src/index.js';
+// Side-effect import: brings in the Log implementation the fs services resolve.
+import '@spinajs/templates-pug';
+import { createTestApp } from '@spinajs/testing';
+import type { TestApp, TestAppOptions } from '@spinajs/testing';
 
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
@@ -89,5 +95,24 @@ export class TestConfiguration extends FrameworkConfiguration {
         ],
       },
     };
+  }
+}
+
+export function fsApp(options: Omit<TestAppOptions, 'configuration' | 'config'> = {}): Promise<TestApp> {
+  return createTestApp({ configuration: TestConfiguration, ...options });
+}
+
+// Provider that tests list in the shared configuration as service 'FooFs'.
+@Injectable('fs')
+@PerInstanceCheck()
+export class FooFs extends fsNative<IFsLocalOptions> {
+  public static INSTANCE_COUNT = 0;
+  public static INSTANCE_COUNT_2 = 0;
+  public async resolve() {
+    if (this.Options.name === 'foo1') FooFs.INSTANCE_COUNT++;
+
+    if (this.Options.name === 'foo2') {
+      FooFs.INSTANCE_COUNT_2++;
+    }
   }
 }

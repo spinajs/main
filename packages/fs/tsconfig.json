@@ -23,6 +23,9 @@
     },
     {
       "path": "../threading/tsconfig.json"
+    },
+    {
+      "path": "../testing/tsconfig.json"
     }
   ]
 }

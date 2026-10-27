@@ -3,8 +3,7 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { FsBootsrapper, fs, fsService, IZipResult } from '../src/index.js';
+import { fs, fsService, IZipResult } from '../src/index.js';
 import { fsNative } from '../src/local-provider.js';
 import {
   _exists,
@@ -31,20 +30,21 @@ import {
   _upload,
   _hash,
 } from '../src/fp.js';
-import { dir, TestConfiguration } from './common.js';
+import { dir, fsApp } from './common.js';
 import { IOFail } from '@spinajs/exceptions';
+import type { TestApp } from '@spinajs/testing';
 
 describe('fs fp helpers', function () {
   this.timeout(15000);
 
+  let app: TestApp;
+
   before(async () => {
-    const bootstrapper = DI.resolve(FsBootsrapper);
-    bootstrapper.bootstrap();
+    app = await fsApp({ resolve: [fsService] });
+  });
 
-    DI.register(TestConfiguration).as(Configuration);
-    await DI.resolve(Configuration);
-
-    await DI.resolve(fsService);
+  after(async () => {
+    await app.dispose();
   });
 
   afterEach(() => {

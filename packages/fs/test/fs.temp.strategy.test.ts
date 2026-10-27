@@ -1,14 +1,14 @@
 import 'mocha';
+import { fsApp } from './common.js';
 import { expect } from 'chai';
 import sinon from 'sinon';
 import { DateTime } from 'luxon';
 
 import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { sleep } from '@spinajs/threading';
-import { TestConfiguration } from './common.js';
 import { CronTempCleanupStrategy, fs, IFsTempOptions, IStat, MaxAgeTempCleanupStrategy } from '../src/index.js';
+import type { TestApp } from '@spinajs/testing';
 
 const OPTIONS: IFsTempOptions = {
   name: 'fs-temp-stub',
@@ -17,7 +17,8 @@ const OPTIONS: IFsTempOptions = {
 };
 
 const OLD = DateTime.now().minus({ hours: 1 });
-const RECENT = DateTime.now();
+// Evaluated per use: the suite can start long after module load, and "recent" is relative to the sweep.
+const recent = () => DateTime.now();
 
 /**
  * Minimal fs stub - only members used by MaxAgeTempCleanupStrategy.
@@ -46,11 +47,16 @@ describe('temp fs cleanup strategy tests', function () {
 
   let strategy: MaxAgeTempCleanupStrategy;
 
+  let app: TestApp;
+
   before(async () => {
-    DI.register(TestConfiguration).as(Configuration);
-    await DI.resolve(Configuration);
+    app = await fsApp();
 
     strategy = await DI.resolve(MaxAgeTempCleanupStrategy);
+  });
+
+  after(async () => {
+    await app.dispose();
   });
 
   afterEach(() => {
@@ -69,7 +75,7 @@ describe('temp fs cleanup strategy tests', function () {
 
   it('should keep file younger than maxFileAge', async () => {
     const { fs, rm } = stubFs({
-      'fresh.txt': { CreationTime: RECENT, ModifiedTime: RECENT },
+      'fresh.txt': { CreationTime: recent(), ModifiedTime: recent() },
     });
 
     await strategy.cleanup(fs, OPTIONS);
@@ -100,7 +106,7 @@ describe('temp fs cleanup strategy tests', function () {
 
   it('should keep file with recent ModifiedTime and invalid CreationTime', async () => {
     const { fs, rm } = stubFs({
-      'recent.txt': { CreationTime: DateTime.fromMillis(0), ModifiedTime: RECENT },
+      'recent.txt': { CreationTime: DateTime.fromMillis(0), ModifiedTime: recent() },
     });
 
     await strategy.cleanup(fs, OPTIONS);
@@ -177,9 +183,14 @@ describe('temp fs cleanup strategy tests', function () {
 describe('temp fs cron cleanup strategy tests', function () {
   this.timeout(15000);
 
+  let app: TestApp;
+
   before(async () => {
-    DI.register(TestConfiguration).as(Configuration);
-    await DI.resolve(Configuration);
+    app = await fsApp();
+  });
+
+  after(async () => {
+    await app.dispose();
   });
 
   afterEach(() => {

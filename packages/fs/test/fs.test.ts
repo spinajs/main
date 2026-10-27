@@ -1,39 +1,27 @@
 import 'mocha';
+import { fsApp, FooFs } from './common.js';
 import { expect } from 'chai';
 import sinon from 'sinon';
 
-import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { DI } from '@spinajs/di';
 import '@spinajs/templates-pug';
-import { TestConfiguration } from './common.js';
 import { FileSystem } from '../src/decorators.js';
-import { fsNative } from '../src/local-provider.js';
-import { fs, FsBootsrapper, fsService, IFsLocalOptions } from '../src/index.js';
-
-@Injectable('fs')
-@PerInstanceCheck()
-class FooFs extends fsNative<IFsLocalOptions> {
-  public static INSTANCE_COUNT = 0;
-  public static INSTANCE_COUNT_2 = 0;
-  public async resolve() {
-    if (this.Options.name === 'foo1') FooFs.INSTANCE_COUNT++;
-
-    if (this.Options.name === 'foo2') {
-      FooFs.INSTANCE_COUNT_2++;
-    }
-  }
-}
+import { fs, fsService } from '../src/index.js';
+import type { TestApp } from '@spinajs/testing';
 
 describe('general fs tests', function () {
   this.timeout(15000);
 
-  before(async () => {
-    const bootstrapper = DI.resolve(FsBootsrapper);
-    bootstrapper.bootstrap();
-    DI.register(TestConfiguration).as(Configuration);
-    await DI.resolve(Configuration);
+  let app: TestApp;
 
-    await DI.resolve(fsService);
+  before(async () => {
+    FooFs.INSTANCE_COUNT = 0;
+    FooFs.INSTANCE_COUNT_2 = 0;
+    app = await fsApp({ resolve: [fsService] });
+  });
+
+  after(async () => {
+    await app.dispose();
   });
 
   afterEach(() => {
