@@ -1,0 +1,1321 @@
+{
+  "manifestVersion": 1,
+  "package": {
+    "name": "pkg-basic",
+    "version": "1.0.0",
+    "entry": "lib/index.js",
+    "outDir": "lib"
+  },
+  "services": [
+    {
+      "id": "pkg-basic:ExtraBootstrapper",
+      "className": "ExtraBootstrapper",
+      "registeredAs": [
+        "Bootstrapper",
+        "ExtraBootstrapper"
+      ],
+      "lifetime": "singleton",
+      "async": false,
+      "bootstrapper": true,
+      "ctorInjects": [],
+      "propertyInjects": [
+        {
+          "property": "flag",
+          "token": "Configuration",
+          "optional": false,
+          "array": false
+        },
+        {
+          "property": "cfg",
+          "token": "Configuration",
+          "optional": false,
+          "array": false
+        }
+      ],
+      "source": {
+        "file": "src/conditions-extra.ts",
+        "line": 13,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:ElseA",
+      "className": "ElseA",
+      "registeredAs": [
+        "ElseA"
+      ],
+      "lifetime": "singleton",
+      "async": false,
+      "bootstrapper": false,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "condition": {
+        "kind": "dynamic",
+        "reason": "else branch"
+      },
+      "source": {
+        "file": "src/conditions-extra.ts",
+        "line": 19,
+        "col": 49,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:TernA",
+      "className": "TernA",
+      "registeredAs": [
+        "TernA"
+      ],
+      "lifetime": "singleton",
+      "async": false,
+      "bootstrapper": false,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "condition": {
+        "kind": "config",
+        "path": "basic.featureB"
+      },
+      "source": {
+        "file": "src/conditions-extra.ts",
+        "line": 20,
+        "col": 17,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:TernB",
+      "className": "TernB",
+      "registeredAs": [
+        "TernB"
+      ],
+      "lifetime": "singleton",
+      "async": false,
+      "bootstrapper": false,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "condition": {
+        "kind": "dynamic",
+        "reason": "else branch"
+      },
+      "source": {
+        "file": "src/conditions-extra.ts",
+        "line": 20,
+        "col": 47,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:AndA",
+      "className": "AndA",
+      "registeredAs": [
+        "AndA"
+      ],
+      "lifetime": "singleton",
+      "async": false,
+      "bootstrapper": false,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "condition": {
+        "kind": "config",
+        "path": "basic.featureB"
+      },
+      "source": {
+        "file": "src/conditions-extra.ts",
+        "line": 21,
+        "col": 18,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:NestedCfg",
+      "className": "NestedCfg",
+      "registeredAs": [
+        "NestedCfg"
+      ],
+      "lifetime": "singleton",
+      "async": false,
+      "bootstrapper": false,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "condition": {
+        "kind": "config",
+        "path": "feature.enabled"
+      },
+      "source": {
+        "file": "src/conditions-extra.ts",
+        "line": 22,
+        "col": 27,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:NegA",
+      "className": "NegA",
+      "registeredAs": [
+        "NegA"
+      ],
+      "lifetime": "singleton",
+      "async": false,
+      "bootstrapper": false,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "condition": {
+        "kind": "dynamic",
+        "reason": "non-config or negated guard"
+      },
+      "source": {
+        "file": "src/conditions-extra.ts",
+        "line": 23,
+        "col": 21,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:ConditionalBootstrapper",
+      "className": "ConditionalBootstrapper",
+      "registeredAs": [
+        "Bootstrapper",
+        "ConditionalBootstrapper"
+      ],
+      "lifetime": "singleton",
+      "async": false,
+      "bootstrapper": true,
+      "ctorInjects": [],
+      "propertyInjects": [
+        {
+          "property": "featureB",
+          "token": "Configuration",
+          "optional": false,
+          "array": false
+        }
+      ],
+      "source": {
+        "file": "src/conditions.ts",
+        "line": 9,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:FeatureA",
+      "className": "FeatureA",
+      "registeredAs": [
+        "FeatureA"
+      ],
+      "lifetime": "singleton",
+      "async": false,
+      "bootstrapper": false,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "condition": {
+        "kind": "dynamic",
+        "reason": "registered in bootstrap()"
+      },
+      "source": {
+        "file": "src/conditions.ts",
+        "line": 13,
+        "col": 5,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:FeatureB",
+      "className": "FeatureB",
+      "registeredAs": [
+        "FeatureB"
+      ],
+      "lifetime": "singleton",
+      "async": false,
+      "bootstrapper": false,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "condition": {
+        "kind": "config",
+        "path": "basic.featureB"
+      },
+      "source": {
+        "file": "src/conditions.ts",
+        "line": 14,
+        "col": 24,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:FeatureC",
+      "className": "FeatureC",
+      "registeredAs": [
+        "FeatureC"
+      ],
+      "lifetime": "singleton",
+      "async": false,
+      "bootstrapper": false,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "condition": {
+        "kind": "config",
+        "path": "basic.featureC"
+      },
+      "source": {
+        "file": "src/conditions.ts",
+        "line": 16,
+        "col": 36,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:FeatureD",
+      "className": "FeatureD",
+      "registeredAs": [
+        "FeatureD"
+      ],
+      "lifetime": "singleton",
+      "async": false,
+      "bootstrapper": false,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "condition": {
+        "kind": "dynamic",
+        "reason": "inside ForStatement"
+      },
+      "source": {
+        "file": "src/conditions.ts",
+        "line": 17,
+        "col": 33,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:Dual",
+      "className": "Dual",
+      "registeredAs": [
+        "Dual",
+        "DualAlias"
+      ],
+      "lifetime": "singleton",
+      "async": false,
+      "bootstrapper": false,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "source": {
+        "file": "src/dedupe.ts",
+        "line": 3,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:StringAsync",
+      "className": "StringAsync",
+      "registeredAs": [
+        "StringAsync"
+      ],
+      "lifetime": "singleton",
+      "async": true,
+      "bootstrapper": false,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "source": {
+        "file": "src/generic-bases.ts",
+        "line": 5,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:StringBoot",
+      "className": "StringBoot",
+      "registeredAs": [
+        "Bootstrapper",
+        "StringBoot"
+      ],
+      "lifetime": "singleton",
+      "async": false,
+      "bootstrapper": true,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "source": {
+        "file": "src/generic-bases.ts",
+        "line": 9,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:Multi",
+      "className": "Multi",
+      "registeredAs": [
+        "Multi"
+      ],
+      "lifetime": "singleton",
+      "async": false,
+      "bootstrapper": false,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "condition": {
+        "kind": "config",
+        "path": "basic.a"
+      },
+      "source": {
+        "file": "src/multi-condition.ts",
+        "line": 9,
+        "col": 17,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:Multi",
+      "className": "Multi",
+      "registeredAs": [
+        "MultiAlt"
+      ],
+      "lifetime": "singleton",
+      "async": false,
+      "bootstrapper": false,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "condition": {
+        "kind": "dynamic",
+        "reason": "else branch"
+      },
+      "source": {
+        "file": "src/multi-condition.ts",
+        "line": 10,
+        "col": 10,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:LogMailer",
+      "className": "LogMailer",
+      "registeredAs": [
+        "Mailer"
+      ],
+      "lifetime": "singleton",
+      "async": false,
+      "bootstrapper": false,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "source": {
+        "file": "src/register.ts",
+        "line": 7,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:NullMailer",
+      "className": "NullMailer",
+      "registeredAs": [
+        "NullMailer"
+      ],
+      "lifetime": "singleton",
+      "async": false,
+      "bootstrapper": false,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "source": {
+        "file": "src/register.ts",
+        "line": 8,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:SmtpMailer",
+      "className": "SmtpMailer",
+      "registeredAs": [
+        "Mailer",
+        "SmtpMailer"
+      ],
+      "lifetime": "singleton",
+      "async": false,
+      "bootstrapper": false,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "source": {
+        "file": "src/services.ts",
+        "line": 7,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:Clock",
+      "className": "Clock",
+      "registeredAs": [
+        "Clock"
+      ],
+      "lifetime": "new-instance",
+      "async": false,
+      "bootstrapper": false,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "source": {
+        "file": "src/services.ts",
+        "line": 11,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:Greeter",
+      "className": "Greeter",
+      "registeredAs": [
+        "Greeter"
+      ],
+      "lifetime": "singleton",
+      "async": true,
+      "bootstrapper": false,
+      "ctorInjects": [
+        "Clock"
+      ],
+      "propertyInjects": [
+        {
+          "property": "mailer",
+          "token": "Mailer",
+          "optional": false,
+          "array": false
+        },
+        {
+          "property": "clock",
+          "token": "Clock",
+          "optional": false,
+          "array": false
+        },
+        {
+          "property": "optionalMailer",
+          "token": "Mailer",
+          "optional": true,
+          "array": false
+        },
+        {
+          "property": "allMailers",
+          "token": "Mailer",
+          "optional": false,
+          "array": true
+        },
+        {
+          "property": "greeting",
+          "token": "Configuration",
+          "optional": false,
+          "array": false
+        },
+        {
+          "property": "log",
+          "token": "Log",
+          "optional": false,
+          "array": false
+        },
+        {
+          "property": "lazyClock",
+          "token": "Clock",
+          "optional": false,
+          "array": false,
+          "lazy": true
+        }
+      ],
+      "imperativeResolves": [
+        {
+          "token": "Clock",
+          "method": "load",
+          "awaited": true,
+          "source": {
+            "file": "src/services.ts",
+            "line": 27,
+            "col": 11,
+            "package": "pkg-basic"
+          }
+        },
+        {
+          "token": "Mailer",
+          "method": "load",
+          "awaited": false,
+          "source": {
+            "file": "src/services.ts",
+            "line": 28,
+            "col": 5,
+            "package": "pkg-basic"
+          }
+        }
+      ],
+      "source": {
+        "file": "src/services.ts",
+        "line": 15,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:BasicBootstrapper",
+      "className": "BasicBootstrapper",
+      "registeredAs": [
+        "Bootstrapper",
+        "BasicBootstrapper"
+      ],
+      "lifetime": "per-child",
+      "async": false,
+      "bootstrapper": true,
+      "ctorInjects": [],
+      "propertyInjects": [],
+      "source": {
+        "file": "src/services.ts",
+        "line": 32,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    }
+  ],
+  "values": [
+    {
+      "token": "__basic_version__",
+      "kind": "value",
+      "source": {
+        "file": "src/values.ts",
+        "line": 11,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "token": "__basic_map__",
+      "kind": "map",
+      "mapKey": "key1",
+      "source": {
+        "file": "src/values.ts",
+        "line": 12,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "token": "__configurationSchema__",
+      "kind": "value",
+      "source": {
+        "file": "src/values.ts",
+        "line": 13,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    }
+  ],
+  "controllers": [
+    {
+      "id": "pkg-basic:UsersController",
+      "className": "UsersController",
+      "basePath": "users",
+      "policies": [
+        [
+          {
+            "type": "AdminPolicy",
+            "options": [
+              "strict"
+            ]
+          }
+        ]
+      ],
+      "middlewares": [
+        {
+          "type": "Audit",
+          "options": []
+        }
+      ],
+      "routes": [
+        {
+          "method": "get",
+          "path": ":id",
+          "handler": "get",
+          "fullPath": "/users/:id",
+          "params": [
+            {
+              "index": 0,
+              "name": "id",
+              "kind": "FromParams",
+              "runtimeType": {
+                "text": "number"
+              },
+              "required": true
+            },
+            {
+              "index": 1,
+              "name": "verbose",
+              "kind": "FromQuery",
+              "runtimeType": {
+                "text": "boolean"
+              },
+              "required": false
+            }
+          ],
+          "returnType": {
+            "text": "UserDto"
+          },
+          "policies": [
+            [
+              {
+                "type": "AccessPolicy",
+                "options": [
+                  "route"
+                ]
+              }
+            ]
+          ],
+          "middlewares": [],
+          "access": [
+            "user:read"
+          ],
+          "doc": {
+            "summary": "Get one user",
+            "tags": [
+              "users"
+            ],
+            "responses": [
+              {
+                "status": 404,
+                "description": "not found"
+              }
+            ]
+          },
+          "source": {
+            "file": "src/controller.ts",
+            "line": 19,
+            "col": 3,
+            "package": "pkg-basic"
+          }
+        },
+        {
+          "method": "post",
+          "path": "",
+          "handler": "create",
+          "fullPath": "/users",
+          "params": [
+            {
+              "index": 0,
+              "name": "body",
+              "kind": "FromBody",
+              "runtimeType": {
+                "text": "CreateUserDto"
+              },
+              "required": true,
+              "options": {
+                "required": true
+              }
+            }
+          ],
+          "returnType": {
+            "text": "UserDto"
+          },
+          "policies": [
+            [
+              {
+                "type": "AccessPolicy",
+                "options": [
+                  "route"
+                ]
+              }
+            ]
+          ],
+          "middlewares": [
+            {
+              "type": "AuthzFieldsMiddleware",
+              "options": []
+            }
+          ],
+          "access": [
+            "user:create",
+            "user:update"
+          ],
+          "source": {
+            "file": "src/controller.ts",
+            "line": 25,
+            "col": 3,
+            "package": "pkg-basic"
+          }
+        },
+        {
+          "method": "delete",
+          "path": ":id",
+          "handler": "remove",
+          "fullPath": "/users/:id",
+          "params": [
+            {
+              "index": 0,
+              "name": "id",
+              "kind": "FromParams",
+              "runtimeType": {
+                "text": "number"
+              },
+              "required": true,
+              "schema": "spinajs/pkg-basic/UsersController.remove.id"
+            }
+          ],
+          "returnType": {
+            "text": "void"
+          },
+          "policies": [
+            [
+              {
+                "type": "AdminPolicy",
+                "options": []
+              },
+              {
+                "type": "policies.admin",
+                "options": []
+              }
+            ]
+          ],
+          "middlewares": [],
+          "allowAnonymous": true,
+          "source": {
+            "file": "src/controller.ts",
+            "line": 31,
+            "col": 3,
+            "package": "pkg-basic"
+          }
+        }
+      ],
+      "source": {
+        "file": "src/controller.ts",
+        "line": 10,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    }
+  ],
+  "socketControllers": [
+    {
+      "id": "pkg-basic:DocsSocket",
+      "className": "DocsSocket",
+      "prefix": "docs",
+      "commands": [
+        {
+          "name": "open",
+          "handler": "open",
+          "payload": {
+            "text": "OpenDoc"
+          },
+          "result": {
+            "text": "DocOpened"
+          },
+          "options": {
+            "idempotent": true,
+            "ordered": "client",
+            "timeoutMs": 5000
+          },
+          "access": [
+            "doc:read"
+          ],
+          "policies": [
+            [
+              {
+                "type": "AccessPolicy",
+                "options": [
+                  "route"
+                ]
+              }
+            ]
+          ],
+          "source": {
+            "file": "src/socket.ts",
+            "line": 11,
+            "col": 3,
+            "package": "pkg-basic"
+          }
+        },
+        {
+          "name": "close",
+          "handler": "close",
+          "payload": {
+            "text": "OpenDoc"
+          },
+          "result": {
+            "text": "void"
+          },
+          "options": {},
+          "policies": [],
+          "source": {
+            "file": "src/socket.ts",
+            "line": 15,
+            "col": 3,
+            "package": "pkg-basic"
+          }
+        }
+      ],
+      "events": [
+        {
+          "name": "ping",
+          "payload": {
+            "text": "Ping"
+          }
+        }
+      ],
+      "source": {
+        "file": "src/socket.ts",
+        "line": 8,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    }
+  ],
+  "socketContracts": [
+    {
+      "id": "pkg-basic:DOCS_CONTRACT",
+      "commands": {
+        "docs.open": {
+          "payload": {
+            "text": "OpenDoc"
+          },
+          "result": {
+            "text": "DocOpened"
+          }
+        },
+        "docs.close": {
+          "payload": {
+            "text": "OpenDoc"
+          },
+          "result": {
+            "text": "void"
+          }
+        }
+      },
+      "events": {
+        "docs.changed": {
+          "text": "DocOpened"
+        }
+      },
+      "clientEvents": {
+        "docs.ping": {
+          "text": "Ping"
+        }
+      },
+      "source": {
+        "file": "src/contract.ts",
+        "line": 9,
+        "col": 14,
+        "package": "pkg-basic"
+      }
+    }
+  ],
+  "configModules": [
+    {
+      "module": "basic",
+      "schemaId": "spinajs/basic.configuration.schema.json",
+      "defaultsFile": "src/config/basic.ts",
+      "source": {
+        "file": "src/values.ts",
+        "line": 13,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    }
+  ],
+  "configUsages": [
+    {
+      "path": "basic.featureB",
+      "source": {
+        "file": "src/conditions-extra.ts",
+        "line": 15,
+        "col": 3,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "path": "feature",
+      "source": {
+        "file": "src/conditions-extra.ts",
+        "line": 16,
+        "col": 3,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "path": "basic.x",
+      "source": {
+        "file": "src/conditions-extra.ts",
+        "line": 19,
+        "col": 9,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "path": "basic.featureB",
+      "source": {
+        "file": "src/conditions.ts",
+        "line": 11,
+        "col": 3,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "path": "basic.featureC",
+      "source": {
+        "file": "src/conditions.ts",
+        "line": 16,
+        "col": 9,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "path": "basic.sub",
+      "source": {
+        "file": "src/config-receivers.ts",
+        "line": 7,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "path": "basic.maybe",
+      "source": {
+        "file": "src/config-receivers.ts",
+        "line": 8,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "path": "basic.generic",
+      "source": {
+        "file": "src/generic-bases.ts",
+        "line": 14,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "path": "basic.a",
+      "source": {
+        "file": "src/multi-condition.ts",
+        "line": 7,
+        "col": 3,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "path": "basic.greeting",
+      "source": {
+        "file": "src/services.ts",
+        "line": 22,
+        "col": 3,
+        "package": "pkg-basic"
+      }
+    }
+  ],
+  "models": [
+    {
+      "id": "pkg-basic:Tag",
+      "className": "Tag",
+      "tableName": "tags",
+      "columns": [
+        {
+          "name": "Id",
+          "type": {
+            "text": "number"
+          },
+          "primary": true,
+          "nullable": false
+        },
+        {
+          "name": "Name",
+          "type": {
+            "text": "string"
+          },
+          "primary": false,
+          "nullable": false
+        }
+      ],
+      "relations": [],
+      "accessResource": false,
+      "source": {
+        "file": "src/model.ts",
+        "line": 4,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:PostTag",
+      "className": "PostTag",
+      "tableName": "post_tags",
+      "columns": [
+        {
+          "name": "Id",
+          "type": {
+            "text": "number"
+          },
+          "primary": true,
+          "nullable": false
+        }
+      ],
+      "relations": [],
+      "accessResource": false,
+      "source": {
+        "file": "src/model.ts",
+        "line": 5,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "id": "pkg-basic:Post",
+      "className": "Post",
+      "tableName": "posts",
+      "connection": "default",
+      "columns": [
+        {
+          "name": "Id",
+          "type": {
+            "text": "number"
+          },
+          "primary": true,
+          "nullable": false
+        },
+        {
+          "name": "Title",
+          "type": {
+            "text": "string"
+          },
+          "primary": false,
+          "nullable": false
+        },
+        {
+          "name": "Body",
+          "type": {
+            "text": "string"
+          },
+          "primary": false,
+          "nullable": true
+        },
+        {
+          "name": "PublishedAt",
+          "type": {
+            "text": "Date"
+          },
+          "primary": false,
+          "nullable": true
+        }
+      ],
+      "relations": [
+        {
+          "name": "Owner",
+          "kind": "belongsTo",
+          "target": "User"
+        },
+        {
+          "name": "MainTag",
+          "kind": "forwardBelongsTo",
+          "target": "Tag"
+        },
+        {
+          "name": "Tags",
+          "kind": "hasMany",
+          "target": "Tag"
+        },
+        {
+          "name": "AllTags",
+          "kind": "hasManyToMany",
+          "target": "Tag"
+        }
+      ],
+      "accessResource": true,
+      "source": {
+        "file": "src/model.ts",
+        "line": 7,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    }
+  ],
+  "migrations": [
+    {
+      "id": "pkg-basic:Posts_2026_01_01_00_00_00",
+      "className": "Posts_2026_01_01_00_00_00",
+      "connection": "default",
+      "env": [
+        "test"
+      ],
+      "file": "src/migration.ts",
+      "source": {
+        "file": "src/migration.ts",
+        "line": 3,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    }
+  ],
+  "schedules": [
+    {
+      "name": "cleanup",
+      "className": "CleanupSchedule",
+      "options": {
+        "cron": "0 3 * * *",
+        "timezone": "UTC",
+        "runOn": "leader",
+        "emit": "Cleanup"
+      },
+      "source": {
+        "file": "src/schedule.ts",
+        "line": 7,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    }
+  ],
+  "commands": [
+    {
+      "name": "basic:hello",
+      "className": "HelloCommand",
+      "description": "Say hello",
+      "options": [
+        {
+          "flags": "-l, --loud",
+          "description": "Shout"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "name",
+          "description": "Who to greet"
+        }
+      ],
+      "source": {
+        "file": "src/command.ts",
+        "line": 3,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "name": "basic:bye",
+      "className": "ByeCommand",
+      "description": "Say bye",
+      "options": [],
+      "arguments": [],
+      "parent": "basic:hello",
+      "source": {
+        "file": "src/command.ts",
+        "line": 8,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    }
+  ],
+  "queueMessages": [
+    {
+      "className": "UserCreated",
+      "kind": "event",
+      "payload": {
+        "text": "UserCreated"
+      },
+      "options": {
+        "durable": true
+      },
+      "source": {
+        "file": "src/queue.ts",
+        "line": 3,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "className": "Cleanup",
+      "kind": "job",
+      "payload": {
+        "text": "Cleanup"
+      },
+      "options": {
+        "runAs": "system"
+      },
+      "source": {
+        "file": "src/schedule.ts",
+        "line": 4,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    }
+  ],
+  "schemas": {
+    "spinajs/basic.configuration.schema.json": {
+      "$id": "spinajs/basic.configuration.schema.json",
+      "$configurationModule": "basic",
+      "type": "object",
+      "properties": {
+        "greeting": {
+          "type": "string",
+          "default": "hi"
+        }
+      }
+    },
+    "spinajs/pkg-basic/UsersController.remove.id": {
+      "type": "number",
+      "minimum": 1
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "CMP003",
+      "severity": "info",
+      "message": "registration cannot be decided statically: else branch",
+      "source": {
+        "file": "src/conditions-extra.ts",
+        "line": 19,
+        "col": 49,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "code": "CMP003",
+      "severity": "info",
+      "message": "registration cannot be decided statically: else branch",
+      "source": {
+        "file": "src/conditions-extra.ts",
+        "line": 20,
+        "col": 47,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "code": "CMP003",
+      "severity": "info",
+      "message": "registration cannot be decided statically: non-config or negated guard",
+      "source": {
+        "file": "src/conditions-extra.ts",
+        "line": 23,
+        "col": 21,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "code": "CMP003",
+      "severity": "info",
+      "message": "registration cannot be decided statically: registered in bootstrap()",
+      "source": {
+        "file": "src/conditions.ts",
+        "line": 13,
+        "col": 5,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "code": "CMP003",
+      "severity": "info",
+      "message": "registration cannot be decided statically: inside ForStatement",
+      "source": {
+        "file": "src/conditions.ts",
+        "line": 17,
+        "col": 33,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "code": "CMP003",
+      "severity": "info",
+      "message": "registration cannot be decided statically: else branch",
+      "source": {
+        "file": "src/multi-condition.ts",
+        "line": 10,
+        "col": 10,
+        "package": "pkg-basic"
+      }
+    }
+  ]
+}

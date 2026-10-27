@@ -15,3 +15,4 @@ export * from './extractors/schedules.js';
 export * from './extractors/commands.js';
 export * from './extractors/queue.js';
 export * from './doctor/index.js';
+export * from './analyze-package.js';
