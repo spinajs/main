@@ -117,7 +117,7 @@ Put it in its own file in a directory your application lists in `system.dirs.cli
 - **Do not add `@Option` to a subclass of a shipped command.** `@Option` appends to the inherited metadata array, so the new option leaks into the shipped command too. Declare a new command on `CliCommand` instead.
 - **Register before `Cli` dispatches.** Commands resolve lazily; a registration made after the command was resolved is ignored for that run.
 - **`migrationTemplate()` and `resolveCliMigrator()` are imported directly by the commands.** Replacing them on a subclass or in DI changes nothing; override `execute()` or write a new command.
-- **A command of your own gets no table check.** The CLI migrator runs no boot pass and the `Orm` only warns about a missing table; call `orm.reloadTableInfo({ strict: true })` after `migrator.migrate()` when the command must fail like `migrate-up` does.
+- **A command of your own gets no table check.** The CLI migrator applies nothing on its way in and the `Orm` only warns about a missing table; call `orm.reloadTableInfo({ strict: true })` after `migrator.migrate()` when the command must fail like `migrate-up` does.
 - **Commands are singletons.** State kept on a command instance survives between calls in the same process, which matters when a script calls `execute()` twice.
 
 ## Best practices

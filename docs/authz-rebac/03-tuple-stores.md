@@ -30,7 +30,7 @@ Process memory: tests, demos and small apps. `writeNow` writes synchronously and
 
 ### `DbTupleStore`
 
-`authz_rebac_tuple` on the ORM connection alias `authz` (default connection `default`, set `db.Aliases.authz` to move it). Run the migration `AuthzRebac_2026_10_21_00_00_00`. The store is built with `new`, not by DI, so it does not inject the `Orm`: resolve the `Orm` (or [`OrmMigrator`](../orm/10-migrations.md), which runs the migration on a `Migration.OnStartup` connection) before its first read.
+`authz_rebac_tuple` on the ORM connection alias `authz` (default connection `default`, set `db.Aliases.authz` to move it). Run the migration `AuthzRebac_2026_10_21_00_00_00`. The store is built with `new`, not by DI, so it does not inject the `Orm`: resolve the `Orm` (which [runs the migration](../orm/10-migrations.md) on a `Migration.OnStartup` connection) before its first read.
 
 | Column | Type | |
 | --- | --- | --- |

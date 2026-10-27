@@ -5,7 +5,7 @@ Every store of the package reads and writes through one of seven ORM models. Eac
 ## How it works
 
 1. Importing `@spinajs/authn-orm` defines the seven models (`@Model`, `@Connection('default')`) and the migration `AuthnInitial_2026_10_02_00_00_00` (`@Migration('default')`).
-2. `Orm.resolve()` binds each model to the driver stored under `default`, which `db.DefaultConnection` creates. With `Migration.OnStartup` on that connection, resolving `OrmMigrator` at boot runs the migration.
+2. `Orm.resolve()` binds each model to the driver stored under `default`, which `db.DefaultConnection` creates. With `Migration.OnStartup` on that connection, resolving the `Orm` runs the migration.
 3. Every store injects the `Orm` (`@Autoinject(Orm)`), so resolving a store resolves the `Orm` and binds the models; a CLI command or a worker needs no explicit `DI.resolve(Orm)`.
 4. Reads hydrate each `@DT()` column into a luxon `DateTime` through the ORM datetime converter. Writes pass `DateTime` values in UTC, computed in Node.
 
@@ -40,7 +40,7 @@ The model `AuthnAudit` shares its name with the audit fan-out service of `@spina
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `db.DefaultConnection` | `string` | unset | a connection `Name` | Creates the `default` connection every model and the migration use. Required. |
-| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | | Runs the migration in the boot pass of `OrmMigrator` when set on the default connection. |
+| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | | Runs the migration when the `Orm` resolves, when set on the default connection. |
 | `db.StrictTableCheck` | `boolean` | `true` | `true`, `false` | Fails `Orm.resolve()` when one of the seven tables is missing. |
 
 The `db.*` keys are owned by `@spinajs/orm`; see [Connections](../orm/01-connections.md#configuration).
@@ -181,7 +181,7 @@ No migration copies 2.x `users_metadata` rows (TOTP secrets, pending resets, inv
 
 ## Best practices
 
-- Run the migration before the app serves traffic (`Migration.OnStartup` with `OrmMigrator` resolved at boot, or `migrate-up` in the deploy step), so the strict table check passes.
+- Run the migration before the app serves traffic (`Migration.OnStartup`, applied when the `Orm` resolves, or `migrate-up` in the deploy step), so the strict table check passes.
 - Read the tables through the exported models from a service that injects the `Orm`, not with raw SQL: the models hydrate datetimes the same way the stores write them.
 - Build `identity` filters with `identityKey()`, so a query matches what the stores wrote.
 
@@ -241,6 +241,6 @@ export class TotpReport {
 ## Related
 
 - [`@spinajs/orm` Connections](../orm/01-connections.md): `db.DefaultConnection`, `db.StrictTableCheck` and `@Connection`.
-- [`@spinajs/orm` Migrations](../orm/10-migrations.md): the boot pass and `Migration.OnStartup`.
+- [`@spinajs/orm` Migrations](../orm/10-migrations.md): migrating on startup and `Migration.OnStartup`.
 - [`@spinajs/orm` Converters and hydration](../orm/04-converters-and-hydration.md): how `@DT()` columns become `DateTime` values.
 - [Authentication internals: authn-orm tables](../authn-orm/07-models-and-schema.md): the tables in the login flow.

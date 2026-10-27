@@ -10,7 +10,7 @@ It does **not** schedule anything: a task runs only when your code calls the dec
 npm install @spinajs/tasks
 ```
 
-`@Task()` needs a resolved `Orm` with a `default` connection (a resolved `OrmMigrator` when that connection has `Migration.OnStartup`) and a resolved `QueueService`. With `taskStacking: false`, the default, it also needs a `Mutex` registered in DI, for example `OrmMutex` from [`@spinajs/orm-threading`](../orm-threading/README.md).
+`@Task()` needs a resolved `Orm` with a `default` connection and a resolved `QueueService`. With `taskStacking: false`, the default, it also needs a `Mutex` registered in DI, for example `OrmMutex` from [`@spinajs/orm-threading`](../orm-threading/README.md).
 
 ## Features
 

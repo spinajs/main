@@ -5,7 +5,7 @@ Five `spinajs` commands manage users from a shell: create, find, activate or dea
 ## How it works
 
 1. users' config adds `node_modules/@spinajs/users/lib/<cjs|mjs>/cli` (and the same one directory up) to `system.dirs.cli`, so `spinajs` discovers the commands.
-2. The CLI resolves only the command it runs. `RbacCliCommand` injects `OrmMigrator` and `Orm`, which boots the ORM and runs the `Migration.OnStartup` pass for that command alone, as an app process does before serving; listing commands (`--help`) opens no connection.
+2. The CLI resolves only the command it runs. `RbacCliCommand` injects the `Orm`, which boots the ORM and applies the `Migration.OnStartup` migrations for that command alone, as an app process does before serving; listing commands (`--help`) opens no connection.
 3. `execute()` calls the action and logs the result through the `rbac` logger.
 4. Errors are caught and logged (`Error while ...`), and the command sets `process.exitCode = 1`.
 

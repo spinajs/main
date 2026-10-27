@@ -8,7 +8,7 @@ Every `OrmMutex` lock is a row of the `__mutex__` table, read and written throug
    - `@Model('__mutex__')` registers the `__mutex__` class under `__models__`; `@Connection('default')` binds it to the `default` connection.
    - `@Migration('default')` registers `Mutex_2024_12_03_11_41_00` under `__migrations__`.
 2. `Orm.resolve()` finds the migration through `DiRegistryMigrationSource`; no directory scan is needed.
-3. `OrmMigrator`'s boot pass (`DI.resolve(OrmMigrator)`) runs it when the connection has `Migration.OnStartup: true`. Otherwise run it with the ORM migration commands.
+3. `Orm.resolve()` (`DI.resolve(Orm)`) runs it when the connection has `Migration.OnStartup: true`. Otherwise run it with the ORM migration commands.
 4. `Mutex_2024_12_03_11_41_00.up()` creates the table. `down()` drops it.
 5. `Orm` binds the model to the driver stored under `default`, which is the connection named in `db.DefaultConnection`.
 
@@ -17,7 +17,7 @@ Every `OrmMutex` lock is a row of the `__mutex__` table, read and written throug
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `db.DefaultConnection` | `string` | unset | a connection `Name` | The connection stored as `default`; the table and the model live there. |
-| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | | Runs the pending `__mutex__` migration in `OrmMigrator`'s boot pass. See [Migrations](../orm/10-migrations.md#configuration). |
+| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | | Runs the pending `__mutex__` migration when the `Orm` resolves. See [Migrations](../orm/10-migrations.md#configuration). |
 
 See [Connections](../orm/01-connections.md#configuration) and [Migrations](../orm/10-migrations.md) for the rest of these sections.
 
@@ -162,5 +162,5 @@ export async function releaseStaleLocks(maxAgeMinutes = 60): Promise<number> {
 - [Database mutex](01-database-mutex.md): how `OrmMutex` reads and writes these rows.
 - [Custom mutex backends](02-custom-mutex-backends.md): extend `OrmMutex` or replace it.
 - [Models](../orm/02-models.md) and [Model API](../orm/03-model-api.md): `@Model`, `@Primary`, `where()`, `update()`.
-- [Migrations](../orm/10-migrations.md): discovery, the boot pass and rollback.
+- [Migrations](../orm/10-migrations.md): discovery, migrating on startup and rollback.
 - [Schema builder](../orm/09-schema-builder.md): `alterTable()` and `modify()`.

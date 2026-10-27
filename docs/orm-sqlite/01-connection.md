@@ -188,7 +188,7 @@ export class PatientConfiguration extends FrameworkConfiguration {
 - One writer handle per connection. All writes, schema changes and transactions of the connection share it, in the order they reach `sqlite3`.
 - A failed open rejects promptly with the `sqlite3` error. `Orm` then wraps it in `OrmException('Failed to connect to database for connection <Name> ...')` with the original as `inner`.
 - SQLite creates the file, not its directory. A missing directory fails with `SQLITE_CANTOPEN`.
-- `:memory:` and `''` give a database that exists only while the connection is open. Every `Orm` boot starts empty, so `OrmMigrator`'s boot pass applies every migration each time.
+- `:memory:` and `''` give a database that exists only while the connection is open. Every `Orm` boot starts empty, so `Orm.resolve()` applies every `Migration.OnStartup` migration each time.
 - `ping()` reads `PRAGMA schema_version` on the writer, so the health probe fails on a closed handle and on a file that is not a database. A failed probe makes the core call `connect()` again, which closes the old writer first.
 - `SQLITE_BUSY` outside a transaction is retried with `Resilience.MaxRetries` / `RetryDelay` / `MaxRetryDelay`, on the same handle. Each attempt already waits `sqlite3`'s busy timeout (1000 ms), so raise the timeout (see the sample above) to wait longer per attempt.
 - `Schema` statements without bindings run with `sqlite3`'s `exec()`, so `schema().raw('A; B')` runs both. With bindings, and for `Transaction` statements, `run()` executes only the first statement of the string.

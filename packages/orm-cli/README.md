@@ -46,8 +46,8 @@ await (await DI.resolve(MigrateStatusCommand)).execute();
 
 ## Running a command never migrates anything
 
-`Orm.resolve()` never migrates; an application's `DI.resolve(OrmMigrator)` runs the boot
-migration pass — every pending migration on every connection whose `Migration.OnStartup` is on.
+An application's `DI.resolve(Orm)` applies the startup migrations — every pending migration on
+every connection whose `Migration.OnStartup` is on.
 For an application that is the point. For a migration tool it is a trap, twice over:
 
 - a connection holding a **failed** migration refuses every migration run, so the resolve throws
@@ -58,11 +58,11 @@ For an application that is the point. For a migration tool it is a trap, twice o
   "is this database current?" made it current, answered "yes" and exited `0`, with the DDL it was
   meant to hold back already run.
 
-So the commands resolve the migrator through `resolveCliMigrator()`, which passes
-`MigrateOnStartup: false` (an `IOrmMigratorOptions` field of `@spinajs/orm`). Everything else
-about resolving happens — connections, models, value converters, `OrmMigrator.Runner` — only the
-boot pass is skipped. Nothing changes for an application that resolves its migrator the ordinary
-way.
+So the commands resolve the migrator through `resolveCliMigrator()`, which calls
+`resolveMigrationTool()` of `@spinajs/orm`: `OrmMigrator` with `MigrateOnStartup: false` (an
+`IOrmMigratorOptions` field), then the `Orm`. Everything else about resolving happens —
+connections, models, value converters, `OrmMigrator.Runner` — only the startup migrations are
+skipped. Nothing changes for an application that resolves its `Orm` the ordinary way.
 
 The Orm reads the models' tables without the `db.StrictTableCheck` error, so the commands work on a
 fresh database. A full `migrate-up` (no `--name`, no `--connection`) applies the check after its run and
@@ -70,11 +70,11 @@ exits `1` when a registered model still has no table.
 
 Two consequences worth knowing:
 
-- `migrate-up --fake` means what it says on a `Migration.OnStartup` connection. A boot pass would
-  have really applied the migrations the flag promises only to record.
-- **`migrate-up` seeds what it applies.** It runs `OrmMigrator.migrate()`, the same pass an
-  application boot runs: the migrations, a re-read of the table info they touched, then their
-  `data()` hooks. `--fake` seeds nothing.
+- `migrate-up --fake` means what it says on a `Migration.OnStartup` connection. The startup
+  migrations would have really applied the migrations the flag promises only to record.
+- **`migrate-up` seeds what it applies.** It runs `OrmMigrator.migrate()`: the migrations, a
+  re-read of the table info they touched, then their `data()` hooks, as an application's
+  `Orm.resolve()` applies and seeds its startup migrations. `--fake` seeds nothing.
 
 ## Commands
 

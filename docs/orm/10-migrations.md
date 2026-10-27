@@ -15,35 +15,39 @@ Migrations change the database schema in ordered, tracked steps. Each migration 
 5. Entries whose environment is set and differs from the normalized `APP_ENV` are dropped. They never reach `orm.Migrations`, so `up`, `down` and `status` all ignore them.
 6. `Orm.registerMigration()` checks each class name against `MIGRATION_FILE_REGEXP` and throws `OrmException` for a name without a valid `_yyyy_MM_dd_HH_mm_ss` timestamp.
 
-`Orm.resolve()` applies nothing. It reads table info (failing on a missing table of a connection without `Migration.OnStartup` when `db.StrictTableCheck` is on), wires relations and installs the model statics; see [Connections](01-connections.md).
+`Orm.resolve()` then applies the startup migrations (below), reads table info, wires relations and installs the model statics; see [Connections](01-connections.md).
 
-### The boot pass, `DI.resolve(OrmMigrator)`
+### Migrating on startup, `DI.resolve(Orm)`
 
-1. `OrmMigrator.resolve()` resolves the `Orm` from its container first. With `{ MigrateOnStartup: false }` it resolves it as a migration tool: `Orm.resolve()` skips its `db.StrictTableCheck` check.
-2. It assigns `Runner = new MigrationRunner(orm)`. With `{ MigrateOnStartup: false }` it clears `AwaitsStartupMigration` on every connection and returns.
-3. Otherwise it calls `migrate({ force: false })`. `force: false` runs only connections whose `Migration.OnStartup` is `true`. Model queries of the pass (the migrations' `up()` and `data()` and what they call) pass the `Migration.OnStartup` gate; any other code is refused until step 7.
-4. `migrate()` calls `Runner.up()`, then `orm.reloadTableInfo({ models: touched.models })` for the models whose tables the applied migrations changed, then `runDataPhase(executed)`.
-5. `runDataPhase()` calls `data()` on every migration the pass applied. Every hook runs even when an earlier one throws; the failures are reported together in one `OrmException` whose `inner` is the first one.
-6. With `db.StrictTableCheck` on (the default), it calls `orm.reloadTableInfo({ models: [], strict: true })`: only the models an earlier read recorded missing are read again, so a table created since counts as present, and one `OrmException` names every registered model whose table is still missing, for example `Missing tables (db.StrictTableCheck): model PolicyRecord: table authz_policy on connection authz (main). Create them (run their migrations) or set db.StrictTableCheck to false`.
-7. It clears `AwaitsStartupMigration` on every connection: model queries on `Migration.OnStartup` connections work from here on.
-8. A migration that throws in step 4 rejects `DI.resolve(OrmMigrator)` with that error. The `data()` phase does not run. A failed pass leaves the gate closed and the `Orm` cached with its connections open; the process calls `await DI.dispose()` before it exits or retries (see [Connections](01-connections.md#important-behaviour)).
+1. Once the migrations, models and converters are registered, `Orm.resolve()` resolves `OrmMigrator` from its container and keeps it as `Orm.Migrator`. A migrator already cached, such as one a migration tool resolved with `{ MigrateOnStartup: false }`, is reused.
+2. It calls `migrator.boot(orm)`, which assigns `Runner = new MigrationRunner(orm)`. With `MigrateOnStartup: false`, `boot()` returns here and nothing is applied.
+3. Otherwise `boot()` calls `Runner.up(undefined, { force: false })`. `force: false` runs only connections whose `Migration.OnStartup` is `true`. The migrations' `up()` run before any table info is read and before the model statics are installed.
+4. `Orm.resolve()` reads the table info of every registered model once, from the migrated schema.
+5. With `db.StrictTableCheck` on (the default) and `MigrateOnStartup` not `false`, one `OrmException` names every registered model, on any connection, whose table is missing, for example `Missing tables (db.StrictTableCheck): model PolicyRecord: table authz_policy on connection authz (main). Create them (run their migrations) or set db.StrictTableCheck to false`.
+6. It wires relations and installs the model statics. The `Orm` is cached and the container emits `di.resolved.Orm`.
+7. On that event the migrator calls `data()` on every migration `boot()` applied (`runDataPhase()`), so a seed may resolve services that inject the `Orm`. Every hook runs even when an earlier one throws; the failures are reported together in one `OrmException` whose `inner` is the first one.
+8. `await DI.resolve(Orm)` returns while the seeds may still run. `orm.Migrator.ready()` settles after them, or rejects with their aggregated failure, which is also logged. A failed seed leaves the `Orm` resolved.
+9. A migration that throws in step 3, or a failed check in step 5, rejects `DI.resolve(Orm)` with that error. The `Orm` closes its connections and is not cached; no `data()` runs.
 
 ```mermaid
 sequenceDiagram
   participant App
-  participant Mg as OrmMigrator
   participant Orm
+  participant Mg as OrmMigrator
   participant R as MigrationRunner
   participant M as OrmMigration
-  App->>Mg: DI.resolve(OrmMigrator)
-  Mg->>Orm: resolve(Orm): connections, models, table info
+  App->>Orm: DI.resolve(Orm)
+  Orm->>Orm: connections; register migrations, models, converters
+  Orm->>Mg: boot(orm)
   Mg->>R: up(undefined, { force: false })
   R->>M: up(driver)
   R-->>Mg: { executed, touched }
-  Mg->>Orm: reloadTableInfo({ models: touched.models })
+  Mg-->>Orm: applied
+  Orm->>Orm: read table info, db.StrictTableCheck
+  Orm->>Orm: wire relations, install model statics
+  Orm-->>App: resolved Orm (cached, di.resolved.Orm)
   Mg->>M: data()
-  Mg->>Orm: reloadTableInfo({ models: [], strict: true })
-  Mg-->>App: resolved OrmMigrator
+  Mg-->>App: Migrator.ready() settles
 ```
 
 ### Touched models
@@ -127,15 +131,16 @@ sequenceDiagram
 
 | Member | Required | Called | Purpose |
 | --- | --- | --- | --- |
-| `up(connection: OrmDriver): Promise<void>` | yes | by `up()` | Apply the schema change. Models are wired, but models of tables this run creates have no columns until the run ends. |
+| `up(connection: OrmDriver): Promise<void>` | yes | by `up()` | Apply the schema change through `connection`. |
 | `down(connection: OrmDriver): Promise<void>` | yes | by `down()` | Undo `up()`. |
-| `data(): Promise<void>` | no | by `OrmMigrator.migrate()`, for the migrations it applied | Seed data once every migration of the run is applied and the touched models are re-read. |
+| `data(): Promise<void>` | no | once the `Orm` is resolved, for the migrations its startup run applied; by `OrmMigrator.migrate()`, for the migrations it applied | Seed data once every migration of the run is applied and the models hold the migrated columns. |
 | `transaction = false` | no | by the service | Run this migration outside any wrapping transaction. |
 
 - The class name is the migration's identity: it is stored in the `Migration` column and must match `MIGRATION_FILE_REGEXP`, `<Name>_yyyy_MM_dd_HH_mm_ss`. The timestamp is the only ordering the runner has; equal timestamps fall back to the name.
 - `transaction = false` is read from the instance, the prototype or a static property.
 - Use the `OrmDriver` passed to `up()` and `down()`. Its schema builder is described in [Schema builder](09-schema-builder.md).
-- `up()` and `data()` may resolve any service that injects the `Orm`, such as a users or token store: the `Orm` is resolved before the migrator runs. Such services must not inject `OrmMigrator`.
+- On startup `up()` runs inside `Orm.resolve()`, before table info is read and the model statics are installed. It changes the schema through its `connection` only: no model statics, and no service that injects the `Orm`, which would wait on the resolve running `up()` and hang. Model work and such services belong in `data()`.
+- `data()` runs once the `Orm` is resolved and may resolve any service that injects it, such as a users or token store.
 - Prefer the schema builder over raw SQL: raw SQL makes the run re-read every model of the connection.
 
 ### Environments
@@ -176,13 +181,16 @@ In each directory it matches `**/!(*.*).{ts,js,cjs,mjs}` (no environment tag) an
 
 | Member | Meaning |
 | --- | --- |
-| `constructor(options?: IOrmMigratorOptions)` | `MigrateOnStartup?: boolean`, default `true`. `false` resolves the migrator without the boot pass: `Runner` and `migrate()` work, nothing is applied on the way in. |
-| `MigrateOnStartup` | Read-only `boolean`. `false` when resolved with `MigrateOnStartup: false`: its resolve ran no boot pass and created no table. A `di.resolved.OrmMigrator` listener reads it to tell a migration tool from a migrated boot. |
-| `Runner` | The `MigrationRunner` over the `Orm`'s migrations and connections. Assigned in `resolve()`. |
+| `constructor(options?: IOrmMigratorOptions)` | `MigrateOnStartup?: boolean`, default `true`. `false`, on a migrator resolved before the `Orm`, makes the `Orm`'s resolve apply nothing and skip its `db.StrictTableCheck` check: `Runner` and `migrate()` work, nothing is applied on the way in. |
+| `MigrateOnStartup` | Read-only `boolean`. `false` when resolved with `MigrateOnStartup: false`. |
+| `Runner` | The `MigrationRunner` over the `Orm`'s migrations and connections. Assigned in `boot()`. |
+| `boot(orm: Orm)` | Called by `Orm.resolve()`: binds the migrator to `orm` and applies the pending `Migration.OnStartup` migrations, see [above](#migrating-on-startup-diresolveorm). Their `data()` runs on `di.resolved.Orm`. |
+| `ready()` | `Promise<void>` that settles after the `data()` seeds of `boot()`, or rejects with their aggregated failure. With `MigrateOnStartup: false` it resolves at once. |
 | `migrate(options?: IOrmMigrateOptions)` | `IMigrationUpOptions` plus `name`. Applies (`force` defaults to `true`), re-reads the touched models, runs `data()` (not with `fake`). Resolves with the applied migrations. |
-| `resolve()` | The boot pass, see [above](#the-boot-pass-diresolveormmigrator). |
 
-`OrmMigrator` is a DI singleton: the options apply only to the resolve that constructs it. It leaves the cache once another `Orm` resolves in its container (after `DI.uncache(Orm)`), so the next `DI.resolve(OrmMigrator)` runs against the new `Orm`.
+`Orm.Migrator` is the migrator the `Orm` booted. `OrmMigrator` is a DI singleton: the options apply only to the resolve that constructs it, and resolving it migrates nothing. The next `Orm.resolve()` (after `DI.uncache(Orm)`) boots the cached migrator again against the new `Orm`.
+
+`resolveMigrationTool(container = DI.RootContainer): Promise<OrmMigrator>` resolves `OrmMigrator` with `{ MigrateOnStartup: false }`, then the `Orm`, and returns the migrator. The `Orm` picks up that cached migrator, applies nothing and skips its `db.StrictTableCheck` check. Migration tools boot with it.
 
 ### `MigrationRunner`
 
@@ -197,12 +205,12 @@ In each directory it matches `**/!(*.*).{ts,js,cjs,mjs}` (no environment tag) an
 
 | Option | Meaning |
 | --- | --- |
-| `force` | `true` ignores `Migration.OnStartup`. Only the migrator's boot pass passes `false`. |
+| `force` | `true` ignores `Migration.OnStartup`. Only `OrmMigrator.boot()` passes `false`. |
 | `fake` | Record the outcome without calling `up()` / `down()`. |
 | `connection` | Limit the run to one connection, by name or alias. |
 | `all` | `down()` only: roll back every batch instead of the last one. |
 
-`@spinajs/orm-cli` exposes the same operations as `migrate-up` (`OrmMigrator.migrate()`), `migrate-down`, `migrate-status`, `migrate-resolve` and `migrate-create`. It resolves `OrmMigrator` with `MigrateOnStartup: false`, so booting the CLI applies nothing on its own.
+`@spinajs/orm-cli` exposes the same operations as `migrate-up` (`OrmMigrator.migrate()`), `migrate-down`, `migrate-status`, `migrate-resolve` and `migrate-create`. It boots through `resolveMigrationTool()`, so booting the CLI applies nothing on its own.
 
 ### Migration states
 
@@ -262,8 +270,8 @@ Staleness is judged by the client clock, so hosts whose clocks disagree steal ea
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | `true`, `false` | Apply this connection's migrations during `OrmMigrator`'s boot pass. Model queries on the connection throw outside the pass until it succeeded. |
-| `db.StrictTableCheck` | `boolean` | `true` | `true`, `false` | Fail the boot when a registered model has no table: `Orm.resolve()` for the connections without `Migration.OnStartup`, the boot pass for every connection. See [Connections](01-connections.md#configuration). |
+| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | `true`, `false` | Apply this connection's pending migrations when the `Orm` resolves. |
+| `db.StrictTableCheck` | `boolean` | `true` | `true`, `false` | Fail `Orm.resolve()`, after its startup migrations, when a registered model on any connection has no table. Skipped by a migration tool (`MigrateOnStartup: false`). See [Connections](01-connections.md#configuration). |
 | `db.Connections[].Migration.Table` | `string` | `spinajs_migration` | table name | Tracking table. The lock table is `<Table>_lock`. |
 | `db.Connections[].Migration.Service` | `string` | unset (`DefaultMigrationService`) | DI token | `OrmMigrationService` implementation for this connection. |
 | `db.Connections[].Migration.Transaction.Mode` | `MigrationTransactionMode` | `None` | `None`, `PerMigration`, `PerRun` | See [Transaction modes](#transaction-modes). |
@@ -273,7 +281,7 @@ Staleness is judged by the client clock, so hosts whose clocks disagree steal ea
 | `system.dirs.migrations` | `string[]` | `[]` (fallback directories) | directory paths | Directories `FilesystemMigrationSource` scans. A non-empty value replaces the fallbacks. |
 | `process.env.APP_ENV` | `string` | unset (`prod`) | `[A-Za-z0-9_-]+` | Environment the process runs as; selects tagged migrations. |
 
-`MigrateOnStartup` is not configuration: pass it when resolving the migrator, as `DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])`. Its default is `true`.
+`MigrateOnStartup` is not configuration: pass it when resolving the migrator before the `Orm`, as `DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])`, or call `resolveMigrationTool()`. Its default is `true`.
 
 ```ts
 import { MigrationTransactionMode } from '@spinajs/orm';
@@ -338,7 +346,7 @@ The name comes from `Migration.Table`. `IMigrationRecord` is the row type.
 | --- | --- | --- | --- |
 | `OrmMigrationService` | Per-connection storage, locking, run, rollback, status and resolve. Contract: `ensureStorage()`, `up()`, `down()`, `status()`, `resolve()`. | `DefaultMigrationService` | Register a subclass under a string token and set `Migration.Service` to it. |
 | `MigrationSource` | Discovers migration classes; never constructs or runs them. | `FilesystemMigrationSource` and `DiRegistryMigrationSource`, both active | Add a source with `@Injectable(MigrationSource)`; every registered source is merged. |
-| `OrmMigrator` | Boot pass, `migrate()`, data phase; owns `Runner`. | `OrmMigrator` | Not overridden. Resolve it with `IOrmMigratorOptions`. |
+| `OrmMigrator` | Startup migrations (`boot()`), `migrate()`, data phase; owns `Runner`. | `OrmMigrator` | Not overridden. Resolve it with `IOrmMigratorOptions`. |
 | `MigrationRunner` | Cross-connection planning and ordering; `OrmMigrator.Runner`. | `MigrationRunner` | Not resolved through DI. Construct one over any `IMigrationRunnerHost` (`Migrations`, `Connections`, optional `Models` for the touched report) for tooling or tests. |
 
 `DefaultMigrationService` also has `applied()`, which returns the raw applied rows of its connection.
@@ -366,15 +374,14 @@ DI.register(MaintenanceWindowMigrationService).as('maintenance-window-migrations
 
 ## Important behaviour
 
-- `Migration.OnStartup` is off unless set, so the boot pass applies nothing for a connection without it. `migrate()`, `Runner.up()` and the CLI ignore the flag.
-- The table check of the boot pass does not depend on `Migration.OnStartup`: a connection that migrates through the CLI must be migrated before the app starts.
-- An app that resolves only `Orm` gets the table check of the connections without `Migration.OnStartup` only and, on a `Migration.OnStartup` connection, a model query that throws `connection <Name> migrates on startup; resolve OrmMigrator before using it`.
+- `Migration.OnStartup` is off unless set, so `Orm.resolve()` applies nothing for a connection without it. `migrate()`, `Runner.up()` and the CLI ignore the flag.
+- The `db.StrictTableCheck` check of `Orm.resolve()` does not depend on `Migration.OnStartup`: a connection that migrates through the CLI must be migrated before the app starts.
 - `migrate()` re-reads only the touched models. `Runner.up()` reads no table info: models of the tables it created have no reflected columns until you call `orm.reloadTableInfo()`.
 - A re-read model holds what its table holds after the run: a column a migration dropped or renamed leaves the model. See [Models](02-models.md#how-it-works).
 - A migration on a `db.Aliases` name whose target connection does not exist is skipped with a warning, like one on an unknown connection.
-- `data()` runs in `OrmMigrator.migrate()` (the boot pass and `migrate-up`), only for the migrations that call applied, and never with `fake`. `Runner.up()` never calls it.
+- `data()` runs after the `Orm` resolves, for the migrations its startup run applied, and in `OrmMigrator.migrate()` (`migrate-up`), for the migrations that call applied; never with `fake`. `Runner.up()` never calls it.
 - When a run applies M1 and then fails on M2, M1 is recorded as applied but its `data()` never runs, on that run or any later one. Nothing reports it.
-- During `up()` and `data()` the `Orm` is resolved: `DI.resolve(Orm)` and services injecting it resolve at once.
+- During a startup `up()` the `Orm` is still resolving: `DI.resolve(Orm)` there, or a service injecting it, never settles. During `data()` they resolve at once.
 - `up()` applies pending migrations in `(timestamp, name)` order across all connections, not connection by connection.
 - A failed row on a connection blocks every later `up()` there, even one with nothing pending, until `resolve()` clears it.
 - An interrupted migration re-runs from the top. Under `MigrationTransactionMode.None`, whatever it applied before the crash is still in the database, and non-idempotent data changes apply twice.
@@ -388,24 +395,27 @@ DI.register(MaintenanceWindowMigrationService).as('maintenance-window-migrations
 - Scaffold migrations with `migrate-create`, which stamps the class name with the current time, and never rename an applied migration: the name is the row key.
 - Write `data()` so that running it twice is harmless, for example with `InsertBehaviour.InsertOrIgnore`.
 - Set `Lock.StaleAfter` above your longest migration run. A live run that outlasts it gets its lock stolen, and two runs proceed at once.
-- Resolve `OrmMigrator` at application boot when any connection has `Migration.OnStartup`, before serving.
-- Resolve `OrmMigrator` with `MigrateOnStartup: false` in processes that inspect or operate on migrations, such as deploy gates.
+- Resolve the `Orm` before serving; when requests need the startup seeds, await `orm.Migrator.ready()` as well.
+- Boot processes that inspect or operate on migrations, such as deploy gates, with `resolveMigrationTool()`.
 - Use `PerMigration` or `PerRun` on engines with transactional DDL, and mark the statements that cannot run in a transaction with `transaction = false`.
 - Run `migrator.Runner.status()` in a deploy gate and fail on `failed`, `interrupted` or `pending` entries.
 
 ## Patterns and antipatterns
 
 ```ts
-// Don't: the store injects the migrator; a seed resolving the store waits on the migrator running the seed
-export class InvoiceStore {
-  @Autoinject(OrmMigrator)
-  protected Migrator: OrmMigrator;
+// Don't: on startup up() runs inside Orm.resolve(); a service that injects the Orm waits on that resolve
+public async up(connection: OrmDriver): Promise<void> {
+  await connection.schema().createTable('invoices', (table) => { /* ... */ });
+  await (await DI.resolve(InvoiceStore)).seedDefaults();
 }
 
-// Do: inject the Orm, which is resolved before any migration runs
-export class InvoiceStore {
-  @Autoinject(Orm)
-  protected Orm: Orm;
+// Do: schema through connection in up(); services and model statics in data()
+public async up(connection: OrmDriver): Promise<void> {
+  await connection.schema().createTable('invoices', (table) => { /* ... */ });
+}
+
+public async data(): Promise<void> {
+  await (await DI.resolve(InvoiceStore)).seedDefaults();
 }
 ```
 
@@ -523,9 +533,9 @@ export class IndexInvoicesByCustomer_2026_10_08_09_00_00 extends OrmMigration {
 
 ```ts sample
 import { AsyncService, Autoinject, DI } from '@spinajs/di';
-import { Migration, Orm, OrmDriver, OrmMigration, OrmMigrator } from '@spinajs/orm';
+import { Migration, Orm, OrmDriver, OrmMigration } from '@spinajs/orm';
 
-/** An ORM-backed service: it injects the Orm, never the migrator. */
+/** An ORM-backed service: it injects the Orm, so only data() may resolve it. */
 export class AdminAccounts extends AsyncService {
   @Autoinject(Orm)
   protected Orm: Orm;
@@ -550,26 +560,28 @@ export class CreateAccounts_2026_10_21_09_00_00 extends OrmMigration {
   }
 
   public async data(): Promise<void> {
-    // the Orm is resolved by now, so this does not wait on the migrator running it
+    // runs once the Orm is cached, so resolving a service that injects it does not wait
     await (await DI.resolve(AdminAccounts)).ensure('admin@example.test');
   }
 }
 
 export async function boot(): Promise<void> {
-  // resolves the Orm, then applies the Migration.OnStartup connections and seeds them
-  await DI.resolve(OrmMigrator);
+  // applies the Migration.OnStartup connections; their seeds run once the Orm is cached
+  const orm = await DI.resolve(Orm);
+
+  // the admin account exists from here on
+  await orm.Migrator.ready();
 }
 ```
 
 ### Block a deploy when the schema is not current
 
 ```ts sample
-import { DI } from '@spinajs/di';
-import { OrmMigrator } from '@spinajs/orm';
+import { resolveMigrationTool } from '@spinajs/orm';
 
 export async function assertSchemaIsCurrent(): Promise<void> {
-  // MigrateOnStartup: false - inspect the migrations without applying any
-  const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+  // inspect the migrations without applying any
+  const migrator = await resolveMigrationTool();
   const entries = await migrator.Runner.status();
 
   const blocking = entries.filter((e) => e.failed || e.interrupted || e.pending);
@@ -614,11 +626,10 @@ export class BillingPluginMigrationSource extends MigrationSource {
 ### Roll back the last deploy on one connection
 
 ```ts sample
-import { DI } from '@spinajs/di';
-import { OrmMigrator } from '@spinajs/orm';
+import { resolveMigrationTool } from '@spinajs/orm';
 
 export async function rollbackLastDeploy(connection: string): Promise<string[]> {
-  const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+  const migrator = await resolveMigrationTool();
   const rolledBack = await migrator.Runner.down(undefined, { connection });
 
   return rolledBack.map((m) => m.constructor.name);
@@ -626,6 +637,23 @@ export async function rollbackLastDeploy(connection: string): Promise<string[]> 
 ```
 
 ## Migration
+
+### `Orm.resolve()` applies the startup migrations; `DI.resolve(OrmMigrator)` migrates nothing
+
+Resolve `Orm`; `DI.resolve(OrmMigrator)` migrates nothing. Move model statics and Orm-injecting services out of `up()` into `data()`. Await `orm.Migrator.ready()` where code needs seed rows. Tools call `resolveMigrationTool()` (or resolve `OrmMigrator` with `{ MigrateOnStartup: false }` before `Orm`).
+
+`OrmDriver.AwaitsStartupMigration` and the query gate are removed. A failed migration or strict check rejects `DI.resolve(Orm)` and closes its connections; no `DI.dispose()` is needed to close them.
+
+```ts
+// Before
+await DI.resolve(OrmMigrator);
+const tool = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+
+// After
+const orm = await DI.resolve(Orm);
+await orm.Migrator.ready();
+const tool = await resolveMigrationTool();
+```
 
 ### Migrations run on `OrmMigrator`, and `up()` returns `IMigrationUpResult`
 
@@ -637,7 +665,7 @@ const orm = await DI.resolve(Orm);
 const applied = await orm.Migration.up();
 
 // After: apply, re-read the touched models, run data()
-const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+const migrator = await resolveMigrationTool();
 const applied = await migrator.migrate();
 
 // After, runner only: no data(), no table info read
@@ -648,7 +676,7 @@ await orm.reloadTableInfo({ models: touched.models });
 ## Related
 
 - [Schema builder](09-schema-builder.md): the statements a migration's `up()` and `down()` issue.
-- [Connections](01-connections.md): `db.Connections`, `OrmDriver`, the `Orm` bootstrap and the `Migration.OnStartup` query gate.
+- [Connections](01-connections.md): `db.Connections`, `OrmDriver` and the `Orm` bootstrap.
 - [Transactions](08-transactions.md): `driver.transaction()`, which the transaction modes use.
 - [Model API](03-model-api.md): the model statics `data()` seeds with.
 - [`@spinajs/orm-mysql` migrations](../orm-mysql/06-schema-views-and-events.md#migrations): non-transactional DDL on MySQL.

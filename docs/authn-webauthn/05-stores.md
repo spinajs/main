@@ -22,9 +22,9 @@ The memory stores lose everything on restart and are not shared between processe
 
 ## Migration
 
-`AuthnWebauthn_2026_10_21_00_00_00` creates both tables on the `default` connection. It runs with the app's other migrations: in [`OrmMigrator`](../orm/10-migrations.md)'s boot pass when the connection has `Migration.OnStartup`, else through `@spinajs/orm-cli`.
+`AuthnWebauthn_2026_10_21_00_00_00` creates both tables on the `default` connection. It runs with the app's other migrations: [when the `Orm` resolves](../orm/10-migrations.md) if the connection has `Migration.OnStartup`, else through `@spinajs/orm-cli`.
 
-The ORM stores inject the `Orm`, so resolving one binds the models. On a `Migration.OnStartup` connection their queries throw until `OrmMigrator` resolved.
+The ORM stores inject the `Orm`, so resolving one binds the models and, on a `Migration.OnStartup` connection, applies the migration.
 
 ## In tests
 

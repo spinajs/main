@@ -96,7 +96,7 @@ The wrapper resolves every service from the root container on each call, so a re
 
 ### Task host: a DI service that schedules its own tasks
 
-`@Task()` works on any method, so the natural host is a DI service: it gets its dependencies injected, starts its timers in `resolve()`, and stops them in `dispose()`. Resolve it once at startup, after `Orm` (or `OrmMigrator`, when the `default` connection has `Migration.OnStartup`) and `QueueService`.
+`@Task()` works on any method, so the natural host is a DI service: it gets its dependencies injected, starts its timers in `resolve()`, and stops them in `dispose()`. Resolve it once at startup, after `Orm` and `QueueService`.
 
 ```ts sample
 import { AsyncService, Autoinject, DI, Singleton } from '@spinajs/di';

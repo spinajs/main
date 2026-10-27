@@ -6,7 +6,7 @@ Six `spinajs` CLI commands manage and inspect RBAC data: assign and revoke roles
 
 1. The package config adds `lib/<cjs|mjs>/cli/commands` of `@spinajs/authz-rbac` to `system.dirs.cli`, so the CLI finds the commands once the package is installed.
 2. A command parses its arguments first. A bad command line prints one line and sets the exit code to 1, without booting authz.
-3. A command that touches the RBAC DB stores (`authz:assign`, `authz:revoke`, `authz:explain`, the membership commands) resolves [`OrmMigrator`](../orm/10-migrations.md) first, which boots the ORM and runs the `Migration.OnStartup` pass as an app process does before serving. `authz:check-config` resolves it only when `authz.rbac.stores.roles` or `authz.rbac.stores.rules` names a store other than `ConfigRoleStore` / `ConfigRuleStore`, or the app registers its own `RoleStore`: with the config-backed stores it validates without a database. Then it resolves `AuthzService` (the boot validation runs), and runs its body as `SYSTEM` with the reason `cli` (`authz().runAs`). `AuthzAdmin` writes skip the admin guard as `SYSTEM` and are audited with the reason `cli`.
+3. A command that touches the RBAC DB stores (`authz:assign`, `authz:revoke`, `authz:explain`, the membership commands) resolves the `Orm` first, which boots the ORM and applies the [`Migration.OnStartup` migrations](../orm/10-migrations.md) as an app process does before serving. `authz:check-config` resolves it only when `authz.rbac.stores.roles` or `authz.rbac.stores.rules` names a store other than `ConfigRoleStore` / `ConfigRuleStore`, or the app registers its own `RoleStore`: with the config-backed stores it validates without a database. Then it resolves `AuthzService` (the boot validation runs), and runs its body as `SYSTEM` with the reason `cli` (`authz().runAs`). `AuthzAdmin` writes skip the admin guard as `SYSTEM` and are audited with the reason `cli`.
 4. Any error becomes one line: an `AuthzAdminFailure` prints `<message> (<code>, <field>)`. The exit code is 1.
 
 The app's RBAC wiring (`registerRbac`) must run in the CLI process too: the commands read the stores and `RbacService` it registers in the root container.
@@ -46,8 +46,8 @@ Extend `AuthzCliCommand` (exported by `@spinajs/authz-rbac`) to get the same boo
 
 | Member | Kind | Default | Override to |
 | --- | --- | --- | --- |
-| `touchesDb()` | protected method | `true` | Return `false` when the command reads no RBAC DB store: `authz()` then skips `OrmMigrator` and the command runs without a database. |
-| `authz()` | protected method | resolves `OrmMigrator` when `touchesDb()` is `true`, then `AuthzService`, once | Not meant to be overridden. |
+| `touchesDb()` | protected method | `true` | Return `false` when the command reads no RBAC DB store: `authz()` then skips the `Orm` and the command runs without a database. |
+| `authz()` | protected method | resolves the `Orm` when `touchesDb()` is `true`, then `AuthzService`, once | Not meant to be overridden. |
 
 ```ts sample
 import { Command } from '@spinajs/cli';
