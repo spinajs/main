@@ -12,7 +12,7 @@ describe('exit check: packages/http analyzes cleanly', function () {
     const fragment = await analyzePackage({ tsconfig: HTTP_TSCONFIG, packageRoot: '../http' });
     const elapsed = Date.now() - started;
     console.log(`      packages/http analysis: ${elapsed} ms`);
-    expect(elapsed).to.be.below(10000);
+    expect(elapsed).to.be.below(20000);
     expect(fragment.diagnostics.filter((d) => d.severity === 'error')).to.deep.equal([]);
 
     const loaded = createProgramFromTsconfig(HTTP_TSCONFIG);

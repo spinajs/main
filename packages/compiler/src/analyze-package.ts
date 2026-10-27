@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { MANIFEST_VERSION, type Diagnostic, type ManifestFragment, type SourceRef } from '@spinajs/manifest';
+import { compareCodeUnits } from './sort.js';
 import { createProgramFromTsconfig } from './program.js';
 import { createContext, type Extractor } from './context.js';
 import { extractServices, mergeById } from './extractors/services.js';
@@ -21,7 +22,7 @@ export interface AnalyzeOptions {
   schemaDerivation?: boolean;
 }
 
-const compareSource = (a: SourceRef, b: SourceRef): number => a.file.localeCompare(b.file) || a.line - b.line || a.col - b.col;
+const compareSource = (a: SourceRef, b: SourceRef): number => compareCodeUnits(a.file, b.file) || a.line - b.line || a.col - b.col;
 
 export function sortBySource<T extends { source: SourceRef }>(entries: T[]): T[] {
   return [...entries].sort((a, b) => compareSource(a.source, b.source));
@@ -29,8 +30,8 @@ export function sortBySource<T extends { source: SourceRef }>(entries: T[]): T[]
 
 function sortDiagnostics(diagnostics: Diagnostic[]): Diagnostic[] {
   return [...diagnostics].sort((a, b) => {
-    if (!a.source || !b.source) return a.source ? 1 : b.source ? -1 : a.code.localeCompare(b.code);
-    return compareSource(a.source, b.source) || a.code.localeCompare(b.code);
+    if (!a.source || !b.source) return a.source ? 1 : b.source ? -1 : compareCodeUnits(a.code, b.code);
+    return compareSource(a.source, b.source) || compareCodeUnits(a.code, b.code);
   });
 }
 
@@ -43,7 +44,7 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { name: string; version: string; main?: string };
   const loaded = createProgramFromTsconfig(options.tsconfig);
   const ctx = createContext(loaded, pkg.name, root);
-  const files = [...loaded.sourceFiles].sort((a, b) => a.fileName.localeCompare(b.fileName));
+  const files = [...loaded.sourceFiles].sort((a, b) => compareCodeUnits(a.fileName, b.fileName));
 
   const run = <T extends { source: SourceRef }>(extractor: Extractor<T>): T[] => sortBySource(files.flatMap((f) => extractor(ctx, f)));
 
@@ -67,7 +68,7 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
     schedules: run(extractSchedules),
     commands: run(extractCommands),
     queueMessages: run(extractQueueMessages),
-    schemas: Object.fromEntries(Object.entries(ctx.schemas).sort(([a], [b]) => a.localeCompare(b))),
+    schemas: Object.fromEntries(Object.entries(ctx.schemas).sort(([a], [b]) => compareCodeUnits(a, b))),
     diagnostics: sortDiagnostics(ctx.diagnostics),
   };
   return Promise.resolve(fragment);

@@ -18,3 +18,4 @@ export * from './doctor/index.js';
 export * from './analyze-package.js';
 export * from './fragments.js';
 export * from './build-app.js';
+export * from './sort.js';

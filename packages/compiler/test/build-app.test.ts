@@ -1,5 +1,6 @@
 import { expect } from 'chai';
-import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { cpSync, mkdirSync, rmSync, symlinkSync, writeFileSync, readFileSync } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
 import { analyzePackage, buildAppManifest, locateFragments } from '../src/index.js';
 
 const APP = { tsconfig: 'test/fixtures/app-basic/tsconfig.json', appRoot: 'test/fixtures/app-basic' };
@@ -33,5 +34,22 @@ describe('buildAppManifest', () => {
     const b = (await buildAppManifest(APP)).manifest;
     expect({ ...a, generatedAt: '' }).to.deep.equal({ ...b, generatedAt: '' });
     expect(a.hash).to.equal(b.hash);
+  });
+
+  it('hashes identically for copies of the app in different directories', async () => {
+    const dirs = ['test/fixtures/.tmp-a/app-basic', 'test/fixtures/.tmp-b/app-basic'];
+    const hashes: string[] = [];
+    for (const dir of dirs) {
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(resolve(dir, 'node_modules'), { recursive: true });
+      for (const f of ['src', 'package.json', 'tsconfig.json']) cpSync(`test/fixtures/app-basic/${f}`, `${dir}/${f}`, { recursive: true });
+      symlinkSync(resolve('test/fixtures/pkg-basic'), resolve(dir, 'node_modules/pkg-basic'), 'junction');
+      const { manifest } = await buildAppManifest({ tsconfig: `${dir}/tsconfig.json`, appRoot: dir, out: `${dir}/app.manifest.json` });
+      expect(isAbsolute(manifest.packages[0].fragment)).to.equal(false);
+      hashes.push(manifest.hash);
+    }
+    rmSync('test/fixtures/.tmp-a', { recursive: true, force: true });
+    rmSync('test/fixtures/.tmp-b', { recursive: true, force: true });
+    expect(hashes[0]).to.equal(hashes[1]);
   });
 });
