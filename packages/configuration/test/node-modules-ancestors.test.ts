@@ -99,3 +99,39 @@ describe('BaseFileSource node_modules lookup', () => {
     expect(Probe.ancestors(app)[0]).to.equal(top);
   });
 });
+
+class LoadProbe extends BaseFileSource {
+  public loadFrom(dirs: string[]): Promise<{ files?: string[] }> {
+    this.CommonDirs = dirs;
+    return this.load('!(*.*).{cjs,js}', (file) => Promise.resolve({ files: [file] } as unknown as IConfigLike));
+  }
+
+  public Load(): Promise<IConfigLike> {
+    return Promise.resolve({} as IConfigLike);
+  }
+}
+
+describe('BaseFileSource config file discovery', () => {
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = fs.realpathSync(fs.mkdtempSync(join(os.tmpdir(), 'spinajs-config-dirs-')));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  // A workspace package's own lib/config is also reached through node_modules/@spinajs/<pkg>, a symlink.
+  it('loads a file reached through a symlinked directory once', async () => {
+    const real = join(tmp, 'pkg', 'lib', 'config');
+    fs.mkdirSync(real, { recursive: true });
+    fs.writeFileSync(join(real, 'pkg.js'), 'export default {};\n');
+    const linked = join(tmp, 'node_modules-pkg');
+    fs.symlinkSync(join(tmp, 'pkg'), linked, 'junction');
+
+    const { files } = await new LoadProbe().loadFrom([real, join(linked, 'lib', 'config')]);
+
+    expect(files).to.have.length(1);
+  });
+});

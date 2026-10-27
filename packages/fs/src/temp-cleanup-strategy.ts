@@ -89,6 +89,8 @@ export class MaxAgeTempCleanupStrategy extends TempCleanupStrategy {
     this.cleanupTimer = setInterval(() => {
       void this.safeCleanup(fs, options);
     }, options.cleanupInterval ?? DEFAULT_CLEANUP_INTERVAL);
+    // Housekeeping only: a temp provider that some package config declares must not keep a CLI or a test run alive.
+    this.cleanupTimer.unref();
   }
 
   public stop(): void {

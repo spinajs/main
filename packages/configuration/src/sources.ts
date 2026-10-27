@@ -183,8 +183,8 @@ export abstract class BaseFileSource extends ConfigurationSource {
       .reduce((prev, current) => {
         return prev.concat(_.flattenDeep(current));
       }, [])
-      // normalize & resolve paths to be sure
-      .map((f: string) => normalize(resolve(f)))
+      // real paths: a workspace package's own lib/config is also reached through its node_modules symlink
+      .map((f: string) => fs.realpathSync(f))
       .filter((f: string, index: number, self: unknown[]) => self.indexOf(f) === index)
       .map(callback);
 
