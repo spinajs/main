@@ -1,5 +1,5 @@
 import ts from 'typescript';
-import type { ExtractorContext } from '../context.js';
+import { isClassOrInterfaceType, type ExtractorContext } from '../context.js';
 
 export const CONFIG_TYPES = new Set(['Configuration', 'FrameworkConfiguration']);
 
@@ -8,7 +8,7 @@ function matches(type: ts.Type, ctx: ExtractorContext, seen: Set<ts.Type>): bool
   seen.add(type);
   if (type.isUnion()) return type.types.some((t) => matches(t, ctx, seen));
   if (CONFIG_TYPES.has(type.getSymbol()?.name ?? '')) return true;
-  if (!((type as ts.ObjectType).objectFlags & ts.ObjectFlags.ClassOrInterface)) return false;
+  if (!isClassOrInterfaceType(type)) return false;
   return ctx.checker.getBaseTypes(type as ts.InterfaceType).some((b) => matches(b, ctx, seen));
 }
 

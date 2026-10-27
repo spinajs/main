@@ -57,3 +57,21 @@ describe('extractServices', () => {
     expect(byName('BasicBootstrapper').imperativeResolves).to.equal(undefined);
   });
 });
+
+describe('extractServices: generic intermediate bases', () => {
+  const generic = loaded.sourceFiles.find((f) => f.fileName.endsWith('generic-bases.ts'))!;
+  const found = extractServices(ctx, generic);
+
+  it('detects AsyncService and Bootstrapper through an instantiated generic base', () => {
+    expect(found.find((s) => s.className === 'StringAsync')!.async).to.be.true;
+    expect(found.find((s) => s.className === 'StringBoot')!.bootstrapper).to.be.true;
+  });
+});
+
+describe('extractServices: same class under different conditions', () => {
+  it('keeps separate entries when conditions differ', () => {
+    const file = loaded.sourceFiles.find((f) => f.fileName.endsWith('multi-condition.ts'))!;
+    const multi = extractServices(ctx, file).filter((s) => s.className === 'Multi');
+    expect(multi.map((s) => s.condition)).to.deep.equal([{ kind: 'config', path: 'basic.a' }, { kind: 'dynamic', reason: 'else branch' }]);
+  });
+});

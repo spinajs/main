@@ -29,4 +29,8 @@ describe('config extractors', () => {
     const receivers = loaded.sourceFiles.find((f) => f.fileName.endsWith('config-receivers.ts'))!;
     expect(extractConfigUsages(ctx, receivers).map((u) => u.path)).to.deep.equal(['basic.sub', 'basic.maybe']);
   });
+  it('recognises a generic Configuration subclass receiver', () => {
+    const generic = loaded.sourceFiles.find((f) => f.fileName.endsWith('generic-bases.ts'))!;
+    expect(extractConfigUsages(ctx, generic).map((u) => u.path)).to.deep.equal(['basic.generic']);
+  });
 });

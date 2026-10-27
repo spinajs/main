@@ -53,9 +53,10 @@ function fromRegister(expr: ts.Expression, ctx: ExtractorContext): ServiceEntry 
 function mergeById(entries: ServiceEntry[]): ServiceEntry[] {
   const byId = new Map<string, ServiceEntry>();
   for (const entry of entries) {
-    const existing = byId.get(entry.id);
+    const key = `${entry.id}|${entry.lifetime}|${JSON.stringify(entry.condition ?? null)}`;
+    const existing = byId.get(key);
     if (existing) existing.registeredAs = [...new Set([...existing.registeredAs, ...entry.registeredAs])];
-    else byId.set(entry.id, entry);
+    else byId.set(key, entry);
   }
   return [...byId.values()];
 }

@@ -19,6 +19,11 @@ export interface ExtractorContext {
   error(code: string, message: string, node?: ts.Node): void;
 }
 
+/** Symbol-based so instantiated generics (`Base<string>`) pass while anonymous object types do not. */
+export function isClassOrInterfaceType(type: ts.Type): boolean {
+  return !!type.symbol && !!(type.symbol.flags & (ts.SymbolFlags.Class | ts.SymbolFlags.Interface));
+}
+
 export type Extractor<T> = (ctx: ExtractorContext, file: ts.SourceFile) => T[];
 
 export function createContext(loaded: LoadedProgram, packageName: string, packageRoot: string): ExtractorContext {
@@ -39,7 +44,7 @@ export function createContext(loaded: LoadedProgram, packageName: string, packag
     };
 
   const baseChain = (type: ts.Type, seen = new Set<ts.Type>()): string[] => {
-    if (seen.has(type) || !(type.flags & ts.TypeFlags.Object) || !((type as ts.ObjectType).objectFlags & ts.ObjectFlags.ClassOrInterface)) return [];
+    if (seen.has(type) || !(type.flags & ts.TypeFlags.Object) || !isClassOrInterfaceType(type)) return [];
     seen.add(type);
     return checker.getBaseTypes(type as ts.InterfaceType).flatMap((b) => [b.getSymbol()?.name ?? '', ...baseChain(b, seen)]);
   };
