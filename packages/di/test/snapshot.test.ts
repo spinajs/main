@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
-import { AsyncService, Autoinject, Container, DI, LazyInject, SyncService } from '../src/index.js';
-import type { Class } from '../src/index.js';
+import { AsyncService, Autoinject, Container, DI, LazyInject, PerInstanceCheck, SyncService } from '../src/index.js';
+import type { Class, ContainerSnapshot, IInstanceCheck } from '../src/index.js';
 
 class Base {}
 class Impl extends Base {}
@@ -23,6 +23,54 @@ async function capturedWarnings(run: () => Promise<void>): Promise<unknown[]> {
     console.warn = warn;
   }
   return warnings;
+}
+
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function expectSnapshotState(c: Container, before: ContainerSnapshot) {
+  const now = c.snapshot();
+  expect([...now.cache.keys()]).to.deep.equal([...before.cache.keys()]);
+  for (const [key, list] of before.cache) {
+    expect(now.cache.get(key)).to.have.ordered.members(list);
+  }
+  expect([...now.registry.keys()]).to.deep.equal([...before.registry.keys()]);
+  expect([...now.values.keys()]).to.deep.equal([...before.values.keys()]);
+}
+
+async function restoreError(c: Container, before: ContainerSnapshot): Promise<Error | undefined> {
+  return c.restore(before).then(
+    () => undefined,
+    (err: Error) => err,
+  );
+}
+
+class Polled extends AsyncService {
+  public static last: Polled | undefined;
+  public static gate = () => wait(20);
+  public disposed = false;
+  public async resolve(): Promise<void> {
+    Polled.last = this;
+    await Polled.gate();
+    await super.resolve();
+  }
+  public async dispose(): Promise<void> {
+    this.disposed = true;
+  }
+}
+
+class Quick extends AsyncService {
+  public async resolve(): Promise<void> {
+    await new Promise((r) => setImmediate(r));
+    await super.resolve();
+  }
+}
+
+let classCount = 0;
+// A distinct name per class: the cache tracks resolutions in flight by type name.
+function named<T extends object>(base: new () => T): Class<T> {
+  const cls = class extends base {};
+  Object.defineProperty(cls, 'name', { value: `${base.name}${++classCount}` });
+  return cls;
 }
 
 describe('container snapshot / restore', () => {
@@ -408,9 +456,10 @@ describe('container snapshot / restore', () => {
     const before = c.snapshot();
     const settle = c.Cache.settle.bind(c.Cache);
     let pending: Promise<Slow> | undefined;
-    c.Cache.settle = async () => {
-      await settle();
+    c.Cache.settle = async (passes?: number) => {
+      const done = await settle(passes);
       pending ??= c.resolve(Slow);
+      return done;
     };
 
     await c.restore(before);
@@ -495,5 +544,156 @@ describe('container snapshot / restore', () => {
 
     expect(seen).to.equal(newer);
     expect(newer.disposals).to.equal(1);
+  });
+
+  describe('when resolutions keep starting during disposal', () => {
+    let poll: ReturnType<typeof setInterval> | undefined;
+    let gates: (() => void)[] = [];
+    const openGates = () => gates.splice(0).forEach((open) => open());
+    afterEach(() => {
+      clearInterval(poll);
+      Polled.gate = () => wait(20);
+      openGates();
+    });
+
+    it('restore gives up when a dispose() keeps starting resolutions, names them and still restores the snapshot', async () => {
+      const c = new Container();
+      c.register(Kept).asSelf();
+      c.resolve(Kept);
+      const polled: Promise<Polled>[] = [];
+      // Each resolve finishes only once the next tick has started another, so one is always in flight whatever the timer jitter.
+      Polled.gate = () => new Promise<void>((open) => gates.push(open));
+      class Poller extends AsyncService {
+        public async dispose(): Promise<void> {
+          const tick = () => {
+            const previous = gates.splice(0);
+            polled.push(c.resolve(named(Polled)));
+            previous.forEach((open) => open());
+          };
+          tick();
+          poll = setInterval(tick, 5);
+        }
+      }
+
+      const before = c.snapshot();
+      await c.resolve(Poller);
+      const error = await restoreError(c, before);
+      clearInterval(poll);
+      openGates();
+
+      expect(error?.constructor.name).to.equal('RestoreIncomplete');
+      expect(error?.message).to.match(/settle passes/);
+      expect(error?.message).to.match(/Still resolving: Polled\d+/);
+      expectSnapshotState(c, before);
+
+      const settled = await Promise.allSettled(polled);
+      expectSnapshotState(c, before);
+      const built = settled.filter((r): r is PromiseFulfilledResult<Polled> => r.status === 'fulfilled').map((r) => r.value);
+      expect(built.every((p) => p.disposed)).to.be.true;
+      expect(settled.some((r) => r.status === 'rejected' && /finished resolving after the container was restored/.test(String(r.reason)))).to.be.true;
+      expect(Polled.last?.disposed).to.be.true;
+    });
+
+    it('restore gives up on a reconnect loop that resolves a failing connection again as soon as it fails', async () => {
+      class Connection extends AsyncService {
+        public async resolve(): Promise<void> {
+          await wait(2);
+          throw new Error('connection refused');
+        }
+      }
+      const c = new Container();
+      let reconnecting = true;
+      const connect = (): void => {
+        c.resolve(Connection).catch(() => reconnecting && connect());
+      };
+      class Client extends AsyncService {
+        public async dispose(): Promise<void> {
+          connect();
+        }
+      }
+
+      const before = c.snapshot();
+      await c.resolve(Client);
+      try {
+        const error = await restoreError(c, before);
+        expect(error?.constructor.name).to.equal('RestoreIncomplete');
+        expect(error?.message).to.match(/Still resolving: Connection/);
+        expectSnapshotState(c, before);
+      } finally {
+        reconnecting = false;
+      }
+      await wait(20);
+    });
+
+    it('restore gives up after its round cap when every round leaves a new resolution in flight', async () => {
+      const c = new Container();
+      const settle = c.Cache.settle.bind(c.Cache);
+      const started: Promise<Quick>[] = [];
+      c.Cache.settle = async (passes?: number) => {
+        const done = await settle(passes);
+        started.push(c.resolve(named(Quick)));
+        return done;
+      };
+
+      const before = c.snapshot();
+      let error: Error | undefined;
+      await capturedWarnings(async () => {
+        error = await restoreError(c, before);
+      });
+
+      expect(error?.constructor.name).to.equal('RestoreIncomplete');
+      expect(error?.message).to.match(/10 rounds/);
+      expect(error?.message).to.match(/Still resolving: Quick\d+/);
+      await Promise.allSettled(started);
+      expectSnapshotState(c, before);
+    });
+  });
+
+  it('a resolution that finishes after the cache was restored is disposed and rejected, not cached', async () => {
+    class Late extends Polled {}
+    const c = new Container();
+    const before = c.snapshot();
+    let emitted = false;
+    c.on('di.resolved.Late', () => (emitted = true));
+
+    const pending = c.resolve(Late);
+    const late = Polled.last;
+    c.Cache.restoreState(before.cache);
+    const error = await pending.then(
+      () => undefined,
+      (err: Error) => err,
+    );
+
+    expect(error?.message).to.match(/Late finished resolving after the container was restored/);
+    expect(late).to.be.instanceOf(Late);
+    expect(late?.disposed).to.be.true;
+    expect(c.Cache.has(Late)).to.be.false;
+    expect(emitted).to.be.false;
+  });
+
+  it('a per-instance-check resolution that finishes after the cache was restored is disposed and rejected, not cached', async () => {
+    @PerInstanceCheck()
+    class Named extends Polled implements IInstanceCheck {
+      constructor(public Name: string) {
+        super();
+      }
+      __checkInstance__(options: unknown[]): boolean {
+        return this.Name === options[0];
+      }
+    }
+    const c = new Container();
+    const before = c.snapshot();
+
+    const pending = c.resolve(Named, ['a']);
+    const late = Polled.last;
+    c.Cache.restoreState(before.cache);
+    const error = await pending.then(
+      () => undefined,
+      (err: Error) => err,
+    );
+
+    expect(error?.message).to.match(/Named finished resolving after the container was restored/);
+    expect(late?.disposed).to.be.true;
+    expect(c.Cache.has(Named)).to.be.false;
   });
 });
