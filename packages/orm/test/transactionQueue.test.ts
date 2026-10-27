@@ -2,6 +2,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 
+import '../src/index.js';
 import { OrmDriver } from '../src/driver.js';
 import { Builder } from '../src/builders.js';
 import { IColumnDescriptor, ISupportedFeature, ITransactionContext, ITransactionOptions } from '../src/interfaces.js';

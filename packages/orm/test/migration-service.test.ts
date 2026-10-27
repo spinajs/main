@@ -1,10 +1,11 @@
-import { DI, Class } from '@spinajs/di';
+import { useTestApp } from '@spinajs/testing';
+import { Class } from '@spinajs/di';
 import * as chai from 'chai';
 import { DateTime } from 'luxon';
 import 'mocha';
 import { createHash } from 'node:crypto';
 import * as sinon from 'sinon';
-import { FakeSqliteDriver, TEST_TABLE_INFO, bootstrapAll, makeDriver, registerFakes, stubDb, logText } from './misc.js';
+import { FakeSqliteDriver, TEST_TABLE_INFO, makeDriver, stubDb, logText, ormApp, registerMigrationFakes } from './misc.js';
 import { DefaultMigrationService, MIGRATION_TABLE_NAME, MIGRATION_LOCK_MAX_STEALS, migrationChecksum, OrmMigration, MigrationTransactionMode, IMigrationRecord, IMigrationUnit, OrmException } from '../src/index.js';
 import { TableQueryBuilder, AlterTableQueryBuilder, RawSchemaQueryBuilder, SelectQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder, DeleteQueryBuilder, TableExistsQueryBuilder } from '../src/builders.js';
 import { OrmDriver } from '../src/driver.js';
@@ -15,16 +16,9 @@ const expect = chai.expect;
 const LOCK_TABLE = `${MIGRATION_TABLE_NAME}_lock`;
 
 describe('DefaultMigrationService storage', () => {
-  before(() => {
-    registerFakes();
-  });
-
-  beforeEach(async () => {
-    await bootstrapAll();
-  });
+  useTestApp(() => ormApp({ register: registerMigrationFakes }));
 
   afterEach(() => {
-    DI.clearCache();
     sinon.restore();
     delete TEST_TABLE_INFO[MIGRATION_TABLE_NAME];
   });
@@ -227,20 +221,15 @@ const unit = (t: Class<OrmMigration>): IMigrationUnit => ({
 });
 
 describe('DefaultMigrationService up', () => {
-  before(() => {
-    registerFakes();
-  });
+  useTestApp(() => ormApp({ register: registerMigrationFakes }));
 
-  beforeEach(async () => {
-    await bootstrapAll();
-
+  beforeEach(() => {
     // tracking table already in its current shape, so ensureStorage() adds nothing to the
     // executed-builder list these tests assert on
     TEST_TABLE_INFO[MIGRATION_TABLE_NAME] = ['Migration', 'CreatedAt', 'StartedAt', 'FinishedAt', 'RolledBackAt', 'Logs', 'Checksum', 'Batch'].map((Name) => ({ Name })) as any;
   });
 
   afterEach(() => {
-    DI.clearCache();
     sinon.restore();
     delete TEST_TABLE_INFO[MIGRATION_TABLE_NAME];
   });
@@ -493,20 +482,15 @@ describe('DefaultMigrationService up', () => {
 });
 
 describe('DefaultMigrationService down/resolve/status', () => {
-  before(() => {
-    registerFakes();
-  });
+  useTestApp(() => ormApp({ register: registerMigrationFakes }));
 
-  beforeEach(async () => {
-    await bootstrapAll();
-
+  beforeEach(() => {
     // tracking table already in its current shape, so ensureStorage() adds nothing to the
     // executed-builder list these tests assert on
     TEST_TABLE_INFO[MIGRATION_TABLE_NAME] = ['Migration', 'CreatedAt', 'StartedAt', 'FinishedAt', 'RolledBackAt', 'Logs', 'Checksum', 'Batch'].map((Name) => ({ Name })) as any;
   });
 
   afterEach(() => {
-    DI.clearCache();
     sinon.restore();
     delete TEST_TABLE_INFO[MIGRATION_TABLE_NAME];
   });
@@ -956,20 +940,15 @@ describe('DefaultMigrationService down/resolve/status', () => {
 });
 
 describe('DefaultMigrationService lock', () => {
-  before(() => {
-    registerFakes();
-  });
+  useTestApp(() => ormApp({ register: registerMigrationFakes }));
 
-  beforeEach(async () => {
-    await bootstrapAll();
-
+  beforeEach(() => {
     // tracking table already in its current shape, so ensureStorage() adds nothing to the
     // executed-builder list these tests assert on
     TEST_TABLE_INFO[MIGRATION_TABLE_NAME] = ['Migration', 'CreatedAt', 'StartedAt', 'FinishedAt', 'RolledBackAt', 'Logs', 'Checksum', 'Batch'].map((Name) => ({ Name })) as any;
   });
 
   afterEach(() => {
-    DI.clearCache();
     sinon.restore();
     delete TEST_TABLE_INFO[MIGRATION_TABLE_NAME];
   });

@@ -4,6 +4,7 @@ import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import { renderTemplate } from '@spinajs/log-common';
 
+import '../src/index.js';
 import { OrmDriver } from '../src/driver.js';
 import { Builder } from '../src/builders.js';
 import { IColumnDescriptor, ISupportedFeature, ITransactionContext, ITransactionOptions, IsolationLevel } from '../src/interfaces.js';

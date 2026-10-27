@@ -1,15 +1,13 @@
 /* eslint-disable prettier/prettier */
-import { Configuration } from '@spinajs/configuration';
-import { Bootstrapper, DI } from '@spinajs/di';
+import { useTestApp } from '@spinajs/testing';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import * as sinon from 'sinon';
-import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeInsertQueryCompiler, FakeUpdateQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeTableQueryCompiler } from './misc.js';
-import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, TableQueryCompiler, QueryMiddleware, QueryContext } from '../src/interfaces.js';
+import { FakeSqliteDriver, ormApp, registerRelationHydrators } from './misc.js';
+import { QueryMiddleware, QueryContext } from '../src/interfaces.js';
 import type { ITransactionContext } from '../src/interfaces.js';
 import { QueryBuilder } from '../src/builders.js';
-import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator, OneToManyRelationHydrator } from '../src/hydrators.js';
 import { Orm } from '../src/orm.js';
 import { Model1 } from './mocks/models/Model1.js';
 import { RawModel } from './mocks/models/RawModel.js';
@@ -96,33 +94,17 @@ class Late extends QueryMiddleware {
 const OWN = [Plain, DeleteGuard, Early, Late];
 
 describe('Query middleware afterQueryExecution and transactional', () => {
+  const app = useTestApp(() =>
+    ormApp({
+      register: (c) => {
+        registerRelationHydrators(c);
+        for (const m of OWN) c.register(m).as(QueryMiddleware);
+      },
+    }),
+  );
+
   beforeEach(async () => {
-    DI.register(ConnectionConf).as(Configuration);
-    DI.register(FakeSqliteDriver).as('sqlite');
-    DI.register(FakeMysqlDriver).as('mysql');
-
-    DI.register(FakeSelectQueryCompiler).as(SelectQueryCompiler);
-    DI.register(FakeDeleteQueryCompiler).as(DeleteQueryCompiler);
-    DI.register(FakeUpdateQueryCompiler).as(UpdateQueryCompiler);
-    DI.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
-    DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
-
-    DI.register(DbPropertyHydrator).as(ModelHydrator);
-    DI.register(NonDbPropertyHydrator).as(ModelHydrator);
-    DI.register(OneToOneRelationHydrator).as(ModelHydrator);
-    DI.register(JunctionModelPropertyHydrator).as(ModelHydrator);
-    DI.register(OneToManyRelationHydrator).as(ModelHydrator);
-
-    for (const m of OWN) DI.register(m).as(QueryMiddleware);
-
-    DI.removeAllListeners('di.resolved.Configuration');
-
-    const bootstrappers = DI.resolve(Array.ofType(Bootstrapper)) as Bootstrapper[];
-    for (const b of bootstrappers) {
-      await b.bootstrap();
-    }
-
-    const orm = await DI.resolve(Orm);
+    const orm = await app().resolve(Orm);
     driver = orm.Connections.get('sqlite') as FakeSqliteDriver;
 
     sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async () => {
@@ -139,8 +121,6 @@ describe('Query middleware afterQueryExecution and transactional', () => {
 
   afterEach(() => {
     sinon.restore();
-    for (const m of OWN) DI.unregister(m);
-    DI.clearCache();
   });
 
   const spies = () => ({

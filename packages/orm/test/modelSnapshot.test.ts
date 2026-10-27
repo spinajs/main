@@ -1,15 +1,12 @@
 /* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Configuration } from '@spinajs/configuration';
-import { Bootstrapper, DI } from '@spinajs/di';
+import { useTestApp } from '@spinajs/testing';
 import { expect } from 'chai';
 import 'mocha';
 import util from 'node:util';
 import { DateTime } from 'luxon';
-import { ConnectionConf, FakeSqliteDriver, FakeMysqlDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, FakeTableQueryCompiler } from './misc.js';
+import { ormApp } from './misc.js';
 import { Orm } from '../src/orm.js';
-import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, TableQueryCompiler } from '../src/interfaces.js';
-import { DbPropertyHydrator, NonDbPropertyHydrator, ModelHydrator } from '../src/hydrators.js';
 import { Model1 } from './mocks/models/Model1.js';
 import { Model4 } from './mocks/models/Model4.js';
 import { IModelChange, UNCOPYABLE } from '../src/snapshot.js';
@@ -19,33 +16,7 @@ import './../src/bootstrap.js';
 import '@spinajs/log';
 
 describe('ModelBase snapshot', () => {
-  beforeEach(async () => {
-    DI.register(ConnectionConf).as(Configuration);
-    DI.register(FakeSqliteDriver).as('sqlite');
-    DI.register(FakeMysqlDriver).as('mysql');
-
-    DI.register(FakeSelectQueryCompiler).as(SelectQueryCompiler);
-    DI.register(FakeDeleteQueryCompiler).as(DeleteQueryCompiler);
-    DI.register(FakeUpdateQueryCompiler).as(UpdateQueryCompiler);
-    DI.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
-    DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
-
-    DI.register(DbPropertyHydrator).as(ModelHydrator);
-    DI.register(NonDbPropertyHydrator).as(ModelHydrator);
-
-    DI.removeAllListeners('di.resolve.Configuration');
-
-    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
-    for (const b of bootstrappers) {
-      await b.bootstrap();
-    }
-
-    await DI.resolve(Orm);
-  });
-
-  afterEach(() => {
-    DI.clearCache();
-  });
+  useTestApp(() => ormApp({ resolve: [Orm] }));
 
   it('a freshly constructed model has no snapshot', () => {
     const m = new Model1();

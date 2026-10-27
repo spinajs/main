@@ -1,11 +1,11 @@
-import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
 import * as path from 'node:path';
 import * as sinon from 'sinon';
 import { Orm, OrmMigrator } from '../src/index.js';
-import { ConnectionConf, FakeMysqlDriver, bootstrapAll, registerFakes, stubDb } from './misc.js';
+import { createTestApp, disposeTestApps } from '@spinajs/testing';
+import { ConnectionConf, ormApp, registerMigrationFakes, stubDb } from './misc.js';
 import '../src/bootstrap.js';
 import '@spinajs/log';
 
@@ -38,26 +38,15 @@ class PipelineConf extends ConnectionConf {
 /**
  * `FilesystemMigrationSource` loads fixture files via `DI.__spinajs_require__`, which needs ESM
  * mode switched on to import a `.ts` fixture directly - the same setup `migration-sources.test.ts`
- * uses. `DI.clearCache()` first, so every test builds its own Orm.
+ * uses. Every call boots its own app, so every test builds its own Orm.
  */
 async function resolveOrm(): Promise<Orm> {
-  DI.clearCache();
-  DI.setESMModuleSupport();
-  return await DI.resolve(Orm);
+  const app = await createTestApp(ormApp({ configuration: PipelineConf, register: registerMigrationFakes }));
+  return await app.resolve(Orm);
 }
 
 describe('Orm migration pipeline - a real .local.ts file on disk, end to end', () => {
-  before(() => {
-    registerFakes();
-    // `ConnectionConf` also declares a mysql connection ( see misc.ts )
-    DI.register(FakeMysqlDriver).as('mysql');
-    DI.register(PipelineConf).as(Configuration);
-  });
-
   after(() => {
-    DI.unregister(PipelineConf);
-    DI.unregister(FakeMysqlDriver);
-
     // the fixtures' own @Migration decorators register into the ROOT container the moment the
     // filesystem source imports them, and that registration outlives this file
     const registered = (DI.getRegisteredTypes('__migrations__') ?? []) as Array<{ name: string }>;
@@ -68,16 +57,15 @@ describe('Orm migration pipeline - a real .local.ts file on disk, end to end', (
     }
   });
 
-  beforeEach(async () => {
-    DI.removeAllListeners('di.resolve.Configuration');
-    await bootstrapAll();
+  beforeEach(() => {
     // no tracking rows anywhere - both migrations are pending, so status() has something to say
     // about the one that is expected to be entirely absent, not merely unapplied
     stubDb([]);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     sinon.restore();
+    await disposeTestApps();
   });
 
   it('applies both the unsuffixed and the .local-suffixed migration under APP_ENV=local', async () => {

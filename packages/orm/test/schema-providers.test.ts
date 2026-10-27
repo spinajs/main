@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
-import { DI } from '@spinajs/di';
+import { createTestApp } from '@spinajs/testing';
+import type { TestApp } from '@spinajs/testing';
 import { ModelSchemaProvider } from '../src/schema-providers.js';
 
 // RelationType: One = 0, Many = 1, ManyToMany = 2
@@ -18,11 +19,9 @@ function defineDescriptor(cls: any, descriptor: any) {
 
 describe('ModelSchemaProvider', function () {
   let provider: ModelSchemaProvider;
+  let app: TestApp;
 
-  before(() => {
-    DI.clearCache();
-    DI.setESMModuleSupport();
-
+  before(async () => {
     defineDescriptor(TestUser, {
       Schema: { type: 'object', properties: { id: { type: 'integer' }, email: { type: 'string' } }, required: ['email'] },
       Relations: new Map([['Posts', { Type: 1, TargetModel: { name: 'TestPost' } }]]), // Many → TestPost
@@ -59,15 +58,21 @@ describe('ModelSchemaProvider', function () {
       Hidden: ['Password', 'Id'],
     });
 
-    DI.register(TestUser).as('__models__');
-    DI.register(TestTag).as('__models__');
-    DI.register(TestPost).as('__models__');
-    DI.register(TestSecret).as('__models__');
-    DI.register(TestLegacySecret).as('__models__');
+    app = await createTestApp({
+      register: (c) => {
+        for (const model of [TestUser, TestTag, TestPost, TestSecret, TestLegacySecret]) {
+          c.register(model).as('__models__');
+        }
+      },
+    });
 
     // resolve() builds the name → model map from the registered models above
     provider = new ModelSchemaProvider();
     provider.resolve();
+  });
+
+  after(async () => {
+    await app.dispose();
   });
 
   it('resolves a model name to its column schema', () => {

@@ -1,9 +1,10 @@
+import { useTestApp } from '@spinajs/testing';
 import { Configuration } from '@spinajs/configuration';
 import { Class, ClassInfo, DI } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
 import * as sinon from 'sinon';
-import { FakeSqliteDriver, TEST_TABLE_INFO, bootstrapAll, makeDriver, registerFakes, stubDb, logText } from './misc.js';
+import { FakeSqliteDriver, TEST_TABLE_INFO, makeDriver, stubDb, logText, ormApp, registerMigrationFakes } from './misc.js';
 import { DefaultMigrationService, IMigrationDownOptions, IMigrationRecord, IMigrationRunOptions, IMigrationStatusEntry, IMigrationUnit, MIGRATION_TABLE_NAME, Migration, MigrationResolveAction, MigrationRunner, OrmException, OrmMigration, OrmMigrationService, migrationChecksum } from '../src/index.js';
 import { InsertQueryBuilder, UpdateQueryBuilder } from '../src/builders.js';
 import { OrmDriver } from '../src/driver.js';
@@ -59,59 +60,22 @@ async function makeSecondDriver(connection: string): Promise<FakeSqliteDriver> {
 }
 
 describe('MigrationRunner', () => {
-  /**
-   * `@Migration()` registers the decorated class into the ROOT container under `__migrations__`,
-   * and that registration outlives the test that declared it. `migration.test.ts` boots a real
-   * `Orm` straight out of that registry ( and asserts on how many migrations it found ), so a
-   * fake leaked from here would break a suite this file never touches.
-   *
-   * The cleanup in `afterEach` is only half-safe on its own, and the naming is the other half:
-   * the diff deciding WHAT to delete is identity-based ( `preRegistered.includes(t)` ), while
-   * `DI.unregister` is NAME-based - it resolves `getTypeName(type)` and splices the FIRST name
-   * match out of every registry bucket ( `packages/di/src/registry.ts` ). A fixture here sharing a
-   * class name with another suite's registration would therefore delete THAT suite's entry and
-   * leave the leaked one in place - precisely the cross-suite breakage this cleanup exists to
-   * prevent. Hence the `MigrationRunnerTest_` prefix on every fixture class in this file: it is
-   * what keeps the identity-based diff and the name-based deletion pointing at the same object.
-   */
-  let preRegistered: unknown[] = [];
-  const extraRegistrations: Array<Class<unknown>> = [];
+  useTestApp(() =>
+    ormApp({
+      register: (c) => {
+        registerMigrationFakes(c);
+        c.register(MigrationRunnerTest_SecondSqliteDriver).as(SECOND_DRIVER_TOKEN);
+      },
+    }),
+  );
 
-  before(() => {
-    registerFakes();
-    DI.register(MigrationRunnerTest_SecondSqliteDriver).as(SECOND_DRIVER_TOKEN);
-  });
-
-  after(() => {
-    DI.unregister(MigrationRunnerTest_SecondSqliteDriver);
-  });
-
-  beforeEach(async () => {
-    await bootstrapAll();
-
+  beforeEach(() => {
     // tracking table already in its current shape, so ensureStorage() adds nothing to the
     // executed-builder list these tests assert on
     TEST_TABLE_INFO[MIGRATION_TABLE_NAME] = ['Migration', 'CreatedAt', 'StartedAt', 'FinishedAt', 'RolledBackAt', 'Logs', 'Checksum', 'Batch'].map((Name) => ({ Name })) as any;
-
-    // copied, not aliased: getRegisteredTypes hands back the registry's own array, which the
-    // decorators below then push into - a snapshot that grows with the thing it is measuring
-    // reports nothing to clean up
-    preRegistered = [...(DI.getRegisteredTypes('__migrations__') ?? [])];
   });
 
   afterEach(() => {
-    for (const t of [...(DI.getRegisteredTypes('__migrations__') ?? [])]) {
-      // identity decides what to remove, but DI.unregister removes by NAME - see the suite note
-      if (!preRegistered.includes(t)) {
-        DI.unregister(t as Class<unknown>);
-      }
-    }
-
-    for (const t of extraRegistrations.splice(0)) {
-      DI.unregister(t);
-    }
-
-    DI.clearCache();
     sinon.restore();
     delete TEST_TABLE_INFO[MIGRATION_TABLE_NAME];
   });
@@ -553,7 +517,6 @@ describe('MigrationRunner', () => {
     }
 
     DI.register(MigrationRunnerTest_RecordingService).as('migration-runner-test-service');
-    extraRegistrations.push(MigrationRunnerTest_RecordingService);
 
     // replaced rather than mutated in place: Options.Migration is the object the Configuration
     // handed out, and mutating it would leak the token into every later resolve
@@ -625,7 +588,6 @@ describe('MigrationRunner', () => {
     }
 
     DI.register(MigrationRunnerTest_MinimalService).as('migration-runner-test-minimal-service');
-    extraRegistrations.push(MigrationRunnerTest_MinimalService);
 
     driver.Options.Migration = { ...driver.Options.Migration, Service: 'migration-runner-test-minimal-service' };
 

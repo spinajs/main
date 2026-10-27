@@ -1,11 +1,11 @@
 /* eslint-disable prettier/prettier */
-import { Configuration } from '@spinajs/configuration';
-import { Bootstrapper, DI } from '@spinajs/di';
+import { DI } from '@spinajs/di';
+import { useTestApp } from '@spinajs/testing';
 import * as chai from 'chai';
 import _ from 'lodash';
 import 'mocha';
-import { Orm, TableQueryCompiler, InsertQueryCompiler, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, DropTableCompiler, MigrationRunner, OrmMigrator } from '../src/index.js';
-import { ConnectionConf, FakeSqliteDriver, FakeMysqlDriver, FakeTableQueryCompiler, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, FakeDropTableCompiler } from './misc.js';
+import { Orm, DropTableCompiler, MigrationRunner, OrmMigrator } from '../src/index.js';
+import { ConnectionConf, FakeSqliteDriver, FakeMysqlDriver, FakeDropTableCompiler, ormApp } from './misc.js';
 import "./../src/bootstrap.js";
 import * as sinon from 'sinon';
 import "@spinajs/log";
@@ -17,32 +17,10 @@ async function db() {
 }
 
 describe('Orm general', () => {
-  beforeEach(() => {
-    DI.register(ConnectionConf).as(Configuration);
-    DI.register(FakeSqliteDriver).as('sqlite');
-    DI.register(FakeMysqlDriver).as('mysql');
-    DI.register(FakeSelectQueryCompiler).as(SelectQueryCompiler);
-    DI.register(FakeDeleteQueryCompiler).as(DeleteQueryCompiler);
-    DI.register(FakeUpdateQueryCompiler).as(UpdateQueryCompiler);
-    DI.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
-    DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
-    DI.register(FakeDropTableCompiler).as(DropTableCompiler);
-  });
+  useTestApp(() => ormApp({ register: (c) => c.register(FakeDropTableCompiler).as(DropTableCompiler) }));
 
-  beforeEach(async () =>{ 
-
-    DI.removeAllListeners("di.resolve.Configuration");
-    
-    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
-    for (const b of bootstrappers) {
-      await b.bootstrap();
-    }
-  })
-
-
-  afterEach(async () => {
+  afterEach(() => {
     sinon.restore();
-    DI.clearCache();
   });
 
   it('ORM should create connections', async () => {
@@ -59,23 +37,6 @@ describe('Orm general', () => {
     expect(orm.Connections.get('main_connection')).to.be.not.null;
     expect(orm.Connections.get('sqlite')).to.be.not.null;
     expect(orm.Connections.get('SampleConnection1')).to.be.not.null;
-  });
-
-  it('ORM maps an alias to its connection and skips one whose connection does not exist', async () => {
-    class AliasConf extends ConnectionConf {
-      public async resolve(): Promise<void> {
-        await super.resolve();
-        // ConnectionConf names no DefaultConnection, so 'default' is one of the missing targets.
-        (this.Config as { db: Record<string, unknown> }).db.Aliases = { reporting: 'sqlite', authz: 'default', broken: 'nope' };
-      }
-    }
-    DI.register(AliasConf).as(Configuration);
-
-    const orm = await db();
-
-    expect(orm.Connections.get('reporting')).to.equal(orm.Connections.get('sqlite'));
-    expect(orm.Connections.has('authz')).to.be.false;
-    expect(orm.Connections.has('broken')).to.be.false;
   });
 
   it('ORM should register value converters before the migrator boot pass', async () => {
@@ -100,5 +61,26 @@ describe('Orm general', () => {
     expect(convertersAtUp, 'converter map was absent when the boot migration pass started').to.be.instanceOf(Map);
     // an empty map would satisfy `instanceOf` while registering nothing
     expect((convertersAtUp as Map<string, unknown>).size, 'converter map was empty when the boot migration pass started').to.be.greaterThan(0);
+  });
+});
+
+
+class AliasConf extends ConnectionConf {
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    // ConnectionConf names no DefaultConnection, so 'default' is one of the missing targets.
+    (this.Config as { db: Record<string, unknown> }).db.Aliases = { reporting: 'sqlite', authz: 'default', broken: 'nope' };
+  }
+}
+
+describe('Orm aliases', () => {
+  useTestApp(() => ormApp({ configuration: AliasConf }));
+
+  it('ORM maps an alias to its connection and skips one whose connection does not exist', async () => {
+    const orm = await db();
+
+    expect(orm.Connections.get('reporting')).to.equal(orm.Connections.get('sqlite'));
+    expect(orm.Connections.has('authz')).to.be.false;
+    expect(orm.Connections.has('broken')).to.be.false;
   });
 });
