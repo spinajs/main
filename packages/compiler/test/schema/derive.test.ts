@@ -151,3 +151,20 @@ describe('deriveSchema id collisions', () => {
     expect(result.diagnostics.filter((d) => d.code === 'SCH005')).to.deep.equal([]);
   });
 });
+
+describe('deriveSchema template literal types', () => {
+  const rows: Array<[string, JsonSchema]> = [
+    ['TPrefix', { type: 'string', pattern: '^native:' }],
+    ['TSuffix', { type: 'string', pattern: '\\.json$' }],
+    ['TInfix', { type: 'string', pattern: '^a.*b.*c$' }],
+    ['TNumber', { type: 'string' }],
+    ['TUpper', { type: 'string' }],
+  ];
+  for (const [name, schema] of rows) {
+    it(`derives ${name} as a string`, () => {
+      const result = derive(name);
+      expect(result.schema).to.deep.equal(schema);
+      expect(result.diagnostics).to.deep.equal([]);
+    });
+  }
+});

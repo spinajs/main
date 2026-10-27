@@ -133,3 +133,10 @@ export interface OAnyIndex { [key: string]: any }
 export class ExplicitRefNested { public inner: Point }
 export namespace Other { export interface Point { z: string } }
 export interface Collide { a: Point; b: Other.Point }
+
+// --- template literal types
+export type TPrefix = `native:${string}`;
+export type TSuffix = `${string}.json`;
+export type TInfix = `a${string}b${string}c`;
+export type TNumber = `v${number}`;
+export type TUpper = Uppercase<string>;
