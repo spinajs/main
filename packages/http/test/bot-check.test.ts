@@ -28,7 +28,7 @@ import {
   HTTP_CONFIGURATION_SCHEMA,
 } from '../src/index.js';
 import type { BotCheckInput, BotVerdict, IControllerDescriptor } from '../src/index.js';
-import { boot, configurationOf, disposeBooted } from './support/config-boot.js';
+import { createTestApp, disposeTestApps } from '@spinajs/testing';
 
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
@@ -115,26 +115,21 @@ async function app(): Promise<express.Express> {
   return server;
 }
 
-function useConfiguration(bot: unknown) {
-  const values: Record<string, unknown> = {
-    logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] },
-    http: { AcceptHeaders: HttpAcceptHeaders.JSON, ...(bot === undefined ? {} : { bot }) },
+function botAppOptions(bot: unknown) {
+  return {
+    bootstrap: false,
+    config: {
+      logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] },
+      http: { AcceptHeaders: HttpAcceptHeaders.JSON, ...(bot === undefined ? {} : { bot }) },
+    },
   };
-  const SpecConfiguration = configurationOf(values);
-  DI.uncache(Configuration);
-  DI.uncache(BotCheckService);
-  DI.register(SpecConfiguration).as(Configuration);
-  return SpecConfiguration;
 }
 
 describe('http: bot check', function () {
   this.timeout(15000);
 
-  let spec: ReturnType<typeof useConfiguration> | null = null;
-
   async function start(bot: unknown) {
-    spec = useConfiguration(bot);
-    await DI.resolve(Configuration);
+    await createTestApp(botAppOptions(bot));
     return app();
   }
 
@@ -146,14 +141,7 @@ describe('http: bot check', function () {
 
   afterEach(async () => {
     sinon.restore();
-    if (spec) {
-      DI.unregister(spec);
-      DI.uncache(spec);
-      spec = null;
-    }
-    DI.uncache(Configuration);
-    DI.uncache(BotCheckService);
-    await disposeBooted();
+    await disposeTestApps();
   });
 
   it('is a no-op with the master switch off: no verifier call, the action runs', async () => {
@@ -298,14 +286,12 @@ describe('http: bot check', function () {
   });
 
   it('fails the route build when an enabled check names an unknown verifier', async () => {
-    spec = useConfiguration(botConfig({ checks: { login: { enabled: true, verifier: 'nope' } } }));
-    await DI.resolve(Configuration);
+    await createTestApp(botAppOptions(botConfig({ checks: { login: { enabled: true, verifier: 'nope' } } })));
     await expect(app()).to.be.rejectedWith(InvalidOption, 'http.bot.checks.login.verifier');
   });
 
   it('fails the route build when an enabled check names an unknown fallback', async () => {
-    spec = useConfiguration(botConfig({ checks: { login: { enabled: true, verifier: 'stub-score', fallback: 'nope' } } }));
-    await DI.resolve(Configuration);
+    await createTestApp(botAppOptions(botConfig({ checks: { login: { enabled: true, verifier: 'stub-score', fallback: 'nope' } } })));
     await expect(app()).to.be.rejectedWith(InvalidOption, 'http.bot.checks.login.fallback');
   });
 
@@ -330,18 +316,18 @@ describe('http: bot check', function () {
 
   describe('http.bot schema', () => {
     it('defaults to off with the x-bot-token header', async () => {
-      const { configuration } = await boot([HTTP_CONFIGURATION_SCHEMA], {});
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: {} });
       expect(configuration.get('http.bot')).to.deep.eq({ enabled: false, header: 'x-bot-token', verifierHeader: 'x-bot-verifier', verifiers: [], checks: {} });
     });
 
     it('defaults a check to off and refuse', async () => {
-      const { configuration } = await boot([HTTP_CONFIGURATION_SCHEMA], { http: { bot: { checks: { login: { verifier: 'v' } } } } });
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: { http: { bot: { checks: { login: { verifier: 'v' } } } } } });
       expect(configuration.get('http.bot.checks.login')).to.deep.eq({ enabled: false, verifier: 'v', onUnavailable: 'refuse' });
     });
 
     it('refuses an unknown onUnavailable mode and a verifier entry with no name', async () => {
-      await expect(boot([HTTP_CONFIGURATION_SCHEMA], { http: { bot: { checks: { login: { verifier: 'v', onUnavailable: 'maybe' } } } } })).to.be.rejected;
-      await expect(boot([HTTP_CONFIGURATION_SCHEMA], { http: { bot: { verifiers: [{ service: 'X' }] } } })).to.be.rejected;
+      await expect(createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: { http: { bot: { checks: { login: { verifier: 'v', onUnavailable: 'maybe' } } } } } })).to.be.rejected;
+      await expect(createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: { http: { bot: { verifiers: [{ service: 'X' }] } } } })).to.be.rejected;
     });
   });
 });
