@@ -28,3 +28,5 @@ export function extractModelsOf(name: string): ModelEntry[] {
 
 export const registered = (name: string): unknown => context().ctx.schemaRegistry.get(`spinajs/fw/${name}`);
 export const registeredIds = (): string[] => [...context().ctx.schemaRegistry.keys()];
+/** Every registered schema, serialized, for assertions about what is published anywhere. */
+export const published = (): string => JSON.stringify([...context().ctx.schemaRegistry.values()]);
