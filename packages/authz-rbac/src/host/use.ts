@@ -14,9 +14,9 @@ export abstract class RbacOptions {
 
 /** `authz.use: ['rbac']`: wires RBAC into the container of the domain that lists it. An arrow, so DI treats it as a factory. */
 export const useRbac = async (container: IContainer): Promise<RbacModel> => {
-  const configuration = (await container.resolve(Configuration)) as Configuration;
-  const clock = (await container.resolve(AuthzClock)) as AuthzClock;
-  const custom = container.hasRegistered(RbacOptions) ? await ((await container.resolve(RbacOptions)) as RbacOptions).options(container) : {};
+  const configuration = await container.resolve<Configuration>(Configuration);
+  const clock = await container.resolve<AuthzClock>(AuthzClock);
+  const custom = container.hasRegistered(RbacOptions) ? await (await container.resolve<RbacOptions>(RbacOptions)).options(container) : {};
   return (await buildRbac(container, configuration, { clock, ...custom })).model;
 };
 

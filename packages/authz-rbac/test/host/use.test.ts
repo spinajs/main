@@ -29,7 +29,7 @@ describe('authz-rbac under authz.use', () => {
     const [model] = await resolveUsedModels(container, ['rbac'], KEY, WHERE);
     expect(model).to.be.instanceOf(RbacModel);
     expect(await container.resolve(AuthzContributor)).to.be.instanceOf(RbacContributor);
-    expect(((await container.resolve(RbacService)) as RbacService).model).to.equal(model);
+    expect((await container.resolve<RbacService>(RbacService)).model).to.equal(model);
     expect(container.hasRegistered(LinkResolver, false)).to.equal(true);
   });
 
