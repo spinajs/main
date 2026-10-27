@@ -104,6 +104,7 @@
     "@spinajs/orm-postgres": "3.0.23",
     "@spinajs/orm-sqlite": "3.0.23",
     "@spinajs/scheduler": "3.0.23",
+    "@spinajs/testing": "3.0.23",
     "@spinajs/validation": "3.0.23",
     "@types/luxon": "^3.4.2",
     "@types/mime-types": "^3.0.1"
