@@ -84,7 +84,7 @@ principal whose verified email (`VerifiedEmailSource`) is the invited one.
   `system.dirs.controllers`. An app that mounts controllers by hand registers
   `TEAMS_HTTP_CONTROLLERS`.
 - `@spinajs/teams` brings the roles, permissions, migrations, guard rules and the archived policies;
-  the app wires RBAC (`registerRbac`), an ABAC model over `authz.abac.policies`, a scope attribute
+  the app lists `RbacModel` and `AbacModel` in `authz.models`, adds a scope attribute
   store and the admin backend as for any authz app, registers a `VerifiedEmailSource` (email
   invitations fail without one), gives some role `team:create` at `$global`, and sets
   `teams.invitations.secret`.

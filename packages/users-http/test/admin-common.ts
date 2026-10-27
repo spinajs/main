@@ -122,6 +122,8 @@ export class TestConfiguration extends FrameworkConfiguration {
       // A real root authz host (test/support/authz-host.ts): roles are GLOBAL assignments written through
       // AuthzAdmin (DbAuthzAdminBackend) into the test database.
       authz: {
+        // The test RBAC model support/authz-host.ts registers.
+        models: ['UsersHttpTestRbacModel'],
         permissions: {
           'users:read': { fields: true },
           'users:create': {},

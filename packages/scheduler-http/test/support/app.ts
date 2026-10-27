@@ -6,7 +6,6 @@ import { FrameworkConfiguration } from '@spinajs/configuration';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { Orm, OrmMigrator } from '@spinajs/orm';
-import { AuthorizationModel } from '@spinajs/authz';
 import { PrincipalMiddleware, PrincipalSource } from '@spinajs/authz-http';
 import { testHost } from '@spinajs/authz-testing';
 
@@ -68,7 +67,7 @@ export async function startApp(opts: { controllers: Class<BaseController>[]; con
   for (const [path, value] of Object.entries(opts.config)) cfg.set(path.split('.'), value);
 
   testHost.registerInRoot(PrincipalSource, TestRoleSource);
-  testHost.registerInRoot(AuthorizationModel, testHost.instance(roleModel()));
+  testHost.activate(DI.RootContainer, 'root', roleModel());
 
   const before = new Set(DI.getRegisteredTypes(BaseController) ?? []);
   for (const c of opts.controllers) DI.register(c).as(BaseController);

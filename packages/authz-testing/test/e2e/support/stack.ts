@@ -1,11 +1,10 @@
-import { AuthorizationModel, AuthzAdminBackend, AuthzContributor, SYSTEM, runWithPrincipal } from '@spinajs/authz';
+import { AuthorizationModel, AuthzAdminBackend, SYSTEM, runWithPrincipal } from '@spinajs/authz';
 import type { AuthzService } from '@spinajs/authz';
 import type { Assignment } from '@spinajs/authz-rbac';
-import { AbacContributor, AbacModel, AuthzAbac_2026_10_01_00_00_00, ConfigPolicyStore, DbPolicyStore, PolicyStore } from '@spinajs/authz-abac';
-import { AUTHZ_ASSIGNMENT_TABLE, AuthzAdminIdempotency_2026_10_02_00_01_00, AuthzRbac_2026_10_01_00_00_00, DbAuthzAdminBackend, normaliseTags, registerRbac, scopeToColumns, subjectKeyOf, subjectToColumns } from '@spinajs/authz-rbac';
+import { AbacModel, AuthzAbac_2026_10_01_00_00_00, ConfigPolicyStore, DbPolicyStore, PolicyStore } from '@spinajs/authz-abac';
+import { AUTHZ_ASSIGNMENT_TABLE, AuthzAdminIdempotency_2026_10_02_00_01_00, AuthzRbac_2026_10_01_00_00_00, DbAuthzAdminBackend, normaliseTags, scopeToColumns, subjectKeyOf, subjectToColumns } from '@spinajs/authz-rbac';
 import { hostHarness, testHost } from '@spinajs/authz-testing';
 import type { BehaviourHarness, HarnessSession, HostSetup, OrmHandle, OrmModelSpec, OrmQuery, OrmResult, World } from '@spinajs/authz-testing';
-import { Configuration } from '@spinajs/configuration';
 import { DeleteQueryBuilder, ModelBase, Orm, createQuery } from '@spinajs/orm';
 
 import { AccessResource, AuthzResourceAncestor_2026_10_14_00_00_00, AuthzScopeAttribute_2026_10_02_00_00_00, Owner, Parent, Relation } from '@spinajs/authz-orm';
@@ -129,7 +128,7 @@ export interface E2eHarness extends BehaviourHarness {
 
 /**
  * hostHarness over TestDb (`kind`): the real authz migrations, the world's ORM models, RBAC from `world.rbac` (roles in
- * config, assignments as rows, `registerRbac`), ABAC from `world.abac` (config policies plus a DbPolicyStore that
+ * config, assignments as rows, `RbacModel` listed in the domain's models), ABAC from `world.abac` (config policies plus a DbPolicyStore that
  * AuthzAdmin writes), the DB admin backend, and the app env `test` (the runtime guard throws).
  */
 export function e2eHarness(kind: Dialect): E2eHarness {
@@ -159,15 +158,18 @@ export function e2eHarness(kind: Dialect): E2eHarness {
 
       await orm.use(world.lane?.orm?.models ?? []);
 
+      const listed = (): string[] => testHost.config().get<string[] | undefined>(['authz', 'domains', host.domain, 'models']) ?? [];
       if (world.rbac) {
-        await registerRbac(c, (await c.resolve(Configuration)) as Configuration, { clock: host.kit.clock });
+        // DI builds it in the domain container at boot; the kit clock is that container's AuthzClock.
+        host.setConfig(['authz', 'domains', host.domain, 'models'], [...listed(), 'RbacModel']);
         for (const a of world.rbac.assignments ?? []) await insertAssignment(test, kind, a);
       }
       if (world.abac) {
         const written = new DbPolicyStore();
         const abac = new AbacModel({ stores: [new ConfigPolicyStore(world.abac.policies), written] });
-        c.register(testHost.instance(abac)).as(AuthorizationModel);
-        c.register(testHost.instance(new AbacContributor(abac))).as(AuthzContributor);
+        // The model's init registers its AbacContributor.
+        c.register(testHost.named(abac.name, testHost.instance(abac))).as(AuthorizationModel);
+        host.setConfig(['authz', 'domains', host.domain, 'models'], [...listed(), abac.name]);
         c.register(testHost.instance(written)).as(PolicyStore);
       }
     },

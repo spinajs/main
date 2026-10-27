@@ -1,12 +1,12 @@
 import { Configuration } from '@spinajs/configuration';
 import { ResourceNotFound } from '@spinajs/exceptions';
-import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
+import { AuthzContributor } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { PrincipalFactory } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef } from '@spinajs/authn/contracts';
 import { AssignmentStore, ConfigRoleStore, MemoryAdminAssignmentStore, RbacContributor, RbacModel, RbacService, RoleStore } from '@spinajs/authz-rbac';
 import type { LadderDef, RoleDef } from '@spinajs/authz-rbac';
-import { AbacContributor, AbacModel, ConfigPolicyStore } from '@spinajs/authz-abac';
+import { AbacModel, ConfigPolicyStore } from '@spinajs/authz-abac';
 import { hostHarness, runBehaviour, testHost, withAuthn } from '@spinajs/authz-testing';
 import type { BehaviourHarness, World } from '@spinajs/authz-testing';
 
@@ -56,15 +56,15 @@ function impersonationHarness(): BehaviourHarness {
         const model = new RbacModel({ roles, assignments, clock: host.kit.clock });
         c.register(instance(roles)).as(RoleStore);
         c.register(instance(assignments)).as(AssignmentStore);
-        c.register(instance(model)).as(AuthorizationModel);
+        testHost.activate(c, host.domain, model);
         c.register(instance(new RbacContributor(model))).as(AuthzContributor);
         c.register(instance(new RbacService(model))).as(RbacService);
       }
 
       if (host.world.abac) {
         const model = new AbacModel({ stores: [new ConfigPolicyStore(host.world.abac.policies)] });
-        c.register(instance(model)).as(AuthorizationModel);
-        c.register(instance(new AbacContributor(model))).as(AuthzContributor);
+        // The model's init registers its AbacContributor.
+        testHost.activate(c, host.domain, model);
       }
     },
     extend: (host) => {

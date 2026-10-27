@@ -6,7 +6,7 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { FsBootsrapper, fsService } from '@spinajs/fs';
-import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
+import { AuthzContributor } from '@spinajs/authz';
 import { PrincipalMiddleware } from '@spinajs/authz-http';
 import { ConfigRoleStore, MemoryAssignmentStore, RbacContributor, RbacModel } from '@spinajs/authz-rbac';
 import { testHost } from '@spinajs/authz-testing';
@@ -48,7 +48,7 @@ export async function startApp(opts: { controllers?: Class<BaseController>[]; co
   if (opts.rbac) {
     // uninstallHost removes both registrations.
     const model = new RbacModel({ roles: new ConfigRoleStore(cfg), assignments: new MemoryAssignmentStore() });
-    testHost.registerInRoot(AuthorizationModel, testHost.instance(model));
+    testHost.activate(DI.RootContainer, 'root', model);
     testHost.registerInRoot(AuthzContributor, testHost.instance(new RbacContributor(model)));
   }
 

@@ -13,13 +13,12 @@ import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
 import { BaseController, Controllers, HttpServer } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
-import { AuthorizationModel, AuthzContributor, ScopeAttributeStore, WritableScopeAttributeStore } from '@spinajs/authz';
+import { AuthorizationModel, ScopeAttributeStore, WritableScopeAttributeStore } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
-import { AbacContributor, AbacModel, ConfigPolicyStore } from '@spinajs/authz-abac';
+import { AbacModel, ConfigPolicyStore } from '@spinajs/authz-abac';
 import { PrincipalSource } from '@spinajs/authz-http';
 // Importing authz-orm also registers the list helpers and the ancestor table maintenance (QueryMiddleware).
 import { DbScopeAttributeStore } from '@spinajs/authz-orm';
-import { registerRbac } from '@spinajs/authz-rbac';
 import { testHost, userPrincipal } from '@spinajs/authz-testing';
 import { InvitationMailer, VerifiedEmailSource } from '@spinajs/teams';
 import type { InvitationMail } from '@spinajs/teams';
@@ -158,9 +157,9 @@ export async function startTeamsApp(): Promise<number> {
   root.register(testHost.instance(attributes)).as(ScopeAttributeStore);
   root.register(testHost.instance(attributes)).as(WritableScopeAttributeStore);
   const abac = new AbacModel({ stores: [new ConfigPolicyStore(config.get<unknown[]>(['authz', 'abac', 'policies'], []))] });
-  root.register(testHost.instance(abac)).as(AuthorizationModel);
-  root.register(testHost.instance(new AbacContributor(abac))).as(AuthzContributor);
-  await registerRbac(root, config);
+  // AbacModel's init registers its contributor; RbacModel is built by DI and wires its stores and services into root.
+  root.register(testHost.named(abac.name, testHost.instance(abac))).as(AuthorizationModel);
+  config.set(['authz', 'models'], [abac.name, 'RbacModel']);
   await DI.resolve(fsService);
   await DI.resolve(OrmMigrator);
 

@@ -6,7 +6,7 @@ import { Orm, OrmMigrator } from '@spinajs/orm';
 import '@spinajs/orm-sqlite';
 import '@spinajs/authz-queue/jobs';
 import { JobModel } from '@spinajs/queue';
-import { AuthorizationModel, AuthzContributor, SYSTEM } from '@spinajs/authz';
+import { AuthzContributor, SYSTEM } from '@spinajs/authz';
 import type { AuthzService, Principal } from '@spinajs/authz';
 import { Access, PrincipalSource } from '@spinajs/authz-http';
 import { MemoryAssignmentStore, MemoryRoleStore, RbacContributor, RbacModel } from '@spinajs/authz-rbac';
@@ -53,7 +53,7 @@ function jobsController(prefix: string, domain: string): Class<BaseController> {
 function registerRbac(host: HostSetup): void {
   const rbac = host.world.rbac ?? {};
   const model = new RbacModel({ roles: new MemoryRoleStore(rbac.roles ?? [], rbac.ladders ?? []), assignments: new MemoryAssignmentStore(rbac.assignments ?? []), clock: host.kit.clock });
-  host.container.register(testHost.instance(model)).as(AuthorizationModel);
+  testHost.activate(host.container, host.domain, model);
   host.container.register(testHost.instance(new RbacContributor(model))).as(AuthzContributor);
 }
 

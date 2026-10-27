@@ -1,7 +1,7 @@
 import 'mocha';
 
-import { AuthorizationModel, AuthzAdminBackend, AuthzContributor, AuthzService, LinkResolver, SYSTEM, runWithPrincipal } from '@spinajs/authz';
-import { AuthzAdminIdempotency_2026_10_02_00_01_00, AuthzRbac_2026_10_01_00_00_00, RbacService, registerRbac } from '@spinajs/authz-rbac';
+import { AuthzAdminBackend, AuthzContributor, AuthzService, LinkResolver, SYSTEM, runWithPrincipal } from '@spinajs/authz';
+import { AuthzAdminIdempotency_2026_10_02_00_01_00, AuthzRbac_2026_10_01_00_00_00, RbacModel, RbacService } from '@spinajs/authz-rbac';
 import { CLIENT_ACCESS_FIXTURE, runClientAccessConformance, testHost } from '@spinajs/authz-testing';
 import type { ClientAccessApp } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
@@ -33,14 +33,13 @@ type RootRegistry = Map<string, unknown[]>;
 const rootRegistry = (): RootRegistry => (DI.RootContainer.Registry as unknown as { registry: RootRegistry }).registry;
 
 /**
- * Runs `register` and returns its undo. registerRbac writes into the root container directly, and the child domains
- * of the e2e suites that run later chain root's models, so its registrations must not outlive this app.
+ * Returns the undo of every root registration made from now on. The root boot's RbacModel wires its stores and
+ * services into the root container, and the e2e suites that run later must not inherit them.
  */
-async function rootRegistrations(register: () => Promise<void>): Promise<() => void> {
+function rootRegistrationsSince(): () => void {
   const before = new Map([...rootRegistry()].map(([k, v]) => [k, [...v]]));
-  await register();
-  const added = [...rootRegistry()].flatMap(([k, v]) => v.filter((e) => !(before.get(k) ?? []).includes(e)).map((e) => [k, e] as const));
   return () => {
+    const added = [...rootRegistry()].flatMap(([k, v]) => v.filter((e) => !(before.get(k) ?? []).includes(e)).map((e) => [k, e] as const));
     for (const [key, entry] of added) {
       const list = rootRegistry().get(key);
       const i = list?.indexOf(entry) ?? -1;
@@ -48,7 +47,7 @@ async function rootRegistrations(register: () => Promise<void>): Promise<() => v
       if (list?.length === 0) rootRegistry().delete(key);
       if (typeof entry === 'function' && entry.prototype !== undefined) DI.uncache(entry as Class<unknown>);
     }
-    for (const token of [AuthorizationModel, AuthzContributor, RbacService, LinkResolver, AuthzAdminBackend] as Class<unknown>[]) DI.uncache(token);
+    for (const token of [RbacModel, AuthzContributor, RbacService, LinkResolver, AuthzAdminBackend] as Class<unknown>[]) DI.uncache(token);
   };
 }
 
@@ -71,15 +70,13 @@ async function startClientApp(): Promise<ClientAccessApp> {
     'authz.rbac': { roles: CLIENT_ACCESS_FIXTURE.roles, stores: { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'] } },
     'authz.admin': { backend: 'E2eAdminBackend', guard: { service: 'DefaultAdminGuard', privilegedPermission: 'authz:assignments.manage' } },
     'authz.combine': { default: { algorithm: 'deny-overrides', models: ['rbac'] } },
+    'authz.models': ['RbacModel'],
     // startApp replaces the whole configuration with the package defaults, TestDb's connections included.
     db: cfg.get<unknown>('db'),
   };
-  // The root domain boots once the server listens, inside startApp, so RBAC must be registered before it.
   for (const [path, value] of Object.entries(config)) cfg.set(path.split('.'), value);
-  const unregisterRbac = await rootRegistrations(async () => {
-    await registerRbac(DI.RootContainer, cfg);
-    DI.register(E2eAdminBackend).as(AuthzAdminBackend);
-  });
+  const unregisterRbac = rootRegistrationsSince();
+  DI.register(E2eAdminBackend).as(AuthzAdminBackend);
   const unregisterSource = registerHeaderSource();
 
   const stop = async () => {

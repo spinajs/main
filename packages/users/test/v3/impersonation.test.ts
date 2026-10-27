@@ -1,6 +1,6 @@
 import 'mocha';
 
-import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
+import { AuthzContributor } from '@spinajs/authz';
 import { MemoryAssignmentStore, MemoryRoleStore, RbacContributor, RbacModel, RbacService } from '@spinajs/authz-rbac';
 import { PrincipalFactory } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, ImpersonationGuard, Principal } from '@spinajs/authn/contracts';
@@ -125,7 +125,7 @@ const harness = () =>
         clock: host.kit.clock,
         log: { warn: (fields: unknown, template?: unknown) => void warnings.push(renderTemplate(String(template), fields as Record<string, unknown>)) },
       });
-      host.container.register(testHost.instance(model)).as(AuthorizationModel);
+      testHost.activate(host.container, host.domain, model);
       host.container.register(testHost.instance(new RbacContributor(model))).as(AuthzContributor);
       host.container.register(testHost.instance(new RbacService(model))).as(RbacService);
     },
