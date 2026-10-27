@@ -244,5 +244,4 @@ export async function __spinajs_require__(module: string): Promise<unknown> {
   const specifier = module.startsWith('file://') ? module : pathToFileURL(module).href;
   const result = (await import(/* @vite-ignore */ specifier)) as { default?: unknown };
   return result.default ?? result;
-
 }
