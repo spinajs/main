@@ -13,8 +13,8 @@ import { Argon2PasswordHasher } from '../src/hasher.js';
 import { LocalPasswordPolicy } from '../src/policy.js';
 import { LocalPasswordService } from '../src/service.js';
 import { PasswordExpirationJob } from '../src/expiration.js';
-import { boot, disposeBooted, readingFrom, violationsOf } from './support/config-boot.js';
 import { registeredSchemasAfter } from './support/registered-schemas.js';
+import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_LOCAL_CONFIGURATION_SCHEMA];
 
@@ -31,11 +31,11 @@ function shippedBlocklistUnder(env: Record<string, string>): unknown {
   return JSON.parse(run.stdout) as unknown;
 }
 const LOCAL = { authn: { local: {} } };
-const bad = (local: Record<string, unknown>) => violationsOf(SCHEMAS, { authn: { local } });
+const bad = (local: Record<string, unknown>) => configurationViolations({ schemas: SCHEMAS, config: { authn: { local } } });
 
 describe('authn.local through the schema', function () {
   this.timeout(30000);
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   describe('defaults', () => {
     it('AuthnLocalConfigBootstrapper registers the authn.local fragment', () => {
@@ -59,12 +59,12 @@ describe('authn.local through the schema', function () {
         expiration: { enabled: false, maxAgeDays: 31 },
         mail: { delivery: 'queue' },
       };
-      expect((await boot(SCHEMAS, {})).configuration.get('authn.local')).to.deep.eq(expected);
-      expect((await boot(SCHEMAS, LOCAL)).configuration.get('authn.local')).to.deep.eq(expected);
+      expect((await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} })).config.get('authn.local')).to.deep.eq(expected);
+      expect((await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: LOCAL })).config.get('authn.local')).to.deep.eq(expected);
     });
 
     it('fills every key the classes used to default in code', async () => {
-      const { configuration } = await boot(SCHEMAS, LOCAL);
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: LOCAL });
       expect(configuration.get('authn.local.hasher.maxConcurrent')).to.eq(undefined);
       expect(configuration.get('authn.local.hasher.maxQueue')).to.eq(64);
       expect(configuration.get('authn.local.pepper')).to.deep.eq({ secret: null, version: 1 });
@@ -79,7 +79,7 @@ describe('authn.local through the schema', function () {
     });
 
     it('AUTHN_LOCAL_DEFAULTS, the fallback of the deps and options seams, is what the schema fills', async () => {
-      const { configuration } = await boot(SCHEMAS, LOCAL);
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: LOCAL });
       const filled = configuration.get<Record<string, Record<string, unknown>>>('authn.local');
       expect(AUTHN_LOCAL_DEFAULTS).to.deep.eq({
         hasher: { maxQueue: filled.hasher.maxQueue },
@@ -96,7 +96,7 @@ describe('authn.local through the schema', function () {
     });
 
     it('keeps the shipped package config equal to the schema defaults it repeats', async () => {
-      const { configuration } = await boot(SCHEMAS, LOCAL);
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: LOCAL });
       const shipped = authnLocal.authn.local;
       expect(configuration.get('authn.local.hasher.maxQueue')).to.eq(shipped.hasher.maxQueue);
       expect(configuration.get('authn.local.pepper.version')).to.eq(shipped.pepper.version);
@@ -131,7 +131,7 @@ describe('authn.local through the schema', function () {
     });
 
     it('fills a partial generator and keeps a configured value', async () => {
-      const { configuration } = await boot(SCHEMAS, { authn: { local: { generator: { length: 20 } } } });
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { local: { generator: { length: 20 } } } } });
       expect(configuration.get('authn.local.generator.length')).to.eq(20);
       expect(configuration.get('authn.local.generator.characters')).to.have.length(3);
     });
@@ -195,7 +195,7 @@ describe('authn.local through the schema', function () {
     });
 
     it('coerces a numeric string, as the app validator does', async () => {
-      const { configuration } = await boot(SCHEMAS, { authn: { local: { hasher: { maxConcurrent: '4' } } } });
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { local: { hasher: { maxConcurrent: '4' } } } } });
       expect(configuration.get('authn.local.hasher.maxConcurrent')).to.eq(4);
     });
 
@@ -209,7 +209,7 @@ describe('authn.local through the schema', function () {
 
   describe('through @Config', () => {
     it('LocalPasswordPolicy reads its bounds and rule from the booted configuration', async () => {
-      const { child } = await boot(SCHEMAS, { authn: { local: { policy: { minLength: 10, maxLength: 20, rule: { type: 'string', pattern: '[0-9]' }, description: 'needs a digit' } } } });
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { local: { policy: { minLength: 10, maxLength: 20, rule: { type: 'string', pattern: '[0-9]' }, description: 'needs a digit' } } } } });
       const policy = readingFrom(new LocalPasswordPolicy(), child);
       policy.resolve();
       expect(policy.policy()).to.deep.include({ minLength: 10, maxLength: 20, pattern: '[0-9]', description: 'needs a digit' });
@@ -218,24 +218,24 @@ describe('authn.local through the schema', function () {
     });
 
     it('LocalPasswordPolicy still refuses a rule that does not compile and a blocklist that is not registered', async () => {
-      const compile = await boot(SCHEMAS, { authn: { local: { policy: { rule: { type: 'no-such-type' } } } } });
-      expect(() => readingFrom(new LocalPasswordPolicy(), compile.child).resolve()).to.throw(/does not compile/);
-      const blocklist = await boot(SCHEMAS, { authn: { local: { policy: { blocklist: 'NoSuchBlocklist' } } } });
-      expect(() => readingFrom(new LocalPasswordPolicy(), blocklist.child).resolve()).to.throw(/not registered as a PasswordBlocklist/);
+      const compile = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { local: { policy: { rule: { type: 'no-such-type' } } } } } });
+      expect(() => readingFrom(new LocalPasswordPolicy(), compile.container).resolve()).to.throw(/does not compile/);
+      const blocklist = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { local: { policy: { blocklist: 'NoSuchBlocklist' } } } } });
+      expect(() => readingFrom(new LocalPasswordPolicy(), blocklist.container).resolve()).to.throw(/not registered as a PasswordBlocklist/);
     });
 
     it('LocalPasswordPolicy generates within the policy bounds and refuses a generator outside them', async () => {
-      const ok = await boot(SCHEMAS, LOCAL);
-      expect(readingFrom(new LocalPasswordPolicy(), ok.child).generate()).to.have.length(16);
-      const outside = await boot(SCHEMAS, { authn: { local: { policy: { minLength: 20 }, generator: { length: 16 } } } });
-      expect(() => readingFrom(new LocalPasswordPolicy(), outside.child).generate()).to.throw(/outside authn.local.policy bounds/);
+      const ok = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: LOCAL });
+      expect(readingFrom(new LocalPasswordPolicy(), ok.container).generate()).to.have.length(16);
+      const outside = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { local: { policy: { minLength: 20 }, generator: { length: 16 } } } } });
+      expect(() => readingFrom(new LocalPasswordPolicy(), outside.container).generate()).to.throw(/outside authn.local.policy bounds/);
     });
 
     it('the schema refuses an empty pepper secret; null and an absent pepper mean no pepper', async () => {
       expect(await bad({ pepper: { secret: '', version: 1 } })).to.include('authn.local.pepper.secret');
       expect(await bad({ pepper: { secret: null, version: 1 } })).to.deep.eq([]);
       for (const local of [{ pepper: { secret: null } }, {}]) {
-        const { child } = await boot(SCHEMAS, { authn: { local } });
+        const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { local } } });
         const hasher = readingFrom(new Argon2PasswordHasher(), child);
         await hasher.resolve();
         expect((await hasher.hash('correct horse battery')).startsWith('$sp'), JSON.stringify(local)).to.eq(false);
@@ -247,14 +247,14 @@ describe('authn.local through the schema', function () {
     });
 
     it('Argon2PasswordHasher hashes under the configured pepper and verifies a hash made under a previous one', async () => {
-      const old = await boot(SCHEMAS, { authn: { local: { pepper: { secret: 'old-pepper', version: 1 } } } });
-      const oldHasher = readingFrom(new Argon2PasswordHasher(), old.child);
+      const old = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { local: { pepper: { secret: 'old-pepper', version: 1 } } } } });
+      const oldHasher = readingFrom(new Argon2PasswordHasher(), old.container);
       await oldHasher.resolve();
       const stored = await oldHasher.hash('correct horse battery');
       expect(stored.startsWith('$sp1$')).to.eq(true);
 
-      const rotated = await boot(SCHEMAS, { authn: { local: { pepper: { secret: 'new-pepper', version: 2, previous: [{ secret: 'old-pepper', version: 1 }] } } } });
-      const hasher = readingFrom(new Argon2PasswordHasher(), rotated.child);
+      const rotated = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { local: { pepper: { secret: 'new-pepper', version: 2, previous: [{ secret: 'old-pepper', version: 1 }] } } } } });
+      const hasher = readingFrom(new Argon2PasswordHasher(), rotated.container);
       await hasher.resolve();
       expect(await hasher.verify(stored, 'correct horse battery')).to.eq(true);
       expect(hasher.needsRehash(stored)).to.eq(true);
@@ -279,11 +279,11 @@ describe('authn.local through the schema', function () {
     });
 
     it('PasswordExpirationJob reads enabled and maxAgeDays; the Deps seam keeps its own literals equal to the schema defaults', async () => {
-      const { child, configuration } = await boot(SCHEMAS, { authn: { local: { expiration: { enabled: true, maxAgeDays: 7 } } } });
+      const { container: child, config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { local: { expiration: { enabled: true, maxAgeDays: 7 } } } } });
       const job = readingFrom(new PasswordExpirationJob(), child) as unknown as { Enabled: boolean; MaxAgeDays: number };
       expect([job.Enabled, job.MaxAgeDays]).to.deep.eq([true, 7]);
       expect(configuration.get('authn.local.expiration.maxAgeDays')).to.eq(7);
-      const defaults = (await boot(SCHEMAS, LOCAL)).configuration;
+      const defaults = (await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: LOCAL })).config;
       expect([defaults.get('authn.local.expiration.enabled'), defaults.get('authn.local.expiration.maxAgeDays')]).to.deep.eq([false, 31]);
     });
   });
