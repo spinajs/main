@@ -421,6 +421,22 @@ describe('container snapshot / restore', () => {
     expect(c.getCacheStats().size).to.equal(before.cache.size);
   });
 
+  it('restore keeps the children that existed before the snapshot and disposes the newer ones', async () => {
+    const c = new Container();
+    const older = c.child();
+    const olderSvc = await older.resolve(Svc);
+    const before = c.snapshot();
+    const newer = c.child();
+    const newerSvc = await newer.resolve(Svc);
+
+    await c.restore(before);
+
+    expect(olderSvc.disposed).to.be.false;
+    expect(newerSvc.disposed).to.be.true;
+    expect(c.getCacheStats().childrenCount).to.equal(1);
+    expect(older.get(Svc)).to.equal(olderSvc);
+  });
+
   it('a listener a dispose() adds does not survive the restore', async () => {
     const c = new Container();
     class Listening extends AsyncService {
