@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { selectPackages, summarize, loadKnownFailing, loadTimeouts, timeoutMinutes, flagValue } from '../test-all.mjs';
+import { selectPackages, summarize, loadKnownFailing, loadTimeouts, timeoutMinutes, flagValue, runProcess } from '../test-all.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 
@@ -69,4 +69,18 @@ test('flagValue returns the value, or undefined when absent or valueless', () =>
   assert.equal(flagValue(['--ci'], '--only'), undefined);
   assert.equal(flagValue(['--only'], '--only'), undefined);
   assert.equal(flagValue(['--only', '--ci'], '--only'), undefined);
+});
+
+test('runProcess kills a long-running child tree on timeout and reports failure', async () => {
+  const r = await runProcess('node -e "console.log(process.pid);setInterval(function(){},1000)"', { cwd: root, timeoutMs: 3000 });
+  assert.equal(r.ok, false);
+  assert.equal(r.timedOut, true);
+  const pid = Number.parseInt(r.out, 10);
+  assert.ok(pid > 0);
+  assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+});
+
+test('runProcess reports success for a finishing command', async () => {
+  const r = await runProcess('node -e "0"', { cwd: root, timeoutMs: 60000 });
+  assert.equal(r.ok, true);
 });

@@ -25,7 +25,7 @@ import { join, resolve } from 'path';
 import { spawnSync } from 'child_process';
 import { createRequire } from 'module';
 import { analyzePerTest } from './per-test-report.mjs';
-import { loadKnownFailing, loadTimeouts, timeoutMinutes } from '../test-all.mjs';
+import { loadKnownFailing, loadTimeouts, timeoutMinutes, runPackage } from '../test-all.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const OUT = join(ROOT, 'coverage');
@@ -63,8 +63,8 @@ for (const name of REPORT_ONLY ? [] : packages) {
   console.log(`\n=== ${name}`);
   const started = Date.now();
   // Skips the pretest scripts: each recompiles what the root build already built, minutes per package.
-  const run = spawnSync('npm', ['test', '--ignore-scripts'], { cwd: join(ROOT, 'packages', name), env, stdio: 'inherit', shell: true, timeout: timeoutMinutes(name, TIMEOUTS) * 60000, killSignal: 'SIGKILL' });
-  results.push({ name, ok: run.status === 0, seconds: Math.round((Date.now() - started) / 1000) });
+  const run = await runPackage(name, { root: ROOT, env, inherit: true, timeoutMs: timeoutMinutes(name, TIMEOUTS) * 60000 });
+  results.push({ name, ok: run.ok, seconds: Math.round((Date.now() - started) / 1000) });
   writeFileSync(join(OUT, 'suites.json'), JSON.stringify(results));
 }
 const failed = results.filter((r) => !r.ok);

@@ -71,27 +71,32 @@ function killTree(child) {
   }
 }
 
-function runOne(name, root, timeoutMs) {
+/** Runs a shell command; a run exceeding timeoutMs is killed with its whole process tree and reported as failed. */
+export function runProcess(command, { cwd, env, timeoutMs, inherit = false }) {
   return new Promise((resolve) => {
     const started = Date.now();
-    const child = spawn('npm', ['test', '--ignore-scripts', '--silent'], { cwd: join(root, 'packages', name), shell: true, stdio: 'pipe', detached: process.platform !== 'win32' });
+    const child = spawn(command, { cwd, env, shell: true, stdio: inherit ? 'inherit' : 'pipe', detached: process.platform !== 'win32' });
     let out = '';
     let timedOut = false;
-    // A hung suite must fail the run instead of holding the job until the workflow timeout.
     const timer = setTimeout(() => {
       timedOut = true;
       killTree(child);
     }, timeoutMs);
-    child.stdout.on('data', (d) => (out += d));
-    child.stderr.on('data', (d) => (out += d));
+    child.stdout?.on('data', (d) => (out += d));
+    child.stderr?.on('data', (d) => (out += d));
     child.on('close', (code) => {
       clearTimeout(timer);
       if (timedOut) out += `
 Killed after ${timeoutMs / 60000} minutes without finishing.
 `;
-      resolve({ name, ok: code === 0 && !timedOut, seconds: (Date.now() - started) / 1000, out });
+      resolve({ ok: code === 0 && !timedOut, timedOut, seconds: (Date.now() - started) / 1000, out });
     });
   });
+}
+
+export async function runPackage(name, { root = ROOT, timeoutMs, env, inherit }) {
+  const r = await runProcess('npm test --ignore-scripts --silent', { cwd: join(root, 'packages', name), env, timeoutMs, inherit });
+  return { name, ...r };
 }
 
 async function main() {
@@ -112,7 +117,7 @@ async function main() {
     Array.from({ length: concurrency }, async () => {
       while (queue.length) {
         const name = queue.shift();
-        const r = await runOne(name, ROOT, timeoutMinutes(name, timeouts, defaultTimeout) * 60000);
+        const r = await runPackage(name, { timeoutMs: timeoutMinutes(name, timeouts, defaultTimeout) * 60000 });
         console.log(`${r.ok ? 'passed' : 'FAILED'} ${r.name} ( ${r.seconds.toFixed(0)}s )`);
         if (!r.ok) process.stdout.write(`\n--- ${r.name} failed${knownFailing.has(r.name) ? ' ( known-failing )' : ''} ---\n${r.out}\n`);
         results.push(r);

@@ -24,3 +24,4 @@ Packages in `known-failing.json` may fail `scripts/test-all.mjs` and `scripts/co
 Observed on Windows under load; `http`, `reflection` and `authn-local` failed in some runs and passed in others, so they are not listed. Re-verify the "does not exit" entries on Linux CI.
 
 Packages that never exit are given a short limit in `test-timeouts.json` so a hang costs minutes, not the 20 minute default. Do not paper over it with mocha `--exit`; the open handles are fixed by the test isolation work ( A6 ).
+The per-package limits in `test-timeouts.json` are removed together with the package's known-failing entry.
