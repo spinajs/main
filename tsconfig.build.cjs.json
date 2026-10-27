@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./packages/cli/tsconfig.cjs.json" },
+    { "path": "./packages/compiler/tsconfig.cjs.json" },
     { "path": "./packages/configuration/tsconfig.cjs.json" },
     { "path": "./packages/configuration-common/tsconfig.cjs.json" },
     { "path": "./packages/configuration-db-source/tsconfig.cjs.json" },

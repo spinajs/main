@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "packages/cli/tsconfig.mjs.json" },
+    { "path": "packages/compiler/tsconfig.mjs.json" },
     { "path": "packages/configuration/tsconfig.mjs.json" },
     { "path": "packages/configuration-common/tsconfig.mjs.json" },
     { "path": "packages/configuration-db-source/tsconfig.mjs.json" },
