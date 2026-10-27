@@ -6,7 +6,7 @@ import { objectType, setPropertyConstraints } from './handlers/object.js';
 import { primitive } from './handlers/primitive.js';
 import { jsdocConstraints } from './jsdoc.js';
 import { explicitSchema } from './explicit.js';
-import { hoistedId } from './naming.js';
+import { aliasName, hoistedId } from './naming.js';
 import { wellKnown } from './wellknown.js';
 import { intersectionType, unionType } from './handlers/union.js';
 
@@ -38,6 +38,9 @@ export interface DeriveContext {
   diagnostics: Diagnostic[];
   seen: Map<ts.Type, string>;
   owners: Map<string, ts.Type>;
+  /** Union and intersection aliases being derived on the current path, and the ones found to refer to themselves. */
+  aliasStack: Set<ts.Type>;
+  recursiveAliases: Set<ts.Type>;
   depth: number;
 }
 
@@ -58,7 +61,7 @@ export function diagnose(ctx: DeriveContext, code: 'SCH001' | 'SCH002' | 'SCH005
 }
 
 export function deriveSchema(checker: ts.TypeChecker, type: ts.Type, node: ts.Node, options: DeriveOptions, registry: Map<string, JsonSchema>): DeriveResult {
-  const ctx: DeriveContext = { checker, node, options, registry, diagnostics: [], seen: new Map(), owners: options.owners ?? new Map(), depth: 0 };
+  const ctx: DeriveContext = { checker, node, options, registry, diagnostics: [], seen: new Map(), owners: options.owners ?? new Map(), aliasStack: new Set(), recursiveAliases: new Set(), depth: 0 };
   const schema = deriveType(ctx, type);
   const id = typeof schema.$ref === 'string' && registry.has(schema.$ref) ? schema.$ref : undefined;
   return { schema: (id && registry.get(id)) || schema, id, diagnostics: ctx.diagnostics };
@@ -71,7 +74,7 @@ export function deriveType(ctx: DeriveContext, type: ts.Type): JsonSchema {
   }
   const inner: DeriveContext = { ...ctx, depth: ctx.depth + 1 };
   const hoisted = hoistedId(inner, type);
-  if (!hoisted) return deriveBody(inner, type);
+  if (!hoisted) return deriveAlias(inner, type);
 
   const explicit = explicitSchema(inner, type);
   const id = explicit?.id ?? hoisted;
@@ -87,6 +90,30 @@ export function deriveType(ctx: DeriveContext, type: ts.Type): JsonSchema {
     if (!explicit) inner.registry.set(id, { $id: id, ...derived });
     else inner.registry.set(id, { ...explicit.schema, $id: id, 'x-derived': derived });
   }
+  return { $ref: id };
+}
+
+/** Inlined unless it refers to itself; a recursive alias is hoisted so the recursion ends in a `$ref`, not at the depth limit. */
+function deriveAlias(ctx: DeriveContext, type: ts.Type): JsonSchema {
+  const name = aliasName(ctx.checker, type);
+  if (!name) return deriveBody(ctx, type);
+  const id = ctx.options.idPrefix + name;
+  if (ctx.owners.get(id) === type && ctx.registry.has(id)) return { $ref: id };
+  if (ctx.aliasStack.has(type)) {
+    ctx.recursiveAliases.add(type);
+    return { $ref: id };
+  }
+  ctx.aliasStack.add(type);
+  const body = deriveBody(ctx, type);
+  ctx.aliasStack.delete(type);
+  if (!ctx.recursiveAliases.has(type)) return body;
+  const owner = ctx.owners.get(id);
+  if (owner && owner !== type) {
+    diagnose(ctx, 'SCH005', 'warning', `schema id ${id} is produced by two different types: ${describeType(ctx, owner)} and ${describeType(ctx, type)}`);
+    return { $ref: id };
+  }
+  ctx.owners.set(id, type);
+  ctx.registry.set(id, { $id: id, ...body });
   return { $ref: id };
 }
 

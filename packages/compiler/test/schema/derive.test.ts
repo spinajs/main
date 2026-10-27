@@ -168,3 +168,31 @@ describe('deriveSchema template literal types', () => {
     });
   }
 });
+
+describe('deriveSchema recursive aliases', () => {
+  const node = (props: Record<string, JsonSchema>): JsonSchema => ({ type: 'object', properties: props, required: Object.keys(props), additionalProperties: false });
+  const R_FILTER: JsonSchema = {
+    $id: 'fixture/RFilter',
+    oneOf: [
+      node({ op: { const: 'not' }, arg: ref('RFilter') }),
+      node({ op: { const: 'and' }, args: { type: 'array', items: ref('RFilter') } }),
+      node({ op: { const: 'leaf' }, field: { type: 'string' } }),
+    ],
+  };
+  it('hoists a recursive union alias so the recursion closes through $ref', () => {
+    const result = derive('RFilter');
+    expect(result.id).to.equal('fixture/RFilter');
+    expect(result.schema).to.deep.equal(R_FILTER);
+    expect(result.diagnostics).to.deep.equal([]);
+  });
+  it('references the hoisted alias from every use and derives it once', () => {
+    const result = derive('RHolder');
+    expect(result.schema.properties).to.deep.equal({ filter: ref('RFilter'), again: ref('RFilter') });
+    expect(result.registry.get('fixture/RFilter')).to.deep.equal(R_FILTER);
+    expect(result.diagnostics).to.deep.equal([]);
+  });
+  it('keeps a non-recursive union alias inline', () => {
+    expect(derive('UMixed').id).to.equal(undefined);
+    expect(derive('Shape').id).to.equal(undefined);
+  });
+});

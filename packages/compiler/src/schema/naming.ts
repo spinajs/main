@@ -45,6 +45,13 @@ export function hoistedName(checker: ts.TypeChecker, type: ts.Type): string | un
   return sanitizeName([symbol.name, ...args].join('_'));
 }
 
+/** Names a union or intersection by its alias; such a type is hoisted only when it refers to itself. */
+export function aliasName(checker: ts.TypeChecker, type: ts.Type): string | undefined {
+  const alias = type.aliasSymbol;
+  if (!alias || !(type.isUnion() || type.isIntersection()) || inDefaultLib(alias)) return undefined;
+  return sanitizeName([alias.name, ...(type.aliasTypeArguments ?? []).map((argument) => argumentName(checker, argument))].join('_'));
+}
+
 export function hoistedId(ctx: DeriveContext, type: ts.Type): string | undefined {
   const cached = ctx.seen.get(type);
   if (cached) return cached;
