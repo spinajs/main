@@ -1,5 +1,6 @@
 import type ts from 'typescript';
 import type { Diagnostic, SourceRef } from '@spinajs/manifest';
+import { arrayType, tupleType } from './handlers/array.js';
 import { enumType } from './handlers/enum.js';
 import { primitive } from './handlers/primitive.js';
 
@@ -31,7 +32,7 @@ export type TypeHandler = (ctx: DeriveContext, type: ts.Type) => JsonSchema | un
 
 /** Filled by the handler modules; order matters (enum before primitive, well-known before object). */
 export const HANDLERS: TypeHandler[] = [];
-HANDLERS.push(enumType, primitive);
+HANDLERS.push(enumType, primitive, arrayType, tupleType);
 
 export function diagnose(ctx: DeriveContext, code: 'SCH001' | 'SCH002', severity: Diagnostic['severity'], message: string): void {
   ctx.diagnostics.push({ code, severity, message, source: ctx.options.sourceRef?.(ctx.node) });
