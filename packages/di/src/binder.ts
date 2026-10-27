@@ -1,7 +1,7 @@
 import { BindException } from './exceptions.js';
 import { ResolveType } from './enums.js';
 import { isFactory, isConstructor, getTypeName } from './helpers.js';
-import { IBind, IContainer, IInjectDescriptor, ResolvableObject } from './interfaces.js';
+import { IBind, IContainer, IInjectDescriptor, RegisterOptions, ResolvableObject } from './interfaces.js';
 import { Class, Factory } from './types.js';
 import { AddDependency } from './decorators.js';
 
@@ -14,14 +14,13 @@ export class Binder<T> implements IBind {
     this.isConstructor = isConstructor(implementation);
   }
 
-  as<T>(type: string | Class<T>): this {
-    this.container.Registry.register(type, this.implementation);
+  as<T>(type: string | Class<T>, options?: RegisterOptions): this {
+    this.container.Registry.register(type, this.implementation, options);
 
     const iType = getTypeName(this.implementation);
     const tType = getTypeName(type);
     this.container.emit(`di.registered.${iType}`, this.implementation);
     this.container.emit(`di.registered.${tType}`, this.implementation);
-
 
     return this;
   }

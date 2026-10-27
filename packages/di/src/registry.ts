@@ -1,7 +1,7 @@
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { TypedArray } from './array.js';
 import { getTypeName, isConstructor, isFactory, isObject } from './helpers.js';
-import { IChainRegistration, IContainer } from './interfaces.js';
+import { IChainRegistration, IContainer, RegisterOptions } from './interfaces.js';
 import { Class, Factory } from './types.js';
 
 export class Registry {
@@ -47,25 +47,30 @@ export class Registry {
     }
   }
 
-  public register(name: string | Class<any> | TypedArray<any>, type: any) {
+  public register(name: string | Class<any> | TypedArray<any>, type: any, options?: RegisterOptions) {
     if (!isConstructor(type) && !isFactory(type) && !isObject(type)) {
       throw new InvalidOperation('cannot register type if its not an class or factory function');
-    } else {
-      const tname = getTypeName(name);
-      const value = this.registry.get(tname);
+    }
 
-      if (value) {
-        // factory functions, we always add to registry
-        // its impossible to check for duplicates
-        // all would return 'Function' type
-        if (isFactory(type)) {
-          value.push(type);
-        } else if (!value.find((v) => getTypeName(v) === getTypeName(type))) {
-          value.push(type);
-        }
-      } else {
-        this.registry.set(tname, [type]);
-      }
+    const tname = getTypeName(name);
+    const value = this.registry.get(tname);
+    if (!value) {
+      this.registry.set(tname, [type]);
+      return;
+    }
+
+    // factory functions are always appended: they all have the name 'Function', so duplicates cannot be told apart
+    if (isFactory(type)) {
+      value.push(type);
+      return;
+    }
+
+    const index = value.findIndex((v) => getTypeName(v) === getTypeName(type));
+    if (index === -1) {
+      value.push(type);
+    } else if (options?.replace) {
+      value.splice(index, 1);
+      value.push(type);
     }
   }
 

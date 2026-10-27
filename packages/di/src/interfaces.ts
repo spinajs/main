@@ -33,6 +33,11 @@ export class ClassInfo<T> {
   public instance?: T;
 }
 
+export interface RegisterOptions {
+  /** Re-registering a class of the same name moves it to the last position (last registered wins) instead of keeping its first position. */
+  replace?: boolean;
+}
+
 /**
  * Interface to describe DI binding behaviour
  */
@@ -42,7 +47,7 @@ export interface IBind {
    *
    * @param type - base class that is being registered
    */
-  as(type: Class<any> | string): this;
+  as(type: Class<any> | string, options?: RegisterOptions): this;
 
   /**
    * self bind, class should be resolved by its name. Its default behaviour.
