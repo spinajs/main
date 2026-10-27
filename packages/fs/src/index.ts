@@ -26,8 +26,8 @@ export function publishedFs(name: string, container: IContainer = DI.RootContain
   return published instanceof Map ? published.get(name) : undefined;
 }
 
-// The fsService that last published each provider name.
-const publishers = new Map<string, fsService>();
+// The fsService that last published each name. A DI value, so a DI restore puts it back together with the provider map.
+const PROVIDER_PUBLISHERS = '__file_provider_publisher__';
 
 export class fsService extends AsyncService {
   @Logger('fs')
@@ -35,6 +35,8 @@ export class fsService extends AsyncService {
 
   @Config('fs')
   protected Config: IFsConfiguration;
+
+  private published = new Map<string, fs>();
 
   public async resolve() {
 
@@ -78,7 +80,8 @@ export class fsService extends AsyncService {
 
       const fs = await DI.resolve<fs>(type, [cProvider.value]);
       DI.register(fs).asMapValue(FILE_PROVIDER_INSTANCES, cProvider.value.name);
-      publishers.set(cProvider.value.name, this);
+      DI.register(this).asMapValue(PROVIDER_PUBLISHERS, cProvider.value.name);
+      this.published.set(cProvider.value.name, fs);
 
       this.Logger.info(
         { provider: cProvider.value.name, service: cProvider.value.service },
@@ -89,16 +92,22 @@ export class fsService extends AsyncService {
 
   /**
    * The provider map is a DI value and outlives clearCache(), so the names this service published
-   * leave it here. A name a newer fsService published again stays.
+   * leave it here. A name a newer fsService published again stays, and so does one that maps to another provider now.
    */
   public async dispose() {
-    const published = DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES);
-    for (const [name, publisher] of [...publishers]) {
-      if (publisher === this) {
-        publishers.delete(name);
-        published?.delete(name);
+    const providers = DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES);
+    const publishers = DI.get<Map<string, fsService>>(PROVIDER_PUBLISHERS);
+    for (const [name, provider] of this.published) {
+      if (publishers?.get(name) !== this) {
+        continue;
+      }
+
+      publishers.delete(name);
+      if (providers?.get(name) === provider) {
+        providers.delete(name);
       }
     }
+    this.published.clear();
     await super.dispose();
   }
 }
