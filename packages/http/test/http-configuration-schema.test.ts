@@ -115,20 +115,12 @@ describe('http configuration schema', () => {
 });
 
 describe('HttpConfigBootstrapper', () => {
-  const schemas = (): unknown[] => (DI.get(Array.ofType('__configurationSchema__' as never)) as unknown[] | null) ?? [];
-  let saved: unknown[] = [];
+  afterEach(disposeTestApps);
 
-  beforeEach(() => {
-    saved = [...schemas()];
-  });
-
-  afterEach(() => {
-    DI.uncache('__configurationSchema__' as never);
-    for (const other of saved) DI.register(other as never).asValue('__configurationSchema__');
-  });
-
-  it('registers the http schema under __configurationSchema__', () => {
+  it('registers the http schema under __configurationSchema__', async () => {
+    await createTestApp({ bootstrap: false, config: {} });
     new HttpConfigBootstrapper().bootstrap();
-    expect(schemas()).to.include(HTTP_CONFIGURATION_SCHEMA);
+    const schemas = (DI.get(Array.ofType('__configurationSchema__' as never)) as unknown[] | null) ?? [];
+    expect(schemas).to.include(HTTP_CONFIGURATION_SCHEMA);
   });
 });
