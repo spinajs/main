@@ -11,7 +11,6 @@ import type { ConfigOverrides, Harness, HttpResponse, KitKeyPair } from '@spinaj
 
 import { KeyRoutesOn } from '../../../src/keys/gate.js';
 import { PASSWORD_HARD_CAP } from '../../../src/v3/index.js';
-import { readingFrom } from '../../support/config-boot.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
 import { clearLog, logLines } from '../app.js';
 import { ROUTES } from '../behaviour/harness.js';
@@ -19,6 +18,7 @@ import { KEYS_AUDIENCE, KEY_LOGIN_MFA_POLICY, laneEvents, laneKeysConfig, n8bHar
 import { LaneClient, expectFailureBody, expectRefused, later } from './mfa-enrolment.js';
 import { endOfTomorrow } from './tokens.js';
 import { mountedRoutes } from './route-table.js';
+import { readingFrom } from '@spinajs/testing';
 
 export const KEY_ROUTES_V3 = ['GET /user/keys', 'POST /user/keys', 'DELETE /user/keys/:kid', 'POST /auth/keys/challenge', 'POST /auth/keys/login'];
 

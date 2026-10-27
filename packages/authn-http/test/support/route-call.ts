@@ -5,7 +5,7 @@ import { DataValidator, ValidationFailed } from '@spinajs/validation';
 
 import { AuthnIpThrottleMiddleware } from '../../src/middleware/ip-throttle.js';
 import { clientOf } from '../../src/v3/client.js';
-import { fakeContainer, readingFrom } from './config-boot.js';
+import { fakeContainer, readingFrom } from '@spinajs/testing';
 
 let validator: DataValidator | undefined;
 

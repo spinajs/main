@@ -15,8 +15,8 @@ import { kitHooks } from '@spinajs/authn-testing';
 import { IdentityRegistrarRegistered } from '../../src/policies/v3/groups.js';
 import { AuthnRegistrationController } from '../../src/v3/controllers/AuthnRegistrationController.js';
 import { RegistrationMailHook } from '../../src/v3/registration-mail-hook.js';
-import { fakeContainer, readingFrom } from '../support/config-boot.js';
 import { callRoute } from '../support/route-call.js';
+import { fakeContainer, readingFrom } from '@spinajs/testing';
 
 const ROUTE = 'auth/register';
 const IP = '192.0.2.7';

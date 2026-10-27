@@ -30,8 +30,8 @@ import { RegistrationMailHook } from '../../src/v3/registration-mail-hook.js';
 import { AuthnSessionsController } from '../../src/v3/controllers/AuthnSessionsController.js';
 import { AuthnTokensController } from '../../src/v3/controllers/AuthnTokensController.js';
 import { DEFAULT_LOGOUT_CLEAR_SITE_DATA } from '../../src/schema.js';
-import { fakeContainer, readingFrom } from '../support/config-boot.js';
 import { callRoute, withParams } from '../support/route-call.js';
+import { fakeContainer, readingFrom } from '@spinajs/testing';
 
 const CODE = 'not-today';
 

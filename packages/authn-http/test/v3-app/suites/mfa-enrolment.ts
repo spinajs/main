@@ -10,12 +10,12 @@ import type { ConfigOverrides, Harness, HttpRequest, HttpResponse } from '@spina
 
 import { TotpEnrolmentOn } from '../../../src/mfa/index.js';
 import { AUTHN_FAILURE_BODY, PASSWORD_HARD_CAP } from '../../../src/v3/index.js';
-import { readingFrom } from '../../support/config-boot.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
 import { clearLog, logLines } from '../app.js';
 import { ROUTES } from '../behaviour/harness.js';
 import { failMfaStore, laneEvents, laneMfaConfig, laneTotpServiceClass, n8bHarness } from '../behaviour/n8b-harness.js';
 import { mountedRoutes } from './route-table.js';
+import { readingFrom } from '@spinajs/testing';
 
 export const MFA_ROUTES_V3 = ['GET /user/mfa', 'POST /user/mfa', 'POST /user/mfa/confirm', 'POST /user/mfa/disable', 'POST /user/mfa/recovery-codes'];
 

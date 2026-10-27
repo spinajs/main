@@ -10,7 +10,7 @@ import type { IController, IRoute, Request } from '@spinajs/http';
 
 import '../../src/api.js';
 import { MfaSatisfied } from '../../src/policies/v3/mfa.js';
-import { boot, disposeBooted, readingFrom } from '../support/config-boot.js';
+import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA];
 const ALICE: IdentityRef = { type: 'user', id: 'alice' };
@@ -21,11 +21,11 @@ const requestOf = (authn: Partial<AuthnFacts>): Request =>
   ({ storage: { AuthnPrincipal: { ...ALICE, authenticated: true, source: 'session', attributes: {}, authn: { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date(), ...authn } } } }) as unknown as Request;
 
 describe('MfaSatisfied by login method (SEC-7)', () => {
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   async function policyFor(methods?: string[], enrolled = true): Promise<MfaSatisfied> {
     const policy = methods ? { methods } : {};
-    const { child } = await boot(SCHEMAS, { authn: { mfa: { policy, steps: [{ name: 'totp', service: 'MethodsSuiteStep' }] } } });
+    const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { mfa: { policy, steps: [{ name: 'totp', service: 'MethodsSuiteStep' }] } } } });
     const step = new FakeMfaStep({ name: 'totp' });
     if (enrolled) step.enrol(ALICE);
     child.register({ MethodsSuiteStep: () => step }.MethodsSuiteStep).as(MfaStep as never);

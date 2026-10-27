@@ -9,7 +9,7 @@ import type { AuthnEvent } from '@spinajs/authn/contracts';
 
 import { WEBHOOK_SIGNATURE_HEADER, WebhookAuthnEventSink, signWebhook } from '../src/index.js';
 import type { AuthnWebhookTarget } from '../src/index.js';
-import { boot, disposeBooted, violationsOf } from './support/config-boot.js';
+import { configurationViolations, createTestApp, disposeTestApps } from '@spinajs/testing';
 
 const SECRET = 'whsec-0123456789abcdef-0123456789abcdef';
 const OTHER_SECRET = 'whsec-other-0123456789abcdef-0123456789';
@@ -273,22 +273,22 @@ describe('WebhookAuthnEventSink', function () {
 
 describe('authn.webhooks configuration', function () {
   this.timeout(20000);
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA];
 
   it('sets no webhook by default, and gives a target a 2000 ms timeout', async () => {
-    expect((await boot(SCHEMAS, {})).configuration.get('authn.webhooks')).to.equal(undefined);
+    expect((await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} })).config.get('authn.webhooks')).to.equal(undefined);
 
-    const { configuration } = await boot(SCHEMAS, { authn: { webhooks: [{ url: 'https://hooks.example.com/a', secret: { secret: SECRET }, types: ['login'] }] } });
+    const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { webhooks: [{ url: 'https://hooks.example.com/a', secret: { secret: SECRET }, types: ['login'] }] } } });
     expect(configuration.get('authn.webhooks')).to.deep.equal([{ url: 'https://hooks.example.com/a', secret: { secret: SECRET }, types: ['login'], timeoutMs: 2000 }]);
   });
 
   it('names a target without a secret, an empty secret, a bad URL or a bad timeout', async () => {
     const url = 'https://hooks.example.com/a';
-    expect(await violationsOf(SCHEMAS, { authn: { webhooks: [{ url }] } })).to.have.length.greaterThan(0);
-    expect(await violationsOf(SCHEMAS, { authn: { webhooks: [{ url, secret: { secret: '' } }] } })).to.include('authn.webhooks.0.secret.secret');
-    expect(await violationsOf(SCHEMAS, { authn: { webhooks: [{ url: 'ftp://x/y', secret: { secret: SECRET } }] } })).to.include('authn.webhooks.0.url');
-    expect(await violationsOf(SCHEMAS, { authn: { webhooks: [{ url, secret: { secret: SECRET }, timeoutMs: 0 }] } })).to.include('authn.webhooks.0.timeoutMs');
+    expect(await configurationViolations({ schemas: SCHEMAS, config: { authn: { webhooks: [{ url }] } } })).to.have.length.greaterThan(0);
+    expect(await configurationViolations({ schemas: SCHEMAS, config: { authn: { webhooks: [{ url, secret: { secret: '' } }] } } })).to.include('authn.webhooks.0.secret.secret');
+    expect(await configurationViolations({ schemas: SCHEMAS, config: { authn: { webhooks: [{ url: 'ftp://x/y', secret: { secret: SECRET } }] } } })).to.include('authn.webhooks.0.url');
+    expect(await configurationViolations({ schemas: SCHEMAS, config: { authn: { webhooks: [{ url, secret: { secret: SECRET }, timeoutMs: 0 }] } } })).to.include('authn.webhooks.0.timeoutMs');
   });
 });

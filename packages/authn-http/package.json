@@ -103,6 +103,7 @@
     "@spinajs/http-swagger": "3.0.23",
     "@spinajs/orm": "3.0.23",
     "@spinajs/orm-sqlite": "3.0.23",
+    "@spinajs/testing": "3.0.23",
     "luxon": "^3.6.1",
     "socket.io-client": "^4.8.1"
   },

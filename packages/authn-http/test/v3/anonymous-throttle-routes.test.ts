@@ -7,8 +7,8 @@ import type { AuthnContext, PasskeyCeremony, ThrottleFlow, ThrottleKey } from '@
 
 import { AuthnPasskeyController } from '../../src/v3/controllers/AuthnPasskeyController.js';
 import { AuthnVerificationController } from '../../src/v3/controllers/AuthnVerificationController.js';
-import { fakeContainer, readingFrom } from '../support/config-boot.js';
 import { callRoute } from '../support/route-call.js';
+import { fakeContainer, readingFrom } from '@spinajs/testing';
 
 const IP = '192.0.2.7';
 const RETRY_AFTER = 29;
