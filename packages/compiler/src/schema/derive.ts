@@ -33,9 +33,13 @@ export interface DeriveContext {
 
 export type TypeHandler = (ctx: DeriveContext, type: ts.Type) => JsonSchema | undefined;
 
-/** Filled by the handler modules; order matters (enum before primitive, well-known before object). */
-export const HANDLERS: TypeHandler[] = [];
-HANDLERS.push(enumType, primitive, wellKnown, arrayType, tupleType, unionType, intersectionType, objectType);
+let handlerList: TypeHandler[] | undefined;
+
+/** Built on first use: the handler modules import this one, so a top-level list would hit a TDZ when one of them loads first. Order matters (enum before primitive, well-known before object). */
+export function handlers(): TypeHandler[] {
+  handlerList ??= [enumType, primitive, wellKnown, arrayType, tupleType, unionType, intersectionType, objectType];
+  return handlerList;
+}
 
 export function diagnose(ctx: DeriveContext, code: 'SCH001' | 'SCH002', severity: Diagnostic['severity'], message: string): void {
   ctx.diagnostics.push({ code, severity, message, source: ctx.options.sourceRef?.(ctx.node) });
@@ -58,7 +62,7 @@ export function deriveType(ctx: DeriveContext, type: ts.Type): JsonSchema {
 }
 
 function deriveBody(ctx: DeriveContext, type: ts.Type): JsonSchema {
-  for (const handler of HANDLERS) {
+  for (const handler of handlers()) {
     const schema = handler(ctx, type);
     if (schema) return schema;
   }
