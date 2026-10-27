@@ -3511,13 +3511,7 @@
     }
   },
   "packages/di/src/root.ts": {
-    "@typescript-eslint/no-require-imports": {
-      "count": 1
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
       "count": 1
     }
   },

@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 import { Container } from './container.js';
 import { IBind, IContainer, IDisposeOptions, ResolvableObject, ResolveChainResult } from './interfaces.js';
 import { Class, InferClass, InferTypedArray, ResolveResult, ResolveArrayResult, Factory } from './types.js';
@@ -14,10 +15,18 @@ export const RootContainer: IContainer = new Container();
  * Allows to use event listener stuff on root container
  */
 
+let esmDeprecationEmitted = false;
+
+/**
+ * @deprecated 4.0: the loader is ESM-only; this call is a no-op kept so 3.x call sites keep
+ * compiling. Removed in 5.0.
+ */
 export function setESMModuleSupport() {
-  RootContainer.register({
-    mjs: true,
-  }).asValue('__esmMode__');
+  if (!esmDeprecationEmitted) {
+    esmDeprecationEmitted = true;
+    process.emitWarning('DI.setESMModuleSupport() is a no-op since @spinajs/di 4.0 and will be removed in 5.0.', { type: 'DeprecationWarning', code: 'SPINAJS_ESM_MODE' });
+  }
+  RootContainer.register({ mjs: true }).asValue('__esmMode__');
 }
 
 export function on(event: string, listener: (...args: unknown[]) => void) {
@@ -230,20 +239,10 @@ export async function __spinajs_require__(module: string): Promise<unknown> {
     return loader.load(module);
   }
 
-  const isESM = RootContainer.get<{ mjs: boolean }>('__esmMode__');
-  if (isESM && isESM.mjs) {
-    // @vite-ignore keeps bundlers from trying to statically analyse / bundle
-    // a runtime file path ( never reached in the browser — no file sources ).
-    const result = await import(/* @vite-ignore */ module.startsWith('file://') ? module : `file://${module}`);
-    return result.default ?? result;
-  } else {
-    if (typeof require === 'undefined') {
-      throw new Error(
-        "@spinajs/di: CommonJS `require` is not available in this environment ( e.g. a bundled/browser build ). " +
-          "Register a module loader under '__module_loader__' ( DI.register(loader).asValue('__module_loader__') ) " +
-          'or enable ESM mode via DI.setESMModuleSupport().',
-      );
-    }
-    return Promise.resolve(require(module));
-  }
+  // @vite-ignore keeps bundlers from trying to statically analyse / bundle
+  // a runtime file path ( never reached in the browser — no file sources ).
+  const specifier = module.startsWith('file://') ? module : pathToFileURL(module).href;
+  const result = (await import(/* @vite-ignore */ specifier)) as { default?: unknown };
+  return result.default ?? result;
+
 }
