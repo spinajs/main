@@ -294,7 +294,8 @@ describe('users-http v3: admin session routes on the SessionIssuer', function ()
       for (const res of [await list(client, t.Uuid), await revoke(client, t.Uuid, handle)]) {
         expect(res.status, res.text).to.eq(status);
         if (error) expect(res.body.error, res.text).to.eq(error);
-        expect(res.text).to.not.contain(handle);
+        // `instance` of the problem body is the request path, which holds the handle the caller sent
+        expect(JSON.stringify({ ...(res.body as object), instance: undefined })).to.not.contain(handle);
       }
       expect(await isLive(victim, t.Uuid)).to.eq(true);
     }
