@@ -92,12 +92,14 @@ export function rewriteRootBuildTsconfig(json) {
   return { ...json, references: json.references.map((r) => ({ path: r.path.replace(/tsconfig\.mjs\.json$/, 'tsconfig.build.json') })) };
 }
 
+const MODULE_SNIFF = /typeof \(?module\b/;
+
 export function rewriteConfigSource(source) {
-  if (!source.includes('typeof module')) return source;
-  let out = source.replace(/^[ \t]*const inCommonJs = typeof module !== 'undefined';\r?\n/gm, '');
+  if (!MODULE_SNIFF.test(source)) return source;
+  let out = source.replace(/^[ \t]*const inCommonJs = typeof (?:module|\(module as any\)) !== 'undefined';\r?\n/gm, '');
   out = out.replace(/, inCommonJs \? 'cjs' : 'mjs'/g, '');
   out = out.replace(/^[ \t]*inCommonJs \? 'cjs' : 'mjs',\r?\n/gm, '');
-  if (out.includes('typeof module') || out.includes('inCommonJs')) throw new Error(`unhandled typeof module usage:\n${out}`);
+  if (MODULE_SNIFF.test(out) || out.includes('inCommonJs')) throw new Error(`unhandled typeof module usage:\n${out}`);
   return out;
 }
 
@@ -163,7 +165,7 @@ function applyConfigDirs(dryRun) {
         const file = join(c, entry);
         if (!entry.endsWith('.ts') || statSync(file).isDirectory()) continue;
         const before = readFileSync(file, 'utf8');
-        if (!before.includes('typeof module')) continue;
+        if (!MODULE_SNIFF.test(before)) continue;
         const after = rewriteConfigSource(before);
         changed.push(relative(ROOT, file));
         if (!dryRun) writeFileSync(file, after);

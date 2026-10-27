@@ -116,6 +116,10 @@ test('rewriteConfigSource: refuses a leftover inCommonJs reference', () => {
   assert.throws(() => rewriteConfigSource(`const inCommonJs = typeof module !== 'undefined';\nconst x = inCommonJs && 1;`), /unhandled typeof module/);
 });
 
+test('rewriteConfigSource: the `typeof (module as any)` cast', () => {
+  assert.equal(rewriteConfigSource(`    const inCommonJs = typeof (module as any) !== 'undefined';\n    return [join(lib(), inCommonJs ? 'cjs' : 'mjs', path)];`), `    return [join(lib(), path)];`);
+});
+
 test('rewriteConfigSource: a file without the pattern is returned unchanged', () => {
   assert.equal(rewriteConfigSource('export default {};\n'), 'export default {};\n');
 });
