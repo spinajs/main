@@ -196,3 +196,11 @@ describe('deriveSchema recursive aliases', () => {
     expect(derive('Shape').id).to.equal(undefined);
   });
 });
+
+describe('deriveSchema class members', () => {
+  it('keeps public instance data members only', () => {
+    const result = derive('CVisibility');
+    expect(result.schema).to.deep.equal({ $id: 'fixture/CVisibility', type: 'object', properties: { a: { type: 'string' } }, required: ['a'], additionalProperties: false });
+    expect(result.diagnostics).to.deep.equal([]);
+  });
+});
