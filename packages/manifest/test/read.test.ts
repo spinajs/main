@@ -8,6 +8,7 @@ import type { Manifest } from '../src/index.js';
 import { ManifestValidationError, ManifestVersionError, readFragment, readManifest } from '../src/index.js';
 import { fragment } from './support.js';
 
+const appBasic = fileURLToPath(new URL('../../compiler/test/fixtures/app-basic/app.manifest.json', import.meta.url));
 const minimal = fileURLToPath(new URL('./fixtures/minimal.manifest.json', import.meta.url));
 
 function tmpJson(value: unknown): string {
@@ -60,6 +61,24 @@ describe('readManifest / readFragment', () => {
   it('ignores unknown fields', async () => {
     const m = { ...JSON.parse(readFileSync(minimal, 'utf8')), future: { a: 1 } };
     expect((await readManifest(tmpJson(m))).app.name).to.equal('demo-app');
+  });
+
+  it('ignores unknown nested fields', async () => {
+    const m = JSON.parse(readFileSync(minimal, 'utf8')) as { app: Record<string, unknown> };
+    m.app.future = { a: 1 };
+    expect((await readManifest(tmpJson(m))).app.name).to.equal('demo-app');
+  });
+
+  it('reads the compiler app-basic fixture under Ajv strict mode', async () => {
+    const m = await readManifest(appBasic);
+    expect(m.manifestVersion).to.equal(1);
+  });
+
+  it('reports a missing required property with its path', async () => {
+    const bad = JSON.parse(readFileSync(minimal, 'utf8')) as Manifest;
+    delete (bad.app as Partial<Manifest['app']>).name;
+    const err = (await failure(readManifest(tmpJson(bad)))) as ManifestValidationError;
+    expect(err.errors).to.include('$.app.name: required');
   });
 
   it('validates enum members', async () => {
