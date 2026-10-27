@@ -1,10 +1,12 @@
 import 'mocha';
 import { expect } from 'chai';
-import { AsyncService, Container } from '../src/index.js';
+import { AsyncService, Container, PerChildInstance } from '../src/index.js';
 
 class S {}
 class Base {}
 class Impl extends Base {}
+@PerChildInstance()
+class Scoped extends Base {}
 class Svc extends AsyncService {
   public disposed = false;
   public async dispose(): Promise<void> {
@@ -123,5 +125,20 @@ describe('child({ isolateSingletons: true })', () => {
     expect(a).to.not.equal(b);
     expect(root.Cache.has(Impl)).to.be.false;
     expect(c1.Cache.has(Impl)).to.be.true;
+  });
+
+  it('Array.ofType in a plain child of an isolating child builds a PerChildContainer element in the plain child', () => {
+    const root = new Container();
+    root.register(Impl).as(Base);
+    root.register(Scoped).as(Base);
+    const isolating = root.child({ isolateSingletons: true });
+    const grandchild = isolating.child();
+
+    const list = grandchild.resolve(Array.ofType(Base));
+    expect(list).to.have.length(2);
+    expect(grandchild.Cache.has(Scoped)).to.be.true;
+    expect(isolating.Cache.has(Scoped)).to.be.false;
+    expect(isolating.Cache.has(Impl)).to.be.true;
+    expect(root.Cache.has(Impl)).to.be.false;
   });
 });

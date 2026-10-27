@@ -640,7 +640,8 @@ export class Container extends EventEmitter implements IContainer {
    * elements are created but left out of the result.
    */
   private resolveAncestorList<T>(owner: Container, type: TypedArray<T>, options?: unknown[]): T[] | Promise<T[]> {
-    const entries = (owner.getRegisteredTypes(type, false) ?? []).map((t) => {
+    // An isolating owner may only inherit the list.
+    const entries = (owner.getRegisteredTypes(type) ?? []).map((t) => {
       if (isFactory(t)) {
         return { target: t as Factory<T>, resolver: null };
       }
