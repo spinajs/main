@@ -14,6 +14,7 @@
     { "path": "packages/http-socket-client/tsconfig.mjs.json" },
     { "path": "packages/util/tsconfig.mjs.json" },
     { "path": "packages/hooks/tsconfig.mjs.json" },
+    { "path": "packages/manifest/tsconfig.mjs.json" },
     { "path": "packages/principal/tsconfig.mjs.json" },
     { "path": "packages/fs/tsconfig.mjs.json" },
     { "path": "packages/electron/tsconfig.mjs.json" },

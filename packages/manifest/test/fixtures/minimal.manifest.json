@@ -1,0 +1,21 @@
+{
+  "manifestVersion": 1,
+  "app": { "name": "demo-app", "version": "1.0.0", "root": ".", "outDir": "lib" },
+  "packages": [{ "name": "demo-app", "version": "1.0.0", "entry": "lib/index.js", "outDir": "lib", "fragment": "lib/manifest.fragment.json" }],
+  "services": [],
+  "values": [],
+  "controllers": [],
+  "socketControllers": [],
+  "socketContracts": [],
+  "configModules": [],
+  "configUsages": [],
+  "models": [],
+  "migrations": [],
+  "schedules": [],
+  "commands": [],
+  "queueMessages": [],
+  "schemas": {},
+  "diagnostics": [],
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "hash": ""
+}
