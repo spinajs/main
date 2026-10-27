@@ -187,6 +187,14 @@ describe('readDomainConfig', () => {
     expect(Object.keys(readDomainConfig(authz, ['root']).permissions)).to.deep.equal(['r.p']);
   });
 
+  it('reads use of the own level only, never inherited', () => {
+    const authz = { use: ['rbac'], domains: { a: { use: ['read-only'] }, b: { parent: 'a' } } };
+    expect(readDomainConfig(authz, ['root']).use).to.deep.equal(['rbac']);
+    expect(readDomainConfig(authz, ['root', 'a']).use).to.deep.equal(['read-only']);
+    expect(readDomainConfig(authz, ['root', 'a', 'b']).use).to.equal(undefined);
+    expect(readDomainConfig({}, ['root'])).to.not.have.property('use');
+  });
+
   it('reads domains whose name contains a dot', () => {
     expect(readDomainConfig({ domains: { 'a.b': { engine: { explain: true } } } }, ['root', 'a.b']).engine.explain).to.equal(true);
   });
@@ -258,6 +266,10 @@ describe('authz configuration through a child Configuration', function () {
 
   it('validates the values of the child with the authz schema, naming every full path', async () => {
     expect(await violationsOf({ authz: { engine: { modelTimeoutMs: 0 }, domains: { 'a.b': { cache: { ttlSeconds: -1 } } } } })).to.include.members(['authz.engine.modelTimeoutMs', 'authz.domains.a.b.cache.ttlSeconds']);
+  });
+
+  it('refuses a use that is not a list of names', async () => {
+    expect(await violationsOf({ authz: { use: 'rbac', domains: { a: { use: [{}] } } } })).to.include.members(['authz.use', 'authz.domains.a.use.0']);
   });
 
   it('boots a valid child Configuration with its values', async () => {
