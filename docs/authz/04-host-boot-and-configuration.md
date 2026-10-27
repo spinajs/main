@@ -39,7 +39,13 @@ A failed boot releases the models it claimed and throws. `dispose()` unsubscribe
 
 ## Registering the shipped models
 
-No package registers the RBAC or ABAC model for you. The app wires them in the domain's container before the domain's `AuthzService` first resolves, after `Configuration`:
+Importing `@spinajs/authz-rbac` and `@spinajs/authz-abac` registers their models in DI under `'rbac'` and `'abac'`; none is active until a `use` list names it:
+
+```ts
+authz: { use: ['abac', 'rbac'] }
+```
+
+The domain's boot resolves each listed name in the domain's container, so the stores, contributors, `RbacService` and the `LinkResolver` land where the model checks ([Models by name](05-domains.md#models-by-name)). Without a `use` list, the app wires the models itself in the domain's container before the domain's `AuthzService` first resolves, after `Configuration`:
 
 - RBAC: `registerRbac(DI.RootContainer, configuration)` from `@spinajs/authz-rbac` registers the stores, `RbacModel`, its contributor, `RbacService` and an `RbacLinkResolver` as the `LinkResolver` ([Wiring the model](../authz-rbac/README.md#wiring-the-model)). authz-http resolves the `LinkResolver` from the root container, so share links open only when RBAC is registered there.
 - ABAC: an `AbacModel` registered as `AuthorizationModel`, with its `AbacContributor` ([`@spinajs/authz-abac`](../authz-abac/README.md)).
@@ -54,6 +60,7 @@ Config lives under `authz.*` (H3). The schema validates the keys below; other se
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `authz.permissions.<name>` | `object` | none | see [Declaring permissions](02-permissions.md#configuration) | Permissions of the root domain. |
+| `authz.use` | `string[]` | none | registered model names | The models root activates; unset, every registration under `AuthorizationModel` in root ([Models by name](05-domains.md#models-by-name)). |
 | `authz.combine` | `object` | `{ default: { algorithm: 'deny-overrides' } }` | see [How a check works](01-check-flow.md#configuration) | Algorithm and models per resource type. |
 | `authz.domains.<name>` | `object` | none | name `[A-Za-z0-9_.-]{1,64}`, not `root` | Per-domain overrides ([Domains](05-domains.md#configuration)). |
 | `authz.engine.explain` | `boolean` | `false` | | Trace every check at debug level. |

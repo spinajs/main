@@ -2,7 +2,7 @@
 
 The ABAC model of SpinaJS authorization: permit and deny policies that target permissions, types, principals, actors and scopes, and hold under a condition on principal, actor, resource, env and scope attributes. Policies come from config, memory or the database, and change at run time through `AuthzAdmin`.
 
-It does **not** register the model for you: the app builds an `AbacModel` and registers it. The engine, the condition compiler and `AuthzAdmin` live in [`@spinajs/authz`](../authz/README.md); this package adds the model, its stores and its admin handlers.
+Importing the package registers the model in DI under the name `'abac'`; a domain checks with it once its `use` list names it. The engine, the condition compiler and `AuthzAdmin` live in [`@spinajs/authz`](../authz/README.md); this package adds the model, its stores and its admin handlers.
 
 ## Install
 
@@ -23,6 +23,12 @@ npm install @spinajs/authz-abac
 | [Policy administration](07-policy-administration.md) | `policy.put`, `policy.delete`, the `policies` query and `scope.forget` through `AuthzAdmin`. |
 
 ## Quick start
+
+```ts
+authz: { use: ['abac'] }   // root; another domain: authz.domains.<name>.use
+```
+
+The domain's boot builds an `AbacModel` over `authz.abac.*` and registers its `AbacContributor` in the domain's container ([Models by name](../authz/05-domains.md#models-by-name)). To pass `AbacModelOptions`, build the model by hand instead:
 
 ```ts sample
 import { DI } from '@spinajs/di';

@@ -75,8 +75,8 @@ Build filters with the exported helpers: `TRUE`, `FALSE`, `and(...)`, `or(...)`,
 
 ## Registration
 
-- Root domain: `@Singleton()` and `@Injectable(AuthorizationModel)` on the class, or `DI.register(MyModel).as(AuthorizationModel)`.
-- Child domain: `container.register(MyModel).as(AuthorizationModel)` on the domain's container, never a decorator (DI-2), before the domain's first `service()` ([Domains](05-domains.md)).
+- **By name (preferred):** register the model under its `name`, `@Injectable('suspension')` on the class, or `DI.register(factory).as('suspension')` when each domain needs its own instance (a factory runs once per domain that lists it). Then list the name in `authz.use` or `authz.domains.<name>.use` ([Models by name](05-domains.md#models-by-name)).
+- **Without `use`:** in root, `@Injectable(AuthorizationModel)` or `DI.register(MyModel).as(AuthorizationModel)`; in a child domain, `container.register(MyModel).as(AuthorizationModel)` on its container, never a decorator (DI-2), before the domain's first `service()`.
 - Routing: when `authz.combine` lists models, add the new name there; otherwise the default entry routes every model of the domain.
 
 ## Services and extension points

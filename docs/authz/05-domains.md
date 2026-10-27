@@ -5,8 +5,8 @@ A domain is a child DI container with its own `AuthzService`, models, permission
 ## How it works
 
 1. `DefaultAuthzDomains` (the `AuthzDomains` singleton) holds the domain records. `root` is the root container itself.
-2. `domains.create(name, parent?)` makes a child container of the parent domain's container and records it. The parent is the argument, else `authz.domains.<name>.parent`, else `root`; when both are given they must agree.
-3. The app registers the domain's own models (and adapters, resolvers, contributors) on the returned container.
+2. `domains.create(name, parent?)` makes a child container of the parent domain's container and records it. The parent is the argument, else `authz.domains.<name>.parent`, else `root`; when both are given they must agree. The root boot creates every domain `authz.domains.<name>.use` lists models for, and its missing ancestors, the same way.
+3. The domain's models come from its `use` list ([Models by name](#models-by-name)). Without one, the app registers them (and adapters, resolvers, contributors) on the returned container.
 4. `await domains.service(name)` resolves the domain's `AuthzService`, which boots: it waits for the parent's service, copies the parent's permission registrations, merges the models of every level and reads the domain's config ([Host, boot and configuration](04-host-boot-and-configuration.md#how-it-works)).
 5. `authz(name)` then returns that service synchronously.
 6. Disposing the domain's container forgets the domain and every descendant, and disposes their services.
@@ -18,6 +18,7 @@ A domain is a child DI container with its own `AuthzService`, models, permission
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `authz.domains.<name>.parent` | `string` | `'root'` | a domain name | The parent domain. |
+| `authz.domains.<name>.use` | `string[]` | none | registered model names | The models this domain adds to the inherited ones. Unset: what the domain's container registers under `AuthorizationModel`. Set: the root boot creates the domain. |
 | `authz.domains.<name>.combine` | `object` | the nearest ancestor's | as `authz.combine` | Replaces the parent's routing whole, never key by key. |
 | `authz.domains.<name>.disable` | `string[]` | `[]` | model names | Drops models an ancestor level registered. A name no ancestor registers logs a warning. |
 | `authz.domains.<name>.permissions` | `object` | none | as `authz.permissions` | Adds permissions on top of the parent's. |
@@ -26,7 +27,7 @@ A domain is a child DI container with its own `AuthzService`, models, permission
 | `authz.domains.<name>.cache` | `object` | the parent's | as `authz.cache` | Overrides key by key. |
 | `authz.domains.<name>.audit` | `object` | the parent's | as `authz.audit` | Overrides key by key. |
 
-`authz.bus` and `authz.principals` come from the root only. A domain name matches `DOMAIN_NAME_PATTERN` (`^[A-Za-z0-9_.-]{1,64}$`) and is never `root`.
+`authz.use` lists the models root activates; unset, every registration under `AuthorizationModel` in root is active. `authz.bus` and `authz.principals` come from the root only. A domain name matches `DOMAIN_NAME_PATTERN` (`^[A-Za-z0-9_.-]{1,64}$`) and is never `root`.
 
 ```ts
 export default {
@@ -34,6 +35,7 @@ export default {
     domains: {
       archive: {
         parent: 'root',
+        use: ['read-only'],
         combine: { default: { algorithm: 'deny-overrides', models: ['rbac', 'read-only'] } },
         permissions: { 'document:restore': {} },
         cache: { ttlSeconds: 300 },
@@ -96,10 +98,30 @@ export class TenantDomainResolver extends AuthzDomainResolver {
 - `req.storage.AuthzDecision.domain` and the field filters follow the resolved domain.
 - The resolver chooses among domains the app created. It does not authorize the choice: a request that names another tenant's domain is still checked by that domain's models, so derive the name from something the caller cannot forge, such as the principal, and not from a header alone.
 
+## Models by name
+
+A model is registered in DI under its `name`: `@Injectable('read-only')` on a class, or `DI.register(factory).as('tenant-policy')` for a factory. Config then lists the names per level:
+
+```ts
+authz: {
+  use: ['abac', 'rbac'],                               // root
+  domains: {
+    archive: { use: ['read-only'] },                   // created at root boot
+  },
+}
+```
+
+1. A level that sets `use` activates exactly the listed names, each resolved in that level's container. What the container registers under `AuthorizationModel` stays available but inactive.
+2. A child takes its ancestors' active models from their boot, so an ancestor's factory never runs twice. `disable` and replacement by name work as before: listing an inherited name gives the child its own instance in its place.
+3. A class keeps its DI lifetime (`@Singleton` shares one instance, and so one `init`). A factory runs once per domain that lists it, which suits a model with per-domain state; it can read `ctx.domain` in `init`.
+4. The boot fails with `AuthzConfigError` naming the key for a name nothing is registered under, a name registered twice, a value that is not a model, or a model whose `name` differs from the name it is registered under.
+
+`@spinajs/authz-rbac` registers `'rbac'` and `@spinajs/authz-abac` registers `'abac'` when imported.
+
 ## Important behaviour
 
 - **Register before the first `service(name)`.** A booted domain does not see later registrations.
-- **Never use `@Injectable(AuthorizationModel)` for a child-domain model.** A decorator registers in the root container, so the model would join every domain (DI-2). Register it on the domain's container.
+- **Register a model under its name, activate it with `use`.** A level that sets `use` activates only what it lists, so a decorator in root does not leak into other domains. A level without `use` keeps the old rule: `@Injectable(AuthorizationModel)` registers in the root container, and the model joins every domain (DI-2).
 - **A model instance initialises once.** `init` runs in the first domain that lists it; other domains replay its permissions, native filters and relations. A child sees every registration of its parent.
 - **Changes reach descendants.** A change published for domain `X` invalidates `X` and every domain below it. A change without a domain invalidates every domain.
 - **Create domains after `Configuration` is resolved.** `create()` reads `authz.domains.<name>.parent` synchronously.
@@ -111,12 +133,16 @@ export class TenantDomainResolver extends AuthzDomainResolver {
 
 Documents in the archive keep the root's RBAC grants, but only `read` actions pass there.
 
+With `authz.domains.archive.use: ['read-only']` in the config above, the root boot creates the domain and its first `authz('archive')` check finds the model:
+
 ```ts sample
-import { DI } from '@spinajs/di';
-import { AuthorizationModel, AuthzDomains, FALSE, TRUE, authz } from '@spinajs/authz';
+import { Injectable, Singleton } from '@spinajs/di';
+import { AuthorizationModel, FALSE, TRUE, authz } from '@spinajs/authz';
 import type { DecisionRequest, ModelCapabilities, PermissionDef, ResourceType, Vote } from '@spinajs/authz';
 
-class ReadOnlyModel extends AuthorizationModel {
+@Singleton()
+@Injectable('read-only')
+export class ReadOnlyModel extends AuthorizationModel {
   readonly name = 'read-only';
   readonly capabilities: ModelCapabilities = { effects: ['deny'], residuals: [], sync: 'always', fields: false, needsSubject: false };
 
@@ -131,21 +157,13 @@ class ReadOnlyModel extends AuthorizationModel {
   }
 }
 
-// Run once at boot, after Configuration and the root AuthzService resolved.
-export async function bootArchiveDomain(): Promise<void> {
-  const domains = await DI.resolve(AuthzDomains);
-  const container = domains.create('archive');
-  container.register(ReadOnlyModel).as(AuthorizationModel);
-  await domains.service('archive');
-}
-
 export async function canEditArchived(documentId: string): Promise<boolean> {
   const archive = authz('archive');
   return archive.can(archive.current(), 'document:update', { type: 'document', id: documentId });
 }
 ```
 
-The config above routes `read-only` next to `rbac` in the `archive` domain. Without it the domain inherits the root's `combine`; when that lists its models, the new model is not routed and boot only warns.
+`authz('archive')` needs the domain booted: resolve `await (await DI.resolve(AuthzDomains)).service('archive')` once at start, or let the first `@Access({ domain: 'archive' })` route boot it. The `combine` in the configuration section above routes `read-only` next to `rbac` in the `archive` domain. Without it the domain inherits the root's `combine`; when that lists its models, the new model is not routed and boot only warns.
 
 ## Related
 

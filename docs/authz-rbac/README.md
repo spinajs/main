@@ -68,20 +68,46 @@ Start with [Roles and permissions](03-roles-and-permissions.md), then [Assigning
 
 ## Wiring the model
 
-No package registers the RBAC model. Call `registerRbac` in the container of the domain, at boot, after `Configuration` and before the domain's `AuthzService` first resolves.
+Importing the package registers RBAC in DI under the name `'rbac'`. Name it in the `use` list of the domain that should check with it:
+
+```ts
+authz: { use: ['rbac'] }   // root; another domain: authz.domains.<name>.use
+```
+
+The domain's boot then runs `buildRbac` in the domain's container and activates the model ([Models by name](../authz/05-domains.md#models-by-name)).
+
+### Options under `authz.use`
+
+- The RBAC clock is the domain's `AuthzClock`, so a test that moves `ManualClock` moves the assignment cache TTL too.
+- `extensions`, `log` and `service.ancestors` are code, not config. Register an `RbacOptions` subclass in the domain's container (or root) to pass them:
+
+```ts sample
+import { Injectable } from '@spinajs/di';
+import { RbacOptions, createRbacExtensions } from '@spinajs/authz-rbac';
+import type { RegisterRbacOptions } from '@spinajs/authz-rbac';
+
+@Injectable(RbacOptions)
+export class AppRbacOptions extends RbacOptions {
+  options(): RegisterRbacOptions {
+    // The default extensions; append your own here.
+    return { extensions: (o) => [...createRbacExtensions(o)] };
+  }
+}
+```
+
+### Wiring by hand
+
+`registerRbac` wires RBAC without a `use` list. Call it in the container of the domain, at boot, after `Configuration` and before the domain's `AuthzService` first resolves.
 
 ```ts sample
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { registerRbac } from '@spinajs/authz-rbac';
-import { LinkResolver } from '@spinajs/authz-http';
 
 export async function wireRbac(): Promise<void> {
   const configuration = await DI.resolve(Configuration);
-  // Registers the stores, RbacModel, RbacContributor and RbacService in the root domain.
-  const rbac = await registerRbac(DI.RootContainer, configuration);
-  // Without this binding every share link opens nothing (link_invalid).
-  DI.register(() => rbac.linkResolver).as(LinkResolver);
+  // Registers the stores, RbacModel, RbacContributor, RbacService and the LinkResolver in the root domain.
+  await registerRbac(DI.RootContainer, configuration);
 }
 ```
 
@@ -90,15 +116,16 @@ export async function wireRbac(): Promise<void> {
 1. Counts the stores `authz.rbac.stores.*` names: exactly one `roles` and one `assignments` store, at most one `links` and one `membership` store, at most one in-memory and one other `rules` store. It refuses `authz.rbac.rules` when no `ConfigRuleStore` is named.
 2. Calls `registerRbacStores`, which registers each named class under its port ([Custom stores](11-custom-stores.md)).
 3. Builds an `RbacModel` over the stores and registers it as `AuthorizationModel`, its `RbacContributor` as `AuthzContributor`, and an `RbacService` under the class and under the name `RbacService`.
-4. Returns `{ model, contributor, service, linkResolver }`.
+4. Registers an `RbacLinkResolver` over that service as `LinkResolver`, which share-link principals read.
+5. Returns `{ model, contributor, service, linkResolver }`.
 
-Every refusal throws `AuthzConfigError` before anything is registered.
+`buildRbac(container, configuration, opts?)` does the same without the `AuthorizationModel` registration; `authz.use` runs it. Every refusal throws `AuthzConfigError` before anything is registered.
 
 | Option of `RegisterRbacOptions` | Effect |
 | --- | --- |
 | `extensions` | `(options) => RbacExtension[]`: replaces the default extensions ([Model extensions](12-model-extensions.md)). |
 | `log` | The logger of the model; default the host log `authz-rbac`. |
-| `clock` | `{ now(): Date }` that times the assignment cache and the role version check. |
+| `clock` | `{ now(): Date }` that times the assignment cache and the role version check; under `authz.use`, the domain's `AuthzClock`. |
 | `service` | `RbacServiceOptions` without `links`: the `ancestors` function `RbacService.rolesOf` uses without a context. |
 
 The ABAC model is wired the same way; see [`@spinajs/authz-abac`](../authz-abac/README.md).
