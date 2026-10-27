@@ -5,10 +5,10 @@ The RBAC model reads roles, assignments, rules, links and set memberships throug
 ## How it works
 
 1. A store class registers in DI under its class name: `@Injectable()` with no argument does that. The shipped stores carry it, so importing `@spinajs/authz-rbac` registers `ConfigRoleStore`, `ConfigRuleStore`, `DbAssignmentStore`, `DbMembershipStore`, `DbRuleStore` and `DbLinkStore` by name only.
-2. `registerRbacStores(container, configuration)` (called by `registerRbac`) reads each `authz.rbac.stores.<kind>`, or the default of `RBAC_STORE_DEFAULTS` when the key is unset.
+2. `registerRbacStores(container, configuration)` (called by `buildRbac`, which `authz.use: ['rbac']` and `registerRbac` run) reads each `authz.rbac.stores.<kind>`, or the default of `RBAC_STORE_DEFAULTS` when the key is unset.
 3. For each name it takes the last class registered under that name (`storeClass`) and checks it extends the port. It registers the class under the port and, when it extends the admin port too, under that one.
 4. Any bad name (not registered, a factory, the wrong port) throws `AuthzConfigError` naming the key, and nothing is registered.
-5. `registerRbac` resolves the stores from the container and hands them to `RbacModel`. The write handlers resolve the admin ports per command from the admin call's container.
+5. `buildRbac` resolves the stores from the container and hands them to `RbacModel`. The write handlers resolve the admin ports per command from the admin call's container.
 
 | Kind | `authz.rbac.stores.<kind>` default | Read port | Admin port | How many |
 | --- | --- | --- | --- | --- |
@@ -93,7 +93,7 @@ Subclass a DB store to add a rule before a write and keep its transaction handli
 
 ### `SubjectResolver`
 
-`registerRbac` always uses `RbacSubjectResolver`. To change who a principal speaks for, build the model yourself and pass `subjects`. Extend `RbacSubjectResolver` rather than implementing the port from scratch: its `memberships` method is what makes subject sets work.
+`buildRbac` always uses `RbacSubjectResolver`, under `authz.use` and `registerRbac` alike: `RegisterRbacOptions`, and so `RbacOptions`, has no `subjects`. To change who a principal speaks for, build the model yourself and pass `subjects`. Extend `RbacSubjectResolver` rather than implementing the port from scratch: its `memberships` method is what makes subject sets work.
 
 ```ts
 import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
@@ -116,7 +116,7 @@ container.register(() => new RbacContributor(model)).as(AuthzContributor);
 
 ## Important behaviour
 
-- **Only the domain's own stores.** `registerRbac` reads the stores its `registerRbacStores` call registered in that container, so a parent domain's store never slips in for a kind the config turned off. The membership store may come from a parent.
+- **Only the domain's own stores.** `buildRbac` reads the stores its `registerRbacStores` call registered in that container, so a parent domain's store never slips in for a kind the config turned off. The membership store may come from a parent.
 - **Last registration wins.** Two classes registered under one name: the later one is used.
 - **Fail closed.** A store that throws makes the vote a `model_error` deny; a failed assignment read is never cached.
 - **Rows go frozen.** The model deep-freezes cached rows; a store may keep and reuse its own objects.

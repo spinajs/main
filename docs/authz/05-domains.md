@@ -115,12 +115,13 @@ authz: {
 2. A child takes its ancestors' active models from their boot, so an ancestor's factory never runs twice. `disable` and replacement by name work as before: listing an inherited name gives the child its own instance in its place.
 3. A class keeps its DI lifetime (`@Singleton` shares one instance, and so one `init`). A factory runs once per domain that lists it, which suits a model with per-domain state; it can read `ctx.domain` in `init`.
 4. The boot fails with `AuthzConfigError` naming the key for a name nothing is registered under, a name registered twice, a value that is not a model, or a model whose `name` differs from the name it is registered under.
+5. Names live in DI's `Registry`, not its `Cache`, so `DI.clearCache()` does not drop them. A factory has no class name of its own, which is why it is registered under an explicit name with `.as(name)`.
 
 `@spinajs/authz-rbac` registers `'rbac'` and `@spinajs/authz-abac` registers `'abac'` when imported.
 
 ## Important behaviour
 
-- **Register before the first `service(name)`.** A booted domain does not see later registrations.
+- **Register before the first `service(name)`.** A booted domain does not see later registrations: the boot initialises its models, freezes the permission registry their `init` filled, validates the `combine` routing against them and hands the list to the engine, and the decision cache assumes that set. A later model would have no permissions, no route and stale cached decisions. Data (roles, assignments, rules) changes at run time through the stores and the change bus; a different model set needs a new domain, or disposing this one and creating it again.
 - **Register a model under its name, activate it with `use`.** A level that sets `use` activates only what it lists, so a decorator in root does not leak into other domains. A level without `use` keeps the old rule: `@Injectable(AuthorizationModel)` registers in the root container, and the model joins every domain (DI-2).
 - **A model instance initialises once.** `init` runs in the first domain that lists it; other domains replay its permissions, native filters and relations. A child sees every registration of its parent.
 - **Changes reach descendants.** A change published for domain `X` invalidates `X` and every domain below it. A change without a domain invalidates every domain.

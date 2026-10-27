@@ -155,6 +155,8 @@ authz: { abac: { stores: ['ConfigPolicyStore', 'DbPolicyStore'] } }
 
 ### Let admins add deny policies at run time
 
+With `authz.use: ['abac']` and the `authz.abac.stores` config above, the domain's boot builds the model over those stores; `AuthzAdmin` writes still need the writable store registered as `PolicyStore` (`DI.register(DbPolicyStore).as(PolicyStore)`). Wired by hand, one store instance serves both:
+
 ```ts sample
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';

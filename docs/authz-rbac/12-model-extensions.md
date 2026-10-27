@@ -5,7 +5,7 @@ An `RbacExtension` hooks into the RBAC model outside its nine steps: model init,
 ## How it works
 
 1. Without `extensions`, `RbacModel` builds one instance from each factory of `DEFAULT_RBAC_EXTENSIONS`: `ladderExtension`, `impliesExtension`, `setsExtension`, `rulesExtension` (`createRbacExtensions(options)`).
-2. `RegisterRbacOptions.extensions` (or `RbacModelOptions.extensions`) replaces that list. The model always appends `tokenRoleExtension` last, and drops any copy of it you pass.
+2. `RegisterRbacOptions.extensions` (or `RbacModelOptions.extensions`) replaces that list. Under `authz.use: ['rbac']`, an `RbacOptions` registration gives it. The model always appends `tokenRoleExtension` last, and drops any copy of it you pass.
 3. The model calls the hooks in list order:
 
 | Hook | When | Use |
@@ -25,7 +25,7 @@ The nine steps themselves (`RBAC_STEPS`) are not replaceable on `RbacModel`; `ru
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Extensions | `RbacModelOptions.extensions`; not DI; one list per model | `createRbacExtensions(options)` over `DEFAULT_RBAC_EXTENSIONS`, then `tokenRoleExtension` | your own `RbacExtension` objects or classes | `registerRbac(container, configuration, { extensions: (o) => [...createRbacExtensions(o), mine] })`. |
+| Extensions | `RbacModelOptions.extensions`; not DI; one list per model | `createRbacExtensions(options)` over `DEFAULT_RBAC_EXTENSIONS`, then `tokenRoleExtension` | your own `RbacExtension` objects or classes | Under `authz.use`, an `RbacOptions` subclass whose `options()` returns `{ extensions: (o) => [...createRbacExtensions(o), mine] }`; by hand, the same option to `registerRbac`. |
 
 Exports for extension authors: `RbacExtension`, `RbacExtensionFactory`, `RbacInput`, `RbacSources`, `RbacState`, `LiveAssignment`, `RBAC_STEP_NAMES`, `RBAC_STEPS`, `readRbacInput`, `runRbacPipeline`, `liveAssignments`, `resourcePath`, and the shipped classes `LadderExtension`, `ImpliesExtension`, `SetsExtension`, `RulesExtension`.
 
@@ -34,12 +34,11 @@ Exports for extension authors: `RbacExtension`, `RbacExtensionFactory`, `RbacInp
 An on-call engineer holds `oncall` at `$global` while the schedule says so. The assignment lives in the schedule, not in `authz_assignment`.
 
 ```ts sample
-import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Injectable } from '@spinajs/di';
 import { GLOBAL } from '@spinajs/authz';
 import type { DecisionRequest, EvaluationContext } from '@spinajs/authz';
-import { createRbacExtensions, registerRbac } from '@spinajs/authz-rbac';
-import type { RbacExtension, RbacInput } from '@spinajs/authz-rbac';
+import { RbacOptions, createRbacExtensions } from '@spinajs/authz-rbac';
+import type { RbacExtension, RbacInput, RegisterRbacOptions } from '@spinajs/authz-rbac';
 
 // Kept fresh by a schedule poller; the gather must not do IO to keep votes synchronous.
 const onCallNow = new Set<string>(['user:17']);
@@ -54,13 +53,16 @@ const onCallExtension: RbacExtension = {
   },
 };
 
-export async function wireRbacWithOnCall(): Promise<void> {
-  const configuration = await DI.resolve(Configuration);
-  await registerRbac(DI.RootContainer, configuration, {
-    extensions: (options) => [...createRbacExtensions(options), onCallExtension],
-  });
+// With authz.use: ['rbac'], every domain that lists 'rbac' builds its model with these options.
+@Injectable(RbacOptions)
+export class OnCallRbacOptions extends RbacOptions {
+  options(): RegisterRbacOptions {
+    return { extensions: (options) => [...createRbacExtensions(options), onCallExtension] };
+  }
 }
 ```
+
+Wiring by hand passes the same option: `registerRbac(DI.RootContainer, configuration, { extensions: (options) => [...createRbacExtensions(options), onCallExtension] })`.
 
 `collect` treats the added row like a stored one: it must name a defined, assignable role allowed at `$global`, and it passes `ceiling.roles`. The engine's decision cache does not know the schedule, so publish an invalidate (`authz().invalidate(['subject:user:17'])`) when the schedule changes.
 

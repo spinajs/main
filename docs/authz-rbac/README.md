@@ -2,7 +2,7 @@
 
 The RBAC model of SpinaJS authorization: roles with grants, assignments of roles to subjects at scopes, their stores, the `AuthzAdmin` write handlers, the admin guard and the database backend of `AuthzAdmin`.
 
-It does **not** register the model for you: the app calls `registerRbac` (see [Wiring the model](#wiring-the-model)). It does not decide alone either: the engine of [`@spinajs/authz`](../authz/README.md) combines its vote with the other models of the domain.
+Importing it registers the model in DI under the name `'rbac'`, but activates nothing: a domain checks with RBAC once its `use` list names `'rbac'`, or once the app calls `registerRbac` (see [Wiring the model](#wiring-the-model)). It does not decide alone either: the engine of [`@spinajs/authz`](../authz/README.md) combines its vote with the other models of the domain.
 
 ## Install
 

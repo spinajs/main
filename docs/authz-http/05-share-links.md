@@ -40,7 +40,7 @@ An empty string is refused at boot; use `null` to turn a place off.
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `LinkResolver` (abstract: `principal(token, companion?)`) | `LinkResolver`, looked up on every request that carries a token | none | the resolver `registerRbac()` returns (`rbac.linkResolver`, `@spinajs/authz-rbac`) | `DI.register(() => rbac.linkResolver).as(LinkResolver)`, or `DI.register(MyResolver).as(LinkResolver)`. It may be registered after `LinkPrincipalSource` is built, e.g. at the root domain's boot. |
+| `LinkResolver` (abstract: `principal(token, companion?)`) | `LinkResolver`, looked up on every request that carries a token | none | `RbacLinkResolver` (`@spinajs/authz-rbac`), registered in root by `authz.use: ['rbac']` or `registerRbac(DI.RootContainer, …)` | `DI.register(MyResolver).as(LinkResolver)` for your own. It may be registered after `LinkPrincipalSource` is built, e.g. at the root domain's boot. Only the root container's registration counts: RBAC listed in a child domain's `use` alone leaves links dead. |
 | `LinkPrincipalSource` | `PrincipalSource` list, `@Injectable(PrincipalSource)`, order 110 | `LinkPrincipalSource` | | Subclass and override the protected `token(req)` to read the token elsewhere. Register the subclass with `@Injectable(PrincipalSource)` and remove the shipped one with `DI.unregister(LinkPrincipalSource)`, before `HttpServer` resolves. |
 
 `PrincipalMiddleware` treats every `LinkPrincipalSource` instance (subclasses included) as a link source: it runs after the plain sources and replaces their answer.
