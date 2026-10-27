@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { cpSync, mkdirSync, rmSync, symlinkSync, writeFileSync, readFileSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { analyzePackage, buildAppManifest, locateFragments } from '../src/index.js';
 
 const APP = { tsconfig: 'test/fixtures/app-basic/tsconfig.json', appRoot: 'test/fixtures/app-basic' };
@@ -25,6 +25,7 @@ describe('buildAppManifest', () => {
     expect(manifest.controllers.map((c) => c.id)).to.deep.equal(['pkg-basic:UsersController', 'app-basic:HealthController']);
     const health = manifest.controllers.find((c) => c.id === 'app-basic:HealthController');
     expect(health?.routes[0].fullPath).to.equal('/health');
+    expect(manifest.packages[0].fragment).to.equal('node_modules/pkg-basic/lib/manifest.fragment.json');
     expect(manifest.hash).to.match(/^[0-9a-f]{64}$/);
     expect((JSON.parse(readFileSync(written, 'utf8')) as { hash: string }).hash).to.equal(manifest.hash);
   });
@@ -45,7 +46,7 @@ describe('buildAppManifest', () => {
       for (const f of ['src', 'package.json', 'tsconfig.json']) cpSync(`test/fixtures/app-basic/${f}`, `${dir}/${f}`, { recursive: true });
       symlinkSync(resolve('test/fixtures/pkg-basic'), resolve(dir, 'node_modules/pkg-basic'), 'junction');
       const { manifest } = await buildAppManifest({ tsconfig: `${dir}/tsconfig.json`, appRoot: dir, out: `${dir}/app.manifest.json` });
-      expect(isAbsolute(manifest.packages[0].fragment)).to.equal(false);
+      expect(manifest.packages[0].fragment).to.equal('node_modules/pkg-basic/lib/manifest.fragment.json');
       hashes.push(manifest.hash);
     }
     rmSync('test/fixtures/.tmp-a', { recursive: true, force: true });

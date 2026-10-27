@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { createRequire } from 'node:module';
 
 export interface FragmentLocation {
@@ -8,6 +8,8 @@ export interface FragmentLocation {
   entry: string;
   /** Absolute path to the dependency's manifest fragment. */
   fragment: string;
+  /** Relative to the app root, forward slashes; the logical `node_modules/<name>/...` path when installed under the app, so layout (workspace, npm, pnpm) does not leak into the hash. */
+  fragmentRel: string;
 }
 
 interface PackageJson {
@@ -45,7 +47,9 @@ export function locateFragments(appRoot: string): Promise<FragmentLocation[]> {
     if (!dep.spinajs?.manifest) continue;
     const fragment = join(dirname(depPkgPath), dep.spinajs.manifest);
     if (!existsSync(fragment)) continue;
-    out.push({ name: dep.name, version: dep.version, entry: (dep.main ?? 'lib/index.js').replace(/^\.\//, ''), fragment });
+    const installed = existsSync(join(root, 'node_modules', name));
+    const fragmentRel = installed ? `node_modules/${name}/${dep.spinajs.manifest.replace(/^\.\//, '')}` : relative(root, fragment).split(sep).join('/');
+    out.push({ name: dep.name, version: dep.version, entry: (dep.main ?? 'lib/index.js').replace(/^\.\//, ''), fragment, fragmentRel });
   }
   return Promise.resolve(out);
 }
