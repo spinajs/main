@@ -33,25 +33,47 @@ function fromDecorator(node: NamedClass, ctx: ExtractorContext): ServiceEntry | 
   return entryFor(node, as ? [as, node.name.text] : [node.name.text], lifetimeOf(node), node, ctx);
 }
 
-function fromRegister(node: ts.ExpressionStatement, ctx: ExtractorContext): ServiceEntry | undefined {
-  const chain = registerChainOf(node.expression);
+function registrationsIn(expr: ts.Expression): ts.Expression[] {
+  if (ts.isParenthesizedExpression(expr)) return registrationsIn(expr.expression);
+  if (ts.isConditionalExpression(expr)) return [...registrationsIn(expr.whenTrue), ...registrationsIn(expr.whenFalse)];
+  if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) return registrationsIn(expr.right);
+  return [expr];
+}
+
+function fromRegister(expr: ts.Expression, ctx: ExtractorContext): ServiceEntry | undefined {
+  const chain = registerChainOf(expr);
   const cls = chain && classDeclarationOf(chain.target, ctx);
   if (!chain || !cls?.name || !chain.calls.some((c) => c.name === 'as' || c.name === 'asSelf')) return undefined;
   const className = cls.name.text;
   const registeredAs = chain.calls.flatMap((c) => (c.name === 'as' ? [tokenKey(c.args[0], ctx)] : c.name === 'asSelf' ? [className] : []));
   const lifetime = chain.calls.some((c) => c.name === 'singleInstance') ? 'singleton' : lifetimeOf(cls);
-  return entryFor(cls as NamedClass, registeredAs, lifetime, node, ctx);
+  return entryFor(cls as NamedClass, registeredAs, lifetime, expr, ctx);
+}
+
+function mergeById(entries: ServiceEntry[]): ServiceEntry[] {
+  const byId = new Map<string, ServiceEntry>();
+  for (const entry of entries) {
+    const existing = byId.get(entry.id);
+    if (existing) existing.registeredAs = [...new Set([...existing.registeredAs, ...entry.registeredAs])];
+    else byId.set(entry.id, entry);
+  }
+  return [...byId.values()];
 }
 
 export const extractServices: Extractor<ServiceEntry> = (ctx, file) => {
   const out: ServiceEntry[] = [];
   const visit = (node: ts.Node): void => {
-    let entry: ServiceEntry | undefined;
-    if (ts.isClassDeclaration(node) && node.name) entry = fromDecorator(node as NamedClass, ctx);
-    else if (ts.isExpressionStatement(node)) entry = fromRegister(node, ctx);
-    if (entry) out.push(entry);
+    if (ts.isClassDeclaration(node) && node.name) {
+      const entry = fromDecorator(node as NamedClass, ctx);
+      if (entry) out.push(entry);
+    } else if (ts.isExpressionStatement(node)) {
+      for (const expr of registrationsIn(node.expression)) {
+        const entry = fromRegister(expr, ctx);
+        if (entry) out.push(entry);
+      }
+    }
     ts.forEachChild(node, visit);
   };
   visit(file);
-  return out;
+  return mergeById(out);
 };
