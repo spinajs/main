@@ -208,3 +208,8 @@ graphify-out/
 # Stryker mutation runs ( scripts/coverage/minimal-tests.mjs )
 .stryker-tmp/
 packages/*/reports/mutation/
+
+# compiler test fixtures
+packages/compiler/test/fixtures/**/node_modules
+packages/compiler/test/fixtures/**/lib
+packages/compiler/test/fixtures/**/app.manifest.json
