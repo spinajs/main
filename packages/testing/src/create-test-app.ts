@@ -109,11 +109,56 @@ async function createRootApp(options: TestAppOptions): Promise<TestApp> {
   return app;
 }
 
-export async function createTestApp(options: TestAppOptions = {}): Promise<TestApp> {
-  if (options.scope === 'child') {
-    throw new Error("createTestApp: scope 'child' is not implemented yet");
+async function createChildApp(options: TestAppOptions): Promise<TestApp> {
+  const container = DI.RootContainer.child({ isolateSingletons: true });
+
+  let configuration: Configuration;
+  try {
+    configuration = await boot(container, options);
+  } catch (err) {
+    await container.dispose({ plainOwners: true }).catch(() => undefined);
+    throw err;
   }
-  return createRootApp(options);
+
+  let disposed: Promise<void> | undefined;
+  const app: TestApp = {
+    container,
+    config: configuration,
+    resolve: <T>(type: Class<T> | string) => Promise.resolve(container.resolve(type as Class<T>) as T | Promise<T>),
+    dispose: () =>
+      (disposed ??= (async () => {
+        open.delete(app);
+        await container.dispose({ plainOwners: true });
+      })()),
+  };
+  open.add(app);
+  return app;
+}
+
+export async function createTestApp(options: TestAppOptions = {}): Promise<TestApp> {
+  return options.scope === 'child' ? createChildApp(options) : createRootApp(options);
+}
+
+/** Creates the app in beforeEach and disposes it in afterEach of the enclosing describe. */
+export function useTestApp(options: TestAppOptions | (() => TestAppOptions) = {}): () => TestApp {
+  let current: TestApp | undefined;
+
+  beforeEach(async () => {
+    current = await createTestApp(typeof options === 'function' ? options() : options);
+  });
+
+  afterEach(async () => {
+    const app = current;
+    current = undefined;
+    await app?.dispose();
+  });
+
+  return () => {
+    if (!current) {
+      throw new Error('useTestApp: no app is live; call the getter inside a test or a beforeEach that runs after useTestApp');
+    }
+    return current;
+  };
 }
 
 /** Disposes every app created by createTestApp that has not been disposed yet. */
