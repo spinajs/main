@@ -14,6 +14,12 @@ export class MfaReset extends CliCommand {
   @Autoinject(Orm)
   protected Orm: Orm;
 
+  /** Waits for the Orm's `data()` seeds too: an app process serves only after them. */
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    await this.Orm.Migrator.ready();
+  }
+
   @Logger('authn-totp')
   protected Log: Log;
 

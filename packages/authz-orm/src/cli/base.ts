@@ -17,6 +17,7 @@ export abstract class AuthzOrmCliCommand extends AuthzCliBase {
   protected async orm(): Promise<Orm> {
     if (!this.Orm) {
       this.Orm = (await this.Container.resolve(Orm)) as Orm;
+      await this.Orm.Migrator.ready();
     }
     return this.Orm;
   }

@@ -9,4 +9,10 @@ import { Orm } from '@spinajs/orm';
 export abstract class KeyCliCommand extends CliCommand {
   @Autoinject(Orm)
   protected Orm: Orm;
+
+  /** Waits for the Orm's `data()` seeds too: an app process serves only after them. */
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    await this.Orm.Migrator.ready();
+  }
 }
