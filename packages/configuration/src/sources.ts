@@ -95,8 +95,6 @@ export abstract class BaseFileSource extends ConfigurationSource {
   ) {
     super();
 
-    const isESMMode = DI.get<boolean>('__esmMode__');
-
     // Package configs ( http, fs, rbac, templates, ... ) locate their own assets as
     // `${WORKSPACE_ROOT_PATH ?? process.cwd()}/node_modules/@spinajs/<pkg>/lib/...`.
     // In a workspace, cwd is the app package but the dependencies are hoisted to the
@@ -114,7 +112,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
       }
     }
 
-    const spinajsConfigGlob = isESMMode ? 'node_modules/@spinajs/*/lib/mjs/config' : 'node_modules/@spinajs/*/lib/cjs/config';
+    const spinajsConfigGlob = 'node_modules/@spinajs/*/lib/config';
 
     this.CommonDirs = [
       // for tests, in src dir
@@ -133,17 +131,10 @@ export abstract class BaseFileSource extends ConfigurationSource {
       ...BaseFileSource.nodeModulesAncestors(resolve(process.cwd())).map((dir) => normalize(join(dir, spinajsConfigGlob))),
     ];
 
-    
     if (process.env.WORKSPACE_ROOT_PATH) {
       this.CommonDirs = this.CommonDirs.concat([
-        
         // for monorepo setups
-        normalize(
-          join(
-            resolve(process.env.WORKSPACE_ROOT_PATH),
-            isESMMode ? 'node_modules/@spinajs/*/lib/mjs/config' : 'node_modules/@spinajs/*/lib/cjs/config',
-          ),
-        ),
+        normalize(join(resolve(process.env.WORKSPACE_ROOT_PATH), spinajsConfigGlob)),
       ]);
     }
 

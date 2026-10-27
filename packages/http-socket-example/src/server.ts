@@ -81,8 +81,6 @@ export async function startNotesServer(options: INotesServerOptions = {}): Promi
   await running?.close();
   current = options;
   DI.clearCache();
-  // without it the config sources look for the cjs builds and cannot require them in an ES module, so the package defaults never load
-  DI.setESMModuleSupport();
   DI.register(NotesConfiguration).as(Configuration);
   await DI.resolve(Configuration);
 

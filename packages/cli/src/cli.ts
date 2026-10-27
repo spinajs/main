@@ -7,8 +7,6 @@ import { Log } from '@spinajs/log-common';
 import './args.js';
 
 async function cli() {
-  DI.setESMModuleSupport();
-
   let log: Log | undefined;
 
   try {
