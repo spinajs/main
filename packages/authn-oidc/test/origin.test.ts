@@ -6,9 +6,9 @@ import { isTrustedPeer, parseTrustProxy } from '@spinajs/http';
 import { OidcController } from '../src/controllers/OidcController.js';
 import { checkedRequestOrigin, requestOrigin } from '../src/origin.js';
 import { OidcProviders } from '../src/providers.js';
-import { fakeContainer, readingFrom } from './support/config-boot.js';
 import { readOidcOptions } from './support/oidc-config.js';
 import { recordingLog } from './support/recording-log.js';
+import { fakeContainer, readingFrom } from '@spinajs/testing';
 
 const trusted = (setting: unknown) => {
   const trust = parseTrustProxy(setting, 'http.trustProxy');
