@@ -10,7 +10,7 @@ export interface TestAppOptions {
   /** An existing FrameworkConfiguration subclass. Exclusive with `config`. */
   configuration?: Class<Configuration>;
   /** Extra JSON schemas registered as '__configurationSchema__' before Configuration resolves. */
-  schemas?: Array<IConfigurationSchema & Record<string, unknown>>;
+  schemas?: Array<IConfigurationSchema | (IConfigurationSchema & Record<string, unknown>)>;
   /** Registrations applied before anything resolves. */
   register?: (container: IContainer) => unknown;
   /** APP_ENV for this app; default 'test'. Only used with `config`. */
@@ -32,6 +32,7 @@ export interface TestApp {
 }
 
 const open = new Set<TestApp>();
+const openRoots: TestApp[] = [];
 
 function configurationClass(options: TestAppOptions): Class<Configuration> {
   if (options.config && options.configuration) {
@@ -78,7 +79,7 @@ async function createRootApp(options: TestAppOptions): Promise<TestApp> {
   try {
     configuration = await boot(container, options);
   } catch (err) {
-    await container.restore(snapshot);
+    await container.restore(snapshot).catch(() => undefined);
     throw err;
   }
 
@@ -87,14 +88,23 @@ async function createRootApp(options: TestAppOptions): Promise<TestApp> {
     container,
     config: configuration,
     resolve: <T>(type: Class<T> | string) => Promise.resolve(container.resolve(type as Class<T>) as T | Promise<T>),
-    dispose: () =>
-      (disposed ??= (async () => {
+    dispose: async () => {
+      if (!disposed) {
+        if (openRoots[openRoots.length - 1] !== app) {
+          throw new Error('createTestApp: root apps share one container; dispose them in reverse creation order (a newer app is still open)');
+        }
+        openRoots.pop();
         open.delete(app);
-        await container.restore(snapshot);
-        strictSizeCheck(container, sizeBefore);
-      })()),
+        disposed = (async () => {
+          await container.restore(snapshot);
+          strictSizeCheck(container, sizeBefore);
+        })();
+      }
+      await disposed;
+    },
   };
   open.add(app);
+  openRoots.push(app);
   return app;
 }
 
