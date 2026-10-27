@@ -28,3 +28,8 @@ test('nested src paths and windows separators count', () => {
 test('empty diff requires nothing', () => {
   assert.equal(requiresChangeset([]), false);
 });
+
+test('a deleted changeset does not satisfy the guard', () => {
+  assert.equal(requiresChangeset([{ path: 'packages/di/src/a.ts', status: 'M' }, { path: '.changeset/old.md', status: 'D' }]), true);
+  assert.equal(requiresChangeset([{ path: 'packages/di/src/a.ts', status: 'M' }, { path: '.changeset/new.md', status: 'A' }]), false);
+});
