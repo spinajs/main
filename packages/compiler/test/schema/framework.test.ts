@@ -73,16 +73,22 @@ describe('schema derivation: ORM models', () => {
     });
     expect(route.returnType.schema).to.equal('spinajs/fw/AuthorsController_dehydrated_Response');
   });
-  it('recognizes relations by type in a model from a declaration file', () => {
-    expect(registered('Shelf')).to.deep.equal({
-      $id: 'spinajs/fw/Shelf',
-      type: 'object',
-      properties: { Id: { type: 'number' }, Books: { type: 'array', items: { $ref: 'spinajs/fw/Book' } } },
-      required: ['Id'],
-      additionalProperties: false,
-    });
+  it('derives a model from a declaration file to an open object, never to its columns', () => {
+    expect(registered('Shelf')).to.deep.equal({ $id: 'spinajs/fw/Shelf', type: 'object' });
+    expect(JSON.stringify(registeredIds().map(registered))).not.to.include('Password');
   });
-  it('does not walk into ModelBase internals', () => {
-    expect(diagnostics).to.deep.equal([]);
+  it('derives a model extending a declaration-file model to an open object', () => {
+    const route = controller.routes.find((r) => r.handler === 'localShelf')!;
+    expect(route.returnType).to.deep.equal({ text: 'LocalShelf', schema: 'spinajs/fw/LocalShelf' });
+    expect(registered('LocalShelf')).to.deep.equal({ $id: 'spinajs/fw/LocalShelf', type: 'object' });
+  });
+  it('reports each declaration-file model as SCH001 info and nothing from ModelBase internals', () => {
+    expect(diagnostics.map((d) => [d.code, d.severity])).to.deep.equal([
+      ['SCH001', 'info'],
+      ['SCH001', 'info'],
+    ]);
+    expect(diagnostics[0].message).to.match(/^model Shelf is read from a declaration file/);
+    expect(diagnostics[1].message).to.match(/^model LocalShelf extends Shelf, read from a declaration file/);
+    expect(diagnostics.every((d) => d.message.includes('@Hidden'))).to.equal(true);
   });
 });
