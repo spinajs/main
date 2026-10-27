@@ -1,27 +1,25 @@
 # Module loading
 
-`DI.__spinajs_require__(path)` is the one place where SpinaJS loads a module by file path at runtime: configuration files, controllers, migrations, translations, classes found by `@spinajs/reflection`. It uses `require` or `import()` depending on the module mode, or delegates to a loader you register, which is how bundled and browser builds load modules without a file system.
+`DI.__spinajs_require__(path)` is the one place where SpinaJS loads a module by file path at runtime: configuration files, controllers, migrations, translations, classes found by `@spinajs/reflection`. It uses `import()`, or delegates to a loader you register, which is how bundled and browser builds load modules without a file system.
 
 ## How it works
 
 1. `DI.__spinajs_require__(module)` reads `DI.get('__module_loader__')`. When a loader is registered, it returns `loader.load(module)` and stops.
-2. Otherwise it reads `DI.get('__esmMode__')`. When `mjs` is `true` (after `DI.setESMModuleSupport()`), it calls `import()` on the path, prefixing `file://` unless the path already has it, and returns the module's `default` export, or the module namespace when there is none.
-3. Otherwise it calls `require(module)`. Without `require` (a bundled or browser build) it throws an `Error` that names both fixes: register a loader, or enable ESM mode.
+2. Otherwise it calls `import()` on the path (converted to a `file://` URL unless it already is one) and returns the module's `default` export, or the module namespace when there is none.
 
 ## API
 
 | Member | Meaning |
 | --- | --- |
 | `DI.__spinajs_require__(module: string): Promise<unknown>` | Loads a module by path or URL |
-| `DI.setESMModuleSupport()` | Registers `{ mjs: true }` as the value `'__esmMode__'`, switching to `import()` |
+| `DI.setESMModuleSupport()` | Deprecated no-op since 4.0 (emits one `DeprecationWarning`); still registers `{ mjs: true }` as `'__esmMode__'`. Removed in 5.0 |
 | `DI.IModuleLoader` | `{ load(module: string): Promise<unknown> }`; exported inside the `DI` namespace only |
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `DI.IModuleLoader` | The value `'__module_loader__'` in the root cache; read on every load | none: `require` or `import()` | Your loader | `DI.register(loader).asValue('__module_loader__')` before anything loads modules, eg. before the bootstrappers run |
-| ESM mode | The value `'__esmMode__'` | Not set (CommonJS `require`) | `{ mjs: true }` | `DI.setESMModuleSupport()` at the top of an ESM entry, as `@spinajs/cli` does |
+| `DI.IModuleLoader` | The value `'__module_loader__'` in the root cache; read on every load | none: `import()` | Your loader | `DI.register(loader).asValue('__module_loader__')` before anything loads modules, eg. before the bootstrappers run |
 
 ### A custom module loader
 
@@ -58,18 +56,18 @@ void main();
 
 ## Important behaviour
 
-- The loader and the ESM flag are read from the **root** container on every call; registering them in a child has no effect.
-- A registered loader takes over completely: ESM mode is ignored, and the loader's result is returned as is, without unwrapping `default`.
-- In ESM mode, `default` is unwrapped; a module without a default export returns its namespace object.
-- `DI.clear()`, `DI.clearCache()` and `DI.dispose()` remove both values, since they live in the cache. Register them again after clearing in tests.
+- The loader is read from the **root** container on every call; registering it in a child has no effect.
+- A registered loader takes over completely: `import()` is not used, and the loader's result is returned as is, without unwrapping `default`.
+- `default` is unwrapped; a module without a default export returns its namespace object.
+- `DI.clear()`, `DI.clearCache()` and `DI.dispose()` remove the loader, since it lives in the cache. Register it again after clearing in tests.
 
 ## Best practices
 
-- Call `DI.setESMModuleSupport()` once, first thing in an ESM entry file, before configuration or reflection load anything.
+- Do not call `DI.setESMModuleSupport()` in new code; it does nothing useful since 4.0.
 - Make a custom loader accept both plain paths and `file://` URLs; callers in the framework pass both.
 
 ## Related
 
-- [Values and value maps](09-values-and-value-maps.md): how `'__module_loader__'` and `'__esmMode__'` are stored.
+- [Values and value maps](09-values-and-value-maps.md): how `'__module_loader__'` is stored.
 - [`@spinajs/reflection`](../reflection/README.md): loads classes from directories through this function.
 - [`@spinajs/configuration`](../configuration/README.md): loads configuration files through this function.
