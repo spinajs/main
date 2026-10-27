@@ -2,6 +2,7 @@ import ts from 'typescript';
 import type { ModelEntry } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
 import { decoratorsOf, findDecorator, identifierName, literalValue } from '../decorators.js';
+import { stringArg } from './string-arg.js';
 
 type Relation = ModelEntry['relations'][number];
 type Column = ModelEntry['columns'][number];
@@ -21,7 +22,7 @@ function relationTarget(expr: ts.Expression | undefined, ctx: ExtractorContext):
     const body = fwd && ts.isArrowFunction(fwd.initializer) ? fwd.initializer.body : undefined;
     return (body && ts.isExpression(body) ? identifierName(body) : undefined) ?? 'unknown';
   }
-  return identifierName(expr) ?? String(literalValue(expr, ctx) ?? 'unknown');
+  return identifierName(expr) ?? stringArg(expr, ctx, 'unknown');
 }
 
 function isNullable(type: ts.Type, prop: ts.PropertyDeclaration): boolean {
@@ -62,7 +63,7 @@ export const extractModels: Extractor<ModelEntry> = (ctx, file) => {
       out.push({
         id: `${ctx.packageName}:${node.name.text}`,
         className: node.name.text,
-        tableName: String(literalValue(model.args[0], ctx) ?? ''),
+        tableName: stringArg(model.args[0], ctx),
         ...(connection ? { connection } : {}),
         ...readMembers(node, ctx),
         accessResource: !!findDecorator(node, 'AccessResource'),
