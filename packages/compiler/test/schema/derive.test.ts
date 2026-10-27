@@ -43,6 +43,12 @@ export const ROWS: Row[] = [
   { name: 'UPick', schema: { type: 'object', properties: { x: { type: 'number' } }, required: ['x'], additionalProperties: false } },
   { name: 'UOmit', schema: { type: 'object', properties: { y: { type: 'number' } }, required: ['y'], additionalProperties: false } },
   { name: 'URequired', schema: { type: 'object', properties: { a: { type: 'string' }, b: { type: 'number' } }, required: ['a', 'b'], additionalProperties: false } },
+  { name: 'WDate', schema: { type: 'string', format: 'date-time' } },
+  { name: 'WDateTime', schema: { type: 'string', format: 'date-time' } },
+  { name: 'WBuffer', schema: { type: 'string', format: 'binary' } },
+  { name: 'WU8', schema: { type: 'string', format: 'binary' } },
+  { name: 'WReadable', schema: { type: 'string', format: 'binary' } },
+  { name: 'WStream', schema: { type: 'string', format: 'binary' } },
 ];
 
 describe('deriveSchema', () => {
