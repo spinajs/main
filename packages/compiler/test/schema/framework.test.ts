@@ -113,6 +113,9 @@ describe('schema derivation: model columns', () => {
     expect(Object.keys((registered('Note') as { properties: object }).properties).sort()).to.deep.equal(listed.sort());
     expect(diagnostics).to.deep.equal([]);
   });
+  it('finds the target model of a relation class through its base', () => {
+    expect((registered('Shelfmark') as { properties: unknown }).properties).to.deep.equal({ Id: { type: 'number' }, Picks: { type: 'array', items: { $ref: 'spinajs/fw/Book' } } });
+  });
 });
 
 describe('schema derivation: types derived from a model', () => {
