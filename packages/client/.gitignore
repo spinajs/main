@@ -64,3 +64,6 @@ tsconfig.tsbuildinfo
 docs
 
 lib
+
+# build info (build tsconfig)
+*.tsbuildinfo
