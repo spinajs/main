@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import sinon from 'sinon';
 import { fileURLToPath } from 'node:url';
 import { DI } from '../src/index.js';
 
@@ -31,14 +32,22 @@ describe('DI.__spinajs_require__', () => {
     expect(await DI.__spinajs_require__('anything')).to.deep.equal({ from: 'loader', m: 'anything' });
   });
 
-  it('setESMModuleSupport emits a single deprecation warning', () => {
-    const warnings: string[] = [];
-    const onWarning = (w: Error) => warnings.push(w.name);
-    process.on('warning', onWarning);
+  it('setESMModuleSupport registers the legacy __esmMode__ value', () => {
     DI.setESMModuleSupport();
-    DI.setESMModuleSupport();
-    process.off('warning', onWarning);
-    // process 'warning' is emitted asynchronously; assert on the emitter's own counter instead
     expect(DI.get<{ mjs: boolean }>('__esmMode__')).to.deep.equal({ mjs: true });
+  });
+
+  it('setESMModuleSupport emits a single deprecation warning', async () => {
+    // fresh module instance, so the once-per-process flag is not consumed by other tests
+    const fresh = (await import(`../src/root.js?fresh=${Date.now()}`)) as typeof import('../src/root.js');
+    const emitWarning = sinon.stub(process, 'emitWarning');
+    try {
+      fresh.setESMModuleSupport();
+      fresh.setESMModuleSupport();
+    } finally {
+      emitWarning.restore();
+    }
+    expect(emitWarning.callCount).to.equal(1);
+    expect(emitWarning.firstCall.args[1]).to.deep.include({ type: 'DeprecationWarning', code: 'SPINAJS_ESM_MODE' });
   });
 });
