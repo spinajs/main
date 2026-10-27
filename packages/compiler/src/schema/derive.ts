@@ -5,6 +5,7 @@ import { enumType } from './handlers/enum.js';
 import { objectType, setPropertyConstraints } from './handlers/object.js';
 import { primitive } from './handlers/primitive.js';
 import { jsdocConstraints } from './jsdoc.js';
+import { explicitSchema } from './explicit.js';
 import { hoistedId } from './naming.js';
 import { wellKnown } from './wellknown.js';
 import { intersectionType, unionType } from './handlers/union.js';
@@ -61,11 +62,17 @@ export function deriveType(ctx: DeriveContext, type: ts.Type): JsonSchema {
     return {};
   }
   const inner: DeriveContext = { ...ctx, depth: ctx.depth + 1 };
-  const id = hoistedId(inner, type);
-  if (!id) return deriveBody(inner, type);
+  const hoisted = hoistedId(inner, type);
+  if (!hoisted) return deriveBody(inner, type);
+
+  const explicit = explicitSchema(inner, type);
+  const id = explicit?.id ?? hoisted;
   if (!inner.registry.has(id)) {
     inner.registry.set(id, { $id: id });
-    inner.registry.set(id, { $id: id, ...deriveBody(inner, type) });
+    const derived = deriveBody(inner, type);
+    if (!explicit) inner.registry.set(id, { $id: id, ...derived });
+    else if (typeof explicit.schema.$ref === 'string') inner.registry.set(id, { $id: id, $ref: explicit.schema.$ref });
+    else inner.registry.set(id, { ...explicit.schema, $id: id, 'x-derived': derived });
   }
   return { $ref: id };
 }
