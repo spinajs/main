@@ -3,3 +3,5 @@ export * from './context.js';
 export * from './decorators.js';
 export * from './extractors/services.js';
 export * from './extractors/injections.js';
+export * from './extractors/values.js';
+export * from './extractors/config.js';
