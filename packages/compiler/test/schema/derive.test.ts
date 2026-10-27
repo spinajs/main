@@ -39,6 +39,10 @@ export const ROWS: Row[] = [
   { name: 'ORecord', schema: { type: 'object', additionalProperties: { type: 'boolean' } } },
   { name: 'OLiteral', schema: { type: 'object', properties: { a: { type: 'string' } }, required: ['a'], additionalProperties: false } },
   { name: 'CDto', schema: { type: 'object', properties: { a: { type: 'string' }, b: { type: 'number' } }, required: ['a'], additionalProperties: false } },
+  { name: 'UPartial', schema: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } }, additionalProperties: false } },
+  { name: 'UPick', schema: { type: 'object', properties: { x: { type: 'number' } }, required: ['x'], additionalProperties: false } },
+  { name: 'UOmit', schema: { type: 'object', properties: { y: { type: 'number' } }, required: ['y'], additionalProperties: false } },
+  { name: 'URequired', schema: { type: 'object', properties: { a: { type: 'string' }, b: { type: 'number' } }, required: ['a', 'b'], additionalProperties: false } },
 ];
 
 describe('deriveSchema', () => {
