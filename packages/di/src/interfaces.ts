@@ -200,8 +200,9 @@ export interface IContainer extends EventEmitter {
   /** The registrations, values, cached instances and listeners of this container, copied. */
   snapshot(): ContainerSnapshot;
   /**
-   * Waits for resolutions in flight, puts registry, values ( Map contents included ), cache and listeners back,
-   * then disposes the children and every Service cached since the snapshot. Further passes ( at most 5 ) take back what that disposal added.
+   * Waits for resolutions in flight and disposes the children and every Service cached since the snapshot while the state they
+   * were created in is still live, again for what that disposal resolved ( at most 5 passes ). Then puts registry, values
+   * ( Map contents included ), cache and listeners back in one step.
    */
   restore(snapshot: ContainerSnapshot): Promise<void>;
 

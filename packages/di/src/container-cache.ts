@@ -342,11 +342,8 @@ export class ContainerCache {
     return new Map([...this.cache].map(([key, list]) => [key, [...list]]));
   }
 
-  /**
-   * Puts the cache back to `state` and returns the instances that are no longer cached,
-   * latest resolved first, so the caller can dispose them in reverse resolution order.
-   */
-  public restoreState(state: ReadonlyMap<string, unknown[]>): unknown[] {
+  /** The instances cached now that `state` does not hold, latest resolved first, for disposal in reverse resolution order. */
+  public droppedSince(state: ReadonlyMap<string, unknown[]>): unknown[] {
     const kept = new Set<unknown>([...state.values()].flat());
     const dropped = new Set<unknown>();
     for (const { value } of this) {
@@ -355,12 +352,14 @@ export class ContainerCache {
       }
     }
 
+    return [...dropped].reverse();
+  }
+
+  public restoreState(state: ReadonlyMap<string, unknown[]>): void {
     this.cache = new Map([...state].map(([key, list]) => [key, [...list]]));
     this.resolutionPromises.clear();
     this.creatingKeys.clear();
     this.pendingChecked.clear();
-
-    return [...dropped].reverse();
   }
 
   public clear() {

@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { AsyncService, Container, DI } from '../src/index.js';
+import { AsyncService, Container, DI, LazyInject } from '../src/index.js';
 import type { Class } from '../src/index.js';
 
 class Base {}
@@ -11,6 +11,18 @@ class Svc extends AsyncService {
   public async dispose(): Promise<void> {
     this.disposed = true;
   }
+}
+
+async function capturedWarnings(run: () => Promise<void>): Promise<unknown[]> {
+  const warnings: unknown[] = [];
+  const warn = console.warn;
+  console.warn = (...args: unknown[]) => warnings.push(args[0]);
+  try {
+    await run();
+  } finally {
+    console.warn = warn;
+  }
+  return warnings;
 }
 
 describe('container snapshot / restore', () => {
@@ -152,7 +164,7 @@ describe('container snapshot / restore', () => {
     expect(c.getCacheStats().size).to.equal(before.cache.size);
   });
 
-  it('restore swaps the registry back before it disposes anything', async () => {
+  it('restore disposes against the state the services were created in, then swaps it back', async () => {
     const c = new Container();
     let registeredDuringDispose: boolean | undefined;
     class Checking extends AsyncService {
@@ -166,7 +178,134 @@ describe('container snapshot / restore', () => {
     await c.resolve(Checking);
     await c.restore(before);
 
-    expect(registeredDuringDispose).to.be.false;
+    expect(registeredDuringDispose).to.be.true;
+    expect(c.hasRegistered(Base)).to.be.false;
+  });
+
+  it('a dispose() reads a value, a lazy injection and a registration made after the snapshot without failing', async () => {
+    class Settings {
+      public port = 8080;
+    }
+    class Reader extends AsyncService {
+      @LazyInject(Settings)
+      public Settings: Settings;
+
+      public read: unknown[] = [];
+
+      public async dispose(): Promise<void> {
+        this.read.push(c.get<{ port: number }>('__restore_cfg__').port, this.Settings.port, c.resolve(Base));
+      }
+    }
+
+    const c = new Container();
+    const before = c.snapshot();
+    c.register({ port: 3000 }).asValue('__restore_cfg__');
+    c.register(Settings).asSelf();
+    c.register(Impl).as(Base);
+    const reader = await c.resolve(Reader);
+
+    const warnings = await capturedWarnings(() => c.restore(before));
+
+    expect(warnings).to.deep.equal([]);
+    expect(reader.read[0]).to.equal(3000);
+    expect(reader.read[1]).to.equal(8080);
+    expect(reader.read[2]).to.be.instanceOf(Impl);
+  });
+
+  it('what a dispose() resolves or registers does not survive the restore', async () => {
+    class Late extends AsyncService {
+      public disposals = 0;
+      public async dispose(): Promise<void> {
+        this.disposals++;
+      }
+    }
+
+    let late: Late | undefined;
+    let impl: unknown;
+    const c = new Container();
+    class Leaky extends AsyncService {
+      public disposals = 0;
+      public async dispose(): Promise<void> {
+        this.disposals++;
+        impl = c.resolve(Base);
+        late = await c.resolve(Late);
+        c.register({ leaked: true }).asValue('__leaked__');
+        c.register(Kept).asSelf();
+      }
+    }
+
+    const before = c.snapshot();
+    c.register(Impl).as(Base);
+    const leaky = await c.resolve(Leaky);
+    await c.restore(before);
+
+    expect(impl).to.be.instanceOf(Impl);
+    expect(c.Cache.has(Impl)).to.be.false;
+    expect(c.Cache.has(Late)).to.be.false;
+    expect(c.get('__leaked__')).to.be.undefined;
+    expect(c.hasRegistered(Kept)).to.be.false;
+    expect(c.getCacheStats().size).to.equal(before.cache.size);
+    expect(leaky.disposals).to.equal(1);
+    expect(late!.disposals).to.equal(1);
+  });
+
+  it('restore settles and disposes a resolve that a dispose() starts without awaiting', async () => {
+    class Slow extends AsyncService {
+      public disposed = false;
+      public async resolve(): Promise<void> {
+        await new Promise((r) => setTimeout(r, 20));
+        await super.resolve();
+      }
+      public async dispose(): Promise<void> {
+        this.disposed = true;
+      }
+    }
+
+    let pending: Promise<Slow> | undefined;
+    const c = new Container();
+    class Starter extends AsyncService {
+      public async dispose(): Promise<void> {
+        pending = c.resolve(Slow);
+      }
+    }
+
+    const before = c.snapshot();
+    await c.resolve(Starter);
+    await c.restore(before);
+    const slow = await pending!;
+
+    expect(slow.disposed).to.be.true;
+    expect(c.Cache.has(Slow)).to.be.false;
+    expect(c.getCacheStats().size).to.equal(before.cache.size);
+  });
+
+  it('restore disposes in reverse resolution order and leaves services from before the snapshot alone', async () => {
+    const order: string[] = [];
+    class Old extends AsyncService {
+      public async dispose(): Promise<void> {
+        order.push('old');
+      }
+    }
+    class Early extends AsyncService {
+      public async dispose(): Promise<void> {
+        order.push('early');
+      }
+    }
+    class Later extends AsyncService {
+      public async dispose(): Promise<void> {
+        order.push('later');
+      }
+    }
+
+    const c = new Container();
+    await c.resolve(Old);
+    const before = c.snapshot();
+    await c.resolve(Early);
+    await c.resolve(Later);
+    await c.restore(before);
+
+    expect(order).to.deep.equal(['later', 'early']);
+    expect(c.Cache.has(Old)).to.be.true;
   });
 
   it('restore keeps passing until a pass drops nothing: three generations of services resolved while disposing', async () => {

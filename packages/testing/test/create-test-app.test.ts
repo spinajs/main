@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { DI, Bootstrapper, Injectable, AsyncService } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Config, Configuration } from '@spinajs/configuration';
 import type { IConfigurationSchema } from '@spinajs/configuration-common';
 import { createTestApp, disposeTestApps } from '../src/index.js';
 
@@ -29,6 +29,17 @@ class SpecService extends AsyncService {
   public disposed = false;
   public async dispose(): Promise<void> {
     this.disposed = true;
+  }
+}
+
+class ConfiguredService extends AsyncService {
+  @Config('spec.port')
+  protected Port: number;
+
+  public portAtDispose: number | undefined;
+
+  public async dispose(): Promise<void> {
+    this.portAtDispose = this.Port;
   }
 }
 
@@ -126,6 +137,28 @@ describe('createTestApp (root scope)', () => {
     await app.dispose();
     expect(svc.disposed).to.be.true;
     expect(DI.RootContainer.hasRegistered(SpecService)).to.be.false;
+  });
+
+  it('a service whose dispose() reads a @Config property disposes without a failure', async () => {
+    const app = await createTestApp({
+      config: { spec: { port: 4321 } },
+      register: (c) => c.register(ConfiguredService).asSelf(),
+      resolve: [ConfiguredService],
+    });
+    const svc = DI.get(ConfiguredService)!;
+
+    const warnings: unknown[] = [];
+    const warn = console.warn;
+    console.warn = (...args: unknown[]) => warnings.push(args[0]);
+    try {
+      await app.dispose();
+    } finally {
+      console.warn = warn;
+    }
+
+    expect(warnings).to.deep.equal([]);
+    expect(svc.portAtDispose).to.equal(4321);
+    expect(DI.RootContainer.isResolved(Configuration)).to.be.false;
   });
 
   it('restores root exactly when the boot fails with a validation error', async () => {
