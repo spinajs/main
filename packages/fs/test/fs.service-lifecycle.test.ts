@@ -3,8 +3,8 @@ import { expect } from 'chai';
 
 import { ContainerSnapshot, DI, ResolveException } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import '@spinajs/templates-pug';
-import { dir, TestConfiguration } from './common.js';
+import { Log } from '@spinajs/log-common';
+import { dir, SilentLog, TestConfiguration } from './common.js';
 import { fs, FILE_PROVIDER_INSTANCES, FsBootstrapper, fsService, publishedFs } from '../src/index.js';
 
 class LifecycleConfiguration extends TestConfiguration {
@@ -20,6 +20,7 @@ describe('fsService and the published provider map', function () {
 
   beforeEach(async () => {
     before = DI.snapshot();
+    DI.register(SilentLog).as(Log);
     DI.resolve(FsBootstrapper).bootstrap();
     DI.uncache(Configuration);
     DI.uncache(fsService);
@@ -93,5 +94,39 @@ describe('fsService and the published provider map', function () {
     await service.dispose();
 
     expect(publishedFs('test')).to.equal(other);
+  });
+
+  for (const [first, second] of [
+    ['older', 'newer'],
+    ['newer', 'older'],
+  ] as const) {
+    it(`two services sharing a provider instance: disposing ${first} then ${second} removes it only with the last publisher`, async () => {
+      const services = { older: await DI.resolve(fsService), newer: undefined as unknown as fsService };
+      DI.uncache(fsService);
+      services.newer = await DI.resolve(fsService);
+
+      const shared = publishedFs('test');
+      expect(shared).to.not.be.undefined;
+
+      await services[first].dispose();
+      expect(publishedFs('test')).to.equal(first === 'older' ? shared : undefined);
+
+      await services[second].dispose();
+      expect(publishedFs('test')).to.be.undefined;
+    });
+  }
+
+  it('publishes again under the same name after dispose, and the disposed service stays a no-op', async () => {
+    const old = await DI.resolve(fsService);
+    await old.dispose();
+    expect(publishedFs('test')).to.be.undefined;
+
+    DI.uncache(fsService);
+    await DI.resolve(fsService);
+    const republished = publishedFs('test');
+    expect(republished).to.not.be.undefined;
+
+    await old.dispose();
+    expect(publishedFs('test')).to.equal(republished);
   });
 });
