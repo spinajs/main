@@ -51,12 +51,21 @@ function propName(name: ts.PropertyName): string {
   return ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name) ? name.text : name.getText();
 }
 
+function propertyKey(name: ts.PropertyName, ctx: LiteralContext): string | undefined {
+  if (!ts.isComputedPropertyName(name)) return propName(name);
+  const key = literalValue(name.expression, ctx);
+  return typeof key === 'string' || typeof key === 'number' ? String(key) : undefined;
+}
+
 function objectLiteralValue(expr: ts.ObjectLiteralExpression, ctx: LiteralContext): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const p of expr.properties) {
-    if (ts.isPropertyAssignment(p)) out[propName(p.name)] = literalValue(p.initializer, ctx);
-    else if (ts.isShorthandPropertyAssignment(p)) out[p.name.text] = literalValue(p.name, ctx);
+    if (ts.isPropertyAssignment(p)) {
+      const key = propertyKey(p.name, ctx);
+      if (key !== undefined) out[key] = literalValue(p.initializer, ctx);
+    } else if (ts.isShorthandPropertyAssignment(p)) out[p.name.text] = literalValue(p.name, ctx);
     else if (ts.isSpreadAssignment(p)) Object.assign(out, literalValue(p.expression, ctx) ?? {});
+    else ctx.info('CMP001', `non-literal object member: ${p.getText()}`, p);
   }
   return out;
 }
