@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { Manifest } from '../src/index.js';
 import { ManifestValidationError, ManifestVersionError, readFragment, readManifest } from '../src/index.js';
 import { fragment } from './support.js';
 
@@ -43,16 +44,16 @@ describe('readManifest / readFragment', () => {
   });
 
   it('reports the JSON path of a structural violation', async () => {
-    const bad = JSON.parse(readFileSync(minimal, 'utf8'));
-    bad.app.name = 5;
+    const bad = JSON.parse(readFileSync(minimal, 'utf8')) as Manifest;
+    (bad.app as unknown as { name: unknown }).name = 5;
     const err = await failure(readManifest(tmpJson(bad)));
     expect(err).to.be.instanceOf(ManifestValidationError);
     expect((err as ManifestValidationError).errors.join('\n')).to.contain('$.app.name');
   });
 
   it('rejects a missing required array', async () => {
-    const bad = JSON.parse(readFileSync(minimal, 'utf8'));
-    delete bad.services;
+    const bad = JSON.parse(readFileSync(minimal, 'utf8')) as Manifest;
+    delete (bad as Partial<Manifest>).services;
     expect(await failure(readManifest(tmpJson(bad)))).to.be.instanceOf(ManifestValidationError);
   });
 

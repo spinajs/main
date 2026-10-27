@@ -1,8 +1,20 @@
 import { manifestSchema } from './schema.js';
 
-type Schema = Record<string, any>;
+interface SchemaNode {
+  $ref?: string;
+  type?: string | string[];
+  const?: unknown;
+  enum?: unknown[];
+  anyOf?: SchemaNode[];
+  items?: SchemaNode;
+  required?: string[];
+  properties?: Record<string, SchemaNode>;
+  additionalProperties?: SchemaNode | boolean;
+}
 
-const definitions: Record<string, Schema> = manifestSchema.definitions;
+type Errors = string[];
+
+const definitions = manifestSchema.definitions as Record<string, SchemaNode>;
 
 function typeOf(value: unknown): string {
   if (value === null) return 'null';
@@ -10,74 +22,69 @@ function typeOf(value: unknown): string {
   return typeof value;
 }
 
-function matchesType(type: string, value: unknown): boolean {
-  const actual = typeOf(value);
-  if (type === 'integer') return Number.isInteger(value);
-  return type === actual;
+function checkRef(ref: string, value: unknown, path: string, errors: Errors): void {
+  const target = definitions[decodeURIComponent(ref.replace('#/definitions/', ''))];
+  if (target) check(target, value, path, errors);
+  else errors.push(`${path}: unresolved reference ${ref}`);
 }
 
-function check(schema: Schema | boolean, value: unknown, path: string, errors: string[]): void {
-  if (typeof schema === 'boolean') {
-    if (!schema) errors.push(`${path}: not allowed`);
-    return;
-  }
+function checkAnyOf(options: SchemaNode[], value: unknown, path: string, errors: Errors): void {
+  const attempts = options.map((s) => {
+    const sub: Errors = [];
+    check(s, value, path, sub);
+    return sub;
+  });
+  if (!attempts.some((a) => a.length === 0)) errors.push(`${path}: does not match any allowed shape (${attempts.map((a) => a[0]).join(' | ')})`);
+}
 
-  if (schema.$ref) {
-    const target = definitions[decodeURIComponent(String(schema.$ref).replace('#/definitions/', ''))];
-    if (!target) {
-      errors.push(`${path}: unresolved reference ${schema.$ref}`);
-      return;
-    }
-    check(target, value, path, errors);
-    return;
-  }
+function checkType(type: string | string[], value: unknown, path: string, errors: Errors): boolean {
+  const types = Array.isArray(type) ? type : [type];
+  const actual = typeOf(value);
+  if (types.some((t) => t === actual || (t === 'integer' && Number.isInteger(value)))) return true;
+  errors.push(`${path}: expected ${types.join(' or ')}, got ${actual}`);
+  return false;
+}
 
-  if (schema.anyOf) {
-    const attempts = (schema.anyOf as Schema[]).map((s) => {
-      const sub: string[] = [];
-      check(s, value, path, sub);
-      return sub;
-    });
-    if (!attempts.some((a) => a.length === 0)) errors.push(`${path}: does not match any allowed shape (${attempts.map((a) => a[0]).join(' | ')})`);
-    return;
-  }
-
+function checkLiteral(schema: SchemaNode, value: unknown, path: string, errors: Errors): boolean {
   if ('const' in schema && value !== schema.const) {
     errors.push(`${path}: expected ${JSON.stringify(schema.const)}`);
-    return;
+    return false;
   }
   if (schema.enum && !schema.enum.includes(value)) {
-    errors.push(`${path}: expected one of ${schema.enum.map((e: unknown) => JSON.stringify(e)).join(', ')}`);
-    return;
+    errors.push(`${path}: expected one of ${schema.enum.map((e) => JSON.stringify(e)).join(', ')}`);
+    return false;
   }
-  if (schema.type) {
-    const types: string[] = Array.isArray(schema.type) ? schema.type : [schema.type];
-    if (!types.some((t) => matchesType(t, value))) {
-      errors.push(`${path}: expected ${types.join(' or ')}, got ${typeOf(value)}`);
-      return;
-    }
-  }
+  return true;
+}
 
-  if (Array.isArray(value)) {
-    if (schema.items !== undefined) value.forEach((item, i) => check(schema.items, item, `${path}[${i}]`, errors));
-    return;
+function checkObject(schema: SchemaNode, obj: Record<string, unknown>, path: string, errors: Errors): void {
+  for (const key of schema.required ?? []) {
+    if (!(key in obj)) errors.push(`${path}.${key}: required`);
   }
-
-  if (typeOf(value) === 'object') {
-    const obj = value as Record<string, unknown>;
-    for (const key of schema.required ?? []) {
-      if (!(key in obj)) errors.push(`${path}.${key}: required`);
-    }
-    const props: Record<string, Schema> = schema.properties ?? {};
-    for (const [key, item] of Object.entries(obj)) {
-      if (key in props) check(props[key], item, `${path}.${key}`, errors);
-      else if (schema.additionalProperties !== undefined) check(schema.additionalProperties, item, `${path}.${key}`, errors);
-    }
+  const props = new Map(Object.entries(schema.properties ?? {}));
+  for (const [key, item] of Object.entries(obj)) {
+    const known = props.get(key);
+    if (known) check(known, item, `${path}.${key}`, errors);
+    else if (typeof schema.additionalProperties === 'object') check(schema.additionalProperties, item, `${path}.${key}`, errors);
   }
 }
 
-function validateAgainst(name: string, value: unknown): string[] {
-  const errors: string[] = [];
+function check(schema: SchemaNode, value: unknown, path: string, errors: Errors): void {
+  if (schema.$ref) return checkRef(schema.$ref, value, path, errors);
+  if (schema.anyOf) return checkAnyOf(schema.anyOf, value, path, errors);
+  if (!checkLiteral(schema, value, path, errors)) return;
+  if (schema.type && !checkType(schema.type, value, path, errors)) return;
+
+  if (Array.isArray(value)) {
+    const items = schema.items;
+    if (items) value.forEach((item, i) => check(items, item, `${path}[${i}]`, errors));
+  } else if (typeOf(value) === 'object') {
+    checkObject(schema, value as Record<string, unknown>, path, errors);
+  }
+}
+
+function validateAgainst(name: string, value: unknown): Errors {
+  const errors: Errors = [];
   check({ $ref: `#/definitions/${name}` }, value, '$', errors);
   return errors;
 }

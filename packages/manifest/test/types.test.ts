@@ -3,7 +3,6 @@ import 'mocha';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { MANIFEST_VERSION, manifestSchema, validateFragment, validateManifest } from '../src/index.js';
-// @ts-expect-error plain ESM script without declarations
 import { generate } from '../scripts/generate-schema.mjs';
 
 const file = (rel: string) => fileURLToPath(new URL(rel, import.meta.url));
