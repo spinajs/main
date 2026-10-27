@@ -69,8 +69,8 @@ describe('authn shipped config', () => {
     expect(authn.linking).to.deep.eq({ jit: false, byVerifiedEmail: false });
     expect(authn.login).to.deep.eq(check({}).config.login);
     expect(authn.login).to.deep.eq({ requireVerifiedAddress: false });
-    expect(authn.mfa.policy).to.deep.eq({ service: 'DefaultMfaPolicy', force: false, forceForRoles: [] });
-    expect((check({}).config.mfa as Json).policy).to.deep.include({ methods: ['password'] });
+    expect(authn.mfa.policy).to.deep.eq({ service: 'DefaultMfaPolicy', force: false });
+    expect((check({}).config.mfa as Json).policy).to.deep.include({ forceForRoles: [], methods: ['password'] });
     expect(authn).to.not.have.property('config');
   });
 

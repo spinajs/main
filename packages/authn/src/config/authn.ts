@@ -1,6 +1,6 @@
 // The config loader merges every .js under lib/config, so this folder holds this file only (no index barrel).
-// Arrays concatenate across files, which is why no strategy, MFA step or MFA login method is listed here (the schema
-// defaults authn.mfa.policy.methods to ['password']). No package ships
+// Arrays concatenate across files, which is why no MFA step, MFA login method or forced role is listed here (the schema
+// defaults apply: methods ['password'], forceForRoles []). No package ships
 // authn.throttle.service: a config file loads whether or not its package is imported. Unset, the only registered
 // throttle runs, or the only one besides MemoryAuthnThrottle (DbAuthnThrottle once authn-orm is imported). Values
 // equal the schema and code defaults (test/boot/config-defaults.test.ts).
@@ -11,7 +11,6 @@ const authn = {
       policy: {
         service: 'DefaultMfaPolicy',
         force: false,
-        forceForRoles: [] as string[],
       },
     },
     throttle: {
