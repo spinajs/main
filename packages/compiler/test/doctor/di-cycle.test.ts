@@ -83,4 +83,15 @@ describe('DI002 di-cycle', () => {
       'Dependency cycle: X -> Y -> X',
     ]);
   });
+
+  it('reports only the component that is hard, not the smallest id of the whole SCC', () => {
+    const m = fixture({
+      services: [
+        service({ className: 'A', ctorInjects: ['B'] }),
+        service({ className: 'B', ctorInjects: ['C'], propertyInjects: [{ property: 'a', token: 'A', optional: true, array: false }] }),
+        service({ className: 'C', ctorInjects: ['B'] }),
+      ],
+    });
+    expect(diCycle.run(m, ctx).map((d) => [d.severity, d.message])).to.deep.equal([['error', 'Dependency cycle: B -> C -> B']]);
+  });
 });

@@ -62,8 +62,8 @@ function edgesOf(manifest: Manifest): Map<string, Edge[]> {
 function cycleThrough(start: string, adjacency: Map<string, string[]>, members: Set<string>): string[] {
   const parent = new Map<string, string>();
   const queue = [start];
-  while (queue.length) {
-    const v = queue.shift()!;
+  for (let head = 0; head < queue.length; head++) {
+    const v = queue[head];
     const next = (adjacency.get(v) ?? []).filter((w) => members.has(w)).sort(compareCodeUnits);
     for (const w of next) {
       if (w === start) {
@@ -77,7 +77,7 @@ function cycleThrough(start: string, adjacency: Map<string, string[]>, members: 
       }
     }
   }
-  return [start];
+  throw new Error(`DI002: no cycle through ${start} inside its component`);
 }
 
 export const diCycle: DoctorRule = {
@@ -89,14 +89,18 @@ export const diCycle: DoctorRule = {
     const all = new Map([...edges].map(([k, v]) => [k, v.map((e) => e.to)]));
     const hard = new Map([...edges].map(([k, v]) => [k, v.filter((e) => !e.soft).map((e) => e.to)]));
     const out: Diagnostic[] = [];
+    const report = (component: string[], adjacency: Map<string, string[]>, severity: Diagnostic['severity']) => {
+      const members = new Set(component);
+      const start = [...members].sort(compareCodeUnits)[0];
+      const names = cycleThrough(start, adjacency, members).map((id) => byId.get(id)!.className);
+      out.push(diagnostic('DI002', severity, `Dependency cycle: ${names.join(' -> ')} -> ${names[0]}`, byId.get(start)!.source));
+    };
     for (const component of tarjan([...byId.keys()], all)) {
       const members = new Set(component);
-      const hardMembers = new Map([...hard].filter(([k]) => members.has(k)).map(([k, v]) => [k, v.filter((w) => members.has(w))]));
-      const isHard = tarjan(component, hardMembers).length > 0;
-      const start = [...members].sort(compareCodeUnits)[0];
-      const cycle = cycleThrough(start, isHard ? hardMembers : all, members);
-      const names = cycle.map((id) => byId.get(id)!.className);
-      out.push(diagnostic('DI002', isHard ? 'error' : 'warning', `Dependency cycle: ${names.join(' -> ')} -> ${names[0]}`, byId.get(start)!.source));
+      const inside = new Map([...hard].filter(([k]) => members.has(k)).map(([k, v]) => [k, v.filter((w) => members.has(w))]));
+      const hardComponents = tarjan(component, inside);
+      if (hardComponents.length === 0) report(component, all, 'warning');
+      for (const hc of hardComponents) report(hc, inside, 'error');
     }
     return out;
   },
