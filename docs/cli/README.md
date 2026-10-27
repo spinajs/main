@@ -71,7 +71,9 @@ spinajs generate:config-types --manifest app.manifest.json --out src/spinajs-con
 | --- | --- | --- |
 | `-m, --manifest <path>` | `app.manifest.json` | Manifest to read |
 | `-o, --out <path>` | `src/spinajs-config.d.ts` | Declaration file to write |
-| `--modules <list>` | all | Comma separated config modules to include |
+| `--modules <list>` | all | Comma separated config modules to include; a name the manifest lacks is reported as a warning |
+
+The command needs `@spinajs/compiler`, an optional peer dependency of `@spinajs/cli`; install it to use this command.
 
 ## Related packages
 

@@ -1,6 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type { Manifest } from '@spinajs/manifest';
+import type { generateConfigTypes } from '@spinajs/compiler';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
 import { CliCommand, Command, Option } from '../index.js';
 
@@ -10,6 +12,8 @@ interface GenerateConfigTypesOptions {
   modules?: string;
 }
 
+type Generator = typeof generateConfigTypes;
+
 @Command('generate:config-types', 'Writes ConfigPaths declarations from app.manifest.json')
 @Option('-m, --manifest <path>', false, 'application manifest file', 'app.manifest.json')
 @Option('-o, --out <path>', false, 'declaration file to write', 'src/spinajs-config.d.ts')
@@ -18,13 +22,30 @@ export class GenerateConfigTypes extends CliCommand {
   @Logger('cli')
   protected Log: Log;
 
+  // Optional peer, loaded lazily: the compiler pulls in the TypeScript compiler API.
+  protected importCompiler(): Promise<typeof import('@spinajs/compiler')> {
+    return import('@spinajs/compiler');
+  }
+
+  private async loadGenerator(): Promise<Generator> {
+    try {
+      return (await this.importCompiler()).generateConfigTypes;
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code === 'ERR_MODULE_NOT_FOUND' && err.message.includes('@spinajs/compiler')) {
+        throw new InvalidOperation('install @spinajs/compiler to use generate:config-types');
+      }
+      throw e;
+    }
+  }
+
   public async execute(options: GenerateConfigTypesOptions): Promise<void> {
-    // Loaded lazily: the compiler pulls in the TypeScript compiler API.
-    const { generateConfigDeclarations } = await import('@spinajs/compiler');
+    const generate = await this.loadGenerator();
 
     const manifest = JSON.parse(readFileSync(resolve(options.manifest), 'utf8')) as Manifest;
     const modules = options.modules?.split(',').map((m) => m.trim()).filter((m) => m.length > 0);
-    const source = await generateConfigDeclarations(manifest, { modules });
+    const { source, warnings } = await generate(manifest, { modules });
+    for (const warning of warnings) this.Log.warn(warning);
 
     const out = resolve(options.out);
     mkdirSync(dirname(out), { recursive: true });

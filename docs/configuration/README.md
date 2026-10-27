@@ -84,6 +84,8 @@ const timeout = config.get('hooks.timeoutMs'); // number
 
 `spinajs generate:config-types` writes these declarations from the config module schemas in `app.manifest.json`: one entry per module, one per nested property. Include the generated file in the package's `tsconfig.json`.
 
+A declared path only accepts a default of its declared type: `config.get('hooks.timeoutMs', 'x')` does not match the typed overload and falls back to the untyped `get<T>()`, so the mismatch is not reported.
+
 ## Related packages
 
 - [`@spinajs/configuration-common`](../configuration-common/README.md): the contracts this package implements and re-exports, and the `format()` template helper.
