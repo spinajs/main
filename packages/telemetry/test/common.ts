@@ -67,7 +67,7 @@ export function testConfig(): Record<string, any> {
         // file-scanned controller list for the life of the process — whichever
         // suite boots first fixes the list, so a directory added later is never
         // scanned and `docs/swagger.json` would 404 in a whole-suite run.
-        controllers: [srcDir('./controllers'), resolve(normalize(join(process.cwd(), '..', 'http-swagger', 'lib', 'mjs', 'controllers')))],
+        controllers: [srcDir('./controllers'), resolve(normalize(join(process.cwd(), '..', 'http-swagger', 'lib', 'controllers')))],
       },
     },
     intl: {

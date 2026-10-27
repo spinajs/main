@@ -16,7 +16,7 @@ export function dir(path: string) {
  * `src/config/authn-http.ts` ships `system.dirs` pointing at
  * `<workspace>/node_modules/@spinajs/authn-http/lib/<mjs|cjs>/...`, and in
  * this repo that path is a symlink back to the package itself - so the config
- * is discovered ( the `node_modules/@spinajs/<pkg>/lib/mjs/config` glob ) while
+ * is discovered ( the `node_modules/@spinajs/<pkg>/lib/config` glob ) while
  * the package's own tests are running.
  */
 const OWN_COMPILED_DIRS = [normalize(join('@spinajs', 'authn-http', 'lib')), normalize(join(process.cwd(), 'lib'))];

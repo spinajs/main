@@ -21,20 +21,12 @@ function probe(args: string[]): unknown {
   return JSON.parse(execFileSync(process.execPath, args, { cwd: PKG, encoding: 'utf8' })) as unknown;
 }
 
-describe('spike §11.5: file-type through loadFileType() from both builds', function () {
+describe('spike §11.5: file-type through loadFileType()', function () {
   this.timeout(30000);
 
-  it('works from lib/cjs, where the import is compiled to require()', () => {
-    const entry = join(PKG, 'lib', 'cjs', 'file-type.js');
-    expect(existsSync(entry), `${entry} missing: build upload's cjs output first`).to.eq(true);
-    expect(existsSync(join(PKG, 'lib', 'cjs', 'package.json')), 'run scripts/generate-packages-for-modules.mjs').to.eq(true);
-    const out = probe(['-e', `require(${JSON.stringify(entry)}).loadFileType().then(async ({ FileTypeParser }) => { ${PROBE} })`]);
-    expect(out).to.deep.equal(EXPECTED);
-  });
-
-  it('works from lib/mjs, with a real dynamic import', () => {
-    const entry = join(PKG, 'lib', 'mjs', 'file-type.js');
-    expect(existsSync(entry), `${entry} missing: build upload's mjs output first`).to.eq(true);
+  it('works from lib/, with a real dynamic import', () => {
+    const entry = join(PKG, 'lib', 'file-type.js');
+    expect(existsSync(entry), `${entry} missing: build upload first`).to.eq(true);
     const url = pathToFileURL(entry).href;
     const out = probe(['--input-type=module', '-e', `const { loadFileType } = await import(${JSON.stringify(url)}); const { FileTypeParser } = await loadFileType(); ${PROBE}`]);
     expect(out).to.deep.equal(EXPECTED);

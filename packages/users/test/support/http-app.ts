@@ -183,7 +183,7 @@ export const ROUTES: Partial<HttpRoutes> = {
   activeRoleSet: (role, password) => ({ method: 'POST', path: '/auth/active-role', body: { role, ...(password !== undefined ? { password } : {}) } }),
 };
 
-const AUTHN_HTTP_V3_LIB = new URL('../../../authn-http/lib/mjs/v3/', import.meta.url);
+const AUTHN_HTTP_V3_LIB = new URL('../../../authn-http/lib/v3/', import.meta.url);
 
 /** authn-http's 3.0 controllers, loaded from its build (authn-http-v3.ts says why). */
 async function authnHttpControllers(): Promise<Class<BaseController>[]> {
@@ -287,7 +287,6 @@ export async function startUsersHttpApp(opts: StartOptions = {}): Promise<UsersH
   if (app) throw new Error('startUsersHttpApp: the app is already running; call stopUsersHttpApp() first');
   const authnControllers = await authnHttpControllers();
 
-  // Config sources pick lib/mjs over lib/cjs on their first resolve: a lib/cjs file would load a CommonJS copy of DI.
   DI.setESMModuleSupport();
   if (!DI.RootContainer.Registry.ownsRegistration('orm-driver-sqlite')) {
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
@@ -306,7 +305,7 @@ export async function startUsersHttpApp(opts: StartOptions = {}): Promise<UsersH
   cfg.set(['http', 'port'], 0);
   // Package defaults list the controller dirs of every installed package; this app registers its own.
   cfg.set(['system', 'dirs', 'controllers'], []);
-  // Configured, the scan replaces its defaults, which include users' lib/mjs build: a second copy of users' models.
+  // Configured, the scan replaces its defaults, which include users' lib/ build: a second copy of users' models.
   cfg.set(['system', 'dirs', 'migrations'], [usersDir('src', 'migrations')]);
   cfg.set(['fs', 'providers'], [...(cfg.get<{ name?: string }[]>(['fs', 'providers']) ?? []).filter((p) => p.name !== '__fs_controller_cache__'), { service: 'fsNative', name: '__fs_controller_cache__', basePath: join(tmpdir(), 'spinajs-users-http-test-cache') }, { service: 'fsNative', name: 'users-http-test', basePath: join(tmpdir(), 'spinajs-users-http-test') }]);
   cfg.set(['fs', 'defaultProvider'], 'users-http-test');

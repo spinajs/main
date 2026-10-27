@@ -4,7 +4,7 @@
 //
 //   node route-groups-app.cjs <esm|cjs> <packages, comma separated> <groups probed with a session, comma separated> <controller cache dir>
 //
-// A .cjs file, so one source serves both builds: `import()` takes the ESM build, `require` the CJS one.
+// A .cjs file, so one source served both builds; since 4.0 only `esm` is passed and `import()` loads the build.
 
 const { join, resolve } = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -13,7 +13,6 @@ const http = require('node:http');
 const [mode, packagesArg = '', probedArg = '', cacheDir] = process.argv.slice(2);
 if (!cacheDir) throw new Error('no controller cache dir given');
 const ESM = mode === 'esm';
-const FORMAT = ESM ? 'mjs' : 'cjs';
 const PACKAGES = packagesArg.split(',').filter(Boolean);
 const PROBED = probedArg.split(',').filter(Boolean);
 const PKG_ROOT = resolve(__dirname, '..', '..');
@@ -21,7 +20,7 @@ const WORKSPACE = resolve(PKG_ROOT, '..');
 
 const load = async (spec) => (ESM ? await import(spec) : require(spec));
 const loadFile = (path) => load(ESM ? pathToFileURL(path).href : path);
-const lib = (pkg, file) => join(WORKSPACE, pkg, 'lib', FORMAT, file);
+const lib = (pkg, file) => join(WORKSPACE, pkg, 'lib', file);
 
 const USER = { login: 'route-groups@example.test', password: 'Route-Groups-Pass-1' };
 const ADMIN_TARGET = '/authn/admin/users/00000000-0000-4000-8000-000000000000';
@@ -113,7 +112,7 @@ async function main() {
   const cookieParser = (await load('cookie-parser')).default ?? (await load('cookie-parser'));
   const { SessionProvider } = await load('@spinajs/authn-session');
 
-  const controllersDir = join(PKG_ROOT, 'lib', FORMAT, 'v3', 'controllers');
+  const controllersDir = join(PKG_ROOT, 'lib', 'v3', 'controllers');
 
   class RouteGroupsConfiguration extends FrameworkConfiguration {
     async resolve() {
@@ -163,7 +162,7 @@ async function main() {
   bind(contracts.AuthnThrottle, 'RouteGroupsThrottle', throttle);
   bind(contracts.AuthnEventSink, 'RouteGroupsEventSink', events);
   bind(contracts.AuthenticationStrategy, 'RouteGroupsPasswordStrategy', strategy);
-  await (await loadFile(join(PKG_ROOT, 'lib', FORMAT, 'v3', 'register.js'))).registerAuthnHttpV3();
+  await (await loadFile(join(PKG_ROOT, 'lib', 'v3', 'register.js'))).registerAuthnHttpV3();
 
   for (const p of PACKAGES) {
     if (p === 'local') await load('@spinajs/authn-local');

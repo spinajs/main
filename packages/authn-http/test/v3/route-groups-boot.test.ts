@@ -92,8 +92,7 @@ interface Case {
   packages: Package[];
 }
 
-// Every package is absent and present at least once; the CJS pair checks the build's subpaths, authn-totp's
-// ./service among them.
+// Every package is absent and present at least once.
 const CASES: Case[] = [
   { mode: 'esm', packages: [] },
   { mode: 'esm', packages: ['local'] },
@@ -102,8 +101,6 @@ const CASES: Case[] = [
   { mode: 'esm', packages: ['keys'] },
   { mode: 'esm', packages: ['admin'] },
   { mode: 'esm', packages: ALL },
-  { mode: 'cjs', packages: [] },
-  { mode: 'cjs', packages: ALL },
 ];
 
 const label = (c: Case) => `${c.mode.toUpperCase()} ${c.packages.length === 0 ? 'no strategy package' : c.packages.length === ALL.length ? 'every strategy package' : c.packages.join(', ')}`;

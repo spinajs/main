@@ -11,7 +11,7 @@ import { appOrigin, config, cookieName } from '../v3-app/app.js';
 export async function startSockets(revalidateMs: number): Promise<void> {
   const cfg = config();
   if (cfg.get('http.socket.path') === undefined) {
-    throw new Error('http.socket is not configured: build packages/http-socket, whose lib/mjs/config holds its defaults');
+    throw new Error('http.socket is not configured: build packages/http-socket, whose lib/config holds its defaults');
   }
   cfg.set(['http', 'socket', 'auth', 'revalidateMs'], revalidateMs);
   await DI.resolve(SocketServer);

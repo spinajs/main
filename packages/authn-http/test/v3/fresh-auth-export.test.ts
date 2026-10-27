@@ -34,12 +34,7 @@ describe('assertFreshAuth from the package root (Z8)', function () {
   });
 
   const PRINT = 'console.log(typeof m.assertFreshAuth, typeof m.FreshAuth); process.exit(0);';
-  for (const [how, args] of [
-    ['import', ['--input-type=module', '-e', `const m = await import('@spinajs/authn-http'); ${PRINT}`]],
-    ['require', ['-e', `const m = require('@spinajs/authn-http'); ${PRINT}`]],
-  ] as const) {
-    it(`@spinajs/authn-http loaded by ${how} exports it`, () => {
-      expect(typesFromBuiltRoot([...args])).to.eq('function function');
-    });
-  }
+  it('@spinajs/authn-http loaded by import exports it', () => {
+    expect(typesFromBuiltRoot(['--input-type=module', '-e', `const m = await import('@spinajs/authn-http'); ${PRINT}`])).to.eq('function function');
+  });
 });

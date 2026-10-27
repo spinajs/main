@@ -22,6 +22,6 @@ describe('the @spinajs/authn/boot entry', () => {
 
   it('is a package subpath, ESM and CommonJS', () => {
     const exports = (JSON.parse(readFileSync(PACKAGE_JSON, 'utf8')) as { exports: Record<string, Record<string, string>> }).exports;
-    expect(exports['./boot']).to.deep.eq({ types: './lib/mjs/service/boot/index.d.ts', import: './lib/mjs/service/boot/index.js', require: './lib/cjs/service/boot/index.js' });
+    expect(exports['./boot']).to.deep.eq({ types: './lib/service/boot/index.d.ts', import: './lib/service/boot/index.js' });
   });
 });

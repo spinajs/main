@@ -21,7 +21,7 @@ interface Names {
   strategy: string;
 }
 
-// Plain JS for a fresh ESM or CJS child: the built package, loaded as an app loads it, so nothing registered earlier
+// Plain JS for a fresh child: the built package, loaded as an app loads it, so nothing registered earlier
 // in this mocha process can mask a clash.
 const body = ({ store, strategy }: Names) => `
   const STORE = ${JSON.stringify(store)};
@@ -83,16 +83,6 @@ const esm = (names: Names) => `
   ${body(names)}
 `;
 
-const cjs = (names: Names) => `
-  (async () => {
-    const di = require('@spinajs/di');
-    const cfgMod = require('@spinajs/configuration');
-    const session = require('@spinajs/authn-session');
-    const contracts = require('@spinajs/authn/contracts');
-    ${body(names)}
-  })().catch((e) => { console.error(e); process.exit(1); });
-`;
-
 function run(inputType: 'module' | 'commonjs', source: string): Facts {
   const env = { ...process.env };
   delete env.NODE_OPTIONS;
@@ -120,10 +110,7 @@ const CASES = [
 describe('authn-session registers only its own DI classes (N8c-D1)', function () {
   this.timeout(120000);
 
-  for (const [label, inputType, build] of [
-    ['ESM', 'module', esm],
-    ['CJS', 'commonjs', cjs],
-  ] as const) {
+  for (const [label, inputType, build] of [['ESM', 'module', esm]] as const) {
     for (const c of CASES) {
       it(`${label}, ${c.title}`, () => {
         const f = run(inputType, build(c.names));

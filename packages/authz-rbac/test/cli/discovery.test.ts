@@ -11,14 +11,14 @@ const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 describe('authz cli discovery', function () {
   this.timeout(30000);
-  it('adds lib/<mjs|cjs>/cli/commands of @spinajs/authz-rbac to system.dirs.cli', () => {
+  it('adds lib/cli/commands of @spinajs/authz-rbac to system.dirs.cli', () => {
     const dirs = rbacCli.system.dirs.cli;
     expect(dirs).to.have.length(2);
-    for (const d of dirs) expect(d.split(/[\\/]/).slice(-6)).to.deep.equal(['@spinajs', 'authz-rbac', 'lib', 'mjs', 'cli', 'commands']);
+    for (const d of dirs) expect(d.split(/[\\/]/).slice(-5)).to.deep.equal(['@spinajs', 'authz-rbac', 'lib', 'cli', 'commands']);
   });
 
   it('finds exactly the six commands: the first export of every built file is a command', async () => {
-    const dir = join(PKG_ROOT, 'lib', 'mjs', 'cli', 'commands');
+    const dir = join(PKG_ROOT, 'lib', 'cli', 'commands');
     expect(existsSync(dir)).to.equal(true);
     const files = readdirSync(dir).filter((f) => f.endsWith('.js'));
     const names: string[] = [];

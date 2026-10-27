@@ -59,7 +59,7 @@ describe('the identity stores over a user model that is an @AccessResource', fun
     // Loaded here, not at the top: importing authz-orm registers its query middleware for every later suite.
     orm = await import('@spinajs/authz-orm');
     // The package's own module instance: its exports map hides the registry's test seam.
-    ({ unregisterResource } = await import(pathToFileURL(join(process.cwd(), '..', 'authz-orm', 'lib', 'mjs', 'registry.js')).href));
+    ({ unregisterResource } = await import(pathToFileURL(join(process.cwd(), '..', 'authz-orm', 'lib', 'registry.js')).href));
   });
 
   beforeEach(async () => {

@@ -164,17 +164,6 @@ describe('AuthnConfigBootstrapper', () => {
     // Loading every package config takes seconds.
     this.timeout(60000);
     const children: { dispose(): Promise<void> }[] = [];
-    let setEsm = false;
-
-    // The file sources load package configs only in ESM mode here (lib/mjs); the rest of the suite runs without it.
-    before(() => {
-      setEsm = !DI.get('__esmMode__' as never);
-      if (setEsm) DI.setESMModuleSupport();
-    });
-
-    after(() => {
-      if (setEsm) DI.uncache('__esmMode__' as never);
-    });
 
     afterEach(async () => {
       for (const c of children.splice(0)) await c.dispose();

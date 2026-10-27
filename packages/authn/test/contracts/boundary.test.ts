@@ -12,8 +12,7 @@ const expect = chai.expect;
 
 const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SRC_DIR = join(PKG_ROOT, 'src', 'contracts');
-const MJS_DIR = join(PKG_ROOT, 'lib', 'mjs', 'contracts');
-const CJS_DIR = join(PKG_ROOT, 'lib', 'cjs', 'contracts');
+const LIB_DIR = join(PKG_ROOT, 'lib', 'contracts');
 const ALLOWED_PACKAGES = ['@spinajs/di', '@spinajs/principal', '@spinajs/util'];
 const RUNTIME_EXPORTS = ['SYSTEM', 'UNATTENDED', 'principalKey', 'ceilingHash', 'AuthenticationStrategy', 'AuthnService', 'PrincipalFactory', 'IdentityStore', 'PasswordCredentialStore', 'IdentityLinkStore', 'SessionIssuer', 'MfaStep', 'MfaPolicy', 'SecretStore', 'AuthnThrottle', 'AuthnEventSink', 'ImpersonationGuard', 'PasswordService', 'TokenService', 'KeyRegistry', 'JwsVerifier', 'JwsSigner', 'CredentialExtractor', 'AuthnResponseExtension', 'RoleSource', 'Session', 'SessionKeys', 'sessionKey', 'resolveSession', 'sameRef', 'identityThrottleKeys', 'backoffDelayMs', 'CLI_ACTOR', 'cliContext', 'AUTHN_FAILURE_BODY', 'PASSWORD_HARD_CAP', 'NonceStore', 'PasskeyService'];
 
@@ -103,13 +102,10 @@ describe('@spinajs/authn/contracts boundary', function () {
   this.timeout(60000);
 
   let esm: ProbeResult;
-  let cjs: ProbeResult;
-  let cjsAlone: ProbeResult;
 
   before(() => {
-    for (const f of [join(MJS_DIR, 'index.js'), join(CJS_DIR, 'index.js')]) {
-      if (!existsSync(f)) throw new Error(`${f} is missing; run the authn pretest (mjs and cjs compile)`);
-    }
+    const built = join(LIB_DIR, 'index.js');
+    if (!existsSync(built)) throw new Error(`${built} is missing; run the authn pretest`);
 
     esm = probe(
       'module',
@@ -121,29 +117,6 @@ describe('@spinajs/authn/contracts boundary', function () {
        const after = snapshot(di);
        console.log(JSON.stringify({ before, after, exercise: exercise(c) }));`,
     );
-
-    cjs = probe(
-      'commonjs',
-      `const exercise = ${EXERCISE};
-       const snapshot = ${SNAPSHOT};
-       const initial = new Set(Object.keys(require.cache));
-       const di = require('@spinajs/di');
-       const before = snapshot(di);
-       require('@spinajs/util');
-       require('@spinajs/principal');
-       const depFiles = Object.keys(require.cache).filter((k) => !initial.has(k));
-       const c = require('@spinajs/authn/contracts');
-       const after = snapshot(di);
-       const contractFiles = Object.keys(require.cache).filter((k) => !initial.has(k) && !depFiles.includes(k));
-       console.log(JSON.stringify({ depFiles, contractFiles, before, after, exercise: exercise(c) }));`,
-    );
-
-    cjsAlone = probe(
-      'commonjs',
-      `const initial = new Set(Object.keys(require.cache));
-       require('@spinajs/authn/contracts');
-       console.log(JSON.stringify({ loaded: Object.keys(require.cache).filter((k) => !initial.has(k)) }));`,
-    );
   });
 
   describe('runtime exports', () => {
@@ -151,21 +124,16 @@ describe('@spinajs/authn/contracts boundary', function () {
       expect((esm.exercise as { keys: string[] }).keys).to.include.members(RUNTIME_EXPORTS);
     });
 
-    it('exist in the CJS build', () => {
-      expect((cjs.exercise as { keys: string[] }).keys).to.include.members(RUNTIME_EXPORTS);
-    });
-
     it('no longer include ExternalLoginHook, which authn.login.identified hooks replace (D17)', () => {
-      for (const build of [esm, cjs]) expect((build.exercise as { keys: string[] }).keys).to.not.include('ExternalLoginHook');
+      expect((esm.exercise as { keys: string[] }).keys).to.not.include('ExternalLoginHook');
     });
 
     it('no longer include CredentialAdminGuard, which a CredentialAdminRule on authn.admin.credentials replaces (D17)', () => {
-      for (const build of [esm, cjs]) expect((build.exercise as { keys: string[] }).keys).to.not.include('CredentialAdminGuard');
+      expect((esm.exercise as { keys: string[] }).keys).to.not.include('CredentialAdminGuard');
     });
 
-    it('behave the same in ESM, CJS and the sources', () => {
+    it('behave the same in the build and the sources', () => {
       const local = (new Function(`return ${EXERCISE}`)() as (c: unknown) => unknown)(srcContracts);
-      expect(esm.exercise).to.deep.eq(cjs.exercise);
       expect(esm.exercise).to.deep.eq(JSON.parse(JSON.stringify(local)));
     });
   });
@@ -177,38 +145,16 @@ describe('@spinajs/authn/contracts boundary', function () {
       expect(bad).to.deep.eq([]);
     });
 
-    it('lib/mjs/contracts imports nothing outside itself except @spinajs/di, @spinajs/principal and @spinajs/util', () => {
-      const { found, bad } = violations(MJS_DIR, /\.js$/);
-      expect(found, 'scanner found no import in lib/mjs/contracts').to.include('./principal.js');
+    it('lib/contracts imports nothing outside itself except @spinajs/di, @spinajs/principal and @spinajs/util', () => {
+      const { found, bad } = violations(LIB_DIR, /\.js$/);
+      expect(found, 'scanner found no import in lib/contracts').to.include('./principal.js');
       expect(bad).to.deep.eq([]);
-    });
-
-    it('lib/cjs/contracts requires nothing outside itself except @spinajs/di, @spinajs/principal and @spinajs/util', () => {
-      const { found, bad } = violations(CJS_DIR, /\.js$/);
-      expect(found, 'scanner found no require in lib/cjs/contracts').to.include('./principal.js');
-      expect(bad).to.deep.eq([]);
-    });
-
-    it('CJS loads only lib/cjs/contracts files and what @spinajs/di, @spinajs/principal and @spinajs/util themselves load', () => {
-      const depFiles = new Set(cjs.depFiles);
-      expect(cjsAlone.loaded).to.include(join(CJS_DIR, 'index.js'));
-      const outside = cjsAlone.loaded!.filter((f) => !isInside(CJS_DIR, f) && !depFiles.has(f));
-      expect(outside).to.deep.eq([]);
-    });
-
-    it('CJS adds only lib/cjs/contracts files once @spinajs/di, @spinajs/principal and @spinajs/util are loaded', () => {
-      expect(cjs.contractFiles).to.not.be.empty;
-      expect(cjs.contractFiles!.filter((f) => !isInside(CJS_DIR, f))).to.deep.eq([]);
     });
   });
 
   describe('DI', () => {
-    it('ESM load registers nothing in the root container', () => {
+    it('loading registers nothing in the root container', () => {
       expect(esm.after).to.deep.eq(esm.before);
-    });
-
-    it('CJS load registers nothing in the root container', () => {
-      expect(cjs.after).to.deep.eq(cjs.before);
     });
   });
 });
