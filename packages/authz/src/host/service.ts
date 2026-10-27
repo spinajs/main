@@ -63,6 +63,8 @@ interface Booted {
   readonly disables: readonly (readonly string[])[];
   readonly registrations: readonly Registration[];
   readonly models: readonly AuthorizationModel[];
+  /** The models each level of the lineage contributed, root first; a child reuses the entries of levels that set `use`. */
+  readonly levelModels: readonly (readonly AuthorizationModel[])[];
   /** Models this service holds a use of (DI disposes the ones it cached itself). */
   readonly used: readonly AuthorizationModel[];
   readonly authorizer: Authorizer;
@@ -386,7 +388,10 @@ export class DefaultAuthzService extends AuthzService {
     const chainFilters = await chain(NativeFilter);
     const combinators = await chain(Combinator);
 
-    const models = mergeModels(where, chainModels, modelOwners, levels, disables, (model) => this.log.warn({ domain: name, model }, 'Authz domain ${domain}: disable lists ${model}, which no ancestor domain registers'));
+    if (modelOwners.some((c) => !levels.includes(c))) throw new AuthzConfigError(`${where}: a model is registered in a container outside the domain lineage`);
+    const registeredAt = (level: IContainer): AuthorizationModel[] => chainModels.filter((_, i) => modelOwners[i] === level);
+    const levelModels: (readonly AuthorizationModel[])[] = levels.map(registeredAt);
+    const models = mergeModels(levelModels, disables, (model) => this.log.warn({ domain: name, model }, 'Authz domain ${domain}: disable lists ${model}, which no ancestor domain registers'));
     for (const [i, model] of models.entries()) {
       if (!isObject(model) || typeof model.init !== 'function') throw new AuthzConfigError(`${where}: models[${i}] (${q(modelName(model))}) is not an AuthorizationModel`);
     }
@@ -523,6 +528,7 @@ export class DefaultAuthzService extends AuthzService {
       disables: Object.freeze(disables),
       registrations: Object.freeze(registrations),
       models: Object.freeze([...models]),
+      levelModels: Object.freeze(levelModels.map((l) => Object.freeze([...l]))),
       used: Object.freeze([...claimed]),
       authorizer,
       audit,
@@ -635,9 +641,7 @@ function input(principal: Principal, permission: Permission, resource?: Resource
  * level's own models; one whose name an ancestor level placed replaces it in
  * place, a second one of a name within the level is kept for rule 2.
  */
-function mergeModels(where: string, chain: readonly AuthorizationModel[], owners: readonly IContainer[], levels: readonly IContainer[], disables: readonly (readonly string[])[], warnUnknownDisable: (model: string) => void): AuthorizationModel[] {
-  const levelOf = owners.map((c) => levels.indexOf(c));
-  if (levelOf.some((l) => l < 0)) throw new AuthzConfigError(`${where}: a model is registered in a container outside the domain lineage`);
+function mergeModels(levels: readonly (readonly AuthorizationModel[])[], disables: readonly (readonly string[])[], warnUnknownDisable: (model: string) => void): AuthorizationModel[] {
   let list: { model: AuthorizationModel; level: number }[] = [];
   for (let level = 0; level < levels.length; level++) {
     const disabled = new Set(disables[level] ?? []);
@@ -649,13 +653,12 @@ function mergeModels(where: string, chain: readonly AuthorizationModel[], owners
       const n = modelName(e.model);
       return n === undefined || !disabled.has(n);
     });
-    chain.forEach((model, i) => {
-      if (levelOf[i] !== level) return;
+    for (const model of levels[level]) {
       const n = modelName(model);
       const at = n === undefined ? -1 : list.findIndex((e) => e.level < level && modelName(e.model) === n);
       if (at >= 0) list[at] = { model, level };
       else list.push({ model, level });
-    });
+    }
   }
   return list.map((e) => e.model);
 }
