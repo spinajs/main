@@ -26,9 +26,19 @@ describe('after useTestApp', () => {
   it('root has no Configuration left', () => {
     expect(DI.RootContainer.isResolved(Configuration)).to.be.false;
   });
+});
 
-  it('the getter throws outside a test', () => {
-    const getter = useTestApp();
-    expect(() => getter()).to.throw('no app is live');
+describe('useTestApp getter outside a test', () => {
+  // Read at collection time, before any hook of this suite has created an app.
+  const getter = useTestApp();
+  let thrown: unknown;
+  try {
+    getter();
+  } catch (err) {
+    thrown = err;
+  }
+
+  it('throws when no app is live', () => {
+    expect((thrown as Error | undefined)?.message).to.match(/no app is live/);
   });
 });
