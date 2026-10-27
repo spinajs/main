@@ -4705,36 +4705,6 @@
   },
   {
     "type": "cycle",
-    "from": "packages/queue-orm-transport/src/models/Queue.ts",
-    "to": "packages/queue-orm-transport/src/models/Subscriber.ts",
-    "unresolvedTo": "./Subscriber.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "no-circular"
-    },
-    "cycle": [
-      {
-        "name": "packages/queue-orm-transport/src/models/Subscriber.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      },
-      {
-        "name": "packages/queue-orm-transport/src/models/Queue.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      }
-    ]
-  },
-  {
-    "type": "cycle",
     "from": "packages/queue/src/helpers.ts",
     "to": "packages/queue/src/interfaces.ts",
     "unresolvedTo": "./interfaces.js",

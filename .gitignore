@@ -170,7 +170,6 @@ graphify-out/
 !/docs/queue/
 !/docs/queue-amqp-transport/
 !/docs/queue-http-progress/
-!/docs/queue-orm-transport/
 !/docs/queue-sqs-transport/
 !/docs/queue-stomp-transport/
 !/docs/queue-templates-pdf/
@@ -207,3 +206,11 @@ graphify-out/
 # Stryker mutation runs ( scripts/coverage/minimal-tests.mjs )
 .stryker-tmp/
 packages/*/reports/mutation/
+
+# Stale untracked package dirs and compiled output next to sources
+packages/metrics/
+packages/orm-api/
+packages/rbac*/
+packages/*/src/**/*.js
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.map

@@ -69,6 +69,5 @@ export async function requestInvoicePdf(invoiceId: number): Promise<string | und
 - [`@spinajs/di`](../di/README.md): every extension point here is a DI registration.
 - [`@spinajs/orm`](../orm/README.md): `JobModel` and the `queue_jobs` migrations run on the `queue` connection.
 - [`@spinajs/queue-http-progress`](../queue-http-progress/README.md): an HTTP route that reads a job's `queue_jobs` row.
-- [`@spinajs/queue-orm-transport`](../queue-orm-transport/README.md): database-backed transport schema.
 - `@spinajs/authz-queue`: a `QueueMessageHook` that runs handlers as the emitting principal; its `/jobs` subpath adds a `QueueTrackingHook` and guards `JobModel`.
 - [`@spinajs/email`](../email/README.md), [`@spinajs/http-lazy-file-uploader`](../http-lazy-file-uploader/README.md): packages that ship jobs and events.
