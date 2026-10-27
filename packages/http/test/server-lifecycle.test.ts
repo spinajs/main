@@ -40,19 +40,15 @@ function restoreShutdownTimeout(s: HttpServer): void {
 describe('HttpServer lifecycle', () => {
   let server: HttpServer;
 
+  // Declared before useTestApp: mocha runs afterEach hooks in definition order, and the server must stop while the app's Configuration still exists.
+  afterEach(async () => {
+    await server.stop();
+  });
+
   useTestApp(() => ({ configuration: TestConfiguration, resolve: [fsService, HttpServer] }));
 
   beforeEach(() => {
     server = DI.get(HttpServer)!;
-  });
-
-  afterEach(async () => {
-    // always land in a closed state so dispose() of the app finds a stopped server
-    try {
-      await server.stop();
-    } catch {
-      /* stop must not throw; swallow just in case so teardown never masks a test */
-    }
   });
 
   describe('shutdown (bugs 1, 2, 3)', () => {
