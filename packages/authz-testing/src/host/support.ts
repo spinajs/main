@@ -86,7 +86,7 @@ export class TestConfiguration extends Configuration {
 const ROOT_CREATED: readonly Class<unknown>[] = [DefaultAuthzService, DefaultAuthzDomains, TestConfiguration, InProcessChangeBus, LogDecisionAudit, SystemClock, AsyncLocalStorage];
 
 interface RootRegistration {
-  readonly token: Class<unknown>;
+  readonly token: Class<unknown> | string;
   readonly factory: Factory<unknown> | Class<unknown>;
 }
 
@@ -167,9 +167,9 @@ export async function resetRoot(): Promise<void> {
 }
 
 /** Registers a factory or class in root; uninstallHost, resetHost or the returned function removes exactly that registration. */
-export function registerInRoot<T>(token: Class<T>, factory: Factory<T> | Class<T>): () => void {
+export function registerInRoot<T>(token: Class<T> | string, factory: Factory<T> | Class<T>): () => void {
   DI.register(factory).as(token);
-  const entry: RootRegistration = { token: token as Class<unknown>, factory: factory as Factory<unknown> | Class<unknown> };
+  const entry: RootRegistration = { token: token as Class<unknown> | string, factory: factory as Factory<unknown> | Class<unknown> };
   rootRegistrations.push(entry);
   return () => {
     const i = rootRegistrations.indexOf(entry);
