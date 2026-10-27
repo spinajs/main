@@ -1,14 +1,10 @@
 import 'mocha';
 import { expect } from 'chai';
-import { Bootstrapper, DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { fsService } from '@spinajs/fs';
 import { Intl } from '@spinajs/intl';
 import { Forbidden, InvalidArgument } from '@spinajs/exceptions';
 import { Schema, ValidationFailed } from '@spinajs/validation';
 
-import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
+import { httpApp, req, TestConfiguration } from './common.js';
 import {
   BaseController,
   BasePath,
@@ -27,6 +23,7 @@ import {
   Unauthorized,
 } from '../src/index.js';
 import type { ErrorContext, ErrorStage } from '../src/index.js';
+import type { TestApp } from '@spinajs/testing';
 
 @Schema({ type: 'object', required: ['login'], additionalProperties: false, properties: { login: { type: 'string', minLength: 1, maxLength: 8 } } })
 class LoginInput {
@@ -185,29 +182,23 @@ class OnErrorConfiguration extends TestConfiguration {
 describe('OnError', function () {
   this.timeout(15000);
 
+  let app: TestApp;
+
   before(async () => {
-    uncacheControllers();
-    for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
-    DI.register(OnErrorConfiguration).as(Configuration);
-    DI.register(AppWideHandler).as(ErrorHandlerService);
-    DI.register(OnErrorController).as(BaseController);
-    DI.register(PlainController).as(BaseController);
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
-    await DI.resolve(Intl);
-    await DI.resolve(Controllers);
-    await (await DI.resolve<HttpServer>(HttpServer)).start();
+    app = await httpApp({
+      configuration: OnErrorConfiguration,
+      register: (c) => {
+        c.register(AppWideHandler).as(ErrorHandlerService);
+        c.register(OnErrorController).as(BaseController);
+        c.register(PlainController).as(BaseController);
+      },
+      resolve: [Intl, Controllers],
+    });
+    await (await app.resolve(HttpServer)).start();
   });
 
   after(async () => {
-    await releaseHttpServer();
-    for (const c of [OnErrorController, PlainController, AppWideHandler] as Class<unknown>[]) {
-      DI.unregister(c);
-      DI.uncache(c);
-    }
-    DI.uncache(BaseController);
-    DI.unregister(OnErrorConfiguration);
-    DI.uncache(Configuration);
+    await app.dispose();
   });
 
   beforeEach(() => {

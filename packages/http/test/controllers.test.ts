@@ -3,21 +3,20 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
 import { Intl } from '@spinajs/intl';
-import { FsBootsrapper, fsService } from '@spinajs/fs';
 import '@spinajs/templates-pug';
 
 import { Controllers, HttpServer } from '../src/index.js';
 import { SampleMiddleware2 } from './middlewares/SampleMiddleware2.js';
 import { SamplePolicy2 } from './policies/SamplePolicy2.js';
-import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
+import { httpApp, req } from './common.js';
 import { DataTransformer } from './../src/interfaces.js';
 import { TestTransformer } from './transformers/TestTransformer.js';
 import { SamplePolicy } from './policies/SamplePolicy.js';
 import { SampleMiddleware } from './middlewares/SampleMiddleware.js';
 
 import { TestMethods2 } from './controllers2/TestMethods2.js';
+import type { TestApp } from '@spinajs/testing';
 
 function ctr() {
   return DI.get(Controllers);
@@ -38,10 +37,9 @@ describe('http & controller tests', function () {
   let samplePolicyExecuteSpy: sinon.SinonSpy<any, any>;
   let samplePolicy2ExecuteSpy: sinon.SinonSpy<any, any>;
 
-  before(async () => {
-    const bootstrapper = DI.resolve(FsBootsrapper);
-    bootstrapper.bootstrap();
+  let app: TestApp;
 
+  before(async () => {
     middlewareOnAfterSpy = middlewareSandbox.spy(SampleMiddleware.prototype, 'onAfter');
     middlewareOnBeforeSpy = middlewareSandbox.spy(SampleMiddleware.prototype, 'onBefore');
     middlewareOnResponseSpy = middlewareSandbox.spy(SampleMiddleware.prototype, 'onResponse');
@@ -52,20 +50,15 @@ describe('http & controller tests', function () {
 
     samplePolicyExecuteSpy = middlewareSandbox.spy(SamplePolicy.prototype, 'execute');
     samplePolicy2ExecuteSpy = middlewareSandbox.spy(SamplePolicy2.prototype, 'execute');
-    uncacheControllers();
 
-    DI.register(TestConfiguration).as(Configuration);
-    DI.register(TestTransformer).as(DataTransformer);
-
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
-    await DI.resolve(Intl);
-    await DI.resolve(Controllers);
+    app = await httpApp({
+      register: (c) => c.register(TestTransformer).as(DataTransformer),
+      resolve: [Intl, Controllers],
+    });
   });
 
   after(async () => {
-    await releaseHttpServer();
-
+    await app.dispose();
     middlewareSandbox.restore();
   });
 

@@ -9,15 +9,13 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
-import { Bootstrapper, DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { fsService } from '@spinajs/fs';
+import { DI } from '@spinajs/di';
 import { Intl } from '@spinajs/intl';
 import { Log } from '@spinajs/log';
 
-import { appOrigin, appPort, releaseHttpServer, TestConfiguration, uncacheControllers } from './common.js';
+import { appOrigin, appPort, httpApp, TestConfiguration } from './common.js';
 import { BaseController, BasePath, Controllers, FileResponse, Get, HttpServer } from '../src/index.js';
+import type { TestApp } from '@spinajs/testing';
 
 const PROVIDER = 'sent-files';
 const REPORT = 'monthly report';
@@ -181,35 +179,26 @@ function failingRead(name: string, head: Buffer, error: NodeJS.ErrnoException) {
 describe('FileResponse over send', function () {
   this.timeout(15000);
 
+  let app: TestApp;
+
   before(async () => {
     root = mkdtempSync(join(tmpdir(), 'sent-files-'));
     writeFileSync(join(root, 'report.txt'), REPORT);
     writeFileSync(join(root, 'large.bin'), LARGE);
     mkdirSync(join(root, 'nested'));
 
-    uncacheControllers();
-    for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
-    DI.register(SentFilesConfiguration).as(Configuration);
-    DI.register(SentFilesController).as(BaseController);
-    await DI.resolve(Configuration);
-    // An earlier suite's fsService knows only its own providers.
-    DI.uncache(fsService);
-    await DI.resolve(fsService);
-    await DI.resolve(Intl);
-    await DI.resolve(Controllers);
-    await (await DI.resolve<HttpServer>(HttpServer)).start();
+    app = await httpApp({
+      configuration: SentFilesConfiguration,
+      register: (c) => c.register(SentFilesController).as(BaseController),
+      resolve: [Intl, Controllers],
+    });
+    await (await app.resolve(HttpServer)).start();
   });
 
   after(async () => {
     await new Promise((resolve) => (plainServer ? plainServer.close(resolve) : resolve(undefined)));
     plainServer = undefined;
-    await releaseHttpServer();
-    DI.unregister(SentFilesController as Class<unknown>);
-    DI.uncache(SentFilesController);
-    DI.uncache(BaseController);
-    DI.unregister(SentFilesConfiguration);
-    DI.uncache(Configuration);
-    DI.uncache(fsService);
+    await app.dispose();
     rmSync(root, { recursive: true, force: true });
   });
 

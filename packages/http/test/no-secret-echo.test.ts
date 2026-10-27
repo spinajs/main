@@ -1,13 +1,12 @@
 import 'mocha';
 import { expect } from 'chai';
-import { DI, Bootstrapper } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { DI } from '@spinajs/di';
 import { Intl } from '@spinajs/intl';
-import { fsService } from '@spinajs/fs';
 import { Log, MemoryTarget } from '@spinajs/log';
 
-import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
+import { httpApp, req } from './common.js';
 import { Controllers, HttpServer } from '../src/index.js';
+import type { TestApp } from '@spinajs/testing';
 
 const MEMORY = 'NoSecretEchoMemory';
 
@@ -29,21 +28,13 @@ function expectNowhere(res: { status: number; text: string }, secrets: string[])
 describe('http: no request value in 400 bodies or logs', function () {
   this.timeout(30000);
 
+  let app: TestApp;
+
   before(async () => {
-    uncacheControllers();
-
-    for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
-      await b.bootstrap();
-    }
-
-    DI.register(TestConfiguration).as(Configuration);
-
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
-    await DI.resolve(Intl);
-    await DI.resolve(Controllers);
-    const server = await DI.resolve<HttpServer>(HttpServer);
-    await server.start();
+    app = await httpApp({
+      resolve: [Intl, Controllers],
+    });
+    await (await app.resolve(HttpServer)).start();
 
     // Loggers are cached by name for the whole process, so a target in this suite's config would miss
     // the ones earlier suites built: attach the memory target to every live logger instead.
@@ -60,7 +51,7 @@ describe('http: no request value in 400 bodies or logs', function () {
     for (const logger of Log.Loggers.values()) {
       await logger.removeTarget(MEMORY);
     }
-    await releaseHttpServer();
+    await app.dispose();
   });
 
   describe('a body failing schema validation', () => {

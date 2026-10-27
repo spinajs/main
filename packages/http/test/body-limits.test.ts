@@ -1,13 +1,10 @@
 import 'mocha';
 import { expect } from 'chai';
-import { Bootstrapper, DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { fsService } from '@spinajs/fs';
 import { Intl } from '@spinajs/intl';
 
-import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
+import { httpApp, req, TestConfiguration } from './common.js';
 import { BaseController, BasePath, Body, Controllers, HttpServer, Ok, parseBodyLimit, Post, RawBody } from '../src/index.js';
+import type { TestApp } from '@spinajs/testing';
 
 // Served at /auth through the config key; the default path is never mounted.
 @BasePath({ config: 'test.bodyLimits.authBase', default: 'not-auth' })
@@ -49,28 +46,22 @@ const body = (bytes: number) => ({ pad: 'x'.repeat(bytes) });
 describe('Per-path body limits', function () {
   this.timeout(15000);
 
+  let app: TestApp;
+
   before(async () => {
-    uncacheControllers();
-    for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
-    DI.register(BodyLimitsConfiguration).as(Configuration);
-    DI.register(LimitedAuthController).as(BaseController);
-    DI.register(UnlimitedController).as(BaseController);
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
-    await DI.resolve(Intl);
-    await DI.resolve(Controllers);
-    await (await DI.resolve<HttpServer>(HttpServer)).start();
+    app = await httpApp({
+      configuration: BodyLimitsConfiguration,
+      register: (c) => {
+        c.register(LimitedAuthController).as(BaseController);
+        c.register(UnlimitedController).as(BaseController);
+      },
+      resolve: [Intl, Controllers],
+    });
+    await (await app.resolve(HttpServer)).start();
   });
 
   after(async () => {
-    await releaseHttpServer();
-    for (const c of [LimitedAuthController, UnlimitedController] as Class<unknown>[]) {
-      DI.unregister(c);
-      DI.uncache(c);
-    }
-    DI.uncache(BaseController);
-    DI.unregister(BodyLimitsConfiguration);
-    DI.uncache(Configuration);
+    await app.dispose();
   });
 
   it('answers 413 for a body over the limit of the matching path, served under a config-based base path', async () => {

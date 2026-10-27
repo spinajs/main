@@ -1,17 +1,14 @@
 import 'mocha';
 import { expect } from 'chai';
 import AjvModule from 'ajv';
-import { Bootstrapper, DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { fsService } from '@spinajs/fs';
 import { Intl } from '@spinajs/intl';
 import { BadRequest, CodedHttpException, Forbidden } from '@spinajs/exceptions';
 import { ValidationFailed } from '@spinajs/validation';
 
-import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
+import { httpApp, req, TestConfiguration } from './common.js';
 import { BaseController, BasePath, Controllers, Get, HttpServer, PROBLEM_DETAILS_SCHEMA, toProblem, withProblemFields } from '../src/index.js';
 import type { ProblemDetails, ProblemOptions } from '../src/index.js';
+import type { TestApp } from '@spinajs/testing';
 
 class LeakyError extends Error {
   public secret = 'hunter2';
@@ -190,25 +187,20 @@ class ProductionConfiguration extends StackConfiguration {
   }
 }
 
+let app: TestApp | undefined;
+
 async function startWith(configuration: typeof TestConfiguration) {
-  uncacheControllers();
-  for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
-  DI.register(configuration).as(Configuration);
-  DI.register(ProblemController).as(BaseController);
-  await DI.resolve(Configuration);
-  await DI.resolve(fsService);
-  await DI.resolve(Intl);
-  await DI.resolve(Controllers);
-  await (await DI.resolve<HttpServer>(HttpServer)).start();
+  app = await httpApp({
+    configuration,
+    register: (c) => c.register(ProblemController).as(BaseController),
+    resolve: [Intl, Controllers],
+  });
+  await (await app.resolve(HttpServer)).start();
 }
 
-async function stop(configuration: typeof TestConfiguration) {
-  await releaseHttpServer();
-  DI.unregister(ProblemController as Class<unknown>);
-  DI.uncache(ProblemController);
-  DI.uncache(BaseController);
-  DI.unregister(configuration);
-  DI.uncache(Configuration);
+async function stop() {
+  await app?.dispose();
+  app = undefined;
 }
 
 // ajv ships CJS: under ESM the constructor is on `default`
@@ -222,7 +214,7 @@ describe('problem+json error bodies', function () {
 
   describe('defaults', () => {
     before(() => startWith(TestConfiguration));
-    after(() => stop(TestConfiguration));
+    after(() => stop());
 
     it('answers application/problem+json without stack or foreign fields', async () => {
       const res = await req().get('problem/leaky').set('Accept', 'application/json');
@@ -259,7 +251,7 @@ describe('problem+json error bodies', function () {
 
   describe('schema and redaction in development', () => {
     before(() => startWith(TestConfiguration));
-    after(() => stop(TestConfiguration));
+    after(() => stop());
 
     it('validates real bodies against PROBLEM_DETAILS_SCHEMA', async () => {
       const validate = new Ajv({ strict: false }).compile(PROBLEM_DETAILS_SCHEMA);
@@ -293,7 +285,7 @@ describe('problem+json error bodies', function () {
 
   describe('production', () => {
     before(() => startWith(ProductionConfiguration));
-    after(() => stop(ProductionConfiguration));
+    after(() => stop());
 
     it('hides the message and the code of an unmapped error, and the stack despite includeStack', async () => {
       const res = await req().get('problem/pg').set('Accept', 'application/json');
@@ -318,7 +310,7 @@ describe('problem+json error bodies', function () {
 
   describe('includeStack and includeFields', () => {
     before(() => startWith(StackConfiguration));
-    after(() => stop(StackConfiguration));
+    after(() => stop());
 
     it('adds the stack and the listed fields', async () => {
       const res = await req().get('problem/leaky').set('Accept', 'application/json');
