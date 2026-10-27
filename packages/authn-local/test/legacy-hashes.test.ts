@@ -9,7 +9,7 @@ import { Argon2PasswordHasher, Argon2PasswordHasherOptions } from '../src/hasher
 import { HasherBusy } from '../src/limiter.js';
 import { AUTHN_LOCAL_CONFIGURATION_SCHEMA } from '../src/schema.js';
 import { LocalPasswordStrategy } from '../src/strategy.js';
-import { boot, disposeBooted, readingFrom, violationsOf } from './support/config-boot.js';
+import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 const ARGON2_DEFAULT_PREFIX = '$argon2id$v=19$m=65536,t=3,p=4$';
 const LOGIN = 'alice@example.com';
@@ -307,26 +307,26 @@ describe('legacy password hashes', function () {
   });
 
   describe('configuration', () => {
-    afterEach(disposeBooted);
+    afterEach(disposeTestApps);
 
     it('defaults to an empty list', async () => {
-      const { configuration } = await boot(SCHEMAS, { authn: { local: {} } });
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { local: {} } } });
       expect(configuration.get('authn.local.legacyHashes')).to.deep.equal([]);
     });
 
     it('accepts bcrypt and pbkdf2', async () => {
-      expect(await violationsOf(SCHEMAS, { authn: { local: { legacyHashes: ['bcrypt', 'pbkdf2'] } } })).to.deep.equal([]);
+      expect(await configurationViolations({ schemas: SCHEMAS, config: { authn: { local: { legacyHashes: ['bcrypt', 'pbkdf2'] } } } })).to.deep.equal([]);
     });
 
     it('refuses an unknown format, a duplicate and a non-list', async () => {
       for (const legacyHashes of [['md5'], ['bcrypt', 'bcrypt'], 'bcrypt', [1]]) {
-        const paths = await violationsOf(SCHEMAS, { authn: { local: { legacyHashes } } });
+        const paths = await configurationViolations({ schemas: SCHEMAS, config: { authn: { local: { legacyHashes } } } });
         expect(paths.some((p) => p.startsWith('authn.local.legacyHashes')), JSON.stringify(legacyHashes)).to.equal(true);
       }
     });
 
     it('is read by a hasher resolved from the configuration', async () => {
-      const { child } = await boot(SCHEMAS, { authn: { local: { legacyHashes: ['bcrypt'] } } });
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { local: { legacyHashes: ['bcrypt'] } } } });
       const h = readingFrom(new Argon2PasswordHasher(), child);
       await h.resolve();
       expect(await h.verify(BCRYPT, PASSWORD)).to.equal(true);

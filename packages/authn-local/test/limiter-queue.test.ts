@@ -8,7 +8,7 @@ import { Argon2PasswordHasher } from '../src/hasher.js';
 import { ConcurrencyLimiter, HasherBusy } from '../src/limiter.js';
 import { AUTHN_LOCAL_CONFIGURATION_SCHEMA } from '../src/schema.js';
 import { LocalPasswordStrategy } from '../src/strategy.js';
-import { boot, disposeBooted, violationsOf } from './support/config-boot.js';
+import { configurationViolations, createTestApp, disposeTestApps } from '@spinajs/testing';
 
 const LOGIN = 'alice@example.com';
 const PASSWORD = 'Correct-Horse-9';
@@ -212,23 +212,23 @@ describe('LocalPasswordStrategy with a saturated hasher', function () {
 
 describe('authn.local.hasher schema', function () {
   this.timeout(30_000);
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_LOCAL_CONFIGURATION_SCHEMA];
 
   it('still refuses every argon2 cost key (H30)', async () => {
     for (const key of ['memoryCost', 'timeCost', 'parallelism', 'hashLength', 'saltLength', 'type', 'cost']) {
-      expect(await violationsOf(SCHEMAS, { authn: { local: { hasher: { [key]: 1 } } } }), key).to.include(`authn.local.hasher.${key}`);
+      expect(await configurationViolations({ schemas: SCHEMAS, config: { authn: { local: { hasher: { [key]: 1 } } } } }), key).to.include(`authn.local.hasher.${key}`);
     }
   });
 
   it('fills maxQueue with 64 and keeps a configured one', async () => {
-    expect((await boot(SCHEMAS, { authn: { local: {} } })).configuration.get('authn.local.hasher.maxQueue')).to.equal(64);
-    await disposeBooted();
-    expect((await boot(SCHEMAS, { authn: { local: { hasher: { maxQueue: 0 } } } })).configuration.get('authn.local.hasher.maxQueue')).to.equal(0);
+    expect((await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { local: {} } } })).config.get('authn.local.hasher.maxQueue')).to.equal(64);
+    await disposeTestApps();
+    expect((await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { local: { hasher: { maxQueue: 0 } } } } })).config.get('authn.local.hasher.maxQueue')).to.equal(0);
   });
 
   it('leaves maxConcurrent unset so the default follows the thread pool', async () => {
-    expect((await boot(SCHEMAS, { authn: { local: {} } })).configuration.get('authn.local.hasher.maxConcurrent')).to.equal(undefined);
+    expect((await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { local: {} } } })).config.get('authn.local.hasher.maxConcurrent')).to.equal(undefined);
   });
 });
