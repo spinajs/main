@@ -226,9 +226,10 @@ export function ctr() {
 
 /**
  * The http test app: TestConfiguration, every Bootstrapper, then the services a suite names.
- * Dispose it in `after`; it stops a started HttpServer through its dispose().
+ * Dispose it in `after`: that restores the container, and a started HttpServer stops in its own
+ * dispose() during the restore.
  */
 export function httpApp(options: Omit<TestAppOptions, 'config'> = {}): Promise<TestApp> {
   // The fs bootstrapper's provider factory throws unless fsService was resolved first.
-  return createTestApp({ configuration: TestConfiguration, ...options, resolve: [fsService, ...(options.resolve ?? [])] });
+  return createTestApp({ ...options, configuration: options.configuration ?? TestConfiguration, resolve: [fsService, ...(options.resolve ?? [])] });
 }

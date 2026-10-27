@@ -181,14 +181,12 @@ describe('CsrfGuard (X1-X3)', function () {
 
     it('a registered subclass replaces the guard', async () => {
       class AppGuard extends CsrfGuard {}
-      DI.register(AppGuard).as(ServerMiddleware);
-      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: {} });
-      try {
-        expect(readingFrom(new CsrfGuard(), child).before()).to.eq(null);
-      } finally {
-        DI.unregister(AppGuard);
-      }
-      expect(readingFrom(new CsrfGuard(), child).before()).to.be.a('function');
+      const base = { bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: {} };
+      const replaced = await createTestApp({ ...base, register: (c) => c.register(AppGuard).as(ServerMiddleware) });
+      expect(readingFrom(new CsrfGuard(), replaced.container).before()).to.eq(null);
+      await replaced.dispose();
+      const plain = await createTestApp(base);
+      expect(readingFrom(new CsrfGuard(), plain.container).before()).to.be.a('function');
     });
   });
 

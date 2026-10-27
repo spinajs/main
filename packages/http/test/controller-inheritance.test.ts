@@ -227,9 +227,7 @@ describe('controller descriptor inheritance', () => {
   });
 
   it('resolves the subclass alone through the BaseController collection', async () => {
-    // Registrations live in a child container: DI.uncache() drops cached
-    // instances but not registrations, so registering on the root would leave
-    // these controllers in Array.ofType(BaseController) for every later suite.
+    // A child container keeps these registrations out of the root.
     const container = DI.child();
     container.register(PkgUserController).as(BaseController);
     container.register(AppUserController).as(BaseController);

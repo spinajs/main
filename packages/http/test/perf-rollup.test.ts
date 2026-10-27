@@ -22,6 +22,8 @@ describe("PerfRollup middleware", () => {
 
   useTestApp({ configuration: TestConfiguration, bootstrap: false });
 
+  afterEach(() => Perf.refreshSinks());
+
   beforeEach(() => {
     DI.register(RecordingSink).as(PerfSink);
     sink = DI.resolve(Array.ofType(PerfSink)).find((s) => s instanceof RecordingSink) as RecordingSink;
