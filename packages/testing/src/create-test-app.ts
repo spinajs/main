@@ -32,7 +32,7 @@ export interface TestApp {
 }
 
 const open = new Set<TestApp>();
-const openRoots: TestApp[] = [];
+let liveRoot: TestApp | undefined;
 
 function configurationClass(options: TestAppOptions): Class<Configuration> {
   if (options.config && options.configuration) {
@@ -71,6 +71,10 @@ function strictSizeCheck(container: IContainer, before: number): void {
 }
 
 async function createRootApp(options: TestAppOptions): Promise<TestApp> {
+  if (liveRoot) {
+    // A second root app would share the first one's container and its cached Configuration.
+    throw new Error("createTestApp: a root app is already live; dispose it first, or use scope 'child' for apps side by side");
+  }
   const container = DI.RootContainer;
   const sizeBefore = container.getCacheStats().size;
   const snapshot: ContainerSnapshot = container.snapshot();
@@ -90,10 +94,7 @@ async function createRootApp(options: TestAppOptions): Promise<TestApp> {
     resolve: <T>(type: Class<T> | string) => Promise.resolve(container.resolve(type as Class<T>) as T | Promise<T>),
     dispose: async () => {
       if (!disposed) {
-        if (openRoots[openRoots.length - 1] !== app) {
-          throw new Error('createTestApp: root apps share one container; dispose them in reverse creation order (a newer app is still open)');
-        }
-        openRoots.pop();
+        liveRoot = undefined;
         open.delete(app);
         disposed = (async () => {
           await container.restore(snapshot);
@@ -104,7 +105,7 @@ async function createRootApp(options: TestAppOptions): Promise<TestApp> {
     },
   };
   open.add(app);
-  openRoots.push(app);
+  liveRoot = app;
   return app;
 }
 
