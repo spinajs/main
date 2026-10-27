@@ -176,6 +176,15 @@ describe('diffManifest', () => {
       expect(response(field({ oneOf: [A, B] }), field({ oneOf: [A] }))).to.equal(false);
     });
 
+    it('union: a plain type facing a union counts as a one-member union', () => {
+      const plain = field(A);
+      const union = field({ anyOf: [A, B] });
+      expect(response(plain, union)).to.equal(true);
+      expect(response(union, plain)).to.equal(false);
+      expect(request(union, plain)).to.equal(true);
+      expect(request(plain, union)).to.equal(false);
+    });
+
     it('union: reordering alone is not a change', () => {
       expect(request(field({ anyOf: [A, B] }), field({ anyOf: [B, A] }))).to.equal(false);
       expect(response(field({ anyOf: [A, B] }), field({ anyOf: [B, A] }))).to.equal(false);

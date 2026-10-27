@@ -132,11 +132,23 @@ const memberKey = (m: unknown): string => (isSchema(m) && typeof m.$ref === 'str
 
 const memberLabel = (m: unknown): string => (isSchema(m) && typeof m.$ref === 'string' ? (m.$ref.split('/').pop() ?? m.$ref) : 'inline');
 
+const ANNOTATIONS = new Set(['description', 'title', 'examples', 'default', '$comment']);
+
+/** A plain schema facing a union on the other side is compared as a one-member union. */
+function membersOf(s: Schema, other: Schema, key: 'anyOf' | 'oneOf'): unknown[] | undefined {
+  const own: unknown = s[key];
+  if (Array.isArray(own)) return own as unknown[];
+  if (!Array.isArray(other[key]) || s.anyOf !== undefined || s.oneOf !== undefined) return undefined;
+  return [Object.fromEntries(Object.entries(s).filter(([k]) => !ANNOTATIONS.has(k)))];
+}
+
 function compareUnion(b: Schema, h: Schema, path: string, w: Walk): void {
   for (const key of ['anyOf', 'oneOf'] as const) {
-    if (!Array.isArray(b[key]) || !Array.isArray(h[key])) continue;
-    const before = new Map(b[key].map((m) => [memberKey(m), m]));
-    const after = new Map(h[key].map((m) => [memberKey(m), m]));
+    const baseMembers = membersOf(b, h, key);
+    const headMembers = membersOf(h, b, key);
+    if (baseMembers === undefined || headMembers === undefined) continue;
+    const before = new Map(baseMembers.map((m) => [memberKey(m), m]));
+    const after = new Map(headMembers.map((m) => [memberKey(m), m]));
     for (const [k, m] of before) {
       const next = after.get(k);
       if (next === undefined) report(w, w.direction === 'request', path, `${key} member removed`);
