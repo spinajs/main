@@ -1,6 +1,6 @@
 import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 
-// Mirrors @spinajs/hooks: the package ships no manifest fragment yet, so the fixture registers the schema itself.
+// Mirrors @spinajs/hooks until it ships a manifest fragment.
 export const HOOKS_CONFIGURATION_SCHEMA = {
   $id: 'spinajs/hooks.configuration.schema.json',
   $configurationModule: 'hooks',

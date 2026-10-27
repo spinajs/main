@@ -18,8 +18,24 @@ function payloadOf(m: NamedMethod, className: string, ctx: ExtractorContext): Ty
   return p ? ctx.typeRef(ctx.checker.getTypeAtLocation(p), p, `${className}_${m.name.text}_Payload`) : { text: 'void' };
 }
 
-function commandOf(m: NamedMethod, className: string, cmd: DecoratorInfo, ctx: ExtractorContext): SocketCommandEntry {
+const STREAM_TYPES = new Set(['AsyncIterable', 'AsyncIterableIterator', 'AsyncGenerator']);
+
+function streamItemOf(type: ts.Type, ctx: ExtractorContext): ts.Type | undefined {
+  const isReference = type.flags & ts.TypeFlags.Object && (type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference;
+  if (!isReference || !STREAM_TYPES.has(type.getSymbol()?.name ?? '')) return undefined;
+  return ctx.checker.getTypeArguments(type as ts.TypeReference)[0];
+}
+
+function resultOf(m: NamedMethod, className: string, ctx: ExtractorContext): Pick<SocketCommandEntry, 'result' | 'stream'> {
   const sig = ctx.checker.getSignatureFromDeclaration(m);
+  if (!sig) return { result: { text: 'unknown' } };
+  const returned = ctx.checker.getReturnTypeOfSignature(sig);
+  const hint = `${className}_${m.name.text}_Result`;
+  const item = streamItemOf(returned, ctx);
+  return item ? { result: ctx.typeRef(item, m, hint), stream: true } : { result: ctx.typeRef(returned, m, hint) };
+}
+
+function commandOf(m: NamedMethod, className: string, cmd: DecoratorInfo, ctx: ExtractorContext): SocketCommandEntry {
   const access = socketAccessOf(m, ctx);
   const policies = policyGroupsOf(m, ctx, 'route');
   if (access) policies.push([{ type: 'AccessPolicy', options: ['route'] }]);
@@ -27,7 +43,7 @@ function commandOf(m: NamedMethod, className: string, cmd: DecoratorInfo, ctx: E
     name: (literalValue(cmd.args[0], ctx) as string | undefined) ?? m.name.text,
     handler: m.name.text,
     payload: payloadOf(m, className, ctx),
-    result: sig ? ctx.typeRef(ctx.checker.getReturnTypeOfSignature(sig), m, `${className}_${m.name.text}_Result`) : { text: 'unknown' },
+    ...resultOf(m, className, ctx),
     options: (literalValue(cmd.args[1], ctx) as SocketCommandEntry['options'] | undefined) ?? {},
     ...(access ? { access } : {}),
     policies,

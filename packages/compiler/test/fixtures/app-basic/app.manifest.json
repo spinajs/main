@@ -10,6 +10,21 @@
   "services": [],
   "values": [
     {
+      "token": "__http_error_map__",
+      "kind": "map",
+      "mapKey": "ResourceNotFound",
+      "value": {
+        "response": "UserNotFound",
+        "status": 404
+      },
+      "source": {
+        "file": "src/controllers/users.ts",
+        "line": 13,
+        "col": 1,
+        "package": "app-basic"
+      }
+    },
+    {
       "token": "__configurationSchema__",
       "kind": "value",
       "source": {
@@ -101,7 +116,7 @@
           },
           "source": {
             "file": "src/controllers/users.ts",
-            "line": 17,
+            "line": 19,
             "col": 3,
             "package": "app-basic"
           }
@@ -143,7 +158,7 @@
           ],
           "source": {
             "file": "src/controllers/users.ts",
-            "line": 24,
+            "line": 26,
             "col": 3,
             "package": "app-basic"
           }
@@ -185,7 +200,7 @@
           ],
           "source": {
             "file": "src/controllers/users.ts",
-            "line": 32,
+            "line": 34,
             "col": 3,
             "package": "app-basic"
           }
@@ -211,8 +226,7 @@
               "name": "file",
               "kind": "FromFile",
               "runtimeType": {
-                "text": "IUploadedFile<any>",
-                "schema": "spinajs/app-basic/IUploadedFile_any"
+                "text": "IUploadedFile<any>"
               },
               "required": true
             }
@@ -224,7 +238,7 @@
           "middlewares": [],
           "source": {
             "file": "src/controllers/users.ts",
-            "line": 41,
+            "line": 43,
             "col": 3,
             "package": "app-basic"
           }
@@ -232,7 +246,7 @@
       ],
       "source": {
         "file": "src/controllers/users.ts",
-        "line": 13,
+        "line": 16,
         "col": 1,
         "package": "app-basic"
       }
@@ -274,9 +288,10 @@
             "schema": "spinajs/app-basic/ChatSocketController_history_Payload"
           },
           "result": {
-            "text": "AsyncIterable<ChatMessage>",
-            "schema": "spinajs/app-basic/ChatSocketController_history_Result"
+            "text": "ChatMessage",
+            "schema": "spinajs/app-basic/ChatMessage"
           },
+          "stream": true,
           "options": {},
           "policies": [],
           "source": {
@@ -397,11 +412,6 @@
       ],
       "additionalProperties": false
     },
-    "spinajs/app-basic/ChatSocketController_history_Result": {
-      "$id": "spinajs/app-basic/ChatSocketController_history_Result",
-      "type": "object",
-      "additionalProperties": false
-    },
     "spinajs/app-basic/ChatSocketController_send_Payload": {
       "$id": "spinajs/app-basic/ChatSocketController_send_Payload",
       "type": "object",
@@ -444,78 +454,6 @@
       ],
       "additionalProperties": false
     },
-    "spinajs/app-basic/File": {
-      "$id": "spinajs/app-basic/File",
-      "type": "object",
-      "properties": {
-        "size": {
-          "type": "number",
-          "description": "The size of the uploaded file in bytes. If the file is still being uploaded (see `'fileBegin'`\nevent), this property says how many bytes of the file have been written to disk yet."
-        },
-        "filepath": {
-          "type": "string",
-          "description": "The path this file is being written to. You can modify this in the `'fileBegin'` event in case\nyou are unhappy with the way formidable generates a temporary path for your files."
-        },
-        "originalFilename": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "The name this file had according to the uploading client."
-        },
-        "newFilename": {
-          "type": "string",
-          "description": "Calculated based on options provided"
-        },
-        "mimetype": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "The mime type of this file, according to the uploading client."
-        },
-        "mtime": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "format": "date-time",
-          "description": "A Date object (or `null`) containing the time this file was last written to. Mostly here for\ncompatibility with the [W3C File API Draft](http://dev.w3.org/2006/webapi/FileAPI/)."
-        },
-        "hashAlgorithm": {
-          "anyOf": [
-            {
-              "const": false
-            },
-            {
-              "const": "sha1"
-            },
-            {
-              "const": "md5"
-            },
-            {
-              "const": "sha256"
-            }
-          ]
-        },
-        "hash": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "If `options.hashAlgorithm` calculation was set, you can read the hex digest out of this var\n(at the end it will be a string)."
-        }
-      },
-      "required": [
-        "size",
-        "filepath",
-        "originalFilename",
-        "newFilename",
-        "mimetype",
-        "hashAlgorithm"
-      ],
-      "additionalProperties": false
-    },
     "spinajs/app-basic/HealthController_get_Response": {
       "$id": "spinajs/app-basic/HealthController_get_Response",
       "type": "object",
@@ -526,133 +464,6 @@
       },
       "required": [
         "ok"
-      ],
-      "additionalProperties": false
-    },
-    "spinajs/app-basic/IFileInfo": {
-      "$id": "spinajs/app-basic/IFileInfo",
-      "type": "object",
-      "properties": {
-        "FileSize": {
-          "type": "number",
-          "description": "Size in bytes"
-        },
-        "Height": {
-          "type": "number"
-        },
-        "Width": {
-          "type": "number"
-        },
-        "Duration": {
-          "type": "number"
-        },
-        "FrameCount": {
-          "type": "number"
-        },
-        "FrameRate": {
-          "type": "number"
-        },
-        "AudioChannels": {
-          "type": "number",
-          "description": "Number of audio channels ( eg. 2 for stereo )"
-        },
-        "Bitrate": {
-          "type": "number"
-        },
-        "Codec": {
-          "type": "string"
-        },
-        "LineCount": {
-          "type": "number"
-        },
-        "Encoding": {
-          "type": "string"
-        },
-        "MimeType": {
-          "type": "string"
-        },
-        "WordCount": {
-          "type": "number"
-        },
-        "AccessDate": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "ModificationDate": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "CreationDate": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "Raw": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "Raw unprocessed data obtained from file info"
-        }
-      },
-      "required": [
-        "FileSize"
-      ],
-      "additionalProperties": {}
-    },
-    "spinajs/app-basic/IUploadedFile_any": {
-      "$id": "spinajs/app-basic/IUploadedFile_any",
-      "type": "object",
-      "properties": {
-        "Size": {
-          "type": "number",
-          "description": "File size in bytes"
-        },
-        "Name": {
-          "type": "string",
-          "description": "Original file name"
-        },
-        "BaseName": {
-          "type": "string",
-          "description": "Filename without path"
-        },
-        "Type": {
-          "type": "string",
-          "description": "Mime type of file"
-        },
-        "LastModifiedDate": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "Hash": {
-          "type": "string"
-        },
-        "Provider": {
-          "anyOf": [
-            {
-              "$ref": "spinajs/app-basic/fs"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "File system provider used to store this file eg. could be local, or aws s3 etc"
-        },
-        "Data": {
-          "description": "Additional data filled by middlewares if needed"
-        },
-        "Info": {
-          "$ref": "spinajs/app-basic/IFileInfo",
-          "description": "File info obtained during upload when fileInfo option is set"
-        },
-        "OriginalFile": {
-          "$ref": "spinajs/app-basic/File",
-          "description": "Formidable original file data"
-        }
-      },
-      "required": [
-        "Size",
-        "Name",
-        "BaseName",
-        "Type",
-        "OriginalFile"
       ],
       "additionalProperties": false
     },
@@ -776,35 +587,6 @@
         }
       }
     },
-    "spinajs/app-basic/fs": {
-      "$id": "spinajs/app-basic/fs",
-      "type": "object",
-      "properties": {
-        "ServiceName": {
-          "type": "string"
-        },
-        "Name": {
-          "type": "string"
-        },
-        "BasePath": {
-          "type": "string",
-          "description": "Root that absolute paths are made relative to before any action; undefined when the provider has none."
-        },
-        "resolved": {
-          "type": "boolean"
-        },
-        "Resolved": {
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "ServiceName",
-        "Name",
-        "resolved",
-        "Resolved"
-      ],
-      "additionalProperties": false
-    },
     "spinajs/hooks.configuration.schema.json": {
       "$id": "spinajs/hooks.configuration.schema.json",
       "$configurationModule": "hooks",
@@ -825,30 +607,7 @@
       }
     }
   },
-  "diagnostics": [
-    {
-      "code": "SCH001",
-      "severity": "warning",
-      "message": "unsupported type any, emitted as {} (declared in IUploadedFile)",
-      "source": {
-        "file": "src/controllers/users.ts",
-        "line": 42,
-        "col": 44,
-        "package": "app-basic"
-      }
-    },
-    {
-      "code": "SCH001",
-      "severity": "info",
-      "message": "unknown type at unknown accepts any value (declared in IUploadedFile)",
-      "source": {
-        "file": "src/controllers/users.ts",
-        "line": 42,
-        "col": 44,
-        "package": "app-basic"
-      }
-    }
-  ],
-  "generatedAt": "2026-10-27T07:55:01.892Z",
-  "hash": "d3ad3d78853c9e2fad0082eee4efe25e2210c7c8da89f3c2fb4d4f76c7328803"
+  "diagnostics": [],
+  "generatedAt": "2026-10-27T08:15:06.874Z",
+  "hash": "246587929ceac27f5c84d573e910b229cdb51bb473e50e9019676127822ec6a9"
 }

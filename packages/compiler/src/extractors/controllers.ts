@@ -49,8 +49,10 @@ function paramOf(p: ts.ParameterDeclaration, index: number, owner: string, ctx: 
     ctx.schemas[schemaId] = schema;
   }
   const type = ctx.checker.getTypeAtLocation(p);
+  const kind = PARAM_KINDS[dec.name];
+  const nonNull = ctx.checker.getNonNullableType(type);
   return {
-    index, name, kind: PARAM_KINDS[dec.name], runtimeType: ctx.typeRef(ctx.checker.getNonNullableType(type), p, `${owner.replace('.', '_')}_${name}`),
+    index, name, kind, runtimeType: kind === 'FromFile' ? ctx.plainTypeRef(nonNull) : ctx.typeRef(nonNull, p, `${owner.replace('.', '_')}_${name}`),
     required: options?.required === true || isRequired(p, type),
     ...(options !== undefined ? { options } : {}), ...(schemaId ? { schema: schemaId } : {}),
   };

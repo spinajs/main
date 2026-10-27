@@ -1,29 +1,24 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import type { Manifest } from '@spinajs/manifest';
-import { buildAppManifest } from '../../src/index.js';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { hashManifest, mergeFragments, type Manifest } from '@spinajs/manifest';
+import { analyzePackage } from '../../src/index.js';
 
 export const APP_BASIC_MANIFEST = resolve('test/fixtures/app-basic/app.manifest.json');
 
 /**
- * Builds the generator fixture manifest. Dependencies are left out on purpose: pkg-basic declares its own
- * UsersController and UserCreated, which would clash with the app ones in generator snapshots.
- * `app.root` is made relative so the committed file does not depend on the checkout location.
+ * Builds the generator fixture manifest from app-basic alone: pkg-basic declares its own UsersController
+ * and UserCreated, which would clash with the app ones in generator snapshots. `app.root` is relative
+ * so the committed file does not depend on the checkout location.
  */
 export async function buildFixtureManifest(): Promise<Manifest> {
-  const dir = mkdtempSync(join(tmpdir(), 'app-basic-manifest-'));
-  try {
-    const { manifest } = await buildAppManifest({
-      tsconfig: 'test/fixtures/app-basic/tsconfig.json',
-      appRoot: 'test/fixtures/app-basic',
-      dependencies: false,
-      out: join(dir, 'app.manifest.json'),
-    });
-    return { ...manifest, app: { ...manifest.app, root: '.' } };
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  const app = await analyzePackage({ tsconfig: 'test/fixtures/app-basic/tsconfig.json', packageRoot: 'test/fixtures/app-basic' });
+  const pkg = JSON.parse(readFileSync('test/fixtures/app-basic/package.json', 'utf8')) as { name: string; version: string };
+  const merged = mergeFragments(app, [], {
+    app: { name: pkg.name, version: pkg.version, root: '.', outDir: app.package.outDir },
+    packages: [],
+    generatedAt: new Date().toISOString(),
+  });
+  return { ...merged, hash: hashManifest(merged) };
 }
 
 /** Regenerate with `UPDATE_FIXTURE_MANIFEST=1 npx ts-mocha -p tsconfig.json test/fixture-manifest.test.ts`. */

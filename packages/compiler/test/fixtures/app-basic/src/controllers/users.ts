@@ -1,4 +1,4 @@
-import { BaseController, BasePath, Body, File, Get, HandleException, Param, Post, Query } from '@spinajs/http';
+import { BaseController, BasePath, Body, File, Get, HandleException, NotFound, Param, Post, Query } from '@spinajs/http';
 import type { IUploadedFile } from '@spinajs/http';
 import { Access } from '@spinajs/authz-http';
 import { ResourceNotFound } from '@spinajs/exceptions';
@@ -10,8 +10,10 @@ export type ListQuery = { page?: number; perPage?: number };
 
 const USERS: UserDto[] = [{ id: 1, email: 'ada@example.com', name: 'Ada' }];
 
-@BasePath('users')
 @HandleException(ResourceNotFound)
+export class UserNotFound extends NotFound {}
+
+@BasePath('users')
 export class UsersController extends BaseController {
   /** List users, paginated. */
   @Get()

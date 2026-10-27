@@ -702,6 +702,10 @@
         "result": {
           "$ref": "#/definitions/TypeRef"
         },
+        "stream": {
+          "type": "boolean",
+          "const": true
+        },
         "options": {
           "type": "object",
           "properties": {

@@ -49,6 +49,25 @@ describe('app-basic manifest fixture', () => {
     expect(m.queueMessages.map((q) => `${q.kind}:${q.className}`)).to.deep.equal(['job:SendMailJob', 'event:UserCreated']);
   });
 
+  it('streams the history result as ChatMessage items', () => {
+    const history = manifest().socketControllers[0].commands.find((c) => c.name === 'history');
+    expect(history?.result).to.deep.equal({ text: 'ChatMessage', schema: 'spinajs/app-basic/ChatMessage' });
+    expect(history?.stream).to.equal(true);
+  });
+
+  it('maps ResourceNotFound to the UserNotFound response with status 404', () => {
+    const entry = manifest().values.find((v) => v.token === '__http_error_map__' && v.mapKey === 'ResourceNotFound');
+    expect(entry?.value).to.deep.equal({ response: 'UserNotFound', status: 404 });
+  });
+
+  it('derives no schema for the uploaded file and no framework file schemas', () => {
+    const m = manifest();
+    const avatar = m.controllers.find((c) => c.className === 'UsersController')?.routes[3];
+    expect(avatar?.params[1].runtimeType.schema).to.equal(undefined);
+    expect(Object.keys(m.schemas).filter((id) => /\/(File|IFileInfo|fs|IUploadedFile_any)$/.test(id))).to.deep.equal([]);
+    expect(m.diagnostics.filter((d) => d.severity !== 'info')).to.deep.equal([]);
+  });
+
   it('declares the hooks and app config modules', () => {
     expect(manifest().configModules.map((c) => c.module)).to.include.members(['hooks', 'app']);
   });
