@@ -10,6 +10,9 @@ export type BotCheckFailureReason = 'missing' | 'failed' | 'unavailable';
 
 /** A request refused by `@BotCheck`. `next` names the verifier the client should show instead. */
 export class BotCheckFailed extends Exception {
+  // BotCheckFailedResponse builds its body from these
+  public static problemFields = ['reason', 'next'];
+
   constructor(
     public readonly check: string,
     public readonly reason: BotCheckFailureReason,

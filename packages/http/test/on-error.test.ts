@@ -282,7 +282,7 @@ describe('OnError', function () {
   it('changes nothing for a route without OnError', async () => {
     const res = await req().post('plain-errors/plain').send({});
     expect(res.status).to.eq(400);
-    expect((res.body as { message: string }).message).to.eq('validation error');
+    expect((res.body as { detail: string }).detail).to.eq('validation error');
   });
 
   it('runs the action on valid input', async () => {

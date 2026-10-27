@@ -1493,7 +1493,7 @@ ${line}` : line;
       responses[name] = {
         description: description || STANDARD_RESPONSE_DESCRIPTIONS[statusCode] || name,
         content: {
-          'application/json': { schema: { $ref: '#/components/schemas/Error' } },
+          'application/problem+json': { schema: { $ref: '#/components/schemas/ProblemDetails' } },
         },
       };
       this.registeredResponses.add(name);
@@ -1503,23 +1503,28 @@ ${line}` : line;
   }
 
   /**
-   * Register the shared Error schema once. Matches the runtime error envelope
-   * built in packages/http/src/error.ts (spread of the Error instance + message,
-   * with optional stack in dev).
+   * Register the shared ProblemDetails schema once. Mirrors PROBLEM_DETAILS_SCHEMA of @spinajs/http,
+   * the body packages/http/src/error.ts answers with.
    */
   private ensureErrorSchema(): void {
     if (this.errorSchemaRegistered) return;
 
     const components = (this.document.components ??= {});
     const schemas = (components.schemas ??= {});
-    if (!schemas.Error) {
-      schemas.Error = {
+    if (!schemas.ProblemDetails) {
+      schemas.ProblemDetails = {
         type: 'object',
-        required: ['message'],
+        required: ['type', 'title', 'status'],
+        additionalProperties: true,
         properties: {
-          message: { type: 'string', description: 'Human-readable error message' },
-          code: { type: 'integer', description: 'HTTP status code (when present)' },
-          stack: { type: 'object', description: 'Stack trace — dev environments only', nullable: true },
+          type: { type: 'string', description: 'about:blank, or a URI identifying the problem type' },
+          title: { type: 'string', description: 'Short, human-readable summary of the problem type' },
+          status: { type: 'integer', description: 'HTTP status code' },
+          detail: { type: 'string', description: 'Human-readable explanation of this occurrence' },
+          instance: { type: 'string', description: 'Request URL' },
+          code: { type: 'string', description: 'Application error code, when the exception defines one' },
+          errors: { description: 'Validation errors, present on validation failures only' },
+          stack: { type: 'string', description: 'Stack trace, only when http.errors.includeStack is enabled outside production' },
         },
       };
     }

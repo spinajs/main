@@ -95,6 +95,10 @@ const http = {
     bodyLimits: [],
 
     errors: {
+      // The stack goes into an error body only outside production
+      includeStack: false,
+      // Own properties of an exception copied into its problem body; everything else is dropped
+      includeFields: [],
       // { service: '<ErrorHandlerService class name>' } entries, see docs/http/11-error-handling.md
       handlers: [],
     },

@@ -6,7 +6,7 @@ The exception side of this mapping, with the full list of mapped exceptions, is 
 
 A route or controller can handle its own errors first with [`@OnError`](#route-error-handlers): answer them, replace them, or only observe them.
 
-An API whose clients branch on a stable error code throws a [`CodedHttpException`](#coded-errors): it carries its own status and code, and answers `{ code, message, details? }`.
+An API whose clients branch on a stable error code throws a [`CodedHttpException`](#coded-errors): it carries its own status and code, and answers a problem document with its `code` and `details?`.
 
 ## How it works
 
@@ -18,7 +18,7 @@ Errors reach the handler from two places:
 `__handle_error__()` reads, once when it is created: the `'__http_error_map__'` map, `configuration.isProduction`, `http.AcceptHeaders` and `http.FatalTemplate`. Per error:
 
 1. **Body-parser failures.** Invalid JSON answers 400 with `request body is not valid JSON`. A `verify` hook failure answers with the response mapped for the thrown class, or 400 `request body was refused` when it is not mapped. Both log at `warn` and never echo the request body.
-2. **Error body.** `{ ...err, message: err.message }`: the exception's own enumerable fields plus its message; a body-parser `body` field is removed. Outside production, `stack` is added.
+2. **Error body.** A [problem document](#problem-bodies) (`application/problem+json`): `type`, `title`, `status`, `detail` (the message), `instance`, and `code` or `errors` when the exception has them. Other fields of the exception are dropped unless listed in `http.errors.includeFields`. `stack` is added only when `http.errors.includeStack` is true outside production.
 3. It logs the error at `error` with method and URL; query values in the URL are replaced by `[redacted]`.
 4. **Lookup.** It walks from the exception's class up its prototype chain and takes the first class **name** found in the map. No match: it logs a warning and uses `ServerError` (500).
 5. It runs `new ResponseClass(body).execute(req, res)`: JSON, HTML or XML by [content negotiation](10-responses.md#content-negotiation).
@@ -31,7 +31,7 @@ sequenceDiagram
   participant M as __http_error_map__
   participant R as Response class
   A->>H: throw new InvoiceLocked('...')
-  H->>H: body = { ...err, message, stack? }
+  H->>H: body = toProblem(err, status, options)
   H->>M: 'InvoiceLocked'? 'Forbidden'?
   M-->>H: ForbiddenResponse
   H->>R: new ForbiddenResponse(body).execute(req, res)
@@ -49,7 +49,9 @@ sequenceDiagram
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `configuration.isProduction` | `boolean` | `false` | | `true` leaves `stack` out of error bodies. |
+| `configuration.isProduction` | `boolean` | `false` | | `true` leaves `stack` out of error bodies, whatever `http.errors.includeStack` says. |
+| `http.errors.includeStack` | `boolean` | `false` | | Adds the exception `stack` to error bodies outside production. |
+| `http.errors.includeFields` | `string[]` | `[]` | own enumerable exception property names | Copied into the problem body as extension members. Names the body already defines are ignored. |
 | `http.AcceptHeaders` | `HttpAcceptHeaders` | `1 \| 2` | | Formats the error response may use; HTML enables the fatal template. |
 | `http.FatalTemplate` | `string` | built-in page | HTML with `{ticket}` | Last-resort page. |
 | `http.errors.handlers` | `{ service: string }[]` | `[]` | names of registered `ErrorHandlerService` classes | App-wide route error handlers, run after the route and controller `@OnError` handlers, in this order. |
@@ -72,7 +74,7 @@ The building blocks of the route error handlers are exported for custom route ch
 | `createOnErrorHandler(descriptors, route, controller, container, log)` | The Express error handler that runs the descriptors in order, as described in [Order](#order). With no descriptors, or once headers are sent, it passes the error on. |
 | `resolveConfigErrorHandlers(cfg, container)` | Resolves the `http.errors.handlers` entries into descriptors, in config order; `[]` when the list is empty. Throws `InvalidOption` for a name no registered `ErrorHandlerService` has. |
 | `toErrorDescriptor(service)` | Turns an `ErrorHandlerService` into an `IOnErrorDescriptor` (`On`, `Handler`, `Stages`). |
-| `answeredAsServerError(err)` | `true` when the error handler answers `err` with the generic 500: no response is mapped for its class chain, or the mapped one is `ServerError` or a subclass. Such a body carries the error's own fields and, outside production, its stack. A body-parser failure that answers 400 gives `false`. Use it in an `@OnError` handler to replace the body of an unexpected error. |
+| `answeredAsServerError(err)` | `true` when the error handler answers `err` with the generic 500: no response is mapped for its class chain, or the mapped one is `ServerError` or a subclass. Such a body carries the error's message, which can reveal internals. A body-parser failure that answers 400 gives `false`. Use it in an `@OnError` handler to replace the body of an unexpected error. |
 
 ### Error map: custom implementation
 
@@ -114,13 +116,34 @@ export class InvoiceActionsController extends BaseController {
 
   @Post(':id/export')
   public export(@Param() _id: number) {
-    // Body: { "message": "...", "renewUrl": "/billing", "stack"?: "..." }, status 402.
+    // Body: { "type": "about:blank", "title": "Subscription Expired", "status": 402, "detail": "...", "renewUrl": "/billing" }
+    // renewUrl is there only when http.errors.includeFields lists it.
     throw new SubscriptionExpired('exports need an active plan', '/billing');
   }
 }
 ```
 
-The exception's public fields (`renewUrl` above) are copied into the error body, so the client can act on them.
+List the exception's public fields the client needs (`renewUrl` above) in `http.errors.includeFields`; no other field reaches the body.
+
+## Problem bodies
+
+Every error answers `Content-Type: application/problem+json` (RFC 9457) when the client takes JSON:
+
+```json
+{ "type": "about:blank", "title": "Validation Failed", "status": 400, "detail": "...", "instance": "/orders", "errors": [] }
+```
+
+| Member | Source |
+| --- | --- |
+| `type` | static `problemType` on the exception class, else `about:blank` |
+| `title` | the exception class name in words |
+| `status` | the mapped response's status |
+| `detail` | `err.message` |
+| `instance` | the request URL, query secrets redacted |
+| `code` | `err.code` when it is a string |
+| `errors` | the Ajv errors of `ValidationFailed` |
+
+`ProblemDetails`, `toProblem` and the JSON Schema `PROBLEM_DETAILS_SCHEMA` are exported from `@spinajs/http`. HTML clients still get the mapped template, which shows `detail`.
 
 ## Coded errors
 
@@ -141,13 +164,13 @@ The exception's public fields (`renewUrl` above) are copied into the error body,
 `CodedHttpExceptionResponse` answers:
 
 1. The status: `IResponseOptions.StatusCode` when given, else the exception's `status`, else 500.
-2. The body, as `CodedErrorBody`: `{ code, message }`, plus `details` when the exception has them. No other field of the exception, and no `stack`, whatever `configuration.isProduction` says.
+2. The body, a problem document: `status`, `code`, `detail` (the message), plus `details` when the exception has them. No other field of the exception, and no `stack`, whatever `http.errors.includeStack` says.
 3. Always JSON through `jsonResponse`: no `Accept` negotiation, no `x-error-transform` transformer. A browser asking for HTML gets the same JSON.
 
 `details` goes through `res.json()`, so it must survive `JSON.stringify`: no cycles, no `BigInt`. When it does not, the coded answer fails and one of the error handler's fallbacks answers 500 instead, which is not the coded body and, outside production, can carry a `stack`.
 
 ```json
-{ "code": "invoice.locked", "message": "The invoice is sent and cannot change", "details": { "invoice": "2026-0042" } }
+{ "type": "about:blank", "title": "Coded Http Exception", "status": 409, "detail": "The invoice is sent and cannot change", "instance": "/invoices/42/lock", "code": "invoice.locked", "details": { "invoice": "2026-0042" } }
 ```
 
 Narrow the code with one subclass per app. It inherits the mapping, because the lookup walks the prototype chain:
@@ -169,7 +192,7 @@ export class InvoicesController extends BaseController {
   @Get(':number')
   public read(@Param() number: string) {
     if (!/^\d{4}-\d{4}$/.test(number)) {
-      // 400 { "code": "input.invalid", "message": "An invoice number is YYYY-NNNN" }
+      // 400 problem: code "input.invalid", detail "An invoice number is YYYY-NNNN"
       throw new ApiException(400, 'input.invalid', 'An invoice number is YYYY-NNNN');
     }
     if (number.endsWith('0000')) {
@@ -281,9 +304,9 @@ A name in `http.errors.handlers` that no registered `ErrorHandlerService` has fa
 
 - Lookup is by class **name**. Two exception classes with the same name share one mapping.
 - An exact registration wins over an inherited one, because the walk starts at the concrete class.
-- Every own enumerable field of the exception goes into the body. Do not put secrets, SQL or tokens on exceptions. `CodedHttpExceptionResponse` does not: it sends `code`, `message` and `details` only.
+- Only the problem members and the fields listed in `http.errors.includeFields` go into the body. Do not list fields that hold secrets, SQL or tokens.
 - Unmapped errors (a plain `Error`, a `TypeError`) answer 500 and log `Error type X dont have assigned http response`.
-- Outside production the body carries `stack`. Set `configuration.isProduction` in production.
+- The body carries `stack` only when `http.errors.includeStack` is true and `configuration.isProduction` is not.
 - The map and the configuration are read when each handler is created (controller startup and `HttpServer.start()`). Register mappings before that.
 - A request to an unknown path answers 404 with `Route not found: <METHOD> <path>`.
 - The error map lives in the DI cache, not in the registry: `DI.clearCache()` (eg. in a test suite) empties it, and every error then answers 500. Uncache only the types you registered.

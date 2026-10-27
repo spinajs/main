@@ -5,11 +5,13 @@ import { DI, Constructor } from '@spinajs/di';
 import { ResponseFunction, HTTP_STATUS_CODE, HttpAcceptHeaders, Response as HttpResponse } from './interfaces.js';
 import { ServerError } from './response-methods/serverError.js';
 import { BadRequestResponse } from './response-methods/badRequest.js';
-import { BadRequest } from '@spinajs/exceptions';
+import { BadRequest, CodedHttpException } from '@spinajs/exceptions';
 import randomstring from 'randomstring';
 import { Log } from '@spinajs/log';
 import { Configuration } from '@spinajs/configuration';
 import { redactUrl } from './util/redact-url.js';
+import { PROBLEM_CONTENT_TYPE, toProblem } from './problem.js';
+import type { ProblemDetails, ProblemOptions } from './problem.js';
 /**
  * The response registered for an exception, or for the nearest MAPPED class it inherits from.
  *
@@ -32,6 +34,8 @@ export function __resolve_error_response__(errorMap: Map<string, Constructor<Htt
 
     return null;
 }
+
+const isErrorStatus = (status: unknown): status is number => Number.isInteger(status) && (status as number) >= 400 && (status as number) <= 599;
 
 // body-parser forwards its errors with a string `type` and, on parse and verify failures, the raw request
 // text as `body`. A parse failure's message quotes the input too.
@@ -63,7 +67,7 @@ function bodyFailureMessage(err: any, errorMap: Map<string, Constructor<HttpResp
 
 /**
  * Whether {@link __handle_error__} answers `err` with the generic 500: its response is `ServerError` or none is mapped.
- * That body spreads the error's own properties and, unless `configuration.isProduction` is set, its stack.
+ * That body is a problem document naming the exception's message, so such an error can carry internals.
  */
 export function answeredAsServerError(err: unknown): boolean {
     const errorMap = DI.get<Map<string, Constructor<HttpResponse>>>('__http_error_map__') ?? null;
@@ -88,6 +92,11 @@ export function __handle_error__() {
     const errorMap = DI.get<Map<string, Constructor<HttpResponse>>>('__http_error_map__');
     const acceptHeaders = config ? config.get<HttpAcceptHeaders>('http.AcceptHeaders') : null;
     const fatalTemplate = config ? config.get<string>('http.FatalTemplate') : null;
+    const baseProblemOptions: ProblemOptions = {
+        includeStack: config ? config.get<boolean>('http.errors.includeStack', false) === true : false,
+        includeFields: config ? (config.get<string[]>('http.errors.includeFields', []) ?? []) : [],
+        isProduction: isProductionEnv,
+    };
 
 
     return (err: any, req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
@@ -95,48 +104,31 @@ export function __handle_error__() {
             return next();
         }
 
-        let error: any;
+        let error: ProblemDetails;
         let response: HttpResponse | null = null;
 
         const bodyFailure = bodyFailureMessage(err, errorMap);
+        const problemOptions: ProblemOptions = { ...baseProblemOptions, instance: redactUrl(req.originalUrl) };
 
         if (bodyFailure) {
             logger.warn({ failure: err.type, method: req.method, url: redactUrl(req.originalUrl) }, 'Request body failure (${failure}) at ${method} ${url}');
 
-            error = { message: bodyFailure };
-            const httpResponse = errorMap ? __resolve_error_response__(errorMap, new BadRequest(bodyFailure)) : null;
-            response = httpResponse ? new httpResponse(error) : new BadRequestResponse(error);
+            const badRequest = new BadRequest(bodyFailure);
+            const ResponseClass: Constructor<HttpResponse> = (errorMap ? __resolve_error_response__(errorMap, badRequest) : null) ?? BadRequestResponse;
+            error = toProblem(badRequest, new ResponseClass(null).statusCode, problemOptions);
+            response = new ResponseClass(error);
         } else {
-            error = {
-                /**
-                 * By default Error object dont copy values like message ( they are not enumerable )
-                 * It only copies custom props added to Error ( via inheritance )
-                 */
-                ...err,
-
-                // make sure error message is added
-                message: err.message,
-            };
-
-            if (isBodyParserError(err)) {
-                delete error.body;
-            }
-
-            // in dev mode add stack trace for debugging. In production the stack is
-            // omitted entirely rather than serialized as an empty object.
-            if (!isProductionEnv) {
-                error.stack = err.stack ? err.stack : err.parameter && err.parameter.stack;
-            }
-
             logger.error({ error: err, method: req.method, url: redactUrl(req.originalUrl) }, 'Error in controller ${method} at path ${url}');
 
             const httpResponse = errorMap ? __resolve_error_response__(errorMap, err) : null;
-            if (httpResponse) {
-                response = new httpResponse(error);
-            } else {
+            const ResponseClass: Constructor<HttpResponse> = httpResponse ?? ServerError;
+            if (!httpResponse) {
                 logger.warn({ errorType: err.constructor?.name }, 'Error type ${errorType} dont have assigned http response. Map error to response via _http_error_map__ in DI container');
-                response = new ServerError(error);
             }
+
+            const status = err instanceof CodedHttpException && isErrorStatus(err.status) ? err.status : new ResponseClass(null).statusCode;
+            error = toProblem(err, status, err instanceof CodedHttpException ? { ...problemOptions, includeFields: [...problemOptions.includeFields, 'details'] } : problemOptions);
+            response = new ResponseClass(error);
         }
 
         response
@@ -157,7 +149,7 @@ export function __handle_error__() {
                     const ticketNo = randomstring.generate(7);
                     res.send(fatalTemplate.replace('{ticket}', ticketNo));
                 } else {
-                    res.json(error);
+                    res.type(PROBLEM_CONTENT_TYPE).json(error);
                 }
             });
     }
