@@ -1,5 +1,5 @@
 {
-  "version": "3.0.23",
+  "version": "3.0.24",
   "description": "Observability for SpinaJS: Prometheus metrics, an HTTP request-timing/metrics middleware, and Apdex + rolling request stats",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -51,22 +51,22 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "devDependencies": {
-    "@spinajs/authz-rbac": "3.0.23",
-    "@spinajs/authz-testing": "3.0.23",
-    "@spinajs/fs": "3.0.23",
-    "@spinajs/http-swagger": "3.0.23"
+    "@spinajs/authz-rbac": "3.0.24",
+    "@spinajs/authz-testing": "3.0.24",
+    "@spinajs/fs": "3.0.24",
+    "@spinajs/http-swagger": "3.0.24"
   },
   "dependencies": {
-    "@spinajs/authz": "3.0.23",
-    "@spinajs/authz-http": "3.0.23",
-    "@spinajs/configuration": "3.0.23",
-    "@spinajs/configuration-common": "3.0.23",
-    "@spinajs/di": "3.0.23",
-    "@spinajs/exceptions": "3.0.23",
-    "@spinajs/http": "3.0.23",
-    "@spinajs/log": "3.0.23",
-    "@spinajs/telemetry-common": "3.0.23",
-    "@spinajs/validation": "3.0.23",
+    "@spinajs/authz": "3.0.24",
+    "@spinajs/authz-http": "3.0.24",
+    "@spinajs/configuration": "3.0.24",
+    "@spinajs/configuration-common": "3.0.24",
+    "@spinajs/di": "3.0.24",
+    "@spinajs/exceptions": "3.0.24",
+    "@spinajs/http": "3.0.24",
+    "@spinajs/log": "3.0.24",
+    "@spinajs/telemetry-common": "3.0.24",
+    "@spinajs/validation": "3.0.24",
     "lodash": "^4.17.21",
     "prom-client": "^14.2.0"
   }

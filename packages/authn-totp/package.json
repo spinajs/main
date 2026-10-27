@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authn-totp",
-  "version": "3.0.23",
+  "version": "3.0.24",
   "description": "TOTP multi-factor authentication for SpinaJS",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -80,22 +80,22 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authn": "3.0.23",
-    "@spinajs/authn-orm": "3.0.23",
-    "@spinajs/cli": "3.0.23",
-    "@spinajs/configuration": "3.0.23",
-    "@spinajs/di": "3.0.23",
-    "@spinajs/exceptions": "3.0.23",
-    "@spinajs/hooks": "3.0.23",
-    "@spinajs/log": "3.0.23",
-    "@spinajs/orm": "3.0.23",
-    "@spinajs/util": "3.0.23",
+    "@spinajs/authn": "3.0.24",
+    "@spinajs/authn-orm": "3.0.24",
+    "@spinajs/cli": "3.0.24",
+    "@spinajs/configuration": "3.0.24",
+    "@spinajs/di": "3.0.24",
+    "@spinajs/exceptions": "3.0.24",
+    "@spinajs/hooks": "3.0.24",
+    "@spinajs/log": "3.0.24",
+    "@spinajs/orm": "3.0.24",
+    "@spinajs/util": "3.0.24",
     "otpauth": "9.4.0",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
-    "@spinajs/authn-testing": "3.0.23",
-    "@spinajs/orm-sqlite": "3.0.23",
+    "@spinajs/authn-testing": "3.0.24",
+    "@spinajs/orm-sqlite": "3.0.24",
     "@types/qrcode": "^1.5.5"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/http-bot",
-  "version": "3.0.23",
+  "version": "3.0.24",
   "description": "Bot verification adapters (Google reCAPTCHA v3 and v2) for the @spinajs/http @BotCheck",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -54,13 +54,13 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
-    "@spinajs/configuration": "3.0.23",
+    "@spinajs/configuration": "3.0.24",
     "@types/node": "^22.14.1"
   },
   "dependencies": {
-    "@spinajs/di": "3.0.23",
-    "@spinajs/exceptions": "3.0.23",
-    "@spinajs/http": "3.0.23",
-    "@spinajs/log": "3.0.23"
+    "@spinajs/di": "3.0.24",
+    "@spinajs/exceptions": "3.0.24",
+    "@spinajs/http": "3.0.24",
+    "@spinajs/log": "3.0.24"
   }
 }

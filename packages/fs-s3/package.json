@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/fs-s3",
-  "version": "3.0.23",
+  "version": "3.0.24",
   "description": "file operations implementation for aws s3 storage",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -58,10 +58,10 @@
     "@types/archiver": "^5.3.1"
   },
   "dependencies": {
-    "@spinajs/configuration": "3.0.23",
-    "@spinajs/di": "3.0.23",
-    "@spinajs/fs": "3.0.23",
-    "@spinajs/log-common": "3.0.23",
+    "@spinajs/configuration": "3.0.24",
+    "@spinajs/di": "3.0.24",
+    "@spinajs/fs": "3.0.24",
+    "@spinajs/log-common": "3.0.24",
     "@aws-sdk/client-s3": "^3.821.0",
     "@aws-sdk/cloudfront-signer": "^3.821.0",
     "@aws-sdk/lib-storage": "^3.821.0",
