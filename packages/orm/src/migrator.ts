@@ -64,24 +64,31 @@ export class OrmMigrator extends AsyncService {
     // force: false honours each connection's OnStartup flag; a run asked for by hand ( migrate() ) does not
     const { executed } = await this.Runner.up(undefined, { force: false });
 
-    this.Seeded = new Promise<void>((resolve, reject) => {
-      const listener = (_container: unknown, resolved: unknown) => {
-        if (resolved !== orm) {
-          return;
-        }
+    this.Seeded = this.seedOnResolve(orm, executed);
 
-        this.Container.off('di.resolved.Orm', listener);
-        this.runDataPhase(executed).then(resolve, (err: unknown) => {
-          this.Log.error({ error: err }, 'OrmMigrator data() phase failed');
-          reject(err);
-        });
+    // read through ready(); a failure nobody awaits is logged by seedOnResolve()
+    this.Seeded.catch(() => undefined);
+  }
+
+  /** Waits for `orm` to be cached: a seed resolving a service that injects the Orm would wait on its resolve. */
+  protected async seedOnResolve(orm: Orm, executed: OrmMigration[]): Promise<void> {
+    await new Promise<void>((resolve) => {
+      const listener = (_container: unknown, resolved: unknown) => {
+        if (resolved === orm) {
+          this.Container.off('di.resolved.Orm', listener);
+          resolve();
+        }
       };
 
       this.Container.on('di.resolved.Orm', listener);
     });
 
-    // read through ready(); a failure nobody awaits is logged above
-    this.Seeded.catch(() => undefined);
+    try {
+      await this.runDataPhase(executed);
+    } catch (err) {
+      this.Log.error({ error: err }, 'OrmMigrator data() phase failed');
+      throw err;
+    }
   }
 
   /**

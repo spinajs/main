@@ -27,6 +27,7 @@ import {
   OrmMigrator,
   ormConnection,
   Primary,
+  resolveMigrationTool,
   SelectQueryBuilder,
   TableExistsQueryBuilder,
   TableQueryBuilder,
@@ -235,13 +236,6 @@ async function rejection(p: Promise<unknown>): Promise<unknown> {
   return undefined;
 }
 
-/** A migration tool's boot: the migrator first, then the Orm that picks it up. */
-async function toolMigrator(): Promise<OrmMigrator> {
-  const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
-  await DI.resolve(Orm);
-  return migrator;
-}
-
 /** The model tables `tableInfo()` was asked for, in call order. */
 function modelTableReads(spy: sinon.SinonSpy): string[] {
   const tables = ['mig_users', 'mig_posts', 'mig_other', 'mig_b'];
@@ -325,7 +319,7 @@ describe('OrmMigrator', function () {
   it('(i) a column a migration dropped leaves the model', async () => {
     alterMigration('mig_posts', (t) => t.dropColumn('Title'));
 
-    const migrator = await toolMigrator();
+    const migrator = await resolveMigrationTool();
     expect(columnNames(models.MigratorTestPost)).to.include('Title');
 
     await migrator.migrate();
@@ -349,7 +343,7 @@ describe('OrmMigrator', function () {
       t.string('Active').modify();
     });
 
-    const migrator = await toolMigrator();
+    const migrator = await resolveMigrationTool();
     const before = extractModelDescriptor(models.MigratorTestUser)!.Columns.find((c) => c.Name === 'Active')!;
     expect(before.Converter).to.be.instanceOf(BooleanValueConverter);
 
@@ -363,7 +357,7 @@ describe('OrmMigrator', function () {
   it('(c) re-reads the table info of the touched models only, and leaves the others intact', async () => {
     createUsersMigration();
 
-    const migrator = await toolMigrator();
+    const migrator = await resolveMigrationTool();
     const otherColumns = extractModelDescriptor(models.MigratorTestOther)!.Columns;
     expect(otherColumns.map((c) => c.Name), 'read by the Orm resolve').to.include('Note');
 
@@ -387,7 +381,7 @@ describe('OrmMigrator', function () {
 
     void MigratorTestRaw_2026_10_21_00_00_00;
 
-    const migrator = await toolMigrator();
+    const migrator = await resolveMigrationTool();
     const tableInfo = sinon.spy(MigratorTestDriver.prototype, 'tableInfo');
     await migrator.migrate();
 
@@ -406,7 +400,7 @@ describe('OrmMigrator', function () {
 
     void MigratorTestDirect_2026_10_21_00_00_00;
 
-    const migrator = await toolMigrator();
+    const migrator = await resolveMigrationTool();
     const tableInfo = sinon.spy(MigratorTestDriver.prototype, 'tableInfo');
     await migrator.migrate();
 
@@ -448,7 +442,7 @@ describe('OrmMigrator', function () {
 
     void MigratorTestDirectOther_2026_10_21_00_00_00;
 
-    const migrator = await toolMigrator();
+    const migrator = await resolveMigrationTool();
     const tableInfo = sinon.spy(MigratorTestDriver.prototype, 'tableInfo');
     await migrator.migrate();
 
@@ -473,7 +467,7 @@ describe('OrmMigrator', function () {
     strictSetting = true;
     TABLES.delete('mig_other');
 
-    const migrator = await toolMigrator();
+    const migrator = await resolveMigrationTool();
 
     expect(migrator.Runner).to.not.be.undefined;
   });
@@ -483,7 +477,7 @@ describe('OrmMigrator', function () {
     const up = sinon.spy(Create.prototype, 'up');
     const seeded = sinon.stub(Create.prototype, 'data').resolves();
 
-    const migrator = await toolMigrator();
+    const migrator = await resolveMigrationTool();
 
     expect(up.called).to.be.false;
     expect(await models.MigratorTestPost.all()).to.eql([]);
@@ -501,7 +495,7 @@ describe('OrmMigrator', function () {
     const up = sinon.spy(Create.prototype, 'up');
     const seeded = sinon.stub(Create.prototype, 'data').resolves();
 
-    const migrator = await toolMigrator();
+    const migrator = await resolveMigrationTool();
     const executed = await migrator.migrate({ fake: true });
 
     expect(executed).to.have.length(1);
@@ -652,7 +646,7 @@ describe('OrmMigrator', function () {
     const Create = createUsersMigration();
     const up = sinon.spy(Create.prototype, 'up');
 
-    const migrator = await toolMigrator();
+    const migrator = await resolveMigrationTool();
 
     expect(up.called).to.be.false;
     expect((await DI.resolve(Orm)).Migrator).to.equal(migrator);

@@ -4,7 +4,7 @@ import * as chai from 'chai';
 import 'mocha';
 import * as path from 'node:path';
 import * as sinon from 'sinon';
-import { Orm, OrmMigrator } from '../src/index.js';
+import { Orm, resolveMigrationTool } from '../src/index.js';
 import { ConnectionConf, FakeMysqlDriver, bootstrapAll, registerFakes, stubDb } from './misc.js';
 import '../src/bootstrap.js';
 import '@spinajs/log';
@@ -89,7 +89,7 @@ describe('Orm migration pipeline - a real .local.ts file on disk, end to end', (
     expect(orm.Migrations.map((m) => m.name)).to.include(ALWAYS);
     expect(orm.Migrations.map((m) => m.name)).to.include(ONLY_LOCAL);
 
-    const status = await (await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])).Runner.status();
+    const status = await (await resolveMigrationTool()).Runner.status();
     expect(status.map((s) => s.name)).to.include(ALWAYS);
     expect(status.map((s) => s.name)).to.include(ONLY_LOCAL);
   });
@@ -102,7 +102,7 @@ describe('Orm migration pipeline - a real .local.ts file on disk, end to end', (
     expect(orm.Migrations.map((m) => m.name)).to.include(ALWAYS);
     expect(orm.Migrations.map((m) => m.name), 'a .local migration must never be registered under prod').to.not.include(ONLY_LOCAL);
 
-    const status = await (await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])).Runner.status();
+    const status = await (await resolveMigrationTool()).Runner.status();
     expect(status.map((s) => s.name)).to.include(ALWAYS);
     expect(status.map((s) => s.name), 'a .local migration must be absent from status(), not merely unapplied').to.not.include(ONLY_LOCAL);
   });

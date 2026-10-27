@@ -3,7 +3,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Class, DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { Connection, MIGRATION_FILE_REGEXP, Migration, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, OrmMigrator, Primary } from '@spinajs/orm';
+import { Connection, MIGRATION_FILE_REGEXP, Migration, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, Primary, resolveMigrationTool } from '@spinajs/orm';
 import * as chai from 'chai';
 import 'mocha';
 import * as fs from 'node:fs';
@@ -793,7 +793,7 @@ describe('orm-cli against a FAILED row on a Migration.OnStartup connection', fun
     // throws, through the real service. The gate is off only so this Orm can be resolved, held
     // and disposed; what the tests need is the row it leaves behind.
     const seed = await DI.resolve(Orm);
-    const err = await thrownBy(async () => (await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])).Runner.up());
+    const err = await thrownBy(async () => (await resolveMigrationTool()).Runner.up());
 
     expect(err, 'the fixture needs a migration that really failed').to.be.instanceOf(OrmException);
 
@@ -847,17 +847,17 @@ describe('orm-cli against a FAILED row on a Migration.OnStartup connection', fun
 
   // MUST RUN FIRST, with the one below it: it asserts on the failed row, which the
   // `migrate-resolve` test clears. Add new cases after those two, never between them.
-  it("an application's migrator boot pass is still blocked by the failed row", async () => {
-    // Nothing weakens what a failed migration does to an application that boots its migrator. It
+  it("an application's Orm boot is still blocked by the failed row", async () => {
+    // Nothing weakens what a failed migration does to an application that boots its Orm. It
     // is also what makes the next test non-vacuous - the fixture really does refuse a boot pass.
-    const err = await thrownBy(() => DI.resolve(OrmMigrator));
+    const err = await thrownBy(() => DI.resolve(Orm));
 
     expect(err, 'a failed migration no longer blocks the boot pass').to.be.instanceOf(OrmException);
     expect((err as Error).message).to.contain('blocks migration runs');
     expect((err as Error).message).to.contain(FAILING_MIGRATION);
 
-    // the commands below must start as a fresh cli process would
-    await (await DI.resolve(Orm)).dispose();
+    // the rejected resolve closed its own connections and cached no Orm; the commands below start as a fresh cli
+    // process would
     DI.clearCache();
   });
 

@@ -8,7 +8,7 @@ import 'mocha';
 import { Orm } from '../src/orm.js';
 import { FakeSqliteDriver, FakeMysqlDriver, TEST_TABLE_INFO, bootstrapAll, mergeArrays, registerFakes, stubDb } from './misc.js';
 import * as sinon from 'sinon';
-import { ModelToSqlConverter, DbPropertyHydrator, ModelHydrator, OrmMigration, Migration, MigrationTransactionMode, StandardModelToSqlConverter, ObjectToSqlConverter, StandardObjectToSqlConverter, IMigrationRecord, MIGRATION_TABLE_NAME, OrmException, MigrationRunner, OrmMigrator } from '../src/index.js';
+import { ModelToSqlConverter, DbPropertyHydrator, ModelHydrator, OrmMigration, Migration, MigrationTransactionMode, StandardModelToSqlConverter, ObjectToSqlConverter, StandardObjectToSqlConverter, IMigrationRecord, MIGRATION_TABLE_NAME, OrmException, MigrationRunner, resolveMigrationTool } from '../src/index.js';
 import { Migration1_2021_12_01_12_00_00, Migration2_2021_12_02_12_00_00 } from './mocks/migrations/index.js';
 import { OrmDriver } from '../src/driver.js';
 import '@spinajs/log';
@@ -41,7 +41,7 @@ async function db() {
 
 /** The runner without a boot pass, as `migrate-up` and friends get it. */
 async function runner() {
-  return (await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])).Runner;
+  return (await resolveMigrationTool()).Runner;
 }
 
 describe('Orm migrations', () => {
@@ -158,7 +158,7 @@ describe('Orm migrations', () => {
 
     stubDb([]);
 
-    const migrator = await container.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+    const migrator = await resolveMigrationTool(container);
 
     // transaction() now owns commit/rollback itself and resolves with the callback's result,
     // so there is no ITransaction handle to fake any more
@@ -250,7 +250,7 @@ describe('Orm migrations', () => {
   });
 
   it('data() failures aggregate and every hook still runs', async () => {
-    const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+    const migrator = await resolveMigrationTool();
 
     // a data() that throws used to abort the whole phase at the first failure, so every seed
     // after it was silently skipped and only the first error was ever reported
@@ -273,7 +273,7 @@ describe('Orm migrations', () => {
   });
 
   it('data() failing with a non-Error still names the reason', async () => {
-    const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+    const migrator = await resolveMigrationTool();
 
     // nothing forces a hook to reject with an Error: `throw 'boom'` and `Promise.reject(code)`
     // are both legal, and reading `.message` off either yields undefined - so the aggregate would
@@ -353,7 +353,7 @@ describe('Orm migrations', () => {
     const d1 = sinon.stub(Migration1_2021_12_01_12_00_00.prototype, 'data').resolves();
     const d2 = sinon.stub(Migration2_2021_12_02_12_00_00.prototype, 'data').resolves();
 
-    await container.resolve(OrmMigrator);
+    await (await container.resolve(Orm)).Migrator.ready();
 
     expect(d1.calledOnce, 'the boot pass has to seed every migration it just applied').to.be.true;
     expect(d2.calledOnce).to.be.true;
@@ -436,7 +436,7 @@ describe('Orm migrations', () => {
     // OnStartup is on, so the migrator's boot pass is what exercises the programmatic registration
     stubDb([]);
 
-    await container.resolve(OrmMigrator);
+    await (await container.resolve(Orm)).Migrator.ready();
     const orm = await container.resolve(Orm);
     const migrations = orm.Migrations;
 
@@ -467,7 +467,7 @@ describe('Orm migrations', () => {
 
   /**
    * `MigrateOnStartup` is an `OrmMigrator` option, handed over at construction -
-   * `DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])` - for processes that operate ON
+   * `resolveMigrationTool()` resolves it so - for processes that operate ON
    * migrations rather than with them ( `@spinajs/orm-cli` ).
    */
   describe('MigrateOnStartup', () => {
@@ -523,21 +523,12 @@ describe('Orm migrations', () => {
       return c;
     }
 
-    it('DI.resolve(Orm) runs no migration pass', async () => {
-      const { up1, data1 } = spyMigrations();
-
-      await container().resolve(Orm);
-
-      expect(up1.called, 'the Orm resolve must not migrate - a seed resolving an Orm-backed service would wait on it').to.be.false;
-      expect(data1.called).to.be.false;
-    });
-
-    it('runs the boot migration pass on an ordinary DI.resolve(OrmMigrator)', async () => {
+    it('runs the boot migration pass on an ordinary DI.resolve(Orm)', async () => {
       const { up1, up2, data1, data2 } = spyMigrations();
 
-      await container().resolve(OrmMigrator);
+      await (await container().resolve(Orm)).Migrator.ready();
 
-      expect(up1.calledOnce, 'resolving the migrator the ordinary way must migrate - that is what Migration.OnStartup means').to.be.true;
+      expect(up1.calledOnce, 'resolving the Orm must migrate - that is what Migration.OnStartup means').to.be.true;
       expect(up2.calledOnce).to.be.true;
 
       // the seeding pass belongs to the boot run, so it moves with it
@@ -549,7 +540,7 @@ describe('Orm migrations', () => {
       const { up1, up2, data1, data2 } = spyMigrations();
 
       const c = container();
-      const migrator = await c.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+      const migrator = await resolveMigrationTool(c);
       const orm = await c.resolve(Orm);
 
       expect(up1.called, 'the boot pass ran despite MigrateOnStartup: false').to.be.false;

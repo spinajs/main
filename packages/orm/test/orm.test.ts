@@ -4,7 +4,7 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import * as chai from 'chai';
 import _ from 'lodash';
 import 'mocha';
-import { Orm, TableQueryCompiler, InsertQueryCompiler, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, DropTableCompiler, MigrationRunner, OrmMigrator } from '../src/index.js';
+import { Orm, TableQueryCompiler, InsertQueryCompiler, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, DropTableCompiler, MigrationRunner } from '../src/index.js';
 import { ConnectionConf, FakeSqliteDriver, FakeMysqlDriver, FakeTableQueryCompiler, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, FakeDropTableCompiler } from './misc.js';
 import "./../src/bootstrap.js";
 import * as sinon from 'sinon';
@@ -94,7 +94,7 @@ describe('Orm general', () => {
       return { executed: [], touched: { models: [] } };
     });
 
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
 
     expect(up.calledOnce, 'boot did not run the migration pass at all').to.be.true;
     expect(convertersAtUp, 'converter map was absent when the boot migration pass started').to.be.instanceOf(Map);

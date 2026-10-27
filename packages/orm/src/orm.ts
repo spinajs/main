@@ -515,3 +515,13 @@ export class Orm extends AsyncService {
     }
   }
 }
+
+/**
+ * A migration tool's boot ( `@spinajs/orm-cli`, deploy gates ): the migrator without its startup migrations, then the
+ * Orm, which picks that migrator up, applies nothing and skips its `db.StrictTableCheck` check.
+ */
+export async function resolveMigrationTool(container: IContainer = DI.RootContainer): Promise<OrmMigrator> {
+  const migrator = await container.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+  await container.resolve(Orm);
+  return migrator;
+}
