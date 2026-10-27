@@ -13,7 +13,7 @@
  *   node scripts/coverage/run.mjs                 every package with a test script
  *   node scripts/coverage/run.mjs util http       only these
  *   node scripts/coverage/run.mjs --ci            skip the local-only packages
- *   node scripts/coverage/run.mjs --strict        exit 1 when a test suite fails
+ *   node scripts/coverage/run.mjs --strict        exit 1 when a test suite fails ( implied by --ci; scripts/known-failing.json is tolerated )
  *   node scripts/coverage/run.mjs --report-only   rebuild the report from the last run's coverage/
  *
  * Output in coverage/: index.html, lcov.info, coverage-summary.json, summary.md, per-test-report.json.
@@ -25,12 +25,15 @@ import { join, resolve } from 'path';
 import { spawnSync } from 'child_process';
 import { createRequire } from 'module';
 import { analyzePerTest } from './per-test-report.mjs';
+import { loadKnownFailing, loadTimeouts, timeoutMinutes, runPackage } from '../test-all.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const OUT = join(ROOT, 'coverage');
 const ARGS = process.argv.slice(2);
 const CI = ARGS.includes('--ci') || process.env.CI === 'true';
-const STRICT = ARGS.includes('--strict');
+const STRICT = ARGS.includes('--strict') || CI;
+const KNOWN_FAILING = loadKnownFailing();
+const TIMEOUTS = loadTimeouts();
 const REPORT_ONLY = ARGS.includes('--report-only');
 const ONLY = ARGS.filter((a) => !a.startsWith('--'));
 const LOCAL_ONLY = JSON.parse(readFileSync(join(import.meta.dirname, 'local-only.json'), 'utf8')).packages;
@@ -60,11 +63,14 @@ for (const name of REPORT_ONLY ? [] : packages) {
   console.log(`\n=== ${name}`);
   const started = Date.now();
   // Skips the pretest scripts: each recompiles what the root build already built, minutes per package.
-  const run = spawnSync('npm', ['test', '--ignore-scripts'], { cwd: join(ROOT, 'packages', name), env, stdio: 'inherit', shell: true });
-  results.push({ name, ok: run.status === 0, seconds: Math.round((Date.now() - started) / 1000) });
+  const run = await runPackage(name, { root: ROOT, env, inherit: true, timeoutMs: timeoutMinutes(name, TIMEOUTS) * 60000 });
+  results.push({ name, ok: run.ok, seconds: Math.round((Date.now() - started) / 1000) });
   writeFileSync(join(OUT, 'suites.json'), JSON.stringify(results));
 }
 const failed = results.filter((r) => !r.ok);
+const blocking = failed.filter((r) => !KNOWN_FAILING.has(r.name));
+for (const r of failed.filter((r) => KNOWN_FAILING.has(r.name))) console.warn(`WARNING: ${r.name} failed but is listed in scripts/known-failing.json`);
+for (const r of results.filter((r) => r.ok && KNOWN_FAILING.has(r.name))) console.warn(`${r.name} passes now: remove from known-failing.json`);
 
 const c8Config = JSON.parse(readFileSync(join(ROOT, '.c8rc.json'), 'utf8'));
 const notMeasured = [...skipped, ...readdirSync(join(ROOT, 'packages')).filter((name) => ONLY.length > 0 && !ONLY.includes(name))];
@@ -82,7 +88,7 @@ writeFileSync(join(OUT, 'summary.md'), markdown);
 if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, markdown);
 
 console.log(`\n${results.length - failed.length}/${results.length} test suites passed. Report: coverage/index.html, coverage/summary.md`);
-if (STRICT && failed.length) process.exit(1);
+if (STRICT && blocking.length) process.exit(1);
 
 function summary(c8Summary, perTestMarkdown) {
   const byPackage = new Map();
