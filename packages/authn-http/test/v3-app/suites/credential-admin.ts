@@ -13,13 +13,13 @@ import type { ConfigOverrides, Harness, HttpRequest, HttpResponse } from '@spina
 
 import { AdminMfaResetOn, CredentialAdminRuleRegistered, SessionIssuerRegistered } from '../../../src/admin/gate.js';
 import { PASSWORD_HARD_CAP } from '../../../src/v3/index.js';
-import { readingFrom } from '../../support/config-boot.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
 import { Client, clearLog, events, loggedIn, logLines, seedUser, throttle } from '../app.js';
 import { ROUTES } from '../behaviour/harness.js';
 import { ADMIN_ROUTES, MFA_ROUTES, PASSWORD_ROUTES, laneAdminGuardCalls, laneEvents, laneMfaConfig, n8bHarness } from '../behaviour/n8b-harness.js';
 import { LaneClient, expectFailureBody, expectRefused, later } from './mfa-enrolment.js';
 import { mountedRoutes } from './route-table.js';
+import { readingFrom } from '@spinajs/testing';
 
 export const ADMIN_ROUTES_V3 = ['POST /authn/admin/users/:uuid/password-reset', 'POST /authn/admin/users/:uuid/mfa-reset', 'DELETE /authn/admin/users/:uuid/sessions', 'DELETE /authn/admin/users/:uuid/tokens'];
 

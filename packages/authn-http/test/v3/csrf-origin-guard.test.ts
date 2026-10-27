@@ -8,7 +8,6 @@ import type { IRateLimitFilterOptions } from '@spinajs/log';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configuration';
-import { fakeContainer } from '../support/config-boot.js';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Orm, OrmMigrator } from '@spinajs/orm';
 import { BaseController, Controllers, HttpServer, ServerMiddleware, parseTrustProxy } from '@spinajs/http';
@@ -23,6 +22,7 @@ import { CSRF_REFUSAL_LOG_FILTERS, CSRF_REFUSED_EVENT } from '../../src/middlewa
 import authnHttpConfig from '../../src/config/authn-http.js';
 import { AUTHN_PROBE_PATH, authnProbeHits } from './probe.js';
 import { TestConfiguration, appOrigin, appPort, req, restoreHttpErrorMap, startHttpServer } from '../token-common.js';
+import { fakeContainer } from '@spinajs/testing';
 
 const PARTNER = 'https://partner.example.org';
 const EVIL = 'https://evil.example.net';

@@ -17,7 +17,7 @@ import { AuthnReauthController } from '../../src/v3/controllers/AuthnReauthContr
 import { AuthnReauthBody } from '../../src/dto/reauth.js';
 import { ActiveSessionOnly } from '../../src/policies/v3/session-state.js';
 import { clientOf } from '../../src/v3/client.js';
-import { boot, disposeBooted } from '../support/config-boot.js';
+import { createTestApp, disposeTestApps } from '@spinajs/testing';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_SESSION_CONFIGURATION_SCHEMA, HTTP_CONFIGURATION_SCHEMA];
 const ALICE: IdentityRef = { type: 'user', id: 'alice' };
@@ -74,7 +74,7 @@ interface World {
 }
 
 async function world(): Promise<World> {
-  const { configuration } = await boot(SCHEMAS, { http: { cookie: { secret: 'reauth-' + 'Zq8Lw2Rt'.repeat(6) } } });
+  const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { http: { cookie: { secret: 'reauth-' + 'Zq8Lw2Rt'.repeat(6) } } } });
   const sessions = new MemorySessionIssuer();
   const authn = new StubAuthnService(sessions);
   const events: Omit<AuthnEvent, 'at'>[] = [];
@@ -138,7 +138,7 @@ const failureBodyOf = (a: Answer) => (a.body as { error?: unknown }).error;
 
 describe('POST /auth/reauth (FLOW-4)', function () {
   this.timeout(20000);
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   it('is a POST route of AuthnReauthController at auth/reauth', () => {
     const d = Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, AuthnReauthController.prototype) as IControllerDescriptor;

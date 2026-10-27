@@ -11,8 +11,8 @@ import { AUTHN_SESSION_CONFIGURATION_SCHEMA } from '@spinajs/authn-session';
 
 import { AUTHN_HTTP_CONFIGURATION_SCHEMA } from '../../src/index.js';
 import { AuthnMfaController } from '../../src/v3/controllers/AuthnMfaController.js';
-import { boot, disposeBooted } from '../support/config-boot.js';
 import { callRoute } from '../support/route-call.js';
+import { createTestApp, disposeTestApps } from '@spinajs/testing';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_SESSION_CONFIGURATION_SCHEMA, HTTP_CONFIGURATION_SCHEMA];
 const ALICE = { type: 'user', id: 'alice' };
@@ -62,7 +62,7 @@ interface World {
 }
 
 async function world(): Promise<World> {
-  const { configuration } = await boot(SCHEMAS, { http: { cookie: { secret: 'step-up-' + 'Zq8Lw2Rt'.repeat(6) } } });
+  const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { http: { cookie: { secret: 'step-up-' + 'Zq8Lw2Rt'.repeat(6) } } } });
   const authn = new StubAuthnService();
   // AuthnResponseExtension lists (Array.ofType) resolve to none.
   const container = {
@@ -111,7 +111,7 @@ async function thrown(p: Promise<unknown>): Promise<unknown> {
 
 describe('POST /auth/mfa/step-up (FLOW-1)', function () {
   this.timeout(20000);
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   it('is a POST route of the MFA controller at auth/mfa/step-up', () => {
     const d = Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, AuthnMfaController.prototype) as IControllerDescriptor;

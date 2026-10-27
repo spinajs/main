@@ -8,7 +8,7 @@ import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { AUTHN_SESSION_CONFIGURATION_SCHEMA } from '@spinajs/authn-session';
 
 import { AUTHN_HTTP_CONFIGURATION_SCHEMA, CsrfOriginGuard, assertSameSiteNoneProtected } from '../../src/index.js';
-import { boot, disposeBooted, readingFrom } from '../support/config-boot.js';
+import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 chai.use(chaiAsPromised);
 
@@ -44,10 +44,10 @@ describe('SameSite=None boot guard (X4)', () => {
 
   describe('CsrfOriginGuard.resolve()', function () {
     this.timeout(20000);
-    afterEach(disposeBooted);
+    afterEach(disposeTestApps);
 
     async function resolved(values: Record<string, unknown>, env: string) {
-      const { child, configuration } = await boot(SCHEMAS, values, env);
+      const { container: child, config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: values, env: env });
       const guard = readingFrom(new CsrfOriginGuard(), child);
       Object.defineProperty(guard, 'Configuration', { value: configuration });
       Object.defineProperty(guard, 'Log', { value: { warn: () => undefined } });

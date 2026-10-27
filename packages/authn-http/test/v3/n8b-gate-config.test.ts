@@ -12,7 +12,7 @@ import type { BasePolicy, IController, IRoute, Request } from '@spinajs/http';
 import '../../src/api.js';
 import { KeyRoutesOn } from '../../src/keys/gate.js';
 import { TotpEnrolmentOn } from '../../src/mfa/index.js';
-import { boot, disposeBooted, readingFrom, violationsOf } from '../support/config-boot.js';
+import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_KEYS_CONFIGURATION_SCHEMA];
 const AUDIENCE = 'https://gate-config.example.test';
@@ -36,12 +36,12 @@ describe('the N8b route gates read authn.* through @Config', function () {
 
   afterEach(async () => {
     sinon.restore();
-    await disposeBooted();
+    await disposeTestApps();
   });
 
   it('KeyRoutesOn opens on the audience of its container, the challenge audience falling back to the assertion audience as in authn-keys', async () => {
     const keysGate = async (keys: Record<string, unknown> | undefined, registry = true) => {
-      const { child } = await boot(SCHEMAS, keys === undefined ? {} : { authn: { keys } });
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: keys === undefined ? {} : { authn: { keys } } });
       if (registry) child.register({ StubKeyRegistry: () => ({}) }.StubKeyRegistry).as(KeyRegistry as never);
       return answer(new KeyRoutesOn(), child);
     };
@@ -53,12 +53,12 @@ describe('the N8b route gates read authn.* through @Config', function () {
   });
 
   it('the schema refuses an audience that is empty or not a string, so KeyRoutesOn never meets one', async () => {
-    const paths = await violationsOf(SCHEMAS, { authn: { keys: { challenge: { audience: '' }, assertion: { audience: { url: AUDIENCE } } } } });
+    const paths = await configurationViolations({ schemas: SCHEMAS, config: { authn: { keys: { challenge: { audience: '' }, assertion: { audience: { url: AUDIENCE } } } } } });
     expect(paths).to.include.members(['authn.keys.challenge.audience', 'authn.keys.assertion.audience']);
   });
 
   it('TotpEnrolmentOn stays off without resolving anything while its container registers no MfaEnrolmentService', async () => {
-    const { child } = await boot(SCHEMAS, { authn: { mfa: { steps: [{ name: 'totp', service: 'TotpMfaStep' }] } } });
+    const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { mfa: { steps: [{ name: 'totp', service: 'TotpMfaStep' }] } } } });
     child.register({ TotpService: class {} }.TotpService).asSelf();
     expect(child.hasRegistered(MfaEnrolmentService as never)).to.eq(false);
     const resolve = sinon.stub(child, 'resolve').rejects(new Error('asked the container'));
@@ -74,7 +74,7 @@ describe('the N8b route gates read authn.* through @Config', function () {
       required = async () => [];
       steps = async () => new Map([['totp', step]]);
     };
-    const { child } = await boot(SCHEMAS, { authn: { mfa: { policy: { service: 'GateSpecMfaPolicy' } } } });
+    const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { mfa: { policy: { service: 'GateSpecMfaPolicy' } } } } });
     child.register(GateSpecMfaPolicy).as(MfaPolicy as never);
     const seen: MfaStep[][] = [];
     let on = false;
@@ -91,7 +91,7 @@ describe('the N8b route gates read authn.* through @Config', function () {
 
   it('the schema refuses an MFA key that is empty or not 32 bytes, so TotpService.enabled never meets one', async () => {
     for (const secret of ['', 'ab'.repeat(8)]) {
-      expect(await violationsOf(SCHEMAS, { authn: { mfa: { encryptionKey: { secret } } } }), JSON.stringify(secret)).to.include('authn.mfa.encryptionKey.secret');
+      expect(await configurationViolations({ schemas: SCHEMAS, config: { authn: { mfa: { encryptionKey: { secret } } } } }), JSON.stringify(secret)).to.include('authn.mfa.encryptionKey.secret');
     }
   });
 });

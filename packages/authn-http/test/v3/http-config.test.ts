@@ -7,13 +7,13 @@ import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { AUTHN_SESSION_CONFIGURATION_SCHEMA, PUBLIC_DEFAULT_COOKIE_SECRET } from '@spinajs/authn-session';
 
 import { AUTHN_HTTP_CONFIGURATION_SCHEMA, ClientIp, CsrfOriginGuard, AuthnMiddleware, ApiKeyHeaderExtractor, AuthorizationBearerExtractor, proxyTrustOf } from '../../src/index.js';
-import { boot, disposeBooted, readingFrom, violationsOf } from '../support/config-boot.js';
 import { registeredSchemasAfter } from '../support/registered-schemas.js';
 import { AuthnHttpConfigBootstrapper } from '../../src/bootstrap.js';
+import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_SESSION_CONFIGURATION_SCHEMA, HTTP_CONFIGURATION_SCHEMA];
 const STRONG = 'unit-' + 'Zx8q'.repeat(10);
-const bad = (values: Record<string, unknown>) => violationsOf(SCHEMAS, values);
+const bad = (values: Record<string, unknown>) => configurationViolations({ schemas: SCHEMAS, config: values });
 
 const reqFrom = (peer: string, headers: Record<string, string> = {}, method = 'GET') => ({ method, headers, socket: { remoteAddress: peer }, storage: {} as Record<string, unknown> }) as never;
 
@@ -36,14 +36,14 @@ function run(handler: (req: never, res: never, next: () => void) => void, req: n
 }
 
 describe('authn http middlewares through @Config and the schemas', () => {
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   describe('schema', function () {
     this.timeout(20000);
 
     // The update interval moved with the last-use stamp to authn-token's TokenStrategy.
     it('gives the api-key and bearer extractors the token header and prefix they read', async () => {
-      const { child } = await boot(SCHEMAS, {});
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
       const apiKey = readingFrom(new ApiKeyHeaderExtractor(), child) as unknown as Record<string, unknown>;
       const bearer = readingFrom(new AuthorizationBearerExtractor(), child) as unknown as Record<string, unknown>;
       expect([apiKey.HeaderName, apiKey.Prefix, bearer.Prefix]).to.deep.equal(['x-api-key', 'spt_', 'spt_']);
@@ -55,12 +55,12 @@ describe('authn http middlewares through @Config and the schemas', () => {
     });
 
     it('with no user config, the effective authn.http equals the defaults of the former single authn schema', async () => {
-      const { configuration } = await boot(SCHEMAS, {});
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
       expect(configuration.get('authn.http')).to.deep.eq({ csrf: { enabled: true, allowedOrigins: [] }, registration: { notifyExisting: true } });
     });
 
     it('fills the csrf and session cookie defaults', async () => {
-      const { configuration } = await boot(SCHEMAS, {});
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
       expect(configuration.get('authn.http.csrf')).to.deep.eq({ enabled: true, allowedOrigins: [] });
       expect(configuration.get('authn.session.cookie')).to.deep.include({ name: 'ssid', hostPrefix: 'auto', secure: 'auto', sameSite: 'strict' });
     });
@@ -79,7 +79,7 @@ describe('authn http middlewares through @Config and the schemas', () => {
     });
 
     it('takes the logout Clear-Site-Data directives, defaults them to cache, cookies and storage, and names an unknown one', async () => {
-      const { configuration } = await boot(SCHEMAS, { authn: { http: { logout: {} } } });
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { http: { logout: {} } } } });
       expect(configuration.get('authn.http.logout.clearSiteData')).to.deep.eq(['cache', 'cookies', 'storage']);
       for (const list of [[], ['cache', 'cookies'], ['executionContexts'], ['*']]) {
         expect(await bad({ authn: { http: { logout: { clearSiteData: list } } } }), JSON.stringify(list)).to.deep.eq([]);
@@ -106,7 +106,7 @@ describe('authn http middlewares through @Config and the schemas', () => {
 
   describe('ClientIp', () => {
     it("takes the client behind the trusted proxies of its container's configuration", async () => {
-      const { child } = await boot(SCHEMAS, { authn: { http: { trustProxy: ['10.0.0.0/8'] } } });
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { http: { trustProxy: ['10.0.0.0/8'] } } } });
       const handler = readingFrom(new ClientIp(), child).before()!;
       const req = reqFrom('10.0.0.5', { 'x-forwarded-for': '203.0.113.7' });
       handler(req, {} as never, () => undefined);
@@ -114,18 +114,18 @@ describe('authn http middlewares through @Config and the schemas', () => {
     });
 
     it('falls back to http.trustProxy and reads the socket address with neither', async () => {
-      const shared = readingFrom(new ClientIp(), (await boot(SCHEMAS, { http: { trustProxy: 1 } })).child).before()!;
+      const shared = readingFrom(new ClientIp(), (await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { http: { trustProxy: 1 } } })).container).before()!;
       const a = reqFrom('10.0.0.5', { 'x-forwarded-for': '203.0.113.7' });
       shared(a, {} as never, () => undefined);
       expect((a as { storage: { ClientIp?: string } }).storage.ClientIp).to.eq('203.0.113.7');
-      const none = readingFrom(new ClientIp(), (await boot(SCHEMAS, {})).child).before()!;
+      const none = readingFrom(new ClientIp(), (await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} })).container).before()!;
       const b = reqFrom('10.0.0.5', { 'x-forwarded-for': '203.0.113.7' });
       none(b, {} as never, () => undefined);
       expect((b as { storage: { ClientIp?: string } }).storage.ClientIp).to.eq('10.0.0.5');
     });
 
     it('still refuses a CIDR the schema cannot judge when the middleware is built', async () => {
-      const { child } = await boot(SCHEMAS, { authn: { http: { trustProxy: ['10.0.0.0/33'] } } });
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { http: { trustProxy: ['10.0.0.0/33'] } } } });
       expect(() => readingFrom(new ClientIp(), child).before()).to.throw(InvalidOption, 'authn.http.trustProxy');
     });
   });
@@ -139,7 +139,7 @@ describe('authn http middlewares through @Config and the schemas', () => {
     };
 
     it('refuses a cross-origin unsafe request carrying the session cookie, passes a listed and the own origin', async () => {
-      const { child } = await boot(SCHEMAS, { authn: { http: { csrf: { allowedOrigins: ['HTTPS://Partner.Example.Org:443/'] } } } });
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { http: { csrf: { allowedOrigins: ['HTTPS://Partner.Example.Org:443/'] } } } } });
       const handler = guardOf(child).before()!;
       expect(run(handler, reqFrom('10.0.0.5', cookieHeaders('https://evil.example.org'), 'POST')), 'foreign').to.deep.eq({ passed: false, status: 403 });
       expect(run(handler, reqFrom('10.0.0.5', cookieHeaders('https://partner.example.org'), 'POST')).passed, 'listed, normalised').to.eq(true);
@@ -147,22 +147,22 @@ describe('authn http middlewares through @Config and the schemas', () => {
     });
 
     it('is off only for enabled: false, and takes the session cookie name from authn.session.cookie', async () => {
-      expect(guardOf((await boot(SCHEMAS, { authn: { http: { csrf: { enabled: false } } } })).child).before()).to.eq(null);
-      const { child } = await boot(SCHEMAS, { authn: { session: { cookie: { name: 'sid2' } } } });
+      expect(guardOf((await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { http: { csrf: { enabled: false } } } } })).container).before()).to.eq(null);
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { session: { cookie: { name: 'sid2' } } } } });
       const handler = guardOf(child).before()!;
       expect(run(handler, reqFrom('10.0.0.5', { cookie: 'ssid=x', host: 'app.example.org' }, 'POST')).passed, 'another cookie').to.eq(true);
       expect(run(handler, reqFrom('10.0.0.5', { cookie: 'sid2=x', origin: 'https://evil.example.org', host: 'app.example.org' }, 'POST')).passed).to.eq(false);
     });
 
     it('still refuses an allowed origin the pattern cannot judge, naming the key', async () => {
-      const { child } = await boot(SCHEMAS, { authn: { http: { csrf: { allowedOrigins: ['https://partner.example.org:99999'] } } } });
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { http: { csrf: { allowedOrigins: ['https://partner.example.org:99999'] } } } } });
       expect(() => guardOf(child).before()).to.throw(InvalidOption, 'authn.http.csrf.allowedOrigins');
     });
   });
 
   describe('AuthnMiddleware boot', () => {
     const middleware = async (values: Record<string, unknown>, env: string) => {
-      const { child, configuration } = await boot(SCHEMAS, values, env);
+      const { container: child, config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: values, env: env });
       const mw = readingFrom(new AuthnMiddleware(), child) as unknown as Record<string, unknown>;
       const warnings: string[] = [];
       Object.defineProperty(mw, 'Configuration', { value: configuration });

@@ -24,7 +24,6 @@ import { FakeIdentityStore, FakeImpersonationGuard, FakeStrategy, RecordingPrinc
 
 import * as barrel from '../../src/index.js';
 import { AuthnPrincipalResolver } from '../../src/api.js';
-import { fakeContainer, setPastSchema } from '../support/config-boot.js';
 import { AuthnMiddleware } from '../../src/middleware/authn.js';
 import { KeyPrincipalResolver, TokenPrincipalResolver } from '../../src/resolvers/credential.js';
 import { SessionPrincipalResolver } from '../../src/resolvers/session.js';
@@ -33,6 +32,7 @@ import { registerAuthnHttpV3 } from '../../src/v3/register.js';
 import { AUTHN_PROBE_PATH, authnProbeHits } from './probe.js';
 import { buildAuthnMiddlewareIn } from './authn-in-child.js';
 import { COOKIE_SECRET, TestConfiguration, appOrigin, appPort, req, restoreHttpErrorMap, startHttpServer } from '../token-common.js';
+import { fakeContainer, setPastSchema } from '@spinajs/testing';
 
 const PUBLIC_ORIGIN = 'https://api.example.test';
 
