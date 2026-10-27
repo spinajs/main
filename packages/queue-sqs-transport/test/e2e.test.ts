@@ -1,7 +1,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { QueueJob, Job, QueueService, JobModel } from '@spinajs/queue';
-import { MigrationTransactionMode, OrmMigrator } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 import { expect } from 'chai';
 import { CreateQueueCommand, DeleteQueueCommand, SQSClient } from '@aws-sdk/client-sqs';
@@ -116,7 +116,7 @@ describe('sqs queue transport e2e ( producer DB-free, consumer writes the row )'
     cfg.set(['queue', 'routing', 'SqsE2EJob'], queueUrl);
 
     // migrate queue_jobs into the in-memory sqlite before resolving the service.
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
     await DI.resolve(QueueService);
   });
 

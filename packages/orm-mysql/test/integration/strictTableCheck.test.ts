@@ -7,7 +7,7 @@
  */
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Connection, extractModelDescriptor, Migration, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, Primary, QueryContext, OrmMigrator } from '@spinajs/orm';
+import { Connection, extractModelDescriptor, Migration, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, Primary, QueryContext } from '@spinajs/orm';
 import { expect } from 'chai';
 import _ from 'lodash';
 import 'mocha';
@@ -154,18 +154,17 @@ describe('MySQL integration - strict table check', function () {
     await admin((d) => d.executeOnDb(`DROP DATABASE IF EXISTS \`${database}\``, [], QueryContext.Schema));
   });
 
-  it('fails the migrator boot after the migration pass, naming the model, its table and its connection', async () => {
+  it('fails the Orm resolve after its migrations, naming the model, its table and its connection', async () => {
     Missing = defineMissing();
 
-    await DI.resolve(Orm);
-    const err = await rejection(Promise.resolve(DI.resolve(OrmMigrator)));
+    const err = await rejection(Promise.resolve(DI.resolve(Orm)));
 
     expect(err).to.be.instanceOf(OrmException);
     expect((err as Error).message).to.equal('Missing tables (db.StrictTableCheck): model StrictMySqlMissing: table strict_mysql_missing on connection mysql-strict. Create them (run their migrations) or set db.StrictTableCheck to false');
   });
 
   it('boots when the migration pass created every table', async () => {
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
 
     expect(extractModelDescriptor(schema.Present)!.Columns.map((c) => c.Name)).to.include('Name');
   });
@@ -175,7 +174,7 @@ describe('MySQL integration - strict table check', function () {
     strictSetting = false;
 
     const orm = await DI.resolve(Orm);
-    await DI.resolve(OrmMigrator);
+    await orm.Migrator.ready();
 
     expect(extractModelDescriptor(Missing)!.Driver).to.equal(orm.Connections.get(CONNECTION));
   });

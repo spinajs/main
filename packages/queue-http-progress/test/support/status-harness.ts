@@ -98,7 +98,7 @@ export function statusHarness(opts: { rbac?: boolean } = {}): BehaviourHarness {
     async extend(host, session) {
       const prefix = `c${caseNo}`;
       const orm = await DI.resolve(Orm);
-      await DI.resolve(OrmMigrator);
+      await (await DI.resolve(Orm)).Migrator.ready();
       const authz = session.authz as unknown as AuthzService;
 
       await authz.runAs(SYSTEM, 'status-harness seed', async () => {

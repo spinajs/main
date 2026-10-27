@@ -57,7 +57,7 @@ describe('authz-rbac DB stores and DbAuthzAdminBackend in a process that has not
       [
         'const store = await DI.resolve(DbAssignmentStore);',
         'result.orm = DI.get(Orm) !== undefined;',
-        'await DI.resolve(OrmMigrator);',
+        'await (await DI.resolve(Orm)).Migrator.ready();',
         'result.found = (await store.find({ at: new Date(), includeExpired: true })).total;',
       ].join('\n'),
     );
@@ -69,7 +69,7 @@ describe('authz-rbac DB stores and DbAuthzAdminBackend in a process that has not
       [
         'const backend = await DI.resolve(DbAuthzAdminBackend);',
         'result.orm = DI.get(Orm) !== undefined;',
-        'await DI.resolve(OrmMigrator);',
+        'await (await DI.resolve(Orm)).Migrator.ready();',
         'const store = await DI.resolve(DbAssignmentStore);',
         "const a = await backend.transaction('root', (tx) => store.assign({ subject: { type: 'user', id: 'alice' }, role: 'editor', scope: GLOBAL }, SYSTEM, tx));",
         'result.role = (await store.byId(a.id))?.role;',
@@ -83,7 +83,7 @@ describe('authz-rbac DB stores and DbAuthzAdminBackend in a process that has not
       [
         'const backend = await DI.resolve(DbAuthzAdminBackend);',
         'result.orm = DI.get(Orm) !== undefined;',
-        'await DI.resolve(OrmMigrator);',
+        'await (await DI.resolve(Orm)).Migrator.ready();',
         "result.recalled = (await backend.recall('root', 'system:system', 'k1', new Date())) ?? null;",
       ].join('\n'),
     );

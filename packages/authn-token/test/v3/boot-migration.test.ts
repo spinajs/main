@@ -27,7 +27,7 @@ function within<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
   return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
 }
 
-// What a users seed does through PasswordService: the TokenService is resolved and used while OrmMigrator runs the migrations.
+// What a users seed does through PasswordService: the TokenService is resolved and used in a boot seed.
 describe('the TokenService in a boot migration', function () {
   this.timeout(30000);
 
@@ -80,8 +80,9 @@ describe('the TokenService in a boot migration', function () {
     DI.clearCache();
   });
 
-  it('creates a token for a user row while OrmMigrator runs the boot migrations', async () => {
-    await within(Promise.resolve(DI.resolve(OrmMigrator)), BOOT_TIMEOUT_MS, 'the boot migration pass');
+  it('creates a token for a user row while the Orm boot runs the migrations', async () => {
+    const orm = await within(Promise.resolve(DI.resolve(Orm)), BOOT_TIMEOUT_MS, 'the boot migrations');
+    await within(orm.Migrator.ready(), BOOT_TIMEOUT_MS, 'the boot seeds');
 
     expect(created?.ok, 'the seed created its token').to.equal(true);
     (DI.resolve(IdentityStore) as BootSeedIdentityStore).add({ id: OWNER.id, login: 'boot-seed' });

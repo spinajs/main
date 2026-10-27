@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Constructor, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
-import { MigrationTransactionMode, OrmMigrator } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 import '@spinajs/orm-sqlite';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -92,7 +92,7 @@ describe('DefaultQueueService.emit (job correlation)', function () {
     DI.clearCache();
     DI.register(EmitConnectionConf).as(Configuration);
     await DI.resolve(Configuration);
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
     await DI.resolve(QueueService);
   });
 

@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Class, DI } from '@spinajs/di';
-import { Connection, extractModelDescriptor, Migration, Model, ModelBase, OrmDriver, OrmMigration, OrmMigrator, Primary, QueryContext } from '@spinajs/orm';
+import { Connection, extractModelDescriptor, Migration, Model, ModelBase, OrmDriver, OrmMigration, Primary, QueryContext, resolveMigrationTool } from '@spinajs/orm';
 import { expect } from 'chai';
 import _ from 'lodash';
 import 'mocha';
@@ -139,7 +139,7 @@ describe('MySQL integration - OrmMigrator table info re-read', function () {
   });
 
   it('re-reads only the models whose tables the migration touched, with the columns the table has now', async () => {
-    const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+    const migrator = await resolveMigrationTool();
     await migrator.migrate({ name: schema.create.name });
     expect(names(schema.Post)).to.have.members(['Id', 'Title']);
 

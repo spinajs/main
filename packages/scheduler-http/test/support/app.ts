@@ -74,7 +74,7 @@ export async function startApp(opts: { controllers: Class<BaseController>[]; con
   for (const c of opts.controllers) DI.register(c).as(BaseController);
 
   await DI.resolve(fsService);
-  await DI.resolve(OrmMigrator);
+  await (await DI.resolve(Orm)).Migrator.ready();
   await DI.resolve(Controllers);
   const server = await DI.resolve<HttpServer>(HttpServer);
   await server.start();

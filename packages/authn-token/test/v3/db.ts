@@ -98,7 +98,7 @@ export async function bootV3Db(): Promise<OrmDriver> {
   registerAuthnSchema();
 
   await DI.resolve(Configuration);
-  await DI.resolve(OrmMigrator);
+  await (await DI.resolve(Orm)).Migrator.ready();
 
   return v3Connection();
 }

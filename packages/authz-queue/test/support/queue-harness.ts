@@ -146,7 +146,7 @@ export function queueHarness(): BehaviourHarness {
       }
 
       const orm = await DI.resolve(Orm);
-      await DI.resolve(OrmMigrator);
+      await (await DI.resolve(Orm)).Migrator.ready();
       const queue = await DI.resolve(QueueService);
       for (const cls of jobs.values()) await queue.consume(cls as never);
       const client = queue.get(connection) as unknown as MemoryQueueClient;

@@ -6,7 +6,7 @@ import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
 import { DateTime } from 'luxon';
 
-import { MigrationTransactionMode, OrmMigrator } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { JobModel, QueueService } from '@spinajs/queue';
 import { DI } from '@spinajs/di';
@@ -202,7 +202,7 @@ describe('smtp email transport', function () {
     await b.bootstrap();
 
     await DI.resolve(Configuration);
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
   });
 
   afterEach(async () => {

@@ -1,6 +1,6 @@
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { OrmMigrator } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import type { Principal } from '@spinajs/authz';
 import type { AuthnFacts, IdentityRef } from '@spinajs/authn/contracts';
@@ -44,7 +44,7 @@ export async function bootAdminWorld(): Promise<AdminWorld> {
   }
 
   await DI.resolve(Configuration);
-  await DI.resolve(OrmMigrator);
+  await (await DI.resolve(Orm)).Migrator.ready();
 
   await seedAccounts();
 

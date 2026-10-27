@@ -1,5 +1,5 @@
 import { AuthzCliBase } from '@spinajs/authz/cli';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { AncestorRecord } from '../ancestors/record.js';
@@ -8,15 +8,14 @@ import { recordDriver, requireConnection } from '../records.js';
 import { classesOf, nameOf } from '../registry.js';
 
 /**
- * The ORM is resolved when the command runs (the Cli boots only the command), after `OrmMigrator` ran the
- * `Migration.OnStartup` pass an app process runs before serving; tests set `Orm`.
+ * The ORM is resolved when the command runs (the Cli boots only the command), which applies the `Migration.OnStartup`
+ * migrations an app process applies before serving; tests set `Orm`.
  */
 export abstract class AuthzOrmCliCommand extends AuthzCliBase {
   public Orm?: Orm;
 
   protected async orm(): Promise<Orm> {
     if (!this.Orm) {
-      await this.Container.resolve(OrmMigrator);
       this.Orm = (await this.Container.resolve(Orm)) as Orm;
     }
     return this.Orm;

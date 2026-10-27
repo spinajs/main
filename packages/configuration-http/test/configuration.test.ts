@@ -97,7 +97,7 @@ describe('configuration-http api', function () {
   });
 
   beforeEach(async () => {
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
     await authz().runAs(SYSTEM, 'test', async () => {
       await DbConfig.truncate();
       await seed();
@@ -493,7 +493,7 @@ describe('configuration-http ORM guard', function () {
       testHost.instance(new ListStaticModel({ name: 'config-votes', votes, capabilities: { fields: true }, lists: { 'configuration:read': listPlan } })),
     );
     await DI.resolve(AuthzService);
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
   });
 
   after(async () => {
