@@ -16,6 +16,12 @@ export interface DeriveOptions {
   idPrefix: string;
   maxDepth: number;
   sourceRef?: (node: ts.Node) => SourceRef;
+  /** Names the declaring type when the node lies outside the analyzed package, so diagnostics can say where the type came from. */
+  foreignOwner?: (node: ts.Node) => string | undefined;
+  /** Members declared here are left out of object schemas (framework base classes). */
+  excludeMembersOf?: (declaration: ts.Declaration) => boolean;
+  /** Which type produced each registry entry, kept across calls to detect id collisions. */
+  owners?: Map<string, ts.Type>;
 }
 
 export interface DeriveResult {
@@ -31,6 +37,7 @@ export interface DeriveContext {
   registry: Map<string, JsonSchema>;
   diagnostics: Diagnostic[];
   seen: Map<ts.Type, string>;
+  owners: Map<string, ts.Type>;
   depth: number;
 }
 
@@ -45,12 +52,13 @@ export function handlers(): TypeHandler[] {
   return handlerList;
 }
 
-export function diagnose(ctx: DeriveContext, code: 'SCH001' | 'SCH002', severity: Diagnostic['severity'], message: string): void {
-  ctx.diagnostics.push({ code, severity, message, source: ctx.options.sourceRef?.(ctx.node) });
+export function diagnose(ctx: DeriveContext, code: 'SCH001' | 'SCH002' | 'SCH005', severity: Diagnostic['severity'], message: string): void {
+  const owner = ctx.options.foreignOwner?.(ctx.node);
+  ctx.diagnostics.push({ code, severity, message: owner ? `${message} (declared in ${owner})` : message, source: ctx.options.sourceRef?.(ctx.node) });
 }
 
 export function deriveSchema(checker: ts.TypeChecker, type: ts.Type, node: ts.Node, options: DeriveOptions, registry: Map<string, JsonSchema>): DeriveResult {
-  const ctx: DeriveContext = { checker, node, options, registry, diagnostics: [], seen: new Map(), depth: 0 };
+  const ctx: DeriveContext = { checker, node, options, registry, diagnostics: [], seen: new Map(), owners: options.owners ?? new Map(), depth: 0 };
   const schema = deriveType(ctx, type);
   const id = typeof schema.$ref === 'string' && registry.has(schema.$ref) ? schema.$ref : undefined;
   return { schema: (id && registry.get(id)) || schema, id, diagnostics: ctx.diagnostics };
@@ -67,7 +75,9 @@ export function deriveType(ctx: DeriveContext, type: ts.Type): JsonSchema {
 
   const explicit = explicitSchema(inner, type);
   const id = explicit?.id ?? hoisted;
-  if (!inner.registry.has(id)) {
+  if (inner.registry.has(id)) reportCollision(inner, id, type);
+  else {
+    inner.owners.set(id, type);
     if (typeof explicit?.schema.$ref === 'string') {
       inner.registry.set(id, { $id: id, $ref: explicit.schema.$ref });
       return { $ref: id };
@@ -78,6 +88,27 @@ export function deriveType(ctx: DeriveContext, type: ts.Type): JsonSchema {
     else inner.registry.set(id, { ...explicit.schema, $id: id, 'x-derived': derived });
   }
   return { $ref: id };
+}
+
+function bodyOf(schema: JsonSchema | undefined): string {
+  if (!schema) return '';
+  const rest = Object.entries(schema).filter(([key]) => key !== '$id' && key !== 'x-derived');
+  return JSON.stringify(schema['x-derived'] ?? Object.fromEntries(rest));
+}
+
+function describeType(ctx: DeriveContext, type: ts.Type): string {
+  const declaration = type.getSymbol()?.declarations?.[0];
+  const source = declaration && ctx.options.sourceRef?.(declaration);
+  const name = ctx.checker.typeToString(type);
+  return source ? `${name} (${source.file}:${source.line})` : name;
+}
+
+function reportCollision(ctx: DeriveContext, id: string, type: ts.Type): void {
+  const owner = ctx.owners.get(id);
+  if (!owner || owner === type) return;
+  const probe: DeriveContext = { ...ctx, registry: new Map(ctx.registry), diagnostics: [], owners: new Map(ctx.owners) };
+  if (JSON.stringify(deriveBody(probe, type)) === bodyOf(ctx.registry.get(id))) return;
+  diagnose(ctx, 'SCH005', 'warning', `schema id ${id} is produced by two different types: ${describeType(ctx, owner)} and ${describeType(ctx, type)}`);
 }
 
 function unsupported(ctx: DeriveContext, type: ts.Type): JsonSchema {

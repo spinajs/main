@@ -137,3 +137,17 @@ describe('deriveSchema review fixes', () => {
     expect(result.diagnostics).to.deep.equal([]);
   });
 });
+
+describe('deriveSchema id collisions', () => {
+  it('warns SCH005 when two different types hoist to the same id', () => {
+    const result = derive('Collide');
+    const collisions = result.diagnostics.filter((d) => d.code === 'SCH005');
+    expect(collisions).to.have.length(1);
+    expect(collisions[0].severity).to.equal('warning');
+    expect(collisions[0].message).to.include('fixture/Point');
+  });
+  it('stays silent when the same type is derived again', () => {
+    const result = derive('GNested');
+    expect(result.diagnostics.filter((d) => d.code === 'SCH005')).to.deep.equal([]);
+  });
+});

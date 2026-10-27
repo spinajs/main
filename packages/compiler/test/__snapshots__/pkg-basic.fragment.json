@@ -1312,61 +1312,12 @@
       "properties": {
         "olderThanDays": {
           "type": "number"
-        },
-        "JobId": {
-          "type": "string"
-        },
-        "RetryCount": {
-          "type": "number",
-          "description": "Retry count on job failure"
-        },
-        "CreatedAt": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "Name": {
-          "type": "string"
-        },
-        "Type": {
-          "$ref": "spinajs/pkg-basic/QueueMessageType"
-        },
-        "Persistent": {
-          "type": "boolean"
-        },
-        "Priority": {
-          "type": "number"
-        },
-        "ScheduleDelay": {
-          "type": "number",
-          "description": "The time in milliseconds that a message will wait before being scheduled to be delivered by the broker"
-        },
-        "SchedulePeriod": {
-          "type": "number",
-          "description": "The time in milliseconds to wait after the start time to wait before scheduling the message again"
-        },
-        "ScheduleRepeat": {
-          "type": "number",
-          "description": "The number of times to repeat scheduling a message for delivery"
-        },
-        "ScheduleCron": {
-          "type": "string",
-          "description": "Use a Cron entry to set the schedule"
-        },
-        "Initiator": {
-          "$ref": "spinajs/pkg-basic/IQueueInitiator"
         }
       },
       "required": [
-        "olderThanDays",
-        "JobId",
-        "RetryCount",
-        "CreatedAt",
-        "Name",
-        "Type",
-        "Persistent",
-        "Priority"
+        "olderThanDays"
       ],
-      "additionalProperties": {}
+      "additionalProperties": false
     },
     "spinajs/pkg-basic/CreateUserDto": {
       "$id": "spinajs/pkg-basic/CreateUserDto",
@@ -1398,24 +1349,6 @@
       "required": [
         "id",
         "title"
-      ],
-      "additionalProperties": false
-    },
-    "spinajs/pkg-basic/IQueueInitiator": {
-      "$id": "spinajs/pkg-basic/IQueueInitiator",
-      "type": "object",
-      "properties": {
-        "type": {
-          "type": "string"
-        },
-        "id": {
-          "type": "string"
-        },
-        "ceiling": {}
-      },
-      "required": [
-        "type",
-        "id"
       ],
       "additionalProperties": false
     },
@@ -1466,13 +1399,6 @@
       "$id": "spinajs/pkg-basic/Post_Title",
       "type": "string"
     },
-    "spinajs/pkg-basic/QueueMessageType": {
-      "$id": "spinajs/pkg-basic/QueueMessageType",
-      "enum": [
-        "JOB",
-        "EVENT"
-      ]
-    },
     "spinajs/pkg-basic/Tag_Id": {
       "$id": "spinajs/pkg-basic/Tag_Id",
       "type": "number"
@@ -1490,53 +1416,13 @@
         },
         "email": {
           "type": "string"
-        },
-        "CreatedAt": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "Name": {
-          "type": "string"
-        },
-        "Type": {
-          "$ref": "spinajs/pkg-basic/QueueMessageType"
-        },
-        "Persistent": {
-          "type": "boolean"
-        },
-        "Priority": {
-          "type": "number"
-        },
-        "ScheduleDelay": {
-          "type": "number",
-          "description": "The time in milliseconds that a message will wait before being scheduled to be delivered by the broker"
-        },
-        "SchedulePeriod": {
-          "type": "number",
-          "description": "The time in milliseconds to wait after the start time to wait before scheduling the message again"
-        },
-        "ScheduleRepeat": {
-          "type": "number",
-          "description": "The number of times to repeat scheduling a message for delivery"
-        },
-        "ScheduleCron": {
-          "type": "string",
-          "description": "Use a Cron entry to set the schedule"
-        },
-        "Initiator": {
-          "$ref": "spinajs/pkg-basic/IQueueInitiator"
         }
       },
       "required": [
         "userId",
-        "email",
-        "CreatedAt",
-        "Name",
-        "Type",
-        "Persistent",
-        "Priority"
+        "email"
       ],
-      "additionalProperties": {}
+      "additionalProperties": false
     },
     "spinajs/pkg-basic/UserDto": {
       "$id": "spinajs/pkg-basic/UserDto",
@@ -1580,17 +1466,6 @@
     }
   },
   "diagnostics": [
-    {
-      "code": "SCH001",
-      "severity": "info",
-      "message": "unknown type at unknown accepts any value",
-      "source": {
-        "file": "../../../../queue/lib/mjs/interfaces.d.ts",
-        "line": 12,
-        "col": 5,
-        "package": "pkg-basic"
-      }
-    },
     {
       "code": "CMP003",
       "severity": "info",
@@ -1654,28 +1529,6 @@
         "file": "src/multi-condition.ts",
         "line": 10,
         "col": 10,
-        "package": "pkg-basic"
-      }
-    },
-    {
-      "code": "SCH001",
-      "severity": "info",
-      "message": "index signature typed any accepts any value",
-      "source": {
-        "file": "src/queue.ts",
-        "line": 3,
-        "col": 1,
-        "package": "pkg-basic"
-      }
-    },
-    {
-      "code": "SCH001",
-      "severity": "info",
-      "message": "index signature typed any accepts any value",
-      "source": {
-        "file": "src/schedule.ts",
-        "line": 4,
-        "col": 1,
         "package": "pkg-basic"
       }
     }

@@ -31,6 +31,7 @@ export const objectType: TypeHandler = (ctx, type) => {
   for (const property of ctx.checker.getPropertiesOfType(type)) {
     if (property.flags & (ts.SymbolFlags.Method | ts.SymbolFlags.Signature)) continue;
     const declaration = property.valueDeclaration ?? property.declarations?.[0];
+    if (declaration && ctx.options.excludeMembersOf?.(declaration)) continue;
     const propertyType = ctx.checker.getTypeOfSymbolAtLocation(property, declaration ?? ctx.node);
     if (isCallable(ctx.checker, propertyType)) continue;
     const propertyContext: DeriveContext = { ...ctx, node: declaration ?? ctx.node };
@@ -42,6 +43,7 @@ export const objectType: TypeHandler = (ctx, type) => {
   if (Object.keys(properties).length) schema.properties = properties;
   if (required.length) schema.required = required;
   const index = ctx.checker.getIndexInfoOfType(type, ts.IndexKind.String);
-  schema.additionalProperties = index ? indexSchema(ctx, index.type) : false;
+  const ownIndex = index && !(index.declaration && ctx.options.excludeMembersOf?.(index.declaration)) ? index : undefined;
+  schema.additionalProperties = ownIndex ? indexSchema(ctx, ownIndex.type) : false;
   return schema;
 };

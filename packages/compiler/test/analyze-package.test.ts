@@ -20,6 +20,9 @@ describe('analyzePackage', () => {
     const sources = fragment.services.map((s) => s.source);
     const sorted = [...sources].sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.col - b.col);
     expect(sources).to.deep.equal(sorted);
+    const files = [...JSON.stringify(fragment).matchAll(/"file":"([^"]*)"/g)].map((m) => m[1]);
+    expect(files.length).to.be.greaterThan(0);
+    expect(files.filter((f) => f.startsWith('..') || f.includes('node_modules'))).to.deep.equal([]);
     const snapshot = 'test/__snapshots__/pkg-basic.fragment.json';
     if (!existsSync(snapshot) || process.env.UPDATE_SNAPSHOTS) writeFileSync(snapshot, JSON.stringify(fragment, null, 2) + '\n');
     expect(fragment).to.deep.equal(JSON.parse(readFileSync(snapshot, 'utf8')));
