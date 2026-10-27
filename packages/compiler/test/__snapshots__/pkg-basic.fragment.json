@@ -1364,11 +1364,7 @@
         "Name",
         "Type",
         "Persistent",
-        "Priority",
-        "ScheduleDelay",
-        "SchedulePeriod",
-        "ScheduleRepeat",
-        "ScheduleCron"
+        "Priority"
       ],
       "additionalProperties": {}
     },
@@ -1538,11 +1534,7 @@
         "Name",
         "Type",
         "Persistent",
-        "Priority",
-        "ScheduleDelay",
-        "SchedulePeriod",
-        "ScheduleRepeat",
-        "ScheduleCron"
+        "Priority"
       ],
       "additionalProperties": {}
     },
@@ -1667,8 +1659,8 @@
     },
     {
       "code": "SCH001",
-      "severity": "warning",
-      "message": "unsupported type any, emitted as {}",
+      "severity": "info",
+      "message": "index signature typed any accepts any value",
       "source": {
         "file": "src/queue.ts",
         "line": 3,
@@ -1678,8 +1670,8 @@
     },
     {
       "code": "SCH001",
-      "severity": "warning",
-      "message": "unsupported type any, emitted as {}",
+      "severity": "info",
+      "message": "index signature typed any accepts any value",
       "source": {
         "file": "src/schedule.ts",
         "line": 4,

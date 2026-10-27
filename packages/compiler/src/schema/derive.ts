@@ -68,10 +68,13 @@ export function deriveType(ctx: DeriveContext, type: ts.Type): JsonSchema {
   const explicit = explicitSchema(inner, type);
   const id = explicit?.id ?? hoisted;
   if (!inner.registry.has(id)) {
+    if (typeof explicit?.schema.$ref === 'string') {
+      inner.registry.set(id, { $id: id, $ref: explicit.schema.$ref });
+      return { $ref: id };
+    }
     inner.registry.set(id, { $id: id });
     const derived = deriveBody(inner, type);
     if (!explicit) inner.registry.set(id, { $id: id, ...derived });
-    else if (typeof explicit.schema.$ref === 'string') inner.registry.set(id, { $id: id, $ref: explicit.schema.$ref });
     else inner.registry.set(id, { ...explicit.schema, $id: id, 'x-derived': derived });
   }
   return { $ref: id };

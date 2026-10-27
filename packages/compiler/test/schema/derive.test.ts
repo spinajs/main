@@ -118,3 +118,22 @@ describe('deriveSchema naming', () => {
     expect([...result.registry.keys()]).to.deep.equal(['fixture/Page_Page_Point', 'fixture/Page_Point', 'fixture/Point']);
   });
 });
+
+describe('deriveSchema review fixes', () => {
+  it('does not require a property whose type includes undefined', () => {
+    expect(derive('OUndef').schema.required).to.deep.equal(['y']);
+    expect(derive('CUndef').schema.required).to.deep.equal(['z']);
+  });
+  it('reports an any-typed index signature', () => {
+    const result = derive('OAnyIndex');
+    expect(result.schema.additionalProperties).to.deep.equal({});
+    expect(result.diagnostics.map((d) => d.code)).to.deep.equal(['SCH001']);
+    expect(result.diagnostics[0].message).to.include('index signature');
+  });
+  it('does not derive the class behind a string @Schema', () => {
+    const result = derive('ExplicitRefNested');
+    expect(result.schema).to.deep.equal({ $id: 'fixture/ExplicitRefNested', $ref: 'fixture/by-ref-with-body' });
+    expect([...result.registry.keys()]).to.deep.equal(['fixture/ExplicitRefNested']);
+    expect(result.diagnostics).to.deep.equal([]);
+  });
+});
