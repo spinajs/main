@@ -57,5 +57,6 @@
     "@spinajs/exceptions": "3.0.23",
     "@spinajs/log": "3.0.23",
     "@spinajs/queue": "3.0.23"
-  }
+  },
+  "types": "./lib/index.d.ts"
 }

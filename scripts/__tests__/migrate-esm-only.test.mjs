@@ -48,6 +48,12 @@ test('rewritePackageJson: main, types, bin, typesVersions, scripts, engines, git
   assert.deepEqual(out.scripts, { compile: 'tsc -b tsconfig.build.json', watch: 'tsc -b tsconfig.build.json -w', start: 'node lib/main.js', pretest: 'npm run compile' });
 });
 
+test('rewritePackageJson: types from main when exports["."] collapses to a string', () => {
+  const out = rewritePackageJson({ main: 'lib/cjs/index.js', exports: { '.': { import: './lib/mjs/index.js', require: './lib/cjs/index.js' } } });
+  assert.equal(out.exports['.'], './lib/index.js');
+  assert.equal(out.types, './lib/index.d.ts');
+});
+
 test('rewriteScriptsField: authn-http style pretest drops the cjs tsc call', () => {
   assert.deepEqual(
     rewriteScriptsField({ pretest: 'npm run clean && npm run compile && cd ../.. && node node_modules/typescript-7/lib/tsc.js -b packages/authn-http/tsconfig.cjs.json && node scripts/generate-packages-for-modules.mjs' }),

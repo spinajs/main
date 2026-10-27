@@ -61,13 +61,10 @@ export function rewritePackageJson(pkg, { engines } = {}) {
   delete out.gitHead;
   if (out.exports) out.exports = rewriteExports(out.exports);
   if (out.main) out.main = fixLibPath(out.main.startsWith('.') ? out.main : `./${out.main}`);
-  if (out.exports && out.exports['.']) {
-    const root = out.exports['.'];
-    const types = typeof root === 'object' ? root.types : undefined;
-    if (types) out.types = types;
-  } else if (out.main && out.main.endsWith('.js')) {
-    out.types = out.main.replace(/\.js$/, '.d.ts');
-  }
+  const root = out.exports?.['.'];
+  const types = root && typeof root === 'object' ? root.types : undefined;
+  if (types) out.types = types;
+  else if (out.main && out.main.endsWith('.js')) out.types = out.main.replace(/\.js$/, '.d.ts');
   if (out.bin) out.bin = Object.fromEntries(Object.entries(out.bin).map(([k, v]) => [k, fixLibPath(v)]));
   if (out.typesVersions) out.typesVersions = JSON.parse(fixLibPath(JSON.stringify(out.typesVersions)));
   if (out.scripts) out.scripts = rewriteScriptsField(out.scripts);

@@ -56,5 +56,6 @@
     "@spinajs/queue": "3.0.23",
     "@spinajs/templates": "3.0.23",
     "@spinajs/templates-pdf": "3.0.23"
-  }
+  },
+  "types": "./lib/index.d.ts"
 }
