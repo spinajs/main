@@ -63,6 +63,14 @@ function reconnecting() {
   return { loop, Client };
 }
 
+function deferred() {
+  let release!: () => void;
+  const promise = new Promise<void>((resolve) => (release = resolve));
+  return { promise, release };
+}
+
+const tick = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
+
 describe('createTestApp (root scope)', () => {
   afterEach(disposeTestApps);
 
@@ -228,6 +236,115 @@ describe('createTestApp (root scope)', () => {
 
     expect(error?.constructor.name).to.equal('RestoreIncomplete');
     expect(svc.disposed).to.be.true;
+  });
+
+  describe('a boot that does not finish', () => {
+    it('bootTimeout rejects a boot that never resolves, frees the slot and restores root', async () => {
+      const before = rootState();
+      let error: Error | undefined;
+      await createTestApp({ config: {}, bootTimeout: 30, register: () => new Promise(() => undefined) }).catch((e: Error) => (error = e));
+
+      expect(error?.message).to.match(/did not finish booting within 30 ms/);
+      expect(rootState()).to.deep.equal(before);
+
+      const next = await createTestApp({ config: { n: { k: 1 } } });
+      expect(next.config.get('n.k')).to.equal(1);
+      await next.dispose();
+      expect(rootState()).to.deep.equal(before);
+    });
+
+    it('bootTimeout does not wait for a resolution that hangs, and disposes it when it finally finishes', async () => {
+      const gate = deferred();
+      let late: HangingService | undefined;
+      class HangingService extends AsyncService {
+        public disposed = false;
+        public async resolve(): Promise<void> {
+          late = this;
+          await gate.promise;
+        }
+        public async dispose(): Promise<void> {
+          this.disposed = true;
+        }
+      }
+      const before = rootState();
+      let error: Error | undefined;
+      await createTestApp({ config: {}, bootTimeout: 30, register: (c) => c.register(HangingService).asSelf(), resolve: [HangingService] }).catch(
+        (e: Error) => (error = e),
+      );
+      expect(error?.message).to.match(/did not finish booting/);
+      expect(rootState()).to.deep.equal(before);
+
+      gate.release();
+      await tick();
+      expect(late?.disposed).to.be.true;
+      expect(rootState()).to.deep.equal(before);
+    });
+
+    it('a boot that finishes after its timeout registers nothing and does not keep the slot', async () => {
+      const gate = deferred();
+      const runs = SpecBootstrapper.Runs;
+      const before = rootState();
+      let afterGate = false;
+      const stuck = createTestApp({
+        config: {},
+        bootTimeout: 30,
+        register: async (c) => {
+          c.register(SpecService).asSelf();
+          await gate.promise;
+          afterGate = true;
+        },
+        resolve: [SpecService],
+      }).catch((e: Error) => e);
+      expect(await stuck).to.be.instanceOf(Error);
+
+      gate.release();
+      await tick();
+      expect(afterGate).to.be.true;
+      expect(SpecBootstrapper.Runs).to.equal(runs);
+      expect(rootState()).to.deep.equal(before);
+
+      const next = await createTestApp({ config: { n: { k: 2 } } });
+      expect(next.config.get('n.k')).to.equal(2);
+      expect(DI.RootContainer.hasRegistered(SpecService)).to.be.false;
+      expect(DI.RootContainer.isResolved(SpecService)).to.be.false;
+      await next.dispose();
+      expect(rootState()).to.deep.equal(before);
+    });
+
+    it('a second root create fails fast while the first one is still booting', async () => {
+      const gate = deferred();
+      const before = rootState();
+      const first = createTestApp({ name: 'slow-suite', config: {}, bootTimeout: 5000, register: () => gate.promise });
+
+      let error: Error | undefined;
+      await createTestApp({ config: {} }).catch((e: Error) => (error = e));
+      gate.release();
+      const app = await first;
+      expect(error?.message).to.match(/"slow-suite" \(booting, started \d+ ms ago\) is still booting/);
+      expect(app.config).to.be.instanceOf(Configuration);
+      await app.dispose();
+      expect(rootState()).to.deep.equal(before);
+    });
+
+    it('a root create while the previous app is still disposing fails fast', async () => {
+      const gate = deferred();
+      class SlowDispose extends AsyncService {
+        public async dispose(): Promise<void> {
+          await gate.promise;
+        }
+      }
+      const app = await createTestApp({ config: {}, register: (c) => c.register(SlowDispose).asSelf(), resolve: [SlowDispose] });
+      const disposing = app.dispose();
+      await tick();
+
+      let error: Error | undefined;
+      await createTestApp({ config: {} }).catch((e: Error) => (error = e));
+      expect(error?.message).to.match(/still being disposed/);
+
+      gate.release();
+      await disposing;
+      await (await createTestApp({ config: {} })).dispose();
+    });
   });
 
   it('dispose is idempotent', async () => {
