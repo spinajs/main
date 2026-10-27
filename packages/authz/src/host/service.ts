@@ -525,6 +525,8 @@ export class DefaultAuthzService extends AuthzService {
       },
     });
 
+    // Before attach, so a bad configured domain fails the root boot instead of a later request.
+    if (parent === undefined) domains.createConfigured();
     if (this.disposed) throw new AuthzConfigError(`${where}: the service was disposed while it booted`);
     if (domains.describe(container)?.name !== name || !domains.attach(name, this, { config: cfg, audit, bus, clock: clock as unknown as AuthzClock })) throw new AuthzConfigError(`${where}: the domain was disposed while it booted`);
     if (cache) usedCaches.add(cache);

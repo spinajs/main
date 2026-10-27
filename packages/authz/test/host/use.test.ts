@@ -99,6 +99,36 @@ describe('authz.use', function () {
     });
   });
 
+  describe('configured domains', () => {
+    it('root boot creates the domains a use list names, parents first', async () => {
+      registerInRoot('a', () => allowing('a'));
+      setConfig(['authz', 'domains', 'arch'], { use: ['a'] });
+      setConfig(['authz', 'domains', 'arch.sub'], { parent: 'arch', use: [] });
+      setConfig(['authz', 'domains', 'plain'], { cache: { ttlSeconds: 1 } });
+      await rootService();
+      const d = await domains();
+      expect(d.names()).to.deep.equal(['root', 'arch', 'arch.sub']);
+      expect(names((await d.service('arch.sub')).models())).to.deep.equal(['a']);
+    });
+
+    it('leaves a domain the app created itself', async () => {
+      registerInRoot('a', () => allowing('a'));
+      setConfig(['authz', 'domains', 'arch'], { use: ['a'] });
+      const d = await domains();
+      const own = d.create('arch');
+      await rootService();
+      expect(d.container('arch')).to.equal(own);
+    });
+
+    it('a configured parent that does not resolve fails the root boot', async () => {
+      setConfig(['authz', 'domains', 'orphan'], { parent: 'nowhere', use: [] });
+      setConfig(['authz', 'domains', 'nowhere'], { parent: 'orphan' });
+      const err = await rejection(rootService());
+      expect(err).to.be.instanceOf(AuthzConfigError);
+      expect(err.message).to.contain('cycle');
+    });
+  });
+
   describe('boot failures', () => {
     it('an unknown name fails the domain boot, naming the key', async () => {
       setConfig(['authz', 'domains', 'kid'], { use: ['ghost'] });
