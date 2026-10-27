@@ -3,7 +3,6 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import * as sinon from 'sinon';
-import '../src/index.js';
 import { backoffDelay, ConnectionState } from '../src/resilience.js';
 import { OrmDriver } from '../src/driver.js';
 import { IColumnDescriptor, ISupportedFeature, ITransactionContext, ITransactionOptions } from '../src/interfaces.js';

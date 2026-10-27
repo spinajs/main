@@ -246,7 +246,6 @@ function modelTableReads(spy: sinon.SinonSpy): string[] {
 const TRACKING_COLUMNS = ['Migration', 'CreatedAt', 'StartedAt', 'FinishedAt', 'RolledBackAt', 'Logs', 'Checksum', 'Batch'].map((n) => column(n, 'VARCHAR'));
 
 describe('OrmMigrator', function () {
-  this.timeout(10000);
 
   const appOptions = (): TestAppOptions => ({
     configuration: MigratorTestConf,

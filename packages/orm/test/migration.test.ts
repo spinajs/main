@@ -1,12 +1,12 @@
 /* eslint-disable prettier/prettier */
-import '../src/index.js';
 import { useTestApp } from '@spinajs/testing';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import _ from 'lodash';
 import 'mocha';
-import { Orm } from '../src/orm.js';
+// Entering via orm.js hits the relations.ts <-> orm.ts cycle (@Inject(OrmClass) at class definition); index.js orders it correctly.
+import { Orm } from '../src/index.js';
 import { FakeSqliteDriver, TEST_TABLE_INFO, mergeArrays, stubDb, ormApp, registerMigrationFakes } from './misc.js';
 import * as sinon from 'sinon';
 import { ModelToSqlConverter, OrmMigration, Migration, MigrationTransactionMode, StandardModelToSqlConverter, ObjectToSqlConverter, StandardObjectToSqlConverter, IMigrationRecord, MIGRATION_TABLE_NAME, OrmException, MigrationRunner, OrmMigrator } from '../src/index.js';

@@ -5,8 +5,6 @@ import { ModelBase } from '../src/model.js';
 import { extractModelDescriptor } from '../src/descriptor.js';
 import { SingleRelation } from '../src/relation-objects.js';
 import { pkGeneration, generateClientSideKeys, assertAssignedKeys } from '../src/primary-keys.js';
-import { DI } from '@spinajs/di';
-import { Orm } from '../src/orm.js';
 
 @Connection('sqlite')
 class SinglePkModel extends ModelBase {
@@ -215,10 +213,6 @@ describe('string-target relation PrimaryKey without a resolved Orm', () => {
     @BelongsTo('NeverRegisteredTarget')
     public Target: SingleRelation<any>;
   }
-
-  beforeEach(() => {
-    DI.uncache(Orm);
-  });
 
   it('reads the wired TargetModel when the container has no Orm instance', () => {
     const relation = extractModelDescriptor(LazyKeySource)!.Relations.get('Target')!;
