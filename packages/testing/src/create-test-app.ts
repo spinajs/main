@@ -118,7 +118,7 @@ function assertRootFree(): void {
   switch (rootClaim.phase) {
     case 'booting':
       throw new Error(
-        `createTestApp: root app ${who} is still booting, so root is half-built; raise or lower its bootTimeout, or fix what it waits for`,
+        `createTestApp: root app ${who} is still booting, so root is half-built; set its bootTimeout below the hook timeout, or fix what it waits for`,
       );
     case 'disposing':
       throw new Error(`createTestApp: root app ${who} is still being disposed; wait for its dispose() to finish`);
@@ -173,6 +173,7 @@ async function createRootApp(options: TestAppOptions): Promise<TestApp> {
   try {
     configuration = await bootWithTimeout(container, options, { abandoned: false }, claim);
   } catch (err) {
+    claim.phase = 'disposing';
     try {
       await container.restore(snapshot).catch(() => undefined);
     } finally {
@@ -241,8 +242,12 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
 export function useTestApp(options: TestAppOptions | (() => TestAppOptions) = {}): () => TestApp {
   let current: TestApp | undefined;
 
-  beforeEach(async () => {
-    current = await createTestApp(typeof options === 'function' ? options() : options);
+  beforeEach(async function (this: Mocha.Context) {
+    const resolved = typeof options === 'function' ? options() : options;
+    // A boot that outlives the hook would otherwise finish later as a live root app nobody owns.
+    const hookTimeout = this.timeout();
+    const bootTimeout = resolved.bootTimeout ?? (hookTimeout > 0 ? Math.floor(hookTimeout * 0.9) : undefined);
+    current = await createTestApp({ ...resolved, bootTimeout });
   });
 
   afterEach(async () => {

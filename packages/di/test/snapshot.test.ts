@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { AsyncService, Autoinject, Container, DI, LazyInject, PerInstanceCheck, SyncService } from '../src/index.js';
+import { AsyncService, Autoinject, Container, DI, LazyInject, PerInstanceCheck, RestoreIncomplete, SyncService } from '../src/index.js';
 import type { Class, ContainerSnapshot, IInstanceCheck } from '../src/index.js';
 
 class Base {}
@@ -58,10 +58,11 @@ class Polled extends AsyncService {
   }
 }
 
-class Quick extends AsyncService {
+// Never cached, so a restore round finds nothing to dispose after it.
+class FailingQuick extends AsyncService {
   public async resolve(): Promise<void> {
     await new Promise((r) => setImmediate(r));
-    await super.resolve();
+    throw new Error('refused');
   }
 }
 
@@ -386,21 +387,25 @@ describe('container snapshot / restore', () => {
     expect(c.getCacheStats().size).to.equal(before.cache.size);
   });
 
-  it('restore gives up after five nested generations, warns, and still leaves the cache as it was', async () => {
+  it('restore gives up after five nested generations, still swaps back, and rejects naming the cap and the dropped services', async () => {
     const c = new Container();
-    const link = (): Class<AsyncService> =>
-      class extends AsyncService {
-        public async dispose(): Promise<void> {
-          await c.resolve(link());
-        }
-      };
+    class Link extends AsyncService {
+      public async dispose(): Promise<void> {
+        await c.resolve(named(Link));
+      }
+    }
 
     const before = c.snapshot();
-    await c.resolve(link());
-    const warnings = await capturedWarnings(() => c.restore(before));
+    await c.resolve(named(Link));
+    let error: Error | undefined;
+    await capturedWarnings(async () => {
+      await c.restore(before).catch((e: Error) => (error = e));
+    });
 
+    expect(error).to.be.instanceOf(RestoreIncomplete);
+    expect(error?.message).to.include('5 generations');
+    expect(error?.message).to.match(/Dropped without dispose\(\): Link[0-9]+/);
     expect(c.getCacheStats().size).to.equal(before.cache.size);
-    expect(warnings.some((w) => String(w).includes('5 generations'))).to.be.true;
   });
 
   it('restore disposes a service built during another dispose() before the older services still waiting', async () => {
@@ -628,10 +633,12 @@ describe('container snapshot / restore', () => {
     it('restore gives up after its round cap when every round leaves a new resolution in flight', async () => {
       const c = new Container();
       const settle = c.Cache.settle.bind(c.Cache);
-      const started: Promise<Quick>[] = [];
+      const started: Promise<FailingQuick>[] = [];
       c.Cache.settle = async (passes?: number) => {
         const done = await settle(passes);
-        started.push(c.resolve(named(Quick)));
+        const attempt = c.resolve(named(FailingQuick));
+        attempt.catch(() => undefined);
+        started.push(attempt);
         return done;
       };
 
@@ -643,7 +650,7 @@ describe('container snapshot / restore', () => {
 
       expect(error?.constructor.name).to.equal('RestoreIncomplete');
       expect(error?.message).to.match(/10 rounds/);
-      expect(error?.message).to.match(/Still resolving: Quick\d+/);
+      expect(error?.message).to.match(/Still resolving: FailingQuick[0-9]+/);
       await Promise.allSettled(started);
       expectSnapshotState(c, before);
     });

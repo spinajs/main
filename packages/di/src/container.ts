@@ -33,6 +33,8 @@ interface RestoreRun {
   errors: Error[];
   /** Which cap stopped the run. */
   gaveUp?: string;
+  /** Claimed by the generation cap and never disposed. */
+  dropped: string[];
 }
 
 /**
@@ -198,7 +200,7 @@ export class Container extends EventEmitter implements IContainer {
 
   public async restore(snapshot: ContainerSnapshot): Promise<void> {
     const extras = snapshotExtras.get(snapshot);
-    const run: RestoreRun = { snapshot, keptChildren: extras?.children ?? new Set(), claimed: new Set(), errors: [] };
+    const run: RestoreRun = { snapshot, keptChildren: extras?.children ?? new Set(), claimed: new Set(), errors: [], dropped: [] };
 
     // Disposal runs while the state the services were created in is still live, so a dispose() can read its config and injections.
     for (let round = 0; !run.gaveUp; round++) {
@@ -251,7 +253,7 @@ export class Container extends EventEmitter implements IContainer {
 
   private restoreIncomplete(run: RestoreRun, inFlight: string[]): RestoreIncomplete {
     const pending = [...new Set([...inFlight, ...this.cache.pendingKeys()])];
-    const dropped = this.claimUndisposed(run).map((item) => getTypeName(item));
+    const dropped = [...run.dropped, ...this.claimUndisposed(run).map((item) => getTypeName(item))];
     return new RestoreIncomplete(
       `restore() gave up: ${run.gaveUp}. Still resolving: ${pending.join(', ') || 'nothing'} (disposed when they finish, never cached).` +
         (dropped.length > 0 ? ` Dropped without dispose(): ${dropped.join(', ')}.` : ''),
@@ -275,10 +277,8 @@ export class Container extends EventEmitter implements IContainer {
    */
   private async disposeGeneration(generation: Disposable[], depth: number, run: RestoreRun): Promise<void> {
     if (depth >= MAX_RESTORE_GENERATIONS) {
-      const children = generation.filter((item) => !(item instanceof Service)).length;
-      console.warn(
-        `restore() stopped after ${MAX_RESTORE_GENERATIONS} generations of services resolved during disposal: ${generation.length - children} services and ${children} children were dropped without dispose()`,
-      );
+      run.gaveUp ??= `dispose() kept resolving new services ${MAX_RESTORE_GENERATIONS} generations deep`;
+      run.dropped.push(...generation.map((item) => getTypeName(item)));
       return;
     }
 
