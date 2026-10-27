@@ -150,4 +150,18 @@ describe('BaseFileSource config file discovery', () => {
 
     expect(files).to.deep.equal([join(other, 'other.js'), join(real, 'app.js')]);
   });
+
+  // WORKSPACE_ROOT_PATH repeats the nearest hoisting root, which is not always the farthest ancestor.
+  it('keeps the first place an exact path is listed, so a nested copy stays before the hoisted one', async () => {
+    const nested = join(tmp, 'nested', 'config');
+    const hoisted = join(tmp, 'hoisted', 'config');
+    fs.mkdirSync(nested, { recursive: true });
+    fs.mkdirSync(hoisted, { recursive: true });
+    fs.writeFileSync(join(nested, 'nested.js'), 'export default {};\n');
+    fs.writeFileSync(join(hoisted, 'hoisted.js'), 'export default {};\n');
+
+    const { files } = await new LoadProbe().loadFrom([nested, hoisted, nested]);
+
+    expect(files).to.deep.equal([join(nested, 'nested.js'), join(hoisted, 'hoisted.js')]);
+  });
 });
