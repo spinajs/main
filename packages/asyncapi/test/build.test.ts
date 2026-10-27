@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { DiagnosticSeverity, Parser } from '@asyncapi/parser';
+import { WIRE_EVENTS } from '@spinajs/http-socket-common';
 import type { Manifest } from '@spinajs/manifest';
 import { manifestToAsyncApi } from '../src/index.js';
 import type { AsyncApiDocument } from '../src/index.js';
@@ -74,5 +75,9 @@ describe('manifestToAsyncApi', () => {
 
   it('is byte-stable across runs', () => {
     expect(JSON.stringify(manifestToAsyncApi(manifest, options))).to.equal(JSON.stringify(doc));
+  });
+
+  it('stream frames match the socket wire protocol', () => {
+    expect(doc.operations['chat.history.receive']['x-spinajs-stream-frames']).to.deep.equal([WIRE_EVENTS.chunk, WIRE_EVENTS.end, WIRE_EVENTS.fail]);
   });
 });

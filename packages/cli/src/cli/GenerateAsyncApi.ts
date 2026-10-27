@@ -1,6 +1,4 @@
 import { writeFile } from 'node:fs/promises';
-import { manifestToAsyncApi } from '@spinajs/asyncapi';
-import { readManifest } from '@spinajs/manifest';
 import { Log, Logger } from '@spinajs/log-common';
 import { CliCommand, Command, Option } from '../index.js';
 
@@ -23,6 +21,10 @@ export class GenerateAsyncApi extends CliCommand {
   protected Log: Log;
 
   public async execute(options: GenerateAsyncApiOptions): Promise<void> {
+    // Loaded lazily: the generator packages are ESM-only, command discovery must not require them.
+    const { readManifest } = await import('@spinajs/manifest');
+    const { manifestToAsyncApi } = await import('@spinajs/asyncapi');
+
     const manifest = await readManifest(options.manifest);
     const doc = manifestToAsyncApi(manifest, {
       title: options.title ?? manifest.app.name,

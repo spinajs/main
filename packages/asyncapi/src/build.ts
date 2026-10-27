@@ -19,6 +19,7 @@ export type AsyncApiDocument = {
   components: { schemas: Record<string, unknown>; messages: Record<string, unknown> };
 };
 
+// Must match WIRE_EVENTS in packages/http-socket-common/src/protocol.ts (pinned by a test).
 const STREAM_FRAMES = ['chunk', 'end', 'fail'];
 
 // Keys whose children are a name -> schema map: the names are user data, not keywords.
