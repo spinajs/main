@@ -38,6 +38,19 @@ export interface ChildOptions {
   isolateSingletons?: boolean;
 }
 
+export interface ContainerSnapshot {
+  readonly registry: ReadonlyMap<string, unknown[]>;
+  readonly values: ReadonlyMap<string, unknown[]>;
+  readonly cache: ReadonlyMap<string, unknown[]>;
+  readonly listeners: ReadonlyMap<string | symbol, ((...args: unknown[]) => void)[]>;
+}
+
+export interface ContainerCacheStats {
+  size: number;
+  entries: string[];
+  childrenCount: number;
+}
+
 export interface RegisterOptions {
   /** Re-registering a class of the same name moves it to the last position (last registered wins) instead of keeping its first position. */
   replace?: boolean;
@@ -183,6 +196,13 @@ export interface IContainer extends EventEmitter {
   resolveNamed<T>(base: Class<T>, name: string): Promise<T>;
 
   dispose(options?: IDisposeOptions): Promise<void>;
+
+  /** The registrations, values, cached instances and listeners of this container, copied. */
+  snapshot(): ContainerSnapshot;
+  /** Disposes children and every Service cached since the snapshot, then puts registry, values, cache and listeners back. */
+  restore(snapshot: ContainerSnapshot): Promise<void>;
+
+  getCacheStats(): ContainerCacheStats;
 
   extractDescriptor(type: Class<unknown>): IInjectDescriptor<unknown>;
 }

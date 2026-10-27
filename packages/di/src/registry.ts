@@ -4,6 +4,10 @@ import { getTypeName, isConstructor, isFactory, isObject } from './helpers.js';
 import { IChainRegistration, IContainer, RegisterOptions } from './interfaces.js';
 import { Class, Factory } from './types.js';
 
+function copyLists(source: ReadonlyMap<string, unknown[]>): Map<string, any[]> {
+  return new Map([...source].map(([key, list]) => [key, [...list]]));
+}
+
 export class Registry {
   protected registry: Map<string, any[]> = new Map<string, any[]>();
 
@@ -15,6 +19,15 @@ export class Registry {
   public clear() {
     this.registry.clear();
     this.values.clear();
+  }
+
+  public snapshotState(): { registry: Map<string, unknown[]>; values: Map<string, unknown[]> } {
+    return { registry: copyLists(this.registry), values: copyLists(this.values) };
+  }
+
+  public restoreState(registry: ReadonlyMap<string, unknown[]>, values: ReadonlyMap<string, unknown[]>): void {
+    this.registry = copyLists(registry);
+    this.values = copyLists(values);
   }
 
   public registerValue(name: string, value: unknown, override = false): void {

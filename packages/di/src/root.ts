@@ -1,6 +1,6 @@
 import { pathToFileURL } from 'node:url';
 import { Container } from './container.js';
-import { ChildOptions, IBind, IContainer, IDisposeOptions, ResolvableObject, ResolveChainResult } from './interfaces.js';
+import { ChildOptions, ContainerSnapshot, IBind, IContainer, IDisposeOptions, ResolvableObject, ResolveChainResult } from './interfaces.js';
 import { Class, InferClass, InferTypedArray, ResolveResult, ResolveArrayResult, Factory } from './types.js';
 import { ChainArray, TypedArray } from './array.js';
 
@@ -103,6 +103,14 @@ export function clearCache() {
 
 export async function dispose(options?: IDisposeOptions) {
   await RootContainer.dispose(options);
+}
+
+export function snapshot(): ContainerSnapshot {
+  return RootContainer.snapshot();
+}
+
+export async function restore(snapshot: ContainerSnapshot): Promise<void> {
+  await RootContainer.restore(snapshot);
 }
 
 /**

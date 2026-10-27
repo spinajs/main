@@ -5,7 +5,7 @@ import { ChainArray, TypedArray } from './array.js';
 import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
 import { ResolveType } from './enums.js';
 import { getTypeName, isAsyncService, isChainArray, isFactory, isTypedArray, isPromise } from './helpers.js';
-import { ChildOptions, IBind, IContainer, IDisposeOptions, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service, ResolveChainResult } from './interfaces.js';
+import { ChildOptions, ContainerCacheStats, ContainerSnapshot, IBind, IContainer, IDisposeOptions, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service, ResolveChainResult } from './interfaces.js';
 import { Class, Factory, ResolveResult } from './types.js';
 import { EventEmitter } from './events.js';
 import { Binder } from './binder.js';
@@ -163,6 +163,57 @@ export class Container extends EventEmitter implements IContainer {
     }
   }
 
+  public snapshot(): ContainerSnapshot {
+    const { registry, values } = this.registry.snapshotState();
+    const listeners = new Map<string | symbol, ((...args: unknown[]) => void)[]>();
+    for (const event of this.eventNames()) {
+      listeners.set(event, this.rawListeners(event));
+    }
+
+    return { registry, values, cache: this.cache.snapshotState(), listeners };
+  }
+
+  public async restore(snapshot: ContainerSnapshot): Promise<void> {
+    const errors: Error[] = [];
+
+    for (const child of [...this.children]) {
+      await child.dispose().catch((err: Error) => errors.push(err));
+    }
+    this.children.clear();
+
+    for (const instance of this.cache.restoreState(snapshot.cache)) {
+      if (instance instanceof Service) {
+        try {
+          await instance.dispose();
+        } catch (err) {
+          errors.push(err as Error);
+        }
+      }
+    }
+
+    this.registry.restoreState(snapshot.registry, snapshot.values);
+    this.restoreListeners(snapshot.listeners);
+
+    if (errors.length > 0) {
+      console.warn(`${errors.length} services failed to dispose properly during restore:`, errors);
+    }
+  }
+
+  /** Removes every listener added since the snapshot, a second copy of a kept one included. */
+  private restoreListeners(snapshot: ContainerSnapshot['listeners']) {
+    for (const event of this.eventNames()) {
+      const allowed = [...(snapshot.get(event) ?? [])];
+      for (const listener of this.rawListeners(event)) {
+        const index = allowed.indexOf(listener);
+        if (index === -1) {
+          this.removeListener(event, listener);
+        } else {
+          allowed.splice(index, 1);
+        }
+      }
+    }
+  }
+
   private async disposePlainOwners(errors: Error[]) {
     const seen = new Set<unknown>();
     const entries = [...this.cache, ...this.registry.valueEntries()];
@@ -200,7 +251,7 @@ export class Container extends EventEmitter implements IContainer {
   /**
    * Get cache statistics for memory monitoring
    */
-  public getCacheStats() {
+  public getCacheStats(): ContainerCacheStats {
     const entries: string[] = [];
     let size = 0;
 
