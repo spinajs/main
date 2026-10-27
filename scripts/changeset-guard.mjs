@@ -4,14 +4,22 @@ import { fileURLToPath } from 'node:url';
 const SRC = /^packages\/[^/]+\/src\//;
 const CHANGESET = /^\.changeset\/(?!README\.md$)[^/]+\.md$/;
 
+// Entries are paths or { path, status } with a git name-status letter; a deleted changeset does not count.
 export function requiresChangeset(files) {
-  const normalized = files.map((f) => f.replace(/\\/g, '/'));
-  return normalized.some((f) => SRC.test(f)) && !normalized.some((f) => CHANGESET.test(f));
+  const entries = files.map((f) => (typeof f === 'string' ? { path: f, status: 'M' } : f));
+  const norm = entries.map((e) => ({ ...e, path: e.path.replace(/\\/g, '/') }));
+  return norm.some((e) => SRC.test(e.path)) && !norm.some((e) => e.status !== 'D' && CHANGESET.test(e.path));
 }
 
 function changedFiles(base) {
-  const out = execFileSync('git', ['diff', '--name-only', '--diff-filter=ACMRD', `${base}...HEAD`], { encoding: 'utf8' });
-  return out.split('\n').filter(Boolean);
+  const out = execFileSync('git', ['diff', '--name-status', `${base}...HEAD`], { encoding: 'utf8' });
+  return out
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [status, ...paths] = line.split('\t');
+      return { status: status[0], path: paths[paths.length - 1] };
+    });
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
