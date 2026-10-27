@@ -13,12 +13,12 @@ function socketAccessOf(m: ts.MethodDeclaration, ctx: ExtractorContext): string[
   return Array.isArray(v) ? v.map(String) : [String(v)];
 }
 
-function payloadOf(m: ts.MethodDeclaration, ctx: ExtractorContext): TypeRef {
+function payloadOf(m: NamedMethod, className: string, ctx: ExtractorContext): TypeRef {
   const p = m.parameters.find((param) => findDecorator(param, 'Payload'));
-  return p ? ctx.typeRef(ctx.checker.getTypeAtLocation(p), p) : { text: 'void' };
+  return p ? ctx.typeRef(ctx.checker.getTypeAtLocation(p), p, `${className}_${m.name.text}_Payload`) : { text: 'void' };
 }
 
-function commandOf(m: NamedMethod, cmd: DecoratorInfo, ctx: ExtractorContext): SocketCommandEntry {
+function commandOf(m: NamedMethod, className: string, cmd: DecoratorInfo, ctx: ExtractorContext): SocketCommandEntry {
   const sig = ctx.checker.getSignatureFromDeclaration(m);
   const access = socketAccessOf(m, ctx);
   const policies = policyGroupsOf(m, ctx, 'route');
@@ -26,8 +26,8 @@ function commandOf(m: NamedMethod, cmd: DecoratorInfo, ctx: ExtractorContext): S
   return {
     name: (literalValue(cmd.args[0], ctx) as string | undefined) ?? m.name.text,
     handler: m.name.text,
-    payload: payloadOf(m, ctx),
-    result: sig ? ctx.typeRef(ctx.checker.getReturnTypeOfSignature(sig), m) : { text: 'unknown' },
+    payload: payloadOf(m, className, ctx),
+    result: sig ? ctx.typeRef(ctx.checker.getReturnTypeOfSignature(sig), m, `${className}_${m.name.text}_Result`) : { text: 'unknown' },
     options: (literalValue(cmd.args[1], ctx) as SocketCommandEntry['options'] | undefined) ?? {},
     ...(access ? { access } : {}),
     policies,
@@ -43,8 +43,8 @@ function controllerOf(node: ts.ClassDeclaration & { name: ts.Identifier }, sc: D
     const named = m as NamedMethod;
     const cmd = findDecorator(m, 'Command');
     const ev = findDecorator(m, 'OnEvent');
-    if (cmd) commands.push(commandOf(named, cmd, ctx));
-    else if (ev) events.push({ name: (literalValue(ev.args[0], ctx) as string | undefined) ?? named.name.text, payload: payloadOf(m, ctx) });
+    if (cmd) commands.push(commandOf(named, node.name.text, cmd, ctx));
+    else if (ev) events.push({ name: (literalValue(ev.args[0], ctx) as string | undefined) ?? named.name.text, payload: payloadOf(named, node.name.text, ctx) });
   }
   return {
     id: `${ctx.packageName}:${node.name.text}`,
@@ -73,9 +73,9 @@ function membersOf(type: ts.Type, ctx: ExtractorContext, node: ts.Node): Map<str
   return new Map(type.getProperties().map((p) => [p.name, ctx.checker.getTypeOfSymbolAtLocation(p, node)]));
 }
 
-function refsOf(type: ts.Type | undefined, ctx: ExtractorContext, node: ts.Node): Record<string, TypeRef> {
+function refsOf(type: ts.Type | undefined, ctx: ExtractorContext, node: ts.Node, hintPrefix: string): Record<string, TypeRef> {
   const out: Record<string, TypeRef> = {};
-  if (type) for (const [name, t] of membersOf(type, ctx, node)) out[name] = ctx.typeRef(t, node);
+  if (type) for (const [name, t] of membersOf(type, ctx, node)) out[name] = ctx.typeRef(t, node, `${hintPrefix}_${name}`);
   return out;
 }
 
@@ -86,14 +86,14 @@ function contractOf(decl: ts.VariableDeclaration & { name: ts.Identifier }, shap
   if (commandsType) {
     for (const [name, tuple] of membersOf(commandsType, ctx, decl)) {
       const [payload, result] = ctx.checker.getTypeArguments(tuple as ts.TypeReference);
-      commands[name] = { payload: ctx.typeRef(payload, decl), result: ctx.typeRef(result, decl) };
+      commands[name] = { payload: ctx.typeRef(payload, decl, `${decl.name.text}_${name}_Payload`), result: ctx.typeRef(result, decl, `${decl.name.text}_${name}_Result`) };
     }
   }
   return {
     id: `${ctx.packageName}:${decl.name.text}`,
     commands,
-    events: refsOf(top.get('events'), ctx, decl),
-    clientEvents: refsOf(top.get('clientEvents'), ctx, decl),
+    events: refsOf(top.get('events'), ctx, decl, `${decl.name.text}_event`),
+    clientEvents: refsOf(top.get('clientEvents'), ctx, decl, `${decl.name.text}_clientEvent`),
     source: ctx.sourceRef(decl),
   };
 }

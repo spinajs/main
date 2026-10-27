@@ -37,6 +37,7 @@ function stripNullable(type: ts.Type): ts.Type {
 
 function readMembers(node: ts.ClassDeclaration, ctx: ExtractorContext): Pick<ModelEntry, 'columns' | 'relations'> {
   const columns: Column[] = [];
+  const className = node.name?.text ?? '';
   const relations: Relation[] = [];
   for (const m of node.members) {
     if (!ts.isPropertyDeclaration(m) || !ts.isIdentifier(m.name) || m.modifiers?.some((x) => x.kind === ts.SyntaxKind.StaticKeyword)) continue;
@@ -49,7 +50,7 @@ function readMembers(node: ts.ClassDeclaration, ctx: ExtractorContext): Pick<Mod
     }
     if (decs.some((d) => NON_COLUMN.has(d.name))) continue;
     const type = ctx.checker.getTypeAtLocation(m);
-    columns.push({ name: m.name.text, type: ctx.typeRef(stripNullable(type), m), primary: decs.some((d) => d.name === 'Primary'), nullable: isNullable(type, m) });
+    columns.push({ name: m.name.text, type: ctx.typeRef(stripNullable(type), m, `${className}_${m.name.text}`), primary: decs.some((d) => d.name === 'Primary'), nullable: isNullable(type, m) });
   }
   return { columns, relations };
 }

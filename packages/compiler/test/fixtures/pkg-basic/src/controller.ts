@@ -32,4 +32,14 @@ export class UsersController extends BaseController {
   @AllowAnonymous()
   @Policy([AdminPolicy, 'policies.admin'])
   public async remove(@Param({ type: 'number', minimum: 1 }) id: number): Promise<void> { void id; }
+
+  @Get()
+  public async list(): Promise<Ok<UserDto[]>> {
+    return new Ok([]);
+  }
+
+  @Get('ping')
+  public ping(): Ok {
+    return new Ok();
+  }
 }

@@ -632,7 +632,8 @@
               "name": "id",
               "kind": "FromParams",
               "runtimeType": {
-                "text": "number"
+                "text": "number",
+                "schema": "spinajs/pkg-basic/UsersController_get_id"
               },
               "required": true
             },
@@ -641,13 +642,15 @@
               "name": "verbose",
               "kind": "FromQuery",
               "runtimeType": {
-                "text": "boolean"
+                "text": "boolean",
+                "schema": "spinajs/pkg-basic/UsersController_get_verbose"
               },
               "required": false
             }
           ],
           "returnType": {
-            "text": "UserDto"
+            "text": "UserDto",
+            "schema": "spinajs/pkg-basic/UserDto"
           },
           "policies": [
             [
@@ -693,7 +696,8 @@
               "name": "body",
               "kind": "FromBody",
               "runtimeType": {
-                "text": "CreateUserDto"
+                "text": "CreateUserDto",
+                "schema": "spinajs/pkg-basic/CreateUserDto"
               },
               "required": true,
               "options": {
@@ -702,7 +706,8 @@
             }
           ],
           "returnType": {
-            "text": "UserDto"
+            "text": "UserDto",
+            "schema": "spinajs/pkg-basic/UserDto"
           },
           "policies": [
             [
@@ -742,7 +747,8 @@
               "name": "id",
               "kind": "FromParams",
               "runtimeType": {
-                "text": "number"
+                "text": "number",
+                "schema": "spinajs/pkg-basic/UsersController_remove_id"
               },
               "required": true,
               "schema": "spinajs/pkg-basic/UsersController.remove.id"
@@ -771,6 +777,43 @@
             "col": 3,
             "package": "pkg-basic"
           }
+        },
+        {
+          "method": "get",
+          "path": "",
+          "handler": "list",
+          "fullPath": "/users",
+          "params": [],
+          "returnType": {
+            "text": "UserDto[]",
+            "schema": "spinajs/pkg-basic/UsersController_list_Response"
+          },
+          "policies": [],
+          "middlewares": [],
+          "source": {
+            "file": "src/controller.ts",
+            "line": 36,
+            "col": 3,
+            "package": "pkg-basic"
+          }
+        },
+        {
+          "method": "get",
+          "path": "ping",
+          "handler": "ping",
+          "fullPath": "/users/ping",
+          "params": [],
+          "returnType": {
+            "text": "Ok"
+          },
+          "policies": [],
+          "middlewares": [],
+          "source": {
+            "file": "src/controller.ts",
+            "line": 41,
+            "col": 3,
+            "package": "pkg-basic"
+          }
         }
       ],
       "source": {
@@ -791,10 +834,12 @@
           "name": "open",
           "handler": "open",
           "payload": {
-            "text": "OpenDoc"
+            "text": "OpenDoc",
+            "schema": "spinajs/pkg-basic/OpenDoc"
           },
           "result": {
-            "text": "DocOpened"
+            "text": "DocOpened",
+            "schema": "spinajs/pkg-basic/DocOpened"
           },
           "options": {
             "idempotent": true,
@@ -825,7 +870,8 @@
           "name": "close",
           "handler": "close",
           "payload": {
-            "text": "OpenDoc"
+            "text": "OpenDoc",
+            "schema": "spinajs/pkg-basic/OpenDoc"
           },
           "result": {
             "text": "void"
@@ -844,7 +890,8 @@
         {
           "name": "ping",
           "payload": {
-            "text": "Ping"
+            "text": "Ping",
+            "schema": "spinajs/pkg-basic/Ping"
           }
         }
       ],
@@ -862,15 +909,18 @@
       "commands": {
         "docs.open": {
           "payload": {
-            "text": "OpenDoc"
+            "text": "OpenDoc",
+            "schema": "spinajs/pkg-basic/OpenDoc"
           },
           "result": {
-            "text": "DocOpened"
+            "text": "DocOpened",
+            "schema": "spinajs/pkg-basic/DocOpened"
           }
         },
         "docs.close": {
           "payload": {
-            "text": "OpenDoc"
+            "text": "OpenDoc",
+            "schema": "spinajs/pkg-basic/OpenDoc"
           },
           "result": {
             "text": "void"
@@ -879,12 +929,14 @@
       },
       "events": {
         "docs.changed": {
-          "text": "DocOpened"
+          "text": "DocOpened",
+          "schema": "spinajs/pkg-basic/DocOpened"
         }
       },
       "clientEvents": {
         "docs.ping": {
-          "text": "Ping"
+          "text": "Ping",
+          "schema": "spinajs/pkg-basic/Ping"
         }
       },
       "source": {
@@ -1009,7 +1061,8 @@
         {
           "name": "Id",
           "type": {
-            "text": "number"
+            "text": "number",
+            "schema": "spinajs/pkg-basic/Tag_Id"
           },
           "primary": true,
           "nullable": false
@@ -1017,7 +1070,8 @@
         {
           "name": "Name",
           "type": {
-            "text": "string"
+            "text": "string",
+            "schema": "spinajs/pkg-basic/Tag_Name"
           },
           "primary": false,
           "nullable": false
@@ -1040,7 +1094,8 @@
         {
           "name": "Id",
           "type": {
-            "text": "number"
+            "text": "number",
+            "schema": "spinajs/pkg-basic/PostTag_Id"
           },
           "primary": true,
           "nullable": false
@@ -1064,7 +1119,8 @@
         {
           "name": "Id",
           "type": {
-            "text": "number"
+            "text": "number",
+            "schema": "spinajs/pkg-basic/Post_Id"
           },
           "primary": true,
           "nullable": false
@@ -1072,7 +1128,8 @@
         {
           "name": "Title",
           "type": {
-            "text": "string"
+            "text": "string",
+            "schema": "spinajs/pkg-basic/Post_Title"
           },
           "primary": false,
           "nullable": false
@@ -1080,7 +1137,8 @@
         {
           "name": "Body",
           "type": {
-            "text": "string"
+            "text": "string",
+            "schema": "spinajs/pkg-basic/Post_Body"
           },
           "primary": false,
           "nullable": true
@@ -1088,7 +1146,8 @@
         {
           "name": "PublishedAt",
           "type": {
-            "text": "Date"
+            "text": "Date",
+            "schema": "spinajs/pkg-basic/Post_PublishedAt"
           },
           "primary": false,
           "nullable": true
@@ -1204,7 +1263,8 @@
       "className": "UserCreated",
       "kind": "event",
       "payload": {
-        "text": "UserCreated"
+        "text": "UserCreated",
+        "schema": "spinajs/pkg-basic/UserCreated"
       },
       "options": {
         "durable": true
@@ -1220,7 +1280,8 @@
       "className": "Cleanup",
       "kind": "job",
       "payload": {
-        "text": "Cleanup"
+        "text": "Cleanup",
+        "schema": "spinajs/pkg-basic/Cleanup"
       },
       "options": {
         "runAs": "system"
@@ -1245,12 +1306,299 @@
         }
       }
     },
+    "spinajs/pkg-basic/Cleanup": {
+      "$id": "spinajs/pkg-basic/Cleanup",
+      "type": "object",
+      "properties": {
+        "olderThanDays": {
+          "type": "number"
+        },
+        "JobId": {
+          "type": "string"
+        },
+        "RetryCount": {
+          "type": "number",
+          "description": "Retry count on job failure"
+        },
+        "CreatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "Name": {
+          "type": "string"
+        },
+        "Type": {
+          "$ref": "spinajs/pkg-basic/QueueMessageType"
+        },
+        "Persistent": {
+          "type": "boolean"
+        },
+        "Priority": {
+          "type": "number"
+        },
+        "ScheduleDelay": {
+          "type": "number",
+          "description": "The time in milliseconds that a message will wait before being scheduled to be delivered by the broker"
+        },
+        "SchedulePeriod": {
+          "type": "number",
+          "description": "The time in milliseconds to wait after the start time to wait before scheduling the message again"
+        },
+        "ScheduleRepeat": {
+          "type": "number",
+          "description": "The number of times to repeat scheduling a message for delivery"
+        },
+        "ScheduleCron": {
+          "type": "string",
+          "description": "Use a Cron entry to set the schedule"
+        },
+        "Initiator": {
+          "$ref": "spinajs/pkg-basic/IQueueInitiator"
+        }
+      },
+      "required": [
+        "olderThanDays",
+        "JobId",
+        "RetryCount",
+        "CreatedAt",
+        "Name",
+        "Type",
+        "Persistent",
+        "Priority",
+        "ScheduleDelay",
+        "SchedulePeriod",
+        "ScheduleRepeat",
+        "ScheduleCron"
+      ],
+      "additionalProperties": {}
+    },
+    "spinajs/pkg-basic/CreateUserDto": {
+      "$id": "spinajs/pkg-basic/CreateUserDto",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/pkg-basic/DocOpened": {
+      "$id": "spinajs/pkg-basic/DocOpened",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/pkg-basic/IQueueInitiator": {
+      "$id": "spinajs/pkg-basic/IQueueInitiator",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "ceiling": {}
+      },
+      "required": [
+        "type",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/pkg-basic/OpenDoc": {
+      "$id": "spinajs/pkg-basic/OpenDoc",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/pkg-basic/Ping": {
+      "$id": "spinajs/pkg-basic/Ping",
+      "type": "object",
+      "properties": {
+        "at": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "at"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/pkg-basic/PostTag_Id": {
+      "$id": "spinajs/pkg-basic/PostTag_Id",
+      "type": "number"
+    },
+    "spinajs/pkg-basic/Post_Body": {
+      "$id": "spinajs/pkg-basic/Post_Body",
+      "type": "string"
+    },
+    "spinajs/pkg-basic/Post_Id": {
+      "$id": "spinajs/pkg-basic/Post_Id",
+      "type": "number"
+    },
+    "spinajs/pkg-basic/Post_PublishedAt": {
+      "$id": "spinajs/pkg-basic/Post_PublishedAt",
+      "type": "string",
+      "format": "date-time"
+    },
+    "spinajs/pkg-basic/Post_Title": {
+      "$id": "spinajs/pkg-basic/Post_Title",
+      "type": "string"
+    },
+    "spinajs/pkg-basic/QueueMessageType": {
+      "$id": "spinajs/pkg-basic/QueueMessageType",
+      "enum": [
+        "JOB",
+        "EVENT"
+      ]
+    },
+    "spinajs/pkg-basic/Tag_Id": {
+      "$id": "spinajs/pkg-basic/Tag_Id",
+      "type": "number"
+    },
+    "spinajs/pkg-basic/Tag_Name": {
+      "$id": "spinajs/pkg-basic/Tag_Name",
+      "type": "string"
+    },
+    "spinajs/pkg-basic/UserCreated": {
+      "$id": "spinajs/pkg-basic/UserCreated",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "number"
+        },
+        "email": {
+          "type": "string"
+        },
+        "CreatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "Name": {
+          "type": "string"
+        },
+        "Type": {
+          "$ref": "spinajs/pkg-basic/QueueMessageType"
+        },
+        "Persistent": {
+          "type": "boolean"
+        },
+        "Priority": {
+          "type": "number"
+        },
+        "ScheduleDelay": {
+          "type": "number",
+          "description": "The time in milliseconds that a message will wait before being scheduled to be delivered by the broker"
+        },
+        "SchedulePeriod": {
+          "type": "number",
+          "description": "The time in milliseconds to wait after the start time to wait before scheduling the message again"
+        },
+        "ScheduleRepeat": {
+          "type": "number",
+          "description": "The number of times to repeat scheduling a message for delivery"
+        },
+        "ScheduleCron": {
+          "type": "string",
+          "description": "Use a Cron entry to set the schedule"
+        },
+        "Initiator": {
+          "$ref": "spinajs/pkg-basic/IQueueInitiator"
+        }
+      },
+      "required": [
+        "userId",
+        "email",
+        "CreatedAt",
+        "Name",
+        "Type",
+        "Persistent",
+        "Priority",
+        "ScheduleDelay",
+        "SchedulePeriod",
+        "ScheduleRepeat",
+        "ScheduleCron"
+      ],
+      "additionalProperties": {}
+    },
+    "spinajs/pkg-basic/UserDto": {
+      "$id": "spinajs/pkg-basic/UserDto",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "number"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "additionalProperties": false
+    },
     "spinajs/pkg-basic/UsersController.remove.id": {
       "type": "number",
       "minimum": 1
+    },
+    "spinajs/pkg-basic/UsersController_get_id": {
+      "$id": "spinajs/pkg-basic/UsersController_get_id",
+      "type": "number"
+    },
+    "spinajs/pkg-basic/UsersController_get_verbose": {
+      "$id": "spinajs/pkg-basic/UsersController_get_verbose",
+      "type": "boolean"
+    },
+    "spinajs/pkg-basic/UsersController_list_Response": {
+      "$id": "spinajs/pkg-basic/UsersController_list_Response",
+      "type": "array",
+      "items": {
+        "$ref": "spinajs/pkg-basic/UserDto"
+      }
+    },
+    "spinajs/pkg-basic/UsersController_remove_id": {
+      "$id": "spinajs/pkg-basic/UsersController_remove_id",
+      "type": "number"
     }
   },
   "diagnostics": [
+    {
+      "code": "SCH001",
+      "severity": "info",
+      "message": "unknown type at unknown accepts any value",
+      "source": {
+        "file": "../../../../queue/lib/mjs/interfaces.d.ts",
+        "line": 12,
+        "col": 5,
+        "package": "pkg-basic"
+      }
+    },
     {
       "code": "CMP003",
       "severity": "info",
@@ -1314,6 +1662,28 @@
         "file": "src/multi-condition.ts",
         "line": 10,
         "col": 10,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "code": "SCH001",
+      "severity": "warning",
+      "message": "unsupported type any, emitted as {}",
+      "source": {
+        "file": "src/queue.ts",
+        "line": 3,
+        "col": 1,
+        "package": "pkg-basic"
+      }
+    },
+    {
+      "code": "SCH001",
+      "severity": "warning",
+      "message": "unsupported type any, emitted as {}",
+      "source": {
+        "file": "src/schedule.ts",
+        "line": 4,
+        "col": 1,
         "package": "pkg-basic"
       }
     }

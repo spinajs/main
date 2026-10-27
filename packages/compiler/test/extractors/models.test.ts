@@ -19,10 +19,10 @@ describe('extractModels', () => {
   it('Post columns, relations, connection', () => {
     expect(post).to.deep.include({ id: 'pkg-basic:Post', connection: 'default', accessResource: true });
     expect(post.columns).to.deep.equal([
-      { name: 'Id', type: { text: 'number' }, primary: true, nullable: false },
-      { name: 'Title', type: { text: 'string' }, primary: false, nullable: false },
-      { name: 'Body', type: { text: 'string' }, primary: false, nullable: true },
-      { name: 'PublishedAt', type: { text: 'Date' }, primary: false, nullable: true },
+      { name: 'Id', type: { text: 'number', schema: 'spinajs/pkg-basic/Post_Id' }, primary: true, nullable: false },
+      { name: 'Title', type: { text: 'string', schema: 'spinajs/pkg-basic/Post_Title' }, primary: false, nullable: false },
+      { name: 'Body', type: { text: 'string', schema: 'spinajs/pkg-basic/Post_Body' }, primary: false, nullable: true },
+      { name: 'PublishedAt', type: { text: 'Date', schema: 'spinajs/pkg-basic/Post_PublishedAt' }, primary: false, nullable: true },
     ]);
     expect(post.relations).to.deep.equal([
       { name: 'Owner', kind: 'belongsTo', target: 'User' },
