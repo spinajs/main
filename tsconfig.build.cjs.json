@@ -14,6 +14,7 @@
     { "path": "packages/http-socket-client/tsconfig.cjs.json" },
     { "path": "./packages/util/tsconfig.cjs.json" },
     { "path": "./packages/hooks/tsconfig.cjs.json" },
+    { "path": "./packages/manifest/tsconfig.cjs.json" },
     { "path": "./packages/principal/tsconfig.cjs.json" },
     { "path": "./packages/fs/tsconfig.cjs.json" },
     { "path": "./packages/electron/tsconfig.cjs.json" },

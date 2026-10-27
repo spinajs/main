@@ -1,0 +1,1236 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spinajs.dev/schemas/manifest-v1.json",
+  "definitions": {
+    "Manifest": {
+      "type": "object",
+      "properties": {
+        "manifestVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "services": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ServiceEntry"
+          }
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ValueEntry"
+          }
+        },
+        "controllers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ControllerEntry"
+          }
+        },
+        "socketControllers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SocketControllerEntry"
+          }
+        },
+        "socketContracts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SocketContractEntry"
+          }
+        },
+        "configModules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ConfigModuleEntry"
+          }
+        },
+        "configUsages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ConfigUsageEntry"
+          }
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ModelEntry"
+          }
+        },
+        "migrations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MigrationEntry"
+          }
+        },
+        "schedules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ScheduleEntry"
+          }
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CliCommandEntry"
+          }
+        },
+        "queueMessages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/QueueMessageEntry"
+          }
+        },
+        "schemas": {
+          "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Diagnostic"
+          }
+        },
+        "app": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            },
+            "root": {
+              "type": "string"
+            },
+            "outDir": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "version",
+            "root",
+            "outDir"
+          ]
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "entry": {
+                "type": "string"
+              },
+              "outDir": {
+                "type": "string"
+              },
+              "fragment": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "version",
+              "entry",
+              "outDir",
+              "fragment"
+            ]
+          }
+        },
+        "generatedAt": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "app",
+        "commands",
+        "configModules",
+        "configUsages",
+        "controllers",
+        "diagnostics",
+        "generatedAt",
+        "hash",
+        "manifestVersion",
+        "migrations",
+        "models",
+        "packages",
+        "queueMessages",
+        "schedules",
+        "schemas",
+        "services",
+        "socketContracts",
+        "socketControllers",
+        "values"
+      ]
+    },
+    "ServiceEntry": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "className": {
+          "type": "string"
+        },
+        "registeredAs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "lifetime": {
+          "$ref": "#/definitions/Lifetime"
+        },
+        "async": {
+          "type": "boolean"
+        },
+        "bootstrapper": {
+          "type": "boolean"
+        },
+        "ctorInjects": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "propertyInjects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "property": {
+                "type": "string"
+              },
+              "token": {
+                "type": "string"
+              },
+              "optional": {
+                "type": "boolean"
+              },
+              "array": {
+                "type": "boolean"
+              },
+              "lazy": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "property",
+              "token",
+              "optional",
+              "array"
+            ]
+          }
+        },
+        "imperativeResolves": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "token": {
+                "type": "string"
+              },
+              "method": {
+                "type": "string"
+              },
+              "awaited": {
+                "type": "boolean"
+              },
+              "source": {
+                "$ref": "#/definitions/SourceRef"
+              }
+            },
+            "required": [
+              "token",
+              "method",
+              "awaited",
+              "source"
+            ]
+          }
+        },
+        "condition": {
+          "$ref": "#/definitions/Condition"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "id",
+        "className",
+        "registeredAs",
+        "lifetime",
+        "async",
+        "bootstrapper",
+        "ctorInjects",
+        "propertyInjects",
+        "source"
+      ]
+    },
+    "Lifetime": {
+      "type": "string",
+      "enum": [
+        "singleton",
+        "new-instance",
+        "per-child",
+        "per-instance",
+        "per-instance-check"
+      ]
+    },
+    "SourceRef": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "line": {
+          "type": "number"
+        },
+        "col": {
+          "type": "number"
+        },
+        "package": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file",
+        "line",
+        "col",
+        "package"
+      ]
+    },
+    "Condition": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "config"
+            },
+            "path": {
+              "type": "string"
+            },
+            "expected": {}
+          },
+          "required": [
+            "kind",
+            "path"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "dynamic"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ]
+        }
+      ]
+    },
+    "ValueEntry": {
+      "type": "object",
+      "properties": {
+        "token": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "value",
+            "map"
+          ]
+        },
+        "mapKey": {
+          "type": "string"
+        },
+        "value": {},
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        },
+        "condition": {
+          "$ref": "#/definitions/Condition"
+        }
+      },
+      "required": [
+        "token",
+        "kind",
+        "source"
+      ]
+    },
+    "ControllerEntry": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "className": {
+          "type": "string"
+        },
+        "basePath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "basePathConfig": {
+          "type": "string"
+        },
+        "policies": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/PolicyRef"
+            }
+          }
+        },
+        "middlewares": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "options": {
+                "type": "array",
+                "items": {}
+              }
+            },
+            "required": [
+              "type"
+            ]
+          }
+        },
+        "access": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "allowAnonymous": {
+          "type": "boolean"
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RouteEntry"
+          }
+        },
+        "condition": {
+          "$ref": "#/definitions/Condition"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "id",
+        "className",
+        "basePath",
+        "policies",
+        "middlewares",
+        "routes",
+        "source"
+      ]
+    },
+    "PolicyRef": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "options": {
+          "type": "array",
+          "items": {}
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    "RouteEntry": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": [
+            "get",
+            "post",
+            "put",
+            "patch",
+            "delete",
+            "head",
+            "file"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "handler": {
+          "type": "string"
+        },
+        "fullPath": {
+          "type": "string"
+        },
+        "params": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ParamEntry"
+          }
+        },
+        "returnType": {
+          "$ref": "#/definitions/TypeRef"
+        },
+        "policies": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/PolicyRef"
+            }
+          }
+        },
+        "middlewares": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "options": {
+                "type": "array",
+                "items": {}
+              }
+            },
+            "required": [
+              "type"
+            ]
+          }
+        },
+        "access": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "allowAnonymous": {
+          "type": "boolean"
+        },
+        "doc": {
+          "type": "object",
+          "properties": {
+            "summary": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "deprecated": {
+              "type": "boolean"
+            },
+            "responses": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "number"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "$ref": "#/definitions/TypeRef"
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              }
+            }
+          }
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "method",
+        "path",
+        "handler",
+        "fullPath",
+        "params",
+        "returnType",
+        "policies",
+        "middlewares",
+        "source"
+      ]
+    },
+    "ParamEntry": {
+      "type": "object",
+      "properties": {
+        "index": {
+          "type": "number"
+        },
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "runtimeType": {
+          "$ref": "#/definitions/TypeRef"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "options": {},
+        "schema": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "index",
+        "name",
+        "kind",
+        "runtimeType",
+        "required"
+      ]
+    },
+    "TypeRef": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "schema": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ]
+    },
+    "SocketControllerEntry": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "className": {
+          "type": "string"
+        },
+        "prefix": {
+          "type": "string"
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SocketCommandEntry"
+          }
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "payload": {
+                "$ref": "#/definitions/TypeRef"
+              }
+            },
+            "required": [
+              "name",
+              "payload"
+            ]
+          }
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "id",
+        "className",
+        "prefix",
+        "commands",
+        "events",
+        "source"
+      ]
+    },
+    "SocketCommandEntry": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "handler": {
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/definitions/TypeRef"
+        },
+        "result": {
+          "$ref": "#/definitions/TypeRef"
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "idempotent": {
+              "type": "boolean"
+            },
+            "ordered": {
+              "type": "boolean"
+            },
+            "timeoutMs": {
+              "type": "number"
+            }
+          }
+        },
+        "access": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "policies": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/PolicyRef"
+            }
+          }
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "name",
+        "handler",
+        "payload",
+        "result",
+        "options",
+        "policies",
+        "source"
+      ]
+    },
+    "SocketContractEntry": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "commands": {
+          "$ref": "#/definitions/Record%3Cstring%2CSocketContractCommand%3E"
+        },
+        "events": {
+          "$ref": "#/definitions/Record%3Cstring%2CTypeRef%3E"
+        },
+        "clientEvents": {
+          "$ref": "#/definitions/Record%3Cstring%2CTypeRef%3E"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "id",
+        "commands",
+        "events",
+        "clientEvents",
+        "source"
+      ]
+    },
+    "Record<string,SocketContractCommand>": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/SocketContractCommand"
+      }
+    },
+    "SocketContractCommand": {
+      "type": "object",
+      "properties": {
+        "payload": {
+          "$ref": "#/definitions/TypeRef"
+        },
+        "result": {
+          "$ref": "#/definitions/TypeRef"
+        }
+      },
+      "required": [
+        "payload",
+        "result"
+      ]
+    },
+    "Record<string,TypeRef>": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/TypeRef"
+      }
+    },
+    "ConfigModuleEntry": {
+      "type": "object",
+      "properties": {
+        "module": {
+          "type": "string"
+        },
+        "schemaId": {
+          "type": "string"
+        },
+        "defaultsFile": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "module",
+        "schemaId",
+        "source"
+      ]
+    },
+    "ConfigUsageEntry": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "path",
+        "source"
+      ]
+    },
+    "ModelEntry": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "className": {
+          "type": "string"
+        },
+        "tableName": {
+          "type": "string"
+        },
+        "connection": {
+          "type": "string"
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "$ref": "#/definitions/TypeRef"
+              },
+              "primary": {
+                "type": "boolean"
+              },
+              "nullable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "type",
+              "primary",
+              "nullable"
+            ]
+          }
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "belongsTo",
+                  "hasMany",
+                  "hasManyToMany",
+                  "forwardBelongsTo"
+                ]
+              },
+              "target": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "kind",
+              "target"
+            ]
+          }
+        },
+        "accessResource": {
+          "type": "boolean"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "id",
+        "className",
+        "tableName",
+        "columns",
+        "relations",
+        "accessResource",
+        "source"
+      ]
+    },
+    "MigrationEntry": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "className": {
+          "type": "string"
+        },
+        "connection": {
+          "type": "string"
+        },
+        "env": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "file": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "id",
+        "className",
+        "connection",
+        "file",
+        "source"
+      ]
+    },
+    "ScheduleEntry": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "className": {
+          "type": "string"
+        },
+        "options": {
+          "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "name",
+        "className",
+        "options",
+        "source"
+      ]
+    },
+    "Record<string,unknown>": {
+      "type": "object",
+      "additionalProperties": {}
+    },
+    "CliCommandEntry": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "className": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "flags": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "flags"
+            ]
+          }
+        },
+        "arguments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          }
+        },
+        "parent": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "name",
+        "className",
+        "options",
+        "arguments",
+        "source"
+      ]
+    },
+    "QueueMessageEntry": {
+      "type": "object",
+      "properties": {
+        "className": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "job",
+            "event"
+          ]
+        },
+        "payload": {
+          "$ref": "#/definitions/TypeRef"
+        },
+        "options": {
+          "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "className",
+        "kind",
+        "payload",
+        "options",
+        "source"
+      ]
+    },
+    "Diagnostic": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "code",
+        "severity",
+        "message"
+      ]
+    },
+    "ManifestFragment": {
+      "type": "object",
+      "properties": {
+        "manifestVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "package": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            },
+            "entry": {
+              "type": "string"
+            },
+            "outDir": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "version",
+            "entry",
+            "outDir"
+          ]
+        },
+        "services": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ServiceEntry"
+          }
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ValueEntry"
+          }
+        },
+        "controllers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ControllerEntry"
+          }
+        },
+        "socketControllers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SocketControllerEntry"
+          }
+        },
+        "socketContracts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SocketContractEntry"
+          }
+        },
+        "configModules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ConfigModuleEntry"
+          }
+        },
+        "configUsages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ConfigUsageEntry"
+          }
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ModelEntry"
+          }
+        },
+        "migrations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MigrationEntry"
+          }
+        },
+        "schedules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ScheduleEntry"
+          }
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CliCommandEntry"
+          }
+        },
+        "queueMessages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/QueueMessageEntry"
+          }
+        },
+        "schemas": {
+          "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Diagnostic"
+          }
+        }
+      },
+      "required": [
+        "manifestVersion",
+        "package",
+        "services",
+        "values",
+        "controllers",
+        "socketControllers",
+        "socketContracts",
+        "configModules",
+        "configUsages",
+        "models",
+        "migrations",
+        "schedules",
+        "commands",
+        "queueMessages",
+        "schemas",
+        "diagnostics"
+      ]
+    }
+  }
+}
