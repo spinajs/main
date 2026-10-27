@@ -48,6 +48,7 @@
     "@spinajs/orm": "3.0.23",
     "@spinajs/queue": "3.0.23",
     "@spinajs/scheduler": "3.0.23",
+    "@spinajs/users": "3.0.23",
     "@spinajs/validation": "3.0.23",
     "@types/luxon": "^3.6.1",
     "@types/node": "^22.14.1",
