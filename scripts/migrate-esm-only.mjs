@@ -96,7 +96,8 @@ export function rewriteConfigSource(source) {
   if (!source.includes('typeof module')) return source;
   let out = source.replace(/^[ \t]*const inCommonJs = typeof module !== 'undefined';\r?\n/gm, '');
   out = out.replace(/, inCommonJs \? 'cjs' : 'mjs'/g, '');
-  if (out.includes('typeof module')) throw new Error(`unhandled typeof module usage:\n${out}`);
+  out = out.replace(/^[ \t]*inCommonJs \? 'cjs' : 'mjs',\r?\n/gm, '');
+  if (out.includes('typeof module') || out.includes('inCommonJs')) throw new Error(`unhandled typeof module usage:\n${out}`);
   return out;
 }
 

@@ -106,6 +106,16 @@ test('rewriteConfigSource: http lib() helper and single-dir variants', () => {
   assert.equal(rewriteConfigSource(`  const inCommonJs = typeof module !== 'undefined';\n  return resolve(normalize(join(lib(), inCommonJs ? 'cjs' : 'mjs', path)));`), `  return resolve(normalize(join(lib(), path)));`);
 });
 
+test('rewriteConfigSource: prettier-wrapped join() with the flavour on its own line', () => {
+  const input = `function dir(path: string) {\n  const inCommonJs = typeof module !== 'undefined';\n  return resolve(\n    normalize(\n      join(\n        'lib',\n        inCommonJs ? 'cjs' : 'mjs',\n        path,\n      ),\n    ),\n  );\n}`;
+  const expected = `function dir(path: string) {\n  return resolve(\n    normalize(\n      join(\n        'lib',\n        path,\n      ),\n    ),\n  );\n}`;
+  assert.equal(rewriteConfigSource(input), expected);
+});
+
+test('rewriteConfigSource: refuses a leftover inCommonJs reference', () => {
+  assert.throws(() => rewriteConfigSource(`const inCommonJs = typeof module !== 'undefined';\nconst x = inCommonJs && 1;`), /unhandled typeof module/);
+});
+
 test('rewriteConfigSource: a file without the pattern is returned unchanged', () => {
   assert.equal(rewriteConfigSource('export default {};\n'), 'export default {};\n');
 });
