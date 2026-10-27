@@ -156,3 +156,8 @@ export class CVisibility {
   #d = 1;
   constructor(protected e?: string) {}
 }
+
+// --- generic arguments in hoisted names
+export interface Dict<T> { [key: string]: T }
+export type DRec<T> = { value: T; next: DRec<T> } | { end: true };
+export interface DHolder { a: Dict<string>; b: Dict<string[]>; c: Dict<[string, number]>; d: DRec<string>; e: DRec<string[]> }

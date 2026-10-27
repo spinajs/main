@@ -152,6 +152,20 @@ describe('deriveSchema id collisions', () => {
   });
 });
 
+describe('deriveSchema generic argument names', () => {
+  it('keeps array and tuple arguments apart from their element type', () => {
+    const result = derive('DHolder');
+    expect(result.schema.properties).to.deep.equal({
+      a: ref('Dict_string'),
+      b: ref('Dict_string_Array'),
+      c: ref('Dict_Tuple_string_number'),
+      d: ref('DRec_string'),
+      e: ref('DRec_string_Array'),
+    });
+    expect(result.diagnostics).to.deep.equal([]);
+  });
+});
+
 describe('deriveSchema template literal types', () => {
   const rows: Array<[string, JsonSchema]> = [
     ['TPrefix', { type: 'string', pattern: '^native:' }],

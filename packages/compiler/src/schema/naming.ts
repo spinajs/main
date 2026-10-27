@@ -25,7 +25,10 @@ function namingSymbol(type: ts.Type): { symbol: ts.Symbol; viaAlias: boolean } |
   return own ? { symbol: own, viaAlias: false } : undefined;
 }
 
+/** `[]` and tuple brackets would sanitise away, naming `Dict<string[]>` and `Dict<string>` alike, so they are spelled out. */
 function argumentName(checker: ts.TypeChecker, type: ts.Type): string {
+  if (checker.isArrayType(type)) return `${argumentName(checker, checker.getTypeArguments(type as ts.TypeReference)[0])}_Array`;
+  if (checker.isTupleType(type)) return ['Tuple', ...checker.getTypeArguments(type as ts.TypeReference).map((element) => argumentName(checker, element))].join('_');
   return hoistedName(checker, type) ?? sanitizeName(checker.typeToString(type, undefined, ts.TypeFormatFlags.NoTruncation));
 }
 

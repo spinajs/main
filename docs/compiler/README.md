@@ -116,7 +116,7 @@ Every diagnostic has a `code`, a `severity` (`error`, `warning`, `info`), a `mes
 | `SCH001` | warning / info | A type has no JSON Schema form and is emitted as `{}`: `any`, a function, `symbol`, `never`. Give the member a real type. `unknown`, `object` and an `any` index signature are `info`: the value is accepted as is, which suits an opaque value. A model read from a declaration file is `info` too (see the model row above). A type declared outside the package says where in the message (`declared in X`). |
 | `SCH002` | warning | A type nests deeper than the depth limit (20) and the cut is emitted as `{}`. Usually a framework type reached through a member; a recursive alias no longer causes it. |
 | `SCH003` | warning | An explicit `@Schema` differs from the schema derived from its class (reported by `spinajs doctor`). Align the schema and the class. |
-| `SCH005` | warning | Two different types derive to the same schema `$id`. Rename one of them. |
+| `SCH005` | warning | Two different types derive to the same schema `$id`. Rename one of them. Generic arguments are part of the id (`Page<Point>` is `Page_Point`; an array argument adds `_Array`, a tuple is `Tuple_A_B`), so two instantiations of one generic never collide. |
 
 Run `node packages/compiler/scripts/report-diagnostics.mjs <packageDir> [--fail-on CODE,...]` to list one package's diagnostics with a count per code and severity. `--fail-on` exits 1 when a listed code occurs as a `warning` or an `error`; `info` never fails it.
 
