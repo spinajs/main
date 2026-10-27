@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { AuthorizationModel, DecisionAudit } from '@spinajs/authz';
+import { DecisionAudit } from '@spinajs/authz';
 import type { HostLog, Principal, Trace } from '@spinajs/authz';
 import { renderTemplate } from '@spinajs/log-common';
 import { RecordingAudit, StaticModel, testHost } from '@spinajs/authz-testing';
@@ -203,7 +203,7 @@ describe('authz-orm DbDecisionAudit', function () {
           setConfig(['authz', 'domains', name], { permissions: { 'adoc:read': { types: ['adoc'] } }, combine: { default: { algorithm: 'deny-overrides', models: ['m1'] } }, cache: { maxEntries: 0 }, audit: { service: 'DbDecisionAudit' } });
           const container: IContainer = ds.create(name, 'root');
           undo.push(() => (ds.names().includes(name) ? container.dispose() : undefined));
-          container.register(testHost.instance(new StaticModel({ name: 'm1', votes: {} }))).as(AuthorizationModel);
+          testHost.activate(container, name, new StaticModel({ name: 'm1', votes: {} }));
           container.register(DbDecisionAudit).as(DecisionAudit);
           // Registered later, so the resolve without the config key would pick it.
           const recording = new RecordingAudit();

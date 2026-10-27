@@ -1,2 +1,3 @@
 export * from './audience.js';
-export * from './register.js';
+export * from './wire.js';
+export * from './options.js';

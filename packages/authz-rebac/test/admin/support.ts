@@ -1,7 +1,7 @@
 import type { IContainer } from '@spinajs/di';
 import { ManualClock, RecordingAudit, RecordingChangeBus, StaticModel, testHost } from '@spinajs/authz-testing';
 
-import { AdminGuard, AuthorizationModel, AuthzAdminBackend, AuthzAdminFailure, AuthzClock, AuthzEventSink, ChangeBus, DecisionAudit, MemoryAuthzAdminBackend, SYSTEM, TRUE, resourceKey } from '@spinajs/authz';
+import { AdminGuard, AuthzAdminBackend, AuthzAdminFailure, AuthzClock, AuthzEventSink, ChangeBus, DecisionAudit, MemoryAuthzAdminBackend, SYSTEM, TRUE, resourceKey } from '@spinajs/authz';
 import type { AdminCallContext, AuthzAdmin, AuthzCommand, AuthzCommandResult, AuthzEvent, AuthzService, Principal } from '@spinajs/authz';
 
 import { MemoryTupleStore, RebacModel, TupleStore } from '../../src/index.js';
@@ -78,8 +78,8 @@ export async function rebacDomain(name = 'test', opts: { readonly tuples?: reado
   const audit = new RecordingAudit();
   const sink = new RecordingSink();
   const clock = new ManualClock(START);
-  c.register(instance(grantsModel())).as(AuthorizationModel);
-  if (!without.has('model')) c.register(instance(model)).as(AuthorizationModel);
+  testHost.activate(c, name, grantsModel());
+  if (!without.has('model')) testHost.activate(c, name, model);
   if (!without.has('store')) c.register(instance(store)).as(TupleStore);
   c.register(instance(bus)).as(ChangeBus);
   c.register(instance(audit)).as(DecisionAudit);

@@ -1,7 +1,7 @@
 import { Container, Inject, Injectable, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { quote as q } from '@spinajs/util';
+import { isPlainObject, quote as q } from '@spinajs/util';
 
 import { AuthzConfigError } from '../contracts/errors.js';
 import { AuthzDomains, AuthzService, DOMAIN_NAME_PATTERN, ROOT_DOMAIN } from '../contracts/service.js';
@@ -86,6 +86,18 @@ export class DefaultAuthzDomains extends AuthzDomains {
     this.records.set(name, { name, parent: parentName, container, services: new Set() });
     container.once('di.dispose', () => this.forget(name, container));
     return container;
+  }
+
+  /** Creates each domain `authz.domains` gives a `models` list, and its missing ancestors, parents first; existing ones stay. */
+  createConfigured(): void {
+    const entries = configAt(this.Config, ['domains']);
+    if (!isPlainObject(entries)) return;
+    for (const name of Object.keys(entries)) {
+      if (configAt(entries, [name, 'models']) === undefined) continue;
+      for (const domain of configuredLineage(this.Config, name)) {
+        if (domain !== ROOT_DOMAIN && !this.records.has(domain)) this.create(domain);
+      }
+    }
   }
 
   container(name: string): IContainer {

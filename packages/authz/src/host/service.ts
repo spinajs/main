@@ -32,6 +32,7 @@ import { collectContributions } from './contributor.js';
 import type { AuthzContribution } from './contributor.js';
 import { pickNamed, resolveChain } from './di.js';
 import { DefaultAuthzDomains } from './domains.js';
+import { modelCatalog, resolveListedModels } from './listed-models.js';
 import { AuthzClock } from './clock.js';
 import { engineLog, thrownError } from './log.js';
 import type { AuthzLog } from './log.js';
@@ -63,6 +64,8 @@ interface Booted {
   readonly disables: readonly (readonly string[])[];
   readonly registrations: readonly Registration[];
   readonly models: readonly AuthorizationModel[];
+  /** The models each level of the lineage activated through its `models` list, root first; a child reuses them as they are. */
+  readonly levelModels: readonly (readonly AuthorizationModel[])[];
   /** Models this service holds a use of (DI disposes the ones it cached itself). */
   readonly used: readonly AuthorizationModel[];
   readonly authorizer: Authorizer;
@@ -376,17 +379,24 @@ export class DefaultAuthzService extends AuthzService {
     // Entry i of getTypesChain is the registration of element i of the Array.chainOf resolve.
     const owners = <T>(token: Class<T>) => container.Registry.getTypesChain(token).map((e) => e.container);
     const chain = <T>(token: Class<T>): Promise<T[]> => resolveChain(container, token);
-    const modelOwners = owners(AuthorizationModel);
-    const chainModels = await chain(AuthorizationModel);
     const adapterOwners = owners(ResourceAdapter);
     const adapters = await chain(ResourceAdapter);
-    if (modelOwners.length !== chainModels.length || adapterOwners.length !== adapters.length) throw new AuthzConfigError(`${where}: the DI chain changed while it was resolved`);
+    if (adapterOwners.length !== adapters.length) throw new AuthzConfigError(`${where}: the DI chain changed while it was resolved`);
     const scopeResolvers = await chain(ScopeResolver);
     const chainRelations = await chain(RelationResolver);
     const chainFilters = await chain(NativeFilter);
     const combinators = await chain(Combinator);
 
-    const models = mergeModels(where, chainModels, modelOwners, levels, disables, (model) => this.log.warn({ domain: name, model }, 'Authz domain ${domain}: disable lists ${model}, which no ancestor domain registers'));
+    // Registered under AuthorizationModel means available; only a `models` list activates. The ancestors' lists come
+    // from their boots, so their models are neither resolved nor initialised again here.
+    const modelsKey = parent === undefined ? 'authz.models' : `authz.domains.${name}.models`;
+    const listed = cfg.models === undefined ? [] : await resolveListedModels(container, cfg.models, modelsKey, where);
+    const levelModels: (readonly AuthorizationModel[])[] = [...(parent?.levelModels ?? []), listed];
+    const models = mergeModels(levelModels, disables, (model) => this.log.warn({ domain: name, model }, 'Authz domain ${domain}: disable lists ${model}, which no ancestor domain activates'));
+    if (parent === undefined && cfg.models === undefined) {
+      const registered = [...modelCatalog(container).keys()].sort();
+      if (registered.length > 0) this.log.warn({ domain: name, registered: registered.join(', ') }, 'Authz domain ${domain}: authz.models is not set, so no model is active and every check denies; registered models: ${registered}');
+    }
     for (const [i, model] of models.entries()) {
       if (!isObject(model) || typeof model.init !== 'function') throw new AuthzConfigError(`${where}: models[${i}] (${q(modelName(model))}) is not an AuthorizationModel`);
     }
@@ -510,6 +520,8 @@ export class DefaultAuthzService extends AuthzService {
       },
     });
 
+    // Before attach, so a bad configured domain fails the root boot instead of a later request.
+    if (parent === undefined) domains.createConfigured();
     if (this.disposed) throw new AuthzConfigError(`${where}: the service was disposed while it booted`);
     if (domains.describe(container)?.name !== name || !domains.attach(name, this, { config: cfg, audit, bus, clock: clock as unknown as AuthzClock })) throw new AuthzConfigError(`${where}: the domain was disposed while it booted`);
     if (cache) usedCaches.add(cache);
@@ -523,6 +535,7 @@ export class DefaultAuthzService extends AuthzService {
       disables: Object.freeze(disables),
       registrations: Object.freeze(registrations),
       models: Object.freeze([...models]),
+      levelModels: Object.freeze(levelModels.map((l) => Object.freeze([...l]))),
       used: Object.freeze([...claimed]),
       authorizer,
       audit,
@@ -635,9 +648,7 @@ function input(principal: Principal, permission: Permission, resource?: Resource
  * level's own models; one whose name an ancestor level placed replaces it in
  * place, a second one of a name within the level is kept for rule 2.
  */
-function mergeModels(where: string, chain: readonly AuthorizationModel[], owners: readonly IContainer[], levels: readonly IContainer[], disables: readonly (readonly string[])[], warnUnknownDisable: (model: string) => void): AuthorizationModel[] {
-  const levelOf = owners.map((c) => levels.indexOf(c));
-  if (levelOf.some((l) => l < 0)) throw new AuthzConfigError(`${where}: a model is registered in a container outside the domain lineage`);
+function mergeModels(levels: readonly (readonly AuthorizationModel[])[], disables: readonly (readonly string[])[], warnUnknownDisable: (model: string) => void): AuthorizationModel[] {
   let list: { model: AuthorizationModel; level: number }[] = [];
   for (let level = 0; level < levels.length; level++) {
     const disabled = new Set(disables[level] ?? []);
@@ -649,13 +660,12 @@ function mergeModels(where: string, chain: readonly AuthorizationModel[], owners
       const n = modelName(e.model);
       return n === undefined || !disabled.has(n);
     });
-    chain.forEach((model, i) => {
-      if (levelOf[i] !== level) return;
+    for (const model of levels[level]) {
       const n = modelName(model);
       const at = n === undefined ? -1 : list.findIndex((e) => e.level < level && modelName(e.model) === n);
       if (at >= 0) list[at] = { model, level };
       else list.push({ model, level });
-    });
+    }
   }
   return list.map((e) => e.model);
 }

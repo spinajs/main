@@ -155,21 +155,22 @@ authz: { abac: { stores: ['ConfigPolicyStore', 'DbPolicyStore'] } }
 
 ### Let admins add deny policies at run time
 
+With `authz.models: ['AbacModel']` and the `authz.abac.stores` config above, the domain's boot builds the model over those stores; `AuthzAdmin` writes still need the writable store registered as `PolicyStore` (`DI.register(DbPolicyStore).as(PolicyStore)`). Built by hand and listed as a named factory, one store instance serves both:
+
 ```ts sample
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
-import { AbacContributor, AbacModel, ConfigPolicyStore, DbPolicyStore, PolicyStore } from '@spinajs/authz-abac';
+import { AuthorizationModel } from '@spinajs/authz';
+import { AbacModel, ConfigPolicyStore, DbPolicyStore, PolicyStore } from '@spinajs/authz-abac';
 
-export async function wireAbacWithDbPolicies(): Promise<void> {
+// Config: authz: { models: ['AppAbacModel'] }
+export async function registerAbacWithDbPolicies(): Promise<void> {
   const configuration = await DI.resolve(Configuration);
   const written = new DbPolicyStore();
   const fromConfig = new ConfigPolicyStore(configuration.get<unknown[]>('authz.abac.policies') ?? []);
   const abac = new AbacModel({ stores: [fromConfig, written] });
 
-  DI.register(() => abac).as(AuthorizationModel);
-  const contributor = new AbacContributor(abac);
-  DI.register(() => contributor).as(AuthzContributor);
+  DI.register(Object.defineProperty(() => abac, 'name', { value: 'AppAbacModel' })).as(AuthorizationModel);
   DI.register(() => written).as(PolicyStore);
 }
 ```

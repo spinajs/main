@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { AuthorizationModel, AuthzDomains } from '@spinajs/authz';
+import { AuthzDomains } from '@spinajs/authz';
 import { ForbiddenResponse } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { AuthzDomainResolver, UnknownAuthzDomain } from '@spinajs/authz-http';
@@ -28,7 +28,7 @@ async function createDomain(name: string): Promise<() => Promise<void>> {
   cfg.set(['authz', 'domains', name], { permissions: {}, combine: { default: { algorithm: 'deny-overrides', models: ['m1'] } }, cache: { maxEntries: 0 } });
   const domains = (await testHost.domains()) as AuthzDomains;
   const container = domains.create(name, 'root');
-  container.register(testHost.instance(new StaticModel({ name: 'm1' }))).as(AuthorizationModel);
+  testHost.activate(container, name, new StaticModel({ name: 'm1' }));
   await domains.service(name);
   return async () => {
     await container.dispose();

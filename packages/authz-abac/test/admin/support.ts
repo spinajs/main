@@ -1,13 +1,20 @@
 import type { IContainer } from '@spinajs/di';
 import { FakeScopeResolver, ManualClock, RecordingAudit, RecordingChangeBus, StaticModel, testHost } from '@spinajs/authz-testing';
 
-import { AdminGuard, AuthorizationModel, AuthzAdminBackend, AuthzAdminFailure, AuthzClock, AuthzContributor, AuthzEventSink, ChangeBus, DecisionAudit, MemoryAuthzAdminBackend, SYSTEM, ScopeResolver, TRUE, resourceKey } from '@spinajs/authz';
+import { AdminGuard, AuthorizationModel, AuthzAdminBackend, AuthzAdminFailure, AuthzClock, AuthzEventSink, ChangeBus, DecisionAudit, MemoryAuthzAdminBackend, SYSTEM, ScopeResolver, TRUE, resourceKey } from '@spinajs/authz';
 import type { AdminCallContext, AuthzAdmin, AuthzCommand, AuthzCommandResult, AuthzEvent, AuthzService, Principal, ResourceRef } from '@spinajs/authz';
 import type { Policy } from '../../src/contracts.js';
 
-import { AbacContributor, AbacModel, ConfigPolicyStore, MemoryPolicyStore, PolicyStore } from '../../src/index.js';
+import { AbacModel, ConfigPolicyStore, MemoryPolicyStore, PolicyStore } from '../../src/index.js';
 
-export const { config, installHost, uninstallHost, resetHost, domains, instance } = testHost;
+export const { config, installHost, uninstallHost, resetHost, domains, instance, named } = testHost;
+
+/** Registers `model` in `c` under its name and lists it in `authz.domains.<domain>.models`. */
+export function activate(c: IContainer, domain: string, model: AuthorizationModel): void {
+  c.register(named(model.name, instance(model))).as(AuthorizationModel);
+  const path = ['authz', 'domains', domain, 'models'];
+  config().set(path, [...(config().get<string[] | undefined>(path) ?? []), model.name]);
+}
 
 export const START = new Date('2026-10-03T00:00:00.000Z');
 export const HOUR = 3600_000;
@@ -102,11 +109,9 @@ export async function abacDomain(name = 'test', opts: AbacDomainOptions = {}): P
   const audit = new RecordingAudit();
   const sink = new RecordingSink();
   const clock = new ManualClock(START);
-  c.register(instance(grantsModel())).as(AuthorizationModel);
-  if (!without.has('model')) {
-    c.register(instance(model)).as(AuthorizationModel);
-    c.register(instance(new AbacContributor(model))).as(AuthzContributor);
-  }
+  activate(c, name, grantsModel());
+  // The model's init registers its AbacContributor.
+  if (!without.has('model')) activate(c, name, model);
   if (!without.has('store')) c.register(instance(store)).as(PolicyStore);
   // p1 and p2 sit in o1; f1 in p1.
   c.register(

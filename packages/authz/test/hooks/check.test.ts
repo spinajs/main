@@ -5,10 +5,10 @@ import { ActionHook } from '@spinajs/hooks';
 import type { AfterContext } from '@spinajs/hooks';
 import { RecordingActionHook } from '@spinajs/hooks/testing';
 
-import { AccessDenied, AuthorizationModel, AuthzClock, DecisionAudit } from '@spinajs/authz';
+import { AccessDenied, AuthzClock, DecisionAudit } from '@spinajs/authz';
 import type { AuthzService, Decision, ResourceRef } from '@spinajs/authz';
 import { PERMISSIONS, START, domains, grantsModel, installHost, instance, rejection, resetHost, setConfig, uninstallHost } from '../admin/support.js';
-import { childWith, violationPaths } from '../host/support.js';
+import { activateIn, childWith, violationPaths } from '../host/support.js';
 import { RefuseWhen, registerHooks } from './support.js';
 
 const expect = chai.expect;
@@ -24,7 +24,7 @@ async function checkDomain(hooks: readonly ActionHook<any>[], enabled?: boolean)
   const ds = await domains();
   const c = ds.create('test', 'root');
   const model = grantsModel();
-  c.register(instance(model)).as(AuthorizationModel);
+  activateIn(c, 'test', model);
   const audit = new RecordingAudit();
   c.register(instance(audit)).as(DecisionAudit);
   c.register(instance(new ManualClock(START))).as(AuthzClock);

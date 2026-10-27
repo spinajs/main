@@ -28,10 +28,11 @@ import { AuthorizationModel } from '@spinajs/authz';
 import { DbTupleStore, RebacModel, TupleStore } from '@spinajs/authz-rebac';
 
 // Namespaces and the permission map come from authz.rebac.*; tuples live in authz_rebac_tuple.
-export function wireRebac(): void {
+// Config: authz: { models: ['AppRebacModel'] }
+export function registerRebac(): void {
   const store = new DbTupleStore();
   const rebac = new RebacModel({ store });
-  DI.register(() => rebac).as(AuthorizationModel);
+  DI.register(Object.defineProperty(() => rebac, 'name', { value: 'AppRebacModel' })).as(AuthorizationModel);
   DI.register(() => store).as(TupleStore);
 }
 ```

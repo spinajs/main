@@ -24,6 +24,8 @@ Helpers that boot the authz host over an in-memory configuration and give each t
 | `resetRoot()` | Disposes and uncaches the root `AuthzService`, so the next resolve boots root again. |
 | `registerInRoot(token, factoryOrClass)` | Registers in root and returns a function that removes exactly that registration. |
 | `instance(value)` | A factory for one instance: `container.register(testHost.instance(x)).as(Token)`. |
+| `named(name, factory)` | Sets the factory's function name, which a `models` list activates it by: `container.register(testHost.named('A', testHost.instance(m))).as(AuthorizationModel)`. |
+| `activate(container, domain, model)` | Registers `named(model.name, instance(model))` under `AuthorizationModel` in `container` (through `registerInRoot` in root, so `resetHost()` removes it) and appends `model.name` to the domain's models list: `authz.models` for `'root'`, else `authz.domains.<domain>.models`. |
 | `TestConfiguration` | In-memory `Configuration`: `get`, `set`, `merge`, `unset`, `reset`; paths are dotted strings or segment arrays. |
 
 ## DI helpers
@@ -65,7 +67,7 @@ See [schema validation](../configuration/06-schema-validation.md) for the schema
 
 - Pair `installHost()` in `before` with `uninstallHost()` in `after`, and `resetHost()` or `resetRoot()` in `afterEach` when tests change root registrations.
 - Uncache only types your test caused to be created (`uncacheOwned`, `scopedContainer({ uncache })`).
-- Register child-only model classes imperatively in the child; they must not carry `@Injectable(AuthorizationModel)`.
+- Register child-only model classes imperatively in the child; they must not carry `@Injectable(AuthorizationModel)`. A registered model is only available: list its class (or `named()` factory) name in the domain's `models`, or use `testHost.activate`.
 
 ## Patterns and antipatterns
 

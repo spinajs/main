@@ -36,9 +36,11 @@ export function registerAuthzHost(): void {
   DI.register(ConfigRoleStore).as(RoleStore);
   DI.register(DbAssignmentStore).as(AssignmentStore);
   DI.register(DbAssignmentStore).as(AdminAssignmentStore);
-  DI.register((c: IContainer) => (c.resolve(UsersHttpTestRbac) as UsersHttpTestRbac).model).as(AuthorizationModel);
+  // Named, so the test app's authz.models can list it.
+  const UsersHttpTestRbacModel = (c: IContainer) => (c.resolve(UsersHttpTestRbac) as UsersHttpTestRbac).model;
+  DI.register(UsersHttpTestRbacModel).as(AuthorizationModel);
   DI.register((c: IContainer) => new RbacContributor((c.resolve(UsersHttpTestRbac) as UsersHttpTestRbac).model)).as(AuthzContributor);
-  // As registerRbac gives an app; users' credential admin and impersonation guards read it.
+  // As an RbacModel built by DI gives an app; users' credential admin and impersonation guards read it.
   DI.register((c: IContainer) => new RbacService((c.resolve(UsersHttpTestRbac) as UsersHttpTestRbac).model)).as(RbacService);
   DI.register(TestPasswordService).as(PasswordService);
 }

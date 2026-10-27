@@ -109,6 +109,8 @@ class UsersHttpAppConfiguration extends FrameworkConfiguration {
         },
       },
       authz: {
+        // The test RBAC model authz-host.ts registers.
+        models: ['UsersHttpTestRbacModel'],
         // AuthzAdmin checks it for every assignment command, the SYSTEM seeds included; no shipped fragment declares it.
         permissions: { 'authz:assignments.manage': {} },
         admin: {

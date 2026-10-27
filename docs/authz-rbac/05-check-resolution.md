@@ -6,8 +6,8 @@
 
 ### Wiring
 
-1. `registerRbac(container, configuration)` builds the stores, an `RbacModel` over them, an `RbacContributor` and an `RbacService`, and registers them in the domain's container ([Wiring the model](README.md#wiring-the-model)).
-2. When the domain boots, the engine calls `RbacModel.init(ctx)`. It runs each extension's `init`, reads the role store's `version()` and `load()`, compiles the role graph (`compileRoles`) and builds the `AssignmentCache` from `authz.rbac.cache.*`. It reads `anonymousRoles` and `serviceRoles` and refuses a role that is unknown or not assignable at `$global`.
+1. `RbacModel` is registered under `AuthorizationModel` with `@PerChildInstance()`, so a domain whose `models` list names `'RbacModel'` gets its own instance. When the domain boots, the engine calls `RbacModel.init(ctx)`, which first wires the domain's container: `rbacStoreOptions` validates and registers the stores, the extensions are built, and `registerRbacServices` registers an `RbacContributor`, an `RbacService` and an `RbacLinkResolver` there ([Wiring the model](README.md#wiring-the-model)). A model built with `new RbacModel(options)` skips this wiring.
+2. `init` then runs each extension's `init`, reads the role store's `version()` and `load()`, compiles the role graph (`compileRoles`) and builds the `AssignmentCache` from `authz.rbac.cache.*`. It reads `anonymousRoles` and `serviceRoles` and refuses a role that is unknown or not assignable at `$global`.
 3. The engine calls `RbacContributor.contribute(domain)` after every model's `init`. It compiles the grant index (`RbacModel.grantIndex()`) and runs the extensions' `compile` hooks; a bad grant fails the boot.
 4. The model routes a permission when some role grants or denies it (`applies`). Its capabilities: effects `permit` and `deny`, field sets, every resource type, and synchronous votes after a preload (`sync: 'after-preload'`).
 
@@ -128,9 +128,10 @@ authz: { rbac: { cache: { assignmentsTtlSeconds: 30, maxSubjects: 50000, rolesCh
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `RbacModel` | `AuthorizationModel`, one instance per `registerRbac` call (a factory registration) | `RbacModel` | none | Configure stores and extensions through `registerRbac`; see [Model extensions](12-model-extensions.md). |
-| `RbacContributor` | `AuthzContributor`, per `registerRbac` call | `RbacContributor` | none | Extensions add refs through `RbacExtension.contribute`. |
-| `RbacService` | `RbacService` class and the name `'RbacService'`, per `registerRbac` call | `RbacService` | none | Built over the model; pass `RegisterRbacOptions.service`. |
+| `RbacModel` | `AuthorizationModel`, `@PerChildInstance`: one instance per domain whose `models` lists `'RbacModel'` | `RbacModel` | none | Configure stores in `authz.rbac.stores`, extensions through `RbacOptions` or by building the model yourself; see [Model extensions](12-model-extensions.md). |
+| `RbacContributor` | `AuthzContributor`, registered by `RbacModel.init` (or `registerRbacServices`) in that domain's container | `RbacContributor` | none | Extensions add refs through `RbacExtension.contribute`. |
+| `RbacService` | `RbacService`, registered by `RbacModel.init` (or `registerRbacServices`) in that domain's container | `RbacService` | none | Built over the model; pass `RegisterRbacOptions.service` (through `RbacOptions` for the DI-built model). |
+| `RbacOptions` | `RbacOptions`, optional, resolved in the domain's container by `RbacModel.init` | none | your subclass | Gives the DI-built `RbacModel` the `RegisterRbacOptions` config cannot hold. |
 | `SubjectResolver` | `RbacModelOptions.subjects` (not DI) | `RbacSubjectResolver` | your own | Build `RbacModel` yourself with `subjects`; see [Custom stores](11-custom-stores.md#subjectresolver). |
 | `RbacChangeAudience` | `ChangeAudience`, singleton, at import | `RbacChangeAudience` | none | Register another `ChangeAudience`; the router asks each. |
 
@@ -147,6 +148,18 @@ authz: { rbac: { cache: { assignmentsTtlSeconds: 30, maxSubjects: 50000, rolesCh
 ### `RbacChangeAudience`
 
 After an admin commit, the push router asks every `ChangeAudience` whom a change reaches. `RbacChangeAudience` answers from the change tags: `subject:<principalKey>` names that principal, `subject:<setKey>` the set's live members (through `MembershipStore.membersOf`), `link:<id>` the link principal. A wildcard subject, a tag of another kind or a missing membership store answers everyone. It names no objects, so clients refetch.
+
+## Why the wiring is one step, not DI registrations
+
+The wiring in `RbacModel.init` is an imperative step, and it runs only in a domain that lists `'RbacModel'`. RBAC cannot be split into one decorator or DI factory per class, for these reasons:
+
+1. **It registers before anything resolves.** `authz.rbac.stores.*` names store classes; `registerRbacStores` registers them under their ports in the domain's container. Only then does `RoleStore` resolve. What gets registered depends on config.
+2. **It checks everything before it registers anything.** The store counts, the rule store kinds and `authz.rbac.rules` without a `ConfigRuleStore` fail with `AuthzConfigError` first, so a refusal never leaves a half-wired container. Factories that each fail while they resolve would.
+3. **It reads stores per container.** Rule stores come from the domain's own container only, so a parent domain's rule stores never leak into a child; the membership store may come from a parent. An injected `RoleStore` resolves through the whole parent chain and cannot tell the two apart.
+4. **Four objects share one model per domain.** The contributor, `RbacService` and `RbacLinkResolver` wrap the model the domain activates. A DI factory runs again on every resolve, so separate factories would wrap different instances.
+5. **Decorators register in root.** The engine asks every `AuthzContributor` of the container chain, so `@Injectable(AuthzContributor)` on `RbacContributor` would put it into every domain, RBAC or not. The contributor and the `LinkResolver` are registered in the domain's container instead.
+
+`RbacModel` itself takes a plain options object (`new RbacModel({ roles, assignments })`), so tests and apps can build one without DI.
 
 ## Important behaviour
 

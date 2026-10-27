@@ -2,10 +2,11 @@ import * as chai from 'chai';
 import 'mocha';
 import { StaticModel, userPrincipal } from '@spinajs/authz-testing';
 
-import { AuthorizationModel, AuthzAdminFailure, AuthzConfigError, SYSTEM, TRUE, assertAdminPermission } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzConfigError, SYSTEM, TRUE, assertAdminPermission } from '@spinajs/authz';
 import type { AdminCallContext, ResourceRef } from '@spinajs/authz';
 
-import { START, adminConfig, adminDomain, installHost, instance, rejection, resetHost, uninstallHost } from './support.js';
+import { START, adminConfig, adminDomain, installHost, rejection, resetHost, uninstallHost } from './support.js';
+import { activateIn } from '../host/support.js';
 import type { AdminDomain } from './support.js';
 
 const expect = chai.expect;
@@ -50,7 +51,7 @@ describe('assertAdminPermission', function () {
 
   it('maps the permission through authz.admin.permissions, exact kind and scope type first', async () => {
     adminConfig({ permissions: { 'policy.*': { project: 'app:settings.manage' } } });
-    d = await adminDomain('test', { register: (c) => c.register(instance(daveModel())).as(AuthorizationModel) });
+    d = await adminDomain('test', { register: (c) => activateIn(c, 'test', daveModel()) });
     await assertAdminPermission(ctxOf('dave'), 'policy.put', P1, 'app:members.manage');
     // No entry for doc: the fallback, which dave does not hold.
     expect(((await rejection(assertAdminPermission(ctxOf('dave'), 'policy.put', D1, 'app:members.manage'))) as AuthzAdminFailure).code).to.equal('forbidden');

@@ -55,7 +55,7 @@ export class LinkPrincipalSource extends PrincipalSource {
     if (!(await isValidInput(AUTHZ_FIELD_SCHEMAS.linkToken, token))) {
       return deadLinkPrincipal(companion);
     }
-    // Per call: registerRbac binds the resolver at the root domain's boot, after this source is built.
+    // Per call: RbacModel registers the resolver at the root domain's boot, after this source is built.
     const resolver = (await DI.RootContainer.resolveOptional(LinkResolver)) as LinkResolver | undefined;
     if (!resolver) {
       if (!this.warned) this.Log.warn('a request carries a share link token, but no LinkResolver is registered; links deny everything');

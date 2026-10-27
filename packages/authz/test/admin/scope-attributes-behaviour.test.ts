@@ -31,7 +31,11 @@ runBehaviour(
         const schemas = host.world.scopeAttributes?.schemas ?? [];
         c.register(testHost.instance({ contribute: () => ({ scopeAttributeSchemas: schemas }) })).as(AuthzContributor);
         // B43.attributes routes to a model named rbac; this lane has none, and SYSTEM runs its commands.
-        if (host.world.rbac) c.register(testHost.instance(new StaticModel({ name: 'rbac', votes: () => ({}) }))).as(AuthorizationModel);
+        if (host.world.rbac) {
+          c.register(testHost.named('rbac', testHost.instance(new StaticModel({ name: 'rbac', votes: () => ({}) })))).as(AuthorizationModel);
+          const listed = testHost.config().get<string[] | undefined>(['authz', 'domains', host.domain, 'models']) ?? [];
+          host.setConfig(['authz', 'domains', host.domain, 'models'], [...listed, 'rbac']);
+        }
         c.register(PermissiveScopeGuard).as(AdminGuard);
         const sink = new RecordingEvents();
         sinks.set(c, sink);

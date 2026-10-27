@@ -1,10 +1,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { DI } from '@spinajs/di';
-import type { Class, Factory } from '@spinajs/di';
+import type { Class, Factory, IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import type { ConfigurationSource, IConfigLike } from '@spinajs/configuration';
 
-import { AuthzDomains, DefaultAuthzDomains, DefaultAuthzService, InProcessChangeBus, LogDecisionAudit, SystemClock } from '@spinajs/authz';
+import { AuthorizationModel, AuthzDomains, DefaultAuthzDomains, DefaultAuthzService, InProcessChangeBus, LogDecisionAudit, SystemClock } from '@spinajs/authz';
 import { isPlainObject as isRecord } from '@spinajs/util';
 
 import { TestLog, installTestLog } from './log.js';
@@ -86,7 +86,7 @@ export class TestConfiguration extends Configuration {
 const ROOT_CREATED: readonly Class<unknown>[] = [DefaultAuthzService, DefaultAuthzDomains, TestConfiguration, InProcessChangeBus, LogDecisionAudit, SystemClock, AsyncLocalStorage];
 
 interface RootRegistration {
-  readonly token: Class<unknown>;
+  readonly token: Class<unknown> | string;
   readonly factory: Factory<unknown> | Class<unknown>;
 }
 
@@ -167,9 +167,9 @@ export async function resetRoot(): Promise<void> {
 }
 
 /** Registers a factory or class in root; uninstallHost, resetHost or the returned function removes exactly that registration. */
-export function registerInRoot<T>(token: Class<T>, factory: Factory<T> | Class<T>): () => void {
+export function registerInRoot<T>(token: Class<T> | string, factory: Factory<T> | Class<T>): () => void {
   DI.register(factory).as(token);
-  const entry: RootRegistration = { token: token as Class<unknown>, factory: factory as Factory<unknown> | Class<unknown> };
+  const entry: RootRegistration = { token: token as Class<unknown> | string, factory: factory as Factory<unknown> | Class<unknown> };
   rootRegistrations.push(entry);
   return () => {
     const i = rootRegistrations.indexOf(entry);
@@ -183,3 +183,19 @@ export const instance =
   <T>(value: T): Factory<T> =>
   () =>
     value;
+
+/** Gives a factory the name an `authz.models` list activates it by: `c.register(named('A', instance(m))).as(AuthorizationModel)`. */
+export const named = <T>(name: string, factory: Factory<T>): Factory<T> => Object.defineProperty(factory, 'name', { value: name });
+
+/**
+ * Registers `model` in `container` under its model name and appends that name to the domain's models list
+ * (`authz.models` for 'root', else `authz.domains.<domain>.models`). In root it goes through registerInRoot, so
+ * resetHost removes it.
+ */
+export function activate(container: IContainer, domain: string, model: AuthorizationModel): void {
+  const factory = named(model.name, instance(model));
+  if (container === DI.RootContainer) registerInRoot(AuthorizationModel, factory);
+  else container.register(factory).as(AuthorizationModel);
+  const path = domain === 'root' ? ['authz', 'models'] : ['authz', 'domains', domain, 'models'];
+  config().set(path, [...(config().get<string[] | undefined>(path) ?? []), model.name]);
+}

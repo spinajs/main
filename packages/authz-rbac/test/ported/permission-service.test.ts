@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 import { renderTemplate } from '@spinajs/log-common';
 
-import { AccessDenied, AuthorizationModel, AuthzConfigError, AuthzContributor, AuthzService, FALSE, GLOBAL, PermissionRegistryImpl, ResourceAdapter, TRUE, UnknownPermission } from '@spinajs/authz';
+import { AccessDenied, AuthzConfigError, AuthzContributor, AuthzService, FALSE, GLOBAL, PermissionRegistryImpl, ResourceAdapter, TRUE, UnknownPermission } from '@spinajs/authz';
 import type { PermissionInput, Principal, ResourceFilter, ResourceRef } from '@spinajs/authz';
 import type { Assignment } from '../../src/contracts.js';
 import { FakeAdapter, FakeRelationResolver, fakeEvaluationContext, fakeModelInitContext, testHost, userPrincipal } from '@spinajs/authz-testing';
@@ -144,7 +144,7 @@ describe('RbacModel as the 2.x PermissionService grants', () => {
         assignments: new MemoryAssignmentStore([assignment('a1', 'admin1', 'admin'), assignment('a2', 'member1', 'member'), assignment('a3', 'member1', 'frobber'), assignment('a4', 'viewer1', 'viewer')]),
         log,
       });
-      registerInRoot(AuthorizationModel, instance(model));
+      testHost.activate(DI.RootContainer, 'root', model);
       registerInRoot(AuthzContributor, instance(new RbacContributor(model)));
       registerInRoot(ResourceAdapter, instance(widgets));
     });

@@ -1,7 +1,7 @@
 import { hostHarness, testHost } from '@spinajs/authz-testing';
 import type { BehaviourHarness, Facet, HostSetup } from '@spinajs/authz-testing';
 
-import { AuthorizationModel, AuthzAdminBackend, AuthzContributor, AuthzEventSink, MemoryAuthzAdminBackend, MemoryScopeAttributeStore, ScopeAttributeStore, WritableScopeAttributeStore } from '@spinajs/authz';
+import { AuthzAdminBackend, AuthzContributor, AuthzEventSink, MemoryAuthzAdminBackend, MemoryScopeAttributeStore, ScopeAttributeStore, WritableScopeAttributeStore } from '@spinajs/authz';
 import type { AuthzEvent, AuthzService } from '@spinajs/authz';
 import type { Assignment } from '../../src/contracts.js';
 
@@ -140,7 +140,7 @@ export function adminHarness(opts: AdminHarnessOptions = {}): BehaviourHarness {
       const { roles, ladders } = worldRoles(host);
       const side = registerAdminSide(host, new HarnessRoleStore(roles, ladders));
       const model = new TestRbacModel({ roles, ladders, assignments: side.assignments });
-      host.container.register(instance(model)).as(AuthorizationModel);
+      testHost.activate(host.container, host.domain, model);
       STORES.set(host.container, { ...side, model });
     },
     extend: (host, session) => ({
