@@ -3,13 +3,19 @@ import { cpSync, mkdirSync, rmSync, symlinkSync, writeFileSync, readFileSync } f
 import { resolve } from 'node:path';
 import { analyzePackage, buildAppManifest, locateFragments } from '../src/index.js';
 
-const APP = { tsconfig: 'test/fixtures/app-basic/tsconfig.json', appRoot: 'test/fixtures/app-basic' };
+const OUT_DIR = 'test/fixtures/.tmp-out';
+const APP = { tsconfig: 'test/fixtures/app-basic/tsconfig.json', appRoot: 'test/fixtures/app-basic', out: `${OUT_DIR}/app.manifest.json` };
 
 describe('buildAppManifest', () => {
   before(async () => {
+    mkdirSync(OUT_DIR, { recursive: true });
     const fragment = await analyzePackage({ tsconfig: 'test/fixtures/pkg-basic/tsconfig.json', packageRoot: 'test/fixtures/pkg-basic' });
     mkdirSync('test/fixtures/pkg-basic/lib', { recursive: true });
     writeFileSync('test/fixtures/pkg-basic/lib/manifest.fragment.json', JSON.stringify(fragment));
+  });
+
+  after(() => {
+    rmSync(OUT_DIR, { recursive: true, force: true });
   });
 
   it('locates dependency fragments through package.json#spinajs.manifest', async () => {
@@ -19,10 +25,10 @@ describe('buildAppManifest', () => {
   });
 
   it('merges app and dependency fragments and writes the manifest', async () => {
-    const { manifest, written } = await buildAppManifest({ ...APP, out: 'test/fixtures/app-basic/app.manifest.json' });
+    const { manifest, written } = await buildAppManifest(APP);
     expect(manifest.app).to.deep.include({ name: 'app-basic', version: '0.1.0', outDir: 'lib' });
     expect(manifest.packages.map((p) => [p.name, p.outDir])).to.deep.equal([['pkg-basic', 'lib']]);
-    expect(manifest.controllers.map((c) => c.id)).to.deep.equal(['pkg-basic:UsersController', 'app-basic:HealthController']);
+    expect(manifest.controllers.map((c) => c.id)).to.deep.equal(['pkg-basic:UsersController', 'app-basic:HealthController', 'app-basic:UsersController']);
     const health = manifest.controllers.find((c) => c.id === 'app-basic:HealthController');
     expect(health?.routes[0].fullPath).to.equal('/health');
     expect(manifest.packages[0].fragment).to.equal('node_modules/pkg-basic/lib/manifest.fragment.json');

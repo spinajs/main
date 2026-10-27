@@ -10,12 +10,14 @@ export interface BuildAppOptions {
   /** Defaults to `<appRoot>/app.manifest.json`. */
   out?: string;
   schemaDerivation?: boolean;
+  /** Merge manifest fragments of dependencies. Defaults to true. */
+  dependencies?: boolean;
 }
 
 export async function buildAppManifest(options: BuildAppOptions): Promise<{ manifest: Manifest; written: string }> {
   const root = resolve(options.appRoot);
   const app = await analyzePackage({ tsconfig: options.tsconfig, packageRoot: root, schemaDerivation: options.schemaDerivation });
-  const locations = await locateFragments(root);
+  const locations = options.dependencies === false ? [] : await locateFragments(root);
   const fragments = await Promise.all(locations.map((l) => readFragment(l.fragment)));
 
   const merged = mergeFragments(app, fragments, {

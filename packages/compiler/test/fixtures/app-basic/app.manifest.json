@@ -1,0 +1,854 @@
+{
+  "manifestVersion": 1,
+  "app": {
+    "name": "app-basic",
+    "version": "0.1.0",
+    "root": ".",
+    "outDir": "lib"
+  },
+  "packages": [],
+  "services": [],
+  "values": [
+    {
+      "token": "__configurationSchema__",
+      "kind": "value",
+      "source": {
+        "file": "src/schemas/app.ts",
+        "line": 10,
+        "col": 1,
+        "package": "app-basic"
+      }
+    },
+    {
+      "token": "__configurationSchema__",
+      "kind": "value",
+      "source": {
+        "file": "src/schemas/hooks.ts",
+        "line": 14,
+        "col": 1,
+        "package": "app-basic"
+      }
+    }
+  ],
+  "controllers": [
+    {
+      "id": "app-basic:HealthController",
+      "className": "HealthController",
+      "basePath": "health",
+      "policies": [],
+      "middlewares": [],
+      "routes": [
+        {
+          "method": "get",
+          "path": "",
+          "handler": "get",
+          "fullPath": "/health",
+          "params": [],
+          "returnType": {
+            "text": "{ ok: boolean; }",
+            "schema": "spinajs/app-basic/HealthController_get_Response"
+          },
+          "policies": [],
+          "middlewares": [],
+          "allowAnonymous": true,
+          "source": {
+            "file": "src/controllers/HealthController.ts",
+            "line": 6,
+            "col": 3,
+            "package": "app-basic"
+          }
+        }
+      ],
+      "source": {
+        "file": "src/controllers/HealthController.ts",
+        "line": 4,
+        "col": 1,
+        "package": "app-basic"
+      }
+    },
+    {
+      "id": "app-basic:UsersController",
+      "className": "UsersController",
+      "basePath": "users",
+      "policies": [],
+      "middlewares": [],
+      "routes": [
+        {
+          "method": "get",
+          "path": "",
+          "handler": "list",
+          "fullPath": "/users",
+          "params": [
+            {
+              "index": 0,
+              "name": "query",
+              "kind": "FromQuery",
+              "runtimeType": {
+                "text": "ListQuery",
+                "schema": "spinajs/app-basic/ListQuery"
+              },
+              "required": true
+            }
+          ],
+          "returnType": {
+            "text": "UserDto[]",
+            "schema": "spinajs/app-basic/UsersController_list_Response"
+          },
+          "policies": [],
+          "middlewares": [],
+          "doc": {
+            "description": "List users, paginated."
+          },
+          "source": {
+            "file": "src/controllers/users.ts",
+            "line": 17,
+            "col": 3,
+            "package": "app-basic"
+          }
+        },
+        {
+          "method": "get",
+          "path": ":id",
+          "handler": "get",
+          "fullPath": "/users/:id",
+          "params": [
+            {
+              "index": 0,
+              "name": "id",
+              "kind": "FromParams",
+              "runtimeType": {
+                "text": "number",
+                "schema": "spinajs/app-basic/UsersController_get_id"
+              },
+              "required": true
+            }
+          ],
+          "returnType": {
+            "text": "UserDto",
+            "schema": "spinajs/app-basic/UserDto"
+          },
+          "policies": [
+            [
+              {
+                "type": "AccessPolicy",
+                "options": [
+                  "route"
+                ]
+              }
+            ]
+          ],
+          "middlewares": [],
+          "access": [
+            "user:read"
+          ],
+          "source": {
+            "file": "src/controllers/users.ts",
+            "line": 24,
+            "col": 3,
+            "package": "app-basic"
+          }
+        },
+        {
+          "method": "post",
+          "path": "",
+          "handler": "create",
+          "fullPath": "/users",
+          "params": [
+            {
+              "index": 0,
+              "name": "body",
+              "kind": "FromBody",
+              "runtimeType": {
+                "text": "CreateUserDto",
+                "schema": "spinajs/app-basic/CreateUserDto"
+              },
+              "required": true
+            }
+          ],
+          "returnType": {
+            "text": "UserDto | ValidationProblem",
+            "schema": "spinajs/app-basic/UsersController_create_Response"
+          },
+          "policies": [
+            [
+              {
+                "type": "AccessPolicy",
+                "options": [
+                  "route"
+                ]
+              }
+            ]
+          ],
+          "middlewares": [],
+          "access": [
+            "user:create"
+          ],
+          "source": {
+            "file": "src/controllers/users.ts",
+            "line": 32,
+            "col": 3,
+            "package": "app-basic"
+          }
+        },
+        {
+          "method": "post",
+          "path": ":id/avatar",
+          "handler": "avatar",
+          "fullPath": "/users/:id/avatar",
+          "params": [
+            {
+              "index": 0,
+              "name": "id",
+              "kind": "FromParams",
+              "runtimeType": {
+                "text": "number",
+                "schema": "spinajs/app-basic/UsersController_avatar_id"
+              },
+              "required": true
+            },
+            {
+              "index": 1,
+              "name": "file",
+              "kind": "FromFile",
+              "runtimeType": {
+                "text": "IUploadedFile<any>",
+                "schema": "spinajs/app-basic/IUploadedFile_any"
+              },
+              "required": true
+            }
+          ],
+          "returnType": {
+            "text": "void"
+          },
+          "policies": [],
+          "middlewares": [],
+          "source": {
+            "file": "src/controllers/users.ts",
+            "line": 41,
+            "col": 3,
+            "package": "app-basic"
+          }
+        }
+      ],
+      "source": {
+        "file": "src/controllers/users.ts",
+        "line": 13,
+        "col": 1,
+        "package": "app-basic"
+      }
+    }
+  ],
+  "socketControllers": [
+    {
+      "id": "app-basic:ChatSocketController",
+      "className": "ChatSocketController",
+      "prefix": "chat",
+      "commands": [
+        {
+          "name": "send",
+          "handler": "send",
+          "payload": {
+            "text": "{ text: string; }",
+            "schema": "spinajs/app-basic/ChatSocketController_send_Payload"
+          },
+          "result": {
+            "text": "{ id: string; }",
+            "schema": "spinajs/app-basic/ChatSocketController_send_Result"
+          },
+          "options": {
+            "idempotent": true
+          },
+          "policies": [],
+          "source": {
+            "file": "src/socket/chat.ts",
+            "line": 7,
+            "col": 3,
+            "package": "app-basic"
+          }
+        },
+        {
+          "name": "history",
+          "handler": "history",
+          "payload": {
+            "text": "{ since: string; }",
+            "schema": "spinajs/app-basic/ChatSocketController_history_Payload"
+          },
+          "result": {
+            "text": "AsyncIterable<ChatMessage>",
+            "schema": "spinajs/app-basic/ChatSocketController_history_Result"
+          },
+          "options": {},
+          "policies": [],
+          "source": {
+            "file": "src/socket/chat.ts",
+            "line": 12,
+            "col": 3,
+            "package": "app-basic"
+          }
+        }
+      ],
+      "events": [
+        {
+          "name": "message",
+          "payload": {
+            "text": "ChatMessage",
+            "schema": "spinajs/app-basic/ChatMessage"
+          }
+        }
+      ],
+      "source": {
+        "file": "src/socket/chat.ts",
+        "line": 5,
+        "col": 1,
+        "package": "app-basic"
+      }
+    }
+  ],
+  "socketContracts": [],
+  "configModules": [
+    {
+      "module": "app",
+      "schemaId": "spinajs/app-basic/app.configuration.schema.json",
+      "defaultsFile": "src/config/app.ts",
+      "source": {
+        "file": "src/schemas/app.ts",
+        "line": 10,
+        "col": 1,
+        "package": "app-basic"
+      }
+    },
+    {
+      "module": "hooks",
+      "schemaId": "spinajs/hooks.configuration.schema.json",
+      "defaultsFile": "src/config/hooks.ts",
+      "source": {
+        "file": "src/schemas/hooks.ts",
+        "line": 14,
+        "col": 1,
+        "package": "app-basic"
+      }
+    }
+  ],
+  "configUsages": [],
+  "models": [],
+  "migrations": [],
+  "schedules": [],
+  "commands": [],
+  "queueMessages": [
+    {
+      "className": "SendMailJob",
+      "kind": "job",
+      "payload": {
+        "text": "SendMailJob",
+        "schema": "spinajs/app-basic/SendMailJob"
+      },
+      "options": {},
+      "source": {
+        "file": "src/queue/messages.ts",
+        "line": 3,
+        "col": 1,
+        "package": "app-basic"
+      }
+    },
+    {
+      "className": "UserCreated",
+      "kind": "event",
+      "payload": {
+        "text": "UserCreated",
+        "schema": "spinajs/app-basic/UserCreated"
+      },
+      "options": {},
+      "source": {
+        "file": "src/queue/messages.ts",
+        "line": 11,
+        "col": 1,
+        "package": "app-basic"
+      }
+    }
+  ],
+  "schemas": {
+    "spinajs/app-basic/ChatMessage": {
+      "$id": "spinajs/app-basic/ChatMessage",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/app-basic/ChatSocketController_history_Payload": {
+      "$id": "spinajs/app-basic/ChatSocketController_history_Payload",
+      "type": "object",
+      "properties": {
+        "since": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "since"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/app-basic/ChatSocketController_history_Result": {
+      "$id": "spinajs/app-basic/ChatSocketController_history_Result",
+      "type": "object",
+      "additionalProperties": false
+    },
+    "spinajs/app-basic/ChatSocketController_send_Payload": {
+      "$id": "spinajs/app-basic/ChatSocketController_send_Payload",
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/app-basic/ChatSocketController_send_Result": {
+      "$id": "spinajs/app-basic/ChatSocketController_send_Result",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/app-basic/CreateUserDto": {
+      "$id": "spinajs/app-basic/CreateUserDto",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "email"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/app-basic/File": {
+      "$id": "spinajs/app-basic/File",
+      "type": "object",
+      "properties": {
+        "size": {
+          "type": "number",
+          "description": "The size of the uploaded file in bytes. If the file is still being uploaded (see `'fileBegin'`\nevent), this property says how many bytes of the file have been written to disk yet."
+        },
+        "filepath": {
+          "type": "string",
+          "description": "The path this file is being written to. You can modify this in the `'fileBegin'` event in case\nyou are unhappy with the way formidable generates a temporary path for your files."
+        },
+        "originalFilename": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The name this file had according to the uploading client."
+        },
+        "newFilename": {
+          "type": "string",
+          "description": "Calculated based on options provided"
+        },
+        "mimetype": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The mime type of this file, according to the uploading client."
+        },
+        "mtime": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "A Date object (or `null`) containing the time this file was last written to. Mostly here for\ncompatibility with the [W3C File API Draft](http://dev.w3.org/2006/webapi/FileAPI/)."
+        },
+        "hashAlgorithm": {
+          "anyOf": [
+            {
+              "const": false
+            },
+            {
+              "const": "sha1"
+            },
+            {
+              "const": "md5"
+            },
+            {
+              "const": "sha256"
+            }
+          ]
+        },
+        "hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "If `options.hashAlgorithm` calculation was set, you can read the hex digest out of this var\n(at the end it will be a string)."
+        }
+      },
+      "required": [
+        "size",
+        "filepath",
+        "originalFilename",
+        "newFilename",
+        "mimetype",
+        "hashAlgorithm"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/app-basic/HealthController_get_Response": {
+      "$id": "spinajs/app-basic/HealthController_get_Response",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/app-basic/IFileInfo": {
+      "$id": "spinajs/app-basic/IFileInfo",
+      "type": "object",
+      "properties": {
+        "FileSize": {
+          "type": "number",
+          "description": "Size in bytes"
+        },
+        "Height": {
+          "type": "number"
+        },
+        "Width": {
+          "type": "number"
+        },
+        "Duration": {
+          "type": "number"
+        },
+        "FrameCount": {
+          "type": "number"
+        },
+        "FrameRate": {
+          "type": "number"
+        },
+        "AudioChannels": {
+          "type": "number",
+          "description": "Number of audio channels ( eg. 2 for stereo )"
+        },
+        "Bitrate": {
+          "type": "number"
+        },
+        "Codec": {
+          "type": "string"
+        },
+        "LineCount": {
+          "type": "number"
+        },
+        "Encoding": {
+          "type": "string"
+        },
+        "MimeType": {
+          "type": "string"
+        },
+        "WordCount": {
+          "type": "number"
+        },
+        "AccessDate": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ModificationDate": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "CreationDate": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "Raw": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Raw unprocessed data obtained from file info"
+        }
+      },
+      "required": [
+        "FileSize"
+      ],
+      "additionalProperties": {}
+    },
+    "spinajs/app-basic/IUploadedFile_any": {
+      "$id": "spinajs/app-basic/IUploadedFile_any",
+      "type": "object",
+      "properties": {
+        "Size": {
+          "type": "number",
+          "description": "File size in bytes"
+        },
+        "Name": {
+          "type": "string",
+          "description": "Original file name"
+        },
+        "BaseName": {
+          "type": "string",
+          "description": "Filename without path"
+        },
+        "Type": {
+          "type": "string",
+          "description": "Mime type of file"
+        },
+        "LastModifiedDate": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "Hash": {
+          "type": "string"
+        },
+        "Provider": {
+          "anyOf": [
+            {
+              "$ref": "spinajs/app-basic/fs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "File system provider used to store this file eg. could be local, or aws s3 etc"
+        },
+        "Data": {
+          "description": "Additional data filled by middlewares if needed"
+        },
+        "Info": {
+          "$ref": "spinajs/app-basic/IFileInfo",
+          "description": "File info obtained during upload when fileInfo option is set"
+        },
+        "OriginalFile": {
+          "$ref": "spinajs/app-basic/File",
+          "description": "Formidable original file data"
+        }
+      },
+      "required": [
+        "Size",
+        "Name",
+        "BaseName",
+        "Type",
+        "OriginalFile"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/app-basic/ListQuery": {
+      "$id": "spinajs/app-basic/ListQuery",
+      "type": "object",
+      "properties": {
+        "page": {
+          "type": "number"
+        },
+        "perPage": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "spinajs/app-basic/SendMailJob": {
+      "$id": "spinajs/app-basic/SendMailJob",
+      "type": "object",
+      "properties": {
+        "to": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "to",
+        "subject"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/app-basic/UserCreated": {
+      "$id": "spinajs/app-basic/UserCreated",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/app-basic/UserDto": {
+      "$id": "spinajs/app-basic/UserDto",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "number"
+        },
+        "email": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "email"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/app-basic/UsersController_avatar_id": {
+      "$id": "spinajs/app-basic/UsersController_avatar_id",
+      "type": "number"
+    },
+    "spinajs/app-basic/UsersController_create_Response": {
+      "$id": "spinajs/app-basic/UsersController_create_Response",
+      "anyOf": [
+        {
+          "$ref": "spinajs/app-basic/UserDto"
+        },
+        {
+          "$ref": "spinajs/app-basic/ValidationProblem"
+        }
+      ]
+    },
+    "spinajs/app-basic/UsersController_get_id": {
+      "$id": "spinajs/app-basic/UsersController_get_id",
+      "type": "number"
+    },
+    "spinajs/app-basic/UsersController_list_Response": {
+      "$id": "spinajs/app-basic/UsersController_list_Response",
+      "type": "array",
+      "items": {
+        "$ref": "spinajs/app-basic/UserDto"
+      }
+    },
+    "spinajs/app-basic/ValidationProblem": {
+      "$id": "spinajs/app-basic/ValidationProblem",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "validation"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "errors"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/app-basic/app.configuration.schema.json": {
+      "$id": "spinajs/app-basic/app.configuration.schema.json",
+      "$configurationModule": "app",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "default": "app-basic"
+        }
+      }
+    },
+    "spinajs/app-basic/fs": {
+      "$id": "spinajs/app-basic/fs",
+      "type": "object",
+      "properties": {
+        "ServiceName": {
+          "type": "string"
+        },
+        "Name": {
+          "type": "string"
+        },
+        "BasePath": {
+          "type": "string",
+          "description": "Root that absolute paths are made relative to before any action; undefined when the provider has none."
+        },
+        "resolved": {
+          "type": "boolean"
+        },
+        "Resolved": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ServiceName",
+        "Name",
+        "resolved",
+        "Resolved"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/hooks.configuration.schema.json": {
+      "$id": "spinajs/hooks.configuration.schema.json",
+      "$configurationModule": "hooks",
+      "type": "object",
+      "properties": {
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60000,
+          "default": 5000
+        },
+        "maxDepth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32,
+          "default": 8
+        }
+      }
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "SCH001",
+      "severity": "warning",
+      "message": "unsupported type any, emitted as {} (declared in IUploadedFile)",
+      "source": {
+        "file": "src/controllers/users.ts",
+        "line": 42,
+        "col": 44,
+        "package": "app-basic"
+      }
+    },
+    {
+      "code": "SCH001",
+      "severity": "info",
+      "message": "unknown type at unknown accepts any value (declared in IUploadedFile)",
+      "source": {
+        "file": "src/controllers/users.ts",
+        "line": 42,
+        "col": 44,
+        "package": "app-basic"
+      }
+    }
+  ],
+  "generatedAt": "2026-10-27T07:55:01.892Z",
+  "hash": "d3ad3d78853c9e2fad0082eee4efe25e2210c7c8da89f3c2fb4d4f76c7328803"
+}
