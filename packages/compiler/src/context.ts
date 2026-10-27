@@ -39,7 +39,7 @@ export function createContext(loaded: LoadedProgram, packageName: string, packag
     };
 
   const baseChain = (type: ts.Type, seen = new Set<ts.Type>()): string[] => {
-    if (seen.has(type) || !(type.flags & ts.TypeFlags.Object)) return [];
+    if (seen.has(type) || !(type.flags & ts.TypeFlags.Object) || !((type as ts.ObjectType).objectFlags & ts.ObjectFlags.ClassOrInterface)) return [];
     seen.add(type);
     return checker.getBaseTypes(type as ts.InterfaceType).flatMap((b) => [b.getSymbol()?.name ?? '', ...baseChain(b, seen)]);
   };
