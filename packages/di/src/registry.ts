@@ -7,10 +7,45 @@ import { Class, Factory } from './types.js';
 export class Registry {
   protected registry: Map<string, any[]> = new Map<string, any[]>();
 
+  /** Plain values bound with asValue / asMapValue. They are registrations, not resolved instances, so clearCache leaves them. */
+  protected values: Map<string, unknown[]> = new Map<string, unknown[]>();
+
   constructor(protected container: IContainer) { }
 
   public clear() {
     this.registry.clear();
+    this.values.clear();
+  }
+
+  public registerValue(name: string, value: unknown, override = false): void {
+    const list = override ? undefined : this.values.get(name);
+    if (!list) {
+      this.values.set(name, [value]);
+      return;
+    }
+    if (!list.includes(value)) {
+      list.push(value);
+    }
+  }
+
+  public hasValue(name: string): boolean {
+    return this.values.has(name);
+  }
+
+  public getValues(name: string): unknown[] | undefined {
+    return this.values.get(name);
+  }
+
+  public removeValue(name: string): boolean {
+    return this.values.delete(name);
+  }
+
+  public *valueEntries(): Iterable<{ key: string; value: unknown }> {
+    for (const [key, list] of this.values) {
+      for (const value of list) {
+        yield { key, value };
+      }
+    }
   }
 
   /**

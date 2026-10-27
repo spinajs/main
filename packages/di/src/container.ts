@@ -134,8 +134,9 @@ export class Container extends EventEmitter implements IContainer {
     // Reverse resolution order: a service resolved later may still use one resolved before it
     // ( eg. a scheduler finishing its runs on the ORM connection ) while it disposes.
     // One instance can sit under several keys ( its own and an Array.ofType base ).
+    // A Service bound as a value is disposed too, but stays registered: values survive dispose.
     const disposed = new Set<Service>();
-    for (const entry of [...this.cache].reverse()) {
+    for (const entry of [...this.registry.valueEntries(), ...this.cache].reverse()) {
       if (entry.value instanceof Service && !disposed.has(entry.value)) {
         disposed.add(entry.value);
         try {
@@ -158,7 +159,8 @@ export class Container extends EventEmitter implements IContainer {
 
   private async disposePlainOwners(errors: Error[]) {
     const seen = new Set<unknown>();
-    for (const { value } of this.cache) {
+    const entries = [...this.cache, ...this.registry.valueEntries()];
+    for (const { value } of entries) {
       if (seen.has(value) || value instanceof Service || value instanceof Container) {
         continue;
       }
@@ -303,7 +305,7 @@ export class Container extends EventEmitter implements IContainer {
   }
 
   public isCached(instance: unknown, parent = false): boolean {
-    for (const entry of this.cache) {
+    for (const entry of [...this.cache, ...this.registry.valueEntries()]) {
       if (entry.value === instance) {
         return true;
       }

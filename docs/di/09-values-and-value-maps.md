@@ -6,14 +6,14 @@
 
 ### `asValue(key, override = false)`
 
-1. `DI.register(value).asValue('key')` adds `value` to the container's **cache** (not its registry) under `key`.
-2. Several values under one key are kept in order. With `override = true`, the existing entries under `key` are removed first.
+1. `DI.register(value).asValue('key')` stores `value` under `key` among the registry's **values**, apart from the class registrations. Values are registrations, so `clearCache()` keeps them.
+2. Several values under one key are kept in order. With `override = true`, the existing values and any instance cached under `key` in that container are removed first.
 3. The binder emits `di.registered.<key>`.
 4. Read the value with `DI.get('key')` (the last one) or `DI.get(Array.ofType('key'))` (all of them). Children see the parent's values, because `get()` looks in ancestors by default.
 
 ### `asMapValue(key, hashKey)`
 
-1. `DI.register(value).asMapValue('key', 'hashKey')` finds the `Map` cached under `key`, creating it on the first call.
+1. `DI.register(value).asMapValue('key', 'hashKey')` finds the `Map` stored under `key`, creating it on the first call.
 2. It sets `map.set(hashKey, value)`; the same `hashKey` again overwrites.
 3. Read it with `DI.get<Map<string, T>>('key')` and look up by `hashKey` in O(1).
 
@@ -21,8 +21,8 @@
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| A value under a string key | The string; lives in the cache until `uncache`, `clearCache` or `dispose` | Whatever the package stores | Your object | `DI.register(obj).asValue('key', true)` replaces every earlier value; without `true` it adds one |
-| A value map, eg. `'__file_provider_instance__'` (`@spinajs/fs`), `'__http_error_map__'` (`@spinajs/http`), `'__orm_db_value_converters__'` (`@spinajs/orm`) | The string; one cached `Map` | Entries the package adds | Your entry | `container.register(obj).asMapValue('key', 'hashKey')` adds or replaces one entry |
+| A value under a string key | The string; stays until `uncache`, `clearRegistry` or `clear`; `clearCache` and `dispose` keep it | Whatever the package stores | Your object | `DI.register(obj).asValue('key', true)` replaces every earlier value; without `true` it adds one |
+| A value map, eg. `'__file_provider_instance__'` (`@spinajs/fs`), `'__http_error_map__'` (`@spinajs/http`), `'__orm_db_value_converters__'` (`@spinajs/orm`) | The string; one stored `Map` | Entries the package adds | Your entry | `container.register(obj).asMapValue('key', 'hashKey')` adds or replaces one entry |
 | `'__module_loader__'` and `'__esmMode__'` | String values read by `DI.__spinajs_require__` | none / `{ mjs: true }` after `DI.setESMModuleSupport()` | Your `IModuleLoader` | See [Module loading](13-module-loading.md) |
 
 ### Adding an entry to a value map
@@ -57,9 +57,9 @@ console.log(exportRows('tsv', [['id', 'name'], ['1', 'Ann']]));
 
 ## Important behaviour
 
-- Values are cache entries, not registrations. `DI.check('key')` and `hasRegistered('key')` return `false` for them, and `DI.resolve('key')` returns `null`. Read them with `DI.get()`.
-- `DI.clearCache()`, `DI.clear()`, `DI.dispose()` and `DI.uncache('key')` remove values and value maps. A test that clears the container must register them again.
-- A value that is a `Service` (eg. an `AsyncService` built outside DI) is disposed by `dispose()` like any cached service.
+- Values are not class registrations. `DI.check('key')` and `hasRegistered('key')` return `false` for them, and `DI.resolve('key')` returns `null`. Read them with `DI.get()`; `DI.has('key')` (`isResolved`) is `true` for them.
+- `DI.clearRegistry()`, `DI.clear()` and `DI.uncache('key')` remove values and value maps; `DI.clearCache()` and `DI.dispose()` keep them. A value registered at import time ( eg. a configuration schema ) survives a test's `clearCache()`.
+- A value that is a `Service` (eg. an `AsyncService` built outside DI) is disposed by `dispose()` like any cached service, and stays registered.
 - `register()` rejects falsy values: `0`, `''`, `false` and `null` throw `InvalidArgument`. Wrap them in an object.
 - The value is stored by reference. Mutating it later changes what every reader sees.
 

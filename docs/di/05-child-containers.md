@@ -45,12 +45,12 @@ A singleton built in the root gets root dependencies, even when a child resolves
 | Member | Meaning |
 | --- | --- |
 | `Parent` | The parent container, `undefined` for the root and for a standalone container |
-| `Registry` | The `Registry`: what is registered under which key |
-| `Cache` | The `ContainerCache`: built instances and values, iterable as `{ key, value }` |
+| `Registry` | The `Registry`: what is registered under which key, and the values from `asValue` / `asMapValue` |
+| `Cache` | The `ContainerCache`: built instances, iterable as `{ key, value }`; `has` and `get` also see the registry's values |
 | `child()` | A new child of this container |
 | `dispose(options?)` | Dispose children and cached services, clear the cache; `{ plainOwners: true }` also disposes cached non-`Service` instances that have a `dispose()` |
 | `isCached(instance, parent = false)` | `true` when this container's cache holds `instance` |
-| `clear()`, `clearCache()`, `clearRegistry()` | Empty this container's cache and registry |
+| `clear()`, `clearCache()`, `clearRegistry()` | Empty this container's cache and registry; values go with the registry |
 | `getCacheStats()` (on `Container`) | `{ size, entries, childrenCount }` for memory checks |
 | `DI.RootContainer` | The root `IContainer`; every `DI.*` function works on it |
 

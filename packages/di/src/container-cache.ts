@@ -36,22 +36,22 @@ export class ContainerCache {
   }
 
   public remove(key: string | Class<any> | TypedArray<any>, parent?: boolean): void {
-    if (this.has(key)) {
-      this.cache.delete(getTypeName(key));
-    } else if (parent && this.container.Parent) {
+    const name = getTypeName(key);
+    const ownInstance = this.cache.delete(name);
+    const ownValue = this.container.Registry.removeValue(name);
+    if (!ownInstance && !ownValue && parent && this.container.Parent) {
       this.container.Parent.uncache(key);
     }
   }
 
   public add(key: string | Class<any> | object, instance: any) {
     const tName = getTypeName(key);
+    const list = this.cache.get(tName);
 
-    if (this.has(key)) {
-      if (this.cache.get(tName)!.indexOf(instance) === -1) {
-        this.cache.get(tName)!.push(instance);
-      }
-    } else {
+    if (!list) {
       this.cache.set(tName, [instance]);
+    } else if (!list.includes(instance)) {
+      list.push(instance);
     }
   }
 
@@ -62,16 +62,16 @@ export class ContainerCache {
     const tName = getTypeName(key);
 
     if (this.has(key)) {
-      return false; // Already exists, don't add
-    } else {
-      this.cache.set(tName, [instance]);
-      return true; // Successfully added
+      return false;
     }
+
+    this.cache.set(tName, [instance]);
+    return true;
   }
 
   public has(key: string | Class<any> | object | TypedArray<any>, parent?: boolean): boolean {
-
-    if (this.cache.has(getTypeName(key))) {
+    const name = getTypeName(key);
+    if (this.cache.has(name) || this.container.Registry.hasValue(name)) {
       return true;
     }
 
@@ -82,11 +82,16 @@ export class ContainerCache {
     return false;
   }
 
+  /** A cached instance under `key` wins over a value registered under the same key. */
   public get(key: string | Class<any> | TypedArray<any>, parent?: boolean): any {
-    const tName = getTypeName(key);
+    const name = getTypeName(key);
+    if (this.cache.has(name)) {
+      return this.cache.get(name);
+    }
 
-    if (this.cache.has(tName)) {
-      return this.cache.get(tName);
+    const values = this.container.Registry.getValues(name);
+    if (values) {
+      return values;
     }
 
     if (parent && this.container.Parent) {

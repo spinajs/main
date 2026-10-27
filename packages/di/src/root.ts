@@ -26,7 +26,7 @@ export function setESMModuleSupport() {
     esmDeprecationEmitted = true;
     process.emitWarning('DI.setESMModuleSupport() is a no-op since @spinajs/di 4.0 and will be removed in 5.0.', { type: 'DeprecationWarning', code: 'SPINAJS_ESM_MODE' });
   }
-  RootContainer.register({ mjs: true }).asValue('__esmMode__');
+  RootContainer.register({ mjs: true }).asValue('__esmMode__', true);
 }
 
 export function on(event: string, listener: (...args: unknown[]) => void) {

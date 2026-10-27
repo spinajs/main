@@ -3413,12 +3413,6 @@
   "packages/di/src/binder.ts": {
     "@typescript-eslint/no-unsafe-call": {
       "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
-    },
-    "no-useless-assignment": {
-      "count": 1
     }
   },
   "packages/di/src/container-cache.ts": {
