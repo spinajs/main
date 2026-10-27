@@ -77,6 +77,14 @@ describe('diffManifest', () => {
       expect(change?.detail).to.include('query');
     });
 
+    it('changed parameter type is breaking', () => {
+      const a = clone();
+      const b = clone();
+      routeOf(a, 'get', '/users').params.push(param('tenant', false));
+      routeOf(b, 'get', '/users').params.push({ ...param('tenant', false), runtimeType: { text: 'number' } });
+      expect(find(diffManifest(a, b).changes, 'routes', 'GET /users')).to.include({ breaking: true });
+    });
+
     it('removed response property is breaking', () => {
       const head = clone();
       delete schemaOf(head, 'UserDto').properties.name;
@@ -126,6 +134,116 @@ describe('diffManifest', () => {
       const b = clone();
       for (const m of [a, b]) m.schemas['spinajs/app-basic/UserDto'] = { $id: 'spinajs/app-basic/UserDto', type: 'object', properties: { parent: { $ref: 'spinajs/app-basic/UserDto' } } };
       expect(diffManifest(a, b).changes).to.deep.equal([]);
+    });
+  });
+
+  describe('schema direction rules', () => {
+    const RESP = 'spinajs/app-basic/UserDto';
+    const REQ = 'spinajs/app-basic/CreateUserDto';
+    type S = Record<string, unknown>;
+    const obj = (properties: S, extra: S = {}): S => ({ type: 'object', properties, ...extra });
+    const verdict = (id: string, route: string, from: S, to: S): boolean => {
+      const a = clone();
+      const b = clone();
+      a.schemas[id] = { $id: id, ...from };
+      b.schemas[id] = { $id: id, ...to };
+      return find(diffManifest(a, b).changes, 'routes', route)?.breaking === true;
+    };
+    const response = (from: S, to: S) => verdict(RESP, 'GET /users/:id', from, to);
+    const request = (from: S, to: S) => verdict(REQ, 'POST /users', from, to);
+    const field = (f: S) => obj({ v: f });
+
+    it('enum: request removal breaks, addition is safe', () => {
+      expect(request(field({ enum: ['a', 'b'] }), field({ enum: ['a'] }))).to.equal(true);
+      expect(request(field({ enum: ['a'] }), field({ enum: ['a', 'b'] }))).to.equal(false);
+    });
+
+    it('enum: response addition breaks, removal is safe', () => {
+      expect(response(field({ enum: ['a'] }), field({ enum: ['a', 'b'] }))).to.equal(true);
+      expect(response(field({ enum: ['a', 'b'] }), field({ enum: ['a'] }))).to.equal(false);
+    });
+
+    const A = { type: 'string' };
+    const B = { type: 'number' };
+
+    it('union: request member removal breaks, addition is safe', () => {
+      expect(request(field({ anyOf: [A, B] }), field({ anyOf: [A] }))).to.equal(true);
+      expect(request(field({ anyOf: [A] }), field({ anyOf: [A, B] }))).to.equal(false);
+    });
+
+    it('union: response member addition breaks, removal is safe', () => {
+      expect(response(field({ oneOf: [A] }), field({ oneOf: [A, B] }))).to.equal(true);
+      expect(response(field({ oneOf: [A, B] }), field({ oneOf: [A] }))).to.equal(false);
+    });
+
+    it('union: reordering alone is not a change', () => {
+      expect(request(field({ anyOf: [A, B] }), field({ anyOf: [B, A] }))).to.equal(false);
+      expect(response(field({ anyOf: [A, B] }), field({ anyOf: [B, A] }))).to.equal(false);
+    });
+
+    it('union: a reordered $ref member is compared with its counterpart', () => {
+      const x = { $ref: 'spinajs/app-basic/ListQuery' };
+      const y = { $ref: 'spinajs/app-basic/CreateUserDto' };
+      const a = clone();
+      const b = clone();
+      a.schemas[RESP] = { $id: RESP, ...field({ anyOf: [x, y] }) };
+      b.schemas[RESP] = { $id: RESP, ...field({ anyOf: [y, x] }) };
+      b.schemas['spinajs/app-basic/CreateUserDto'] = obj({});
+      expect(find(diffManifest(a, b).changes, 'routes', 'GET /users/:id')?.breaking).to.equal(true);
+    });
+
+    it('type: narrowing breaks a request, widening breaks a response', () => {
+      const wide = field({ type: ['string', 'number'] });
+      const narrow = field({ type: 'string' });
+      expect(request(wide, narrow)).to.equal(true);
+      expect(request(narrow, wide)).to.equal(false);
+      expect(response(narrow, wide)).to.equal(true);
+      expect(response(wide, narrow)).to.equal(false);
+    });
+
+    it('nullable: type array, nullable flag and anyOf null are equivalent', () => {
+      const forms = [{ type: ['string', 'null'] }, { type: 'string', nullable: true }, { anyOf: [{ type: 'string' }, { type: 'null' }] }];
+      const plain = { type: 'string' };
+      for (const nullable of forms) {
+        expect(response(field(plain), field(nullable)), JSON.stringify(nullable)).to.equal(true);
+        expect(response(field(nullable), field(plain)), JSON.stringify(nullable)).to.equal(false);
+        expect(request(field(plain), field(nullable)), JSON.stringify(nullable)).to.equal(false);
+        expect(request(field(nullable), field(plain)), JSON.stringify(nullable)).to.equal(true);
+      }
+      expect(response(field(forms[0]), field(forms[1]))).to.equal(false);
+    });
+
+    it('allOf: a property removed inside allOf is found', () => {
+      const parent = { type: 'object', properties: { id: { type: 'number' }, name: { type: 'string' } } };
+      const slim = { type: 'object', properties: { id: { type: 'number' } } };
+      expect(response({ allOf: [parent] }, { allOf: [slim] })).to.equal(true);
+      expect(response({ allOf: [parent] }, { allOf: [slim, { type: 'object', properties: { name: { type: 'string' } } }] })).to.equal(false);
+    });
+
+    it('allOf: required merged from members counts', () => {
+      const mk = (required: string[]) => ({ allOf: [{ type: 'object', properties: { id: { type: 'number' } }, required }] });
+      expect(request(mk([]), mk(['id']))).to.equal(true);
+    });
+
+    it('additionalProperties: closing breaks a request, opening breaks a response', () => {
+      const open = obj({ a: { type: 'string' } });
+      const closed = obj({ a: { type: 'string' } }, { additionalProperties: false });
+      expect(request(open, closed)).to.equal(true);
+      expect(request({ ...open, additionalProperties: true }, closed)).to.equal(true);
+      expect(request(closed, open)).to.equal(false);
+      expect(response(open, closed)).to.equal(false);
+      expect(response(closed, open)).to.equal(true);
+    });
+
+    it('a $ref that no longer resolves in head is reported', () => {
+      const a = clone();
+      const b = clone();
+      a.schemas[RESP] = { $id: RESP, ...field({ $ref: 'spinajs/app-basic/Gone' }) };
+      a.schemas['spinajs/app-basic/Gone'] = obj({ x: { type: 'string' } });
+      b.schemas[RESP] = { $id: RESP, ...field({ $ref: 'spinajs/app-basic/Gone' }) };
+      const change = find(diffManifest(a, b).changes, 'routes', 'GET /users/:id');
+      expect(change).to.include({ breaking: true });
+      expect(change?.detail).to.include('Gone');
     });
   });
 
@@ -211,12 +329,31 @@ describe('diffManifest', () => {
     });
   });
 
-  it('orders changes deterministically', () => {
+  it('orders changes by code unit regardless of input order', () => {
     const head = clone();
     head.controllers[0].routes = [];
     head.controllers[1].routes = [];
-    const routes = diffManifest(base, head).changes.filter((c) => c.section === 'routes').map((c) => c.id);
-    expect(routes).to.deep.equal([...routes].sort((a, b) => a.localeCompare(b)));
+    const shuffled = clone();
+    shuffled.controllers.reverse();
+    for (const c of shuffled.controllers) c.routes.reverse();
+    const ids = (from: Manifest) => diffManifest(from, head).changes.filter((c) => c.section === 'routes').map((c) => c.id);
+    expect(ids(shuffled)).to.deep.equal(ids(base));
+    expect(ids(base)).to.deep.equal(['GET /health', 'GET /users', 'GET /users/:id', 'POST /users', 'POST /users/:id/avatar']);
+  });
+
+  it('sorts by code unit, not by locale', () => {
+    const head = clone();
+    const source = base.controllers[0].source;
+    for (const id of ['b:svc', 'Z:svc']) head.services.push({ id, className: 'S', registeredAs: ['S'], lifetime: 'singleton', async: false, bootstrapper: false, ctorInjects: [], propertyInjects: [], source });
+    const ids = diffManifest(base, head).changes.filter((c) => c.section === 'services').map((c) => c.id);
+    expect(ids).to.deep.equal(['Z:svc', 'b:svc']);
+  });
+
+  it('renders object policy options as JSON', () => {
+    const head = clone();
+    routeOf(head, 'get', '/health').policies = [[{ type: 'AccessPolicy', options: [{ role: 'admin' }] }]];
+    const change = find(diffManifest(base, head).changes, 'permissions', 'GET /health');
+    expect(change?.detail).to.include('{"role":"admin"}').and.not.include('[object Object]');
   });
 });
 

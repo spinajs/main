@@ -10,7 +10,7 @@ Result: **BREAKING** (5 breaking of 6 changes)
 | --- | --- | --- | --- |
 | changed | `GET /users` | yes | parameter query (FromQuery) removed; response[].name property removed |
 | changed | `GET /users/:id` | yes | response.name property removed |
-| changed | `POST /users` | yes | response\|0.name property removed |
+| changed | `POST /users` | yes | response\|UserDto.name property removed |
 
 ### permissions
 

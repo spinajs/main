@@ -34,6 +34,7 @@ function diffKeyed<T>(section: Section, base: Keyed<T>[], head: Keyed<T>[], opts
   return changes;
 }
 
+const compareCodeUnits = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 const differs = (a: unknown, b: unknown): boolean => canonicalize(a) !== canonicalize(b);
 const routeKey = (r: RouteEntry): string => `${r.method.toUpperCase()} ${r.fullPath}`;
 const requestParams = (r: RouteEntry): ParamEntry[] => r.params.filter((p) => p.kind !== 'FromDI');
@@ -69,7 +70,7 @@ interface RouteRef { route: RouteEntry; controller: ControllerEntry }
 
 const routeRefs = (m: Manifest): Keyed<RouteRef>[] => m.controllers.flatMap((controller) => controller.routes.map((route) => ({ key: routeKey(route), item: { route, controller } })));
 
-const policyName = (p: PolicyRef): string => `policy ${p.type}${p.options?.length ? `(${p.options.map(String).join(',')})` : ''}`;
+const policyName = (p: PolicyRef): string => `policy ${p.type}${p.options?.length ? `(${p.options.map((o) => (typeof o === 'string' ? o : canonicalize(o))).join(',')})` : ''}`;
 
 function requirements({ route, controller }: RouteRef): Set<string> {
   const policies = [...controller.policies, ...route.policies].flat();
@@ -143,7 +144,7 @@ function diffMisc(base: Manifest, head: Manifest): Change[] {
 
 export function diffManifest(base: Manifest, head: Manifest): ManifestDiff {
   const all = [...diffRoutes(base, head), ...diffPermissions(base, head), ...diffMisc(base, head)];
-  const changes = all.sort((a, b) => SECTIONS.indexOf(a.section) - SECTIONS.indexOf(b.section) || a.id.localeCompare(b.id) || a.kind.localeCompare(b.kind));
+  const changes = all.sort((a, b) => SECTIONS.indexOf(a.section) - SECTIONS.indexOf(b.section) || compareCodeUnits(a.id, b.id) || compareCodeUnits(a.kind, b.kind));
   return { base: base.hash, head: head.hash, changes, breaking: changes.some((c) => c.breaking) };
 }
 
