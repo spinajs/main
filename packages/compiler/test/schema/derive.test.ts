@@ -52,6 +52,12 @@ export const ROWS: Row[] = [
       old: { type: 'string', deprecated: true },
       tags: { type: 'array', items: { type: 'string' }, minItems: 1, uniqueItems: true },
   } } },
+  { name: 'A', id: 'fixture/A', schema: { $id: 'fixture/A', type: 'object', properties: { a: { type: 'string' } }, required: ['a'], additionalProperties: false } },
+  { name: 'B', id: 'fixture/B', schema: { $id: 'fixture/B', type: 'object', properties: { b: { type: 'number' } }, required: ['b'], additionalProperties: false } },
+  { name: 'Circle', id: 'fixture/Circle', schema: { $id: 'fixture/Circle', type: 'object', properties: { kind: { const: 'circle' }, r: { type: 'number' } }, required: ['kind', 'r'], additionalProperties: false } },
+  { name: 'Square', id: 'fixture/Square', schema: { $id: 'fixture/Square', type: 'object', properties: { kind: { const: 'square' }, side: { type: 'number' } }, required: ['kind', 'side'], additionalProperties: false } },
+  { name: 'GPage', id: 'fixture/Page_Point', schema: { $id: 'fixture/Page_Point', type: 'object', properties: { items: { type: 'array', items: ref('Point') }, total: { type: 'number' } }, required: ['items', 'total'], additionalProperties: false } },
+  { name: 'GNested', id: 'fixture/Page_Page_Point', schema: { $id: 'fixture/Page_Page_Point', type: 'object', properties: { items: { type: 'array', items: ref('Page_Point') }, total: { type: 'number' } }, required: ['items', 'total'], additionalProperties: false } },
   { name: 'WDate', schema: { type: 'string', format: 'date-time' } },
   { name: 'WDateTime', schema: { type: 'string', format: 'date-time' } },
   { name: 'WBuffer', schema: { type: 'string', format: 'binary' } },
@@ -103,5 +109,12 @@ describe('SCH001 severity', () => {
     expect(derive('XObject').diagnostics[0].severity).to.equal('info');
     expect(derive('XAny').diagnostics[0].severity).to.equal('warning');
     expect(derive('XFn').diagnostics[0].severity).to.equal('warning');
+  });
+});
+
+describe('deriveSchema naming', () => {
+  it('registers every hoisted dependency of a nested generic', () => {
+    const result = derive('GNested');
+    expect([...result.registry.keys()]).to.deep.equal(['fixture/Page_Page_Point', 'fixture/Page_Point', 'fixture/Point']);
   });
 });

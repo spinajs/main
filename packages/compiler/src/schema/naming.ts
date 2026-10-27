@@ -10,11 +10,19 @@ export function sanitizeName(text: string): string {
 
 const inDefaultLib = (symbol: ts.Symbol): boolean => symbol.declarations?.[0]?.getSourceFile().hasNoDefaultLib === true;
 
-function typeArgumentsOf(checker: ts.TypeChecker, type: ts.Type): readonly ts.Type[] {
-  if (type.aliasSymbol) return type.aliasTypeArguments ?? [];
+function typeArgumentsOf(checker: ts.TypeChecker, type: ts.Type, viaAlias: boolean): readonly ts.Type[] {
+  if (viaAlias) return type.aliasTypeArguments ?? [];
   const reference = type as ts.TypeReference;
   if (reference.target && reference.target !== type && reference.target.flags & ts.TypeFlags.Object) return checker.getTypeArguments(reference);
   return [];
+}
+
+/** An interface or class names the type itself; an alias names it only when the type is anonymous (literal, union of objects, …). */
+function namingSymbol(type: ts.Type): { symbol: ts.Symbol; viaAlias: boolean } | undefined {
+  const own = type.getSymbol();
+  if (own && own.flags & (ts.SymbolFlags.Class | ts.SymbolFlags.Interface | ts.SymbolFlags.Enum)) return { symbol: own, viaAlias: false };
+  if (type.aliasSymbol) return { symbol: type.aliasSymbol, viaAlias: true };
+  return own ? { symbol: own, viaAlias: false } : undefined;
 }
 
 function argumentName(checker: ts.TypeChecker, type: ts.Type): string {
@@ -29,11 +37,11 @@ export function hoistedName(checker: ts.TypeChecker, type: ts.Type): string | un
   // Pick/Omit/Record results carry the user alias that names them, not the lib alias; mapped types stay anonymous.
   if (type.flags & ts.TypeFlags.Object && (type as ts.ObjectType).objectFlags & ts.ObjectFlags.Mapped) return undefined;
 
-  const alias = type.aliasSymbol && !inDefaultLib(type.aliasSymbol) ? type.aliasSymbol : undefined;
-  const symbol = alias ?? type.getSymbol();
-  if (!symbol || !(symbol.flags & NAMED) || inDefaultLib(symbol)) return undefined;
+  const naming = namingSymbol(type);
+  if (!naming || !(naming.symbol.flags & NAMED) || inDefaultLib(naming.symbol)) return undefined;
+  const { symbol, viaAlias } = naming;
 
-  const args = typeArgumentsOf(checker, type).map((argument) => argumentName(checker, argument));
+  const args = typeArgumentsOf(checker, type, viaAlias).map((argument) => argumentName(checker, argument));
   return sanitizeName([symbol.name, ...args].join('_'));
 }
 
