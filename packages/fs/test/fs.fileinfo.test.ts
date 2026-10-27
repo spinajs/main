@@ -10,8 +10,9 @@ import { createReadStream } from 'fs';
 import { EventEmitter } from 'events';
 import { PassThrough, Readable } from 'stream';
 import { DateTime } from 'luxon';
-import { dir, TestConfiguration } from './common.js';
-import { DefaultFileInfo, FileInfoService, FsBootsrapper, fsService, resolveExifToolPath } from '../src/index.js';
+import { dir, fsApp } from './common.js';
+import { DefaultFileInfo, FileInfoService, fsService, resolveExifToolPath } from '../src/index.js';
+import type { TestApp } from '@spinajs/testing';
 
 function exiftoolAvailable(binary: string): Promise<boolean> {
     return new Promise((resolve) => {
@@ -64,14 +65,10 @@ class StubbedFileInfo extends DefaultFileInfo {
 describe('fs fileinfo tests', function () {
     this.timeout(15000);
 
+    let app: TestApp;
+
     before(async function () {
-        const bootstrapper = DI.resolve(FsBootsrapper);
-        bootstrapper.bootstrap();
-
-        DI.register(TestConfiguration).as(Configuration);
-        await DI.resolve(Configuration);
-
-        await DI.resolve(fsService);
+        app = await fsApp({ resolve: [fsService] });
 
         // vendored exiftool should make these tests runnable everywhere. If the
         // binary is still not resolvable, skip on windows only - on linux ( CI )
@@ -80,6 +77,10 @@ describe('fs fileinfo tests', function () {
         if (!available && process.platform === 'win32') {
             this.skip();
         }
+    });
+
+    after(async () => {
+      await app.dispose();
     });
 
     afterEach(() => {
@@ -150,13 +151,14 @@ describe('fs fileinfo tests', function () {
 describe('fs fileinfo tests ( mocked exiftool )', function () {
     this.timeout(15000);
 
-    before(async () => {
-        const bootstrapper = DI.resolve(FsBootsrapper);
-        bootstrapper.bootstrap();
+    let app: TestApp;
 
-        DI.register(TestConfiguration).as(Configuration);
-        await DI.resolve(Configuration);
-        await DI.resolve(fsService);
+    before(async () => {
+        app = await fsApp({ resolve: [fsService] });
+    });
+
+    after(async () => {
+      await app.dispose();
     });
 
     afterEach(() => {

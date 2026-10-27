@@ -1,13 +1,13 @@
 import 'mocha';
+import { fsApp } from './common.js';
 import { expect } from 'chai';
 import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
 import '@spinajs/templates-pug';
-import { TestConfiguration } from './common.js';
-import { fs, FsBootsrapper, fsService } from '../src/index.js';
+import { fs, fsService } from '../src/index.js';
 import { sleep } from '@spinajs/threading';
+import type { TestApp } from '@spinajs/testing';
 
 async function tmp() {
   return await DI.resolve<fs>('__file_provider__', ['fs-temp']);
@@ -16,20 +16,16 @@ async function tmp() {
 describe('fs temp tests', function () {
   this.timeout(30000);
 
+  let app: TestApp;
+
   before(async () => {
-    const bootstrapper = DI.resolve(FsBootsrapper);
-    bootstrapper.bootstrap();
-
-    DI.register(TestConfiguration).as(Configuration);
-    await DI.resolve(Configuration);
-
-    await DI.resolve(fsService);
-
+    app = await fsApp({ resolve: [fsService] });
   });
 
   after(async () => {
     const t = await tmp();
     await t.dispose();
+    await app.dispose();
   });
 
   afterEach(() => {

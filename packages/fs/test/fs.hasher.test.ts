@@ -5,10 +5,11 @@ import sinon from 'sinon';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import '@spinajs/templates-pug';
-import { dir, TestConfiguration } from './common.js';
-import { DefaultFileHasher, FileHasher, FsBootsrapper, fsService } from '../src/index.js';
+import { dir, fsApp } from './common.js';
+import { DefaultFileHasher, FileHasher, fsService } from '../src/index.js';
 import { IOFail } from '@spinajs/exceptions';
 import { Readable } from 'stream';
+import type { TestApp } from '@spinajs/testing';
 
 const SHA256_HELLO_WORLD = 'b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9';
 const MD5_HELLO_WORLD = '5eb63bbbe01eeed093cb22bb8f5acdc3';
@@ -19,18 +20,14 @@ const SHA1_HELLO_WORLD = '2aae6c35c94fcfb415dbe95f408b9ce91ee846ed';
 describe('fs hasher tests', function () {
     this.timeout(15000);
 
+    let app: TestApp;
+
     before(async () => {
-        const bootstrapper = DI.resolve(FsBootsrapper);
-        bootstrapper.bootstrap();
-
-        DI.register(TestConfiguration).as(Configuration);
-        await DI.resolve(Configuration);
-
-        await DI.resolve(fsService);
-
+        app = await fsApp({ resolve: [fsService] });
     });
 
     after(async () => {
+        await app.dispose();
     });
 
     afterEach(() => {
