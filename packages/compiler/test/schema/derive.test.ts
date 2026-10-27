@@ -6,6 +6,17 @@ type Row = { name: string; schema: JsonSchema; id?: string; codes?: string[]; pe
 
 export const ROWS: Row[] = [
   { name: 'PString', schema: { type: 'string' } },
+  { name: 'PNumber', schema: { type: 'number' } },
+  { name: 'PBoolean', schema: { type: 'boolean' } },
+  { name: 'PBigint', schema: { type: 'string', pattern: '^-?[0-9]+$' } },
+  { name: 'PNull', schema: { type: 'null' } },
+  { name: 'LStr', schema: { const: 'a' } },
+  { name: 'LNum', schema: { const: 1 } },
+  { name: 'LBool', schema: { const: true } },
+  { name: 'LUnion', schema: { enum: ['a', 'b'] }, pending: true },
+  { name: 'LNumUnion', schema: { enum: [1, 2] }, pending: true },
+  { name: 'Color', schema: { $id: 'fixture/Color', enum: ['red', 'blue'] }, id: 'fixture/Color', pending: true },
+  { name: 'Level', schema: { $id: 'fixture/Level', enum: [0, 1] }, id: 'fixture/Level', pending: true },
 ];
 
 describe('deriveSchema', () => {
