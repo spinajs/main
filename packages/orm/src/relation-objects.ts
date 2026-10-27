@@ -6,7 +6,7 @@ import { createQuery, SelectQueryBuilder, UpdateQueryBuilder } from './builders.
 import type { ModelBase } from './model.js';
 import { Orm } from './orm.js';
 import _ from 'lodash';
-import { OrmDriver } from './driver.js';
+import type { OrmDriver } from './driver.js';
 import { extractModelDescriptor } from './descriptor.js';
 import { isCompositePk, pkColumns, pkKeyStringFor, pkValueOf, whereNotAnyPk } from './primary-keys.js';
 import { OrmException } from './exceptions.js';
