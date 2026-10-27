@@ -88,6 +88,21 @@ A package that wants to take part in an app manifest ships its fragment and poin
 
 A service, value or controller that is registered conditionally carries a `condition`. A registration guarded by a `@Config` property or a `config.get(...)` check becomes `{ kind: 'config', path, expected? }`. Anything the analyzer cannot decide (loops, arbitrary expressions, registration inside `bootstrap()` without a guard) becomes `{ kind: 'dynamic', reason }` with a `CMP003` diagnostic. Such entries are kept, never dropped.
 
+## Schema derivation
+
+With `schemaDerivation` on (the default), every route parameter and response, socket payload and result, queue message and model column gets a JSON Schema (draft-07) derived from its TypeScript type. Named classes, interfaces and enums are hoisted under `spinajs/<package>/<Name>` and referenced by `$ref`; anonymous types are inlined. These rules decide what is derived and how:
+
+| Type | Schema |
+| --- | --- |
+| `@Req()`, `@Res()`, `@FromDI()` and file parameters | None. The framework supplies the value, so the parameter keeps only its type text. |
+| `Promise<T>`, `Ok<T>` and the other transparent wrappers | The schema of `T`. A wrapper without a type argument (`Ok`, `Ok<any>`) is bare: type text only, no schema. |
+| A class extending the `@spinajs/http` `Response` | A response wrapper, matched by the declaring package. http's generic responses (`ForbiddenResponse<T>`, ...) unwrap to their first type argument, a non-generic one to its base class argument (`BufferResponse` to `Buffer`). `Response`, `Response<any>` and a route returning a union of responses (`Ok \| Unauthorized`) are bare; document those with `@response` tags. |
+| A class | Its public data members. Private, protected and `#private` fields, methods and function-typed members are left out. |
+| A model (a class extending `@spinajs/orm` `ModelBase`) | Its columns: the public members declared below `ModelBase`, closed with `additionalProperties: false`. A `SingleRelation<M>` member becomes an optional `$ref` to `M`, a `Relation<M, O>` member an optional array of it. `@Hidden`, `@Virtual`, `@Query` and `@Historical` members are left out when the model's source is analyzed; declaration files carry no decorators, so for a model read from a dependency those members stay in the schema. |
+| `ModelData<M>`, `ModelDataWithRelationData<M>` | The schema of the model `M`, wherever the type appears. |
+| A template literal type | `{ type: 'string' }`. When every placeholder is `${string}`, a `pattern` keeps the fixed text: `` `native:${string}` `` gives `^native:`, `` `${string}.json` `` gives `\.json$`. Other placeholders (`${number}`) give no pattern. `Uppercase<string>` and the other string mappings give a plain string. |
+| A union or intersection alias | Inlined, unless it refers to itself. A recursive alias (`type Filter = { not: Filter } \| ...`) is hoisted under its name, so the recursion ends in a `$ref`. |
+
 ## Diagnostics
 
 Every diagnostic has a `code`, a `severity` (`error`, `warning`, `info`), a `message` and, when it points at code, a `source`.
@@ -98,6 +113,12 @@ Every diagnostic has a `code`, a `severity` (`error`, `warning`, `info`), a `mes
 | `CMP002` | info | A `@response` JSDoc tag could not be parsed. |
 | `CMP003` | info | A registration has a dynamic condition. |
 | `CFG010` | warning | A configuration schema is not a literal with `$id` and `$configurationModule`. |
+| `SCH001` | warning / info | A type has no JSON Schema form and is emitted as `{}`: `any`, a function, `symbol`, `never`. Give the member a real type. `unknown`, `object` and an `any` index signature are `info`: the value is accepted as is, which suits an opaque value. A type declared outside the package says where in the message (`declared in X`). |
+| `SCH002` | warning | A type nests deeper than the depth limit (20) and the cut is emitted as `{}`. Usually a framework type reached through a member; a recursive alias no longer causes it. |
+| `SCH003` | warning | An explicit `@Schema` differs from the schema derived from its class (reported by `spinajs doctor`). Align the schema and the class. |
+| `SCH005` | warning | Two different types derive to the same schema `$id`. Rename one of them. |
+
+Run `node packages/compiler/scripts/report-diagnostics.mjs <packageDir> [--fail-on CODE,...]` to list one package's diagnostics with a count per code.
 
 `runDoctor` runs consistency rules over a manifest and is exported from the same package.
 
