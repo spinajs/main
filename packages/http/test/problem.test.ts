@@ -1,21 +1,36 @@
 import 'mocha';
 import { expect } from 'chai';
+import AjvModule from 'ajv';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { fsService } from '@spinajs/fs';
 import { Intl } from '@spinajs/intl';
-import { BadRequest, Forbidden } from '@spinajs/exceptions';
+import { BadRequest, CodedHttpException, Forbidden } from '@spinajs/exceptions';
 import { ValidationFailed } from '@spinajs/validation';
 
 import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
-import { BaseController, BasePath, Controllers, Get, HttpServer, PROBLEM_DETAILS_SCHEMA, toProblem } from '../src/index.js';
+import { BaseController, BasePath, Controllers, Get, HttpServer, PROBLEM_DETAILS_SCHEMA, toProblem, withProblemFields } from '../src/index.js';
 import type { ProblemDetails, ProblemOptions } from '../src/index.js';
 
 class LeakyError extends Error {
   public secret = 'hunter2';
   public renewUrl = '/billing';
   public code = 'leaky.code';
+}
+
+class PgLikeError extends Error {
+  public code = '23505';
+  public constraint = 'users_email_key';
+  constructor() {
+    super('duplicate key value violates unique constraint "users_email_key"');
+  }
+}
+
+class OptInError extends Error {
+  public static problemFields = ['code', 'reason'];
+  public code = 'opt.in';
+  public reason = 'because';
 }
 
 class TypedError extends Error {
@@ -28,7 +43,7 @@ describe('toProblem', () => {
   it('builds the standard members and drops other own properties', () => {
     const problem = toProblem(new LeakyError('boom'), 500, options);
 
-    expect(problem).to.deep.eq({ type: 'about:blank', title: 'Leaky Error', status: 500, detail: 'boom', instance: '/x', code: 'leaky.code' });
+    expect(problem).to.deep.eq({ type: 'about:blank', title: 'Leaky Error', status: 500, detail: 'boom', instance: '/x' });
     expect(problem).to.not.have.property('secret');
   });
 
@@ -47,6 +62,37 @@ describe('toProblem', () => {
     expect(toProblem(err, 500, options)).to.not.have.property('stack');
     expect(toProblem(err, 500, { ...options, includeStack: true }).stack).to.eq(err.stack);
     expect(toProblem(err, 500, { ...options, includeStack: true, isProduction: true })).to.not.have.property('stack');
+  });
+
+  it('exposes the code of framework exceptions and of classes that opt in, never of other errors', () => {
+    expect(toProblem(new CodedHttpException(409, 'invoice.locked'), 409, options).code).to.eq('invoice.locked');
+    expect(toProblem(new OptInError('x'), 400, options)).to.deep.include({ code: 'opt.in', reason: 'because' });
+    expect(toProblem(new PgLikeError(), 500, options)).to.not.have.property('code');
+  });
+
+  it('copies the fields an error lists through withProblemFields, and only those', () => {
+    const err = withProblemFields(new Forbidden('no'), { error: 'forbidden', reason: { code: 'x' } });
+    (err as unknown as Record<string, unknown>).other = 1;
+
+    const problem = toProblem(err, 403, options);
+
+    expect(problem).to.deep.include({ error: 'forbidden', reason: { code: 'x' } });
+    expect(problem).to.not.have.property('other');
+    expect(Object.keys(err)).to.not.include('problemFields');
+  });
+
+  it('hides the message and code when redacting', () => {
+    const problem = toProblem(new CodedHttpException(500, 'x', 'internal detail'), 500, { ...options, redact: true });
+
+    expect(problem.detail).to.eq('Internal server error');
+    expect(problem).to.not.have.property('code');
+  });
+
+  it('ignores a constructor without static members', () => {
+    const err = new Error('x');
+    Object.defineProperty(err, 'constructor', { value: undefined });
+
+    expect(toProblem(err, 500, options).type).to.eq('about:blank');
   });
 
   it('leaves out the code of a system error', () => {
@@ -93,6 +139,16 @@ class ProblemController extends BaseController {
   }
 
   @Get()
+  public pg() {
+    throw new PgLikeError();
+  }
+
+  @Get()
+  public optIn() {
+    throw new OptInError('refused');
+  }
+
+  @Get()
   public forbidden() {
     throw new Forbidden('nope');
   }
@@ -112,6 +168,13 @@ class StackConfiguration extends TestConfiguration {
   public async resolve(): Promise<void> {
     await super.resolve();
     (this.Config.http as { errors: object }).errors = { includeStack: true, includeFields: ['renewUrl'] };
+  }
+}
+
+class ProductionConfiguration extends StackConfiguration {
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    this.Config.configuration = { isProduction: true };
   }
 }
 
@@ -136,6 +199,10 @@ async function stop(configuration: typeof TestConfiguration) {
   DI.uncache(Configuration);
 }
 
+// ajv ships CJS: under ESM the constructor is on `default`
+type AjvLike = new (options: object) => { compile(schema: object): ((data: unknown) => boolean) & { errors?: unknown } };
+const Ajv = ((AjvModule as unknown as { default?: AjvLike }).default ?? AjvModule) as unknown as AjvLike;
+
 const bodyOf = (res: { body: unknown }) => res.body as ProblemDetails;
 
 describe('problem+json error bodies', function () {
@@ -150,7 +217,7 @@ describe('problem+json error bodies', function () {
 
       expect(res.status).to.eq(500);
       expect(res.type).to.eq('application/problem+json');
-      expect(res.body).to.deep.eq({ type: 'about:blank', title: 'Leaky Error', status: 500, detail: 'boom', instance: '/problem/leaky', code: 'leaky.code' });
+      expect(res.body).to.deep.eq({ type: 'about:blank', title: 'Leaky Error', status: 500, detail: 'boom', instance: '/problem/leaky' });
     });
 
     it('uses the mapped response status', async () => {
@@ -175,6 +242,58 @@ describe('problem+json error bodies', function () {
       expect(res.status).to.eq(400);
       expect(res.type).to.eq('text/html');
       expect(res.text).to.contain('bad input');
+    });
+  });
+
+  describe('schema and redaction in development', () => {
+    before(() => startWith(TestConfiguration));
+    after(() => stop(TestConfiguration));
+
+    it('validates real bodies against PROBLEM_DETAILS_SCHEMA', async () => {
+      const validate = new Ajv({ strict: false }).compile(PROBLEM_DETAILS_SCHEMA);
+
+      for (const path of ['leaky', 'forbidden', 'invalid', 'optIn']) {
+        const res = await req().get(`problem/${path}`).set('Accept', 'application/json');
+        expect(validate(res.body), `${path}: ${JSON.stringify(validate.errors)}`).to.eq(true);
+      }
+    });
+
+    it('answers a library error with its message but without its code', async () => {
+      const res = await req().get('problem/pg').set('Accept', 'application/json');
+
+      expect(res.status).to.eq(500);
+      expect(bodyOf(res).detail).to.contain('users_email_key');
+      expect(res.body).to.not.have.any.keys('code', 'constraint');
+    });
+
+    it('copies the code and fields an exception class opts in to', async () => {
+      const res = await req().get('problem/optIn').set('Accept', 'application/json');
+
+      expect(res.body).to.deep.include({ code: 'opt.in', reason: 'because' });
+    });
+
+    it('answers the path as instance, without the query', async () => {
+      const res = await req().get('problem/leaky?token=abc').set('Accept', 'application/json');
+
+      expect(bodyOf(res).instance).to.eq('/problem/leaky');
+    });
+  });
+
+  describe('production', () => {
+    before(() => startWith(ProductionConfiguration));
+    after(() => stop(ProductionConfiguration));
+
+    it('hides the message and the code of an unmapped error, and the stack despite includeStack', async () => {
+      const res = await req().get('problem/pg').set('Accept', 'application/json');
+
+      expect(res.status).to.eq(500);
+      expect(res.body).to.deep.eq({ type: 'about:blank', title: 'Pg Like Error', status: 500, detail: 'Internal server error', instance: '/problem/pg' });
+    });
+
+    it('keeps the message of a mapped error', async () => {
+      const res = await req().get('problem/forbidden').set('Accept', 'application/json');
+
+      expect(bodyOf(res).detail).to.eq('nope');
     });
   });
 

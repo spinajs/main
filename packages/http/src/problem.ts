@@ -1,3 +1,4 @@
+import { Exception } from '@spinajs/exceptions';
 import { ValidationFailed } from '@spinajs/validation';
 
 export interface ProblemDetails {
@@ -24,7 +25,11 @@ export interface ProblemOptions {
   includeFields: string[];
   isProduction: boolean;
   instance?: string;
+  /** Hide the message and code: the answer is the generic server error of a production app. */
+  redact?: boolean;
 }
+
+export const GENERIC_DETAIL = 'Internal server error';
 
 export const PROBLEM_CONTENT_TYPE = 'application/problem+json';
 
@@ -48,7 +53,7 @@ export const PROBLEM_DETAILS_SCHEMA = {
   additionalProperties: true,
 } as const;
 
-const RESERVED = new Set(['type', 'title', 'status', 'detail', 'instance', 'code', 'errors', 'stack', 'message']);
+const RESERVED = new Set(['type', 'title', 'status', 'detail', 'instance', 'code', 'stack', 'message']);
 
 // Bodies built by toProblem, so the response layer can tell them from arbitrary error models.
 const problems = new WeakSet<object>();
@@ -62,16 +67,42 @@ function titleOf(err: Error): string {
   return name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
 }
 
+function declared<T>(err: Error, name: 'problemFields' | 'problemType'): T | undefined {
+  return typeof err.constructor === 'function' ? (err.constructor as unknown as Record<string, T | undefined>)[name] : undefined;
+}
+
+const PROBLEM_FIELDS = Symbol('problemFields');
+
+/**
+ * Sets `fields` on an error built on the spot and lists them for the problem body, for the places that cannot declare a
+ * subclass with a static `problemFields`.
+ */
+export function withProblemFields<E extends Error>(err: E, fields: Record<string, unknown>): E {
+  Object.assign(err, fields);
+  Object.defineProperty(err, PROBLEM_FIELDS, { value: Object.keys(fields), enumerable: false, configurable: true });
+  return err;
+}
+
+function listedFields(err: Error): string[] {
+  const own = declared<unknown>(err, 'problemFields');
+  const instance = (err as unknown as Record<symbol, unknown>)[PROBLEM_FIELDS];
+  return [...(Array.isArray(own) ? own : []), ...(Array.isArray(instance) ? instance : [])].filter((f): f is string => typeof f === 'string');
+}
+
 function allowedFields(err: Error, configured: string[]): Record<string, unknown> {
-  const declared = (err.constructor as { problemFields?: unknown } | undefined)?.problemFields;
-  const fields = Array.isArray(declared) ? [...configured, ...(declared as string[])] : configured;
+  const fields = [...configured, ...listedFields(err)];
 
   return Object.fromEntries(Object.entries(err).filter(([key, value]) => fields.includes(key) && !RESERVED.has(key) && value !== undefined));
 }
 
+// Only framework exceptions and classes that list `code` in problemFields: a library error's code (a Postgres SQLSTATE, EACCES) describes the host.
+function exposesCode(err: Error): boolean {
+  return err instanceof Exception || listedFields(err).includes('code');
+}
+
 export function toProblem(err: Error, status: number, options: ProblemOptions): ProblemDetails {
   const source = err as Error & Record<string, unknown>;
-  const problemType = (err.constructor as { problemType?: unknown } | undefined)?.problemType;
+  const problemType = declared<unknown>(err, 'problemType');
 
   const problem: ProblemDetails = {
     type: typeof problemType === 'string' && problemType.length > 0 ? problemType : 'about:blank',
@@ -79,14 +110,16 @@ export function toProblem(err: Error, status: number, options: ProblemOptions): 
     status,
   };
 
-  if (typeof err.message === 'string' && err.message.length > 0) {
+  if (options.redact) {
+    problem.detail = GENERIC_DETAIL;
+  } else if (typeof err.message === 'string' && err.message.length > 0) {
     problem.detail = err.message;
   }
   if (options.instance !== undefined) {
     problem.instance = options.instance;
   }
   // Node system errors carry a `code` such as EACCES that names the host's file layout and permissions
-  if (typeof source.code === 'string' && typeof source.syscall !== 'string') {
+  if (!options.redact && typeof source.code === 'string' && typeof source.syscall !== 'string' && exposesCode(err)) {
     problem.code = source.code;
   }
   if (err instanceof ValidationFailed) {

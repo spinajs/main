@@ -1,5 +1,5 @@
 import { Autoinject, ClassInfo, NewInstance, TypedArray } from '@spinajs/di';
-import { BaseController, IRoute, IRouteParameter, ParameterType, RouteType } from '@spinajs/http';
+import { BaseController, IRoute, IRouteParameter, PROBLEM_DETAILS_SCHEMA, ParameterType, RouteType } from '@spinajs/http';
 import { SCHEMA_SYMBOL, SchemaProvider } from '@spinajs/validation';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { safeParse } from '@spinajs/util';
@@ -1503,8 +1503,7 @@ ${line}` : line;
   }
 
   /**
-   * Register the shared ProblemDetails schema once. Mirrors PROBLEM_DETAILS_SCHEMA of @spinajs/http,
-   * the body packages/http/src/error.ts answers with.
+   * Register the shared ProblemDetails schema once, from PROBLEM_DETAILS_SCHEMA of @spinajs/http.
    */
   private ensureErrorSchema(): void {
     if (this.errorSchemaRegistered) return;
@@ -1512,21 +1511,10 @@ ${line}` : line;
     const components = (this.document.components ??= {});
     const schemas = (components.schemas ??= {});
     if (!schemas.ProblemDetails) {
-      schemas.ProblemDetails = {
-        type: 'object',
-        required: ['type', 'title', 'status'],
-        additionalProperties: true,
-        properties: {
-          type: { type: 'string', description: 'about:blank, or a URI identifying the problem type' },
-          title: { type: 'string', description: 'Short, human-readable summary of the problem type' },
-          status: { type: 'integer', description: 'HTTP status code' },
-          detail: { type: 'string', description: 'Human-readable explanation of this occurrence' },
-          instance: { type: 'string', description: 'Request URL' },
-          code: { type: 'string', description: 'Application error code, when the exception defines one' },
-          errors: { description: 'Validation errors, present on validation failures only' },
-          stack: { type: 'string', description: 'Stack trace, only when http.errors.includeStack is enabled outside production' },
-        },
-      };
+      const schema = structuredClone(PROBLEM_DETAILS_SCHEMA) as Record<string, unknown>;
+      delete schema.$schema;
+      delete schema.$id;
+      schemas.ProblemDetails = schema;
     }
     this.errorSchemaRegistered = true;
   }

@@ -8,8 +8,8 @@ import { BadRequestResponse } from './response-methods/badRequest.js';
 import { BadRequest, CodedHttpException } from '@spinajs/exceptions';
 import randomstring from 'randomstring';
 import { Log } from '@spinajs/log';
-import { Configuration } from '@spinajs/configuration';
-import { redactUrl } from './util/redact-url.js';
+import { Configuration, isProduction } from '@spinajs/configuration';
+import { redactUrl, urlPath } from './util/redact-url.js';
 import { PROBLEM_CONTENT_TYPE, toProblem } from './problem.js';
 import type { ProblemDetails, ProblemOptions } from './problem.js';
 /**
@@ -88,7 +88,7 @@ export function __handle_error__() {
         logger.warn('Configuration service is not registered in DI container, error handler will use default values. Register configuration service to use custom configuration');
     }
 
-    const isProductionEnv = config ? config.get<boolean>('configuration.isProduction') : false;
+    const isProductionEnv = isProduction(config ?? undefined);
     const errorMap = DI.get<Map<string, Constructor<HttpResponse>>>('__http_error_map__');
     const acceptHeaders = config ? config.get<HttpAcceptHeaders>('http.AcceptHeaders') : null;
     const fatalTemplate = config ? config.get<string>('http.FatalTemplate') : null;
@@ -108,15 +108,16 @@ export function __handle_error__() {
         let response: HttpResponse | null = null;
 
         const bodyFailure = bodyFailureMessage(err, errorMap);
-        const problemOptions: ProblemOptions = { ...baseProblemOptions, instance: redactUrl(req.originalUrl) };
+        const problemOptions: ProblemOptions = { ...baseProblemOptions, instance: urlPath(req.originalUrl) };
 
         if (bodyFailure) {
             logger.warn({ failure: err.type, method: req.method, url: redactUrl(req.originalUrl) }, 'Request body failure (${failure}) at ${method} ${url}');
 
             const badRequest = new BadRequest(bodyFailure);
             const ResponseClass: Constructor<HttpResponse> = (errorMap ? __resolve_error_response__(errorMap, badRequest) : null) ?? BadRequestResponse;
-            error = toProblem(badRequest, new ResponseClass(null).statusCode, problemOptions);
+            error = toProblem(badRequest, HTTP_STATUS_CODE.BAD_REQUEST, problemOptions);
             response = new ResponseClass(error);
+            error.status = response.statusCode;
         } else {
             logger.error({ error: err, method: req.method, url: redactUrl(req.originalUrl) }, 'Error in controller ${method} at path ${url}');
 
@@ -126,9 +127,11 @@ export function __handle_error__() {
                 logger.warn({ errorType: err.constructor?.name }, 'Error type ${errorType} dont have assigned http response. Map error to response via _http_error_map__ in DI container');
             }
 
-            const status = err instanceof CodedHttpException && isErrorStatus(err.status) ? err.status : new ResponseClass(null).statusCode;
-            error = toProblem(err, status, err instanceof CodedHttpException ? { ...problemOptions, includeFields: [...problemOptions.includeFields, 'details'] } : problemOptions);
+            const redact = isProductionEnv && (ResponseClass === ServerError || ResponseClass.prototype instanceof ServerError);
+            const fields = err instanceof CodedHttpException ? [...problemOptions.includeFields, 'details'] : problemOptions.includeFields;
+            error = toProblem(err, HTTP_STATUS_CODE.INTERNAL_ERROR, { ...problemOptions, includeFields: fields, redact });
             response = new ResponseClass(error);
+            error.status = err instanceof CodedHttpException && isErrorStatus(err.status) ? err.status : response.statusCode;
         }
 
         response

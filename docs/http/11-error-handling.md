@@ -127,7 +127,7 @@ List the exception's public fields the client needs (`renewUrl` above) in `http.
 
 ## Problem bodies
 
-Every error answers `Content-Type: application/problem+json` (RFC 9457) when the client takes JSON:
+An error that reaches the error handler answers `Content-Type: application/problem+json` (RFC 9457) when the client takes JSON. Refusals made by middleware before routing keep their own fixed bodies: CSRF, same-origin, bot check and throttle.
 
 ```json
 { "type": "about:blank", "title": "Validation Failed", "status": 400, "detail": "...", "instance": "/orders", "errors": [] }
@@ -139,9 +139,25 @@ Every error answers `Content-Type: application/problem+json` (RFC 9457) when the
 | `title` | the exception class name in words |
 | `status` | the mapped response's status |
 | `detail` | `err.message` |
-| `instance` | the request URL, query secrets redacted |
-| `code` | `err.code` when it is a string |
+| `instance` | the request path, without the query |
+| `code` | `err.code` when it is a string and the error is a framework exception (`Exception` subclass) or its class lists `code` in `problemFields`. Never for a library error such as a Postgres SQLSTATE or `EACCES`, and never when `err.syscall` is set. |
 | `errors` | the Ajv errors of `ValidationFailed` |
+
+Production and the generic server error: when `configuration.isProduction` is true and the answer is `ServerError` (an unmapped error, or a response derived from it), `detail` is `Internal server error` and `code` is left out. The full message stays in the `error` log line. Outside production the message is kept for debugging.
+
+### Extra members
+
+Prefer declaring the fields on the exception class over the global `http.errors.includeFields`:
+
+```ts
+class QuotaExceeded extends Forbidden {
+  static problemType = 'https://errors.example.com/quota';
+  static problemFields = ['limit', 'renewUrl'];
+  constructor(public limit: number, public renewUrl: string) { super('quota exceeded'); }
+}
+```
+
+For an error built on the spot, `withProblemFields(new Forbidden('no'), { error: 'quota' })` sets the properties and lists them the same way. `problemFields` lists own enumerable properties copied into the body; `http.errors.includeFields` does the same for every exception, so a name listed there leaks from any class that happens to have it. Names the body defines (`type`, `title`, `status`, `detail`, `instance`, `code`, `stack`, `message`) are never overwritten.
 
 `ProblemDetails`, `toProblem` and the JSON Schema `PROBLEM_DETAILS_SCHEMA` are exported from `@spinajs/http`. HTML clients still get the mapped template, which shows `detail`.
 

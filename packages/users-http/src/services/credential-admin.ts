@@ -1,4 +1,5 @@
 import { DI } from '@spinajs/di';
+import { withProblemFields } from '@spinajs/http';
 import { Forbidden, ResourceNotFound } from '@spinajs/exceptions';
 import { Hooks } from '@spinajs/hooks';
 import { hookRefusalOf, runCredentialAdmin } from '@spinajs/authn/hooks';
@@ -13,7 +14,7 @@ const REFUSALS: Record<Refusal, string> = {
 };
 
 // @spinajs/http spreads an error's own enumerable props into the body: { error, message }, as authn-http answers.
-const coded = <E extends Error>(err: E, code: string): E => Object.assign(err, { error: code });
+const coded = <E extends Error>(err: E, code: string): E => withProblemFields(err, { error: code });
 
 /**
  * Runs `effect` as authn's `authn.admin.credentials` action for `actor` acting on user `uuid` (A25, SR-10), the action
@@ -38,6 +39,6 @@ export async function withCredentialAdmin<T>(actor: Principal, uuid: string, act
     if (Object.hasOwn(REFUSALS, refusal.code)) {
       throw coded(new Forbidden(REFUSALS[refusal.code as Refusal]), refusal.code);
     }
-    throw Object.assign(new Forbidden('the action was refused'), { error: 'action_refused', code: refusal.code });
+    throw withProblemFields(new Forbidden('the action was refused'), { error: 'action_refused', code: refusal.code });
   }
 }
