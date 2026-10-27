@@ -2,6 +2,7 @@ import type { AddressInfo } from 'node:net';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { FrameworkConfiguration } from '@spinajs/configuration';
+import { fsService } from '@spinajs/fs';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp, TestAppOptions } from '@spinajs/testing';
 import { Forbidden } from '@spinajs/exceptions';
@@ -250,5 +251,6 @@ export async function releaseHttpServer() {
  * Dispose it in `after`; it stops a started HttpServer through its dispose().
  */
 export function httpApp(options: Omit<TestAppOptions, 'configuration' | 'config'> = {}): Promise<TestApp> {
-  return createTestApp({ configuration: TestConfiguration, ...options });
+  // The fs bootstrapper's provider factory throws unless fsService was resolved first.
+  return createTestApp({ configuration: TestConfiguration, ...options, resolve: [fsService, ...(options.resolve ?? [])] });
 }
