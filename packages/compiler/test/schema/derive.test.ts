@@ -31,6 +31,14 @@ export const ROWS: Row[] = [
   { name: 'UObjNull', schema: { anyOf: [ref('Point'), { type: 'null' }] }, pending: true },
   { name: 'Shape', schema: { oneOf: [ref('Circle'), ref('Square')], 'x-discriminator': { propertyName: 'kind', mapping: { circle: 'fixture/Circle', square: 'fixture/Square' } } }, pending: true },
   { name: 'IAB', schema: { allOf: [ref('A'), ref('B')] }, pending: true },
+  { name: 'Point', schema: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } }, required: ['x', 'y'], additionalProperties: false } },
+  { name: 'OOptional', schema: { type: 'object', properties: { a: { type: 'string' }, b: { type: 'number' } }, required: ['a'], additionalProperties: false } },
+  { name: 'OReadonly', schema: { type: 'object', properties: { id: { type: 'number' } }, required: ['id'], additionalProperties: false } },
+  { name: 'OMethods', schema: { type: 'object', properties: { a: { type: 'string' } }, required: ['a'], additionalProperties: false } },
+  { name: 'OIndex', schema: { type: 'object', additionalProperties: { type: 'number' } } },
+  { name: 'ORecord', schema: { type: 'object', additionalProperties: { type: 'boolean' } } },
+  { name: 'OLiteral', schema: { type: 'object', properties: { a: { type: 'string' } }, required: ['a'], additionalProperties: false } },
+  { name: 'CDto', schema: { type: 'object', properties: { a: { type: 'string' }, b: { type: 'number' } }, required: ['a'], additionalProperties: false } },
 ];
 
 describe('deriveSchema', () => {
