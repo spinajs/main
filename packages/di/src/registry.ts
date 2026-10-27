@@ -4,6 +4,8 @@ import { getTypeName, isConstructor, isFactory, isObject } from './helpers.js';
 import { IChainRegistration, IContainer, RegisterOptions } from './interfaces.js';
 import { Class, Factory } from './types.js';
 
+export type ValueMapContents = Map<Map<unknown, unknown>, [unknown, unknown][]>;
+
 function copyLists(source: ReadonlyMap<string, unknown[]>): Map<string, any[]> {
   return new Map([...source].map(([key, list]) => [key, [...list]]));
 }
@@ -21,13 +23,27 @@ export class Registry {
     this.values.clear();
   }
 
-  public snapshotState(): { registry: Map<string, unknown[]>; values: Map<string, unknown[]> } {
-    return { registry: copyLists(this.registry), values: copyLists(this.values) };
+  /** `maps`: the entries of every Map value ( asMapValue ), so restoreState can refill the same Map objects. */
+  public snapshotState(): { registry: Map<string, unknown[]>; values: Map<string, unknown[]>; maps: ValueMapContents } {
+    const maps: ValueMapContents = new Map();
+    for (const { value } of this.valueEntries()) {
+      if (value instanceof Map && !maps.has(value)) {
+        maps.set(value, [...value]);
+      }
+    }
+
+    return { registry: copyLists(this.registry), values: copyLists(this.values), maps };
   }
 
-  public restoreState(registry: ReadonlyMap<string, unknown[]>, values: ReadonlyMap<string, unknown[]>): void {
+  public restoreState(registry: ReadonlyMap<string, unknown[]>, values: ReadonlyMap<string, unknown[]>, maps?: ValueMapContents): void {
     this.registry = copyLists(registry);
     this.values = copyLists(values);
+    for (const [map, entries] of maps ?? []) {
+      map.clear();
+      for (const [key, value] of entries) {
+        map.set(key, value);
+      }
+    }
   }
 
   public registerValue(name: string, value: unknown, override = false): void {

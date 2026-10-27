@@ -9,10 +9,13 @@ import { ChildOptions, ContainerCacheStats, ContainerSnapshot, IBind, IContainer
 import { Class, Factory, ResolveResult } from './types.js';
 import { EventEmitter } from './events.js';
 import { Binder } from './binder.js';
-import { Registry } from './registry.js';
+import { Registry, ValueMapContents } from './registry.js';
 import { ContainerCache } from './container-cache.js';
 import _ from 'lodash';
 import { ServiceNotFound } from './exceptions.js';
+
+// Kept beside the snapshot so ContainerSnapshot keeps the shape of the public contract.
+const snapshotMaps = new WeakMap<ContainerSnapshot, ValueMapContents>();
 
 /**
  * Maps `items` with `fn`. When `fn` throws synchronously, promises returned for the
@@ -164,13 +167,15 @@ export class Container extends EventEmitter implements IContainer {
   }
 
   public snapshot(): ContainerSnapshot {
-    const { registry, values } = this.registry.snapshotState();
+    const { registry, values, maps } = this.registry.snapshotState();
     const listeners = new Map<string | symbol, ((...args: unknown[]) => void)[]>();
     for (const event of this.eventNames()) {
       listeners.set(event, this.rawListeners(event));
     }
 
-    return { registry, values, cache: this.cache.snapshotState(), listeners };
+    const snapshot: ContainerSnapshot = { registry, values, cache: this.cache.snapshotState(), listeners };
+    snapshotMaps.set(snapshot, maps);
+    return snapshot;
   }
 
   public async restore(snapshot: ContainerSnapshot): Promise<void> {
@@ -191,7 +196,7 @@ export class Container extends EventEmitter implements IContainer {
       }
     }
 
-    this.registry.restoreState(snapshot.registry, snapshot.values);
+    this.registry.restoreState(snapshot.registry, snapshot.values, snapshotMaps.get(snapshot));
     this.restoreListeners(snapshot.listeners);
 
     if (errors.length > 0) {

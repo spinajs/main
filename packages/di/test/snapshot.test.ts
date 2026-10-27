@@ -84,4 +84,21 @@ describe('container snapshot / restore', () => {
     await DI.restore(before);
     expect(DI.get('__snapshot_root__')).to.be.undefined;
   });
+
+  it('restore puts the entries of a value map back into the same Map', async () => {
+    const c = new Container();
+    const local = { name: 'local' };
+    c.register(local).asMapValue('__file_provider_instance__', 'local');
+    const map = c.get<Map<string, unknown>>('__file_provider_instance__');
+    const before = c.snapshot();
+
+    c.register({ name: 'temp' }).asMapValue('__file_provider_instance__', 'temp');
+    c.register({ name: 'other local' }).asMapValue('__file_provider_instance__', 'local');
+    await c.restore(before);
+
+    const restored = c.get<Map<string, unknown>>('__file_provider_instance__');
+    expect(restored).to.equal(map);
+    expect([...restored.keys()]).to.deep.equal(['local']);
+    expect(restored.get('local')).to.equal(local);
+  });
 });
