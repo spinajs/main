@@ -20,7 +20,7 @@ describe('scheduler-http scaffold', () => {
   describe('package configuration', () => {
     it('contributes the compiled controllers directory', () => {
       expect(config.system.dirs.controllers).to.have.lengthOf(1);
-      expect(config.system.dirs.controllers[0]).to.match(/scheduler-http[\\/]lib[\\/](mjs|cjs)[\\/]controllers$/);
+      expect(config.system.dirs.controllers[0]).to.match(/scheduler-http[\\/]lib[\\/]controllers$/);
     });
 
     it('defaults the SSE heartbeat to the core constant', () => {
