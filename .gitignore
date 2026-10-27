@@ -120,6 +120,7 @@ graphify-out/
 !/docs/authz-rebac/
 !/docs/authz-testing/
 !/docs/cli/
+!/docs/compiler/
 !/docs/configuration/
 !/docs/configuration-aws-secretmanager-protocol/
 !/docs/configuration-common/
@@ -157,6 +158,7 @@ graphify-out/
 !/docs/log-common/
 !/docs/log-otlp/
 !/docs/log-source-graphana-loki/
+!/docs/manifest/
 !/docs/orm/
 !/docs/orm-cli/
 !/docs/orm-http/
