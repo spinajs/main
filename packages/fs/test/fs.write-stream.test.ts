@@ -10,7 +10,6 @@ import { PassThrough, Readable } from 'node:stream';
 
 import { DI } from '@spinajs/di';
 import { IOFail, ResourceDuplicated } from '@spinajs/exceptions';
-import '@spinajs/templates-pug';
 
 import { dir, fsApp } from './common.js';
 import { FsMiddleware, fs, fsNative, fsService, getFs, URI } from '../src/index.js';

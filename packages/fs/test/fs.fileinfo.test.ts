@@ -4,7 +4,6 @@ import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import '@spinajs/templates-pug';
 import { spawn } from 'node:child_process';
 import { createReadStream } from 'fs';
 import { EventEmitter } from 'events';
@@ -80,7 +79,7 @@ describe('fs fileinfo tests', function () {
     });
 
     after(async () => {
-      await app.dispose();
+        await app.dispose();
     });
 
     afterEach(() => {
@@ -158,7 +157,7 @@ describe('fs fileinfo tests ( mocked exiftool )', function () {
     });
 
     after(async () => {
-      await app.dispose();
+        await app.dispose();
     });
 
     afterEach(() => {

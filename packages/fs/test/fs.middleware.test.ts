@@ -6,7 +6,6 @@ import { join } from 'node:path';
 
 import { DI } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation, ResourceDuplicated } from '@spinajs/exceptions';
-import '@spinajs/templates-pug';
 
 import { dir, fsApp } from './common.js';
 import { FsMiddleware, fs, fsNative, fsService, getFs, publishedFs } from '../src/index.js';

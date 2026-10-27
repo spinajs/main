@@ -4,7 +4,6 @@ import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import '@spinajs/templates-pug';
 import { dir, fsApp } from './common.js';
 import { DefaultFileHasher, FileHasher, fsService } from '../src/index.js';
 import { IOFail } from '@spinajs/exceptions';
