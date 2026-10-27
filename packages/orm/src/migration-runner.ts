@@ -1,7 +1,7 @@
 import { Class, ClassInfo } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { DateTime } from 'luxon';
-import { OrmDriver } from './driver.js';
+import type { OrmDriver } from './driver.js';
 import { OrmMigration } from './interfaces.js';
 import { MIGRATION_FILE_REGEXP } from './symbols.js';
 import { extractMigrationDescriptor, extractModelDescriptor } from './descriptor.js';

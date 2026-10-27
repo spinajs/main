@@ -8,7 +8,7 @@ import { BelongsToPopulateDataMiddleware, BelongsToRelationRecursiveMiddleware, 
 import { ModelBase } from './model.js';
 import type { Orm } from './orm.js';
 import { Orm as OrmClass } from './orm.js';
-import { OrmDriver } from './driver.js';
+import type { OrmDriver } from './driver.js';
 import _ from 'lodash';
 import { JoinMethod } from './enums.js';
 import { extractModelDescriptor } from './descriptor.js';

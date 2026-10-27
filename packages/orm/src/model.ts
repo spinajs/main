@@ -10,7 +10,7 @@ import { ModelHydrator } from './hydrators.js';
 import { OrmException } from './exceptions.js';
 import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from './dehydrators.js';
 import { Wrap } from './statements.js';
-import { OrmDriver } from './driver.js';
+import type { OrmDriver } from './driver.js';
 import { Relation, SingleRelation } from './relation-objects.js';
 import { baselineValue, createSnapshot, IModelChange, IModelSnapshot, snapshotEquals, snapshotValue } from './snapshot.js';
 import { UnitOfWork } from './unit-of-work.js';
