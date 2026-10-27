@@ -32,6 +32,7 @@ import { collectContributions } from './contributor.js';
 import type { AuthzContribution } from './contributor.js';
 import { pickNamed, resolveChain } from './di.js';
 import { DefaultAuthzDomains } from './domains.js';
+import { resolveUsedModels } from './used-models.js';
 import { AuthzClock } from './clock.js';
 import { engineLog, thrownError } from './log.js';
 import type { AuthzLog } from './log.js';
@@ -390,7 +391,16 @@ export class DefaultAuthzService extends AuthzService {
 
     if (modelOwners.some((c) => !levels.includes(c))) throw new AuthzConfigError(`${where}: a model is registered in a container outside the domain lineage`);
     const registeredAt = (level: IContainer): AuthorizationModel[] => chainModels.filter((_, i) => modelOwners[i] === level);
-    const levelModels: (readonly AuthorizationModel[])[] = levels.map(registeredAt);
+    const usesAt = (i: number): boolean => configAt(i === 0 ? this.Config : configAt(this.Config, ['domains', lineage[i]]), ['use']) !== undefined;
+    const useKey = parent === undefined ? 'authz.use' : `authz.domains.${name}.use`;
+    const levelModels: (readonly AuthorizationModel[])[] = [];
+    for (const [i, level] of levels.entries()) {
+      const own = level === container;
+      if (own && cfg.use !== undefined) levelModels.push(await resolveUsedModels(container, cfg.use, useKey, where));
+      // The ancestor's boot already resolved its list; resolving again would run its factories a second time.
+      else if (!own && usesAt(i)) levelModels.push(parent!.levelModels[i]);
+      else levelModels.push(registeredAt(level));
+    }
     const models = mergeModels(levelModels, disables, (model) => this.log.warn({ domain: name, model }, 'Authz domain ${domain}: disable lists ${model}, which no ancestor domain registers'));
     for (const [i, model] of models.entries()) {
       if (!isObject(model) || typeof model.init !== 'function') throw new AuthzConfigError(`${where}: models[${i}] (${q(modelName(model))}) is not an AuthorizationModel`);
