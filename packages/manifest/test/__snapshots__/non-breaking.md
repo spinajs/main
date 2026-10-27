@@ -10,7 +10,7 @@ Result: non-breaking (4 changes)
 | --- | --- | --- | --- |
 | changed | `GET /users` | no | response[].nick property added |
 | changed | `GET /users/:id` | no | response.nick property added |
-| changed | `POST /users` | no | response\|0.nick property added |
+| changed | `POST /users` | no | response\|UserDto.nick property added |
 
 ### schemas
 
