@@ -1,4 +1,4 @@
-import { AuthorizationModel, AuthzAdminBackend, AuthzContributor, AuthzEventSink, MemoryScopeAttributeStore, ScopeAttributeStore, WritableScopeAttributeStore, principalKey } from '@spinajs/authz';
+import { AuthzAdminBackend, AuthzContributor, AuthzEventSink, MemoryScopeAttributeStore, ScopeAttributeStore, WritableScopeAttributeStore, principalKey } from '@spinajs/authz';
 import type { AuthzService, Permission, Principal, ResourceType } from '@spinajs/authz';
 import type { Assignment } from '../../src/contracts.js';
 import { evaluateFilter, hostHarness, testHost } from '@spinajs/authz-testing';
@@ -136,12 +136,12 @@ export function dbHarness(db: () => TestDb | undefined, opts: DbHarnessOptions =
 
       if (opts.model === 'test') {
         const { roles, ladders } = await stores.roles.load();
-        c.register(instance(new TestRbacModel({ roles, ladders, assignments: stores.assignments }))).as(AuthorizationModel);
+        testHost.activate(c, host.domain, new TestRbacModel({ roles, ladders, assignments: stores.assignments }));
       } else {
         const options: RbacModelOptions = { roles: stores.roles, assignments: stores.assignments, links: stores.links, clock: host.kit.clock, ...(opts.log ? { log: opts.log } : {}) };
         const model = new RbacModel({ ...options, ...(opts.extensions ? { extensions: opts.extensions(host, options) } : {}) });
         models.set(host, model);
-        c.register(instance(model)).as(AuthorizationModel);
+        testHost.activate(c, host.domain, model);
         c.register(instance(new RbacContributor(model))).as(AuthzContributor);
       }
 

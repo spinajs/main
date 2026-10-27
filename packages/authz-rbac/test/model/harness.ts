@@ -1,4 +1,4 @@
-import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
+import { AuthzContributor } from '@spinajs/authz';
 import type { Permission, Principal, ResourceType } from '@spinajs/authz';
 import type { Assignment } from '../../src/contracts.js';
 import { evaluateFilter, hostHarness, testHost } from '@spinajs/authz-testing';
@@ -51,7 +51,7 @@ export const rbacHarness = (opts: RbacHarnessOptions = {}): BehaviourHarness => 
       };
       const model = new RbacModel({ ...options, ...(opts.extensions ? { extensions: opts.extensions(host, options) } : {}) });
       models.set(host, model);
-      host.container.register(testHost.instance(model)).as(AuthorizationModel);
+      testHost.activate(host.container, host.domain, model);
       host.container.register(testHost.instance(new RbacContributor(model))).as(AuthzContributor);
       await opts.register?.(host, model);
     },

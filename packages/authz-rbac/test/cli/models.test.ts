@@ -23,7 +23,7 @@ function restore(target: Entries, saved: Entries): void {
   for (const [k, v] of saved) target.set(k, v);
 }
 
-describe('authz cli under authz.use', function () {
+describe('authz cli under authz.models', function () {
   this.timeout(30000);
   let io: Captured;
   let saved: { registry: Entries; cache: Entries };
@@ -45,10 +45,10 @@ describe('authz cli under authz.use', function () {
     restore(maps.cache, saved.cache);
   });
 
-  it('wires RBAC from authz.use when the command boots authz: --explain-role finds RbacService without registerRbac', async () => {
+  it('wires RBAC from authz.models when the command boots authz: --explain-role finds RbacService with no wiring code', async () => {
     const config = testHost.config();
     config.set(['authz', 'permissions'], { 'doc:read': {} });
-    config.set(['authz', 'use'], ['rbac']);
+    config.set(['authz', 'models'], ['RbacModel']);
     // A store DI finds by name that needs no ORM connection, so the root boot runs without a database.
     DI.register(MemoryAdminAssignmentStore).asSelf();
     config.set(['authz', 'rbac'], { roles: { viewer: { grants: ['doc:read'] } }, stores: { assignments: ['MemoryAdminAssignmentStore'], links: [], membership: [] } });

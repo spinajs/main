@@ -121,7 +121,7 @@ export async function rbacDomain(name = 'test', opts: RbacDomainOptions = {}): P
   const audit = new RecordingAudit();
   const sink = new RecordingSink();
   const clock = new ManualClock(START);
-  c.register(instance(opts.model ?? grantsModel())).as(AuthorizationModel);
+  testHost.activate(c, name, opts.model ?? grantsModel());
   // grantsModel exposes no permissions(), and RbacRuleListGuard needs a registry on every rule.put.
   if (!opts.model) c.register(instance(permissionRegistry(opts.permissions))).as(PermissionRegistry);
   c.register(instance(bus)).as(ChangeBus);
