@@ -43,3 +43,28 @@ describe('schema derivation: http responses', () => {
     expect(diagnostics).to.deep.equal([]);
   });
 });
+
+describe('schema derivation: ORM models', () => {
+  const { controller, diagnostics } = extract('models');
+
+  it('derives a model to its declared columns and relations', () => {
+    expect(controller.routes[0].returnType).to.deep.equal({ text: 'Author', schema: 'spinajs/fw/Author' });
+    expect(registered('Author')).to.deep.equal({
+      $id: 'spinajs/fw/Author',
+      type: 'object',
+      properties: { Id: { type: 'number' }, Name: { type: 'string' }, Books: { type: 'array', items: { $ref: 'spinajs/fw/Book' } } },
+      required: ['Id', 'Name'],
+      additionalProperties: false,
+    });
+    expect(registered('Book')).to.deep.equal({
+      $id: 'spinajs/fw/Book',
+      type: 'object',
+      properties: { Id: { type: 'number' }, Title: { type: 'string' }, Author: { $ref: 'spinajs/fw/Author' } },
+      required: ['Id'],
+      additionalProperties: false,
+    });
+  });
+  it('does not walk into ModelBase internals', () => {
+    expect(diagnostics).to.deep.equal([]);
+  });
+});
