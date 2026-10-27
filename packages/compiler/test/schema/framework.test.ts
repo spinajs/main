@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { extract, registered, registeredIds } from './framework-harness.js';
+import { extract, extractModelsOf, registered, registeredIds } from './framework-harness.js';
 
 describe('schema derivation: injected route params', () => {
   const { controller, diagnostics } = extract('injected');
@@ -90,5 +90,27 @@ describe('schema derivation: ORM models', () => {
     expect(diagnostics[0].message).to.match(/^model Shelf is read from a declaration file/);
     expect(diagnostics[1].message).to.match(/^model LocalShelf extends Shelf, read from a declaration file/);
     expect(diagnostics.every((d) => d.message.includes('@Hidden'))).to.equal(true);
+  });
+});
+
+describe('schema derivation: model columns', () => {
+  const { diagnostics } = extract('columns');
+  const note = extractModelsOf('columns').find((m) => m.className === 'Note')!;
+
+  it('lists inherited and writable accessor columns, public members only, in the models section', () => {
+    expect(note.columns.map((c) => c.name)).to.deep.equal(['Id', 'Secret', 'Body', 'CreatedAt']);
+    expect(note.relations).to.deep.equal([{ name: 'Writer', kind: 'belongsTo', target: 'Author' }]);
+  });
+  it('derives the schema from the same columns, @Hidden ones left out, and the relations', () => {
+    expect(registered('Note')).to.deep.equal({
+      $id: 'spinajs/fw/Note',
+      type: 'object',
+      properties: { Id: { type: 'number' }, Writer: { $ref: 'spinajs/fw/Author' }, Body: { type: 'string' }, CreatedAt: { type: 'string', format: 'date-time' } },
+      required: ['Id', 'Body', 'CreatedAt'],
+      additionalProperties: false,
+    });
+    const listed = [...note.columns.filter((c) => c.name !== 'Secret').map((c) => c.name), ...note.relations.map((r) => r.name)];
+    expect(Object.keys((registered('Note') as { properties: object }).properties).sort()).to.deep.equal(listed.sort());
+    expect(diagnostics).to.deep.equal([]);
   });
 });
