@@ -709,7 +709,11 @@
               "type": "boolean"
             },
             "ordered": {
-              "type": "boolean"
+              "type": "string",
+              "enum": [
+                "connection",
+                "client"
+              ]
             },
             "timeoutMs": {
               "type": "number"
