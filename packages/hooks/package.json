@@ -68,5 +68,8 @@
     "@spinajs/di": "3.0.23",
     "@spinajs/exceptions": "3.0.23",
     "@spinajs/log-common": "3.0.23"
+  },
+  "devDependencies": {
+    "expect-type": "^1.4.0"
   }
 }

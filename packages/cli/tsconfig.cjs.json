@@ -6,7 +6,7 @@
     "module": "commonjs"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../internal-logger/tsconfig.cjs.json" }, { "path": "../configuration/tsconfig.cjs.json" },
+  "references": [{ "path": "../compiler/tsconfig.cjs.json" }, { "path": "../manifest/tsconfig.cjs.json" }, { "path": "../internal-logger/tsconfig.cjs.json" }, { "path": "../configuration/tsconfig.cjs.json" },
     { "path": "../di/tsconfig.cjs.json" },
     { "path": "../exceptions/tsconfig.cjs.json" },
     { "path": "../log-common/tsconfig.cjs.json" },

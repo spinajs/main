@@ -1,9 +1,17 @@
 import * as chai from 'chai';
 import 'mocha';
+import { expectTypeOf } from 'expect-type';
+import type { Configuration } from '@spinajs/configuration-common';
 
 import { boot, disposeChildren, rejectionOf } from './support.js';
 
 const expect = chai.expect;
+
+// Compile-time checks only: the function is never called.
+function typedPathChecks(config: Configuration): void {
+  expectTypeOf(config.get('hooks.timeoutMs')).toEqualTypeOf<number>();
+  expectTypeOf(config.get('hooks.maxDepth')).toEqualTypeOf<number>();
+}
 
 describe('hooks configuration schema', function () {
   this.timeout(10000);
@@ -31,6 +39,10 @@ describe('hooks configuration schema', function () {
       expect(String((e as Error).message)).to.contain(key);
     });
   }
+
+  it('config paths are typed through the generated declaration', () => {
+    expect(typedPathChecks).to.be.a('function');
+  });
 
   it('accepts the __file__ marker the file sources add to a loaded root object', async () => {
     await boot({ hooks: { timeoutMs: 100, __file__: ['config/hooks.js'] } });

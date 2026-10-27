@@ -47,6 +47,7 @@
   },
   "homepage": "https://github.com/spinajs/reflection#readme",
   "dependencies": {
+    "@spinajs/compiler": "3.0.23",
     "@spinajs/configuration": "3.0.23",
     "@spinajs/configuration-common": "3.0.23",
     "@spinajs/di": "3.0.23",
