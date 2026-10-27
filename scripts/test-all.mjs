@@ -5,6 +5,8 @@
  *   node scripts/test-all.mjs [--concurrency N] [--only pkg,pkg] [--ci] [--timeout MINUTES]
  *
  * --ci ( or CI=true ) skips the packages in scripts/coverage/local-only.json ( they need external services ).
+ * A suite running longer than its limit is killed and counts as failed: scripts/test-timeouts.json gives
+ * per-package minutes, --timeout the default ( 20 ).
  * Packages listed in scripts/known-failing.json may fail without failing the run; they are reported as
  * warnings, and a listed package that passes is reported so it can be removed from the list.
  * Build first ( `npm run build` ): packages import each other through the built lib/.
@@ -18,6 +20,21 @@ const ROOT = fileURLToPath(new URL('../', import.meta.url));
 
 export function loadKnownFailing(root = ROOT) {
   return new Set(JSON.parse(readFileSync(join(root, 'scripts/known-failing.json'), 'utf8')));
+}
+
+export const DEFAULT_TIMEOUT_MINUTES = 20;
+
+export function loadTimeouts(root = ROOT) {
+  return JSON.parse(readFileSync(join(root, 'scripts/test-timeouts.json'), 'utf8'));
+}
+
+export function timeoutMinutes(name, timeouts, fallback = DEFAULT_TIMEOUT_MINUTES) {
+  return timeouts[name] ?? fallback;
+}
+
+export function flagValue(args, name) {
+  const value = args[args.indexOf(name) + 1];
+  return args.includes(name) && value !== undefined && !value.startsWith('--') ? value : undefined;
 }
 
 export function selectPackages({ ci, root = ROOT, only }) {
@@ -45,7 +62,13 @@ export function summarize(results, knownFailing = new Set()) {
 
 function killTree(child) {
   if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F']);
-  else process.kill(-child.pid, 'SIGKILL');
+  else {
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+    } catch {
+      // the group already exited
+    }
+  }
 }
 
 function runOne(name, root, timeoutMs) {
@@ -74,16 +97,22 @@ Killed after ${timeoutMs / 60000} minutes without finishing.
 async function main() {
   const args = process.argv.slice(2);
   const ci = args.includes('--ci') || process.env.CI === 'true';
-  const concurrency = Number(args[args.indexOf('--concurrency') + 1]) || 4;
-  const timeoutMs = (Number(args[args.indexOf('--timeout') + 1]) || 20) * 60000;
-  const only = args.includes('--only') ? args[args.indexOf('--only') + 1].split(',') : undefined;
+  const concurrency = Number(flagValue(args, '--concurrency')) || 4;
+  const defaultTimeout = Number(flagValue(args, '--timeout')) || DEFAULT_TIMEOUT_MINUTES;
+  const timeouts = loadTimeouts();
+  if (args.includes('--only') && flagValue(args, '--only') === undefined) {
+    console.error('--only needs a comma-separated list of package names');
+    process.exit(2);
+  }
+  const only = flagValue(args, '--only')?.split(',');
   const knownFailing = loadKnownFailing();
   const queue = selectPackages({ ci, only });
   const results = [];
   await Promise.all(
     Array.from({ length: concurrency }, async () => {
       while (queue.length) {
-        const r = await runOne(queue.shift(), ROOT, timeoutMs);
+        const name = queue.shift();
+        const r = await runOne(name, ROOT, timeoutMinutes(name, timeouts, defaultTimeout) * 60000);
         console.log(`${r.ok ? 'passed' : 'FAILED'} ${r.name} ( ${r.seconds.toFixed(0)}s )`);
         if (!r.ok) process.stdout.write(`\n--- ${r.name} failed${knownFailing.has(r.name) ? ' ( known-failing )' : ''} ---\n${r.out}\n`);
         results.push(r);

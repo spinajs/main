@@ -4,7 +4,7 @@ Packages in `known-failing.json` may fail `scripts/test-all.mjs` and `scripts/co
 
 | Package | Symptom |
 | --- | --- |
-| authn | Suite does not finish within the runner timeout ( killed ) |
+| authn | Never exits: killed by the runner timeout ( scripts/test-timeouts.json ) |
 | authn-http | 541 passing, then the process does not exit ( killed ) |
 | authz-http | 286 passing, 1 failing, and the process does not exit |
 | authz-http-admin | 186 passing, then the process does not exit |
@@ -22,3 +22,5 @@ Packages in `known-failing.json` may fail `scripts/test-all.mjs` and `scripts/co
 | users | Suite does not finish within the runner timeout ( killed ) |
 
 Observed on Windows under load; `http`, `reflection` and `authn-local` failed in some runs and passed in others, so they are not listed. Re-verify the "does not exit" entries on Linux CI.
+
+Packages that never exit are given a short limit in `test-timeouts.json` so a hang costs minutes, not the 20 minute default. Do not paper over it with mocha `--exit`; the open handles are fixed by the test isolation work ( A6 ).

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { selectPackages, summarize, loadKnownFailing } from '../test-all.mjs';
+import { selectPackages, summarize, loadKnownFailing, loadTimeouts, timeoutMinutes, flagValue } from '../test-all.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 
@@ -30,7 +30,7 @@ test('summarize treats a failing known-failing package as a warning', () => {
   assert.equal(exitCode, 0);
   const text = lines.join('\n');
   assert.match(text, /WARNING.*fs.*known-failing/);
-  assert.doesNotMatch(text, /^fss+failed/m);
+  assert.doesNotMatch(text, /^fs\s+failed/m);
 });
 
 test('summarize still fails on an unlisted failure next to a known one', () => {
@@ -48,4 +48,25 @@ test('loadKnownFailing reads the committed list as an array of existing packages
   const known = loadKnownFailing(root);
   const all = selectPackages({ ci: false, root });
   for (const name of known) assert.ok(all.includes(name), `${name} is not a package with a test script`);
+});
+
+test('timeoutMinutes prefers the per-package value over the default', () => {
+  const timeouts = { authn: 5 };
+  assert.equal(timeoutMinutes('authn', timeouts, 20), 5);
+  assert.equal(timeoutMinutes('di', timeouts, 20), 20);
+});
+
+test('loadTimeouts reads the committed map for existing packages', () => {
+  const all = selectPackages({ ci: false, root });
+  for (const [name, minutes] of Object.entries(loadTimeouts(root))) {
+    assert.ok(all.includes(name), `${name} is not a package with a test script`);
+    assert.ok(minutes > 0);
+  }
+});
+
+test('flagValue returns the value, or undefined when absent or valueless', () => {
+  assert.equal(flagValue(['--only', 'di,fs'], '--only'), 'di,fs');
+  assert.equal(flagValue(['--ci'], '--only'), undefined);
+  assert.equal(flagValue(['--only'], '--only'), undefined);
+  assert.equal(flagValue(['--only', '--ci'], '--only'), undefined);
 });
