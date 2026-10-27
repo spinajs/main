@@ -42,4 +42,45 @@ describe('DI002 di-cycle', () => {
     });
     expect(diCycle.run(m, ctx)).to.deep.equal([]);
   });
+
+  it('keeps a hard cycle an error when the component also has soft edges', () => {
+    const soft = { optional: true, array: false };
+    const m = fixture({
+      services: [
+        service({ className: 'A', ctorInjects: ['B'] }),
+        service({ className: 'B', ctorInjects: ['A'], propertyInjects: [{ property: 'c', token: 'C', ...soft }] }),
+        service({ className: 'C', propertyInjects: [{ property: 'b', token: 'B', ...soft }] }),
+      ],
+    });
+    const out = diCycle.run(m, ctx);
+    expect(out.map((d) => [d.severity, d.message])).to.deep.equal([['error', 'Dependency cycle: A -> B -> A']]);
+  });
+
+  it('prints a real edge path through a component with a chord', () => {
+    const m = fixture({
+      services: [
+        service({ className: 'A', ctorInjects: ['B', 'C'] }),
+        service({ className: 'B', ctorInjects: ['C'] }),
+        service({ className: 'C', ctorInjects: ['A'] }),
+      ],
+    });
+    expect(diCycle.run(m, ctx).map((d) => d.message)).to.deep.equal(['Dependency cycle: A -> C -> A']);
+  });
+
+  it('reports disjoint components separately and self loops', () => {
+    const m = fixture({
+      services: [
+        service({ className: 'A', ctorInjects: ['B'] }),
+        service({ className: 'B', ctorInjects: ['A'] }),
+        service({ className: 'X', ctorInjects: ['Y'] }),
+        service({ className: 'Y', ctorInjects: ['X'] }),
+        service({ className: 'Self', ctorInjects: ['Self'] }),
+      ],
+    });
+    expect(diCycle.run(m, ctx).map((d) => d.message).sort()).to.deep.equal([
+      'Dependency cycle: A -> B -> A',
+      'Dependency cycle: Self -> Self',
+      'Dependency cycle: X -> Y -> X',
+    ]);
+  });
 });

@@ -13,4 +13,12 @@ describe('extractServices: imperative DI.resolve (consumer gap S11)', () => {
       { token: 'AuthzService', method: 'fixed', awaited: true },
     ]);
   });
+
+  it('records the call position', () => {
+    const pm = extractServices(ctx, file).find((s) => s.className === 'PrincipalMiddleware')!;
+    expect(pm.imperativeResolves?.map((r) => [r.source.file, r.source.line, r.source.col])).to.deep.equal([
+      ['src/principal-middleware.ts', 10, 20],
+      ['src/principal-middleware.ts', 18, 18],
+    ]);
+  });
 });
