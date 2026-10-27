@@ -191,6 +191,28 @@ describe('deriveSchema recursive aliases', () => {
     expect(result.registry.get('fixture/RFilter')).to.deep.equal(R_FILTER);
     expect(result.diagnostics).to.deep.equal([]);
   });
+  const LEAF: JsonSchema = node({ op: { const: 'leaf' }, field: { type: 'string' } });
+  it('closes an optional self-reference through $ref', () => {
+    const result = derive('OFilter');
+    expect(result.schema).to.deep.equal({
+      $id: 'fixture/OFilter',
+      oneOf: [{ type: 'object', properties: { op: { const: 'not' }, arg: ref('OFilter') }, required: ['op'], additionalProperties: false }, LEAF],
+    });
+    expect(result.diagnostics).to.deep.equal([]);
+  });
+  it('closes a nullable self-reference through $ref', () => {
+    const result = derive('NFilter');
+    expect(result.schema).to.deep.equal({
+      $id: 'fixture/NFilter',
+      oneOf: [node({ op: { const: 'not' }, arg: { anyOf: [ref('NFilter'), { type: 'null' }] } }), LEAF],
+    });
+    expect(result.diagnostics).to.deep.equal([]);
+  });
+  it('references a hoisted alias from its optional and nullable uses', () => {
+    const result = derive('OHolder');
+    expect(result.schema.properties).to.deep.equal({ filter: ref('OFilter'), maybe: ref('OFilter'), nullable: { anyOf: [ref('NFilter'), { type: 'null' }] } });
+    expect(result.diagnostics).to.deep.equal([]);
+  });
   it('keeps a non-recursive union alias inline', () => {
     expect(derive('UMixed').id).to.equal(undefined);
     expect(derive('Shape').id).to.equal(undefined);

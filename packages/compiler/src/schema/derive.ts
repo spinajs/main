@@ -8,6 +8,7 @@ import { primitive } from './handlers/primitive.js';
 import { jsdocConstraints } from './jsdoc.js';
 import { explicitSchema } from './explicit.js';
 import { aliasName, hoistedId } from './naming.js';
+import { addsNull, nullableAliasOf } from './nullable-alias.js';
 import { wellKnown } from './wellknown.js';
 import { intersectionType, unionType } from './handlers/union.js';
 
@@ -96,6 +97,11 @@ export function deriveType(ctx: DeriveContext, type: ts.Type): JsonSchema {
 
 /** Inlined unless it refers to itself; a recursive alias is hoisted so the recursion ends in a `$ref`, not at the depth limit. */
 function deriveAlias(ctx: DeriveContext, type: ts.Type): JsonSchema {
+  const nullable = nullableAliasOf(ctx, type);
+  if (nullable && type.isUnion() && isRecursiveAlias(ctx, nullable)) {
+    const ref = deriveAlias(ctx, nullable);
+    return addsNull(type, nullable) ? { anyOf: [ref, { type: 'null' }] } : ref;
+  }
   const name = aliasName(ctx.checker, type);
   if (!name) return deriveBody(ctx, type);
   const id = ctx.options.idPrefix + name;
@@ -116,6 +122,16 @@ function deriveAlias(ctx: DeriveContext, type: ts.Type): JsonSchema {
   ctx.owners.set(id, type);
   ctx.registry.set(id, { $id: id, ...body });
   return { $ref: id };
+}
+
+/** A non-recursive alias keeps its inline shape under `| null`, so recursion is probed on a throwaway registry first. */
+function isRecursiveAlias(ctx: DeriveContext, alias: ts.Type): boolean {
+  if (ctx.aliasStack.has(alias) || ctx.recursiveAliases.has(alias)) return true;
+  const name = aliasName(ctx.checker, alias);
+  if (name && ctx.owners.get(ctx.options.idPrefix + name) === alias) return true;
+  const probe: DeriveContext = { ...ctx, registry: new Map(ctx.registry), diagnostics: [], owners: new Map(ctx.owners), recursiveAliases: new Set() };
+  deriveAlias(probe, alias);
+  return probe.recursiveAliases.has(alias);
 }
 
 function bodyOf(schema: JsonSchema | undefined): string {
