@@ -15,3 +15,13 @@ describe('extractValues', () => {
     ]);
   });
 });
+
+describe('extractValues: ordinary statements', () => {
+  it('does not report conditions for nested statements that are not registrations', () => {
+    const loaded = createProgramFromTsconfig('test/fixtures/pkg-basic/tsconfig.json');
+    const ctx = createContext(loaded, 'pkg-basic', 'test/fixtures/pkg-basic');
+    const file = loaded.sourceFiles.find((f) => f.fileName.endsWith('conditions-extra.ts'))!;
+    expect(extractValues(ctx, file)).to.deep.equal([]);
+    expect(ctx.diagnostics.filter((d) => d.code === 'CMP003')).to.have.length(0);
+  });
+});
