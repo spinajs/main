@@ -1,6 +1,7 @@
 {
   "files": [],
   "references": [
+    { "path": "packages/asyncapi/tsconfig.build.json" },
     { "path": "packages/cli/tsconfig.mjs.json" },
     { "path": "packages/compiler/tsconfig.mjs.json" },
     { "path": "packages/configuration/tsconfig.mjs.json" },

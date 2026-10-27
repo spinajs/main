@@ -1,0 +1,53 @@
+{
+  "name": "@spinajs/asyncapi",
+  "version": "3.0.23",
+  "description": "AsyncAPI 3.0 document generator for SpinaJS socket commands, events and queue messages",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    }
+  },
+  "type": "module",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.build.json",
+    "clean": "rimraf lib/ && rimraf tsconfig.build.tsbuildinfo",
+    "pretest": "npm run compile",
+    "test": "ts-mocha -p tsconfig.json",
+    "lint": "cd ../.. && npm run lint -- packages/asyncapi"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "asyncapi",
+    "manifest"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@spinajs/manifest": "3.0.23"
+  },
+  "devDependencies": {
+    "@asyncapi/parser": "^3.1.0"
+  }
+}

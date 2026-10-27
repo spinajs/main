@@ -47,6 +47,7 @@
   },
   "homepage": "https://github.com/spinajs/reflection#readme",
   "dependencies": {
+    "@spinajs/asyncapi": "3.0.23",
     "@spinajs/configuration": "3.0.23",
     "@spinajs/configuration-common": "3.0.23",
     "@spinajs/di": "3.0.23",
@@ -54,6 +55,7 @@
     "@spinajs/internal-logger": "3.0.23",
     "@spinajs/log": "3.0.23",
     "@spinajs/log-common": "3.0.23",
+    "@spinajs/manifest": "3.0.23",
     "@spinajs/reflection": "3.0.23",
     "commander": "10.0.0",
     "reflect-metadata": "^0.1.13"

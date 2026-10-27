@@ -67,3 +67,9 @@ export class PurgeSessionsCommand extends CliCommand {
 - `@spinajs/log`: commander errors and the bin's messages go through the framework logger.
 - `@spinajs/intl`: optional; when its global `__` works, help text is translated.
 - [`@spinajs/orm`](../orm/README.md): its migration commands ship in `@spinajs/orm-cli`, built on this package.
+
+## Built-in generators
+
+| Command | What it does |
+| --- | --- |
+| `generate:asyncapi` | Reads an application manifest (`--manifest`, default `app.manifest.json`) and writes an AsyncAPI 3.0 document (`--out`, default `asyncapi.json`). Also `--title`, `--doc-version` (`--version` is taken by the root command) and `--server-url`. See [`@spinajs/asyncapi`](../asyncapi/README.md). |
