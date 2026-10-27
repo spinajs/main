@@ -118,7 +118,7 @@ Every diagnostic has a `code`, a `severity` (`error`, `warning`, `info`), a `mes
 | `SCH003` | warning | An explicit `@Schema` differs from the schema derived from its class (reported by `spinajs doctor`). Align the schema and the class. |
 | `SCH005` | warning | Two different types derive to the same schema `$id`. Rename one of them. |
 
-Run `node packages/compiler/scripts/report-diagnostics.mjs <packageDir> [--fail-on CODE,...]` to list one package's diagnostics with a count per code.
+Run `node packages/compiler/scripts/report-diagnostics.mjs <packageDir> [--fail-on CODE,...]` to list one package's diagnostics with a count per code and severity. `--fail-on` exits 1 when a listed code occurs as a `warning` or an `error`; `info` never fails it.
 
 `runDoctor` runs consistency rules over a manifest and is exported from the same package.
 

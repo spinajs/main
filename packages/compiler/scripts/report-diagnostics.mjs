@@ -23,10 +23,14 @@ const sorted = [...fragment.diagnostics, ...drift].sort((a, b) => a.code.localeC
 for (const d of sorted) console.log(`${d.severity} ${d.code} ${d.source ? `${d.source.file}:${d.source.line}` : '-'} ${d.message}`);
 
 const counts = {};
-for (const d of sorted) counts[d.code] = (counts[d.code] ?? 0) + 1;
+for (const d of sorted) {
+  counts[d.code] ??= {};
+  counts[d.code][d.severity] = (counts[d.code][d.severity] ?? 0) + 1;
+}
 console.log(JSON.stringify(counts));
 
 // A bare wrapper return (e.g. `Ok`) has no schema and is not a diagnostic.
 const routesWithoutSchema = fragment.controllers.flatMap((c) => c.routes).filter((r) => !r.returnType.schema).length;
 console.log(JSON.stringify({ routesWithoutSchema }));
-process.exit(failOn.some((code) => counts[code]) ? 1 : 0);
+// `info` marks a deliberate opaque value (`unknown`), so it never fails the gate.
+process.exit(failOn.some((code) => sorted.some((d) => d.code === code && d.severity !== 'info')) ? 1 : 0);
