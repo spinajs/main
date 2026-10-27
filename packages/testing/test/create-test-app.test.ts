@@ -255,11 +255,11 @@ describe('createTestApp (root scope)', () => {
 
     it('bootTimeout does not wait for a resolution that hangs, and disposes it when it finally finishes', async () => {
       const gate = deferred();
-      let late: HangingService | undefined;
+      const created: HangingService[] = [];
       class HangingService extends AsyncService {
         public disposed = false;
         public async resolve(): Promise<void> {
-          late = this;
+          created.push(this);
           await gate.promise;
         }
         public async dispose(): Promise<void> {
@@ -276,7 +276,7 @@ describe('createTestApp (root scope)', () => {
 
       gate.release();
       await tick();
-      expect(late?.disposed).to.be.true;
+      expect(created[0]?.disposed).to.be.true;
       expect(rootState()).to.deep.equal(before);
     });
 
