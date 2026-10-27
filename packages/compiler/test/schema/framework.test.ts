@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { extract, extractModelsOf, registered, registeredIds } from './framework-harness.js';
+import { extract, extractModelsOf, published, registered, registeredIds } from './framework-harness.js';
 
 describe('schema derivation: injected route params', () => {
   const { controller, diagnostics } = extract('injected');
@@ -75,7 +75,7 @@ describe('schema derivation: ORM models', () => {
   });
   it('derives a model from a declaration file to an open object, never to its columns', () => {
     expect(registered('Shelf')).to.deep.equal({ $id: 'spinajs/fw/Shelf', type: 'object' });
-    expect(JSON.stringify(registeredIds().map(registered))).not.to.include('Password');
+    expect(published()).not.to.include('Password');
   });
   it('derives a model extending a declaration-file model to an open object', () => {
     const route = controller.routes.find((r) => r.handler === 'localShelf')!;
@@ -112,5 +112,65 @@ describe('schema derivation: model columns', () => {
     const listed = [...note.columns.filter((c) => c.name !== 'Secret').map((c) => c.name), ...note.relations.map((r) => r.name)];
     expect(Object.keys((registered('Note') as { properties: object }).properties).sort()).to.deep.equal(listed.sort());
     expect(diagnostics).to.deep.equal([]);
+  });
+});
+
+describe('schema derivation: types derived from a model', () => {
+  const { controller, diagnostics } = extract('mapped');
+  const route = (handler: string) => controller.routes.find((r) => r.handler === handler)!;
+  const returned = (handler: string): unknown => {
+    const { $id: _id, ...schema } = registered(route(handler).returnType.schema!.replace('spinajs/fw/', '')) as Record<string, unknown>;
+    return schema;
+  };
+  const books = { type: 'array', items: { $ref: 'spinajs/fw/Book' } };
+  const authorProperties = { Id: { type: 'number' }, Name: { type: 'string' }, Books: books };
+
+  it('leaves the @Hidden columns of an in-program model out of Partial, Pick, Omit, Readonly and Required', () => {
+    expect(returned('aPartial')).to.deep.equal({ type: 'object', properties: authorProperties, additionalProperties: false });
+    expect(returned('aPick')).to.deep.equal({ type: 'object', properties: { Id: { type: 'number' } }, required: ['Id'], additionalProperties: false });
+    expect(returned('aOmit')).to.deep.equal({ type: 'object', properties: { Id: { type: 'number' }, Books: books }, required: ['Id'], additionalProperties: false });
+    expect(returned('aReadonly')).to.deep.equal({ type: 'object', properties: authorProperties, required: ['Id', 'Name'], additionalProperties: false });
+    expect(returned('aRequired')).to.deep.equal({ type: 'object', properties: authorProperties, required: ['Id', 'Name'], additionalProperties: false });
+  });
+  it('leaves them out of Partial<ModelData<M>>, arrays of those, an interface extending the model and a request body', () => {
+    expect(returned('aData')).to.deep.equal({ type: 'object', properties: { Id: { type: 'number' }, Name: { type: 'string' } }, additionalProperties: false });
+    expect(returned('aArray')).to.deep.equal({ type: 'array', items: { type: 'object', properties: authorProperties, additionalProperties: false } });
+    expect(registered('IAuthorView')).to.deep.equal({
+      $id: 'spinajs/fw/IAuthorView',
+      type: 'object',
+      properties: { Shown: { type: 'boolean' }, ...authorProperties },
+      required: ['Shown', 'Id', 'Name'],
+      additionalProperties: false,
+    });
+    const body = registered(route('aBody').params[0].runtimeType.schema!.replace('spinajs/fw/', ''));
+    expect(body).to.deep.include({ properties: authorProperties });
+  });
+  it('derives every type built from a declaration-file model to an open object', () => {
+    for (const handler of ['sPartial', 'sPick', 'sOmit', 'sReadonly', 'sRequired', 'sData']) expect(returned(handler), handler).to.deep.equal({ type: 'object' });
+    expect(returned('sArray')).to.deep.equal({ type: 'array', items: { type: 'object' } });
+    expect(registered('IShelfView')).to.deep.equal({ $id: 'spinajs/fw/IShelfView', type: 'object' });
+    expect((registered('Editorial') as { properties: unknown }).properties).to.deep.equal({ Id: { type: 'number' }, Shelf: { type: 'object' } });
+  });
+  it('publishes no hidden column and no ModelBase internal anywhere', () => {
+    const all = published();
+    for (const hidden of ['Password', 'Token', 'IDriverOptions', 'ModelDescriptor', 'Container']) expect(all, hidden).not.to.include(hidden);
+  });
+  it('reports each open object as SCH001 info naming the declaration-file model, and no warning', () => {
+    expect(diagnostics.length).to.be.greaterThan(0);
+    expect(diagnostics.filter((d) => d.severity !== 'info')).to.deep.equal([]);
+    expect(diagnostics.every((d) => d.code === 'SCH001' && /model Shelf, read from a declaration file .*@Hidden/.test(d.message)), JSON.stringify(diagnostics)).to.equal(true);
+  });
+});
+
+describe('schema derivation: types derived from the real @spinajs/users User', () => {
+  const { controller, diagnostics } = extract('users');
+
+  it('never publish Password, PasswordSetAt or a driver option', () => {
+    const schemas = controller.routes.flatMap((r) => [r.returnType.schema, ...r.params.map((p) => p.runtimeType.schema)]);
+    expect(schemas.every(Boolean)).to.equal(true);
+    const all = published();
+    for (const hidden of ['Password', 'PasswordSetAt', 'IDriverOptions']) expect(all, hidden).not.to.include(hidden);
+    expect(registered('IUserView')).to.deep.equal({ $id: 'spinajs/fw/IUserView', type: 'object' });
+    expect(diagnostics.filter((d) => d.severity !== 'info')).to.deep.equal([]);
   });
 });

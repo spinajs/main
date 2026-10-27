@@ -1,7 +1,7 @@
 import ts from 'typescript';
-import { isModelType, isRelationType, modelMembers, ORM, type ModelMember } from '../../model-members.js';
+import { declarationFileClass, isModelType, isRelationType, modelMembers, ORM, type ModelMember } from '../../model-members.js';
 import { deriveType, diagnose, type DeriveContext, type JsonSchema, type TypeHandler } from '../derive.js';
-import { baseClassOf, declaringPackage, extendsFrameworkClass, isDeclaredIn } from '../framework-members.js';
+import { declaringPackage, extendsFrameworkClass, isDeclaredIn } from '../framework-members.js';
 import { includesUndefined, propertyConstraints } from './object.js';
 
 const MODEL_DATA = new Set(['ModelData', 'ModelDataWithRelationData', 'ModelDataWithRelationDataSearchable']);
@@ -12,7 +12,7 @@ function firstTypeArgument(checker: ts.TypeChecker, type: ts.Type): ts.Type | un
 }
 
 /** A `Relation<M>` member is an array of M, a `SingleRelation<M>` one is M; a decorated member typed as the model itself is M too. */
-function relationSchema(ctx: DeriveContext, type: ts.Type): JsonSchema {
+export function relationSchema(ctx: DeriveContext, type: ts.Type): JsonSchema {
   if (!isRelationType(ctx.checker, type)) return deriveType(ctx, type);
   const target = firstTypeArgument(ctx.checker, type);
   const schema = target ? deriveType(ctx, target) : {};
@@ -29,35 +29,36 @@ function memberSchema(ctx: DeriveContext, member: ModelMember): { schema: JsonSc
   };
 }
 
-/** The first class from the model up to ModelBase that is read from a declaration file, where decorators are gone. */
-function declarationFileClass(checker: ts.TypeChecker, type: ts.Type): ts.ClassLikeDeclaration | undefined {
-  for (let current: ts.Type | undefined = type; current; current = baseClassOf(checker, current)) {
-    const declaration = current.getSymbol()?.declarations?.find(ts.isClassLike);
-    if (!declaration || (declaration.name?.text === 'ModelBase' && isDeclaredIn(declaration, ORM))) return undefined;
-    if (declaration.getSourceFile().isDeclarationFile) return declaration;
-  }
-  return undefined;
+/**
+ * Without decorators a closed column list would publish `@Hidden` columns (a password hash), so it fails open.
+ * `subject` names the type being derived when it is not the model itself (`Partial<User>`).
+ */
+export function opaqueModel(ctx: DeriveContext, model: ts.Type, declarationFile: ts.ClassLikeDeclaration, subject?: string): JsonSchema {
+  const name = model.getSymbol()?.name ?? ctx.checker.typeToString(model);
+  const base = declarationFile.name?.text ?? 'its base class';
+  const described = base === name ? `model ${name}` : `model ${name} extends ${base}`;
+  const lead = subject ? `${subject} has members of ${described},` : `${described}${base === name ? ' is' : ','}`;
+  diagnose(ctx, 'SCH001', 'info', `${lead} read from a declaration file of ${declaringPackage(declarationFile)}, where @Hidden columns are invisible; emitted as an open object`);
+  return { type: 'object' };
 }
 
-/** Without decorators a closed column list would publish `@Hidden` columns (a password hash), so it fails open. */
-function opaqueModel(ctx: DeriveContext, type: ts.Type): JsonSchema | undefined {
-  const opaque = declarationFileClass(ctx.checker, type);
-  if (!opaque) return undefined;
-  const model = type.getSymbol()?.name ?? ctx.checker.typeToString(type);
-  const base = opaque.name?.text ?? 'its base class';
-  const subject = base === model ? `model ${model} is` : `model ${model} extends ${base},`;
-  diagnose(ctx, 'SCH001', 'info', `${subject} read from a declaration file of ${declaringPackage(opaque)}, where @Hidden columns are invisible; emitted as an open object`);
-  return { type: 'object' };
+/** A mixin base that `baseClassOf` cannot walk still shows up as a member declared in a declaration file. */
+function declarationFileOf(ctx: DeriveContext, model: ts.Type, members: ModelMember[]): ts.ClassLikeDeclaration | undefined {
+  const direct = declarationFileClass(ctx.checker, model);
+  if (direct) return direct;
+  const parent = members.find((member) => member.declaration.getSourceFile().isDeclarationFile)?.declaration.parent;
+  return parent && ts.isClassLike(parent) ? parent : undefined;
 }
 
 /** An ORM model derives to the columns and relations `modelMembers` lists, `@Hidden` and computed ones left out. */
 export const modelType: TypeHandler = (ctx, type) => {
   if (!isModelType(ctx.checker, type)) return undefined;
-  const opaque = opaqueModel(ctx, type);
-  if (opaque) return opaque;
+  const members = modelMembers(ctx.checker, type);
+  const declarationFile = declarationFileOf(ctx, type, members);
+  if (declarationFile) return opaqueModel(ctx, type, declarationFile);
   const properties: Record<string, JsonSchema> = {};
   const required: string[] = [];
-  for (const member of modelMembers(ctx.checker, type)) {
+  for (const member of members) {
     if (member.kind === 'computed' || member.hidden) continue;
     const { schema, required: isRequired } = memberSchema(ctx, member);
     properties[member.name] = schema;
