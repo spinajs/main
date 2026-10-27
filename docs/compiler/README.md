@@ -104,3 +104,7 @@ Every diagnostic has a `code`, a `severity` (`error`, `warning`, `info`), a `mes
 ## TypeScript version
 
 The analyzer depends on `typescript` pinned to `~5.9.0` and uses the in-process compiler API. It does not use the application's compiler. An application can build with TypeScript 7 while the analyzer reads the same sources with 5.9; the package's tests type-check a fixture with TypeScript 7 and compare the 5.9 analysis with a stored snapshot to catch drift in what the two accept.
+
+## Related pages
+
+- [doctor](doctor.md)
