@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/util",
-  "version": "3.0.24",
+  "version": "3.0.25",
   "description": "utility functions shared across @spinajs framework",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -56,7 +56,7 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "dependencies": {
-    "@spinajs/exceptions": "3.0.24",
+    "@spinajs/exceptions": "3.0.25",
     "glob-to-regexp": "^0.4.1",
     "luxon": "^3.6.1"
   },

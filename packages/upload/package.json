@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/upload",
-  "version": "3.0.24",
+  "version": "3.0.25",
   "description": "Resumable, verified chunked uploads for SpinaJS: sessions, parts, assembly and cleanup",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -74,23 +74,23 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/cli": "3.0.24",
-    "@spinajs/configuration": "3.0.24",
-    "@spinajs/di": "3.0.24",
-    "@spinajs/exceptions": "3.0.24",
-    "@spinajs/fs": "3.0.24",
-    "@spinajs/hooks": "3.0.24",
-    "@spinajs/log": "3.0.24",
-    "@spinajs/orm": "3.0.24",
-    "@spinajs/queue": "3.0.24",
+    "@spinajs/cli": "3.0.25",
+    "@spinajs/configuration": "3.0.25",
+    "@spinajs/di": "3.0.25",
+    "@spinajs/exceptions": "3.0.25",
+    "@spinajs/fs": "3.0.25",
+    "@spinajs/hooks": "3.0.25",
+    "@spinajs/log": "3.0.25",
+    "@spinajs/orm": "3.0.25",
+    "@spinajs/queue": "3.0.25",
     "file-type": "^20.5.0",
     "luxon": "^3.6.1",
     "mime-types": "^3.0.2"
   },
   "peerDependencies": {
-    "@spinajs/http": "3.0.24",
-    "@spinajs/scheduler": "3.0.24",
-    "@spinajs/validation": "3.0.24"
+    "@spinajs/http": "3.0.25",
+    "@spinajs/scheduler": "3.0.25",
+    "@spinajs/validation": "3.0.25"
   },
   "peerDependenciesMeta": {
     "@spinajs/http": {
@@ -104,12 +104,12 @@
     }
   },
   "devDependencies": {
-    "@spinajs/http": "3.0.24",
-    "@spinajs/orm-mysql": "3.0.24",
-    "@spinajs/orm-postgres": "3.0.24",
-    "@spinajs/orm-sqlite": "3.0.24",
-    "@spinajs/scheduler": "3.0.24",
-    "@spinajs/validation": "3.0.24",
+    "@spinajs/http": "3.0.25",
+    "@spinajs/orm-mysql": "3.0.25",
+    "@spinajs/orm-postgres": "3.0.25",
+    "@spinajs/orm-sqlite": "3.0.25",
+    "@spinajs/scheduler": "3.0.25",
+    "@spinajs/validation": "3.0.25",
     "@types/luxon": "^3.4.2",
     "@types/mime-types": "^3.0.1"
   }
