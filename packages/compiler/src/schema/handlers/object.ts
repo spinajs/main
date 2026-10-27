@@ -11,10 +11,10 @@ export function setPropertyConstraints(fn: PropertyConstraints): void {
   constraints = fn;
 }
 
-const isCallable = (checker: ts.TypeChecker, type: ts.Type): boolean =>
+export const isCallable = (checker: ts.TypeChecker, type: ts.Type): boolean =>
   checker.getSignaturesOfType(type, ts.SignatureKind.Call).length > 0 || checker.getSignaturesOfType(type, ts.SignatureKind.Construct).length > 0;
 
-const includesUndefined = (type: ts.Type): boolean => (type.isUnion() ? type.types : [type]).some((member) => member.flags & ts.TypeFlags.Undefined);
+export const includesUndefined = (type: ts.Type): boolean => (type.isUnion() ? type.types : [type]).some((member) => member.flags & ts.TypeFlags.Undefined);
 
 function indexSchema(ctx: DeriveContext, type: ts.Type): JsonSchema {
   if (!(type.flags & ts.TypeFlags.Any)) return deriveType(ctx, type);
