@@ -1,7 +1,7 @@
 import ts from 'typescript';
 import { declarationFileClass, isModelType, isRelationType, modelMembers, ORM, type ModelMember } from '../../model-members.js';
 import { deriveType, diagnose, type DeriveContext, type JsonSchema, type TypeHandler } from '../derive.js';
-import { declaringPackage, extendsFrameworkClass, isDeclaredIn } from '../framework-members.js';
+import { baseClassOf, declaringPackage, extendsFrameworkClass, isDeclaredIn } from '../framework-members.js';
 import { includesUndefined, propertyConstraints } from './object.js';
 
 const MODEL_DATA = new Set(['ModelData', 'ModelDataWithRelationData', 'ModelDataWithRelationDataSearchable']);
@@ -11,10 +11,19 @@ function firstTypeArgument(checker: ts.TypeChecker, type: ts.Type): ts.Type | un
   return isReference ? checker.getTypeArguments(type as ts.TypeReference)[0] : undefined;
 }
 
+/** A relation class without type parameters (`class Picks extends Relation<Book, Shelf>`) names its target on a base. */
+function relationTarget(checker: ts.TypeChecker, type: ts.Type): ts.Type | undefined {
+  for (let current: ts.Type | undefined = type, hops = 0; current && hops < 32; current = baseClassOf(checker, current), hops++) {
+    const target = firstTypeArgument(checker, current);
+    if (target) return target;
+  }
+  return undefined;
+}
+
 /** A `Relation<M>` member is an array of M, a `SingleRelation<M>` one is M; a decorated member typed as the model itself is M too. */
 export function relationSchema(ctx: DeriveContext, type: ts.Type): JsonSchema {
   if (!isRelationType(ctx.checker, type)) return deriveType(ctx, type);
-  const target = firstTypeArgument(ctx.checker, type);
+  const target = relationTarget(ctx.checker, type);
   const schema = target ? deriveType(ctx, target) : {};
   return extendsFrameworkClass(ctx.checker, type, 'Relation', ORM) ? { type: 'array', items: schema } : schema;
 }
