@@ -15,7 +15,7 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=16.11"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "watch": "tsc -b tsconfig.build.json -watch",

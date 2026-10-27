@@ -23,7 +23,7 @@
     "deps": "depcruise packages --config .dependency-cruiser.cjs --ignore-known --output-type err",
     "deps:baseline": "depcruise packages --config .dependency-cruiser.cjs --output-type baseline --output-to .dependency-cruiser-known-violations.json",
     "knip": "knip",
-    "check:packages": "node scripts/check-packages.mjs",
+    "check:packages": "node scripts/check-engines.mjs && node scripts/check-packages.mjs",
     "prepare": "node scripts/install-hooks.mjs",
     "link": "powershell -NoProfile -ExecutionPolicy Bypass -File link-all.ps1",
     "link:sh": "bash link-all.sh"
@@ -182,5 +182,8 @@
     "pac-resolver": "^7.0.1",
     "proxy-agent": "^6.5.0",
     "vm2": "^3.9.19"
+  },
+  "engines": {
+    "node": ">=22.0.0"
   }
 }

@@ -17,7 +17,7 @@
   "type": "module",
   "private": false,
   "engines": {
-    "node": ">=16.11"
+    "node": ">=22.0.0"
   },
   "files": [
     "lib/**/*"
