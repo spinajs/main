@@ -12,3 +12,4 @@ export * from './extractors/socket.js';
 export * from './extractors/models.js';
 export * from './extractors/migrations.js';
 export * from './extractors/schedules.js';
+export * from './extractors/commands.js';
