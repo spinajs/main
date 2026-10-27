@@ -3,10 +3,10 @@ import { expect } from 'chai';
 
 import shipped from '../src/config/upload.js';
 import { UPLOAD_CONFIGURATION_SCHEMA, UPLOAD_MAX_PART_BYTES } from '../src/index.js';
-import { boot, disposeBooted, violationsOf } from './support/config-boot.js';
+import { configurationViolations, createTestApp, disposeTestApps } from '@spinajs/testing';
 
 const SCHEMAS = [UPLOAD_CONFIGURATION_SCHEMA];
-const bad = (upload: Record<string, unknown>) => violationsOf(SCHEMAS, { upload });
+const bad = (upload: Record<string, unknown>) => configurationViolations({ schemas: SCHEMAS, config: { upload } });
 
 // Spec §6.2, written out.
 const DEFAULTS = {
@@ -19,15 +19,15 @@ const DEFAULTS = {
 };
 
 describe('upload configuration', () => {
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   it('fills every default of spec §6.2 when the app configures nothing', async () => {
-    const { configuration } = await boot(SCHEMAS, {});
+    const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
     expect(configuration.get('upload')).to.deep.equal(DEFAULTS);
   });
 
   it('keeps configured values and fills the rest of their objects', async () => {
-    const { configuration } = await boot(SCHEMAS, { upload: { limits: { partSize: 1_048_576 }, detect: { allowUndetected: ['text/plain'] } } });
+    const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { upload: { limits: { partSize: 1_048_576 }, detect: { allowUndetected: ['text/plain'] } } } });
     expect(configuration.get('upload.limits.partSize')).to.eq(1_048_576);
     expect(configuration.get('upload.limits.maxParts')).to.eq(10_000);
     expect(configuration.get('upload.detect')).to.deep.equal({ headBytes: 4100, allowUndetected: ['text/plain'] });
