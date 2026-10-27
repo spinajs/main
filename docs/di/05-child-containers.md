@@ -53,7 +53,7 @@ A singleton built in the root gets root dependencies, even when a child resolves
 | `isCached(instance, parent = false)` | `true` when this container's cache holds `instance` |
 | `clear()`, `clearCache()`, `clearRegistry()` | Empty this container's cache and registry; values go with the registry |
 | `getCacheStats()` | `{ size, entries, childrenCount }` for memory checks; `size` counts cached instances, not values |
-| `snapshot()` / `restore(snapshot)` | Copy this container's registrations, values, cache and listeners; `restore` disposes the children and every `Service` cached since the snapshot, then puts the copy back. `DI.snapshot()` / `DI.restore()` act on the root |
+| `snapshot()` / `restore(snapshot)` | Copy this container's registrations, values (with the entries of `asMapValue` maps), cache and listeners. `restore` waits for resolves in flight, puts the copy back, then disposes the children and every `Service` cached since the snapshot, and takes back anything that disposal resolved or registered. `DI.snapshot()` / `DI.restore()` act on the root |
 | `DI.RootContainer` | The root `IContainer`; every `DI.*` function works on it |
 
 ## Services and extension points
@@ -159,6 +159,9 @@ Limits of a custom container:
 - `DI.*` calls always use the root, even inside an object a child built. Use `@Autoinject`, `@LazyInject` or the injected container for scoped lookups.
 - `dispose()` on the root disposes every live child first.
 - A disposed child is removed from its parent's children set, but it stays usable: its registry is kept and its cache is rebuilt on the next resolve.
+- `get()` and `isResolved()` look in ancestors by default, also on a `child({ isolateSingletons: true })`: they can return an ancestor's cached instance while `resolve()` in that child builds its own.
+- A value belongs to the container it was registered in. `dispose()` disposes a value that is a `Service`, but the value stays registered until `uncache`, `clearRegistry()` or `clear()`.
+- Import every module before `snapshot()`. `restore()` puts registrations, values and value maps back as they were, so what a decorator registered when its module was first imported after the snapshot is gone, and importing the module again does not run the decorator again.
 
 ## Best practices
 
