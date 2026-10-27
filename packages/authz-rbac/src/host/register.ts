@@ -48,6 +48,16 @@ const instance =
  *   one sort, or `authz.rbac.rules` with no ConfigRuleStore to read them
  */
 export async function registerRbac(container: IContainer, configuration: Pick<Configuration, 'get'>, opts: RegisterRbacOptions = {}): Promise<RegisteredRbac> {
+  const rbac = await buildRbac(container, configuration, opts);
+  container.register(instance(rbac.model)).as(AuthorizationModel);
+  return rbac;
+}
+
+/**
+ * Everything registerRbac wires except the AuthorizationModel registration, which `authz.use: ['rbac']` leaves to the
+ * host. Same checks and AuthzConfigError cases as registerRbac.
+ */
+export async function buildRbac(container: IContainer, configuration: Pick<Configuration, 'get'>, opts: RegisterRbacOptions = {}): Promise<RegisteredRbac> {
   const count = (kind: RbacStoreKind, min: number, max: number): void => {
     const n = rbacStoreNames(configuration, kind).length;
     if (n > max) throw new AuthzConfigError(`authz.rbac.stores.${kind}: the RBAC model reads ${max === 1 ? 'one store' : `${max} stores at most`}, not ${n}`);
@@ -92,7 +102,6 @@ export async function registerRbac(container: IContainer, configuration: Pick<Co
   const contributor = new RbacContributor(model);
   const service = new RbacService(model, opts.service);
 
-  container.register(instance(model)).as(AuthorizationModel);
   container.register(instance(contributor)).as(AuthzContributor);
   container.register(instance(service)).as(RbacService);
   const linkResolver = new RbacLinkResolver(service);
