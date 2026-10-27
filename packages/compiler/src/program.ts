@@ -10,7 +10,7 @@ export interface LoadedProgram {
 
 export function createProgramFromTsconfig(tsconfigPath: string): LoadedProgram {
   const abs = resolve(tsconfigPath);
-  const read = ts.readConfigFile(abs, ts.sys.readFile);
+  const read = ts.readConfigFile(abs, (p) => ts.sys.readFile(p));
   if (read.error) {
     throw new Error(ts.flattenDiagnosticMessageText(read.error.messageText, '\n'));
   }

@@ -3,8 +3,7 @@
   "compilerOptions": {
     "rootDir": "./src",
     "outDir": "./lib/cjs",
-    "module": "commonjs",
-    "moduleResolution": "node"
+    "module": "commonjs"
   },
   "include": ["src/**/*"],
   "references": [{ "path": "../manifest/tsconfig.cjs.json" }]
