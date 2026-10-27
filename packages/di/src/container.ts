@@ -182,54 +182,62 @@ export class Container extends EventEmitter implements IContainer {
 
   public async restore(snapshot: ContainerSnapshot): Promise<void> {
     const errors: Error[] = [];
+    const disposed = new Set<unknown>();
 
-    // Every further pass takes back what the previous pass's disposal resolved or registered.
+    // Disposal runs while the state the services were created in is still live, so a dispose() can read
+    // its config and injections. Every further pass disposes what the previous pass's disposal resolved.
     let pass = 0;
     for (;;) {
       await this.cache.settle();
-      const { children, dropped } = this.swapBack(snapshot);
-      if (children.length === 0 && dropped.length === 0) {
+      const { children, services } = this.detachedSince(snapshot, disposed);
+      if (children.length === 0 && services.length === 0) {
         break;
       }
 
       if (pass === MAX_RESTORE_PASSES) {
-        console.warn(`restore() stopped after ${MAX_RESTORE_PASSES} passes: disposal kept resolving services; ${dropped.length} were dropped without dispose()`);
+        console.warn(`restore() stopped after ${MAX_RESTORE_PASSES} passes: disposal kept resolving services; ${services.length} were dropped without dispose()`);
         break;
       }
 
       pass++;
-      await this.disposeDetached(children, dropped, errors);
+      await this.disposeDetached(children, services, disposed, errors);
     }
+
+    // No await since the last settle: nothing can be resolved between the check above and the swap.
+    this.swapBack(snapshot);
 
     if (errors.length > 0) {
       console.warn(`${errors.length} services failed to dispose properly during restore:`, errors);
     }
   }
 
-  /** One synchronous step, so no dispose() runs against a half-restored container. */
-  private swapBack(snapshot: ContainerSnapshot): { children: IContainer[]; dropped: unknown[] } {
-    const children = [...this.children];
-    this.children.clear();
-
-    const dropped = this.cache.restoreState(snapshot.cache);
-    this.registry.restoreState(snapshot.registry, snapshot.values, snapshotMaps.get(snapshot));
-    this.restoreListeners(snapshot.listeners);
-
-    return { children, dropped };
+  /** The children and the Services cached since `snapshot` that are not disposed yet, latest resolved first. */
+  private detachedSince(snapshot: ContainerSnapshot, disposed: Set<unknown>): { children: IContainer[]; services: Service[] } {
+    const children = [...this.children].filter((child) => !disposed.has(child));
+    const services = this.cache.droppedSince(snapshot.cache).filter((instance): instance is Service => instance instanceof Service && !disposed.has(instance));
+    return { children, services };
   }
 
-  private async disposeDetached(children: IContainer[], dropped: unknown[], errors: Error[]): Promise<void> {
+  /** One synchronous step, so the container is never seen half-restored. */
+  private swapBack(snapshot: ContainerSnapshot): void {
+    this.children.clear();
+    this.cache.restoreState(snapshot.cache);
+    this.registry.restoreState(snapshot.registry, snapshot.values, snapshotMaps.get(snapshot));
+    this.restoreListeners(snapshot.listeners);
+  }
+
+  private async disposeDetached(children: IContainer[], services: Service[], disposed: Set<unknown>, errors: Error[]): Promise<void> {
     for (const child of children) {
+      disposed.add(child);
       await child.dispose().catch((err: Error) => errors.push(err));
     }
 
-    for (const instance of dropped) {
-      if (instance instanceof Service) {
-        try {
-          await instance.dispose();
-        } catch (err) {
-          errors.push(err as Error);
-        }
+    for (const service of services) {
+      disposed.add(service);
+      try {
+        await service.dispose();
+      } catch (err) {
+        errors.push(err as Error);
       }
     }
   }

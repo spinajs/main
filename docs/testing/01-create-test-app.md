@@ -17,7 +17,7 @@
 
 ## Scopes
 
-`root` snapshots the root container, boots in it and restores the snapshot on `dispose()`: registrations, values, cached singletons and event listeners added since the snapshot are removed, and every `Service` created since is disposed in reverse order. Use it for packages whose code calls the static `DI` API (`DI.resolve`, `DI.get`), such as `@spinajs/http`. Only one root app can be live at a time: `createTestApp` rejects with "a root app is already live; dispose it first, or use scope 'child' for apps side by side".
+`root` snapshots the root container, boots in it and restores the snapshot on `dispose()`: registrations, values, cached singletons and event listeners added since the snapshot are removed, and every `Service` created since is disposed in reverse order. Disposal runs before the swap back, so a `dispose()` still reads the app's `@Config` values and injections. Use it for packages whose code calls the static `DI` API (`DI.resolve`, `DI.get`), such as `@spinajs/http`. Only one root app can be live at a time: `createTestApp` rejects with "a root app is already live; dispose it first, or use scope 'child' for apps side by side".
 
 `child` boots in `DI.child({ isolateSingletons: true })`: the child owns every singleton it resolves, even ones registered in root, and `dispose()` disposes the child. Several child apps can be live at once. Use it for code that only uses the injected container, such as configuration-schema tests.
 
