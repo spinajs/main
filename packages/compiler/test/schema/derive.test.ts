@@ -43,6 +43,7 @@ export const ROWS: Row[] = [
   { name: 'UPick', schema: { type: 'object', properties: { x: { type: 'number' } }, required: ['x'], additionalProperties: false } },
   { name: 'UOmit', schema: { type: 'object', properties: { y: { type: 'number' } }, required: ['y'], additionalProperties: false } },
   { name: 'URequired', schema: { type: 'object', properties: { a: { type: 'string' }, b: { type: 'number' } }, required: ['a', 'b'], additionalProperties: false } },
+  { name: 'Tree', id: 'fixture/Tree', schema: { $id: 'fixture/Tree', type: 'object', properties: { value: { type: 'number' }, children: { type: 'array', items: ref('Tree') } }, required: ['value', 'children'], additionalProperties: false } },
   { name: 'WDate', schema: { type: 'string', format: 'date-time' } },
   { name: 'WDateTime', schema: { type: 'string', format: 'date-time' } },
   { name: 'WBuffer', schema: { type: 'string', format: 'binary' } },
@@ -62,4 +63,21 @@ describe('deriveSchema', () => {
       expect(result.diagnostics.map((d) => d.code)).to.deep.equal(row.codes ?? []);
     });
   }
+});
+
+describe('deriveSchema depth limit', () => {
+  it('replaces nesting beyond maxDepth with {} and reports SCH002 once per cut', () => {
+    const result = derive('Deep', { maxDepth: 3 });
+    expect(result.schema).to.deep.equal({
+      $id: 'fixture/Deep', type: 'object', additionalProperties: false, required: ['a'],
+      properties: { a: { type: 'object', additionalProperties: false, required: ['b'], properties: { b: { type: 'object', additionalProperties: false, required: ['c'], properties: { c: {} } } } } },
+    });
+    expect(result.diagnostics).to.have.length(1);
+    expect(result.diagnostics[0]).to.include({ code: 'SCH002', severity: 'warning' });
+  });
+  it('closes recursion through the registry without revisiting the body', () => {
+    const result = derive('Tree');
+    expect([...result.registry.keys()]).to.deep.equal(['fixture/Tree']);
+    expect(result.diagnostics).to.deep.equal([]);
+  });
 });
