@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { AsyncService, Container, DI } from '../src/index.js';
+import type { Class } from '../src/index.js';
 
 class Base {}
 class Impl extends Base {}
@@ -166,5 +167,59 @@ describe('container snapshot / restore', () => {
     await c.restore(before);
 
     expect(registeredDuringDispose).to.be.false;
+  });
+
+  it('restore keeps passing until a pass drops nothing: three generations of services resolved while disposing', async () => {
+    const c = new Container();
+    const disposed: string[] = [];
+    class Third extends AsyncService {
+      public async dispose(): Promise<void> {
+        disposed.push('third');
+      }
+    }
+    class Second extends AsyncService {
+      public async dispose(): Promise<void> {
+        disposed.push('second');
+        await c.resolve(Third);
+      }
+    }
+    class First extends AsyncService {
+      public async dispose(): Promise<void> {
+        disposed.push('first');
+        await c.resolve(Second);
+      }
+    }
+
+    const before = c.snapshot();
+    await c.resolve(First);
+    await c.restore(before);
+
+    expect(disposed).to.deep.equal(['first', 'second', 'third']);
+    expect(c.Cache.has(Third)).to.be.false;
+    expect(c.getCacheStats().size).to.equal(before.cache.size);
+  });
+
+  it('restore gives up after five passes, warns, and still leaves the cache as it was', async () => {
+    const c = new Container();
+    const link = (): Class<AsyncService> =>
+      class extends AsyncService {
+        public async dispose(): Promise<void> {
+          await c.resolve(link());
+        }
+      };
+
+    const warnings: unknown[] = [];
+    const warn = console.warn;
+    console.warn = (...args: unknown[]) => warnings.push(args[0]);
+    try {
+      const before = c.snapshot();
+      await c.resolve(link());
+      await c.restore(before);
+      expect(c.getCacheStats().size).to.equal(before.cache.size);
+    } finally {
+      console.warn = warn;
+    }
+
+    expect(warnings.some((w) => String(w).includes('5 passes'))).to.be.true;
   });
 });

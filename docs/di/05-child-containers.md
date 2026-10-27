@@ -53,7 +53,7 @@ A singleton built in the root gets root dependencies, even when a child resolves
 | `isCached(instance, parent = false)` | `true` when this container's cache holds `instance` |
 | `clear()`, `clearCache()`, `clearRegistry()` | Empty this container's cache and registry; values go with the registry |
 | `getCacheStats()` | `{ size, entries, childrenCount }` for memory checks; `size` counts cached instances, not values |
-| `snapshot()` / `restore(snapshot)` | Copy this container's registrations, values (with the entries of `asMapValue` maps), cache and listeners. `restore` waits for resolves in flight, puts the copy back, then disposes the children and every `Service` cached since the snapshot, and takes back anything that disposal resolved or registered. `DI.snapshot()` / `DI.restore()` act on the root |
+| `snapshot()` / `restore(snapshot)` | Copy this container's registrations, values (with the entries of `asMapValue` maps), cache and listeners. `restore` waits for resolves in flight, puts the copy back, then disposes the children and every `Service` cached since the snapshot, and repeats until a pass finds nothing new (at most 5 passes, then a warning), so what that disposal resolved or registered is taken back too. `DI.snapshot()` / `DI.restore()` act on the root |
 | `DI.RootContainer` | The root `IContainer`; every `DI.*` function works on it |
 
 ## Services and extension points

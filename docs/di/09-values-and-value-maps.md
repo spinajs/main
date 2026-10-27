@@ -57,6 +57,7 @@ console.log(exportRows('tsv', [['id', 'name'], ['1', 'Ann']]));
 
 ## Important behaviour
 
+- A key that holds both a value and a cached instance (eg. a value under a class name the container has also resolved) serves the cached instance to `get()`, `resolve()` and `Array.ofType`; the value is served again after `clearCache()`.
 - Values are not class registrations. `DI.check('key')` and `hasRegistered('key')` return `false` for them, and `DI.resolve('key')` returns `null`. Read them with `DI.get()`; `DI.has('key')` (`isResolved`) is `true` for them.
 - `DI.clearRegistry()`, `DI.clear()` and `DI.uncache('key')` remove values and value maps; `DI.clearCache()` and `DI.dispose()` keep them. A value registered at import time ( eg. a configuration schema ) survives a test's `clearCache()`.
 - A value that is a `Service` (eg. an `AsyncService` built outside DI) is disposed by `dispose()` like any cached service, and stays registered.

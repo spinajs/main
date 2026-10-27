@@ -82,16 +82,10 @@ export class ContainerCache {
     return false;
   }
 
-  /** Under a key that holds both, a copy: the values first, then the cached instances. */
+  /** Cached instances under `key` win over values registered under the same key. */
   public get(key: string | Class<any> | TypedArray<any>, parent?: boolean): any {
     const name = getTypeName(key);
-    const instances = this.cache.get(name);
-    const values = this.container.Registry.getValues(name);
-    if (instances && values) {
-      return [...values, ...instances];
-    }
-
-    const found = instances ?? values;
+    const found = this.cache.get(name) ?? this.container.Registry.getValues(name);
     if (found) {
       return found;
     }

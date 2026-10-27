@@ -14,6 +14,8 @@ import { ContainerCache } from './container-cache.js';
 import _ from 'lodash';
 import { ServiceNotFound } from './exceptions.js';
 
+const MAX_RESTORE_PASSES = 5;
+
 // Kept beside the snapshot so ContainerSnapshot keeps the shape of the public contract.
 const snapshotMaps = new WeakMap<ContainerSnapshot, ValueMapContents>();
 
@@ -181,10 +183,21 @@ export class Container extends EventEmitter implements IContainer {
   public async restore(snapshot: ContainerSnapshot): Promise<void> {
     const errors: Error[] = [];
 
-    // The second pass takes back what a disposing service resolved or registered.
-    for (let pass = 0; pass < 2; pass++) {
+    // Every further pass takes back what the previous pass's disposal resolved or registered.
+    let pass = 0;
+    for (;;) {
       await this.cache.settle();
       const { children, dropped } = this.swapBack(snapshot);
+      if (children.length === 0 && dropped.length === 0) {
+        break;
+      }
+
+      if (pass === MAX_RESTORE_PASSES) {
+        console.warn(`restore() stopped after ${MAX_RESTORE_PASSES} passes: disposal kept resolving services; ${dropped.length} were dropped without dispose()`);
+        break;
+      }
+
+      pass++;
       await this.disposeDetached(children, dropped, errors);
     }
 
@@ -550,7 +563,7 @@ export class Container extends EventEmitter implements IContainer {
     const resolved = resolveEach(this.Registry.getTypesChain(type), ({ type: entry, container }) => {
       const owner = container as Container;
       if (isFactory(entry)) {
-        return owner.resolveType(type, entry as Factory<T>, undefined, true);
+        return this.isolatingBelow(owner).resolveType(type, entry as Factory<T>, undefined, true);
       }
 
       return this.resolveChainClass(type, entry as Class<T>, owner);

@@ -26,6 +26,9 @@ export function publishedFs(name: string, container: IContainer = DI.RootContain
   return published instanceof Map ? published.get(name) : undefined;
 }
 
+// The fsService that last published each provider name.
+const publishers = new Map<string, fsService>();
+
 export class fsService extends AsyncService {
   @Logger('fs')
   protected Logger: Log;
@@ -75,12 +78,28 @@ export class fsService extends AsyncService {
 
       const fs = await DI.resolve<fs>(type, [cProvider.value]);
       DI.register(fs).asMapValue(FILE_PROVIDER_INSTANCES, cProvider.value.name);
+      publishers.set(cProvider.value.name, this);
 
       this.Logger.info(
         { provider: cProvider.value.name, service: cProvider.value.service },
         'File provider ${provider} registered, type: ${service}',
       );
     }
+  }
+
+  /**
+   * The provider map is a DI value and outlives clearCache(), so the names this service published
+   * leave it here. A name a newer fsService published again stays.
+   */
+  public async dispose() {
+    const published = DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES);
+    for (const [name, publisher] of [...publishers]) {
+      if (publisher === this) {
+        publishers.delete(name);
+        published?.delete(name);
+      }
+    }
+    await super.dispose();
   }
 }
 

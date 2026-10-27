@@ -1,10 +1,12 @@
 import 'mocha';
 import { expect } from 'chai';
 import { AsyncService, Container, PerChildInstance } from '../src/index.js';
+import type { IContainer } from '../src/index.js';
 
 class S {}
 class Base {}
 class Impl extends Base {}
+class Dep {}
 @PerChildInstance()
 class Scoped extends Base {}
 class Svc extends AsyncService {
@@ -140,5 +142,16 @@ describe('child({ isolateSingletons: true })', () => {
     expect(isolating.Cache.has(Scoped)).to.be.false;
     expect(isolating.Cache.has(Impl)).to.be.true;
     expect(root.Cache.has(Impl)).to.be.false;
+  });
+
+  it('a chain factory called through an isolating child gets that child, so what it resolves is built there', () => {
+    const root = new Container();
+    root.register((c: IContainer) => c.resolve(Dep)).as(Base);
+    const child = root.child({ isolateSingletons: true });
+
+    const [dep] = child.resolve(Array.chainOf(Base)) as unknown[];
+    expect(dep).to.be.instanceOf(Dep);
+    expect(root.Cache.has(Dep)).to.be.false;
+    expect(child.Cache.has(Dep)).to.be.true;
   });
 });

@@ -105,19 +105,33 @@ describe('values registered with asValue / asMapValue', () => {
     expect(c.get(Array.ofType('__flag__'))).to.have.length(1);
   });
 
-  it('a key holding a value and a class registration lists both and never writes instances into the value list', () => {
+  it('under a key holding a value and a class registration, the resolved instances win and never go into the value list', () => {
     const c = new Container();
     const value = { kind: 'value' };
     c.register(value).asValue('Shape');
     c.register(Square).as(Shape);
 
     const list = c.resolve(Array.ofType(Shape)) as unknown[];
-    expect(list).to.have.length(2);
-    expect(list[0]).to.equal(value);
-    expect(list[1]).to.be.instanceOf(Square);
+    expect(list).to.have.length(1);
+    expect(list[0]).to.be.instanceOf(Square);
     expect(c.Registry.getValues('Shape')).to.deep.equal([value]);
 
     c.clearCache();
     expect(c.get(Array.ofType('Shape'))).to.deep.equal([value]);
+  });
+
+  it('under a key holding a value and a cached instance, get and resolve both return the instance until clearCache', () => {
+    const c = new Container();
+    c.register(Cached).asSelf();
+    const instance = c.resolve(Cached);
+    const value = new Cached();
+    c.register(value).asValue('Cached');
+
+    expect(c.get(Cached)).to.equal(instance);
+    expect(c.resolve(Cached)).to.equal(instance);
+
+    c.clearCache();
+    expect(c.get(Cached)).to.equal(value);
+    expect(c.resolve(Cached)).to.equal(value);
   });
 });
