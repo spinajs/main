@@ -1,6 +1,6 @@
 import { BaseController, BasePath, Get, Ok } from '@spinajs/http';
 import { BelongsTo, HasMany, Hidden, Model, ModelBase, ModelDataWithRelationData, Primary, Relation, SingleRelation } from '@spinajs/orm';
-import type { Shelf } from './shelf.js';
+import { Shelf } from './shelf.js';
 
 @Model('books')
 export class Book extends ModelBase<Book> {
@@ -15,6 +15,11 @@ export class Author extends ModelBase<Author> {
   public Name: string;
   @Hidden() public Password: string;
   @HasMany(Book) public Books: Relation<Book, Author>;
+}
+
+@Model('local_shelves')
+export class LocalShelf extends Shelf {
+  public Label: string;
 }
 
 @BasePath('authors')
@@ -32,5 +37,10 @@ export class AuthorsController extends BaseController {
   @Get('shelf')
   public async shelf(): Promise<Ok<Shelf>> {
     return new Ok(undefined as unknown as Shelf);
+  }
+
+  @Get('local-shelf')
+  public async localShelf(): Promise<Ok<LocalShelf>> {
+    return new Ok(new LocalShelf());
   }
 }

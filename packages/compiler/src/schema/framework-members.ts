@@ -22,6 +22,12 @@ function packageNameOf(directory: string): string | undefined {
   return name;
 }
 
+/** The npm package whose files declare `node`, or the file name when no package.json names one. */
+export function declaringPackage(node: ts.Node): string {
+  const file = node.getSourceFile().fileName;
+  return packageNameOf(dirname(file)) ?? file;
+}
+
 export function isDeclaredIn(declaration: ts.Node | undefined, packageName: string): boolean {
   return !!declaration && packageNameOf(dirname(declaration.getSourceFile().fileName)) === packageName;
 }

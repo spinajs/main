@@ -1,13 +1,12 @@
 import ts from 'typescript';
 import { decoratorsOf } from '../../decorators.js';
-import { deriveType, type DeriveContext, type JsonSchema, type TypeHandler } from '../derive.js';
-import { extendsFrameworkClass, isDeclaredIn } from '../framework-members.js';
+import { deriveType, diagnose, type DeriveContext, type JsonSchema, type TypeHandler } from '../derive.js';
+import { baseClassOf, declaringPackage, extendsFrameworkClass, isDeclaredIn } from '../framework-members.js';
 import { includesUndefined, isCallable, isPublicMember, propertyConstraints } from './object.js';
 
 const ORM = '@spinajs/orm';
 const MODEL_DATA = new Set(['ModelData', 'ModelDataWithRelationData', 'ModelDataWithRelationDataSearchable']);
-// Computed members and `@Hidden` columns never appear in a dehydrated model. Declaration files drop decorators, so
-// this only applies to models whose source is in the program.
+// Computed members and `@Hidden` columns never appear in a dehydrated model.
 const NOT_SERIALIZED = new Set(['Virtual', 'Query', 'Historical', 'Hidden']);
 
 interface Column {
@@ -55,9 +54,32 @@ function columnOf(ctx: DeriveContext, property: ts.Symbol): Column | undefined {
   };
 }
 
+/** The first class from the model up to ModelBase that is read from a declaration file, where decorators are gone. */
+function declarationFileClass(checker: ts.TypeChecker, type: ts.Type): ts.ClassLikeDeclaration | undefined {
+  for (let current: ts.Type | undefined = type; current; current = baseClassOf(checker, current)) {
+    const declaration = current.getSymbol()?.declarations?.find(ts.isClassLike);
+    if (!declaration || (declaration.name?.text === 'ModelBase' && isDeclaredIn(declaration, ORM))) return undefined;
+    if (declaration.getSourceFile().isDeclarationFile) return declaration;
+  }
+  return undefined;
+}
+
+/** Without decorators a closed column list would publish `@Hidden` columns (a password hash), so it fails open. */
+function opaqueModel(ctx: DeriveContext, type: ts.Type): JsonSchema | undefined {
+  const opaque = declarationFileClass(ctx.checker, type);
+  if (!opaque) return undefined;
+  const model = type.getSymbol()?.name ?? ctx.checker.typeToString(type);
+  const base = opaque.name?.text ?? 'its base class';
+  const subject = base === model ? `model ${model} is` : `model ${model} extends ${base},`;
+  diagnose(ctx, 'SCH001', 'info', `${subject} read from a declaration file of ${declaringPackage(opaque)}, where @Hidden columns are invisible; emitted as an open object`);
+  return { type: 'object' };
+}
+
 /** An ORM model derives to its declared columns and relations, never through ModelBase internals or its index signature. */
 export const modelType: TypeHandler = (ctx, type) => {
   if (!isModel(ctx.checker, type)) return undefined;
+  const opaque = opaqueModel(ctx, type);
+  if (opaque) return opaque;
   const properties: Record<string, JsonSchema> = {};
   const required: string[] = [];
   for (const property of ctx.checker.getPropertiesOfType(type)) {
