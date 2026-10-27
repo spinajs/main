@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { AsyncService, Container, DI, LazyInject } from '../src/index.js';
+import { AsyncService, Autoinject, Container, DI, LazyInject, SyncService } from '../src/index.js';
 import type { Class } from '../src/index.js';
 
 class Base {}
@@ -308,7 +308,7 @@ describe('container snapshot / restore', () => {
     expect(c.Cache.has(Old)).to.be.true;
   });
 
-  it('restore keeps passing until a pass drops nothing: three generations of services resolved while disposing', async () => {
+  it('restore disposes three generations of services resolved while disposing', async () => {
     const c = new Container();
     const disposed: string[] = [];
     class Third extends AsyncService {
@@ -338,7 +338,7 @@ describe('container snapshot / restore', () => {
     expect(c.getCacheStats().size).to.equal(before.cache.size);
   });
 
-  it('restore gives up after five passes, warns, and still leaves the cache as it was', async () => {
+  it('restore gives up after five nested generations, warns, and still leaves the cache as it was', async () => {
     const c = new Container();
     const link = (): Class<AsyncService> =>
       class extends AsyncService {
@@ -347,18 +347,137 @@ describe('container snapshot / restore', () => {
         }
       };
 
-    const warnings: unknown[] = [];
-    const warn = console.warn;
-    console.warn = (...args: unknown[]) => warnings.push(args[0]);
-    try {
-      const before = c.snapshot();
-      await c.resolve(link());
-      await c.restore(before);
-      expect(c.getCacheStats().size).to.equal(before.cache.size);
-    } finally {
-      console.warn = warn;
+    const before = c.snapshot();
+    await c.resolve(link());
+    const warnings = await capturedWarnings(() => c.restore(before));
+
+    expect(c.getCacheStats().size).to.equal(before.cache.size);
+    expect(warnings.some((w) => String(w).includes('5 generations'))).to.be.true;
+  });
+
+  it('restore disposes a service built during another dispose() before the older services still waiting', async () => {
+    const order: string[] = [];
+    class Orm extends AsyncService {
+      public closed = false;
+      public async dispose(): Promise<void> {
+        this.closed = true;
+        order.push('orm');
+      }
+    }
+    class Queue extends SyncService {
+      @Autoinject(Orm)
+      public Orm: Orm;
+
+      public async dispose(): Promise<void> {
+        order.push(this.Orm.closed ? 'queue after orm' : 'queue');
+      }
+    }
+    class Scheduler extends AsyncService {
+      @LazyInject(Queue)
+      public Queue: Queue;
+
+      public async dispose(): Promise<void> {
+        order.push('scheduler');
+        expect(this.Queue).to.be.instanceOf(Queue);
+      }
     }
 
-    expect(warnings.some((w) => String(w).includes('5 passes'))).to.be.true;
+    const c = new Container();
+    const before = c.snapshot();
+    await c.resolve(Orm);
+    await c.resolve(Scheduler);
+    await c.restore(before);
+
+    expect(order).to.deep.equal(['scheduler', 'queue', 'orm']);
+    expect(c.Cache.has(Queue)).to.be.false;
+  });
+
+  it('a resolve started after the last settle() is settled and disposed before the swap', async () => {
+    class Slow extends AsyncService {
+      public disposed = false;
+      public async resolve(): Promise<void> {
+        await new Promise((r) => setTimeout(r, 20));
+        await super.resolve();
+      }
+      public async dispose(): Promise<void> {
+        this.disposed = true;
+      }
+    }
+
+    const c = new Container();
+    const before = c.snapshot();
+    const settle = c.Cache.settle.bind(c.Cache);
+    let pending: Promise<Slow> | undefined;
+    c.Cache.settle = async () => {
+      await settle();
+      pending ??= c.resolve(Slow);
+    };
+
+    await c.restore(before);
+    const slow = await pending!;
+
+    expect(slow.disposed).to.be.true;
+    expect(c.Cache.has(Slow)).to.be.false;
+    expect(c.getCacheStats().size).to.equal(before.cache.size);
+  });
+
+  it('a listener a dispose() adds does not survive the restore', async () => {
+    const c = new Container();
+    class Listening extends AsyncService {
+      public async dispose(): Promise<void> {
+        c.on('ev', () => undefined);
+      }
+    }
+
+    const before = c.snapshot();
+    await c.resolve(Listening);
+    await c.restore(before);
+
+    expect(c.listenerCount('ev')).to.equal(0);
+  });
+
+  it('a dispose() that edits a value map from the snapshot leaves the same Map with the snapshot entries', async () => {
+    const c = new Container();
+    const local = { name: 'local' };
+    c.register(local).asMapValue('__restore_map__', 'local');
+    const map = c.get<Map<string, unknown>>('__restore_map__');
+    class Unpublishing extends AsyncService {
+      public async dispose(): Promise<void> {
+        map.delete('local');
+        map.set('temp', { name: 'temp' });
+      }
+    }
+
+    const before = c.snapshot();
+    await c.resolve(Unpublishing);
+    await c.restore(before);
+
+    const restored = c.get<Map<string, unknown>>('__restore_map__');
+    expect(restored).to.equal(map);
+    expect([...restored]).to.deep.equal([['local', local]]);
+  });
+
+  it('a dispose() that resolves a service disposed before it gets the disposed instance, not a new one', async () => {
+    class Newer extends AsyncService {
+      public disposals = 0;
+      public async dispose(): Promise<void> {
+        this.disposals++;
+      }
+    }
+    const c = new Container();
+    let seen: Newer | undefined;
+    class Older extends AsyncService {
+      public async dispose(): Promise<void> {
+        seen = await c.resolve(Newer);
+      }
+    }
+
+    const before = c.snapshot();
+    await c.resolve(Older);
+    const newer = await c.resolve(Newer);
+    await c.restore(before);
+
+    expect(seen).to.equal(newer);
+    expect(newer.disposals).to.equal(1);
   });
 });
