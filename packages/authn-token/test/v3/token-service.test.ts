@@ -21,7 +21,7 @@ import { AccessToken } from '../../src/models/AccessToken.js';
 import { DbTokenService, NoTokenProfilesPolicy, TOKEN_PROFILE_HOOK_ORDER, TokenOwnerResolver, TokenProfileHook, TokenProfilePolicy, UsersTableTokenOwnerResolver } from '../../src/service/index.js';
 import { bootV3Db, insertUserRow, shutdownV3Db, v3Connection } from './db.js';
 import { profileHookIn, tokenServiceOver } from './services.js';
-import { setPastSchema } from '../support/config-boot.js';
+import { setPastSchema } from '@spinajs/testing';
 
 const TABLE = 'rbac_access_tokens';
 const NOW = new Date('2026-10-03T10:00:00.000Z');
