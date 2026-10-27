@@ -51,6 +51,13 @@ export const ROWS: Row[] = [
   { name: 'WF32', schema: { type: 'string', format: 'binary' } },
   { name: 'WReadable', schema: { type: 'string', format: 'binary' } },
   { name: 'WStream', schema: { type: 'string', format: 'binary' } },
+  { name: 'XAny', schema: {}, codes: ['SCH001'] },
+  { name: 'XUnknown', schema: {}, codes: ['SCH001'] },
+  { name: 'XObject', schema: { type: 'object' }, codes: ['SCH001'] },
+  { name: 'XFn', schema: {}, codes: ['SCH001'] },
+  { name: 'XSymbol', schema: {}, codes: ['SCH001'] },
+  { name: 'XNever', schema: {}, codes: ['SCH001'] },
+  { name: 'XVoid', schema: {} },
 ];
 
 describe('deriveSchema', () => {
@@ -79,5 +86,14 @@ describe('deriveSchema depth limit', () => {
     const result = derive('Tree');
     expect([...result.registry.keys()]).to.deep.equal(['fixture/Tree']);
     expect(result.diagnostics).to.deep.equal([]);
+  });
+});
+
+describe('SCH001 severity', () => {
+  it('is info for unknown and object, warning otherwise', () => {
+    expect(derive('XUnknown').diagnostics[0].severity).to.equal('info');
+    expect(derive('XObject').diagnostics[0].severity).to.equal('info');
+    expect(derive('XAny').diagnostics[0].severity).to.equal('warning');
+    expect(derive('XFn').diagnostics[0].severity).to.equal('warning');
   });
 });

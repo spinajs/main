@@ -1,4 +1,4 @@
-import type ts from 'typescript';
+import ts from 'typescript';
 import type { Diagnostic, SourceRef } from '@spinajs/manifest';
 import { arrayType, tupleType } from './handlers/array.js';
 import { enumType } from './handlers/enum.js';
@@ -68,11 +68,24 @@ export function deriveType(ctx: DeriveContext, type: ts.Type): JsonSchema {
   return { $ref: id };
 }
 
+function unsupported(ctx: DeriveContext, type: ts.Type): JsonSchema {
+  const text = ctx.checker.typeToString(type);
+  if (type.flags & ts.TypeFlags.Unknown) {
+    diagnose(ctx, 'SCH001', 'info', `unknown type at ${text} accepts any value`);
+    return {};
+  }
+  if (type.flags & ts.TypeFlags.NonPrimitive) {
+    diagnose(ctx, 'SCH001', 'info', 'object type has no properties to validate');
+    return { type: 'object' };
+  }
+  diagnose(ctx, 'SCH001', 'warning', `unsupported type ${text}, emitted as {}`);
+  return {};
+}
+
 function deriveBody(ctx: DeriveContext, type: ts.Type): JsonSchema {
   for (const handler of handlers()) {
     const schema = handler(ctx, type);
     if (schema) return schema;
   }
-  diagnose(ctx, 'SCH001', 'warning', `unsupported type ${ctx.checker.typeToString(type)}, emitted as {}`);
-  return {};
+  return unsupported(ctx, type);
 }

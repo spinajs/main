@@ -25,6 +25,7 @@ export function hoistedName(checker: ts.TypeChecker, type: ts.Type): string | un
   if (!(type.flags & (ts.TypeFlags.Object | ts.TypeFlags.EnumLiteral))) return undefined;
   if (checker.isArrayType(type) || checker.isTupleType(type) || wellKnownSchema(type)) return undefined;
 
+  if (checker.getSignaturesOfType(type, ts.SignatureKind.Call).length > 0) return undefined;
   // Pick/Omit/Record results carry the user alias that names them, not the lib alias; mapped types stay anonymous.
   if (type.flags & ts.TypeFlags.Object && (type as ts.ObjectType).objectFlags & ts.ObjectFlags.Mapped) return undefined;
 
