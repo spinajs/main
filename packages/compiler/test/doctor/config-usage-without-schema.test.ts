@@ -20,4 +20,20 @@ describe('CFG001 config-usage-without-schema', () => {
       { code: 'CFG001', severity: 'warning', message: "Config path 'billing.apiKey' is read but no configuration schema declares module 'billing'", source: src('src/c.ts', 3) },
     ]);
   });
+
+  it('accepts paths under a dotted module and names the shared prefix for typos', () => {
+    const m = fixture({
+      configModules: [
+        { module: 'authz.fs', schemaId: 'a', source: src('src/s.ts') },
+        { module: 'authz.http.access', schemaId: 'b', source: src('src/s.ts') },
+      ],
+      configUsages: [
+        { path: 'authz.fs.x', source: src('src/a.ts', 1) },
+        { path: 'authz.http.typo', source: src('src/b.ts', 2) },
+      ],
+    });
+    expect(configUsageWithoutSchema.run(m, ctx)).to.deep.equal([
+      { code: 'CFG001', severity: 'warning', message: "Config path 'authz.http.typo' is read but no configuration schema declares module 'authz.http'", source: src('src/b.ts', 2) },
+    ]);
+  });
 });
