@@ -75,7 +75,7 @@ Adds `lists: { [permission]: ModelListPlan | (principal, type, req) => ModelList
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Fake model | `AuthorizationModel`; none of the fakes carries `@Injectable` | none | the four models above | Register an instance: `container.register(testHost.instance(model)).as(AuthorizationModel)`. Subclass `StaticModel` to add `listSupport`/`listPlan` (authz-orm's tests do). |
+| Fake model | `AuthorizationModel`; none of the fakes carries `@Injectable` | none | the four models above | Register and activate an instance: `testHost.activate(container, domain, model)` registers `testHost.named(model.name, testHost.instance(model))` under `AuthorizationModel` and lists `model.name` in the domain's `models`. Subclass `StaticModel` to add `listSupport`/`listPlan` (authz-orm's tests do). |
 
 ## Important behaviour
 

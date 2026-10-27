@@ -667,12 +667,13 @@ you any more. At the top of the app's entry, before `Controllers` or `HttpServer
   on `JobModel` (it needs `@spinajs/authz-orm`). Installing alone adds nothing (authz-queue's `job:read`
   grant included), except that `authn-oidc`'s config adds its controllers to the scan, so an installed
   `authn-oidc` mounts `/auth/oidc/*`; its strategies still need the import.
-- Activate the RBAC model (and ABAC, if you use it) with `authz: { use: ['rbac'] }` (or
-  `['abac', 'rbac']`) once the packages are imported, as
+- Activate the RBAC model (and ABAC, if you use it) with `authz: { models: ['RbacModel'] }` (or
+  `['AbacModel', 'RbacModel']`) once the packages are imported, as
   [Registering the shipped models](./04-host-boot-and-configuration.md#registering-the-shipped-models) shows.
-  Importing a package registers its model by name but activates nothing. An app that already wires
-  them with `registerRbac` or a hand-built `AbacModel` can keep that code: a domain without a `use`
-  list behaves as before. Moving to `use` drops that code from the app and from every CLI entry point.
+  Importing a package registers its model under `AuthorizationModel` but activates nothing. Root
+  without `authz.models` has no model: it boots, every check denies (`no_access`), and the host logs
+  a warning that lists the registered names. The list also drops the wiring code from the app and
+  from every CLI entry point.
 
 ### Step 2: config
 
@@ -1101,7 +1102,7 @@ See section 5.2. In short: class and route `@Access` are ANDed (2.x let the rout
 the field filter, and the `authz.http.*` keys are `services`, `links`, `explainRoute` and
 `access.domain`. The explain route exists only when enabled and never in production. A share link
 token opens a dead link (`link_invalid`) until a `LinkResolver` is registered in the root container
-(`authz.use: ['rbac']` or `registerRbac(DI.RootContainer, …)` registers one).
+(`'RbacModel'` in `authz.models` registers one).
 
 ### L8: orm-api removed
 
@@ -1335,10 +1336,10 @@ What an app sees:
   `ConfigRuleStore` in `authz.rbac.stores.rules` fail boot.
 - A rule's `expiresAt` is a `Date` (in a JS or TS config file) or a date-time string with a zone, such
   as `2027-01-01T00:00:00Z`. A string without a zone fails boot.
-- `authz.use: ['rbac']` (or `registerRbac(container, configuration)` by hand) wires the stores, the
-  model, `RbacService` and the `LinkResolver` ([Registering the shipped models](./04-host-boot-and-configuration.md#registering-the-shipped-models)).
-  Share links open only when RBAC is wired in root: `'rbac'` in `authz.use`, or `registerRbac` on the
-  root container.
+- `authz.models: ['RbacModel']` wires the stores, the model, `RbacService` and the `LinkResolver`
+  in the container of the domain that lists it ([Registering the shipped models](./04-host-boot-and-configuration.md#registering-the-shipped-models)).
+  Share links open only when root lists it: `'RbacModel'` in `authz.models`. Listed only in a child
+  domain, links are dead.
 - An expired link comes back with its `expiresAt`, and the ceiling denies it (`link_invalid`).
 
 ### L4 and L4b: ORM adapter, rules in SQL

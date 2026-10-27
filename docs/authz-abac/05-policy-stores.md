@@ -60,9 +60,9 @@ Write a store when policies live somewhere the shipped stores do not reach: a fi
 ```ts sample
 import { readFile, stat } from 'node:fs/promises';
 import { DI } from '@spinajs/di';
-import { AuthorizationModel, AuthzContributor, authz } from '@spinajs/authz';
+import { AuthorizationModel, authz } from '@spinajs/authz';
 import type { Policy } from '@spinajs/authz-abac';
-import { AbacContributor, AbacModel, ConfigPolicyStore, PolicyStore } from '@spinajs/authz-abac';
+import { AbacModel, ConfigPolicyStore, PolicyStore } from '@spinajs/authz-abac';
 
 // Policies the security team ships as a JSON file next to the app.
 export class JsonFilePolicyStore extends PolicyStore {
@@ -82,11 +82,10 @@ export class JsonFilePolicyStore extends PolicyStore {
   }
 }
 
-export function wireFilePolicies(fromConfig: readonly unknown[]): void {
+// Config: authz: { models: ['FilePoliciesModel'] }
+export function registerFilePolicies(fromConfig: readonly unknown[]): void {
   const abac = new AbacModel({ stores: [new ConfigPolicyStore(fromConfig), new JsonFilePolicyStore('security/policies.json')] });
-  DI.register(() => abac).as(AuthorizationModel);
-  const contributor = new AbacContributor(abac);
-  DI.register(() => contributor).as(AuthzContributor);
+  DI.register(Object.defineProperty(() => abac, 'name', { value: 'FilePoliciesModel' })).as(AuthorizationModel);
 }
 
 // Call after the file changed: this node reloads the model's stores on its next request.

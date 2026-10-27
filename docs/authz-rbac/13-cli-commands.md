@@ -9,7 +9,7 @@ Six `spinajs` CLI commands manage and inspect RBAC data: assign and revoke roles
 3. A command that touches the RBAC DB stores (`authz:assign`, `authz:revoke`, `authz:explain`, the membership commands) resolves [`OrmMigrator`](../orm/10-migrations.md) first, which boots the ORM and runs the `Migration.OnStartup` pass as an app process does before serving. `authz:check-config` resolves it only when `authz.rbac.stores.roles` or `authz.rbac.stores.rules` names a store other than `ConfigRoleStore` / `ConfigRuleStore`, or the app registers its own `RoleStore`: with the config-backed stores it validates without a database. Then it resolves `AuthzService` (the boot validation runs), and runs its body as `SYSTEM` with the reason `cli` (`authz().runAs`). `AuthzAdmin` writes skip the admin guard as `SYSTEM` and are audited with the reason `cli`.
 4. Any error becomes one line: an `AuthzAdminFailure` prints `<message> (<code>, <field>)`. The exit code is 1.
 
-The commands read the stores and `RbacService` from the root container. With `authz.use: ['rbac']` in the config, the root boot in step 3 registers them, so the CLI process needs no wiring code. An app that wires RBAC with `registerRbac` must run that call in the CLI process too.
+The commands read the stores and `RbacService` from the root container. With `authz.models: ['RbacModel']` in the config, the root boot in step 3 registers them, so the CLI process needs no wiring code. An app that builds the model by hand must run that wiring in the CLI process too.
 
 ## Commands
 
@@ -30,7 +30,7 @@ Subjects `system:*` and `unattended:*` are refused: those principals cannot hold
 | Command | Needs |
 | --- | --- |
 | `authz:assign`, `authz:revoke` | The RBAC write handlers (loaded by the command), a registered `AdminAssignmentStore` and an `AuthzAdmin` backend. |
-| `authz:check-config --explain-role` | `RbacService` registered under the name `RbacService` in the root container (`registerRbac(DI.RootContainer, ...)`); otherwise "the RBAC model ... is not registered". |
+| `authz:check-config --explain-role` | `RbacService` registered in the root container (`'RbacModel'` in `authz.models`); otherwise "the RBAC model ... is not registered". |
 | `authz:check-config --unattended` | The `authz_audit` table of `DbDecisionAudit` (authz-orm), read on the `authz` connection. |
 | `authz:membership-*` | `AdminAssignmentStore` and `AdminMembershipStore`, from the root container or by the names `authz.rbac.stores.assignments` and `.membership` give; and `authz.rbac.maxSetDepth`. |
 

@@ -10,8 +10,8 @@ The host is the DI side of the package: `DefaultAuthzService` boots one engine p
 2. **Config.** It resolves `Configuration`. The configuration module validates `authz.*` against `AUTHZ_CONFIGURATION_SCHEMA` (AJV, defaults filled in). Boot reads no `rbac.*` key.
 3. **Domain config.** `readDomainConfig()` merges the domain's keys over its ancestors' and over `AUTHZ_DEFAULTS` ([Domains](05-domains.md#configuration)).
 4. **Audit and bus.** It picks the `DecisionAudit` and `ChangeBus` classes named by `authz.audit.service` and `authz.bus.service`, else the last registration (`pickNamed()`, [Domains](05-domains.md#services-and-extension-points)). It subscribes to the bus before any model initialises; changes published meanwhile are applied once the boot ends.
-5. **Collect.** From the container chain (`Array.chainOf`) it resolves every `AuthorizationModel`, `ResourceAdapter`, `ScopeResolver`, `RelationResolver`, `NativeFilter`, `Combinator` and `AuthzContributor`.
-6. **Models.** Level by level, root first, it drops the names a level's `disable` lists and adds the level's own models; a model whose name an ancestor level used replaces it in place.
+5. **Collect.** From the container chain (`Array.chainOf`) it resolves every `ResourceAdapter`, `ScopeResolver`, `RelationResolver`, `NativeFilter`, `Combinator` and `AuthzContributor`.
+6. **Models.** It resolves the names the domain's `models` list gives (`authz.models` on root, `authz.domains.<name>.models` on a child) in the domain's container; the ancestors' models come from their boots ([Models by name](05-domains.md#models-by-name)). Level by level, root first, it drops the names a level's `disable` lists and adds the level's listed models; a model whose name an ancestor level used replaces it in place. Root without `authz.models` has no model: it boots, every check denies, and the host logs a warning that lists the registered names.
 7. **Permissions.** It registers the parent's permissions, `authz.permissions` (or the domain's `permissions`), the permissions of adapters registered in its own container, then calls each model's `init(ctx)`. `init` runs once per model instance; other domains replay its registrations. The registry is then frozen ([Declaring permissions](02-permissions.md)).
 8. **Contributions.** It calls `contribute(domain)` on every `AuthzContributor` and collects permission, relation and scope refs, join types, list types and scope attribute schemas.
 9. **Boot checks.** `validateBoot()` runs the rules below and throws one `AuthzConfigError` that lists every problem.
@@ -26,7 +26,7 @@ A failed boot releases the models it claimed and throws. `dispose()` unsubscribe
 
 | Rule | Refuses |
 | --- | --- |
-| 1 | A combine entry that lists a model no container of the domain registers. |
+| 1 | A combine entry that lists a model the domain does not activate. |
 | 2 | Two models with the same name. |
 | 3 | Two adapters that claim the same resource type; an adapter without a types array. |
 | 4 | A residual op in a routed model's `capabilities.residuals` that is unknown, that a list-scoped adapter of the type does not list in `compiles`, or a `native:*` op with no registered `NativeFilter`. |
@@ -39,19 +39,19 @@ A failed boot releases the models it claimed and throws. `dispose()` unsubscribe
 
 ## Registering the shipped models
 
-Importing `@spinajs/authz-rbac` and `@spinajs/authz-abac` registers their models in DI under `'rbac'` and `'abac'`; none is active until a `use` list names it:
+Importing `@spinajs/authz-rbac` and `@spinajs/authz-abac` registers `RbacModel` and `AbacModel` under `AuthorizationModel`. Registration makes a model available; none is active until a `models` list names its class:
 
 ```ts
-authz: { use: ['abac', 'rbac'] }
+authz: { models: ['AbacModel', 'RbacModel'] }
 ```
 
-The domain's boot resolves each listed name in the domain's container, so the stores, contributors, `RbacService` and the `LinkResolver` land where the model checks ([Models by name](05-domains.md#models-by-name)). Without a `use` list, the app wires the models itself in the domain's container before the domain's `AuthzService` first resolves, after `Configuration`:
+The domain's boot resolves each listed name in the domain's container, so the stores, contributors, `RbacService` and the `LinkResolver` land where the model checks ([Models by name](05-domains.md#models-by-name)). authz-http resolves the `LinkResolver` from the root container, so share links open only when root lists `'RbacModel'`.
 
-- RBAC: `registerRbac(DI.RootContainer, configuration)` from `@spinajs/authz-rbac` registers the stores, `RbacModel`, its contributor, `RbacService` and an `RbacLinkResolver` as the `LinkResolver` ([Wiring the model](../authz-rbac/README.md#wiring-the-model)). authz-http resolves the `LinkResolver` from the root container, so share links open only when RBAC is registered there.
-- ABAC: an `AbacModel` registered as `AuthorizationModel`, with its `AbacContributor` ([`@spinajs/authz-abac`](../authz-abac/README.md)).
-- Your own: `@Injectable(AuthorizationModel)` in the root domain, or `container.register(...).as(AuthorizationModel)` on a child domain's container ([Writing a model](08-writing-a-model.md#registration)).
+- RBAC: `RbacModel.init` validates and registers the stores, `RbacService`, its contributor and an `RbacLinkResolver` as the `LinkResolver` ([Wiring the model](../authz-rbac/README.md#wiring-the-model)).
+- ABAC: `AbacModel.init` registers its `AbacContributor` ([`@spinajs/authz-abac`](../authz-abac/README.md)).
+- Your own: `@Injectable(AuthorizationModel)` on the class, or `DI.register(factory).as(AuthorizationModel)` with a named factory, then its name in a `models` list ([Writing a model](08-writing-a-model.md#registration)).
 
-A model registered after its domain booted is never seen by that domain.
+A model registered after its domain booted is never seen by that domain. Root without `authz.models` has no model: it boots and every check denies (`no_access`); the host logs a warning that lists the registered names.
 
 ## Configuration
 
@@ -60,7 +60,7 @@ Config lives under `authz.*` (H3). The schema validates the keys below; other se
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `authz.permissions.<name>` | `object` | none | see [Declaring permissions](02-permissions.md#configuration) | Permissions of the root domain. |
-| `authz.use` | `string[]` | none | registered model names | The models root activates; unset, every registration under `AuthorizationModel` in root ([Models by name](05-domains.md#models-by-name)). |
+| `authz.models` | `string[]` | none | class names or named factories registered under `AuthorizationModel` | The models root activates; unset, root has no model and every check denies ([Models by name](05-domains.md#models-by-name)). |
 | `authz.combine` | `object` | `{ default: { algorithm: 'deny-overrides' } }` | see [How a check works](01-check-flow.md#configuration) | Algorithm and models per resource type. |
 | `authz.domains.<name>` | `object` | none | name `[A-Za-z0-9_.-]{1,64}`, not `root` | Per-domain overrides ([Domains](05-domains.md#configuration)). |
 | `authz.engine.explain` | `boolean` | `false` | | Trace every check at debug level. |
@@ -88,6 +88,8 @@ Config lives under `authz.*` (H3). The schema validates the keys below; other se
 export default {
   authz: {
     permissions: { 'invoice:read': { list: true }, 'invoice:approve': {} },
+    models: ['RbacModel', 'AbacModel'],
+    // combine names a model by its `name` property, not by its class name.
     combine: { default: { algorithm: 'deny-overrides', models: ['rbac', 'abac'] } },
     engine: { explain: false, modelTimeoutMs: 2000, maxDelegation: 2 },
     fields: { neverRead: ['Password'], write: { mode: 'strip' } },

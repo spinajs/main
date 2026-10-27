@@ -70,7 +70,7 @@ authz: {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Link store | `LinkStore`, `AdminLinkStore`; per child container; by `registerRbacStores` | `DbLinkStore` | `MemoryLinkStore` (SHA-256 of the token, not registered) | `authz.rbac.stores.links`; see [Custom stores](11-custom-stores.md). |
-| `LinkResolver` (authz-http) | resolved from the root container per request | none: without it every link is dead | `RbacLinkResolver` | `buildRbac` registers one in the container it runs in, so links work when RBAC is wired in root: `authz.use: ['rbac']`, or `registerRbac(DI.RootContainer, …)`. `'rbac'` in a child domain's `use` only registers it in that child's container, which authz-http does not read. |
+| `LinkResolver` (authz-http) | resolved from the root container per request | none: without it every link is dead | `RbacLinkResolver` | `RbacModel` registers one in the container of the domain that lists it, so links work when root lists it: `authz.models: ['RbacModel']`. `'RbacModel'` in a child domain's `models` only registers it in that child's container, which authz-http does not read. |
 | `RbacLinkHandler` | `AuthzWriteHandler`, singleton, at import | `RbacLinkHandler` | none | Add a before hook on `authz.admin.command` to refuse links your product forbids. |
 
 `RbacService.linkPrincipal(id, companion?)` builds the principal of a link by id, for a host that resolves tokens itself.
@@ -83,7 +83,7 @@ authz: {
 - **A signed-in user's own access joins only when nothing would be lost.** A companion with a ceiling (role switch, token scopes) or an agent is left out, so the link gives its own access only. Its attributes and authn facts never reach conditions inside the link scope.
 - **Expired links** keep their `expiresAt`, and the engine judges it at its own clock.
 - **Deleting the resource** forgets its links (`scope.forget`).
-- **Links need RBAC in root.** authz-http reads `LinkResolver` from the root container. With RBAC listed only in a child domain's `use`, every link is dead; list `'rbac'` in `authz.use` as well.
+- **Links need RBAC in root.** authz-http reads `LinkResolver` from the root container. With `'RbacModel'` listed only in a child domain's `models`, every link is dead; list it in `authz.models` as well.
 
 ## Best practices
 

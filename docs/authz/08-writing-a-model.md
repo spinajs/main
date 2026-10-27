@@ -4,7 +4,7 @@ A model is a class that extends `AuthorizationModel` and votes on checks. RBAC a
 
 ## How it works
 
-1. **Register.** The app registers the model as `AuthorizationModel` before the domain boots ([Registration](#registration)).
+1. **Register and list.** The app registers the model as `AuthorizationModel` and names it in a `models` list before the domain boots ([Registration](#registration)).
 2. **Init.** At boot the host calls `init(ctx)` once per model instance, in the first domain that lists it. The model registers its permissions, native filters and relations there. `ctx.container` is that domain's container: the model resolves what it needs (condition functions, `Configuration`, connections) there, not in root DI.
 3. **Route.** For each registered `(permission, type)` the host asks `applies(permission, type)`; the model joins the route only when it answers `true` and `capabilities.resourceTypes` allows the type. It is called again when `version()` changes.
 4. **Evaluate.** For a check, the engine calls `evaluate(req, ctx)` with the request and an `EvaluationContext`, within `authz.engine.modelTimeoutMs`. The model returns a `Vote`, or a promise of one.
@@ -75,15 +75,15 @@ Build filters with the exported helpers: `TRUE`, `FALSE`, `and(...)`, `or(...)`,
 
 ## Registration
 
-- **By name (preferred):** register the model under its `name`, `@Injectable('suspension')` on the class, or `DI.register(factory).as('suspension')` when each domain needs its own instance (a factory runs once per domain that lists it). Then list the name in `authz.use` or `authz.domains.<name>.use` ([Models by name](05-domains.md#models-by-name)).
-- **Without `use`:** in root, `@Injectable(AuthorizationModel)` or `DI.register(MyModel).as(AuthorizationModel)`; in a child domain, `container.register(MyModel).as(AuthorizationModel)` on its container, never a decorator (DI-2), before the domain's first `service()`.
-- Routing: when `authz.combine` lists models, add the new name there; otherwise the default entry routes every model of the domain.
+- **Register:** under the base class, `@Injectable(AuthorizationModel)` on the class or `DI.register(MyModel).as(AuthorizationModel)` in root; `container.register(...).as(AuthorizationModel)` on a child domain's container for a model only that domain and its children see, never a decorator (DI-2). Register a factory when each domain needs its own instance: it is called with the domain's container on every resolve, so each domain that lists it gets one. The factory must have a name: a named arrow (`const SuspensionFactory = (c: IContainer) => ...`) or `Object.defineProperty(factory, 'name', { value: 'SuspensionFactory' })`.
+- **Activate:** list the class name, or the factory's function name, in `authz.models` or `authz.domains.<name>.models` before the domain's first `service()` ([Models by name](05-domains.md#models-by-name)). A registered model that no level lists is inactive.
+- Routing: when `authz.combine` lists models, add the model's `name` property there (`'suspension'`, not `'SuspensionModel'`); otherwise the default entry routes every model of the domain.
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `AuthorizationModel` | `AuthorizationModel`, every registration of the container chain | none in the core | `RbacModel` ([authz-rbac](../authz-rbac/README.md)), `AbacModel` ([authz-abac](../authz-abac/README.md)) | Register your class; see above. A model in a child domain with the name of an ancestor's model replaces it there. |
+| `AuthorizationModel` | `AuthorizationModel`, the registrations a `models` list names | none in the core | `RbacModel` ([authz-rbac](../authz-rbac/README.md)), `AbacModel` ([authz-abac](../authz-abac/README.md)) | Register your class; see above. A model in a child domain with the name of an ancestor's model replaces it there. |
 | `Combinator` | `Combinator`, every registration of the container chain | the three built-ins | your own | See [Custom combining algorithm](#custom-combining-algorithm). |
 | `NativeFilter` | `NativeFilter`, every registration, or `ctx.registerNativeFilter()` in `init` | none | your own | A filter op `native:<name>` the core cannot express; `matches(args, subject, ref, ctx)` decides it on a row. Adapters that render lists must list the op in `compiles`. |
 
@@ -138,7 +138,7 @@ export class SuspensionModel extends AuthorizationModel {
 }
 ```
 
-With `authz.combine.default.models` set, add `'suspension'` to it.
+Activate it with `authz.models: ['SuspensionModel']`. With `authz.combine.default.models` set, add `'suspension'` to it.
 
 ### List plans
 
