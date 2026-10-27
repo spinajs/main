@@ -11,7 +11,7 @@
 1. A controller without a real source file (`file` is `<di>` or `<dynamic>`) gets its parameter names from `Function.prototype.toString()` of each action; no documentation.
 2. Otherwise it takes the file, replaces `.js` with `.d.ts`, and hashes it with `FileHasher` (`@spinajs/fs`).
 3. The keys are `<package version>_<hash>` (parameters) and `doc_<package version>_<hash>` (documentation), in the `__fs_controller_cache__` provider.
-4. A missing entry is generated: `ts.createProgram()` parses the file, finds the class **by name**, and walks its method declarations.
+4. A missing entry is generated: `ts.createSourceFile()` parses that one file, without the default lib or `@types` a `ts.Program` would load, finds the class **by name**, and walks its method declarations.
 5. It returns the parameter map `{ [method]: string[] }`.
 
 A route whose method is not in the parsed class (inherited from a base class in another file) falls back to `Function.prototype.toString()` in `Controllers.register()`.
@@ -34,7 +34,7 @@ A route whose method is not in the parsed class (inherited from a base class in 
 | `@summary` | `summary` (overrides the first line) |
 | `@security cookieAuth, bearerAuth` / `@security []` | `security` (`[]` marks the route public) |
 
-`getPolicyDocumentation(controller, names)` finds the JSDoc of policy classes through the controller's compiled imports.
+`getPolicyDocumentation(controller, names)` finds the JSDoc of policy classes through the controller's compiled imports. It is not stored in the cache provider: every call parses the controller's `.js` and each policy file with `ts.createSourceFile()`.
 
 ### The CLI command
 

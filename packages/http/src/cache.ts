@@ -307,8 +307,8 @@ export class DefaultControllerCache extends AsyncService {
    * module specifier against the controller's directory or node_modules.
    *
    * JSDoc is extracted per class — several policies may share one file, so the
-   * file is parsed once per class. Policy doc volume is small and the cost is
-   * dominated by ts.createProgram which we already pay for the controller.
+   * file is parsed once per class. Policy doc volume is small and a parse is
+   * cheap, see parseSourceFile().
    */
   public async getPolicyDocumentation(
     controller: ClassInfo<BaseController>,
@@ -345,15 +345,19 @@ export class DefaultControllerCache extends AsyncService {
   // Single-pass TypeScript extraction
   // ---------------------------------------------------------------------------
 
-  private extractAll(file: string, className: string): { parameters: Record<string, string[]>; documentation: IControllerDocumentation } {
-    const program = ts.createProgram([file], {
-      module: ts.ModuleKind.CommonJS,
-      target: ts.ScriptTarget.Latest,
-      noResolve: true,
-      skipLibCheck: true,
-    });
+  /**
+   * Parses `file` alone. Every extractor here reads one file's syntax tree; a `ts.Program` would
+   * also parse the default lib and every reachable `@types` package (~110 files, 3 MB) on each
+   * call, which made a boot with a few dozen controllers take tens of seconds. `ts.sys.readFile`
+   * is what a program's compiler host reads with, so the text - BOM handling included - is the same.
+   */
+  private parseSourceFile(file: string): ts.SourceFile | undefined {
+    const text = ts.sys.readFile(file);
+    return text === undefined ? undefined : ts.createSourceFile(file, text, ts.ScriptTarget.Latest);
+  }
 
-    const sourceFile = program.getSourceFile(file);
+  private extractAll(file: string, className: string): { parameters: Record<string, string[]>; documentation: IControllerDocumentation } {
+    const sourceFile = this.parseSourceFile(file);
 
     const parameters: Record<string, string[]> = {};
     const documentation: IControllerDocumentation = { className, methods: {} };
@@ -567,14 +571,7 @@ export class DefaultControllerCache extends AsyncService {
    */
   private extractImports(file: string): Map<string, string> {
     const map = new Map<string, string>();
-    const program = ts.createProgram([file], {
-      allowJs: true,
-      module: ts.ModuleKind.NodeNext,
-      target: ts.ScriptTarget.Latest,
-      noResolve: true,
-      skipLibCheck: true,
-    });
-    const sourceFile = program.getSourceFile(file);
+    const sourceFile = this.parseSourceFile(file);
     if (!sourceFile) return map;
 
     ts.forEachChild(sourceFile, (node) => {
@@ -640,14 +637,7 @@ export class DefaultControllerCache extends AsyncService {
    * `className` in `file`. Returns the description text without tags.
    */
   private extractClassJsDoc(file: string, className: string): string | undefined {
-    const program = ts.createProgram([file], {
-      allowJs: true,
-      module: ts.ModuleKind.NodeNext,
-      target: ts.ScriptTarget.Latest,
-      noResolve: true,
-      skipLibCheck: true,
-    });
-    const sourceFile = program.getSourceFile(file);
+    const sourceFile = this.parseSourceFile(file);
     if (!sourceFile) return undefined;
 
     let description: string | undefined;
