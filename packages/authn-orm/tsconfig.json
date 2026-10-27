@@ -49,6 +49,9 @@
     },
     {
       "path": "../orm-sqlite/tsconfig.json"
+    },
+    {
+      "path": "../testing/tsconfig.json"
     }
   ]
 }
