@@ -91,18 +91,15 @@ describe('createTestApp (root scope)', () => {
     await app.dispose();
   });
 
-  it('throws on out-of-order dispose of root apps and restores nothing', async () => {
+  it('refuses a second live root app and leaves the first one untouched', async () => {
     const before = rootState();
-    const a = await createTestApp({ config: {} });
-    const b = await createTestApp({ config: {}, register: (c) => c.register(SpecService).asSelf(), resolve: [SpecService] });
+    const a = await createTestApp({ config: { app: { name: 'a' } }, register: (c) => c.register(SpecService).asSelf(), resolve: [SpecService] });
     const during = rootState();
     let error: Error | undefined;
-    await a.dispose().catch((e: Error) => (error = e));
-    expect(error?.message).to.match(/reverse creation order/);
+    await createTestApp({ config: { app: { name: 'b' } } }).catch((e: Error) => (error = e));
+    expect(error?.message).to.match(/a root app is already live/);
     expect(rootState()).to.deep.equal(during);
-    expect(DI.RootContainer.hasRegistered(SpecService)).to.be.true;
-    await b.dispose();
-    expect(DI.RootContainer.hasRegistered(SpecService)).to.be.false;
+    expect(a.config.get('app.name')).to.equal('a');
     await a.dispose();
     expect(rootState()).to.deep.equal(before);
   });
