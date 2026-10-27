@@ -10,8 +10,8 @@ describe('extractControllers', () => {
 
   it('controller shell', () => {
     expect(users).to.deep.include({ id: 'pkg-basic:UsersController', className: 'UsersController', basePath: 'users', policies: [[{ type: 'AdminPolicy', options: ['strict'] }]], middlewares: [{ type: 'Audit', options: [] }] });
-    expect(users.source).to.deep.equal({ file: 'src/controller.ts', line: 10, col: 1, package: 'pkg-basic' });
-    expect(users.routes.map((r) => r.handler)).to.deep.equal(['get', 'create', 'remove', 'list', 'ping']);
+    expect(users.source).to.deep.equal({ file: 'src/controller.ts', line: 11, col: 1, package: 'pkg-basic' });
+    expect(users.routes.map((r) => r.handler)).to.deep.equal(['get', 'create', 'remove', 'list', 'events', 'ping']);
     expect(users).to.not.have.property('access');
     expect(users).to.not.have.property('allowAnonymous');
   });

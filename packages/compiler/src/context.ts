@@ -1,8 +1,9 @@
 import ts from 'typescript';
-import { relative, resolve, sep } from 'node:path';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { Diagnostic, SourceRef, TypeRef } from '@spinajs/manifest';
 import type { LoadedProgram } from './program.js';
 import { deriveSchema, type DeriveOptions, type JsonSchema } from './schema/derive.js';
+import { isQueueFrameworkMember } from './schema/framework-members.js';
 import { sanitizeName } from './schema/naming.js';
 import { unwrapTransparent, wrapperName } from './schema/wrappers.js';
 
@@ -69,8 +70,8 @@ export function createContext(loaded: LoadedProgram, packageName: string, packag
   };
 
   const inPackage = (node: ts.Node): boolean => {
-    const file = resolve(node.getSourceFile().fileName);
-    return file.startsWith(root + sep) && !file.includes(`${sep}node_modules${sep}`);
+    const rel = relative(root, resolve(node.getSourceFile().fileName));
+    return !!rel && !rel.startsWith('..') && !isAbsolute(rel) && !rel.split(sep).includes('node_modules');
   };
 
   const typeRef = (type: ts.Type, node: ts.Node, nameHint?: string, derive: Pick<DeriveOptions, 'excludeMembersOf'> = {}): TypeRef => {
@@ -87,6 +88,7 @@ export function createContext(loaded: LoadedProgram, packageName: string, packag
       sourceRef: (n) => sourceRef(inPackage(n) ? n : node),
       foreignOwner: (n) => (inPackage(n) ? undefined : ownerName(n)),
       owners: schemaOwners,
+      excludeMembersOf: isQueueFrameworkMember,
       ...derive,
     };
     const result = deriveSchema(checker, payload, node, derivation, schemaRegistry);
@@ -98,10 +100,11 @@ export function createContext(loaded: LoadedProgram, packageName: string, packag
       const existing = schemaRegistry.get(id);
       if (existing && JSON.stringify(existing) !== JSON.stringify(body)) {
         const first = hintSources.get(id);
-        push('warning')('SCH005', `schema id ${id} is produced by two different types, first at ${first ? `${first.file}:${first.line}` : 'an earlier use'}, again at ${sourceRef(node).file}:${sourceRef(node).line}`, node);
+        const here = sourceRef(node);
+        push('warning')('SCH005', `schema id ${id} is produced by two different types, first at ${first ? `${first.file}:${first.line}` : 'an earlier use'}, again at ${here.file}:${here.line}`, node);
       }
       schemaRegistry.set(id, body);
-      hintSources.set(id, sourceRef(node));
+      if (!hintSources.has(id)) hintSources.set(id, sourceRef(node));
     }
     if (id) ref.schema = id;
     return ref;

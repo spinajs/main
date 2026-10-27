@@ -11,10 +11,10 @@ describe('socket extractors', () => {
     const [docs] = extractSocketControllers(ctx, socket);
     expect(docs).to.deep.include({ id: 'pkg-basic:DocsSocket', className: 'DocsSocket', prefix: 'docs' });
     expect(docs.commands).to.deep.equal([
-      { name: 'open', handler: 'open', payload: { text: 'OpenDoc', schema: 'spinajs/pkg-basic/OpenDoc' }, result: { text: 'DocOpened', schema: 'spinajs/pkg-basic/DocOpened' }, options: { idempotent: true, ordered: 'client', timeoutMs: 5000 }, access: ['doc:read'], policies: [[{ type: 'AccessPolicy', options: ['route'] }]], source: { file: 'src/socket.ts', line: 11, col: 3, package: 'pkg-basic' } },
-      { name: 'close', handler: 'close', payload: { text: 'OpenDoc', schema: 'spinajs/pkg-basic/OpenDoc' }, result: { text: 'void' }, options: {}, policies: [], source: { file: 'src/socket.ts', line: 15, col: 3, package: 'pkg-basic' } },
+      { name: 'open', handler: 'open', payload: { text: 'OpenDoc', schema: 'spinajs/pkg-basic/OpenDoc' }, result: { text: 'DocOpened', schema: 'spinajs/pkg-basic/DocOpened' }, options: { idempotent: true, ordered: 'client', timeoutMs: 5000 }, access: ['doc:read'], policies: [[{ type: 'AccessPolicy', options: ['route'] }]], source: { file: 'src/socket.ts', line: 12, col: 3, package: 'pkg-basic' } },
+      { name: 'close', handler: 'close', payload: { text: 'OpenDoc', schema: 'spinajs/pkg-basic/OpenDoc' }, result: { text: 'void' }, options: {}, policies: [], source: { file: 'src/socket.ts', line: 16, col: 3, package: 'pkg-basic' } },
     ]);
-    expect(docs.events).to.deep.equal([{ name: 'ping', payload: { text: 'Ping', schema: 'spinajs/pkg-basic/Ping' } }]);
+    expect(docs.events).to.deep.equal([{ name: 'created', payload: { text: 'UserCreated', schema: 'spinajs/pkg-basic/UserCreated' } }, { name: 'ping', payload: { text: 'Ping', schema: 'spinajs/pkg-basic/Ping' } }]);
   });
   it('defineContract type argument', () => {
     const [c] = extractSocketContracts(ctx, contract);

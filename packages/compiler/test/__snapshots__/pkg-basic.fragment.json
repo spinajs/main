@@ -680,7 +680,7 @@
           },
           "source": {
             "file": "src/controller.ts",
-            "line": 19,
+            "line": 20,
             "col": 3,
             "package": "pkg-basic"
           }
@@ -731,7 +731,7 @@
           ],
           "source": {
             "file": "src/controller.ts",
-            "line": 25,
+            "line": 26,
             "col": 3,
             "package": "pkg-basic"
           }
@@ -773,7 +773,7 @@
           "allowAnonymous": true,
           "source": {
             "file": "src/controller.ts",
-            "line": 31,
+            "line": 32,
             "col": 3,
             "package": "pkg-basic"
           }
@@ -792,7 +792,26 @@
           "middlewares": [],
           "source": {
             "file": "src/controller.ts",
-            "line": 36,
+            "line": 37,
+            "col": 3,
+            "package": "pkg-basic"
+          }
+        },
+        {
+          "method": "get",
+          "path": "events",
+          "handler": "events",
+          "fullPath": "/users/events",
+          "params": [],
+          "returnType": {
+            "text": "UserCreated",
+            "schema": "spinajs/pkg-basic/UserCreated"
+          },
+          "policies": [],
+          "middlewares": [],
+          "source": {
+            "file": "src/controller.ts",
+            "line": 42,
             "col": 3,
             "package": "pkg-basic"
           }
@@ -810,7 +829,7 @@
           "middlewares": [],
           "source": {
             "file": "src/controller.ts",
-            "line": 41,
+            "line": 47,
             "col": 3,
             "package": "pkg-basic"
           }
@@ -818,7 +837,7 @@
       ],
       "source": {
         "file": "src/controller.ts",
-        "line": 10,
+        "line": 11,
         "col": 1,
         "package": "pkg-basic"
       }
@@ -861,7 +880,7 @@
           ],
           "source": {
             "file": "src/socket.ts",
-            "line": 11,
+            "line": 12,
             "col": 3,
             "package": "pkg-basic"
           }
@@ -880,13 +899,20 @@
           "policies": [],
           "source": {
             "file": "src/socket.ts",
-            "line": 15,
+            "line": 16,
             "col": 3,
             "package": "pkg-basic"
           }
         }
       ],
       "events": [
+        {
+          "name": "created",
+          "payload": {
+            "text": "UserCreated",
+            "schema": "spinajs/pkg-basic/UserCreated"
+          }
+        },
         {
           "name": "ping",
           "payload": {
@@ -897,7 +923,7 @@
       ],
       "source": {
         "file": "src/socket.ts",
-        "line": 8,
+        "line": 9,
         "col": 1,
         "package": "pkg-basic"
       }
