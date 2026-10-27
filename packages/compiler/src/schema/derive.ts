@@ -4,6 +4,7 @@ import { arrayType, tupleType } from './handlers/array.js';
 import { enumType } from './handlers/enum.js';
 import { objectType } from './handlers/object.js';
 import { primitive } from './handlers/primitive.js';
+import { hoistedId } from './naming.js';
 import { wellKnown } from './wellknown.js';
 import { intersectionType, unionType } from './handlers/union.js';
 
@@ -58,7 +59,13 @@ export function deriveType(ctx: DeriveContext, type: ts.Type): JsonSchema {
     return {};
   }
   const inner: DeriveContext = { ...ctx, depth: ctx.depth + 1 };
-  return deriveBody(inner, type);
+  const id = hoistedId(inner, type);
+  if (!id) return deriveBody(inner, type);
+  if (!inner.registry.has(id)) {
+    inner.registry.set(id, { $id: id });
+    inner.registry.set(id, { $id: id, ...deriveBody(inner, type) });
+  }
+  return { $ref: id };
 }
 
 function deriveBody(ctx: DeriveContext, type: ts.Type): JsonSchema {

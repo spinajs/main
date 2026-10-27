@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import { derive, ref } from './harness.js';
 import type { JsonSchema } from '../../src/schema/derive.js';
 
-type Row = { name: string; schema: JsonSchema; id?: string; codes?: string[]; pending?: boolean };
+type Row = { name: string; schema: JsonSchema; id?: string; codes?: string[] };
 
 export const ROWS: Row[] = [
   { name: 'PString', schema: { type: 'string' } },
@@ -15,8 +15,8 @@ export const ROWS: Row[] = [
   { name: 'LBool', schema: { const: true } },
   { name: 'LUnion', schema: { enum: ['a', 'b'] } },
   { name: 'LNumUnion', schema: { enum: [1, 2] } },
-  { name: 'Color', schema: { $id: 'fixture/Color', enum: ['red', 'blue'] }, id: 'fixture/Color', pending: true },
-  { name: 'Level', schema: { $id: 'fixture/Level', enum: [0, 1] }, id: 'fixture/Level', pending: true },
+  { name: 'Color', schema: { $id: 'fixture/Color', enum: ['red', 'blue'] }, id: 'fixture/Color' },
+  { name: 'Level', schema: { $id: 'fixture/Level', enum: [0, 1] }, id: 'fixture/Level' },
   { name: 'AStr', schema: { type: 'array', items: { type: 'string' } } },
   { name: 'AGeneric', schema: { type: 'array', items: { type: 'number' } } },
   { name: 'AReadonly', schema: { type: 'array', items: { type: 'string' } } },
@@ -28,17 +28,17 @@ export const ROWS: Row[] = [
   { name: 'UOptionalUndef', schema: { type: 'string' } },
   { name: 'UMixed', schema: { anyOf: [{ type: 'string' }, { type: 'number' }] } },
   { name: 'UBoolOrStr', schema: { anyOf: [{ type: 'boolean' }, { const: 'auto' }] } },
-  { name: 'UObjNull', schema: { anyOf: [ref('Point'), { type: 'null' }] }, pending: true },
-  { name: 'Shape', schema: { oneOf: [ref('Circle'), ref('Square')], 'x-discriminator': { propertyName: 'kind', mapping: { circle: 'fixture/Circle', square: 'fixture/Square' } } }, pending: true },
-  { name: 'IAB', schema: { allOf: [ref('A'), ref('B')] }, pending: true },
-  { name: 'Point', schema: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } }, required: ['x', 'y'], additionalProperties: false } },
-  { name: 'OOptional', schema: { type: 'object', properties: { a: { type: 'string' }, b: { type: 'number' } }, required: ['a'], additionalProperties: false } },
-  { name: 'OReadonly', schema: { type: 'object', properties: { id: { type: 'number' } }, required: ['id'], additionalProperties: false } },
-  { name: 'OMethods', schema: { type: 'object', properties: { a: { type: 'string' } }, required: ['a'], additionalProperties: false } },
-  { name: 'OIndex', schema: { type: 'object', additionalProperties: { type: 'number' } } },
+  { name: 'UObjNull', schema: { anyOf: [ref('Point'), { type: 'null' }] } },
+  { name: 'Shape', schema: { oneOf: [ref('Circle'), ref('Square')], 'x-discriminator': { propertyName: 'kind', mapping: { circle: 'fixture/Circle', square: 'fixture/Square' } } } },
+  { name: 'IAB', schema: { allOf: [ref('A'), ref('B')] } },
+  { name: 'Point', id: 'fixture/Point', schema: { $id: 'fixture/Point', type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } }, required: ['x', 'y'], additionalProperties: false } },
+  { name: 'OOptional', id: 'fixture/OOptional', schema: { $id: 'fixture/OOptional', type: 'object', properties: { a: { type: 'string' }, b: { type: 'number' } }, required: ['a'], additionalProperties: false } },
+  { name: 'OReadonly', id: 'fixture/OReadonly', schema: { $id: 'fixture/OReadonly', type: 'object', properties: { id: { type: 'number' } }, required: ['id'], additionalProperties: false } },
+  { name: 'OMethods', id: 'fixture/OMethods', schema: { $id: 'fixture/OMethods', type: 'object', properties: { a: { type: 'string' } }, required: ['a'], additionalProperties: false } },
+  { name: 'OIndex', id: 'fixture/OIndex', schema: { $id: 'fixture/OIndex', type: 'object', additionalProperties: { type: 'number' } } },
   { name: 'ORecord', schema: { type: 'object', additionalProperties: { type: 'boolean' } } },
-  { name: 'OLiteral', schema: { type: 'object', properties: { a: { type: 'string' } }, required: ['a'], additionalProperties: false } },
-  { name: 'CDto', schema: { type: 'object', properties: { a: { type: 'string' }, b: { type: 'number' } }, required: ['a'], additionalProperties: false } },
+  { name: 'OLiteral', id: 'fixture/OLiteral', schema: { $id: 'fixture/OLiteral', type: 'object', properties: { a: { type: 'string' } }, required: ['a'], additionalProperties: false } },
+  { name: 'CDto', id: 'fixture/CDto', schema: { $id: 'fixture/CDto', type: 'object', properties: { a: { type: 'string' }, b: { type: 'number' } }, required: ['a'], additionalProperties: false } },
   { name: 'UPartial', schema: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } }, additionalProperties: false } },
   { name: 'UPick', schema: { type: 'object', properties: { x: { type: 'number' } }, required: ['x'], additionalProperties: false } },
   { name: 'UOmit', schema: { type: 'object', properties: { y: { type: 'number' } }, required: ['y'], additionalProperties: false } },
@@ -54,8 +54,7 @@ export const ROWS: Row[] = [
 
 describe('deriveSchema', () => {
   for (const row of ROWS) {
-    const run = row.pending ? it.skip : it;
-    run(`derives ${row.name}`, () => {
+    it(`derives ${row.name}`, () => {
       const result = derive(row.name);
       expect(result.schema).to.deep.equal(row.schema);
       expect(result.id).to.equal(row.id);
