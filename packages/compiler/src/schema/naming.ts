@@ -17,7 +17,7 @@ function typeArgumentsOf(checker: ts.TypeChecker, type: ts.Type, viaAlias: boole
   return [];
 }
 
-/** An interface or class names the type itself; an alias names it only when the type is anonymous (literal, union of objects, …). */
+/** A class, interface or enum names the type; an alias names it only when the type is anonymous. */
 function namingSymbol(type: ts.Type): { symbol: ts.Symbol; viaAlias: boolean } | undefined {
   const own = type.getSymbol();
   if (own && own.flags & (ts.SymbolFlags.Class | ts.SymbolFlags.Interface | ts.SymbolFlags.Enum)) return { symbol: own, viaAlias: false };
