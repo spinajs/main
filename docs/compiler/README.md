@@ -120,6 +120,18 @@ Every diagnostic has a `code`, a `severity` (`error`, `warning`, `info`), a `mes
 
 Run `node packages/compiler/scripts/report-diagnostics.mjs <packageDir> [--fail-on CODE,...]` to list one package's diagnostics with a count per code and severity. `--fail-on` exits 1 when a listed code occurs as a `warning` or an `error`; `info` never fails it.
 
+### Known findings in the framework packages
+
+The triage of `users-http`, `teams-http` and `authz-http-admin` left these diagnostics open. `teams-http` has none.
+
+| Code | Where | Cause | Fix |
+| --- | --- | --- | --- |
+| `SCH003` | `users-http` `UserMetadataDto` (`src/dto/metadata-dto.ts`) | The schema makes `Value` optional (`required: [Key, Type]`), the class declares it required. The schema types `Type` as `{ type: 'string', enum: [...] }`, the class as a literal union, which the drift rule reads as an enum. | Declare `public Value?: string`. For `Type`, drop `type: 'string'` from the schema (the `enum` alone says the same), or teach the drift rule that a string `enum` matches a literal union. |
+| `SCH003` | `users-http` `arrow.common.banUserDTO` (`BanUserDto`, `Security.ts`) and `arrow.common.updateUserDto` (`UpdateUserDto`, `Users.ts`) | `reauthPassword` is in the schema (the fresh-authentication password) but not on the class. | Declare `public reauthPassword?: string` on both classes. |
+| `SCH003` | `authz-http-admin` `AuthzAssignmentGrant`, `AuthzAssignmentPatch`, `AuthzLinkCreate`, `AuthzLinkPatch`, `AuthzRuleBody`, `AuthzPolicyBody` (`src/dto`) | False drift. Each schema is built at runtime (`{ ...bodyOf(...), description }`). The analyzer cannot evaluate the `bodyOf(...)` spread, drops it without a diagnostic and keeps only `description`, so every class property reads as "only in class" and `required` as `[]`. | In the compiler: a spread the analyzer cannot evaluate makes the whole `@Schema` argument non-literal (`CMP001`), and `SCH003` skips a schema it could not read. Until then, the six diagnostics are noise. |
+| `SCH001` warning | `@spinajs/orm` `MetadataModel.Value` (`orm/src/metadata.ts`), reached through `users-http` `FilterableUserMetadata` | The `Value` accessor is typed `any`. | Type it `unknown` in `@spinajs/orm`. Out of scope for the triage: the type change reaches every metadata consumer. |
+| `SCH001` info | `users-http` (5) and `authz-http-admin` (4) | Opaque by design: `unknown` values (`UserProfile.AdditionalData`, `CreateUserDto.Metadata`, link `attributes`) and models read from `@spinajs/users` declaration files (`User`, `UserMetadataBase`, `FilterableUserMetadata`). | None needed. |
+
 `runDoctor` runs consistency rules over a manifest and is exported from the same package.
 
 ## TypeScript version
