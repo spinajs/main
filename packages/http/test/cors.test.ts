@@ -8,7 +8,7 @@ import { InvalidOption } from '@spinajs/exceptions';
 
 import { CorsMiddleware, parseOrigin } from '../src/middlewares/Cors.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
-import { boot, disposeBooted, readingFrom, violationsOf } from './support/config-boot.js';
+import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 chai.use(chaiHttp);
 
@@ -17,7 +17,7 @@ const EVIL = 'https://evil.example.test';
 
 /** A CorsMiddleware reading `http.cors` (absent when undefined) from a Configuration the http schema checked. */
 async function middleware(cors: unknown) {
-  const { child } = await boot([HTTP_CONFIGURATION_SCHEMA], cors === undefined ? {} : { http: { cors } });
+  const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: cors === undefined ? {} : { http: { cors } } });
   const mw = readingFrom(new CorsMiddleware(), child);
   const warn = sinon.stub();
   Object.defineProperty(mw, 'Log', { value: { warn } });
@@ -41,7 +41,7 @@ const preflight = async (cors: unknown, origin: string) =>
 const acHeaders = (res: { header: Record<string, string> }) => Object.keys(res.header).filter((n) => n.startsWith('access-control-'));
 
 describe('CorsMiddleware (A31)', () => {
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   it('A31 without http.cors installs no middleware and warns', async () => {
     for (const cors of [undefined, null, false, true]) {
@@ -154,9 +154,9 @@ describe('CorsMiddleware (A31)', () => {
 
   it('A31 an origin entry that is not a URL origin fails the boot', async () => {
     for (const entry of ['partner.example.test', 'localhost:3000', 'null', '', 'https://partner.example.test/app', 'https://partner.example.test?x=1', 'https://*.example.test', 'https://user@partner.example.test']) {
-      expect(await violationsOf([HTTP_CONFIGURATION_SCHEMA], { http: { cors: { origins: [entry] } } }), entry).to.include('http.cors.origins.0');
+      expect(await configurationViolations({ schemas: [HTTP_CONFIGURATION_SCHEMA], config: { http: { cors: { origins: [entry] } } } }), entry).to.include('http.cors.origins.0');
     }
-    expect(await violationsOf([HTTP_CONFIGURATION_SCHEMA], { http: { cors: { origins: 'https://a.example' } } })).to.include('http.cors.origins');
+    expect(await configurationViolations({ schemas: [HTTP_CONFIGURATION_SCHEMA], config: { http: { cors: { origins: 'https://a.example' } } } })).to.include('http.cors.origins');
   });
 
   it('A31 an origin entry the schema lets through but URL refuses fails when the middleware is built', async () => {

@@ -9,7 +9,7 @@ import { InvalidOption } from '@spinajs/exceptions';
 import { BaseController, BasePath, Ok, Post } from '../src/index.js';
 import { MemoryThrottleStore, ThrottleMiddleware, IThrottleRule, ThrottleStore } from '../src/middlewares/Throttle.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
-import { boot, disposeBooted, readingFrom, setPastSchema } from './support/config-boot.js';
+import { createTestApp, disposeTestApps, readingFrom, setPastSchema } from '@spinajs/testing';
 
 interface IFakeResult {
   nextCalled: boolean;
@@ -21,7 +21,7 @@ interface IFakeResult {
 
 /** A ThrottleMiddleware reading `http.throttle` (absent when undefined) from a Configuration the http schema checked. */
 async function makeMiddleware(cfg: { enabled?: boolean; rules?: IThrottleRule[]; ipv6Prefix?: number } | undefined, store?: ThrottleStore) {
-  const { child } = await boot([HTTP_CONFIGURATION_SCHEMA], cfg === undefined ? {} : { http: { throttle: cfg } });
+  const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: cfg === undefined ? {} : { http: { throttle: cfg } } });
   const mw = readingFrom(new ThrottleMiddleware(), child);
   // decorator-injected properties are getter-only; redefine them for the unit test
   Object.defineProperty(mw, 'Store', { value: store ?? new MemoryThrottleStore() });
@@ -94,7 +94,7 @@ class RelocatableController extends BaseController {
 describe('ThrottleMiddleware', () => {
   afterEach(async () => {
     sinon.restore();
-    await disposeBooted();
+    await disposeTestApps();
   });
 
   describe('MemoryThrottleStore', () => {
@@ -134,7 +134,7 @@ describe('ThrottleMiddleware', () => {
         [{ path: '/auth', limit: 5, windowSeconds: Infinity }, 'http.throttle.rules.0.windowSeconds'],
       ];
       for (const [rule, key] of cases) {
-        const { child } = await boot([HTTP_CONFIGURATION_SCHEMA], { http: { throttle: { enabled: true } } });
+        const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: { http: { throttle: { enabled: true } } } });
         setPastSchema((await child.resolve(Configuration)) as Configuration, 'http.throttle.rules', [rule]);
         const mw = readingFrom(new ThrottleMiddleware(), child);
         expect(() => mw.before(), JSON.stringify(rule)).to.throw(InvalidOption, key);
@@ -142,7 +142,7 @@ describe('ThrottleMiddleware', () => {
     });
 
     it('keeps a limit of 0 set past the schema: every matching request is refused', async () => {
-      const { child } = await boot([HTTP_CONFIGURATION_SCHEMA], { http: { throttle: { enabled: true } } });
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: { http: { throttle: { enabled: true } } } });
       setPastSchema((await child.resolve(Configuration)) as Configuration, 'http.throttle.rules', [{ path: '/auth', limit: 0, windowSeconds: 60 }]);
       const mw = readingFrom(new ThrottleMiddleware(), child);
       Object.defineProperty(mw, 'Store', { value: new MemoryThrottleStore() });

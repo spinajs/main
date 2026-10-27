@@ -6,14 +6,14 @@ import { InvalidOption } from '@spinajs/exceptions';
 import { RealIp, parseTrustProxy, parseTrustProxyOverride, requestProxyTrust, trustedClientAddress, isTrustedPeer, requestOrigin } from '../src/middlewares/RealIp.js';
 import { MemoryThrottleStore, ThrottleMiddleware } from '../src/middlewares/Throttle.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
-import { boot, disposeBooted, readingFrom } from './support/config-boot.js';
+import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 const SOCKET = '203.0.113.9';
 const SPOOF = '198.51.100.66';
 
 /** A RealIp reading `http.trustProxy` (absent when undefined) from a Configuration the http schema checked. */
 async function realIp(trustProxy: unknown) {
-  const { child } = await boot([HTTP_CONFIGURATION_SCHEMA], trustProxy === undefined ? {} : { http: { trustProxy } });
+  const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: trustProxy === undefined ? {} : { http: { trustProxy } } });
   return readingFrom(new RealIp(), child);
 }
 
@@ -22,7 +22,7 @@ function fakeReq(xff?: string | string[], socket: string | undefined = SOCKET, e
 }
 
 describe('trusted client address (RealIp)', () => {
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   describe('parseTrustProxy', () => {
     const at = (v: unknown) => trustedClientAddress(SOCKET, '192.0.2.1, 192.0.2.2', parseTrustProxy(v, 'http.trustProxy'));
@@ -212,7 +212,7 @@ describe('trusted client address (RealIp)', () => {
           return parseTrustProxyOverride(2, 'app.trustProxy', this.TrustProxy);
         }
       }
-      const { child } = await boot([HTTP_CONFIGURATION_SCHEMA], { http: { trustProxy: null } });
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: { http: { trustProxy: null } } });
       const req = fakeReq(`${SPOOF}, 192.0.2.1`);
       readingFrom(new OverridingRealIp(), child).before()(req, {} as any, () => undefined);
       expect(req.storage.realIp).to.eq(SPOOF);
@@ -237,7 +237,7 @@ describe('trusted client address (RealIp)', () => {
 
   describe('ThrottleMiddleware key', () => {
     async function throttle(limit: number, path = '/auth') {
-      const { child } = await boot([HTTP_CONFIGURATION_SCHEMA], { http: { throttle: { enabled: true, rules: [{ path, methods: ['POST'], limit, windowSeconds: 60 }] } } });
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: { http: { throttle: { enabled: true, rules: [{ path, methods: ['POST'], limit, windowSeconds: 60 }] } } } });
       const mw = readingFrom(new ThrottleMiddleware(), child);
       Object.defineProperty(mw, 'Store', { value: new MemoryThrottleStore() });
       Object.defineProperty(mw, 'Log', { value: { warn: sinon.stub() } });
