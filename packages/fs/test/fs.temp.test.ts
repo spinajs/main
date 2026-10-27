@@ -4,7 +4,6 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
-import '@spinajs/templates-pug';
 import { fs, fsService } from '../src/index.js';
 import { sleep } from '@spinajs/threading';
 import type { TestApp } from '@spinajs/testing';

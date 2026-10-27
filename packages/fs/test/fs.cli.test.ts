@@ -4,7 +4,6 @@ import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import '@spinajs/templates-pug';
 import { cp } from 'fs/promises';
 import { join } from 'path';
 import { fs, fsService } from '../src/index.js';

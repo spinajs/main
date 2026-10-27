@@ -4,7 +4,6 @@ import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
 import { fs, fsNative, fsService } from './../src/index.js';
-import '@spinajs/templates-pug';
 import { dir, fsApp } from './common.js';
 import { expect } from 'chai';
 import { extname, isAbsolute, join } from 'path';
