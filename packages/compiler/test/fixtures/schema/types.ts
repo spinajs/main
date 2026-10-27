@@ -64,6 +64,7 @@ export type WDate = Date;
 export type WDateTime = DateTime;
 export type WBuffer = Buffer;
 export type WU8 = Uint8Array;
+export type WF32 = Float32Array;
 export type WReadable = Readable;
 export type WStream = Stream;
 

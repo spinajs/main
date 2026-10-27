@@ -47,6 +47,7 @@ export const ROWS: Row[] = [
   { name: 'WDateTime', schema: { type: 'string', format: 'date-time' } },
   { name: 'WBuffer', schema: { type: 'string', format: 'binary' } },
   { name: 'WU8', schema: { type: 'string', format: 'binary' } },
+  { name: 'WF32', schema: { type: 'string', format: 'binary' } },
   { name: 'WReadable', schema: { type: 'string', format: 'binary' } },
   { name: 'WStream', schema: { type: 'string', format: 'binary' } },
 ];
