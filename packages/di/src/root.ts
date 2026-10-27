@@ -1,6 +1,6 @@
 import { pathToFileURL } from 'node:url';
 import { Container } from './container.js';
-import { IBind, IContainer, IDisposeOptions, ResolvableObject, ResolveChainResult } from './interfaces.js';
+import { ChildOptions, IBind, IContainer, IDisposeOptions, ResolvableObject, ResolveChainResult } from './interfaces.js';
 import { Class, InferClass, InferTypedArray, ResolveResult, ResolveArrayResult, Factory } from './types.js';
 import { ChainArray, TypedArray } from './array.js';
 
@@ -218,8 +218,8 @@ export function checkType<T>(source: Class<any> | string | TypedArray<any>, type
  * Creates child DI container.
  *
  */
-export function child(): IContainer {
-  return RootContainer.child();
+export function child(options?: ChildOptions): IContainer {
+  return RootContainer.child(options);
 }
 
 /**

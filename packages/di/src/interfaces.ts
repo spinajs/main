@@ -33,6 +33,11 @@ export class ClassInfo<T> {
   public instance?: T;
 }
 
+export interface ChildOptions {
+  /** Singletons resolved through this child are owned by the child, even when registered in an ancestor. */
+  isolateSingletons?: boolean;
+}
+
 export interface RegisterOptions {
   /** Re-registering a class of the same name moves it to the last position (last registered wins) instead of keeping its first position. */
   replace?: boolean;
@@ -115,7 +120,7 @@ export interface IContainer extends EventEmitter {
   unregister<T>(type: string | Class<T>, implementation: Class<unknown> | Factory<unknown> | ResolvableObject): void;
   uncache<T>(source: string | Class<T> | TypedArray<T>, parent?: boolean): void;
 
-  child(): IContainer;
+  child(options?: ChildOptions): IContainer;
   get<T>(service: TypedArray<T>, parent?: boolean): T[] | null;
   get<T>(service: string | Class<T>, parent?: boolean): T | null;
   get<T>(service: string | Class<T> | TypedArray<T>, parent?: boolean): T | T[] | null;

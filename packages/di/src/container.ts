@@ -5,7 +5,7 @@ import { ChainArray, TypedArray } from './array.js';
 import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
 import { ResolveType } from './enums.js';
 import { getTypeName, isAsyncService, isChainArray, isFactory, isTypedArray, isPromise } from './helpers.js';
-import { IBind, IContainer, IDisposeOptions, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service, ResolveChainResult } from './interfaces.js';
+import { ChildOptions, IBind, IContainer, IDisposeOptions, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service, ResolveChainResult } from './interfaces.js';
 import { Class, Factory, ResolveResult } from './types.js';
 import { EventEmitter } from './events.js';
 import { Binder } from './binder.js';
@@ -86,6 +86,11 @@ export class Container extends EventEmitter implements IContainer {
   private bareInstances = new WeakSet<object>();
 
   /**
+   * Singletons resolved here (or through a plain descendant) are created and cached here, even when an ancestor registered them.
+   */
+  private readonly isolateSingletons: boolean;
+
+  /**
    * Returns container cache - map object with resolved classes as singletons
    */
   public get Cache() {
@@ -100,12 +105,13 @@ export class Container extends EventEmitter implements IContainer {
     return this.parent;
   }
 
-  constructor(parent?: IContainer) {
+  constructor(parent?: IContainer, options?: ChildOptions) {
     super();
 
     this.registry = new Registry(this);
     this.cache = new ContainerCache(this);
     this.parent = parent;
+    this.isolateSingletons = options?.isolateSingletons ?? false;
   }
 
   /**
@@ -241,8 +247,8 @@ export class Container extends EventEmitter implements IContainer {
    * Creates child DI container.
    *
    */
-  public child(): IContainer {
-    const child = new (this.constructor as new (parent?: IContainer) => Container)(this);
+  public child(options?: ChildOptions): IContainer {
+    const child = new (this.constructor as new (parent?: IContainer, options?: ChildOptions) => Container)(this, options);
     this.children.add(child);
 
     // Remove from parent when child is disposed
@@ -550,12 +556,12 @@ export class Container extends EventEmitter implements IContainer {
 
   /**
    * The container that owns the registration under `key`: the nearest one, starting at
-   * this container, with its own registry entry for it. A key registered nowhere is
-   * owned by this container.
+   * this container, with its own registry entry for it, or the nearest isolating one
+   * if that comes first. A key registered nowhere is owned by this container.
    */
   private findOwner(key: string): Container {
     for (let c: IContainer | undefined = this; c; c = c.Parent) {
-      if (c.Registry.ownsRegistration(key)) {
+      if (c.Registry.ownsRegistration(key) || (c as Container).isolateSingletons) {
         return c as Container;
       }
     }
@@ -629,11 +635,11 @@ export class Container extends EventEmitter implements IContainer {
     const register = !exact && owner === this && ownsKey;
 
     // Registered nowhere: the class is built as is, but recording it would make it look registered.
-    const bare = !exact && owner === this && !ownsKey;
+    const bare = !exact && !this.Registry.hasRegistered(sName);
 
     // A container that registered the key itself must not pick up an ancestor's instance
-    // that only shares the class name.
-    const lookupParents = !ownsKey;
+    // that only shares the class name; an isolating one never serves an ancestor's instance.
+    const lookupParents = !ownsKey && !this.isolateSingletons;
 
     const resolve = (d: IInjectDescriptor<unknown>, t: Class<T>, i: IResolvedInjection[]) => {
       if (d.resolver === ResolveType.NewInstance) {

@@ -6,7 +6,7 @@ A child container inherits every registration and cached instance of its parent 
 
 1. `DI.child()` or `container.child()` creates a container of the parent's class, `new Container(parent)` by default. The parent keeps it in its children set until the child emits `di.dispose`.
 2. **Lookup.** A key the child has not registered is looked up in the parent, then the grandparent, up to the root. A key the child registers hides the parent's list for single resolves and for `Array.ofType`. `Array.chainOf` merges all levels; see [Multiple implementations](06-multiple-implementations.md).
-3. **Owner.** For each resolve the container finds the **owner** of the key: the nearest container, starting at itself, that registered the key. A key registered nowhere is owned by the resolving container.
+3. **Owner.** For each resolve the container finds the **owner** of the key: the nearest container, starting at itself, that registered the key. A key registered nowhere is owned by the resolving container. A container created with `child({ isolateSingletons: true })` owns every key resolved through it (or through a plain child of it) that it reaches before the registering ancestor, and never reuses an ancestor's cached instance.
 4. **Where the instance is built and cached:**
    - `Singleton`, `PerInstance`, `PerInstanceCheck`: in the owner, with the owner's dependencies.
    - `PerChildContainer`: in the resolving container.
@@ -37,6 +37,7 @@ sequenceDiagram
 | Nobody registers `Report`; a child resolves it first | That child; a sibling builds its own |
 | The child already holds a cached instance of the class | The child's instance wins over the owner's |
 | `@PerChildInstance()` class, registered anywhere | Every container that resolves it |
+| Root registers `Mailer`; a `child({ isolateSingletons: true })` resolves it | That child; root caches nothing, and disposing the child disposes it |
 
 A singleton built in the root gets root dependencies, even when a child resolves it and has its own registration for one of those dependencies. `@Autoinject(Container)` in it receives the root container.
 
@@ -47,7 +48,7 @@ A singleton built in the root gets root dependencies, even when a child resolves
 | `Parent` | The parent container, `undefined` for the root and for a standalone container |
 | `Registry` | The `Registry`: what is registered under which key, and the values from `asValue` / `asMapValue` |
 | `Cache` | The `ContainerCache`: built instances, iterable as `{ key, value }`; `has` and `get` also see the registry's values |
-| `child()` | A new child of this container |
+| `child(options?)` | A new child of this container; `{ isolateSingletons: true }` makes it own the singletons resolved through it |
 | `dispose(options?)` | Dispose children and cached services, clear the cache; `{ plainOwners: true }` also disposes cached non-`Service` instances that have a `dispose()` |
 | `isCached(instance, parent = false)` | `true` when this container's cache holds `instance` |
 | `clear()`, `clearCache()`, `clearRegistry()` | Empty this container's cache and registry; values go with the registry |
