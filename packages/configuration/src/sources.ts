@@ -183,9 +183,10 @@ export abstract class BaseFileSource extends ConfigurationSource {
       .reduce((prev, current) => {
         return prev.concat(_.flattenDeep(current));
       }, [])
-      // real paths: a workspace package's own lib/config is also reached through its node_modules symlink
+      // A workspace package's own lib/config is also reached through its node_modules symlink. The last place a
+      // file is reached wins, so a project dir searched later still merges over the package globs.
       .map((f: string) => fs.realpathSync(f))
-      .filter((f: string, index: number, self: unknown[]) => self.indexOf(f) === index)
+      .filter((f: string, index: number, self: unknown[]) => self.lastIndexOf(f) === index)
       .map(callback);
 
     const result = await Promise.all<IConfigLike>(toResolve);

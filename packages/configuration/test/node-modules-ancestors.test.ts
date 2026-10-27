@@ -134,4 +134,20 @@ describe('BaseFileSource config file discovery', () => {
 
     expect(files).to.have.length(1);
   });
+
+  // The project's own lib/config is searched after the package globs so it overrides them.
+  it('keeps the last place a file is reached, so later dirs still merge over earlier ones', async () => {
+    const real = join(tmp, 'app', 'lib', 'config');
+    const other = join(tmp, 'other', 'config');
+    fs.mkdirSync(real, { recursive: true });
+    fs.mkdirSync(other, { recursive: true });
+    fs.writeFileSync(join(real, 'app.js'), 'export default {};\n');
+    fs.writeFileSync(join(other, 'other.js'), 'export default {};\n');
+    const linked = join(tmp, 'node_modules-app');
+    fs.symlinkSync(join(tmp, 'app'), linked, 'junction');
+
+    const { files } = await new LoadProbe().loadFrom([join(linked, 'lib', 'config'), other, real]);
+
+    expect(files).to.deep.equal([join(other, 'other.js'), join(real, 'app.js')]);
+  });
 });
