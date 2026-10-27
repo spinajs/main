@@ -144,6 +144,9 @@ export type TUpper = Uppercase<string>;
 // --- recursive aliases
 export type RFilter = { op: 'not'; arg: RFilter } | { op: 'and'; args: readonly RFilter[] } | { op: 'leaf'; field: string };
 export interface RHolder { filter: RFilter; again: RFilter }
+export type OFilter = { op: 'not'; arg?: OFilter } | { op: 'leaf'; field: string };
+export type NFilter = { op: 'not'; arg: NFilter | null } | { op: 'leaf'; field: string };
+export interface OHolder { filter: OFilter; maybe?: OFilter; nullable: NFilter | null }
 
 // --- class member visibility
 export class CVisibility {
