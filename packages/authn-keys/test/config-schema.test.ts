@@ -12,22 +12,22 @@ import { MemoryNonceStore } from '@spinajs/authn/nonces';
 import { DefaultKeyRegistry, MemoryKeyStore } from '../src/registry/index.js';
 import { HttpSignatureStrategy, JwsAssertionStrategy, KeyChallengeStrategy } from '../src/strategies/index.js';
 import { StrictJwsVerifier } from '../src/jws/index.js';
-import { boot, disposeBooted, readingFrom, violationsOf } from './support/config-boot.js';
 import { TEST_KEYS_CONFIG, keysOptionsFor } from './support/keys-options.js';
 import type { KeysOverrides } from './support/keys-options.js';
+import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_KEYS_CONFIGURATION_SCHEMA];
-const bad = (keys: Record<string, unknown>) => violationsOf(SCHEMAS, { authn: { keys } });
+const bad = (keys: Record<string, unknown>) => configurationViolations({ schemas: SCHEMAS, config: { authn: { keys } } });
 const AUD = 'https://keys.example.test';
 
 async function parts(keys: Record<string, unknown>) {
-  const { child, configuration } = await boot(SCHEMAS, { authn: { keys } });
+  const { container: child, config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { keys } } });
   const registry = readingFrom(new DefaultKeyRegistry({ store: new MemoryKeyStore(), secrets: new MemorySecretStore(), throttle: new FakeBackoffThrottle(throttleParams()) }), child);
   return { child, configuration, registry };
 }
 
 describe('authn.keys through the schema', () => {
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   describe('defaults', () => {
     it('AuthnKeysConfigBootstrapper registers the authn.keys fragment', () => {
@@ -36,7 +36,7 @@ describe('authn.keys through the schema', () => {
     });
 
     it('with no user config, the effective authn.keys equals the defaults of the former single authn schema', async () => {
-      const { configuration } = await boot(SCHEMAS, {});
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
       expect(configuration.get('authn.keys')).to.deep.eq({
         algorithms: ['EdDSA', 'ES256'],
         challenge: { ttlSeconds: 120, audience: null },
@@ -48,12 +48,12 @@ describe('authn.keys through the schema', () => {
     });
 
     it('fills the whole block, equal to the test fixture', async () => {
-      const { configuration } = await boot(SCHEMAS, {});
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
       expect(configuration.get('authn.keys')).to.deep.eq({ ...TEST_KEYS_CONFIG, signer: null });
     });
 
     it('keeps a configured value and fills the rest of its block', async () => {
-      const { configuration } = await boot(SCHEMAS, { authn: { keys: { assertion: { audience: AUD, skewSeconds: 10 } } } });
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { keys: { assertion: { audience: AUD, skewSeconds: 10 } } } } });
       expect(configuration.get('authn.keys.assertion')).to.deep.eq({ ...TEST_KEYS_CONFIG.assertion, audience: AUD, skewSeconds: 10 });
       expect(configuration.get('authn.keys.httpSignature.skewSeconds')).to.eq(30);
     });
