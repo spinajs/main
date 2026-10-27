@@ -14,10 +14,19 @@ import { ContainerCache } from './container-cache.js';
 import _ from 'lodash';
 import { ServiceNotFound } from './exceptions.js';
 
-const MAX_RESTORE_PASSES = 5;
+const MAX_RESTORE_GENERATIONS = 5;
 
 // Kept beside the snapshot so ContainerSnapshot keeps the shape of the public contract.
 const snapshotMaps = new WeakMap<ContainerSnapshot, ValueMapContents>();
+
+type Disposable = IContainer | Service;
+
+interface RestoreRun {
+  snapshot: ContainerSnapshot;
+  /** Everything already queued, disposed or dropped, so no rescan hands it out again. */
+  claimed: Set<Disposable>;
+  errors: Error[];
+}
 
 /**
  * Maps `items` with `fn`. When `fn` throws synchronously, promises returned for the
@@ -181,41 +190,63 @@ export class Container extends EventEmitter implements IContainer {
   }
 
   public async restore(snapshot: ContainerSnapshot): Promise<void> {
-    const errors: Error[] = [];
-    const disposed = new Set<unknown>();
+    const run: RestoreRun = { snapshot, claimed: new Set(), errors: [] };
 
-    // Disposal runs while the state the services were created in is still live, so a dispose() can read
-    // its config and injections. Every further pass disposes what the previous pass's disposal resolved.
-    let pass = 0;
-    for (;;) {
+    // Disposal runs while the state the services were created in is still live, so a dispose() can read its config and injections.
+    for (let round = 0; ; round++) {
       await this.cache.settle();
-      const { children, services } = this.detachedSince(snapshot, disposed);
-      if (children.length === 0 && services.length === 0) {
+      const generation = this.claimUndisposed(run);
+      if (generation.length > 0) {
+        await this.disposeGeneration(generation, round, run);
+      } else if (!this.cache.hasPending()) {
+        // Checked in the same synchronous step as the swap: a resolve started after settle() returned
+        // would otherwise finish into the restored cache.
         break;
       }
-
-      if (pass === MAX_RESTORE_PASSES) {
-        console.warn(`restore() stopped after ${MAX_RESTORE_PASSES} passes: disposal kept resolving services; ${services.length} were dropped without dispose()`);
-        break;
-      }
-
-      pass++;
-      await this.disposeDetached(children, services, disposed, errors);
     }
 
-    // No await since the last settle: nothing can be resolved between the check above and the swap.
     this.swapBack(snapshot);
 
-    if (errors.length > 0) {
-      console.warn(`${errors.length} services failed to dispose properly during restore:`, errors);
+    if (run.errors.length > 0) {
+      console.warn(`${run.errors.length} services failed to dispose properly during restore:`, run.errors);
     }
   }
 
-  /** The children and the Services cached since `snapshot` that are not disposed yet, latest resolved first. */
-  private detachedSince(snapshot: ContainerSnapshot, disposed: Set<unknown>): { children: IContainer[]; services: Service[] } {
-    const children = [...this.children].filter((child) => !disposed.has(child));
-    const services = this.cache.droppedSince(snapshot.cache).filter((instance): instance is Service => instance instanceof Service && !disposed.has(instance));
-    return { children, services };
+  /** Children and Services cached since the snapshot that are not claimed yet, children first, then latest cached first. */
+  private claimUndisposed(run: RestoreRun): Disposable[] {
+    const children = [...this.children].filter((child) => !run.claimed.has(child));
+    const services = this.cache.droppedSince(run.snapshot.cache).filter((instance): instance is Service => instance instanceof Service && !run.claimed.has(instance));
+    const generation = [...children, ...services];
+    generation.forEach((item) => run.claimed.add(item));
+    return generation;
+  }
+
+  /**
+   * Disposes `generation` in order. Whatever one dispose() leaves cached is disposed right after it, before the rest of
+   * `generation`, so newer services always go before the older ones they may depend on.
+   */
+  private async disposeGeneration(generation: Disposable[], depth: number, run: RestoreRun): Promise<void> {
+    if (depth >= MAX_RESTORE_GENERATIONS) {
+      const children = generation.filter((item) => !(item instanceof Service)).length;
+      console.warn(
+        `restore() stopped after ${MAX_RESTORE_GENERATIONS} generations of services resolved during disposal: ${generation.length - children} services and ${children} children were dropped without dispose()`,
+      );
+      return;
+    }
+
+    for (const item of generation) {
+      try {
+        await item.dispose();
+      } catch (err) {
+        run.errors.push(err as Error);
+      }
+
+      await this.cache.settle();
+      const newer = this.claimUndisposed(run);
+      if (newer.length > 0) {
+        await this.disposeGeneration(newer, depth + 1, run);
+      }
+    }
   }
 
   /** One synchronous step, so the container is never seen half-restored. */
@@ -224,22 +255,6 @@ export class Container extends EventEmitter implements IContainer {
     this.cache.restoreState(snapshot.cache);
     this.registry.restoreState(snapshot.registry, snapshot.values, snapshotMaps.get(snapshot));
     this.restoreListeners(snapshot.listeners);
-  }
-
-  private async disposeDetached(children: IContainer[], services: Service[], disposed: Set<unknown>, errors: Error[]): Promise<void> {
-    for (const child of children) {
-      disposed.add(child);
-      await child.dispose().catch((err: Error) => errors.push(err));
-    }
-
-    for (const service of services) {
-      disposed.add(service);
-      try {
-        await service.dispose();
-      } catch (err) {
-        errors.push(err as Error);
-      }
-    }
   }
 
   /** Removes every listener added since the snapshot, a second copy of a kept one included. */

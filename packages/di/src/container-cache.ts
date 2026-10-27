@@ -338,11 +338,19 @@ export class ContainerCache {
     }
   }
 
+  /** Synchronous, unlike settle(): true while a resolution started in this container is in flight. */
+  public hasPending(): boolean {
+    return this.resolutionPromises.size > 0 || this.pendingChecked.size > 0;
+  }
+
   public snapshotState(): Map<string, unknown[]> {
     return new Map([...this.cache].map(([key, list]) => [key, [...list]]));
   }
 
-  /** The instances cached now that `state` does not hold, latest resolved first, for disposal in reverse resolution order. */
+  /**
+   * The instances cached now that `state` does not hold, in reverse order of their cache keys. That is latest resolved first,
+   * except for an instance appended to a key that already existed.
+   */
   public droppedSince(state: ReadonlyMap<string, unknown[]>): unknown[] {
     const kept = new Set<unknown>([...state.values()].flat());
     const dropped = new Set<unknown>();
