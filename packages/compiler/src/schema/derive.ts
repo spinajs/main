@@ -6,7 +6,7 @@ import { modelDataType, modelType } from './handlers/model.js';
 import { objectType, setPropertyConstraints } from './handlers/object.js';
 import { primitive } from './handlers/primitive.js';
 import { jsdocConstraints } from './jsdoc.js';
-import { explicitSchema } from './explicit.js';
+import { explicitSchema, type ExplicitSchema } from './explicit.js';
 import { aliasName, hoistedId } from './naming.js';
 import { addsNull, nullableAliasOf } from './nullable-alias.js';
 import { wellKnown } from './wellknown.js';
@@ -57,7 +57,7 @@ export function handlers(): TypeHandler[] {
   return handlerList;
 }
 
-export function diagnose(ctx: DeriveContext, code: 'SCH001' | 'SCH002' | 'SCH005', severity: Diagnostic['severity'], message: string): void {
+export function diagnose(ctx: DeriveContext, code: 'SCH001' | 'SCH002' | 'SCH005' | 'SCH006', severity: Diagnostic['severity'], message: string): void {
   const owner = ctx.options.foreignOwner?.(ctx.node);
   ctx.diagnostics.push({ code, severity, message: owner ? `${message} (declared in ${owner})` : message, source: ctx.options.sourceRef?.(ctx.node) });
 }
@@ -89,10 +89,25 @@ export function deriveType(ctx: DeriveContext, type: ts.Type): JsonSchema {
     }
     inner.registry.set(id, { $id: id });
     const derived = deriveBody(inner, type);
-    if (!explicit) inner.registry.set(id, { $id: id, ...derived });
-    else inner.registry.set(id, { ...explicit.schema, $id: id, 'x-derived': derived });
+    inner.registry.set(id, publishedBody(inner, id, type, explicit, derived));
   }
   return { $ref: id };
+}
+
+/** A partly evaluated explicit schema would publish a truncated contract, so the derived one stands in for it, marked partial. */
+function publishedBody(ctx: DeriveContext, id: string, type: ts.Type, explicit: ExplicitSchema | undefined, derived: JsonSchema): JsonSchema {
+  if (!explicit) return { $id: id, ...derived };
+  if (!explicit.unresolved.length) return { ...explicit.schema, $id: id, 'x-derived': derived };
+  const unresolved = explicit.unresolved.map((node) => shortText(node)).join(', ');
+  const name = ctx.checker.typeToString(type);
+  diagnose({ ...ctx, node: explicit.unresolved[0] }, 'SCH006', 'warning', `explicit @Schema of ${name} cannot be evaluated at ${unresolved}; the schema derived from the class is published instead, marked x-explicit: partial`);
+  const { title, description } = explicit.schema;
+  return { $id: id, ...derived, ...(title !== undefined && { title }), ...(description !== undefined && { description }), 'x-explicit': 'partial' };
+}
+
+function shortText(node: ts.Node): string {
+  const text = node.getText().replace(/\s+/g, ' ');
+  return text.length > 60 ? `${text.slice(0, 57)}...` : text;
 }
 
 /** Inlined unless it refers to itself; a recursive alias is hoisted so the recursion ends in a `$ref`, not at the depth limit. */

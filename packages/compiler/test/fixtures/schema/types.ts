@@ -125,6 +125,24 @@ export class ExplicitWithIdDto { public a: string; public b: number }
 @Schema('fixture/by-ref')
 export class ExplicitRefDto { public a: string }
 
+// --- explicit @Schema the analyzer cannot fully evaluate
+const helperBody = (): object => ({ type: 'object', properties: { a: { type: 'string' } } });
+function buildSchema(): object {
+  return { type: 'object' };
+}
+const KEYS = ['a', 'b'] as const;
+const KEY = 'a';
+@Schema({ ...helperBody(), description: 'spread of a call' })
+export class ExplicitSpreadDto { public a: string; public b?: number }
+@Schema({ type: 'object', description: 'mapped', anyOf: KEYS.map((k) => ({ required: [k] })) })
+export class ExplicitMappedDto { public a?: string; public b?: number }
+@Schema(buildSchema())
+export class ExplicitCallDto { public a: string }
+@Schema({ type: 'object', properties: { [KEY]: { type: 'string' } }, required: [KEY] })
+export class ExplicitComputedKeyDto { public a: string }
+@Schema({ type: 'object', properties: { [helperBody.name]: { type: 'string' } } })
+export class ExplicitUnknownKeyDto { public a: string }
+
 // --- review fixes
 export interface OUndef { x: number | undefined; y: string }
 export class CUndef { public x!: number | undefined; public z: string }
