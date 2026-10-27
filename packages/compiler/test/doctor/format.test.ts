@@ -30,6 +30,11 @@ describe('formatDiagnostics', () => {
     ]);
   });
 
+  it('github escapes workflow-command special characters', () => {
+    const tricky = [{ code: 'X:1', severity: 'error' as const, message: '100% bad,\nnext\r', source: src('src/a,b:c.ts', 3) }];
+    expect(formatDiagnostics(tricky, 'github')).to.deep.equal(['::error file=src/a%2Cb%3Ac.ts,line=3,col=1,title=X%3A1::100%25 bad,%0Anext%0D']);
+  });
+
   it('json', () => {
     const [line] = formatDiagnostics(diags, 'json');
     expect(JSON.parse(line)).to.deep.equal({ diagnostics: diags, summary: { error: 2, warning: 1, info: 1 } });

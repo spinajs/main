@@ -46,13 +46,14 @@ A config path is covered when it equals a declared module or starts with `<modul
 
 ## Output formats
 
-`--format` selects one of three renderings; diagnostics are sorted by severity, then file, line and code.
+`--format` selects one of three renderings; `runDoctor` sorts diagnostics by severity, then file, line and code.
 
 - `text` (default): one aligned line per diagnostic, then a summary line such as
   `2 error(s), 1 warning(s), 1 info`. The location column is blank for diagnostics without a source.
 - `json`: a single line, `{"diagnostics":[...],"summary":{"error":0,"warning":0,"info":0}}`.
 - `github`: workflow annotations, `::error file=<file>,line=<line>,col=<col>,title=<code>::<message>`.
   `warning` stays `::warning`, `info` becomes `::notice`; without a source the `file=` part is omitted.
+  Special characters are escaped as GitHub requires (`%`, CR and LF in messages; also `:` and `,` in `file` and `title`).
 
 ## Exit code
 

@@ -10,6 +10,10 @@ export function summarize(diagnostics: Diagnostic[]): { error: number; warning: 
   return out;
 }
 
+// GitHub workflow-command escaping; '%' must go first.
+const escapeData = (s: string): string => s.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+const escapeProp = (s: string): string => escapeData(s).replace(/:/g, '%3A').replace(/,/g, '%2C');
+
 function location(d: Diagnostic): string {
   return d.source ? `${d.source.file}:${d.source.line}:${d.source.col}` : '';
 }
@@ -18,8 +22,8 @@ export function formatDiagnostics(diagnostics: Diagnostic[], format: DoctorForma
   if (format === 'json') return [JSON.stringify({ diagnostics, summary: summarize(diagnostics) })];
   if (format === 'github') {
     return diagnostics.map((d) => {
-      const at = d.source ? `file=${d.source.file},line=${d.source.line},col=${d.source.col},` : '';
-      return `::${GITHUB_LEVEL[d.severity]} ${at}title=${d.code}::${d.message}`;
+      const at = d.source ? `file=${escapeProp(d.source.file)},line=${d.source.line},col=${d.source.col},` : '';
+      return `::${GITHUB_LEVEL[d.severity]} ${at}title=${escapeProp(d.code)}::${escapeData(d.message)}`;
     });
   }
   const width = Math.max(0, ...diagnostics.map((d) => location(d).length));
