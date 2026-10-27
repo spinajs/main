@@ -7,8 +7,8 @@ import { generateKeyPair } from '@spinajs/authn-testing';
 
 import { AUTHN_KEYS_CONFIGURATION_SCHEMA } from '../src/schema.js';
 import { AuthnKeysSignerBootstrapper, LocalJwsSigner, StrictJwsVerifier, registerJwsSigner } from '../src/jws/index.js';
-import { boot, disposeBooted, violationsOf } from './support/config-boot.js';
 import { privateJwkOf } from './harness.js';
+import { configurationViolations, createTestApp, disposeTestApps } from '@spinajs/testing';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_KEYS_CONFIGURATION_SCHEMA];
 const PRIVATE_MEMBERS = ['d', 'p', 'q', 'dp', 'dq', 'qi', 'k'];
@@ -17,10 +17,10 @@ const AUDIENCE = 'https://signer.example.test';
 
 const secretOf = (kid: string, alg: 'EdDSA' | 'ES256' = 'EdDSA') => JSON.stringify(privateJwkOf(generateKeyPair(alg), kid));
 const signerConfig = (signer: unknown) => ({ authn: { keys: { signer } } });
-const bad = (signer: unknown) => violationsOf(SCHEMAS, signerConfig(signer));
+const bad = (signer: unknown) => configurationViolations({ schemas: SCHEMAS, config: signerConfig(signer) });
 
 async function booted(signer: unknown): Promise<IContainer> {
-  const { child } = await boot(SCHEMAS, signerConfig(signer));
+  const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: signerConfig(signer) });
   return child;
 }
 
@@ -34,17 +34,17 @@ const claims = () => {
 };
 
 describe('authn.keys.signer', () => {
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   describe('configuration', () => {
     it('defaults to null', async () => {
-      const { configuration } = await boot(SCHEMAS, {});
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
       expect(configuration.get('authn.keys.signer')).to.eq(null);
     });
 
     it('keeps a configured signer', async () => {
       const keys = [secretOf('k1'), secretOf('k2')];
-      const { configuration } = await boot(SCHEMAS, signerConfig({ current: 'k2', keys }));
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: signerConfig({ current: 'k2', keys }) });
       expect(configuration.get('authn.keys.signer')).to.deep.eq({ current: 'k2', keys });
     });
 
@@ -115,7 +115,7 @@ describe('authn.keys.signer', () => {
     });
 
     it('no signer in the configuration registers nothing', async () => {
-      const { child } = await boot(SCHEMAS, {});
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
       expect(await registerJwsSigner(child)).to.eq(null);
       expect(child.hasRegistered(JwsSigner, false)).to.eq(false);
     });
