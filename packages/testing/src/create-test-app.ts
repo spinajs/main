@@ -21,6 +21,13 @@ export interface TestAppOptions {
   scope?: 'root' | 'child';
   /** Run every registered Bootstrapper before Configuration resolves. Default true. */
   bootstrap?: boolean;
+  /**
+   * Root scope: milliseconds a boot may take before it is abandoned (rejected, root restored, slot freed). Default 30000;
+   * 0 or Infinity disables it. Keep it below the mocha hook timeout, or the hook fails first and the stuck boot holds the slot.
+   */
+  bootTimeout?: number;
+  /** Root scope: how this app is named in "still booting" / "already live" errors. */
+  name?: string;
 }
 
 export interface TestApp {
@@ -31,8 +38,27 @@ export interface TestApp {
   dispose(): Promise<void>;
 }
 
+const DEFAULT_BOOT_TIMEOUT = 30_000;
+
 const open = new Set<TestApp>();
-let liveRoot: TestApp | undefined;
+
+interface RootClaim {
+  readonly name: string;
+  readonly since: number;
+  phase: 'booting' | 'live' | 'disposing';
+}
+let rootClaim: RootClaim | undefined;
+let rootClaims = 0;
+
+interface BootAttempt {
+  abandoned: boolean;
+}
+
+class BootAbandoned extends Error {
+  public constructor() {
+    super('createTestApp: boot was abandoned after its bootTimeout');
+  }
+}
 
 function configurationClass(options: TestAppOptions): Class<Configuration> {
   if (options.config && options.configuration) {
@@ -41,23 +67,35 @@ function configurationClass(options: TestAppOptions): Class<Configuration> {
   return options.configuration ?? configurationOf(options.config ?? {}, options.env);
 }
 
-async function boot(container: IContainer, options: TestAppOptions): Promise<Configuration> {
+async function boot(container: IContainer, options: TestAppOptions, attempt: BootAttempt): Promise<Configuration> {
+  // An abandoned boot must not touch root again; checked after every await.
+  const alive = (): void => {
+    if (attempt.abandoned) {
+      throw new BootAbandoned();
+    }
+  };
+
   container.register(configurationClass(options)).as(Configuration, { replace: true });
   for (const schema of options.schemas ?? []) {
     container.register(schema).asValue('__configurationSchema__');
   }
   await options.register?.(container);
+  alive();
 
   if (options.bootstrap ?? true) {
     const bootstrappers = await container.resolve(Array.ofType(Bootstrapper));
+    alive();
     for (const b of bootstrappers) {
       await b.bootstrap();
+      alive();
     }
   }
 
   const configuration = await container.resolve(Configuration);
+  alive();
   for (const type of options.resolve ?? []) {
     await container.resolve(type as Class<unknown>);
+    alive();
   }
   return configuration;
 }
@@ -70,20 +108,76 @@ function strictSizeCheck(container: IContainer, before: number): void {
   }
 }
 
-async function createRootApp(options: TestAppOptions): Promise<TestApp> {
-  if (liveRoot) {
-    // A second root app would share the first one's container and its cached Configuration.
-    throw new Error("createTestApp: a root app is already live; dispose it first, or use scope 'child' for apps side by side");
+function describeClaim(claim: RootClaim): string {
+  return `"${claim.name}" (${claim.phase}, started ${Date.now() - claim.since} ms ago)`;
+}
+
+function assertRootFree(): void {
+  if (!rootClaim) return;
+  const who = describeClaim(rootClaim);
+  switch (rootClaim.phase) {
+    case 'booting':
+      throw new Error(
+        `createTestApp: root app ${who} is still booting, so root is half-built; raise or lower its bootTimeout, or fix what it waits for`,
+      );
+    case 'disposing':
+      throw new Error(`createTestApp: root app ${who} is still being disposed; wait for its dispose() to finish`);
+    default:
+      // A second root app would share the first one's container and its cached Configuration.
+      throw new Error(
+        `createTestApp: a root app is already live: ${who}; dispose it first, or use scope 'child' for apps side by side`,
+      );
   }
+}
+
+async function bootWithTimeout(container: IContainer, options: TestAppOptions, attempt: BootAttempt, claim: RootClaim): Promise<Configuration> {
+  const booting = boot(container, options, attempt);
+  const limit = options.bootTimeout ?? DEFAULT_BOOT_TIMEOUT;
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return booting;
+  }
+
+  // The abandoned boot settles later; nobody awaits it any more.
+  booting.catch(() => undefined);
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      attempt.abandoned = true;
+      // Resolutions still in flight would block the restore; they are disposed when they finish instead of cached.
+      container.Cache.abandonPending();
+      reject(new Error(`createTestApp: root app ${describeClaim(claim)} did not finish booting within ${limit} ms; the boot was abandoned and root restored`));
+    }, limit);
+  });
+  try {
+    return await Promise.race([booting, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function createRootApp(options: TestAppOptions): Promise<TestApp> {
+  assertRootFree();
   const container = DI.RootContainer;
   const sizeBefore = container.getCacheStats().size;
   const snapshot: ContainerSnapshot = container.snapshot();
 
+  const claim: RootClaim = { name: options.name ?? `root app #${++rootClaims}`, since: Date.now(), phase: 'booting' };
+  rootClaim = claim;
+  const release = (): void => {
+    if (rootClaim === claim) {
+      rootClaim = undefined;
+    }
+  };
+
   let configuration: Configuration;
   try {
-    configuration = await boot(container, options);
+    configuration = await bootWithTimeout(container, options, { abandoned: false }, claim);
   } catch (err) {
-    await container.restore(snapshot).catch(() => undefined);
+    try {
+      await container.restore(snapshot).catch(() => undefined);
+    } finally {
+      release();
+    }
     throw err;
   }
 
@@ -94,18 +188,22 @@ async function createRootApp(options: TestAppOptions): Promise<TestApp> {
     resolve: <T>(type: Class<T> | string) => Promise.resolve(container.resolve(type as Class<T>) as T | Promise<T>),
     dispose: async () => {
       if (!disposed) {
-        liveRoot = undefined;
+        claim.phase = 'disposing';
         open.delete(app);
         disposed = (async () => {
-          await container.restore(snapshot);
-          strictSizeCheck(container, sizeBefore);
+          try {
+            await container.restore(snapshot);
+            strictSizeCheck(container, sizeBefore);
+          } finally {
+            release();
+          }
         })();
       }
       await disposed;
     },
   };
   open.add(app);
-  liveRoot = app;
+  claim.phase = 'live';
   return app;
 }
 
@@ -114,7 +212,7 @@ async function createChildApp(options: TestAppOptions): Promise<TestApp> {
 
   let configuration: Configuration;
   try {
-    configuration = await boot(container, options);
+    configuration = await boot(container, options, { abandoned: false });
   } catch (err) {
     await container.dispose({ plainOwners: true }).catch(() => undefined);
     throw err;
