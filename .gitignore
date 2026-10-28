@@ -203,6 +203,9 @@ graphify-out/
 !/docs/validation/
 # docs-packages-end
 
+# Release upgrade guides ( not a package docs folder )
+!/docs/upgrading/
+
 # Stryker mutation runs ( scripts/coverage/minimal-tests.mjs )
 .stryker-tmp/
 packages/*/reports/mutation/
