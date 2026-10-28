@@ -1,6 +1,7 @@
 import { DI, Bootstrapper } from '@spinajs/di';
 import type { Class, IContainer, ContainerSnapshot } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
+import { CONFIGURATION_SCHEMA } from '@spinajs/configuration-common';
 import type { IConfigurationSchema } from '@spinajs/configuration-common';
 import { configurationOf } from './configuration-of.js';
 
@@ -77,7 +78,7 @@ async function boot(container: IContainer, options: TestAppOptions, attempt: Boo
 
   container.register(configurationClass(options)).as(Configuration, { replace: true });
   for (const schema of options.schemas ?? []) {
-    container.register(schema).asValue('__configurationSchema__');
+    container.register(schema).asValue(CONFIGURATION_SCHEMA.key);
   }
   await options.register?.(container);
   alive();
