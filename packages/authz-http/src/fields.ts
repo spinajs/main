@@ -4,7 +4,7 @@ import { AuthzConfigError, AuthzDomains, DefaultAuthzDomains, authzStorage, comp
 import type { Decision } from '@spinajs/authz';
 import { BadRequest } from '@spinajs/exceptions';
 import { isPlainObject } from '@spinajs/util';
-import { ArgInputFilter, DataTransformer, RouteMiddleware } from '@spinajs/http';
+import { ArgInputFilter, DataTransformer, RouteMiddleware, withProblemFields } from '@spinajs/http';
 import type { IController, IRoute, IRouteParameter, Request, Response } from '@spinajs/http';
 import type * as express from 'express';
 
@@ -52,7 +52,7 @@ function removedPaths(before: unknown, after: unknown, prefix = ''): string[] {
 }
 
 function notWritable(fields: readonly string[]): BadRequest {
-  return Object.assign(new BadRequest(`fields not writable: ${fields.join(', ')}`), { error: 'fields_not_writable', fields });
+  return withProblemFields(new BadRequest(`fields not writable: ${fields.join(', ')}`), { error: 'fields_not_writable', fields });
 }
 
 /**

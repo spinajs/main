@@ -36,15 +36,18 @@ describe('Swagger error response components', function () {
     DI.clearCache();
   });
 
-  it('should register a shared Error schema in components.schemas', () => {
+  it('should register a shared ProblemDetails schema in components.schemas', () => {
     expect(spec.components).to.be.an('object');
     expect(spec.components.schemas).to.be.an('object');
-    expect(spec.components.schemas).to.have.property('Error');
+    expect(spec.components.schemas).to.have.property('ProblemDetails');
+    expect(spec.components.schemas).to.not.have.property('Error');
 
-    const errorSchema = spec.components.schemas.Error;
-    expect(errorSchema.type).to.equal('object');
-    expect(errorSchema.properties).to.have.property('message');
-    expect(errorSchema.properties.message.type).to.equal('string');
+    const problem = spec.components.schemas.ProblemDetails;
+    expect(problem.type).to.equal('object');
+    expect(problem.required).to.have.members(['type', 'title', 'status']);
+    expect(problem.properties).to.include.keys(['type', 'title', 'status', 'detail', 'instance', 'code', 'errors', 'stack']);
+    expect(problem.properties.status.type).to.equal('integer');
+    expect(problem.properties.stack.type).to.equal('string');
   });
 
   it('should register reusable error response components for documented status codes', () => {
@@ -60,10 +63,11 @@ describe('Swagger error response components', function () {
     ]);
   });
 
-  it('each registered component should reference the Error schema', () => {
+  it('each registered component should reference the ProblemDetails schema', () => {
     for (const name of ['Unauthorized', 'Forbidden', 'NotFound', 'ServerError']) {
       const resp = spec.components.responses[name];
-      expect(resp.content['application/json'].schema.$ref).to.equal('#/components/schemas/Error');
+      expect(resp.content).to.have.keys(['application/problem+json']);
+      expect(resp.content['application/problem+json'].schema.$ref).to.equal('#/components/schemas/ProblemDetails');
     }
   });
 

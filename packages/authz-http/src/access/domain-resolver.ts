@@ -18,6 +18,7 @@ export class StaticDomainResolver extends AuthzDomainResolver {
 
 /** 403 `{ error: 'forbidden', reason: { code: 'unknown_domain' } }`: the resolver named a domain no live domain bears. */
 export class UnknownAuthzDomain extends Forbidden {
+  public static problemFields = ['error', 'reason'];
   public readonly error = 'forbidden';
   public readonly reason = { code: 'unknown_domain' };
 

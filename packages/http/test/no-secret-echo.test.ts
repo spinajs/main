@@ -74,7 +74,7 @@ describe('http: no request value in 400 bodies or logs', function () {
         .send({ ...secrets, email });
 
       expect(res.status, res.text).to.eq(400);
-      expect(res.body.details.map((d: { field: string }) => d.field)).to.include('/email');
+      expect(res.body.errors.map((d: { instancePath: string }) => d.instancePath)).to.include('/email');
       expectNowhere(res, [...Object.values(secrets), email]);
     });
 
@@ -93,7 +93,7 @@ describe('http: no request value in 400 bodies or logs', function () {
         const res = await req().post('secret-echo/account').set('Accept', 'application/json').send(body);
 
         expect(res.status, res.text).to.eq(400);
-        expect(res.body.details, res.text).to.be.an('array').that.is.not.empty;
+        expect(res.body.errors, res.text).to.be.an('array').that.is.not.empty;
         expectNowhere(res, sent);
       }
     });
@@ -105,7 +105,7 @@ describe('http: no request value in 400 bodies or logs', function () {
       const res = await req().post('secret-echo/confirm').set('Accept', 'application/json').send({ password, confirm });
 
       expect(res.status, res.text).to.eq(400);
-      expect(res.body.details.map((d: { field: string }) => d.field)).to.include('/confirm');
+      expect(res.body.errors.map((d: { instancePath: string }) => d.instancePath)).to.include('/confirm');
       expectNowhere(res, [password, confirm]);
     });
   });
@@ -119,7 +119,7 @@ describe('http: no request value in 400 bodies or logs', function () {
         const res = await req().post('secret-echo/account').set('Accept', 'application/json').set('Content-Type', 'application/json').send(raw);
 
         expect(res.status, res.text).to.eq(400);
-        expect(res.body.message).to.eq('request body is not valid JSON');
+        expect(res.body.detail).to.eq('request body is not valid JSON');
         expectNowhere(res, [secret]);
       });
     }
@@ -134,8 +134,8 @@ describe('http: no request value in 400 bodies or logs', function () {
         .send({ reauthPassword: 'Zq7verifyNb3Lw' });
 
       expect(res.status, res.text).to.eq(400);
-      expect(res.body.message, res.text).to.eq('request body was refused');
-      expect(res.body).to.not.have.property('type');
+      expect(res.body.detail, res.text).to.eq('request body was refused');
+      expect(res.body.type).to.eq('about:blank');
       expect(res.body).to.not.have.property('body');
       expect(res.body).to.not.have.property('stack');
       expectNowhere(res, ['Zq7verifyNb3Lw', 'Zq7verifyQsMf5Ra', 'request body refused']);
@@ -202,7 +202,7 @@ describe('http: no request value in 400 bodies or logs', function () {
 
       expect(res.status, res.text).to.eq(400);
       expectNowhere(res, ['Zq7hdrPw']);
-      expect(res.body.fieldName).to.eq('credentials');
+      expect(res.body).to.not.have.property('fieldName');
     });
   });
 
@@ -211,8 +211,8 @@ describe('http: no request value in 400 bodies or logs', function () {
       const res = await req().get('secret-echo/bigint?id=Zq7bigSecretFk6Ub').set('Accept', 'application/json');
 
       expect(res.status, res.text).to.eq(400);
-      expect(res.body.fieldName, res.text).to.eq('id');
-      expect(res.body.message).to.eq("Argument 'id' is not a valid integer");
+      expect(res.body, res.text).to.not.have.property('fieldName');
+      expect(res.body.detail).to.eq("Argument 'id' is not a valid integer");
       expectNowhere(res, ['Zq7bigSecretFk6Ub']);
     });
 
@@ -234,7 +234,7 @@ describe('http: no request value in 400 bodies or logs', function () {
         const res = await req().post('secret-echo/xml').set('Accept', 'application/json').set('Content-Type', 'application/xml').send(raw);
 
         expect(res.status, res.text).to.eq(400);
-        expect(res.body.message).to.eq('request body is not valid XML');
+        expect(res.body.detail).to.eq('request body is not valid XML');
         expectNowhere(res, [secret]);
       });
     }

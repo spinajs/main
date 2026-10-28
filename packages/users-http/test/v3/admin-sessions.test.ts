@@ -294,7 +294,11 @@ describe('users-http v3: admin session routes on the SessionIssuer', function ()
       for (const res of [await list(client, t.Uuid), await revoke(client, t.Uuid, handle)]) {
         expect(res.status, res.text).to.eq(status);
         if (error) expect(res.body.error, res.text).to.eq(error);
-        expect(res.text).to.not.contain(handle);
+        // `instance` of the problem body is the request path, which holds the handle the caller sent
+        expect(res.headers['content-type'], res.text).to.contain('application/problem+json');
+        const problem = res.body as { instance?: string };
+        expect(problem.instance, res.text).to.be.a('string');
+        expect(res.text.replace(JSON.stringify(problem.instance), '')).to.not.contain(handle);
       }
       expect(await isLive(victim, t.Uuid)).to.eq(true);
     }

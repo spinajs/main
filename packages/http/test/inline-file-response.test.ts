@@ -305,12 +305,12 @@ describe('FileResponse inline', function () {
     const res = await get('vanishing');
 
     expect(res.status).to.eq(404);
-    // The JSON error body gets an ETag of its own from Express, so that one is not checked.
+    // The problem body gets an ETag of its own from Express, so that one is not checked.
     for (const header of ['content-disposition', 'content-security-policy', 'accept-ranges', 'last-modified', 'x-content-type-options', 'x-vanish']) {
       expect(res.headers.get(header), header).to.eq(null);
     }
     expect(res.headers.get('cache-control')).to.not.eq('private, no-transform');
-    expect(res.headers.get('content-type')).to.match(/^application\/json/);
+    expect(res.headers.get('content-type')).to.match(/^application\/problem\+json/);
   });
 
   it('keeps an attachment the default, with the encoded filename and no inline-only headers', async () => {
