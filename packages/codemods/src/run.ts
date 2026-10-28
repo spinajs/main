@@ -1,6 +1,6 @@
 import { existsSync } from 'fs';
-import { join, posix } from 'path';
-import { Project } from 'ts-morph';
+import { dirname, join, posix } from 'path';
+import { Project, SourceFile, ts } from 'ts-morph';
 import type { Transform } from './index.js';
 
 export interface RunOptions {
@@ -11,9 +11,58 @@ export interface RunOptions {
   include?: string[];
 }
 
+export interface FailedFile {
+  file: string;
+  transform: string;
+  error: string;
+}
+
+export interface Warning {
+  file: string;
+  line: number;
+  message: string;
+}
+
+export interface RunResult {
+  changedFiles: string[];
+  /** files a transform threw on; they are left untouched on disk */
+  failedFiles: FailedFile[];
+  /** things a transform found but could not rewrite */
+  warnings: Warning[];
+  /** number of source files visited */
+  scannedFiles: number;
+}
+
+/** the files tsconfig.json selects, as if allowJs were on: JS/CJS config files hold the typeof module switch */
+function tsconfigFiles(tsConfigFilePath: string): string[] {
+  const { config } = ts.readConfigFile(tsConfigFilePath, (path) => ts.sys.readFile(path));
+  return ts.parseJsonConfigFileContent(config, ts.sys, dirname(tsConfigFilePath), { allowJs: true }, tsConfigFilePath).fileNames;
+}
+
 const toPosix = (path: string) => path.replace(/\\/g, '/');
 
-export function runTransforms(opts: RunOptions): Promise<{ changedFiles: string[] }> {
+interface FileOutcome {
+  changed: boolean;
+  failure?: FailedFile;
+  warnings: Warning[];
+}
+
+function applyTransforms(file: SourceFile, rel: string, transforms: Transform[]): FileOutcome {
+  const warnings: Warning[] = [];
+  let changed = false;
+  for (const transform of transforms) {
+    try {
+      changed =
+        transform.apply(file.getProject(), file, (node, message) => warnings.push({ file: rel, line: node.getStartLineNumber(), message })) || changed;
+    } catch (err) {
+      file.refreshFromFileSystemSync();
+      return { changed: false, failure: { file: rel, transform: transform.name, error: (err as Error).message }, warnings: [] };
+    }
+  }
+  return { changed, warnings };
+}
+
+export function runTransforms(opts: RunOptions): Promise<RunResult> {
   const tsConfigFilePath = join(opts.cwd, 'tsconfig.json');
   if (!existsSync(tsConfigFilePath)) {
     return Promise.reject(new Error(`No tsconfig.json found in ${opts.cwd}; run the upgrade from the package root`));
@@ -22,32 +71,36 @@ export function runTransforms(opts: RunOptions): Promise<{ changedFiles: string[
   const cwd = toPosix(opts.cwd);
   const project = new Project({
     tsConfigFilePath,
-    skipAddingFilesFromTsConfig: opts.include !== undefined,
+    compilerOptions: { allowJs: true },
+    skipAddingFilesFromTsConfig: true,
     skipFileDependencyResolution: true,
   });
-  if (opts.include) {
-    project.addSourceFilesAtPaths(opts.include.map((glob) => posix.join(cwd, glob)));
-  }
+  project.addSourceFilesAtPaths(opts.include ? opts.include.map((glob) => posix.join(cwd, glob)) : tsconfigFiles(tsConfigFilePath));
 
-  const changedFiles: string[] = [];
+  const result: RunResult = { changedFiles: [], failedFiles: [], warnings: [], scannedFiles: 0 };
   for (const file of project.getSourceFiles()) {
     const path = file.getFilePath();
     if (file.isDeclarationFile() || path.includes('/node_modules/')) {
       continue;
     }
 
-    let changed = false;
-    for (const transform of opts.transforms) {
-      changed = transform.apply(project, file) || changed;
+    result.scannedFiles++;
+    const rel = posix.relative(cwd, path);
+    const outcome = applyTransforms(file, rel, opts.transforms);
+    if (outcome.failure) {
+      result.failedFiles.push(outcome.failure);
+      continue;
     }
 
-    if (changed) {
-      changedFiles.push(posix.relative(cwd, path));
+    result.warnings.push(...outcome.warnings);
+    if (outcome.changed) {
+      result.changedFiles.push(rel);
       if (!opts.dryRun) {
         file.saveSync();
       }
     }
   }
 
-  return Promise.resolve({ changedFiles: changedFiles.sort() });
+  result.changedFiles.sort();
+  return Promise.resolve(result);
 }
