@@ -25,6 +25,7 @@ describe('typed tokens', () => {
     expect(isToken('__test_greeter__')).to.be.false;
     expect(isToken(Greeter)).to.be.false;
     expect(isToken(Array.ofType(Greeter))).to.be.false;
+    expect(isToken({ key: '__test_greeter__' })).to.be.false;
   });
 
   it('types resolve(token) by the token parameter', () => {
@@ -92,5 +93,6 @@ describe('typed tokens', () => {
 
   it('getTypeName(token) returns the key', () => {
     expect(getTypeName(GREETER)).to.eq('__test_greeter__');
+    expect(getTypeName({ key: '__test_greeter__' })).to.not.eq('__test_greeter__');
   });
 });
