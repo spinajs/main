@@ -207,9 +207,6 @@ graphify-out/
 !/docs/util/
 !/docs/validation/
 # docs-packages-end
-# guides that belong to no package
-!/docs/upgrading/
-
 # Release upgrade guides ( not a package docs folder )
 !/docs/upgrading/
 
