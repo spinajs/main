@@ -1,4 +1,5 @@
 import { Constructor, DI, getInheritedDescriptor } from '@spinajs/di';
+import { HTTP_ERROR_MAP } from './tokens.js';
 import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IOnErrorDescriptor, IUploadOptions, UuidVersion, IFormOptions, HttpAcceptHeaders, IController } from './interfaces.js';
 import { ArgHydrator } from './route-args/ArgHydrator.js';
 import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas.js';
@@ -302,7 +303,7 @@ export function Hydrator(hydrator: Constructor<ArgHydrator>, ...options: any[]) 
 export function HandleException(exception: Constructor<Error> | Constructor<Error>[]) {
   return (target: any) => {
     toArray(exception).forEach((e) => {
-      DI.register(target).asMapValue('__http_error_map__', e.name);
+      DI.register(target).asMapValue(HTTP_ERROR_MAP.key, e.name);
     });
   };
 }

@@ -2,6 +2,7 @@
 import Express from 'express';
 import _ from 'lodash';
 import { DI, Constructor } from '@spinajs/di';
+import { HTTP_ERROR_MAP } from './tokens.js';
 import { ResponseFunction, HTTP_STATUS_CODE, HttpAcceptHeaders, Response as HttpResponse } from './interfaces.js';
 import { ServerError } from './response-methods/serverError.js';
 import { BadRequestResponse } from './response-methods/badRequest.js';
@@ -70,7 +71,7 @@ function bodyFailureMessage(err: any, errorMap: Map<string, Constructor<HttpResp
  * That body is a problem document naming the exception's message, so such an error can carry internals.
  */
 export function answeredAsServerError(err: unknown): boolean {
-    const errorMap = DI.get<Map<string, Constructor<HttpResponse>>>('__http_error_map__') ?? null;
+    const errorMap = DI.get(HTTP_ERROR_MAP) ?? null;
     if (bodyFailureMessage(err, errorMap)) {
         return false;
     }
@@ -89,7 +90,7 @@ export function __handle_error__() {
     }
 
     const isProductionEnv = isProduction(config ?? undefined);
-    const errorMap = DI.get<Map<string, Constructor<HttpResponse>>>('__http_error_map__');
+    const errorMap = DI.get(HTTP_ERROR_MAP) ?? null;
     const acceptHeaders = config ? config.get<HttpAcceptHeaders>('http.AcceptHeaders') : null;
     const fatalTemplate = config ? config.get<string>('http.FatalTemplate') : null;
     const baseProblemOptions: ProblemOptions = {
