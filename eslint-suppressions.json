@@ -8825,14 +8825,6 @@
       "count": 7
     }
   },
-  "packages/validation/src/schema-providers.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    }
-  },
   "packages/validation/src/validator.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
