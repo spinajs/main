@@ -23,7 +23,7 @@ describe('upgrade command', () => {
 
   const command = <T extends Upgrade>(Type: new () => T): T => {
     const c = new Type();
-    Object.defineProperty(c, 'Log', { value: { info: (m: string) => lines.push(m) } });
+    Object.defineProperty(c, 'Log', { value: { info: (m: string) => lines.push(m), warn: (m: string) => lines.push(`warn ${m}`), error: (m: string) => lines.push(`error ${m}`) } });
     return c;
   };
 
@@ -52,6 +52,18 @@ describe('upgrade command', () => {
     await command(Upgrade).execute({ to: '4' });
     expect(lines[0]).to.equal('changed src/a.ts');
     expect(readFileSync(join(dir, 'src', 'a.ts'), 'utf8')).to.contain("from '@spinajs/http'");
+  });
+
+  it('reports files it cannot rewrite and warns when nothing is scanned', async () => {
+    writeFileSync(join(dir, 'src', 'a.ts'), "import '@spinajs/orm/lib/mjs/config/orm.js';\n");
+    await command(Upgrade).execute({ to: '4', dryRun: true });
+    expect(lines.some((l) => l.startsWith('warn src/a.ts:1 '))).to.equal(true);
+    expect(lines[lines.length - 1]).to.contain('1 to check by hand');
+
+    lines.length = 0;
+    writeFileSync(join(dir, 'tsconfig.json'), JSON.stringify({ include: ['nothing'] }));
+    await command(Upgrade).execute({ to: '4', dryRun: true });
+    expect(lines.some((l) => l.startsWith('warn no source files found'))).to.equal(true);
   });
 
   it('refuses an unsupported major', async () => {

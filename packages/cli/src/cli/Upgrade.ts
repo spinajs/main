@@ -21,12 +21,21 @@ export class Upgrade extends CliCommand {
     }
 
     const { runTransforms, V4_TRANSFORMS } = await this.loadCodemods();
-    const { changedFiles } = await runTransforms({ cwd: process.cwd(), transforms: V4_TRANSFORMS, dryRun: options.dryRun === true });
+    const { changedFiles, failedFiles, warnings, scannedFiles } = await runTransforms({ cwd: process.cwd(), transforms: V4_TRANSFORMS, dryRun: options.dryRun === true });
 
     for (const file of changedFiles) {
       this.Log.info(`${options.dryRun ? 'would change' : 'changed'} ${file}`);
     }
-    this.Log.info(`${changedFiles.length} file(s) ${options.dryRun ? 'would change' : 'changed'}; see docs/upgrading/4.0.md for the manual steps`);
+    for (const w of warnings) {
+      this.Log.warn(`${w.file}:${w.line} ${w.message}`);
+    }
+    for (const f of failedFiles) {
+      this.Log.error(`${f.file} left untouched: ${f.transform} failed: ${f.error}`);
+    }
+    if (scannedFiles === 0) {
+      this.Log.warn('no source files found: only files matched by tsconfig.json (include/files) are visited, JS and CJS files included');
+    }
+    this.Log.info(`${changedFiles.length} file(s) ${options.dryRun ? 'would change' : 'changed'}, ${failedFiles.length} failed, ${warnings.length} to check by hand; see docs/upgrading/4.0.md for the manual steps`);
   }
 
   protected importCodemods(): Promise<Codemods> {

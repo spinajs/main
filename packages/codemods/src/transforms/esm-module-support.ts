@@ -1,13 +1,24 @@
-import { ConditionalExpression, Expression, Node, SourceFile, SyntaxKind } from 'ts-morph';
-import type { Transform } from '../index.js';
+import { CallExpression, ConditionalExpression, Expression, ExpressionStatement, Node, SourceFile, SyntaxKind } from 'ts-morph';
+import type { Report, Transform } from '../index.js';
+
+const noop: Report = () => undefined;
+
+function unwrap(expr: Expression): Expression {
+  let current = expr;
+  while (Node.isParenthesizedExpression(current)) {
+    current = current.getExpression();
+  }
+  return current;
+}
 
 /** true when the probe is truthy under CommonJS, false when it is truthy under ESM, undefined when it is no probe */
-function probePolarity(expr: Expression): boolean | undefined {
+function probePolarity(input: Expression): boolean | undefined {
+  const expr = unwrap(input);
   if (!Node.isBinaryExpression(expr)) {
     return undefined;
   }
 
-  const left = expr.getLeft();
+  const left = unwrap(expr.getLeft());
   const right = expr.getRight();
   if (!Node.isTypeOfExpression(left) || left.getExpression().getText() !== 'module') {
     return undefined;
@@ -28,45 +39,74 @@ function probePolarity(expr: Expression): boolean | undefined {
   }
 }
 
-function collectProbeVariables(file: SourceFile): Map<string, boolean> {
-  const probes = new Map<string, boolean>();
+type Probes = Map<Node, boolean>;
+
+/** keyed by declaration node, so a same-named variable in another scope is never matched */
+function collectProbeVariables(file: SourceFile): Probes {
+  const probes: Probes = new Map();
   for (const decl of file.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
     const init = decl.getInitializer();
     const polarity = init ? probePolarity(init) : undefined;
     if (polarity !== undefined) {
-      probes.set(decl.getName(), polarity);
+      probes.set(decl, polarity);
     }
   }
   return probes;
 }
 
-function conditionPolarity(cond: Expression, variables: Map<string, boolean>): boolean | undefined {
-  if (Node.isIdentifier(cond)) {
-    return variables.get(cond.getText());
+function conditionPolarity(cond: Expression, probes: Probes): boolean | undefined {
+  const expr = unwrap(cond);
+  if (Node.isIdentifier(expr)) {
+    for (const declaration of expr.getSymbol()?.getDeclarations() ?? []) {
+      const polarity = probes.get(declaration);
+      if (polarity !== undefined) {
+        return polarity;
+      }
+    }
+    return undefined;
   }
-  return probePolarity(cond);
+  return probePolarity(expr);
 }
 
-function findProbeConditional(file: SourceFile, variables: Map<string, boolean>): [ConditionalExpression, boolean] | undefined {
+function esmBranch(node: ConditionalExpression, cjsWhenTrue: boolean): Expression {
+  return cjsWhenTrue ? node.getWhenFalse() : node.getWhenTrue();
+}
+
+/** the 'mjs' branch of a path switch collapses to nothing; that is only safe as a dropped call argument */
+function isReplaceable(node: ConditionalExpression, cjsWhenTrue: boolean): boolean {
+  const branch = esmBranch(node, cjsWhenTrue);
+  if (!Node.isStringLiteral(branch)) {
+    return true;
+  }
+  const flat = branch
+    .getLiteralValue()
+    .split('/')
+    .filter((segment) => segment !== 'mjs')
+    .join('/');
+  return flat !== '' || Node.isCallExpression(node.getParent());
+}
+
+function findProbeConditionals(file: SourceFile, probes: Probes): Array<[ConditionalExpression, boolean]> {
+  const found: Array<[ConditionalExpression, boolean]> = [];
   for (const node of file.getDescendantsOfKind(SyntaxKind.ConditionalExpression)) {
-    const polarity = conditionPolarity(node.getCondition(), variables);
+    const polarity = conditionPolarity(node.getCondition(), probes);
     if (polarity !== undefined) {
-      return [node, polarity];
+      found.push([node, polarity]);
     }
   }
-  return undefined;
+  return found;
 }
 
 function replaceWithEsmBranch(node: ConditionalExpression, cjsWhenTrue: boolean): void {
-  const branch = cjsWhenTrue ? node.getWhenFalse() : node.getWhenTrue();
+  const branch = esmBranch(node, cjsWhenTrue);
 
   if (!Node.isStringLiteral(branch)) {
     node.replaceWithText(branch.getText());
     return;
   }
 
-  const value = branch.getLiteralValue();
-  const flat = value
+  const flat = branch
+    .getLiteralValue()
     .split('/')
     .filter((segment) => segment !== 'mjs')
     .join('/');
@@ -77,22 +117,12 @@ function replaceWithEsmBranch(node: ConditionalExpression, cjsWhenTrue: boolean)
     return;
   }
 
-  const parent = node.getParent();
-  if (Node.isCallExpression(parent) && parent.getArguments().some((a) => a === node)) {
-    parent.removeArgument(node);
-  } else {
-    node.replaceWithText("''");
-  }
+  (node.getParent() as CallExpression).removeArgument(node);
 }
 
-function removeUnusedProbes(file: SourceFile, names: Iterable<string>): void {
-  for (const name of names) {
-    const uses = file.getDescendantsOfKind(SyntaxKind.Identifier).filter((id) => id.getText() === name);
-    if (uses.length !== 1) {
-      continue;
-    }
-    const decl = uses[0].getParent();
-    if (!Node.isVariableDeclaration(decl)) {
+function removeUnusedProbes(file: SourceFile): void {
+  for (const decl of [...collectProbeVariables(file).keys()]) {
+    if (decl.wasForgotten() || !Node.isVariableDeclaration(decl) || decl.findReferencesAsNodes().length > 0) {
       continue;
     }
     const list = decl.getParent();
@@ -104,20 +134,26 @@ function removeUnusedProbes(file: SourceFile, names: Iterable<string>): void {
   }
 }
 
+function isEsmSupportCall(stmt: ExpressionStatement): boolean {
+  const expr = stmt.getExpression();
+  if (!Node.isCallExpression(expr)) {
+    return false;
+  }
+  const callee = expr.getExpression();
+  return Node.isPropertyAccessExpression(callee) ? callee.getName() === 'setESMModuleSupport' : callee.getText() === 'setESMModuleSupport';
+}
+
 function removeEsmSupportCalls(file: SourceFile): boolean {
-  const calls = file
-    .getDescendantsOfKind(SyntaxKind.ExpressionStatement)
-    .filter((stmt) => {
-      const expr = stmt.getExpression();
-      if (!Node.isCallExpression(expr)) {
-        return false;
-      }
-      const callee = expr.getExpression();
-      return Node.isPropertyAccessExpression(callee) ? callee.getName() === 'setESMModuleSupport' : callee.getText() === 'setESMModuleSupport';
-    });
+  const calls = file.getDescendantsOfKind(SyntaxKind.ExpressionStatement).filter(isEsmSupportCall);
 
   for (const stmt of calls) {
-    stmt.remove();
+    const parent = stmt.getParent();
+    const inStatementList = Node.isBlock(parent) || Node.isSourceFile(parent) || Node.isModuleBlock(parent) || Node.isCaseClause(parent) || Node.isDefaultClause(parent);
+    if (inStatementList) {
+      stmt.remove();
+    } else {
+      stmt.replaceWithText('{}');
+    }
   }
   return calls.length > 0;
 }
@@ -125,20 +161,28 @@ function removeEsmSupportCalls(file: SourceFile): boolean {
 export const esmModuleSupport: Transform = {
   name: 'esm-module-support',
   description: 'Removes DI.setESMModuleSupport() and the typeof module cjs/mjs switch',
-  apply(_project, file) {
+  apply(_project, file, report = noop) {
     let changed = removeEsmSupportCalls(file);
+    let replaced = false;
 
-    const variables = collectProbeVariables(file);
     for (;;) {
-      const found = findProbeConditional(file, variables);
-      if (!found) {
+      const probes = collectProbeVariables(file);
+      const next = findProbeConditionals(file, probes).find(([node, cjsWhenTrue]) => isReplaceable(node, cjsWhenTrue));
+      if (!next) {
         break;
       }
-      replaceWithEsmBranch(found[0], found[1]);
+      replaceWithEsmBranch(next[0], next[1]);
       changed = true;
+      replaced = true;
     }
 
-    removeUnusedProbes(file, variables.keys());
+    for (const [node] of findProbeConditionals(file, collectProbeVariables(file))) {
+      report(node, 'typeof module switch left in place: the mjs segment cannot be dropped here, check the built path by hand');
+    }
+
+    if (replaced) {
+      removeUnusedProbes(file);
+    }
     return changed;
   },
 };
