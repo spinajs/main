@@ -1,0 +1,53 @@
+{
+  "name": "@spinajs/codemods",
+  "version": "3.0.23",
+  "description": "Codemods for SpinaJS major upgrades (spinajs upgrade --to 4)",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    }
+  },
+  "type": "module",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.build.json",
+    "rimraf": "./node_modules/rimraf/bin.js",
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
+    "pretest": "npm run compile",
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "coverage": "c8 npm run test",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "cd ../.. && npm run lint -- packages/codemods"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "codemods",
+    "upgrade"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "ts-morph": "27.0.2"
+  }
+}
