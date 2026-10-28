@@ -5,6 +5,7 @@ import { EventEmitter } from './events.js';
 import { ChainArray, TypedArray } from './array.js';
 import { Registry } from './registry.js';
 import { ContainerCache } from './container-cache.js';
+import type { Token } from './token.js';
 
 export interface IInstanceCheck {
   __checkInstance__(creationOptions: any): boolean;
@@ -66,6 +67,9 @@ export interface IBind {
    * @param type - base class that is being registered
    */
   as(type: Class<any> | string, options?: RegisterOptions): this;
+
+  /** Same as `as(token.key)`. */
+  asToken<T>(token: Token<T>, options?: RegisterOptions): this;
 
   /**
    * self bind, class should be resolved by its name. Its default behaviour.
@@ -134,6 +138,7 @@ export interface IContainer extends EventEmitter {
   uncache<T>(source: string | Class<T> | TypedArray<T>, parent?: boolean): void;
 
   child(options?: ChildOptions): IContainer;
+  get<T>(service: Token<T>, parent?: boolean): T | undefined;
   get<T>(service: TypedArray<T>, parent?: boolean): T[] | null;
   get<T>(service: string | Class<T>, parent?: boolean): T | null;
   get<T>(service: string | Class<T> | TypedArray<T>, parent?: boolean): T | T[] | null;
@@ -143,13 +148,13 @@ export interface IContainer extends EventEmitter {
    */
   getRegisteredTypes<T>(service: string | Class<T> | TypedArray<T>, parent?: boolean): Array<Class<unknown> | Factory<unknown>>;
 
-  isResolved<T>(service: string | Class<T>, parent?: boolean): boolean;
+  isResolved<T>(service: string | Class<T> | Token<T>, parent?: boolean): boolean;
 
   /**
    * True when `instance` sits in this container's cache ( with `parent`, also in an ancestor's ), i.e. DI owns it.
    */
   isCached(instance: unknown, parent?: boolean): boolean;
-  hasRegistered<T>(service: Class<T> | string | TypedArray<T>, parent?: boolean): boolean;
+  hasRegistered<T>(service: Class<T> | string | TypedArray<T> | Token<T>, parent?: boolean): boolean;
 
   /**
    * True when something other than `type` itself is registered under `type`: a class registered as itself
@@ -158,6 +163,8 @@ export interface IContainer extends EventEmitter {
   hasImplementation<T>(type: Class<T> | string, parent?: boolean): boolean;
   hasRegisteredType<T>(source: Class<any> | string | TypedArray<any>, type: Class<T> | string | TypedArray<T> | object, parent?: boolean): boolean;
 
+  resolve<T>(type: Token<T>): T;
+  resolve<T>(type: Token<T>, options: unknown[]): T;
   resolve<T>(type: string, options?: unknown[], check?: boolean): T;
   resolve<T>(type: string, check?: boolean): T;
   resolve<T>(type: Class<T> | Factory<T>, check?: boolean): ResolveResult<T>;
@@ -176,6 +183,7 @@ export interface IContainer extends EventEmitter {
    * Resolves `type` only when it is registered (here or in an ancestor), otherwise returns `undefined`.
    * Unlike `resolve`, it never falls back to instantiating the class itself.
    */
+  resolveOptional<T>(type: Token<T>, options?: unknown[]): T | undefined;
   resolveOptional<T>(type: string, options?: unknown[]): T | undefined;
   resolveOptional<T>(type: Class<T>, options?: unknown[]): ResolveResult<T> | undefined;
 
