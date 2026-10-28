@@ -5,3 +5,7 @@ export * from './extractors/services.js';
 export * from './extractors/injections.js';
 export * from './extractors/values.js';
 export * from './extractors/config.js';
+export * from './extractors/controllers.js';
+export * from './extractors/policies.js';
+export * from './extractors/jsdoc.js';
+export * from './extractors/socket.js';
