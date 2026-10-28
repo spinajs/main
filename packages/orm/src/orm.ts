@@ -16,6 +16,7 @@ import { MIGRATION_FILE_REGEXP } from './migration-runner.js';
 import { MIGRATION_DI_SOURCE, mergeMigrationEnv, resolveMigrationEnv } from './migration-environment.js';
 import { MigrationSource } from './migration-sources.js';
 import { inMigrationTool } from './schema-touches.js';
+import { MODELS, ORM_DB_VALUE_CONVERTERS } from './tokens.js';
 
 /**
  * Used to exclude sensitive data to others. eg. removed password field from cfg
@@ -131,7 +132,7 @@ export class Orm extends AsyncService {
           continue;
         }
 
-        const converters = connection.Container.get<Map<string, any>>('__orm_db_value_converters__');
+        const converters = connection.Container.get(ORM_DB_VALUE_CONVERTERS);
 
         updateModelDescriptor(m.type, (d) => {
           d.Driver = connection;
@@ -189,8 +190,9 @@ export class Orm extends AsyncService {
              */
             d.Columns.forEach((c) => {
               if (!c.Converter) {
-                if (converters && converters.has(c.NativeType.toLocaleLowerCase())) {
-                  c.Converter = connection.Container.resolve<IValueConverter>(converters.get(c.NativeType.toLocaleLowerCase()));
+                const converterType = converters?.get(c.NativeType.toLocaleLowerCase());
+                if (converterType) {
+                  c.Converter = connection.Container.resolve<IValueConverter>(converterType);
                 }
               }
             });
@@ -240,7 +242,7 @@ export class Orm extends AsyncService {
       this.registerMigration(m.type, m.file);
     }
 
-    const models = DI.getRegisteredTypes<ModelBase>('__models__');
+    const models = DI.getRegisteredTypes<ModelBase>(MODELS.key);
     if (models) {
       models.forEach((m) => {
         this.registerModel(m);
@@ -268,16 +270,16 @@ export class Orm extends AsyncService {
   }
 
   protected registerDefaultConverters() {
-    this.Container.register(DatetimeValueConverter).asMapValue('__orm_db_value_converters__', Date.name);
-    this.Container.register(DatetimeValueConverter).asMapValue('__orm_db_value_converters__', DateTime.name);
-    this.Container.register(BooleanValueConverter).asMapValue('__orm_db_value_converters__', Boolean.name);
-    this.Container.register(BooleanValueConverter).asMapValue('__orm_db_value_converters__', 'Bool');
-    this.Container.register(BooleanValueConverter).asMapValue('__orm_db_value_converters__', Boolean.name.toLowerCase());
-    this.Container.register(BooleanValueConverter).asMapValue('__orm_db_value_converters__', 'bool');
-    this.Container.register(TimeValueConverter).asMapValue('__orm_db_value_converters__', 'Time');
-    this.Container.register(TimeValueConverter).asMapValue('__orm_db_value_converters__', 'time');
-    this.Container.register(TimeValueConverter).asMapValue('__orm_db_value_converters__', TimeSpan.name.toLowerCase());
-    this.Container.register(TimeValueConverter).asMapValue('__orm_db_value_converters__', TimeSpan.name);
+    this.Container.register(DatetimeValueConverter).asMapValue(ORM_DB_VALUE_CONVERTERS.key, Date.name);
+    this.Container.register(DatetimeValueConverter).asMapValue(ORM_DB_VALUE_CONVERTERS.key, DateTime.name);
+    this.Container.register(BooleanValueConverter).asMapValue(ORM_DB_VALUE_CONVERTERS.key, Boolean.name);
+    this.Container.register(BooleanValueConverter).asMapValue(ORM_DB_VALUE_CONVERTERS.key, 'Bool');
+    this.Container.register(BooleanValueConverter).asMapValue(ORM_DB_VALUE_CONVERTERS.key, Boolean.name.toLowerCase());
+    this.Container.register(BooleanValueConverter).asMapValue(ORM_DB_VALUE_CONVERTERS.key, 'bool');
+    this.Container.register(TimeValueConverter).asMapValue(ORM_DB_VALUE_CONVERTERS.key, 'Time');
+    this.Container.register(TimeValueConverter).asMapValue(ORM_DB_VALUE_CONVERTERS.key, 'time');
+    this.Container.register(TimeValueConverter).asMapValue(ORM_DB_VALUE_CONVERTERS.key, TimeSpan.name.toLowerCase());
+    this.Container.register(TimeValueConverter).asMapValue(ORM_DB_VALUE_CONVERTERS.key, TimeSpan.name);
   }
 
   protected wireRelations() {

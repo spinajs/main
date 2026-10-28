@@ -7,6 +7,7 @@ import { ModelBase } from './model.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
 import { ManyQueryRelationList, Relation } from './relation-objects.js';
 import { Orm } from './orm.js';
+import { MODELS, MIGRATIONS, ORM_RELATION_HAS_MANY_FACTORY, ORM_RELATION_HAS_MANY_TO_MANY_FACTORY } from './tokens.js';
 import { MODEL_DESCTRIPTION_SYMBOL, MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
 import { extractModelDescriptor, createDefaultModelDescriptor } from './descriptor.js';
 import { captureSourceFile } from './source-file.js';
@@ -181,7 +182,7 @@ export function Migration(connection: string, options?: IMigrationOptions) {
     metadata.Env = options?.Env;
     metadata.SourceFile = sourceFile;
 
-    DI.register(target).as('__migrations__');
+    DI.register(target).asToken(MIGRATIONS);
   };
 }
 
@@ -203,7 +204,7 @@ export function Connection(name: string) {
  */
 export function Model(tableName: string) {
   return extractDecoratorDescriptor((model: IModelDescriptor, target: any) => {
-    DI.register(target).as('__models__');
+    DI.register(target).asToken(MODELS);
     model.TableName = tableName;
     model.Name = target.name;
   });
@@ -634,7 +635,7 @@ export function HasMany(targetModel: Constructor<ModelBase> | string, options?: 
       Recursive: false,
       Orphan: options?.orphan,
       Factory: options?.factory ? options.factory : undefined,
-      RelationClass: options?.type ? options.type : () => DI.resolve('__orm_relation_has_many_factory__', [type]),
+      RelationClass: options?.type ? options.type : () => DI.resolve(ORM_RELATION_HAS_MANY_FACTORY, [type]),
     });
   });
 }
@@ -677,7 +678,7 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
       // JunctionModelTargetModelFKey_Name: options?.junctionModelTargetPk ?? `${targetModelDescriptor.Name.toLowerCase()}_id`,
       JunctionModelTargetModelFKey_Name: '',
       JunctionModelSourceModelFKey_Name: options?.junctionModelSourcePk ?? `${model.Name.toLowerCase()}_id`,
-      RelationClass: options?.type ? options.type : () => DI.resolve('__orm_relation_has_many_to_many_factory__', [type]),
+      RelationClass: options?.type ? options.type : () => DI.resolve(ORM_RELATION_HAS_MANY_TO_MANY_FACTORY, [type]),
       Factory: options ? options.factory : undefined,
       JoinMode: options ? options.joinMode : undefined,
     };

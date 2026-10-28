@@ -1,4 +1,5 @@
 import { DI } from '@spinajs/di';
+import { CONFIGURATION_SCHEMA } from '@spinajs/configuration-common';
 
 export const ORM_CONFIGURATION_SCHEMA = {
   $id: 'spinajs/orm.configuration.schema.json',
@@ -12,4 +13,4 @@ export const ORM_CONFIGURATION_SCHEMA = {
 };
 
 // @spinajs/orm depends on configuration-common only, so registerConfigurationSchema() is out of reach.
-DI.register(ORM_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
+DI.register(ORM_CONFIGURATION_SCHEMA).asValue(CONFIGURATION_SCHEMA.key);
