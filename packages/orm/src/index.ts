@@ -1,6 +1,7 @@
 export * from './interfaces.js';
 export * from './enums.js';
 export * from './symbols.js';
+export * from './tokens.js';
 export * from './source-file.js';
 export * from './migration-environment.js';
 export * from './migration-sources.js';

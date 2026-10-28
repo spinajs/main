@@ -1,5 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { Container, Inject, NewInstance, Constructor, IContainer, DI, Injectable, isConstructor, Class } from '@spinajs/di';
+import { MODELS, ORM_MODEL_FACTORY } from './tokens.js';
 import { InvalidArgument, MethodNotImplemented, InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import { OrmConnectionMissing, OrmException, OrmNotFoundException, OrmNotResolved } from './exceptions.js';
 import _ from 'lodash';
@@ -168,7 +169,7 @@ export class Builder<T = any> implements IBuilder<T> {
         }
 
         if (model === null) {
-          model = DI.resolve<ModelBase>('__orm_model_factory__', [this._model]);
+          model = DI.resolve(ORM_MODEL_FACTORY, [this._model]);
         }
 
         model.hydrate(r);
@@ -3507,7 +3508,7 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
   const driver = via ?? own;
 
   const cnt = driver.Container;
-  const models = DI.getRegisteredTypes<ModelBase>('__models__') ?? [];
+  const models = DI.getRegisteredTypes<ModelBase>(MODELS.key) ?? [];
   const qr = cnt.resolve<T>(query, [driver, injectModel ? models.find((x) => x.name === model.name) : undefined]);
 
   // Query scopes bind to every statement type that can carry a WHERE clause, not just selects.
