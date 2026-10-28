@@ -4,7 +4,7 @@ import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
 import '@spinajs/log';
-import { Connection, extractModelDescriptor, IColumnDescriptor, Model, ModelBase, Orm, ORM_CONFIGURATION_SCHEMA, OrmConfigurationBootstrapper, OrmException, OrmMigrator, Primary } from '../src/index.js';
+import { Connection, extractModelDescriptor, IColumnDescriptor, Model, ModelBase, Orm, ORM_CONFIGURATION_SCHEMA, OrmException, OrmMigrator, Primary } from '../src/index.js';
 import { FakeSqliteDriver } from './misc.js';
 
 const expect = chai.expect;
@@ -170,7 +170,6 @@ describe('db.StrictTableCheck configuration schema', () => {
 
   it('defaults the key to true and refuses a value that is not a boolean', async () => {
     DI.clearCache();
-    new OrmConfigurationBootstrapper().bootstrap();
     DI.register(SchemaConf).as(Configuration);
 
     const config = (await DI.resolve(Configuration)) as FrameworkConfiguration;

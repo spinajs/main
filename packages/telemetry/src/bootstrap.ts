@@ -37,14 +37,13 @@ export class TelemetryBootstrapper extends Bootstrapper {
     // `@Autoinject( InMemoryPerfSink )` ( the telemetry controller does exactly
     // that ) would build a SECOND, permanently empty sink.
     //
-    // `override` MUST be true: without it `asValue` APPENDS to an existing cache
-    // entry instead of replacing it, while the resolve fast path keeps handing
-    // out the entry it already had. So anything that resolved a sink directly
-    // BEFORE this bootstrapper ran — an earlier-ordered consumer bootstrapper,
-    // or an app still calling `DI.resolve( PromMetricSink )` — would pin
-    // `@Autoinject` to that earlier, permanently empty instance.
+    // Replace, not append: the resolve fast path hands out the first entry, so an
+    // instance resolved directly BEFORE this bootstrapper ran would otherwise pin
+    // `@Autoinject` to that earlier, permanently empty sink. A cache entry, not
+    // `asValue`: values survive clearCache(), the sink must go with its Metrics.
     for (const sink of sinks) {
-      DI.register(sink).asValue(sink.constructor.name, true);
+      DI.uncache(sink.constructor.name);
+      DI.RootContainer.Cache.add(sink.constructor.name, sink);
     }
 
     Perf.refreshSinks();

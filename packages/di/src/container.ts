@@ -5,14 +5,19 @@ import { ChainArray, TypedArray } from './array.js';
 import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
 import { ResolveType } from './enums.js';
 import { getTypeName, isAsyncService, isChainArray, isFactory, isTypedArray, isPromise } from './helpers.js';
-import { IBind, IContainer, IDisposeOptions, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service, ResolveChainResult } from './interfaces.js';
+import { ChildOptions, ContainerCacheStats, ContainerSnapshot, IBind, IContainer, IDisposeOptions, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service, ResolveChainResult } from './interfaces.js';
 import { Class, Factory, ResolveResult } from './types.js';
 import { EventEmitter } from './events.js';
 import { Binder } from './binder.js';
-import { Registry } from './registry.js';
+import { Registry, ValueMapContents } from './registry.js';
 import { ContainerCache } from './container-cache.js';
 import _ from 'lodash';
 import { ServiceNotFound } from './exceptions.js';
+
+const MAX_RESTORE_PASSES = 5;
+
+// Kept beside the snapshot so ContainerSnapshot keeps the shape of the public contract.
+const snapshotMaps = new WeakMap<ContainerSnapshot, ValueMapContents>();
 
 /**
  * Maps `items` with `fn`. When `fn` throws synchronously, promises returned for the
@@ -86,6 +91,11 @@ export class Container extends EventEmitter implements IContainer {
   private bareInstances = new WeakSet<object>();
 
   /**
+   * Singletons resolved here (or through a plain descendant) are created and cached here, even when an ancestor registered them.
+   */
+  private readonly isolateSingletons: boolean;
+
+  /**
    * Returns container cache - map object with resolved classes as singletons
    */
   public get Cache() {
@@ -100,12 +110,13 @@ export class Container extends EventEmitter implements IContainer {
     return this.parent;
   }
 
-  constructor(parent?: IContainer) {
+  constructor(parent?: IContainer, options?: ChildOptions) {
     super();
 
     this.registry = new Registry(this);
     this.cache = new ContainerCache(this);
     this.parent = parent;
+    this.isolateSingletons = options?.isolateSingletons ?? false;
   }
 
   /**
@@ -134,8 +145,9 @@ export class Container extends EventEmitter implements IContainer {
     // Reverse resolution order: a service resolved later may still use one resolved before it
     // ( eg. a scheduler finishing its runs on the ORM connection ) while it disposes.
     // One instance can sit under several keys ( its own and an Array.ofType base ).
+    // A Service bound as a value is disposed too, but stays registered: values survive dispose.
     const disposed = new Set<Service>();
-    for (const entry of [...this.cache].reverse()) {
+    for (const entry of [...this.registry.valueEntries(), ...this.cache].reverse()) {
       if (entry.value instanceof Service && !disposed.has(entry.value)) {
         disposed.add(entry.value);
         try {
@@ -156,9 +168,91 @@ export class Container extends EventEmitter implements IContainer {
     }
   }
 
+  public snapshot(): ContainerSnapshot {
+    const { registry, values, maps } = this.registry.snapshotState();
+    const listeners = new Map<string | symbol, ((...args: unknown[]) => void)[]>();
+    for (const event of this.eventNames()) {
+      listeners.set(event, this.rawListeners(event));
+    }
+
+    const snapshot: ContainerSnapshot = { registry, values, cache: this.cache.snapshotState(), listeners };
+    snapshotMaps.set(snapshot, maps);
+    return snapshot;
+  }
+
+  public async restore(snapshot: ContainerSnapshot): Promise<void> {
+    const errors: Error[] = [];
+
+    // Every further pass takes back what the previous pass's disposal resolved or registered.
+    let pass = 0;
+    for (;;) {
+      await this.cache.settle();
+      const { children, dropped } = this.swapBack(snapshot);
+      if (children.length === 0 && dropped.length === 0) {
+        break;
+      }
+
+      if (pass === MAX_RESTORE_PASSES) {
+        console.warn(`restore() stopped after ${MAX_RESTORE_PASSES} passes: disposal kept resolving services; ${dropped.length} were dropped without dispose()`);
+        break;
+      }
+
+      pass++;
+      await this.disposeDetached(children, dropped, errors);
+    }
+
+    if (errors.length > 0) {
+      console.warn(`${errors.length} services failed to dispose properly during restore:`, errors);
+    }
+  }
+
+  /** One synchronous step, so no dispose() runs against a half-restored container. */
+  private swapBack(snapshot: ContainerSnapshot): { children: IContainer[]; dropped: unknown[] } {
+    const children = [...this.children];
+    this.children.clear();
+
+    const dropped = this.cache.restoreState(snapshot.cache);
+    this.registry.restoreState(snapshot.registry, snapshot.values, snapshotMaps.get(snapshot));
+    this.restoreListeners(snapshot.listeners);
+
+    return { children, dropped };
+  }
+
+  private async disposeDetached(children: IContainer[], dropped: unknown[], errors: Error[]): Promise<void> {
+    for (const child of children) {
+      await child.dispose().catch((err: Error) => errors.push(err));
+    }
+
+    for (const instance of dropped) {
+      if (instance instanceof Service) {
+        try {
+          await instance.dispose();
+        } catch (err) {
+          errors.push(err as Error);
+        }
+      }
+    }
+  }
+
+  /** Removes every listener added since the snapshot, a second copy of a kept one included. */
+  private restoreListeners(snapshot: ContainerSnapshot['listeners']) {
+    for (const event of this.eventNames()) {
+      const allowed = [...(snapshot.get(event) ?? [])];
+      for (const listener of this.rawListeners(event)) {
+        const index = allowed.indexOf(listener);
+        if (index === -1) {
+          this.removeListener(event, listener);
+        } else {
+          allowed.splice(index, 1);
+        }
+      }
+    }
+  }
+
   private async disposePlainOwners(errors: Error[]) {
     const seen = new Set<unknown>();
-    for (const { value } of this.cache) {
+    const entries = [...this.cache, ...this.registry.valueEntries()];
+    for (const { value } of entries) {
       if (seen.has(value) || value instanceof Service || value instanceof Container) {
         continue;
       }
@@ -192,7 +286,7 @@ export class Container extends EventEmitter implements IContainer {
   /**
    * Get cache statistics for memory monitoring
    */
-  public getCacheStats() {
+  public getCacheStats(): ContainerCacheStats {
     const entries: string[] = [];
     let size = 0;
 
@@ -239,8 +333,8 @@ export class Container extends EventEmitter implements IContainer {
    * Creates child DI container.
    *
    */
-  public child(): IContainer {
-    const child = new (this.constructor as new (parent?: IContainer) => Container)(this);
+  public child(options?: ChildOptions): IContainer {
+    const child = new (this.constructor as new (parent?: IContainer, options?: ChildOptions) => Container)(this, options);
     this.children.add(child);
 
     // Remove from parent when child is disposed
@@ -303,7 +397,7 @@ export class Container extends EventEmitter implements IContainer {
   }
 
   public isCached(instance: unknown, parent = false): boolean {
-    for (const entry of this.cache) {
+    for (const entry of [...this.cache, ...this.registry.valueEntries()]) {
       if (entry.value === instance) {
         return true;
       }
@@ -469,7 +563,7 @@ export class Container extends EventEmitter implements IContainer {
     const resolved = resolveEach(this.Registry.getTypesChain(type), ({ type: entry, container }) => {
       const owner = container as Container;
       if (isFactory(entry)) {
-        return owner.resolveType(type, entry as Factory<T>, undefined, true);
+        return this.isolatingBelow(owner).resolveType(type, entry as Factory<T>, undefined, true);
       }
 
       return this.resolveChainClass(type, entry as Class<T>, owner);
@@ -485,11 +579,23 @@ export class Container extends EventEmitter implements IContainer {
     return resolved as ResolveChainResult<T>;
   }
 
-  /** A class of a chain resolves in the container that registered it, a PerChildContainer one in this container. */
+  /**
+   * A class of a chain resolves in the container that registered it, or in the nearest isolating
+   * container below that one; a PerChildContainer class resolves in this container.
+   */
   private resolveChainClass<T>(base: Class<T> | string, entry: Class<T>, owner: Container) {
     const target = owner.followRegistered(entry);
-    const resolver = resolverOf(target) === ResolveType.PerChildContainer ? this : owner;
+    const resolver = resolverOf(target) === ResolveType.PerChildContainer ? this : this.isolatingBelow(owner);
     return resolver.resolveType(base, target, undefined, true);
+  }
+
+  /** The nearest isolating container from this one up to, not including, `owner`; `owner` when there is none. */
+  private isolatingBelow(owner: Container): Container {
+    if (this === owner || this.isolateSingletons) {
+      return this;
+    }
+
+    return this.parent instanceof Container ? this.parent.isolatingBelow(owner) : owner;
   }
 
   private getCurrentType<T>(type: Class<T> | string, tType?: Class<T>, check?: boolean) {
@@ -548,12 +654,12 @@ export class Container extends EventEmitter implements IContainer {
 
   /**
    * The container that owns the registration under `key`: the nearest one, starting at
-   * this container, with its own registry entry for it. A key registered nowhere is
-   * owned by this container.
+   * this container, with its own registry entry for it, or the nearest isolating one
+   * if that comes first. A key registered nowhere is owned by this container.
    */
   private findOwner(key: string): Container {
     for (let c: IContainer | undefined = this; c; c = c.Parent) {
-      if (c.Registry.ownsRegistration(key)) {
+      if (c.Registry.ownsRegistration(key) || (c as Container).isolateSingletons) {
         return c as Container;
       }
     }
@@ -569,7 +675,8 @@ export class Container extends EventEmitter implements IContainer {
    * elements are created but left out of the result.
    */
   private resolveAncestorList<T>(owner: Container, type: TypedArray<T>, options?: unknown[]): T[] | Promise<T[]> {
-    const entries = (owner.getRegisteredTypes(type, false) ?? []).map((t) => {
+    // An isolating owner may only inherit the list.
+    const entries = (owner.getRegisteredTypes(type) ?? []).map((t) => {
       if (isFactory(t)) {
         return { target: t as Factory<T>, resolver: null };
       }
@@ -627,11 +734,11 @@ export class Container extends EventEmitter implements IContainer {
     const register = !exact && owner === this && ownsKey;
 
     // Registered nowhere: the class is built as is, but recording it would make it look registered.
-    const bare = !exact && owner === this && !ownsKey;
+    const bare = !exact && !this.Registry.hasRegistered(sName);
 
     // A container that registered the key itself must not pick up an ancestor's instance
-    // that only shares the class name.
-    const lookupParents = !ownsKey;
+    // that only shares the class name; an isolating one never serves an ancestor's instance.
+    const lookupParents = !ownsKey && !this.isolateSingletons;
 
     const resolve = (d: IInjectDescriptor<unknown>, t: Class<T>, i: IResolvedInjection[]) => {
       if (d.resolver === ResolveType.NewInstance) {

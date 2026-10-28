@@ -1,7 +1,7 @@
 import { BindException } from './exceptions.js';
 import { ResolveType } from './enums.js';
 import { isFactory, isConstructor, getTypeName } from './helpers.js';
-import { IBind, IContainer, IInjectDescriptor, ResolvableObject } from './interfaces.js';
+import { IBind, IContainer, IInjectDescriptor, RegisterOptions, ResolvableObject } from './interfaces.js';
 import { Class, Factory } from './types.js';
 import { AddDependency } from './decorators.js';
 
@@ -14,64 +14,50 @@ export class Binder<T> implements IBind {
     this.isConstructor = isConstructor(implementation);
   }
 
-  as<T>(type: string | Class<T>): this {
-    this.container.Registry.register(type, this.implementation);
+  as<T>(type: string | Class<T>, options?: RegisterOptions): this {
+    this.container.Registry.register(type, this.implementation, options);
 
     const iType = getTypeName(this.implementation);
     const tType = getTypeName(type);
     this.container.emit(`di.registered.${iType}`, this.implementation);
     this.container.emit(`di.registered.${tType}`, this.implementation);
 
-
     return this;
   }
 
   /**
-   * Add plain value to container. If value exists, it overrides content in  container cache
+   * Binds a plain value under `type`. Values are registrations: clearCache() keeps them, clearRegistry() drops them.
    *
    * @param type - name of added value
-   * @param override - if true, any value registered before is overriden by new one
-   * @returns
+   * @param override - if true, replaces the values and the instances already held under `type` in this container
    */
   asValue(type: string, override = false): this {
     if (override) {
-      if (this.container.Cache.has(type)) {
-        this.container.Cache.remove(type);
-      }
+      this.container.Cache.remove(type);
     }
-    this.container.Cache.add(type, this.implementation);
-
-    const tType = getTypeName(type);
-    this.container.emit(`di.registered.${tType}`, this.implementation);
-
+    this.container.Registry.registerValue(type, this.implementation, override);
+    this.container.emit(`di.registered.${getTypeName(type)}`, this.implementation);
     return this;
   }
 
   /**
-   *
-   * Add plain value to container, value is stored in hashmap for quick access
-   * eg. we have multiple value converters and we wanc o(1) access, instead searching for
-   * converter for specific type
+   * Adds a plain value to a map stored under `type`, for o(1) access by `key`
+   * ( eg. value converters looked up by the type they convert ).
    *
    * @param type - name of added value
    * @param key - hashmap key
    */
   asMapValue(type: string, key: string) {
-    let map = null;
-    if (this.container.Cache.has(type)) {
-      map = this.container.Cache.get(type)[0] as Map<any, any>;
-    } else {
-      map = new Map<string, any>();
-      this.container.Cache.add(type, map);
+    let map = this.container.Registry.getValues(type)?.[0] as Map<string, unknown> | undefined;
+    if (!map) {
+      map = new Map<string, unknown>();
+      this.container.Registry.registerValue(type, map);
     }
 
     map.set(key, this.implementation);
 
-    
-    const iType = getTypeName(this.implementation);
-    const tType = getTypeName(type);
-    this.container.emit(`di.registered.${iType}`, this.implementation);
-    this.container.emit(`di.registered.${tType}`, this.implementation);
+    this.container.emit(`di.registered.${getTypeName(this.implementation)}`, this.implementation);
+    this.container.emit(`di.registered.${getTypeName(type)}`, this.implementation);
 
     return this;
   }

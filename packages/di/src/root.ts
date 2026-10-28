@@ -1,6 +1,6 @@
 import { pathToFileURL } from 'node:url';
 import { Container } from './container.js';
-import { IBind, IContainer, IDisposeOptions, ResolvableObject, ResolveChainResult } from './interfaces.js';
+import { ChildOptions, ContainerSnapshot, IBind, IContainer, IDisposeOptions, ResolvableObject, ResolveChainResult } from './interfaces.js';
 import { Class, InferClass, InferTypedArray, ResolveResult, ResolveArrayResult, Factory } from './types.js';
 import { ChainArray, TypedArray } from './array.js';
 
@@ -26,7 +26,7 @@ export function setESMModuleSupport() {
     esmDeprecationEmitted = true;
     process.emitWarning('DI.setESMModuleSupport() is a no-op since @spinajs/di 4.0 and will be removed in 5.0.', { type: 'DeprecationWarning', code: 'SPINAJS_ESM_MODE' });
   }
-  RootContainer.register({ mjs: true }).asValue('__esmMode__');
+  RootContainer.register({ mjs: true }).asValue('__esmMode__', true);
 }
 
 export function on(event: string, listener: (...args: unknown[]) => void) {
@@ -103,6 +103,14 @@ export function clearCache() {
 
 export async function dispose(options?: IDisposeOptions) {
   await RootContainer.dispose(options);
+}
+
+export function snapshot(): ContainerSnapshot {
+  return RootContainer.snapshot();
+}
+
+export async function restore(snapshot: ContainerSnapshot): Promise<void> {
+  await RootContainer.restore(snapshot);
 }
 
 /**
@@ -218,8 +226,8 @@ export function checkType<T>(source: Class<any> | string | TypedArray<any>, type
  * Creates child DI container.
  *
  */
-export function child(): IContainer {
-  return RootContainer.child();
+export function child(options?: ChildOptions): IContainer {
+  return RootContainer.child(options);
 }
 
 /**

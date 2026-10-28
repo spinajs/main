@@ -19,7 +19,7 @@
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `DI.IModuleLoader` | The value `'__module_loader__'` in the root cache; read on every load | none: `import()` | Your loader | `DI.register(loader).asValue('__module_loader__')` before anything loads modules, eg. before the bootstrappers run |
+| `DI.IModuleLoader` | The value `'__module_loader__'` in the root container; read on every load | none: `import()` | Your loader | `DI.register(loader).asValue('__module_loader__')` before anything loads modules, eg. before the bootstrappers run |
 
 ### A custom module loader
 
@@ -59,7 +59,7 @@ void main();
 - The loader is read from the **root** container on every call; registering it in a child has no effect.
 - A registered loader takes over completely: `import()` is not used, and the loader's result is returned as is, without unwrapping `default`.
 - `default` is unwrapped; a module without a default export returns its namespace object.
-- `DI.clear()`, `DI.clearCache()` and `DI.dispose()` remove the loader, since it lives in the cache. Register it again after clearing in tests.
+- The loader is a value: `DI.clear()`, `DI.clearRegistry()` and `DI.uncache('__module_loader__')` remove it, `DI.clearCache()` and `DI.dispose()` keep it.
 
 ## Best practices
 

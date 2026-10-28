@@ -5,7 +5,7 @@ import { Configuration } from '@spinajs/configuration';
 import type { IConfigLike } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 
-import { Metrics, TELEMETRY_CONFIGURATION_SCHEMA, TelemetryBootstrapper, TelemetryServiceTokenBootstrapper } from '../src/index.js';
+import { Metrics, PromMetricSink, TELEMETRY_CONFIGURATION_SCHEMA, TelemetryBootstrapper, TelemetryServiceTokenBootstrapper } from '../src/index.js';
 
 /** Fills its data in `resolve()` only, like the real Configuration, which boots after the bootstrappers ran. */
 class LateConfiguration extends Configuration {
@@ -53,6 +53,17 @@ describe('telemetry bootstrappers with a Configuration that is not resolved yet'
   it('TelemetryBootstrapper registers the telemetry configuration schema', async () => {
     await new TelemetryBootstrapper().bootstrap();
     expect(DI.RootContainer.Cache.get('__configurationSchema__', false) ?? []).to.include(TELEMETRY_CONFIGURATION_SCHEMA);
+  });
+
+  it('TelemetryBootstrapper publishes each sink as a cache entry, so clearCache drops it with the Metrics it writes to', async () => {
+    await new TelemetryBootstrapper().bootstrap();
+    const sink = DI.get(PromMetricSink);
+    expect(sink).to.be.instanceOf(PromMetricSink);
+
+    DI.clearCache();
+
+    expect(DI.get(PromMetricSink)).to.be.undefined;
+    expect(DI.resolve(PromMetricSink)).to.not.equal(sink);
   });
 
   it('TelemetryServiceTokenBootstrapper bridges the token into authz.http.services', async () => {

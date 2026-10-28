@@ -7,8 +7,8 @@ A registration tells the container which class, factory or value to hand out for
 1. `DI.register(implementation)` (root container) or `container.register(implementation)` checks the argument and returns a `Binder`, the `IBind` implementation. A falsy argument (`undefined`, `null`, `0`, `''`) throws `InvalidArgument`.
 2. A `Binder` method stores the registration:
    - `as(key)` and `asSelf()` add the implementation to the container's `Registry` under the key's name.
-   - `asValue(key)` and `asMapValue(key, hashKey)` put the object straight into the container's cache; see [Values and value maps](09-values-and-value-maps.md).
-3. `Registry.register()` throws `InvalidOperation` for anything that is not a class, a function or an object. Under one key it keeps a list: a class already in the list (same name) is not added twice; a factory is always appended.
+   - `asValue(key)` and `asMapValue(key, hashKey)` store the object as is among the registry's values, apart from the class registrations; see [Values and value maps](09-values-and-value-maps.md).
+3. `Registry.register()` throws `InvalidOperation` for anything that is not a class, a function or an object. Under one key it keeps a list: a class already in the list (same name) is not added twice and keeps its first position, unless `as(key, { replace: true })` moves it to the end; a factory is always appended.
 4. The binder emits `di.registered.<ImplementationName>` and `di.registered.<KeyName>` on the container; see [Container events](12-container-events.md).
 5. Nothing is built yet. The first `resolve()` of the key builds the instance; see [Resolving services](02-resolving-services.md).
 
@@ -37,10 +37,10 @@ A registration tells the container which class, factory or value to hand out for
 
 | Method | Effect |
 | --- | --- |
-| `as(key)` | Registers the implementation under `key` (a class or a string) |
+| `as(key, options?)` | Registers the implementation under `key` (a class or a string). With `{ replace: true }` a class already in the list under `key` (same name) moves to the end, so the last registration wins |
 | `asSelf()` | Registers a class under its own name; throws `BindException('cannot register as self non class')` for a factory or a value |
-| `asValue(key, override = false)` | Stores the object as is in the cache under `key`; see [Values and value maps](09-values-and-value-maps.md) |
-| `asMapValue(key, hashKey)` | Adds the object to a `Map` cached under `key`, at `hashKey` |
+| `asValue(key, override = false)` | Stores the object as is under `key`; see [Values and value maps](09-values-and-value-maps.md) |
+| `asMapValue(key, hashKey)` | Adds the object to a `Map` stored under `key`, at `hashKey` |
 | `singleInstance()` | Forces the singleton lifetime, also over a `@NewInstance()` decorator (see Important behaviour). Throws `BindException` for a factory |
 
 All methods return the binder, so calls chain: `DI.register(SmtpMailer).as(Mailer).asSelf()`.
@@ -55,8 +55,8 @@ All methods return the binder, so calls chain: `DI.register(SmtpMailer).as(Maile
 | `DI.getRegisteredTypes(key)` / `container.getRegisteredTypes(key, parent?)` | The list under `key` from the nearest container that has one, or `null` |
 | `DI.unregister(implementation)` / `container.unregister(implementation)` | Removes the implementation from every list in this registry; an emptied list is deleted, so the key falls back to its default |
 | `DI.unregister(key, implementation)` / `container.unregister(key, implementation)` | Removes `implementation` itself (by identity, so one of several arrow factories) from the list under `key` only; an emptied list is deleted |
-| `DI.uncache(key, parent?)` / `container.uncache(key, parent?)` | Drops the cached instances under `key`, so the next resolve builds again |
-| `DI.clearRegistry()`, `DI.clearCache()`, `DI.clear()` | Empty the root registry, the root cache, or both |
+| `DI.uncache(key, parent?)` / `container.uncache(key, parent?)` | Drops the cached instances and the values under `key`, so the next resolve builds again |
+| `DI.clearRegistry()`, `DI.clearCache()`, `DI.clear()` | Empty the root registry (values included), the root cache of resolved instances, or both |
 
 ## Services and extension points
 

@@ -5,8 +5,7 @@ export type OwnedType = Class<unknown> | string;
 
 /**
  * Drops the cached instances of the listed types from `container` (default: root) and nothing else.
- * Never use a blanket clearCache(): it wipes entries other packages write at import time
- * (e.g. @spinajs/http's __http_error_map__), which nothing rebuilds.
+ * Prefer this over clearCache(): a blanket clear also drops singletons other suites still hold.
  */
 export function uncacheOwned(types: readonly OwnedType[], container: IContainer = DI.RootContainer): void {
   for (const t of types) container.uncache(t);
