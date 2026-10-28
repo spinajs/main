@@ -4,7 +4,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { Bootstrapper, DI, Injectable, NewInstance } from "@spinajs/di";
 import { Configuration, format } from "@spinajs/configuration-common";
-import { ILogEntry, LogLevel, createLogMessageObject, renderTemplate, Log, ILogTargetDesc, LogVariables } from "@spinajs/log-common";
+import { ILogEntry, LogLevel, createLogMessageObject, renderTemplate, Log, ILogTargetDesc, LogVariables, LOG } from "@spinajs/log-common";
 import _ from "lodash";
 import { DateTime } from "luxon";
 
@@ -31,7 +31,7 @@ const yellowBgRed = ansi("\x1b[33m\x1b[41m");
  */
 
 function writeLogEntry(entry: ILogEntry, logName: string): boolean {
-  const logger: Log = DI.resolve("__log__", [logName]);
+  const logger: Log = DI.resolve(LOG, [logName]);
   if (logger) {
     logger
       .write(entry)
@@ -237,7 +237,7 @@ export class InternalLogger extends Bootstrapper {
     // first we must check if Configuration module is resolved
     // to obtain information about log targets etc.
     if (DI.has(Configuration)) {
-      if (DI.resolve("__log__", [logName])) {
+      if (DI.resolve(LOG, [logName])) {
         writeLogEntry(entry, logName);
       } else {
         InternalLogger.writeInternal(entry);

@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { Configuration } from "@spinajs/configuration";
 import { DI, IContainer, NewInstance } from "@spinajs/di";
-import { ICommonTargetOptions, LogLevel, ILogOptions, ILogEntry, StrToLogLevel, createLogMessageObject, renderTemplate, ILogRule, ITargetsOption, LogTarget, Log, LogFilter, ILogFilterOptions, ILogTargetDesc, readPersistedLevel } from "@spinajs/log-common";
+import { ICommonTargetOptions, LogLevel, ILogOptions, ILogEntry, StrToLogLevel, createLogMessageObject, renderTemplate, ILogRule, ITargetsOption, LogTarget, Log, LogFilter, ILogFilterOptions, ILogTargetDesc, readPersistedLevel, LOG, LOG_IMPLEMENTATION } from "@spinajs/log-common";
 import GlobToRegExp from "glob-to-regexp";
 import { InvalidOperation, InvalidOption } from "@spinajs/exceptions";
 import { InternalLoggerProxy } from "@spinajs/internal-logger";
@@ -481,14 +481,14 @@ const logFactoryFunction = (container: IContainer, logName: string, variables?: 
     return internalLogger;
   }
 
-  return container.resolve("__logImplementation__", [logName, variables, parent]);
+  return container.resolve(LOG_IMPLEMENTATION, [logName, variables, parent]);
 };
 
 // register as string identifier to allow for
 // resolving logs without referencing class
 // to avoid circular dependencies in some @spinajs packages
 // it should not be used in production code
-DI.register(logFactoryFunction).as("__log__");
+DI.register(logFactoryFunction).asToken(LOG);
 
 // register log factory function as Log class
 // this way we can create or return already created
@@ -498,4 +498,4 @@ DI.register(logFactoryFunction).as(Log);
 // register Log class as string literal
 // so we can resolve Log class
 // it should not be used in production code
-DI.register(FrameworkLogger).as("__logImplementation__");
+DI.register(FrameworkLogger).asToken(LOG_IMPLEMENTATION);

@@ -7709,9 +7709,6 @@
     }
   },
   "packages/tasks/src/decorators.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
     "@typescript-eslint/no-unsafe-function-type": {
       "count": 1
     }
@@ -8203,9 +8200,6 @@
     }
   },
   "packages/threading/src/index.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
     "@typescript-eslint/prefer-promise-reject-errors": {
       "count": 1
     },
