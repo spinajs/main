@@ -8,7 +8,7 @@ import { registerConfigurationSchema } from '@spinajs/configuration';
 import { DbConfig, isConfigValueEqual } from './models/DbConfig.js';
 import { DbConfigValueConverter } from './converter.js';
 import CONFIGURATION_SCHEMA from './schemas/configuration.db.source.schema.js';
-import { Configuration, IConfigEntryOptions, IConfigEntryOptions as IConfigEntryOptionsCommon } from '@spinajs/configuration-common';
+import { Configuration, IConfigEntryOptions, IConfigEntryOptions as IConfigEntryOptionsCommon, CONFIGURATION_PROPERTY, CONFIG_WATCH_INTERVAL } from '@spinajs/configuration-common';
 import { extractModelDescriptor, InsertBehaviour, Orm } from '@spinajs/orm';
 import type { OrmMigrator } from '@spinajs/orm';
 import { InternalLogger } from '@spinajs/internal-logger';
@@ -53,7 +53,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     // persist & load exposed options as they get registered (eg. lazily resolved services).
     // Until the configuration table is ready those vars are handled by the sweep in
     // syncExposedOptions(), so skip them here to avoid failing db calls.
-    this.listen('di.registered.__configuration_property__', (arg: unknown) => {
+    this.listen(`di.registered.${CONFIGURATION_PROPERTY.key}`, (arg: unknown) => {
       const v = arg as __dbCOnfigOptions;
       if (!v.options || !v.options.expose) {
         return;
@@ -130,7 +130,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     this.tableReady = true;
 
     const vars = container
-      .get<__dbCOnfigOptions>(Array.ofType('__configuration_property__'))!
+      .get(Array.ofType<__dbCOnfigOptions>(CONFIGURATION_PROPERTY.key))!
       .filter((x) => x.options)
       .filter((x) => x.options.expose);
 
@@ -287,7 +287,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
    */
   private startWatchTimer(container: IContainer): void {
     const cService = container.get(Configuration)!;
-    const interval = DI.get<{ value: number }>('__config_watch_interval__');
+    const interval = DI.get(CONFIG_WATCH_INTERVAL);
     const intervalMs = interval?.value || CONFIG_WATCH_TIMER_INTERVAL;
 
     let timer: ReturnType<typeof setTimeout> | null = null;
