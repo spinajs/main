@@ -28,6 +28,9 @@
     },
     {
       "path": "../util/tsconfig.json"
+    },
+    {
+      "path": "../codemods/tsconfig.json"
     }
   ]
 }

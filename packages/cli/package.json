@@ -56,7 +56,16 @@
     "reflect-metadata": "^0.1.13"
   },
   "devDependencies": {
-    "@types/node": "^18.11.18"
+    "@types/node": "^18.11.18",
+    "@spinajs/codemods": "3.0.23"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "peerDependencies": {
+    "@spinajs/codemods": "3.0.23"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/codemods": {
+      "optional": true
+    }
+  }
 }
