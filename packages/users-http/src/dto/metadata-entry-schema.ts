@@ -1,4 +1,5 @@
 import { DI } from '@spinajs/di';
+import { SCHEMAS } from '@spinajs/validation';
 
 /**
  * Response schema the metadata controller annotates with `@returns {IUserMetadataEntry}`.
@@ -22,4 +23,4 @@ export const UserMetadataEntrySchema = {
 };
 
 // The name is what the swagger builder looks up; the same call `@Schema` makes, without a class to carry the name.
-DI.register(UserMetadataEntrySchema).asMapValue('__schemas__', 'IUserMetadataEntry');
+DI.register(UserMetadataEntrySchema).asMapValue(SCHEMAS.key, 'IUserMetadataEntry');
