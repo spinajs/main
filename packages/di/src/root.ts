@@ -3,6 +3,7 @@ import { Container } from './container.js';
 import { ChildOptions, ContainerSnapshot, IBind, IContainer, IDisposeOptions, ResolvableObject, ResolveChainResult } from './interfaces.js';
 import { Class, InferClass, InferTypedArray, ResolveResult, ResolveArrayResult, Factory } from './types.js';
 import { ChainArray, TypedArray } from './array.js';
+import { token } from './token.js';
 import type { Token } from './token.js';
 
 /**
@@ -243,9 +244,12 @@ export interface IModuleLoader {
   load(module: string): Promise<unknown>;
 }
 
+/** Optional module loader; when registered it replaces dynamic `import()` in `__spinajs_require__`. */
+export const MODULE_LOADER = token<IModuleLoader>('__module_loader__');
+
 export async function __spinajs_require__(module: string): Promise<unknown> {
   // DI seam first: if an explicit module loader is registered, delegate to it.
-  const loader = RootContainer.get<IModuleLoader>('__module_loader__');
+  const loader = RootContainer.get(MODULE_LOADER);
   if (loader) {
     return loader.load(module);
   }
