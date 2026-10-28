@@ -5,6 +5,7 @@ export * from './decorators.js';
 export * from './enums.js';
 export * from './types.js';
 export * from './helpers.js';
+export * from './token.js';
 export * from './container-cache.js';
 export * from './binder.js';
 export * from './registry.js';
