@@ -398,7 +398,7 @@ describe('lane fixtures', () => {
 
     // The test program also compiles lane.ts through other imports, so only a program built from the
     // published declarations alone shows what a consumer sees (catalogue.d.ts does not import the lanes).
-    describe('a consumer of the built declarations (lib/mjs, built by pretest)', () => {
+    describe('a consumer of the built declarations (lib/, built by pretest)', () => {
       const dir = fileURLToPath(new URL('.', import.meta.url)).replace(/\\/g, '/');
       const probe = `${dir}consumer-probe.ts`;
 
@@ -414,7 +414,7 @@ describe('lane fixtures', () => {
         return ts.getPreEmitDiagnostics(program, program.getSourceFile(probe)).map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'));
       }
 
-      const IMPORTS = `import type { HttpHandle, LaneHandles, LaneWorld, OrmModelSpec, TokenPrincipalExpectation, World } from '../../lib/mjs/index.js';\nimport { laneSteps, modelSteps } from '../../lib/mjs/index.js';\n`;
+      const IMPORTS = `import type { HttpHandle, LaneHandles, LaneWorld, OrmModelSpec, TokenPrincipalExpectation, World } from '../../lib/index.js';\nimport { laneSteps, modelSteps } from '../../lib/index.js';\n`;
 
       it('sees World.lane, every lane handle key and the step namespaces', function () {
         this.timeout(120_000);

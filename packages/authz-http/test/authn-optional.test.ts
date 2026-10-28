@@ -46,7 +46,7 @@ describe('@spinajs/authn is an optional peer of authz-http', () => {
     expect(pkg.dependencies ?? {}).to.not.have.property('@spinajs/authn');
     expect(pkg.peerDependencies ?? {}).to.have.property('@spinajs/authn');
     expect(pkg.peerDependenciesMeta?.['@spinajs/authn']?.optional).to.eq(true);
-    expect(pkg.exports['./authn']).to.deep.eq({ types: './lib/mjs/authn/index.d.ts', import: './lib/mjs/authn/index.js', require: './lib/cjs/authn/index.js' });
+    expect(pkg.exports['./authn']).to.deep.eq({ types: './lib/authn/index.d.ts', import: './lib/authn/index.js' });
   });
 
   it('serves the session-end sink from @spinajs/authz-http/authn, not from the root entry', () => {

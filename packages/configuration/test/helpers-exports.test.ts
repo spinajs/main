@@ -14,19 +14,17 @@ describe('packageLibDirs', () => {
     else process.env.WORKSPACE_ROOT_PATH = saved;
   });
 
-  const flavour = typeof module !== 'undefined' ? 'cjs' : 'mjs';
-
   it('points at the package build under the working directory, then one level up', () => {
     delete process.env.WORKSPACE_ROOT_PATH;
     expect(packageLibDirs('@spinajs/authn-token', 'cli')).to.deep.equal([
-      resolve(process.cwd(), 'node_modules', '@spinajs', 'authn-token', 'lib', flavour, 'cli'),
-      resolve(process.cwd(), '..', 'node_modules', '@spinajs', 'authn-token', 'lib', flavour, 'cli'),
+      resolve(process.cwd(), 'node_modules', '@spinajs', 'authn-token', 'lib', 'cli'),
+      resolve(process.cwd(), '..', 'node_modules', '@spinajs', 'authn-token', 'lib', 'cli'),
     ]);
   });
 
   it('roots at WORKSPACE_ROOT_PATH when set', () => {
     process.env.WORKSPACE_ROOT_PATH = join(process.cwd(), 'ws');
-    expect(packageLibDirs('@spinajs/authz-rbac', 'cli/commands')[0]).to.equal(resolve(process.cwd(), 'ws', 'node_modules', '@spinajs', 'authz-rbac', 'lib', flavour, 'cli', 'commands'));
+    expect(packageLibDirs('@spinajs/authz-rbac', 'cli/commands')[0]).to.equal(resolve(process.cwd(), 'ws', 'node_modules', '@spinajs', 'authz-rbac', 'lib', 'cli', 'commands'));
   });
 });
 

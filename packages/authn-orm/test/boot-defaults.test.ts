@@ -30,7 +30,7 @@ describe('authn-orm with no throttle config (K6)', function () {
 
   let child: IContainer | undefined;
 
-  // As an app's bootstrap does; the config loader then imports the packages' lib/mjs config files.
+  // As an app's bootstrap does; the config loader then imports the packages' lib/config files.
   before(() => DI.setESMModuleSupport());
 
   afterEach(async () => {

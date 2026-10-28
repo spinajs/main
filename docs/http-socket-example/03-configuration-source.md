@@ -47,7 +47,7 @@ Keys that `NotesConfiguration.onLoad()` sets. Every other `http.socket` key keep
 
 ### Configuration: custom implementation
 
-Override `onLoad()` to return a plain object; it is merged over every loaded source. Keep the rest of `FrameworkConfiguration` as it is: sources, protocols and validation still run. Register the class before anything resolves `Configuration`, and call `DI.setESMModuleSupport()` first in an ES module app.
+Override `onLoad()` to return a plain object; it is merged over every loaded source. Keep the rest of `FrameworkConfiguration` as it is: sources, protocols and validation still run. Register the class before anything resolves `Configuration`.
 
 `startNotesServer` registers `NotesConfiguration` itself, so a custom configuration needs its own boot function, shown below for a chat server.
 
@@ -81,7 +81,6 @@ class ChatHttpHost extends SocketHttpHost {
 }
 
 async function startChat(port: number): Promise<SocketServer> {
-  DI.setESMModuleSupport();
   DI.register(ChatConfiguration).as(Configuration);
   DI.register(ChatHttpHost).as(SocketHttpHost);
 

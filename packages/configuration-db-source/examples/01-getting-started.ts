@@ -12,7 +12,7 @@
  * before the db source runs.
  *
  * Run (after building the workspace):
- *   node lib/mjs/examples/01-getting-started.js
+ *   node lib/examples/01-getting-started.js
  */
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration, ConfigurationSource, FrameworkConfiguration, StaticConfigurationSource } from '@spinajs/configuration';

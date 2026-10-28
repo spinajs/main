@@ -31,7 +31,7 @@
 Pass `options` to tune reconnects and timeouts, or to replace the demo `clientId` and `auth`. The tests pass a fast reconnect policy; a browser app passes a stable `clientId` and a token provider.
 
 ```ts sample
-import { connectNotes, type NotesClient } from '@spinajs/http-socket-example/lib/mjs/client.js';
+import { connectNotes, type NotesClient } from '@spinajs/http-socket-example/lib/client.js';
 
 // A browser-like install id and a token read from storage on every reconnect.
 const installId = 'install-8c41f2';
@@ -80,7 +80,7 @@ connectNotes(url, path, token, { clientId: installId });
 ### Follow a document's edits
 
 ```ts sample
-import { connectNotes } from '@spinajs/http-socket-example/lib/mjs/client.js';
+import { connectNotes } from '@spinajs/http-socket-example/lib/client.js';
 
 async function follow(url: string, path: string, docId: string): Promise<() => void> {
   const notes = connectNotes(url, path, 'bob-token');

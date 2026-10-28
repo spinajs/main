@@ -100,7 +100,7 @@ function deepMerge(base: Record<string, unknown>, over: Readonly<Record<string, 
 /**
  * A Configuration class per container, so each boot reads its own values. `env` is the app env it resolves
  * (`process.env.APP_ENV`); undefined leaves it to the process, as an app started without `--env`. Unless `isolated`,
- * the file sources run as in an app; they load the package configs of node_modules/@spinajs only in ESM mode.
+ * the file sources run as in an app and load the package configs of node_modules/@spinajs.
  */
 export function configurationOf(values: Record<string, unknown>, env?: string, isolated = false): Class<Configuration> {
   const json = JSON.stringify(values);

@@ -25,15 +25,11 @@ interface Run {
   afterExplicitCall: Snapshot;
   n10: { body: unknown; functions: string[] };
   orders: { AuthnMiddleware: number };
-  /** CJS only: loaded module files under v3/controllers; null in ESM, which lists no loaded modules. */
-  loadedV3Controllers: string[] | null;
   /** The files of the shipped cli dir, loaded before the first snapshot as the CLI's scan loads them. */
   cliFiles: string[];
-  /** CJS only: loaded module files of the @spinajs/authn build outside its contracts; null in ESM. */
-  loadedAuthnRoot: string[] | null;
 }
 
-// Plain JS for the ESM and the CJS child: the built package, loaded as an app loads it.
+// Plain JS for the child: the built package, loaded as an app loads it.
 const ROUTE_ARG_NAMES = ['AuthnIdentityArg', 'AuthnSessionArg', 'AuthnSessionIdArg', 'AuthnSessionDataArg'];
 
 const V3_CONTROLLERS = ['AuthnLoginController', 'AuthnMfaController', 'AuthnReauthController', 'AuthnSessionsController', 'AuthnActiveRoleController', 'AuthnImpersonationController'];
@@ -58,10 +54,8 @@ const BODY = `
     functions: ['authnFailureResponse', 'authnSessionCookie', 'authnClearedSessionCookie'].filter((n) => typeof pkg[n] === 'function'),
   };
   const orders = { AuthnMiddleware: new pkg.AuthnMiddleware().Order };
-  const loadedV3Controllers = typeof require === 'function' ? Object.keys(require.cache).filter((f) => /[\\\\/]v3[\\\\/]controllers[\\\\/]/.test(f)) : null;
-  const loadedAuthnRoot = typeof require === 'function' ? Object.keys(require.cache).filter((f) => /[\\\\/]authn[\\\\/]lib[\\\\/]cjs[\\\\/]/.test(f) && !/[\\\\/]contracts[\\\\/]/.test(f)) : null;
   await pkg.registerAuthnHttpV3();
-  console.log(JSON.stringify({ loaded, afterExplicitCall: snap(di, http, contracts, pkg), n10, orders, loadedV3Controllers, cliFiles, loadedAuthnRoot }));
+  console.log(JSON.stringify({ loaded, afterExplicitCall: snap(di, http, contracts, pkg), n10, orders, cliFiles }));
 `;
 
 const ESM = `
@@ -72,25 +66,10 @@ const ESM = `
   const { readdirSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { pathToFileURL } = await import('node:url');
-  const cliDir = join(process.cwd(), 'lib', 'mjs', 'cli');
+  const cliDir = join(process.cwd(), 'lib', 'cli');
   const cliFiles = readdirSync(cliDir).filter((f) => f.endsWith('.js'));
   for (const f of cliFiles) await import(pathToFileURL(join(cliDir, f)).href);
   ${BODY}
-`;
-
-const CJS = `
-  (async () => {
-    const di = require('@spinajs/di');
-    const http = require('@spinajs/http');
-    const contracts = require('@spinajs/authn/contracts');
-    const pkg = require('@spinajs/authn-http');
-    const { readdirSync } = require('node:fs');
-    const { join } = require('node:path');
-    const cliDir = join(process.cwd(), 'lib', 'cjs', 'cli');
-    const cliFiles = readdirSync(cliDir).filter((f) => f.endsWith('.js'));
-    for (const f of cliFiles) require(join(cliDir, f));
-    ${BODY}
-  })().catch((e) => { console.error(e); process.exit(1); });
 `;
 
 // An app that never imports the barrel loads the package through its controller scan: a scanned 3.0 controller
@@ -100,7 +79,7 @@ const SCAN_ENTRY = (entry: string) => `
   const http = await import('@spinajs/http');
   const { join } = await import('node:path');
   const { pathToFileURL } = await import('node:url');
-  await import(pathToFileURL(join(process.cwd(), 'lib', 'mjs', ${JSON.stringify(entry)})).href);
+  await import(pathToFileURL(join(process.cwd(), 'lib', ${JSON.stringify(entry)})).href);
   console.log(JSON.stringify((di.DI.getRegisteredTypes(http.ServerMiddleware) ?? []).map((t) => t.name)));
 `;
 
@@ -149,10 +128,7 @@ const count = (list: string[], name: string) => list.filter((n) => n === name).l
 describe('the 3.0 authn layer is switched on when the package loads (N8c)', function () {
   this.timeout(120000);
 
-  for (const [label, inputType, body] of [
-    ['ESM', 'module', ESM],
-    ['CJS', 'commonjs', CJS],
-  ] as const) {
+  for (const [label, inputType, body] of [['ESM', 'module', ESM]] as const) {
     describe(label, () => {
       let r: Run;
 
@@ -162,7 +138,6 @@ describe('the 3.0 authn layer is switched on when the package loads (N8c)', func
 
       it('importing the package registers the authn services, AuthnMiddleware once, the extractors, resolvers and route args', () => {
         expect(r.cliFiles, 'the shipped cli dir').to.include('AuthnCheckConfig.js');
-        if (r.loadedAuthnRoot !== null) expect(r.loadedAuthnRoot, 'modules of the @spinajs/authn root').to.not.be.empty;
         expect(r.loaded.AuthnService).to.include('DefaultAuthnService');
         expect(r.loaded.MfaPolicy).to.include('DefaultMfaPolicy');
         expect(r.loaded.AuthnThrottle).to.include('MemoryAuthnThrottle');
@@ -183,7 +158,6 @@ describe('the 3.0 authn layer is switched on when the package loads (N8c)', func
       it('no 3.0 controller is registered or loaded by the import (the app scans src/v3/controllers); the N10 helpers stay exported', () => {
         expect(r.loaded.Controllers).to.not.include.members(V3_CONTROLLERS);
         expect(r.afterExplicitCall.Controllers).to.not.include.members(V3_CONTROLLERS);
-        if (r.loadedV3Controllers !== null) expect(r.loadedV3Controllers, 'loaded 3.0 controller modules').to.deep.eq([]);
         expect(r.n10.body, 'N10: the one 401 body, from the barrel').to.deep.eq({ error: { code: 'E_AUTH_FAILED', message: 'login or password incorrect' }, message: 'login or password incorrect' });
         expect(r.n10.functions, 'N10: the cookie helpers, from the barrel').to.deep.eq(['authnFailureResponse', 'authnSessionCookie', 'authnClearedSessionCookie']);
       });

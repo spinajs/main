@@ -2,19 +2,31 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "rootDir": "./",
-    "outDir": "./lib/mjs",
+    "outDir": "./lib",
     "module": "node16",
     "moduleResolution": "node16"
   },
-  "ts-node": { "transpileOnly": true },
-  "include": ["src/**/*"],
+  "ts-node": {
+    "transpileOnly": true
+  },
+  "include": [
+    "src/**/*"
+  ],
   "references": [
-    { "path": "../di/tsconfig.json" },
-    { "path": "../exceptions/tsconfig.json" },
-    { "path": "../log-common/tsconfig.json" },
-    { "path": "../threading/tsconfig.json" },
-    { "path": "../orm/tsconfig.json"}
-
-
+    {
+      "path": "../di/tsconfig.json"
+    },
+    {
+      "path": "../exceptions/tsconfig.json"
+    },
+    {
+      "path": "../log-common/tsconfig.json"
+    },
+    {
+      "path": "../threading/tsconfig.json"
+    },
+    {
+      "path": "../orm/tsconfig.json"
+    }
   ]
 }

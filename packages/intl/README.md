@@ -5,7 +5,7 @@
 ## Usage
 
 ```
-const intl = require('@spinajs/intl');
+import * as intl from '@spinajs/intl';
 
 // TODO: DEMONSTRATE API
 ```

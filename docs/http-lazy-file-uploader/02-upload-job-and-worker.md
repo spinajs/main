@@ -46,7 +46,7 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | `queue.routing.LazyUploadJob` | `string \| IMessageRoutingOption \| (string \| IMessageRoutingOption)[]` | `'/queue/lazy-file-upload'` (shipped) | channel name or routing option | Channel of the job. Override it in your configuration. See [`@spinajs/queue`](../queue/README.md). |
 | `queue.default` | `string` | from your queue config | connection name | Connection the job is sent on and consumed from. |
-| `system.dirs.cli` | `string[]` | the package adds `node_modules/@spinajs/http-lazy-file-uploader/lib/<mjs\|cjs>/cli`, under `WORKSPACE_ROOT_PATH` or the working directory and one level up | directory paths | Where `@spinajs/cli` finds `fs-lazy:process`. |
+| `system.dirs.cli` | `string[]` | the package adds `node_modules/@spinajs/http-lazy-file-uploader/lib/cli`, under `WORKSPACE_ROOT_PATH` or the working directory and one level up | directory paths | Where `@spinajs/cli` finds `fs-lazy:process`. |
 
 ```ts sample
 const config = {

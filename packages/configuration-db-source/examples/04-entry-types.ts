@@ -27,7 +27,7 @@
  * converter is used by the model, the source and when persisting exposed values.
  *
  * Run:
- *   node lib/mjs/examples/04-entry-types.js
+ *   node lib/examples/04-entry-types.js
  */
 import { DateTime } from 'luxon';
 import { DbConfig, DbConfigValueConverter } from '@spinajs/configuration-db-source';

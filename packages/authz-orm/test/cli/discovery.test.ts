@@ -28,14 +28,14 @@ console.log(JSON.stringify(out));
 describe('authz-orm cli discovery', function () {
   this.timeout(30000);
 
-  it('adds lib/<mjs|cjs>/cli/commands of @spinajs/authz-orm to system.dirs.cli', () => {
+  it('adds lib/cli/commands of @spinajs/authz-orm to system.dirs.cli', () => {
     const dirs = ormCli.system.dirs.cli;
     expect(dirs).to.have.length(2);
-    for (const d of dirs) expect(d.split(/[\\/]/).slice(-6)).to.deep.equal(['@spinajs', 'authz-orm', 'lib', 'mjs', 'cli', 'commands']);
+    for (const d of dirs) expect(d.split(/[\\/]/).slice(-5)).to.deep.equal(['@spinajs', 'authz-orm', 'lib', 'cli', 'commands']);
   });
 
   it('finds exactly the three commands: the first export of every built file is a command', () => {
-    const dir = join(PKG_ROOT, 'lib', 'mjs', 'cli', 'commands');
+    const dir = join(PKG_ROOT, 'lib', 'cli', 'commands');
     expect(existsSync(dir)).to.equal(true);
     const stdout = execFileSync(process.execPath, ['--input-type=module', '-e', FIRST_EXPORTS, dir], { cwd: PKG_ROOT, encoding: 'utf8' });
     const commands = JSON.parse(stdout.trim().split('\n').pop()!) as Record<string, string | null>;

@@ -47,7 +47,7 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | `authz.http.admin.domain` | `string` | `'root'` | a non-empty domain name | The authz domain whose `AuthzAdmin` the routes use; the fallback of the `AuthzDomainResolver`. |
 | `authz.http.admin.basePath` | `string` | not set, the routes mount under `authz` | a non-empty path without the route prefix | Where `commands`, `assignments`, `holders`, `links`, `rules`, `policies` and `scopes/:type/:id/attributes` mount. They move together. |
-| `system.dirs.controllers` | `string[]` | the package's `lib/mjs/controllers` or `lib/cjs/controllers` | | Set by the package config; it is how http finds `AuthzAdminController`. |
+| `system.dirs.controllers` | `string[]` | the package's `lib/controllers` or `lib/controllers` | | Set by the package config; it is how http finds `AuthzAdminController`. |
 
 ```ts
 // config of a multi-tenant app: the admin routes manage the "tenant" domain

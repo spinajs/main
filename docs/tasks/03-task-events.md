@@ -123,7 +123,7 @@ DI.register(TaskHostHook).as(QueueMessageHook);
 
 ```ts
 // Don't: deep-import the package's event class; the package exports only ".", so this does not resolve
-import { TaskFailed } from '@spinajs/tasks/lib/mjs/events/TaskFailed.js';
+import { TaskFailed } from '@spinajs/tasks/lib/events/TaskFailed.js';
 
 // Do: import it from the package root
 import { TaskFailed } from '@spinajs/tasks';

@@ -2,27 +2,62 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "rootDir": "./",
-    "outDir": "./lib/mjs",
+    "outDir": "./lib",
     "module": "node16",
     "moduleResolution": "node16"
   },
-  "include": ["src/**/*", "test/**/*"],
+  "include": [
+    "src/**/*",
+    "test/**/*"
+  ],
   "references": [
-    { "path": "../authz/tsconfig.json" },
-    { "path": "../authz-http/tsconfig.json" },
-    { "path": "../authz-orm/tsconfig.json" },
-    { "path": "../authz-queue/tsconfig.json" },
-    { "path": "../authz-rbac/tsconfig.json" },
-    { "path": "../authz-testing/tsconfig.json" },
-    { "path": "../orm/tsconfig.json" },
-    { "path": "../fs/tsconfig.json" },
-    { "path": "../orm-sqlite/tsconfig.json" },
-    { "path": "../queue/tsconfig.json" },
-    { "path": "../configuration/tsconfig.json" },
-    { "path": "../di/tsconfig.json" },
-    { "path": "../exceptions/tsconfig.json" },
-    { "path": "../http/tsconfig.json" },
-    { "path": "../log/tsconfig.json" },
-    { "path": "../reflection/tsconfig.json" }
+    {
+      "path": "../authz/tsconfig.json"
+    },
+    {
+      "path": "../authz-http/tsconfig.json"
+    },
+    {
+      "path": "../authz-orm/tsconfig.json"
+    },
+    {
+      "path": "../authz-queue/tsconfig.json"
+    },
+    {
+      "path": "../authz-rbac/tsconfig.json"
+    },
+    {
+      "path": "../authz-testing/tsconfig.json"
+    },
+    {
+      "path": "../orm/tsconfig.json"
+    },
+    {
+      "path": "../fs/tsconfig.json"
+    },
+    {
+      "path": "../orm-sqlite/tsconfig.json"
+    },
+    {
+      "path": "../queue/tsconfig.json"
+    },
+    {
+      "path": "../configuration/tsconfig.json"
+    },
+    {
+      "path": "../di/tsconfig.json"
+    },
+    {
+      "path": "../exceptions/tsconfig.json"
+    },
+    {
+      "path": "../http/tsconfig.json"
+    },
+    {
+      "path": "../log/tsconfig.json"
+    },
+    {
+      "path": "../reflection/tsconfig.json"
+    }
   ]
 }

@@ -134,7 +134,7 @@ These checks run only when the view holds `rbac` keys. The [migration guide](../
 import { convert } from '@spinajs/authz-convert';
 
 export async function assertConverted(): Promise<void> {
-  const { findings } = await convert({ dirs: ['lib/mjs/config'] });
+  const { findings } = await convert({ dirs: ['lib/config'] });
   const open = findings.filter((f) => f.severity === 'manual');
   for (const f of open) console.error(`[${f.layer ?? 'common'}] ${f.path ?? ''} ${f.code}: ${f.message}`);
   if (open.length > 0) throw new Error(`${open.length} key(s) still need converting by hand`);

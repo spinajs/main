@@ -61,13 +61,10 @@ export function rewritePackageJson(pkg, { engines } = {}) {
   delete out.gitHead;
   if (out.exports) out.exports = rewriteExports(out.exports);
   if (out.main) out.main = fixLibPath(out.main.startsWith('.') ? out.main : `./${out.main}`);
-  if (out.exports && out.exports['.']) {
-    const root = out.exports['.'];
-    const types = typeof root === 'object' ? root.types : undefined;
-    if (types) out.types = types;
-  } else if (out.main && out.main.endsWith('.js')) {
-    out.types = out.main.replace(/\.js$/, '.d.ts');
-  }
+  const root = out.exports?.['.'];
+  const types = root && typeof root === 'object' ? root.types : undefined;
+  if (types) out.types = types;
+  else if (out.main && out.main.endsWith('.js')) out.types = out.main.replace(/\.js$/, '.d.ts');
   if (out.bin) out.bin = Object.fromEntries(Object.entries(out.bin).map(([k, v]) => [k, fixLibPath(v)]));
   if (out.typesVersions) out.typesVersions = JSON.parse(fixLibPath(JSON.stringify(out.typesVersions)));
   if (out.scripts) out.scripts = rewriteScriptsField(out.scripts);
@@ -75,10 +72,16 @@ export function rewritePackageJson(pkg, { engines } = {}) {
   return out;
 }
 
+// A build config's rootDir is ./src, so tsc would put its build info beside the tsconfig, where `clean` (rimraf lib/)
+// leaves it behind and the next `tsc -b` skips a package whose lib/ is gone.
 export function rewriteTsconfig(json, kind) {
-  const out = { ...json, compilerOptions: { ...json.compilerOptions } };
-  if (out.compilerOptions.outDir) out.compilerOptions.outDir = out.compilerOptions.outDir.replace(/lib\/mjs\/?$/, 'lib');
-  if (kind === 'build' && out.references) out.references = out.references.map((r) => ({ path: r.path.replace(/tsconfig\.mjs\.json$/, 'tsconfig.build.json') }));
+  const compilerOptions = {};
+  for (const [key, value] of Object.entries(json.compilerOptions ?? {})) {
+    compilerOptions[key] = key === 'outDir' ? value.replace(/lib\/mjs\/?$/, 'lib') : value;
+    if (key === 'outDir' && kind === 'build') compilerOptions.tsBuildInfoFile = './lib/tsconfig.build.tsbuildinfo';
+  }
+  const out = { ...json, compilerOptions };
+  if (out.references) out.references = out.references.map((r) => ({ path: r.path.replace(/tsconfig\.mjs\.json$/, 'tsconfig.build.json') }));
   return out;
 }
 
@@ -86,11 +89,14 @@ export function rewriteRootBuildTsconfig(json) {
   return { ...json, references: json.references.map((r) => ({ path: r.path.replace(/tsconfig\.mjs\.json$/, 'tsconfig.build.json') })) };
 }
 
+const MODULE_SNIFF = /typeof \(?module\b/;
+
 export function rewriteConfigSource(source) {
-  if (!source.includes('typeof module')) return source;
-  let out = source.replace(/^[ \t]*const inCommonJs = typeof module !== 'undefined';\r?\n/gm, '');
+  if (!MODULE_SNIFF.test(source)) return source;
+  let out = source.replace(/^[ \t]*const inCommonJs = typeof (?:module|\(module as any\)) !== 'undefined';\r?\n/gm, '');
   out = out.replace(/, inCommonJs \? 'cjs' : 'mjs'/g, '');
-  if (out.includes('typeof module')) throw new Error(`unhandled typeof module usage:\n${out}`);
+  out = out.replace(/^[ \t]*inCommonJs \? 'cjs' : 'mjs',\r?\n/gm, '');
+  if (MODULE_SNIFF.test(out) || out.includes('inCommonJs')) throw new Error(`unhandled typeof module usage:\n${out}`);
   return out;
 }
 
@@ -126,7 +132,7 @@ function applyTsconfigs(dryRun) {
       if (!dryRun) rmSync(mjs);
     }
     if (existsSync(cjs) && !dryRun) rmSync(cjs);
-    if (existsSync(test)) writeJson(test, rewriteTsconfig(readJson(test), 'test'), dryRun);
+    if (existsSync(test)) writeJson(test, rewriteTsconfig(readJson(test)), dryRun);
   }
   writeJson(join(ROOT, 'tsconfig.build.json'), rewriteRootBuildTsconfig(readJson(join(ROOT, 'tsconfig.build.json'))), dryRun);
   const rootCjs = join(ROOT, 'tsconfig.build.cjs.json');
@@ -156,7 +162,7 @@ function applyConfigDirs(dryRun) {
         const file = join(c, entry);
         if (!entry.endsWith('.ts') || statSync(file).isDirectory()) continue;
         const before = readFileSync(file, 'utf8');
-        if (!before.includes('typeof module')) continue;
+        if (!MODULE_SNIFF.test(before)) continue;
         const after = rewriteConfigSource(before);
         changed.push(relative(ROOT, file));
         if (!dryRun) writeFileSync(file, after);

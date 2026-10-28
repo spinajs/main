@@ -2,13 +2,11 @@
   "name": "@spinajs/http",
   "version": "3.0.23",
   "description": "framework HTTP module base on express.js",
-  "main": "lib/cjs/index.js",
-  "module": "lib/mjs/index.js",
+  "main": "./lib/index.js",
   "exports": {
     ".": {
-      "types": "./lib/mjs/index.d.ts",
-      "import": "./lib/mjs/index.js",
-      "require": "./lib/cjs/index.js"
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
     },
     "./package.json": "./package.json"
   },
@@ -18,17 +16,16 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=16.11"
+    "node": ">=22.0.0"
   },
   "scripts": {
-    "watch": "tsc -b tsconfig.mjs.json -w",
+    "watch": "tsc -b tsconfig.build.json -w",
     "build": "npm run clean && npm run compile && npm run copy",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "compile": "tsc -b tsconfig.build.json",
     "copy": "cpx \"src/views/**/*.{pug,js}\" lib/views/ && cpx \"src/static/**/*\" lib/static/",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
-    "pretest": "node ../../node_modules/typescript-7/lib/tsc.js -b tsconfig.mjs.json",
+    "pretest": "node ../../node_modules/typescript-7/lib/tsc.js -b tsconfig.build.json",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
     "coverage": "c8 npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
@@ -97,5 +94,5 @@
     "typescript": "^5.0.0",
     "uuid": "^9.0.0"
   },
-  "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
+  "types": "./lib/index.d.ts"
 }

@@ -38,13 +38,6 @@ export function findBasePath(path: string): string | null {
   return findBasePath(resolve(path, '..'));
 }
 
-// clean require cache config
-// http://stackoverflow.com/questions/9210542/node-js-require-cache-possible-to-invalidate
-export function uncache(file: string) {
-  delete require.cache[`${file}`];
-  return file;
-}
-
 export function filterDirs(dir: string) {
   if (fs.existsSync(dir)) {
     return true;

@@ -20,7 +20,7 @@ import { describeError, errorClassOf, errorMessage, isErrorOf, toError } from '@
 
 - `errorClassOf` is the one to log where the message may echo a secret, such as the credential that made a strategy throw.
 - `describeError` has two formats on purpose: `Name: message` (the default) for logs and fault reasons, the message alone (`withClass: false`, or `errorMessage`) for text that already names the failure.
-- `isErrorOf` matches by class name the way the `@spinajs/http` error mapping does, so an error thrown by the cjs build of a package matches the class imported from its mjs build. It matches subclasses, also across copies. It does not match on an `err.name` field: a plain `Error` whose `name` is set to `'InvalidOption'` is not an `InvalidOption`.
+- `isErrorOf` matches by class name the way the `@spinajs/http` error mapping does, so an error thrown by a second copy of a package matches the class imported from the first. It matches subclasses, also across copies. It does not match on an `err.name` field: a plain `Error` whose `name` is set to `'InvalidOption'` is not an `InvalidOption`.
 - Two unrelated classes with the same name match each other in `isErrorOf`. A minifier that renames classes breaks the name match; `instanceof` still works within one copy.
 
 ## Patterns and antipatterns

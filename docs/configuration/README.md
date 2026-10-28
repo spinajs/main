@@ -18,7 +18,7 @@ npm install @spinajs/configuration
 | --- | --- |
 | [Configuration service](01-configuration-service.md) | `FrameworkConfiguration`: boot steps, `get` / `set` / `merge` / `load`, options, CLI arguments, `configure()` hooks |
 | [Environments](02-environments.md) | How `APP_ENV`, `NODE_ENV` and `--env` pick the environment, the `*.dev.js` / `*.prod.json` suffixes, the `configuration.isProduction` flags |
-| [Config files](03-config-files.md) | `JsFileSource` and `JsonFileSource`: search directories, merge order, `onConfigLoad`, workspaces and ESM mode |
+| [Config files](03-config-files.md) | `JsFileSource` and `JsonFileSource`: search directories, merge order, `onConfigLoad`, workspaces |
 | [Custom configuration sources](04-custom-configuration-sources.md) | Add a source (database, remote service, YAML), `Order`, `StaticConfigurationSource`, the `__configuration__` value |
 | [Config var protocols](05-config-var-protocols.md) | `ConfigVarProtocol` and `ConfigVar`: resolve `proto://...` strings at load time, eagerly or lazily |
 | [Schema validation](06-schema-validation.md) | `__configurationSchema__`, `registerConfigurationSchema`, defaults, coercion, `InvalidConfiguration` and late schemas |
@@ -56,8 +56,6 @@ class Mailer {
 }
 
 async function main() {
-  DI.setESMModuleSupport();
-
   const configuration = await DI.resolve(Configuration);
   const retries = configuration.get<number>('mailer.retryCount', 1);
 

@@ -322,7 +322,7 @@ A factory is called on every resolve and its result is not cached.
 ## Best practices
 
 - Prefer `@AutoinjectNamedService` with a `default` for a single pluggable service; the error messages list the registered names.
-- Give abstract services an `is` duck check when implementations can come from a second copy of the package (cjs and mjs builds), where `instanceof` fails.
+- Give abstract services an `is` duck check when implementations can come from a second copy of the package (two installs), where `instanceof` fails.
 - Use `@AutoinjectService` only when each entry carries constructor options, and mark those implementations `@NewInstance()`.
 - Register implementations in the same module as the abstract class, or import them before the consumer resolves.
 

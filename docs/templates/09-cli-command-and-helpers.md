@@ -6,7 +6,7 @@ The package ships the `template-render` command for testing templates from a ter
 
 `spinajs template-render <template> [-f <file>] [-m <model>] [-l <lang>]`:
 
-1. `@spinajs/cli` finds `RenderTemplateCommand` in `lib/<mjs|cjs>/cli/`, a directory this package adds to `system.dirs.cli`.
+1. `@spinajs/cli` finds `RenderTemplateCommand` in `lib/cli/`, a directory this package adds to `system.dirs.cli`.
 2. `execute()` resolves `Templates`.
 3. With `-m` and an existing file, the file is parsed as JSON into the model; otherwise the model is `{}`.
 4. With `-f`, the parent directory is created and `Templates.renderToFile(template, model, file, lang)` writes the output. A `success` entry is logged.
@@ -29,7 +29,7 @@ spinajs template-render ./views/invoice.pdf -m ./fixtures/invoice.json -f ./out/
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `system.dirs.cli` | `string[]` | this package appends `node_modules/@spinajs/templates/lib/<mjs\|cjs>/cli` under `WORKSPACE_ROOT_PATH` (or the working directory) and one directory up | absolute paths | Where `@spinajs/cli` looks for commands |
+| `system.dirs.cli` | `string[]` | this package appends `node_modules/@spinajs/templates/lib/cli` under `WORKSPACE_ROOT_PATH` (or the working directory) and one directory up | absolute paths | Where `@spinajs/cli` looks for commands |
 
 ## Helpers
 

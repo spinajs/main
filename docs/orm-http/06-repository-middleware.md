@@ -7,7 +7,7 @@
 `RepositoryMiddleware` (`src/middleware.ts`) is an abstract `AsyncService`. Every hook has an empty default, so a subclass overrides only what it needs.
 
 1. `src/index.ts` does not re-export `middleware.js`.
-2. `package.json` `exports` maps only `"."`, so a deep import such as `@spinajs/orm-http/lib/mjs/middleware.js` does not resolve.
+2. `package.json` `exports` maps only `"."`, so a deep import such as `@spinajs/orm-http/lib/middleware.js` does not resolve.
 3. No code in the repository resolves `RepositoryMiddleware` or calls its hooks.
 
 Reaching it requires adding `export * from './middleware.js';` to `src/index.ts`, and a controller that resolves `Array.ofType(RepositoryMiddleware)` and calls the hooks.

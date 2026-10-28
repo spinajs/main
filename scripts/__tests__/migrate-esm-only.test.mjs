@@ -48,6 +48,12 @@ test('rewritePackageJson: main, types, bin, typesVersions, scripts, engines, git
   assert.deepEqual(out.scripts, { compile: 'tsc -b tsconfig.build.json', watch: 'tsc -b tsconfig.build.json -w', start: 'node lib/main.js', pretest: 'npm run compile' });
 });
 
+test('rewritePackageJson: types from main when exports["."] collapses to a string', () => {
+  const out = rewritePackageJson({ main: 'lib/cjs/index.js', exports: { '.': { import: './lib/mjs/index.js', require: './lib/cjs/index.js' } } });
+  assert.equal(out.exports['.'], './lib/index.js');
+  assert.equal(out.types, './lib/index.d.ts');
+});
+
 test('rewriteScriptsField: authn-http style pretest drops the cjs tsc call', () => {
   assert.deepEqual(
     rewriteScriptsField({ pretest: 'npm run clean && npm run compile && cd ../.. && node node_modules/typescript-7/lib/tsc.js -b packages/authn-http/tsconfig.cjs.json && node scripts/generate-packages-for-modules.mjs' }),
@@ -56,10 +62,10 @@ test('rewriteScriptsField: authn-http style pretest drops the cjs tsc call', () 
   assert.deepEqual(rewriteScriptsField({ pretest: 'node ../../node_modules/typescript-7/lib/tsc.js -b tsconfig.mjs.json' }), { pretest: 'node ../../node_modules/typescript-7/lib/tsc.js -b tsconfig.build.json' });
 });
 
-test('rewriteTsconfig: build config', () => {
+test('rewriteTsconfig: build config; its build info moves under lib/ so `clean` removes it with the output', () => {
   assert.deepEqual(
     rewriteTsconfig({ extends: '../../tsconfig.json', compilerOptions: { rootDir: './src', outDir: './lib/mjs', module: 'node16', moduleResolution: 'node16', paths: { '@spinajs': ['../'] } }, references: [{ path: '../util/tsconfig.mjs.json' }], include: ['src/**/*'] }, 'build'),
-    { extends: '../../tsconfig.json', compilerOptions: { rootDir: './src', outDir: './lib', module: 'node16', moduleResolution: 'node16', paths: { '@spinajs': ['../'] } }, references: [{ path: '../util/tsconfig.build.json' }], include: ['src/**/*'] },
+    { extends: '../../tsconfig.json', compilerOptions: { rootDir: './src', outDir: './lib', tsBuildInfoFile: './lib/tsconfig.build.tsbuildinfo', module: 'node16', moduleResolution: 'node16', paths: { '@spinajs': ['../'] } }, references: [{ path: '../util/tsconfig.build.json' }], include: ['src/**/*'] },
   );
 });
 
@@ -67,6 +73,13 @@ test('rewriteTsconfig: test config keeps references and only moves outDir', () =
   assert.deepEqual(
     rewriteTsconfig({ extends: '../../tsconfig.json', compilerOptions: { rootDir: './', outDir: './lib/mjs', module: 'node16', moduleResolution: 'node16' }, references: [{ path: '../exceptions/tsconfig.json' }], include: ['src/**/*', 'test/**/*'] }, 'test'),
     { extends: '../../tsconfig.json', compilerOptions: { rootDir: './', outDir: './lib', module: 'node16', moduleResolution: 'node16' }, references: [{ path: '../exceptions/tsconfig.json' }], include: ['src/**/*', 'test/**/*'] },
+  );
+});
+
+test('rewriteTsconfig: a test config reference to a tsconfig.mjs.json follows its rename', () => {
+  assert.deepEqual(
+    rewriteTsconfig({ compilerOptions: { outDir: './lib/mjs' }, references: [{ path: '../orm/tsconfig.json' }, { path: '../orm-http/tsconfig.mjs.json' }] }, 'test'),
+    { compilerOptions: { outDir: './lib' }, references: [{ path: '../orm/tsconfig.json' }, { path: '../orm-http/tsconfig.build.json' }] },
   );
 });
 
@@ -97,6 +110,20 @@ test('rewriteConfigSource: two-element dir()', () => {
 
 test('rewriteConfigSource: http lib() helper and single-dir variants', () => {
   assert.equal(rewriteConfigSource(`  const inCommonJs = typeof module !== 'undefined';\n  return resolve(normalize(join(lib(), inCommonJs ? 'cjs' : 'mjs', path)));`), `  return resolve(normalize(join(lib(), path)));`);
+});
+
+test('rewriteConfigSource: prettier-wrapped join() with the flavour on its own line', () => {
+  const input = `function dir(path: string) {\n  const inCommonJs = typeof module !== 'undefined';\n  return resolve(\n    normalize(\n      join(\n        'lib',\n        inCommonJs ? 'cjs' : 'mjs',\n        path,\n      ),\n    ),\n  );\n}`;
+  const expected = `function dir(path: string) {\n  return resolve(\n    normalize(\n      join(\n        'lib',\n        path,\n      ),\n    ),\n  );\n}`;
+  assert.equal(rewriteConfigSource(input), expected);
+});
+
+test('rewriteConfigSource: refuses a leftover inCommonJs reference', () => {
+  assert.throws(() => rewriteConfigSource(`const inCommonJs = typeof module !== 'undefined';\nconst x = inCommonJs && 1;`), /unhandled typeof module/);
+});
+
+test('rewriteConfigSource: the `typeof (module as any)` cast', () => {
+  assert.equal(rewriteConfigSource(`    const inCommonJs = typeof (module as any) !== 'undefined';\n    return [join(lib(), inCommonJs ? 'cjs' : 'mjs', path)];`), `    return [join(lib(), path)];`);
 });
 
 test('rewriteConfigSource: a file without the pattern is returned unchanged', () => {

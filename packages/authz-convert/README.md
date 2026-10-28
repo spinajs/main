@@ -5,7 +5,7 @@ Converts a SpinaJS 2.x app's `rbac.*` configuration to the 3.0 roots `authz.*`, 
 [the migration guide](../../docs/authz/migration-guide.md).
 
 ```sh
-npx spinajs-authz-convert lib/mjs/config --out src/config/converted \
+npx spinajs-authz-convert lib/config --out src/config/converted \
   --db rbac-facts.json --src src
 ```
 
@@ -71,5 +71,5 @@ unknown `rbac.*` keys, custom auth, password and 2FA providers and units that do
 ```ts
 import { convert } from '@spinajs/authz-convert';
 
-const { files, findings, exitCode } = await convert({ dirs: ['lib/mjs/config'] });
+const { files, findings, exitCode } = await convert({ dirs: ['lib/config'] });
 ```

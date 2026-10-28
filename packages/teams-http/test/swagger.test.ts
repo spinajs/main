@@ -11,7 +11,7 @@ import { TEAMS_HTTP_CONTROLLERS, TEAMS_HTTP_ROUTES } from '../src/controller-lis
 import { TEAMS_HTTP_SCHEMAS } from '../src/schemas/index.js';
 
 // The controllers' JSDoc is read from the compiled files (`pretest` compiles them).
-const compiled = (name: string) => resolve(process.cwd(), 'lib', 'mjs', 'controllers', `${name}.js`);
+const compiled = (name: string) => resolve(process.cwd(), 'lib', 'controllers', `${name}.js`);
 // http-swagger documents a route declared `@Get('/')` / `@Post('/')` with a trailing slash.
 const openApiPath = (route: string) => route.slice(route.indexOf(' ') + 1).replace(/:(\w+)/g, '{$1}').replace(/^\/teams$/, '/teams/');
 const verb = (route: string) => route.slice(0, route.indexOf(' ')).toLowerCase();

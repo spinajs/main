@@ -1,9 +1,6 @@
 export type FileTypeModule = typeof import('file-type');
 
-/**
- * file-type is ESM only. lib/cjs turns this import into require(), which Node loads as require(esm) from 20.19 on, the
- * reason for engines.node. The fs package loads it the same way (fs/src/helpers.ts:236).
- */
+/** file-type is ESM only; since 4.0 every package is ESM so a plain import is fine. */
 export function loadFileType(): Promise<FileTypeModule> {
   return import('file-type');
 }

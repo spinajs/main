@@ -2,40 +2,35 @@
   "name": "@spinajs/authz-orm",
   "version": "3.0.23",
   "description": "ORM resources, closure table and list helpers for SpinaJS authorization",
-  "main": "lib/cjs/index.js",
-  "module": "lib/mjs/index.js",
+  "main": "./lib/index.js",
   "exports": {
     ".": {
-      "types": "./lib/mjs/index.d.ts",
-      "import": "./lib/mjs/index.js",
-      "require": "./lib/cjs/index.js"
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
     },
     "./scope-attributes": {
-      "types": "./lib/mjs/scope-attributes/index.d.ts",
-      "import": "./lib/mjs/scope-attributes/index.js",
-      "require": "./lib/cjs/scope-attributes/index.js"
+      "types": "./lib/scope-attributes/index.d.ts",
+      "import": "./lib/scope-attributes/index.js"
     },
     "./audit": {
-      "types": "./lib/mjs/audit/index.d.ts",
-      "import": "./lib/mjs/audit/index.js",
-      "require": "./lib/cjs/audit/index.js"
+      "types": "./lib/audit/index.d.ts",
+      "import": "./lib/audit/index.js"
     },
     "./plan": {
-      "types": "./lib/mjs/plan/index.d.ts",
-      "import": "./lib/mjs/plan/index.js",
-      "require": "./lib/cjs/plan/index.js"
+      "types": "./lib/plan/index.d.ts",
+      "import": "./lib/plan/index.js"
     }
   },
   "typesVersions": {
     "*": {
       "scope-attributes": [
-        "lib/cjs/scope-attributes/index.d.ts"
+        "lib/scope-attributes/index.d.ts"
       ],
       "audit": [
-        "lib/cjs/audit/index.d.ts"
+        "lib/audit/index.d.ts"
       ],
       "plan": [
-        "lib/cjs/plan/index.d.ts"
+        "lib/plan/index.d.ts"
       ]
     }
   },
@@ -45,12 +40,11 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=16.11"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "compile": "tsc -b tsconfig.build.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "pretest": "npm run compile",
@@ -94,5 +88,6 @@
     "@spinajs/orm-postgres": "3.0.23",
     "@spinajs/orm-sqlite": "3.0.23",
     "@types/luxon": "^3.6.1"
-  }
+  },
+  "types": "./lib/index.d.ts"
 }

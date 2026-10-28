@@ -51,7 +51,7 @@ sequenceDiagram
 | `queue.routing.EmailSent.connection` | `string` | `'email-queue-black-hole'` | a `queue.connections` name | Where `EmailSent` events go. |
 | `queue.routing.EmailSendFailed.connection` | `string` | `'email-queue-black-hole'` | a `queue.connections` name | Where `EmailSendFailed` events go. |
 | `queue.connections[name='email-queue-black-hole']` | object | `BlackHoleQueueClient`, channels `email-jobs`, `email-events`, `email-jobs-dlq` | | Shipped connection that drops every message. |
-| `system.dirs.jobs` | `string[]` | includes this package's `lib/<cjs\|mjs>/jobs` | | Lets the queue discover `EmailSend`. |
+| `system.dirs.jobs` | `string[]` | includes this package's `lib/jobs` | | Lets the queue discover `EmailSend`. |
 
 Route all three to a real broker to make deferred mail work:
 

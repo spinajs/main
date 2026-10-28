@@ -29,11 +29,9 @@ describe('@spinajs/upload package', () => {
   });
 
   it('has no @spinajs/scheduler reference in the built entry points', () => {
-    for (const build of ['mjs', 'cjs']) {
-      const entry = join(ROOT, 'lib', build, 'index.js');
-      expect(present(entry), entry).to.eq(true);
-      expect(read(entry), entry).to.not.match(REFERENCE);
-    }
+    const entry = join(ROOT, 'lib', 'index.js');
+    expect(present(entry), entry).to.eq(true);
+    expect(read(entry), entry).to.not.match(REFERENCE);
   });
 
   it('declares @spinajs/scheduler as an optional peer, not as a dependency', () => {
@@ -47,14 +45,14 @@ describe('@spinajs/upload package', () => {
     expect(manifest.dependencies).to.include({ '@spinajs/cli': VERSION });
   });
 
-  it('exports ./scheduler from both builds', () => {
-    expect(manifest.exports['./scheduler']).to.deep.equal({ types: './lib/mjs/scheduler.d.ts', import: './lib/mjs/scheduler.js', require: './lib/cjs/scheduler.js' });
-    expect(manifest.typesVersions).to.deep.include({ '*': { scheduler: ['lib/cjs/scheduler.d.ts'], http: ['lib/cjs/http/index.d.ts'] } });
+  it('exports ./scheduler', () => {
+    expect(manifest.exports['./scheduler']).to.deep.equal({ types: './lib/scheduler.d.ts', import: './lib/scheduler.js' });
+    expect(manifest.typesVersions).to.deep.include({ '*': { scheduler: ['lib/scheduler.d.ts'], http: ['lib/http/index.d.ts'] } });
   });
 
   it('resolves @spinajs/upload/scheduler to the built module', () => {
     const file = fileURLToPath(import.meta.resolve('@spinajs/upload/scheduler'));
-    expect(file.replace(/\\/g, '/')).to.match(/\/packages\/upload\/lib\/mjs\/scheduler\.js$/);
+    expect(file.replace(/\\/g, '/')).to.match(/\/packages\/upload\/lib\/scheduler\.js$/);
     expect(present(file)).to.eq(true);
   });
 

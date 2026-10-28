@@ -4,7 +4,7 @@
 
 ## How it works
 
-1. `@spinajs/configuration` loads the package config file `lib/<mjs|cjs>/config/pdf.js` and merges it with your app's config.
+1. `@spinajs/configuration` loads the package config file `lib/config/pdf.js` and merges it with your app's config.
 2. `PdfRenderer.Options` is injected with `@Config('templates.pdf')` when the renderer is built.
 3. The values are read lazily, per render:
    - `BrowserPool.acquire()` launches Chromium with `args`, overridden by `executablePath`, on the first render of each renderer instance.
@@ -23,7 +23,7 @@
 | `templates.pdf.renderDurationWarning` | `number` (ms) | not set | `> 0` | A render longer than this logs a `warn`. Not set means no warning |
 | `templates.pdf.debug.close` | `boolean` | `true` (not set) | `false` | `false` keeps each rendered page open and disables both timeouts, for inspection with `headless: false` |
 | `templates.pdf.options` | `object` | `{}` | none | Default `PDFOptions` for every render. Options the renderer is resolved with override these keys |
-| `system.dirs.cli` | `string[]` | appends `node_modules/@spinajs/templates-pdf/lib/<mjs\|cjs>/cli` under `WORKSPACE_ROOT_PATH ?? cwd`, and the same path one directory up | Directory paths | Makes the [`render-pdf` command](05-render-pdf-command.md) discoverable |
+| `system.dirs.cli` | `string[]` | appends `node_modules/@spinajs/templates-pdf/lib/cli` under `WORKSPACE_ROOT_PATH ?? cwd`, and the same path one directory up | Directory paths | Makes the [`render-pdf` command](05-render-pdf-command.md) discoverable |
 
 ```ts
 // config/production.ts

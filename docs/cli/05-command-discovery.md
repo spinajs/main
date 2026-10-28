@@ -8,7 +8,7 @@
 2. **Listing.** `Cli.Commands` is a property decorated `@ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.cli')` from `@spinajs/reflection`. Reading it the first time:
    - drops duplicate directories and skips a missing one with the warning `Directory ... not exists`;
    - globs every `.ts` and `.js` file below each directory, recursively, except `.d.ts`;
-   - imports each file (`import()` in ESM mode, `require()` otherwise; a registered `'__module_loader__'` takes precedence);
+   - imports each file (`import()`; a registered `'__module_loader__'` takes precedence);
    - returns one `ClassInfo { file, name, type }` per exported class of each file, **without** instantiating it. Constants and arrow functions are not listed.
 3. **Filter.** `Cli.resolve()` skips an entry whose `type` is not a function (warning `... has no exported class`) and a class or function without `@Command` metadata. The skip is silent for helpers; a `CliCommand` subclass without the decorator logs the warning `... is not marked as command`. Every other entry becomes a commander command, and `Found command ...` is logged at `info`.
 4. **No commands.** An empty list logs `No registered commands found !`; the program is still built, so `--help` and `--version` work.
@@ -17,7 +17,7 @@
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `system.dirs.cli` | `string[]` | `node_modules/@spinajs/cli/lib/<mjs\|cjs>/cli` under `process.env.WORKSPACE_ROOT_PATH ?? process.cwd()`, and the same path one directory up | Absolute directory paths | Directories scanned for command files. Each `@spinajs` package that ships commands appends its own |
+| `system.dirs.cli` | `string[]` | `node_modules/@spinajs/cli/lib/cli` under `process.env.WORKSPACE_ROOT_PATH ?? process.cwd()`, and the same path one directory up | Absolute directory paths | Directories scanned for command files. Each `@spinajs` package that ships commands appends its own |
 
 `WORKSPACE_ROOT_PATH` is an environment variable. Set it when the process runs from a directory other than the one holding `node_modules`.
 
@@ -43,20 +43,19 @@ export default {
 
 ### Ship commands from your own package
 
-A package adds its commands with a config file compiled to `lib/<mjs|cjs>/config/`. `@spinajs/configuration` loads `node_modules/@spinajs/*/lib/<mjs|cjs>/config` automatically. A package outside the `@spinajs` scope must have its config directory listed by the application instead.
+A package adds its commands with a config file compiled to `lib/config/`. `@spinajs/configuration` loads `node_modules/@spinajs/*/lib/config` automatically. A package outside the `@spinajs` scope must have its config directory listed by the application instead.
 
 ```ts sample
 import { join, normalize, resolve } from 'path';
 
 // src/config/billing.ts of a package published as @spinajs/billing.
-// Commands live in src/cli/ and compile to lib/<mjs|cjs>/cli/.
+// Commands live in src/cli/ and compile to lib/cli/.
 function commandDirs(sub: string): string[] {
   const root = process.env.WORKSPACE_ROOT_PATH ?? process.cwd();
-  const flavour = typeof module !== 'undefined' ? 'cjs' : 'mjs';
   return [
-    resolve(normalize(join(root, 'node_modules', '@spinajs', 'billing', 'lib', flavour, sub))),
+    resolve(normalize(join(root, 'node_modules', '@spinajs', 'billing', 'lib', sub))),
     // one level up, for a process started from an app or build folder
-    resolve(normalize(join(root, '..', 'node_modules', '@spinajs', 'billing', 'lib', flavour, sub))),
+    resolve(normalize(join(root, '..', 'node_modules', '@spinajs', 'billing', 'lib', sub))),
   ];
 }
 

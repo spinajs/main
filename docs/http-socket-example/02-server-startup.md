@@ -7,7 +7,7 @@
 1. Importing `server.js` imports `@spinajs/log`, `@spinajs/http-socket`, `auth.js` and `notes.socket.js`. Their decorators register `DemoTokenSource`, `NotesSocket` and `BlobSocket`. The module then runs `DI.register(NotesHttpHost).as(SocketHttpHost)`.
 2. `startNotesServer(options)` stores `options` in a module variable that `NotesConfiguration.onLoad()` reads.
 3. `DI.clearCache()` drops every cached instance; registrations stay. The next resolves build a fresh `Configuration`, `SocketServer`, `NotesStore` and controllers.
-4. `DI.setESMModuleSupport()` switches the configuration sources to the `mjs` builds. Without it they look for the CommonJS builds, cannot `require` them from an ES module, and the `http.socket` defaults of `@spinajs/http-socket` never load.
+4. The configuration sources load every package config from `lib/config`, the `http.socket` defaults of `@spinajs/http-socket` among them.
 5. `DI.register(NotesConfiguration).as(Configuration)`, then `await DI.resolve(Configuration)`: sources load, `onLoad()` merges over them, schemas validate. See [Configuration source](03-configuration-source.md).
 6. `DI.resolve(SocketHttpHost)` returns the `NotesHttpHost`; see [HTTP host](04-http-host.md).
 7. `await DI.resolve(SocketServer)`: `SocketServer.resolve()` builds the handler registry from the registered controllers, attaches socket.io to `NotesHttpHost.server()`, installs the handshake that runs the principal sources, and starts the revalidation guard.
@@ -23,7 +23,7 @@ sequenceDiagram
   participant SS as SocketServer
   participant H as NotesHttpHost
   T->>S: startNotesServer(options)
-  S->>DI: clearCache(), setESMModuleSupport()
+  S->>DI: clearCache()
   S->>DI: register(NotesConfiguration).as(Configuration)
   S->>DI: resolve(Configuration)
   DI->>C: load sources, onLoad(), validate
@@ -75,8 +75,8 @@ Everything the server resolves at step 7 can be swapped before `startNotesServer
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { startNotesServer } from '@spinajs/http-socket-example/lib/mjs/server.js';
-import { NotesStore } from '@spinajs/http-socket-example/lib/mjs/store.js';
+import { startNotesServer } from '@spinajs/http-socket-example/lib/server.js';
+import { NotesStore } from '@spinajs/http-socket-example/lib/store.js';
 
 // Counts document reads (open, snapshot, edit) per document, for a usage report.
 class CountingNotesStore extends NotesStore {
@@ -112,7 +112,7 @@ void main();
 
 - Start one server in `beforeEach` and close it in `afterEach`, as `test/example.test.ts` does; the cache reset gives each test an empty `NotesStore`.
 - Pass `port: 0` in tests and read `url` back, so parallel runs do not collide.
-- Keep `verbose` off in tests; turn it on with `node lib/mjs/main.js --verbose` when a handshake is refused and you need to see why.
+- Keep `verbose` off in tests; turn it on with `node lib/main.js --verbose` when a handshake is refused and you need to see why.
 
 ## Patterns and antipatterns
 
@@ -130,8 +130,8 @@ await startNotesServer({ socket: { maxPayloadBytes: 256 * 1024 } });
 ### Start a quiet server for an integration test
 
 ```ts sample
-import { connectNotes } from '@spinajs/http-socket-example/lib/mjs/client.js';
-import { startNotesServer, type INotesServer } from '@spinajs/http-socket-example/lib/mjs/server.js';
+import { connectNotes } from '@spinajs/http-socket-example/lib/client.js';
+import { startNotesServer, type INotesServer } from '@spinajs/http-socket-example/lib/server.js';
 
 async function openedBy(token: string): Promise<string> {
   const server: INotesServer = await startNotesServer({ port: 0 });

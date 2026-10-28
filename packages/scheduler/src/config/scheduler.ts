@@ -1,7 +1,6 @@
 import { join, normalize, resolve } from 'path';
 
 function dir(path: string) {
-  const inCommonJs = typeof module !== 'undefined';
   return [
     resolve(
       normalize(
@@ -11,7 +10,6 @@ function dir(path: string) {
           '@spinajs',
           'scheduler',
           'lib',
-          inCommonJs ? 'cjs' : 'mjs',
           path,
         ),
       ),
@@ -26,7 +24,6 @@ function dir(path: string) {
           '@spinajs',
           'scheduler',
           'lib',
-          inCommonJs ? 'cjs' : 'mjs',
           path,
         ),
       ),

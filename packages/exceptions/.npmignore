@@ -3,5 +3,4 @@ tsconfig.json
 tslint.json
 .prettierrc
 .vscode
-lib/tsconfig.cjs.tsbuildinfo
 lib/tsconfig.tsbuildinfo

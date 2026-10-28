@@ -4,7 +4,7 @@ The package ships a config fragment that mounts its controllers and declares the
 
 ## How it works
 
-1. `@spinajs/configuration` loads `lib/<mjs|cjs>/config/users-http.js` from every installed `@spinajs/*` package; see [Config files](../configuration/03-config-files.md).
+1. `@spinajs/configuration` loads `lib/config/users-http.js` from every installed `@spinajs/*` package; see [Config files](../configuration/03-config-files.md).
 2. The fragment adds `controllers` and `admin/controllers` of the package's `lib/` to `system.dirs.controllers`.
 3. The controller scan of `@spinajs/http` imports those files and mounts `UserController`, `UserMetadataController`, `Users`, `Security` and `Profile`; see [Controller discovery](../http/03-controller-discovery.md).
 4. Importing the files runs their decorators: `DefaultAccountGuard` registers as `AccountGuard`, `AccountDisableHook` as an `ActionHook`, `AccountStanding`, `UserMetadataService` and `CurrentUserArg` register as themselves, and the `IUserMetadataEntry` response schema joins the `__schemas__` value map.
@@ -38,7 +38,7 @@ Keys this package ships:
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `system.dirs.controllers` | `string[]` | adds `<pkg>/lib/<mjs\|cjs>/controllers` and `<pkg>/lib/<mjs\|cjs>/admin/controllers` | directories | Where the controller scan finds this package's controllers. The path starts at `WORKSPACE_ROOT_PATH`, or the working directory. |
+| `system.dirs.controllers` | `string[]` | adds `<pkg>/lib/controllers` and `<pkg>/lib/admin/controllers` | directories | Where the controller scan finds this package's controllers. The path starts at `WORKSPACE_ROOT_PATH`, or the working directory. |
 | `authz.permissions['users:read']` | object | `{ fields: true }` | permission definition | Read accounts on the admin routes. Grants may carry a field set; responses are cut to it. |
 | `authz.permissions['users:create']` | object | `{}` | permission definition | Create accounts. |
 | `authz.permissions['users:update']` | object | `{ fields: true }` | permission definition | Update login, email and roles; activate, unban; end one session. |

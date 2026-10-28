@@ -9,7 +9,7 @@ import { ConversionError } from './findings.js';
 const USAGE = `Usage: spinajs-authz-convert <config-dir>... [options]
 
 Converts a SpinaJS 2.x app's rbac.* configuration to 3.0 authz.*, users.* and authn.* files.
-<config-dir> is the app's COMPILED config dir (for example lib/mjs/config); several dirs merge in order.
+<config-dir> is the app's COMPILED config dir (for example lib/config); several dirs merge in order.
 
 Options:
   --out <dir>               where to write the files (default: ./authz-convert-output)

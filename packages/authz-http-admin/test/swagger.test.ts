@@ -14,7 +14,7 @@ import { AUTHZ_ADMIN_SCHEMAS, COMMAND_KINDS, commandSchemas, describeAuthzAdminD
 import { startApp, stopApp } from './support/app.js';
 
 // The controller's JSDoc is read from the compiled declaration file (`pretest` compiles it).
-const COMPILED = resolve(process.cwd(), 'lib', 'mjs', 'controllers', 'AuthzAdminController.js');
+const COMPILED = resolve(process.cwd(), 'lib', 'controllers', 'AuthzAdminController.js');
 
 const descriptor = Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, AuthzAdminController.prototype) as IControllerDescriptor;
 /** Every route of the controller as its document path. */

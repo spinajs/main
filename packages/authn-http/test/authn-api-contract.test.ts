@@ -72,7 +72,7 @@ function sourceShape() {
   return { classes, specifiers, text: sf.getFullText() };
 }
 
-// Plain JS so the same code runs in the ESM and the CJS child. Reads DI
+// Plain JS for the child process. Reads DI
 // internals so a registration made at load time cannot hide behind the API.
 const SNAPSHOT = `(di) => {
   const root = di.DI.RootContainer;
@@ -279,16 +279,13 @@ describe('authn-http contracts (api.ts)', function () {
   });
 
   describe('DI', () => {
-    const MJS = join(PKG_ROOT, 'lib', 'mjs', 'api.js');
-    const CJS = join(PKG_ROOT, 'lib', 'cjs', 'api.js');
+    const BUILT = join(PKG_ROOT, 'lib', 'api.js');
 
     before(() => {
-      for (const f of [MJS, CJS]) {
-        if (!existsSync(f)) throw new Error(`${f} is missing; run the authn-http pretest (mjs and cjs compile)`);
-      }
+      if (!existsSync(BUILT)) throw new Error(`${BUILT} is missing; run the authn-http pretest`);
     });
 
-    it('ESM: importing api.js registers nothing in the root container', () => {
+    it('importing api.js registers nothing in the root container', () => {
       const r = probe(
         'module',
         `const snapshot = ${SNAPSHOT};
@@ -297,34 +294,13 @@ describe('authn-http contracts (api.ts)', function () {
          await import('@spinajs/authn/contracts');
          await import('express');
          const before = snapshot(di);
-         const api = await import(${JSON.stringify(pathToFileURL(MJS).href)});
+         const api = await import(${JSON.stringify(pathToFileURL(BUILT).href)});
          const after = snapshot(di);
          console.log(JSON.stringify({ before, after, keys: Object.keys(api).sort() }));`,
       );
       expect(r.keys).to.deep.eq(RUNTIME_EXPORTS);
       expect(r.before.registry, 'probe saw an empty registry').to.not.be.empty;
       expect(r.after).to.deep.eq(r.before);
-    });
-
-    it('CJS: requiring api.js registers nothing and loads no other authn-http file', () => {
-      const r = probe(
-        'commonjs',
-        `const snapshot = ${SNAPSHOT};
-         const di = require('@spinajs/di');
-         require('@spinajs/http');
-         require('@spinajs/authn/contracts');
-         require('express');
-         const before = snapshot(di);
-         const initial = new Set(Object.keys(require.cache));
-         const api = require(${JSON.stringify(CJS)});
-         const added = Object.keys(require.cache).filter((k) => !initial.has(k));
-         const after = snapshot(di);
-         console.log(JSON.stringify({ before, after, keys: Object.keys(api).sort(), added }));`,
-      );
-      expect(r.keys).to.deep.eq(RUNTIME_EXPORTS);
-      expect(r.before.registry, 'probe saw an empty registry').to.not.be.empty;
-      expect(r.after).to.deep.eq(r.before);
-      expect(r.added).to.deep.eq([CJS]);
     });
   });
 });

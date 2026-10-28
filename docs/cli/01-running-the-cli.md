@@ -4,8 +4,8 @@ The `spinajs` bin boots the framework, builds the command tree from every discov
 
 ## How it works
 
-1. **Entry.** `spinajs` runs `lib/mjs/cli.js` (`src/cli.ts`). Its import of `args.js` registers the default [argv provider](06-argv-provider.md) under `'__cli_argv_provider__'`.
-2. **ESM mode.** `DI.setESMModuleSupport()` makes `@spinajs/di` load files with `import()`.
+1. **Entry.** `spinajs` runs `lib/cli.js` (`src/cli.ts`). Its import of `args.js` registers the default [argv provider](06-argv-provider.md) under `'__cli_argv_provider__'`.
+2. **Module loading.** `@spinajs/di` loads every scanned file with `import()`.
 3. **Bootstrappers.** `DI.resolve(Array.ofType(Bootstrapper))` returns every `Bootstrapper` registered by the modules loaded so far; the bin awaits `bootstrap()` on each.
 4. **Configuration.** `await DI.resolve(Configuration)` loads every config file, including each `@spinajs/*` package's `system.dirs.cli` entry, and reads `--app`, `--env` and `--apppath` from `process.argv`.
 5. **Logger.** `resolveCliLog()` returns the framework `Log` named `CLI` when an implementation is registered, else `InternalLoggerProxy`. It logs `Welcome to spinajs cli...` at `success` level.

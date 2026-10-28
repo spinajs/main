@@ -1,0 +1,54 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./lib",
+    "tsBuildInfoFile": "./lib/tsconfig.build.tsbuildinfo",
+    "module": "node16",
+    "moduleResolution": "node16"
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "references": [
+    {
+      "path": "../hooks/tsconfig.build.json"
+    },
+    {
+      "path": "../authn/tsconfig.build.json"
+    },
+    {
+      "path": "../authn-session/tsconfig.build.json"
+    },
+    {
+      "path": "../cli/tsconfig.build.json"
+    },
+    {
+      "path": "../http/tsconfig.build.json"
+    },
+    {
+      "path": "../configuration/tsconfig.build.json"
+    },
+    {
+      "path": "../di/tsconfig.build.json"
+    },
+    {
+      "path": "../exceptions/tsconfig.build.json"
+    },
+    {
+      "path": "../log/tsconfig.build.json"
+    },
+    {
+      "path": "../validation/tsconfig.build.json"
+    },
+    {
+      "path": "../util/tsconfig.build.json"
+    },
+    {
+      "path": "../authn-token/tsconfig.build.json"
+    },
+    {
+      "path": "../http-socket/tsconfig.build.json"
+    }
+  ]
+}

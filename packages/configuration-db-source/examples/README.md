@@ -55,7 +55,7 @@ loading the configuration.
 The examples are TypeScript and use SQLite. After building the workspace:
 
 ```bash
-node lib/mjs/examples/01-getting-started.js
+node lib/examples/01-getting-started.js
 ```
 
 Or run directly with `ts-node` / `ts-mocha` from the package root. They expect

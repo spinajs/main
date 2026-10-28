@@ -1,6 +1,5 @@
 import * as chai from 'chai';
 import 'mocha';
-import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -128,21 +127,8 @@ describe('@spinajs/principal', () => {
   });
 
   describe('identity across @spinajs/authn/contracts', () => {
-    it('authn re-exports the same runtime values (ESM)', () => {
+    it('authn re-exports the same runtime values', () => {
       for (const name of RUNTIME_EXPORTS) expect(authnContracts[name], name).to.eq(principal[name]);
-    });
-
-    it('authn re-exports the same runtime values (CJS)', function () {
-      this.timeout(30000);
-      const env = { ...process.env };
-      delete env.NODE_OPTIONS;
-      const body = `const a = require('@spinajs/authn/contracts');
-        const p = require('@spinajs/principal');
-        console.log(JSON.stringify(${JSON.stringify(RUNTIME_EXPORTS)}.map((n) => [n, p[n] !== undefined && a[n] === p[n]])));`;
-      const r = spawnSync(process.execPath, ['--input-type=commonjs', '-e', body], { cwd: PKG_ROOT, encoding: 'utf8', env });
-      expect(r.status, r.stderr).to.eq(0);
-      const lines = r.stdout.trim().split(/\r?\n/);
-      expect(JSON.parse(lines[lines.length - 1])).to.deep.eq(RUNTIME_EXPORTS.map((n) => [n, true]));
     });
   });
 });

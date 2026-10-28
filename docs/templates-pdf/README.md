@@ -12,7 +12,7 @@ npm install @spinajs/templates-pdf
 
 Puppeteer downloads Chromium on install. Where it cannot, point `templates.pdf.executablePath` at an installed Chrome; see [Renderer configuration](02-renderer-configuration.md).
 
-Importing the package registers `PdfRenderer` in DI and, through `@spinajs/templates-puppeteer`, the Pug renderer. Its config file (`lib/<mjs|cjs>/config/pdf.js`) is picked up by `@spinajs/configuration` from `node_modules/@spinajs/*`.
+Importing the package registers `PdfRenderer` in DI and, through `@spinajs/templates-puppeteer`, the Pug renderer. Its config file (`lib/config/pdf.js`) is picked up by `@spinajs/configuration` from `node_modules/@spinajs/*`.
 
 ## Features
 

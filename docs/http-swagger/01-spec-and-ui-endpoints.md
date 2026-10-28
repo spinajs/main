@@ -66,8 +66,8 @@ The package config also sets these keys:
 
 | Key | Value | Purpose |
 | --- | --- | --- |
-| `system.dirs.controllers` | `<root>/node_modules/@spinajs/http-swagger/lib/<mjs\|cjs>/controllers` | Loads `SwaggerController` |
-| `system.dirs.cli` | `<root>/node_modules/@spinajs/http-swagger/lib/<mjs\|cjs>/cli` | Loads `SwaggerCacheCommand` |
+| `system.dirs.controllers` | `<root>/node_modules/@spinajs/http-swagger/lib/controllers` | Loads `SwaggerController` |
+| `system.dirs.cli` | `<root>/node_modules/@spinajs/http-swagger/lib/cli` | Loads `SwaggerCacheCommand` |
 | `fs.providers` `__fs_swagger_views__` | `fsNative`, `<root>/node_modules/@spinajs/http-swagger/lib/views` | Template folder of the UI page |
 | `fs.providers` `__fs_swagger_cache__` | `fsNative`, `<root>/__cache__/__swagger__` | Declared, but no code in this package reads it |
 | `http.Static` `/docs/ui` | first `node_modules/swagger-ui-dist` found walking up from `<root>` | Swagger UI assets |

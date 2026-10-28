@@ -42,8 +42,8 @@ A new command needs three edits: the contract entry, a handler named `<prefix>.<
 
 ```ts sample
 import { defineContract } from '@spinajs/http-socket-common';
-import type { NotesContract } from '@spinajs/http-socket-example/lib/mjs/contract.js';
-import { connectNotes } from '@spinajs/http-socket-example/lib/mjs/client.js';
+import type { NotesContract } from '@spinajs/http-socket-example/lib/contract.js';
+import { connectNotes } from '@spinajs/http-socket-example/lib/client.js';
 import { SocketClient } from '@spinajs/http-socket-client';
 
 // The notes contract plus a search command served by a NotesSearchSocket controller.

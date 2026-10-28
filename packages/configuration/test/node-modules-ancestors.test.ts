@@ -99,3 +99,69 @@ describe('BaseFileSource node_modules lookup', () => {
     expect(Probe.ancestors(app)[0]).to.equal(top);
   });
 });
+
+class LoadProbe extends BaseFileSource {
+  public loadFrom(dirs: string[]): Promise<{ files?: string[] }> {
+    this.CommonDirs = dirs;
+    return this.load('!(*.*).{cjs,js}', (file) => Promise.resolve({ files: [file] } as unknown as IConfigLike));
+  }
+
+  public Load(): Promise<IConfigLike> {
+    return Promise.resolve({} as IConfigLike);
+  }
+}
+
+describe('BaseFileSource config file discovery', () => {
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = fs.realpathSync(fs.mkdtempSync(join(os.tmpdir(), 'spinajs-config-dirs-')));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  // A workspace package's own lib/config is also reached through node_modules/@spinajs/<pkg>, a symlink.
+  it('loads a file reached through a symlinked directory once', async () => {
+    const real = join(tmp, 'pkg', 'lib', 'config');
+    fs.mkdirSync(real, { recursive: true });
+    fs.writeFileSync(join(real, 'pkg.js'), 'export default {};\n');
+    const linked = join(tmp, 'node_modules-pkg');
+    fs.symlinkSync(join(tmp, 'pkg'), linked, 'junction');
+
+    const { files } = await new LoadProbe().loadFrom([real, join(linked, 'lib', 'config')]);
+
+    expect(files).to.have.length(1);
+  });
+
+  // The project's own lib/config is searched after the package globs so it overrides them.
+  it('keeps the last place a file is reached, so later dirs still merge over earlier ones', async () => {
+    const real = join(tmp, 'app', 'lib', 'config');
+    const other = join(tmp, 'other', 'config');
+    fs.mkdirSync(real, { recursive: true });
+    fs.mkdirSync(other, { recursive: true });
+    fs.writeFileSync(join(real, 'app.js'), 'export default {};\n');
+    fs.writeFileSync(join(other, 'other.js'), 'export default {};\n');
+    const linked = join(tmp, 'node_modules-app');
+    fs.symlinkSync(join(tmp, 'app'), linked, 'junction');
+
+    const { files } = await new LoadProbe().loadFrom([join(linked, 'lib', 'config'), other, real]);
+
+    expect(files).to.deep.equal([join(other, 'other.js'), join(real, 'app.js')]);
+  });
+
+  // WORKSPACE_ROOT_PATH repeats the nearest hoisting root, which is not always the farthest ancestor.
+  it('keeps the first place an exact path is listed, so a nested copy stays before the hoisted one', async () => {
+    const nested = join(tmp, 'nested', 'config');
+    const hoisted = join(tmp, 'hoisted', 'config');
+    fs.mkdirSync(nested, { recursive: true });
+    fs.mkdirSync(hoisted, { recursive: true });
+    fs.writeFileSync(join(nested, 'nested.js'), 'export default {};\n');
+    fs.writeFileSync(join(hoisted, 'hoisted.js'), 'export default {};\n');
+
+    const { files } = await new LoadProbe().loadFrom([nested, hoisted, nested]);
+
+    expect(files).to.deep.equal([join(nested, 'nested.js'), join(hoisted, 'hoisted.js')]);
+  });
+});

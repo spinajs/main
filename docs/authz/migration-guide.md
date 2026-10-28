@@ -228,10 +228,10 @@ authn packages loaded in the process are checked too).
 
 ```sh
 npm install --save-dev @spinajs/authz-convert
-npx spinajs-authz-convert lib/mjs/config --out src/config --db rbac-facts.json --src src
+npx spinajs-authz-convert lib/config --out src/config --db rbac-facts.json --src src
 ```
 
-- **Point it at the compiled config dir** (`lib/mjs/config` or `dist/config`). A dir that holds
+- **Point it at the compiled config dir** (`lib/config` or `dist/config`). A dir that holds
   TypeScript sources is refused. Several dirs merge in order. It reads only the app's own files, not
   the 2.x package defaults.
 - It runs the files the way the configuration loader does: the common files, then one layer for

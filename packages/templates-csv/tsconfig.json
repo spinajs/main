@@ -2,18 +2,32 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "rootDir": "./",
-    "outDir": "./lib/mjs",
+    "outDir": "./lib",
     "module": "node16",
     "moduleResolution": "node16"
   },
-  "ts-node": { "transpileOnly": true },
-  "include": ["src/**/*", "./types"],
+  "ts-node": {
+    "transpileOnly": true
+  },
+  "include": [
+    "src/**/*",
+    "./types"
+  ],
   "references": [
-    { "path": "../configuration/tsconfig.json" },
-    { "path": "../di/tsconfig.json" },
-    { "path": "../exceptions/tsconfig.json" },
-    { "path": "../log/tsconfig.json" },
-    { "path": "../templates/tsconfig.json"}
+    {
+      "path": "../configuration/tsconfig.json"
+    },
+    {
+      "path": "../di/tsconfig.json"
+    },
+    {
+      "path": "../exceptions/tsconfig.json"
+    },
+    {
+      "path": "../log/tsconfig.json"
+    },
+    {
+      "path": "../templates/tsconfig.json"
+    }
   ]
 }
-

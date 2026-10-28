@@ -14,7 +14,7 @@ None of these steps runs: the class is commented out and targets an older `Queue
 
 ## Configuration
 
-The package config file `src/config/queueOrmTransport.ts` exports an empty object. `@spinajs/configuration` loads it from `node_modules/@spinajs/*/lib/mjs/config` like every package config, and it adds no key.
+The package config file `src/config/queueOrmTransport.ts` exports an empty object. `@spinajs/configuration` loads it from `node_modules/@spinajs/*/lib/config` like every package config, and it adds no key.
 
 The commented-out transport reads one key:
 

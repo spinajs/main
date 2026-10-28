@@ -2,24 +2,21 @@
   "name": "@spinajs/authn-token",
   "version": "3.0.23",
   "description": "API token and JWT bearer authentication for SpinaJS",
-  "main": "lib/cjs/index.js",
-  "module": "lib/mjs/index.js",
+  "main": "./lib/index.js",
   "exports": {
     ".": {
-      "types": "./lib/mjs/index.d.ts",
-      "import": "./lib/mjs/index.js",
-      "require": "./lib/cjs/index.js"
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
     },
     "./schemas": {
-      "types": "./lib/mjs/schema.d.ts",
-      "import": "./lib/mjs/schema.js",
-      "require": "./lib/cjs/schema.js"
+      "types": "./lib/schema.d.ts",
+      "import": "./lib/schema.js"
     }
   },
   "typesVersions": {
     "*": {
       "schemas": [
-        "lib/cjs/schema.d.ts"
+        "lib/schema.d.ts"
       ]
     }
   },
@@ -29,12 +26,11 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=16.11"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "compile": "tsc -b tsconfig.build.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "pretest": "npm run compile",
@@ -80,5 +76,6 @@
   "devDependencies": {
     "@spinajs/authn-testing": "3.0.23",
     "@spinajs/orm-sqlite": "3.0.23"
-  }
+  },
+  "types": "./lib/index.d.ts"
 }

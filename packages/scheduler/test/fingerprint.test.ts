@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import { computeFingerprint, normalizeMessage, topInAppFrame } from '../src/index.js';
 
 const stack = (file: string, line: number) =>
-  `Error: x\n    at Object.next (/srv/app/node_modules/pg/lib/client.js:10:3)\n    at node:internal/process/task_queues:95:5\n    at ImportRates.execute (${file}:${line}:17)\n    at RunExecutor.invoke (/srv/app/node_modules/@spinajs/scheduler/lib/mjs/run/RunExecutor.js:1:1)`;
+  `Error: x\n    at Object.next (/srv/app/node_modules/pg/lib/client.js:10:3)\n    at node:internal/process/task_queues:95:5\n    at ImportRates.execute (${file}:${line}:17)\n    at RunExecutor.invoke (/srv/app/node_modules/@spinajs/scheduler/lib/run/RunExecutor.js:1:1)`;
 
 describe('fingerprints', () => {
   it('normalizes volatile parts of messages', () => {

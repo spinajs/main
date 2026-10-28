@@ -14,12 +14,11 @@ function lib(...path: string[]) {
 }
 
 function dir(path: string) {
-  const inCommonJs = typeof module !== 'undefined';
   return [
-    resolve(normalize(join(lib(), inCommonJs ? 'cjs' : 'mjs', path))),
+    resolve(normalize(join(lib(), path))),
 
     // one up if we run from app or build folder
-    resolve(normalize(join(lib(), inCommonJs ? 'cjs' : 'mjs', path))),
+    resolve(normalize(join(lib(), path))),
   ];
 }
 

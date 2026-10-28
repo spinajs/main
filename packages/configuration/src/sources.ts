@@ -95,8 +95,6 @@ export abstract class BaseFileSource extends ConfigurationSource {
   ) {
     super();
 
-    const isESMMode = DI.get<boolean>('__esmMode__');
-
     // Package configs ( http, fs, rbac, templates, ... ) locate their own assets as
     // `${WORKSPACE_ROOT_PATH ?? process.cwd()}/node_modules/@spinajs/<pkg>/lib/...`.
     // In a workspace, cwd is the app package but the dependencies are hoisted to the
@@ -114,7 +112,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
       }
     }
 
-    const spinajsConfigGlob = isESMMode ? 'node_modules/@spinajs/*/lib/mjs/config' : 'node_modules/@spinajs/*/lib/cjs/config';
+    const spinajsConfigGlob = 'node_modules/@spinajs/*/lib/config';
 
     this.CommonDirs = [
       // for tests, in src dir
@@ -133,17 +131,10 @@ export abstract class BaseFileSource extends ConfigurationSource {
       ...BaseFileSource.nodeModulesAncestors(resolve(process.cwd())).map((dir) => normalize(join(dir, spinajsConfigGlob))),
     ];
 
-    
     if (process.env.WORKSPACE_ROOT_PATH) {
       this.CommonDirs = this.CommonDirs.concat([
-        
         // for monorepo setups
-        normalize(
-          join(
-            resolve(process.env.WORKSPACE_ROOT_PATH),
-            isESMMode ? 'node_modules/@spinajs/*/lib/mjs/config' : 'node_modules/@spinajs/*/lib/cjs/config',
-          ),
-        ),
+        normalize(join(resolve(process.env.WORKSPACE_ROOT_PATH), spinajsConfigGlob)),
       ]);
     }
 
@@ -192,9 +183,13 @@ export abstract class BaseFileSource extends ConfigurationSource {
       .reduce((prev, current) => {
         return prev.concat(_.flattenDeep(current));
       }, [])
-      // normalize & resolve paths to be sure
+      // Overlapping globs (ancestors and WORKSPACE_ROOT_PATH) list the same path twice: the first listing wins.
       .map((f: string) => normalize(resolve(f)))
-      .filter((f: string, index: number, self: unknown[]) => self.indexOf(f) === index)
+      .filter((f: string, index: number, self: string[]) => self.indexOf(f) === index)
+      // A workspace package's own lib/config is also reached through its node_modules symlink. The last place a
+      // file is reached wins, so a project dir searched later still merges over the package globs.
+      .map((f: string) => fs.realpathSync(f))
+      .filter((f: string, index: number, self: string[]) => self.lastIndexOf(f) === index)
       .map(callback);
 
     const result = await Promise.all<IConfigLike>(toResolve);

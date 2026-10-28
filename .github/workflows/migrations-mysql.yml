@@ -32,24 +32,23 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20.x
+          node-version: 22.x
           cache: npm
 
       - name: install
         run: npm ci
 
-      # ts-mocha type-resolves workspace deps ( @spinajs/* ) via their built lib/mjs outputs,
-      # which a fresh `npm ci` checkout does not have. `tsc -b` on the queue mjs project builds
+      # ts-mocha type-resolves workspace deps ( @spinajs/* ) via their built lib outputs,
+      # which a fresh `npm ci` checkout does not have. `tsc -b` on the queue build project builds
       # it plus its whole project-reference graph ( util, configuration, di, exceptions, log, orm ).
-      # The ESM test loader ( ts-node/esm ) resolves each @spinajs/* import to its lib/mjs, so only
-      # the mjs outputs are needed - no cjs build required.
+      # The ESM test loader ( ts-node/esm ) resolves each @spinajs/* import to its lib.
       #
       # orm-sqlite is passed explicitly: the suites import it as a TEST dependency, so it sits
       # outside queue's project-reference graph and `tsc -b` on queue alone never builds it -
-      # which failed every run of this job with "Cannot find module .../orm-sqlite/lib/mjs/index.js".
+      # which failed every run of this job with "Cannot find module .../orm-sqlite/lib/index.js".
       # Same pattern the mysql job below already uses for orm-mysql.
-      - name: build queue + deps (mjs)
-        run: npx tsc -b packages/queue/tsconfig.mjs.json packages/orm-sqlite/tsconfig.mjs.json
+      - name: build queue + deps
+        run: npx tsc -b packages/queue/tsconfig.build.json packages/orm-sqlite/tsconfig.build.json
 
       - name: run broker-free queue suites (sqlite)
         working-directory: packages/queue
@@ -85,17 +84,17 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20.x
+          node-version: 22.x
           cache: npm
 
       - name: install
         run: npm ci
 
       # Same rationale as the sqlite job, but the MySQL suite also imports @spinajs/orm-mysql
-      # ( which pulls in @spinajs/orm-sql ). Passing both mjs projects to `tsc -b` builds the
+      # ( which pulls in @spinajs/orm-sql ). Passing both build projects to `tsc -b` builds the
       # union of their reference graphs - everything the test needs, and nothing more.
-      - name: build queue + orm-mysql + deps (mjs)
-        run: npx tsc -b packages/queue/tsconfig.mjs.json packages/orm-mysql/tsconfig.mjs.json
+      - name: build queue + orm-mysql + deps
+        run: npx tsc -b packages/queue/tsconfig.build.json packages/orm-mysql/tsconfig.build.json
 
       - name: run mysql migration suite
         working-directory: packages/queue

@@ -51,7 +51,7 @@ A route whose method is not in the parsed class (inherited from a base class in 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `fs.providers` `__fs_controller_cache__` | provider | `fsNative` at `<cwd>/__cache__/__controllers__` | any writable provider | Where entries are stored. |
-| `system.dirs.cli` | `string[]` | includes `<package>/lib/<cjs\|mjs>/cli` | | Lets `@spinajs/cli` find the command. |
+| `system.dirs.cli` | `string[]` | includes `<package>/lib/cli` | | Lets `@spinajs/cli` find the command. |
 
 ```ts
 export default {

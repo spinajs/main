@@ -99,7 +99,7 @@ Every column of `DbConfig`, `Value` and `Default` in their canonical stored stri
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `system.dirs.controllers` | `string[]` | adds `<root>/node_modules/@spinajs/configuration-http/lib/<cjs\|mjs>/controllers` | directories | Where `ConfigurationController` is discovered. `<root>` is `WORKSPACE_ROOT_PATH` or `process.cwd()`. |
+| `system.dirs.controllers` | `string[]` | adds `<root>/node_modules/@spinajs/configuration-http/lib/controllers` | directories | Where `ConfigurationController` is discovered. `<root>` is `WORKSPACE_ROOT_PATH` or `process.cwd()`. |
 
 Permissions and roles are on the [Access control](04-access-control.md) page.
 

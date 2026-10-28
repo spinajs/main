@@ -341,7 +341,7 @@ export class Authorizer {
 
     for (const c of BUILTIN_COMBINATORS) this.combinators.set(c.name, c);
     for (const c of options.combinators ?? []) {
-      // Duck-typed: a combinator from a second copy of this package (ESM and CJS both loaded) fails instanceof.
+      // Duck-typed: a combinator from a second copy of this package (two installed versions) fails instanceof.
       if (!isObject(c) || typeof c.combine !== 'function' || typeof c.name !== 'string' || c.name === '') throw new AuthzConfigError(`${this.where}: a custom combinator needs a non-empty name and a combine() method`);
       if (this.combinators.has(c.name)) throw new AuthzConfigError(`${this.where}: combinator ${quote(c.name)} is ${BUILTIN_COMBINATORS.some((b) => b.name === c.name) ? 'a built-in' : 'registered twice'}`);
       this.combinators.set(c.name, c);

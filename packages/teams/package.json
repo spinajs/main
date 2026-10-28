@@ -2,13 +2,11 @@
   "name": "@spinajs/teams",
   "version": "3.0.23",
   "description": "Teams, groups and invitations for SpinaJS, built on authz-v3",
-  "main": "lib/cjs/index.js",
-  "module": "lib/mjs/index.js",
+  "main": "./lib/index.js",
   "exports": {
     ".": {
-      "types": "./lib/mjs/index.d.ts",
-      "import": "./lib/mjs/index.js",
-      "require": "./lib/cjs/index.js"
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
     }
   },
   "type": "module",
@@ -17,12 +15,11 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=16.11"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "compile": "tsc -b tsconfig.build.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "pretest": "npm run compile",
@@ -69,5 +66,6 @@
     "@spinajs/authz-testing": "3.0.23",
     "@spinajs/orm-sqlite": "3.0.23",
     "@types/luxon": "^3.4.2"
-  }
+  },
+  "types": "./lib/index.d.ts"
 }

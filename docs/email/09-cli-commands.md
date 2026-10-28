@@ -44,7 +44,7 @@ spinajs email-send -c main -f billing@acme.com -t ops@acme.com -s "Usage report"
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `system.dirs.cli` | `string[]` | includes `node_modules/@spinajs/email/lib/<cjs\|mjs>/cli` and the same one folder up | | Where the CLI finds these commands. |
+| `system.dirs.cli` | `string[]` | includes `node_modules/@spinajs/email/lib/cli` and the same one folder up | | Where the CLI finds these commands. |
 
 ## Services and extension points
 
