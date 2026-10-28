@@ -1,18 +1,16 @@
 import { DI, IContainer } from '@spinajs/di';
-import { Configuration, IConfigurationSchema } from '@spinajs/configuration-common';
+import { Configuration, IConfigurationSchema, CONFIGURATION_SCHEMA } from '@spinajs/configuration-common';
 
 import { FrameworkConfiguration } from './configuration.js';
 import { InvalidConfiguration } from './exception.js';
 import { sameSchema } from './util.js';
 
-const SCHEMAS = '__configurationSchema__';
-
 /** The schema as `container` holds it: registering it again, or a copy with its `$id`, adds nothing. */
 function registerOnce(schema: IConfigurationSchema, container: IContainer): IConfigurationSchema {
-  const registered = (container.Cache.get(SCHEMAS, false) ?? []) as IConfigurationSchema[];
+  const registered = (container.Cache.get(CONFIGURATION_SCHEMA.key, false) ?? []) as IConfigurationSchema[];
   const known = registered.find((s) => sameSchema(s, schema));
   if (known) return known;
-  container.register(schema).asValue(SCHEMAS);
+  container.register(schema).asValue(CONFIGURATION_SCHEMA.key);
   return schema;
 }
 

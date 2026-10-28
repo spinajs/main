@@ -21,6 +21,8 @@ import {
   IConfigurationSchema,
   ConfigVarProtocol,
   ConfigVar,
+  CONFIGURATION_SOURCES,
+  CONFIGURATION_SCHEMA,
 } from '@spinajs/configuration-common';
 import { Autoinject, Class, Container, IContainer, Injectable } from '@spinajs/di';
 
@@ -358,7 +360,7 @@ export class FrameworkConfiguration extends Configuration {
      * eg. in webpack environment
      */
     // Merged at the root: merge() writes nothing at a key no source defines.
-    this.Container.resolve(Array.ofType<IConfigLike>('__configuration__')).forEach((c: IConfigLike) => {
+    this.Container.resolve(Array.ofType<IConfigLike>(CONFIGURATION_SOURCES.key)).forEach((c: IConfigLike) => {
       _.mergeWith(this.Config, c, mergeArrays);
     });
 
@@ -684,7 +686,7 @@ export class FrameworkConfiguration extends Configuration {
   private schemasOfLineage(): IConfigurationSchema[] {
     const found: IConfigurationSchema[] = [];
     for (let c: IContainer | undefined = this.Container; c; c = c.Parent) {
-      for (const s of (c.Cache.get('__configurationSchema__', false) ?? []) as IConfigurationSchema[]) {
+      for (const s of (c.Cache.get(CONFIGURATION_SCHEMA.key, false) ?? []) as IConfigurationSchema[]) {
         if (!found.some((f) => sameSchema(f, s))) found.push(s);
       }
     }
