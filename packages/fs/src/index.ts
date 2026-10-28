@@ -3,6 +3,7 @@ import { AsyncService, ResolveException, sortByDependencies } from '@spinajs/di'
 import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
 import { fs, IFsConfiguration, IProviderConfiguration } from './interfaces.js';
 import { Log, Logger } from '@spinajs/log-common';
+import { FILE_PROVIDER } from './tokens.js';
 
 export * from './interfaces.js';
 export * from './local-provider.js';
@@ -12,6 +13,7 @@ export * from './decorators.js';
 export * from './file-hasher.js';
 export * from './file-info.js';
 export * from './helpers.js';
+export * from './tokens.js';
 export * from './fp.js';
 export * from './paths.js';
 export * from './actions.js';
@@ -129,7 +131,7 @@ export class FsBootstrapper extends Bootstrapper {
       }
       
       return instance;
-    }).as('__file_provider__');
+    }).asToken(FILE_PROVIDER);
   }
 }
 
