@@ -1,4 +1,5 @@
 import { DI } from '@spinajs/di';
+import { SCHEMAS } from '@spinajs/validation';
 
 export interface ISchedulerRunAccepted {
   runId: string;
@@ -17,4 +18,4 @@ export const SchedulerRunAcceptedSchema = {
 };
 
 // same registry @Schema writes to, keyed by the name the controllers' JSDoc uses ( see users-http dto/metadata-entry-schema.ts )
-DI.register(SchedulerRunAcceptedSchema).asMapValue('__schemas__', 'ISchedulerRunAccepted');
+DI.register(SchedulerRunAcceptedSchema).asMapValue(SCHEMAS.key, 'ISchedulerRunAccepted');
