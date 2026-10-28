@@ -25,10 +25,11 @@ export const problemJsonNote: Transform = {
       }
     }
 
+    const eol = text.includes('\r\n') ? '\r\n' : '\n';
     // inserting from the end keeps the earlier offsets valid
     for (const lineStart of [...lineStarts].sort((a, b) => b - a)) {
       const indent = /^[ \t]*/.exec(text.slice(lineStart))?.[0] ?? '';
-      file.insertText(lineStart, `${indent}${PROBLEM_JSON_NOTE}\n`);
+      file.insertText(lineStart, `${indent}${PROBLEM_JSON_NOTE}${eol}`);
     }
 
     return lineStarts.size > 0;

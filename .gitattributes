@@ -1,3 +1,4 @@
 # Snapshot and fixture files are compared byte-for-byte by tests; keep LF on every platform.
 **/__snapshots__/** text eol=lf
 packages/compiler/test/fixtures/**/*.json text eol=lf
+packages/codemods/test/fixtures/** text eol=lf

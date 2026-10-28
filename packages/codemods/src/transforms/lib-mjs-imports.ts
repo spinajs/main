@@ -108,9 +108,10 @@ function insertTodos(file: SourceFile, leftovers: Leftover[]): boolean {
     }
   }
 
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
   for (const [lineStart, message] of [...inserts].sort((a, b) => b[0] - a[0])) {
     const indent = /^[ \t]*/.exec(text.slice(lineStart))?.[0] ?? '';
-    file.insertText(lineStart, `${indent}${todoLine(message)}\n`);
+    file.insertText(lineStart, `${indent}${todoLine(message)}${eol}`);
   }
   return inserts.size > 0;
 }
