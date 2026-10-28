@@ -16,6 +16,15 @@ class Missing extends Upgrade {
   }
 }
 
+class Failing extends Upgrade {
+  protected importCodemods(): ReturnType<Upgrade['loadCodemods']> {
+    return Promise.resolve({
+      V4_TRANSFORMS: [],
+      runTransforms: () => Promise.resolve({ changedFiles: [], failedFiles: [{ file: 'src/a.ts', transform: 't', error: 'boom' }], warnings: [], scannedFiles: 1 }),
+    } as unknown as Awaited<ReturnType<Upgrade['loadCodemods']>>);
+  }
+}
+
 describe('upgrade command', () => {
   let dir: string;
   let cwd: string;
@@ -38,6 +47,7 @@ describe('upgrade command', () => {
   });
 
   afterEach(() => {
+    process.exitCode = undefined;
     process.chdir(cwd);
     rmSync(dir, { recursive: true, force: true });
   });
@@ -64,6 +74,12 @@ describe('upgrade command', () => {
     writeFileSync(join(dir, 'tsconfig.json'), JSON.stringify({ include: ['nothing'] }));
     await command(Upgrade).execute({ to: '4', dryRun: true });
     expect(lines.some((l) => l.startsWith('warn no source files found'))).to.equal(true);
+  });
+
+  it('exits non-zero when a file failed', async () => {
+    await command(Failing).execute({ to: '4' });
+    expect(lines).to.include('error src/a.ts left untouched: t failed: boom');
+    expect(process.exitCode).to.equal(1);
   });
 
   it('refuses an unsupported major', async () => {
