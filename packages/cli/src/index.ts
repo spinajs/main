@@ -1,5 +1,6 @@
 import { CliCommand, IArgument, ICommand, IOption } from './interfaces.js';
 import { META_ARGUMENT, META_COMMAND, META_OPTION } from './decorators.js';
+import { CLI_ARGV_PROVIDER } from './tokens.js';
 import { AsyncService, Autoinject, ClassInfo, DI } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log-common';
 import { Configuration } from '@spinajs/configuration';
@@ -11,6 +12,7 @@ import { stripFrameworkOptions } from './argv.js';
 export * from './interfaces.js';
 export * from './decorators.js';
 export * from './commander.js';
+export * from './tokens.js';
 
 /**
  * Best-effort lookup of this package version for `--version`.
@@ -272,7 +274,7 @@ export class Cli extends AsyncService {
     program.showHelpAfterError();
 
     // the provider is registered by the bin ( args.ts ), not by the package entry
-    const argv = DI.resolve<string[] | null>('__cli_argv_provider__') ?? stripFrameworkOptions(process.argv);
+    const argv = DI.resolve(CLI_ARGV_PROVIDER) ?? stripFrameworkOptions(process.argv);
 
     // nothing but `node script` → show help rather than silently doing nothing
     if (argv.slice(2).length === 0) {
