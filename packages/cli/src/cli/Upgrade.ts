@@ -32,6 +32,9 @@ export class Upgrade extends CliCommand {
     for (const f of failedFiles) {
       this.Log.error(`${f.file} left untouched: ${f.transform} failed: ${f.error}`);
     }
+    if (failedFiles.length > 0) {
+      process.exitCode = 1;
+    }
     if (scannedFiles === 0) {
       this.Log.warn('no source files found: only files matched by tsconfig.json (include/files) are visited, JS and CJS files included');
     }
