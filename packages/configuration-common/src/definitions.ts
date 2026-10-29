@@ -1,4 +1,5 @@
 import { AsyncService, Class } from '@spinajs/di';
+import type { ConfigPath, ConfigPaths } from './typed.js';
 
 /**
  * App version struct
@@ -72,6 +73,8 @@ export abstract class Configuration extends AsyncService {
    *
    * @param path - path to property eg. ["system","dirs"] or "system" or "system.dirs"
    */
+  public abstract get<P extends ConfigPath>(path: P): ConfigPaths[P];
+  public abstract get<P extends ConfigPath>(path: P, defaultValue: ConfigPaths[P]): ConfigPaths[P];
   public abstract get<T>(path: string[] | string, defaultValue?: T): T;
 
   /**

@@ -35,9 +35,7 @@ interface Answer {
 }
 
 interface Boot {
-  mode: 'esm' | 'cjs';
   packages: Package[];
-  usersModules: string[];
   bootstrappers: string[];
   sessionProviders: string[];
   registered: Record<'PasswordService' | 'TotpService' | 'TokenService' | 'KeyRegistry' | 'CredentialAdminRule', boolean>;
@@ -88,25 +86,21 @@ const N8B_ROUTES: Record<Group, string[]> = {
 const V3_CONTROLLERS = ['AuthnActiveRoleController', 'AuthnCodeLoginController', 'AuthnCredentialAdminController', 'AuthnImpersonationController', 'AuthnJwksController', 'AuthnKeysController', 'AuthnLoginController', 'AuthnMfaController', 'AuthnMfaEnrolmentController', 'AuthnPasskeyController', 'AuthnPasswordController', 'AuthnReauthController', 'AuthnRegistrationController', 'AuthnSessionsController', 'AuthnTokenRevocationController', 'AuthnTokensController', 'AuthnVerificationController'];
 
 interface Case {
-  mode: 'esm' | 'cjs';
   packages: Package[];
 }
 
-// Every package is absent and present at least once; the CJS pair checks the build's subpaths, authn-totp's
-// ./service among them.
+// Every package is absent and present at least once.
 const CASES: Case[] = [
-  { mode: 'esm', packages: [] },
-  { mode: 'esm', packages: ['local'] },
-  { mode: 'esm', packages: ['totp'] },
-  { mode: 'esm', packages: ['token'] },
-  { mode: 'esm', packages: ['keys'] },
-  { mode: 'esm', packages: ['admin'] },
-  { mode: 'esm', packages: ALL },
-  { mode: 'cjs', packages: [] },
-  { mode: 'cjs', packages: ALL },
+  { packages: [] },
+  { packages: ['local'] },
+  { packages: ['totp'] },
+  { packages: ['token'] },
+  { packages: ['keys'] },
+  { packages: ['admin'] },
+  { packages: ALL },
 ];
 
-const label = (c: Case) => `${c.mode.toUpperCase()} ${c.packages.length === 0 ? 'no strategy package' : c.packages.length === ALL.length ? 'every strategy package' : c.packages.join(', ')}`;
+const label = (c: Case) => `${c.packages.length === 0 ? 'no strategy package' : c.packages.length === ALL.length ? 'every strategy package' : c.packages.join(', ')}`;
 const isOn = (c: Case, g: Group) => c.packages.includes(PACKAGE_OF[g]);
 /** A route of a group that is on, and for a credential admin route its own service too. */
 const routeOn = (c: Case, g: Group, route: string): boolean => isOn(c, g) && (g !== 'admin' || ADMIN_ROUTE_PACKAGE[route] === null || c.packages.includes(ADMIN_ROUTE_PACKAGE[route]!));
@@ -125,7 +119,7 @@ function boot(c: Case): Promise<Boot> {
   return new Promise((done, fail) => {
     // The runner's cwd, not PKG_ROOT: @spinajs/configuration loads the shipped configs of every node_modules above the
     // cwd, so the child has to find the same ones this process found.
-    const child = spawn(process.execPath, [CHILD, c.mode, c.packages.join(','), off.join(','), cacheDir], { cwd: process.cwd(), env, timeout: 150000, killSignal: 'SIGKILL' });
+    const child = spawn(process.execPath, [CHILD, c.packages.join(','), off.join(','), cacheDir], { cwd: process.cwd(), env, timeout: 150000, killSignal: 'SIGKILL' });
     children.push(child);
     let out = '';
     let err = '';
@@ -164,7 +158,6 @@ describe('each 3.0 route group only with its service (N8b task 6, design §22.11
     describe(label(c), () => {
       it('boots the 3.0 controllers with no users bootstrapper and one session provider, with the packages named and no other', () => {
         const b = boots.get(c)!;
-        expect(b.usersModules, 'CJS only: loaded modules of @spinajs/users').to.deep.eq([]);
         expect(b.bootstrappers).to.not.include('RbacBootstrapper');
         expect(b.sessionProviders).to.deep.eq(['MemorySessionStore']);
         expect([...b.controllers].sort()).to.deep.eq([...V3_CONTROLLERS].sort());

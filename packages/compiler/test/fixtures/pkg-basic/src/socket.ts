@@ -1,5 +1,6 @@
 import { SocketController, Command, OnEvent, Payload, SocketPolicy, BaseSocketController, SocketAccess } from '@spinajs/http-socket';
 import { AdminPolicy } from './controller.js';
+import type { UserCreated } from './queue.js';
 
 export class OpenDoc { public id: string }
 export class DocOpened { public id: string; public title: string }
@@ -14,6 +15,9 @@ export class DocsSocket extends BaseSocketController {
 
   @Command()
   public async close(@Payload() payload: OpenDoc): Promise<void> { void payload; }
+
+  @OnEvent('created')
+  public async created(@Payload() payload: UserCreated): Promise<void> { void payload; }
 
   @OnEvent('ping')
   public async ping(@Payload() payload: Ping): Promise<void> { void payload; }

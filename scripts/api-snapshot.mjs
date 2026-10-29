@@ -321,7 +321,6 @@ function packageNameOf(fileName) {
   for (;;) {
     if (packageNames.has(dir)) return packageNames.get(dir);
     const manifest = join(dir, 'package.json');
-    // lib/mjs and lib/cjs carry a nameless package.json that only sets the module type.
     const name = existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')).name : undefined;
     if (name) {
       packageNames.set(dir, name);
@@ -409,7 +408,7 @@ function checkDiagnostics(program, files) {
 
 const fence = (heading, body) => `## ${heading}\n\n\`\`\`ts\n${body}\n\`\`\`\n`;
 
-function analyzePackage({ dir, entries, tsconfig = 'tsconfig.mjs.json' }) {
+function analyzePackage({ dir, entries, tsconfig = 'tsconfig.build.json' }) {
   requireTs();
   const pkgDir = real(dir);
   const program = createProgram(dir, tsconfig, entries);
@@ -486,7 +485,7 @@ function walkTs(dir, out = []) {
 function resolveRelativeModule(rootDir, file, spec) {
   let base = toPosix(resolve(dirname(real(file)), spec));
   // A built file under lib/ declares what its source under src/ declares.
-  const built = base.startsWith(`${rootDir}/`) && base.slice(rootDir.length + 1).match(/^(packages\/[^/]+)\/lib\/(?:mjs|cjs)\/(.+?)(?:\.d\.[cm]?ts|\.[cm]?js)?$/);
+  const built = base.startsWith(`${rootDir}/`) && base.slice(rootDir.length + 1).match(/^(packages\/[^/]+)\/lib\/(.+?)(?:\.d\.[cm]?ts|\.[cm]?js)?$/);
   if (built) base = `${rootDir}/${built[1]}/src/${built[2]}`;
   const stripped = base.replace(/\.([cm]?)js$/, '.$1ts');
   for (const candidate of [stripped, base, `${base}.ts`, `${base}.d.ts`, join(base, 'index.ts')]) {

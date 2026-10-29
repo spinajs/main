@@ -16,7 +16,6 @@ npm install @spinajs/scheduler
 
 - `@spinajs/http`, `@spinajs/validation` and `@spinajs/scheduler` are optional peer dependencies, each pinned to one exact version. Install `@spinajs/upload` and its `@spinajs/http` together, at the same version as your other `@spinajs/*` packages.
 - The main entry has no HTTP code, so a worker that only runs the sweeper does not load Express.
-- Node `>=20.19`: the CommonJS build loads the ESM-only `file-type` through `require()`.
 
 | Import path | What it holds |
 | --- | --- |

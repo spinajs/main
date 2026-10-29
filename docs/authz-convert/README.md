@@ -26,7 +26,7 @@ The package needs Node.js 16.11 or later.
 ## Quick start
 
 ```sh
-npx spinajs-authz-convert lib/mjs/config --out src/config/converted --db rbac-facts.json --src src
+npx spinajs-authz-convert lib/config --out src/config/converted --db rbac-facts.json --src src
 ```
 
 Then read `src/config/converted/authz-warnings.md`, finish its "Convert by hand" items, and copy the generated files into the app's config dir.
@@ -38,7 +38,7 @@ import { ConversionError, convert } from '@spinajs/authz-convert';
 
 export async function convertLegacyConfig(): Promise<number> {
   try {
-    const { files, exitCode } = await convert({ dirs: ['lib/mjs/config'] });
+    const { files, exitCode } = await convert({ dirs: ['lib/config'] });
     for (const file of files) console.log(file.name);
     return exitCode;
   } catch (err) {

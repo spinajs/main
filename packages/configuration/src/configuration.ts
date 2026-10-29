@@ -13,6 +13,8 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import {
   ConfigurationSource,
   IConfigLike,
+  ConfigPath,
+  ConfigPaths,
   Configuration,
   ConfigurationOptions,
   IConfigurable,
@@ -182,6 +184,9 @@ export class FrameworkConfiguration extends Configuration {
    * @param path - path to property eg. ["system","dirs"]
    * @param defaultValue - optional, if value at specified path not exists returns default value
    */
+  public get<P extends ConfigPath>(path: P): ConfigPaths[P];
+  public get<P extends ConfigPath>(path: P, defaultValue: ConfigPaths[P]): ConfigPaths[P];
+  public get<T>(path: string[] | string, defaultValue?: T): T;
   public get<T>(path: string[] | string, defaultValue?: T): T {
     if (this.RefusedModules.size !== 0) this.throwIfRefused(path);
     const value = _.get(this.Config, path, defaultValue) as T;

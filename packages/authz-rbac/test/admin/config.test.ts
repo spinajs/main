@@ -9,13 +9,13 @@ const expect = chai.expect;
 const PACKAGE = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 describe('authz-rbac config fragment', () => {
-  // @spinajs/configuration loads every `node_modules/@spinajs/*/lib/mjs/config/**/!(*.*).js` (cjs: lib/cjs/config).
-  const compiled = join(PACKAGE, 'lib', 'mjs', 'config', 'admin.js');
+  // @spinajs/configuration loads every `node_modules/@spinajs/*/lib/config/**/!(*.*).js`.
+  const compiled = join(PACKAGE, 'lib', 'config', 'admin.js');
 
-  it('compiles to lib/mjs/config/admin.js, a file name the configuration loader picks up', () => {
+  it('compiles to lib/config/admin.js, a file name the configuration loader picks up', () => {
     expect(existsSync(compiled)).to.equal(true);
     expect(basename(compiled, '.js')).to.not.include('.');
-    const linked = join(PACKAGE, '..', '..', 'node_modules', '@spinajs', 'authz-rbac', 'lib', 'mjs', 'config', 'admin.js');
+    const linked = join(PACKAGE, '..', '..', 'node_modules', '@spinajs', 'authz-rbac', 'lib', 'config', 'admin.js');
     expect(realpathSync(linked)).to.equal(realpathSync(compiled));
   });
 

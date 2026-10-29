@@ -382,7 +382,7 @@ describe('FileResponse over send', function () {
     for (const header of ['content-disposition', 'accept-ranges', 'last-modified', 'x-vanish']) {
       expect(res.headers.get(header), header).to.eq(null);
     }
-    expect(res.headers.get('content-type')).to.match(/^application\/json/);
+    expect(res.headers.get('content-type')).to.match(/^application\/problem\+json/);
   });
 
   it('answers 404 for a directory', async () => {
@@ -405,9 +405,10 @@ describe('FileResponse over send', function () {
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(res.status).to.eq(500);
-    for (const field of ['code', 'errno', 'syscall', 'path', 'status', 'expose']) {
+    for (const field of ['code', 'errno', 'syscall', 'path', 'expose']) {
       expect(body, field).to.not.have.property(field);
     }
+    expect(body.status).to.eq(500);
     expect(JSON.stringify(body)).to.not.include(root.replace(/\\/g, '\\\\'));
     expect(res.headers.get('content-disposition')).to.eq(null);
   });

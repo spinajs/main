@@ -5,7 +5,7 @@ import chaiHttp from 'chai-http';
 import express from 'express';
 
 // The built config: ts-node's type check rejects the default helmet import that the build accepts.
-import shipped from '../lib/mjs/config/http.js';
+import shipped from '../lib/config/http.js';
 
 chai.use(chaiHttp);
 

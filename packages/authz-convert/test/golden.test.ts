@@ -92,7 +92,7 @@ describe('golden conversions', () => {
 
       it('writes authz and authn config the 3.0 schemas accept', async () => {
         // Read from the built authn packages by path: authz* packages may not depend on authn* (plan §1 rule 10).
-        const built = async (pkg: string, file: string, name: string) => ((await import(pathToFileURL(join(PACKAGES, pkg, 'lib', 'mjs', file)).href)) as Record<string, { $configurationModule: string }>)[name];
+        const built = async (pkg: string, file: string, name: string) => ((await import(pathToFileURL(join(PACKAGES, pkg, 'lib', file)).href)) as Record<string, { $configurationModule: string }>)[name];
         // The authn schema and the fragments the authn packages register for their subtrees.
         const authnSchemas = [
           await built('authn', 'schemas/authn.configuration.js', 'AUTHN_CONFIGURATION_SCHEMA'),

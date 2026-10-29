@@ -274,10 +274,10 @@ describe('API snapshot of the frozen contracts', function () {
         'packages/lane/src/global.ts': 'declare global {\n  interface Window { w?: number }\n}\nexport {};\n',
         'packages/lane/src/allowed.ts': block('@fx/pkg'),
         'packages/lane/lib/built.d.ts': block('@fx/pkg'),
-        'packages/lane/src/lib-js.ts': block('../../fx/lib/mjs/a.js'),
-        'packages/lane/src/lib-bare.ts': block('../../fx/lib/cjs/a'),
-        'packages/lane/src/lib-dts.ts': block('../../fx/lib/mjs/a.d.ts'),
-        'packages/lane/src/lib-other.ts': block('../../fx/lib/mjs/b.js'),
+        'packages/lane/src/lib-js.ts': block('../../fx/lib/a.js'),
+        'packages/lane/src/lib-bare.ts': block('../../fx/lib/a'),
+        'packages/lane/src/lib-dts.ts': block('../../fx/lib/a.d.ts'),
+        'packages/lane/src/lib-other.ts': block('../../fx/lib/b.js'),
       });
       const found = tool.findAugmentations(root, { packages: new Set(['@fx/pkg']), files: new Set(['packages/fx/src/a.ts']) }, ['packages/lane/src/allowed.ts']);
       expect(found.map((f) => f.split(':')[0])).to.deep.eq(['packages/fx/src/engine.ts', 'packages/lane/src/deep/sub.ts', 'packages/lane/src/lib-bare.ts', 'packages/lane/src/lib-dts.ts', 'packages/lane/src/lib-js.ts', 'packages/lane/src/x.ts']);

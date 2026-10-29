@@ -2,26 +2,24 @@
 // and only the strategy packages named on the command line loaded. No database: the probes stop at the route gates,
 // the authentication policies and the field checks. Prints one JSON line.
 //
-//   node route-groups-app.cjs <esm|cjs> <packages, comma separated> <groups probed with a session, comma separated> <controller cache dir>
+//   node route-groups-app.cjs <packages, comma separated> <groups probed with a session, comma separated> <controller cache dir>
 //
-// A .cjs file, so one source serves both builds: `import()` takes the ESM build, `require` the CJS one.
+// A .cjs file so it runs as a plain script whatever the package type; it loads the build with `import()`.
 
 const { join, resolve } = require('node:path');
 const { pathToFileURL } = require('node:url');
 const http = require('node:http');
 
-const [mode, packagesArg = '', probedArg = '', cacheDir] = process.argv.slice(2);
+const [packagesArg = '', probedArg = '', cacheDir] = process.argv.slice(2);
 if (!cacheDir) throw new Error('no controller cache dir given');
-const ESM = mode === 'esm';
-const FORMAT = ESM ? 'mjs' : 'cjs';
 const PACKAGES = packagesArg.split(',').filter(Boolean);
 const PROBED = probedArg.split(',').filter(Boolean);
 const PKG_ROOT = resolve(__dirname, '..', '..');
 const WORKSPACE = resolve(PKG_ROOT, '..');
 
-const load = async (spec) => (ESM ? await import(spec) : require(spec));
-const loadFile = (path) => load(ESM ? pathToFileURL(path).href : path);
-const lib = (pkg, file) => join(WORKSPACE, pkg, 'lib', FORMAT, file);
+const load = (spec) => import(spec);
+const loadFile = (path) => load(pathToFileURL(path).href);
+const lib = (pkg, file) => join(WORKSPACE, pkg, 'lib', file);
 
 const USER = { login: 'route-groups@example.test', password: 'Route-Groups-Pass-1' };
 const ADMIN_TARGET = '/authn/admin/users/00000000-0000-4000-8000-000000000000';
@@ -101,7 +99,6 @@ async function main() {
 
   const di = await load('@spinajs/di');
   const { DI, Bootstrapper } = di;
-  if (ESM) DI.setESMModuleSupport();
   const { Configuration, FrameworkConfiguration } = await load('@spinajs/configuration');
   const { Controllers, HttpServer, BaseController } = await load('@spinajs/http');
   await load('@spinajs/log');
@@ -113,7 +110,7 @@ async function main() {
   const cookieParser = (await load('cookie-parser')).default ?? (await load('cookie-parser'));
   const { SessionProvider } = await load('@spinajs/authn-session');
 
-  const controllersDir = join(PKG_ROOT, 'lib', FORMAT, 'v3', 'controllers');
+  const controllersDir = join(PKG_ROOT, 'lib', 'v3', 'controllers');
 
   class RouteGroupsConfiguration extends FrameworkConfiguration {
     async resolve() {
@@ -163,7 +160,7 @@ async function main() {
   bind(contracts.AuthnThrottle, 'RouteGroupsThrottle', throttle);
   bind(contracts.AuthnEventSink, 'RouteGroupsEventSink', events);
   bind(contracts.AuthenticationStrategy, 'RouteGroupsPasswordStrategy', strategy);
-  await (await loadFile(join(PKG_ROOT, 'lib', FORMAT, 'v3', 'register.js'))).registerAuthnHttpV3();
+  await (await loadFile(join(PKG_ROOT, 'lib', 'v3', 'register.js'))).registerAuthnHttpV3();
 
   for (const p of PACKAGES) {
     if (p === 'local') await load('@spinajs/authn-local');
@@ -245,8 +242,7 @@ async function main() {
   }
 
   // After the probes, so a gate that loaded a package on a request shows here. The configuration loader reads every
-  // package's config file, users' included; ESM lists no loaded modules, but users' bootstrapper registers on import.
-  const usersModules = ESM ? [] : Object.keys(require.cache).filter((f) => /[\\/]users[\\/]lib[\\/]/.test(f) && !/[\\/]config[\\/]/.test(f));
+  // package's config file, users' included, and users' bootstrapper registers on import.
   const bootstrappers = (DI.getRegisteredTypes(Bootstrapper) ?? []).map((t) => t.name);
   const sessionProviders = (DI.getRegisteredTypes(SessionProvider) ?? []).map((t) => t.name);
   const registered = {
@@ -258,7 +254,7 @@ async function main() {
   };
 
   await server.stop();
-  console.log(JSON.stringify({ mode, packages: PACKAGES, usersModules, bootstrappers, sessionProviders, registered, routes, controllers, anonymous, login: login.status, whoami: whoami.status, session, touched, control }));
+  console.log(JSON.stringify({ packages: PACKAGES, bootstrappers, sessionProviders, registered, routes, controllers, anonymous, login: login.status, whoami: whoami.status, session, touched, control }));
   process.exit(0);
 }
 

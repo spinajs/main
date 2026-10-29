@@ -386,10 +386,8 @@ describe('AuthzConfigBootstrapper', () => {
 });
 
 describe('authz package layout', () => {
-  // Configuration loads every module under node_modules/@spinajs/*/lib/{mjs,cjs}/config as a config file.
-  it('ships no code modules in lib/*/config', () => {
-    for (const flavour of ['mjs', 'cjs']) {
-      expect(existsSync(join(process.cwd(), 'lib', flavour, 'config')), `lib/${flavour}/config`).to.eq(false);
-    }
+  // Configuration loads every module under node_modules/@spinajs/*/lib/config as a config file.
+  it('ships no code modules in lib/config', () => {
+    expect(existsSync(join(process.cwd(), 'lib', 'config')), 'lib/config').to.eq(false);
   });
 });

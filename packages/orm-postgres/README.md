@@ -79,7 +79,7 @@ postgres' documented, standard-permitted upgrade).
 ## Running integration tests
 
     docker compose --profile test up -d postgres
-    npx tsc -b packages/orm-postgres/tsconfig.mjs.json
+    npx tsc -b packages/orm-postgres/tsconfig.build.json
     cd packages/orm-postgres && npm run test:integration
 
 One file: `npx ts-mocha -p tsconfig.json --config .mocharc.integration.json test/integration/<file>.test.ts`.

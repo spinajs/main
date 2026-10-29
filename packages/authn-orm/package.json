@@ -2,32 +2,28 @@
   "name": "@spinajs/authn-orm",
   "version": "3.0.23",
   "description": "ORM stores and migrations for SpinaJS authentication",
-  "main": "lib/cjs/index.js",
-  "module": "lib/mjs/index.js",
+  "main": "./lib/index.js",
   "exports": {
     ".": {
-      "types": "./lib/mjs/index.d.ts",
-      "import": "./lib/mjs/index.js",
-      "require": "./lib/cjs/index.js"
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
     },
     "./cipher": {
-      "types": "./lib/mjs/mfa/cipher.d.ts",
-      "import": "./lib/mjs/mfa/cipher.js",
-      "require": "./lib/cjs/mfa/cipher.js"
+      "types": "./lib/mfa/cipher.d.ts",
+      "import": "./lib/mfa/cipher.js"
     },
     "./identity": {
-      "types": "./lib/mjs/identity.d.ts",
-      "import": "./lib/mjs/identity.js",
-      "require": "./lib/cjs/identity.js"
+      "types": "./lib/identity.d.ts",
+      "import": "./lib/identity.js"
     }
   },
   "typesVersions": {
     "*": {
       "cipher": [
-        "lib/cjs/mfa/cipher.d.ts"
+        "lib/mfa/cipher.d.ts"
       ],
       "identity": [
-        "lib/cjs/identity.d.ts"
+        "lib/identity.d.ts"
       ]
     }
   },
@@ -37,12 +33,11 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=16.11"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "compile": "tsc -b tsconfig.build.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "pretest": "npm run compile",
@@ -88,5 +83,6 @@
     "@spinajs/orm-mysql": "3.0.23",
     "@spinajs/orm-postgres": "3.0.23",
     "@spinajs/orm-sqlite": "3.0.23"
-  }
+  },
+  "types": "./lib/index.d.ts"
 }

@@ -21,8 +21,7 @@ export * from './decorators.js';
 export * from './commander.js';
 /**
  * Best-effort lookup of this package version for `--version`.
- * Anchored at cwd so it works in both the cjs and mjs builds
- * (neither import.meta nor __dirname is available in both).
+ * Anchored at cwd so the version is the one the app installed.
  */
 function resolveCliVersion() {
     try {

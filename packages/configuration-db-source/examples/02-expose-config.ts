@@ -11,7 +11,7 @@
  * administered from the database.
  *
  * Run:
- *   node lib/mjs/examples/02-expose-config.js
+ *   node lib/examples/02-expose-config.js
  */
 import { Config } from '@spinajs/configuration';
 import '@spinajs/configuration-db-source';

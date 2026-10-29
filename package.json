@@ -5,27 +5,25 @@
     "clean": "npm run clean --workspace=packages",
     "pretest": "node node_modules/typescript-7/lib/tsc.js -b tsconfig.build.json",
     "test": "node scripts/test-all.mjs",
+    "test:scripts": "node --test \"scripts/__tests__/*.test.mjs\"",
     "coverage": "node scripts/coverage/run.mjs",
-    "build": "npm run clean && node node_modules/typescript-7/lib/tsc.js -b tsconfig.build.json && node node_modules/typescript-7/lib/tsc.js -b tsconfig.build.cjs.json && npm run copy-static && npm run prepare-module-support",
+    "build": "npm run clean && node node_modules/typescript-7/lib/tsc.js -b tsconfig.build.json && npm run copy-static",
     "build:sh": "bash scripts/build.sh",
-    "watch": "node node_modules/typescript-7/lib/tsc.js -b tsconfig.build.json tsconfig.build.cjs.json --watch --preserveWatchOutput",
-    "watch:esm": "node node_modules/typescript-7/lib/tsc.js -b tsconfig.build.json --watch --preserveWatchOutput",
-    "watch:cjs": "node node_modules/typescript-7/lib/tsc.js -b tsconfig.build.cjs.json --watch --preserveWatchOutput",
+    "watch": "node node_modules/typescript-7/lib/tsc.js -b tsconfig.build.json --watch --preserveWatchOutput",
     "publish": "npm run build && node scripts/publish-all.mjs",
     "publish:dry-run": "node scripts/publish-all.mjs --dry-run",
     "changeset": "changeset",
     "version": "changeset version && npm install --package-lock-only",
     "release": "changeset publish",
     "copy-static": "cpx \"packages/http/src/views/**/*\" packages/http/lib/views && cpx \"packages/http/src/static/**/*\" packages/http/lib/static && cpx \"packages/http-swagger/src/views/**/*.{pug,js}\" packages/http-swagger/lib/views && cpx \"packages/email/src/templates/**/*\" packages/email/lib/templates",
-    "prepare-module-support": "node scripts/generate-packages-for-modules.mjs",
     "docs:check": "node scripts/check-doc-samples.mjs",
     "docs:gitignore": "node scripts/sync-docs-gitignore.mjs",
-    "lint": "node node_modules/typescript-7/lib/tsc.js -b packages/eslint-plugin-authz/tsconfig.mjs.json && node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js --cache",
-    "lint:prune": "node node_modules/typescript-7/lib/tsc.js -b packages/eslint-plugin-authz/tsconfig.mjs.json && node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js --prune-suppressions",
+    "lint": "node node_modules/typescript-7/lib/tsc.js -b packages/eslint-plugin-authz/tsconfig.build.json && node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js --cache",
+    "lint:prune": "node node_modules/typescript-7/lib/tsc.js -b packages/eslint-plugin-authz/tsconfig.build.json && node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js --prune-suppressions",
     "deps": "depcruise packages --config .dependency-cruiser.cjs --ignore-known --output-type err",
     "deps:baseline": "depcruise packages --config .dependency-cruiser.cjs --output-type baseline --output-to .dependency-cruiser-known-violations.json",
     "knip": "knip",
-    "check:packages": "node scripts/check-packages.mjs",
+    "check:packages": "node scripts/check-engines.mjs && node scripts/check-packages.mjs",
     "prepare": "node scripts/install-hooks.mjs",
     "link": "powershell -NoProfile -ExecutionPolicy Bypass -File link-all.ps1",
     "link:sh": "bash link-all.sh"
@@ -100,6 +98,7 @@
     "typescript-eslint": "^8.71.2"
   },
   "dependencies": {
+    "@spinajs/asyncapi": "3.0.23",
     "@spinajs/authn": "file:packages/authn",
     "@spinajs/authn-http": "file:packages/authn-http",
     "@spinajs/authn-keys": "file:packages/authn-keys",
@@ -184,5 +183,8 @@
     "pac-resolver": "^7.0.1",
     "proxy-agent": "^6.5.0",
     "vm2": "^3.9.19"
+  },
+  "engines": {
+    "node": ">=22.0.0"
   }
 }

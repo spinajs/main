@@ -188,8 +188,6 @@ import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 
 async function main() {
-  DI.setESMModuleSupport();
-
   const configuration = await DI.resolve(Configuration, [
     {
       app: 'admin',

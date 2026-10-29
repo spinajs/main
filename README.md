@@ -15,8 +15,8 @@ To work on a single package, run its scripts from its own directory:
 cd packages/orm && npm test
 ```
 
-> Packages resolve each other through the workspace symlinks into their **built** `lib/`
-> output. After changing `packages/orm/src`, rebuild it (`npm run build` in that package)
+> Packages resolve each other through the workspace symlinks into their built `lib/` (ESM only since 4.0).
+> After changing `packages/orm/src`, rebuild it (`npm run build` in that package)
 > before running a dependent package's suite, or the dependent will keep testing the old code.
 
 ## Static analysis

@@ -1,6 +1,9 @@
 import ts from 'typescript';
 import type { ExtractorContext } from './context.js';
 
+/** The slice of the extractor context that literal evaluation needs. */
+export type LiteralContext = Pick<ExtractorContext, 'checker' | 'info'>;
+
 export interface DecoratorInfo {
   name: string;
   args: readonly ts.Expression[];
@@ -48,7 +51,7 @@ function propName(name: ts.PropertyName): string {
   return ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name) ? name.text : name.getText();
 }
 
-function objectLiteralValue(expr: ts.ObjectLiteralExpression, ctx: ExtractorContext): Record<string, unknown> {
+function objectLiteralValue(expr: ts.ObjectLiteralExpression, ctx: LiteralContext): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const p of expr.properties) {
     if (ts.isPropertyAssignment(p)) out[propName(p.name)] = literalValue(p.initializer, ctx);
@@ -70,7 +73,7 @@ function primitiveValue(expr: ts.Expression): { value: unknown } | undefined {
   return undefined;
 }
 
-function boundValue(expr: ts.Identifier | ts.PropertyAccessExpression, ctx: ExtractorContext): { value: unknown } | undefined {
+function boundValue(expr: ts.Identifier | ts.PropertyAccessExpression, ctx: LiteralContext): { value: unknown } | undefined {
   const symbol = ctx.checker.getSymbolAtLocation(ts.isIdentifier(expr) ? expr : expr.name);
   const decl = symbol && (symbol.flags & ts.SymbolFlags.Alias ? ctx.checker.getAliasedSymbol(symbol) : symbol).valueDeclaration;
   if (!decl) return undefined;
@@ -80,7 +83,7 @@ function boundValue(expr: ts.Identifier | ts.PropertyAccessExpression, ctx: Extr
   return undefined;
 }
 
-export function literalValue(expr: ts.Expression | undefined, ctx: ExtractorContext): unknown {
+export function literalValue(expr: ts.Expression | undefined, ctx: LiteralContext): unknown {
   if (!expr) return undefined;
   const primitive = primitiveValue(expr);
   if (primitive) return primitive.value;

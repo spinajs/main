@@ -4,7 +4,7 @@ The renderer entry registers stand-ins for main-process services under the same 
 
 ## How it works
 
-1. A bundler with the `browser` condition loads `lib/mjs/renderer.js` for `import ... from '@spinajs/electron'`.
+1. A bundler with the `browser` condition loads `lib/renderer.js` for `import ... from '@spinajs/electron'`.
 2. The module's decorators and `DI.register()` calls register the proxies in the renderer's root container.
 3. Renderer code resolves a token, eg. `await DI.resolve(Configuration)`, and gets the proxy.
 4. A proxy method calls `window.ipc.__spinaJsIpcBridge.call()` or `.callSync()` with the method name, the service's DI name and the arguments.

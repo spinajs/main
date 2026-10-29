@@ -2,13 +2,11 @@
   "name": "@spinajs/scheduler-http",
   "version": "3.0.23",
   "description": "HTTP API and Server-Sent Events live stream for @spinajs/scheduler",
-  "main": "lib/cjs/index.js",
-  "module": "lib/mjs/index.js",
+  "main": "./lib/index.js",
   "exports": {
     ".": {
-      "types": "./lib/mjs/index.d.ts",
-      "import": "./lib/mjs/index.js",
-      "require": "./lib/cjs/index.js"
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
     }
   },
   "type": "module",
@@ -17,12 +15,11 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "compile": "tsc -b tsconfig.build.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json --exit \"test/**/*.test.ts\"",
@@ -68,5 +65,6 @@
     "@spinajs/http-swagger": "3.0.23",
     "@spinajs/orm": "3.0.23",
     "@spinajs/orm-sqlite": "3.0.23"
-  }
+  },
+  "types": "./lib/index.d.ts"
 }

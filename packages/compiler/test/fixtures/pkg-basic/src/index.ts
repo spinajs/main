@@ -9,3 +9,4 @@ export * from './schedule.js';
 export * from './command.js';
 export * from './queue.js';
 export * from './conditions.js';
+export * from './register.js';

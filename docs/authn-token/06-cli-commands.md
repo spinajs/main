@@ -4,7 +4,7 @@ Three `spinajs` commands manage API tokens from a terminal or a scheduler: creat
 
 ## How it works
 
-1. The package config adds its `lib/<mjs|cjs>/cli` directory to `system.dirs.cli`, under `node_modules/@spinajs/authn-token` of `WORKSPACE_ROOT_PATH` (or the working directory) and one directory up. The `spinajs` bin finds the commands there; see [Command discovery](../cli/05-command-discovery.md).
+1. The package config adds its `lib/cli` directory to `system.dirs.cli`, under `node_modules/@spinajs/authn-token` of `WORKSPACE_ROOT_PATH` (or the working directory) and one directory up. The `spinajs` bin finds the commands there; see [Command discovery](../cli/05-command-discovery.md).
 2. Every command extends `CliCommand`, through the internal base `TokenCliCommand`, and injects `TokenService` with `@Autoinject`. The CLI resolves only the command it runs; `TokenCliCommand` injects `OrmMigrator`, so resolving the command boots the ORM and runs the `Migration.OnStartup` pass, as an app process does before serving, whichever `TokenService` is registered. Without that pass a model query on a `Migration.OnStartup` connection throws. `DbTokenService` and `UsersTableTokenOwnerResolver` inject only the `Orm`.
 3. `authn:token-create` calls the service with `ctx = { now: new Date(), purpose: 'request' }`; `authn:token-delete` with `cliContext()` from `@spinajs/authn/contracts`, which adds `userAgent: 'spinajs-cli'`.
 4. A failure sets `process.exitCode = 1` and logs an error on the `authn-token` logger; the commands never throw out of `execute`.
@@ -43,7 +43,7 @@ Three `spinajs` commands manage API tokens from a terminal or a scheduler: creat
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `authn.token.defaultTtlDays` | `integer` | `30` | `>= 1` | Expiry of `authn:token-create` without `--expires`. A value above `authn.token.maxTtlDays` makes every such create fail with `invalid_expiry`. |
-| `system.dirs.cli` | `string[]` | this package's `lib/<mjs\|cjs>/cli`, appended | directory paths | Where the `spinajs` bin finds the commands. Owned by `@spinajs/cli`. |
+| `system.dirs.cli` | `string[]` | this package's `lib/cli`, appended | directory paths | Where the `spinajs` bin finds the commands. Owned by `@spinajs/cli`. |
 
 ```sh
 npx spinajs authn:token-create 4b1c6e1e-1f7a-4a8e-9b0e-3f5f2a8d9c11 --name "ci deploy" --kind service --expires 2026-12-31T00:00:00Z

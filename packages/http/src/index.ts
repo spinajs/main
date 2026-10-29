@@ -4,6 +4,7 @@ export * from './decorators.js';
 export * from './errors/on-error.js';
 export { answeredAsServerError } from './error.js';
 export * from './responses.js';
+export * from './problem.js';
 export * from './headers.js';
 export * from './cookie.js';
 export * from './cidr.js';

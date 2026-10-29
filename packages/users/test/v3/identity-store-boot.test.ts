@@ -11,7 +11,7 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 
 // The package entry does not export the cli commands; the built file is the module `@spinajs/authn-local` resolves to.
-import { SetUserPassword } from '../../../authn-local/lib/mjs/cli/SetUserPassword.js';
+import { SetUserPassword } from '../../../authn-local/lib/cli/SetUserPassword.js';
 
 import { UserPasswordAgeSource, UserPasswordStore } from '../../src/index.js';
 import { TEST_USER_UUID } from '../migration/rbac.migration.js';

@@ -6,7 +6,7 @@ A child container inherits every registration and cached instance of its parent 
 
 1. `DI.child()` or `container.child()` creates a container of the parent's class, `new Container(parent)` by default. The parent keeps it in its children set until the child emits `di.dispose`.
 2. **Lookup.** A key the child has not registered is looked up in the parent, then the grandparent, up to the root. A key the child registers hides the parent's list for single resolves and for `Array.ofType`. `Array.chainOf` merges all levels; see [Multiple implementations](06-multiple-implementations.md).
-3. **Owner.** For each resolve the container finds the **owner** of the key: the nearest container, starting at itself, that registered the key. A key registered nowhere is owned by the resolving container.
+3. **Owner.** For each resolve the container finds the **owner** of the key: the nearest container, starting at itself, that registered the key. A key registered nowhere is owned by the resolving container. A container created with `child({ isolateSingletons: true })` owns every key resolved through it (or through a plain child of it) that it reaches before the registering ancestor, and never reuses an ancestor's cached instance.
 4. **Where the instance is built and cached:**
    - `Singleton`, `PerInstance`, `PerInstanceCheck`: in the owner, with the owner's dependencies.
    - `PerChildContainer`: in the resolving container.
@@ -37,6 +37,7 @@ sequenceDiagram
 | Nobody registers `Report`; a child resolves it first | That child; a sibling builds its own |
 | The child already holds a cached instance of the class | The child's instance wins over the owner's |
 | `@PerChildInstance()` class, registered anywhere | Every container that resolves it |
+| Root registers `Mailer`; a `child({ isolateSingletons: true })` resolves it | That child; root caches nothing, and disposing the child disposes it |
 
 A singleton built in the root gets root dependencies, even when a child resolves it and has its own registration for one of those dependencies. `@Autoinject(Container)` in it receives the root container.
 
@@ -45,13 +46,14 @@ A singleton built in the root gets root dependencies, even when a child resolves
 | Member | Meaning |
 | --- | --- |
 | `Parent` | The parent container, `undefined` for the root and for a standalone container |
-| `Registry` | The `Registry`: what is registered under which key |
-| `Cache` | The `ContainerCache`: built instances and values, iterable as `{ key, value }` |
-| `child()` | A new child of this container |
+| `Registry` | The `Registry`: what is registered under which key, and the values from `asValue` / `asMapValue` |
+| `Cache` | The `ContainerCache`: built instances, iterable as `{ key, value }`; `has` and `get` also see the registry's values |
+| `child(options?)` | A new child of this container; `{ isolateSingletons: true }` makes it own the singletons resolved through it |
 | `dispose(options?)` | Dispose children and cached services, clear the cache; `{ plainOwners: true }` also disposes cached non-`Service` instances that have a `dispose()` |
 | `isCached(instance, parent = false)` | `true` when this container's cache holds `instance` |
-| `clear()`, `clearCache()`, `clearRegistry()` | Empty this container's cache and registry |
-| `getCacheStats()` (on `Container`) | `{ size, entries, childrenCount }` for memory checks |
+| `clear()`, `clearCache()`, `clearRegistry()` | Empty this container's cache and registry; values go with the registry |
+| `getCacheStats()` | `{ size, entries, childrenCount }` for memory checks; `size` counts cached instances, not values |
+| `snapshot()` / `restore(snapshot)` | Copy this container's registrations, values (with the entries of `asMapValue` maps), cache and listeners. `restore` waits for resolves in flight, puts the copy back, then disposes the children and every `Service` cached since the snapshot, and repeats until a pass finds nothing new (at most 5 passes, then a warning), so what that disposal resolved or registered is taken back too. `DI.snapshot()` / `DI.restore()` act on the root |
 | `DI.RootContainer` | The root `IContainer`; every `DI.*` function works on it |
 
 ## Services and extension points
@@ -157,6 +159,9 @@ Limits of a custom container:
 - `DI.*` calls always use the root, even inside an object a child built. Use `@Autoinject`, `@LazyInject` or the injected container for scoped lookups.
 - `dispose()` on the root disposes every live child first.
 - A disposed child is removed from its parent's children set, but it stays usable: its registry is kept and its cache is rebuilt on the next resolve.
+- `get()` and `isResolved()` look in ancestors by default, also on a `child({ isolateSingletons: true })`: they can return an ancestor's cached instance while `resolve()` in that child builds its own.
+- A value belongs to the container it was registered in. `dispose()` disposes a value that is a `Service`, but the value stays registered until `uncache`, `clearRegistry()` or `clear()`.
+- Import every module before `snapshot()`. `restore()` puts registrations, values and value maps back as they were, so what a decorator registered when its module was first imported after the snapshot is gone, and importing the module again does not run the decorator again.
 
 ## Best practices
 

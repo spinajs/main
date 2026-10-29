@@ -10,7 +10,7 @@
  * `__config_watch_interval__` DI value (milliseconds) BEFORE the ORM resolves.
  *
  * Run:
- *   node lib/mjs/examples/03-watch-config.js
+ *   node lib/examples/03-watch-config.js
  */
 import { DI } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';

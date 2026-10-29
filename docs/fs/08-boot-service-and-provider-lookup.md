@@ -96,6 +96,7 @@ const all = DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES);
 
 - `fsService` is not decorated with `@Injectable`. It is created on the first `DI.resolve(fsService)`, which is the only boot trigger.
 - `fsService` registers each provider in the map as soon as it is created, so a provider that runs `getFs()` in its own `resolve()` finds the ones created before it.
+- The map is a DI value, so `DI.clearCache()` keeps it. `fsService.dispose()` (also through `DI.dispose()`) removes the names it published, so `getFs()` no longer serves them; a name a newer `fsService` published again stays, and entries others added with `asMapValue()` stay.
 - `@FileSystem()` reads the provider through `getFs()` on every property access, so a replaced factory applies there too.
 - `getFs()` returns an `fs` instance unchanged without calling the factory.
 

@@ -478,12 +478,10 @@ describe('@spinajs/authn-session contracts', function () {
 
     describe('loading the built package registers only the issuer, the memory store, the expiration strategies and the schema bootstrapper', () => {
       let esm: Probe;
-      let cjs: Probe;
 
       before(() => {
-        for (const f of [join(PKG_ROOT, 'lib', 'mjs', 'index.js'), join(PKG_ROOT, 'lib', 'cjs', 'index.js')]) {
-          if (!existsSync(f)) throw new Error(`${f} is missing; run the authn-session pretest (mjs and cjs compile)`);
-        }
+        const built = join(PKG_ROOT, 'lib', 'index.js');
+        if (!existsSync(built)) throw new Error(`${built} is missing; run the authn-session pretest`);
         esm = probe(
           'module',
           `const snapshot = ${SNAPSHOT};
@@ -494,19 +492,6 @@ describe('@spinajs/authn-session contracts', function () {
            await import('luxon');
            const before = snapshot(di);
            const m = await import('@spinajs/authn-session');
-           const after = snapshot(di);
-           console.log(JSON.stringify({ before, after, exercise: exercise(di, m) }));`,
-        );
-        cjs = probe(
-          'commonjs',
-          `const snapshot = ${SNAPSHOT};
-           const exercise = ${EXERCISE};
-           const di = require('@spinajs/di');
-           require('@spinajs/configuration');
-           require('@spinajs/authn/contracts');
-           require('luxon');
-           const before = snapshot(di);
-           const m = require('@spinajs/authn-session');
            const after = snapshot(di);
            console.log(JSON.stringify({ before, after, exercise: exercise(di, m) }));`,
         );
@@ -526,11 +511,6 @@ describe('@spinajs/authn-session contracts', function () {
       it('ESM', () => {
         expectOnlyOwnRegistrations(esm);
         expect(esm.exercise).to.deep.eq({ keys: PUBLIC_EXPORTS, provider: EXPECTED_META, expiration: null, asyncService: true });
-      });
-
-      it('CJS', () => {
-        expectOnlyOwnRegistrations(cjs);
-        expect(cjs.exercise).to.deep.eq(esm.exercise);
       });
     });
   });

@@ -1,0 +1,16 @@
+{
+  "name": "app-basic",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "main": "lib/index.js",
+  "dependencies": {
+    "@spinajs/authz-http": "3.0.23",
+    "@spinajs/configuration": "3.0.23",
+    "@spinajs/exceptions": "3.0.23",
+    "@spinajs/http": "3.0.23",
+    "@spinajs/http-socket": "3.0.23",
+    "@spinajs/queue": "3.0.23",
+    "pkg-basic": "1.0.0"
+  }
+}

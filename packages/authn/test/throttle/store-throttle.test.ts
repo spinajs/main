@@ -244,16 +244,16 @@ describe('@spinajs/authn/store-throttle', () => {
     assert.strictEqual(sub.StoreAuthnThrottle, root.StoreAuthnThrottle);
   });
 
-  it('loads through require (cjs), and registers no AuthnThrottle in DI on its own', () => {
+  it('registers no AuthnThrottle in DI on its own', () => {
     const body = `
-      const sub = require('@spinajs/authn/store-throttle');
-      const { DI } = require('@spinajs/di');
-      const { AuthnThrottle } = require('@spinajs/authn/contracts');
+      const sub = await import('@spinajs/authn/store-throttle');
+      const { DI } = await import('@spinajs/di');
+      const { AuthnThrottle } = await import('@spinajs/authn/contracts');
       console.log(JSON.stringify({ type: typeof sub.StoreAuthnThrottle, names: DI.RootContainer.getRegisteredNames(AuthnThrottle) }));
     `;
     const env = { ...process.env };
     delete env.NODE_OPTIONS;
-    const r = spawnSync(process.execPath, ['--input-type=commonjs', '-e', body], { cwd: PKG_ROOT, encoding: 'utf8', env });
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e', body], { cwd: PKG_ROOT, encoding: 'utf8', env });
     assert.strictEqual(r.status, 0, r.stderr);
     assert.deepStrictEqual(JSON.parse(r.stdout.trim().split(/\r?\n/).pop()!), { type: 'function', names: [] });
   });

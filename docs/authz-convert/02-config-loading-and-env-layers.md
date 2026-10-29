@@ -48,7 +48,7 @@ The login strategy follows the same rule. When the common view holds `rbac` keys
 ## Important behaviour
 
 - Several dirs merge in the order given, into the same layers.
-- The converter sets ES module support on `DI` and imports files through `DI.__spinajs_require__`, so ESM and CommonJS config files both load.
+- The converter imports files through `DI.__spinajs_require__`, so ESM and CommonJS config files both load.
 - Dir problems (missing, TypeScript sources, no config file) are collected over all dirs and refused together. A file that fails to load stops the run at once.
 - A config file found in the dirs that the configuration loader did not read is refused, with a hint to move the config files to a plain directory path.
 - A config file prints freely: the child runs write their result to a temp file, not to stdout.
@@ -81,7 +81,7 @@ The login strategy follows the same rule. When the common view holds `rbac` keys
 import { loadLayers } from '@spinajs/authz-convert';
 
 export async function listLayers(): Promise<void> {
-  const layers = await loadLayers(['lib/mjs/config']);
+  const layers = await loadLayers(['lib/config']);
   console.log('envs:', [...layers.envs.keys()].join(', '));
   console.log('skipped:', layers.skipped);
   for (const [layer, paths] of layers.computed) console.log(`${layer} computes`, paths);

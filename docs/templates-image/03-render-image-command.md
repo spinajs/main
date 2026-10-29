@@ -40,7 +40,7 @@ spinajs render-image <input> -o <file> [-t] [-m <model.json>] [-l <lang>] [--wid
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `system.dirs.cli` | `string[]` | includes `node_modules/@spinajs/templates-image/lib/<mjs\|cjs>/cli` | Absolute paths | Where `@spinajs/cli` finds this command |
+| `system.dirs.cli` | `string[]` | includes `node_modules/@spinajs/templates-image/lib/cli` | Absolute paths | Where `@spinajs/cli` finds this command |
 | `templates.image.*` | object | see [Configuration](02-configuration.md) | | Browser, port and timeout settings of the renderer the command uses |
 
 ## Services and extension points

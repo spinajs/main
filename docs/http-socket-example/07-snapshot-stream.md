@@ -145,7 +145,7 @@ notes.stream('notes.snapshot', { docId, version, fromChunk: next });
 ### Show load progress for a large document
 
 ```ts sample
-import { connectNotes, loadSnapshot } from '@spinajs/http-socket-example/lib/mjs/client.js';
+import { connectNotes, loadSnapshot } from '@spinajs/http-socket-example/lib/client.js';
 
 async function loadWithProgress(url: string, path: string): Promise<void> {
   const notes = connectNotes(url, path, 'alice-token');

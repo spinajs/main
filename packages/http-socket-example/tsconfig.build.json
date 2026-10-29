@@ -1,0 +1,24 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./lib",
+    "tsBuildInfoFile": "./lib/tsconfig.build.tsbuildinfo",
+    "module": "node16",
+    "moduleResolution": "node16"
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "references": [
+    {
+      "path": "../http-socket/tsconfig.build.json"
+    },
+    {
+      "path": "../http-socket-client/tsconfig.build.json"
+    },
+    {
+      "path": "../http-socket-common/tsconfig.build.json"
+    }
+  ]
+}

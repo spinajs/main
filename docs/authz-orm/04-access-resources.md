@@ -78,7 +78,7 @@ Declaring resources has no config keys. The permissions it adds still need `list
 - **`self` holds for `user` principals only.**
 - **`nullable` is recorded, not enforced.** `ParentEntry.nullable` is `true` for `@Parent(type, { nullable: true })`. Every reader treats a `NULL` parent column as "no parent" (a root), with or without the flag. <!-- TODO(docs-hook): verify whether authz:ancestors-verify is meant to report NULL parent columns without nullable; the api.ts doc comment says so, the code does not read the flag -->
 - **Bad declarations fail early.** An empty type, `'$global'`, an options value that is not an object, an empty column name, a second `@Owner` or `@Self` on another property, or a second `@Parent` on one property throws `AuthzConfigError` when the class is defined. A conflict between decorators and a registration throws at `registerAccessResource()` or on the model's first use.
-- **One copy per process.** Loading `@spinajs/authz-orm` twice (two installs, or its ESM and CJS builds) throws `AuthzConfigError` on the second load: the second registry would leave the ORM's builders unwrapped.
+- **One copy per process.** Loading `@spinajs/authz-orm` twice (two installs) throws `AuthzConfigError` on the second load: the second registry would leave the ORM's builders unwrapped.
 - **`typesAbove()` follows the registered classes.** It reads the `@Parent` types of each class of a type, then of each class of those types; a type with no registered class adds no types above it. The CLI uses it to load every table a type's ancestors come from.
 
 ## Best practices

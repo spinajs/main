@@ -34,9 +34,9 @@ const CLI_PROCESS = `
   DI.register(CliProcessConfiguration).as(Configuration);
   DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
   await DI.resolve(Configuration);
-  await import('./lib/mjs/index.js');
+  await import('./lib/index.js');
   const name = process.env.KEYS_CLI_COMMAND;
-  const command = await DI.resolve((await import('./lib/mjs/cli/' + name + '.js'))[name]);
+  const command = await DI.resolve((await import('./lib/cli/' + name + '.js'))[name]);
   const orm = DI.get(Orm) !== undefined;
   if (orm && name === 'ListKeys') {
     await command.execute('service', 'runner-1');

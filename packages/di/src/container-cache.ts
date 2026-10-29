@@ -36,22 +36,22 @@ export class ContainerCache {
   }
 
   public remove(key: string | Class<any> | TypedArray<any>, parent?: boolean): void {
-    if (this.has(key)) {
-      this.cache.delete(getTypeName(key));
-    } else if (parent && this.container.Parent) {
+    const name = getTypeName(key);
+    const ownInstance = this.cache.delete(name);
+    const ownValue = this.container.Registry.removeValue(name);
+    if (!ownInstance && !ownValue && parent && this.container.Parent) {
       this.container.Parent.uncache(key);
     }
   }
 
   public add(key: string | Class<any> | object, instance: any) {
     const tName = getTypeName(key);
+    const list = this.cache.get(tName);
 
-    if (this.has(key)) {
-      if (this.cache.get(tName)!.indexOf(instance) === -1) {
-        this.cache.get(tName)!.push(instance);
-      }
-    } else {
+    if (!list) {
       this.cache.set(tName, [instance]);
+    } else if (!list.includes(instance)) {
+      list.push(instance);
     }
   }
 
@@ -62,16 +62,16 @@ export class ContainerCache {
     const tName = getTypeName(key);
 
     if (this.has(key)) {
-      return false; // Already exists, don't add
-    } else {
-      this.cache.set(tName, [instance]);
-      return true; // Successfully added
+      return false;
     }
+
+    this.cache.set(tName, [instance]);
+    return true;
   }
 
   public has(key: string | Class<any> | object | TypedArray<any>, parent?: boolean): boolean {
-
-    if (this.cache.has(getTypeName(key))) {
+    const name = getTypeName(key);
+    if (this.cache.has(name) || this.container.Registry.hasValue(name)) {
       return true;
     }
 
@@ -82,11 +82,12 @@ export class ContainerCache {
     return false;
   }
 
+  /** Cached instances under `key` win over values registered under the same key. */
   public get(key: string | Class<any> | TypedArray<any>, parent?: boolean): any {
-    const tName = getTypeName(key);
-
-    if (this.cache.has(tName)) {
-      return this.cache.get(tName);
+    const name = getTypeName(key);
+    const found = this.cache.get(name) ?? this.container.Registry.getValues(name);
+    if (found) {
+      return found;
     }
 
     if (parent && this.container.Parent) {
@@ -148,12 +149,7 @@ export class ContainerCache {
         // collection - otherwise the fast path returns early and the type is
         // silently MISSING from the resolved array.
         if (isTypedArray(sourceType) && getTypeName(targetType) !== sourceTypeKey) {
-          const collection = this.get(sourceTypeKey);
-          if (!this.has(sourceTypeKey)) {
-            this.add(sourceTypeKey, instance);
-          } else if (!collection.includes(instance)) {
-            collection.push(instance);
-          }
+          this.add(sourceTypeKey, instance);
         }
 
         return instance;
@@ -199,18 +195,10 @@ export class ContainerCache {
 
     const _checkCache = (resolvedInstance: T) => {
       if (isTypedArray(sourceType)) {
-        // If sourceType is a TypedArray, we need to ensure we cache it correctly
-        if (!this.has(sourceTypeKey)) {
+        // Through add(), never by pushing into get()'s result: that can be the registry's value list.
+        if (!this.get(sourceTypeKey).includes(resolvedInstance)) {
           this.add(sourceTypeKey, resolvedInstance);
           emit(resolvedInstance);
-
-        } else {
-          // If it already exists, we should merge the new instance into the existing array
-          const existingInstances = this.get(sourceTypeKey);
-          if (!existingInstances.includes(resolvedInstance)) {
-            existingInstances.push(resolvedInstance);
-            emit(resolvedInstance);
-          }
         }
         // Also cache under the concrete type. Resolving a collection
         // ( eg. Array.ofType(BaseController) ) used to register the instance
@@ -335,6 +323,44 @@ export class ContainerCache {
       activeResolutions: this.resolutionPromises.size,
       resolutionKeys: Array.from(this.resolutionPromises.keys()),
     };
+  }
+
+  /** Waits until no resolution started in this container is in flight, including ones started while waiting. */
+  public async settle(): Promise<void> {
+    for (;;) {
+      const checked = [...this.pendingChecked.values()].flat().map((p) => p.promise);
+      const pending = [...this.resolutionPromises.values(), ...checked];
+      if (pending.length === 0) {
+        return;
+      }
+
+      await Promise.allSettled(pending);
+    }
+  }
+
+  public snapshotState(): Map<string, unknown[]> {
+    return new Map([...this.cache].map(([key, list]) => [key, [...list]]));
+  }
+
+  /**
+   * Puts the cache back to `state` and returns the instances that are no longer cached,
+   * latest resolved first, so the caller can dispose them in reverse resolution order.
+   */
+  public restoreState(state: ReadonlyMap<string, unknown[]>): unknown[] {
+    const kept = new Set<unknown>([...state.values()].flat());
+    const dropped = new Set<unknown>();
+    for (const { value } of this) {
+      if (!kept.has(value)) {
+        dropped.add(value);
+      }
+    }
+
+    this.cache = new Map([...state].map(([key, list]) => [key, [...list]]));
+    this.resolutionPromises.clear();
+    this.creatingKeys.clear();
+    this.pendingChecked.clear();
+
+    return [...dropped].reverse();
   }
 
   public clear() {

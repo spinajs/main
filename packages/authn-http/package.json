@@ -2,32 +2,28 @@
   "name": "@spinajs/authn-http",
   "version": "3.0.23",
   "description": "HTTP integration for SpinaJS authentication",
-  "main": "lib/cjs/index.js",
-  "module": "lib/mjs/index.js",
+  "main": "./lib/index.js",
   "exports": {
     ".": {
-      "types": "./lib/mjs/index.d.ts",
-      "import": "./lib/mjs/index.js",
-      "require": "./lib/cjs/index.js"
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
     },
     "./schemas": {
-      "types": "./lib/mjs/schema.d.ts",
-      "import": "./lib/mjs/schema.js",
-      "require": "./lib/cjs/schema.js"
+      "types": "./lib/schema.d.ts",
+      "import": "./lib/schema.js"
     },
     "./socket": {
-      "types": "./lib/mjs/socket/index.d.ts",
-      "import": "./lib/mjs/socket/index.js",
-      "require": "./lib/cjs/socket/index.js"
+      "types": "./lib/socket/index.d.ts",
+      "import": "./lib/socket/index.js"
     }
   },
   "typesVersions": {
     "*": {
       "schemas": [
-        "lib/cjs/schema.d.ts"
+        "lib/schema.d.ts"
       ],
       "socket": [
-        "lib/cjs/socket/index.d.ts"
+        "lib/socket/index.d.ts"
       ]
     }
   },
@@ -37,15 +33,14 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=16.11"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "compile": "tsc -b tsconfig.build.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
-    "pretest": "npm run clean && npm run compile && cd ../.. && node node_modules/typescript-7/lib/tsc.js -b packages/authn-http/tsconfig.cjs.json && node scripts/generate-packages-for-modules.mjs",
+    "pretest": "npm run clean && npm run compile",
     "test": "ts-mocha -p tsconfig.json && ts-mocha -p tsconfig.json --config .mocharc.v3-app.json && ts-mocha -p tsconfig.json --config .mocharc.v3-socket.json",
     "coverage": "c8 npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
@@ -110,5 +105,6 @@
     "@spinajs/orm-sqlite": "3.0.23",
     "luxon": "^3.6.1",
     "socket.io-client": "^4.8.1"
-  }
+  },
+  "types": "./lib/index.d.ts"
 }

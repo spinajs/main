@@ -52,7 +52,7 @@ describe('CodedHttpException', () => {
   });
 
   it('types the answer body', () => {
-    const body: CodedErrorBody<InvoiceCode, { invoice: string }> = { code: 'invoice.locked', message: 'locked', details: { invoice: '2026-0042' } };
+    const body: CodedErrorBody<InvoiceCode, { invoice: string }> = { type: 'about:blank', title: 'Coded Http Exception', status: 409, code: 'invoice.locked', detail: 'locked', details: { invoice: '2026-0042' } };
 
     expect(body.code).to.equal('invoice.locked');
   });

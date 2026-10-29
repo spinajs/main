@@ -6,7 +6,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as sinon from 'sinon';
-import { currentBuildMigrationDir, DEFAULT_MIGRATION_DIRS, DiRegistryMigrationSource, FilesystemMigrationSource, MIGRATION_DI_SOURCE, Migration, OrmDriver, OrmException, OrmMigration } from '../src/index.js';
+import { DEFAULT_MIGRATION_DIRS, DiRegistryMigrationSource, FilesystemMigrationSource, MIGRATION_DI_SOURCE, Migration, OrmDriver, OrmException, OrmMigration } from '../src/index.js';
 import { ConnectionConf, registerFakes, logText } from './misc.js';
 import '@spinajs/log';
 
@@ -87,7 +87,7 @@ describe('FilesystemMigrationSource under prod', () => {
     // happened to exist on disk ( a stray build, residue from another suite ) this would pass for
     // the wrong reason and any later failure here would point nowhere near the actual cause, so the
     // precondition is asserted explicitly rather than trusted
-    [...DEFAULT_MIGRATION_DIRS, currentBuildMigrationDir()].forEach((d) => {
+    DEFAULT_MIGRATION_DIRS.forEach((d) => {
       expect(fs.existsSync(d), `${d} exists on disk - this test needs every default migration directory absent to be meaningful`).to.equal(false);
     });
 
@@ -210,30 +210,8 @@ describe('FilesystemMigrationSource default directories', () => {
 });
 
 /**
- * `build/migrations` and bare `migrations` joined `src/lib/dist` in `DEFAULT_MIGRATION_DIRS`
- * because every package in this repo actually compiles to `lib/cjs` and `lib/mjs` - there is no
- * bare `lib/migrations` anywhere spinajs itself produces, which made the old three-entry fallback
- * a silent no-op for a deployment built the spinajs way.
- *
- * `lib/cjs/migrations` and `lib/mjs/migrations` are deliberately NOT static entries here - they
- * are the SAME source compiled twice, and scanning both unconditionally is exactly what broke
- * `packages/queue` ( a `.js` under `lib/cjs` parses as ESM, since every package here ships
- * `"type": "module"` with no `package.json` written into `lib/cjs`, and fails to import ). Only
- * the one matching the current runtime is ever scanned, via `currentBuildMigrationDir()` - see
- * its own doc comment and the "never scans the other module format" suite below.
- *
- * The membership checks below are deliberately NOT a filesystem round-trip through
- * `build/migrations` for `lib/cjs`/`lib/mjs` themselves: those two are this very package's OWN
- * real compile output directories, and once `npm run compile` / `compile:cjs` has run, each carries
- * its own `package.json` ( `{ "type": "commonjs" }` / `{ "type": "module" }`, written by
- * `scripts/generate-packages-for-modules.mjs` ) - a boundary a dynamically-imported `.ts` FIXTURE
- * placed there sits right under, which made this suite flake ( a `.ts` import failure is tolerated
- * silently, so the failure mode is an empty result, not an error ). The fallback-scan MECHANISM
- * itself - that every entry in `DEFAULT_MIGRATION_DIRS` is actually scanned, not just the first
- * three - is already proven generically by the unmodified `dist/migrations` round-trip above, which
- * exercises the exact same loop `build/migrations` and `currentBuildMigrationDir()` go through.
- * `build/migrations` below is round-tripped for that same generic reason, in a location `tsc`
- * never writes to.
+ * `build/migrations` and bare `migrations` joined `src/lib/dist` in `DEFAULT_MIGRATION_DIRS`; `build/migrations` is
+ * round-tripped below in a location `tsc` never writes to.
  */
 describe('FilesystemMigrationSource default directories - build, bare migrations', () => {
   const buildDir = DEFAULT_MIGRATION_DIRS.find((d) => d.replace(/\\/g, '/').endsWith('/build/migrations'));
@@ -260,9 +238,6 @@ describe('FilesystemMigrationSource default directories - build, bare migrations
     );
   }
 
-  // `build/`, unlike `lib/cjs` and `lib/mjs`, is never a real compile output directory in this
-  // repo - free of the package.json-boundary trap described above, so a plain filesystem
-  // round-trip is safe here.
   function cleanup(dir: string): void {
     fs.rmSync(dir, { recursive: true, force: true });
 
@@ -284,67 +259,6 @@ describe('FilesystemMigrationSource default directories - build, bare migrations
       cleanup(buildDir!);
       MigrationSourcesConf.Dirs = [FIXTURES];
     }
-  });
-});
-
-describe('currentBuildMigrationDir', () => {
-  it('resolves to lib/mjs/migrations when the __esmMode__ DI flag is set', () => {
-    DI.clearCache();
-    DI.setESMModuleSupport();
-
-    expect(currentBuildMigrationDir().replace(/\\/g, '/')).to.match(/\/lib\/mjs\/migrations$/);
-  });
-
-  it('resolves to lib/cjs/migrations when the __esmMode__ DI flag was never set', () => {
-    // no setESMModuleSupport() call after this clearCache() - the flag lives in the container
-    // cache ( see discover()'s own comment ), so this leaves it unregistered, exactly the state a
-    // consumer that never opted into ESM mode is in
-    DI.clearCache();
-
-    expect(currentBuildMigrationDir().replace(/\\/g, '/')).to.match(/\/lib\/cjs\/migrations$/);
-  });
-});
-
-/**
- * The regression this whole change fixes: `DEFAULT_MIGRATION_DIRS` briefly carried BOTH
- * `lib/cjs/migrations` and `lib/mjs/migrations` unconditionally - the same compiled source twice,
- * only one of which any given runtime can load. A package that ships both builds ( every package
- * in this repo ) then has a `.js` sibling under whichever format the runtime is NOT using, and
- * that sibling fails to import for a reason that has nothing to do with the migration itself -
- * Node parses `lib/cjs/*.js` as ESM because no package carries a `package.json` there declaring
- * otherwise. `packages/queue`'s test suite hit exactly this: `DI.resolve(Orm)` died in
- * `discoverMigrations()` trying to import its own `lib/cjs/migrations` output.
- *
- * `discover()` always calls `DI.setESMModuleSupport()`, so this file's own runtime format is
- * always mjs - making `lib/cjs/migrations` the "other" format for every test in this suite. A
- * `.js` file planted there that throws unconditionally on import proves two things at once: it is
- * never scanned ( absent from the result ) and `getMigrations()` does not throw reaching it -
- * which only means something because the file WOULD throw if it were ever imported, per the
- * `.js`-failure-throws rule this change does not weaken.
- */
-describe('FilesystemMigrationSource never scans the other module format\'s build dir', () => {
-  const otherFormatDir = path.resolve(path.normalize(path.join(process.cwd(), 'lib', 'cjs', 'migrations')));
-
-  afterEach(() => {
-    fs.rmSync(otherFormatDir, { recursive: true, force: true });
-
-    const parent = path.dirname(otherFormatDir);
-    if (fs.existsSync(parent) && fs.readdirSync(parent).length === 0) {
-      fs.rmdirSync(parent);
-    }
-
-    MigrationSourcesConf.Dirs = [FIXTURES];
-  });
-
-  it('never imports a poison file under lib/cjs/migrations while running under ESM mode, and does not throw', async () => {
-    fs.mkdirSync(otherFormatDir, { recursive: true });
-    fs.writeFileSync(path.join(otherFormatDir, 'Poison_2026_07_29_10_11_00.js'), "throw new Error('boom - this file belongs to the other module format and must never be imported');\n");
-
-    MigrationSourcesConf.Dirs = [];
-
-    const found = await discover();
-
-    expect(found.map((f) => f.name), 'a file under the OTHER format\'s build dir must never be scanned, let alone imported').to.not.include('Poison_2026_07_29_10_11_00');
   });
 });
 
@@ -458,9 +372,8 @@ describe('FilesystemMigrationSource import failures', () => {
 describe('FilesystemMigrationSource import failures - fallback directory', () => {
   // `lib/migrations` ( `DEFAULT_MIGRATION_DIRS[1]` ), not `dist` or `build` - both of those are
   // already round-tripped by the "default directories" suites above, and sharing one here would
-  // make cross-suite cleanup ordering load-bearing for no reason. Like `dist` and `build`, `lib`
-  // alone is never a real compile output directory in this repo - that is `lib/cjs` / `lib/mjs`,
-  // see the doc comment on `DEFAULT_MIGRATION_DIRS` - so a plain filesystem round-trip is safe.
+  // make cross-suite cleanup ordering load-bearing for no reason. `lib` is this package's build
+  // output, but `@spinajs/orm` ships no migrations, so `tsc` never writes `lib/migrations`.
   const fallbackDir = DEFAULT_MIGRATION_DIRS[1];
 
   function writeGoodMigration(name: string): void {

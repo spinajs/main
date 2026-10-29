@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Linux/macOS equivalent of `npm run build`.
-# Cleans every package, compiles ESM + CJS, copies static assets
-# and writes the per-flavour package.json module markers.
+# Cleans every package, compiles ESM into lib/ and copies static assets.
 
 set -euo pipefail
 
@@ -18,16 +17,10 @@ fi
 echo "==> clean"
 npm run clean
 
-echo "==> compile esm (tsconfig.build.json)"
+echo "==> compile (tsconfig.build.json)"
 node "$TSC" -b tsconfig.build.json
-
-echo "==> compile cjs (tsconfig.build.cjs.json)"
-node "$TSC" -b tsconfig.build.cjs.json
 
 echo "==> copy static assets"
 npm run copy-static
-
-echo "==> prepare module support"
-npm run prepare-module-support
 
 echo "Build finished."

@@ -3,11 +3,10 @@ import { join, normalize, resolve } from 'path';
 const EVENTS = 'upload-events';
 
 function dir(path: string) {
-  const inCommonJs = typeof module !== 'undefined';
   return [
-    resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), 'node_modules', '@spinajs', 'upload', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
+    resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), 'node_modules', '@spinajs', 'upload', 'lib', path))),
     // one up if we run from app or build folder
-    resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), '../', 'node_modules', '@spinajs', 'upload', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
+    resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), '../', 'node_modules', '@spinajs', 'upload', 'lib', path))),
   ];
 }
 

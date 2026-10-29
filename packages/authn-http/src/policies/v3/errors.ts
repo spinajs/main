@@ -1,29 +1,30 @@
 import { AuthenticationFailed, Forbidden, ResourceNotFound } from '@spinajs/exceptions';
+import { withProblemFields } from '@spinajs/http';
 import { AUTHN_FAILURE_BODY } from '@spinajs/authn/contracts';
 
 /** The `error` of a failed authentication's body (A02); a failed inline re-authentication answers it too. */
 export const AUTHN_FAILURE = AUTHN_FAILURE_BODY.error;
 
-// @spinajs/http spreads an error's own enumerable props into the response body: these give { error, message }.
+// withProblemFields lists `error` for the problem body, which gives { error, detail, ... }.
 
 /** 401: no authenticated principal. */
 export function unauthenticated(message: string): AuthenticationFailed {
-  return Object.assign(new AuthenticationFailed(message), { error: 'unauthenticated' });
+  return withProblemFields(new AuthenticationFailed(message), { error: 'unauthenticated' });
 }
 
 /** 403: an authenticated caller (or a pending session) that the policy refuses; `code` is stable for clients. */
 export function refused(code: string, message: string): Forbidden {
-  return Object.assign(new Forbidden(message), { error: code });
+  return withProblemFields(new Forbidden(message), { error: code });
 }
 
 /** 404 with a stable code. */
 export function notFound(code: string, message: string): ResourceNotFound {
-  return Object.assign(new ResourceNotFound(message), { error: code });
+  return withProblemFields(new ResourceNotFound(message), { error: code });
 }
 
 /** 401 with the A02 body. Never carries retry information (N3: no Retry-After on a throttled re-authentication). */
 export function authnFailed(): AuthenticationFailed {
-  return Object.assign(new AuthenticationFailed(AUTHN_FAILURE.message), { error: AUTHN_FAILURE });
+  return withProblemFields(new AuthenticationFailed(AUTHN_FAILURE.message), { error: AUTHN_FAILURE });
 }
 
 /** True for the error authnFailed() makes. */

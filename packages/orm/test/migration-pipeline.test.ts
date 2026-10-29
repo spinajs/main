@@ -38,8 +38,7 @@ class PipelineConf extends ConnectionConf {
 /**
  * `FilesystemMigrationSource` loads fixture files via `DI.__spinajs_require__`, which needs ESM
  * mode switched on to import a `.ts` fixture directly - the same setup `migration-sources.test.ts`
- * uses. `DI.clearCache()` first because `setESMModuleSupport()`'s registration lives in the
- * container cache and would otherwise survive from a previous test only by accident.
+ * uses. `DI.clearCache()` first, so every test builds its own Orm.
  */
 async function resolveOrm(): Promise<Orm> {
   DI.clearCache();

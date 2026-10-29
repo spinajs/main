@@ -32,6 +32,7 @@
   "license": "MIT",
   "dependencies": {
     "@spinajs/manifest": "3.0.23",
+    "json-schema-to-typescript": "^16.0.0",
     "typescript": "~5.9.0"
   },
   "devDependencies": {
@@ -47,6 +48,9 @@
     "@spinajs/orm": "3.0.23",
     "@spinajs/queue": "3.0.23",
     "@spinajs/scheduler": "3.0.23",
-    "@spinajs/validation": "3.0.23"
+    "@spinajs/validation": "3.0.23",
+    "@types/luxon": "^3.6.1",
+    "@types/node": "^22.14.1",
+    "luxon": "^3.6.1"
   }
 }

@@ -33,6 +33,29 @@ export class ClassInfo<T> {
   public instance?: T;
 }
 
+export interface ChildOptions {
+  /** Singletons resolved through this child are owned by the child, even when registered in an ancestor. */
+  isolateSingletons?: boolean;
+}
+
+export interface ContainerSnapshot {
+  readonly registry: ReadonlyMap<string, unknown[]>;
+  readonly values: ReadonlyMap<string, unknown[]>;
+  readonly cache: ReadonlyMap<string, unknown[]>;
+  readonly listeners: ReadonlyMap<string | symbol, ((...args: unknown[]) => void)[]>;
+}
+
+export interface ContainerCacheStats {
+  size: number;
+  entries: string[];
+  childrenCount: number;
+}
+
+export interface RegisterOptions {
+  /** Re-registering a class of the same name moves it to the last position (last registered wins) instead of keeping its first position. */
+  replace?: boolean;
+}
+
 /**
  * Interface to describe DI binding behaviour
  */
@@ -42,7 +65,7 @@ export interface IBind {
    *
    * @param type - base class that is being registered
    */
-  as(type: Class<any> | string): this;
+  as(type: Class<any> | string, options?: RegisterOptions): this;
 
   /**
    * self bind, class should be resolved by its name. Its default behaviour.
@@ -110,7 +133,7 @@ export interface IContainer extends EventEmitter {
   unregister<T>(type: string | Class<T>, implementation: Class<unknown> | Factory<unknown> | ResolvableObject): void;
   uncache<T>(source: string | Class<T> | TypedArray<T>, parent?: boolean): void;
 
-  child(): IContainer;
+  child(options?: ChildOptions): IContainer;
   get<T>(service: TypedArray<T>, parent?: boolean): T[] | null;
   get<T>(service: string | Class<T>, parent?: boolean): T | null;
   get<T>(service: string | Class<T> | TypedArray<T>, parent?: boolean): T | T[] | null;
@@ -173,6 +196,16 @@ export interface IContainer extends EventEmitter {
   resolveNamed<T>(base: Class<T>, name: string): Promise<T>;
 
   dispose(options?: IDisposeOptions): Promise<void>;
+
+  /** The registrations, values, cached instances and listeners of this container, copied. */
+  snapshot(): ContainerSnapshot;
+  /**
+   * Waits for resolutions in flight, puts registry, values ( Map contents included ), cache and listeners back,
+   * then disposes the children and every Service cached since the snapshot. Further passes ( at most 5 ) take back what that disposal added.
+   */
+  restore(snapshot: ContainerSnapshot): Promise<void>;
+
+  getCacheStats(): ContainerCacheStats;
 
   extractDescriptor(type: Class<unknown>): IInjectDescriptor<unknown>;
 }

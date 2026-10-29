@@ -112,9 +112,10 @@ describe('strict validation for configured schema ids', function () {
       DI.unregister(config as any);
     });
 
-    it('validates the listed prefixes strictly and only those', () => {
+    // The shipped config's prefixes stay: config arrays merge by concatenation.
+    it('validates a listed prefix strictly and an unlisted one with coercion', () => {
       expect(validator.tryValidate(loginBody('billing.Invoice'), { login: 1 })[0]).to.eq(false);
-      expect(validator.tryValidate(loginBody('authn.NotStrictHere'), { login: 1 })[0]).to.eq(true);
+      expect(validator.tryValidate(loginBody('app.NotStrictHere'), { login: 1 })[0]).to.eq(true);
     });
   });
 

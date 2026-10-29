@@ -83,7 +83,7 @@ describe('users-http v3: no password in validation 400s', function () {
     const res = await (await app.signIn(admin.Uuid)).patch(`/users/${t.Uuid}`, { Email: email, reauthPassword });
 
     expect(res.status, res.text).to.eq(400);
-    expect(res.body.details.map((d: { field: string }) => d.field), res.text).to.include('/Email');
+    expect(res.body.errors.map((d: { instancePath: string }) => d.instancePath), res.text).to.include('/Email');
     expectNowhere(res, [reauthPassword, email]);
   });
 
@@ -94,7 +94,7 @@ describe('users-http v3: no password in validation 400s', function () {
     const res = await (await app.signIn(admin.Uuid)).post(`/users/security/ban/${t.Uuid}`, { duration: 'forever', reason: 'spam', reauthPassword });
 
     expect(res.status, res.text).to.eq(400);
-    expect(res.body.details.map((d: { field: string }) => d.field), res.text).to.include('/duration');
+    expect(res.body.errors.map((d: { instancePath: string }) => d.instancePath), res.text).to.include('/duration');
     expectNowhere(res, [reauthPassword]);
   });
 });

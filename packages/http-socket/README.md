@@ -53,8 +53,6 @@ await http.start();
 
 Resolved after `start()`, it still serves sockets. With `@spinajs/authz-http`, though, the root authz domain boots when the server starts listening, before `SocketServer` loads its controllers, so the boot checks skip their `@SocketAccess` permissions; `SocketServer` logs a warning naming them (see Authentication and access).
 
-An ES module app must call `DI.setESMModuleSupport()` before it resolves the configuration. Without it the configuration sources look for the CommonJS builds and cannot load them, so the `http.socket` defaults of this package are not loaded.
-
 To attach to another node http(s) server, register your own `SocketHttpHost`:
 
 ```ts

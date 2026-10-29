@@ -28,6 +28,8 @@ class InvoiceException extends CodedHttpException<InvoiceCode, { invoice: string
 
 class DomainRefusal extends Error {}
 
+const pick = ({ code, detail, details }: { code?: string; detail?: string; details?: unknown }) => JSON.parse(JSON.stringify({ code, detail, details })) as object;
+
 @BasePath('coded')
 @OnError(DomainRefusal, (err) => new CodedHttpException(422, 'invoice.refused', err.message))
 class CodedController extends BaseController {
@@ -119,75 +121,79 @@ describe('CodedHttpException', function () {
 
   after(() => stop(TestConfiguration));
 
-  it('answers { code, message } with its status and no stack outside production', async () => {
+  it('answers a problem document with its status and no stack outside production', async () => {
     const res = await req().get('coded/plain').set('Accept', 'application/json');
 
     expect(res.status).to.eq(409);
-    expect(res.body).to.deep.eq({ code: 'invoice.locked', message: 'The invoice is locked' });
+    expect(res.type).to.eq('application/problem+json');
+    expect(res.body).to.deep.include({ type: 'about:blank', status: 409, instance: '/coded/plain' });
+    expect(res.body).to.not.have.property('stack');
+    expect(pick(res.body)).to.deep.eq({ code: 'invoice.locked', detail: 'The invoice is locked' });
   });
 
   it('adds details when the exception carries them', async () => {
     const res = await req().get('coded/withDetails').set('Accept', 'application/json');
 
     expect(res.status).to.eq(409);
-    expect(res.body).to.deep.eq({ code: 'invoice.locked', message: 'The invoice is locked', details: { invoice: '2026-0042' } });
+    expect(pick(res.body)).to.deep.eq({ code: 'invoice.locked', detail: 'The invoice is locked', details: { invoice: '2026-0042' } });
   });
 
   it('answers a subclass through the inherited mapping', async () => {
     const res = await req().get('coded/subclass').set('Accept', 'application/json');
 
     expect(res.status).to.eq(404);
-    expect(res.body).to.deep.eq({ code: 'invoice.missing', message: 'No such invoice' });
+    expect(pick(res.body)).to.deep.eq({ code: 'invoice.missing', detail: 'No such invoice' });
   });
 
   it('keeps a 5xx body to code and message, leaving the inner error out', async () => {
     const res = await req().get('coded/serverSide').set('Accept', 'application/json');
 
     expect(res.status).to.eq(503);
-    expect(res.body).to.deep.eq({ code: 'storage.unavailable', message: 'Storage is unavailable' });
+    expect(pick(res.body)).to.deep.eq({ code: 'storage.unavailable', detail: 'Storage is unavailable' });
   });
 
   it('uses the code as the message when none is given', async () => {
     const res = await req().get('coded/defaultMessage').set('Accept', 'application/json');
 
     expect(res.status).to.eq(400);
-    expect(res.body).to.deep.eq({ code: 'input.invalid', message: 'input.invalid' });
+    expect(pick(res.body)).to.deep.eq({ code: 'input.invalid', detail: 'input.invalid' });
   });
 
   it('answers JSON to a client that asks for HTML', async () => {
     const res = await req().get('coded/plain').set('Accept', 'text/html');
 
     expect(res.status).to.eq(409);
-    expect(res).to.be.json;
-    expect(res.body).to.deep.eq({ code: 'invoice.locked', message: 'The invoice is locked' });
+    expect(res.type).to.eq('application/problem+json');
+    expect(pick(res.body)).to.deep.eq({ code: 'invoice.locked', detail: 'The invoice is locked' });
   });
 
   it('answers an exception a route @OnError handler returns in place of the original error', async () => {
     const res = await req().get('coded/routeHandler').set('Accept', 'application/json');
 
     expect(res.status).to.eq(404);
-    expect(res.body).to.deep.eq({ code: 'invoice.missing', message: 'No such invoice' });
+    expect(pick(res.body)).to.deep.eq({ code: 'invoice.missing', detail: 'No such invoice' });
   });
 
   it('answers an exception a controller @OnError handler returns', async () => {
     const res = await req().get('coded/classHandler').set('Accept', 'application/json');
 
     expect(res.status).to.eq(422);
-    expect(res.body).to.deep.eq({ code: 'invoice.refused', message: 'Paid invoices cannot be edited' });
+    expect(pick(res.body)).to.deep.eq({ code: 'invoice.refused', detail: 'Paid invoices cannot be edited' });
   });
 
   it('answers the response an @OnError handler builds from an exception', async () => {
     const res = await req().get('coded/responseFromHandler').set('Accept', 'application/json');
 
     expect(res.status).to.eq(403);
-    expect(res.body).to.deep.eq({ code: 'invoice.forbidden', message: 'Only the owner can send the invoice' });
+    expect(pick(res.body)).to.deep.eq({ code: 'invoice.forbidden', detail: 'Only the owner can send the invoice' });
   });
 
   it('takes IResponseOptions.StatusCode over the status of the exception', async () => {
     const res = await req().get('coded/overriddenStatus').set('Accept', 'application/json');
 
     expect(res.status).to.eq(503);
-    expect(res.body).to.deep.eq({ code: 'invoice.locked', message: 'The invoice is locked' });
+    expect(res.body).to.deep.include({ status: 503 });
+    expect(pick(res.body)).to.deep.eq({ code: 'invoice.locked', detail: 'The invoice is locked' });
   });
 
   it('answers a constructor that refuses its status with 500: the bug is the server one, not the client one', async () => {
@@ -237,7 +243,7 @@ describe('CodedHttpException in production', function () {
   it('answers the same body, while the error map drops the stack of the exceptions it answers', async () => {
     const coded = await req().get('coded/withDetails').set('Accept', 'application/json');
     expect(coded.status).to.eq(409);
-    expect(coded.body).to.deep.eq({ code: 'invoice.locked', message: 'The invoice is locked', details: { invoice: '2026-0042' } });
+    expect(pick(coded.body)).to.deep.eq({ code: 'invoice.locked', detail: 'The invoice is locked', details: { invoice: '2026-0042' } });
 
     const mapped = await req().get('coded/invalidStatus').set('Accept', 'application/json');
     expect(mapped.status).to.eq(500);

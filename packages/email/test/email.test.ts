@@ -12,7 +12,7 @@ import { JobModel, QueueService } from '@spinajs/queue';
 import { DI } from '@spinajs/di';
 import '@spinajs/templates-handlebars';
 import '@spinajs/templates-pug';
-import '../../queue-stomp-transport/lib/mjs/connection.js';
+import '../../queue-stomp-transport/lib/connection.js';
 import '@spinajs/email-smtp-transport';
 import '@spinajs/orm-sqlite';
 

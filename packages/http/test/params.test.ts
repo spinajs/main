@@ -121,7 +121,7 @@ describe('controller action test params', function () {
 
       const badResult = await req().get('params/query/queryModelWithSchema?a={"id":"hello","name":"test","args":[1,2,3]}').set('Accept', 'application/json');
       expect(badResult).to.have.status(400);
-      expect(badResult).to.be.json;
+      expect(badResult).to.have.header('content-type', /^application\/problem\+json/);
       expect(badResult.body).to.be.not.null;
     });
     it('queryDate', async () => {
@@ -209,7 +209,7 @@ describe('controller action test params', function () {
 
       const badResult = await req().get('params/headers/headerParamObjectWithSchema').set('x-custom-header', '{"id":"ddd","name":"test"}').set('Accept', 'application/json');
       expect(badResult).to.have.status(400);
-      expect(badResult).to.be.json;
+      expect(badResult).to.have.header('content-type', /^application\/problem\+json/);
       expect(badResult.body).to.be.not.null;
     });
 
@@ -266,7 +266,7 @@ describe('controller action test params', function () {
       const result = await req().get('params/url/simple/hello').set('Accept', 'application/json');
 
       expect(result).to.have.status(400);
-      expect(result).to.be.json;
+      expect(result).to.have.header('content-type', /^application\/problem\+json/);
       expect(result.body).to.be.not.null;
     });
 
@@ -287,7 +287,7 @@ describe('controller action test params', function () {
       const result = await req().get('params/url/paramWithSchema/11111').set('Accept', 'application/json');
 
       expect(result).to.have.status(400);
-      expect(result).to.be.json;
+      expect(result).to.have.header('content-type', /^application\/problem\+json/);
       expect(result.body).to.be.not.null;
     });
 
@@ -309,7 +309,7 @@ describe('controller action test params', function () {
       const result = await req().get('params/url/pkey/hello').set('Accept', 'application/json');
 
       expect(result).to.have.status(400);
-      expect(result).to.be.json;
+      expect(result).to.have.header('content-type', /^application\/problem\+json/);
       expect(result.body).to.be.not.null;
     });
 
@@ -322,13 +322,13 @@ describe('controller action test params', function () {
       let result = await req().get('params/url/uuid/eb05fc27-77d1-4807-a00a-0f').set('Accept', 'application/json');
 
       expect(result).to.have.status(400);
-      expect(result).to.be.json;
+      expect(result).to.have.header('content-type', /^application\/problem\+json/);
       expect(result.body).to.be.not.null;
 
       result = await req().get('params/url/uuid/1').set('Accept', 'application/json');
 
       expect(result).to.have.status(400);
-      expect(result).to.be.json;
+      expect(result).to.have.header('content-type', /^application\/problem\+json/);
       expect(result.body).to.be.not.null;
     });
   });
@@ -517,7 +517,7 @@ describe('controller action test params', function () {
         .set('Accept', 'application/json');
 
       expect(result).to.have.status(400);
-      expect(result).to.be.json;
+      expect(result).to.have.header('content-type', /^application\/problem\+json/);
       expect(result.body).to.be.not.null;
     });
   });
@@ -763,11 +763,11 @@ describe('controller action test params', function () {
 
       expect(response).to.have.status(400);
 
-      const { stack, ...rest } = response.body || {};
-
-      expect(rest).to.deep.include({
-        message: 'validation error',
-        parameter: [
+      expect(response.body).to.deep.include({
+        status: 400,
+        title: 'Validation Failed',
+        detail: 'validation error',
+        errors: [
           {
             instancePath: '/file/type',
             schemaPath: '#/properties/file/type',
@@ -779,19 +779,8 @@ describe('controller action test params', function () {
             message: 'File type must be one of: image/png. Got: text/plain',
           },
         ],
-        details: [
-          {
-            field: '/file/type',
-            rule: 'type',
-            message: 'File type must be one of: image/png. Got: text/plain',
-            params: {
-              allowedTypes: ['image/png'],
-              actual: 'text/plain',
-            },
-          },
-        ],
       });
-      expect(stack).to.be.a('string');
+      expect(response.body).to.not.have.any.keys('stack', 'details', 'parameter');
     });
   });
 
@@ -950,7 +939,7 @@ describe('controller action test params', function () {
         .attach('objects', fs.readFileSync(dir('./test-files') + '/username_invalid.csv'), { filename: 'test.csv' });
 
       expect(res.status).to.eq(400);
-      expect(res.body.message).to.eq('CSV data validation failed');
+      expect(res.body.detail).to.eq('CSV data validation failed');
     });
   });
 

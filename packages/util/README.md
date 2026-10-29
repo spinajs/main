@@ -52,7 +52,7 @@ const email = _check_arg(_is_string(), _trim(), _to_lower(), _is_email())(input,
 ## Development
 
 ```bash
-npm run build    # compile (tsc) to lib/mjs
+npm run build    # compile (tsc) to lib
 npm test         # run the mocha/ts-node test suite
 ```
 

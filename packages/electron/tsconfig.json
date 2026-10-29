@@ -2,10 +2,29 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "rootDir": "./",
-    "outDir": "./lib/mjs",
+    "outDir": "./lib",
     "module": "node16",
     "moduleResolution": "node16"
   },
-  "include": ["src/**/*","test/**/*"],
-  "references": [{ "path": "../orm-sql/tsconfig.json" },{ "path": "../orm/tsconfig.json" },{ "path": "../configuration-common/tsconfig.json" }, { "path": "../di/tsconfig.json" }, { "path": "../authz/tsconfig.json" }]
+  "include": [
+    "src/**/*",
+    "test/**/*"
+  ],
+  "references": [
+    {
+      "path": "../orm-sql/tsconfig.json"
+    },
+    {
+      "path": "../orm/tsconfig.json"
+    },
+    {
+      "path": "../configuration-common/tsconfig.json"
+    },
+    {
+      "path": "../di/tsconfig.json"
+    },
+    {
+      "path": "../authz/tsconfig.json"
+    }
+  ]
 }

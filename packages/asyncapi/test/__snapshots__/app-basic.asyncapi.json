@@ -1,0 +1,280 @@
+{
+  "asyncapi": "3.0.0",
+  "info": {
+    "title": "app-basic",
+    "version": "1.0.0",
+    "x-spinajs-manifest-hash": "246587929ceac27f5c84d573e910b229cdb51bb473e50e9019676127822ec6a9"
+  },
+  "servers": {
+    "default": {
+      "host": "localhost:4557",
+      "protocol": "ws"
+    }
+  },
+  "channels": {
+    "queue/SendMailJob": {
+      "address": "queue/SendMailJob",
+      "messages": {
+        "message": {
+          "$ref": "#/components/messages/SendMailJob"
+        }
+      },
+      "x-spinajs-kind": "job",
+      "x-spinajs-routing": "queue.routing.SendMailJob"
+    },
+    "queue/UserCreated": {
+      "address": "queue/UserCreated",
+      "messages": {
+        "message": {
+          "$ref": "#/components/messages/UserCreated"
+        }
+      },
+      "x-spinajs-kind": "event",
+      "x-spinajs-routing": "queue.routing.UserCreated"
+    },
+    "socket/chat/events/message": {
+      "address": "socket/chat/events/message",
+      "messages": {
+        "event": {
+          "$ref": "#/components/messages/chat.events.message"
+        }
+      }
+    },
+    "socket/chat/history": {
+      "address": "socket/chat/history",
+      "messages": {
+        "request": {
+          "$ref": "#/components/messages/chat.history.request"
+        },
+        "reply": {
+          "$ref": "#/components/messages/chat.history.reply"
+        }
+      }
+    },
+    "socket/chat/send": {
+      "address": "socket/chat/send",
+      "messages": {
+        "request": {
+          "$ref": "#/components/messages/chat.send.request"
+        },
+        "reply": {
+          "$ref": "#/components/messages/chat.send.reply"
+        }
+      }
+    }
+  },
+  "operations": {
+    "chat.events.message.receive": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/socket~1chat~1events~1message"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/socket~1chat~1events~1message/messages/event"
+        }
+      ]
+    },
+    "chat.history.receive": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/socket~1chat~1history"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/socket~1chat~1history/messages/reply"
+        }
+      ],
+      "x-spinajs-stream": true,
+      "x-spinajs-stream-frames": [
+        "chunk",
+        "end",
+        "fail"
+      ]
+    },
+    "chat.history.send": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/socket~1chat~1history"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/socket~1chat~1history/messages/request"
+        }
+      ]
+    },
+    "chat.send.receive": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/socket~1chat~1send"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/socket~1chat~1send/messages/reply"
+        }
+      ]
+    },
+    "chat.send.send": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/socket~1chat~1send"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/socket~1chat~1send/messages/request"
+        }
+      ],
+      "x-idempotent": true
+    },
+    "queue.SendMailJob.send": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/queue~1SendMailJob"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/queue~1SendMailJob/messages/message"
+        }
+      ]
+    },
+    "queue.UserCreated.send": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/queue~1UserCreated"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/queue~1UserCreated/messages/message"
+        }
+      ]
+    }
+  },
+  "components": {
+    "schemas": {
+      "ChatMessage": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "ChatSocketController_history_Payload": {
+        "type": "object",
+        "properties": {
+          "since": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "since"
+        ],
+        "additionalProperties": false
+      },
+      "ChatSocketController_send_Payload": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "ChatSocketController_send_Result": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "SendMailJob": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "to",
+          "subject"
+        ],
+        "additionalProperties": false
+      },
+      "UserCreated": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "messages": {
+      "SendMailJob": {
+        "name": "SendMailJob",
+        "payload": {
+          "$ref": "#/components/schemas/SendMailJob"
+        }
+      },
+      "UserCreated": {
+        "name": "UserCreated",
+        "payload": {
+          "$ref": "#/components/schemas/UserCreated"
+        }
+      },
+      "chat.events.message": {
+        "name": "chat.events.message",
+        "payload": {
+          "$ref": "#/components/schemas/ChatMessage"
+        }
+      },
+      "chat.history.reply": {
+        "name": "chat.history.reply",
+        "payload": {
+          "$ref": "#/components/schemas/ChatMessage"
+        }
+      },
+      "chat.history.request": {
+        "name": "chat.history.request",
+        "payload": {
+          "$ref": "#/components/schemas/ChatSocketController_history_Payload"
+        }
+      },
+      "chat.send.reply": {
+        "name": "chat.send.reply",
+        "payload": {
+          "$ref": "#/components/schemas/ChatSocketController_send_Result"
+        }
+      },
+      "chat.send.request": {
+        "name": "chat.send.request",
+        "payload": {
+          "$ref": "#/components/schemas/ChatSocketController_send_Payload"
+        }
+      }
+    }
+  }
+}

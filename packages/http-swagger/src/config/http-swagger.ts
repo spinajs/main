@@ -30,8 +30,7 @@ function swaggerUiDist() {
 }
 
 function dir(path: string) {
-  const inCommonJs = typeof module !== 'undefined';
-  return resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), 'node_modules', '@spinajs', 'http-swagger', 'lib', inCommonJs ? 'cjs' : 'mjs', path)));
+  return resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), 'node_modules', '@spinajs', 'http-swagger', 'lib', path)));
 }
 
 

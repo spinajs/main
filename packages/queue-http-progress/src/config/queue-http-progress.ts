@@ -5,9 +5,8 @@ function lib(...path: string[]) {
 }
 
 function dir(path: string) {
-    const inCommonJs = typeof (module as any) !== 'undefined';
     return [
-        join(lib(), inCommonJs ? 'cjs' : 'mjs', path),
+        join(lib(), path),
     ];
 }
 

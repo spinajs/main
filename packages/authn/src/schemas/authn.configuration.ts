@@ -76,7 +76,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
             service: { type: 'string', minLength: 1, default: 'DefaultMfaPolicy' },
             force: { type: 'boolean', default: false, description: 'Requires a step on logins whose method is listed in methods.' },
             forceForRoles: { ...stringList, default: [] },
-            methods: { ...stringList, default: ['password'], description: "Login methods (AuthnFacts.method) that must pass a step. The default exempts OIDC, key and token logins (D13); add 'oidc' to ask for a step after an IdP login too." },
+            methods: { ...stringList, default: ['password'], description: "Login methods (AuthnFacts.method) that must pass a step. The default exempts OIDC, key and token logins (D13). A configured list replaces the default, so keep 'password' in it (['password', 'oidc'] asks for a step after an IdP login too); omitting it turns MFA off for password logins." },
           },
         },
         steps: { ...named, items: { ...named.items, properties: { ...named.items.properties, name: { type: 'string', minLength: 1, not: { enum: ['recovery'] }, description: "'recovery' is reserved for recovery codes (AuthnService.completeMfa)." } } } },
