@@ -225,5 +225,6 @@ packages/*/src/**/*.js
 packages/*/src/**/*.d.ts
 packages/*/src/**/*.map
 !packages/*/src/typings/**/*.d.ts
+!packages/hooks/src/spinajs-config.d.ts
 !packages/*/src/views/**/*.js
 !packages/*/src/static/**

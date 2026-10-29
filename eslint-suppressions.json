@@ -3093,11 +3093,6 @@
       "count": 2
     }
   },
-  "packages/cli/src/index.js": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    }
-  },
   "packages/cli/src/index.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
@@ -3107,14 +3102,6 @@
     },
     "complexity": {
       "count": 1
-    }
-  },
-  "packages/cli/src/interfaces.js": {
-    "@typescript-eslint/no-empty-function": {
-      "count": 3
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 3
     }
   },
   "packages/cli/test/cli-log.test.ts": {
