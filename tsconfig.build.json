@@ -107,7 +107,8 @@
     { "path": "packages/authn-keys/tsconfig.mjs.json" },
     { "path": "packages/authn-http/tsconfig.mjs.json" },
     { "path": "packages/authn-oidc/tsconfig.mjs.json" },
-    { "path": "packages/users-http/tsconfig.mjs.json" }
+    { "path": "packages/users-http/tsconfig.mjs.json" },
+    { "path": "packages/client/tsconfig.build.json" }
 
 
 

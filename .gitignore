@@ -121,6 +121,7 @@ graphify-out/
 !/docs/authz-rebac/
 !/docs/authz-testing/
 !/docs/cli/
+!/docs/client/
 !/docs/compiler/
 !/docs/configuration/
 !/docs/configuration-aws-secretmanager-protocol/
