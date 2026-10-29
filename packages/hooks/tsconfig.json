@@ -8,6 +8,8 @@
     // Tests declare their actions with `declare module '@spinajs/hooks'`: the augmentation has to reach src, not lib.
     "paths": { "@spinajs/hooks": ["./src/index.ts"] }
   },
+  // ts-node skips `include`; the generated spinajs-config.d.ts has to be loaded for the tests to see the typed config paths.
+  "ts-node": { "files": true },
   "include": ["src/**/*", "test/**/*"],
   "references": [{ "path": "../di/tsconfig.json" }, { "path": "../configuration/tsconfig.json" }, { "path": "../exceptions/tsconfig.json" }, { "path": "../log-common/tsconfig.json" }]
 }

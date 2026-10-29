@@ -59,6 +59,22 @@ export class PurgeSessionsCommand extends CliCommand {
 }
 ```
 
+## Generating typed config paths
+
+`spinajs generate:config-types` reads an application manifest and writes the `ConfigPaths` declarations that type `Configuration.get()` and `@Config()`.
+
+```bash
+spinajs generate:config-types --manifest app.manifest.json --out src/spinajs-config.d.ts --modules hooks
+```
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `-m, --manifest <path>` | `app.manifest.json` | Manifest to read |
+| `-o, --out <path>` | `src/spinajs-config.d.ts` | Declaration file to write |
+| `--modules <list>` | all | Comma separated config modules to include; a name the manifest lacks is reported as a warning |
+
+The command needs `@spinajs/compiler`, an optional peer dependency of `@spinajs/cli`; install it to use this command.
+
 ## Related packages
 
 - `@spinajs/di`: every command and the `Cli` service are resolved from the DI container.

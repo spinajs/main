@@ -1,6 +1,6 @@
 import _ from 'lodash';
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Configuration, IConfigEntryOptions } from '@spinajs/configuration-common';
+import { ConfigPath, ConfigPaths, Configuration, IConfigEntryOptions } from '@spinajs/configuration-common';
 import { AddDependencyForProperty, Class, Container, DI, IContainer, IInjectDescriptor, IMappableService, isFactory, isPromise, ServiceNotFound } from '@spinajs/di';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { InternalLogger } from '@spinajs/internal-logger';
@@ -151,6 +151,8 @@ async function resolveOwnConfiguration(container: IContainer): Promise<Configura
  * @param options - entry options, see {@link IConfigEntryOptions}
  * @returns property decorator
  */
+export function Config<P extends ConfigPath>(path: P, options?: IConfigEntryOptions & { defaultValue?: ConfigPaths[P] }): PropertyDecorator;
+export function Config(path: string, options?: IConfigEntryOptions): PropertyDecorator;
 export function Config(path: string, options?: IConfigEntryOptions) {
   return (target: any, key: string): any => {
     // register conf, so we can expose eg. in db if config is set

@@ -21,3 +21,5 @@ export * from './build-app.js';
 export * from './sort.js';
 export * from './schema/index.js';
 export * from './doctor/format.js';
+export { generateConfigDeclarations, generateConfigTypes, leafPaths } from './generate/config-declarations.js';
+export type { ConfigDeclarationsOptions, ConfigDeclarationsResult } from './generate/config-declarations.js';
