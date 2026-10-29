@@ -16,8 +16,12 @@
   },
   "type": "module",
   "private": false,
-  "publishConfig": { "access": "public" },
-  "engines": { "node": ">=22.0.0" },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.build.json",
@@ -27,9 +31,19 @@
     "coverage": "c8 npm run test",
     "lint": "cd ../.. && npm run lint -- packages/client"
   },
-  "files": ["lib/**/*"],
-  "repository": { "type": "git", "url": "git+https://github.com/spinajs/main.git" },
-  "keywords": ["spinajs", "client", "fetch", "manifest"],
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "client",
+    "fetch",
+    "manifest"
+  ],
   "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
   "license": "MIT",
   "dependencies": {

@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import ts from 'typescript';
 import { analyzePackage, createContext, createProgramFromTsconfig } from '../src/index.js';
 
-const HTTP_TSCONFIG = '../http/tsconfig.mjs.json';
+const HTTP_TSCONFIG = '../http/tsconfig.build.json';
 
 describe('exit check: packages/http analyzes cleanly', function () {
   this.timeout(60000);

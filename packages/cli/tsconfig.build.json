@@ -12,10 +12,10 @@
   ],
   "references": [
     {
-      "path": "../compiler/tsconfig.mjs.json"
+      "path": "../compiler/tsconfig.build.json"
     },
     {
-      "path": "../manifest/tsconfig.mjs.json"
+      "path": "../manifest/tsconfig.build.json"
     },
     {
       "path": "../internal-logger/tsconfig.build.json"

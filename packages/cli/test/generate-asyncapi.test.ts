@@ -30,7 +30,6 @@ describe('generate:asyncapi', function () {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'asyncapi-'));
     DI.clearCache();
-    DI.setESMModuleSupport();
     DI.register(GenerateConf).as(Configuration);
     await DI.resolve(Configuration);
   });

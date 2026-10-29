@@ -14,7 +14,7 @@ function readName(manifest: string): string | undefined {
 
 function packageNameOf(directory: string): string | undefined {
   if (packageNames.has(directory)) return packageNames.get(directory);
-  // lib/mjs and lib/cjs carry nameless `{ "type": ... }` package.json files; the name lives further up.
+  // A nested package.json can be a nameless `{ "type": ... }` marker; the name lives further up.
   const manifest = join(directory, 'package.json');
   let name = ts.sys.fileExists(manifest) ? readName(manifest) : undefined;
   if (!name && dirname(directory) !== directory) name = packageNameOf(dirname(directory));

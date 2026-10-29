@@ -8,7 +8,7 @@
       "path": "packages/cli/tsconfig.build.json"
     },
     {
-      "path": "packages/compiler/tsconfig.mjs.json"
+      "path": "packages/compiler/tsconfig.build.json"
     },
     {
       "path": "packages/configuration/tsconfig.build.json"
@@ -47,7 +47,7 @@
       "path": "packages/hooks/tsconfig.build.json"
     },
     {
-      "path": "packages/manifest/tsconfig.mjs.json"
+      "path": "packages/manifest/tsconfig.build.json"
     },
     {
       "path": "packages/principal/tsconfig.build.json"
