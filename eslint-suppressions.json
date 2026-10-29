@@ -800,7 +800,7 @@
   },
   "packages/authn/test/boot/config-defaults.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 4
+      "count": 3
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 6
