@@ -14,6 +14,8 @@ export interface ExtractorContext {
   packageRoot: string;
   sourceRef(node: ts.Node): SourceRef;
   typeRef(type: ts.Type, node: ts.Node, nameHint?: string, derive?: Pick<DeriveOptions, 'excludeMembersOf'>): TypeRef;
+  /** Type text only, no schema derivation (binary payloads such as uploaded files). */
+  plainTypeRef(type: ts.Type): TypeRef;
   diagnostics: Diagnostic[];
   schemas: Record<string, unknown>;
   /** Schemas derived from TypeScript types, keyed by `$id`. */
@@ -74,11 +76,13 @@ export function createContext(loaded: LoadedProgram, packageName: string, packag
     return !!rel && !rel.startsWith('..') && !isAbsolute(rel) && !rel.split(sep).includes('node_modules');
   };
 
+  const textOf = (payload: ts.Type): string =>
+    wrapperName(payload) ?? checker.typeToString(payload, undefined, ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope);
+
   const typeRef = (type: ts.Type, node: ts.Node, nameHint?: string, derive: Pick<DeriveOptions, 'excludeMembersOf'> = {}): TypeRef => {
     const payload = unwrapTransparent(checker, type);
     const bare = wrapperName(payload);
-    const text = bare ?? checker.typeToString(payload, undefined, ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope);
-    const ref: TypeRef = { text };
+    const ref: TypeRef = { text: textOf(payload) };
     if (!schemaDerivation || bare || payload.flags & (ts.TypeFlags.Void | ts.TypeFlags.Undefined)) return ref;
 
     const derivation: DeriveOptions = {
@@ -120,6 +124,7 @@ export function createContext(loaded: LoadedProgram, packageName: string, packag
     sourceRef,
     schemaRegistry,
     typeRef,
+    plainTypeRef: (type) => ({ text: textOf(unwrapTransparent(checker, type)) }),
     isSubclassOf: (classNode, baseName) => baseChain(checker.getTypeAtLocation(classNode)).includes(baseName),
     info: push('info'),
     warn: push('warning'),

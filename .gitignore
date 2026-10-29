@@ -213,4 +213,5 @@ packages/*/reports/mutation/
 packages/compiler/test/fixtures/**/node_modules
 packages/compiler/test/fixtures/**/lib
 packages/compiler/test/fixtures/**/app.manifest.json
+!packages/compiler/test/fixtures/app-basic/app.manifest.json
 packages/compiler/test/fixtures/.tmp-*

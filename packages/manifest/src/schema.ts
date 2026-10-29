@@ -703,6 +703,10 @@ export const manifestSchema: Record<string, any> = {
         "result": {
           "$ref": "#/definitions/TypeRef"
         },
+        "stream": {
+          "type": "boolean",
+          "const": true
+        },
         "options": {
           "type": "object",
           "properties": {

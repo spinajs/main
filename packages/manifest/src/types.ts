@@ -23,7 +23,7 @@ export interface ServiceEntry {
   source: SourceRef;
 }
 
-export interface ValueEntry { token: string; kind: 'value' | 'map'; mapKey?: string; value?: unknown /* literal when known, e.g. status for __http_error_map__ */; source: SourceRef; condition?: Condition }
+export interface ValueEntry { token: string; kind: 'value' | 'map'; mapKey?: string; value?: unknown /* literal when known; __http_error_map__: { response: string; status?: number } */; source: SourceRef; condition?: Condition }
 
 export interface TypeRef {
   /** Canonical display name, e.g. 'Promise<Ok<UserDto[]>>' unwrapped to the payload */
@@ -69,7 +69,7 @@ export interface ControllerEntry {
   source: SourceRef;
 }
 
-export interface SocketCommandEntry { name: string; handler: string; payload: TypeRef; result: TypeRef; options: { idempotent?: boolean; ordered?: 'connection' | 'client'; timeoutMs?: number }; access?: string[]; policies: PolicyRef[][]; source: SourceRef }
+export interface SocketCommandEntry { name: string; handler: string; payload: TypeRef; result: TypeRef; /** The handler returns an async iterable; `result` describes one item */ stream?: true; options: { idempotent?: boolean; ordered?: 'connection' | 'client'; timeoutMs?: number }; access?: string[]; policies: PolicyRef[][]; source: SourceRef }
 export interface SocketControllerEntry { id: string; className: string; prefix: string; commands: SocketCommandEntry[]; events: { name: string; payload: TypeRef }[]; source: SourceRef }
 export interface SocketContractCommand { payload: TypeRef; result: TypeRef }
 export interface SocketContractEntry { id: string; commands: Record<string, SocketContractCommand>; events: Record<string, TypeRef>; clientEvents: Record<string, TypeRef>; source: SourceRef }
