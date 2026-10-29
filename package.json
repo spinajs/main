@@ -98,7 +98,6 @@
     "typescript-eslint": "^8.71.2"
   },
   "dependencies": {
-    "@spinajs/asyncapi": "3.0.23",
     "@spinajs/authn": "file:packages/authn",
     "@spinajs/authn-http": "file:packages/authn-http",
     "@spinajs/authn-keys": "file:packages/authn-keys",
