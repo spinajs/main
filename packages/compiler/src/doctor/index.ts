@@ -1,6 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { isAbsolute, join, dirname } from 'node:path';
 import type { Manifest, Diagnostic, SourceRef } from '@spinajs/manifest';
+import { compareCodeUnits } from '../sort.js';
 import { DEFAULT_RULES } from './rules/index.js';
 
 export { DEFAULT_RULES } from './rules/index.js';
@@ -37,11 +38,11 @@ export function configAt(config: Record<string, unknown> | undefined, path: stri
 function compare(a: Diagnostic, b: Diagnostic): number {
   const bySeverity = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity];
   if (bySeverity !== 0) return bySeverity;
-  const byFile = (a.source?.file ?? '').localeCompare(b.source?.file ?? '');
+  const byFile = compareCodeUnits(a.source?.file ?? '', b.source?.file ?? '');
   if (byFile !== 0) return byFile;
   const byLine = (a.source?.line ?? 0) - (b.source?.line ?? 0);
   if (byLine !== 0) return byLine;
-  return a.code.localeCompare(b.code);
+  return compareCodeUnits(a.code, b.code);
 }
 
 export function runDoctor(manifest: Manifest, ctx: DoctorContext, rules: DoctorRule[] = DEFAULT_RULES): Diagnostic[] {

@@ -50,7 +50,7 @@ function fromRegister(expr: ts.Expression, ctx: ExtractorContext): ServiceEntry 
   return entryFor(cls as NamedClass, registeredAs, lifetime, expr, ctx);
 }
 
-function mergeById(entries: ServiceEntry[]): ServiceEntry[] {
+export function mergeById(entries: ServiceEntry[]): ServiceEntry[] {
   const byId = new Map<string, ServiceEntry>();
   for (const entry of entries) {
     const key = `${entry.id}|${entry.lifetime}|${JSON.stringify(entry.condition ?? null)}`;

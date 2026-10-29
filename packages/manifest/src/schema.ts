@@ -710,7 +710,11 @@ export const manifestSchema: Record<string, any> = {
               "type": "boolean"
             },
             "ordered": {
-              "type": "boolean"
+              "type": "string",
+              "enum": [
+                "connection",
+                "client"
+              ]
             },
             "timeoutMs": {
               "type": "number"
