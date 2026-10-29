@@ -18,7 +18,7 @@ import { extractQueueMessages } from './extractors/queue.js';
 export interface AnalyzeOptions {
   tsconfig: string;
   packageRoot: string;
-  /** Accepted for API stability; schema derivation is not wired into the extractors yet. */
+  /** Derive JSON Schemas from TypeScript types (default true). */
   schemaDerivation?: boolean;
 }
 
@@ -43,7 +43,7 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   const root = resolve(options.packageRoot);
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { name: string; version: string; main?: string };
   const loaded = createProgramFromTsconfig(options.tsconfig);
-  const ctx = createContext(loaded, pkg.name, root);
+  const ctx = createContext(loaded, pkg.name, root, { schemaDerivation: options.schemaDerivation });
   const files = [...loaded.sourceFiles].sort((a, b) => compareCodeUnits(a.fileName, b.fileName));
 
   const run = <T extends { source: SourceRef }>(extractor: Extractor<T>): T[] => sortBySource(files.flatMap((f) => extractor(ctx, f)));
@@ -68,7 +68,7 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
     schedules: run(extractSchedules),
     commands: run(extractCommands),
     queueMessages: run(extractQueueMessages),
-    schemas: Object.fromEntries(Object.entries(ctx.schemas).sort(([a], [b]) => compareCodeUnits(a, b))),
+    schemas: Object.fromEntries([...Object.entries(ctx.schemas), ...ctx.schemaRegistry].sort(([a], [b]) => compareCodeUnits(a, b))),
     diagnostics: sortDiagnostics(ctx.diagnostics),
   };
   return Promise.resolve(fragment);

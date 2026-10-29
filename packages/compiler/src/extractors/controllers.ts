@@ -50,7 +50,7 @@ function paramOf(p: ts.ParameterDeclaration, index: number, owner: string, ctx: 
   }
   const type = ctx.checker.getTypeAtLocation(p);
   return {
-    index, name, kind: PARAM_KINDS[dec.name], runtimeType: ctx.typeRef(ctx.checker.getNonNullableType(type), p),
+    index, name, kind: PARAM_KINDS[dec.name], runtimeType: ctx.typeRef(ctx.checker.getNonNullableType(type), p, `${owner.replace('.', '_')}_${name}`),
     required: options?.required === true || isRequired(p, type),
     ...(options !== undefined ? { options } : {}), ...(schemaId ? { schema: schemaId } : {}),
   };
@@ -62,7 +62,7 @@ function routeOf(m: ts.MethodDeclaration, basePath: string | null, className: st
   const handler = m.name.text;
   const path = (literalValue(dec.args[0], ctx) as string | undefined) ?? '';
   const sig = ctx.checker.getSignatureFromDeclaration(m);
-  const returnType = sig ? ctx.typeRef(ctx.checker.getReturnTypeOfSignature(sig), m) : { text: 'unknown' };
+  const returnType = sig ? ctx.typeRef(ctx.checker.getReturnTypeOfSignature(sig), m, `${className}_${handler}_Response`) : { text: 'unknown' };
   const { access, allowAnonymous } = accessOf(m, ctx);
   const doc = routeDocOf(m, ctx);
   return {

@@ -124,3 +124,12 @@ export class ExplicitDto { public a: string; public b: number }
 export class ExplicitWithIdDto { public a: string; public b: number }
 @Schema('fixture/by-ref')
 export class ExplicitRefDto { public a: string }
+
+// --- review fixes
+export interface OUndef { x: number | undefined; y: string }
+export class CUndef { public x!: number | undefined; public z: string }
+export interface OAnyIndex { [key: string]: any }
+@Schema('fixture/by-ref-with-body')
+export class ExplicitRefNested { public inner: Point }
+export namespace Other { export interface Point { z: string } }
+export interface Collide { a: Point; b: Other.Point }

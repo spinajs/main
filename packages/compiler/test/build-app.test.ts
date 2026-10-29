@@ -30,6 +30,30 @@ describe('buildAppManifest', () => {
     expect((JSON.parse(readFileSync(written, 'utf8')) as { hash: string }).hash).to.equal(manifest.hash);
   });
 
+  it('every body and query param and every non-void response has a schema in the manifest', async () => {
+    const { manifest } = await buildAppManifest(APP);
+    const routes = manifest.controllers.flatMap((controller) => controller.routes);
+    expect(routes.length).to.be.greaterThan(0);
+    for (const route of routes) {
+      for (const param of route.params.filter((p) => p.kind === 'FromBody' || p.kind === 'FromQuery')) {
+        const id = param.runtimeType.schema;
+        expect(id, `${route.handler}:${param.name}`).to.be.a('string');
+        expect(manifest.schemas).to.have.property(id!);
+      }
+      if (!['void', 'Ok', 'Json', 'Created'].includes(route.returnType.text)) {
+        expect(route.returnType.schema, route.handler).to.be.a('string');
+        expect(manifest.schemas).to.have.property(route.returnType.schema!);
+      }
+    }
+  });
+
+  it('omits the app schemas when derivation is off', async () => {
+    const { manifest } = await buildAppManifest({ ...APP, schemaDerivation: false });
+    const typeRefs = manifest.controllers.filter((c) => c.id.startsWith('app-basic:')).flatMap((c) => c.routes.map((r) => r.returnType));
+    expect(typeRefs).to.not.be.empty;
+    expect(typeRefs.every((t) => t.schema === undefined)).to.be.true;
+  });
+
   it('is deterministic across runs except generatedAt', async () => {
     const a = (await buildAppManifest(APP)).manifest;
     const b = (await buildAppManifest(APP)).manifest;

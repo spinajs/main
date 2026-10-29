@@ -1,0 +1,23 @@
+{
+  "schemas": {
+    "spinajs/users-http/UserMetadataDto": {
+      "$id": "spinajs/users-http/UserMetadataDto",
+      "type": "object",
+      "properties": { "Key": { "type": "string" }, "Value": { "type": "string" }, "Type": { "type": "string" } },
+      "required": ["Key", "Type"],
+      "x-derived": {
+        "type": "object",
+        "properties": { "Key": { "type": "string" }, "Value": { "type": "string" }, "Type": { "enum": ["number", "string"] }, "Extra": { "type": "number" } },
+        "required": ["Key", "Value", "Type", "Extra"],
+        "additionalProperties": false
+      }
+    },
+    "spinajs/users-http/Clean": {
+      "$id": "spinajs/users-http/Clean",
+      "type": "object",
+      "properties": { "a": { "type": "string" } },
+      "required": ["a"],
+      "x-derived": { "type": "object", "properties": { "a": { "type": "string" } }, "required": ["a"], "additionalProperties": false }
+    }
+  }
+}

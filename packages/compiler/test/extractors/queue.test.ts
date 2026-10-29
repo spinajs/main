@@ -9,10 +9,21 @@ describe('extractQueueMessages', () => {
 
   it('@Event and @Job classes', () => {
     expect(extractQueueMessages(ctx, queue)).to.deep.equal([
-      { className: 'UserCreated', kind: 'event', payload: { text: 'UserCreated' }, options: { durable: true }, source: { file: 'src/queue.ts', line: 3, col: 1, package: 'pkg-basic' } },
+      { className: 'UserCreated', kind: 'event', payload: { text: 'UserCreated', schema: 'spinajs/pkg-basic/UserCreated' }, options: { durable: true }, source: { file: 'src/queue.ts', line: 3, col: 1, package: 'pkg-basic' } },
     ]);
     expect(extractQueueMessages(ctx, schedule)).to.deep.equal([
-      { className: 'Cleanup', kind: 'job', payload: { text: 'Cleanup' }, options: { runAs: 'system' }, source: { file: 'src/schedule.ts', line: 4, col: 1, package: 'pkg-basic' } },
+      { className: 'Cleanup', kind: 'job', payload: { text: 'Cleanup', schema: 'spinajs/pkg-basic/Cleanup' }, options: { runAs: 'system' }, source: { file: 'src/schedule.ts', line: 4, col: 1, package: 'pkg-basic' } },
     ]);
+  });
+
+  it('payload schemas stop at the framework base', () => {
+    extractQueueMessages(ctx, queue);
+    extractQueueMessages(ctx, schedule);
+    const created = ctx.schemaRegistry.get('spinajs/pkg-basic/UserCreated')!;
+    expect(Object.keys(created.properties as object)).to.deep.equal(['userId', 'email']);
+    expect(created.required).to.deep.equal(['userId', 'email']);
+    expect(created.additionalProperties).to.equal(false);
+    const cleanup = ctx.schemaRegistry.get('spinajs/pkg-basic/Cleanup')!;
+    expect(Object.keys(cleanup.properties as object)).to.deep.equal(['olderThanDays']);
   });
 });
