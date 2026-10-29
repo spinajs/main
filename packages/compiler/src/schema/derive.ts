@@ -1,9 +1,11 @@
-import type ts from 'typescript';
+import ts from 'typescript';
 import type { Diagnostic, SourceRef } from '@spinajs/manifest';
 import { arrayType, tupleType } from './handlers/array.js';
 import { enumType } from './handlers/enum.js';
-import { objectType } from './handlers/object.js';
+import { objectType, setPropertyConstraints } from './handlers/object.js';
 import { primitive } from './handlers/primitive.js';
+import { jsdocConstraints } from './jsdoc.js';
+import { hoistedId } from './naming.js';
 import { wellKnown } from './wellknown.js';
 import { intersectionType, unionType } from './handlers/union.js';
 
@@ -37,6 +39,7 @@ let handlerList: TypeHandler[] | undefined;
 
 /** Built on first use: the handler modules import this one, so a top-level list would hit a TDZ when one of them loads first. Order matters (enum before primitive, well-known before object). */
 export function handlers(): TypeHandler[] {
+  if (!handlerList) setPropertyConstraints(jsdocConstraints);
   handlerList ??= [enumType, primitive, wellKnown, arrayType, tupleType, unionType, intersectionType, objectType];
   return handlerList;
 }
@@ -58,7 +61,27 @@ export function deriveType(ctx: DeriveContext, type: ts.Type): JsonSchema {
     return {};
   }
   const inner: DeriveContext = { ...ctx, depth: ctx.depth + 1 };
-  return deriveBody(inner, type);
+  const id = hoistedId(inner, type);
+  if (!id) return deriveBody(inner, type);
+  if (!inner.registry.has(id)) {
+    inner.registry.set(id, { $id: id });
+    inner.registry.set(id, { $id: id, ...deriveBody(inner, type) });
+  }
+  return { $ref: id };
+}
+
+function unsupported(ctx: DeriveContext, type: ts.Type): JsonSchema {
+  const text = ctx.checker.typeToString(type);
+  if (type.flags & ts.TypeFlags.Unknown) {
+    diagnose(ctx, 'SCH001', 'info', `unknown type at ${text} accepts any value`);
+    return {};
+  }
+  if (type.flags & ts.TypeFlags.NonPrimitive) {
+    diagnose(ctx, 'SCH001', 'info', 'object type has no properties to validate');
+    return { type: 'object' };
+  }
+  diagnose(ctx, 'SCH001', 'warning', `unsupported type ${text}, emitted as {}`);
+  return {};
 }
 
 function deriveBody(ctx: DeriveContext, type: ts.Type): JsonSchema {
@@ -66,6 +89,5 @@ function deriveBody(ctx: DeriveContext, type: ts.Type): JsonSchema {
     const schema = handler(ctx, type);
     if (schema) return schema;
   }
-  diagnose(ctx, 'SCH001', 'warning', `unsupported type ${ctx.checker.typeToString(type)}, emitted as {}`);
-  return {};
+  return unsupported(ctx, type);
 }
