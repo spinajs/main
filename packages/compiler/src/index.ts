@@ -20,3 +20,4 @@ export * from './fragments.js';
 export * from './build-app.js';
 export * from './sort.js';
 export * from './schema/index.js';
+export * from './doctor/format.js';
