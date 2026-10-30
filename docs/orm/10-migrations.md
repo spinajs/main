@@ -9,6 +9,7 @@ Migrations change the database schema in ordered, tracked steps. Each migration 
 1. `Orm.resolve()` creates the connections, then calls `Orm.discoverMigrations()`.
 2. `discoverMigrations()` resolves every registered `MigrationSource` and merges what they return. Two ship by default:
    - `FilesystemMigrationSource` scans the directories in `system.dirs.migrations` (or the [fallback directories](#discovery-directories)) and imports each matching file.
+   - `ManifestMigrationSource` returns the migrations listed in `app.manifest.json` when the effective manifest mode is not `off` ([details](#discovery-from-the-manifest)). In `require` mode `FilesystemMigrationSource` returns nothing.
    - `DiRegistryMigrationSource` returns every class `@Migration()` registered in the DI container under `__migrations__`, so migrations reached by a plain `import` count too.
 3. For each entry, `resolveMigrationEnv()` reads the environment from the file name suffix (`parseMigrationFileEnv()`) and from the class's own `@Migration({ Env })`. When both are present and differ, it throws `OrmException`.
 4. Entries sharing a class name merge into one. The same class found twice keeps one environment (`mergeMigrationEnv()`, which throws on two different ones) and prefers a real file path over the `<di>` sentinel. Two different classes with the same name log a warning, and the first one wins.
@@ -166,6 +167,12 @@ In each directory it matches `**/!(*.*).{ts,js,cjs,mjs}` (no environment tag) an
 | `.ts` file | any | Skipped at trace level. A compiled deployment finds the `.js` copy. |
 | other file | configured in `system.dirs.migrations` | `OrmException`, with the import error as `inner`. |
 | other file | fallback directory | Warning; the migration is not registered. |
+
+### Discovery from the manifest
+
+`ManifestMigrationSource` reads the effective manifest mode and manifest from `effectiveManifestOf(container)`. In `off` mode, or `prefer` without a registered manifest, it returns nothing; `require` without a manifest throws `ManifestMissing`. Otherwise it returns the classes listed in `migrations`, in manifest order, through `manifestFileFor`; entries of a listed package that is not installed are skipped.
+
+Like the scan, it never imports a file tagged for another environment and keeps only `OrmMigration` subclasses whose name carries the timestamp. The remaining environment filter (the `@Migration({ Env })` option) stays in `Orm.discoverMigrations()`.
 
 ## Running migrations
 

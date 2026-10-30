@@ -25,18 +25,25 @@ export function manifestMode(container: IContainer): ManifestMode {
   return manifestSettingsOf(container)?.mode ?? 'off';
 }
 
-interface Named {
+export interface ManifestEntryRef {
   className: string;
   source: SourceRef;
 }
+
+type Named = ManifestEntryRef;
 
 /**
  * ClassInfo list for a manifest section, or undefined when the caller should scan directories instead
  * ( mode `off`, or `prefer` without a manifest ). An empty array is a real empty section. Every listed file
  * is imported once and the export named `className` is the type; the file comes from `manifestFileFor`, which
- * keeps it inside the package root.
+ * keeps it inside the package root. `include` drops entries before their file is imported.
  */
-export async function listFromManifest(container: IContainer, section: ManifestSection, mode: ManifestMode): Promise<Array<ClassInfo<unknown>> | undefined> {
+export async function listFromManifest(
+  container: IContainer,
+  section: ManifestSection,
+  mode: ManifestMode,
+  include?: (entry: ManifestEntryRef) => boolean,
+): Promise<Array<ClassInfo<unknown>> | undefined> {
   if (mode === 'off') {
     return undefined;
   }
@@ -53,6 +60,7 @@ export async function listFromManifest(container: IContainer, section: ManifestS
   const byFile = new Map<string, Named[]>();
   const skipped = new Set<string>();
   for (const entry of manifest[section] as Named[]) {
+    if (include && !include(entry)) continue;
     const pkg = entry.source.package;
     if (!skipped.has(pkg) && isPackageSkipped(pkg, manifest, process.cwd(), mode)) {
       skipped.add(pkg);
