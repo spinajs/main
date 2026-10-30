@@ -2,6 +2,9 @@
 /* eslint-disable @typescript-eslint/unbound-method */
 import * as fs from 'fs';
 import { dirname, join, resolve } from 'path';
+import { DI } from '@spinajs/di';
+import { InternalLogger } from '@spinajs/internal-logger';
+import type { IConfigLike } from '@spinajs/configuration-common';
 
 // pure helpers live in util-common ( browser-safe ); re-export for compat
 export { merge, mergeArrays, mapObject, pickString, pickObjects } from './util-common.js';
@@ -52,3 +55,27 @@ export const schemaNameOf = (s: SchemaIds): string => s.$id ?? s.$configurationM
 
 /** The same object, or a copy with the same `$id`, as the cjs and the mjs build of one package give. */
 export const sameSchema = (a: SchemaIds, b: SchemaIds): boolean => a === b || (a.$id !== undefined && a.$id === b.$id);
+
+/** Loads one JS config file: runs its `onConfigLoad` hook and tags every root object with `__file__`. */
+export async function loadJsConfigFile(file: string): Promise<IConfigLike> {
+  try {
+    InternalLogger.trace({ file }, 'Trying to load file ${file}', 'Configuration');
+
+    let cfg = (await DI.__spinajs_require__(file)) as IConfigLike;
+    // execute config func before merge with rest of configuration
+    if (typeof cfg.onConfigLoad === 'function') {
+      cfg = (await cfg.onConfigLoad(cfg))!;
+    }
+
+    for (const k in cfg) {
+      if (typeof cfg[k] === 'object' && !Array.isArray(cfg[k]) && cfg[k] !== null) {
+        (cfg[k] as Record<string, unknown>).__file__ = [file];
+      }
+    }
+
+    return cfg;
+  } catch (err) {
+    InternalLogger.error({ error: err, file }, 'error loading configuration file ${file}', 'configuration');
+    return {};
+  }
+}

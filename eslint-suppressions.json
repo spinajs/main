@@ -3325,10 +3325,10 @@
       "count": 3
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 6
+      "count": 5
     },
     "prefer-const": {
-      "count": 3
+      "count": 1
     }
   },
   "packages/configuration/src/util-common.ts": {
