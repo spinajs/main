@@ -15,7 +15,10 @@ function sanitize(value: string): string {
 }
 
 export function literal(value: unknown): string {
-  if (typeof value === 'string') return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n')}'`;
+  if (typeof value === 'string') {
+    const escaped = JSON.stringify(value).slice(1, -1).replace(/\\"/g, '"').replace(/'/g, "\\'").replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+    return `'${escaped}'`;
+  }
   if (typeof value === 'number' || typeof value === 'boolean' || value === null) return String(value);
   return 'unknown';
 }

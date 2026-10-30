@@ -184,6 +184,68 @@ describe('generateClient', () => {
       const out = await generateClient({ manifest: extend(manifest, [route('bare', 'get', '/items/bare', [], { text: 'Ok' })], {}) });
       expect(out).to.include('bare(): Promise<unknown>;');
     });
+
+    it('turns Express 5 optional groups and wildcards into runtime templates', async () => {
+      const out = await generateClient({
+        manifest: extend(
+          manifest,
+          [
+            route('opt', 'get', '/items/opt{/:id}', [param(0, 'id', 'FromParams', { in: 'path', name: 'id', shape: 'value' }, 'number', undefined, false)], { text: 'void' }),
+            route('tree', 'get', '/items/tree/*path', [param(0, 'path', 'FromParams', { in: 'path', name: 'path', shape: 'json' }, 'string[]')], { text: 'void' }),
+            route('loose', 'get', '/items/loose{/:a}/*rest', [], { text: 'void' }),
+            route('escaped', 'get', '/items/x\\{y\\}/:id', [], { text: 'void' }),
+          ],
+          {},
+        ),
+      });
+      expect(out).to.include('opt(id?: number): Promise<void>;');
+      expect(out).to.include("opt: { method: 'get', path: '/items/opt[/{id}]', args: [{ in: 'path', name: 'id', shape: 'value' }], void: true },");
+      expect(out).to.include('tree(path: string[]): Promise<void>;');
+      expect(out).to.include("tree: { method: 'get', path: '/items/tree/{*path}', args: [{ in: 'path', name: 'path', shape: 'json' }], void: true },");
+      expect(out).to.include('loose(a: string | number | undefined, rest: string[]): Promise<void>;');
+      expect(out).to.include("path: '/items/loose[/{a}]/{*rest}'");
+      expect(out).to.include("path: '/items/x\\\\{y\\\\}/{id}'");
+      expect(typecheck(out)).to.deep.equal([]);
+    });
+
+    it('fails generation for path syntax Express 5 refuses, naming the route', async () => {
+      const legacy = extend(manifest, [route('legacy', 'get', '/items/:id(\\d+)', [param(0, 'id', 'FromParams', { in: 'path', name: 'id', shape: 'value' }, 'number')], { text: 'void' })], {});
+      await expectRejection(generateClient({ manifest: legacy }), /ItemsController\.legacy \(GET \/items\/:id\(\\d\+\)\) uses path syntax the client does not support: '\(' at index 10 is reserved/);
+      const open = extend(manifest, [route('open', 'get', '/items{/:id', [], { text: 'void' })], {});
+      await expectRejection(generateClient({ manifest: open }), /ItemsController\.open .* an optional group is not closed/);
+    });
+
+    it('types a path argument as required even when the controller parameter is optional', async () => {
+      const out = await generateClient({ manifest: extend(manifest, [route('one', 'get', '/items/:id', [param(0, 'id', 'FromParams', { in: 'path', name: 'id', shape: 'value' }, 'number', undefined, false)], { text: 'void' })], {}) });
+      expect(out).to.include('one(id: number): Promise<void>;');
+    });
+
+    it('fails generation for a body argument next to a multipart one, which the server would bind as null', async () => {
+      const mixed = extend(
+        manifest,
+        [
+          route(
+            'upload',
+            'post',
+            '/items/upload',
+            [param(0, 'doc', 'FromFile', { in: 'multipart', name: 'doc', shape: 'value' }, 'IUploadedFile'), param(1, 'meta', 'FromBody', { in: 'body', shape: 'whole' }, 'CreateUserDto', 'spinajs/app-basic/CreateUserDto')],
+            { text: 'void' },
+          ),
+        ],
+        {},
+      );
+      await expectRejection(generateClient({ manifest: mixed }), /ItemsController\.upload \(POST \/items\/upload\) sends body argument\(s\) 'meta' next to multipart argument\(s\) 'doc'.*@FormField/);
+    });
+
+    it('escapes line breaks and line separators in emitted string literals', async () => {
+      const out = await generateClient({
+        manifest: extend(manifest, [route('odd', 'get', '/items/odd', [], { text: 'Odd', schema: 'spinajs/x/OddValues' })], {
+          'spinajs/x/OddValues': { $id: 'spinajs/x/OddValues', enum: ['a\rb', 'c d', "e'f\\g"] },
+        }),
+      });
+      expect(out).to.include("odd(): Promise<'a\\rb' | 'c\\u2028d' | 'e\\'f\\\\g'>;");
+      expect(typecheck(out)).to.deep.equal([]);
+    });
   });
 });
 
