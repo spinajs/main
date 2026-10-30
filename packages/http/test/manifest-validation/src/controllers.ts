@@ -1,5 +1,5 @@
 import { Schema, type StandardSchemaV1 } from '@spinajs/validation';
-import { BaseController, BasePath, Body, BodyField, Get, Ok, Post, Query, QueryField, Req, type Request } from '../../../src/index.js';
+import { ArgHydrator, BaseController, BasePath, Body, BodyField, Get, Hydrator, Ok, Post, Query, QueryField, Req, type Request } from '../../../src/index.js';
 
 export class CreateItem {
   public name: string;
@@ -61,6 +61,30 @@ export class Envelope {
   }
 }
 
+export class RouteSchemaItem {
+  public name: string;
+  public count: number;
+
+  constructor(data: Partial<RouteSchemaItem>) {
+    Object.assign(this, data);
+  }
+}
+
+export class NameHydrator extends ArgHydrator {
+  public hydrate(input: unknown): Promise<HydratedItem> {
+    return Promise.resolve(new HydratedItem(input as Partial<HydratedItem>));
+  }
+}
+
+@Hydrator(NameHydrator)
+export class HydratedItem {
+  public name: string;
+
+  constructor(data: Partial<HydratedItem>) {
+    Object.assign(this, data);
+  }
+}
+
 /** Assigns every key it is given, as ORM `ModelBase.hydrate()` does. */
 export class HydratedRecord {
   [key: string]: unknown;
@@ -111,6 +135,16 @@ export class ManifestValidationController extends BaseController {
   @Post()
   public assignFields(@BodyField() item: CreateItem, @Req() req: Request) {
     return new Ok({ dto: Object.keys(item), reauthPassword: (req.body as Record<string, unknown>).reauthPassword ?? null });
+  }
+
+  @Post('routeSchema', { item: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } })
+  public routeSchema(@Body() item: RouteSchemaItem) {
+    return new Ok({ name: item.name });
+  }
+
+  @Post()
+  public hydrated(@Body() item: HydratedItem) {
+    return new Ok({ name: item.name });
   }
 
   @Post()

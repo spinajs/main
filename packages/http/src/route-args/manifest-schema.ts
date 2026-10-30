@@ -59,10 +59,15 @@ function routeEntryOf(manifest: Manifest, controller: string, route: IRoute, mou
 // The runtime fills parameter names in later, from the controller source; until then index and kind must do.
 const describes = (declared: ParamEntry, param: IRouteParameter): boolean => declared.kind === param.Type && (!param.Name || declared.name === param.Name);
 
-/** The decorator's schema or the class `@Schema` wins at runtime, so the derived schema is not even compiled for it. */
-function hasExplicitSchema(param: IRouteParameter): boolean {
+/**
+ * The route's schema, the decorator's, the class `@Schema` and a hydrator each make the derived schema unused at
+ * runtime, so it is not even compiled: a broken derived entry must not fail the boot for an argument it never checks.
+ */
+function derivedUnused(declared: ParamEntry, param: IRouteParameter, route: IRoute): boolean {
   const type: unknown = param.RuntimeType instanceof TypedArray ? (param.RuntimeType as TypedArray<unknown>).Type : param.RuntimeType;
-  return !!param.Schema || schemaOfClass(type) !== undefined;
+  const routeSchema = route.Schema as Record<string, unknown> | null | undefined;
+  const hydrated = typeof type === 'function' && Reflect.getMetadata('custom:arg_hydrator', type) !== undefined;
+  return !!routeSchema?.[declared.name] || !!param.Schema || schemaOfClass(type) !== undefined || hydrated;
 }
 
 interface DerivedCheck {
@@ -91,10 +96,10 @@ function checkOf(validator: ManifestValidator, check: DerivedCheck): DerivedArgC
   };
 }
 
-function derivedCheckOf(declared: ParamEntry | undefined, param: IRouteParameter): DerivedCheck | undefined {
+function derivedCheckOf(declared: ParamEntry | undefined, param: IRouteParameter, route: IRoute): DerivedCheck | undefined {
   const kindOptions = DERIVED_KINDS[param.Type];
   const id = declared?.runtimeType.schema;
-  if (!kindOptions || !declared || !id || !describes(declared, param) || hasExplicitSchema(param)) return undefined;
+  if (!kindOptions || !declared || !id || !describes(declared, param) || derivedUnused(declared, param, route)) return undefined;
   return { id, name: declared.name, options: declared.wire?.shape === 'field' ? BODY_FIELD : kindOptions };
 }
 
@@ -123,6 +128,7 @@ export function derivedValidatorsOf({ container, controller, route, mountPath, l
     const check = derivedCheckOf(
       entry.params.find((p) => p.index === param.Index),
       param,
+      route,
     );
     if (!check) continue;
 

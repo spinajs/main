@@ -194,6 +194,21 @@ describe('request validation from the manifest', function () {
       }
     });
 
+    it('does not compile it for an argument with a route schema or a hydrator', async () => {
+      const copy = structuredClone(manifest);
+      for (const id of ['spinajs/manifest-validation-fixture/RouteSchemaItem', 'spinajs/manifest-validation-fixture/HydratedItem']) {
+        (copy.schemas[id] as { properties: Record<string, unknown> }).properties.name = { $ref: 'spinajs/elsewhere/Missing' };
+      }
+      const app = await boot(copy, 'require');
+      try {
+        expect((await post('routeSchema', { name: 'a' })).status).to.eq(200);
+        expect((await post('routeSchema', {})).status).to.eq(400);
+        expect((await post('hydrated', { name: 'a' })).body).to.deep.equal({ name: 'a' });
+      } finally {
+        await app.dispose();
+      }
+    });
+
     it('leaves that argument unchecked in prefer mode', async () => {
       const app = await boot(broken());
       try {
