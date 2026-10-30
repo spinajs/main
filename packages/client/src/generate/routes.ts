@@ -1,12 +1,9 @@
-import type { ControllerEntry, ParamEntry, RouteEntry } from '@spinajs/manifest';
-import { literal, propertyKey, type TypeContext } from './ts-type.js';
+import type { ControllerEntry, ParamEntry, ParamWire, RouteEntry } from '@spinajs/manifest';
+import { literal, type TypeContext } from './ts-type.js';
 
-// The *Field kinds inject the whole req.query / req.body / req.params object, typed by the parameter.
-const QUERY_KINDS = new Set(['FromQuery', 'QueryFieldRouteArgs']);
-const BODY_KINDS = new Set(['FromBody', 'BodyFieldRouteArgs', 'FromModel', 'FromDbModel', 'FromXml']);
 const FILE_KINDS = new Set(['FromFile', 'FromCSV', 'FromJSONFile']);
-const FORM_KINDS = new Set(['FromForm', 'FromFormField']);
 const FILE_TYPE = 'Blob | File';
+const PLACEHOLDER = /:([A-Za-z_][A-Za-z0-9_]*)(\([^)]*\))?\??/g;
 
 export interface RouteSignature {
   name: string;
@@ -15,103 +12,70 @@ export interface RouteSignature {
   definition: string;
 }
 
-interface Classified {
-  path: ParamEntry[];
-  paramsObject?: ParamEntry;
-  query?: ParamEntry;
-  body?: ParamEntry;
-  files: ParamEntry[];
-  form: ParamEntry[];
-}
-
-function classify(route: RouteEntry): Classified {
-  const out: Classified = { path: [], files: [], form: [] };
-  for (const param of [...route.params].sort((a, b) => a.index - b.index)) {
-    if (param.kind === 'FromParams') out.path.push(param);
-    else if (param.kind === 'ParamFieldRouteArgs') out.paramsObject = param;
-    else if (QUERY_KINDS.has(param.kind)) out.query = param;
-    else if (BODY_KINDS.has(param.kind)) out.body = param;
-    else if (FILE_KINDS.has(param.kind)) out.files.push(param);
-    else if (FORM_KINDS.has(param.kind)) out.form.push(param);
-  }
-  return out;
-}
-
-function fieldsObject(fields: { name: string; type: string; required: boolean }[]): string {
-  return `{ ${fields.map((f) => `${propertyKey(f.name)}${f.required ? '' : '?'}: ${f.type}`).join('; ')} }`;
-}
-
-function asField(param: ParamEntry, ctx: TypeContext, type?: string): { name: string; type: string; required: boolean } {
-  return { name: param.name, type: type ?? ctx.typeOf(param.runtimeType), required: param.required };
-}
-
-function pathPlaceholders(fullPath: string): string[] {
-  return [...fullPath.matchAll(/:([A-Za-z_][A-Za-z0-9_]*)/g)].map((m) => m[1]);
-}
-
-function pathArgument(route: RouteEntry, found: Classified, ctx: TypeContext): { names: string[]; arg?: string } {
-  const names = pathPlaceholders(route.fullPath);
-  if (names.length === 0) return { names };
-  const fields = names.map((name) => {
-    const param = found.path.find((p) => p.name === name);
-    const type = param ? ctx.typeOf(param.runtimeType) : found.paramsObject && ctx.propertyType(found.paramsObject.runtimeType, name);
-    return { name, type: type ?? 'string | number', required: true };
-  });
-  return { names, arg: `params: ${fieldsObject(fields)}` };
-}
-
-function queryArgument(found: Classified, ctx: TypeContext): { names: string[]; type?: string } {
-  const names = found.query ? ctx.propertyNames(found.query.runtimeType) : [];
-  // The runtime reserves the query slot only for a non-empty key list, so an unknown shape must not take an argument.
-  return { names, ...(found.query && names.length > 0 ? { type: ctx.typeOf(found.query.runtimeType) } : {}) };
-}
-
-interface BodyArgument {
-  kind: 'json' | 'multipart';
+interface Argument {
+  name: string;
   type: string;
   required: boolean;
-  files: string[];
+  wire: ParamWire;
 }
 
-function bodyArgument(found: Classified, ctx: TypeContext): BodyArgument | undefined {
-  if (found.body) return { kind: 'json', type: ctx.typeOf(found.body.runtimeType), required: found.body.required, files: [] };
-  if (found.files.length === 0 && found.form.length === 0) return undefined;
-  const whole = found.form.filter((p) => p.kind === 'FromForm').map((p) => ctx.typeOf(p.runtimeType));
-  const fields = [...found.form.filter((p) => p.kind === 'FromFormField').map((p) => asField(p, ctx)), ...found.files.map((p) => asField(p, ctx, FILE_TYPE))];
-  const parts = [...(fields.length ? [fieldsObject(fields)] : []), ...whole];
-  return { kind: 'multipart', type: parts.join(' & '), required: [...found.files, ...found.form].some((p) => p.required), files: found.files.map((p) => p.name) };
+function sentWire(controller: ControllerEntry, route: RouteEntry, param: ParamEntry): ParamWire | undefined {
+  if (!param.wire) {
+    throw new Error(
+      `generateClient: ${controller.className}.${route.handler} (${route.method.toUpperCase()} ${route.fullPath}) parameter '${param.name}' (${param.kind}) has no wire binding; rebuild the manifest with the current @spinajs/compiler`,
+    );
+  }
+  return param.wire.in === 'none' ? undefined : param.wire;
 }
 
-function list(values: string[]): string {
-  return `[${values.map(literal).join(', ')}]`;
+function argumentType(param: ParamEntry, wire: ParamWire, ctx: TypeContext): string {
+  if (wire.in === 'multipart' && FILE_KINDS.has(param.kind)) return wire.multiple ? `(${FILE_TYPE})[]` : FILE_TYPE;
+  return ctx.typeOf(param.runtimeType);
 }
 
-function returnType(route: RouteEntry, ctx: TypeContext): string {
-  return ctx.typeOf(route.returnType);
+// The server still needs a segment for a placeholder no argument reads, so the caller passes it.
+function placeholderArguments(route: RouteEntry, args: Argument[]): Argument[] {
+  if (args.some((a) => a.wire.in === 'path' && a.wire.shape === 'whole')) return [];
+  const bound = new Set(args.filter((a) => a.wire.in === 'path').map((a) => a.wire.name));
+  const taken = new Set(args.map((a) => a.name));
+  return [...route.fullPath.matchAll(PLACEHOLDER)]
+    .map((m) => m[1])
+    .filter((name) => !bound.has(name))
+    .map((name) => ({ name: taken.has(name) ? `${name}Path` : name, type: 'string | number', required: true, wire: { in: 'path', name, shape: 'value' } }));
 }
 
-export function routeSignature(route: RouteEntry, ctx: TypeContext): RouteSignature {
-  const found = classify(route);
-  const path = pathArgument(route, found, ctx);
-  const query = queryArgument(found, ctx);
-  const body = bodyArgument(found, ctx);
+function routeArguments(controller: ControllerEntry, route: RouteEntry, ctx: TypeContext): Argument[] {
+  const args: Argument[] = [];
+  for (const param of [...route.params].sort((a, b) => a.index - b.index)) {
+    const wire = sentWire(controller, route, param);
+    if (wire) args.push({ name: param.name, type: argumentType(param, wire, ctx), required: param.required, wire });
+  }
+  return [...args, ...placeholderArguments(route, args)];
+}
 
-  const args: string[] = [];
-  if (path.arg) args.push(path.arg);
-  if (query.type) args.push(body ? `query: ${query.type} | undefined` : `query?: ${query.type}`);
-  if (body) args.push(`body${body.required ? '' : '?'}: ${body.type}`);
+function parameterList(args: Argument[]): string[] {
+  const lastRequired = args.map((a) => a.required).lastIndexOf(true);
+  return args.map((a, i) => {
+    if (a.required) return `${a.name}: ${a.type}`;
+    return i < lastRequired ? `${a.name}: ${a.type} | undefined` : `${a.name}?: ${a.type}`;
+  });
+}
 
-  const returns = returnType(route, ctx);
+function wireLiteral(wire: ParamWire): string {
+  const parts = [`in: ${literal(wire.in)}`, ...(wire.name !== undefined ? [`name: ${literal(wire.name)}`] : []), `shape: ${literal(wire.shape)}`, ...(wire.multiple ? ['multiple: true'] : [])];
+  return `{ ${parts.join(', ')} }`;
+}
+
+export function routeSignature(controller: ControllerEntry, route: RouteEntry, ctx: TypeContext): RouteSignature {
+  const args = routeArguments(controller, route, ctx);
+  const returns = ctx.typeOf(route.returnType);
   const parts = [
     `method: ${literal(route.method === 'file' ? 'get' : route.method)}`,
-    `path: ${literal(route.fullPath.replace(/:([A-Za-z_][A-Za-z0-9_]*)(\([^)]*\))?\??/g, '{$1}'))}`,
-    `params: ${list(path.names)}`,
-    ...(query.type ? [`query: ${list(query.names)}`] : []),
-    ...(body ? [`body: ${literal(body.kind)}`] : []),
-    ...(body && body.files.length > 0 ? [`files: ${list(body.files)}`] : []),
+    `path: ${literal(route.fullPath.replace(PLACEHOLDER, '{$1}'))}`,
+    `args: [${args.map((a) => wireLiteral(a.wire)).join(', ')}]`,
     ...(returns === 'void' ? ['void: true'] : []),
   ];
-  return { name: route.handler, args, returns, definition: `{ ${parts.join(', ')} }` };
+  return { name: route.handler, args: parameterList(args), returns, definition: `{ ${parts.join(', ')} }` };
 }
 
 export function controllerKey(controller: ControllerEntry): string {

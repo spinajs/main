@@ -74,22 +74,6 @@ export class TypeContext {
     return ['string', 'number', 'boolean'].includes(ref.text) ? ref.text : 'unknown';
   }
 
-  private properties(ref: TypeRef): Schema {
-    let schema = ref.schema ? this.schemaOf(ref.schema) : undefined;
-    while (schema && typeof schema.$ref === 'string') schema = this.schemaOf(schema.$ref);
-    return isSchema(schema?.properties) ? schema.properties : {};
-  }
-
-  /** Property names of an object schema, following named $ref aliases. */
-  public propertyNames(ref: TypeRef): string[] {
-    return Object.keys(this.properties(ref));
-  }
-
-  public propertyType(ref: TypeRef, name: string): string | undefined {
-    const properties = this.properties(ref);
-    return name in properties ? this.expression(properties[name]) : undefined;
-  }
-
   public expression(schema: unknown): string {
     if (!isSchema(schema)) return 'unknown';
     if (typeof schema.$ref === 'string') return this.reference(schema.$ref);

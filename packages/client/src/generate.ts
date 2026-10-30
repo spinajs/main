@@ -23,7 +23,7 @@ export async function generateClient(options: GenerateClientOptions): Promise<st
   const interfaces: string[] = [];
   const definitions: string[] = [];
   for (const controller of controllers) {
-    const signatures = controller.routes.map((r) => routeSignature(r, ctx));
+    const signatures = controller.routes.map((r) => routeSignature(controller, r, ctx));
     const methods = signatures.map((s) => `  ${s.name}(${s.args.join(', ')}): Promise<${s.returns}>;`);
     interfaces.push(`export interface ${controllerBase(controller)}Client {\n${methods.join('\n')}\n}`);
     definitions.push(`  ${controllerKey(controller)}: {\n${signatures.map((s) => `    ${s.name}: ${s.definition},`).join('\n')}\n  },`);

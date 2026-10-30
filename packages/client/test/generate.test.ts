@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import type { Manifest, ParamEntry, RouteEntry } from '@spinajs/manifest';
+import type { Manifest, ParamEntry, ParamWire, RouteEntry } from '@spinajs/manifest';
 import { generateClient } from '../src/index.js';
 import { appBasicManifest } from './support/fixture.js';
 import { typecheck } from './support/typecheck.js';
@@ -11,8 +11,8 @@ const snapshotPath = fileURLToPath(new URL('./__snapshots__/app-basic.client.ts'
 
 const source = { line: 1, col: 1, file: 'x.ts', package: 'x' };
 
-function param(index: number, name: string, kind: string, text: string, schema?: string, required = true): ParamEntry {
-  return { index, name, kind, runtimeType: { text, ...(schema ? { schema } : {}) }, required };
+function param(index: number, name: string, kind: string, wire: ParamWire | undefined, text: string, schema?: string, required = true): ParamEntry {
+  return { index, name, kind, runtimeType: { text, ...(schema ? { schema } : {}) }, required, ...(wire ? { wire } : {}) };
 }
 
 function route(handler: string, method: RouteEntry['method'], fullPath: string, params: ParamEntry[], returnType: RouteEntry['returnType']): RouteEntry {
@@ -51,19 +51,20 @@ describe('generateClient', () => {
     expect(output).to.not.include('\r');
   });
 
-  it('emits one interface per controller with the (params, query, body) argument order', () => {
-    expect(output).to.include('list(query?: ListQuery): Promise<UserDto[]>;');
-    expect(output).to.include('get(params: { id: number }): Promise<UserDto>;');
+  it('emits one argument per sent route parameter, in declaration order', () => {
+    expect(output).to.include('list(query: ListQuery): Promise<UserDto[]>;');
+    expect(output).to.include('get(id: number): Promise<UserDto>;');
     expect(output).to.include('create(body: CreateUserDto): Promise<UserDto | ValidationProblem>;');
-    expect(output).to.include('avatar(params: { id: number }, body: { file: Blob | File }): Promise<void>;');
+    expect(output).to.include('avatar(id: number, file: Blob | File): Promise<void>;');
     expect(output).to.include('get(): Promise<{ ok: boolean }>;');
   });
 
-  it('emits the route definition the runtime consumes', () => {
-    expect(output).to.include("list: { method: 'get', path: '/users', params: [], query: ['page', 'perPage'] },");
-    expect(output).to.include("get: { method: 'get', path: '/users/{id}', params: ['id'] },");
-    expect(output).to.include("create: { method: 'post', path: '/users', params: [], body: 'json' },");
-    expect(output).to.include("avatar: { method: 'post', path: '/users/{id}/avatar', params: ['id'], body: 'multipart', files: ['file'], void: true },");
+  it('emits the served path and each argument wire binding in the route definition', () => {
+    expect(output).to.include("get: { method: 'get', path: '/health/get', args: [] },");
+    expect(output).to.include("list: { method: 'get', path: '/users/list', args: [{ in: 'query', name: 'query', shape: 'json' }] },");
+    expect(output).to.include("get: { method: 'get', path: '/users/{id}', args: [{ in: 'path', name: 'id', shape: 'value' }] },");
+    expect(output).to.include("create: { method: 'post', path: '/users/create', args: [{ in: 'body', shape: 'whole' }] },");
+    expect(output).to.include("avatar: { method: 'post', path: '/users/{id}/avatar', args: [{ in: 'path', name: 'id', shape: 'value' }, { in: 'multipart', name: 'file', shape: 'value' }], void: true },");
   });
 
   it('emits a defineContract for each socket controller', () => {
@@ -84,18 +85,86 @@ describe('generateClient', () => {
   });
 
   describe('route shapes', () => {
-    it('omits the query argument when the query shape has no known keys', async () => {
-      const open = extend(manifest, [route('open', 'get', '/items', [param(0, 'q', 'FromQuery', 'Opaque', 'spinajs/x/Opaque')], { text: 'void' })], { 'spinajs/x/Opaque': { $id: 'spinajs/x/Opaque', type: 'object' } });
-      const out = await generateClient({ manifest: open });
-      expect(out).to.include('open(): Promise<void>;');
-      expect(out).to.include("open: { method: 'get', path: '/items', params: [], void: true },");
+    const query = (name: string): ParamWire => ({ in: 'query', name, shape: 'value' });
+
+    it('fails generation for a parameter without a wire binding, naming the route and the parameter', async () => {
+      const bare = extend(manifest, [route('open', 'get', '/items/open', [param(0, 'q', 'FromQuery', undefined, 'string')], { text: 'void' })], {});
+      await expectRejection(generateClient({ manifest: bare }), /ItemsController\.open \(GET \/items\/open\).*'q'.*FromQuery/);
     });
 
-    it('keeps the query slot in front of a body', async () => {
-      const both = extend(manifest, [route('search', 'post', '/items/:id', [param(0, 'id', 'FromParams', 'number'), param(1, 'q', 'FromQuery', 'ListQuery', 'spinajs/app-basic/ListQuery'), param(2, 'body', 'FromBody', 'CreateUserDto', 'spinajs/app-basic/CreateUserDto')], { text: 'string' })], {});
+    it('leaves out parameters that are not sent', async () => {
+      const injected = extend(manifest, [route('who', 'get', '/items/who', [param(0, 'req', 'ArgAsRequest', { in: 'none', shape: 'whole' }, 'Request'), param(1, 'page', 'FromQuery', query('page'), 'number')], { text: 'void' })], {});
+      const out = await generateClient({ manifest: injected });
+      expect(out).to.include('who(page: number): Promise<void>;');
+      expect(out).to.include("who: { method: 'get', path: '/items/who', args: [{ in: 'query', name: 'page', shape: 'value' }], void: true },");
+    });
+
+    it('keeps declaration order and types an optional argument before a required one as `| undefined`', async () => {
+      const both = extend(
+        manifest,
+        [
+          route(
+            'search',
+            'post',
+            '/items/:id',
+            [
+              param(0, 'q', 'FromQuery', { in: 'query', name: 'q', shape: 'json' }, 'ListQuery', 'spinajs/app-basic/ListQuery', false),
+              param(1, 'id', 'FromParams', { in: 'path', name: 'id', shape: 'value' }, 'number'),
+              param(2, 'tenant', 'FromHeader', { in: 'header', name: 'x-tenant', shape: 'value' }, 'string', undefined, false),
+            ],
+            { text: 'string' },
+          ),
+        ],
+        {},
+      );
       const out = await generateClient({ manifest: both });
-      expect(out).to.include('search(params: { id: number }, query: ListQuery | undefined, body: CreateUserDto): Promise<string>;');
+      expect(out).to.include('search(q: ListQuery | undefined, id: number, tenant?: string): Promise<string>;');
+      expect(out).to.include("args: [{ in: 'query', name: 'q', shape: 'json' }, { in: 'path', name: 'id', shape: 'value' }, { in: 'header', name: 'x-tenant', shape: 'value' }]");
       expect(typecheck(out)).to.deep.equal([]);
+    });
+
+    it('types whole and field arguments by their parameter and files as Blob | File, arrays when multiple', async () => {
+      const out = await generateClient({
+        manifest: extend(
+          manifest,
+          [
+            route(
+              'fields',
+              'post',
+              '/items/:id',
+              [
+                param(0, 'p', 'ParamFieldRouteArgs', { in: 'path', shape: 'whole' }, 'Ids', 'spinajs/x/Ids'),
+                param(1, 'q', 'QueryFieldRouteArgs', { in: 'query', shape: 'whole' }, 'ListQuery', 'spinajs/app-basic/ListQuery'),
+                param(2, 'a', 'FromBody', { in: 'body', name: 'a', shape: 'field' }, 'CreateUserDto', 'spinajs/app-basic/CreateUserDto'),
+                param(3, 'note', 'FromBody', { in: 'body', name: 'note', shape: 'field' }, 'string', undefined, false),
+              ],
+              { text: 'void' },
+            ),
+            route(
+              'upload',
+              'post',
+              '/items/upload',
+              [
+                param(0, 'title', 'FromFormField', { in: 'multipart', name: 'title', shape: 'value' }, 'string'),
+                param(1, 'doc', 'FromFile', { in: 'multipart', name: 'doc', shape: 'value' }, 'IUploadedFile'),
+                param(2, 'docs', 'FromFile', { in: 'multipart', name: 'docs', shape: 'value', multiple: true }, 'IUploadedFile[]'),
+              ],
+              { text: 'void' },
+            ),
+          ],
+          { 'spinajs/x/Ids': { $id: 'spinajs/x/Ids', type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
+        ),
+      });
+      expect(out).to.include('fields(p: Ids, q: ListQuery, a: CreateUserDto, note?: string): Promise<void>;');
+      expect(out).to.include('upload(title: string, doc: Blob | File, docs: (Blob | File)[]): Promise<void>;');
+      expect(out).to.include("{ in: 'multipart', name: 'docs', shape: 'value', multiple: true }");
+      expect(typecheck(out)).to.deep.equal([]);
+    });
+
+    it('adds a path argument for a placeholder no parameter binds', async () => {
+      const out = await generateClient({ manifest: extend(manifest, [route('ping', 'get', '/items/:id/ping', [], { text: 'void' })], {}) });
+      expect(out).to.include('ping(id: string | number): Promise<void>;');
+      expect(out).to.include("ping: { method: 'get', path: '/items/{id}/ping', args: [{ in: 'path', name: 'id', shape: 'value' }], void: true },");
     });
 
     it('types a dependency model as an open object and a partial explicit schema from its derived shape', async () => {
@@ -115,22 +184,14 @@ describe('generateClient', () => {
       const out = await generateClient({ manifest: extend(manifest, [route('bare', 'get', '/items/bare', [], { text: 'Ok' })], {}) });
       expect(out).to.include('bare(): Promise<unknown>;');
     });
-
-    it('types whole-request kinds by their parameter and multipart from form fields', async () => {
-      const out = await generateClient({
-        manifest: extend(
-          manifest,
-          [
-            route('fields', 'post', '/items/:id', [param(0, 'p', 'ParamFieldRouteArgs', 'Ids', 'spinajs/x/Ids'), param(1, 'q', 'QueryFieldRouteArgs', 'ListQuery', 'spinajs/app-basic/ListQuery'), param(2, 'b', 'BodyFieldRouteArgs', 'CreateUserDto', 'spinajs/app-basic/CreateUserDto', false)], { text: 'void' }),
-            route('upload', 'post', '/items/upload', [param(0, 'title', 'FromFormField', 'string'), param(1, 'doc', 'FromFile', 'IUploadedFile')], { text: 'void' }),
-          ],
-          { 'spinajs/x/Ids': { $id: 'spinajs/x/Ids', type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
-        ),
-      });
-      expect(out).to.include('fields(params: { id: number }, query: ListQuery | undefined, body?: CreateUserDto): Promise<void>;');
-      expect(out).to.include('upload(body: { title: string; doc: Blob | File }): Promise<void>;');
-      expect(out).to.include("body: 'multipart', files: ['doc']");
-      expect(typecheck(out)).to.deep.equal([]);
-    });
   });
 });
+
+async function expectRejection(promise: Promise<unknown>, message: RegExp): Promise<void> {
+  const error = await promise.then(
+    () => undefined,
+    (e: unknown) => e,
+  );
+  expect(error).to.be.instanceOf(Error);
+  expect((error as Error).message).to.match(message);
+}

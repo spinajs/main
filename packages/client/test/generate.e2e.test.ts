@@ -4,49 +4,57 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { runInNewContext } from 'node:vm';
 import express from 'express';
+import { AccessPolicy, PrincipalMiddleware } from '@spinajs/authz-http';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { ResourceNotFound } from '@spinajs/exceptions';
 import { fsService } from '@spinajs/fs';
-import { BaseController, BasePath, Body, Controllers, Get, HttpServer, Ok, Param, Post, QueryField } from '@spinajs/http';
+import { BaseController, BasePolicy, Controllers, HttpServer, Ok, Response as HttpResponse, ServerMiddleware } from '@spinajs/http';
+import type { Manifest } from '@spinajs/manifest';
 import { Intl } from '@spinajs/intl';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
+import { HealthController } from '../../compiler/test/fixtures/app-basic/src/controllers/HealthController.js';
+import { UsersController } from '../../compiler/test/fixtures/app-basic/src/controllers/users.js';
 import { createClient, ProblemError } from '../src/runtime/index.js';
 import type { ClientDefinition } from '../src/runtime/index.js';
 import { generateClient } from '../src/index.js';
+import type { AppClient } from './__snapshots__/app-basic.client.js';
 import { appBasicManifest } from './support/fixture.js';
 
-type UserDto = { id: number; email: string; name?: string };
-type CreateUserDto = { email: string; name?: string };
-type ListQuery = { page?: number; perPage?: number };
-
-const USERS: UserDto[] = [{ id: 1, email: 'ada@example.com', name: 'Ada' }];
-
-// Same routes as the app-basic fixture, minus the authz policies the fixture needs a user for.
-// An empty route path serves `/<base>/<handler>`, so the root routes say `/` explicitly.
-@BasePath('users')
-class UsersController extends BaseController {
-  @Get('/')
-  public list(@QueryField() query: ListQuery): Ok {
-    const page = Number(query.page ?? 1);
-    const perPage = Number(query.perPage ?? 10);
-    return new Ok(USERS.slice((page - 1) * perPage, page * perPage));
+// The fixture guards two routes with @Access; authorization is not what this suite checks. Importing the fixture
+// also registers authz-http's PrincipalMiddleware, which stops the server when no authz domain boots.
+class AllowAccess extends BasePolicy {
+  public isEnabled(): boolean {
+    return true;
   }
 
-  @Get(':id')
-  public get(@Param() id: number): Ok {
-    const user = USERS.find((u) => u.id === Number(id));
-    if (!user) throw new ResourceNotFound(`user ${id}`);
-    return new Ok(user);
-  }
+  public async execute(): Promise<void> {}
+}
 
-  @Post('/')
-  public create(@Body() body: CreateUserDto): Ok {
-    const user = { id: USERS.length + 1, ...body };
-    USERS.push(user);
-    return new Ok(user);
+type Action = (this: BaseController, ...args: unknown[]) => unknown;
+
+/** The route arguments each fixture action was called with, keyed `Controller.handler`. */
+const received: Record<string, unknown[]> = {};
+
+// The fixture actions return plain values, which is all the manifest needs, but http answers only a Response
+// (a plain value is a 500, undefined a 404). The subclass keeps the fixture's routes and argument decorators.
+function served(controller: typeof BaseController, manifest: Manifest): typeof BaseController {
+  const Served = class extends controller {};
+  // DI and the route log key controllers by class name.
+  Object.defineProperty(Served, 'name', { value: controller.name });
+  const entry = manifest.controllers.find((c) => c.className === controller.name);
+  if (!entry) throw new Error(`${controller.name} is not in the app-basic manifest`);
+  for (const { handler, params } of entry.routes) {
+    const action = (controller.prototype as unknown as Record<string, Action>)[handler];
+    Object.defineProperty(Served.prototype, handler, {
+      value: async function (this: BaseController, ...args: unknown[]) {
+        received[`${controller.name}.${handler}`] = args.slice(0, params.length);
+        const result = await action.apply(this, args);
+        return result instanceof HttpResponse ? result : new Ok(result);
+      },
+    });
   }
+  return Served;
 }
 
 class E2eConfiguration extends FrameworkConfiguration {
@@ -72,53 +80,67 @@ function extractDefinition(generated: string): ClientDefinition {
   return runInNewContext(`(${match[1]})`) as ClientDefinition;
 }
 
-interface UsersApi {
-  users: {
-    list(query?: ListQuery): Promise<UserDto[]>;
-    get(params: { id: number }): Promise<UserDto>;
-    create(body: CreateUserDto): Promise<UserDto>;
-  };
-}
-
-describe('generated definition against a booted server', function () {
+describe('generated client against the app-basic controllers on a booted server', function () {
   this.timeout(60000);
 
   let app: TestApp;
-  let client: UsersApi;
+  let client: AppClient;
 
   before(async () => {
-    const definition = extractDefinition(await generateClient({ manifest: await appBasicManifest() }));
+    const manifest = await appBasicManifest();
+    const definition = extractDefinition(await generateClient({ manifest }));
     app = await createTestApp({
       configuration: E2eConfiguration,
-      register: (c) => c.register(UsersController).as(BaseController),
+      register: (c) => {
+        c.unregister(ServerMiddleware, PrincipalMiddleware);
+        c.register(served(HealthController, manifest)).as(BaseController);
+        c.register(served(UsersController, manifest)).as(BaseController);
+        c.register(AllowAccess).as(AccessPolicy);
+      },
       resolve: [fsService, Intl, Controllers],
       bootTimeout: 50000,
     });
     const server = await app.resolve(HttpServer);
     await server.start();
     const { port } = DI.get(HttpServer)!.Server.address() as AddressInfo;
-    client = createClient<UsersApi>(definition, { baseUrl: `http://127.0.0.1:${port}` });
+    client = createClient<AppClient>(definition, { baseUrl: `http://127.0.0.1:${port}` });
   });
 
   after(() => app.dispose());
 
-  it('passes path params positionally', async () => {
-    expect(await client.users.get({ id: 1 })).to.deep.include({ id: 1, email: 'ada@example.com' });
+  it('health.get calls the handler-named path', async () => {
+    expect(await client.health.get()).to.deep.equal({ ok: true });
   });
 
-  it('serialises the query argument', async () => {
-    expect(await client.users.list({ page: 1, perPage: 5 })).to.have.length(1);
-    expect(await client.users.list({ page: 2, perPage: 5 })).to.have.length(0);
+  it('users.list sends the query DTO as JSON under its parameter name', async () => {
+    expect(await client.users.list({ page: 1, perPage: 5 })).to.deep.equal([{ id: 1, email: 'ada@example.com', name: 'Ada' }]);
+    expect(received['UsersController.list']).to.deep.equal([{ page: 1, perPage: 5 }]);
+    expect(await client.users.list({ page: 2, perPage: 5 })).to.deep.equal([]);
+    expect(await client.users.list({})).to.have.length(1);
   });
 
-  it('sends the body argument as json', async () => {
-    const created = await client.users.create({ email: 'grace@example.com' });
-    expect(created).to.deep.include({ email: 'grace@example.com' });
+  it('users.get sends the id as a path segment', async () => {
+    expect(await client.users.get(1)).to.deep.equal({ id: 1, email: 'ada@example.com', name: 'Ada' });
+    expect(received['UsersController.get']).to.deep.equal([1]);
   });
 
-  it('rejects with ProblemError 404 for a missing user', async () => {
-    const error = await client.users.get({ id: 404 }).catch((e: unknown) => e);
+  it('users.get rejects with ProblemError 404 for a missing user', async () => {
+    const error = await client.users.get(404).catch((e: unknown) => e);
     expect(error).to.be.instanceOf(ProblemError);
     expect((error as ProblemError).status).to.equal(404);
+    expect(received['UsersController.get']).to.deep.equal([404]);
+  });
+
+  it('users.create sends the DTO as the whole body', async () => {
+    expect(await client.users.create({ email: 'grace@example.com', name: 'Grace' })).to.deep.equal({ id: 2, email: 'grace@example.com', name: 'Grace' });
+    expect(received['UsersController.create']).to.deep.equal([{ email: 'grace@example.com', name: 'Grace' }]);
+    expect(await client.users.create({ email: 'nope' })).to.deep.equal({ kind: 'validation', errors: ['email'] });
+  });
+
+  it('users.avatar sends the file as a multipart part', async () => {
+    expect(await client.users.avatar(1, new File(['png'], 'me.png', { type: 'image/png' }))).to.equal(undefined);
+    const [id, file] = received['UsersController.avatar'] as [number, { Name: string; Size: number }];
+    expect(id).to.equal(1);
+    expect(file).to.deep.include({ Name: 'me.png', Size: 3 });
   });
 });

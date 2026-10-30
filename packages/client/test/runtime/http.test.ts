@@ -29,7 +29,7 @@ function fakeFetch(handler: (url: string, init: RequestInit) => Response): typeo
 }
 
 describe('createClient runtime', () => {
-  it('substitutes path params and serialises query with brackets', async () => {
+  it('substitutes path params and serialises the query flat', async () => {
     const seen: string[] = [];
     const client = createClient<{ users: Users }>(definition, {
       baseUrl: 'http://h',
@@ -135,9 +135,90 @@ describe('createClient runtime', () => {
   });
 });
 
+describe('createClient runtime with argument bindings', () => {
+  const wired: ClientDefinition = {
+    items: {
+      list: { method: 'get', path: '/items/list', args: [{ in: 'query', name: 'query', shape: 'json' }, { in: 'query', name: 'page', shape: 'value' }] },
+      filter: { method: 'get', path: '/items/filter', args: [{ in: 'query', shape: 'whole' }] },
+      get: { method: 'get', path: '/items/{id}', args: [{ in: 'path', name: 'id', shape: 'value' }, { in: 'header', name: 'x-tenant', shape: 'value' }, { in: 'header', name: 'x-meta', shape: 'json' }] },
+      create: { method: 'post', path: '/items/create', args: [{ in: 'body', shape: 'whole' }] },
+      two: { method: 'post', path: '/items/two', args: [{ in: 'body', name: 'a', shape: 'field' }, { in: 'body', name: 'email', shape: 'field' }] },
+      upload: { method: 'post', path: '/items/{id}/upload', args: [{ in: 'path', name: 'id', shape: 'value' }, { in: 'multipart', name: 'files', shape: 'value', multiple: true }, { in: 'multipart', name: 'title', shape: 'value' }] },
+    },
+  };
+
+  interface Items {
+    list(query: { page?: number; perPage?: number }, page?: number): Promise<unknown>;
+    filter(query: Record<string, unknown>): Promise<unknown>;
+    get(id: number, tenant?: string, meta?: unknown): Promise<unknown>;
+    create(body: { email: string }): Promise<unknown>;
+    two(a: { x: number }, email: string): Promise<unknown>;
+    upload(id: number, files: Blob[], title: string): Promise<unknown>;
+  }
+
+  function capture(): { client: Items; seen: { url: string; init: RequestInit }[] } {
+    const seen: { url: string; init: RequestInit }[] = [];
+    const client = createClient<{ items: Items }>(wired, {
+      baseUrl: 'http://h',
+      fetch: fakeFetch((url, init) => {
+        seen.push({ url, init });
+        return Response.json({});
+      }),
+    }).items;
+    return { client, seen };
+  }
+
+  it('sends a json query argument as JSON under its name and a value argument as one key', async () => {
+    const { client, seen } = capture();
+    await client.list({ page: 1, perPage: 2 }, 3);
+    await client.list({});
+    expect(seen.map((s) => s.url)).to.deep.equal([`http://h/items/list?query=${encodeURIComponent('{"page":1,"perPage":2}')}&page=3`, `http://h/items/list?query=${encodeURIComponent('{}')}`]);
+  });
+
+  it('spreads a whole query argument into flat keys, arrays as repeated keys', async () => {
+    const { client, seen } = capture();
+    await client.filter({ page: 1, tags: ['a', 'b'], skip: undefined });
+    expect(seen[0].url).to.equal('http://h/items/filter?page=1&tags=a&tags=b');
+  });
+
+  it('substitutes path arguments and sends header arguments, json headers stringified', async () => {
+    const { client, seen } = capture();
+    await client.get(7, 'acme', { a: 1 });
+    expect(seen[0].url).to.equal('http://h/items/7');
+    expect(seen[0].init.headers).to.include({ 'x-tenant': 'acme', 'x-meta': '{"a":1}' });
+  });
+
+  it('sends a whole body argument as the body and merges field arguments into one object', async () => {
+    const { client, seen } = capture();
+    await client.create({ email: 'a@b' });
+    await client.two({ x: 1 }, 'e@x');
+    expect(seen.map((s) => s.init.body)).to.deep.equal(['{"email":"a@b"}', '{"a":{"x":1},"email":"e@x"}']);
+    expect(seen[1].init.headers).to.include({ 'content-type': 'application/json' });
+  });
+
+  it('sends multipart arguments as form parts, a multiple argument as repeated parts', async () => {
+    const { client, seen } = capture();
+    await client.upload(1, [new Blob(['a']), new Blob(['b'])], 'hi');
+    const form = seen[0].init.body as FormData;
+    expect(form).to.be.instanceOf(FormData);
+    expect(form.getAll('files')).to.have.length(2);
+    expect(form.get('title')).to.equal('hi');
+    expect(seen[0].init.headers).to.not.have.property('content-type');
+  });
+
+  it('rejects when a path argument is missing', async () => {
+    const { client } = capture();
+    await expect(client.get(undefined as unknown as number)).to.be.rejectedWith(TypeError, /Missing path parameter 'id'/);
+  });
+});
+
 describe('serializeQuery', () => {
-  it('uses qs bracket notation for nested objects and arrays', () => {
-    expect(serializeQuery({ a: { b: 1 }, c: [1, 2] })).to.equal('a%5Bb%5D=1&c%5B0%5D=1&c%5B1%5D=2');
+  it('writes flat keys and repeats a key for each array item, as the simple parser reads them', () => {
+    expect(serializeQuery({ a: 1, c: [1, 2], s: 'x y' })).to.equal('a=1&c=1&c=2&s=x%20y');
+  });
+
+  it('refuses a nested object, which the simple parser would not nest', () => {
+    expect(() => serializeQuery({ a: { b: 1 } })).to.throw(TypeError, /'a'/);
   });
 
   it('skips undefined and null, and serialises dates as ISO strings', () => {
