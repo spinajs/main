@@ -1,10 +1,10 @@
 import { existsSync } from 'node:fs';
-import { join, normalize, relative, resolve, sep } from 'node:path';
+import { dirname, join, normalize, relative, resolve, sep } from 'node:path';
 import glob from 'glob';
 import minimatch from 'minimatch';
 import { token } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { manifestFileFor, MANIFEST_TOKEN, type Manifest, type ManifestMode } from '@spinajs/manifest';
+import { appRootOf, manifestFileFor, MANIFEST_TOKEN, type Manifest, type ManifestMode } from '@spinajs/manifest';
 
 /** Typed key of the runtime manifest; same string key as MANIFEST_TOKEN. */
 export const MANIFEST = token<Manifest>(MANIFEST_TOKEN, 'runtime manifest');
@@ -83,21 +83,32 @@ export function projectConfigDirs(cwd: string, runApp?: string, appBaseDir?: str
 const PACKAGE_SCOPE = '@spinajs/';
 
 interface ListedConfigFile {
-  // `<package>/<outDir>/config/...`: sorting by it gives the order the glob over node_modules/@spinajs gives
+  level: number;
+  // `<package>/<outDir>/config/...`: within one level, sorting by it gives the order the glob over node_modules/@spinajs gives
   order: string;
   file: string;
 }
 
+/** Steps from the app root up to the directory whose node_modules holds `name`, as node resolves it. */
+function installLevel(name: string, appRoot: string): number {
+  for (let dir = appRoot, level = 0; ; dir = dirname(dir), level++) {
+    if (existsSync(join(dir, 'node_modules', name))) return level;
+    if (dirname(dir) === dir) return Number.MAX_SAFE_INTEGER;
+  }
+}
+
 /**
  * Config files of the manifest packages that match `pattern` ( a file-source pattern such as `!(*.*).{cjs,js}` ),
- * in the order the `node_modules/@spinajs/*\/lib/config/**` glob lists them. Every file goes through
- * `manifestFileFor`, which keeps it inside its package root.
+ * in the order the walk lists them: the `node_modules/@spinajs/*\/lib/config/**` glob of the nearest level first.
+ * Every file goes through `manifestFileFor`, which keeps it inside its package root.
  */
 export function manifestPackageConfigFiles(manifest: Manifest, pattern: string, cwd: string): string[] {
   const listed: ListedConfigFile[] = [];
+  const appRoot = appRootOf(manifest, cwd);
 
   for (const pkg of manifest.packages) {
     if (!pkg.name.startsWith(PACKAGE_SCOPE)) continue;
+    const level = installLevel(pkg.name, appRoot);
 
     const resolveFile = (file: string) => manifestFileFor({ source: { file: `${pkg.outDir}/${file}`, line: 1, col: 1, package: pkg.name } }, manifest, cwd);
     const files = pkg.configFiles ?? builtConfigFiles(resolveFile('config'), pattern);
@@ -106,13 +117,13 @@ export function manifestPackageConfigFiles(manifest: Manifest, pattern: string, 
       if (!file.startsWith('config/') || !minimatch(file.slice('config/'.length), `**/${pattern}`)) continue;
       const resolved = resolveFile(file);
       if (existsSync(resolved)) {
-        listed.push({ order: `${pkg.name}/${pkg.outDir}/${file}`, file: resolved });
+        listed.push({ level, order: `${pkg.name}/${pkg.outDir}/${file}`, file: resolved });
       }
     }
   }
 
   // glob sorts its results with localeCompare( 'en' )
-  return listed.sort((a, b) => a.order.localeCompare(b.order, 'en')).map((l) => l.file);
+  return listed.sort((a, b) => a.level - b.level || a.order.localeCompare(b.order, 'en')).map((l) => l.file);
 }
 
 // A fragment older than `configFiles`: its one config dir is globbed, as without a manifest.

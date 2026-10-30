@@ -37,7 +37,14 @@ A directory that does not exist is skipped. A file reached through more than one
 
 ## With a manifest
 
-When the effective `system.manifest.mode` is `prefer` or `require` and a manifest is loaded (see [the manifest runtime](../manifest/README.md#runtime)), rows 2 and 3 are replaced by the config files the manifest lists for each `@spinajs/*` package (`packages[].configFiles`), at the same position and in the same order the glob gives. Every other row, the deduplication and the merge are unchanged, so the result is the configuration the `node_modules` walk gives.
+When the effective `system.manifest.mode` is `prefer` or `require` and a manifest is loaded (see [the manifest runtime](../manifest/README.md#runtime)), rows 2 and 3 are replaced by the config files the manifest lists for each `@spinajs/*` package (`packages[].configFiles`), at the same position and in the same order the glob gives: packages installed in a nearer `node_modules` first, then by name. Every other row, the deduplication and the merge are unchanged, so the result is the configuration the `node_modules` walk gives.
+
+The compiler lists every package of the app's installed dependency closure, transitive dependencies included (see [`locateFragments`](../compiler/README.md#the-fragment-contract)). The two modes still differ in these cases:
+
+- **Installed but not depended on.** The walk loads every `@spinajs/*` package under `node_modules`, also one only a `devDependency` or another workspace member pulled in. The manifest lists only what the app's `dependencies`, `optionalDependencies` and installed `peerDependencies` reach. In a monorepo, where the root `node_modules/@spinajs` holds every workspace package, the walk loads far more than the app uses.
+- **The same package at two levels.** The walk loads the config of both copies. The manifest lists the copy that resolves from the app root.
+- **`onConfigLoad` and the switch.** The switch (see [One switch](../manifest/README.md#one-switch)) reads `system.manifest` from the app's own config files before any other file loads, and imports a JS file without running its `onConfigLoad`. A `system.manifest` that only the hook returns does not turn the manifest on or off; set it in the exported object or in `SPINAJS_MANIFEST_MODE`. The file sources later load the same files with the hook, as without a manifest.
+- **Hoisting-root detection still walks.** With `WORKSPACE_ROOT_PATH` unset, the `WORKSPACE_ROOT_PATH` detection (step 1.1 under [How it works](#how-it-works)) runs in manifest mode too, before any config file is imported, so package configs build the same paths in both modes. It checks every ancestor up to the workspace root for `node_modules` and reads each `node_modules/@spinajs` until one is not empty. It does not glob the package config dirs. Set `WORKSPACE_ROOT_PATH` (in a container image, for example) to skip it.
 
 ## Configuration
 

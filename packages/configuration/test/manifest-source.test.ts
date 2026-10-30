@@ -35,6 +35,11 @@ async function boot(env: Record<string, string>, fileSources = true) {
 }
 
 // Everything a config file contributes: process.env is the environment and system.manifest the switch itself.
+const write = (file: string, content: unknown) => {
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, typeof content === 'string' ? content : JSON.stringify(content));
+};
+
 const loaded = (config: Configuration): unknown => JSON.parse(JSON.stringify(_.omit((config as FrameworkConfiguration).RootConfig, ['process', 'system.manifest'])));
 
 describe('ManifestConfigurationSource', () => {
@@ -167,14 +172,48 @@ describe('ManifestConfigurationSource', () => {
     });
   });
 
+  describe('with packages installed at two node_modules levels', () => {
+    let ws: string;
+
+    const installPackage = (nodeModules: string, name: string, config: string) => {
+      const root = join(nodeModules, '@spinajs', name);
+      write(join(root, 'package.json'), { name: `@spinajs/${name}`, version: '0.0.0', type: 'module', exports: { '.': './lib/index.js', './package.json': './package.json' } });
+      write(join(root, 'lib', 'index.js'), 'export {};');
+      write(join(root, 'lib', 'config', `${name}.js`), config);
+      return { name: `@spinajs/${name}`, version: '0.0.0', entry: 'lib/index.js', fragment: 'lib/manifest.fragment.json', outDir: 'lib', configFiles: [`config/${name}.js`] };
+    };
+
+    beforeEach(() => {
+      ws = realpathSync(mkdtempSync(join(tmpdir(), 'spinajs-levels-ws-')));
+      const app = join(ws, 'apps', 'app');
+      write(join(ws, 'package.json'), { name: 'ws', private: true, workspaces: ['apps/*'] });
+      write(join(app, 'package.json'), { name: 'app', version: '0.0.0', type: 'module' });
+      // the walk merges the nearest level first, so the hoisted alpha overrides zeta although it sorts first by name
+      const zeta = installPackage(join(app, 'node_modules'), 'zeta', "export default { shared: { by: 'zeta', zeta: true }, system: { dirs: { cli: ['zeta-cli'] } } };");
+      const alpha = installPackage(join(ws, 'node_modules'), 'alpha', "export default { shared: { by: 'alpha', alpha: true }, system: { dirs: { cli: ['alpha-cli'] } } };");
+      const manifest = JSON.parse(JSON.stringify(readFixtureManifest())) as Manifest;
+      manifest.app = { name: 'app', version: '0.0.0', root: '/nonexistent/build-machine/app', outDir: 'lib' };
+      manifest.packages = [alpha, zeta];
+      manifest.hash = hashManifest(manifest);
+      write(join(app, 'app.manifest.json'), manifest);
+      cwd.returns(app);
+    });
+
+    afterEach(() => rmSync(ws, { recursive: true, force: true }));
+
+    it('merges the package config files in the order of the walk: nearest level first, then by name', async () => {
+      const walk = loaded((await start({ SPINAJS_MANIFEST_MODE: 'off', APP_ENV: 'test' })).config);
+      const listed = loaded((await start({ SPINAJS_MANIFEST_MODE: 'require', APP_ENV: 'test' })).config);
+      const merged = walk as { shared: { by: string }; system: { dirs: { cli: string[] } } };
+      expect(merged.shared.by).to.equal('alpha');
+      expect(merged.system.dirs.cli.slice(0, 2)).to.deep.equal(['zeta-cli', 'alpha-cli']);
+      expect(listed).to.deep.equal(walk);
+    });
+  });
+
   describe('in a linked workspace', () => {
     let ws: string;
     let app: string;
-
-    const write = (file: string, content: unknown) => {
-      mkdirSync(dirname(file), { recursive: true });
-      writeFileSync(file, typeof content === 'string' ? content : JSON.stringify(content));
-    };
 
     beforeEach(() => {
       ws = realpathSync(mkdtempSync(join(tmpdir(), 'spinajs-linked-ws-')));
