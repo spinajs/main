@@ -327,7 +327,7 @@ export function LazyInject<T>(service?: Class<T> | TypedArray<T> | string, optio
     // The container assigns the binding right after construction, like any autoinject property; the setter keeps it per owner.
     AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>) => {
       const pending = !declared && (!type || !!explicit);
-      if (pending) notePendingProperty(target.constructor as Class<unknown>, key);
+      if (pending) notePendingProperty((target as { constructor: Class<unknown> }).constructor, key);
       descriptor.inject.push(
         !pending
           ? binding(type as Class<unknown>)

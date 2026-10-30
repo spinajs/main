@@ -257,8 +257,8 @@ describe('route argument types from the manifest ( no decorator metadata )', fun
     try {
       const app = await boot(controllerNamed('UntypableController'));
       try {
-        const logged = error.getCalls().map((c) => String(c.args[0]));
-        expect(logged.filter((m) => /argument #0 of UntypableController::since has no runtime type: .*no manifest answers/.test(m))).to.have.length(1);
+        const logged = error.getCalls().map((c) => c.args[0] as unknown);
+        expect(logged.filter((m) => typeof m === 'string' && /argument #0 of UntypableController::since has no runtime type: .*no manifest answers/.test(m))).to.have.length(1);
         expect((await req().get('since/since?when=0')).status).to.equal(500);
       } finally {
         await app.dispose();
