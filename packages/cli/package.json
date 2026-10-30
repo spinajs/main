@@ -61,14 +61,16 @@
     "@spinajs/asyncapi": "3.0.23",
     "@spinajs/compiler": "3.0.23",
     "@spinajs/codemods": "3.0.23",
-    "@spinajs/client": "3.0.23"
+    "@spinajs/client": "3.0.23",
+    "@spinajs/openapi": "3.0.23"
   },
   "types": "./lib/index.d.ts",
   "peerDependencies": {
     "@spinajs/asyncapi": "3.0.23",
     "@spinajs/compiler": "3.0.23",
     "@spinajs/codemods": "3.0.23",
-    "@spinajs/client": "3.0.23"
+    "@spinajs/client": "3.0.23",
+    "@spinajs/openapi": "3.0.23"
   },
   "peerDependenciesMeta": {
     "@spinajs/asyncapi": {
@@ -81,6 +83,9 @@
       "optional": true
     },
     "@spinajs/client": {
+      "optional": true
+    },
+    "@spinajs/openapi": {
       "optional": true
     }
   },

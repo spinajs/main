@@ -15,11 +15,12 @@
 
 1. Takes `http.swagger`, or `{ enabled: true, title: 'API Documentation', version: '1.0.0' }` when the key is missing.
 2. Sets `basePath` to `http.swagger.basePath`, else `http.controllers.route.prefix`, else `''`.
-3. Resolves a new `OpenApiBuilder` with that config: `DI.resolve(OpenApiBuilder, [config])`.
-4. Reads `Controllers.Controllers` from `@spinajs/http`.
-5. For each controller, calls `SwaggerDocCache.getCache(controller)` and `OpenApiBuilder.addController()`. An error is recorded with the controller name, and the loop goes on.
-6. Any errors: logs them at `error` level and throws `UnexpectedServerError('Cannot build the OpenAPI spec: <n> controller(s) could not be documented.' + one line per controller)`. Nothing is cached, so the next call tries again.
-7. No errors: caches `OpenApiBuilder.build()` and returns it.
+3. With `system.manifest.mode` set to `prefer` or `require` and a valid `app.manifest.json`, returns `manifestToOpenApi()` from `@spinajs/openapi` (OpenAPI 3.1) and stops here; `http.controllers.route.prefix` becomes `routePrefix`, `http.swagger.basePath` stays a literal prefix, and `http.swagger.security` replaces the default requirement (the first security scheme). A missing or stale manifest falls back to the next step in `prefer` mode and throws in `require` mode.
+4. Resolves a new `OpenApiBuilder` with that config: `DI.resolve(OpenApiBuilder, [config])`.
+5. Reads `Controllers.Controllers` from `@spinajs/http`.
+6. For each controller, calls `SwaggerDocCache.getCache(controller)` and `OpenApiBuilder.addController()`. An error is recorded with the controller name, and the loop goes on.
+7. Any errors: logs them at `error` level and throws `UnexpectedServerError('Cannot build the OpenAPI spec: <n> controller(s) could not be documented.' + one line per controller)`. Nothing is cached, so the next call tries again.
+8. No errors: caches `OpenApiBuilder.build()` and returns it.
 
 `SwaggerService.invalidate()` drops the cached document and detaches a running build; the next `getSpec()` builds again.
 

@@ -27,6 +27,12 @@
       "path": "../log/tsconfig.json"
     },
     {
+      "path": "../manifest/tsconfig.json"
+    },
+    {
+      "path": "../openapi/tsconfig.json"
+    },
+    {
       "path": "../reflection/tsconfig.json"
     },
     {
