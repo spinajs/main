@@ -3,7 +3,7 @@
   "info": {
     "title": "app-basic",
     "version": "1.0.0",
-    "x-spinajs-manifest-hash": "75dba65649f224633f15298e42db7ffd4c3ab0397baae94cbfad35becc5e97d7"
+    "x-spinajs-manifest-hash": "5020edee803492b12e0eb0127b5309f833e14f05f590c9f870a83c6a58884305"
   },
   "servers": {
     "default": {

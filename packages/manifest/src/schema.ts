@@ -630,6 +630,9 @@ export const manifestSchema: Record<string, any> = {
         "options": {},
         "schema": {
           "type": "string"
+        },
+        "wire": {
+          "$ref": "#/definitions/ParamWire"
         }
       },
       "required": [
@@ -652,6 +655,49 @@ export const manifestSchema: Record<string, any> = {
       },
       "required": [
         "text"
+      ]
+    },
+    "ParamWire": {
+      "type": "object",
+      "properties": {
+        "in": {
+          "$ref": "#/definitions/WireLocation"
+        },
+        "name": {
+          "type": "string"
+        },
+        "shape": {
+          "$ref": "#/definitions/WireShape"
+        },
+        "multiple": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "in",
+        "shape"
+      ]
+    },
+    "WireLocation": {
+      "type": "string",
+      "enum": [
+        "query",
+        "path",
+        "body",
+        "header",
+        "cookie",
+        "multipart",
+        "none"
+      ]
+    },
+    "WireShape": {
+      "type": "string",
+      "enum": [
+        "value",
+        "json",
+        "whole",
+        "field"
       ]
     },
     "SocketControllerEntry": {

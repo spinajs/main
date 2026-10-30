@@ -9,7 +9,7 @@ import { fsService } from '@spinajs/fs';
 import { Intl } from '@spinajs/intl';
 import { createTestApp, type TestApp } from '@spinajs/testing';
 
-import { BaseController, BasePath, Controllers, Get, HttpServer, Ok, Param, Post } from '../src/index.js';
+import { BaseController, BasePath, Body, Controllers, Get, HttpServer, Ok, Param, Post, Query, QueryField } from '../src/index.js';
 
 @BasePath('users')
 class UsersRouteController extends BaseController {
@@ -77,7 +77,44 @@ class LeadingSlashRouteController extends BaseController {
   }
 }
 
-const CONTROLLERS = [UsersRouteController, NoBaseRouteController, NestedRouteController, LeadingSlashRouteController];
+type ListQuery = { page?: number; perPage?: number };
+type CreateUser = { email: string };
+
+// One handler per row of the manifest's `ParamEntry.wire` table.
+@BasePath('wire')
+class WireRouteController extends BaseController {
+  @Get('dto')
+  public dto(@Query() query: ListQuery) {
+    return new Ok({ handler: 'dto', value: query ?? null });
+  }
+
+  @Get('prims')
+  public prims(@Query() page: number, @Query() perPage: number) {
+    return new Ok({ handler: 'prims', value: [page ?? null, perPage ?? null] });
+  }
+
+  @Get('flat')
+  public flat(@QueryField() q: ListQuery) {
+    return new Ok({ handler: 'flat', value: q });
+  }
+
+  @Post('one')
+  public one(@Body() body: CreateUser) {
+    return new Ok({ handler: 'one', value: body });
+  }
+
+  @Post('two')
+  public two(@Body() a: CreateUser, @Body() b: CreateUser) {
+    return new Ok({ handler: 'two', value: [a, b] });
+  }
+
+  @Post('prim')
+  public prim(@Body() email: string) {
+    return new Ok({ handler: 'prim', value: email ?? null });
+  }
+}
+
+const CONTROLLERS = [UsersRouteController, NoBaseRouteController, NestedRouteController, LeadingSlashRouteController, WireRouteController];
 
 class RoutePathConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
@@ -96,7 +133,7 @@ class RoutePathConfiguration extends FrameworkConfiguration {
   }
 }
 
-describe('served route paths', function () {
+describe('served route paths and argument binding', function () {
   this.timeout(60000);
 
   let app: TestApp;
@@ -153,5 +190,30 @@ describe('served route paths', function () {
     expect(await status('GET', '/nobaseroutecontroller/pong')).to.deep.equal([200, 'pong']);
     expect(await status('GET', '/api/v2/things/all')).to.deep.equal([200, 'all']);
     expect((await status('GET', '/lead/x'))[0]).to.equal(404);
+  });
+
+  const call = async (method: string, path: string, body?: unknown): Promise<[number, unknown]> => {
+    const res = await fetch(base + path, { method, headers: { accept: 'application/json', 'content-type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    const text = await res.text();
+    return [res.status, res.ok ? (JSON.parse(text) as { value: unknown }).value : undefined];
+  };
+
+  it('binds an object @Query from JSON under the parameter name, not from flat or bracket keys', async () => {
+    expect(await call('GET', `/wire/dto?${new URLSearchParams({ query: JSON.stringify({ page: 2 }) }).toString()}`)).to.deep.equal([200, { page: 2 }]);
+    expect(await call('GET', '/wire/dto?page=2')).to.deep.equal([200, null]);
+    expect(await call('GET', '/wire/dto?query[page]=2')).to.deep.equal([200, null]);
+  });
+
+  it('binds primitive @Query arguments one key each, and @QueryField as the flat query of strings', async () => {
+    expect(await call('GET', '/wire/prims?page=1&perPage=2')).to.deep.equal([200, [1, 2]]);
+    expect(await call('GET', '/wire/flat?page=1&a[b]=c&rep=1&rep=2')).to.deep.equal([200, { page: '1', 'a[b]': 'c', rep: ['1', '2'] }]);
+  });
+
+  it('binds a single object @Body to the whole body, several or a primitive one to fields', async () => {
+    expect(await call('POST', '/wire/one', { email: 'a@b' })).to.deep.equal([200, { email: 'a@b' }]);
+    expect(await call('POST', '/wire/two', { email: 'a@b' })).to.deep.equal([200, [null, null]]);
+    expect(await call('POST', '/wire/two', { a: { email: 'a@b' }, b: { email: 'b@b' } })).to.deep.equal([200, [{ email: 'a@b' }, { email: 'b@b' }]]);
+    expect(await call('POST', '/wire/prim', { email: 'x@y' })).to.deep.equal([200, 'x@y']);
+    expect((await call('POST', '/wire/prim', 'x@y'))[0]).to.equal(400);
   });
 });

@@ -104,7 +104,12 @@
                 "text": "ListQuery",
                 "schema": "spinajs/app-basic/ListQuery"
               },
-              "required": true
+              "required": true,
+              "wire": {
+                "in": "query",
+                "name": "query",
+                "shape": "json"
+              }
             }
           ],
           "returnType": {
@@ -137,7 +142,12 @@
                 "text": "number",
                 "schema": "spinajs/app-basic/UsersController_get_id"
               },
-              "required": true
+              "required": true,
+              "wire": {
+                "in": "path",
+                "name": "id",
+                "shape": "value"
+              }
             }
           ],
           "returnType": {
@@ -179,7 +189,11 @@
                 "text": "CreateUserDto",
                 "schema": "spinajs/app-basic/CreateUserDto"
               },
-              "required": true
+              "required": true,
+              "wire": {
+                "in": "body",
+                "shape": "whole"
+              }
             }
           ],
           "returnType": {
@@ -221,7 +235,12 @@
                 "text": "number",
                 "schema": "spinajs/app-basic/UsersController_avatar_id"
               },
-              "required": true
+              "required": true,
+              "wire": {
+                "in": "path",
+                "name": "id",
+                "shape": "value"
+              }
             },
             {
               "index": 1,
@@ -230,7 +249,12 @@
               "runtimeType": {
                 "text": "IUploadedFile<any>"
               },
-              "required": true
+              "required": true,
+              "wire": {
+                "in": "multipart",
+                "name": "file",
+                "shape": "value"
+              }
             }
           ],
           "returnType": {
@@ -610,6 +634,6 @@
     }
   },
   "diagnostics": [],
-  "generatedAt": "2026-10-30T01:49:49.443Z",
-  "hash": "75dba65649f224633f15298e42db7ffd4c3ab0397baae94cbfad35becc5e97d7"
+  "generatedAt": "2026-10-30T01:52:42.970Z",
+  "hash": "5020edee803492b12e0eb0127b5309f833e14f05f590c9f870a83c6a58884305"
 }

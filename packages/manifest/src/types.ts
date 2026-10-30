@@ -35,6 +35,27 @@ export interface TypeRef {
   schema?: string;
 }
 
+/** `none`: injected by the framework or set by the user agent (`FromDi`, `Req`, `Ip`, `UserAgent`, ...), not part of a call. */
+export type WireLocation = 'query' | 'path' | 'body' | 'header' | 'cookie' | 'multipart' | 'none';
+
+/**
+ * - `value`: one plain string under `name` (a primitive, literal union or enum; a file part; a hydrated type such as luxon `DateTime`).
+ * - `json`: `JSON.stringify(value)` under `name` (a class, object, array, `any` or mixed union read from a query key, url segment, header or cookie).
+ * - `whole`: the argument is the container itself: the whole query (flat, string values), params, headers, form, or body.
+ * - `field`: `body[name]` (one of several `@Body` arguments, or a primitive single `@Body`).
+ */
+export type WireShape = 'value' | 'json' | 'whole' | 'field';
+
+/** How a client sends a route argument, as the `@spinajs/http` route-arg that reads it binds it. */
+export interface ParamWire {
+  in: WireLocation;
+  /** Key on the wire; absent for `whole`. A header name is lower-cased. */
+  name?: string;
+  shape: WireShape;
+  /** Repeated parts or fields under `name` (`@Files`, an array `@FormField`). */
+  multiple?: true;
+}
+
 export interface ParamEntry {
   index: number;
   name: string;                      // from the AST, replaces cache.ts
@@ -43,6 +64,8 @@ export interface ParamEntry {
   required: boolean;
   options?: unknown;                 // decorator options object when it is a literal
   schema?: string;                   // explicit @Body/@Query schema `$id` (inline schemas are hoisted into `schemas`)
+  /** Absent in fragments older than the field. */
+  wire?: ParamWire;
 }
 
 export interface PolicyRef { type: string; options?: unknown[] }

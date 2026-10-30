@@ -6,6 +6,7 @@ import { decoratorsOf, findDecorator, literalValue } from '../decorators.js';
 import { accessOf, middlewaresOf, policyGroupsOf } from './policies.js';
 import { routeDocOf } from './jsdoc.js';
 import { conditionOf } from './conditions.js';
+import { wireOf, type RouteWireContext } from './wire.js';
 
 export const PARAM_KINDS: Record<string, string> = {
   FromDI: 'FromDi', BodyField: 'BodyFieldRouteArgs', AcceptType: 'RequestTypeRouteArgs', HeadersField: 'HeadersFieldRouteArgs',
@@ -23,6 +24,8 @@ const BUILTIN_SCHEMAS: Record<string, unknown> = {
 };
 // Values the framework injects (or binary uploads): their types are not wire input, so nothing is derived from them.
 const UNDERIVED_KINDS = new Set(['FromFile', 'Req', 'Res', 'FromDi']);
+// Decorators whose first argument is neither the schema nor the options but still shapes the wire (header key, key location).
+const WIRE_FIRST_ARG = new Set(['Header', 'PKey', 'Uuid']);
 const OPTIONS_ARG_INDEX: Record<string, number> = { Query: 1, Param: 1, Header: 2, FormField: 1, Body: 0, File: 0, Files: 0, Form: 0, JsonFile: 0, CsvFile: 0, FromXml: 0, Model: 0, FromModel: 0, AsModel: 0 };
 
 type NamedClass = ts.ClassDeclaration & { name: ts.Identifier };
@@ -33,7 +36,7 @@ function isRequired(p: ts.ParameterDeclaration, type: ts.Type): boolean {
   return !members.some((t) => t.flags & ts.TypeFlags.Undefined);
 }
 
-function paramOf(p: ts.ParameterDeclaration, index: number, owner: string, ctx: ExtractorContext): ParamEntry | undefined {
+function paramOf(p: ts.ParameterDeclaration, index: number, owner: string, route: RouteWireContext, ctx: ExtractorContext): ParamEntry | undefined {
   const dec = decoratorsOf(p).find((d) => PARAM_KINDS[d.name]);
   if (!dec) return undefined;
   const name = ts.isIdentifier(p.name) ? p.name.text : p.name.getText();
@@ -49,10 +52,12 @@ function paramOf(p: ts.ParameterDeclaration, index: number, owner: string, ctx: 
   const type = ctx.checker.getTypeAtLocation(p);
   const kind = PARAM_KINDS[dec.name];
   const nonNull = ctx.checker.getNonNullableType(type);
+  const firstArg = optionsIdx === 0 ? options : WIRE_FIRST_ARG.has(dec.name) ? literalValue(dec.args[0], ctx) : undefined;
   return {
     index, name, kind, runtimeType: UNDERIVED_KINDS.has(kind) ? ctx.plainTypeRef(nonNull) : ctx.typeRef(nonNull, p, `${owner.replace('.', '_')}_${name}`),
     required: options?.required === true || isRequired(p, type),
     ...(options !== undefined ? { options } : {}), ...(schemaId ? { schema: schemaId } : {}),
+    wire: wireOf(dec, firstArg, p, name, type, route, ctx),
   };
 }
 
@@ -65,9 +70,11 @@ function routeOf(m: ts.MethodDeclaration, mountPath: string, className: string, 
   const returnType = sig ? ctx.typeRef(ctx.checker.getReturnTypeOfSignature(sig), m, `${className}_${handler}_Response`) : { text: 'unknown' };
   const { access, allowAnonymous } = accessOf(m, ctx);
   const doc = routeDocOf(m, ctx);
+  const countOf = (decorator: string): number => m.parameters.filter((p) => decoratorsOf(p).some((d) => d.name === decorator)).length;
+  const wire: RouteWireContext = { bodyParams: countOf('Body'), asModelParams: countOf('AsModel') };
   return {
     method: ROUTE_METHODS[dec.name], path, handler, fullPath: routeFullPath(mountPath, path, handler),
-    params: m.parameters.map((p, i) => paramOf(p, i, `${className}.${handler}`, ctx)).filter((p): p is ParamEntry => !!p),
+    params: m.parameters.map((p, i) => paramOf(p, i, `${className}.${handler}`, wire, ctx)).filter((p): p is ParamEntry => !!p),
     returnType, policies: policyGroupsOf(m, ctx, 'route'), middlewares: middlewaresOf(m, ctx),
     ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}), ...(doc ? { doc } : {}),
     source: ctx.sourceRef(m),
