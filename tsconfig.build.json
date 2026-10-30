@@ -281,6 +281,9 @@
       "path": "packages/teams-http/tsconfig.build.json"
     },
     {
+      "path": "packages/codemods/tsconfig.build.json"
+    },
+    {
       "path": "packages/testing/tsconfig.build.json"
     },
     {

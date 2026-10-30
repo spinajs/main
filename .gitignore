@@ -122,6 +122,7 @@ graphify-out/
 !/docs/authz-testing/
 !/docs/cli/
 !/docs/client/
+!/docs/codemods/
 !/docs/compiler/
 !/docs/configuration/
 !/docs/configuration-aws-secretmanager-protocol/
@@ -206,7 +207,6 @@ graphify-out/
 !/docs/util/
 !/docs/validation/
 # docs-packages-end
-
 # Release upgrade guides ( not a package docs folder )
 !/docs/upgrading/
 

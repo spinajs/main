@@ -40,6 +40,9 @@
     },
     {
       "path": "../log-common/tsconfig.build.json"
+    },
+    {
+      "path": "../codemods/tsconfig.build.json"
     }
   ]
 }
