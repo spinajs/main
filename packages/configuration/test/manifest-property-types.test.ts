@@ -5,11 +5,13 @@ import sinon from 'sinon';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { hashManifest, type ClassPropertiesEntry, type Manifest, type ManifestMode, type RuntimeTypeRef } from '@spinajs/manifest';
-import { Autoinject, DI, forgetPendingProperties, LazyInject, notePendingProperty, ResolveException, Singleton, type IContainer } from '@spinajs/di';
+import { Autoinject, DI, forgetPendingProperties, LazyInject, notePendingProperty, ResolveException, Singleton, type Class, type IContainer } from '@spinajs/di';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { Configuration, ConfigurationSource } from '@spinajs/configuration-common';
 import { FrameworkConfiguration } from '../src/configuration.js';
+import { AutoinjectService } from '../src/decorators.js';
 import { ManifestConfigurationSource } from '../src/manifest-source.js';
 
 chai.use(chaiAsPromised);
@@ -46,6 +48,11 @@ class Plugins {
   public list: Plugin[];
 }
 (Autoinject(Plugin) as PropertyDecorator)(Plugins.prototype, 'list');
+
+class ServiceHolder {
+  public db: Db;
+}
+AutoinjectService('app.db')(ServiceHolder.prototype, 'db');
 
 // Every suite in this process boots: the classes above are declared for the tests that list them.
 forgetPendingProperties();
@@ -146,6 +153,21 @@ describe('property types from the manifest', () => {
   it('leaves the failure to the owner in prefer', async () => {
     const container = await boot(manifestOf({ classProperties: [entry('Repo', 'db', BROKEN)] }), 'prefer');
     expect(() => container.resolve(Repo)).to.throw(ResolveException, /Repo\.db/);
+  });
+
+  describe('@AutoinjectService', () => {
+    it('injects the service the configuration names, of the type the manifest records', async () => {
+      const container = await boot(manifestOf({ classProperties: [entry('ServiceHolder', 'db', DB)] }), 'require');
+      const { Db } = (await import(pathToFileURL(join(ROOT, 'out', 'db.js')).href)) as { Db: Class<Db> };
+      container.register(Db).as(Db);
+      (await container.resolve(Configuration)).set('app.db', 'Db');
+      expect((await container.resolve(ServiceHolder)).db.kind).to.equal('db');
+    });
+
+    it('throws ResolveException naming the class and the property without an answer', async () => {
+      const container = await boot(manifestOf({}), 'prefer');
+      expect(() => container.resolve(ServiceHolder)).to.throw(ResolveException, /ServiceHolder\.db/);
+    });
   });
 
   describe('two classes with one name', () => {

@@ -141,6 +141,32 @@ describe('what a build without decorator metadata needs from the manifest', () =
     });
   });
 
+  describe('what model and configuration decorators read', () => {
+    const relation = { package: '@spinajs/orm', file: 'lib/relation-objects.js', export: 'Relation' };
+    const owner = () => fragment.classProperties?.find((c) => c.className === 'Owner')?.properties;
+    const ref = (name: string) => owner()?.find((p) => p.property === name)?.tokenRef;
+
+    it('records the class a relation property declares', () => {
+      expect(ref('Pets')).to.deep.equal(relation);
+      expect(ref('Linked')).to.deep.equal(relation);
+      expect(ref('Names')).to.deep.equal({ package: 'no-metadata', file: 'src/models.ts', export: 'PetNames' });
+    });
+
+    it('records the model of @JunctionTable', () => {
+      expect(ref('Junction')).to.deep.equal({ package: 'no-metadata', file: 'src/models.ts', export: 'Link' });
+    });
+
+    it('records nothing for a column', () => {
+      expect(owner()?.map((p) => p.property)).to.not.include('Id');
+    });
+
+    it('records the declared type of @AutoinjectService unless the decorator names one', () => {
+      const holder = fragment.classProperties?.find((c) => c.className === 'Holder')?.properties;
+      expect(holder?.find((p) => p.property === 'db')?.tokenRef).to.deep.equal(db);
+      expect(holder?.find((p) => p.property === 'named')).to.not.have.property('tokenRef');
+    });
+  });
+
   describe('socket @FromDI', () => {
     it('records the type of every @FromDI() parameter by handler, hooks included', () => {
       const docs = fragment.socketControllers.find((c) => c.className === 'DocsSocket')!;

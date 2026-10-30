@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { Int64Mode, Int64ValueConverter, JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
-import { Constructor, DI, IContainer, getInheritedDescriptor } from '@spinajs/di';
+import { Constructor, DI, IContainer, declaredPropertyType, getInheritedDescriptor } from '@spinajs/di';
 import { IModelDescriptor, IMigrationDescriptor, IMigrationOptions, RelationType, IRelationDescriptor, IDiscriminationEntry, BooleanValueConverter, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder, IColumnDescriptor, IPrimaryKeyOptions, OrphanPolicy } from './interfaces.js';
 import 'reflect-metadata';
 import { ModelBase } from './model.js';
@@ -75,6 +75,17 @@ function _lazyTargetDescriptor(descriptor: IRelationDescriptor, targetModel: str
 
   const registered = DI.get(Orm)?.Models.find((x) => x.name === targetModel)?.type;
   return registered ? extractModelDescriptor(registered) : null;
+}
+
+type RelationConstructor = Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>, typeof ModelBase<ModelBase<unknown>>>>;
+
+/**
+ * The class a property declares: `design:type`, or in a build without decorator metadata what the manifest records.
+ * That is known only after boot, and model files load before it, so it is read when a relation is first built.
+ */
+function _declaredType<T>(target: any, propertyKey: string): () => T {
+  const type = Reflect.getMetadata('design:type', target.prototype, propertyKey) as T | undefined;
+  return () => type ?? (declaredPropertyType(target, propertyKey) as T);
 }
 
 function _getMetadataFrom(target: any) {
@@ -216,8 +227,9 @@ export function Model(tableName: string) {
  */
 export function CreatedAt() {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+    // Absent in a build without decorator metadata, where nothing checks the declared type.
     const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
-    if (type.name !== 'DateTime') {
+    if (type && type.name !== 'DateTime') {
       throw Error(`Proprety ${propertyKey} marked as CreatedAt must be DateTime type, but is ${type.name}. Type: ${target.name}`);
     }
 
@@ -236,8 +248,9 @@ export function CreatedAt() {
  */
 export function UpdatedAt() {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+    // Absent in a build without decorator metadata, where nothing checks the declared type.
     const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
-    if (type.name !== 'DateTime') {
+    if (type && type.name !== 'DateTime') {
       throw Error(`Proprety ${propertyKey} marked as UpdatedAt must be DateTime type, but is ${type.name}. Type: ${target.name}`);
     }
 
@@ -256,8 +269,9 @@ export function UpdatedAt() {
  */
 export function SoftDelete() {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+    // Absent in a build without decorator metadata, where nothing checks the declared type.
     const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
-    if (type.name !== 'DateTime') {
+    if (type && type.name !== 'DateTime') {
       throw Error(`Proprety ${propertyKey} marked as DeletedAt must be DateTime type, but is ${type.name}. Type: ${target.name}`);
     }
 
@@ -277,8 +291,9 @@ export function SoftDelete() {
  */
 export function Archived() {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+    // Absent in a build without decorator metadata, where nothing checks the declared type.
     const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
-    if (type.name !== 'DateTime') {
+    if (type && type.name !== 'DateTime') {
       throw Error(`Proprety ${propertyKey} marked as ArchivedAt must be DateTime type, but is ${type.name}. Type: ${target.name}`);
     }
 
@@ -375,9 +390,12 @@ export function Uuid() {
 
 export function JunctionTable() {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+    const declared = _declaredType<Constructor<ModelBase>>(target, propertyKey);
     model.JunctionModelProperties.push({
       Name: propertyKey,
-      Model: Reflect.getMetadata('design:type', target.prototype, propertyKey),
+      get Model() {
+        return declared();
+      },
     });
   });
 }
@@ -467,7 +485,7 @@ export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignK
 
 export function Virtual(virtualRelation?: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>, typeof ModelBase<ModelBase<unknown>>>>) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>, typeof ModelBase<ModelBase<unknown>>>> = Reflect.getMetadata('design:type', target.prototype, propertyKey);
+    const declared = _declaredType<RelationConstructor>(target, propertyKey);
 
     model.Relations.set(propertyKey, {
       Name: propertyKey,
@@ -480,8 +498,10 @@ export function Virtual(virtualRelation?: Constructor<Relation<ModelBase<unknown
       ForeignKey: '',
       PrimaryKey: '',
       Recursive: false,
-      RelationClass: virtualRelation ?? type,
-
+      // A getter, not a thunk like @HasMany's: VirtualRelationMiddleware resolves RelationClass directly.
+      get RelationClass() {
+        return virtualRelation ?? declared();
+      },
     });
   });
 }
@@ -622,7 +642,7 @@ export interface IHasManyDecoratorOptions extends IRelationDecoratorOptions {
  */
 export function HasMany(targetModel: Constructor<ModelBase> | string, options?: IHasManyDecoratorOptions) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>, typeof ModelBase<ModelBase<unknown>>>> = Reflect.getMetadata('design:type', target.prototype, propertyKey);
+    const declared = _declaredType<RelationConstructor>(target, propertyKey);
 
     model.Relations.set(propertyKey, {
       Name: propertyKey,
@@ -635,7 +655,7 @@ export function HasMany(targetModel: Constructor<ModelBase> | string, options?: 
       Recursive: false,
       Orphan: options?.orphan,
       Factory: options?.factory ? options.factory : undefined,
-      RelationClass: options?.type ? options.type : () => DI.resolve(ORM_RELATION_HAS_MANY_FACTORY, [type]),
+      RelationClass: options?.type ? options.type : () => DI.resolve(ORM_RELATION_HAS_MANY_FACTORY, [declared()]),
     });
   });
 }
@@ -663,6 +683,7 @@ export function Historical(targetModel: Constructor<ModelBase>) {
  */
 export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel: Constructor<ModelBase> | string, options?: IHasManyToManyDecoratorOptions) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+    const declared = _declaredType<RelationConstructor>(target, propertyKey);
     const descriptor: IRelationDescriptor = {
       Name: propertyKey,
       Recursive: false,
@@ -678,7 +699,7 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
       // JunctionModelTargetModelFKey_Name: options?.junctionModelTargetPk ?? `${targetModelDescriptor.Name.toLowerCase()}_id`,
       JunctionModelTargetModelFKey_Name: '',
       JunctionModelSourceModelFKey_Name: options?.junctionModelSourcePk ?? `${model.Name.toLowerCase()}_id`,
-      RelationClass: options?.type ? options.type : () => DI.resolve(ORM_RELATION_HAS_MANY_TO_MANY_FACTORY, [type]),
+      RelationClass: options?.type ? options.type : () => DI.resolve(ORM_RELATION_HAS_MANY_TO_MANY_FACTORY, [declared()]),
       Factory: options ? options.factory : undefined,
       JoinMode: options ? options.joinMode : undefined,
     };
@@ -709,8 +730,6 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
       descriptor.JunctionModelTargetModelFKey_Name = options?.junctionModelTargetPk ?? `${targetModelDescriptor!.Name.toLowerCase()}_id`;
     }
 
-    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>, typeof ModelBase<ModelBase<unknown>>>> = Reflect.getMetadata('design:type', target.prototype, propertyKey);
-
     model.Relations.set(propertyKey, descriptor);
   });
 }
@@ -721,8 +740,9 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
  */
 export function DateTime() {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+    // Absent in a build without decorator metadata, where nothing checks the declared type.
     const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
-    if (type.name !== 'DateTime') {
+    if (type && type.name !== 'DateTime') {
       throw Error(`Proprety  ${propertyKey} must be DateTime type, but is ${type.name}`);
     }
 
@@ -760,7 +780,7 @@ export function DateTime() {
 export function Bool() {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
-    if (type?.name !== 'Boolean') {
+    if (type && type.name !== 'Boolean') {
       throw new InvalidArgument(`property ${propertyKey} must be boolean type, but is ${type?.name}`);
     }
 
@@ -834,8 +854,9 @@ export function UniversalConverter(typeColumn?: string) {
  */
 export function Set() {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+    // Absent in a build without decorator metadata, where nothing checks the declared type.
     const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
-    if (type.name !== 'Array') {
+    if (type && type.name !== 'Array') {
       throw Error(`Proprety  ${propertyKey} must be an array type`);
     }
 

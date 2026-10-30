@@ -4,7 +4,7 @@ import { ResolveException } from './exceptions.js';
 import { Class } from './types.js';
 import { TypedArray } from './array.js';
 import * as DI from './root.js';
-import { notePendingProperty } from './property-type.js';
+import { notePendingProperty, PROPERTY_TYPE_RESOLVER } from './property-type.js';
 import { getTypeName, isChainArray, isConstructor, isPromise, isTypedArray } from './helpers.js';
 
 export const DI_DESCRIPTION_SYMBOL = '__DI_INJECTION_DESCRIPTOR__';
@@ -360,6 +360,15 @@ export function LazyInject<T>(service?: Class<T> | TypedArray<T> | string, optio
       },
     });
   };
+}
+
+/** What `design:type` would hold for a property in a build without decorator metadata, for a decorator that needs the type after boot. */
+export function declaredPropertyType(owner: Class<unknown>, property: string, container: IContainer = DI.RootContainer): Class<unknown> {
+  const type = container.get(PROPERTY_TYPE_RESOLVER)?.typeOf(owner, property, container)?.type;
+  if (!type) {
+    throw new ResolveException(`cannot read the type of ${owner.name}.${property}: the build emits no decorator metadata; boot from a manifest that records it ( spinajs build )`);
+  }
+  return type;
 }
 
 /**
