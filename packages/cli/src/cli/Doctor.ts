@@ -16,8 +16,8 @@ interface DoctorOptions {
 @Command('doctor', 'Checks app.manifest.json for registration, routing and configuration problems')
 @Option('-m, --manifest <path>', false, 'manifest file written by spinajs build', 'app.manifest.json')
 @Option('-c, --config', false, 'also validate system.dirs and conditional registrations against the loaded configuration')
-@Option('-f, --format <format>', false, 'output format: text, json or github', 'text')
-@Option('--fail-on <severity>', false, 'severity that sets a non-zero exit code: warning or error', 'error')
+@Option({ flags: '-f, --format <format>', description: 'output format', defaultValue: 'text', choices: ['text', 'json', 'github'] })
+@Option({ flags: '--fail-on <severity>', description: 'severity that sets a non-zero exit code', defaultValue: 'error', choices: ['warning', 'error'] })
 export class DoctorCommand extends CliCommand {
   @Autoinject()
   protected Config: Configuration;
@@ -31,13 +31,16 @@ export class DoctorCommand extends CliCommand {
     });
 
     const path = resolve(process.cwd(), options.manifest);
+    const read = await readManifest(path).then(
+      (manifest) => ({ manifest }),
+      (err: unknown) => ({ reason: err instanceof Error ? err.message : String(err) }),
+    );
     let diagnostics: Diagnostic[];
-    try {
-      const manifest = await readManifest(path);
+    if ('manifest' in read) {
       const config = options.config ? (this.Config.RootConfig as Record<string, unknown>) : undefined;
-      diagnostics = runDoctor(manifest, createDoctorContext(manifest, { cwd: process.cwd(), config }));
-    } catch {
-      diagnostics = [{ code: 'DOCTOR', severity: 'error', message: `Cannot read manifest ${path}: run spinajs build first` }];
+      diagnostics = runDoctor(read.manifest, createDoctorContext(read.manifest, { cwd: process.cwd(), config }));
+    } else {
+      diagnostics = [{ code: 'DOCTOR', severity: 'error', message: `Cannot read manifest ${path}: ${read.reason}; run spinajs build first` }];
     }
 
     for (const line of formatDiagnostics(diagnostics, options.format)) this.Print(line);

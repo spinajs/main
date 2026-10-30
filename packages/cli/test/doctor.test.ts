@@ -4,7 +4,9 @@ import { resolve } from 'node:path';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import '@spinajs/log';
+import { Cli } from '../src/index.js';
 import { DoctorCommand } from '../src/cli/Doctor.js';
+import { META_OPTION } from '../src/decorators.js';
 
 const fixture = (name: string) => resolve(process.cwd(), 'test/fixtures/doctor', name);
 const MANIFEST = fixture('app.manifest.json');
@@ -88,8 +90,30 @@ describe('spinajs doctor', function () {
     await cmd.execute({ manifest: missing, format: 'text', failOn: 'error' });
     expect(lines).to.have.length(2);
     expect(lines[0].split(' ').filter(Boolean).slice(0, 2)).to.deep.equal(['error', 'DOCTOR']);
-    expect(lines[0]).to.contain(`Cannot read manifest ${missing}: run spinajs build first`);
+    expect(lines[0]).to.contain(`Cannot read manifest ${missing}: `).and.to.contain('; run spinajs build first');
     expect(lines[1]).to.equal('1 error(s), 0 warning(s), 0 info');
     expect(process.exitCode).to.equal(1);
+  });
+
+  describe('option choices', () => {
+    const options = Reflect.getMetadata(META_OPTION, DoctorCommand) as { flags: string; choices?: string[] }[];
+    const choicesOf = (flag: string) => options.find((o) => o.flags.includes(flag))?.choices;
+
+    it('declares the accepted --format and --fail-on values', () => {
+      expect(choicesOf('--format')).to.deep.equal(['text', 'json', 'github']);
+      expect(choicesOf('--fail-on')).to.deep.equal(['warning', 'error']);
+    });
+
+    for (const bad of [['--format', 'yaml'], ['--fail-on', 'foo']]) {
+      it(`rejects ${bad.join(' ')} instead of defaulting`, async () => {
+        DI.register(() => ['node', 'script.js', 'doctor', '--manifest', MANIFEST, ...bad]).as('__cli_argv_provider__');
+        let message = '';
+        await DI.resolve(Cli).catch((err: Error) => {
+          message = err.message;
+        });
+        expect(message).to.contain('Allowed choices are');
+        expect(lines).to.deep.equal([]);
+      });
+    }
   });
 });
