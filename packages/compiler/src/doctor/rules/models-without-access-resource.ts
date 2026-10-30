@@ -1,5 +1,5 @@
 import type { Diagnostic } from '@spinajs/manifest';
-import { diagnostic, type DoctorRule } from '../index.js';
+import { diagnostic, type DoctorRule } from '../rule.js';
 
 const modelName = (text: string) => text.replace(/\[\]$/, '').replace(/^Array<(.*)>$/, '$1');
 

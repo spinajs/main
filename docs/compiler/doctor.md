@@ -20,7 +20,8 @@ spinajs doctor --manifest dist/app.manifest.json
 | DI002 | error / warning | a dependency cycle between services (warning when an `optional` or `@LazyInject` edge breaks it) |
 | DI003 | error / warning | an asynchronous service injected into a synchronous one, or `DI.resolve()` of an asynchronous service without `await` |
 | HTTP001 | error | two routes with the same method and path, compared as Express does: case-insensitive, parameter names and trailing slashes ignored (`/users/:id` and `/Users/:userId` clash) |
-| HTTP002 | error | a route with no `@Access`, `@Policy` or `@AllowAnonymous` on it or on its class |
+| HTTP002 | error | a route with no `@Access`, `@Policy`, `@AllowAnonymous` or `@Public` on it or on its class |
+| HTTP006 | warning | a route marked `@Public` that also has `@Access` or `@Policy` on it or on its class, or a controller marked `@Public` with a class-level one: the guard still runs, so the marker is wrong |
 | HTTP003 | warning | a route answering at a path with `//`: a leading slash in the route path (`@Get('/x')` under `users` is `/users//x`) or an outer slash in `@BasePath` is kept as written. `@BasePath('/')` + `@Get('/')` is not reported: it answers at `/` |
 | HTTP004 | warning | a route that an earlier parameterised route of the same controller and method shadows: `@Get(':id')` declared before `@Get('slash')` takes `/users/slash`. An earlier GET route also takes a later HEAD route it matches, the same path included, since Express answers HEAD with GET. Only routes of one controller are compared: across controllers the order is the DI registration order, which the manifest does not record |
 | HTTP005 | warning | a whole-body `@Body() x: T` or `@AsModel() x: T` where `T` has a property `x`: a body carrying `x` binds `body.x` instead of the whole body |

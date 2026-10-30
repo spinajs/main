@@ -11,6 +11,8 @@ import { Log, Logger } from '@spinajs/log';
 import { UpdateConfigDto } from '../dto/update-config-dto.js';
 import { SchemaCompileError, validateEntryValue } from '../validation.js';
 import { updateEntry } from '../write.js';
+// Registers the access resource and the system-principal opt-in: the controller scan imports this file, and an app may never import the package entry.
+import '../bootstrap.js';
 
 /**
  * Serializes an entry for the api. `DbConfig.dehydrate()` emits only the declared

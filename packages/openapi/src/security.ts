@@ -5,6 +5,10 @@ export function isAnonymous(route: RouteEntry, controller: ControllerEntry): boo
   return (route.allowAnonymous ?? (route.access === undefined ? controller.allowAnonymous : false)) === true;
 }
 
+function isPublic(route: RouteEntry, controller: ControllerEntry): boolean {
+  return (route.public ?? (route.access === undefined ? controller.public : undefined)) !== undefined;
+}
+
 export function permissionsOf(route: RouteEntry, controller: ControllerEntry): string[] {
   return route.access ?? controller.access ?? [];
 }
@@ -18,7 +22,10 @@ export function applyAccess(operation: OpenAPIV3_1.OperationObject, route: Route
     return;
   }
   const permissions = permissionsOf(route, controller);
-  if (permissions.length === 0) return;
+  if (permissions.length === 0) {
+    if (isPublic(route, controller)) operation.security = [];
+    return;
+  }
   op['x-authz-permission'] = [...permissions];
   const first = permissions[0];
   const colon = first.indexOf(':');

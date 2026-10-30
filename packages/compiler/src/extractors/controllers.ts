@@ -7,6 +7,7 @@ import { globalRef } from '../runtime-ref.js';
 import { decoratorsOf, findDecorator, literalValue, type DecoratorInfo } from '../decorators.js';
 import { accessOf, middlewaresOf, policyGroupsOf } from './policies.js';
 import { routeDocOf } from './jsdoc.js';
+import { publicOf } from './public.js';
 import { conditionOf } from './conditions.js';
 import { wireOf, type RouteWireContext } from './wire.js';
 
@@ -107,6 +108,7 @@ function routeOf(m: ts.MethodDeclaration, mountPath: string, className: string, 
   const returnType = sig ? ctx.typeRef(ctx.checker.getReturnTypeOfSignature(sig), m, `${className}_${handler}_Response`) : { text: 'unknown' };
   const { access, allowAnonymous } = accessOf(m, ctx);
   const doc = routeDocOf(m, ctx);
+  const reason = publicOf(m, ctx);
   const types = m.parameters.map((p) => paramDecoratorOf(p)).map((d) => (d ? parameterTypeOf(d, ctx) : undefined));
   const countOf = (type: string): number => types.filter((t) => t === type).length;
   const fullPath = servedPath(routeFullPath(mountPath, path, handler));
@@ -116,7 +118,7 @@ function routeOf(m: ts.MethodDeclaration, mountPath: string, className: string, 
     method: ROUTE_METHODS[dec.name], path, handler, fullPath,
     params: m.parameters.map((p, i) => paramOf(p, i, `${className}.${handler}`, wire, ctx)).filter((p): p is ParamEntry => !!p),
     returnType, policies: policyGroupsOf(m, ctx, 'route'), middlewares: middlewaresOf(m, ctx),
-    ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}), ...(doc ? { doc } : {}),
+    ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}), ...(reason ? { public: reason } : {}), ...(doc ? { doc } : {}),
     source: ctx.sourceRef(m),
   };
 }
@@ -129,10 +131,11 @@ function controllerOf(node: NamedClass, ctx: ExtractorContext): ControllerEntry 
   const mountPath = basePathConfig && basePath ? configuredMountPath(basePath) : controllerMountPath(basePath, node.name.text);
   const { access, allowAnonymous } = accessOf(node, ctx);
   const condition = conditionOf(node, ctx);
+  const reason = publicOf(node, ctx);
   return {
     id: `${ctx.packageName}:${node.name.text}`, className: node.name.text, basePath, ...(basePathConfig ? { basePathConfig } : {}), mountPath,
     policies: policyGroupsOf(node, ctx, 'class'), middlewares: middlewaresOf(node, ctx),
-    ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}),
+    ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}), ...(reason ? { public: reason } : {}),
     routes: node.members.filter(ts.isMethodDeclaration).map((m) => routeOf(m, mountPath, node.name.text, ctx)).filter((r): r is RouteEntry => !!r),
     ...(condition ? { condition } : {}), source: ctx.sourceRef(node),
   };

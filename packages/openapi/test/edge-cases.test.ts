@@ -112,6 +112,51 @@ describe('manifestToOpenApi fix round 1', () => {
     expect(op['x-authz-anonymous']).to.equal(true);
   });
 
+  describe('@Public', () => {
+    const publicUsers = (mark: (route: ReturnType<typeof routeOf>, owner: Manifest['controllers'][number]) => void): Json => {
+      const m = structuredClone(manifest);
+      const route = routeOf(m, '/users/:id');
+      mark(route, m.controllers.find((c) => c.routes.some((r) => r.fullPath === route.fullPath))!);
+      return manifestToOpenApi(m, { ...options, securitySchemes: { bearer: { type: 'http', scheme: 'bearer' } } }).paths!['/users/{id}']!.get!;
+    };
+
+    it('opts a public route out of the document security without authz vendor extensions', () => {
+      const op = publicUsers((route) => {
+        delete route.access;
+        delete route.allowAnonymous;
+        route.public = 'open on purpose';
+      });
+      expect(op.security).to.deep.equal([]);
+      expect(op).to.not.have.property('x-authz-anonymous');
+      expect(op).to.not.have.property('x-authz-permission');
+      expect(Object.keys(op.responses as Json)).to.not.include.members(['401', '403']);
+    });
+
+    it('applies a public controller to its routes without access', () => {
+      const op = publicUsers((route, owner) => {
+        delete route.access;
+        delete route.allowAnonymous;
+        owner.public = 'open on purpose';
+      });
+      expect(op.security).to.deep.equal([]);
+    });
+
+    it('keeps the guard of a route that is also @Access (doctor warns about the pair)', () => {
+      const op = publicUsers((route) => {
+        route.access = ['user:read'];
+        delete route.allowAnonymous;
+        route.public = 'contradiction';
+      });
+      expect(op).to.not.have.property('security');
+      expect(op['x-authz-permission']).to.deep.equal(['user:read']);
+    });
+
+    it('leaves a route without the marker under the document security', () => {
+      const op = publicUsers(() => undefined);
+      expect(op).to.not.have.property('security');
+    });
+  });
+
   it('types file responses and raw bodies as binary', () => {
     const m = structuredClone(manifest);
     const upload = routeOf(m, '/users/:id/avatar');

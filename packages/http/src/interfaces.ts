@@ -816,6 +816,11 @@ export interface IRoute {
    * `@OnError` handlers of this route, in declaration order.
    */
   ErrorHandlers?: IOnErrorDescriptor[];
+
+  /**
+   * Why the route is public on purpose (`@Public`). Metadata only: it does not change request handling.
+   */
+  Public?: string;
 }
 
 export interface IOnErrorDescriptor {
@@ -986,6 +991,11 @@ export interface IControllerDescriptor {
    * Controller-wide `@OnError` handlers, in declaration order. They run after the route's own.
    */
   ErrorHandlers?: IOnErrorDescriptor[];
+
+  /**
+   * Why every route of the controller is public on purpose (`@Public` on the class). Metadata only.
+   */
+  Public?: string;
 
   /**
    * Absolute path of the source file that declared the controller, captured

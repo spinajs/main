@@ -50,7 +50,7 @@ Read the state from `server.State` and the Node server from `server.Server`.
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `http.port` | `number` | `1337` | a TCP port | Port `start()` listens on. |
-| `https` | `boolean` | not set | `true`, `false` | Top-level key, not under `http`. `true` creates an HTTPS server. |
+| `https` | `boolean` | `false` | `true`, `false` | Top-level key, not under `http`. `true` creates an HTTPS server. `HTTPS_CONFIGURATION_SCHEMA` refuses anything else, `null` included. |
 | `http.ssl.key` | `string` | `''` | file path | Private key file, read with `fs.readFileSync` when `https` is `true`. |
 | `http.ssl.cert` | `string` | `''` | file path | Certificate file, read when `https` is `true`. |
 | `http.middlewares` | `express.RequestHandler[]` | `helmet(...)`, `express.json(...)`, `express.urlencoded(...)`, `express.text(...)`, `configuredCookieParser`, `compression()` | any Express handlers | Raw handlers added first, before every server middleware. Replacing the array drops the defaults. |

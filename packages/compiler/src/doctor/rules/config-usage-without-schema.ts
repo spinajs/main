@@ -1,5 +1,5 @@
 import type { Diagnostic } from '@spinajs/manifest';
-import { diagnostic, type DoctorRule } from '../index.js';
+import { diagnostic, type DoctorRule } from '../rule.js';
 
 // Filled by the Configuration itself, never by a package schema.
 const BUILTIN_MODULES = new Set(['system', 'app', 'configuration', 'process']);

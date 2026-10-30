@@ -84,6 +84,8 @@ const config = {
 };
 ```
 
+`INTL_CONFIGURATION_SCHEMA` checks the section at boot: `locales` must be a list of non-empty strings, and `defaultLocale` and `queryParameter` non-empty strings (`null` is refused). Other keys pass.
+
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |

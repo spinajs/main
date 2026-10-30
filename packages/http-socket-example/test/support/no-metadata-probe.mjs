@@ -5,8 +5,8 @@ const out = {};
 let server;
 let notes;
 try {
-  const { startNotesServer } = await import('../../lib/no-metadata/server.js');
-  const { connectNotes } = await import('../../lib/no-metadata/client.js');
+  const { startNotesServer } = await import(new URL('../../lib/no-metadata/server.js', import.meta.url).href);
+  const { connectNotes } = await import(new URL('../../lib/no-metadata/client.js', import.meta.url).href);
   server = await startNotesServer();
   notes = connectNotes(server.url, server.path, 'alice-token');
   out.opened = await notes.command('notes.open', { docId: 'meta' }, { whenOffline: 'wait' });
