@@ -1,5 +1,6 @@
 import { ResolveType } from './enums.js';
-import { IAutoinjectOptions, IContainer, IInjectDescriptor } from './interfaces.js';
+import { IAutoinjectOptions, IContainer, IInjectDescriptor, IToInject } from './interfaces.js';
+import { ResolveException } from './exceptions.js';
 import { Class } from './types.js';
 import { TypedArray } from './array.js';
 import * as DI from './root.js';
@@ -196,45 +197,54 @@ export function Autoinject<T>(typeOrOptions?: Class<T> | TypedArray<T> | IAutoin
       if (isArray && !opt?.check && !opt?.optional) {
         throw new Error(`@Autoinject: you must provide inject type when injecting array or map, ${String(propertyKey)} has none`);
       }
-
-      if (!type) {
-        throw new Error(`@Autoinject: no type to inject into ${String(propertyKey)}, pass it explicitly or enable emitDecoratorMetadata`);
-      }
     }
 
-    if (opt?.check || opt?.optional) {
-      if (opt.check && opt.optional) {
-        throw new Error('@Autoinject: check and optional exclude each other');
-      }
-      if (isArray) {
-        throw new Error(`@Autoinject: check and optional take a single class, ${String(propertyKey)} is an array or map`);
-      }
-      const single = type;
-      const args = opt.options !== undefined ? [opt.options] : undefined;
+    if (!type) {
+      const declared = opt;
       descriptor.inject.push({
         autoinject: true,
         autoinjectKey: propertyKey,
-        inject: single,
-        // A synchronous throw would leave the already started async siblings unhandled; reject instead.
-        resolveFunc: (_data: unknown, container: IContainer) => {
-          try {
-            return opt.optional ? container.resolveOptional(single, args) : container.resolve(single, args, true);
-          } catch (e) {
-            return Promise.reject(e);
-          }
-        },
+        inject: Object,
+        pendingType: { property: propertyKey, bind: (resolved) => propertyInjection(resolved, propertyKey, declared, false) },
       });
       return;
     }
 
-    descriptor.inject.push({
+    descriptor.inject.push(propertyInjection(type, propertyKey, opt, isArray));
+  });
+}
+
+function propertyInjection<T>(type: Class<unknown>, propertyKey: string | symbol, opt: IAutoinjectOptions<T> | undefined, isArray: boolean): IToInject<unknown> {
+  if (opt?.check || opt?.optional) {
+    if (opt.check && opt.optional) {
+      throw new Error('@Autoinject: check and optional exclude each other');
+    }
+    if (isArray) {
+      throw new Error(`@Autoinject: check and optional take a single class, ${String(propertyKey)} is an array or map`);
+    }
+    const args = opt.options !== undefined ? [opt.options] : undefined;
+    return {
       autoinject: true,
       autoinjectKey: propertyKey,
-      inject: isArray ? Array.ofType(typeOrOptions as Class<T>) : type,
-      mapFunc: opt?.mapFunc,
-      options: opt?.options,
-    });
-  });
+      inject: type,
+      // A synchronous throw would leave the already started async siblings unhandled; reject instead.
+      resolveFunc: (_data: unknown, container: IContainer) => {
+        try {
+          return opt.optional ? container.resolveOptional(type, args) : container.resolve(type, args, true);
+        } catch (e) {
+          return Promise.reject(e);
+        }
+      },
+    };
+  }
+
+  return {
+    autoinject: true,
+    autoinjectKey: propertyKey,
+    inject: isArray ? Array.ofType(type) : type,
+    mapFunc: opt?.mapFunc,
+    options: opt?.options,
+  };
 }
 
 function listName(list: TypedArray<unknown>) {
@@ -298,26 +308,40 @@ export function LazyInject<T>(service?: Class<T> | TypedArray<T> | string, optio
       throw new Error(`@LazyInject: ${key} is an array or map, pass the element type`);
     }
 
-    const type = isConstructor(service) && isList ? Array.ofType(service) : (service ?? declared);
-    if (!type) {
-      throw new Error(`@LazyInject: no type for ${key}, pass it explicitly or enable emitDecoratorMetadata`);
-    }
+    let type = isConstructor(service) && isList ? Array.ofType(service) : (service ?? declared);
     const mapFunc = options?.mapFunc;
 
     const containers = new WeakMap<object, IContainer>();
+    const binding = (inject: Class<unknown>): IToInject<unknown> => ({
+      autoinject: true,
+      autoinjectKey: key,
+      inject,
+      resolveFunc: (_data: unknown, container: IContainer) => new LazyInjectBinding(container),
+    });
 
     // The container assigns the binding right after construction, like any autoinject property; the setter keeps it per owner.
     AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>) => {
-      descriptor.inject.push({
-        autoinject: true,
-        autoinjectKey: key,
-        inject: type as Class<unknown>,
-        resolveFunc: (_data: unknown, container: IContainer) => new LazyInjectBinding(container),
-      });
+      descriptor.inject.push(
+        type
+          ? binding(type as Class<unknown>)
+          : {
+              ...binding(Object),
+              pendingType: {
+                property: key,
+                bind: (resolved) => {
+                  type = resolved;
+                  return binding(resolved);
+                },
+              },
+            },
+      );
     })(target, key, undefined);
 
     Object.defineProperty(target, key, {
       get(this: object) {
+        if (!type) {
+          throw new ResolveException(`@LazyInject: no type for ${(target as { constructor: { name: string } }).constructor.name}.${key}: pass it explicitly, enable emitDecoratorMetadata, or resolve the owner in manifest mode`);
+        }
         const container = containers.get(this) ?? DI.RootContainer;
         const value = typeof type === 'string' ? container.get(type) : container.resolve(type as Class<unknown>);
         if (!mapFunc) {
