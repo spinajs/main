@@ -14,6 +14,11 @@ import { TelemetryAccess } from './../policies/TelemetryAccessPolicy.js';
 
 // Found by a directory scan after boot, where TelemetryBootstrapper may never run: the schema module registers itself.
 import './../schema.js';
+// Registers the bootstrappers, request middleware and perf sink: the controller scan imports this file, and an app may never import the package entry.
+import './../bootstrap.js';
+import './../middleware.js';
+import './../PromMetricSink.js';
+import './../service-token.js';
 
 /**
  * Prometheus scrape endpoint.
