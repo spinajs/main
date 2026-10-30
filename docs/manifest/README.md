@@ -71,7 +71,8 @@ An app that boots in `prefer` or `require` can compile with `"emitDecoratorMetad
 
 - `@spinajs/configuration` imports every class `classProperties` names, at the end of `Configuration.resolve()`, so the first resolve of a sync service stays sync. A class that cannot load fails the boot in `require` and is logged in `prefer`. These imports are the one thing a build without metadata does earlier than a build with it: a class file that resolves `Configuration` with a top-level `await` would wait for itself.
 - `@spinajs/http` types each argument whose `RuntimeType` is missing before the routes are built, so validation, the scalar schemas and DTO hydration behave as with metadata. `@spinajs/http-socket` does the same for `@Payload` and `@FromDI()` before the handlers register. Both fill a copy: the class descriptor stays as decorated, several boots in one process do not share what they filled, and the routes a boot serves are `BaseController.Routes`.
-- A route a controller inherits is looked up along its class chain, in `controllers` and then `controllerBases`. Request validation finds it the same way, with metadata too.
+- A route a controller inherits is looked up along its class chain, in `controllers` and then `controllerBases`. Request validation finds it the same way, with metadata too. Socket handlers do the same with `socketControllerBases`, for types, derived payload schemas and contract checks.
+- `@spinajs/di` collects every property decorated without metadata. After `Configuration`, after the controllers load and before socket handlers register, a `require` boot fails listing every one the table lacks, and `prefer` logs a named error for each. That is the signal for a build compiled without metadata from a tsconfig that says otherwise. A class that loads later still fails when its owner is resolved.
 - `@spinajs/di` records an `@Autoinject()` or `@LazyInject()` property as pending. When the owner is resolved, the container asks the property type resolver that `@spinajs/configuration` registers with the manifest decision, for the type and for whether the property is a list: `@Autoinject(X)` on an array or `Map` property injects the list, as with metadata.
 - `resolveTypeRef(ref, manifest)` imports every referenced file through `manifestFileFor` (root containment), memoised per manifest.
 
@@ -79,12 +80,16 @@ What happens when the manifest has no answer:
 
 | Case | `require` | `prefer` | `off`, or no manifest |
 | --- | --- | --- | --- |
-| A route argument, `@Payload` or `@FromDI()` it cannot type, or whose entry describes another argument | fails the boot | logs a named error, stays untyped | logs a named error, stays untyped (a `@Payload` is read as a plain object) |
-| An `@Autoinject()` / `@LazyInject()` property that names no type | `ResolveException` naming class and property, when the owner is resolved | the same | the same |
-| An `@Autoinject(X)` property the table does not list | `ResolveException` | injects one instance | injects one instance |
+| A route argument, `@Payload` or `@FromDI()` it cannot type, or whose entry describes another argument | fails the boot, with the reason when the compiler recorded one | logs a named error, stays untyped | logs a named error, stays untyped (a `@Payload` is read as a plain object) |
+| An `@Autoinject()` / `@LazyInject()` property the table does not list | fails the boot, listing them | logs a named error at boot; `ResolveException` when the owner is resolved | `ResolveException` when the owner is resolved |
+| An `@Autoinject(X)` / `@LazyInject(X)` property the table does not list | fails the boot, listing them | logs a named error at boot, injects one instance, even for a list | injects one instance, even for a list |
 | Two classes of one name, in any packages, that declare the property differently | `ResolveException` | `ResolveException` | |
 
 The runtime knows a class by name alone. Two classes of one name that declare a property alike are fine; rename one otherwise, or pass the type to the decorator.
+
+**Order: `Configuration` comes first.** The manifest is read inside `Configuration.resolve()`, and the property types are ready when it returns. A class with a property that names no type cannot be resolved before that, in any mode: not a `Bootstrapper`, which the entry point resolves first, nor a class your `main` resolves before `Configuration`, nor a `ConfigurationSource`. Such a class throws `ResolveException` saying so. Pass the type to the decorator (`@Autoinject(Dep)`), which works at any time, or resolve `Configuration` first.
+
+An argument of a kind that never reads its type (`@Req`, `@Res`, `@Ip`, `@RequestId`, `@UserAgent`, `@Referer`, `@RawBody`, `@AcceptType`, `@RequestStream`, `@ContentDigest`) never fails a boot: an annotation the manifest cannot name records `Object`. Any other argument typed by a class of a package without a manifest fragment, such as luxon's `DateTime` on `@Query()`, fails `require`: name the class with `@Type(DateTime)`.
 
 A property under a decorator of your own that wraps `Autoinject()` is not in the table: the compiler knows `@Autoinject` and `@LazyInject` by name. Models still need decorator metadata: `@CreatedAt`, `@UpdatedAt`, `@SoftDelete`, `@Archived`, `@DateTime`, `@Bool` and `@Set` read it when the class is defined, and so do `@AutoinjectService`, `@HasMany`, `@HasManyToMany`, `@Virtual` and `@JunctionTable`.
 

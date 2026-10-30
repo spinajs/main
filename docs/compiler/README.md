@@ -148,9 +148,11 @@ A class without a `ref` is reported as `TYP001` (not exported) or `TYP002` (decl
 
 A parameter under a decorator the compiler does not know (`@Filter`, `@CurrentUser`, an app's own `Parameter()`) is recorded with `kind: 'Decorated'` and `wire: { in: 'none', shape: 'whole' }`: it has a type, and generators and request validation skip it. Socket `@FromDI()` types are in `socketControllers[].diArgs`, by handler and index, hooks included.
 
-An abstract controller, or one that `declaredDirsOnly` leaves out, goes to `controllerBases`: nothing mounts it, and the runtime finds the routes a subclass inherits there.
+An abstract controller, or one that `declaredDirsOnly` leaves out, goes to `controllerBases`: nothing mounts it, and the runtime finds the routes a subclass inherits there. `socketControllerBases` does the same for socket controllers, and also holds an undecorated class that declares handlers.
 
-A package built with `emitDecoratorMetadata: false` also gets `classProperties`: one entry per class that declares `@Autoinject` or `@LazyInject` properties, whatever the class is, keyed by `id` (`<package>:<class>`). Each property has `array` and, when the decorator names no type, the declared type as `tokenRef`. A package built with metadata has none: the runtime imports every class the table names at boot, and such a build would not read them. `services[].propertyInjects` records `tokenRef` too.
+A class without a `ref` records why in `refProblem`, which the runtime puts in its error. For the kinds that never read the type (`@Req`, `@Res`, `@Ip`, `@RequestId`, `@UserAgent`, `@Referer`, `@RawBody`, `@AcceptType`, `@RequestStream`, `@ContentDigest`) it records `Object` instead.
+
+A package built with `emitDecoratorMetadata: false` also gets `classProperties`: one entry per class that declares `@Autoinject` or `@LazyInject` properties, whatever the class is, keyed by `id` (`<package>:<class>`). Each property has `array`, decided from what the type resolves to as the metadata is, so an alias and `readonly T[]` count, and, when the decorator names no type, the declared type as `tokenRef`. A package built with metadata has none: the runtime imports every class the table names at boot, and such a build would not read them. `services[].propertyInjects` records `tokenRef` too.
 
 ## Schema derivation
 
