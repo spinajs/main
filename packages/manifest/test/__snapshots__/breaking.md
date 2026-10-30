@@ -2,7 +2,7 @@
 
 Result: **BREAKING** (5 breaking of 6 changes)
 
-`7a5a49a0abb5` -> `ffffffffffff`
+`f011e0060289` -> `ffffffffffff`
 
 ### routes
 
@@ -28,4 +28,4 @@ Result: **BREAKING** (5 breaking of 6 changes)
 
 | Change | Id | Breaking | Detail |
 | --- | --- | --- | --- |
-| removed | `hooks` | yes |  |
+| removed | `app` | yes |  |
