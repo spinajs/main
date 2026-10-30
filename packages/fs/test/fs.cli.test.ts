@@ -4,11 +4,10 @@ import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import '@spinajs/templates-pug';
 import { cp } from 'fs/promises';
 import { join } from 'path';
-import { fs, FsBootsrapper, fsService } from '../src/index.js';
-import { dir, TestConfiguration } from './common.js';
+import { fs, fsService } from '../src/index.js';
+import { dir, fsApp } from './common.js';
 
 import { FsDescribeCommand } from '../src/cli/fs.js';
 import { FsLsCommand } from '../src/cli/ls.js';
@@ -26,6 +25,7 @@ import { FsUnzipCommand } from '../src/cli/unzip.js';
 import { FsDownloadCommand } from '../src/cli/download.js';
 import { FsUploadCommand } from '../src/cli/upload.js';
 import { FsWriteCommand } from '../src/cli/write.js';
+import type { TestApp } from '@spinajs/testing';
 
 async function testFs() {
   return DI.resolve<fs>('__file_provider__', ['test']);
@@ -51,13 +51,14 @@ function loggedWith(spy: sinon.SinonSpy, needle: string) {
 describe('fs cli commands', function () {
   this.timeout(15000);
 
-  before(async () => {
-    const bootstrapper = DI.resolve(FsBootsrapper);
-    bootstrapper.bootstrap();
+  let app: TestApp;
 
-    DI.register(TestConfiguration).as(Configuration);
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
+  before(async () => {
+    app = await fsApp({ resolve: [fsService] });
+  });
+
+  after(async () => {
+    await app.dispose();
   });
 
   beforeEach(async () => {

@@ -4,14 +4,13 @@ import chaiAsPromised from 'chai-as-promised';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation, ResourceDuplicated } from '@spinajs/exceptions';
-import '@spinajs/templates-pug';
 
-import { TestConfiguration, dir } from './common.js';
-import { FsBootstrapper, FsMiddleware, fs, fsNative, fsService, getFs, publishedFs } from '../src/index.js';
+import { dir, fsApp } from './common.js';
+import { FsMiddleware, fs, fsNative, fsService, getFs, publishedFs } from '../src/index.js';
 import type { FsActionContext, IFsLocalOptions } from '../src/index.js';
+import type { TestApp } from '@spinajs/testing';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -32,20 +31,18 @@ describe('fs middleware pipeline', function () {
   let local: fs;
   let temp: fs;
 
+  let app: TestApp;
+
   before(async () => {
-    DI.resolve(FsBootstrapper).bootstrap();
-    DI.register(TestConfiguration).as(Configuration);
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
+    app = await fsApp({ resolve: [fsService] });
     DI.register(Recorder).as(FsMiddleware);
     DI.uncache(Array.ofType(FsMiddleware));
     local = getFs('fs-temp-nc-local');
     temp = getFs('fs-temp-nc');
   });
 
-  after(() => {
-    DI.unregister(Recorder);
-    DI.uncache(Array.ofType(FsMiddleware));
+  after(async () => {
+    await app.dispose();
   });
 
   beforeEach(() => {

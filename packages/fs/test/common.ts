@@ -8,7 +8,14 @@ import chaiAsPromised from 'chai-as-promised';
 import chaiSubset from 'chai-subset';
 import chaiLike from 'chai-like';
 import chaiThings from 'chai-things';
-import { Singleton } from '@spinajs/di';
+import { Injectable, PerInstanceCheck, Singleton } from '@spinajs/di';
+import { fsNative } from '../src/local-provider.js';
+import type { IFsLocalOptions } from '../src/index.js';
+import { Log } from '@spinajs/log-common';
+import type { ILogEntry } from '@spinajs/log-common';
+import type { IContainer } from '@spinajs/di';
+import { createTestApp } from '@spinajs/testing';
+import type { TestApp, TestAppOptions } from '@spinajs/testing';
 
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
@@ -89,5 +96,51 @@ export class TestConfiguration extends FrameworkConfiguration {
         ],
       },
     };
+  }
+}
+
+// fs services resolve a Log through @Logger; the real implementation lives in @spinajs/log, which depends on fs.
+export class SilentLog extends Log {
+  constructor(name?: string) {
+    super();
+    this.Name = name ?? 'silent';
+  }
+
+  public trace(): void {}
+  public debug(): void {}
+  public info(): void {}
+  public warn(): void {}
+  public error(): void {}
+  public fatal(): void {}
+  public security(): void {}
+  public success(): void {}
+  public write(_entry: ILogEntry): Promise<PromiseSettledResult<void>[]> {
+    return Promise.resolve([]);
+  }
+}
+
+export function fsApp(options: Omit<TestAppOptions, 'configuration' | 'config'> = {}): Promise<TestApp> {
+  return createTestApp({
+    configuration: TestConfiguration,
+    ...options,
+    register: async (container: IContainer) => {
+      container.register(SilentLog).as(Log);
+      await options.register?.(container);
+    },
+  });
+}
+
+// Provider that tests list in the shared configuration as service 'FooFs'.
+@Injectable('fs')
+@PerInstanceCheck()
+export class FooFs extends fsNative<IFsLocalOptions> {
+  public static INSTANCE_COUNT = 0;
+  public static INSTANCE_COUNT_2 = 0;
+  public async resolve() {
+    if (this.Options.name === 'foo1') FooFs.INSTANCE_COUNT++;
+
+    if (this.Options.name === 'foo2') {
+      FooFs.INSTANCE_COUNT_2++;
+    }
   }
 }

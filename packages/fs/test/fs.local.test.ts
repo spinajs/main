@@ -3,15 +3,14 @@ import 'mocha';
 import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { fs, FsBootsrapper, fsNative, fsService } from './../src/index.js';
-import '@spinajs/templates-pug';
-import { dir, TestConfiguration } from './common.js';
+import { fs, fsNative, fsService } from './../src/index.js';
+import { dir, fsApp } from './common.js';
 import { expect } from 'chai';
 import { extname, isAbsolute, join } from 'path';
 import { IOFail, ResourceDuplicated } from '@spinajs/exceptions';
 import { cp, rm } from 'fs/promises';
 import { mkdirSync } from 'fs';
+import type { TestApp } from '@spinajs/testing';
 
 async function f() {
   return await DI.resolve<fs>('__file_provider__', ['test']);
@@ -28,18 +27,15 @@ async function fTemp() {
 describe('fs local tests', function () {
   this.timeout(15000);
 
+  let app: TestApp;
+
   before(async () => {
-    const bootstrapper = DI.resolve(FsBootsrapper);
-    bootstrapper.bootstrap();
-
-    DI.register(TestConfiguration).as(Configuration);
-    await DI.resolve(Configuration);
-
-    await DI.resolve(fsService);
-
+    app = await fsApp({ resolve: [fsService] });
   });
 
-  after(async () => {});
+  after(async () => {
+    await app.dispose();
+  });
 
   beforeEach(async () => {
     try {
