@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { cpSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -51,7 +51,8 @@ describe('single-file bundle', function () {
 
   after(() => rmSync(work, { recursive: true, force: true }));
 
-  it('boots from the manifest in require mode with marker-only node_modules (no dependency code) and answers /health', async () => {
+  it('boots from the manifest in require mode from a directory with no node_modules at all and answers /health', async () => {
+    expect(existsSync(join(work, 'node_modules')), 'the bundle ships no node_modules').to.equal(false);
     const started = Date.now();
     child = spawn(process.execPath, [join(work, 'main.mjs')], {
       cwd: work,

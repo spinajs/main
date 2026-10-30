@@ -267,3 +267,69 @@ describe('SPINAJS_MANIFEST_ROOT', () => {
     expect(loadRuntimeManifest({ path: join(root, 'app.manifest.json'), mode: 'require' }, '/unrelated')?.app.root).to.equal('/built/elsewhere');
   });
 });
+
+describe('SPINAJS_PACKAGE_ROOTS', () => {
+  const base = loadRuntimeManifest({ path: 'app.manifest.json', mode: 'prefer' }, FIX) as Manifest;
+  let root: string;
+  let prevRoot: string | undefined;
+
+  beforeEach(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'spinajs-roots-')));
+    prevRoot = process.env.SPINAJS_MANIFEST_ROOT;
+    process.env.SPINAJS_MANIFEST_ROOT = root;
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: base.app.name, dependencies: { '@spinajs/dep': '0.0.0' } }));
+  });
+
+  afterEach(() => {
+    delete process.env.SPINAJS_PACKAGE_ROOTS;
+    if (prevRoot === undefined) delete process.env.SPINAJS_MANIFEST_ROOT;
+    else process.env.SPINAJS_MANIFEST_ROOT = prevRoot;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const useMap = (map: Record<string, string>): void => {
+    writeFileSync(join(root, 'package-roots.json'), JSON.stringify(map));
+    process.env.SPINAJS_PACKAGE_ROOTS = join(root, 'package-roots.json');
+  };
+  const cmd = () => base.commands.find((c) => c.className === 'Cmd')!;
+
+  it('locates a package under the app root through the map, with no node_modules', () => {
+    mkdirSync(join(root, 'pkgs', 'dep'), { recursive: true });
+    useMap({ '@spinajs/dep': 'pkgs/dep' });
+    expect(packageRootOf('@spinajs/dep', base, '/unrelated')).to.equal(join(root, 'pkgs', 'dep'));
+    expect(manifestFileFor(cmd(), base, '/unrelated')).to.equal(join(root, 'pkgs', 'dep', 'lib', 'cli', 'Cmd.js'));
+    expect(isPackageSkipped('@spinajs/dep', base, '/unrelated', 'require')).to.equal(false);
+  });
+
+  it('without the variable the same layout is not found: a listed package is skipped, a direct dependency fails require', () => {
+    mkdirSync(join(root, 'pkgs', 'dep'), { recursive: true });
+    expect(isPackageSkipped('@spinajs/dep', base, '/unrelated', 'prefer')).to.equal(true);
+    expect(() => isPackageSkipped('@spinajs/dep', base, '/unrelated', 'require')).to.throw(ManifestMissing, /not installed/);
+  });
+
+  it('treats a mapped package whose directory is missing as not installed', () => {
+    useMap({ '@spinajs/dep': 'pkgs/dep' });
+    expect(isPackageSkipped('@spinajs/dep', base, '/unrelated', 'prefer')).to.equal(true);
+    expect(() => isPackageSkipped('@spinajs/dep', base, '/unrelated', 'require')).to.throw(ManifestMissing);
+  });
+
+  it('refuses a mapped root that leaves the app root', () => {
+    useMap({ '@spinajs/dep': '../outside' });
+    expect(() => packageRootOf('@spinajs/dep', base, '/unrelated')).to.throw(ManifestMissing, /leaves the root/);
+    useMap({ '@spinajs/dep': resolve(tmpdir()) });
+    expect(() => packageRootOf('@spinajs/dep', base, '/unrelated')).to.throw(ManifestMissing, /leaves the root/);
+  });
+
+  it('keeps file containment inside a mapped package', () => {
+    mkdirSync(join(root, 'pkgs', 'dep'), { recursive: true });
+    useMap({ '@spinajs/dep': 'pkgs/dep' });
+    const escaping = { source: { file: 'src/../../../x.ts', line: 1, col: 1, package: '@spinajs/dep' } };
+    expect(() => manifestFileFor(escaping, base, '/unrelated')).to.throw(ManifestMissing);
+  });
+
+  it('rejects a map that is not an object of strings', () => {
+    writeFileSync(join(root, 'package-roots.json'), JSON.stringify({ '@spinajs/dep': 1 }));
+    process.env.SPINAJS_PACKAGE_ROOTS = join(root, 'package-roots.json');
+    expect(() => packageRootOf('@spinajs/dep', base, '/unrelated')).to.throw(ManifestMissing, /package-roots/);
+  });
+});

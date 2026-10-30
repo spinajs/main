@@ -82,6 +82,42 @@ function installedPackageRoot(fromDir: string, name: string): string | undefined
   }
 }
 
+/**
+ * Opt-in package locations for an app that ships without `node_modules` ( a bundle ): `SPINAJS_PACKAGE_ROOTS` names a
+ * JSON file mapping a package name to its directory relative to the app root. A package that is not in the map, or
+ * whose directory is missing, is located the usual way, so it is skipped or fails `require` exactly as in a normal app.
+ */
+function mappedPackageRoot(name: string, appRoot: string): string | undefined {
+  const file = process.env.SPINAJS_PACKAGE_ROOTS;
+  if (!file) {
+    return undefined;
+  }
+
+  const map = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+  if (typeof map !== 'object' || map === null || Object.values(map).some((v) => typeof v !== 'string')) {
+    throw new ManifestMissing(`${file}: package-roots must be an object of package name to directory`);
+  }
+  const dir = map[name] as string | undefined;
+  if (dir === undefined) {
+    return undefined;
+  }
+
+  const root = resolve(appRoot, dir);
+  const rel = relative(resolve(appRoot), root);
+  if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    throw new ManifestMissing(`package ${name}: mapped directory '${dir}' leaves the root ${appRoot}`);
+  }
+  if (!existsSync(root)) {
+    return undefined;
+  }
+  const real = realpathSync(root);
+  const realRel = relative(realpathSync(appRoot), real);
+  if (realRel === '..' || realRel.startsWith(`..${sep}`) || isAbsolute(realRel)) {
+    throw new ManifestMissing(`package ${name}: mapped directory '${dir}' leaves the root ${appRoot}`);
+  }
+  return real;
+}
+
 /** Root directory of a package listed in `manifest.packages`, resolved from the app root the way node resolves it. */
 export function packageRootOf(name: string, manifest: Manifest, cwd: string): string {
   if (name === manifest.app.name) {
@@ -94,7 +130,7 @@ export function packageRootOf(name: string, manifest: Manifest, cwd: string): st
   }
 
   const appRoot = appRootOf(manifest, cwd);
-  const installed = installedPackageRoot(appRoot, name);
+  const installed = mappedPackageRoot(name, appRoot) ?? installedPackageRoot(appRoot, name);
   if (installed) {
     return installed;
   }

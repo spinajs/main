@@ -2,8 +2,8 @@
 // Output in dist/bundle:
 //   main.mjs                                  the app with every dependency inlined
 //   app.manifest.json                         built from lib/ by the compiler
-//   node_modules/<pkg>/package.json           marker only: the manifest runtime locates a listed package by it
-//   node_modules/<pkg>/<outDir>/config/*.js   package config files; the configuration source imports them by path
+//   package-roots.json                        package name -> directory, read through SPINAJS_PACKAGE_ROOTS
+//   packages/<pkg>/<outDir>/config/*.js       package config files; the configuration source imports them by path
 // Controller, socket controller, schedule and migration files the manifest lists are inlined into main.mjs and served
 // to the runtime's import-by-path through the DI module loader, so they stay the same module instances as the app's.
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -52,17 +52,20 @@ async function main() {
 
   const { manifest } = await buildAppManifest({ tsconfig: join(PACKAGE, 'tsconfig.build.json'), appRoot: PACKAGE, out: join(OUT, 'app.manifest.json'), schemaDerivation: true });
 
-  // The manifest runtime locates a listed package by its package.json and a direct dependency must be found, so the
-  // markers have to exist before any path is resolved against the bundle root below.
+  // No node_modules: every listed package gets a directory under packages/ and package-roots.json tells the manifest
+  // runtime ( SPINAJS_PACKAGE_ROOTS ) where it is. The directories must exist before any path is resolved below.
+  const roots = {};
   for (const pkg of manifest.packages) {
-    writeFileSync(join(prepared(join(OUT, 'node_modules', pkg.name)), 'package.json'), JSON.stringify({ name: pkg.name, version: pkg.version, type: 'module' }));
+    roots[pkg.name] = `packages/${pkg.name}`;
+    mkdirSync(join(OUT, roots[pkg.name]), { recursive: true });
   }
+  writeFileSync(join(OUT, 'package-roots.json'), JSON.stringify(roots, null, 2));
 
   const configEntries = [];
   for (const pkg of manifest.packages) {
     for (const file of pkg.configFiles ?? []) {
       const source = manifestFileFor(entryOf(pkg.name, pkg.outDir, file), manifest, PACKAGE);
-      configEntries.push({ in: source, out: join('node_modules', pkg.name, pkg.outDir, file.replace(/\.[mc]?js$/, '')) });
+      configEntries.push({ in: source, out: join(roots[pkg.name], pkg.outDir, file.replace(/\.[mc]?js$/, '')) });
     }
   }
   writeFileSync(join(OUT, 'package.json'), JSON.stringify({ name: manifest.app.name, version: manifest.app.version, type: 'module' }));
@@ -72,10 +75,10 @@ async function main() {
   await build({ ...COMMON, entryPoints: configEntries, outdir: OUT, outExtension: { '.js': '.js' } });
 
   const files = LOADED_SECTIONS.flatMap((section) => manifest[section]).map((entry) => ({ entry, from: manifestFileFor(entry, manifest, PACKAGE) }));
-  // bundle-relative keys, resolved against the bundle root without touching the environment
+  // bundle-relative keys, resolved the way the bundle will resolve them at run time
   const rebased = { ...manifest, app: { ...manifest.app, root: OUT } };
   const keyOf = (file) => relative(OUT, file).split(sep).join('/');
-  const listed = files.map(({ entry, from }) => ({ from, key: keyOf(manifestFileFor(entry, rebased, OUT)) }));
+  const listed = files.map(({ entry, from }) => ({ from, key: keyOf(withBundleEnv(() => manifestFileFor(entry, rebased, OUT))) }));
   const onDisk = configEntries.map((c) => `${c.out.split(sep).join('/')}.js`);
   const unique = [...new Map(listed.map((l) => [l.key, l])).values()];
 
@@ -89,6 +92,7 @@ import { startBundle } from ${JSON.stringify(join(PACKAGE, 'lib', 'bundle.js').s
 const root = dirname(fileURLToPath(import.meta.url));
 process.env.SPINAJS_MANIFEST_ROOT ??= root;
 process.env.SPINAJS_MANIFEST ??= join(root, 'app.manifest.json');
+process.env.SPINAJS_PACKAGE_ROOTS ??= join(root, 'package-roots.json');
 process.env.SPINAJS_MANIFEST_MODE ??= 'require';
 
 const onDisk = new Set(${JSON.stringify(onDisk)});
@@ -111,9 +115,18 @@ await startBundle();
   console.log(`bundle written to ${OUT}`);
 }
 
-function prepared(dir) {
-  mkdirSync(dir, { recursive: true });
-  return dir;
+function withBundleEnv(fn) {
+  const saved = { root: process.env.SPINAJS_MANIFEST_ROOT, roots: process.env.SPINAJS_PACKAGE_ROOTS };
+  process.env.SPINAJS_MANIFEST_ROOT = OUT;
+  process.env.SPINAJS_PACKAGE_ROOTS = join(OUT, 'package-roots.json');
+  try {
+    return fn();
+  } finally {
+    for (const [key, value] of [['SPINAJS_MANIFEST_ROOT', saved.root], ['SPINAJS_PACKAGE_ROOTS', saved.roots]]) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 }
 
 await main();

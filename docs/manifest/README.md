@@ -24,14 +24,18 @@ The `system.manifest` configuration section (`path`, default `app.manifest.json`
 
 ### Single-file bundle
 
-`packages/http-socket-example` shows an esbuild bundle that boots in `require` mode with no dependency code installed (only marker files under `node_modules`, below) (`npm run bundle`, output in `dist/bundle`):
+`packages/http-socket-example` shows an esbuild bundle that boots in `require` mode from a directory with no `node_modules` at all (`npm run bundle`, output in `dist/bundle`):
 
 - `main.mjs` holds the app and every dependency. It sets `SPINAJS_MANIFEST_ROOT` and `SPINAJS_MANIFEST` to its own directory, so the manifest built from the source tree still verifies.
-- `node_modules/<pkg>/package.json` is only a marker: the manifest runtime locates a listed package by it, and `require` mode fails for a direct dependency it cannot find.
-- Package config files are separate small bundles at `node_modules/<pkg>/<outDir>/config/`, because the configuration source imports them by path. They are standalone module copies, not part of `main.mjs`: safe while they are plain data, but a config file that imports stateful modules would get its own instance of them.
+- `package-roots.json` maps each listed package to a directory under the bundle (`packages/<name>`); `main.mjs` points `SPINAJS_PACKAGE_ROOTS` at it. See "Package roots" below.
+- Package config files are separate small bundles at `packages/<pkg>/<outDir>/config/`, because the configuration source imports them by path. They are standalone module copies, not part of `main.mjs`: safe while they are plain data, but a config file that imports stateful modules would get its own instance of them.
 - `main.mjs` defaults `SPINAJS_MANIFEST_MODE` to `require`; the DI loader refuses a file under the bundle root that it did not bundle.
 - Controller, socket controller, schedule and migration files the manifest lists are inlined into `main.mjs` and handed to the runtime's import by path through the DI module loader (`__module_loader__`), so they are the same module instances as the app's own imports.
 - `typescript` is replaced by a stub that throws on use: manifest mode does not call it.
+
+### Package roots
+
+`SPINAJS_PACKAGE_ROOTS` is an opt-in for apps that ship without `node_modules`: it names a JSON file mapping a package name to a directory relative to the app root (`{ "@spinajs/http": "packages/@spinajs/http" }`). `packageRootOf` consults it first, so config files, controllers, migrations and reflection all find the package through the same resolve. A mapped directory that leaves the app root (lexically or through a symlink) is refused; every file still goes through `manifestFileFor`, with its containment checks, and the manifest hash is verified as before. A package that is not in the map, or whose directory does not exist, is located the usual way: a listed package that is not installed is skipped, and a missing direct dependency fails `require` mode. Without the variable nothing changes.
 
 ### One switch
 
