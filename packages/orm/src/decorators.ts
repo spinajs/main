@@ -90,10 +90,10 @@ function _declaredType<T>(target: any, propertyKey: string): () => T {
 }
 
 /** The relation class of a list: the one the options name, else what the property declares, through `factory`. */
-function _relationClass(type: RelationConstructor | undefined, factory: typeof ORM_RELATION_HAS_MANY_FACTORY | typeof ORM_RELATION_HAS_MANY_TO_MANY_FACTORY, target: any, propertyKey: string): RelationConstructor | (() => RelationConstructor) {
+function _relationClass(type: RelationConstructor | undefined, factory: typeof ORM_RELATION_HAS_MANY_FACTORY, target: any, propertyKey: string): IRelationDescriptor['RelationClass'] {
   if (type) return type;
   const declared = _declaredType<RelationConstructor>(target, propertyKey);
-  return () => DI.resolve(factory, [declared()]) as RelationConstructor;
+  return () => DI.resolve(factory, [declared()]);
 }
 
 function _getMetadataFrom(target: any) {
