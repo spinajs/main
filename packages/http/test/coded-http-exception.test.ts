@@ -1,14 +1,11 @@
 import 'mocha';
 import { expect } from 'chai';
-import { Bootstrapper, DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { fsService } from '@spinajs/fs';
 import { Intl } from '@spinajs/intl';
 import * as exceptions from '@spinajs/exceptions';
 import { Forbidden, ResourceNotFound, UnexpectedServerError } from '@spinajs/exceptions';
 
-import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
+import { httpApp, req, TestConfiguration } from './common.js';
+import type { TestApp } from '@spinajs/testing';
 import {
   BaseController,
   BasePath,
@@ -93,25 +90,20 @@ class ProductionConfiguration extends TestConfiguration {
   }
 }
 
+let app: TestApp | undefined;
+
 async function startWith(configuration: typeof TestConfiguration) {
-  uncacheControllers();
-  for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
-  DI.register(configuration).as(Configuration);
-  DI.register(CodedController).as(BaseController);
-  await DI.resolve(Configuration);
-  await DI.resolve(fsService);
-  await DI.resolve(Intl);
-  await DI.resolve(Controllers);
-  await (await DI.resolve<HttpServer>(HttpServer)).start();
+  app = await httpApp({
+    configuration,
+    register: (c) => c.register(CodedController).as(BaseController),
+    resolve: [Intl, Controllers],
+  });
+  await (await app.resolve(HttpServer)).start();
 }
 
-async function stop(configuration: typeof TestConfiguration) {
-  await releaseHttpServer();
-  DI.unregister(CodedController as Class<unknown>);
-  DI.uncache(CodedController);
-  DI.uncache(BaseController);
-  DI.unregister(configuration);
-  DI.uncache(Configuration);
+async function stop() {
+  await app?.dispose();
+  app = undefined;
 }
 
 describe('CodedHttpException', function () {
@@ -119,7 +111,7 @@ describe('CodedHttpException', function () {
 
   before(() => startWith(TestConfiguration));
 
-  after(() => stop(TestConfiguration));
+  after(() => stop());
 
   it('answers a problem document with its status and no stack outside production', async () => {
     const res = await req().get('coded/plain').set('Accept', 'application/json');
@@ -238,7 +230,7 @@ describe('CodedHttpException in production', function () {
 
   before(() => startWith(ProductionConfiguration));
 
-  after(() => stop(ProductionConfiguration));
+  after(() => stop());
 
   it('answers the same body, while the error map drops the stack of the exceptions it answers', async () => {
     const coded = await req().get('coded/withDetails').set('Accept', 'application/json');

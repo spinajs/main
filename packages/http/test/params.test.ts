@@ -1,15 +1,15 @@
 import 'mocha';
 import * as fs from 'fs';
-import { DI, Bootstrapper } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Intl } from '@spinajs/intl';
 import sinon, { assert } from 'sinon';
 import { expect } from 'chai';
 import * as cs from 'cookie-signature';
 
-import { fsService, fs as sFs } from '@spinajs/fs';
+import { fs as sFs } from '@spinajs/fs';
 
-import { dir, releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
+import { dir, httpApp, req } from './common.js';
 import { Controllers, FileProportions, FileTypeEnum, FileValidationMiddleware, HttpServer } from '../src/index.js';
 import { CvsSampleObjectWithHydrator, CvsSampleObjectWithHydratorHydrator, CvsSampleObjectWithSchema, SampleCvsModel, SampleModel, SampleObject, SampleObjectWithSchema } from './dto/index.js';
 import { HeaderParams } from './controllers/params/HeaderParams.js';
@@ -23,10 +23,13 @@ import { VariousParams } from './controllers/params/VariousParams.js';
 import { TestFileTransformer } from './file-transformers/custom-file-transformer.js';
 import { CustomFileUploader } from './uploaders/custom-uploader.js';
 import { CvsFileParams } from './controllers/params/CvsFileParams.js';
+import type { TestApp } from '@spinajs/testing';
 
 describe('controller action test params', function () {
   this.timeout(15000);
   const sb = sinon.createSandbox();
+
+  let app: TestApp;
 
   before(async () => {
     sb.spy(QueryParams.prototype);
@@ -40,26 +43,15 @@ describe('controller action test params', function () {
     sb.spy(TestFileTransformer.prototype);
     sb.spy(CvsFileParams.prototype);
     sb.spy(CvsSampleObjectWithHydratorHydrator.prototype);
-    uncacheControllers();
 
-    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
-    for (const b of bootstrappers) {
-      await b.bootstrap();
-    }
-
-    DI.register(TestConfiguration).as(Configuration);
-
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
-    await DI.resolve(Intl);
-    await DI.resolve(Controllers);
-    const server = await DI.resolve<HttpServer>(HttpServer);
-
-    await server.start();
+    app = await httpApp({
+      resolve: [Intl, Controllers],
+    });
+    await (await app.resolve(HttpServer)).start();
   });
 
   after(async () => {
-    await releaseHttpServer();
+    await app.dispose();
     sb.restore();
   });
 

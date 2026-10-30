@@ -1,12 +1,12 @@
 import { DI } from '@spinajs/di';
-import {  Configuration } from '@spinajs/configuration';
 import { HttpServer } from '../src/server.js';
 import { join, normalize, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import chai from 'chai';
 import chaiHttp from 'chai-http';
 import chaiAsPromised from 'chai-as-promised';
-import { appOrigin, releaseHttpServer, TestConfiguration } from './common.js';
+import { appOrigin, httpApp } from './common.js';
+import type { TestApp } from '@spinajs/testing';
 import chaiSubset from 'chai-subset';
 import chaiLike from 'chai-like';
 import chaiThings from 'chai-things';
@@ -30,9 +30,10 @@ describe('HTTP Server Memory Management Tests', () => {
   let server: HttpServer;
   let startedServers: HttpServer[] = [];
 
+  let app: TestApp;
+
   beforeEach(async () => {
-    DI.register(TestConfiguration).as(Configuration);
-    await DI.resolve(Configuration);
+    app = await httpApp();
   });
 
   afterEach(async () => {
@@ -45,9 +46,8 @@ describe('HTTP Server Memory Management Tests', () => {
       }
     }
     startedServers = [];
+    await app.dispose();
   });
-
-  after(releaseHttpServer);
 
   describe('Server Shutdown Memory Management', () => {
     it('should properly close server without hanging connections', async () => {

@@ -4396,7 +4396,7 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 15
+      "count": 8
     },
     "no-useless-assignment": {
       "count": 1
@@ -4614,9 +4614,6 @@
     }
   },
   "packages/http/test/common.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
     "@typescript-eslint/no-unsafe-call": {
       "count": 1
     },
@@ -4685,7 +4682,7 @@
   },
   "packages/http/test/http-configuration-schema.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 3
+      "count": 2
     }
   },
   "packages/http/test/hydrator/HydratorTest.ts": {
@@ -4703,7 +4700,7 @@
       "count": 3
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 11
+      "count": 10
     }
   },
   "packages/http/test/params.test.ts": {
@@ -4785,11 +4782,6 @@
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 4
-    }
-  },
-  "packages/http/test/support/config-boot.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
     }
   },
   "packages/http/test/throttle.test.ts": {

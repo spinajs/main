@@ -5,23 +5,23 @@ import Ajv from 'ajv';
 
 import { HttpConfigBootstrapper } from '../src/bootstrap.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
-import { boot, disposeBooted, violationsOf } from './support/config-boot.js';
+import { configurationViolations, createTestApp, disposeTestApps } from '@spinajs/testing';
 
 const SCHEMAS = [HTTP_CONFIGURATION_SCHEMA];
-const bad = (http: Record<string, unknown>) => violationsOf(SCHEMAS, { http });
+const bad = (http: Record<string, unknown>) => configurationViolations({ schemas: SCHEMAS, config: { http } });
 
 describe('http configuration schema', () => {
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   describe('defaults', () => {
     it('gives an unconfigured http module no trusted proxy and a disabled throttle', async () => {
-      const { configuration } = await boot(SCHEMAS, {});
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
       expect(configuration.get('http.trustProxy')).to.eq(null);
       expect(configuration.get('http.throttle')).to.deep.eq({ enabled: false, rules: [], ipv6Prefix: 64 });
     });
 
     it('keeps a configured throttle and fills the rest', async () => {
-      const { configuration } = await boot(SCHEMAS, { http: { throttle: { rules: [{ path: '/auth', limit: 5, windowSeconds: 60 }] } } });
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { http: { throttle: { rules: [{ path: '/auth', limit: 5, windowSeconds: 60 }] } } } });
       expect(configuration.get('http.throttle.enabled')).to.eq(false);
       expect(configuration.get('http.throttle.rules')).to.deep.eq([{ path: '/auth', limit: 5, windowSeconds: 60 }]);
     });
@@ -30,18 +30,18 @@ describe('http configuration schema', () => {
   describe('trustProxy', () => {
     it('accepts a hop count, 0, a list and a comma-separated string unchanged', async () => {
       for (const value of [0, 2, ['10.0.0.0/8', 'loopback'], '10.0.0.1, 10.0.0.2', null]) {
-        const { configuration } = await boot(SCHEMAS, { http: { trustProxy: value } });
+        const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { http: { trustProxy: value } } });
         expect(configuration.get('http.trustProxy'), JSON.stringify(value)).to.deep.eq(value);
       }
     });
 
     it('turns true into one hop, never trust-all', async () => {
-      const { configuration } = await boot(SCHEMAS, { http: { trustProxy: true } });
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { http: { trustProxy: true } } });
       expect(configuration.get('http.trustProxy')).to.eq(1);
     });
 
     it('accepts a string that only looks like a number but is not one', async () => {
-      const { configuration } = await boot(SCHEMAS, { http: { trustProxy: '1x5' } });
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { http: { trustProxy: '1x5' } } });
       expect(configuration.get('http.trustProxy')).to.eq('1x5');
     });
 
@@ -87,7 +87,7 @@ describe('http configuration schema', () => {
     });
 
     it('keeps a null header list and a string one apart from coercion', async () => {
-      const { configuration } = await boot(SCHEMAS, { http: { cors: { exposedHeaders: null, allowedHeaders: 'x-a' } } });
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { http: { cors: { exposedHeaders: null, allowedHeaders: 'x-a' } } } });
       expect(configuration.get('http.cors.exposedHeaders')).to.eq(null);
       expect(configuration.get('http.cors.allowedHeaders')).to.eq('x-a');
     });
@@ -115,20 +115,12 @@ describe('http configuration schema', () => {
 });
 
 describe('HttpConfigBootstrapper', () => {
-  const schemas = (): unknown[] => (DI.get(Array.ofType('__configurationSchema__' as never)) as unknown[] | null) ?? [];
-  let saved: unknown[] = [];
+  afterEach(disposeTestApps);
 
-  beforeEach(() => {
-    saved = [...schemas()];
-  });
-
-  afterEach(() => {
-    DI.uncache('__configurationSchema__' as never);
-    for (const other of saved) DI.register(other as never).asValue('__configurationSchema__');
-  });
-
-  it('registers the http schema under __configurationSchema__', () => {
+  it('registers the http schema under __configurationSchema__', async () => {
+    await createTestApp({ bootstrap: false, config: {} });
     new HttpConfigBootstrapper().bootstrap();
-    expect(schemas()).to.include(HTTP_CONFIGURATION_SCHEMA);
+    const schemas = (DI.get(Array.ofType('__configurationSchema__' as never)) as unknown[] | null) ?? [];
+    expect(schemas).to.include(HTTP_CONFIGURATION_SCHEMA);
   });
 });

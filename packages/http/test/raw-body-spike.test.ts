@@ -2,17 +2,14 @@ import 'mocha';
 import { expect } from 'chai';
 import { createHash, randomBytes } from 'node:crypto';
 import type { Readable } from 'node:stream';
-import { Bootstrapper, DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { fsService } from '@spinajs/fs';
 import { Intl } from '@spinajs/intl';
 
-import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
+import { httpApp, req, TestConfiguration } from './common.js';
 import { BaseController, BasePath, Controllers, HttpServer, Ok, Post, Req } from '../src/index.js';
 import type { Request } from '../src/index.js';
 // The built config, as in shipped-config.test.ts: ts-node's type check rejects the source's default helmet import.
 import shipped from '../lib/config/http.js';
+import type { TestApp } from '@spinajs/testing';
 
 interface IReadResult {
   state: { flowing: boolean | null; ended: boolean };
@@ -51,25 +48,19 @@ class ShippedMiddlewaresConfiguration extends TestConfiguration {
 describe('raw request body under the shipped http.middlewares (spec §11.2)', function () {
   this.timeout(15000);
 
+  let app: TestApp;
+
   before(async () => {
-    uncacheControllers();
-    for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
-    DI.register(ShippedMiddlewaresConfiguration).as(Configuration);
-    DI.register(RawBodySpikeController).as(BaseController);
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
-    await DI.resolve(Intl);
-    await DI.resolve(Controllers);
-    await (await DI.resolve<HttpServer>(HttpServer)).start();
+    app = await httpApp({
+      configuration: ShippedMiddlewaresConfiguration,
+      register: (c) => c.register(RawBodySpikeController).as(BaseController),
+      resolve: [Intl, Controllers],
+    });
+    await (await app.resolve(HttpServer)).start();
   });
 
   after(async () => {
-    await releaseHttpServer();
-    DI.unregister(RawBodySpikeController as Class<unknown>);
-    DI.uncache(RawBodySpikeController);
-    DI.uncache(BaseController);
-    DI.unregister(ShippedMiddlewaresConfiguration);
-    DI.uncache(Configuration);
+    await app.dispose();
   });
 
   it('hands an application/octet-stream body to the action unread and intact, with helmet and compression active', async () => {

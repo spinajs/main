@@ -6,14 +6,11 @@ import helmet from 'helmet';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Bootstrapper, DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { fsService } from '@spinajs/fs';
 import { Intl } from '@spinajs/intl';
 
-import { appOrigin, releaseHttpServer, TestConfiguration, uncacheControllers } from './common.js';
+import { appOrigin, httpApp, TestConfiguration } from './common.js';
 import { BaseController, BasePath, Controllers, FileResponse, Get, HttpServer, Param, ZipResponse } from '../src/index.js';
+import type { TestApp } from '@spinajs/testing';
 
 const PROVIDER = 'inline-files';
 const CSP = "default-src 'none'; style-src 'unsafe-inline'";
@@ -113,28 +110,20 @@ class PresetHeadersConfiguration extends InlineFilesConfiguration {
   }
 }
 
+let app: TestApp | undefined;
+
 async function startWith(configuration: typeof InlineFilesConfiguration) {
-  uncacheControllers();
-  for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
-  DI.register(configuration).as(Configuration);
-  DI.register(InlineFilesController).as(BaseController);
-  await DI.resolve(Configuration);
-  // An earlier suite's fsService knows only its own providers.
-  DI.uncache(fsService);
-  await DI.resolve(fsService);
-  await DI.resolve(Intl);
-  await DI.resolve(Controllers);
-  await (await DI.resolve<HttpServer>(HttpServer)).start();
+  app = await httpApp({
+    configuration,
+    register: (c) => c.register(InlineFilesController).as(BaseController),
+    resolve: [Intl, Controllers],
+  });
+  await (await app.resolve(HttpServer)).start();
 }
 
-async function stop(configuration: typeof InlineFilesConfiguration) {
-  await releaseHttpServer();
-  DI.unregister(InlineFilesController as Class<unknown>);
-  DI.uncache(InlineFilesController);
-  DI.uncache(BaseController);
-  DI.unregister(configuration);
-  DI.uncache(Configuration);
-  DI.uncache(fsService);
+async function stop() {
+  await app?.dispose();
+  app = undefined;
 }
 
 function get(path: string, headers: Record<string, string> = {}, method = 'GET') {
@@ -160,7 +149,7 @@ describe('FileResponse inline', function () {
 
   before(() => startWith(InlineFilesConfiguration));
 
-  after(() => stop(InlineFilesConfiguration));
+  after(() => stop());
 
   it('serves the file inline with its type from the extension and the file headers', async () => {
     const res = await get('a/plan.svg');
@@ -343,7 +332,7 @@ describe('FileResponse inline behind middlewares that set the same headers', fun
 
   before(() => startWith(PresetHeadersConfiguration));
 
-  after(() => stop(PresetHeadersConfiguration));
+  after(() => stop());
 
   /** helmet's CSP and the middleware's Cache-Control, from an answer that never reached the file. */
   async function middlewareHeaders() {

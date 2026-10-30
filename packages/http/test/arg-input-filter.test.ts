@@ -1,17 +1,15 @@
 import 'mocha';
 import { expect } from 'chai';
-import { Bootstrapper, DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { fsService } from '@spinajs/fs';
 import { Intl } from '@spinajs/intl';
 import { Forbidden } from '@spinajs/exceptions';
 
 import { Schema } from '@spinajs/validation';
 
-import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
+import { httpApp, req } from './common.js';
 import { DateTime } from 'luxon';
 import { ArgHydrator, ArgInputFilter, BaseController, BodyField, FromXml, BasePath, Body, Controllers, Get, HttpServer, Hydrator, Ok, Post, Query } from '../src/index.js';
 import type { IRouteParameter } from '../src/index.js';
+import type { TestApp } from '@spinajs/testing';
 
 @Schema({
   type: 'object',
@@ -112,36 +110,22 @@ class SecondFilter extends ArgInputFilter {
 describe('ArgInputFilter', function () {
   this.timeout(15000);
 
+  let app: TestApp;
+
   before(async () => {
-    uncacheControllers();
-
-    for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
-      await b.bootstrap();
-    }
-
-    DI.register(TestConfiguration).as(Configuration);
-    DI.register(FirstFilter).as(ArgInputFilter);
-    DI.register(SecondFilter).as(ArgInputFilter);
-    DI.register(InputFilterParams).as(BaseController);
-
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
-    await DI.resolve(Intl);
-    await DI.resolve(Controllers);
-    const server = await DI.resolve<HttpServer>(HttpServer);
-    await server.start();
+    app = await httpApp({
+      register: (c) => {
+        c.register(FirstFilter).as(ArgInputFilter);
+        c.register(SecondFilter).as(ArgInputFilter);
+        c.register(InputFilterParams).as(BaseController);
+      },
+      resolve: [Intl, Controllers],
+    });
+    await (await app.resolve(HttpServer)).start();
   });
 
   after(async () => {
-    await releaseHttpServer();
-    DI.unregister(InputFilterParams);
-    DI.uncache(InputFilterParams);
-    DI.uncache(BaseController);
-    DI.unregister(FirstFilter);
-    DI.unregister(SecondFilter);
-    DI.uncache(FirstFilter);
-    DI.uncache(SecondFilter);
-    DI.uncache(ArgInputFilter);
+    await app.dispose();
   });
 
   beforeEach(() => {

@@ -1,10 +1,9 @@
 import 'mocha';
 import { expect } from 'chai';
-import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
 
 import { BadRequestResponse, HTTP_STATUS_CODE, HttpAcceptHeaders, TooManyRequests, retryAfterHeader } from '../src/index.js';
-import { configurationOf } from './support/config-boot.js';
+import { createTestApp } from '@spinajs/testing';
+import type { TestApp } from '@spinajs/testing';
 
 interface ISent {
   status?: number;
@@ -38,19 +37,13 @@ async function send(response: TooManyRequests): Promise<ISent> {
 
 describe('TooManyRequests', () => {
   // XML: a JSON error answer would go through the DataTransformer collection, which depends on the rest of the run.
-  const SpecConfiguration = configurationOf({ http: { AcceptHeaders: HttpAcceptHeaders.XML } });
+  let app: TestApp;
 
   before(async () => {
-    DI.uncache(Configuration);
-    DI.register(SpecConfiguration).as(Configuration);
-    await DI.resolve(Configuration);
+    app = await createTestApp({ config: { http: { AcceptHeaders: HttpAcceptHeaders.XML } }, bootstrap: false });
   });
 
-  after(() => {
-    DI.unregister(SpecConfiguration);
-    DI.uncache(SpecConfiguration);
-    DI.uncache(Configuration);
-  });
+  after(() => app.dispose());
 
   it('answers 429 with Retry-After rounded up, after the given headers', async () => {
     const sent = await send(new TooManyRequests({ error: 'throttled' }, { retryAfterSeconds: 1.2, Headers: [{ Name: 'Cache-Control', Value: 'no-store' }] }));

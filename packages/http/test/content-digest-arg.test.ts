@@ -2,14 +2,12 @@ import 'mocha';
 import { expect } from 'chai';
 import { createHash, randomBytes } from 'node:crypto';
 import type { Readable } from 'node:stream';
-import { Bootstrapper, DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { fsService } from '@spinajs/fs';
+import { DI } from '@spinajs/di';
 import { Intl } from '@spinajs/intl';
 
-import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
+import { httpApp, req } from './common.js';
 import { BaseController, BasePath, ContentDigest, ContentDigestArg, Controllers, HttpServer, Ok, Post, RequestStream } from '../src/index.js';
+import type { TestApp } from '@spinajs/testing';
 
 const hex = (digests: Map<string, Buffer>) => Object.fromEntries([...digests].map(([algorithm, digest]) => [algorithm, digest.toString('hex')]));
 
@@ -50,24 +48,18 @@ const BOTH = `sha-256=:${SHA256.toString('base64')}:, sha-512=:${SHA512.toString
 describe('@ContentDigest', function () {
   this.timeout(15000);
 
+  let app: TestApp;
+
   before(async () => {
-    uncacheControllers();
-    for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
-    DI.register(TestConfiguration).as(Configuration);
-    DI.register(ContentDigestController).as(BaseController);
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
-    await DI.resolve(Intl);
-    await DI.resolve(Controllers);
-    await (await DI.resolve<HttpServer>(HttpServer)).start();
+    app = await httpApp({
+      register: (c) => c.register(ContentDigestController).as(BaseController),
+      resolve: [Intl, Controllers],
+    });
+    await (await app.resolve(HttpServer)).start();
   });
 
   after(async () => {
-    await releaseHttpServer();
-    DI.unregister(ContentDigestController as Class<unknown>);
-    DI.uncache(ContentDigestController);
-    DI.uncache(BaseController);
-    DI.uncache(Configuration);
+    await app.dispose();
   });
 
   it('is resolvable from DI by its parameter type name', async () => {

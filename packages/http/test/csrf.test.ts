@@ -9,7 +9,7 @@ import { InvalidOption } from '@spinajs/exceptions';
 
 import { BaseController, BasePath, CsrfExempt, CsrfGuard, Ok, Post, Put, ServerMiddleware, isCsrfExempt } from '../src/index.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
-import { boot, disposeBooted, readingFrom, violationsOf } from './support/config-boot.js';
+import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 chai.use(chaiHttp);
 
@@ -64,7 +64,7 @@ class TestGuard extends CsrfGuard {
 }
 
 async function guardWith(csrf: Record<string, unknown> = {}, http: Record<string, unknown> = {}): Promise<TestGuard> {
-  const { child } = await boot([HTTP_CONFIGURATION_SCHEMA], { http: { csrf, ...http } });
+  const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: { http: { csrf, ...http } } });
   const guard = readingFrom(new TestGuard(), child);
   Object.defineProperty(guard, 'Log', { value: noopLog });
   return guard;
@@ -104,7 +104,7 @@ const refused = (s: Sent): void => {
 
 describe('CsrfGuard (X1-X3)', function () {
   this.timeout(20000);
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   it('is a ServerMiddleware at Order 4, registered by @spinajs/http', () => {
     expect(new CsrfGuard().Order).to.eq(4);
@@ -170,9 +170,9 @@ describe('CsrfGuard (X1-X3)', function () {
     });
 
     it('the schema fills the defaults and names a bad value', async () => {
-      const { configuration } = await boot([HTTP_CONFIGURATION_SCHEMA], {});
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: {} });
       expect(configuration.get('http.csrf')).to.deep.eq({ enabled: true, allowedOrigins: [], exempt: [], ambientCookies: [] });
-      const bad = (csrf: unknown) => violationsOf([HTTP_CONFIGURATION_SCHEMA], { http: { csrf } });
+      const bad = (csrf: unknown) => configurationViolations({ schemas: [HTTP_CONFIGURATION_SCHEMA], config: { http: { csrf } } });
       expect(await bad({ enabled: null })).to.include('http.csrf.enabled');
       expect(await bad({ allowedOrigins: ['partner.example.test'] })).to.include('http.csrf.allowedOrigins.0');
       expect(await bad({ exempt: ['hooks'] })).to.include('http.csrf.exempt.0');
@@ -181,14 +181,12 @@ describe('CsrfGuard (X1-X3)', function () {
 
     it('a registered subclass replaces the guard', async () => {
       class AppGuard extends CsrfGuard {}
-      DI.register(AppGuard).as(ServerMiddleware);
-      const { child } = await boot([HTTP_CONFIGURATION_SCHEMA], {});
-      try {
-        expect(readingFrom(new CsrfGuard(), child).before()).to.eq(null);
-      } finally {
-        DI.unregister(AppGuard);
-      }
-      expect(readingFrom(new CsrfGuard(), child).before()).to.be.a('function');
+      const base = { bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: {} };
+      const replaced = await createTestApp({ ...base, register: (c) => c.register(AppGuard).as(ServerMiddleware) });
+      expect(readingFrom(new CsrfGuard(), replaced.container).before()).to.eq(null);
+      await replaced.dispose();
+      const plain = await createTestApp(base);
+      expect(readingFrom(new CsrfGuard(), plain.container).before()).to.be.a('function');
     });
   });
 
