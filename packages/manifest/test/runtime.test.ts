@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { loadRuntimeManifest, manifestFileFor, ManifestMissing, packageRootOf } from '../src/runtime.js';
@@ -102,6 +102,22 @@ describe('manifestFileFor', () => {
 
   it('refuses a package the manifest does not list', () => {
     expect(() => packageRootOf('@spinajs/ghost', m, FIX)).to.throw(ManifestMissing, /ghost/);
+  });
+
+  it('finds a hoisted ESM-only package whose exports hide package.json and have no require condition', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'spinajs-esm-only-'));
+    try {
+      const pkgRoot = join(ws, 'node_modules', '@spinajs', 'esm-only');
+      mkdirSync(join(pkgRoot, 'lib'), { recursive: true });
+      writeFileSync(join(pkgRoot, 'package.json'), JSON.stringify({ name: '@spinajs/esm-only', version: '0.0.0', type: 'module', exports: { '.': { import: './lib/index.js' } } }));
+      writeFileSync(join(pkgRoot, 'lib', 'index.js'), '');
+      const app = join(ws, 'apps', 'app');
+      mkdirSync(app, { recursive: true });
+      const local = { ...m, app: { ...m.app, root: app }, packages: [{ name: '@spinajs/esm-only', version: '0.0.0', entry: 'lib/index.js', fragment: 'node_modules/@spinajs/esm-only/lib/manifest.fragment.json', outDir: 'lib' }] };
+      expect(packageRootOf('@spinajs/esm-only', local, app)).to.equal(realpathSync(pkgRoot));
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
   });
 
   describe('containment', () => {

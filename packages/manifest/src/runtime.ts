@@ -66,6 +66,22 @@ export function appRootOf(manifest: Manifest, cwd: string): string {
   return existsSync(manifest.app.root) ? manifest.app.root : resolve(cwd);
 }
 
+/**
+ * `node_modules/<name>` of the nearest ancestor of `fromDir` that has it, as a real path. Looked up directly because
+ * `require.resolve` fails for an ESM-only package whose `exports` hide package.json and have no `require` condition.
+ */
+function installedPackageRoot(fromDir: string, name: string): string | undefined {
+  for (let dir = fromDir; ; dir = dirname(dir)) {
+    const candidate = join(dir, 'node_modules', name);
+    if (existsSync(join(candidate, 'package.json'))) {
+      return realpathSync(candidate);
+    }
+    if (dirname(dir) === dir) {
+      return undefined;
+    }
+  }
+}
+
 /** Root directory of a package listed in `manifest.packages`, resolved from the app root the way node resolves it. */
 export function packageRootOf(name: string, manifest: Manifest, cwd: string): string {
   if (name === manifest.app.name) {
@@ -77,7 +93,13 @@ export function packageRootOf(name: string, manifest: Manifest, cwd: string): st
     throw new ManifestMissing(`package ${name} is referenced by a manifest entry but is not listed in manifest.packages`);
   }
 
-  const require = createRequire(join(appRootOf(manifest, cwd), 'package.json'));
+  const appRoot = appRootOf(manifest, cwd);
+  const installed = installedPackageRoot(appRoot, name);
+  if (installed) {
+    return installed;
+  }
+
+  const require = createRequire(join(appRoot, 'package.json'));
   try {
     return dirname(require.resolve(`${name}/package.json`));
   } catch {
