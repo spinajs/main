@@ -16,7 +16,10 @@ export interface ServiceEntry {
   async: boolean;                   // extends AsyncService
   bootstrapper: boolean;            // extends Bootstrapper
   ctorInjects: string[];            // DI keys from @Inject, positional
-  propertyInjects: { property: string; token: string; optional: boolean; array: boolean; lazy?: boolean }[];
+  /** Parallel to `ctorInjects`: the token is a non-abstract class, which the container constructs even without a registration. Omitted when no entry is true. */
+  ctorConcrete?: boolean[];
+  /** `concrete`: the injected type is a non-abstract class; `check`: injected with `{ check: true }`, which throws when unregistered. */
+  propertyInjects: { property: string; token: string; optional: boolean; array: boolean; lazy?: boolean; concrete?: boolean; check?: boolean }[];
   /** Imperative DI.resolve(X) calls inside methods; `awaited:false` on an async provider is doctor DI003. */
   imperativeResolves?: { token: string; method: string; awaited: boolean; source: SourceRef }[];
   condition?: Condition;

@@ -203,6 +203,12 @@ export const manifestSchema: Record<string, any> = {
             "type": "string"
           }
         },
+        "ctorConcrete": {
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          }
+        },
         "propertyInjects": {
           "type": "array",
           "items": {
@@ -221,6 +227,12 @@ export const manifestSchema: Record<string, any> = {
                 "type": "boolean"
               },
               "lazy": {
+                "type": "boolean"
+              },
+              "concrete": {
+                "type": "boolean"
+              },
+              "check": {
                 "type": "boolean"
               }
             },
