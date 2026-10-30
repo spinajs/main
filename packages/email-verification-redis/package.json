@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/email-verification-redis",
-  "version": "3.0.25",
+  "version": "3.0.26",
   "description": "Redis store for @spinajs/email-verification",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -56,11 +56,11 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "3.0.25",
-    "@spinajs/di": "3.0.25",
-    "@spinajs/log": "3.0.25",
-    "@spinajs/util": "3.0.25",
-    "@spinajs/email-verification": "3.0.25",
+    "@spinajs/configuration": "3.0.26",
+    "@spinajs/di": "3.0.26",
+    "@spinajs/log": "3.0.26",
+    "@spinajs/util": "3.0.26",
+    "@spinajs/email-verification": "3.0.26",
     "ioredis": "^5.11.1"
   },
   "devDependencies": {

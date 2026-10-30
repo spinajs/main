@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/session-provider-dynamodb",
-  "version": "3.0.25",
+  "version": "3.0.26",
   "description": "dynamo db session store",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -55,16 +55,16 @@
     "@types/node": "^22.14.1",
     "@types/nodemailer": "^6.4.7",
     "@types/pug": "^2.0.6",
-    "@spinajs/authn-testing": "3.0.25"
+    "@spinajs/authn-testing": "3.0.26"
   },
   "dependencies": {
-    "@spinajs/authn": "3.0.25",
-    "@spinajs/authn-session": "3.0.25",
-    "@spinajs/configuration": "3.0.25",
-    "@spinajs/di": "3.0.25",
-    "@spinajs/exceptions": "3.0.25",
-    "@spinajs/log": "3.0.25",
-    "@spinajs/util": "3.0.25",
+    "@spinajs/authn": "3.0.26",
+    "@spinajs/authn-session": "3.0.26",
+    "@spinajs/configuration": "3.0.26",
+    "@spinajs/di": "3.0.26",
+    "@spinajs/exceptions": "3.0.26",
+    "@spinajs/log": "3.0.26",
+    "@spinajs/util": "3.0.26",
     "@aws-sdk/client-dynamodb": "^3.658.0",
     "luxon": "^3.6.1"
   },

@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authn-webauthn",
-  "version": "3.0.25",
+  "version": "3.0.26",
   "description": "WebAuthn second factor and passkey login for SpinaJS",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -75,19 +75,19 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
     "@simplewebauthn/server": "^14.0.3",
-    "@spinajs/authn": "3.0.25",
-    "@spinajs/authn-orm": "3.0.25",
-    "@spinajs/configuration": "3.0.25",
-    "@spinajs/di": "3.0.25",
-    "@spinajs/exceptions": "3.0.25",
-    "@spinajs/hooks": "3.0.25",
-    "@spinajs/orm": "3.0.25",
-    "@spinajs/util": "3.0.25",
+    "@spinajs/authn": "3.0.26",
+    "@spinajs/authn-orm": "3.0.26",
+    "@spinajs/configuration": "3.0.26",
+    "@spinajs/di": "3.0.26",
+    "@spinajs/exceptions": "3.0.26",
+    "@spinajs/hooks": "3.0.26",
+    "@spinajs/orm": "3.0.26",
+    "@spinajs/util": "3.0.26",
     "luxon": "^3.6.1"
   },
   "devDependencies": {
-    "@spinajs/authn-testing": "3.0.25",
-    "@spinajs/log": "3.0.25",
-    "@spinajs/orm-sqlite": "3.0.25"
+    "@spinajs/authn-testing": "3.0.26",
+    "@spinajs/log": "3.0.26",
+    "@spinajs/orm-sqlite": "3.0.26"
   }
 }

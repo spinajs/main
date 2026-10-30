@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/templates-puppeteer",
-  "version": "3.0.25",
+  "version": "3.0.26",
   "description": "Base Puppeteer renderer for templates. Shared logic for PDF and image rendering.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -57,12 +57,12 @@
     "@types/express": "^5.0.1"
   },
   "dependencies": {
-    "@spinajs/configuration": "3.0.25",
-    "@spinajs/di": "3.0.25",
-    "@spinajs/exceptions": "3.0.25",
-    "@spinajs/log": "3.0.25",
-    "@spinajs/templates": "3.0.25",
-    "@spinajs/templates-pug": "3.0.25",
+    "@spinajs/configuration": "3.0.26",
+    "@spinajs/di": "3.0.26",
+    "@spinajs/exceptions": "3.0.26",
+    "@spinajs/log": "3.0.26",
+    "@spinajs/templates": "3.0.26",
+    "@spinajs/templates-pug": "3.0.26",
     "puppeteer": "^24.33.0",
     "cors": "^2.8.5",
     "express": "^5.1.0",

@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authz-fs",
-  "version": "3.0.25",
+  "version": "3.0.26",
   "description": "File system integration for SpinaJS authorization",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -52,25 +52,25 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authz": "3.0.25",
-    "@spinajs/authz-rbac": "3.0.25",
-    "@spinajs/configuration": "3.0.25",
-    "@spinajs/di": "3.0.25",
-    "@spinajs/exceptions": "3.0.25",
-    "@spinajs/fs": "3.0.25",
-    "@spinajs/http": "3.0.25",
-    "@spinajs/orm": "3.0.25",
-    "@spinajs/util": "3.0.25",
+    "@spinajs/authz": "3.0.26",
+    "@spinajs/authz-rbac": "3.0.26",
+    "@spinajs/configuration": "3.0.26",
+    "@spinajs/di": "3.0.26",
+    "@spinajs/exceptions": "3.0.26",
+    "@spinajs/fs": "3.0.26",
+    "@spinajs/http": "3.0.26",
+    "@spinajs/orm": "3.0.26",
+    "@spinajs/util": "3.0.26",
     "luxon": "^3.6.1"
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.821.0",
-    "@spinajs/authz-testing": "3.0.25",
-    "@spinajs/fs-s3": "3.0.25",
-    "@spinajs/log-common": "3.0.25",
-    "@spinajs/orm-mysql": "3.0.25",
-    "@spinajs/orm-postgres": "3.0.25",
-    "@spinajs/orm-sqlite": "3.0.25",
+    "@spinajs/authz-testing": "3.0.26",
+    "@spinajs/fs-s3": "3.0.26",
+    "@spinajs/log-common": "3.0.26",
+    "@spinajs/orm-mysql": "3.0.26",
+    "@spinajs/orm-postgres": "3.0.26",
+    "@spinajs/orm-sqlite": "3.0.26",
     "@types/luxon": "^3.6.1"
   }
 }
