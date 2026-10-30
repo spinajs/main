@@ -2,6 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { hashManifest, mergeFragments, readFragment, type Manifest } from '@spinajs/manifest';
 import { analyzePackage } from './analyze-package.js';
+import type { EffectiveDirs } from './extractors/effective-dirs.js';
 import { locateFragments } from './fragments.js';
 
 export interface BuildAppOptions {
@@ -10,11 +11,13 @@ export interface BuildAppOptions {
   /** Defaults to `<appRoot>/app.manifest.json`. */
   out?: string;
   schemaDerivation?: boolean;
+  /** The app's `system.dirs`: see `AnalyzeOptions.effectiveDirs`. */
+  effectiveDirs?: EffectiveDirs;
 }
 
 export async function buildAppManifest(options: BuildAppOptions): Promise<{ manifest: Manifest; written: string }> {
   const root = resolve(options.appRoot);
-  const app = await analyzePackage({ tsconfig: options.tsconfig, packageRoot: root, schemaDerivation: options.schemaDerivation });
+  const app = await analyzePackage({ tsconfig: options.tsconfig, packageRoot: root, schemaDerivation: options.schemaDerivation, effectiveDirs: options.effectiveDirs });
   const locations = await locateFragments(root);
   const fragments = await Promise.all(locations.map((l) => readFragment(l.fragment)));
 

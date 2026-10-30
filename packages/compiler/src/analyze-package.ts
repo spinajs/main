@@ -15,6 +15,7 @@ import { extractSchedules } from './extractors/schedules.js';
 import { extractCommands } from './extractors/commands.js';
 import { extractQueueMessages } from './extractors/queue.js';
 import { declaredDirsOf, isUnderDeclaredDirs, type DirSection } from './extractors/declared-dirs.js';
+import { discoveredBy, type EffectiveDirs, type ScannedEntry } from './extractors/effective-dirs.js';
 
 export interface AnalyzeOptions {
   tsconfig: string;
@@ -27,6 +28,11 @@ export interface AnalyzeOptions {
    * rest is registered by importing the package, or not at all (an opt-in subpath, an abstract base).
    */
   declaredDirsOnly?: boolean;
+  /**
+   * For an app: list a controller, socket controller, schedule, command or migration only when its file is under one of these
+   * dirs, mapped back to the sources through the tsconfig `outDir` and `rootDir`. Without them nothing is filtered.
+   */
+  effectiveDirs?: EffectiveDirs;
 }
 
 const compareSource = (a: SourceRef, b: SourceRef): number => compareCodeUnits(a.file, b.file) || a.line - b.line || a.col - b.col;
@@ -76,9 +82,23 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   const files = [...loaded.sourceFiles].sort((a, b) => compareCodeUnits(a.fileName, b.fileName));
 
   const run = <T extends { source: SourceRef }>(extractor: Extractor<T>): T[] => sortBySource(files.flatMap((f) => extractor(ctx, f)));
+  const services = sortBySource(mergeById(files.flatMap((f) => extractServices(ctx, f))));
+  const outDir = outDirOf(root, loaded.program.getCompilerOptions().outDir);
   const declared = options.declaredDirsOnly ? declaredDirsOf(files, root) : undefined;
-  const scanned = <T extends { source: SourceRef }>(section: DirSection, extractor: Extractor<T>): T[] =>
-    run(extractor).filter((e) => !declared || isUnderDeclaredDirs(e.source.file, section, declared));
+  const registeredControllers = new Set(services.filter((s) => s.registeredAs.includes('BaseController')).map((s) => s.className));
+  const discovered = options.effectiveDirs
+    ? discoveredBy(
+        options.effectiveDirs,
+        { root, rootDir: loaded.emitRoot, outDir: resolve(root, outDir) },
+        // DiRegistryControllerSource hands these over from any file, and `require` refuses a file-backed controller the manifest lacks
+        (section, className) => section === 'controllers' && registeredControllers.has(className),
+        (diagnostic) => ctx.diagnostics.push(diagnostic),
+      )
+    : undefined;
+  const scanned = <T extends ScannedEntry>(section: DirSection, extractor: Extractor<T>): T[] => {
+    const entries = run(extractor).filter((e) => !declared || isUnderDeclaredDirs(e.source.file, section, declared));
+    return discovered ? discovered(section, entries) : entries;
+  };
 
   const fragment: ManifestFragment = {
     manifestVersion: MANIFEST_VERSION,
@@ -86,10 +106,10 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
       name: pkg.name,
       version: pkg.version,
       entry: (pkg.main ?? 'lib/index.js').replace(/^\.\//, ''),
-      outDir: outDirOf(root, loaded.program.getCompilerOptions().outDir),
+      outDir,
       configFiles: configFilesOf(root),
     },
-    services: sortBySource(mergeById(files.flatMap((f) => extractServices(ctx, f)))),
+    services,
     values: run(extractValues),
     controllers: scanned('controllers', extractControllers),
     socketControllers: scanned('socketControllers', extractSocketControllers),
