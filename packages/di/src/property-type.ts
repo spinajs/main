@@ -8,6 +8,8 @@ export const PROPERTY_TYPE_RESOLVER = token<IPropertyTypeResolver>('__property_t
 export interface IPendingProperty {
   owner: Class<unknown>;
   property: string;
+  /** The class the decorator names; without one, only `tokenRef` in the table can type the property. */
+  explicit?: Class<unknown>;
   /** An explicit class bound with no answer from a resolver: one instance, even if the property is a list. */
   boundSingle?: boolean;
 }
@@ -17,9 +19,9 @@ const pending: IPendingProperty[] = [];
 
 const pairOf = (owner: Class<unknown>, property: string) => pending.find((p) => p.owner === owner && p.property === property);
 
-export function notePendingProperty(owner: Class<unknown>, property: string): void {
+export function notePendingProperty(owner: Class<unknown>, property: string, explicit?: Class<unknown>): void {
   if (!pairOf(owner, property)) {
-    pending.push({ owner, property });
+    pending.push({ owner, property, explicit });
   }
 }
 

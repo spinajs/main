@@ -69,6 +69,7 @@ function reportOnce(manifest: Manifest, problem: string, property: string): void
 }
 
 const LACKING = 'The build emits no decorator metadata and the manifest does not list this property, rebuild it ( spinajs build ) from a tsconfig with emitDecoratorMetadata off:';
+const UNTYPED = 'The build emits no decorator metadata and nothing records the type of this property, pass the type to the decorator:';
 const BOUND_BEFORE_MANIFEST = 'This property holds one instance where the manifest records a list, it was resolved before Configuration read the manifest, resolve Configuration first:';
 
 const sameDeclaration = (a: PropertyInject, b: PropertyInject): boolean => a.array === b.array && JSON.stringify(a.tokenRef) === JSON.stringify(b.tokenRef);
@@ -123,8 +124,8 @@ export async function preloadPropertyTypes(container: IContainer): Promise<void>
 
 /**
  * The boot signal for a tsconfig that does not match the build: every property decorated without metadata so far that
- * the manifest does not list, and every list that took one instance because it was resolved before the manifest was
- * read. Fails the boot in `require`, naming them all, and logs each in `prefer`. Runs after each step that loads
+ * the manifest does not list, every one with a row but no type and no class on its decorator, and every list that took
+ * one instance because it was resolved before the manifest was read. Fails the boot in `require`, naming them all, and logs each in `prefer`. Runs after each step that loads
  * classes, before any of them resolves; a class loaded later still fails when its owner is resolved.
  */
 export function checkPendingProperties(container: IContainer): void {
@@ -135,16 +136,21 @@ export function checkPendingProperties(container: IContainer): void {
   const named = ({ owner, property }: IPendingProperty) => `${owner.name}.${property}`;
   const declarations = ({ owner, property }: IPendingProperty) => declarationsOf(manifest, owner.name, property);
   const lacking = pendingProperties().filter((p) => declarations(p).length === 0).map(named);
+  const untyped = pendingProperties()
+    .filter((p) => !p.explicit && declarations(p).length > 0 && declarations(p).every((d) => !d.tokenRef))
+    .map(named);
   const boundSingle = pendingProperties().filter((p) => p.boundSingle && declarations(p).some((d) => d.array)).map(named);
 
   if (effective.settings.mode === 'require') {
     const problems = [];
     if (lacking.length > 0) problems.push(`the build emits no decorator metadata and the manifest does not list ${lacking.join(', ')}; rebuild it ( spinajs build ) from a tsconfig with emitDecoratorMetadata off`);
+    if (untyped.length > 0) problems.push(`nothing records the type of ${untyped.join(', ')}; pass the type to the decorator`);
     if (boundSingle.length > 0) problems.push(`${boundSingle.join(', ')} got one instance where the manifest records a list, because they were resolved before Configuration read the manifest; resolve Configuration first`);
     if (problems.length > 0) throw new ResolveException(problems.join('; '));
     return;
   }
   lacking.forEach((property) => reportOnce(manifest, LACKING, property));
+  untyped.forEach((property) => reportOnce(manifest, UNTYPED, property));
   boundSingle.forEach((property) => reportOnce(manifest, BOUND_BEFORE_MANIFEST, property));
 }
 

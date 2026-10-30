@@ -224,6 +224,55 @@ describe('property types from the manifest', () => {
     });
   });
 
+  describe('a property nothing can type', () => {
+    class Bare {
+      public dep: Db;
+    }
+    class NoRef {
+      public when: Date;
+    }
+    class Named {
+      public dep: Db;
+    }
+    class Dep {}
+
+    const table = [entry('Bare', 'dep'), entry('NoRef', 'when'), entry('Named', 'dep')];
+
+    before(() => {
+      (Autoinject() as PropertyDecorator)(Bare.prototype, 'dep');
+      (Autoinject() as PropertyDecorator)(NoRef.prototype, 'when');
+      (Autoinject(Dep) as PropertyDecorator)(Named.prototype, 'dep');
+    });
+
+    beforeEach(() => {
+      notePendingProperty(Bare, 'dep');
+      notePendingProperty(NoRef, 'when');
+      notePendingProperty(Named, 'dep', Dep);
+    });
+
+    afterEach(() => {
+      forgetPendingProperties();
+    });
+
+    it('fails a require boot, not the first resolve: a row is not a type', async () => {
+      await expect(boot(manifestOf({ classProperties: table }), 'require')).to.be.rejectedWith(ResolveException, /Bare\.dep, NoRef\.when; pass the type to the decorator/);
+    });
+
+    it('logs a named error for each in prefer, once, and boots', async () => {
+      const error = sinon.stub(InternalLogger, 'error');
+      try {
+        await boot(manifestOf({ classProperties: table }), 'prefer');
+        expect(error.getCalls().map((c) => (c.args[0] as { property: string }).property)).to.deep.equal(['Bare.dep', 'NoRef.when']);
+      } finally {
+        error.restore();
+      }
+    });
+
+    it('passes a require boot when the table has the type', async () => {
+      await boot(manifestOf({ classProperties: [entry('Bare', 'dep', DB), entry('NoRef', 'when', DB), entry('Named', 'dep')] }), 'require');
+    });
+  });
+
   describe('@Autoinject(X) resolved before Configuration', () => {
     class Early {
       public list: Plugin[];
@@ -250,9 +299,9 @@ describe('property types from the manifest', () => {
     });
 
     beforeEach(() => {
-      notePendingProperty(Early, 'list');
-      notePendingProperty(EarlyLazy, 'list');
-      notePendingProperty(EarlyOne, 'one');
+      notePendingProperty(Early, 'list', Plugin);
+      notePendingProperty(EarlyLazy, 'list', Plugin);
+      notePendingProperty(EarlyOne, 'one', Plugin);
     });
 
     afterEach(() => {

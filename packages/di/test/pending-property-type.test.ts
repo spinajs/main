@@ -141,6 +141,14 @@ describe('property types without decorator metadata', () => {
       expect(has(WithMetadata, 'list')).to.equal(false);
     });
 
+    it('keeps the class the decorator names, so a check can tell who has nothing to type a property', () => {
+      const pair = (owner: Class<unknown>, property: string) => pendingProperties().find((p) => p.owner === owner && p.property === property);
+      expect(pair(ExplicitOwner, 'list')?.explicit).to.equal(Foo);
+      expect(pair(ExplicitLazyOwner, 'list')?.explicit).to.equal(Foo);
+      expect(pair(Owner, 'foo')?.explicit).to.equal(undefined);
+      expect(pair(LazyOwner, 'foo')?.explicit).to.equal(undefined);
+    });
+
     it('lists a pair once', () => {
       class Twice {}
       Autoinject()(Twice.prototype, 'foo');
