@@ -10,6 +10,7 @@ export * from './progress.js';
 export * from './io.js';
 export * from './CompiledTemplateRenderer.js';
 export * from './renderHelpers.js';
+export * from './schemas/templates.configuration.js';
 
 /** Same rules as `redactError` in `@spinajs/email`, which this package cannot depend on. */
 function redactError(err: unknown, secrets: readonly string[]): unknown {
