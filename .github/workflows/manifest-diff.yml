@@ -1,0 +1,82 @@
+name: manifest-diff
+
+# Builds the application manifest of the PR base and head, diffs them and keeps one PR comment up to
+# date. The example app is the monorepo's reference application. Not a required check: a breaking
+# change fails the last step so reviewers notice, a merge is not blocked by it.
+
+on:
+  pull_request:
+    branches: [v4]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  APP: packages/http-socket-example
+
+jobs:
+  manifest-diff:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: manifest-diff-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: head
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+          cache-dependency-path: head/package-lock.json
+
+      - name: build head
+        working-directory: head
+        run: npm ci && npm run build
+
+      - name: build base
+        working-directory: base
+        run: npm ci && npm run build
+
+      # The base may predate `spinajs build`; the head CLI builds both manifests.
+      - name: manifests
+        run: |
+          for side in base head; do
+            (cd "$side/$APP" && node "$GITHUB_WORKSPACE/head/packages/cli/lib/cli.js" build --tsconfig tsconfig.build.json --out "$GITHUB_WORKSPACE/$side.manifest.json")
+          done
+
+      - name: diff
+        id: diff
+        run: |
+          set +e
+          node head/packages/cli/lib/cli.js manifest:diff base.manifest.json head.manifest.json --fail-on breaking > diff.md
+          echo "breaking=$([ $? -ne 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          { echo '<!-- spinajs-manifest-diff -->'; echo '## Manifest diff'; echo; cat diff.md; } > comment.md
+
+      - name: comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- spinajs-manifest-diff -->';
+            const body = fs.readFileSync('comment.md', 'utf8');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number, body });
+
+      - name: fail on breaking changes
+        if: steps.diff.outputs.breaking == 'true'
+        run: |
+          echo '::warning::The manifest diff contains breaking changes'
+          exit 1
