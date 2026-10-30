@@ -62,3 +62,39 @@ describe('explicit @Schema the analyzer cannot fully evaluate', () => {
     expect(resolved.schema).to.deep.include({ type: 'object', properties: { a: { type: 'string' } }, required: ['a'] });
   });
 });
+
+describe('Standard Schema as @Schema argument', () => {
+  const codes = (name: string) => derive(name).diagnostics.map((d) => [d.code, d.severity]);
+
+  it('reads an exported literal <Name>JsonSchema for zod >= 4 and keeps the derived schema as x-derived', () => {
+    const result = derive('StdZodExportedDto');
+    expect(result.schema).to.deep.include({
+      $id: 'fixture/StdZodExportedDto',
+      type: 'object',
+      properties: { name: { type: 'string' } },
+      required: ['name'],
+      additionalProperties: false,
+    });
+    expect(result.schema).to.have.property('x-derived');
+    expect(result.diagnostics).to.deep.equal([]);
+  });
+  it('reports SCH004 and publishes the derived schema when zod >= 4 has no exported JSON Schema', () => {
+    const result = derive('StdZodMissingDto');
+    expect(codes('StdZodMissingDto')).to.deep.equal([['SCH004', 'warning']]);
+    expect(result.diagnostics[0].message).to.include('StdZodMissingDtoJsonSchema');
+    expect(result.schema).to.deep.equal({ $id: 'fixture/StdZodMissingDto', type: 'object', properties: { name: { type: 'string' } }, required: ['name'], additionalProperties: false });
+  });
+  it('reports SCH006 when the exported JSON Schema is not a literal (a call is never executed)', () => {
+    const result = derive('StdZodCallDto');
+    expect(codes('StdZodCallDto')).to.deep.equal([['SCH006', 'warning']]);
+    expect(result.schema).to.deep.include({ 'x-explicit': 'partial' });
+  });
+  it('reports SCH004 for zod 3 even when a JSON Schema is exported', () => {
+    expect(codes('StdZod3Dto')).to.deep.equal([['SCH004', 'warning']]);
+    expect(derive('StdZod3Dto').diagnostics[0].message).to.include('zod 3.25.0');
+  });
+  it('reports SCH004 naming the vendor for other libraries', () => {
+    expect(codes('StdOtherDto')).to.deep.equal([['SCH004', 'warning']]);
+    expect(derive('StdOtherDto').diagnostics[0].message).to.include('valibot');
+  });
+});

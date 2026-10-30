@@ -6,6 +6,7 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { SCHEMA_SYMBOL } from './decorators.js';
 import { IValidationOptions, SchemaSource, ISchemaObject } from './types.js';
 import { Logger, Log } from '@spinajs/log-common';
+import { isStandardSchema, toValidationErrors, type StandardSchemaV1 } from './standard-schema.js';
 
 // import default souces
 import './sources.js';
@@ -233,6 +234,10 @@ export class DataValidator extends AsyncService {
       return [false, [syntheticError('empty_schema', 'objects schema is not set')]];
     }
 
+    if (isStandardSchema(schema)) {
+      return this.validateStandard(schema, target);
+    }
+
     const strict = this.isStrict(schema) || (hasSchemaArg && typeof schemaOrData === 'string' && this.isStrict(schemaOrData));
     const ajv = strict ? this.StrictValidator : this.Validator;
     const result = ajv.validate(this.uniqueIdSchema(schema, ajv), target);
@@ -241,6 +246,23 @@ export class DataValidator extends AsyncService {
     }
 
     return [true, null];
+  }
+
+  private validateStandard(schema: StandardSchemaV1, data: unknown): [boolean, IValidationError[] | null] {
+    let result: ReturnType<StandardSchemaV1['~standard']['validate']>;
+    try {
+      result = schema['~standard'].validate(data);
+    } catch {
+      // A library's own error text may quote the offending value.
+      return [false, [syntheticError('standardSchema', 'schema validator failed')]];
+    }
+
+    if (result instanceof Promise) {
+      void result.catch(() => undefined);
+      throw new InvalidOperation(`Standard Schema validator (${schema['~standard'].vendor}) is asynchronous; synchronous validation cannot await it`);
+    }
+
+    return result.issues ? [false, toValidationErrors(result.issues)] : [true, null];
   }
 
   /**

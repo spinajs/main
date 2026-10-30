@@ -57,7 +57,7 @@ export function handlers(): TypeHandler[] {
   return handlerList;
 }
 
-export function diagnose(ctx: DeriveContext, code: 'SCH001' | 'SCH002' | 'SCH005' | 'SCH006', severity: Diagnostic['severity'], message: string): void {
+export function diagnose(ctx: DeriveContext, code: 'SCH001' | 'SCH002' | 'SCH004' | 'SCH005' | 'SCH006', severity: Diagnostic['severity'], message: string): void {
   const owner = ctx.options.foreignOwner?.(ctx.node);
   ctx.diagnostics.push({ code, severity, message: owner ? `${message} (declared in ${owner})` : message, source: ctx.options.sourceRef?.(ctx.node) });
 }
@@ -78,7 +78,7 @@ export function deriveType(ctx: DeriveContext, type: ts.Type): JsonSchema {
   const hoisted = hoistedId(inner, type);
   if (!hoisted) return deriveAlias(inner, type);
 
-  const explicit = explicitSchema(inner, type);
+  const explicit = usableExplicit(inner, explicitSchema(inner, type));
   const id = explicit?.id ?? hoisted;
   if (inner.registry.has(id)) reportCollision(inner, id, type);
   else {
@@ -190,4 +190,10 @@ function deriveBody(ctx: DeriveContext, type: ts.Type): JsonSchema {
     if (schema) return schema;
   }
   return unsupported(ctx, type);
+}
+
+function usableExplicit(ctx: DeriveContext, explicit: ExplicitSchema | undefined): ExplicitSchema | undefined {
+  if (!explicit?.standardIssue) return explicit;
+  diagnose(ctx, 'SCH004', 'warning', explicit.standardIssue);
+  return undefined;
 }

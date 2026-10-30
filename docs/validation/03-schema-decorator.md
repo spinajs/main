@@ -133,6 +133,24 @@ export async function describeAddress() {
 }
 ```
 
+## Standard Schema
+
+`@Schema` also accepts a [Standard Schema](https://standardschema.dev) v1 object, such as `z.object(...)` from zod. `@spinajs/validation` does not depend on any schema library: it detects the `~standard` member and calls `~standard.validate(data)`.
+
+```ts
+import { z } from 'zod';
+
+@Schema(z.object({ name: z.string() }))
+export class CreateUserDto {
+  public name: string;
+}
+```
+
+- Issues become Ajv-shaped errors (`keyword: 'standardSchema'`, a JSON pointer `instancePath`, the issue message), so `ValidationFailed` and the problem+json body keep their shape.
+- Validation is synchronous: a validator that returns a promise makes `validate` and `tryValidate` throw `InvalidOperation`. A validator that throws yields a generic error without its message.
+- The class is not added to the `'__schemas__'` map, so `getRegisteredSchema` returns `undefined` for it.
+- For the manifest and OpenAPI, the compiler never runs the schema. For zod 4 export a literal JSON Schema next to the class: `export const CreateUserDtoJsonSchema = { ... }`. Otherwise it reports `SCH004` and publishes the schema derived from the class. See the [compiler diagnostics](../compiler/README.md).
+
 ## Related
 
 - [Schema providers](06-schema-providers.md): `DtoSchemaProvider` reads what this decorator registers.
