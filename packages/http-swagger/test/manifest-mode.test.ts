@@ -15,7 +15,7 @@ function configWith(manifest: { path: string; mode: string }, prefix = '') {
   return class extends TestConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
-      const config = this.Config as Record<string, any>;
+      const config = this.Config as Record<string, Record<string, unknown>>;
       config.system.manifest = manifest;
       config.http.controllers = { route: { prefix } };
     }
@@ -61,6 +61,27 @@ describe('SwaggerService with a manifest', function () {
   it('falls back to the JSDoc builder when prefer finds no manifest', async () => {
     const spec = await (await boot({ path: `${manifestPath}.missing`, mode: 'prefer' })).buildSpec();
     expect(spec.openapi).to.equal('3.0.3');
+  });
+
+  it('hides manifest internals from the served document', async () => {
+    const spec = await (await boot({ path: manifestPath, mode: 'prefer' })).getSpec();
+    const json = JSON.stringify(spec);
+    expect(json).to.not.match(/"x-spinajs-/);
+    expect(json).to.not.match(/\.tsx?"/);
+    expect(json).to.not.include('"source"');
+  });
+
+  it('logs which builder served the docs when prefer falls back', async () => {
+    const service = await boot({ path: `${manifestPath}.missing`, mode: 'prefer' });
+    const lines: string[] = [];
+    const log = service as unknown as { Log: Record<string, unknown> };
+    const original = log.Log.info as (...a: unknown[]) => void;
+    log.Log.info = (...args: unknown[]) => {
+      lines.push(args.filter((a) => typeof a === 'string').join(' '));
+      return original.apply(log.Log, args);
+    };
+    await service.buildSpec();
+    expect(lines.some((l) => l.includes('prefer') && l.includes('JSDoc') && l.includes('missing'))).to.equal(true);
   });
 
   it('fails in require mode without a manifest', async () => {

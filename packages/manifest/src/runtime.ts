@@ -14,6 +14,8 @@ const MODES: readonly string[] = ['off', 'prefer', 'require'];
 export interface ManifestRuntimeOptions {
   path: string;
   mode: ManifestMode;
+  /** Receives the stale-manifest fallback notice in `prefer` mode; defaults to console.warn. */
+  warn?: (message: string) => void;
 }
 
 export class ManifestMissing extends Error {
@@ -49,7 +51,7 @@ export function loadRuntimeManifest(options: ManifestRuntimeOptions, cwd = proce
     if (options.mode === 'require') {
       throw new Error(message);
     }
-    console.warn(`${message}; falling back to discovery`);
+    (options.warn ?? console.warn)(`${message}; falling back to discovery`);
     return undefined;
   }
   return manifest;
