@@ -406,6 +406,9 @@
         "basePathConfig": {
           "type": "string"
         },
+        "mountPath": {
+          "type": "string"
+        },
         "policies": {
           "type": "array",
           "items": {

@@ -608,6 +608,7 @@
       "id": "pkg-basic:UsersController",
       "className": "UsersController",
       "basePath": "users",
+      "mountPath": "users",
       "policies": [
         [
           {
@@ -693,7 +694,7 @@
           "method": "post",
           "path": "",
           "handler": "create",
-          "fullPath": "/users",
+          "fullPath": "/users/create",
           "params": [
             {
               "index": 0,
@@ -786,7 +787,7 @@
           "method": "get",
           "path": "",
           "handler": "list",
-          "fullPath": "/users",
+          "fullPath": "/users/list",
           "params": [],
           "returnType": {
             "text": "UserDto[]",

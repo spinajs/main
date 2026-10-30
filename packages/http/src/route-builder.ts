@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isPromise, tryGetHash } from '@spinajs/util';
+import { routeFullPath, withRoutePrefix } from '@spinajs/manifest';
 
 import Express from 'express';
 
@@ -24,27 +25,11 @@ export type ControllerActionHost = IController & { [action: string]: any };
 /**
  * Computes the final express path for a route: `/BasePath/Path`, falling back
  * to the method name when the route has no explicit path, with optional
- * global route prefix (`http.controllers.route.prefix`).
+ * global route prefix (`http.controllers.route.prefix`). The manifest's
+ * `fullPath` uses the same `routeFullPath`.
  */
 export function buildRoutePath(basePath: string, route: IRoute, globalPrefix?: string): string {
-  let path = '';
-  if (route.Path) {
-    if (route.Path === '/') {
-      path = `/${basePath}`;
-    } else if (basePath === '/') {
-      path = `/${route.Path}`;
-    } else {
-      path = `/${basePath}/${route.Path}`;
-    }
-  } else {
-    path = `/${basePath}/${String(route.Method)}`;
-  }
-
-  if (globalPrefix) {
-    path = `/${globalPrefix}${path}`;
-  }
-
-  return path;
+  return withRoutePrefix(globalPrefix, routeFullPath(basePath, route.Path, String(route.Method)));
 }
 
 /**

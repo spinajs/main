@@ -17,9 +17,9 @@ describe('app-basic manifest fixture', () => {
     const users = manifest().controllers.find((c) => c.className === 'UsersController');
     expect(users?.basePath).to.equal('users');
     expect(users?.routes.map((r) => `${r.method} ${r.fullPath}`)).to.deep.equal([
-      'get /users',
+      'get /users/list',
       'get /users/:id',
-      'post /users',
+      'post /users/create',
       'post /users/:id/avatar',
     ]);
   });

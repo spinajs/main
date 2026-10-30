@@ -51,7 +51,11 @@ export interface RouteEntry {
   method: 'get' | 'post' | 'put' | 'patch' | 'delete' | 'head' | 'file';
   path: string;
   handler: string;                   // method name
-  fullPath: string;                  // basePath + path; computed by the extractor, kept at merge
+  /**
+   * The path `@spinajs/http` serves the route at (`routeFullPath(mountPath, path, handler)`), without the global
+   * `http.controllers.route.prefix`; apply it with `withRoutePrefix`. A `basePathConfig` controller uses its default.
+   */
+  fullPath: string;
   params: ParamEntry[];
   returnType: TypeRef;
   policies: PolicyRef[][];           // groups: OR between groups, AND inside
@@ -64,7 +68,9 @@ export interface RouteEntry {
 
 export interface ControllerEntry {
   id: string; className: string;
-  basePath: string | null; basePathConfig?: string;
+  basePath: string | null; basePathConfig?: string;   // as declared; null without @BasePath
+  /** Effective base the routes are mounted under (`controllerMountPath`); absent in fragments older than the field. */
+  mountPath?: string;
   policies: PolicyRef[][]; middlewares: { type: string; options?: unknown[] }[];
   access?: string[]; allowAnonymous?: boolean;   // class-level @Access / @AllowAnonymous
   routes: RouteEntry[];

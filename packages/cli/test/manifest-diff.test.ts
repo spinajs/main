@@ -39,7 +39,7 @@ describe('manifest:diff', () => {
     const cmd = new Captured();
     await cmd.execute(fixture, head, { format: 'markdown' });
     expect(cmd.output).to.include('**BREAKING**');
-    expect(cmd.output).to.include('`GET /health`');
+    expect(cmd.output).to.include('`GET /health/get`');
     expect(process.exitCode).to.equal(undefined);
   });
 
@@ -48,7 +48,7 @@ describe('manifest:diff', () => {
     await cmd.execute(fixture, head, { format: 'json' });
     const diff = JSON.parse(cmd.output) as { breaking: boolean; changes: { id: string }[] };
     expect(diff.breaking).to.equal(true);
-    expect(diff.changes.map((c) => c.id)).to.include('GET /health');
+    expect(diff.changes.map((c) => c.id)).to.include('GET /health/get');
   });
 
   it('sets a failing exit code with --fail-on breaking', async () => {

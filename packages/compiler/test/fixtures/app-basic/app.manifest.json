@@ -50,6 +50,7 @@
       "id": "app-basic:HealthController",
       "className": "HealthController",
       "basePath": "health",
+      "mountPath": "health",
       "policies": [],
       "middlewares": [],
       "routes": [
@@ -57,7 +58,7 @@
           "method": "get",
           "path": "",
           "handler": "get",
-          "fullPath": "/health",
+          "fullPath": "/health/get",
           "params": [],
           "returnType": {
             "text": "{ ok: boolean; }",
@@ -85,6 +86,7 @@
       "id": "app-basic:UsersController",
       "className": "UsersController",
       "basePath": "users",
+      "mountPath": "users",
       "policies": [],
       "middlewares": [],
       "routes": [
@@ -92,7 +94,7 @@
           "method": "get",
           "path": "",
           "handler": "list",
-          "fullPath": "/users",
+          "fullPath": "/users/list",
           "params": [
             {
               "index": 0,
@@ -167,7 +169,7 @@
           "method": "post",
           "path": "",
           "handler": "create",
-          "fullPath": "/users",
+          "fullPath": "/users/create",
           "params": [
             {
               "index": 0,
@@ -608,6 +610,6 @@
     }
   },
   "diagnostics": [],
-  "generatedAt": "2026-10-27T08:15:06.874Z",
-  "hash": "246587929ceac27f5c84d573e910b229cdb51bb473e50e9019676127822ec6a9"
+  "generatedAt": "2026-10-30T01:49:49.443Z",
+  "hash": "75dba65649f224633f15298e42db7ffd4c3ab0397baae94cbfad35becc5e97d7"
 }

@@ -33,7 +33,7 @@ describe('buildAppManifest', () => {
     expect(ownPackage(manifest.packages).map((p) => [p.name, p.outDir])).to.deep.equal([['pkg-basic', 'lib']]);
     expect(own(manifest.controllers).map((c) => c.id)).to.deep.equal(['pkg-basic:UsersController', 'app-basic:HealthController', 'app-basic:UsersController']);
     const health = manifest.controllers.find((c) => c.id === 'app-basic:HealthController');
-    expect(health?.routes[0].fullPath).to.equal('/health');
+    expect(health?.routes[0].fullPath).to.equal('/health/get');
     expect(ownPackage(manifest.packages)[0].fragment).to.equal('node_modules/pkg-basic/lib/manifest.fragment.json');
     expect(manifest.hash).to.match(/^[0-9a-f]{64}$/);
     expect((JSON.parse(readFileSync(written, 'utf8')) as { hash: string }).hash).to.equal(manifest.hash);

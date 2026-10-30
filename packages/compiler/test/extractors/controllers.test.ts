@@ -30,7 +30,7 @@ describe('extractControllers', () => {
     expect(r.params[0]).to.deep.equal({ index: 0, name: 'body', kind: 'FromBody', runtimeType: { text: 'CreateUserDto', schema: 'spinajs/pkg-basic/CreateUserDto' }, required: true, options: { required: true } });
     expect(r.access).to.deep.equal(['user:create', 'user:update']);
     expect(r.middlewares).to.deep.equal([{ type: 'AuthzFieldsMiddleware', options: [] }]);
-    expect(r.fullPath).to.equal('/users');
+    expect(r.fullPath).to.equal('/users/create');
   });
   it('DELETE with inline schema hoisted, anonymous, policy group with config key', () => {
     const r = route('remove');

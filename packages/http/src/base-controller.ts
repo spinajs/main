@@ -6,6 +6,7 @@ import { AsyncService, IContainer, Autoinject, Container } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
 import { DataValidator } from '@spinajs/validation';
 import { Configuration } from '@spinajs/configuration';
+import { configuredMountPath, controllerMountPath } from '@spinajs/manifest';
 import { IController, IControllerDescriptor, IActionLocalStoregeContext } from './interfaces.js';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
 import { RouteRegistrationException } from './exceptions.js';
@@ -65,10 +66,10 @@ export abstract class BaseController extends AsyncService implements IController
       if (typeof configured !== 'string' || configured.trim() === '') {
         throw new RouteRegistrationException(`Configuration key ${BasePathConfig} of ${this.constructor.name} must be a non-empty path string`);
       }
-      return configured.trim().replace(/^\/+|\/+$/g, '') || '/';
+      return configuredMountPath(configured);
     }
 
-    return BasePath ? BasePath : this.constructor.name.toLowerCase();
+    return controllerMountPath(BasePath, this.constructor.name);
   }
 
   public async resolve() {

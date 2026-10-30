@@ -407,6 +407,9 @@ export const manifestSchema: Record<string, any> = {
         "basePathConfig": {
           "type": "string"
         },
+        "mountPath": {
+          "type": "string"
+        },
         "policies": {
           "type": "array",
           "items": {

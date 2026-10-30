@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { configuredMountPath, controllerMountPath, routeFullPath } from '@spinajs/manifest';
 import type { ControllerEntry, ParamEntry, RouteEntry } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
 import { decoratorsOf, findDecorator, literalValue } from '../decorators.js';
@@ -25,11 +26,6 @@ const UNDERIVED_KINDS = new Set(['FromFile', 'Req', 'Res', 'FromDi']);
 const OPTIONS_ARG_INDEX: Record<string, number> = { Query: 1, Param: 1, Header: 2, FormField: 1, Body: 0, File: 0, Files: 0, Form: 0, JsonFile: 0, CsvFile: 0, FromXml: 0, Model: 0, FromModel: 0, AsModel: 0 };
 
 type NamedClass = ts.ClassDeclaration & { name: ts.Identifier };
-
-function joinPath(base: string | null, path: string): string {
-  const parts = [base ?? '', path].map((p) => p.replace(/^\/+|\/+$/g, '')).filter(Boolean);
-  return '/' + parts.join('/');
-}
 
 function isRequired(p: ts.ParameterDeclaration, type: ts.Type): boolean {
   if (p.questionToken || p.initializer) return false;
@@ -60,7 +56,7 @@ function paramOf(p: ts.ParameterDeclaration, index: number, owner: string, ctx: 
   };
 }
 
-function routeOf(m: ts.MethodDeclaration, basePath: string | null, className: string, ctx: ExtractorContext): RouteEntry | undefined {
+function routeOf(m: ts.MethodDeclaration, mountPath: string, className: string, ctx: ExtractorContext): RouteEntry | undefined {
   const dec = decoratorsOf(m).find((d) => ROUTE_METHODS[d.name]);
   if (!dec || !ts.isIdentifier(m.name)) return undefined;
   const handler = m.name.text;
@@ -70,7 +66,7 @@ function routeOf(m: ts.MethodDeclaration, basePath: string | null, className: st
   const { access, allowAnonymous } = accessOf(m, ctx);
   const doc = routeDocOf(m, ctx);
   return {
-    method: ROUTE_METHODS[dec.name], path, handler, fullPath: joinPath(basePath, path),
+    method: ROUTE_METHODS[dec.name], path, handler, fullPath: routeFullPath(mountPath, path, handler),
     params: m.parameters.map((p, i) => paramOf(p, i, `${className}.${handler}`, ctx)).filter((p): p is ParamEntry => !!p),
     returnType, policies: policyGroupsOf(m, ctx, 'route'), middlewares: middlewaresOf(m, ctx),
     ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}), ...(doc ? { doc } : {}),
@@ -83,13 +79,14 @@ function controllerOf(node: NamedClass, ctx: ExtractorContext): ControllerEntry 
   const bpValue = literalValue(bp?.args[0], ctx) as string | { config: string; default: string } | undefined;
   const basePath = typeof bpValue === 'string' ? bpValue : bpValue?.default ?? null;
   const basePathConfig = typeof bpValue === 'object' && bpValue ? bpValue.config : undefined;
+  const mountPath = basePathConfig && basePath ? configuredMountPath(basePath) : controllerMountPath(basePath, node.name.text);
   const { access, allowAnonymous } = accessOf(node, ctx);
   const condition = conditionOf(node, ctx);
   return {
-    id: `${ctx.packageName}:${node.name.text}`, className: node.name.text, basePath, ...(basePathConfig ? { basePathConfig } : {}),
+    id: `${ctx.packageName}:${node.name.text}`, className: node.name.text, basePath, ...(basePathConfig ? { basePathConfig } : {}), mountPath,
     policies: policyGroupsOf(node, ctx, 'class'), middlewares: middlewaresOf(node, ctx),
     ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}),
-    routes: node.members.filter(ts.isMethodDeclaration).map((m) => routeOf(m, basePath, node.name.text, ctx)).filter((r): r is RouteEntry => !!r),
+    routes: node.members.filter(ts.isMethodDeclaration).map((m) => routeOf(m, mountPath, node.name.text, ctx)).filter((r): r is RouteEntry => !!r),
     ...(condition ? { condition } : {}), source: ctx.sourceRef(node),
   };
 }
