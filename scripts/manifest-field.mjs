@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
 export const MANIFEST_PATH = 'lib/manifest.fragment.json';
 
 export function addManifestField(pkg) {
@@ -14,4 +17,9 @@ export function manifestInFiles(pkg) {
     const e = entry.replace(/^\.\//, '').replace(/\/(\*\*\/?\*?|\*)?$/, '');
     return e === target || target.startsWith(`${e}/`);
   });
+}
+
+/** A package gets a fragment when it has a manifest, a build tsconfig and sources. */
+export function isAnalyzable(dir) {
+  return existsSync(join(dir, 'package.json')) && existsSync(join(dir, 'tsconfig.build.json')) && existsSync(join(dir, 'src'));
 }

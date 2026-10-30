@@ -10,7 +10,7 @@
 import { readdirSync, readFileSync, writeFileSync, existsSync, rmSync, statSync } from 'node:fs';
 import { join, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { addManifestField } from './manifest-field.mjs';
+import { addManifestField, isAnalyzable } from './manifest-field.mjs';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const PACKAGES = join(ROOT, 'packages');
@@ -189,9 +189,10 @@ export function applyManifestField(pkg, { analyzable }) {
   return analyzable ? addManifestField(pkg) : pkg;
 }
 
-function applyManifestFields(dryRun) {
-  for (const dir of packageDirs()) {
-    if (!existsSync(join(dir, 'tsconfig.build.json')) || !existsSync(join(dir, 'src'))) continue;
+export function applyManifestFields(dryRun, packagesDir = PACKAGES) {
+  const dirs = readdirSync(packagesDir).map((name) => join(packagesDir, name));
+  for (const dir of dirs) {
+    if (!isAnalyzable(dir)) continue;
     const file = join(dir, 'package.json');
     const pkg = readJson(file);
     const next = applyManifestField(pkg, { analyzable: true });

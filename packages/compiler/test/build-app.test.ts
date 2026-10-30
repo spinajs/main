@@ -39,6 +39,15 @@ describe('buildAppManifest', () => {
     expect((JSON.parse(readFileSync(written, 'utf8')) as { hash: string }).hash).to.equal(manifest.hash);
   });
 
+  it('merges real @spinajs/* dependency fragments under logical node_modules paths', async function () {
+    const located = (await locateFragments('test/fixtures/app-basic')).filter((f) => f.name.startsWith('@spinajs/'));
+    if (located.length === 0) this.skip(); // dependencies not built in this checkout
+    const { manifest } = await buildAppManifest(APP);
+    const merged = manifest.packages.filter((p) => p.name.startsWith('@spinajs/'));
+    expect(merged.map((p) => p.name).sort()).to.deep.equal(located.map((f) => f.name).sort());
+    for (const p of merged) expect(p.fragment).to.equal(`node_modules/${p.name}/lib/manifest.fragment.json`);
+  });
+
   it('every body and query param and every non-void response has a schema in the manifest', async () => {
     const { manifest } = await buildAppManifest(APP);
     const routes = own(manifest.controllers).flatMap((controller) => controller.routes);

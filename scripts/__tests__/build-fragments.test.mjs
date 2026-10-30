@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { countSeverities, listAnalyzable, mapPool } from '../build-fragments.mjs';
+import { analyzeAll, countSeverities, listAnalyzable, mapPool, parseConcurrency } from '../build-fragments.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const FIXTURES = join(ROOT, 'packages/compiler/test/fixtures');
@@ -47,4 +48,44 @@ test('a package with analyzer warnings still gets a fragment and exits 0', () =>
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+});
+
+test('a crashing worker fails its package, is replaced and the pool continues', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'crash-worker-'));
+  try {
+    const workerFile = join(tmp, 'worker.mjs');
+    writeFileSync(
+      workerFile,
+      `import { parentPort } from 'node:worker_threads';
+parentPort.on('message', (dir) => {
+  if (dir.endsWith('boom')) process.exit(3);
+  if (dir.endsWith('throws')) throw new Error('kaput');
+  parentPort.postMessage({ ok: true, result: { name: dir, ms: 1, counts: { error: 0, warning: 0, info: 0 }, diagnostics: [] } });
+});
+`,
+    );
+    const seen = [];
+    const dirs = ['boom', 'a', 'throws', 'b', 'c'];
+    const results = await analyzeAll(dirs, { concurrency: 1, workerFile, onResult: (r) => seen.push(r.name) });
+    assert.equal(results.length, 5);
+    assert.match(results[0].crash, /exited with code 3/);
+    assert.equal(results[0].counts.error, 1);
+    assert.match(results[2].crash, /kaput/);
+    assert.deepEqual([results[1], results[3], results[4]].map((r) => r.crash), [undefined, undefined, undefined]);
+    assert.deepEqual(seen, dirs);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('parseConcurrency accepts positive integers only', () => {
+  assert.equal(parseConcurrency(undefined, 4), 4);
+  assert.equal(parseConcurrency('3', 4), 3);
+  for (const bad of ['abc', '0', '-1', '1.5', '']) assert.throws(() => parseConcurrency(bad, 4), /positive integer/);
+});
+
+test('--concurrency with a bad value exits 2 with a clear error', () => {
+  const run = spawnSync(process.execPath, ['scripts/build-fragments.mjs', '--packages-dir', FIXTURES, '--concurrency', 'abc'], { cwd: ROOT, encoding: 'utf8' });
+  assert.equal(run.status, 2);
+  assert.match(run.stderr, /--concurrency must be a positive integer, got "abc"/);
 });
