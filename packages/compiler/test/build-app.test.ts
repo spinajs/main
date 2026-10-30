@@ -80,6 +80,27 @@ describe('buildAppManifest', () => {
     expect(a.hash).to.equal(b.hash);
   });
 
+  it('lists the config files of a package the app reaches only transitively', async () => {
+    const dir = 'test/fixtures/.tmp-transitive/app-basic';
+    rmSync('test/fixtures/.tmp-transitive', { recursive: true, force: true });
+    for (const f of ['src', 'tsconfig.json']) cpSync(`test/fixtures/app-basic/${f}`, `${dir}/${f}`, { recursive: true });
+    const pkg = JSON.parse(readFileSync('test/fixtures/app-basic/package.json', 'utf8')) as { dependencies: Record<string, string> };
+    delete pkg.dependencies['pkg-basic'];
+    writeFileSync(`${dir}/package.json`, JSON.stringify({ ...pkg, dependencies: { ...pkg.dependencies, 'pkg-wrapper': '1.0.0' } }));
+    mkdirSync(`${dir}/node_modules/pkg-wrapper`, { recursive: true });
+    writeFileSync(`${dir}/node_modules/pkg-wrapper/package.json`, JSON.stringify({ name: 'pkg-wrapper', version: '1.0.0', dependencies: { 'pkg-basic': '1.0.0' } }));
+    symlinkSync(resolve('test/fixtures/pkg-basic'), resolve(dir, 'node_modules/pkg-basic'), 'junction');
+    try {
+      const { manifest } = await buildAppManifest({ tsconfig: `${dir}/tsconfig.json`, appRoot: dir, out: `${dir}/app.manifest.json` });
+      expect(manifest.packages.map((p) => p.name)).to.not.include('pkg-wrapper');
+      expect(ownPackage(manifest.packages).map((p) => [p.fragment, p.configFiles])).to.deep.equal([
+        ['node_modules/pkg-basic/lib/manifest.fragment.json', ['config/basic.js', 'config/basic.production.js', 'config/nested/extra.js']],
+      ]);
+    } finally {
+      rmSync('test/fixtures/.tmp-transitive', { recursive: true, force: true });
+    }
+  });
+
   it('hashes identically for copies of the app in different directories', async () => {
     const dirs = ['test/fixtures/.tmp-a/app-basic', 'test/fixtures/.tmp-b/app-basic'];
     const hashes: string[] = [];
