@@ -93,17 +93,6 @@
     {
       "type": "node",
       "request": "launch",
-      "name": "[ QUEUE ] queue-orm-transport test",
-      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
-      "cwd": "${workspaceFolder}/packages/queue-orm-transport/",
-      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
-      "env": {
-        "NODE_ENV": "development"
-      }
-    },
-    {
-      "type": "node",
-      "request": "launch",
       "name": "[ QUEUE ] queue test",
       "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
       "cwd": "${workspaceFolder}/packages/queue/",

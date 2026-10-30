@@ -119,9 +119,6 @@
       "path": "packages/queue/tsconfig.build.json"
     },
     {
-      "path": "packages/queue-orm-transport/tsconfig.build.json"
-    },
-    {
       "path": "packages/queue-stomp-transport/tsconfig.build.json"
     },
     {

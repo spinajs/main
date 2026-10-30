@@ -174,7 +174,6 @@ graphify-out/
 !/docs/queue/
 !/docs/queue-amqp-transport/
 !/docs/queue-http-progress/
-!/docs/queue-orm-transport/
 !/docs/queue-sqs-transport/
 !/docs/queue-stomp-transport/
 !/docs/queue-templates-pdf/
@@ -218,3 +217,14 @@ packages/compiler/test/fixtures/**/lib
 packages/compiler/test/fixtures/**/app.manifest.json
 !packages/compiler/test/fixtures/app-basic/app.manifest.json
 packages/compiler/test/fixtures/.tmp-*
+# Stale untracked package dirs and compiled output next to sources
+packages/metrics/
+packages/orm-api/
+packages/rbac*/
+packages/*/src/**/*.js
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.map
+!packages/*/src/typings/**/*.d.ts
+!packages/hooks/src/spinajs-config.d.ts
+!packages/*/src/views/**/*.js
+!packages/*/src/static/**
