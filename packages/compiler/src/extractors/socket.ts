@@ -6,7 +6,6 @@ import type { SocketCommandEntry, SocketContractEntry, SocketControllerEntry, Ty
 import type { Extractor, ExtractorContext } from '../context.js';
 import { findDecorator, literalValue, type DecoratorInfo } from '../decorators.js';
 import { policyGroupsOf } from './policies.js';
-import { propertyInjectsOf } from './injections.js';
 import { owningPackage } from '../owning-package.js';
 
 type NamedMethod = ts.MethodDeclaration & { name: ts.Identifier };
@@ -104,6 +103,15 @@ function boundContractOf(sc: DecoratorInfo, ctx: ExtractorContext): string | und
   return undefined;
 }
 
+function diArgsOf(node: ts.ClassDeclaration, ctx: ExtractorContext): NonNullable<SocketControllerEntry['diArgs']> {
+  return node.members.filter(ts.isMethodDeclaration).flatMap((m) =>
+    m.parameters.flatMap((p, index) => {
+      const ref = findDecorator(p, 'FromDI') ? ctx.runtimeRef(ctx.checker.getTypeAtLocation(p), p) : undefined;
+      return ref ? [{ handler: m.name.getText(), index, ref }] : [];
+    }),
+  );
+}
+
 function controllerOf(node: ts.ClassDeclaration & { name: ts.Identifier }, sc: DecoratorInfo, ctx: ExtractorContext): SocketControllerEntry {
   const commands: SocketCommandEntry[] = [];
   const events: SocketControllerEntry['events'] = [];
@@ -116,7 +124,7 @@ function controllerOf(node: ts.ClassDeclaration & { name: ts.Identifier }, sc: D
     else if (ev) events.push({ name: (literalValue(ev.args[0], ctx) as string | undefined) ?? named.name.text, payload: payloadOf(named, node.name.text, ctx) });
   }
   const contract = boundContractOf(sc, ctx);
-  const propertyInjects = propertyInjectsOf(node, ctx);
+  const diArgs = diArgsOf(node, ctx);
   return {
     id: `${ctx.packageName}:${node.name.text}`,
     className: node.name.text,
@@ -124,7 +132,7 @@ function controllerOf(node: ts.ClassDeclaration & { name: ts.Identifier }, sc: D
     ...(contract ? { contract } : {}),
     commands,
     events,
-    ...(propertyInjects.length ? { propertyInjects } : {}),
+    ...(diArgs.length ? { diArgs } : {}),
     source: ctx.sourceRef(node),
   };
 }

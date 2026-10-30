@@ -1,6 +1,6 @@
 import { isAbstractClass } from './abstract.js';
 import ts from 'typescript';
-import { configuredMountPath, controllerMountPath, routeFullPath, servedPath } from '@spinajs/manifest';
+import { configuredMountPath, controllerMountPath, DECORATED_PARAM_KIND, routeFullPath, servedPath } from '@spinajs/manifest';
 import type { ControllerEntry, ParamEntry, RouteEntry } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
 import { decoratorsOf, findDecorator, literalValue, type DecoratorInfo } from '../decorators.js';
@@ -8,7 +8,6 @@ import { accessOf, middlewaresOf, policyGroupsOf } from './policies.js';
 import { routeDocOf } from './jsdoc.js';
 import { conditionOf } from './conditions.js';
 import { wireOf, type RouteWireContext } from './wire.js';
-import { propertyInjectsOf } from './injections.js';
 
 /** Parameter decorator -> the `ParameterType` (http) or route-arg type (orm-http) it registers; `ParamEntry.kind` records it. */
 export const PARAM_KINDS: Record<string, string> = {
@@ -55,10 +54,21 @@ function firstArgOf(dec: DecoratorInfo, options: unknown, ctx: ExtractorContext)
   return WIRE_FIRST_ARG.has(dec.name) ? literalValue(dec.args[0], ctx) : undefined;
 }
 
+const paramName = (p: ts.ParameterDeclaration): string => (ts.isIdentifier(p.name) ? p.name.text : p.name.getText());
+
+/** Under a decorator outside `PARAM_KINDS`: built on `Route(Parameter(...))`, so the runtime still needs its type. */
+function decoratedParamOf(p: ts.ParameterDeclaration, index: number, ctx: ExtractorContext): ParamEntry | undefined {
+  if (decoratorsOf(p).length === 0) return undefined;
+  const type = ctx.checker.getTypeAtLocation(p);
+  const ref = ctx.runtimeRef(type, p);
+  const runtimeType = ctx.plainTypeRef(ctx.checker.getNonNullableType(type));
+  return { index, name: paramName(p), kind: DECORATED_PARAM_KIND, runtimeType: ref ? { ...runtimeType, ref } : runtimeType, required: isRequired(p, type), wire: { in: 'none', shape: 'whole' } };
+}
+
 function paramOf(p: ts.ParameterDeclaration, index: number, owner: string, route: RouteWireContext, ctx: ExtractorContext): ParamEntry | undefined {
   const dec = paramDecoratorOf(p);
-  if (!dec) return undefined;
-  const name = ts.isIdentifier(p.name) ? p.name.text : p.name.getText();
+  if (!dec) return decoratedParamOf(p, index, ctx);
+  const name = paramName(p);
   const optionsIdx = OPTIONS_ARG_INDEX[dec.name];
   const options = literalValue(optionsIdx !== undefined ? dec.args[optionsIdx] : undefined, ctx) as { required?: boolean } | undefined;
   const schemaIdx = SCHEMA_ARG_INDEX[dec.name];
@@ -112,26 +122,28 @@ function controllerOf(node: NamedClass, ctx: ExtractorContext): ControllerEntry 
   const mountPath = basePathConfig && basePath ? configuredMountPath(basePath) : controllerMountPath(basePath, node.name.text);
   const { access, allowAnonymous } = accessOf(node, ctx);
   const condition = conditionOf(node, ctx);
-  const propertyInjects = propertyInjectsOf(node, ctx);
   return {
     id: `${ctx.packageName}:${node.name.text}`, className: node.name.text, basePath, ...(basePathConfig ? { basePathConfig } : {}), mountPath,
     policies: policyGroupsOf(node, ctx, 'class'), middlewares: middlewaresOf(node, ctx),
     ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}),
     routes: node.members.filter(ts.isMethodDeclaration).map((m) => routeOf(m, mountPath, node.name.text, ctx)).filter((r): r is RouteEntry => !!r),
-    ...(propertyInjects.length ? { propertyInjects } : {}),
     ...(condition ? { condition } : {}), source: ctx.sourceRef(node),
   };
 }
 
-export const extractControllers: Extractor<ControllerEntry> = (ctx, file) => {
+const hasRoute = (node: ts.ClassDeclaration): boolean => node.members.some((m) => ts.isMethodDeclaration(m) && decoratorsOf(m).some((d) => ROUTE_METHODS[d.name]));
+
+function controllersIn(file: ts.SourceFile, ctx: ExtractorContext, wanted: (node: ts.ClassDeclaration) => boolean): ControllerEntry[] {
   const out: ControllerEntry[] = [];
   const visit = (node: ts.Node): void => {
-    if (ts.isClassDeclaration(node) && node.name && !isAbstractClass(node)) {
-      const hasRoute = node.members.some((m) => ts.isMethodDeclaration(m) && decoratorsOf(m).some((d) => ROUTE_METHODS[d.name]));
-      if (hasRoute || ctx.isSubclassOf(node, 'BaseController')) out.push(controllerOf(node as NamedClass, ctx));
-    }
+    if (ts.isClassDeclaration(node) && node.name && wanted(node)) out.push(controllerOf(node as NamedClass, ctx));
     ts.forEachChild(node, visit);
   };
   visit(file);
   return out;
-};
+}
+
+export const extractControllers: Extractor<ControllerEntry> = (ctx, file) => controllersIn(file, ctx, (node) => !isAbstractClass(node) && (hasRoute(node) || ctx.isSubclassOf(node, 'BaseController')));
+
+/** Abstract controllers are never mounted, but a subclass serves their routes and looks their types up here. */
+export const extractControllerBases: Extractor<ControllerEntry> = (ctx, file) => controllersIn(file, ctx, (node) => isAbstractClass(node) && hasRoute(node));

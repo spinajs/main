@@ -1,6 +1,6 @@
 import ts from 'typescript';
-import type { Lifetime, PropertyInject, ServiceEntry } from '@spinajs/manifest';
-import type { ExtractorContext } from '../context.js';
+import type { ClassPropertiesEntry, Lifetime, PropertyInject, ServiceEntry } from '@spinajs/manifest';
+import type { Extractor, ExtractorContext } from '../context.js';
 import { decoratorsOf, findDecorator, isArrayOfType, literalValue } from '../decorators.js';
 import { injectedName, tokenConstantKey } from './token-constant.js';
 
@@ -128,17 +128,38 @@ const PROPERTY_DECORATORS: Record<string, PropertyHandler> = {
   FileSystem: (_d, prop) => ({ property: propertyName(prop), token: '__file_provider__', optional: false, array: false }),
 };
 
-export function propertyInjectsOf(cls: ts.ClassDeclaration, ctx: ExtractorContext): PropertyInject[] {
+export function propertyInjectsOf(cls: ts.ClassDeclaration, ctx: ExtractorContext, only?: ReadonlySet<string>): PropertyInject[] {
   const out: PropertyInject[] = [];
   for (const member of cls.members) {
     if (!ts.isPropertyDeclaration(member)) continue;
     for (const d of decoratorsOf(member)) {
       const handler = PROPERTY_DECORATORS[d.name];
-      if (handler) out.push(handler(d, member, ctx));
+      if (handler && (!only || only.has(d.name))) out.push(handler(d, member, ctx));
     }
   }
   return out;
 }
+
+// The decorators that read `design:type`; `@Logger`, `@Config` and `@FileSystem` inject by their own arguments.
+const TYPE_READING_DECORATORS = new Set(['Autoinject', 'LazyInject']);
+
+/**
+ * A class of any kind can declare these: a policy, a model, a schedule, an abstract base. Nothing reads the table in a
+ * build with decorator metadata, and each entry is a class the runtime has to import at boot, so such a build has none.
+ */
+export const extractClassProperties: Extractor<ClassPropertiesEntry> = (ctx, file) => {
+  if (ctx.program.getCompilerOptions().emitDecoratorMetadata) return [];
+  const out: ClassPropertiesEntry[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isClassDeclaration(node) && node.name) {
+      const properties = propertyInjectsOf(node, ctx, TYPE_READING_DECORATORS);
+      if (properties.length > 0) out.push({ id: `${ctx.packageName}:${node.name.text}`, className: node.name.text, properties, source: ctx.sourceRef(node) });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return out;
+};
 
 function isContainerResolve(callee: ts.Expression): boolean {
   if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== 'resolve') return false;

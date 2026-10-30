@@ -105,6 +105,29 @@ describe('runtime type references', () => {
       expect(diagnostic.message).to.match(/^runtime-type-not-importable: DateTime /);
     });
 
+    describe('declarations with no runtime value', () => {
+      const fn = loaded.sourceFiles.find((f) => f.fileName.endsWith('type-ref.ts'))!.statements.find((s): s is ts.FunctionDeclaration => ts.isFunctionDeclaration(s) && s.name?.text === 'notValues')!;
+      const of = (name: string) => {
+        const p = fn.parameters.find((x) => (x.name as ts.Identifier).text === name)!;
+        return ctx.runtimeRef(ctx.checker.getTypeAtLocation(p), p);
+      };
+
+      it('records Object for the static side of a class, as the metadata does', () => {
+        expect(of('_cls')).to.deep.equal(global('Object'));
+        expect(of('_abstract')).to.deep.equal(global('Object'));
+        expect(of('_instance')).to.deep.equal({ package: 'unit', file: 'type-ref.ts', export: 'Exported' });
+      });
+
+      it('records Object for a global no runtime provides', () => {
+        expect(of('_element')).to.deep.equal(global('Object'));
+        expect(of('_ambient')).to.deep.equal(global('Object'));
+      });
+
+      it('records Object for a declare class, which emits nothing', () => {
+        expect(of('_declared')).to.deep.equal(global('Object'));
+      });
+    });
+
     it('records no ref for a class of an ambient module, with info TYP002', () => {
       const storage = loaded.sourceFiles
         .find((f) => f.fileName.endsWith('type-ref.ts'))!

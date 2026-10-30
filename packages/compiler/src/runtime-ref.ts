@@ -26,6 +26,15 @@ function isGlobalValue(symbol: ts.Symbol, checker: ts.TypeChecker): boolean {
   return !!found?.declarations?.some((d) => symbol.declarations?.includes(d));
 }
 
+/** `typeof Foo`: the type of the constructor, not of an instance. */
+const isStaticSide = (type: ts.Type): boolean => !!((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Anonymous);
+
+/** `declare class X` in a source file emits nothing; a declaration file stands for JavaScript next to it. */
+function isDeclaredOnly(symbol: ts.Symbol): boolean {
+  const decl = symbol.valueDeclaration;
+  return !!decl && !decl.getSourceFile().isDeclarationFile && !!(ts.getCombinedModifierFlags(decl) & ts.ModifierFlags.Ambient);
+}
+
 /**
  * TypeScript's decorator metadata serializer works on the type annotation; this mirrors it on the checked type, so
  * `null`/`undefined` members are dropped, a union of one constructor is that constructor and any other union is `Object`.
@@ -43,8 +52,9 @@ function serialize(type: ts.Type, checker: ts.TypeChecker): Serialized {
   if (checker.isArrayType(type) || checker.isTupleType(type)) return { global: 'Array' };
 
   const symbol = type.getSymbol();
-  if (symbol && isGlobalValue(symbol, checker)) return { global: symbol.name };
-  if (symbol && symbol.flags & ts.SymbolFlags.Class) return { cls: symbol };
+  // The metadata reads `typeof X !== 'undefined' ? X : Object`, which is `Object` for lib.dom's classes on node.
+  if (symbol && isGlobalValue(symbol, checker)) return { global: symbol.name in globalThis ? symbol.name : 'Object' };
+  if (symbol && symbol.flags & ts.SymbolFlags.Class && !isStaticSide(type) && !isDeclaredOnly(symbol)) return { cls: symbol };
   return { global: type.getCallSignatures().length ? 'Function' : 'Object' };
 }
 
@@ -91,7 +101,7 @@ function classRef(cls: ts.Symbol, node: ts.Node, host: RuntimeRefHost): RuntimeT
     host.info('TYP001', `runtime-type-not-exported: ${cls.name} is not exported from ${at(host.packageRoot)}; ${NOT_LOADABLE}`, node);
     return undefined;
   }
-  if (host.inPackage(decl)) return { package: host.packageName, file: at(host.packageRoot), export: name };
+  if (host.inPackage(decl)) return file.isDeclarationFile ? globalRef('Object') : { package: host.packageName, file: at(host.packageRoot), export: name };
 
   const owner = owningPackage(file.fileName);
   if (!owner?.fragment) return notImportable(cls, owner?.name ?? file.fileName, node, host);
