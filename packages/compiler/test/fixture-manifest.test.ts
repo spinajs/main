@@ -68,8 +68,8 @@ describe('app-basic manifest fixture', () => {
     expect(m.diagnostics.filter((d) => d.severity !== 'info')).to.deep.equal([]);
   });
 
-  it('declares the hooks and app config modules', () => {
-    expect(manifest().configModules.map((c) => c.module)).to.include.members(['hooks', 'app']);
+  it('declares only the own config module of the app, dependency modules come from their fragments', () => {
+    expect(manifest().configModules.map((c) => c.module)).to.deep.equal(['app']);
   });
 
   it('matches a fresh build apart from generatedAt', async () => {

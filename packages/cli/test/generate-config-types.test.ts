@@ -28,18 +28,17 @@ describe('generate:config-types', () => {
   it('writes the ConfigPaths declaration for the requested modules', async function () {
     this.timeout(20000);
     const out = join(dir, 'nested', 'spinajs-config.d.ts');
-    await command().execute({ manifest, out, modules: 'hooks' });
+    await command().execute({ manifest, out, modules: 'app' });
 
     const source = readFileSync(out, 'utf8');
     expect(source).to.include('interface ConfigPaths');
-    expect(source).to.include(`'hooks.timeoutMs': number;`);
-    expect(source).to.not.include(`'app.name'`);
+    expect(source).to.include(`'app.name': string;`);
     expect(logged.at(-1)).to.include(out);
   });
 
   it('logs a warning for a requested module the manifest lacks', async function () {
     this.timeout(20000);
-    await command().execute({ manifest, out: join(dir, 'out.d.ts'), modules: 'hooks,nope' });
+    await command().execute({ manifest, out: join(dir, 'out.d.ts'), modules: 'app,nope' });
     expect(logged.some((l) => l.includes(`'nope'`))).to.equal(true);
   });
 

@@ -80,7 +80,8 @@
     "@spinajs/tasks": "3.0.23",
     "@spinajs/threading": "3.0.23",
     "@types/node": "^22.14.1",
-    "@types/sinonjs__fake-timers": "^15.0.1"
+    "@types/sinonjs__fake-timers": "^15.0.1",
+    "@spinajs/testing": "3.0.23"
   },
   "types": "./lib/index.d.ts",
   "spinajs": {

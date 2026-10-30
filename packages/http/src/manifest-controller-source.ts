@@ -25,7 +25,7 @@ export class ManifestControllerSource extends ControllerSource {
       return [];
     }
 
-    const listed = (await listFromManifest(this.Container, 'controllers', effective.settings.mode)) as Array<ClassInfo<BaseController>> | undefined;
+    const listed = (await listFromManifest(this.Container, 'controllers')) as Array<ClassInfo<BaseController>> | undefined;
     if (!listed) {
       return [];
     }

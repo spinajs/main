@@ -17,20 +17,19 @@ describe('generateConfigDeclarations', () => {
     expect(paths.map((p) => p.path)).to.deep.equal(['hooks.timeoutMs', 'hooks.nested', 'hooks.nested.a']);
   });
 
-  it('matches the committed snapshot and declares hooks.timeoutMs as number', async () => {
+  it('matches the committed snapshot and declares app.name as string', async () => {
     const source = await generateConfigDeclarations(manifest);
     if (!existsSync(snapshotPath)) writeFileSync(snapshotPath, source);
     expect(source).to.equal(readFileSync(snapshotPath, 'utf8'));
-    expect(source).to.include(`'hooks.timeoutMs': number;`);
     expect(source).to.include(`'app.name': string;`);
     expect(source).to.match(/declare module '@spinajs\/configuration-common' \{\s+interface ConfigPaths \{/);
   });
 
   it('restricts to the requested modules and is deterministic', async () => {
-    const only = await generateConfigDeclarations(manifest, { modules: ['hooks'] });
-    expect(only).to.include(`'hooks.maxDepth': number;`);
-    expect(only).to.not.include(`'app.name'`);
-    expect(await generateConfigDeclarations(manifest, { modules: ['hooks'] })).to.equal(only);
+    const only = await generateConfigDeclarations(manifest, { modules: ['app'] });
+    expect(only).to.include(`'app.name': string;`);
+    expect(await generateConfigDeclarations(manifest, { modules: ['app'] })).to.equal(only);
+    expect(await generateConfigDeclarations(manifest, { modules: ['hooks'] })).to.not.include(`'app.name'`);
   });
 
   it('resolves a local #/definitions ref and a ref to another manifest schema id', async () => {
@@ -67,7 +66,7 @@ describe('generateConfigDeclarations', () => {
   });
 
   it('warns about requested modules that match nothing', async () => {
-    const { warnings } = await generateConfigTypes(manifest, { modules: ['hooks', 'nope'] });
+    const { warnings } = await generateConfigTypes(manifest, { modules: ['app', 'nope'] });
     expect(warnings).to.deep.equal([`config module 'nope' is not in the manifest`]);
   });
 });
