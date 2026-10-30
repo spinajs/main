@@ -1,5 +1,5 @@
 import type { Diagnostic, RouteEntry } from '@spinajs/manifest';
-import { diagnostic, type DoctorRule } from '../index.js';
+import { diagnostic, type DoctorRule } from '../rule.js';
 
 type Guardable = Pick<RouteEntry, 'policies' | 'access'>;
 

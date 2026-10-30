@@ -1,5 +1,5 @@
 import type { Condition, Diagnostic, SourceRef } from '@spinajs/manifest';
-import { configAt, diagnostic, type DoctorRule } from '../index.js';
+import { configAt, diagnostic, type DoctorRule } from '../rule.js';
 
 interface Conditional {
   name: string;
