@@ -14,12 +14,11 @@
    1. resets the tree to `{}`;
    2. sets `process.env` to `process.env`, merged with the `process.env` DI value of its container, plus `APP_ENV` (see [Environments](02-environments.md));
    3. merges this package's defaults: `app.*`, and the `configuration.*` flags derived from that `APP_ENV`;
-   4. calls `Load(this)` on each source in order and deep-merges the result (see [Arrays](#arrays));
+   4. calls `Load(this)` on each source in order and deep-merges the result (see [Arrays](#arrays)); every `__configuration__` DI value joins the package layer, at the root;
    5. merges what `onLoad()` returns (`null` in `FrameworkConfiguration`; subclasses override it);
-   6. deep-merges every `__configuration__` DI value at the root;
-   7. with an app (`RunApp`), appends `<AppBaseDir>/<RunApp>/<name>` to every `system.dirs.<name>` list (`applyAppDirs()`);
-   8. resolves protocol strings with `loadProtocolVars()` (see [Config var protocols](05-config-var-protocols.md));
-   9. wraps each object that holds a `ConfigVar` in a proxy, so reading the key returns the var's value.
+   6. with an app (`RunApp`), appends `<AppBaseDir>/<RunApp>/<name>` to every `system.dirs.<name>` list (`applyAppDirs()`);
+   7. resolves protocol strings with `loadProtocolVars()` (see [Config var protocols](05-config-var-protocols.md));
+   8. wraps each object that holds a `ConfigVar` in a proxy, so reading the key returns the var's value.
 6. **Validate.** `validate()` checks every registered schema in the container lineage, applies defaults and coercion, and throws one `InvalidConfiguration` listing every violation.
 7. **Configure.** `configure()` calls `configure()` on every top-level section that defines one, with `this` bound to the configuration.
 8. DI caches the instance. Every later `DI.resolve(Configuration)` in that container returns it.
@@ -39,9 +38,9 @@ sequenceDiagram
   FC->>DI: resolve(Array.ofType(ConfigurationSource), [RunApp, paths, AppBaseDir, Env])
   loop each source, by Order
     FC->>S: Load(this)
-    S-->>FC: partial tree, deep-merged
+    S-->>FC: partial tree, deep-merged, __configuration__ values in the package layer
   end
-  FC->>FC: merge onLoad() and __configuration__ values
+  FC->>FC: merge onLoad()
   FC->>P: getVar(path, tree) for each proto:// string
   FC->>FC: validate() against __configurationSchema__
   FC->>FC: configure() on each section
@@ -159,12 +158,13 @@ An array is a value, like a scalar: the app's array replaces the one a package c
 The config files merge in two layers, and packages sit strictly below the app:
 
 1. **Packages.** Every package config file (`node_modules/@spinajs/*/lib/config`, or the manifest's `configFiles`), in every format, common files then environment files. Arrays concatenate, so a package JSON file adds to what a package JS file set.
+   Every `__configuration__` DI value comes first in this layer, so an app value beats it, for scalars too. Without a file source these values merge first, below every source.
 2. **App.** Every other search directory (see [Config files](03-config-files.md#search-directories)), `src/config` included, common files then environment files. Arrays replace, so an environment file of the app replaces an array its common file set, and no package file can override the app, in any format or pass.
 
 | Merge | Arrays |
 | --- | --- |
 | Package config files among themselves | concatenate |
-| `__configuration__` DI values (they stand in for package config files) | concatenate |
+| `__configuration__` DI values, which are package defaults: they lead the package layer | concatenate |
 | The app's own config files, over the packages and over each other | replace |
 | The result of each other source over the tree, `onLoad()`, `mergeSource()` | replace |
 | `merge(path, value)` | concatenate |

@@ -345,21 +345,17 @@ export class FrameworkConfiguration extends Configuration {
 
     InternalLogger.info({ appEnv: this.get<string>('process.env.APP_ENV') }, 'APP_ENV set to ${appEnv}', 'Configuration');
 
-    await this.mergeSources();
+    /**
+     * Package defaults of modules without config files, eg. in a webpack environment.
+     * Merged at the root: merge() writes nothing at a key no source defines.
+     */
+    const defaults: IConfigLike = {};
+    this.Container.resolve(Array.ofType<IConfigLike>(CONFIGURATION_SOURCES.key)).forEach((c: IConfigLike) => mergeConfig(defaults, c, 'concat'));
+
+    await this.mergeSources(defaults);
 
     mergeConfig(this.Config, this.onLoad(), 'replace');
 
-
-    /**
-     * Merge from DI container
-     * eg. when custom modules have config and dont want to use files
-     * eg. in webpack environment
-     */
-    // Merged at the root: merge() writes nothing at a key no source defines. These values stand in for package config
-    // files, so their arrays concatenate like those of package files.
-    this.Container.resolve(Array.ofType<IConfigLike>(CONFIGURATION_SOURCES.key)).forEach((c: IConfigLike) => {
-      mergeConfig(this.Config, c, 'concat');
-    });
 
     // Every source, onLoad and DI value may set system.manifest; what was decided before the package configs loaded wins.
     const manifestSettings = this.Container.get(MANIFEST_SETTINGS, false);
@@ -402,8 +398,21 @@ export class FrameworkConfiguration extends Configuration {
     });
   }
 
-  private async mergeSources() {
+  private async mergeSources(defaults: IConfigLike) {
     let files: ConfigLayers[] = [];
+    let packageDefaults = defaults;
+
+    // Merged over the tree, the package layer would replace defaults already there: they join the first one instead.
+    if (!this.Sources.some(isLayeredSource)) {
+      mergeConfig(this.Config, packageDefaults, 'concat');
+    }
+
+    const mergeFiles = () => {
+      if (files.length === 0) return;
+      this.mergeFileLayers(files, packageDefaults);
+      files = [];
+      packageDefaults = {};
+    };
 
     for (const source of this.Sources) {
       if (isLayeredSource(source)) {
@@ -411,8 +420,7 @@ export class FrameworkConfiguration extends Configuration {
         continue;
       }
 
-      this.mergeFileLayers(files);
-      files = [];
+      mergeFiles();
 
       const rCfg = await source.Load(this);
       if (rCfg) {
@@ -420,12 +428,11 @@ export class FrameworkConfiguration extends Configuration {
       }
     }
 
-    this.mergeFileLayers(files);
+    mergeFiles();
   }
 
   // Packages of every format below the app of every format, so a package JSON cannot drop what a package JS file added.
-  private mergeFileLayers(files: ConfigLayers[]) {
-    const packages: IConfigLike = {};
+  private mergeFileLayers(files: ConfigLayers[], packages: IConfigLike) {
     files.forEach((f) => mergeConfig(packages, f.packages, 'concat'));
     mergeConfig(this.Config, packages, 'replace');
     files.forEach((f) => mergeConfig(this.Config, f.app, 'replace'));

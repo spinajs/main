@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { hashManifest, type Manifest } from '@spinajs/manifest';
 import { DI, IContainer } from '@spinajs/di';
-import { Configuration, ConfigurationSource, StaticConfigurationSource } from '@spinajs/configuration-common';
+import { Configuration, ConfigurationSource, IConfigLike, StaticConfigurationSource } from '@spinajs/configuration-common';
 
 import { FrameworkConfiguration } from '../src/configuration.js';
 import { ManifestConfigurationSource } from '../src/manifest-source.js';
@@ -128,6 +128,36 @@ describe('config file layers', () => {
         const config = await boot(mode);
         expect(config.get('kv.list')).to.deep.equal(['app-env']);
         expect(config.get<string[]>('system.dirs.cli').slice(0, 4)).to.deep.equal(['pkg-cli', 'pkg-env-cli', 'app-cli', 'app-env-cli']);
+      });
+
+      it('a __configuration__ value joins the package layer: a package file adds to it and the app stays above it', async () => {
+        packages(installPackage('pa', { 'pa.cjs': cjs({ kv: { joined: ['pkg'], replaced: ['pkg'] }, system: { dirs: { cli: ['pkg-cli'] } } }) }));
+        write(join(app, 'lib', 'config', 'app.cjs'), cjs({ kv: { replaced: ['app'], value: 'app' } }));
+        const config = await boot(mode, (c) => {
+          c.register({ kv: { joined: ['di'], replaced: ['di'], value: 'di' }, system: { dirs: { cli: ['di-cli'] } } }).asValue('__configuration__');
+        });
+        expect(config.get('kv.joined')).to.deep.equal(['di', 'pkg']);
+        expect(config.get('kv.replaced')).to.deep.equal(['app']);
+        expect(config.get('kv.value')).to.equal('app');
+        expect(config.get<string[]>('system.dirs.cli').filter((d) => d === 'di-cli')).to.have.length(1);
+      });
+
+      it('a source after the file sources reads a __configuration__ value', async () => {
+        packages(installPackage('pa', { 'pa.cjs': cjs({ kv: { list: ['pkg'] } }) }));
+        class ReadingSource extends ConfigurationSource {
+          public get Order() {
+            return 2;
+          }
+
+          public Load(config: Configuration): Promise<IConfigLike> {
+            return Promise.resolve({ seen: { value: config.get('kv.di') } } as unknown as IConfigLike);
+          }
+        }
+        const config = await boot(mode, (c) => {
+          c.register({ kv: { di: 'di' } }).asValue('__configuration__');
+          c.register(ReadingSource).as(ConfigurationSource);
+        });
+        expect(config.get('seen.value')).to.equal('di');
       });
 
       // Source results merge by Order, and the file sources (Order 1) hold the package defaults.

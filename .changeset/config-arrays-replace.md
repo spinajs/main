@@ -6,6 +6,7 @@
 A config array the app sets now replaces the default instead of being concatenated to it. `http.socket.transports: ['websocket']` in an app config is `['websocket']`, not `['websocket', 'polling', 'websocket']`.
 
 - Package config files (`node_modules/@spinajs/*/lib/config`, or the manifest's `configFiles`) and `__configuration__` DI values still concatenate their arrays.
+- `__configuration__` DI values are package defaults: they lead the package layer, in Node and in the browser. A scalar that used to win over `onLoad()` and every source now loses to the app. Use `set()` for a runtime override.
 - The app's own config files, `src/config` included, sit above every package file of every format and pass, for arrays and scalars, and replace an array. An environment file replaces its common file. `onLoad()`, every other `ConfigurationSource` and `mergeSource()` replace an array, in `Order`, so a `StaticConfigurationSource` at its default `Order` loses to the package default.
 - The arrays in `COMPOSED_CONFIG_ARRAYS` concatenate in every merge: `system.dirs.*`, `fs.providers`, `queue.connections`, `http.Static`, `logger.filters`, the `grants`, `extends` and `revoke` of an RBAC role, `authz.rbac.serviceRoles.*`, `authz.abac.policies`, `authz.admin.guard.keepHolders`, `authz.fields.neverRead`, `validation.strict.idPrefixes` and every `__file__`.
 - `merge(path, value)` still concatenates, and now also appends to an array stored at `path` itself instead of overwriting it index by index.

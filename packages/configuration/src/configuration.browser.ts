@@ -24,8 +24,7 @@ import { mergeConfig, mergeInto, mapObject } from './util-common.js';
  *  - config comes exclusively from DI-registered `ConfigurationSource`s
  *    ( eg. StaticConfigurationSource ) and the `__configuration__` DI seam
  *  - no file loading, no schema validation, no CLI-arg / env-var probing
- *  - runtime overrides via `set` / `merge` or another `__configuration__` value
- *    followed by `load()`
+ *  - runtime overrides via `set` / `merge`; a `__configuration__` value is a default
  */
 @Injectable(Configuration)
 export class BrowserFrameworkConfiguration extends Configuration {
@@ -92,6 +91,15 @@ export class BrowserFrameworkConfiguration extends Configuration {
   public async load() {
     this.Config = {};
 
+    /**
+     * The '__configuration__' seam: package defaults of modules without config files, below
+     * every source and onLoad(). Root-level merge ( not per-key this.merge ) so keys that don't
+     * exist in the config yet are still applied — merge() into a missing key is a no-op.
+     */
+    this.Container.resolve(Array.ofType<IConfigLike>(CONFIGURATION_SOURCES.key)).forEach((c: IConfigLike) => {
+      mergeConfig(this.Config, c, 'concat');
+    });
+
     for (const source of this.Sources) {
       const rCfg = await source.Load(this);
       if (rCfg) {
@@ -100,17 +108,6 @@ export class BrowserFrameworkConfiguration extends Configuration {
     }
 
     mergeConfig(this.Config, this.onLoad(), 'replace');
-
-    /**
-     * Merge from DI container ( '__configuration__' seam )
-     * eg. when custom modules have config and dont want to use files.
-     * Root-level merge ( not per-key this.merge ) so keys that don't exist in
-     * the config yet are still applied — merge() into a missing key is a no-op.
-     * They stand in for package config files, so their arrays concatenate.
-     */
-    this.Container.resolve(Array.ofType<IConfigLike>(CONFIGURATION_SOURCES.key)).forEach((c: IConfigLike) => {
-      mergeConfig(this.Config, c, 'concat');
-    });
 
     /**
      * Each object in config replace with proxy to handle lazy ConfigVars.

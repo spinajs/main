@@ -7,7 +7,7 @@
 1. **Entry.** Bundlers that honour the `browser` export condition get `lib/index.browser.js` for `@spinajs/configuration`; any bundler can import `@spinajs/configuration/browser` explicitly. That entry exports `@spinajs/configuration-common`, the decorators, `InvalidConfiguration`, `_cfg` / `_service` and `BrowserFrameworkConfiguration`.
 2. **Registration.** Importing the entry registers `BrowserFrameworkConfiguration` with `@Injectable(Configuration)`.
 3. **`resolve()`** resolves `Array.ofType(ConfigurationSource)` when any source is registered, sorts it by `Order`, and calls `load()`. No source is fine.
-4. **`load()`** resets the tree, merges each source's `Load()` result, then `onLoad()`, then every `__configuration__` DI value **at the root**, and wraps objects holding a `ConfigVar` in a proxy. Arrays merge as in Node (see [Arrays](01-configuration-service.md#arrays)): a source or `onLoad()` replaces a value array, a `__configuration__` value adds to it.
+4. **`load()`** resets the tree, merges every `__configuration__` DI value **at the root**, then each source's `Load()` result, then `onLoad()`, and wraps objects holding a `ConfigVar` in a proxy. Arrays merge as in Node (see [Arrays](01-configuration-service.md#arrays)): a `__configuration__` value is a package default, and a source or `onLoad()` replaces its value array and wins its scalars.
 5. **`configure()`** calls each top-level section's `configure()` hook.
 
 ## Configuration
@@ -61,7 +61,7 @@ void main();
 - No schema validation runs, so schema defaults are not applied. `registerConfigurationSchema` is not exported from the browser entry.
 - No protocol strings are resolved, but a source may return `ConfigVar` values; they are read lazily as in Node.
 - No `process.env` section, no `configuration.isProduction` flags and no `--app` / `--env` handling.
-- `__configuration__` values are merged at the root: unlike `FrameworkConfiguration`, a new top-level key is kept.
+- `__configuration__` values are merged at the root, so a new top-level key is kept. They are defaults: override config at runtime with `set()` or `merge()`, not with another value.
 - `mergeSource(sourceClass)` merges the source's result into the current tree and keeps the source for later `load()` calls.
 - `cfg()`, `service()`, `registerConfigurationSchema()` and the file sources are Node-only exports; use `_cfg()` and `_service()` in the browser.
 - Importing both entries in one process registers both classes under `Configuration`; the one imported last wins.

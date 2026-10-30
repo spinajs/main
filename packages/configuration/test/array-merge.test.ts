@@ -144,9 +144,27 @@ describe('config array merge', () => {
       expect(config.get('system.dirs.controllers')).to.deep.equal(['/pkg/controllers', '/app/controllers']);
     });
 
-    it('a __configuration__ value adds to arrays, as a package config does', async () => {
-      const config = await boot({}, (c) => c.register({ http: { socket: { transports: ['webtransport'] } } }).asValue('__configuration__'));
-      expect(config.get('http.socket.transports')).to.deep.equal(['polling', 'websocket', 'webtransport']);
+    it('a __configuration__ value is a default: a source and onLoad() replace its array and win its scalar', async () => {
+      const config = await boot({ di: { list: ['app'], value: 'app' } }, (c) => {
+        c.register({ di: { list: ['di'], value: 'di', kept: 'di' }, http: { socket: { transports: ['webtransport'] } } }).asValue('__configuration__');
+      });
+      expect(config.get('di.list')).to.deep.equal(['app']);
+      expect(config.get('di.value')).to.equal('app');
+      expect(config.get('di.kept')).to.equal('di');
+      expect(config.get('http.socket.transports')).to.deep.equal(['polling', 'websocket']);
+    });
+
+    it('a __configuration__ value keeps its entries in a composed array', async () => {
+      const config = await boot({}, (c) => c.register({ fs: { providers: [{ name: 'di' }] } }).asValue('__configuration__'));
+      expect(config.get('fs.providers')).to.deep.equal([{ name: 'di' }, { name: 'pkg' }]);
+    });
+
+    it('two __configuration__ values concatenate their arrays', async () => {
+      const config = await boot({}, (c) => {
+        c.register({ di: { list: ['one'] } }).asValue('__configuration__');
+        c.register({ di: { list: ['two'] } }).asValue('__configuration__');
+      });
+      expect(config.get('di.list')).to.deep.equal(['one', 'two']);
     });
 
     it('merge() ignores null and undefined at an array and appends anything else', async () => {
@@ -202,9 +220,19 @@ describe('config array merge', () => {
       expect(config.get('fs.providers')).to.deep.equal([{ name: 'pkg' }, { name: 'app' }]);
     });
 
-    it('a __configuration__ value adds to arrays', async () => {
-      const config = await bootBrowser({}, (c) => c.register({ http: { socket: { transports: ['webtransport'] } } }).asValue('__configuration__'));
-      expect(config.get('http.socket.transports')).to.deep.equal(['polling', 'websocket', 'webtransport']);
+    it('a __configuration__ value is a default: a source and onLoad() replace its array and win its scalar', async () => {
+      const config = await bootBrowser({ di: { list: ['app'], value: 'app' } }, (c) => {
+        c.register({ di: { list: ['di'], value: 'di', kept: 'di' }, http: { socket: { transports: ['webtransport'] } } }).asValue('__configuration__');
+      });
+      expect(config.get('di.list')).to.deep.equal(['app']);
+      expect(config.get('di.value')).to.equal('app');
+      expect(config.get('di.kept')).to.equal('di');
+      expect(config.get('http.socket.transports')).to.deep.equal(['polling', 'websocket']);
+    });
+
+    it('a __configuration__ value keeps its entries in a composed array', async () => {
+      const config = await bootBrowser({}, (c) => c.register({ fs: { providers: [{ name: 'di' }] } }).asValue('__configuration__'));
+      expect(config.get('fs.providers')).to.deep.equal([{ name: 'di' }, { name: 'pkg' }]);
     });
 
     it('merge() ignores null and undefined and appends anything else', async () => {
