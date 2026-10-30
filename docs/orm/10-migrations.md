@@ -170,7 +170,7 @@ In each directory it matches `**/!(*.*).{ts,js,cjs,mjs}` (no environment tag) an
 
 ### Discovery from the manifest
 
-`ManifestMigrationSource` reads the effective manifest mode and manifest from `effectiveManifestOf(container)`. In `off` mode, or `prefer` without a registered manifest, it returns nothing; `require` without a manifest throws `ManifestMissing`. Otherwise it returns the classes listed in `migrations`, in manifest order, through `manifestFileFor`; entries of a listed package that is not installed are skipped.
+`ManifestMigrationSource` reads the effective manifest mode and manifest from `effectiveManifestOf(container)`. In `off` mode, or `prefer` without a registered manifest, it returns nothing; `require` without a manifest throws `ManifestMissing`. Otherwise it returns the classes listed in `migrations` through `manifestFileFor`, in the scan's order: files without an environment tag first, then the current environment's, each sorted the way `glob` sorts (locale-aware, unlike the compiler's code-unit order). `system.dirs.migrations` does not apply: the manifest lists every migration of the app and its packages; entries of a listed package that is not installed are skipped.
 
 Like the scan, it never imports a file tagged for another environment and keeps only `OrmMigration` subclasses whose name carries the timestamp. The remaining environment filter (the `@Migration({ Env })` option) stays in `Orm.discoverMigrations()`.
 

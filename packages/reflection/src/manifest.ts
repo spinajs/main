@@ -30,7 +30,15 @@ export interface ManifestEntryRef {
   source: SourceRef;
 }
 
-type Named = ManifestEntryRef;
+/**
+ * Orders listed classes the way a directory scan does: `glob` sorts matches by `localeCompare(..., 'en')`. The compiler
+ * sorts by code unit instead, to keep manifest hashes stable across machines. Extensions are ignored, as a compiled
+ * manifest names `.js` where a scan under ts-node finds `.ts`.
+ */
+export function inScanOrder<T extends { file: string }>(listed: T[], group: (item: T) => number = () => 0): T[] {
+  const key = (item: T): string => item.file.replace(/\\/g, '/').replace(/\.[mc]?[jt]s$/, '');
+  return [...listed].sort((a, b) => group(a) - group(b) || key(a).localeCompare(key(b), 'en'));
+}
 
 /**
  * ClassInfo list for a manifest section, or undefined when the caller should scan directories instead
@@ -57,9 +65,9 @@ export async function listFromManifest(
     return undefined;
   }
 
-  const byFile = new Map<string, Named[]>();
+  const byFile = new Map<string, ManifestEntryRef[]>();
   const skipped = new Set<string>();
-  for (const entry of manifest[section] as Named[]) {
+  for (const entry of manifest[section] as ManifestEntryRef[]) {
     if (include && !include(entry)) continue;
     const pkg = entry.source.package;
     if (!skipped.has(pkg) && isPackageSkipped(pkg, manifest, process.cwd(), mode)) {
@@ -90,7 +98,7 @@ export async function listFromManifest(
   return result;
 }
 
-function listedMissing(file: string, entry: Named, section: ManifestSection, manifest: Manifest): string {
+function listedMissing(file: string, entry: ManifestEntryRef, section: ManifestSection, manifest: Manifest): string {
   return `${file} does not export class ${entry.className} listed in manifest section ${section} ( ${entry.source.file}:${entry.source.line}, manifest ${manifest.app.name} )`;
 }
 

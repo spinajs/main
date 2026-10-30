@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { readManifestObject } from '@spinajs/manifest';
 import { DI } from '@spinajs/di';
 import { MANIFEST_TOKEN, type Manifest } from '@spinajs/manifest';
-import { manifestSettingsOf } from '@spinajs/configuration';
+import { effectiveManifestOf, FrameworkConfiguration, manifestSettingsOf } from '@spinajs/configuration';
 import { createTestApp } from '../src/create-test-app.js';
 import { testManifest, sourceRef, withManifest } from '../src/manifest.js';
 
@@ -75,5 +75,22 @@ describe('withManifest', () => {
     expect(rootManifest()).to.equal(shared);
     await second.dispose();
     expect(rootManifest()).to.equal(undefined);
+  });
+});
+
+describe('withManifest with a FrameworkConfiguration app', () => {
+  class DefaultSources extends FrameworkConfiguration {}
+
+  it('survives the boot of ManifestConfigurationSource', async () => {
+    const manifest = testManifest();
+    const app = await createTestApp({ configuration: DefaultSources, register: withManifest(manifest, 'require') });
+    try {
+      const effective = effectiveManifestOf(app.container);
+      expect(effective?.settings.mode).to.equal('require');
+      expect(effective?.manifest).to.equal(manifest);
+      expect(app.config.get('system.manifest.mode')).to.equal('require');
+    } finally {
+      await app.dispose();
+    }
   });
 });

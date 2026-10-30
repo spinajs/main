@@ -1,7 +1,7 @@
 import { Configuration, normalizeEnvironment } from '@spinajs/configuration-common';
 import { effectiveManifestOf } from '@spinajs/configuration';
 import { Autoinject, Class, ClassInfo, Container, IContainer, Injectable } from '@spinajs/di';
-import { listFromManifest } from '@spinajs/reflection';
+import { inScanOrder, listFromManifest } from '@spinajs/reflection';
 import { OrmMigration } from './interfaces.js';
 import { parseMigrationFileEnv } from './migration-environment.js';
 import { MigrationSource } from './migration-sources.js';
@@ -13,6 +13,9 @@ import { MIGRATION_FILE_REGEXP } from './symbols.js';
  *
  * Like the directory scan it never imports a file suffixed for another environment: importing fires `@Migration`.
  * The remaining environment filter stays in `Orm.discoverMigrations()`.
+ *
+ * The list is in the directory scan's order: unsuffixed files first, then the environment's, each sorted as `glob` does.
+ * The manifest names every migration of the app and its packages, whatever `system.dirs.migrations` says.
  */
 @Injectable(MigrationSource)
 export class ManifestMigrationSource extends MigrationSource {
@@ -34,8 +37,10 @@ export class ManifestMigrationSource extends MigrationSource {
       return fileEnv === undefined || fileEnv === env;
     });
 
-    return (listed ?? [])
+    const migrations = (listed ?? [])
       .map((ci) => ({ file: ci.file, name: ci.name, type: ci.type as Class<OrmMigration> }))
       .filter((ci) => ci.type.prototype instanceof OrmMigration && MIGRATION_FILE_REGEXP.test(ci.name));
+
+    return inScanOrder(migrations, (ci) => (parseMigrationFileEnv(ci.file) === undefined ? 0 : 1));
   }
 }

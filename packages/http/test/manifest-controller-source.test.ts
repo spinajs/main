@@ -2,34 +2,13 @@ import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
 import glob from 'glob';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { ManifestMissing } from '@spinajs/manifest';
-import type { Manifest } from '@spinajs/manifest';
-import { sourceRef, testManifest } from '@spinajs/testing';
+import type { Manifest, ManifestMode } from '@spinajs/manifest';
+import { sourceRef, testManifest, withManifest } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
 import { Controllers, FilesystemControllerSource, ManifestControllerSource } from '../src/index.js';
 import { httpApp } from './common.js';
-
-const ENV_KEYS = ['SPINAJS_MANIFEST_MODE', 'SPINAJS_MANIFEST'] as const;
-
-// The mode is decided before any config file loads, so a test turns it on the way a deployed app does: through the environment
-function manifestEnv(manifest: Manifest, mode: string, dirs: string[]): () => void {
-  const dir = mkdtempSync(join(tmpdir(), 'spinajs-manifest-'));
-  dirs.push(dir);
-  const file = join(dir, 'app.manifest.json');
-  writeFileSync(file, JSON.stringify(manifest));
-  const saved = ENV_KEYS.map((key) => [key, process.env[key]] as const);
-  process.env.SPINAJS_MANIFEST_MODE = mode;
-  process.env.SPINAJS_MANIFEST = file;
-  return () => {
-    for (const [key, value] of saved) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-  };
-}
 
 const sameFile = (file: string): string => join(dirname(file), basename(file).replace(/\.[mc]?[jt]s$/, ''));
 
@@ -59,12 +38,9 @@ describe('ManifestControllerSource', function () {
 
   let app: TestApp | undefined;
   let fixture: Awaited<ReturnType<typeof scannedManifest>>;
-  let restoreEnv: (() => void) | undefined;
-  const tmpDirs: string[] = [];
 
-  async function bootWith(manifest: Manifest, mode: string, resolveServices: Array<typeof Controllers> = []): Promise<TestApp> {
-    restoreEnv = manifestEnv(manifest, mode, tmpDirs);
-    app = await httpApp({ resolve: resolveServices });
+  async function bootWith(manifest: Manifest, mode: ManifestMode, resolveServices: Array<typeof Controllers> = []): Promise<TestApp> {
+    app = await httpApp({ register: withManifest(manifest, mode), resolve: resolveServices });
     return app;
   }
 
@@ -77,9 +53,6 @@ describe('ManifestControllerSource', function () {
     sinon.restore();
     await app?.dispose();
     app = undefined;
-    restoreEnv?.();
-    restoreEnv = undefined;
-    tmpDirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true }));
   });
 
   it('the fixture scan finds controllers', () => {
@@ -100,6 +73,31 @@ describe('ManifestControllerSource', function () {
     const booted = await bootWith(fixture.manifest, 'require');
     const listed = (await (await booted.resolve(ManifestControllerSource)).getControllers()).map((c) => ({ name: c.name, file: sameFile(c.file) }));
     expect(listed).to.deep.equal(fixture.scanned.map((c) => ({ name: c.name, file: sameFile(resolve(c.file)) })));
+  });
+
+  it('lists controllers in the order the directory scan finds them, whatever order the manifest has', async () => {
+    const fixtures = resolve(process.cwd(), 'test', 'controllers-order');
+    const scanOrder = glob.sync(join(fixtures, '/**/!(*.d).{ts,js}').replace(/\\/g, '/')).map((f) => basename(f).replace(/\.[mc]?[jt]s$/, ''));
+    // the compiler sorts by code unit: Beta, Zeta, alpha, gamma
+    const compilerOrder = [...scanOrder].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    expect(compilerOrder).to.not.deep.equal(scanOrder);
+
+    const manifest = testManifest({
+      root: process.cwd(),
+      controllers: compilerOrder.map((name) => ({
+        id: `test-app:${name}`,
+        className: name,
+        basePath: '',
+        policies: [],
+        middlewares: [],
+        routes: [],
+        source: sourceRef(`test/controllers-order/${name}.ts`),
+      })),
+    });
+    const booted = await bootWith(manifest, 'require');
+
+    const listed = await (await booted.resolve(ManifestControllerSource)).getControllers();
+    expect(listed.map((c) => c.name)).to.deep.equal(scanOrder);
   });
 
   it('is empty in off mode and the filesystem source still scans', async () => {
