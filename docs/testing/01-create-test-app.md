@@ -9,7 +9,7 @@
 | `config` | Plain object; it is the whole configuration, no files are read, every registered schema validates it. |
 | `configuration` | A `FrameworkConfiguration` subclass instead of `config`. |
 | `schemas` | Extra `IConfigurationSchema` objects registered before Configuration resolves. |
-| `register` | `(container) => void`; registrations applied before anything resolves. |
+| `register` | `(container) => void`; registrations applied before anything resolves. `register: withManifest(manifest, mode)` sets the app's runtime manifest and `system.manifest.mode`; with a `configuration` class the manifest configuration source keeps that decision instead of recomputing it from the environment and config files. |
 | `resolve` | Classes or tokens resolved after Configuration. |
 | `env` | Stands in for `APP_ENV`; default `test`. |
 | `scope` | `root` (default) or `child`, see below. |

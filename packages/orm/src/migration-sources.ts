@@ -1,5 +1,6 @@
+import { effectiveManifestOf } from '@spinajs/configuration';
 import { Configuration, normalizeEnvironment } from '@spinajs/configuration-common';
-import { AsyncService, Autoinject, Class, ClassInfo, DI, Injectable } from '@spinajs/di';
+import { AsyncService, Autoinject, Class, ClassInfo, Container, DI, IContainer, Injectable } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import glob from 'glob';
 import _ from 'lodash';
@@ -62,7 +63,15 @@ export class FilesystemMigrationSource extends MigrationSource {
   @Autoinject()
   protected Configuration: Configuration;
 
+  @Autoinject(Container)
+  protected Container: IContainer;
+
   public async getMigrations(): Promise<Array<ClassInfo<OrmMigration>>> {
+    // ManifestMigrationSource is the only file-backed source in require mode
+    if (effectiveManifestOf(this.Container)?.settings.mode === 'require') {
+      return [];
+    }
+
     const configured = this.Configuration.get<string[]>('system.dirs.migrations', []) ?? [];
 
     // a configured value REPLACES the defaults rather than adding to them - the config key itself

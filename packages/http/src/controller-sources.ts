@@ -1,4 +1,5 @@
-import { AsyncService, ClassInfo, Class, DI, Injectable } from '@spinajs/di';
+import { AsyncService, Autoinject, ClassInfo, Class, Container, DI, IContainer, Injectable } from '@spinajs/di';
+import { effectiveManifestOf } from '@spinajs/configuration';
 import { ListFromFiles } from '@spinajs/reflection';
 import { BaseController } from './base-controller.js';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
@@ -27,7 +28,15 @@ export class FilesystemControllerSource extends ControllerSource {
   @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.controllers')
   public Controllers!: Promise<Array<ClassInfo<BaseController>>>;
 
+  @Autoinject(Container)
+  protected Container!: IContainer;
+
   public async getControllers(): Promise<Array<ClassInfo<BaseController>>> {
+    // ManifestControllerSource is the only file-backed source in require mode; reading `this.Controllers` would scan
+    if (effectiveManifestOf(this.Container)?.settings.mode === 'require') {
+      return [];
+    }
+
     const scanned = (await this.Controllers) ?? [];
 
     // a controller file may also export DTOs or helper classes; keep only the

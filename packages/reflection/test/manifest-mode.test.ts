@@ -10,7 +10,7 @@ import type { IContainer } from '@spinajs/di';
 import { FrameworkConfiguration, ManifestConfigurationSource, registerManifest, registerManifestSettings } from '@spinajs/configuration';
 import { createTestApp, disposeTestApps, testManifest, sourceRef, withManifest } from '@spinajs/testing';
 import { ManifestMissing } from '@spinajs/manifest';
-import { ListFromFiles, ResolveFromFiles } from '../src/index.js';
+import { ListFromFiles, listFromManifest, ResolveFromFiles } from '../src/index.js';
 import { FooService } from './test-services/singletons/FooService.js';
 
 chai.use(chaiAsPromised);
@@ -72,6 +72,13 @@ describe('ListFromFiles manifest fast path', () => {
     expect(items[0].type).to.equal(FooService);
     expect(items[0].file).to.equal(resolve(singletons, 'FooService.js'));
     expect(globSync.called).to.equal(false);
+  });
+
+  it('listFromManifest drops entries rejected by include before importing their file', async () => {
+    const other = { name: 'bar', className: 'BarService', options: [], arguments: [], source: sourceRef('test/test-services/singletons/NoSuchFile.ts') };
+    const app = await createTestApp({ config, register: withManifest(testManifest({ root, commands: [...manifest.commands, other] }), 'require') });
+    const listed = await listFromManifest(app.container, 'commands', 'require', (entry) => entry.className !== 'BarService');
+    expect(listed?.map((i) => i.name)).to.deep.equal(['FooService']);
   });
 
   it('resolves instances for ResolveFromFiles', async () => {

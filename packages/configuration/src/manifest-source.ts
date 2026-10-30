@@ -5,9 +5,12 @@ import { Autoinject, Container, DI, IContainer, Injectable } from '@spinajs/di';
 import { Configuration, ConfigurationSource, IConfigLike, normalizeEnvironment } from '@spinajs/configuration-common';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { loadRuntimeManifest, type ManifestMode } from '@spinajs/manifest';
-import { MANIFEST, projectConfigDirs, registerManifest, registerManifestSettings, type ManifestSettings } from './manifest-runtime.js';
+import { MANIFEST, MANIFEST_SETTINGS, projectConfigDirs, registerManifest, registerManifestSettings, type ManifestSettings } from './manifest-runtime.js';
 import { findBasePath } from './util.js';
 import { BaseFileSource } from './sources.js';
+
+// Settings this source decided itself, to tell them from ones a host or `withManifest` registered beforehand.
+const decided = new WeakSet<object>();
 
 const MANIFEST_KEYS: ReadonlySet<string> = new Set(['path', 'mode']);
 
@@ -20,6 +23,9 @@ type WithManifest = { system?: { manifest?: ManifestSection } };
  * without the node_modules walk ), then the defaults merged so far. It registers that value under `MANIFEST_SETTINGS`,
  * and the loaded manifest under `MANIFEST`, for the file sources, reflection, http and orm to read; the final
  * configuration's `system.manifest` is set to it as well.
+ *
+ * A decision already registered in the container's own registry ( by a host, or `withManifest` in tests ) wins over all
+ * of the above and is kept as it is, together with its manifest.
  */
 @Injectable(ConfigurationSource)
 export class ManifestConfigurationSource extends ConfigurationSource {
@@ -43,11 +49,18 @@ export class ManifestConfigurationSource extends ConfigurationSource {
   public async Load(config: Configuration): Promise<IConfigLike> {
     // The app config files read below, and package configs later, build paths from it when they are imported.
     BaseFileSource.ensureWorkspaceRoot();
+
+    const preset = this.presetSettings();
+    if (preset) {
+      return { system: { manifest: { ...preset } } };
+    }
+
     const settings = await this.effectiveSettings(config);
 
     // loadRuntimeManifest rejects an unknown mode, so a typo cannot silently turn the manifest off.
     const manifest = loadRuntimeManifest(settings, process.cwd());
     registerManifestSettings(this.Container, settings);
+    decided.add(settings);
 
     if (manifest) {
       registerManifest(this.Container, manifest);
@@ -57,6 +70,12 @@ export class ManifestConfigurationSource extends ConfigurationSource {
     }
 
     return { system: { manifest: { ...settings } } };
+  }
+
+  // The container's own registry only: the lineage and root also hold values copied there by other apps.
+  private presetSettings(): ManifestSettings | undefined {
+    const [registered] = this.Container.Registry.getValues(MANIFEST_SETTINGS.key) ?? [];
+    return registered && !decided.has(registered) ? (registered as ManifestSettings) : undefined;
   }
 
   protected async effectiveSettings(config: Configuration): Promise<ManifestSettings> {

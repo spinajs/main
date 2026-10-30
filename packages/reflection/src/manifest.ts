@@ -25,18 +25,33 @@ export function manifestMode(container: IContainer): ManifestMode {
   return manifestSettingsOf(container)?.mode ?? 'off';
 }
 
-interface Named {
+export interface ManifestEntryRef {
   className: string;
   source: SourceRef;
+}
+
+/**
+ * Orders listed classes the way a directory scan does: `glob` sorts matches by `localeCompare(..., 'en')`. The compiler
+ * sorts by code unit instead, to keep manifest hashes stable across machines. Extensions are ignored, as a compiled
+ * manifest names `.js` where a scan under ts-node finds `.ts`.
+ */
+export function inScanOrder<T extends { file: string }>(listed: T[], group: (item: T) => number = () => 0): T[] {
+  const key = (item: T): string => item.file.replace(/\\/g, '/').replace(/\.[mc]?[jt]s$/, '');
+  return [...listed].sort((a, b) => group(a) - group(b) || key(a).localeCompare(key(b), 'en'));
 }
 
 /**
  * ClassInfo list for a manifest section, or undefined when the caller should scan directories instead
  * ( mode `off`, or `prefer` without a manifest ). An empty array is a real empty section. Every listed file
  * is imported once and the export named `className` is the type; the file comes from `manifestFileFor`, which
- * keeps it inside the package root.
+ * keeps it inside the package root. `include` drops entries before their file is imported.
  */
-export async function listFromManifest(container: IContainer, section: ManifestSection, mode: ManifestMode): Promise<Array<ClassInfo<unknown>> | undefined> {
+export async function listFromManifest(
+  container: IContainer,
+  section: ManifestSection,
+  mode: ManifestMode,
+  include?: (entry: ManifestEntryRef) => boolean,
+): Promise<Array<ClassInfo<unknown>> | undefined> {
   if (mode === 'off') {
     return undefined;
   }
@@ -50,9 +65,10 @@ export async function listFromManifest(container: IContainer, section: ManifestS
     return undefined;
   }
 
-  const byFile = new Map<string, Named[]>();
+  const byFile = new Map<string, ManifestEntryRef[]>();
   const skipped = new Set<string>();
-  for (const entry of manifest[section] as Named[]) {
+  for (const entry of manifest[section] as ManifestEntryRef[]) {
+    if (include && !include(entry)) continue;
     const pkg = entry.source.package;
     if (!skipped.has(pkg) && isPackageSkipped(pkg, manifest, process.cwd(), mode)) {
       skipped.add(pkg);
@@ -82,7 +98,7 @@ export async function listFromManifest(container: IContainer, section: ManifestS
   return result;
 }
 
-function listedMissing(file: string, entry: Named, section: ManifestSection, manifest: Manifest): string {
+function listedMissing(file: string, entry: ManifestEntryRef, section: ManifestSection, manifest: Manifest): string {
   return `${file} does not export class ${entry.className} listed in manifest section ${section} ( ${entry.source.file}:${entry.source.line}, manifest ${manifest.app.name} )`;
 }
 

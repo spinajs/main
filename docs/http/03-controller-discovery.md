@@ -18,6 +18,13 @@ Sources only **discover**. They never create controller instances; DI does that 
 2. The scan returns one entry per exported class of each file. A default-exported class counts as one export.
 3. An export is a controller when its prototype extends `BaseController` or carries the route descriptor (`CONTROLLED_DESCRIPTOR_SYMBOL`). DTO classes and helpers in the same file are skipped; several controllers in one file are all found.
 
+### `ManifestControllerSource`
+
+1. It reads the effective manifest mode and manifest from `effectiveManifestOf(container)`. In `off` mode, or `prefer` without a registered manifest, it returns nothing; `require` without a manifest throws `ManifestMissing`.
+2. Otherwise it returns the classes the manifest lists in `controllers`, re-sorted the way the directory scan orders files (`glob`'s locale-aware sort, not the compiler's code-unit order), so routes register in the same order in both modes. The manifest lists every controller of the app and its packages; `system.dirs.controllers` does not narrow it. Each file goes through `manifestFileFor` (root containment and hash), and entries of a listed package that is not installed are skipped.
+3. The same filter as the directory scan applies: only `BaseController` subclasses and classes with the route descriptor are kept.
+4. In `require` mode `FilesystemControllerSource` returns nothing and never scans, so the manifest is the only file-backed source. In `prefer` mode both lists merge and the loader deduplicates by type.
+
 ### `DiRegistryControllerSource`
 
 1. It reads `DI.getRegisteredTypes(BaseController)`: every class registered with `DI.register(X).as(BaseController)` before `Controllers` resolves, typically by a package `Bootstrapper`.
