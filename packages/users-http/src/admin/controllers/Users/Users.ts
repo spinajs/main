@@ -13,6 +13,8 @@ import { AUTHZ_ASSIGNMENT_TABLE } from '@spinajs/authz-rbac';
 import { Schema } from '@spinajs/validation';
 
 import { AccountGuard } from '../../../services/AccountGuard.js';
+// Registers AccountDisableHook: the controller scan imports this file, and an app may never import the package entry.
+import '../../../services/account-disable-hook.js';
 import { asActionRefusal } from '../../../services/action-refusal.js';
 import { asHttpRefusal, userActor } from '../../../services/actor.js';
 import { withCredentialAdmin } from '../../../services/credential-admin.js';
