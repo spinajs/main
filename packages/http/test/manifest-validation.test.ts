@@ -132,6 +132,11 @@ describe('request validation from the manifest', function () {
       expect((await post('standard', { name: 1 })).status).to.eq(400);
     });
 
+    it('does not check a nested Standard Schema class against its closed derived shape', async () => {
+      const res = await post('standardEnvelope', { item: { name: 'a', extra: true } });
+      expect(res.status, res.text).to.eq(200);
+    });
+
     it('coerces a whole query DTO to its derived types and ignores keys of other arguments', async () => {
       const res = await get('search?page=2&exact=true&debug=1');
       expect(res.status, res.text).to.eq(200);

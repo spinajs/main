@@ -41,6 +41,14 @@ export class StandardItem {
   }
 }
 
+export class StandardEnvelope {
+  public item: StandardItem;
+
+  constructor(data: Partial<StandardEnvelope>) {
+    Object.assign(this, data);
+  }
+}
+
 const base = () => ({ type: 'object' });
 
 @Schema({ ...base(), $id: 'manifest-validation.partial-item', properties: { name: { type: 'string' } } })
@@ -118,6 +126,11 @@ export class ManifestValidationController extends BaseController {
   @Post()
   public standard(@Body() item: StandardItem) {
     return new Ok({ name: item.name });
+  }
+
+  @Post()
+  public standardEnvelope(@Body() envelope: StandardEnvelope) {
+    return new Ok({ name: envelope.item.name });
   }
 
   @Post()
