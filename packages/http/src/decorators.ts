@@ -7,7 +7,7 @@ import { Options as CsvParseOptions } from 'csv-parse';
 import { toArray } from '@spinajs/util';
 
 import { RequestTypeRouteArgs } from './route-args/RequestFields.js';
-import { ExpectedResponseUnacceptable } from '@spinajs/exceptions';
+import { ExpectedResponseUnacceptable, InvalidArgument } from '@spinajs/exceptions';
 import * as express from 'express';
 import type { ErrorClass, OnErrorHandler, OnErrorOptions } from './errors/on-error.js';
 import { strictHeaderReader } from './headers.js';
@@ -346,6 +346,21 @@ export function Policy(policy: Constructor<BasePolicy> | string | (Constructor<B
     } else {
       controller.Policies.push(group);
     }
+  });
+}
+
+/**
+ * Declares that the route, or on a class every route of the controller, is open to everyone on purpose, and why.
+ * Metadata only: it grants nothing and checks nothing at request time. `spinajs doctor` reads it, so a deliberately
+ * public route (login, health check, webhook) is not reported as a route with no policy. Combining it with `@Access`
+ * or `@Policy` on the same route or its class is contradictory, and doctor warns about it.
+ */
+export function Public(reason: string) {
+  if (typeof reason !== 'string' || reason.trim() === '') {
+    throw new InvalidArgument('@Public needs a reason');
+  }
+  return Route((controller: IControllerDescriptor, route: IRoute) => {
+    (route ?? controller).Public = reason;
   });
 }
 

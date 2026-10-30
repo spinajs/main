@@ -452,6 +452,9 @@ export const manifestSchema: Record<string, any> = {
         "allowAnonymous": {
           "type": "boolean"
         },
+        "public": {
+          "type": "string"
+        },
         "routes": {
           "type": "array",
           "items": {
@@ -558,6 +561,9 @@ export const manifestSchema: Record<string, any> = {
         },
         "allowAnonymous": {
           "type": "boolean"
+        },
+        "public": {
+          "type": "string"
         },
         "doc": {
           "type": "object",
