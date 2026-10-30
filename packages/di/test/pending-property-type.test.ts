@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 
-import { Autoinject, DI, LazyInject, PROPERTY_TYPE_RESOLVER, ResolveException, Singleton, type Class, type IContainer, type IDeclaredPropertyType, type IPropertyTypeResolver } from '../src/index.js';
+import { Autoinject, DI, forgetPendingProperties, LazyInject, pendingProperties, PROPERTY_TYPE_RESOLVER, ResolveException, Singleton, type Class, type IContainer, type IDeclaredPropertyType, type IPropertyTypeResolver } from '../src/index.js';
 
 class Foo {
   public readonly name = 'foo';
@@ -109,7 +109,52 @@ describe('property types without decorator metadata', () => {
   });
 
   it('throws when the resolver does not know the property', () => {
-    expect(() => withResolver(() => undefined).resolve(Owner)).to.throw(ResolveException, /Owner\.foo/);
+    expect(() => withResolver(() => undefined).resolve(Owner)).to.throw(ResolveException, /Owner\.foo: the decorator names no type/);
+  });
+
+  it('says what to do when no resolver is registered yet, which is what the manifest needs Configuration for', () => {
+    expect(() => DI.child().resolve(Owner)).to.throw(ResolveException, /Owner\.foo.*resolve Configuration first, or pass the type to the decorator/);
+  });
+
+  describe('pairs collected at decoration', () => {
+    const has = (owner: Class<unknown>, property: string) => pendingProperties().some((p) => p.owner === owner && p.property === property);
+
+    it('lists every property a build without metadata left to the manifest', () => {
+      expect(has(Owner, 'foo')).to.equal(true);
+      expect(has(LazyOwner, 'foo')).to.equal(true);
+    });
+
+    it('lists an explicit class too: only the metadata could tell whether it is a list', () => {
+      expect(has(ExplicitOwner, 'list')).to.equal(true);
+      expect(has(ExplicitLazyOwner, 'map')).to.equal(true);
+    });
+
+    it('lists nothing for a property that has metadata', () => {
+      class WithMetadata {
+        @Autoinject()
+        public foo: Foo;
+
+        @Autoinject(Foo)
+        public list: Foo[];
+      }
+      expect(has(WithMetadata, 'foo')).to.equal(false);
+      expect(has(WithMetadata, 'list')).to.equal(false);
+    });
+
+    it('lists a pair once', () => {
+      class Twice {}
+      Autoinject()(Twice.prototype, 'foo');
+      Autoinject()(Twice.prototype, 'foo');
+      expect(pendingProperties().filter((p) => p.owner === Twice)).to.have.length(1);
+    });
+
+    it('forgets on request', () => {
+      class Gone {}
+      Autoinject()(Gone.prototype, 'foo');
+      forgetPendingProperties(Gone);
+      expect(has(Gone, 'foo')).to.equal(false);
+      expect(has(Owner, 'foo')).to.equal(true);
+    });
   });
 
   it('types no property before throwing, so nothing is left unhandled when a later one fails', async () => {

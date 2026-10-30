@@ -1,11 +1,13 @@
 import 'mocha';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
+import sinon from 'sinon';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { hashManifest, type ClassPropertiesEntry, type Manifest, type ManifestMode, type RuntimeTypeRef } from '@spinajs/manifest';
-import { Autoinject, DI, LazyInject, ResolveException, Singleton, type IContainer } from '@spinajs/di';
+import { Autoinject, DI, forgetPendingProperties, LazyInject, ResolveException, Singleton, type IContainer } from '@spinajs/di';
+import { InternalLogger } from '@spinajs/internal-logger';
 import { Configuration, ConfigurationSource } from '@spinajs/configuration-common';
 import { FrameworkConfiguration } from '../src/configuration.js';
 import { ManifestConfigurationSource } from '../src/manifest-source.js';
@@ -44,6 +46,9 @@ class Plugins {
   public list: Plugin[];
 }
 (Autoinject(Plugin) as PropertyDecorator)(Plugins.prototype, 'list');
+
+// Every suite in this process boots: the classes above are declared for the tests that list them.
+forgetPendingProperties();
 
 const entry = (className: string, property: string, tokenRef?: RuntimeTypeRef, id = `property-types:${className}`, array = false): ClassPropertiesEntry => ({
   id,
@@ -161,9 +166,60 @@ describe('property types from the manifest', () => {
       expect(container.resolve(Plugins).list).to.be.an('array').with.length(1);
     });
 
-    it('fails in require when the manifest does not list the property', async () => {
-      const container = await boot(manifestOf({}), 'require');
-      expect(() => container.resolve(Plugins)).to.throw(ResolveException, /Plugins\.list/);
+    it('injects one instance in prefer when the manifest does not list the property, with a named error', async () => {
+      const error = sinon.stub(InternalLogger, 'error');
+      try {
+        const container = await boot(manifestOf({}), 'prefer');
+        container.register(Plugin).asSelf();
+        expect(container.resolve(Plugins).list).to.be.instanceOf(Plugin);
+        expect(error.getCalls().map((c) => (c.args[0] as { property: string }).property)).to.deep.equal(['Plugins.list']);
+      } finally {
+        error.restore();
+      }
+    });
+  });
+
+  describe('a build that does not match the manifest', () => {
+    class Late {
+      public dep: Db;
+    }
+    class Many {
+      public list: Plugin[];
+    }
+
+    beforeEach(() => {
+      (Autoinject() as PropertyDecorator)(Late.prototype, 'dep');
+      (Autoinject(Plugin) as PropertyDecorator)(Many.prototype, 'list');
+    });
+
+    afterEach(() => {
+      forgetPendingProperties();
+    });
+
+    it('fails a require boot listing every pair the table lacks', async () => {
+      await expect(boot(manifestOf({}), 'require')).to.be.rejectedWith(ResolveException, /does not list Late\.dep, Many\.list; rebuild it/);
+    });
+
+    it('lists only what the table lacks', async () => {
+      await expect(boot(manifestOf({ classProperties: [entry('Many', 'list', undefined, undefined, true)] }), 'require')).to.be.rejectedWith(/does not list Late\.dep;/);
+    });
+
+    it('passes a require boot when the table lists them', async () => {
+      await boot(manifestOf({ classProperties: [entry('Late', 'dep', DB), entry('Many', 'list', undefined, undefined, true)] }), 'require');
+    });
+
+    it('logs a named error for each in prefer, once, and boots', async () => {
+      const error = sinon.stub(InternalLogger, 'error');
+      try {
+        await boot(manifestOf({}), 'prefer');
+        expect(error.getCalls().map((c) => (c.args[0] as { property: string }).property)).to.deep.equal(['Late.dep', 'Many.list']);
+      } finally {
+        error.restore();
+      }
+    });
+
+    it('stays out of the way in off mode', async () => {
+      await boot(manifestOf({}), 'off');
     });
   });
 });

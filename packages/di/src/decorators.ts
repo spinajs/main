@@ -4,6 +4,7 @@ import { ResolveException } from './exceptions.js';
 import { Class } from './types.js';
 import { TypedArray } from './array.js';
 import * as DI from './root.js';
+import { notePendingProperty } from './property-type.js';
 import { getTypeName, isChainArray, isConstructor, isPromise, isTypedArray } from './helpers.js';
 
 export const DI_DESCRIPTION_SYMBOL = '__DI_INJECTION_DESCRIPTOR__';
@@ -200,6 +201,7 @@ export function Autoinject<T>(typeOrOptions?: Class<T> | TypedArray<T> | IAutoin
 
     if (!declaredType) {
       const declared = opt;
+      notePendingProperty(target.constructor as Class<unknown>, String(propertyKey));
       descriptor.inject.push({
         autoinject: true,
         autoinjectKey: propertyKey,
@@ -324,8 +326,10 @@ export function LazyInject<T>(service?: Class<T> | TypedArray<T> | string, optio
 
     // The container assigns the binding right after construction, like any autoinject property; the setter keeps it per owner.
     AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>) => {
+      const pending = !declared && (!type || !!explicit);
+      if (pending) notePendingProperty(target.constructor as Class<unknown>, key);
       descriptor.inject.push(
-        declared || (type && !explicit)
+        !pending
           ? binding(type as Class<unknown>)
           : {
               ...binding(explicit ?? Object),

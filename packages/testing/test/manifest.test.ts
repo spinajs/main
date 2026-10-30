@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { readManifestObject } from '@spinajs/manifest';
-import { Autoinject, DI, PROPERTY_TYPE_RESOLVER } from '@spinajs/di';
+import { Autoinject, DI, forgetPendingProperties, PROPERTY_TYPE_RESOLVER } from '@spinajs/di';
 import { MANIFEST_TOKEN, type Manifest } from '@spinajs/manifest';
 import { effectiveManifestOf, FrameworkConfiguration, manifestSettingsOf } from '@spinajs/configuration';
 import { createTestApp } from '../src/create-test-app.js';
@@ -62,6 +62,7 @@ describe('withManifest', () => {
     } finally {
       DI.RootContainer.unregister(Owner);
       await child.dispose();
+      forgetPendingProperties(Owner);
     }
     expect(DI.RootContainer.get(PROPERTY_TYPE_RESOLVER, false)).to.equal(undefined);
   });

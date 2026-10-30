@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join, normalize, relative, resolve, sep } from 'node:path';
 import glob from 'glob';
 import minimatch from 'minimatch';
-import { PROPERTY_TYPE_RESOLVER, ResolveException, token } from '@spinajs/di';
+import { pendingProperties, PROPERTY_TYPE_RESOLVER, ResolveException, token } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { InternalLogger } from '@spinajs/internal-logger';
 import type { Class, IContainer, IPropertyTypeResolver } from '@spinajs/di';
@@ -57,6 +57,19 @@ function declarationsOf(manifest: Manifest, owner: string, property: string): Pr
   return table.get(`${owner}.${property}`) ?? [];
 }
 
+const REPORTED = new WeakMap<Manifest, Set<string>>();
+
+/** In `prefer` a property the table lacks stays on its decorator's explicit type, one instance even for a list: it must not go unnoticed. */
+function reportLacking(manifest: Manifest, property: string): void {
+  const reported = REPORTED.get(manifest) ?? new Set<string>();
+  REPORTED.set(manifest, reported);
+  if (reported.has(property)) return;
+  reported.add(property);
+  InternalLogger.error({ property }, `${LACKING} \${property}`, 'Configuration');
+}
+
+const LACKING = 'The build emits no decorator metadata and the manifest does not list this property, rebuild it ( spinajs build ) from a tsconfig with emitDecoratorMetadata off:';
+
 const sameDeclaration = (a: PropertyInject, b: PropertyInject): boolean => a.array === b.array && JSON.stringify(a.tokenRef) === JSON.stringify(b.tokenRef);
 
 /** Answers from `manifest.classProperties`, which only a build without decorator metadata has. */
@@ -70,6 +83,7 @@ export const MANIFEST_PROPERTY_TYPES: IPropertyTypeResolver = {
       if (effective.settings.mode === 'require') {
         throw new ResolveException(`cannot inject ${owner.name}.${property}: the build emits no decorator metadata and the manifest does not list the property; rebuild it ( spinajs build ) from a tsconfig with emitDecoratorMetadata off`);
       }
+      reportLacking(effective.manifest, `${owner.name}.${property}`);
       return undefined;
     }
     if (others.some((other) => !sameDeclaration(declared, other))) {
@@ -86,21 +100,45 @@ export const MANIFEST_PROPERTY_TYPES: IPropertyTypeResolver = {
  * it is logged, and resolving its owner throws `ResolveException`.
  */
 export async function preloadPropertyTypes(container: IContainer): Promise<void> {
-  const manifest = activeManifestOf(container);
-  for (const entry of manifest?.classProperties ?? []) {
+  const effective = effectiveManifestOf(container);
+  const manifest = effective?.manifest;
+  if (!effective || !manifest) return;
+
+  for (const entry of manifest.classProperties ?? []) {
     for (const { property, tokenRef } of entry.properties) {
       if (!tokenRef) continue;
       try {
-        await resolveTypeRef(tokenRef, manifest!);
+        await resolveTypeRef(tokenRef, manifest);
       } catch (err) {
         const problem = `cannot load the type of ${entry.id}.${property}: ${(err as Error).message}`;
-        if (manifestSettingsOf(container)?.mode === 'require') {
+        if (effective.settings.mode === 'require') {
           throw new InvalidOperation(problem);
         }
         InternalLogger.warn({ problem }, 'Manifest property types: ${problem}', 'Configuration');
       }
     }
   }
+}
+
+/**
+ * The boot signal for a tsconfig that does not match the build: every property decorated without metadata so far that
+ * the manifest does not list. Fails the boot in `require`, naming them all, and logs each in `prefer`. Runs after each
+ * step that loads classes, before any of them resolves; a class loaded later still fails when its owner is resolved.
+ */
+export function checkPendingProperties(container: IContainer): void {
+  const effective = effectiveManifestOf(container);
+  const manifest = effective?.manifest;
+  if (!effective || !manifest) return;
+
+  const lacking = pendingProperties()
+    .filter(({ owner, property }) => declarationsOf(manifest, owner.name, property).length === 0)
+    .map(({ owner, property }) => `${owner.name}.${property}`);
+  if (lacking.length === 0) return;
+
+  if (effective.settings.mode === 'require') {
+    throw new ResolveException(`the build emits no decorator metadata and the manifest does not list ${lacking.join(', ')}; rebuild it ( spinajs build ) from a tsconfig with emitDecoratorMetadata off`);
+  }
+  lacking.forEach((property) => reportLacking(manifest, property));
 }
 
 /** The effective `system.manifest` of the nearest container in the lineage that decided one. */
