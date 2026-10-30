@@ -14,10 +14,13 @@ import { testManifest } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
 
 import { dir, httpApp, req } from './common.js';
+import * as httpExports from '../src/index.js';
 import { BaseController, ControllerSource, Controllers, FilesystemControllerSource, HttpServer } from '../src/index.js';
 import { ManifestValidationController } from './manifest-validation/src/controllers.js';
 
 const FIXTURE = dir('manifest-validation');
+// Where it exists, it lists the fixture through the manifest next to the controller registered below.
+const ManifestControllerSource = (httpExports as Record<string, unknown>).ManifestControllerSource as typeof FilesystemControllerSource | undefined;
 const MANIFEST_DIR = mkdtempSync(join(tmpdir(), 'manifest-validation-'));
 
 async function fixtureManifest(): Promise<Manifest> {
@@ -40,6 +43,7 @@ async function boot(manifest?: Manifest, mode: ManifestMode = 'prefer'): Promise
       register: (c) => {
         // Discovery is not under test: the manifest lists src/controllers.ts, which reflection would import as a .js file.
         c.unregister(ControllerSource, FilesystemControllerSource);
+        if (ManifestControllerSource) c.unregister(ControllerSource, ManifestControllerSource);
         c.register(ManifestValidationController).as(BaseController);
       },
       resolve: [Intl, Controllers],
