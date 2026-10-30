@@ -1,6 +1,9 @@
 import { Autoinject } from '@spinajs/di';
-import { BaseController, BasePath, Body, Get, Ok, Param, Post } from '../../../src/index.js';
+import { BaseController, BasePath, Body, Get, Ok, Param, Parameter, ParameterType, Post, Route } from '../../../src/index.js';
 import { Counter, CreateUserDto } from './dto.js';
+
+// Built like orm-http's `@Filter` and authn's `@CurrentUser`: the compiler does not know its name.
+const Page = () => Route(Parameter(ParameterType.FromQuery));
 
 @BasePath('runtime-type')
 export class RuntimeTypeController extends BaseController {
@@ -15,5 +18,46 @@ export class RuntimeTypeController extends BaseController {
   @Post()
   public create(@Body() dto: CreateUserDto) {
     return new Ok({ hydrated: dto instanceof CreateUserDto, name: dto.name });
+  }
+
+  @Get('paged/list')
+  public paged(@Page() page: number) {
+    return new Ok({ page, type: typeof page });
+  }
+}
+
+export abstract class CrudController extends BaseController {
+  @Get(':id')
+  public get(@Param() id: number) {
+    return new Ok({ id, type: typeof id });
+  }
+
+  @Post()
+  public create(@Body() dto: CreateUserDto) {
+    return new Ok({ hydrated: dto instanceof CreateUserDto, name: dto.name });
+  }
+}
+
+@BasePath('crud')
+export class ConcreteCrudController extends CrudController {}
+
+@BasePath('pkg-user')
+export class PkgUserController extends BaseController {
+  @Get('refresh/:id')
+  public refresh(@Param() id: number) {
+    return new Ok({ from: 'pkg', id, type: typeof id });
+  }
+
+  @Get('grants/:page')
+  public grants(@Param() page: number) {
+    return new Ok({ from: 'pkg', page, type: typeof page });
+  }
+}
+
+@BasePath('app-user')
+export class AppUserController extends PkgUserController {
+  @Get('grants/v2/:page')
+  public grants(@Param() page: number) {
+    return new Ok({ from: 'app', page, type: typeof page });
   }
 }

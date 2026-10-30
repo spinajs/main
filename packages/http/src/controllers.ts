@@ -164,7 +164,7 @@ export class Controllers extends AsyncService {
       this.Log.warn({ controller: controller.name, file: controller.file }, 'Controller ${controller} in file ${file} dont have descriptor or routes defined');
     } else {
       const provider = await this.metadataProviderFor(controller);
-      for (const [name, route] of controller.instance.Descriptor.Routes) {
+      for (const [name, route] of controller.instance.Routes ?? controller.instance.Descriptor.Routes) {
         let member = await provider.parameters(controller, name as string);
 
         if (member.length === 0) {
