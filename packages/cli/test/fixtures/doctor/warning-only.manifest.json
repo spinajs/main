@@ -1,0 +1,36 @@
+{
+  "manifestVersion": 1,
+  "app": {
+    "name": "doctor-fixture",
+    "version": "0.0.0",
+    "root": ".",
+    "outDir": "lib"
+  },
+  "packages": [],
+  "generatedAt": "2026-10-27T00:00:00.000Z",
+  "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "services": [],
+  "values": [],
+  "controllers": [],
+  "socketControllers": [],
+  "socketContracts": [],
+  "configModules": [],
+  "configUsages": [
+    {
+      "path": "billing.key",
+      "source": {
+        "file": "src/x.ts",
+        "line": 1,
+        "col": 1,
+        "package": "app"
+      }
+    }
+  ],
+  "models": [],
+  "migrations": [],
+  "schedules": [],
+  "commands": [],
+  "queueMessages": [],
+  "schemas": {},
+  "diagnostics": []
+}
