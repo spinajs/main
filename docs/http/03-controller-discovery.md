@@ -22,7 +22,7 @@ Sources only **discover**. They never create controller instances; DI does that 
 
 1. It reads the effective manifest mode and manifest from `effectiveManifestOf(container)`. In `off` mode, or `prefer` without a registered manifest, it returns nothing; `require` without a manifest throws `ManifestMissing`.
 2. Otherwise it returns the classes the manifest lists in `controllers`, re-sorted the way the directory scan orders files (`glob`'s locale-aware sort, not the compiler's code-unit order), so routes register in the same order in both modes. The manifest lists every controller of the app and its packages; `system.dirs.controllers` does not narrow it. Each file goes through `manifestFileFor` (root containment and hash), and entries of a listed package that is not installed are skipped.
-3. The same filter as the directory scan applies: only `BaseController` subclasses and classes with the route descriptor are kept.
+3. The same filter as the directory scan applies: only `BaseController` subclasses and classes with the route descriptor are kept. A controller with `static readonly mountedBySource = true` is left out: a dedicated `ControllerSource` mounts it under its own conditions (authz-http's explain route, which only `ExplainControllerSource` serves, and never in production), and the manifest must not mount it unconditionally.
 4. In `require` mode `FilesystemControllerSource` returns nothing and never scans, so the manifest is the only file-backed source. In `prefer` mode both lists merge and the loader deduplicates by type.
 
 ### `DiRegistryControllerSource`
