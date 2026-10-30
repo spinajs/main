@@ -144,7 +144,8 @@ function _listOrResolveFromFiles(
 
       const section = options.manifest ?? MANIFEST_SECTIONS[configPath];
       if (section) {
-        const listed = await listFromManifest(owner ?? DI.RootContainer, section, manifestMode(config));
+        const container = owner ?? DI.RootContainer;
+        const listed = await listFromManifest(container, section, manifestMode(container));
         if (listed) {
           return noResolve ? listed : resolveListed(listed, (err, ci) => logger.error({ error: err, type: ci.name, file: ci.file }, 'Cannot resolve type ${type} from file ${file}'));
         }

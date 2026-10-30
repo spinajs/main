@@ -30,6 +30,7 @@ import { ConfigurationViolation, InvalidConfiguration } from './exception.js';
 import { mapObject, mergeArrays, parseArgv, pickObjects, pickString, sameSchema, schemaNameOf } from './util.js';
 import config, { buildEnvironmentFlags } from './config/configuration.js';
 import './sources.js';
+import { MANIFEST_SETTINGS } from './manifest-runtime.js';
 
 import { default as ajvMergePath } from 'ajv-merge-patch';
 import { default as ajvFormats } from 'ajv-formats';
@@ -363,6 +364,12 @@ export class FrameworkConfiguration extends Configuration {
     this.Container.resolve(Array.ofType<IConfigLike>(CONFIGURATION_SOURCES.key)).forEach((c: IConfigLike) => {
       _.mergeWith(this.Config, c, mergeArrays);
     });
+
+    // Every source, onLoad and DI value may set system.manifest; what was decided before the package configs loaded wins.
+    const manifestSettings = this.Container.get(MANIFEST_SETTINGS, false);
+    if (manifestSettings) {
+      _.set(this.Config, ['system', 'manifest'], { ...manifestSettings });
+    }
 
     this.applyAppDirs();
 

@@ -35,6 +35,10 @@ The workspace root is the nearest ancestor, the working directory included, whos
 
 A directory that does not exist is skipped. A file reached through more than one directory (a workspace package is also reached through its `node_modules` symlink) loads once, at the last place it is reached.
 
+## With a manifest
+
+When the effective `system.manifest.mode` is `prefer` or `require` and a manifest is loaded (see [the manifest runtime](../manifest/README.md#runtime)), rows 2 and 3 are replaced by the config files the manifest lists for each `@spinajs/*` package (`packages[].configFiles`), at the same position and in the same order the glob gives. Every other row, the deduplication and the merge are unchanged, so the result is the configuration the `node_modules` walk gives.
+
 ## Configuration
 
 | Key | Type | Default | Allowed values | Meaning |

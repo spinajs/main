@@ -11,7 +11,7 @@ import { InternalLogger } from '@spinajs/internal-logger';
 import { BaseFileSource, JsFileSource } from '../src/sources.js';
 import { FrameworkConfiguration } from '../src/configuration.js';
 import { ManifestConfigurationSource } from '../src/manifest-source.js';
-import { manifestOf } from '../src/manifest-runtime.js';
+import { manifestOf, manifestSettingsOf } from '../src/manifest-runtime.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -132,23 +132,32 @@ describe('ManifestConfigurationSource', () => {
     });
   });
 
-  describe('reading system.manifest', () => {
-    const configOf = (values: Record<string, unknown>) => ({ get: (path: string, def?: unknown) => (values[path] ?? def) }) as unknown as Configuration;
-    const source = () => {
-      const s = new ManifestConfigurationSource();
-      (s as unknown as { Container: IContainer }).Container = DI.RootContainer.child({ isolateSingletons: true });
-      return s;
-    };
-
-    it('lets SPINAJS_MANIFEST_MODE win over system.manifest.mode', async () => {
-      const s = source();
-      await s.Load(configOf({ 'system.manifest': { mode: 'require' }, 'process.env.SPINAJS_MANIFEST_MODE': 'off' }));
-      expect(manifestOf((s as unknown as { Container: IContainer }).Container)).to.equal(undefined);
+  describe('the effective system.manifest', () => {
+    it("is read from the app's own config files before any package config loads", async () => {
+      const { container, config } = await start({ APP_ENV: 'test' });
+      expect(manifestSettingsOf(container)).to.deep.equal({ mode: 'require', path: 'app.manifest.json' });
+      expect(manifestOf(container)?.app.name).to.equal('manifest-app');
+      expect(config.get('dep.loaded')).to.equal(true);
+      expect(packageDirGlobs()).to.have.length(0);
+      expect(config.get('system.manifest.mode')).to.equal('require');
     });
 
-    it('warns about unknown system.manifest keys', async () => {
+    it('takes SPINAJS_MANIFEST_MODE over the config files, in the final configuration too', async () => {
+      const { container, config } = await start({ SPINAJS_MANIFEST_MODE: 'prefer', APP_ENV: 'test' });
+      expect(manifestSettingsOf(container)?.mode).to.equal('prefer');
+      expect(config.get('system.manifest.mode')).to.equal('prefer');
+    });
+
+    it('turns the manifest off from the environment although a config file turns it on', async () => {
+      const { container, config } = await start({ SPINAJS_MANIFEST_MODE: 'off', APP_ENV: 'test' });
+      expect(manifestOf(container)).to.equal(undefined);
+      expect(config.get('system.manifest.mode')).to.equal('off');
+      expect(packageDirGlobs()).to.not.have.length(0);
+    });
+
+    it("warns about unknown system.manifest keys in the app's config files", async () => {
       const warn = sinon.stub(InternalLogger, 'warn');
-      await source().Load(configOf({ 'system.manifest': { modee: 'require' } }));
+      await start({ SPINAJS_MANIFEST_MODE: 'prefer', APP_ENV: 'typo' });
       expect(warn.getCalls().some((c) => JSON.stringify(c.args).includes('modee'))).to.equal(true);
     });
   });

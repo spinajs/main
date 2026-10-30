@@ -1,7 +1,6 @@
 import { AsyncService, ClassInfo, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import type { Configuration } from '@spinajs/configuration-common';
-import { manifestOf } from '@spinajs/configuration';
+import { manifestOf, manifestSettingsOf } from '@spinajs/configuration';
 import { manifestFileFor, ManifestMissing } from '@spinajs/manifest';
 import type { Manifest, ManifestMode, SourceRef } from '@spinajs/manifest';
 
@@ -20,8 +19,9 @@ export const MANIFEST_SECTIONS: Readonly<Record<string, ManifestSection>> = {
   'system.dirs.migrations': 'migrations',
 };
 
-export function manifestMode(config: Configuration): ManifestMode {
-  return config.get<ManifestMode | undefined>('system.manifest.mode', undefined) ?? 'off';
+/** The effective `system.manifest.mode` decided by `ManifestConfigurationSource`, never a later-merged config key. */
+export function manifestMode(container: IContainer): ManifestMode {
+  return manifestSettingsOf(container)?.mode ?? 'off';
 }
 
 interface Named {

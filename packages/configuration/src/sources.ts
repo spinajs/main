@@ -7,7 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { InternalLogger } from '@spinajs/internal-logger';
 import type { Manifest } from '@spinajs/manifest';
-import { manifestOf, manifestPackageConfigFiles, projectConfigDirs } from './manifest-runtime.js';
+import { activeManifestOf, manifestPackageConfigFiles, projectConfigDirs } from './manifest-runtime.js';
 import { Configuration, ConfigurationSource, IConfigLike, normalizeEnvironment } from '@spinajs/configuration-common';
 
 export abstract class BaseFileSource extends ConfigurationSource {
@@ -172,9 +172,9 @@ export abstract class BaseFileSource extends ConfigurationSource {
     this.BasePath = bPath === null ? process.cwd() : bPath;
   }
 
-  /** The manifest whose package config files replace the package dir globs, when one is registered. */
+  /** The manifest whose package config files replace the package dir globs, when the effective mode uses one. */
   protected activeManifest(): Manifest | undefined {
-    return this.Container ? manifestOf(this.Container) : undefined;
+    return this.Container ? activeManifestOf(this.Container) : undefined;
   }
 
   /**

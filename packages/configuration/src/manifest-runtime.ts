@@ -4,7 +4,7 @@ import glob from 'glob';
 import minimatch from 'minimatch';
 import { token } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { manifestFileFor, MANIFEST_TOKEN, type Manifest } from '@spinajs/manifest';
+import { manifestFileFor, MANIFEST_TOKEN, type Manifest, type ManifestMode } from '@spinajs/manifest';
 
 /** Typed key of the runtime manifest; same string key as MANIFEST_TOKEN. */
 export const MANIFEST = token<Manifest>(MANIFEST_TOKEN, 'runtime manifest');
@@ -22,6 +22,35 @@ export function manifestOf(container: IContainer): Manifest | undefined {
     current = current.Parent;
   }
   return undefined;
+}
+
+/** The `system.manifest` in effect: decided once per configuration load, before any package config file loads. */
+export interface ManifestSettings {
+  mode: ManifestMode;
+  path: string;
+}
+
+export const MANIFEST_SETTINGS = token<ManifestSettings>(`${MANIFEST_TOKEN}.settings`, 'effective system.manifest');
+
+export function registerManifestSettings(container: IContainer, settings: ManifestSettings): void {
+  container.register(settings).asValue(MANIFEST_SETTINGS.key, true);
+}
+
+/** The effective `system.manifest` of the nearest container in the lineage that decided one. */
+export function manifestSettingsOf(container: IContainer): ManifestSettings | undefined {
+  let current: IContainer | undefined = container;
+  while (current) {
+    const found = current.get(MANIFEST_SETTINGS, false);
+    if (found) return found;
+    current = current.Parent;
+  }
+  return undefined;
+}
+
+/** The manifest to read from instead of scanning: registered, and the effective mode is not `off`. */
+export function activeManifestOf(container: IContainer): Manifest | undefined {
+  const mode = manifestSettingsOf(container)?.mode ?? 'off';
+  return mode === 'off' ? undefined : manifestOf(container);
 }
 
 /** The app's own config dirs, in merge order; package config files merge between the two lists. */

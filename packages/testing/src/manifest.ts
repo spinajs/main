@@ -1,7 +1,8 @@
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { hashManifest, MANIFEST_TOKEN, MANIFEST_VERSION } from '@spinajs/manifest';
-import type { Manifest, SourceRef } from '@spinajs/manifest';
+import type { Manifest, ManifestMode, SourceRef } from '@spinajs/manifest';
+import { MANIFEST_SETTINGS, registerManifest, registerManifestSettings } from '@spinajs/configuration';
 
 export function sourceRef(file: string, pkg = 'test-app'): SourceRef {
   return { file, line: 1, col: 1, package: pkg };
@@ -37,17 +38,21 @@ export function testManifest(overrides: Partial<Manifest> & { root?: string } = 
 }
 
 /**
- * `TestAppOptions.register` helper that makes `manifest` visible to the app. Decorators such as `ListFromFiles`
- * look it up from the root container, so a child app registers it there too until it is disposed.
+ * `TestAppOptions.register` helper that makes `manifest` the app's runtime manifest with `mode` as the effective
+ * `system.manifest.mode`, as `ManifestConfigurationSource` would. Decorators such as `ListFromFiles` look both up from
+ * the root container, so a child app registers them there too until it is disposed.
  */
-export function withManifest(manifest: Manifest): (container: IContainer) => void {
+export function withManifest(manifest: Manifest, mode: ManifestMode = 'prefer'): (container: IContainer) => void {
+  const settings = { mode, path: 'app.manifest.json' };
   return (container) => {
-    container.register(manifest).asValue(MANIFEST_TOKEN);
+    registerManifest(container, manifest);
+    registerManifestSettings(container, settings);
     if (container !== DI.RootContainer) {
-      DI.RootContainer.register(manifest).asValue(MANIFEST_TOKEN);
+      registerManifest(DI.RootContainer, manifest);
+      registerManifestSettings(DI.RootContainer, settings);
       container.once('di.dispose', () => {
-        DI.RootContainer.unregister(MANIFEST_TOKEN);
         DI.RootContainer.uncache(MANIFEST_TOKEN);
+        DI.RootContainer.uncache(MANIFEST_SETTINGS.key);
       });
     }
   };
