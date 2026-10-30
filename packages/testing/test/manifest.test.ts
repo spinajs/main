@@ -7,7 +7,7 @@ describe('testManifest', () => {
   it('builds a manifest readManifestObject accepts', () => {
     const m = testManifest({ controllers: [{ id: 'test-app:A', className: 'A', basePath: null, policies: [], middlewares: [], routes: [], source: sourceRef('controllers/A.ts') }] });
     expect(() => readManifestObject(m)).to.not.throw();
-    expect(m.manifestVersion).to.equal(1);
+    expect(m.manifestVersion).to.equal(2);
     expect(m.app.name).to.equal('test-app');
     expect(m.app.outDir).to.equal('test');
     expect(m.hash).to.have.length(64);

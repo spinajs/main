@@ -1,4 +1,4 @@
-export const MANIFEST_VERSION = 1 as const;
+export const MANIFEST_VERSION = 2 as const;
 
 export interface SourceRef { file: string; line: number; col: number; package: string }
 
@@ -59,7 +59,7 @@ export interface ParamWire {
 export interface ParamEntry {
   index: number;
   name: string;                      // from the AST, replaces cache.ts
-  kind: string;                      // ParameterType value, e.g. 'FromBody', 'FromQuery', 'FromParams', 'FromDI', …
+  kind: string;                      // the ParameterType the runtime registers it under: 'FromBody', 'FromQuery', 'FromDi', 'ArgAsRequest', orm-http 'AsDbModel', …
   runtimeType: TypeRef;
   required: boolean;
   options?: unknown;                 // decorator options object when it is a literal

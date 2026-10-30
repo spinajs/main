@@ -46,7 +46,7 @@ export function controller(partial: Partial<ControllerEntry> & Pick<ControllerEn
 
 export function fixture(overrides: Partial<Manifest> = {}): Manifest {
   return {
-    manifestVersion: 1,
+    manifestVersion: 2,
     app: { name: 'fixture-app', version: '0.0.0', root: '/fixture', outDir: 'lib' },
     packages: [],
     generatedAt: '2026-10-27T00:00:00.000Z',

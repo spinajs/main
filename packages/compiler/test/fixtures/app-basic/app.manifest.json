@@ -1,5 +1,5 @@
 {
-  "manifestVersion": 1,
+  "manifestVersion": 2,
   "app": {
     "name": "app-basic",
     "version": "0.1.0",
@@ -634,6 +634,6 @@
     }
   },
   "diagnostics": [],
-  "generatedAt": "2026-10-30T01:52:42.970Z",
-  "hash": "5020edee803492b12e0eb0127b5309f833e14f05f590c9f870a83c6a58884305"
+  "generatedAt": "2026-10-30T02:12:15.440Z",
+  "hash": "7a5a49a0abb5eff812be0a90223a13c8e4d69b3d531dff8765aa6d150f187a5a"
 }

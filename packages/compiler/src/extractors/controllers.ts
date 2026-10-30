@@ -8,13 +8,14 @@ import { routeDocOf } from './jsdoc.js';
 import { conditionOf } from './conditions.js';
 import { wireOf, type RouteWireContext } from './wire.js';
 
+/** Parameter decorator -> the `ParameterType` (http) or route-arg type (orm-http) it registers; `ParamEntry.kind` records it. */
 export const PARAM_KINDS: Record<string, string> = {
   FromDI: 'FromDi', BodyField: 'BodyFieldRouteArgs', AcceptType: 'RequestTypeRouteArgs', HeadersField: 'HeadersFieldRouteArgs',
   QueryField: 'QueryFieldRouteArgs', ParamField: 'ParamFieldRouteArgs', Query: 'FromQuery', Body: 'FromBody', Param: 'FromParams',
   Header: 'FromHeader', File: 'FromFile', Files: 'FromFile', CsvFile: 'FromCSV', JsonFile: 'FromJSONFile', Form: 'FromForm',
   FormField: 'FromFormField', Ip: 'IpRouteArgs', RequestId: 'RequestIdRouteArgs', UserAgent: 'UserAgentRouteArgs', Referer: 'RefererRouteArgs',
-  RawBody: 'RawBodyRouteArgs', FromXml: 'FromXml', PKey: 'FromParams', Uuid: 'FromParams', Req: 'Req', Res: 'Res', Model: 'FromModel',
-  FromModel: 'FromDbModel', AsModel: 'FromDbModel', Cookie: 'FromCookie',
+  RawBody: 'RawBodyRouteArgs', FromXml: 'FromXmlRouteArgs', PKey: 'FromParams', Uuid: 'FromParams', Req: 'ArgAsRequest', Res: 'ArgAsResponse', Model: 'FromModel',
+  FromModel: 'FromDbModel', AsModel: 'AsDbModel', Cookie: 'FromCookie',
 };
 export const ROUTE_METHODS: Record<string, RouteEntry['method']> = { Get: 'get', Post: 'post', Put: 'put', Patch: 'patch', Del: 'delete', Head: 'head' };
 const SCHEMA_ARG_INDEX: Record<string, number> = { Query: 0, Param: 0, Header: 1, FormField: 0 };
@@ -23,7 +24,7 @@ const BUILTIN_SCHEMAS: Record<string, unknown> = {
   Uuid: { type: 'string', minLength: 36, maxLength: 36, pattern: '^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$' },
 };
 // Values the framework injects (or binary uploads): their types are not wire input, so nothing is derived from them.
-const UNDERIVED_KINDS = new Set(['FromFile', 'Req', 'Res', 'FromDi']);
+const UNDERIVED_KINDS = new Set(['FromFile', 'ArgAsRequest', 'ArgAsResponse', 'FromDi']);
 // Decorators whose first argument is neither the schema nor the options but still shapes the wire (header key, key location).
 const WIRE_FIRST_ARG = new Set(['Header', 'PKey', 'Uuid']);
 // `@PKey(type?)` / `@Uuid(type?)` register under the ParameterType given as their first argument.
@@ -60,7 +61,7 @@ function paramOf(p: ts.ParameterDeclaration, index: number, owner: string, route
     ctx.schemas[schemaId] = schema;
   }
   const type = ctx.checker.getTypeAtLocation(p);
-  const kind = PARAM_KINDS[dec.name];
+  const kind = parameterTypeOf(dec, ctx);
   const nonNull = ctx.checker.getNonNullableType(type);
   const firstArg = optionsIdx === 0 ? options : WIRE_FIRST_ARG.has(dec.name) ? literalValue(dec.args[0], ctx) : undefined;
   return {
@@ -80,9 +81,9 @@ function routeOf(m: ts.MethodDeclaration, mountPath: string, className: string, 
   const returnType = sig ? ctx.typeRef(ctx.checker.getReturnTypeOfSignature(sig), m, `${className}_${handler}_Response`) : { text: 'unknown' };
   const { access, allowAnonymous } = accessOf(m, ctx);
   const doc = routeDocOf(m, ctx);
-  const countOf = (decorator: string): number => m.parameters.filter((p) => decoratorsOf(p).some((d) => d.name === decorator)).length;
   const types = m.parameters.map((p) => paramDecoratorOf(p)).map((d) => (d ? parameterTypeOf(d, ctx) : undefined));
-  const wire: RouteWireContext = { bodyParams: types.filter((t) => t === 'FromBody').length, asModelParams: countOf('AsModel') };
+  const countOf = (type: string): number => types.filter((t) => t === type).length;
+  const wire: RouteWireContext = { bodyParams: countOf('FromBody'), asModelParams: countOf('AsDbModel') };
   return {
     method: ROUTE_METHODS[dec.name], path, handler, fullPath: servedPath(routeFullPath(mountPath, path, handler)),
     params: m.parameters.map((p, i) => paramOf(p, i, `${className}.${handler}`, wire, ctx)).filter((p): p is ParamEntry => !!p),

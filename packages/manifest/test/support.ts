@@ -4,7 +4,7 @@ export const src = (pkg: string): SourceRef => ({ file: 'src/x.ts', line: 1, col
 
 export function fragment(name: string, over: Partial<ManifestFragment> = {}): ManifestFragment {
   return {
-    manifestVersion: 1,
+    manifestVersion: 2,
     package: { name, version: '1.0.0', entry: 'lib/index.js', outDir: 'lib' },
     services: [], values: [], controllers: [], socketControllers: [], socketContracts: [],
     configModules: [], configUsages: [], models: [], migrations: [], schedules: [], commands: [], queueMessages: [],

@@ -1,5 +1,5 @@
 {
-  "manifestVersion": 1,
+  "manifestVersion": 2,
   "app": {
     "name": "doctor-fixture",
     "version": "0.0.0",

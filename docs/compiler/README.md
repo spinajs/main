@@ -92,6 +92,8 @@ A service, value or controller that is registered conditionally carries a `condi
 
 `fullPath` is the request path the route answers at: `servedPath(routeFullPath(mountPath, path, handler))`. `routeFullPath` is the function `@spinajs/http` mounts routes with: a bare or empty route path falls back to the handler name (`@Get()` on `list()` under `users` is `/users/list`), `@Get('/')` is the base itself, and parts are joined as written, so a leading slash gives `//`. `servedPath` strips trailing slashes, as the router does when it matches a route: `@BasePath('/')` + `@Get('/')` is mounted as `//` but answers at `/` (a request for `//` is a 404), so its `fullPath` is `/`. `mountPath` is the `@BasePath` value, the lower-cased class name without one, or the default of a configured base path without its outer slashes. With `http.controllers.route.prefix`, the path is `servedPath(withRoutePrefix(prefix, fullPath))`.
 
+`kind` is the `ParameterType` the runtime registers the argument under: `@AsModel` is `AsDbModel` and `@FromModel` is `FromDbModel` (orm-http), `@FromXml` is `FromXmlRouteArgs`, `@Req`/`@Res` are `ArgAsRequest`/`ArgAsResponse`, and `@PKey(X)`/`@Uuid(X)` record `X` (`FromParams` without it).
+
 `wire` follows the route-arg that binds the parameter. "Scalar" is a type of one primitive family (string, number, boolean, bigint, their literals and enums; `null`/`undefined` ignored) or luxon `DateTime`; anything else is parsed with `JSON.parse` by the server.
 
 | Decorator | `in` | `name` | `shape` |

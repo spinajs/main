@@ -1,6 +1,8 @@
 import { expect } from 'chai';
 import type { ParamWire } from '@spinajs/manifest';
+import { ParameterType } from '@spinajs/http';
 import { createProgramFromTsconfig, createContext, extractControllers } from '../../src/index.js';
+import { PARAM_KINDS } from '../../src/extractors/controllers.js';
 
 describe('route argument wire format', () => {
   const unit = createProgramFromTsconfig('test/fixtures/unit/tsconfig.json');
@@ -89,6 +91,20 @@ describe('route argument wire format', () => {
   it('injected and user-agent arguments are not sent', () => {
     const none = { in: 'none', shape: 'whole' };
     expect(wireOf('injected')).to.deep.equal({ svc: none, req: none, res: none, ip: none, ua: none });
+  });
+
+  it('records as kind the ParameterType the runtime registers each argument under', () => {
+    const kindsOf = (handler: string): Record<string, string> => Object.fromEntries(wire.routes.find((r) => r.handler === handler)!.params.map((p) => [p.name, p.kind]));
+    expect(kindsOf('fields')).to.include({ xml: 'FromXmlRouteArgs', raw: 'RawBodyRouteArgs', q: 'QueryFieldRouteArgs' });
+    expect(kindsOf('injected')).to.deep.equal({ svc: 'FromDi', req: 'ArgAsRequest', res: 'ArgAsResponse', ip: 'IpRouteArgs', ua: 'UserAgentRouteArgs' });
+    expect(kindsOf('params')).to.include({ key: 'FromParams', uuid: 'FromQuery' });
+    expect(kindsOf('keyedBody')).to.deep.equal({ dto: 'FromBody', id: 'FromBody', uuid: 'FromBody' });
+    expect(kindsOf('models')).to.deep.equal({ id: 'FromDbModel', q: 'FromDbModel', body: 'AsDbModel' });
+  });
+
+  it('every default kind is an http ParameterType value or an orm-http route-arg type', () => {
+    const runtime = new Set<string>([...Object.values(ParameterType), 'AsDbModel', 'FromDbModel']);
+    expect(Object.entries(PARAM_KINDS).filter(([, kind]) => !runtime.has(kind))).to.deep.equal([]);
   });
 
   it('orm-http @FromModel reads a key, @AsModel a body like @Body', () => {

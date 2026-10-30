@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { modelsWithoutAccessResource } from '../../src/doctor/rules/models-without-access-resource.js';
+import { createProgramFromTsconfig, createContext, extractControllers } from '../../src/index.js';
 import { fixture, controller, route, src } from './fixture.js';
 
 const ctx = { cwd: '/fixture', fileExists: () => true, fragmentMtime: () => undefined, libMtime: () => undefined };
@@ -18,6 +19,17 @@ describe('ORM001 models-without-access-resource', () => {
     });
     expect(modelsWithoutAccessResource.run(m, ctx)).to.deep.equal([
       { code: 'ORM001', severity: 'warning', message: 'Invoice is loaded by Invoices.get (FromDbModel) but is not an @AccessResource', source: src('src/invoices.ts', 20) },
+    ]);
+  });
+
+  it('reports @FromModel, which loads the model from the database, and not @AsModel, which builds it from the request', () => {
+    const unit = createProgramFromTsconfig('test/fixtures/unit/tsconfig.json');
+    const [wire] = extractControllers(createContext(unit, 'unit', 'test/fixtures/unit'), unit.sourceFiles.find((f) => f.fileName.endsWith('route-wire.ts'))!);
+    const post = { ...invoice, id: 'unit:PostModel', className: 'PostModel', tableName: 'posts' };
+    const m = fixture({ models: [post], controllers: [{ ...wire, routes: wire.routes.filter((r) => r.handler === 'models' || r.handler === 'asModels') }] });
+    expect(modelsWithoutAccessResource.run(m, ctx).map((d) => d.message)).to.deep.equal([
+      'PostModel is loaded by WireController.models (FromDbModel) but is not an @AccessResource',
+      'PostModel is loaded by WireController.models (FromDbModel) but is not an @AccessResource',
     ]);
   });
 

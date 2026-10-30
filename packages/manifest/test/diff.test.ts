@@ -161,6 +161,9 @@ describe('diffManifest', () => {
       const di = (wire?: ParamWire): ParamEntry => ({ index: 1, name: 'svc', kind: 'FromDi', runtimeType: { text: 'Svc' }, required: true, ...(wire ? { wire } : {}) });
       expect(thingsChanges(withThings(bare('list')), withThings(bare('list', [di({ in: 'none', shape: 'whole' })])))).to.deep.equal([]);
       expect(thingsChanges(withThings(bare('list')), withThings(bare('list', [di()])))).to.deep.equal([]);
+      const req = (kind: string): ParamEntry => ({ index: 2, name: 'req', kind, runtimeType: { text: 'Request' }, required: true });
+      expect(thingsChanges(withThings(bare('list')), withThings(bare('list', [req('ArgAsRequest'), { ...req('ArgAsResponse'), index: 3 }])))).to.deep.equal([]);
+      expect(thingsChanges(withThings(bare('list')), withThings(bare('list', [req('Req')])))).to.deep.equal([]);
     });
 
     it('renaming a whole-body parameter keeps the wire, renaming a JSON query key breaks it', () => {

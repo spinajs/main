@@ -5,7 +5,7 @@ const modelName = (text: string) => text.replace(/\[\]$/, '').replace(/^Array<(.
 
 export const modelsWithoutAccessResource: DoctorRule = {
   code: 'ORM001',
-  describe: 'Models bound by FromDbModel are access resources',
+  describe: 'Models loaded from the database by @FromModel (FromDbModel) are access resources',
   run(manifest) {
     const models = new Map(manifest.models.map((m) => [m.className, m]));
     const out: Diagnostic[] = [];

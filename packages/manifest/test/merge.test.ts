@@ -72,7 +72,7 @@ describe('mergeFragments', () => {
   it('keeps fragment diagnostics and stamps app, packages and hash', () => {
     const dep = fragment('dep', { diagnostics: [{ code: 'X', severity: 'warning', message: 'm' }] });
     const m = mergeFragments(fragment('app'), [dep], meta(['dep', 'app']));
-    expect(m.manifestVersion).to.equal(1);
+    expect(m.manifestVersion).to.equal(2);
     expect(m.app.name).to.equal('app');
     expect(m.packages).to.have.length(2);
     expect(m.diagnostics.map((x) => x.code)).to.deep.equal(['X']);

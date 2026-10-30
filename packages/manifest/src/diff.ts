@@ -37,8 +37,8 @@ function diffKeyed<T>(section: Section, base: Keyed<T>[], head: Keyed<T>[], opts
 const compareCodeUnits = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 const differs = (a: unknown, b: unknown): boolean => canonicalize(a) !== canonicalize(b);
 const routeKey = (r: RouteEntry): string => `${r.method.toUpperCase()} ${r.fullPath}`;
-// Kinds the compiler emits for injected and user-agent arguments; used only for params recorded before `wire` existed.
-const NOT_SENT_KINDS = new Set(['FromDi', 'Req', 'Res', 'IpRouteArgs', 'RequestIdRouteArgs', 'UserAgentRouteArgs', 'RefererRouteArgs', 'RequestTypeRouteArgs', 'FromModel']);
+// Kinds of injected and user-agent arguments, for params recorded without `wire`; `Req`/`Res` are what compilers before the runtime names wrote.
+const NOT_SENT_KINDS = new Set(['FromDi', 'ArgAsRequest', 'ArgAsResponse', 'Req', 'Res', 'IpRouteArgs', 'RequestIdRouteArgs', 'UserAgentRouteArgs', 'RefererRouteArgs', 'RequestTypeRouteArgs', 'FromModel']);
 const requestParams = (r: RouteEntry): ParamEntry[] => r.params.filter((p) => (p.wire ? p.wire.in !== 'none' : !NOT_SENT_KINDS.has(p.kind)));
 
 /** A param is identified by where it travels, so renaming a whole-body or header argument in code is not a change. */

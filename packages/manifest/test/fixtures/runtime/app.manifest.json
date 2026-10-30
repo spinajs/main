@@ -1,9 +1,9 @@
 {
-  "manifestVersion": 1,
+  "manifestVersion": 2,
   "app": { "name": "runtime-fixture", "version": "0.0.0", "root": "/nonexistent/build-machine/runtime-fixture", "outDir": "lib" },
   "packages": [{ "name": "@spinajs/dep", "version": "0.0.0", "entry": "lib/index.js", "fragment": "lib/manifest.fragment.json", "outDir": "lib" }],
   "generatedAt": "1970-01-01T00:00:00.000Z",
-  "hash": "589ce14764d47b3332f2f74b749daed995567896f282d2de1d54ccd9ad95530d",
+  "hash": "5dac90e945704b4b89b07b47176ba66787b1ee89983f1e9b82dc78e789abbde2",
   "services": [], "values": [],
   "controllers": [{ "id": "runtime-fixture:A", "className": "A", "basePath": null, "policies": [], "middlewares": [], "routes": [],
                     "source": { "file": "src/controllers/A.ts", "line": 1, "col": 1, "package": "runtime-fixture" } }],

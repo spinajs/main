@@ -32,16 +32,17 @@ describe('readManifest / readFragment', () => {
     expect(m.app.name).to.equal('demo-app');
   });
 
-  it('rejects manifestVersion 2 with ManifestVersionError', async () => {
-    const bad = { ...JSON.parse(readFileSync(minimal, 'utf8')), manifestVersion: 2 };
+  it('rejects manifestVersion 3 with ManifestVersionError', async () => {
+    const bad = { ...JSON.parse(readFileSync(minimal, 'utf8')), manifestVersion: 3 };
     const err = await failure(readManifest(tmpJson(bad)));
     expect(err).to.be.instanceOf(ManifestVersionError);
-    expect((err as ManifestVersionError).found).to.equal(2);
+    expect((err as ManifestVersionError).found).to.equal(3);
   });
 
-  it('rejects a fragment with manifestVersion 2', async () => {
-    const err = await failure(readFragment(tmpJson({ ...fragment('a'), manifestVersion: 2 })));
+  it('rejects a version 1 fragment, whose fullPath and kind values mean something else', async () => {
+    const err = await failure(readFragment(tmpJson({ ...fragment('a'), manifestVersion: 1 })));
     expect(err).to.be.instanceOf(ManifestVersionError);
+    expect((err as ManifestVersionError).found).to.equal(1);
   });
 
   it('reports the JSON path of a structural violation', async () => {
@@ -71,7 +72,7 @@ describe('readManifest / readFragment', () => {
 
   it('reads the compiler app-basic fixture under Ajv strict mode', async () => {
     const m = await readManifest(appBasic);
-    expect(m.manifestVersion).to.equal(1);
+    expect(m.manifestVersion).to.equal(2);
   });
 
   it('reports a missing required property with its path', async () => {

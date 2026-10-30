@@ -28,7 +28,7 @@ spinajs doctor --manifest dist/app.manifest.json
 | CFG002 | error | a `system.dirs.*` entry that does not exist (`--config`) |
 | CFG003 | info / warning | a registration whose config condition is unmet (`--config`), or one the compiler could not decide |
 | BLD001 | error | a dependency fragment older than its build output, or missing |
-| ORM001 | warning | a model bound with `FromDbModel` that is not an `@AccessResource` |
+| ORM001 | warning | a model loaded from the database by `@FromModel` (kind `FromDbModel`) that is not an `@AccessResource`. `@AsModel` (`AsDbModel`) builds the model from the request and is not reported |
 | SCH003 | warning | an explicit `@Schema` that differs structurally from the schema derived from its class |
 
 ### DI002 details
