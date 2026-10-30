@@ -37,6 +37,9 @@
     },
     {
       "path": "../codemods/tsconfig.json"
+    },
+    {
+      "path": "../testing/tsconfig.json"
     }
   ]
 }

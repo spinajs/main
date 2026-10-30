@@ -32,7 +32,7 @@ export class ManifestMigrationSource extends MigrationSource {
     }
 
     const env = normalizeEnvironment(this.Configuration.get<string>('process.env.APP_ENV', undefined));
-    const listed = await listFromManifest(this.Container, 'migrations', effective.settings.mode, (entry) => {
+    const listed = await listFromManifest(this.Container, 'migrations', (entry) => {
       const fileEnv = parseMigrationFileEnv(entry.source.file);
       return fileEnv === undefined || fileEnv === env;
     });

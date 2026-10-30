@@ -62,7 +62,8 @@
     "@spinajs/compiler": "3.0.23",
     "@spinajs/codemods": "3.0.23",
     "@spinajs/client": "3.0.23",
-    "@spinajs/openapi": "3.0.23"
+    "@spinajs/openapi": "3.0.23",
+    "@spinajs/testing": "3.0.23"
   },
   "types": "./lib/index.d.ts",
   "peerDependencies": {

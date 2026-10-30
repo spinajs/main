@@ -1,9 +1,9 @@
 import { AsyncService, ClassInfo, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { InternalLogger } from '@spinajs/internal-logger';
-import { manifestOf, manifestSettingsOf } from '@spinajs/configuration';
+import { effectiveManifestOf } from '@spinajs/configuration';
 import { isPackageSkipped, manifestFileFor, ManifestMissing } from '@spinajs/manifest';
-import type { Manifest, ManifestMode, SourceRef } from '@spinajs/manifest';
+import type { Manifest, SourceRef } from '@spinajs/manifest';
 
 export type ManifestSection = 'controllers' | 'socketControllers' | 'schedules' | 'commands' | 'migrations';
 
@@ -20,9 +20,15 @@ export const MANIFEST_SECTIONS: Readonly<Record<string, ManifestSection>> = {
   'system.dirs.migrations': 'migrations',
 };
 
-/** The effective `system.manifest.mode` decided by `ManifestConfigurationSource`, never a later-merged config key. */
-export function manifestMode(container: IContainer): ManifestMode {
-  return manifestSettingsOf(container)?.mode ?? 'off';
+function effectiveOf(container: IContainer, section: ManifestSection) {
+  try {
+    return effectiveManifestOf(container);
+  } catch (err) {
+    if (err instanceof ManifestMissing) {
+      throw new ManifestMissing(`${err.message}; section ${section} cannot be listed`);
+    }
+    throw err;
+  }
 }
 
 export interface ManifestEntryRef {
@@ -49,21 +55,14 @@ export function inScanOrder<T extends { file: string }>(listed: T[], group: (ite
 export async function listFromManifest(
   container: IContainer,
   section: ManifestSection,
-  mode: ManifestMode,
   include?: (entry: ManifestEntryRef) => boolean,
 ): Promise<Array<ClassInfo<unknown>> | undefined> {
-  if (mode === 'off') {
+  const effective = effectiveOf(container, section);
+  if (!effective?.manifest) {
     return undefined;
   }
-
-  const manifest = manifestOf(container);
-
-  if (!manifest) {
-    if (mode === 'require') {
-      throw new ManifestMissing(`system.manifest.mode is 'require' but no manifest is registered; section ${section} cannot be listed`);
-    }
-    return undefined;
-  }
+  const { manifest, settings } = effective;
+  const mode = settings.mode;
 
   const byFile = new Map<string, ManifestEntryRef[]>();
   const skipped = new Set<string>();

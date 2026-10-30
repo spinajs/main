@@ -12,13 +12,16 @@ import { InternalLoggerProxy } from '@spinajs/internal-logger';
 
 export * from 'typescript-mix';
 export * from './manifest.js';
-import { listFromManifest, MANIFEST_SECTIONS, manifestMode, resolveListed } from './manifest.js';
+import { listFromManifest, MANIFEST_SECTIONS, resolveListed } from './manifest.js';
+import { manifestSettingsOf } from '@spinajs/configuration';
 import type { ListOptions } from './manifest.js';
 
 /**
  * Exception thrown when some error during reflection occurs
  */
 export class ReflectionException extends Exception {}
+
+const NO_SETTINGS = {};
 
 /**
  * Helper class for extracting various information from typescript source code
@@ -99,8 +102,8 @@ export class TypescriptCompiler {
  *   matcher would be ignored.
  *
  * The scanned dirs come from the root container's Configuration; the manifest and its effective mode from the
- * decorated instance's container lineage. The result is cached per decorated property, so the first instance's
- * container decides it for every app.
+ * decorated instance's container lineage. The result is cached per decorated property and effective manifest
+ * settings, so an app booted with another mode lists again.
  */
 export function ResolveFromFiles(filter: string, configPath: string, typeMatcher?: (fileName: string, exportName: string) => string, options: ListOptions = {}) {
   return _listOrResolveFromFiles(filter, configPath, false, typeMatcher, options);
@@ -122,11 +125,16 @@ function _listOrResolveFromFiles(
     _check_arg(_is_string(), _non_empty())(filter, 'filter');
     _check_arg(_is_string(), _non_empty())(configPath, 'configPath');
 
-    let instances: Array<ClassInfo<any>> | Promise<Array<ClassInfo<any>>> | null = null;
+    // One result per effective manifest switch: an app booted with another mode lists again.
+    const cache = new WeakMap<object, Promise<Array<ClassInfo<any>>>>();
 
     const getter = function (this: { Container?: IContainer } | undefined) {
+      const owner = this?.Container;
+      const key = manifestSettingsOf(owner ?? DI.RootContainer) ?? NO_SETTINGS;
+      let instances = cache.get(key);
       if (!instances) {
-        instances = _loadInstances(this?.Container);
+        instances = _loadInstances(owner);
+        cache.set(key, instances);
       }
 
       return instances;
@@ -152,7 +160,7 @@ function _listOrResolveFromFiles(
       const section = options.manifest ?? (typeMatcher ? undefined : MANIFEST_SECTIONS[configPath]);
       if (section) {
         const container = owner ?? DI.RootContainer;
-        const listed = await listFromManifest(container, section, manifestMode(container));
+        const listed = await listFromManifest(container, section);
         if (listed) {
           return noResolve ? listed : resolveListed(listed, (err, ci) => logger.error({ error: err, type: ci.name, file: ci.file }, 'Cannot resolve type ${type} from file ${file}'));
         }

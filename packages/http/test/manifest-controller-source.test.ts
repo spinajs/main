@@ -7,6 +7,7 @@ import { ManifestMissing } from '@spinajs/manifest';
 import type { Manifest, ManifestMode } from '@spinajs/manifest';
 import { sourceRef, testManifest, withManifest } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
+import { DefaultControllerCache } from '../src/cache.js';
 import { Controllers, FilesystemControllerSource, ManifestControllerSource } from '../src/index.js';
 import { httpApp } from './common.js';
 
@@ -141,6 +142,8 @@ describe('ManifestControllerSource', function () {
   });
 
   it('the loader merges both sources without duplicating a controller in prefer mode', async () => {
+    // the scan lists manifest files too, and a ts-node fixture has no compiled .d.ts for the cache to parse
+    sinon.stub(DefaultControllerCache.prototype, 'getCache').resolves({});
     const booted = await bootWith(fixture.manifest, 'prefer', [Controllers]);
     const loader = await booted.resolve(Controllers);
     const names = (await loader.Controllers).map((c) => c.name);

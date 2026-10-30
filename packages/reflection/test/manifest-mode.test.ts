@@ -77,7 +77,7 @@ describe('ListFromFiles manifest fast path', () => {
   it('listFromManifest drops entries rejected by include before importing their file', async () => {
     const other = { name: 'bar', className: 'BarService', options: [], arguments: [], source: sourceRef('test/test-services/singletons/NoSuchFile.ts') };
     const app = await createTestApp({ config, register: withManifest(testManifest({ root, commands: [...manifest.commands, other] }), 'require') });
-    const listed = await listFromManifest(app.container, 'commands', 'require', (entry) => entry.className !== 'BarService');
+    const listed = await listFromManifest(app.container, 'commands', (entry) => entry.className !== 'BarService');
     expect(listed?.map((i) => i.name)).to.deep.equal(['FooService']);
   });
 
@@ -119,6 +119,20 @@ describe('ListFromFiles manifest fast path', () => {
     expect(globSync.called).to.equal(false);
     await app.container.resolve(Matched).Items;
     expect(globSync.called).to.equal(true);
+  });
+
+  it('lists again when a later app has another mode', async () => {
+    const Lister = listerOf();
+    const globSync = sinon.spy(glob, 'sync');
+    const off = await createTestApp({ config, register: withManifest(manifest, 'off') });
+    expect((await off.container.resolve(Lister).Items).map((i) => i.name)).to.include('FooService');
+    expect(globSync.called).to.equal(true);
+    await disposeTestApps();
+
+    globSync.resetHistory();
+    const prefer = await createTestApp({ config, register: withManifest(manifest, 'prefer') });
+    expect((await prefer.container.resolve(Lister).Items).map((i) => i.name)).to.deep.equal(['FooService']);
+    expect(globSync.called).to.equal(false);
   });
 
   it('prefer mode without a manifest scans', async () => {
