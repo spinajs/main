@@ -67,5 +67,8 @@
     "lodash": "^4.17.21",
     "prom-client": "^14.2.0"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

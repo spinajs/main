@@ -53,5 +53,8 @@
     "@types/node": "^18.11.18",
     "@spinajs/orm-threading": "3.0.23"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

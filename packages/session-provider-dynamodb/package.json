@@ -65,5 +65,8 @@
     "@aws-sdk/client-dynamodb": "^3.658.0",
     "luxon": "^3.6.1"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

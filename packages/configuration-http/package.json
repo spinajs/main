@@ -71,5 +71,8 @@
     "lodash": "^4.17.21",
     "luxon": "^3.6.1"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

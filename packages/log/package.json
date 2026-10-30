@@ -62,5 +62,8 @@
     "@types/glob-to-regexp": "^0.4.1",
     "@types/node-schedule": "^2.1.0"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

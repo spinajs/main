@@ -103,5 +103,8 @@
     "chai": "^4.3.7",
     "mocha": "^10.2.0"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

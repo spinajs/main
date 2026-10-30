@@ -50,5 +50,8 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {},
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

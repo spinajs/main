@@ -49,5 +49,8 @@
     "url": "https://github.com/spinajs/exceptions/issues"
   },
   "homepage": "https://github.com/spinajs/exceptions#readme",
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

@@ -65,5 +65,8 @@
     "ioredis": "^5.11.1",
     "luxon": "^3.6.1"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

@@ -76,5 +76,8 @@
     "@spinajs/authz-testing": "3.0.23",
     "@spinajs/fs": "3.0.23"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

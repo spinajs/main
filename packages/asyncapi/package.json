@@ -50,5 +50,8 @@
   "devDependencies": {
     "@asyncapi/parser": "^3.1.0",
     "@spinajs/http-socket-common": "3.0.23"
+  },
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
   }
 }

@@ -15,6 +15,7 @@ import { join, resolve } from 'path';
 import { spawnSync } from 'child_process';
 import { publint } from 'publint';
 import { formatMessage } from 'publint/utils';
+import { manifestInFiles } from './manifest-field.mjs';
 
 const PACKAGES_DIR = resolve(process.cwd(), 'packages');
 const ARGS = process.argv.slice(2);
@@ -40,6 +41,11 @@ for (const { name, dir, pkg } of packages) {
 
   const { messages } = await publint({ pkgDir: dir, level: 'warning', strict: false });
   for (const m of messages) problems.push(`publint ${m.type}: ${formatMessage(m, pkg) ?? m.code}`);
+
+  if (pkg.spinajs?.manifest) {
+    if (!manifestInFiles(pkg)) problems.push(`spinajs.manifest ${pkg.spinajs.manifest} is not covered by "files"`);
+    else if (existsSync(join(dir, 'lib')) && !existsSync(join(dir, pkg.spinajs.manifest))) problems.push(`spinajs.manifest ${pkg.spinajs.manifest} was not built (npm run build:fragments)`);
+  }
 
   if (ATTW) {
     // attw is a .cmd shim on windows, so it goes through a shell.

@@ -64,5 +64,8 @@
     "@types/glob": "8.0.1",
     "@types/node": "^18.11.18"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

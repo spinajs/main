@@ -64,5 +64,8 @@
     "@types/mjml": "^4.7.4",
     "mjml": "^4.15.3"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

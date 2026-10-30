@@ -53,5 +53,8 @@
   "bugs": {
     "url": "https://github.com/spinajs/main/issues"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

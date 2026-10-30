@@ -64,5 +64,8 @@
     "ajv-merge-patch": "^5.0.1",
     "lodash": "^4.17.21"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

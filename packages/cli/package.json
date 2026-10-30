@@ -78,5 +78,8 @@
     "@spinajs/codemods": {
       "optional": true
     }
+  },
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
   }
 }

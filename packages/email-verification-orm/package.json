@@ -65,5 +65,8 @@
     "@spinajs/orm-sqlite": "3.0.23",
     "@types/node": "^22.14.1"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }
