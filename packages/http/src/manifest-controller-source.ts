@@ -7,10 +7,6 @@ import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
 
 const isController = (prototype: object): boolean => prototype instanceof BaseController || Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, prototype) !== undefined;
 
-// A controller that a dedicated ControllerSource mounts only under its own conditions (a config flag, the environment)
-// sets this static: the manifest names every controller, but the source alone decides whether it is served.
-const mountedBySource = (type: Class<BaseController>): boolean => (type as { mountedBySource?: boolean }).mountedBySource === true;
-
 /**
  * Controllers listed in `app.manifest.json`. Empty when the effective manifest mode is `off`, or `prefer` without a
  * registered manifest; `require` without one throws.
@@ -35,7 +31,7 @@ export class ManifestControllerSource extends ControllerSource {
     }
 
     return inScanOrder(listed)
-      .filter((ci) => isController((ci.type as Class<BaseController>).prototype as object) && !mountedBySource(ci.type as Class<BaseController>))
+      .filter((ci) => isController((ci.type as Class<BaseController>).prototype as object))
       .map((ci) => Object.assign(new ClassInfo<BaseController>(), { file: ci.file, name: ci.name, type: ci.type }));
   }
 }

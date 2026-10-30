@@ -1,3 +1,4 @@
+import { isAbstractClass } from './abstract.js';
 import ts from 'typescript';
 import type { MigrationEntry } from '@spinajs/manifest';
 import type { Extractor } from '../context.js';
@@ -7,7 +8,7 @@ import { stringArg } from './string-arg.js';
 export const extractMigrations: Extractor<MigrationEntry> = (ctx, file) => {
   const out: MigrationEntry[] = [];
   for (const st of file.statements) {
-    if (!ts.isClassDeclaration(st) || !st.name) continue;
+    if (!ts.isClassDeclaration(st) || !st.name || isAbstractClass(st)) continue;
     const d = findDecorator(st, 'Migration');
     if (!d) continue;
     const options = (literalValue(d.args[1], ctx) ?? {}) as { Env?: string | string[] };

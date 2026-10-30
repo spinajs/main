@@ -101,14 +101,6 @@ describe('ManifestControllerSource', function () {
     expect(listed.map((c) => c.name)).to.deep.equal(scanOrder);
   });
 
-  it('leaves a controller that a dedicated source mounts to that source', async () => {
-    const entry = (name: string) => ({ id: `test-app:${name}`, className: name, basePath: '', policies: [], middlewares: [], routes: [], source: sourceRef('test/controllers-gated/Gated.ts') });
-    const booted = await bootWith(testManifest({ root: process.cwd(), controllers: [entry('Gated'), entry('Plain')] }), 'require');
-
-    const listed = await (await booted.resolve(ManifestControllerSource)).getControllers();
-    expect(listed.map((c) => c.name)).to.deep.equal(['Plain']);
-  });
-
   it('is empty in off mode and the filesystem source still scans', async () => {
     const booted = await bootWith(fixture.manifest, 'off');
 

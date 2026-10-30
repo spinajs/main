@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
 import { buildAppManifest } from '../../src/index.js';
 
@@ -106,6 +106,7 @@ describe('app-basic boots from its manifest', function () {
 
   before(async function () {
     if (!existsSync(join(WORKSPACE, 'node_modules', '@spinajs', 'configuration', 'lib', 'manifest.fragment.json'))) {
+      if (process.env.CI) throw new Error('no built @spinajs fragments (lib/manifest.fragment.json): run `npm run build` at the repo root first');
       console.log('    skipped: no built @spinajs fragments (lib/manifest.fragment.json), run `npm run build` at the repo root');
       this.skip();
     }
@@ -128,9 +129,14 @@ describe('app-basic boots from its manifest', function () {
     expect(required.socketCommands).to.include.members(['chat.send', 'chat.history']);
   });
 
-  it('does not mount the explain route that its own source gates', () => {
+  it('does not mount the explain route, which only its own source serves', () => {
     expect(required.responses.explain.status).to.equal(404);
     expect(required.controllers).to.not.include('ExplainController');
+  });
+
+  it('lists no abstract controller base', () => {
+    expect(required.controllers).to.not.include.members(['UploadController']);
+    expect(required.controllers.filter((c) => /Base$/.test(c))).to.deep.equal([]);
   });
 
   it('runs no directory scan and never loads typescript', () => {
@@ -138,7 +144,7 @@ describe('app-basic boots from its manifest', function () {
     expect(required.scans.controllerDirScans).to.equal(0);
     expect(required.scans.migrationDirScans).to.equal(0);
     // the app's own config dirs are still listed: configuration files are not a manifest section
-    const globbed = required.scans.globPatterns.map((p) => p.slice(p.indexOf('/app/') + 5));
+    const globbed = required.scans.globPatterns.map((p) => relative(INSTALLED, p).split(sep).join('/'));
     expect(globbed.filter((p) => !/^(?:(?:src|lib|dist|build)\/)?config\//.test(p))).to.deep.equal([]);
     expect(required.imports.filter((i) => i.specifier.startsWith('typescript'))).to.deep.equal([]);
     expect(required.imports.filter((i) => i.specifier === 'glob' && /reflection/.test(i.parent))).to.deep.equal([]);
@@ -148,8 +154,8 @@ describe('app-basic boots from its manifest', function () {
     // positive controls: the same spies do see a discovery boot
     expect(discovered.scans.controllerDirScans).to.be.greaterThan(0);
     expect(discovered.scans.migrationDirScans).to.be.greaterThan(0);
+    expect(discovered.imports.some((i) => i.specifier === 'glob' && /reflection/.test(i.parent))).to.equal(true);
     const view = (r: ProbeResult) => ({ responses: r.responses, controllers: r.controllers, schedules: r.schedules, commands: r.commands, socketCommands: r.socketCommands, migrations: [...r.migrations].sort() });
-    // @spinajs/tasks has no migration dir in its config: discovery registers its migration only once something imports the package
-    expect(view(required)).to.deep.equal({ ...view(discovered), migrations: [...view(discovered).migrations, 'Task_2024_12_03_11_41_00'].sort() });
+    expect(view(required)).to.deep.equal(view(discovered));
   });
 });

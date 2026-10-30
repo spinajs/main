@@ -1,3 +1,4 @@
+import { isAbstractClass } from './abstract.js';
 import ts from 'typescript';
 import { configuredMountPath, controllerMountPath, routeFullPath, servedPath } from '@spinajs/manifest';
 import type { ControllerEntry, ParamEntry, RouteEntry } from '@spinajs/manifest';
@@ -120,7 +121,7 @@ function controllerOf(node: NamedClass, ctx: ExtractorContext): ControllerEntry 
 export const extractControllers: Extractor<ControllerEntry> = (ctx, file) => {
   const out: ControllerEntry[] = [];
   const visit = (node: ts.Node): void => {
-    if (ts.isClassDeclaration(node) && node.name) {
+    if (ts.isClassDeclaration(node) && node.name && !isAbstractClass(node)) {
       const hasRoute = node.members.some((m) => ts.isMethodDeclaration(m) && decoratorsOf(m).some((d) => ROUTE_METHODS[d.name]));
       if (hasRoute || ctx.isSubclassOf(node, 'BaseController')) out.push(controllerOf(node as NamedClass, ctx));
     }

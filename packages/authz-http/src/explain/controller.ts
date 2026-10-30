@@ -56,8 +56,6 @@ export class ExplainPolicy extends BasePolicy {
  */
 @BasePath('authz')
 export class ExplainController extends BaseController {
-  public static readonly mountedBySource = true;
-
   @Autoinject(AuthzDomains)
   protected Domains: AuthzDomains;
 
