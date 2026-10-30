@@ -7,7 +7,7 @@
 1. **Entry.** Bundlers that honour the `browser` export condition get `lib/index.browser.js` for `@spinajs/configuration`; any bundler can import `@spinajs/configuration/browser` explicitly. That entry exports `@spinajs/configuration-common`, the decorators, `InvalidConfiguration`, `_cfg` / `_service` and `BrowserFrameworkConfiguration`.
 2. **Registration.** Importing the entry registers `BrowserFrameworkConfiguration` with `@Injectable(Configuration)`.
 3. **`resolve()`** resolves `Array.ofType(ConfigurationSource)` when any source is registered, sorts it by `Order`, and calls `load()`. No source is fine.
-4. **`load()`** resets the tree, merges each source's `Load()` result, then `onLoad()`, then every `__configuration__` DI value **at the root**, and wraps objects holding a `ConfigVar` in a proxy.
+4. **`load()`** resets the tree, merges each source's `Load()` result, then `onLoad()`, then every `__configuration__` DI value **at the root**, and wraps objects holding a `ConfigVar` in a proxy. Arrays merge as in Node (see [Arrays](01-configuration-service.md#arrays)): a source or `onLoad()` replaces a value array, a `__configuration__` value adds to it.
 5. **`configure()`** calls each top-level section's `configure()` hook.
 
 ## Configuration

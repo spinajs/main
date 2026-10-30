@@ -36,9 +36,9 @@ The worker has no keys of its own. It reads the app's configuration, or the inli
 | Mode | When | What the worker loads |
 | --- | --- | --- |
 | Re-bootstrap | `config` not set | `FrameworkConfiguration` with the sources registered in the worker (config files under the inherited working directory) and the environment of the parent process |
-| Inline | `config` set | The same sources, then `config` deep-merged on top by `FrameworkConfiguration.load()`; arrays are concatenated |
+| Inline | `config` set | The same sources, then `config` deep-merged on top by `FrameworkConfiguration.load()` as `onLoad()` (see [Arrays](../configuration/01-configuration-service.md#arrays)) |
 
-The inline mode does **not** skip the config files: they still load, and `config` overrides them key by key. Arrays are appended, so `fs.providers` from `config` are added to the file ones; `fsService` keeps the last entry per `name`, so an inline provider replaces a file provider of the same name.
+The inline mode does **not** skip the config files: they still load, and `config` overrides them key by key. A value array replaces the file one. `fs.providers` concatenates, so the providers from `config` are added to the file ones; `fsService` keeps the last entry per `name`, so an inline provider replaces a file provider of the same name.
 
 The keys the worker uses:
 

@@ -11,9 +11,9 @@
 2. **`Load(configuration)`** reads the environment with `getEnvironment(configuration)` (see [Environments](02-environments.md)), then calls `load()` twice:
    1. common files: `**/!(*.*).{cjs,js}` or `**/!(*.*).json`, file names with no dot before the extension;
    2. environment files: `**/*.<env>.{cjs,js}` or `**/*.<env>.json`.
-3. **`load(extension, callback)`** resolves relative directories against `BasePath`, globs each directory recursively, removes duplicate paths, runs `callback` on each file in parallel and deep-merges the results in directory order. A module's `default` export is used when present.
+3. **`load(extension, callback, into?)`** resolves relative directories against `BasePath`, globs each directory recursively, removes duplicate paths, runs `callback` on each file in parallel and deep-merges the results in directory order into `into` (a new object by default). A module's `default` export is used when present. `configFiles()` tags each file with how its arrays merge: a package config file concatenates them, any other file replaces them (see [Arrays](01-configuration-service.md#arrays)).
 4. **Per file.** `JsFileSource` imports the module with `DI.__spinajs_require__()`, calls its `onConfigLoad(cfg)` when it exports one and uses the returned object. `JsonFileSource` reads and parses the file. Both add `__file__: [path]` to every top-level object.
-5. The environment result is merged over the common result and returned to the configuration.
+5. The environment files merge into the common result, file by file, and the result is returned to the configuration.
 
 A file that fails to import or parse is logged with `InternalLogger.error` and counts as `{}`. The boot goes on.
 
@@ -94,7 +94,7 @@ export default {
 };
 ```
 
-`merge(to, from)` and `mergeArrays` are exported too: `merge` deep-merges in place and unions arrays; `mergeArrays` is the `_.mergeWith` customizer the configuration merges sources with (arrays concatenated).
+`mergeConfig(target, source, arrays)` is the merge the sources use (`concat`, or `replace` except for the paths in `COMPOSED_CONFIG_ARRAYS`). `merge(to, from)` and `mergeArrays` are exported too: `merge` deep-merges in place and unions arrays; `mergeArrays` is a `_.mergeWith` customizer that concatenates arrays.
 
 ## Services and extension points
 
@@ -187,17 +187,11 @@ void main();
 ## Patterns and antipatterns
 
 ```js
-// Don't: arrays concatenate across files, so this cannot remove the package's default origin
-export default { http: { cors: { origins: ['https://app.example.com'] } } };
+// Don't: list only the entry you add; the app's array replaces the package's, so the package's transports are gone
+export default { http: { socket: { transports: ['webtransport'] } } };
 
-// Do: when you need to replace a list, set it in code after boot or in a configure() hook
-export default {
-  http: {
-    configure() {
-      this.set('http.cors.origins', ['https://app.example.com']);
-    },
-  },
-};
+// Do: list the whole array
+export default { http: { socket: { transports: ['websocket', 'polling', 'webtransport'] } } };
 ```
 
 ## Examples

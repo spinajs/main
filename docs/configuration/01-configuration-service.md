@@ -14,7 +14,7 @@
    1. resets the tree to `{}`;
    2. sets `process.env` to `process.env`, merged with the `process.env` DI value of its container, plus `APP_ENV` (see [Environments](02-environments.md));
    3. merges this package's defaults: `app.*`, and the `configuration.*` flags derived from that `APP_ENV`;
-   4. calls `Load(this)` on each source in order and deep-merges the result;
+   4. calls `Load(this)` on each source in order and deep-merges the result (see [Arrays](#arrays));
    5. merges what `onLoad()` returns (`null` in `FrameworkConfiguration`; subclasses override it);
    6. deep-merges every `__configuration__` DI value at the root;
    7. with an app (`RunApp`), appends `<AppBaseDir>/<RunApp>/<name>` to every `system.dirs.<name>` list (`applyAppDirs()`);
@@ -54,7 +54,7 @@ sequenceDiagram
 | --- | --- |
 | `get<T>(path, defaultValue?)` | Returns the value at `path` (`'a.b.c'` or `['a', 'b', 'c']`), with lodash `_.get` semantics. `defaultValue` is returned only when the value is `undefined`. Throws `InvalidConfiguration` when `path` is inside a module a late schema refused. |
 | `set(path, value)` | Replaces the value at `path`, creating missing objects. After boot, the modules a schema covers at, under or above `path` are validated first; a violation throws `InvalidConfiguration` and nothing changes (see [Runtime changes](06-schema-validation.md#runtime-changes)). |
-| `merge(path, value)` | Deep-merges `value` into the object at `path`; arrays are concatenated. A no-op when nothing is stored at `path`. Validated like `set()`. |
+| `merge(path, value)` | Deep-merges `value` into the object at `path`; arrays are concatenated, also an array stored at `path` itself (`merge('http.middlewares', [mw])` appends `mw`). A no-op when nothing is stored at `path`. Validated like `set()`. |
 | `load()` | Rebuilds the tree from the sources, as in step 5. Values set with `set()` are lost. After boot, the new tree is validated and gets its schema defaults; a violation throws `InvalidConfiguration` and keeps the previous tree. |
 | `mergeSource(sourceClass)` | Resolves a source and adds it to the source list for later `load()` calls. See [Important behaviour](#important-behaviour). |
 | `RootConfig` | The whole tree. |
@@ -152,9 +152,53 @@ async function main() {
 void main();
 ```
 
+## Arrays
+
+An array is a value, like a scalar: the app's array replaces the one a package config sets. Package config files are the exception: among themselves they concatenate their arrays, so two packages can both contribute to one list.
+
+| Merge | Arrays |
+| --- | --- |
+| Package config files (`node_modules/@spinajs/*/lib/config`, or the manifest's `configFiles`), in file order | concatenate |
+| `__configuration__` DI values (they stand in for package config files) | concatenate |
+| The app's own config files: every other search directory (see [Config files](03-config-files.md#search-directories)), common and environment files alike | replace |
+| The result of each source over the tree, `onLoad()`, `mergeSource()` | replace |
+| `merge(path, value)` | concatenate |
+
+The file sources merge file by file: the common files of every directory, then the environment files. An environment file of the app therefore replaces an array its common file set, and a package environment file adds to whatever is there.
+
+Some arrays collect entries from several packages and the app, so they concatenate in every merge. `COMPOSED_CONFIG_ARRAYS` (exported) lists them; `*` matches one key, dots inside the key included:
+
+| Path | Entries |
+| --- | --- |
+| `system.dirs.*` | directories scanned for controllers, migrations, CLI commands, ... |
+| `fs.providers` | file providers, by name |
+| `queue.connections` | queue connections, by name |
+| `http.Static` | static file routes |
+| `logger.filters` | log filters |
+| `authz.rbac.roles.*.*` | the `grants`, `extends`, `revoke` and `scopeTypes` of a role |
+| `authz.rbac.serviceRoles.*` | the roles of a service principal |
+| `authz.abac.policies` | ABAC policies |
+| `authz.admin.guard.keepHolders` | role holders the admin guard keeps |
+| `authz.fields.neverRead` | fields no response may carry |
+| `validation.strict.idPrefixes` | schema ids validated without type coercion; a list that replaced the shipped one would put `authn.` and `authz.` input back on coercion |
+| `*.__file__` | the files a section came from |
+
+```js
+// @spinajs/http-socket ships  http: { socket: { transports: ['websocket', 'polling'] } }
+// config/http.js
+export default {
+  http: { socket: { transports: ['websocket'] } }, // ['websocket']
+  system: { dirs: { controllers: ['./src/controllers'] } }, // added to the controller dirs of every package
+};
+```
+
+To add to a package's value array instead of replacing it, call `merge()`, for example in a [`configure()` hook](#configure-hooks): `this.merge('http.middlewares', [requestId])`. `load()` rebuilds the tree without running the hooks again.
+
+`mergeConfig(target, source, 'concat' | 'replace')` is the merge itself, exported for custom sources and tools.
+
 ## Important behaviour
 
-- Merge rules for every source, `onLoad()` and `merge()`: objects merge deeply, scalars from the later source win, **arrays are concatenated**. A later file cannot shorten or replace an array a package config defines; it can only append to it.
+- Merge rules for every source, `onLoad()` and `merge()`: objects merge deeply, scalars from the later source win. Arrays follow the rules under [Arrays](#arrays).
 - `JsFileSource` and `JsonFileSource` both have `Order` `1`. For the same scalar key, the JSON value wins over the JS value.
 - Every top-level object loaded from a file gets a `__file__` array with the paths it came from, for debugging.
 - After boot, `set()`, `merge()`, `mergeSource()` and `load()` validate the modules they change. A refused change throws `InvalidConfiguration` and is not applied.

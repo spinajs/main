@@ -120,8 +120,7 @@ const usersConfig = {
   },
   authz: {
     rbac: {
-      // No defaultRoles or anonymousRoles here: an application's list would be concatenated with ours on merge.
-      // create() gives new users authz.rbac.defaultRoles, none unless the application sets it.
+      // No defaultRoles or anonymousRoles here: create() gives new users authz.rbac.defaultRoles, none unless the application sets it.
       //
       // The grants lists are concatenated with the application's too: it can add grants to these roles, not remove them.
       roles: {

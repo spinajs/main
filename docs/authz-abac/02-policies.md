@@ -54,7 +54,7 @@ export default {
 };
 ```
 
-Arrays from several config files are concatenated, so a package fragment can add policies.
+`authz.abac.policies` concatenates across every config file and source (see [Arrays](../configuration/01-configuration-service.md#arrays)), so a package fragment can add policies and an app adds its own to them.
 
 ## Services and extension points
 

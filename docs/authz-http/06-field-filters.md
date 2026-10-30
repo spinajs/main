@@ -52,7 +52,7 @@ export default {
 };
 ```
 
-Arrays from several config files are concatenated, so a package can add to `neverRead`, never remove from it.
+`authz.fields.neverRead` concatenates across every config file and source (see [Arrays](../configuration/01-configuration-service.md#arrays)), so a package can add to it and an app cannot remove what a package added.
 
 ## Services and extension points
 

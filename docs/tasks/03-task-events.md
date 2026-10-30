@@ -48,7 +48,7 @@ The package's `config/tasks.js` ships these keys; `@spinajs/configuration` merge
 | `queue.routing.TaskSuccess` | routing option | `{ connection: 'task-empty-queue' }` | same | Connection and channel for `TaskSuccess`. |
 | `queue.connections[]` (`task-empty-queue`) | connection | `{ name: 'task-empty-queue', service: 'BlackHoleQueueClient', defaultQueueChannel: 'task-jobs', defaultTopicChannel: 'task-events' }` | any connection definition | The sink both events go to by default. `BlackHoleQueueClient` drops every message. |
 
-Arrays in config files are concatenated, not replaced: your `queue.connections` entries are added next to `task-empty-queue`, which stays. Objects are merged, so setting `connection` in your `queue.routing.TaskFailed` replaces the shipped one.
+`queue.connections` concatenates (see [Arrays](../configuration/01-configuration-service.md#arrays)): your entries are added next to `task-empty-queue`, which stays. Objects are merged, so setting `connection` in your `queue.routing.TaskFailed` replaces the shipped one.
 
 ```js
 // config/queue.js in your app: send task failures to RabbitMQ, keep successes in the black hole

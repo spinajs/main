@@ -69,7 +69,7 @@ export default {
 ## Important behaviour
 
 - **Package config merges first.** Your `db.Aliases.upload` and `queue.routing` entries replace the shipped ones.
-- **Arrays concatenate across config files.** That is why the defaults live in the schema: an `allowUndetected` list in the package's config file would be added to yours, not replaced by it.
+- **Defaults live in the schema.** A list you set, such as `allowUndetected`, replaces the default.
 - **A controller can only tighten limits.** `limitsFor()` may lower `maxFileSize`, `maxPartSize`, `maxParts`, `maxOpenSessionsPerOwner` and `sessionTtl` and raise `minPartSize`; it may set `partSize` freely. A non-finite value in any other limit is ignored; a non-finite `partSize` is not, and answers `400` `upload.part_size`. A `sessionTtl` of zero is server misconfiguration and answers `500` `upload.internal`. See [Limits](06-limits.md).
 - **Providers are fixed per session.** A session keeps the provider names it was created with, so changing `upload.fs.*` never strands an open session.
 - **`maxPartSize` cannot exceed 5 GiB.** The part route's `@RequestStream({ maxBytes })` is fixed when the class is declared, at `UPLOAD_MAX_PART_BYTES`, so the schema caps the setting at the same value.

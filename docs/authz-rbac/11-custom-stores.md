@@ -18,7 +18,7 @@ The RBAC model reads roles, assignments, rules, links and set memberships throug
 | `links` | `['DbLinkStore']` | `LinkStore` | `AdminLinkStore` | at most one |
 | `membership` | `['DbMembershipStore']` next to `DbAssignmentStore`, else `[]` | `MembershipStore` | `AdminMembershipStore` | at most one |
 
-The defaults live in code, not in the package config file: config arrays concatenate, so a default listed there could never be removed.
+The defaults live in code, not in the package config file.
 
 ## The ports
 

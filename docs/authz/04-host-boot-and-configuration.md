@@ -110,7 +110,7 @@ export default {
 - **The root schema stays open.** Unknown keys under `authz` are kept, so sections of other packages survive validation.
 - **Domain defaults come from the root only.** Inside `authz.domains.<name>` an unset key stays unset and is inherited from the parent; the schema fills no defaults there.
 - **`authz.bus.service` and `authz.principals` come from the root only**; a domain cannot set them.
-- **Config arrays from different files are concatenated** by `@spinajs/configuration`, so a package's config adds permissions and roles to the app's.
+- **Permissions and roles merge across config files.** `authz.permissions` and `authz.rbac.roles` are maps, so a package's config adds entries to the app's. The arrays of a role, `authz.rbac.serviceRoles`, `authz.abac.policies`, `authz.admin.guard.keepHolders` and `authz.fields.neverRead` concatenate across files; any other array the app sets replaces the default (see [Arrays](../configuration/01-configuration-service.md#arrays)).
 - **Registration order matters.** Every model, adapter, resolver, contributor and combinator must be registered before the domain's `AuthzService` first resolves.
 
 ## Related
