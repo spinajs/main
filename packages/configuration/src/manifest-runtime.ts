@@ -2,10 +2,11 @@ import { existsSync } from 'node:fs';
 import { dirname, join, normalize, relative, resolve, sep } from 'node:path';
 import glob from 'glob';
 import minimatch from 'minimatch';
-import { PROPERTY_TYPE_RESOLVER, token } from '@spinajs/di';
+import { PROPERTY_TYPE_RESOLVER, ResolveException, token } from '@spinajs/di';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { InternalLogger } from '@spinajs/internal-logger';
 import type { Class, IContainer, IPropertyTypeResolver } from '@spinajs/di';
-import { appRootOf, isPackageSkipped, manifestFileFor, ManifestMissing, MANIFEST_TOKEN, resolvedTypeRef, resolveTypeRef, type Manifest, type ManifestMode, type RuntimeTypeRef } from '@spinajs/manifest';
+import { appRootOf, isPackageSkipped, manifestFileFor, ManifestMissing, MANIFEST_TOKEN, resolvedTypeRef, resolveTypeRef, type Manifest, type ManifestMode, type PropertyInject } from '@spinajs/manifest';
 
 /** Typed key of the runtime manifest; same string key as MANIFEST_TOKEN. */
 export const MANIFEST = token<Manifest>(MANIFEST_TOKEN, 'runtime manifest');
@@ -35,35 +36,72 @@ export const MANIFEST_SETTINGS = token<ManifestSettings>(`${MANIFEST_TOKEN}.sett
 
 export function registerManifestSettings(container: IContainer, settings: ManifestSettings): void {
   container.register(settings).asValue(MANIFEST_SETTINGS.key, true);
-  container.register(manifestPropertyTypes).asValue(PROPERTY_TYPE_RESOLVER.key, true);
+  container.register(MANIFEST_PROPERTY_TYPES).asValue(PROPERTY_TYPE_RESOLVER.key, true);
 }
 
-const PROPERTY_TYPE_REFS = new WeakMap<Manifest, Map<string, RuntimeTypeRef>>();
+const CLASS_PROPERTIES = new WeakMap<Manifest, Map<string, PropertyInject[]>>();
 
-function propertyTypeRefOf(manifest: Manifest, owner: string, property: string): RuntimeTypeRef | undefined {
-  let refs = PROPERTY_TYPE_REFS.get(manifest);
-  if (!refs) {
-    refs = new Map();
-    for (const entry of [...manifest.services, ...manifest.controllers, ...manifest.socketControllers]) {
-      for (const inject of entry.propertyInjects ?? []) {
-        const key = `${entry.className}.${inject.property}`;
-        if (inject.tokenRef && !refs.has(key)) refs.set(key, inject.tokenRef);
+/** The runtime knows a class by name alone: every entry of that name that declares the property, in any package. */
+function declarationsOf(manifest: Manifest, owner: string, property: string): PropertyInject[] {
+  let table = CLASS_PROPERTIES.get(manifest);
+  if (!table) {
+    table = new Map();
+    for (const entry of manifest.classProperties ?? []) {
+      for (const declared of entry.properties) {
+        const key = `${entry.className}.${declared.property}`;
+        table.set(key, [...(table.get(key) ?? []), declared]);
       }
     }
-    PROPERTY_TYPE_REFS.set(manifest, refs);
+    CLASS_PROPERTIES.set(manifest, table);
   }
-  return refs.get(`${owner}.${property}`);
+  return table.get(`${owner}.${property}`) ?? [];
 }
 
-/** Types `@Autoinject()` / `@LazyInject()` properties of a build without decorator metadata from `propertyInjects[].tokenRef`. */
-const manifestPropertyTypes: IPropertyTypeResolver = {
+const sameDeclaration = (a: PropertyInject, b: PropertyInject): boolean => a.array === b.array && JSON.stringify(a.tokenRef) === JSON.stringify(b.tokenRef);
+
+/** Answers from `manifest.classProperties`, which only a build without decorator metadata has. */
+export const MANIFEST_PROPERTY_TYPES: IPropertyTypeResolver = {
   typeOf(owner, property, container) {
-    const manifest = effectiveManifestOf(container)?.manifest;
-    const ref = manifest && propertyTypeRefOf(manifest, owner.name, property);
-    if (!manifest || !ref) return undefined;
-    return (resolvedTypeRef(ref, manifest) as Class<unknown> | undefined) ?? (resolveTypeRef(ref, manifest) as Promise<Class<unknown>>);
+    const effective = effectiveManifestOf(container);
+    if (!effective?.manifest) return undefined;
+
+    const [declared, ...others] = declarationsOf(effective.manifest, owner.name, property);
+    if (!declared) {
+      if (effective.settings.mode === 'require') {
+        throw new ResolveException(`cannot inject ${owner.name}.${property}: the build emits no decorator metadata and the manifest does not list the property; rebuild it ( spinajs build ) from a tsconfig with emitDecoratorMetadata off`);
+      }
+      return undefined;
+    }
+    if (others.some((other) => !sameDeclaration(declared, other))) {
+      throw new ResolveException(`cannot inject ${owner.name}.${property}: the manifest lists more than one class ${owner.name} and they declare it differently; rename one, or pass the type to the decorator`);
+    }
+    const type = declared.tokenRef && (resolvedTypeRef(declared.tokenRef, effective.manifest) as Class<unknown> | undefined);
+    return { type, array: declared.array };
   },
 };
+
+/**
+ * Imports every class `manifest.classProperties` names, so that `MANIFEST_PROPERTY_TYPES` answers synchronously and
+ * the first resolve of a sync service stays sync. A class that cannot load fails the boot in `require`; in `prefer`
+ * it is logged, and resolving its owner throws `ResolveException`.
+ */
+export async function preloadPropertyTypes(container: IContainer): Promise<void> {
+  const manifest = activeManifestOf(container);
+  for (const entry of manifest?.classProperties ?? []) {
+    for (const { property, tokenRef } of entry.properties) {
+      if (!tokenRef) continue;
+      try {
+        await resolveTypeRef(tokenRef, manifest!);
+      } catch (err) {
+        const problem = `cannot load the type of ${entry.id}.${property}: ${(err as Error).message}`;
+        if (manifestSettingsOf(container)?.mode === 'require') {
+          throw new InvalidOperation(problem);
+        }
+        InternalLogger.warn({ problem }, 'Manifest property types: ${problem}', 'Configuration');
+      }
+    }
+  }
+}
 
 /** The effective `system.manifest` of the nearest container in the lineage that decided one. */
 export function manifestSettingsOf(container: IContainer): ManifestSettings | undefined {

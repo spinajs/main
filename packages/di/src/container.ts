@@ -1137,25 +1137,14 @@ export class Container extends EventEmitter implements IContainer {
 
   /** A property whose type the build did not record: typed by the registered {@link PROPERTY_TYPE_RESOLVER}, else unresolvable. */
   private pendingInjection(pending: IToInject<unknown>, owner: Class<unknown>): IToInject<unknown> {
-    const { property, bind } = pending.pendingType!;
-    const type = this.get(PROPERTY_TYPE_RESOLVER)?.typeOf(owner, String(property), this);
+    const { property, explicit, bind } = pending.pendingType!;
+    const declared = this.get(PROPERTY_TYPE_RESOLVER)?.typeOf(owner, String(property), this);
+    const type = explicit ?? declared?.type;
     if (!type) {
       throw new ResolveException(
         `cannot inject ${owner.name}.${String(property)}: the decorator names no type and the build emits no decorator metadata; pass the type to the decorator, or boot from a manifest that records it ( spinajs build )`,
       );
     }
-    if (!isPromise(type)) {
-      return bind(type);
-    }
-
-    return {
-      autoinject: true,
-      autoinjectKey: pending.autoinjectKey,
-      inject: pending.inject,
-      resolveFunc: async (_data: unknown, container: IContainer) => {
-        const [injected] = await (container as Container).resolveDependencies([bind(await type)]);
-        return (await injected).instance;
-      },
-    };
+    return bind(type, declared?.array ?? false);
   }
 }
