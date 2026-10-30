@@ -44,6 +44,24 @@ describe('config array merge', () => {
       expect(merged.authz.rbac.roles['admin.users'].grants).to.deep.equal(['a', 'b']);
     });
 
+    it('keeps the composed rule for a source root that is not a plain object', () => {
+      class Root {
+        public system = { dirs: { cli: ['b'] } };
+      }
+      const moduleLike = Object.create(null) as { system: unknown };
+      moduleLike.system = { dirs: { cli: ['b'] } };
+
+      for (const source of [new Root(), moduleLike]) {
+        expect(mergeConfig({ system: { dirs: { cli: ['a'] } } }, source, 'replace').system.dirs.cli).to.deep.equal(['a', 'b']);
+      }
+    });
+
+    it('treats a role allow-list as a value and role grants as composed', () => {
+      const role = (values: Record<string, string[]>) => ({ authz: { rbac: { roles: { 'team.member': values } } } });
+      const merged = mergeConfig(role({ scopeTypes: ['team'], grants: ['a'], extends: ['b'], revoke: ['c'] }), role({ scopeTypes: ['group'], grants: ['x'], extends: ['y'], revoke: ['z'] }), 'replace');
+      expect(merged.authz.rbac.roles['team.member']).to.deep.equal({ scopeTypes: ['group'], grants: ['a', 'x'], extends: ['b', 'y'], revoke: ['c', 'z'] });
+    });
+
     it('an empty array replaces a value array and leaves a composed one', () => {
       const merged = mergeConfig({ list: [1, 2], system: { dirs: { cli: ['a'] } } }, { list: [], system: { dirs: { cli: [] } } }, 'replace');
       expect(merged.list).to.deep.equal([]);
@@ -131,6 +149,15 @@ describe('config array merge', () => {
       expect(config.get('http.socket.transports')).to.deep.equal(['polling', 'websocket', 'webtransport']);
     });
 
+    it('merge() ignores null and undefined at an array and appends anything else', async () => {
+      const config = await boot({});
+      config.merge('http.socket.transports', null);
+      config.merge('http.socket.transports', undefined);
+      expect(config.get('http.socket.transports')).to.deep.equal(['polling', 'websocket']);
+      config.merge('http.socket.transports', 'webtransport');
+      expect(config.get('http.socket.transports')).to.deep.equal(['polling', 'websocket', 'webtransport']);
+    });
+
     it('reloads to the same arrays', async () => {
       const config = await boot(APP);
       await config.load();
@@ -144,6 +171,49 @@ describe('config array merge', () => {
 
     afterEach(async () => {
       for (const c of booted.splice(0).reverse()) await c.dispose();
+    });
+
+    async function bootBrowser(onLoad: Record<string, unknown>, setup: (c: IContainer) => void = () => undefined) {
+      const child = DI.child();
+      booted.push(child);
+      child.register(StaticConfigurationSource(structuredClone(DEFAULTS), 0)).as(ConfigurationSource);
+      const json = JSON.stringify(onLoad);
+      child.register(
+        class extends BrowserFrameworkConfiguration {
+          protected onLoad(): unknown {
+            return JSON.parse(json) as unknown;
+          }
+        },
+      ).as(Configuration);
+      setup(child);
+      return (await child.resolve(Configuration)) as BrowserFrameworkConfiguration;
+    }
+
+    it('onLoad() replaces a value array and adds to system.dirs', async () => {
+      const config = await bootBrowser(APP);
+      expect(config.get('http.socket.transports')).to.deep.equal(['websocket']);
+      expect(config.get('system.dirs.controllers')).to.deep.equal(['/pkg/controllers', '/app/controllers']);
+    });
+
+    it('mergeSource() replaces a value array', async () => {
+      const config = await bootBrowser({});
+      await config.mergeSource(StaticConfigurationSource(APP, 10));
+      expect(config.get('http.socket.transports')).to.deep.equal(['websocket']);
+      expect(config.get('fs.providers')).to.deep.equal([{ name: 'pkg' }, { name: 'app' }]);
+    });
+
+    it('a __configuration__ value adds to arrays', async () => {
+      const config = await bootBrowser({}, (c) => c.register({ http: { socket: { transports: ['webtransport'] } } }).asValue('__configuration__'));
+      expect(config.get('http.socket.transports')).to.deep.equal(['polling', 'websocket', 'webtransport']);
+    });
+
+    it('merge() ignores null and undefined and appends anything else', async () => {
+      const config = await bootBrowser({});
+      config.merge('http.socket.transports', null);
+      config.merge('http.socket.transports', undefined);
+      expect(config.get('http.socket.transports')).to.deep.equal(['polling', 'websocket']);
+      config.merge('http.socket.transports', 'webtransport');
+      expect(config.get('http.socket.transports')).to.deep.equal(['polling', 'websocket', 'webtransport']);
     });
 
     it('a later source replaces a value array and adds to system.dirs', async () => {

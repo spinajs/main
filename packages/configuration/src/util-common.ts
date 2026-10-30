@@ -36,7 +36,9 @@ export const COMPOSED_CONFIG_ARRAYS: readonly string[] = [
   'queue.connections',
   'http.Static',
   'logger.filters',
-  'authz.rbac.roles.*.*',
+  'authz.rbac.roles.*.grants',
+  'authz.rbac.roles.*.extends',
+  'authz.rbac.roles.*.revoke',
   'authz.rbac.serviceRoles.*',
   'authz.abac.policies',
   'authz.admin.guard.keepHolders',
@@ -46,6 +48,11 @@ export const COMPOSED_CONFIG_ARRAYS: readonly string[] = [
 ];
 
 const COMPOSED_PATTERNS = COMPOSED_CONFIG_ARRAYS.map((p) => p.split('.'));
+
+const composedMatches = (path: string[]) => COMPOSED_PATTERNS.filter((p) => p.length >= path.length && path.every((s, i) => p[i] === '*' || p[i] === s));
+
+/** Whether the array at `path` is one every merge adds to. Takes segments, because a key may hold a dot. */
+export const isComposedConfigArray = (path: string[]): boolean => composedMatches(path).some((p) => p.length === path.length);
 
 /**
  * `concat`: every array concatenates, as package config files merge among themselves.
@@ -58,11 +65,12 @@ function composedKeysOf(source: unknown): WeakMap<object, Set<string>> {
   const found = new WeakMap<object, Set<string>>();
 
   const visit = (node: unknown, path: string[]) => {
-    if (!_.isPlainObject(node)) return;
+    // lodash merges the keys of any root object, a module namespace or a class instance included.
+    if (path.length === 0 ? !_.isObject(node) : !_.isPlainObject(node)) return;
     const obj = node as Record<string, unknown>;
     for (const key of Object.keys(obj)) {
       const at = [...path, key];
-      const matching = COMPOSED_PATTERNS.filter((p) => p.length >= at.length && at.every((s, i) => p[i] === '*' || p[i] === s));
+      const matching = composedMatches(at);
       if (matching.some((p) => p.length === at.length)) {
         const keys = found.get(obj) ?? new Set<string>();
         keys.add(key);
@@ -92,6 +100,7 @@ export function mergeConfig<T>(target: T, source: unknown, arrays: ArrayMerge): 
 
 /** What `Configuration.merge()` does at the stored value: arrays concatenate, also an array stored at the path itself. */
 export function mergeInto(stored: unknown, value: unknown): void {
+  if (value === null || value === undefined) return;
   if (Array.isArray(stored)) {
     stored.push(...(Array.isArray(value) ? value : [value]));
   } else {

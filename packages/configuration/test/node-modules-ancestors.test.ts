@@ -113,6 +113,24 @@ class LoadProbe extends BaseFileSource {
   }
 }
 
+// CommonDirs is an extension point: a subclass may override the getter instead of assigning it.
+class GetterProbe extends BaseFileSource {
+  public static dirs: string[] = [];
+
+  protected get CommonDirs(): string[] {
+    return GetterProbe.dirs;
+  }
+
+  public Load(): Promise<IConfigLike> {
+    return Promise.resolve({} as IConfigLike);
+  }
+
+  public async files(): Promise<string[] | undefined> {
+    const loaded = (await this.load('!(*.*).{cjs,js}', (file) => Promise.resolve({ probe: { __file__: [file] } } as unknown as IConfigLike))) as { probe?: { __file__?: string[] } };
+    return loaded.probe?.__file__;
+  }
+}
+
 describe('BaseFileSource config file discovery', () => {
   let tmp: string;
 
@@ -122,6 +140,15 @@ describe('BaseFileSource config file discovery', () => {
 
   afterEach(() => {
     fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('honours a subclass that overrides the CommonDirs getter', async () => {
+    const own = join(tmp, 'own', 'config');
+    fs.mkdirSync(own, { recursive: true });
+    fs.writeFileSync(join(own, 'own.js'), 'export default {};\n');
+    GetterProbe.dirs = [own];
+
+    expect(await new GetterProbe().files()).to.deep.equal([join(own, 'own.js')]);
   });
 
   // A workspace package's own lib/config is also reached through node_modules/@spinajs/<pkg>, a symlink.

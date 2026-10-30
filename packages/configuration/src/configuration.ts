@@ -29,7 +29,7 @@ import { Autoinject, Class, Container, IContainer, Injectable } from '@spinajs/d
 import { ConfigurationViolation, InvalidConfiguration } from './exception.js';
 import { mapObject, mergeConfig, mergeInto, parseArgv, pickObjects, pickString, sameSchema, schemaNameOf } from './util.js';
 import config, { buildEnvironmentFlags } from './config/configuration.js';
-import './sources.js';
+import { isLayeredSource, type ConfigLayers } from './sources.js';
 import { MANIFEST_SETTINGS } from './manifest-runtime.js';
 
 import { default as ajvMergePath } from 'ajv-merge-patch';
@@ -345,13 +345,7 @@ export class FrameworkConfiguration extends Configuration {
 
     InternalLogger.info({ appEnv: this.get<string>('process.env.APP_ENV') }, 'APP_ENV set to ${appEnv}', 'Configuration');
 
-    for (const source of this.Sources) {
-      const rCfg = await source.Load(this);
-
-      if (rCfg) {
-        mergeConfig(this.Config, rCfg, 'replace');
-      }
-    }
+    await this.mergeSources();
 
     mergeConfig(this.Config, this.onLoad(), 'replace');
 
@@ -406,6 +400,35 @@ export class FrameworkConfiguration extends Configuration {
       system: { ...(this.Config.system as {}) },
       ...mapObject(_.omit(this.Config, ['system']), proxyFunc),
     });
+  }
+
+  private async mergeSources() {
+    let files: ConfigLayers[] = [];
+
+    for (const source of this.Sources) {
+      if (isLayeredSource(source)) {
+        files.push(await source.LoadLayers(this));
+        continue;
+      }
+
+      this.mergeFileLayers(files);
+      files = [];
+
+      const rCfg = await source.Load(this);
+      if (rCfg) {
+        mergeConfig(this.Config, rCfg, 'replace');
+      }
+    }
+
+    this.mergeFileLayers(files);
+  }
+
+  // Packages of every format below the app of every format, so a package JSON cannot drop what a package JS file added.
+  private mergeFileLayers(files: ConfigLayers[]) {
+    const packages: IConfigLike = {};
+    files.forEach((f) => mergeConfig(packages, f.packages, 'concat'));
+    mergeConfig(this.Config, packages, 'replace');
+    files.forEach((f) => mergeConfig(this.Config, f.app, 'replace'));
   }
 
   protected async loadProtocolVars() {

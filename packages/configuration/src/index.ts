@@ -14,4 +14,4 @@ export * from './schemas/system.js';
 export * from './helpers.js';
 export * from './fp.js';
 export * from './lib-dirs.js';
-export { merge, mergeArrays, mergeConfig, COMPOSED_CONFIG_ARRAYS, type ArrayMerge } from './util-common.js';
+export { merge, mergeArrays, mergeConfig, isComposedConfigArray, COMPOSED_CONFIG_ARRAYS, type ArrayMerge } from './util-common.js';

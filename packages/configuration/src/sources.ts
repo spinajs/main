@@ -9,11 +9,29 @@ import type { Manifest } from '@spinajs/manifest';
 import { activeManifestOf, manifestPackageConfigFiles, manifestSettingsOf, projectConfigDirs } from './manifest-runtime.js';
 import { Configuration, ConfigurationSource, IConfigLike, normalizeEnvironment } from '@spinajs/configuration-common';
 
-/** A config file to load and how its arrays merge: a package's file concatenates them, any other file replaces them. */
+/** A config file to load. `concat` marks a package's file, `replace` an app's; see `ConfigLayers`. */
 export interface ConfigFile {
   file: string;
   arrays: ArrayMerge;
 }
+
+/**
+ * The config files of a file source by layer. Packages sit strictly below the app: the configuration joins the
+ * `packages` layers of adjacent file sources, whatever their format, and merges every `app` layer on top.
+ */
+export interface ConfigLayers {
+  packages: IConfigLike;
+  app: IConfigLike;
+}
+
+export interface LayeredConfigurationSource {
+  LoadLayers(config: Configuration): Promise<ConfigLayers>;
+}
+
+export const isLayeredSource = (source: ConfigurationSource): source is ConfigurationSource & LayeredConfigurationSource => typeof (source as Partial<LayeredConfigurationSource>).LoadLayers === 'function';
+
+/** The tree a layered source gives on its own, as a `Load()` result. */
+export const flattenLayers = ({ packages, app }: ConfigLayers): IConfigLike => mergeConfig(packages, app, 'replace');
 
 export abstract class BaseFileSource extends ConfigurationSource {
   /**
@@ -24,10 +42,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
   @Autoinject(Container)
   protected Container!: IContainer;
 
-  /** App config dirs merged before the package configs ( `src/config`, for tests ). */
-  protected LeadingProjectDirs: string[] = [];
-
-  /** App config dirs merged after the package configs, so the app overrides them. */
+  /** The app's own config dirs, in merge order; they merge over every package config. */
   protected ProjectDirs: string[] = [];
 
   private commonDirsOverride: string[] | undefined;
@@ -55,7 +70,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
 
   /** Every dir globbed without a manifest, in merge order. Assignable by subclasses that own their dirs. */
   protected get CommonDirs(): string[] {
-    return this.commonDirsOverride ?? [...this.LeadingProjectDirs, ...this.packageConfigDirs(), ...this.ProjectDirs];
+    return this.commonDirsOverride ?? [...this.packageConfigDirs(), ...this.ProjectDirs];
   }
 
   protected set CommonDirs(dirs: string[]) {
@@ -163,9 +178,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
 
     BaseFileSource.ensureWorkspaceRoot();
 
-    const dirs = projectConfigDirs(process.cwd(), this.RunApp, this.appBaseDir, this.CustomConfigPaths);
-    this.LeadingProjectDirs = dirs.beforePackages;
-    this.ProjectDirs = dirs.afterPackages;
+    this.ProjectDirs = projectConfigDirs(process.cwd(), this.RunApp, this.appBaseDir, this.CustomConfigPaths);
 
     // try to find root folder with node_modules
     // on server environment
@@ -187,27 +200,22 @@ export abstract class BaseFileSource extends ConfigurationSource {
    * the place and order the package dir globs list them; everything else is the same.
    */
   protected configFiles(extension: string): ConfigFile[] {
-    const globDirs = (dirs: string[], arrays: ArrayMerge): ConfigFile[] =>
-      dirs
-        .map((f) => (path.isAbsolute(f) ? f : join(this.BasePath, f)))
-        .flatMap((d) => glob.sync(path.join(d, `/**/${extension}`).replace(/\\/g, '/')))
-        .map((file) => ({ file, arrays }));
+    const globDir = (dir: string, arrays: ArrayMerge): ConfigFile[] =>
+      glob.sync(path.join(path.isAbsolute(dir) ? dir : join(this.BasePath, dir), `/**/${extension}`).replace(/\\/g, '/')).map((file) => ({ file, arrays }));
 
-    if (this.commonDirsOverride) {
-      return globDirs(this.commonDirsOverride, 'replace');
+    const manifest = this.commonDirsOverride ? undefined : this.activeManifest();
+    if (!manifest) {
+      const packageDirs = new Set(this.packageConfigDirs());
+      return this.CommonDirs.flatMap((dir) => globDir(dir, packageDirs.has(dir) ? 'concat' : 'replace'));
     }
 
-    const manifest = this.activeManifest();
-    const packageFiles = manifest
-      ? manifestPackageConfigFiles(manifest, extension, process.cwd(), this.Container ? manifestSettingsOf(this.Container)?.mode : undefined).map((file) => ({ file, arrays: 'concat' as const }))
-      : globDirs(this.packageConfigDirs(), 'concat');
-
-    return [...globDirs(this.LeadingProjectDirs, 'replace'), ...packageFiles, ...globDirs(this.ProjectDirs, 'replace')];
+    const mode = this.Container ? manifestSettingsOf(this.Container)?.mode : undefined;
+    const listed = manifestPackageConfigFiles(manifest, extension, process.cwd(), mode).map((file) => ({ file, arrays: 'concat' as const }));
+    return [...listed, ...this.ProjectDirs.flatMap((dir) => globDir(dir, 'replace'))];
   }
 
-  /** Loads the config files matching `extension` and merges them, in order, into `into`. */
-  protected async load(extension: string, callback: (file: string) => Promise<IConfigLike>, into: IConfigLike = {}): Promise<IConfigLike> {
-    const files = this.configFiles(extension)
+  private resolvedFiles(extension: string): ConfigFile[] {
+    return this.configFiles(extension)
       // Overlapping globs (ancestors and WORKSPACE_ROOT_PATH) list the same path twice: the first listing wins.
       .map((f) => ({ ...f, file: normalize(resolve(f.file)) }))
       .filter((f, index, self) => self.findIndex((o) => o.file === f.file) === index)
@@ -215,16 +223,33 @@ export abstract class BaseFileSource extends ConfigurationSource {
       // file is reached wins, so a project dir searched later still merges over the package globs.
       .map((f) => ({ ...f, file: fs.realpathSync(f.file) }))
       .filter((f, index, self) => self.findLastIndex((o) => o.file === f.file) === index);
+  }
 
+  private async mergeFiles(extension: string, callback: (file: string) => Promise<IConfigLike>, target: (file: ConfigFile) => IConfigLike): Promise<void> {
+    const files = this.resolvedFiles(extension);
     const result = await Promise.all<IConfigLike>(files.map((f) => callback(f.file)));
 
     result.forEach((c, i) => {
       if (c !== undefined && c !== null) {
-        mergeConfig(into, c.default ?? c, files[i].arrays);
+        mergeConfig(target(files[i]), c.default ?? c, files[i].arrays);
       }
     });
+  }
 
-    return into;
+  /** Loads the config files matching `extension` into one tree, in order. One pass; `loadLayers()` keeps the layers apart. */
+  protected async load(extension: string, callback: (file: string) => Promise<IConfigLike>): Promise<IConfigLike> {
+    const config: IConfigLike = {};
+    await this.mergeFiles(extension, callback, () => config);
+    return config;
+  }
+
+  /** Loads the config files matching `extensions`, one pass after the other, each into its layer. */
+  protected async loadLayers(extensions: string[], callback: (file: string) => Promise<IConfigLike>): Promise<ConfigLayers> {
+    const layers: ConfigLayers = { packages: {}, app: {} };
+    for (const extension of extensions) {
+      await this.mergeFiles(extension, callback, (f) => (f.arrays === 'concat' ? layers.packages : layers.app));
+    }
+    return layers;
   }
 
   /**
@@ -237,20 +262,24 @@ export abstract class BaseFileSource extends ConfigurationSource {
 }
 
 @Injectable(ConfigurationSource)
-export class JsFileSource extends BaseFileSource {
+export class JsFileSource extends BaseFileSource implements LayeredConfigurationSource {
+  public LoadLayers(config: Configuration): Promise<ConfigLayers> {
+    return this.loadLayers(['!(*.*).{cjs,js}', `*.${this.getEnvironment(config)}.{cjs,js}`], loadJsConfigFile);
+  }
+
   public async Load(config: Configuration): Promise<IConfigLike> {
-    const env = this.getEnvironment(config);
-    const common = await this.load(`!(*.*).{cjs,js}`, loadJsConfigFile);
-    return this.load(`*.${env}.{cjs,js}`, loadJsConfigFile, common);
+    return flattenLayers(await this.LoadLayers(config));
   }
 }
 
 @Injectable(ConfigurationSource)
-export class JsonFileSource extends BaseFileSource {
+export class JsonFileSource extends BaseFileSource implements LayeredConfigurationSource {
   public async Load(config: Configuration): Promise<IConfigLike> {
-    const env = this.getEnvironment(config);
-    const common = await this.load(`!(*.*).json`, _load);
-    return this.load(`*.${env}.json`, _load, common);
+    return flattenLayers(await this.LoadLayers(config));
+  }
+
+  public LoadLayers(config: Configuration): Promise<ConfigLayers> {
+    return this.loadLayers(['!(*.*).json', `*.${this.getEnvironment(config)}.json`], _load);
 
     function _load(file: string) {
       try {

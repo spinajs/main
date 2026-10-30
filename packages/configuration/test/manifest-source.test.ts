@@ -138,7 +138,7 @@ describe('ManifestConfigurationSource', () => {
       const walk = loaded((await start({ SPINAJS_MANIFEST_MODE: 'off', APP_ENV: 'test' })).config);
       const listed = loaded((await start({ SPINAJS_MANIFEST_MODE: 'prefer', APP_ENV: 'test' })).config);
       expect(listed).to.deep.equal(walk);
-      expect((walk as { system: { dirs: { cli: string[] } } }).system.dirs.cli.slice(0, 4)).to.deep.equal(['alpha-cli', 'beta-cli', 'app-cli', 'alpha-test-cli']);
+      expect((walk as { system: { dirs: { cli: string[] } } }).system.dirs.cli.slice(0, 4)).to.deep.equal(['alpha-cli', 'beta-cli', 'alpha-test-cli', 'app-cli']);
     });
 
     for (const mode of ['off', 'prefer']) {
@@ -147,7 +147,7 @@ describe('ManifestConfigurationSource', () => {
         expect(config.get('alpha.transports')).to.deep.equal(['websocket']);
         expect(config.get('app.list')).to.deep.equal(['app-test']);
         expect(config.get('shared.packages')).to.deep.equal(['alpha', 'beta']);
-        expect(config.get<string[]>('system.dirs.cli').slice(0, 4)).to.deep.equal(['alpha-cli', 'beta-cli', 'app-cli', 'alpha-test-cli']);
+        expect(config.get<string[]>('system.dirs.cli').slice(0, 4)).to.deep.equal(['alpha-cli', 'beta-cli', 'alpha-test-cli', 'app-cli']);
       });
     }
   });
