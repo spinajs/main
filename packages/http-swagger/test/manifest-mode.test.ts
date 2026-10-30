@@ -2,7 +2,8 @@ import 'mocha';
 import { expect } from 'chai';
 import { fileURLToPath } from 'node:url';
 import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Configuration, MANIFEST, MANIFEST_SETTINGS, registerManifest, registerManifestSettings } from '@spinajs/configuration';
+import { loadRuntimeManifest, type ManifestMode } from '@spinajs/manifest';
 import { Controllers } from '@spinajs/http';
 import { FsBootsrapper, fsService } from '@spinajs/fs';
 import { TestConfiguration } from './common.js';
@@ -11,25 +12,42 @@ import '../src/index.js';
 
 const manifestPath = fileURLToPath(new URL('../../compiler/test/fixtures/app-basic/app.manifest.json', import.meta.url));
 
-function configWith(manifest: { path: string; mode: string }, prefix = '') {
+type Switch = { path: string; mode: ManifestMode };
+
+function configWith(prefix = '', configured?: Switch) {
   return class extends TestConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
       const config = this.Config as Record<string, Record<string, unknown>>;
-      config.system.manifest = manifest;
       config.http.controllers = { route: { prefix } };
+      if (configured) config.system.manifest = configured;
     }
   };
 }
 
-async function boot(manifest: { path: string; mode: string }, prefix?: string): Promise<SwaggerService> {
+/**
+ * Registers what the configuration source decides for an app with this switch. Done after the controllers are listed:
+ * app-basic's manifest describes another app, and a listing is cached for every later suite of this process.
+ */
+function decide(settings: Switch | undefined): void {
+  DI.uncache(MANIFEST.key);
+  DI.uncache(MANIFEST_SETTINGS.key);
+  if (!settings) return;
+  const manifest = loadRuntimeManifest(settings);
+  registerManifestSettings(DI.RootContainer, settings);
+  if (manifest) registerManifest(DI.RootContainer, manifest);
+}
+
+/** `manifest` undefined: an app built without the configuration source, which only `configured` switches. */
+async function boot(manifest: Switch | undefined, prefix?: string, configured?: Switch): Promise<SwaggerService> {
   DI.clearCache();
   DI.setESMModuleSupport();
-  DI.register(configWith(manifest, prefix)).as(Configuration);
+  DI.register(configWith(prefix, configured)).as(Configuration);
   DI.resolve(FsBootsrapper).bootstrap();
   await DI.resolve(Configuration);
   await DI.resolve(fsService);
   await DI.resolve(Controllers);
+  decide(manifest);
   return DI.resolve(SwaggerService);
 }
 
@@ -37,6 +55,11 @@ describe('SwaggerService with a manifest', function () {
   this.timeout(30000);
 
   afterEach(() => DI.clearCache());
+
+  after(() => {
+    DI.uncache(MANIFEST.key);
+    DI.uncache(MANIFEST_SETTINGS.key);
+  });
 
   it('serves OpenAPI 3.1 built from the manifest in prefer mode', async () => {
     const spec = await (await boot({ path: manifestPath, mode: 'prefer' })).buildSpec();
@@ -84,10 +107,19 @@ describe('SwaggerService with a manifest', function () {
     expect(lines.some((l) => l.includes('prefer') && l.includes('JSDoc') && l.includes('missing'))).to.equal(true);
   });
 
+  it('follows the decided switch, not a system.manifest key merged after it', async () => {
+    const spec = await (await boot({ path: manifestPath, mode: 'off' }, '', { path: manifestPath, mode: 'prefer' })).buildSpec();
+    expect(spec.openapi).to.equal('3.0.3');
+  });
+
+  it('reads system.manifest in an app built without the configuration source', async () => {
+    const spec = await (await boot(undefined, '', { path: manifestPath, mode: 'prefer' })).buildSpec();
+    expect(spec.openapi).to.equal('3.1.0');
+  });
+
   it('fails in require mode without a manifest', async () => {
-    const service = await boot({ path: `${manifestPath}.missing`, mode: 'require' });
     let error: Error | undefined;
-    await service.buildSpec().catch((e: Error) => (error = e));
+    await boot({ path: `${manifestPath}.missing`, mode: 'require' }).catch((e: Error) => (error = e));
     expect(error?.message).to.include('spinajs build');
   });
 });

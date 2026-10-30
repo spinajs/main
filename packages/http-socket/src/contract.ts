@@ -1,7 +1,7 @@
 import { Ajv, type ErrorObject, type ValidateFunction } from 'ajv';
 import addFormats from 'ajv-formats';
-import { Autoinject, Injectable } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Autoinject, Container, Injectable, type IContainer } from '@spinajs/di';
+import { Configuration, effectiveManifestOf, type EffectiveManifest } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { SocketException } from '@spinajs/http-socket-common';
@@ -93,23 +93,33 @@ export class SocketContractEnforcer {
   @Autoinject(Configuration)
   protected Cfg: Configuration;
 
+  @Autoinject(Container)
+  protected Container: IContainer;
+
   protected cached: { key: string; manifest: Manifest | undefined } | undefined;
 
   public mode(): ManifestMode {
-    return this.Cfg.get<ManifestMode>('system.manifest.mode', 'off');
+    return this.effective().settings.mode;
   }
 
   /** `undefined` for `off`, and for `prefer` without a readable manifest */
   public manifest(): Manifest | undefined {
-    const mode = this.mode();
-    if (mode === 'off') return undefined;
+    return this.effective().manifest;
+  }
 
-    const path = this.Cfg.get<string>('system.manifest.path', 'app.manifest.json');
-    const key = `${mode}:${path}`;
+  /** The configuration source's decision; `system.manifest` and the file it names only for an app built without that source. */
+  protected effective(): EffectiveManifest {
+    const decided = effectiveManifestOf(this.Container);
+    if (decided) return decided;
+
+    const settings = { mode: this.Cfg.get<ManifestMode>('system.manifest.mode', 'off'), path: this.Cfg.get<string>('system.manifest.path', 'app.manifest.json') };
+    if (settings.mode === 'off') return { settings, manifest: undefined };
+
+    const key = `${settings.mode}:${settings.path}`;
     if (this.cached?.key !== key) {
-      this.cached = { key, manifest: loadRuntimeManifest({ mode, path }) };
+      this.cached = { key, manifest: loadRuntimeManifest(settings) };
     }
-    return this.cached.manifest;
+    return { settings, manifest: this.cached.manifest };
   }
 
   public bind(controllerName: string, descriptor: ISocketControllerDescriptor, commands: IRegisteredHandler[], events: IRegisteredHandler[]): void {

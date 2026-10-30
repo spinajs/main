@@ -12,7 +12,7 @@ const app = await createTestApp({
 
 | Option | Meaning |
 | --- | --- |
-| `manifest` | A `Manifest` or the path of one. Default `app.manifest.json` in the working directory. |
+| `manifest` | A `Manifest` or the path of one. Default, per app container: the manifest the app registered (its configuration source, or `withManifest`), else the file of its effective `system.manifest.path`, else `app.manifest.json` in the working directory. It is read when the app's configuration has resolved, so a missing file fails the boot. |
 | `mode` | `throw` (default): a body that breaks its schema answers 500. `log`: the response is sent and the violation recorded. |
 
 ## What is checked

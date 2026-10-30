@@ -9,13 +9,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { hashManifest, type Manifest } from '@spinajs/manifest';
-import { DI, IContainer } from '@spinajs/di';
+import { Container, DI, IContainer } from '@spinajs/di';
 import { Configuration, ConfigurationSource } from '@spinajs/configuration-common';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { BaseFileSource, JsFileSource } from '../src/sources.js';
 import { FrameworkConfiguration } from '../src/configuration.js';
 import { ManifestConfigurationSource } from '../src/manifest-source.js';
-import { manifestOf, manifestSettingsOf } from '../src/manifest-runtime.js';
+import { effectiveManifestOf, manifestOf, manifestSettingsOf, registerManifestSettings } from '../src/manifest-runtime.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -163,6 +163,19 @@ describe('ManifestConfigurationSource', () => {
       expect(manifestOf(container)).to.equal(undefined);
       expect(config.get('system.manifest.mode')).to.equal('off');
       expect(packageDirGlobs()).to.not.have.length(0);
+    });
+
+    it('is what effectiveManifestOf hands to the manifest consumers', async () => {
+      const { container } = await start({ SPINAJS_MANIFEST_MODE: 'require', APP_ENV: 'test' });
+      const effective = effectiveManifestOf(container.child());
+      expect(effective?.settings.mode).to.equal('require');
+      expect(effective?.manifest?.app.name).to.equal('manifest-app');
+
+      const undecided = new Container();
+      open.push(undecided);
+      expect(effectiveManifestOf(undecided)).to.equal(undefined);
+      registerManifestSettings(undecided, { mode: 'require', path: 'app.manifest.json' });
+      expect(() => effectiveManifestOf(undecided)).to.throw(/'require' but no manifest is registered/);
     });
 
     it("warns about unknown system.manifest keys in the app's config files", async () => {

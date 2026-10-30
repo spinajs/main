@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { AsyncService, Autoinject, DI, LazyInject, Singleton } from '@spinajs/di';
+import { AsyncService, Autoinject, Container, DI, LazyInject, Singleton, type IContainer } from '@spinajs/di';
 import { UnexpectedServerError } from '@spinajs/exceptions';
-import { Config } from '@spinajs/configuration';
+import { Config, effectiveManifestOf, type EffectiveManifest } from '@spinajs/configuration';
 import { Controllers, PROBLEM_DETAILS_SCHEMA } from '@spinajs/http';
 import { loadRuntimeManifest, type ManifestMode } from '@spinajs/manifest';
 import { manifestToOpenApi, type OpenApiOptions } from '@spinajs/openapi';
@@ -53,8 +53,12 @@ export class SwaggerService extends AsyncService {
   @Config('http.controllers.route.prefix', { defaultValue: '' })
   protected RoutePrefix!: string;
 
+  /** Read only by an app built without the configuration source, which decides the switch otherwise. */
   @Config('system.manifest', { defaultValue: { path: 'app.manifest.json', mode: 'off' } })
   protected ManifestConfig!: { path: string; mode: ManifestMode };
+
+  @Autoinject(Container)
+  protected Container!: IContainer;
 
   private _spec: IOpenApiDocument | null = null;
 
@@ -113,6 +117,11 @@ export class SwaggerService extends AsyncService {
     return this._buildPromise;
   }
 
+  /** A stale manifest is rejected by the hash check: 'prefer' then falls back to the JSDoc builder, 'require' throws. */
+  protected effectiveManifest(): EffectiveManifest {
+    return effectiveManifestOf(this.Container) ?? { settings: this.ManifestConfig, manifest: loadRuntimeManifest({ ...this.ManifestConfig, warn: (message) => this.Log.warn(message) }) };
+  }
+
   /**
    * Rebuild the OpenAPI specification from current controllers.
    */
@@ -130,9 +139,8 @@ export class SwaggerService extends AsyncService {
       basePath: baseConfig.basePath || this.RoutePrefix || '',
     };
 
-    const { mode } = this.ManifestConfig;
-    // A stale manifest is rejected by the hash check: 'prefer' then falls back to the JSDoc builder, 'require' throws.
-    const manifest = loadRuntimeManifest({ ...this.ManifestConfig, warn: (message) => this.Log.warn(message) });
+    const { settings, manifest } = this.effectiveManifest();
+    const { mode } = settings;
     if (manifest) {
       this.Log.info(`OpenAPI document built from the manifest (system.manifest.mode '${mode}').`);
       const spec = manifestToOpenApi(manifest, {
@@ -149,8 +157,8 @@ export class SwaggerService extends AsyncService {
     }
 
     if (mode === 'prefer') {
-      const reason = existsSync(resolve(this.ManifestConfig.path)) ? 'stale or invalid' : 'missing';
-      this.Log.info(`system.manifest.mode 'prefer': manifest ${this.ManifestConfig.path} is ${reason}, OpenAPI document built by the JSDoc builder.`);
+      const reason = existsSync(resolve(settings.path)) ? 'stale or invalid' : 'missing';
+      this.Log.info(`system.manifest.mode 'prefer': manifest ${settings.path} is ${reason}, OpenAPI document built by the JSDoc builder.`);
     } else {
       this.Log.info(`system.manifest.mode '${mode}': OpenAPI document built by the JSDoc builder.`);
     }

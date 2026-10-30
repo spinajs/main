@@ -5,7 +5,7 @@ import minimatch from 'minimatch';
 import { token } from '@spinajs/di';
 import { InternalLogger } from '@spinajs/internal-logger';
 import type { IContainer } from '@spinajs/di';
-import { appRootOf, isPackageSkipped, manifestFileFor, MANIFEST_TOKEN, type Manifest, type ManifestMode } from '@spinajs/manifest';
+import { appRootOf, isPackageSkipped, manifestFileFor, ManifestMissing, MANIFEST_TOKEN, type Manifest, type ManifestMode } from '@spinajs/manifest';
 
 /** Typed key of the runtime manifest; same string key as MANIFEST_TOKEN. */
 export const MANIFEST = token<Manifest>(MANIFEST_TOKEN, 'runtime manifest');
@@ -46,6 +46,27 @@ export function manifestSettingsOf(container: IContainer): ManifestSettings | un
     current = current.Parent;
   }
   return undefined;
+}
+
+export interface EffectiveManifest {
+  settings: ManifestSettings;
+  /** `undefined` for `off`, and for `prefer` without a manifest */
+  manifest: Manifest | undefined;
+}
+
+/**
+ * The switch decided in the container lineage ( `ManifestConfigurationSource`, `withManifest` ) and the manifest
+ * registered with it; `undefined` when nothing decided one, i.e. an app built without the configuration source.
+ */
+export function effectiveManifestOf(container: IContainer): EffectiveManifest | undefined {
+  const settings = manifestSettingsOf(container);
+  if (!settings) return undefined;
+
+  const manifest = settings.mode === 'off' ? undefined : manifestOf(container);
+  if (settings.mode === 'require' && !manifest) {
+    throw new ManifestMissing(`system.manifest.mode is 'require' but no manifest is registered for ${settings.path}`);
+  }
+  return { settings, manifest };
 }
 
 /** The manifest to read from instead of scanning: registered, and the effective mode is not `off`. */

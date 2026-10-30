@@ -1,9 +1,12 @@
 import { Ajv } from 'ajv';
 import type { ErrorObject, ValidateFunction } from 'ajv';
 import formats from 'ajv-formats';
-import { mergeFragments, readFragment, readManifest } from '@spinajs/manifest';
+import { readFileSync } from 'node:fs';
+import { mergeFragments, readFragment, readManifest, readManifestObject } from '@spinajs/manifest';
 import type { Manifest } from '@spinajs/manifest';
+import { manifestOf, manifestSettingsOf } from '@spinajs/configuration';
 import type { Configuration } from '@spinajs/configuration';
+import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
 // Structural twins of the types @spinajs/http exports: testing does not depend on http.
@@ -117,7 +120,11 @@ export function manifestContractValidator(manifest: Manifest): ContractValidator
 }
 
 export interface ContractTestingOptions {
-  /** The manifest whose derived schemas the responses must match, or the path of one. Default `app.manifest.json` in the working directory. */
+  /**
+   * The manifest whose derived schemas the responses must match, or the path of one. Default: per app container, the
+   * manifest its configuration source ( or `withManifest` ) registered, else the file of its effective
+   * `system.manifest.path`, else `app.manifest.json` in the working directory.
+   */
   manifest?: Manifest | string;
   /** 'throw' (default): a body that breaks its schema answers 500. 'log': it is only recorded. `assertClean()` fails either way. */
   mode?: 'throw' | 'log';
@@ -137,25 +144,55 @@ export interface ContractTestingHandle {
   assertClean(): void;
 }
 
+/** The manifest an app container decided on; read only after its Configuration resolved, when the decision is registered. */
+function decidedManifest(container: IContainer): Manifest {
+  const registered = manifestOf(container);
+  if (registered) {
+    return registered;
+  }
+  const file = manifestSettingsOf(container)?.path ?? 'app.manifest.json';
+  return readManifestObject(JSON.parse(readFileSync(file, 'utf8')), file);
+}
+
+/** Builds the validator on first use, so a default manifest is taken from the container once the app decided it. */
+function lazyValidator(manifest: () => Manifest): ContractValidator {
+  let built: ContractValidator | undefined;
+  const validator = () => (built ??= manifestContractValidator(manifest()));
+  return {
+    checkResponse: (route, body, status) => validator().checkResponse(route, body, status),
+    checkSchema: (schema, body) => validator().checkSchema(schema, body),
+  };
+}
+
+const routesWithSchema = (manifest: Manifest): number => manifest.controllers.flatMap((c) => c.routes).filter((r) => r.returnType.schema).length;
+
 /** The parts of contract testing for apps that boot without createTestApp: register, enable, run, assertClean. */
 export async function installContractTesting(options: true | ContractTestingOptions): Promise<ContractTestingHandle> {
   const settings = options === true ? {} : options;
-  const source = settings.manifest ?? 'app.manifest.json';
-  const manifest = typeof source === 'string' ? await readManifest(source) : source;
-  const validator = manifestContractValidator(manifest);
+  const given = typeof settings.manifest === 'string' ? await readManifest(settings.manifest) : settings.manifest;
+  const shared = given && manifestContractValidator(given);
   const violations = new ContractViolationLog();
-  const registered = new Set<IContainer>();
+  const registered = new Map<IContainer, () => Manifest>();
+
+  const manifestFor = (container: IContainer): (() => Manifest) => {
+    let manifest: Manifest | undefined = given;
+    return () => (manifest ??= decidedManifest(container));
+  };
 
   return {
     violations,
-    checkedRoutes: manifest.controllers.flatMap((c) => c.routes).filter((r) => r.returnType.schema).length,
+    get checkedRoutes() {
+      const first = registered.values().next().value;
+      return routesWithSchema(given ?? (first ? first() : decidedManifest(DI.RootContainer)));
+    },
     register(container) {
-      container.register(validator).asValue(CONTRACT_VALIDATOR_KEY);
+      const manifest = manifestFor(container);
+      container.register(shared ?? lazyValidator(manifest)).asValue(CONTRACT_VALIDATOR_KEY);
       container.register(violations).asValue(CONTRACT_VIOLATIONS_KEY);
-      registered.add(container);
+      registered.set(container, manifest);
     },
     unregister() {
-      for (const container of registered) {
+      for (const container of registered.keys()) {
         container.Registry.removeValue(CONTRACT_VALIDATOR_KEY);
         container.uncache(CONTRACT_VALIDATOR_KEY);
         container.Registry.removeValue(CONTRACT_VIOLATIONS_KEY);
@@ -164,6 +201,8 @@ export async function installContractTesting(options: true | ContractTestingOpti
       registered.clear();
     },
     enable(configuration) {
+      // a missing or invalid default manifest fails the boot, not the first checked response
+      for (const manifest of registered.values()) manifest();
       configuration.set('http.contractTesting', { enabled: true, mode: settings.mode ?? 'throw' });
     },
     assertClean() {
