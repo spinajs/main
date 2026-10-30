@@ -1,6 +1,7 @@
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import chai from 'chai';
 import chaiHttp from 'chai-http';
@@ -9,6 +10,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { finishContractTesting, installContractTesting, manifestOfFragments } from '@spinajs/testing';
+import type { ContractTestingHandle } from '@spinajs/testing';
 import { MigrationTransactionMode, OrmMigrator } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
@@ -142,6 +145,10 @@ class UsersHttpAppConfiguration extends FrameworkConfiguration {
 
 // What the app resolves into the root cache; uncached by key before it boots and when it stops, never DI.clearCache().
 
+const FRAGMENTS = ['users-http', 'authz-http-admin'].map((name) => fileURLToPath(new URL(`../../../${name}/lib/manifest.fragment.json`, import.meta.url)));
+
+let contract: ContractTestingHandle | undefined;
+
 let running: { server: HttpServer; controllers: Class<BaseController>[]; port: number } | undefined;
 
 export interface Res {
@@ -237,7 +244,10 @@ export async function startUsersHttpApp(opts: UsersHttpAppOptions): Promise<User
   for (const b of (await DI.resolve(Array.ofType(Bootstrapper))) as Bootstrapper[]) {
     await b.bootstrap();
   }
-  await DI.resolve(Configuration);
+  const config = await DI.resolve(Configuration);
+  contract = await installContractTesting({ manifest: await manifestOfFragments(FRAGMENTS) });
+  contract.register(DI.RootContainer);
+  contract.enable(config);
   await DI.resolve(fsService);
   await DI.resolve(OrmMigrator);
 
@@ -276,7 +286,7 @@ export async function startUsersHttpApp(opts: UsersHttpAppOptions): Promise<User
 }
 
 /** Stops the server and removes what {@link startUsersHttpApp} registered and resolved. */
-export async function stopUsersHttpApp(): Promise<void> {
+async function teardown(): Promise<void> {
   options = undefined;
   if (!running) return;
   const { server, controllers } = running;
@@ -297,4 +307,11 @@ export async function stopUsersHttpApp(): Promise<void> {
   // fsTemp's cleanup interval would keep the mocha process alive after the last suite.
   for (const provider of DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES)?.values() ?? []) await provider.dispose();
   release();
+}
+
+/** Stops the app; a failing teardown step still reports the contract violations. */
+export async function stopUsersHttpApp(): Promise<void> {
+  const finished = contract;
+  contract = undefined;
+  await finishContractTesting(teardown, finished);
 }

@@ -146,6 +146,7 @@ async function runLoader(scanned: Array<Class<BaseController>>) {
   const loader = new TestControllers();
 
   Object.defineProperty(loader, 'Log', { value: recordingLog(calls) });
+  (loader as unknown as { Container: unknown }).Container = DI.RootContainer;
   (loader as unknown as { Server: unknown }).Server = { use: () => { /* Express mount - not under test */ } };
 
   loader.Scanned = scanned.map((type) =>

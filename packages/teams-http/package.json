@@ -68,7 +68,8 @@
     "@spinajs/http-swagger": "3.0.23",
     "@spinajs/log": "3.0.23",
     "@spinajs/orm": "3.0.23",
-    "@spinajs/orm-sqlite": "3.0.23"
+    "@spinajs/orm-sqlite": "3.0.23",
+    "@spinajs/testing": "3.0.23"
   },
   "types": "./lib/index.d.ts",
   "spinajs": {

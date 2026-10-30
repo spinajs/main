@@ -2,6 +2,7 @@
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import chai from 'chai';
 import chaiHttp from 'chai-http';
@@ -11,6 +12,8 @@ import { FrameworkConfiguration } from '@spinajs/configuration';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { testHost } from '@spinajs/authz-testing';
+import { finishContractTesting, installContractTesting, manifestOfFragments } from '@spinajs/testing';
+import type { ContractTestingHandle } from '@spinajs/testing';
 
 import { PrincipalMiddleware } from '@spinajs/authz-http';
 
@@ -41,6 +44,10 @@ export interface TestApp {
   request(): ChaiHttp.Agent;
 }
 
+const FRAGMENT = fileURLToPath(new URL('../../lib/manifest.fragment.json', import.meta.url));
+
+let contract: ContractTestingHandle | undefined;
+
 let app: { server: HttpServer; controllers: Class<BaseController>[]; port: number } | undefined;
 
 /**
@@ -62,6 +69,9 @@ export async function startApp(opts: { controllers?: Class<BaseController>[]; co
   const cfg = await testHost.installHost();
   cfg.set([], seeded);
   cfg.set(['http', 'port'], 0);
+  contract = await installContractTesting({ manifest: await manifestOfFragments([FRAGMENT]) });
+  contract.register(DI.RootContainer);
+  contract.enable(cfg);
   // The package defaults list the controller dirs of every installed package (users-http, authz-http-admin, …).
   cfg.set(['system', 'dirs', 'controllers'], []);
   cfg.set(['fs', 'providers'], [...(cfg.get<unknown[]>(['fs', 'providers']) ?? []).filter((p) => (p as { name?: string }).name !== '__fs_controller_cache__'), { service: 'fsNative', name: '__fs_controller_cache__', basePath: join(tmpdir(), 'spinajs-authz-http-admin-test-cache') }, { service: 'fsNative', name: 'authz-http-admin-test', basePath: join(tmpdir(), 'spinajs-authz-http-admin-test') }]);
@@ -84,7 +94,7 @@ export async function startApp(opts: { controllers?: Class<BaseController>[]; co
 }
 
 /** Stops the server and removes what `startApp` added; never `DI.clearCache()`. */
-export async function stopApp(): Promise<void> {
+async function teardown(): Promise<void> {
   if (!app) return;
   const { server, controllers } = app;
   app = undefined;
@@ -100,4 +110,11 @@ export async function stopApp(): Promise<void> {
   for (const type of DI.getRegisteredTypes(ServerMiddleware) ?? []) DI.uncache(type as Class<ServerMiddleware>);
   DI.uncache(ServerMiddleware);
   await testHost.uninstallHost();
+}
+
+/** Stops the app; a failing teardown step still reports the contract violations. */
+export async function stopApp(): Promise<void> {
+  const finished = contract;
+  contract = undefined;
+  await finishContractTesting(teardown, finished);
 }

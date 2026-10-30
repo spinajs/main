@@ -2,6 +2,7 @@
 import Express from 'express';
 import _ from 'lodash';
 import { DI, Constructor } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { HTTP_ERROR_MAP } from './tokens.js';
 import { ResponseFunction, HTTP_STATUS_CODE, HttpAcceptHeaders, Response as HttpResponse } from './interfaces.js';
 import { ServerError } from './response-methods/serverError.js';
@@ -12,6 +13,7 @@ import { Log } from '@spinajs/log';
 import { Configuration, isProduction } from '@spinajs/configuration';
 import { redactUrl, urlPath } from './util/redact-url.js';
 import { PROBLEM_CONTENT_TYPE, toProblem } from './problem.js';
+import { guardResponseContract } from './contract.js';
 import type { ProblemDetails, ProblemOptions } from './problem.js';
 /**
  * The response registered for an exception, or for the nearest MAPPED class it inherits from.
@@ -80,7 +82,7 @@ export function answeredAsServerError(err: unknown): boolean {
     return response === null || response === ServerError || response.prototype instanceof ServerError;
 }
 
-export function __handle_error__() {
+export function __handle_error__(container: IContainer = DI.RootContainer) {
 
     const logger = DI.resolve(Log, ['http']);
     const config = DI.get(Configuration);
@@ -134,6 +136,8 @@ export function __handle_error__() {
             response = new ResponseClass(error);
             error.status = err instanceof CodedHttpException && isErrorStatus(err.status) ? err.status : response.statusCode;
         }
+
+        guardResponseContract(res, container);
 
         response
             .execute(req, res)

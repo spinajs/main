@@ -94,6 +94,8 @@ const http = {
     // [{ path: '/auth', limit: '16kb' }]: first prefix match wins, other paths keep the parser limits below
     bodyLimits: [],
 
+    contractTesting: { enabled: false, mode: 'throw' },
+
     errors: {
       // The stack goes into an error body only outside production
       includeStack: false,

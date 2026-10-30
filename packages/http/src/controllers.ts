@@ -1,6 +1,6 @@
 import Express from 'express';
 
-import { AsyncService, IContainer, Autoinject, DI, ClassInfo, Container, Class } from '@spinajs/di';
+import { AsyncService, IContainer, Autoinject, ClassInfo, Container, Class } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
 import { HttpServer } from './server.js';
 import { uniqueBy } from '@spinajs/util';
@@ -55,7 +55,7 @@ export class Controllers extends AsyncService {
    * for tests and for apps that want full control over discovery.
    */
   protected async getSources(): Promise<ControllerSource[]> {
-    return (await DI.resolve(Array.ofType(ControllerSource))) as ControllerSource[];
+    return (await this.Container.resolve(Array.ofType(ControllerSource))) as ControllerSource[];
   }
 
   /**
@@ -104,10 +104,10 @@ export class Controllers extends AsyncService {
       return;
     }
 
-    DI.register(type as any).as(BaseController);
+    this.Container.register(type as any).as(BaseController);
 
     try {
-      const instance = (await DI.resolve(type)) as BaseController;
+      const instance = (await this.Container.resolve(type)) as BaseController;
 
       const ci = new ClassInfo<BaseController>();
       ci.name = type.name;
@@ -122,8 +122,8 @@ export class Controllers extends AsyncService {
       // Roll back so the broken type is not silently mounted by a later
       // Array.ofType(BaseController) resolve, and so a fixed retry can
       // register cleanly.
-      DI.unregister(type);
-      DI.uncache(BaseController);
+      this.Container.unregister(type);
+      this.Container.uncache(BaseController);
       throw err;
     }
   }
@@ -212,11 +212,11 @@ export class Controllers extends AsyncService {
       }
 
       fileByType.set(ci.type as Class<BaseController>, ci);
-      DI.register(ci.type).as(BaseController);
+      this.Container.register(ci.type).as(BaseController);
       this.Log.trace({ controller: ci.name, file: ci.file }, 'Controller ${controller} from ${file} registered as BaseController');
     }
 
-    const instances = (await DI.resolve(Array.ofType(BaseController))) as BaseController[];
+    const instances = (await this.Container.resolve(Array.ofType(BaseController))) as BaseController[];
 
     // Report on scanned controllers that someone else derives from. Both
     // outcomes are otherwise invisible: an override leaves no trace at all, and
