@@ -327,6 +327,35 @@ describe('SPINAJS_PACKAGE_ROOTS', () => {
     expect(() => manifestFileFor(escaping, base, '/unrelated')).to.throw(ManifestMissing);
   });
 
+  it('refuses a mapped directory that is a symlink to outside the app root', function () {
+    const outside = mkdtempSync(join(tmpdir(), 'spinajs-roots-outside-'));
+    try {
+      try {
+        symlinkSync(outside, join(root, 'linked'), 'junction');
+      } catch {
+        // Windows without developer mode or elevation cannot create links; the case runs on Linux and macOS CI
+        this.skip();
+      }
+      useMap({ '@spinajs/dep': 'linked' });
+      expect(() => packageRootOf('@spinajs/dep', base, '/unrelated')).to.throw(ManifestMissing, /leaves the root/);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('names the file when the map is missing or not JSON', () => {
+    process.env.SPINAJS_PACKAGE_ROOTS = join(root, 'nope.json');
+    expect(() => packageRootOf('@spinajs/dep', base, '/unrelated')).to.throw(ManifestMissing, /SPINAJS_PACKAGE_ROOTS .*nope\.json cannot be read/);
+    writeFileSync(join(root, 'bad.json'), '{');
+    process.env.SPINAJS_PACKAGE_ROOTS = join(root, 'bad.json');
+    expect(() => packageRootOf('@spinajs/dep', base, '/unrelated')).to.throw(ManifestMissing, /bad\.json cannot be read/);
+  });
+
+  it('does not read inherited keys of the map', () => {
+    useMap({});
+    expect(isPackageSkipped('constructor', { ...base, packages: [{ ...base.packages[0]!, name: 'constructor' }] }, '/unrelated', 'prefer')).to.equal(true);
+  });
+
   it('rejects a map that is not an object of strings', () => {
     writeFileSync(join(root, 'package-roots.json'), JSON.stringify({ '@spinajs/dep': 1 }));
     process.env.SPINAJS_PACKAGE_ROOTS = join(root, 'package-roots.json');

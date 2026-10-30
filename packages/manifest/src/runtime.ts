@@ -93,14 +93,19 @@ function mappedPackageRoot(name: string, appRoot: string): string | undefined {
     return undefined;
   }
 
-  const map = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+  let map: Record<string, unknown>;
+  try {
+    map = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+  } catch (err) {
+    throw new ManifestMissing(`SPINAJS_PACKAGE_ROOTS ${file} cannot be read: ${(err as Error).message}`);
+  }
   if (typeof map !== 'object' || map === null || Object.values(map).some((v) => typeof v !== 'string')) {
     throw new ManifestMissing(`${file}: package-roots must be an object of package name to directory`);
   }
-  const dir = map[name] as string | undefined;
-  if (dir === undefined) {
+  if (!Object.hasOwn(map, name)) {
     return undefined;
   }
+  const dir = map[name] as string;
 
   const root = resolve(appRoot, dir);
   const rel = relative(resolve(appRoot), root);
