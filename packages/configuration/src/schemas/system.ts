@@ -9,7 +9,7 @@ export const SYSTEM_CONFIGURATION_SCHEMA = {
   properties: {
     dirs: {
       type: 'object',
-      additionalProperties: { type: 'array', items: { type: 'string' } },
+      additionalProperties: true,
       default: {},
     },
     manifest: {

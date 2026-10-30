@@ -1,8 +1,11 @@
 import 'mocha';
 import { expect } from 'chai';
-import { resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { loadRuntimeManifest, manifestFileFor, ManifestMissing, packageRootOf } from '../src/runtime.js';
 import type { Manifest } from '../src/index.js';
+import { hashManifest } from '../src/hash.js';
 
 const FIX = resolve(process.cwd(), 'test', 'fixtures', 'runtime');
 
@@ -27,6 +30,44 @@ describe('loadRuntimeManifest', () => {
 
   it('require mode throws ManifestMissing when the file is missing', () => {
     expect(() => loadRuntimeManifest({ path: 'nope.json', mode: 'require' }, FIX)).to.throw(ManifestMissing, /nope.json/);
+  });
+});
+
+describe('loadRuntimeManifest integrity', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'spinajs-manifest-'));
+    const m = JSON.parse(readFileSync(resolve(FIX, 'app.manifest.json'), 'utf8')) as Manifest;
+    m.app.name = 'edited';
+    writeFileSync(join(dir, 'app.manifest.json'), JSON.stringify(m));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('require mode throws on a hash mismatch', () => {
+    expect(() => loadRuntimeManifest({ path: 'app.manifest.json', mode: 'require' }, dir)).to.throw(/stale or edited: hash mismatch, run spinajs build/);
+  });
+
+  it('prefer mode warns and falls back to discovery on a hash mismatch', () => {
+    const warn = console.warn;
+    const seen: string[] = [];
+    console.warn = (msg: string) => void seen.push(msg);
+    try {
+      expect(loadRuntimeManifest({ path: 'app.manifest.json', mode: 'prefer' }, dir)).to.equal(undefined);
+    } finally {
+      console.warn = warn;
+    }
+    expect(seen.join()).to.match(/hash mismatch/);
+  });
+
+  it('accepts a manifest whose hash matches', () => {
+    const m = JSON.parse(readFileSync(join(dir, 'app.manifest.json'), 'utf8')) as Manifest;
+    m.hash = hashManifest(m);
+    writeFileSync(join(dir, 'app.manifest.json'), JSON.stringify(m));
+    expect(loadRuntimeManifest({ path: 'app.manifest.json', mode: 'require' }, dir)?.app.name).to.equal('edited');
+  });
+
+  it('rejects an unknown mode', () => {
+    expect(() => loadRuntimeManifest({ path: 'app.manifest.json', mode: 'prefr' as never }, dir)).to.throw(/off, prefer, require/);
   });
 });
 
@@ -61,5 +102,47 @@ describe('manifestFileFor', () => {
 
   it('refuses a package the manifest does not list', () => {
     expect(() => packageRootOf('@spinajs/ghost', m, FIX)).to.throw(ManifestMissing, /ghost/);
+  });
+
+  describe('containment', () => {
+    const entryOf = (file: string, pkg = 'runtime-fixture') => ({ source: { file, line: 1, col: 1, package: pkg } });
+
+    it('rejects `..` in source.file', () => {
+      expect(() => manifestFileFor(entryOf('src/../../../x.ts'), m, FIX)).to.throw(ManifestMissing, /src\/\.\.\/\.\.\/\.\.\/x\.ts/);
+    });
+
+    it('rejects an absolute source.file', () => {
+      expect(() => manifestFileFor(entryOf('/etc/x.ts'), m, FIX)).to.throw(ManifestMissing, /\/etc\/x\.ts/);
+      expect(() => manifestFileFor(entryOf('C:\\x.ts'), m, FIX)).to.throw(ManifestMissing, /source file/);
+    });
+
+    it('rejects an outDir that leaves the root', () => {
+      const bad = { ...m, app: { ...m.app, outDir: '../..' } };
+      expect(() => manifestFileFor(entryOf('src/controllers/A.ts'), bad, FIX)).to.throw(ManifestMissing, /outDir|path/);
+    });
+
+    it('rejects an absolute outDir', () => {
+      const bad = { ...m, app: { ...m.app, outDir: '/tmp' } };
+      expect(() => manifestFileFor(entryOf('src/A.ts'), bad, FIX)).to.throw(ManifestMissing, /outDir '\/tmp'/);
+    });
+
+    it('rejects a symlinked directory pointing outside the root', function () {
+      const root = mkdtempSync(join(tmpdir(), 'spinajs-root-'));
+      const outside = mkdtempSync(join(tmpdir(), 'spinajs-outside-'));
+      try {
+        mkdirSync(join(root, 'lib'));
+        writeFileSync(join(outside, 'evil.js'), '');
+        try {
+          symlinkSync(outside, join(root, 'lib', 'link'), 'junction');
+        } catch {
+          this.skip();
+        }
+        const local = { ...m, app: { ...m.app, name: 'local', root } };
+        expect(() => manifestFileFor(entryOf('src/link/evil.ts', 'local'), local, root)).to.throw(ManifestMissing, /leaves the root/);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(outside, { recursive: true, force: true });
+      }
+    });
   });
 });

@@ -1,6 +1,7 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
+import { hashManifest } from './hash.js';
 import { readManifestObject } from './read.js';
 import type { Manifest, SourceRef } from './types.js';
 
@@ -8,6 +9,7 @@ import type { Manifest, SourceRef } from './types.js';
 export const MANIFEST_TOKEN = '__manifest__';
 
 export type ManifestMode = 'off' | 'prefer' | 'require';
+const MODES: readonly string[] = ['off', 'prefer', 'require'];
 
 export interface ManifestRuntimeOptions {
   path: string;
@@ -26,6 +28,9 @@ export class ManifestMissing extends Error {
  * `prefer` tolerates a missing file, `require` throws ManifestMissing.
  */
 export function loadRuntimeManifest(options: ManifestRuntimeOptions, cwd = process.cwd()): Manifest | undefined {
+  if (!MODES.includes(options.mode)) {
+    throw new Error(`system.manifest.mode '${String(options.mode)}' is not valid; allowed values: ${MODES.join(', ')}`);
+  }
   if (options.mode === 'off') {
     return undefined;
   }
@@ -38,7 +43,16 @@ export function loadRuntimeManifest(options: ManifestRuntimeOptions, cwd = proce
     return undefined;
   }
 
-  return readManifestObject(JSON.parse(readFileSync(file, 'utf8')), file);
+  const manifest = readManifestObject(JSON.parse(readFileSync(file, 'utf8')), file);
+  if (hashManifest(manifest) !== manifest.hash) {
+    const message = `${file} is stale or edited: hash mismatch, run spinajs build`;
+    if (options.mode === 'require') {
+      throw new Error(message);
+    }
+    console.warn(`${message}; falling back to discovery`);
+    return undefined;
+  }
+  return manifest;
 }
 
 /** Root of the app itself. SPINAJS_MANIFEST_ROOT re-bases a manifest built elsewhere (bundle, container image). */
@@ -67,7 +81,11 @@ export function packageRootOf(name: string, manifest: Manifest, cwd: string): st
   } catch {
     // Package without `package.json` in its exports: peel `listed.entry` (e.g. `lib/index.js`) off the resolved main.
     const entry = require.resolve(name);
-    return entry.slice(0, entry.length - listed.entry.length - 1);
+    const suffix = `${sep}${listed.entry.split('/').join(sep)}`;
+    if (!entry.endsWith(suffix)) {
+      throw new ManifestMissing(`cannot locate the root of package ${name}: resolved entry ${entry} does not end with ${listed.entry}`);
+    }
+    return entry.slice(0, entry.length - suffix.length);
   }
 }
 
@@ -79,6 +97,15 @@ export function manifestFileFor(entry: { source: SourceRef }, manifest: Manifest
   const pkg = entry.source.package;
   const root = packageRootOf(pkg, manifest, cwd);
   const outDir = pkg === manifest.app.name ? manifest.app.outDir : (manifest.packages.find((p) => p.name === pkg)?.outDir ?? 'lib');
+  const escapes = (what: string, value: string): ManifestMissing =>
+    new ManifestMissing(`manifest entry from ${pkg} (${entry.source.file}): ${what} '${value}' leaves the root ${root}`);
+
+  if (isAbsolute(outDir) || win32.isAbsolute(outDir)) {
+    throw escapes('outDir', outDir);
+  }
+  if (isAbsolute(entry.source.file) || win32.isAbsolute(entry.source.file)) {
+    throw escapes('source file', entry.source.file);
+  }
 
   const file = entry.source.file.split('/').join(sep);
   let inside = file;
@@ -88,5 +115,11 @@ export function manifestFileFor(entry: { source: SourceRef }, manifest: Manifest
     inside = relative(outDir, file);
   }
 
-  return resolve(root, outDir, inside.replace(/\.[mc]?ts$/, '.js'));
+  const result = resolve(root, outDir, inside.replace(/\.[mc]?ts$/, '.js'));
+  const found = existsSync(result);
+  const rel = relative(found ? realpathSync(root) : resolve(root), found ? realpathSync(result) : result);
+  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    throw escapes('path', result);
+  }
+  return result;
 }
