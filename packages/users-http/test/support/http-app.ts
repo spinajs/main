@@ -8,7 +8,7 @@ import chaiHttp from 'chai-http';
 import * as cs from 'cookie-signature';
 import { v4 as uuidv4 } from 'uuid';
 import { Bootstrapper, DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
+import type { Class, Factory } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration, MANIFEST, MANIFEST_SETTINGS, registerManifest, registerManifestSettings } from '@spinajs/configuration';
 import { finishContractTesting, installContractTesting, manifestOfFragments } from '@spinajs/testing';
 import type { ContractTestingHandle } from '@spinajs/testing';
@@ -16,7 +16,7 @@ import { MigrationTransactionMode, OrmMigrator } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
-import { BaseController, ControllerSource, Controllers, FilesystemControllerSource, HttpServer, ManifestControllerSource, ServerMiddleware } from '@spinajs/http';
+import { BaseController, ControllerSource, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
 import { appEnvOf, sessionCookieName } from '@spinajs/authn-session';
@@ -68,7 +68,9 @@ export interface UsersHttpAppOptions {
 
 let options: UsersHttpAppOptions | undefined;
 
-const FILE_SOURCES = [FilesystemControllerSource, ManifestControllerSource];
+// By name: a suite run can load @spinajs/http both from lib/ and from src/, each registering its own classes.
+const FILE_SOURCES = new Set(['FilesystemControllerSource', 'ManifestControllerSource']);
+let removedSources: Array<Class<unknown> | Factory<unknown>> = [];
 
 /**
  * The package defaults of every installed @spinajs package (ESM mode), as an app loads them, with this test's
@@ -262,7 +264,10 @@ export async function startUsersHttpApp(opts: UsersHttpAppOptions): Promise<User
     registerManifestSettings(DI.RootContainer, { mode: opts.manifestMode, path: 'app.manifest.json' });
     registerManifest(DI.RootContainer, await manifestOfFragments(FRAGMENTS));
     // both file-backed sources would list every controller of the fragments, built in lib/; the app mounts only `controllers`
-    for (const source of FILE_SOURCES) DI.RootContainer.unregister(ControllerSource, source);
+    removedSources = DI.getRegisteredTypes(ControllerSource).filter((t) => FILE_SOURCES.has(t.name));
+    for (const source of removedSources) DI.RootContainer.unregister(ControllerSource, source);
+    // an earlier app in this process resolved the sources, and the container hands out what it resolved
+    DI.uncache(ControllerSource);
   }
 
   await DI.resolve(Controllers);
@@ -303,7 +308,9 @@ async function teardown(): Promise<void> {
   if (manifestMode) {
     DI.uncache(MANIFEST.key);
     DI.uncache(MANIFEST_SETTINGS.key);
-    for (const source of FILE_SOURCES) DI.register(source).as(ControllerSource);
+    for (const source of removedSources) DI.register(source).as(ControllerSource);
+    removedSources = [];
+    DI.uncache(ControllerSource);
   }
   if (!running) return;
   const { server, controllers } = running;
