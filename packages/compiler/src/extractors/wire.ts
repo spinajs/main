@@ -3,10 +3,11 @@ import type { ParamWire, WireLocation } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
 import { findDecorator, literalValue, type DecoratorInfo } from '../decorators.js';
 
-/** Counts the route arguments whose binding depends on their siblings (`FromBody`, `AsDbModel`). */
+/** What a route argument's binding depends on besides itself: its `FromBody` / `AsDbModel` siblings, the url placeholders. */
 export interface RouteWireContext {
   bodyParams: number;
   asModelParams: number;
+  placeholders: ReadonlySet<string>;
 }
 
 const FIXED: Record<string, ParamWire> = {
@@ -20,7 +21,7 @@ const FIXED: Record<string, ParamWire> = {
 };
 
 // Injected by the framework or set by the user agent (Accept, User-Agent, Referer), never part of a call's input.
-// `@Model` has no registered handler at all.
+// `@Model` has no registered handler at all. This is the only way to `in: 'none'`.
 const NOT_SENT = new Set(['FromDI', 'Req', 'Res', 'Ip', 'RequestId', 'UserAgent', 'Referer', 'AcceptType', 'Model']);
 
 const BY_PARAMETER_TYPE: Record<string, WireLocation> = { FromQuery: 'query', FromParams: 'path', FromHeader: 'header', FromBody: 'body', FromCookie: 'cookie' };
@@ -47,6 +48,14 @@ export function isScalarType(type: ts.Type, checker: ts.TypeChecker): boolean {
   return families.size === 1 && !families.has(undefined);
 }
 
+// A built-in constructor other than Object/Array (`Date`, `Map`, ...) is not a class to `isClass`, so `tryExtractObject`
+// hands the handler the raw string: a `Date` parameter receives the ISO string as sent, not a `Date`.
+function isBuiltinConstructor(type: ts.Type, program: ts.Program): boolean {
+  const symbol = type.getSymbol();
+  if (!symbol || !(symbol.flags & ts.SymbolFlags.Value) || symbol.name === 'Array' || symbol.name === 'Object') return false;
+  return (symbol.declarations ?? []).some((d) => program.isSourceFileDefaultLibrary(d.getSourceFile()));
+}
+
 function hydratedBy(type: ts.Type): string | undefined {
   const symbol = type.getSymbol();
   if (!symbol) return undefined;
@@ -63,6 +72,7 @@ function hydratedBy(type: ts.Type): string | undefined {
 /** `value` or `json` for a parameter read from one string (query key, url segment, header, cookie, form field). */
 function stringShape(type: ts.Type, p: ts.ParameterDeclaration, ctx: ExtractorContext): 'value' | 'json' {
   if (isScalarType(type, ctx.checker)) return 'value';
+  if (isBuiltinConstructor(ctx.checker.getNonNullableType(type), ctx.program)) return 'value';
   const hydrator = hydratedBy(ctx.checker.getNonNullableType(type));
   if (hydrator === 'DateTimeHydrator') return 'value';
   if (hydrator) {
@@ -72,7 +82,7 @@ function stringShape(type: ts.Type, p: ts.ParameterDeclaration, ctx: ExtractorCo
   return 'json';
 }
 
-interface WireInput {
+export interface WireInput {
   dec: DecoratorInfo;
   firstArg: unknown;
   p: ts.ParameterDeclaration;
@@ -90,15 +100,21 @@ function keyed(location: WireLocation, key: string, shape: () => 'value' | 'json
   return { in: location, name: location === 'header' ? key.toLowerCase() : key, shape: shape() };
 }
 
+// `FromParams` falls back from `_name` to `name`, so `@Param() _id` binds `:id`.
+const pathKey = (i: WireInput): string => (i.name.startsWith('_') && !i.route.placeholders.has(i.name) && i.route.placeholders.has(i.name.slice(1)) ? i.name.slice(1) : i.name);
+
 const fromString =
   (location: WireLocation) =>
   (i: WireInput): ParamWire =>
-    keyed(location, i.name, () => stringShape(i.type, i.p, i.ctx));
+    keyed(location, location === 'path' ? pathKey(i) : i.name, () => stringShape(i.type, i.p, i.ctx));
+
+const isArray = (i: WireInput): boolean => i.ctx.checker.isArrayType(i.ctx.checker.getNonNullableType(i.type));
 
 /** `@PKey(ParameterType.FromQuery)` / `@Uuid(...)` read the key from another place than the url. */
 const primaryKey = (i: WireInput): ParamWire => fromString(BY_PARAMETER_TYPE[nonEmpty(i.firstArg) ?? ''] ?? 'path')(i);
 
-const file = (i: WireInput): ParamWire => ({ in: 'multipart', name: i.name, shape: 'value' });
+// `FromFile` (and `FromCSV` / `FromJSONFile`, which extend it) returns every part for an array-typed parameter.
+const file = (i: WireInput): ParamWire => ({ in: 'multipart', name: i.name, shape: 'value', ...(isArray(i) ? { multiple: true as const } : {}) });
 
 function fromModel(i: WireInput): ParamWire {
   const options = i.firstArg as { paramType?: string; paramField?: string } | undefined;
@@ -124,18 +140,22 @@ const RULES: Record<string, (i: WireInput) => ParamWire> = {
   CsvFile: file,
   JsonFile: file,
   Files: (i) => ({ ...file(i), multiple: true }),
-  FormField: (i) => (i.ctx.checker.isArrayType(i.ctx.checker.getNonNullableType(i.type)) ? { ...file(i), multiple: true } : fromString('multipart')(i)),
+  FormField: (i) => (isArray(i) ? { ...file(i), multiple: true } : fromString('multipart')(i)),
   FromModel: fromModel,
   AsModel: asModel,
 };
+
+export const hasWireRule = (decorator: string): boolean => Object.hasOwn(FIXED, decorator) || Object.hasOwn(RULES, decorator) || NOT_SENT.has(decorator);
 
 /**
  * Where and how the value of one route argument travels, per the `@spinajs/http` route-args that read it.
  * `firstArg` is the decorator's first argument, already evaluated by the caller.
  */
-export function wireOf(dec: DecoratorInfo, firstArg: unknown, p: ts.ParameterDeclaration, name: string, type: ts.Type, route: RouteWireContext, ctx: ExtractorContext): ParamWire {
-  const fixed = FIXED[dec.name];
+export function wireOf(i: WireInput): ParamWire {
+  const fixed = FIXED[i.dec.name];
   if (fixed) return { ...fixed };
-  const rule = NOT_SENT.has(dec.name) ? undefined : RULES[dec.name];
-  return rule ? rule({ dec, firstArg, p, name, type, route, ctx }) : { in: 'none', shape: 'whole' };
+  if (NOT_SENT.has(i.dec.name)) return { in: 'none', shape: 'whole' };
+  const rule = RULES[i.dec.name];
+  if (!rule) throw new Error(`@${i.dec.name} has no wire rule`);
+  return rule(i);
 }

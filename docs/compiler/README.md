@@ -94,13 +94,13 @@ A service, value or controller that is registered conditionally carries a `condi
 
 `kind` is the `ParameterType` the runtime registers the argument under: `@AsModel` is `AsDbModel` and `@FromModel` is `FromDbModel` (orm-http), `@FromXml` is `FromXmlRouteArgs`, `@Req`/`@Res` are `ArgAsRequest`/`ArgAsResponse`, and `@PKey(X)`/`@Uuid(X)` record `X` (`FromParams` without it).
 
-`wire` follows the route-arg that binds the parameter. "Scalar" is a type of one primitive family (string, number, boolean, bigint, their literals and enums; `null`/`undefined` ignored) or luxon `DateTime`; anything else is parsed with `JSON.parse` by the server.
+`wire` follows the route-arg that binds the parameter. "Scalar" is a type of one primitive family (string, number, boolean, bigint, their literals and enums; `null`/`undefined` ignored), luxon `DateTime`, or a built-in constructor other than `Object`/`Array`; anything else is parsed with `JSON.parse` by the server. A built-in constructor such as `Date` is not converted at all: `@Query() since: Date` hands the handler the string as sent (no `format` is recorded, the server applies none), so type it as `string` or luxon `DateTime` to say what it is.
 
 | Decorator | `in` | `name` | `shape` |
 | --- | --- | --- | --- |
 | `@Query()` | `query` | parameter name | `value` when scalar, else `json` |
 | `@QueryField()` | `query` | | `whole` (flat keys, string values) |
-| `@Param()`, `@PKey()`, `@Uuid()` | `path` (`@PKey(ParameterType.X)`: that location) | parameter name | `value` when scalar, else `json` |
+| `@Param()`, `@PKey()`, `@Uuid()` | `path` (`@PKey(ParameterType.X)`: that location) | parameter name; `_name` is recorded as `name` when only `:name` is in the path (`FromParams` falls back to it) | `value` when scalar, else `json` |
 | `@ParamField()` | `path` | | `whole` |
 | `@Header(key?)` | `header` | `key`, else the parameter name, lower-cased | `value` when scalar, else `json` |
 | `@HeadersField()` | `header` | | `whole` |
@@ -108,7 +108,7 @@ A service, value or controller that is registered conditionally carries a `condi
 | `@Body()`, the only `FromBody` argument of the route, not scalar | `body` | | `whole` |
 | `@Body()`, one of several `FromBody` arguments (`@PKey`/`@Uuid(ParameterType.FromBody)` count too), or scalar | `body` | parameter name | `field` (`body[name]`) |
 | `@BodyField()`, `@RawBody()`, `@FromXml()` | `body` | | `whole` |
-| `@File()`, `@CsvFile()`, `@JsonFile()` | `multipart` | parameter name | `value` |
+| `@File()`, `@CsvFile()`, `@JsonFile()` | `multipart` | parameter name | `value`; array type: `multiple: true` |
 | `@Files()` | `multipart` | parameter name | `value`, `multiple: true` |
 | `@FormField()` | `multipart` | parameter name | array type: `value`, `multiple: true`; else `value` when scalar, `json` otherwise |
 | `@Form()` | `multipart` | | `whole` |

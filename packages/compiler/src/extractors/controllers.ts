@@ -47,6 +47,12 @@ function parameterTypeOf(dec: DecoratorInfo, ctx: ExtractorContext): string {
   return typeof given === 'string' && given !== '' ? given : PARAM_KINDS[dec.name];
 }
 
+/** The decorator argument that shapes the wire besides the type: the options object, the header key or the key location. */
+function firstArgOf(dec: DecoratorInfo, options: unknown, ctx: ExtractorContext): unknown {
+  if (OPTIONS_ARG_INDEX[dec.name] === 0) return options;
+  return WIRE_FIRST_ARG.has(dec.name) ? literalValue(dec.args[0], ctx) : undefined;
+}
+
 function paramOf(p: ts.ParameterDeclaration, index: number, owner: string, route: RouteWireContext, ctx: ExtractorContext): ParamEntry | undefined {
   const dec = paramDecoratorOf(p);
   if (!dec) return undefined;
@@ -63,12 +69,11 @@ function paramOf(p: ts.ParameterDeclaration, index: number, owner: string, route
   const type = ctx.checker.getTypeAtLocation(p);
   const kind = parameterTypeOf(dec, ctx);
   const nonNull = ctx.checker.getNonNullableType(type);
-  const firstArg = optionsIdx === 0 ? options : WIRE_FIRST_ARG.has(dec.name) ? literalValue(dec.args[0], ctx) : undefined;
   return {
     index, name, kind, runtimeType: UNDERIVED_KINDS.has(kind) ? ctx.plainTypeRef(nonNull) : ctx.typeRef(nonNull, p, `${owner.replace('.', '_')}_${name}`),
     required: options?.required === true || isRequired(p, type),
     ...(options !== undefined ? { options } : {}), ...(schemaId ? { schema: schemaId } : {}),
-    wire: wireOf(dec, firstArg, p, name, type, route, ctx),
+    wire: wireOf({ dec, firstArg: firstArgOf(dec, options, ctx), p, name, type, route, ctx }),
   };
 }
 
@@ -83,9 +88,11 @@ function routeOf(m: ts.MethodDeclaration, mountPath: string, className: string, 
   const doc = routeDocOf(m, ctx);
   const types = m.parameters.map((p) => paramDecoratorOf(p)).map((d) => (d ? parameterTypeOf(d, ctx) : undefined));
   const countOf = (type: string): number => types.filter((t) => t === type).length;
-  const wire: RouteWireContext = { bodyParams: countOf('FromBody'), asModelParams: countOf('AsDbModel') };
+  const fullPath = servedPath(routeFullPath(mountPath, path, handler));
+  const placeholders = new Set([...fullPath.matchAll(/:([A-Za-z_$][\w$]*)/g)].map((m) => m[1]));
+  const wire: RouteWireContext = { bodyParams: countOf('FromBody'), asModelParams: countOf('AsDbModel'), placeholders };
   return {
-    method: ROUTE_METHODS[dec.name], path, handler, fullPath: servedPath(routeFullPath(mountPath, path, handler)),
+    method: ROUTE_METHODS[dec.name], path, handler, fullPath,
     params: m.parameters.map((p, i) => paramOf(p, i, `${className}.${handler}`, wire, ctx)).filter((p): p is ParamEntry => !!p),
     returnType, policies: policyGroupsOf(m, ctx, 'route'), middlewares: middlewaresOf(m, ctx),
     ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}), ...(doc ? { doc } : {}),

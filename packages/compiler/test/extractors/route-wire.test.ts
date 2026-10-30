@@ -3,6 +3,7 @@ import type { ParamWire } from '@spinajs/manifest';
 import { ParameterType } from '@spinajs/http';
 import { createProgramFromTsconfig, createContext, extractControllers } from '../../src/index.js';
 import { PARAM_KINDS } from '../../src/extractors/controllers.js';
+import { hasWireRule } from '../../src/extractors/wire.js';
 
 describe('route argument wire format', () => {
   const unit = createProgramFromTsconfig('test/fixtures/unit/tsconfig.json');
@@ -86,6 +87,29 @@ describe('route argument wire format', () => {
       tags: { in: 'multipart', name: 'tags', shape: 'value', multiple: true },
       meta: { in: 'multipart', name: 'meta', shape: 'json' },
     });
+  });
+
+  it('a file argument of an array type takes every part under its name', () => {
+    expect(wireOf('fileArrays')).to.deep.equal({
+      many: { in: 'multipart', name: 'many', shape: 'value', multiple: true },
+      jsons: { in: 'multipart', name: 'jsons', shape: 'value', multiple: true },
+    });
+  });
+
+  it('a built-in constructor such as Date is a plain value: the server hands over the raw string', () => {
+    expect(wireOf('dates')).to.deep.equal({
+      since: { in: 'query', name: 'since', shape: 'value' },
+      at: { in: 'header', name: 'x-at', shape: 'value' },
+      tags: { in: 'query', name: 'tags', shape: 'value' },
+    });
+  });
+
+  it('a url param named _x binds the :x placeholder when only that one is in the path', () => {
+    expect(wireOf('under')).to.deep.equal({ _id: { in: 'path', name: 'id', shape: 'value' }, _key: { in: 'path', name: '_key', shape: 'value' } });
+  });
+
+  it('every parameter decorator has a wire rule or is listed as not sent', () => {
+    expect(Object.keys(PARAM_KINDS).filter((d) => !hasWireRule(d))).to.deep.equal([]);
   });
 
   it('injected and user-agent arguments are not sent', () => {

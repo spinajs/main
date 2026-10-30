@@ -54,6 +54,15 @@ export class WireController extends BaseController {
   @Get('models/:id')
   public models(@FromModel() id: PostModel, @FromModel({ paramType: ParameterType.FromQuery, paramField: 'postId' }) q: PostModel, @AsModel() body: PostModel): void {}
 
+  @Post('file-arrays')
+  public fileArrays(@File() many: unknown[], @JsonFile() jsons?: unknown[]): void {}
+
+  @Get('dates')
+  public dates(@Query() since: Date, @Header('x-at') at?: Date, @Query() tags?: Set<string>): void {}
+
+  @Get('under/:id')
+  public under(@Param() _id: number, @PKey() _key: number): void {}
+
   @Post('as-models')
   public asModels(@AsModel('first') a: PostModel, @AsModel() b: PostModel, @AsModel('h', ParameterType.FromHeader) c: PostModel): void {}
 }

@@ -41,6 +41,27 @@ describe('HTTP004 shadowed-route', () => {
     ]);
   });
 
+  it('reports a HEAD route that an earlier GET route answers, the same path included', () => {
+    const m = fixture({
+      controllers: [
+        controller({
+          className: 'Files',
+          routes: [
+            route({ handler: 'get', fullPath: '/files/:id' }),
+            route({ handler: 'probe', method: 'head', fullPath: '/files/x', source: src('src/files.ts', 7) }),
+            route({ handler: 'list', fullPath: '/files' }),
+            route({ handler: 'count', method: 'head', fullPath: '/files', source: src('src/files.ts', 9) }),
+          ],
+        }),
+        controller({ className: 'Docs', routes: [route({ handler: 'head', method: 'head', fullPath: '/docs/x' }), route({ handler: 'get', fullPath: '/docs/:id' })] }),
+      ],
+    });
+    expect(shadowedRoute.run(m, ctx).map((d) => [d.message, d.source?.line])).to.deep.equal([
+      ['Files.probe (HEAD /files/x) is never reached: Files.get (GET /files/:id) is declared first and matches the same requests. Declare Files.probe first.', 7],
+      ['Files.count (HEAD /files) is never reached: Files.list (GET /files) is declared first and matches the same requests. Declare Files.count first.', 9],
+    ]);
+  });
+
   it('accepts the literal route first, other segment counts and other controllers', () => {
     const m = fixture({
       controllers: [
@@ -71,6 +92,15 @@ describe('HTTP005 ambiguous-body', () => {
     expect(ambiguousBody.run(m, ctx).map((d) => [d.code, d.severity, d.message, d.source?.line])).to.deep.equal([
       ['HTTP005', 'warning', "Mail.send binds @Body() email to the whole body, but Dto has a property 'email': a body carrying it binds body.email instead. Rename the parameter.", 4],
       ['HTTP005', 'warning', "Mail.ref binds @Body() email to the whole body, but Dto has a property 'email': a body carrying it binds body.email instead. Rename the parameter.", 8],
+    ]);
+  });
+
+  it('reports a whole-body @AsModel the same way: AsDbModel reads body[name] first too', () => {
+    const asModel = { ...body('email', 'spinajs/app/EmailDto', { in: 'body', shape: 'whole' }), kind: 'AsDbModel' };
+    const header = { ...body('email', 'spinajs/app/EmailDto', { in: 'header', name: 'email', shape: 'json' }), kind: 'AsDbModel' };
+    const m = fixture({ schemas, controllers: [controller({ className: 'Mail', routes: [route({ handler: 'model', params: [asModel] }), route({ handler: 'header', params: [header] })] })] });
+    expect(ambiguousBody.run(m, ctx).map((d) => d.message)).to.deep.equal([
+      "Mail.model binds @AsModel() email to the whole body, but Dto has a property 'email': a body carrying it binds body.email instead. Rename the parameter.",
     ]);
   });
 

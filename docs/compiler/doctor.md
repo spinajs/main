@@ -22,8 +22,8 @@ spinajs doctor --manifest dist/app.manifest.json
 | HTTP001 | error | two routes with the same method and path, compared as Express does: case-insensitive, parameter names and trailing slashes ignored (`/users/:id` and `/Users/:userId` clash) |
 | HTTP002 | error | a route with no `@Access`, `@Policy` or `@AllowAnonymous` on it or on its class |
 | HTTP003 | warning | a route answering at a path with `//`: a leading slash in the route path (`@Get('/x')` under `users` is `/users//x`) or an outer slash in `@BasePath` is kept as written. `@BasePath('/')` + `@Get('/')` is not reported: it answers at `/` |
-| HTTP004 | warning | a route that an earlier parameterised route of the same controller and method shadows: `@Get(':id')` declared before `@Get('slash')` takes `/users/slash` |
-| HTTP005 | warning | a whole-body `@Body() x: T` where `T` has a property `x`: a body carrying `x` binds `body.x` instead of the whole body |
+| HTTP004 | warning | a route that an earlier parameterised route of the same controller and method shadows: `@Get(':id')` declared before `@Get('slash')` takes `/users/slash`. An earlier GET route also takes a later HEAD route it matches, the same path included, since Express answers HEAD with GET. Only routes of one controller are compared: across controllers the order is the DI registration order, which the manifest does not record |
+| HTTP005 | warning | a whole-body `@Body() x: T` or `@AsModel() x: T` where `T` has a property `x`: a body carrying `x` binds `body.x` instead of the whole body |
 | CFG001 | warning | a configuration path read in code whose module has no schema |
 | CFG002 | error | a `system.dirs.*` entry that does not exist (`--config`) |
 | CFG003 | info / warning | a registration whose config condition is unmet (`--config`), or one the compiler could not decide |

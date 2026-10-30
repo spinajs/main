@@ -9,7 +9,7 @@ import { fsService } from '@spinajs/fs';
 import { Intl } from '@spinajs/intl';
 import { createTestApp, type TestApp } from '@spinajs/testing';
 
-import { BaseController, BasePath, Body, Controllers, Get, HttpServer, Ok, Param, ParameterType, PKey, Post, Query, QueryField } from '../src/index.js';
+import { BaseController, BasePath, Body, Controllers, Get, Head, HttpServer, Ok, Param, ParameterType, PKey, Post, Query, QueryField } from '../src/index.js';
 
 @BasePath('users')
 class UsersRouteController extends BaseController {
@@ -85,6 +85,23 @@ class LeadingSlashRouteController extends BaseController {
   }
 }
 
+const headHits: string[] = [];
+
+@BasePath('heads')
+class HeadRouteController extends BaseController {
+  @Get(':id')
+  public one() {
+    headHits.push('one');
+    return new Ok({ handler: 'one' });
+  }
+
+  @Head('x')
+  public x() {
+    headHits.push('x');
+    return new Ok({ handler: 'x' });
+  }
+}
+
 type ListQuery = { page?: number; perPage?: number };
 type CreateUser = { email: string };
 
@@ -121,13 +138,23 @@ class WireRouteController extends BaseController {
     return new Ok({ handler: 'prim', value: email ?? null });
   }
 
+  @Get('date')
+  public date(@Query() since: Date) {
+    return new Ok({ handler: 'date', value: [typeof since, since] });
+  }
+
+  @Get('under/:id')
+  public under(@Param() _id: number) {
+    return new Ok({ handler: 'under', value: _id });
+  }
+
   @Post('keyed')
   public keyed(@Body() dto: CreateUser, @PKey(ParameterType.FromBody) id: number) {
     return new Ok({ handler: 'keyed', value: [dto ?? null, id ?? null] });
   }
 }
 
-const CONTROLLERS = [UsersRouteController, NoBaseRouteController, NestedRouteController, RootRouteController, LeadingSlashRouteController, WireRouteController];
+const CONTROLLERS = [UsersRouteController, NoBaseRouteController, NestedRouteController, RootRouteController, LeadingSlashRouteController, HeadRouteController, WireRouteController];
 
 class RoutePathConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
@@ -201,6 +228,12 @@ describe('served route paths and argument binding', function () {
     expect((await status('GET', '//'))[0]).to.equal(404);
   });
 
+  it('answers HEAD with an earlier matching GET route, so a later @Head route is never reached', async () => {
+    headHits.length = 0;
+    expect((await fetch(`${base}/heads/x`, { method: 'HEAD' })).status).to.equal(200);
+    expect(headHits).to.deep.equal(['one']);
+  });
+
   it('answers on the mounted paths only', async () => {
     expect(await status('GET', '/users/list')).to.deep.equal([200, 'list']);
     expect(await status('GET', '/users')).to.deep.equal([200, 'root']);
@@ -234,6 +267,11 @@ describe('served route paths and argument binding', function () {
     expect(await call('POST', '/wire/two', { a: { email: 'a@b' }, b: { email: 'b@b' } })).to.deep.equal([200, [{ email: 'a@b' }, { email: 'b@b' }]]);
     expect(await call('POST', '/wire/prim', { email: 'x@y' })).to.deep.equal([200, 'x@y']);
     expect((await call('POST', '/wire/prim', 'x@y'))[0]).to.equal(400);
+  });
+
+  it('hands a Date query argument the raw string, and binds @Param() _id to :id', async () => {
+    expect(await call('GET', '/wire/date?since=2026-10-30T00:00:00.000Z')).to.deep.equal([200, ['string', '2026-10-30T00:00:00.000Z']]);
+    expect(await call('GET', '/wire/under/5')).to.deep.equal([200, 5]);
   });
 
   it('counts @PKey(ParameterType.FromBody) as a body argument: a @Body next to it is a field, not the whole body', async () => {
