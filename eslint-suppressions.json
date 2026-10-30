@@ -4316,11 +4316,6 @@
       "count": 1
     }
   },
-  "packages/http/src/config/http.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
-    }
-  },
   "packages/http/src/controller-sources.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1

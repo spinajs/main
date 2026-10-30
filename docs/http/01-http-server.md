@@ -53,7 +53,7 @@ Read the state from `server.State` and the Node server from `server.Server`.
 | `https` | `boolean` | not set | `true`, `false` | Top-level key, not under `http`. `true` creates an HTTPS server. |
 | `http.ssl.key` | `string` | `''` | file path | Private key file, read with `fs.readFileSync` when `https` is `true`. |
 | `http.ssl.cert` | `string` | `''` | file path | Certificate file, read when `https` is `true`. |
-| `http.middlewares` | `express.RequestHandler[]` | `helmet(...)`, `express.json(...)`, `express.urlencoded(...)`, `express.text(...)`, `configuredCookieParser`, `compression()` | any Express handlers | Raw handlers added first, before every server middleware. Replacing the array drops the defaults. |
+| `http.middlewares` | `express.RequestHandler[]` | `defaultMiddlewares()`: `helmet(...)`, `express.json(...)`, `express.urlencoded(...)`, `express.text(...)`, `configuredCookieParser`, `compression()` | any Express handlers | Raw handlers added first, before every server middleware. Your list replaces the defaults; spread `defaultMiddlewares()` to keep them. |
 | `http.bodyLimits` | `{ path: string; limit: string }[]` | `[]` | `limit` as `16kb`, `1mb` | Per-path body limits, applied before `http.middlewares`; see [Body size limits](04-route-arguments.md#body-size-limits). |
 | `http.Static` | `{ Route: string; Path: string }[]` | `[{ Route: '/_static', Path: <package>/lib/static }]` | | Static directories. `Route` defaults to `/static` when empty. |
 | `http.shutdownTimeout` | `number` | `10000` | milliseconds | Grace period for in-flight requests on `stop()`. |
@@ -184,7 +184,7 @@ void main();
 - The shutdown watchdog is `unref`'d: it never keeps the process alive.
 - Server middlewares are collected when `HttpServer` resolves. A `ServerMiddleware` module imported later is ignored.
 - The controllers router is mounted after the static files. A static file wins over a route with the same path.
-- `http.middlewares` replaces the whole default array. Leaving out `express.json` turns off JSON bodies and `@RawBody()`; leaving out the cookie parser turns off `req.cookies` and `@Cookie()`. Re-add the default parser with `configuredCookieParser` (exported from `@spinajs/http`), or use `cookieParser(secret)` from `cookie-parser` with the same secret as `http.cookie.secret`.
+- `http.middlewares` replaces the whole default array. To keep the defaults, spread them: `middlewares: [...defaultMiddlewares(), requestId]`. `defaultMiddlewares()` and `missingDefaultMiddlewares(list)` are exported from `@spinajs/http`. `HttpServer` logs one warning at boot when the list lost the shipped helmet, a body parser or the cookie parser, naming what is missing. It recognises the shipped handlers by a tag, so your own `helmet()` counts as missing: ignore the warning when your handlers do that work. Leaving out `express.json` turns off JSON bodies and `@RawBody()`; leaving out the cookie parser turns off `req.cookies` and `@Cookie()`. Re-add the default parser with `configuredCookieParser` (exported from `@spinajs/http`), or use `cookieParser(secret)` from `cookie-parser` with the same secret as `http.cookie.secret`.
 
 ## Best practices
 
