@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/unbound-method */
 import * as fs from 'fs';
 import { dirname, join, resolve } from 'path';
+import _ from 'lodash';
 import { DI } from '@spinajs/di';
 import { InternalLogger } from '@spinajs/internal-logger';
 import type { IConfigLike } from '@spinajs/configuration-common';
@@ -71,7 +72,7 @@ export async function loadJsConfigFile(file: string): Promise<IConfigLike> {
     const tagged: IConfigLike = { ...cfg };
     for (const k in tagged) {
       const value = tagged[k];
-      if (typeof value === 'object' && !Array.isArray(value) && value !== null) {
+      if (_.isPlainObject(value)) {
         tagged[k] = { ...(value as Record<string, unknown>), __file__: [file] };
       }
     }

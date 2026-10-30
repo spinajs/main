@@ -521,4 +521,14 @@ describe('loadJsConfigFile', () => {
     expect(second.test.__file__).to.deep.equal([file]);
     expect(second.test.array).to.deep.equal([3, 4]);
   });
+
+  it('passes a root section that is not a plain object through untouched', async () => {
+    const file = resolve(normalize(join(process.cwd(), 'test', 'mocks', 'config', 'non-plain.cjs')));
+    const loaded = (await loadJsConfigFile(file)) as { stamp: Date; holder: { computed: number }; plain: { __file__: string[] } };
+    const cached = (await DI.__spinajs_require__(file)) as { stamp: Date; holder: unknown };
+    expect(loaded.stamp).to.equal(cached.stamp);
+    expect(loaded.holder).to.equal(cached.holder);
+    expect(loaded.holder.computed).to.equal(42);
+    expect(loaded.plain.__file__).to.deep.equal([file]);
+  });
 });
