@@ -17,6 +17,7 @@ interface PackageJson {
   version: string;
   main?: string;
   dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
   spinajs?: { manifest?: string };
@@ -43,8 +44,9 @@ function resolvedPackageJson(name: string, require: NodeRequire): string | undef
   }
 }
 
-function dependencyNames(pkg: PackageJson): string[] {
-  return [...new Set([pkg.dependencies, pkg.optionalDependencies, pkg.peerDependencies].flatMap((deps) => Object.keys(deps ?? {})))].sort();
+/** Only the app's own devDependencies count: a development install has them, and the config walk loads them. */
+function dependencyNames(pkg: PackageJson, isApp: boolean): string[] {
+  return [...new Set([pkg.dependencies, pkg.optionalDependencies, pkg.peerDependencies, isApp ? pkg.devDependencies : undefined].flatMap((deps) => Object.keys(deps ?? {})))].sort();
 }
 
 function installedPackageJson(fromDir: string, name: string): string | undefined {
@@ -52,8 +54,8 @@ function installedPackageJson(fromDir: string, name: string): string | undefined
 }
 
 /**
- * Names of every installed package reachable from the app through `dependencies`, `optionalDependencies` and
- * `peerDependencies`. Each dependency resolves from its dependent's real directory, as node resolves it, so a
+ * Names of every installed package reachable from the app through `dependencies`, `optionalDependencies`,
+ * `peerDependencies` and, for the app itself, `devDependencies`. Each dependency resolves from its dependent's real directory, as node resolves it, so a
  * copy nested under its dependent is followed too. Packages without a fragment are walked through: they can still
  * depend on one that has a fragment.
  */
@@ -63,7 +65,7 @@ function dependencyClosure(root: string, appName: string): string[] {
   const queue = [root];
 
   for (let dir = queue.shift(); dir !== undefined; dir = queue.shift()) {
-    for (const name of dependencyNames(readPackageJson(join(dir, 'package.json')))) {
+    for (const name of dependencyNames(readPackageJson(join(dir, 'package.json')), dir === root)) {
       const pkgPath = installedPackageJson(dir, name);
       if (!pkgPath || name === appName) continue;
       names.add(name);
