@@ -1,6 +1,6 @@
 import { existsSync, statSync } from 'node:fs';
 import { isAbsolute, join, dirname } from 'node:path';
-import type { Manifest, Diagnostic, SourceRef } from '@spinajs/manifest';
+import { appRootOf, packageRootOf, type Manifest, type Diagnostic, type SourceRef } from '@spinajs/manifest';
 import { compareCodeUnits } from '../sort.js';
 import { DEFAULT_RULES } from './rules/index.js';
 
@@ -64,9 +64,19 @@ export function createDoctorContext(manifest: Manifest, options: { cwd: string; 
     if (!p || !existsSync(p)) return undefined;
     return statSync(p).mtimeMs;
   };
-  const fragmentPath = (name: string) => {
+  // The manifest records fragments as logical node_modules/<name>/... paths; locate the package the way the runtime does, from the app root.
+  const fragmentPath = (name: string): string | undefined => {
     const entry = manifest.packages.find((p) => p.name === name);
-    return entry ? resolve(entry.fragment) : undefined;
+    if (!entry) return undefined;
+    if (isAbsolute(entry.fragment)) return entry.fragment;
+    const logical = `node_modules/${name}/`;
+    const underApp = join(appRootOf(manifest, options.cwd), entry.fragment);
+    if (!entry.fragment.startsWith(logical)) return underApp;
+    try {
+      return join(packageRootOf(name, manifest, options.cwd), entry.fragment.slice(logical.length));
+    } catch {
+      return underApp;
+    }
   };
   return {
     cwd: options.cwd,
