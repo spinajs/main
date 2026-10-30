@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { hashManifest, type ClassPropertiesEntry, type Manifest, type ManifestMode, type RuntimeTypeRef } from '@spinajs/manifest';
-import { Autoinject, DI, forgetPendingProperties, LazyInject, ResolveException, Singleton, type IContainer } from '@spinajs/di';
+import { Autoinject, DI, forgetPendingProperties, LazyInject, notePendingProperty, ResolveException, Singleton, type IContainer } from '@spinajs/di';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { Configuration, ConfigurationSource } from '@spinajs/configuration-common';
 import { FrameworkConfiguration } from '../src/configuration.js';
@@ -101,7 +101,7 @@ describe('property types from the manifest', () => {
   let dir: string;
   const open: IContainer[] = [];
 
-  async function boot(manifest: Manifest, mode: ManifestMode): Promise<IContainer> {
+  async function boot(manifest: Manifest, mode: ManifestMode, beforeConfiguration?: (container: IContainer) => void): Promise<IContainer> {
     const file = join(dir, `${open.length}.json`);
     writeFileSync(file, JSON.stringify(manifest));
     const container = DI.RootContainer.child({ isolateSingletons: true });
@@ -109,6 +109,7 @@ describe('property types from the manifest', () => {
     container.register({ ...process.env, APP_ENV: 'test', SPINAJS_MANIFEST: file, SPINAJS_MANIFEST_MODE: mode }).asValue('process.env');
     container.register(ManifestConfigurationSource).as(ConfigurationSource);
     container.register(FrameworkConfiguration).as(Configuration, { replace: true });
+    beforeConfiguration?.(container);
     await container.resolve(Configuration);
     return container;
   }
@@ -220,6 +221,71 @@ describe('property types from the manifest', () => {
 
     it('stays out of the way in off mode', async () => {
       await boot(manifestOf({}), 'off');
+    });
+  });
+
+  describe('@Autoinject(X) resolved before Configuration', () => {
+    class Early {
+      public list: Plugin[];
+    }
+    class EarlyLazy {
+      public list: Plugin[];
+    }
+    class EarlyOne {
+      public one: Plugin;
+    }
+
+    const table = [entry('Early', 'list', undefined, undefined, true), entry('EarlyLazy', 'list', undefined, undefined, true), entry('EarlyOne', 'one')];
+    const resolveEarly = (container: IContainer) => {
+      container.register(Plugin).asSelf();
+      container.resolve(Early);
+      container.resolve(EarlyLazy);
+      container.resolve(EarlyOne);
+    };
+
+    before(() => {
+      (Autoinject(Plugin) as PropertyDecorator)(Early.prototype, 'list');
+      (LazyInject(Plugin) as PropertyDecorator)(EarlyLazy.prototype, 'list');
+      (Autoinject(Plugin) as PropertyDecorator)(EarlyOne.prototype, 'one');
+    });
+
+    beforeEach(() => {
+      notePendingProperty(Early, 'list');
+      notePendingProperty(EarlyLazy, 'list');
+      notePendingProperty(EarlyOne, 'one');
+    });
+
+    afterEach(() => {
+      forgetPendingProperties();
+    });
+
+    it('fails a require boot naming every list that got one instance', async () => {
+      await expect(boot(manifestOf({ classProperties: table }), 'require', resolveEarly)).to.be.rejectedWith(ResolveException, /Early\.list, EarlyLazy\.list .*before Configuration/);
+    });
+
+    it('logs a named error for each in prefer, once, and boots', async () => {
+      const error = sinon.stub(InternalLogger, 'error');
+      try {
+        const container = await boot(manifestOf({ classProperties: table }), 'prefer', resolveEarly);
+        expect(container.resolve(Early).list).to.be.instanceOf(Plugin);
+        expect(error.getCalls().map((c) => (c.args[0] as { property: string }).property)).to.deep.equal(['Early.list', 'EarlyLazy.list']);
+      } finally {
+        error.restore();
+      }
+    });
+
+    it('passes a require boot when the property is a single class', async () => {
+      const container = await boot(manifestOf({ classProperties: table }), 'require', (c) => {
+        c.register(Plugin).asSelf();
+        c.resolve(EarlyOne);
+      });
+      expect(container.resolve(EarlyOne).one).to.be.instanceOf(Plugin);
+    });
+
+    it('injects the list when Configuration comes first', async () => {
+      const container = await boot(manifestOf({ classProperties: table }), 'require');
+      container.register(Plugin).asSelf();
+      expect(container.resolve(Early).list).to.be.an('array').with.length(1);
     });
   });
 });

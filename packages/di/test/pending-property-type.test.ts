@@ -202,5 +202,52 @@ describe('property types without decorator metadata', () => {
       expect(owner.list).to.be.an('array').with.length(1);
       expect(owner.map).to.be.instanceOf(Map);
     });
+
+    describe('with nothing to ask yet', () => {
+      class Early {
+        public list: Foo[];
+      }
+      class EarlyLazy {
+        public list: Foo[];
+      }
+      class Asked {
+        public list: Foo[];
+      }
+
+      const boundSingle = (owner: Class<unknown>) => pendingProperties().find((p) => p.owner === owner)?.boundSingle;
+
+      before(() => {
+        Autoinject(Foo)(Early.prototype, 'list');
+        LazyInject(Foo)(EarlyLazy.prototype, 'list');
+        Autoinject(Foo)(Asked.prototype, 'list');
+      });
+
+      it('remembers that the property got one instance, for whoever can tell later that it is a list', () => {
+        const container = DI.child();
+        container.register(Foo).asSelf();
+        container.resolve(Early);
+        container.resolve(EarlyLazy);
+        expect(boundSingle(Early)).to.equal(true);
+        expect(boundSingle(EarlyLazy)).to.equal(true);
+      });
+
+      it('needs no one to ask when the decorator states the list', () => {
+        class Stated {
+          public list: Foo[];
+        }
+        Autoinject(Array.ofType(Foo))(Stated.prototype, 'list');
+        const container = DI.child();
+        container.register(Foo).asSelf();
+        expect(container.resolve(Stated).list).to.be.an('array').with.length(1);
+        expect(boundSingle(Stated)).to.equal(undefined);
+      });
+
+      it('remembers nothing when a resolver answered', () => {
+        const container = withResolver(lists);
+        container.register(Foo).asSelf();
+        container.resolve(Asked);
+        expect(boundSingle(Asked)).to.equal(undefined);
+      });
+    });
   });
 });

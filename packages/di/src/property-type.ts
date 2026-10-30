@@ -8,14 +8,27 @@ export const PROPERTY_TYPE_RESOLVER = token<IPropertyTypeResolver>('__property_t
 export interface IPendingProperty {
   owner: Class<unknown>;
   property: string;
+  /** An explicit class bound with no resolver to ask: one instance, even if the property is a list. */
+  boundSingle?: boolean;
 }
 
 // Process-wide, as decorators are: a class is decorated once, whatever boots after it.
 const pending: IPendingProperty[] = [];
 
+const pairOf = (owner: Class<unknown>, property: string) => pending.find((p) => p.owner === owner && p.property === property);
+
 export function notePendingProperty(owner: Class<unknown>, property: string): void {
-  if (!pending.some((p) => p.owner === owner && p.property === property)) {
+  if (!pairOf(owner, property)) {
     pending.push({ owner, property });
+  }
+}
+
+export function noteBoundSingle(owner: Class<unknown>, property: string): void {
+  const pair = pairOf(owner, property);
+  if (pair) {
+    pair.boundSingle = true;
+  } else {
+    pending.push({ owner, property, boundSingle: true });
   }
 }
 

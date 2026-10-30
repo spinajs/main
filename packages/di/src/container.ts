@@ -14,7 +14,7 @@ import { Registry, ValueMapContents } from './registry.js';
 import { ContainerCache } from './container-cache.js';
 import _ from 'lodash';
 import { ResolveException, RestoreIncomplete, ServiceNotFound } from './exceptions.js';
-import { PROPERTY_TYPE_RESOLVER } from './property-type.js';
+import { noteBoundSingle, PROPERTY_TYPE_RESOLVER } from './property-type.js';
 
 const MAX_RESTORE_GENERATIONS = 5;
 // restore() gives up on resolutions that keep starting ( a poller, a reconnect loop ) after these. Counts, not a time
@@ -1139,6 +1139,7 @@ export class Container extends EventEmitter implements IContainer {
   private pendingInjection(pending: IToInject<unknown>, owner: Class<unknown>): IToInject<unknown> {
     const { property, explicit, bind } = pending.pendingType!;
     const resolver = this.get(PROPERTY_TYPE_RESOLVER);
+    if (explicit && !resolver) noteBoundSingle(owner, String(property));
     const declared = resolver?.typeOf(owner, String(property), this);
     const type = explicit ?? declared?.type;
     if (!type) {
