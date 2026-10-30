@@ -2,7 +2,7 @@ import type { ControllerEntry, RouteEntry } from '@spinajs/manifest';
 import type { OpenAPIV3_1 } from 'openapi-types';
 
 export function isAnonymous(route: RouteEntry, controller: ControllerEntry): boolean {
-  return (route.allowAnonymous ?? controller.allowAnonymous) === true;
+  return (route.allowAnonymous ?? (route.access === undefined ? controller.allowAnonymous : false)) === true;
 }
 
 export function permissionsOf(route: RouteEntry, controller: ControllerEntry): string[] {

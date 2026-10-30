@@ -21,6 +21,7 @@ function problem(status: number, description: string | undefined, registry: Comp
 }
 
 function success(route: RouteEntry, registry: ComponentRegistry): OpenAPIV3_1.ResponseObject {
+  if (route.method === 'file') return { description: 'Successful response', content: { 'application/octet-stream': { schema: { type: 'string', format: 'binary' } } } };
   const id = route.returnType.schema;
   if (!id) return { description: 'Successful response' };
   return { description: 'Successful response', content: { 'application/json': { schema: registry.refOrInline(id) as OpenAPIV3_1.SchemaObject } } };

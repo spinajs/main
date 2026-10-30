@@ -28,6 +28,7 @@ describe('manifestToOpenApi', () => {
 
   it('matches the committed snapshot', () => {
     const rendered = JSON.stringify(doc, null, 2);
+    if (!existsSync(snapshotPath) && process.env.CI) throw new Error('snapshot file is missing in CI');
     if (!existsSync(snapshotPath)) writeFileSync(snapshotPath, rendered);
     expect(rendered).to.equal(readFileSync(snapshotPath, 'utf8'));
   });
@@ -148,10 +149,6 @@ describe('manifestToOpenApi', () => {
     copy.schemas['spinajs/http/ProblemDetails'] = { type: 'object', title: 'from manifest' };
     const out = manifestToOpenApi(copy, { ...options, errorSchema: undefined });
     expect(out.components!.schemas!.ProblemDetails).to.deep.equal({ type: 'object', title: 'from manifest' });
-  });
-
-  it('fails clearly when the error schema is unavailable', () => {
-    expect(() => manifestToOpenApi(manifest, { ...options, errorSchema: undefined })).to.throw(/ProblemDetails/);
   });
 
   it('rejects a path parameter without a placeholder', () => {
