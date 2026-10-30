@@ -7,8 +7,8 @@ import { Log, Logger } from '@spinajs/log';
 import { SocketException } from '@spinajs/http-socket-common';
 import { manifestValidatorOf, schemaOfClass } from '@spinajs/validation';
 import { authoritativeSchema, checkSocketContract, loadRuntimeManifest, resolveTypeRef, type Manifest, type ManifestMode, type SocketContractEntry, type SocketControllerEntry, type TypeRef } from '@spinajs/manifest';
-import { PayloadArg } from './args.js';
-import type { IRegisteredHandler, ISocketControllerDescriptor, ISocketHandlerDescriptor } from './interfaces.js';
+import { FromDiArg, PayloadArg } from './args.js';
+import type { IRegisteredHandler, ISocketControllerDescriptor, ISocketHandlerDescriptor, ISocketParameter } from './interfaces.js';
 
 const MAX_REPORTED_ERRORS = 10;
 
@@ -53,6 +53,13 @@ function compileFailure(error: unknown): string {
 }
 
 type Validator = (payload: unknown) => void;
+
+const untypedOf = (handler: ISocketHandlerDescriptor): ISocketParameter[] => [...handler.Parameters.values()].filter((p) => (p.Type === PayloadArg || p.Type === FromDiArg) && p.RuntimeType === undefined);
+
+function payloadRefOf(entry: SocketControllerEntry | undefined, handler: ISocketHandlerDescriptor): TypeRef['ref'] {
+  const payload = handler.Kind === 'command' ? entry?.commands.find((c) => c.handler === String(handler.Method))?.payload : entry?.events.find((e) => e.name === handler.Name)?.payload;
+  return payload?.ref;
+}
 
 /** The command's `schema`, the `@Payload(schema)` or the DTO's `@Schema` wins in `PayloadArg`; the derived schema is then not compiled. */
 function hasExplicitPayloadSchema(handler: IRegisteredHandler): boolean {
@@ -154,34 +161,53 @@ export class SocketContractEnforcer {
   }
 
   /**
-   * A build without decorator metadata leaves the `@Payload` type undefined; the manifest names it ( `TypeRef.ref` ).
-   * Runs before the handlers register, so schemas and hydration see what the metadata would have given. A payload it
-   * cannot type fails the boot in `require` and stays untyped, with a warning, in `prefer`.
+   * A build without decorator metadata leaves `@Payload` and `@FromDI()` types undefined; the manifest names them
+   * ( `TypeRef.ref`, `diArgs` ). Runs before the handlers register, so schemas and hydration see what the metadata
+   * would have given. The class descriptor is shared by every boot in the process, so the types go on a copy, which is
+   * what the boot must use from here on; it is `descriptor` itself when nothing was missing. An argument the manifest
+   * cannot type fails the boot in `require` and stays untyped, with a logged error, otherwise.
    */
-  public async runtimeTypes(controllerName: string, descriptor: ISocketControllerDescriptor): Promise<void> {
-    const untyped = [...descriptor.Handlers.values()].flatMap((h) => [...h.Parameters.values()].filter((p) => p.Type === PayloadArg && p.RuntimeType === undefined).map((p) => ({ handler: h, param: p })));
-    const manifest = untyped.length > 0 ? this.manifest() : undefined;
-    if (!manifest) return;
+  public async runtimeTypes(controllerName: string, descriptor: ISocketControllerDescriptor): Promise<ISocketControllerDescriptor> {
+    const pending = [...descriptor.Handlers].filter(([, handler]) => untypedOf(handler).length > 0);
+    if (pending.length === 0) return descriptor;
 
-    const named = manifest.socketControllers.filter((c) => c.className === controllerName && c.prefix === (descriptor.Prefix ?? ''));
+    const manifest = this.manifest();
+    const named = manifest?.socketControllers.filter((c) => c.className === controllerName && c.prefix === (descriptor.Prefix ?? '')) ?? [];
     const entry = named.length === 1 ? named[0] : undefined;
-    const payloadOf = (handler: ISocketHandlerDescriptor): TypeRef | undefined =>
-      handler.Kind === 'command' ? entry?.commands.find((c) => c.handler === String(handler.Method))?.payload : entry?.events.find((e) => e.name === handler.Name)?.payload;
 
-    for (const { handler, param } of untyped) {
-      const ref = payloadOf(handler)?.ref;
-      try {
-        if (!ref) {
-          throw new Error('the manifest records no runtime type for it, run spinajs build');
-        }
-        param.RuntimeType = await resolveTypeRef(ref, manifest);
-      } catch (error) {
-        const problem = `the @Payload of ${controllerName}::${String(handler.Method)} has no runtime type and the build emits no decorator metadata: ${(error as Error).message}`;
-        if (this.mode() === 'require') {
-          throw new InvalidOperation(problem);
-        }
-        this.Log.warn({ problem }, 'Socket runtime types: ${problem}');
+    const Handlers = new Map(descriptor.Handlers);
+    for (const [key, handler] of pending) {
+      const Parameters = new Map(handler.Parameters);
+      for (const param of untypedOf(handler)) {
+        const RuntimeType = await this.runtimeType(`${controllerName}::${String(handler.Method)}`, handler, param, entry, manifest);
+        if (RuntimeType !== undefined) Parameters.set(param.Index, { ...param, RuntimeType });
       }
+      Handlers.set(key, { ...handler, Parameters });
+    }
+    return { ...descriptor, Handlers };
+  }
+
+  private async runtimeType(handlerName: string, handler: ISocketHandlerDescriptor, param: ISocketParameter, entry: SocketControllerEntry | undefined, manifest: Manifest | undefined): Promise<unknown> {
+    const label = param.Type === PayloadArg ? 'the @Payload' : `the @FromDI() argument #${param.Index}`;
+    try {
+      if (!manifest) {
+        throw new Error('no manifest answers for it, requests that read it will fail');
+      }
+      const ref = param.Type === PayloadArg ? payloadRefOf(entry, handler) : entry?.diArgs?.find((a) => a.handler === String(handler.Method) && a.index === param.Index)?.ref;
+      if (!ref) {
+        throw new Error('the manifest records no runtime type for it, run spinajs build');
+      }
+      return await resolveTypeRef(ref, manifest);
+    } catch (error) {
+      const problem = `${label} of ${handlerName} has no runtime type and the build emits no decorator metadata: ${(error as Error).message}`;
+      if (this.mode() === 'require') {
+        throw new InvalidOperation(problem);
+      }
+      // A payload without a type is read as a plain object; a service without one cannot be resolved.
+      if (manifest || param.Type === FromDiArg) {
+        this.Log.error(problem);
+      }
+      return undefined;
     }
   }
 

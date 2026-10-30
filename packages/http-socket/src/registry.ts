@@ -41,14 +41,13 @@ export class SocketHandlerRegistry {
 
     for (const type of types) {
       const controller = (await DI.resolve(type)) as BaseSocketController;
-      const descriptor = controller.Descriptor;
 
-      if (!descriptor) {
+      if (!controller.Descriptor) {
         this.Log.warn({ controller: type.name }, 'Socket controller ${controller} has no socket decorators, skipped');
         continue;
       }
 
-      await this.Contracts.runtimeTypes(type.name, descriptor);
+      const descriptor = await this.Contracts.runtimeTypes(type.name, controller.Descriptor);
 
       const before = { commands: new Set(this.commands.values()), events: new Set(this.events.values()) };
 
