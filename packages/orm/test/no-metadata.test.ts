@@ -4,11 +4,13 @@ import { DI, PROPERTY_TYPE_RESOLVER, ResolveException, type Class, type IPropert
 import { Archived, Bool, CreatedAt, DateTime, HasMany, HasManyToMany, JunctionTable, ModelBase, OneToManyRelationList, ManyToManyRelationList, Primary, Relation, Set as SetColumn, SoftDelete, UpdatedAt, Virtual, extractModelDescriptor } from '../src/index.js';
 
 // Applied by hand: TypeScript emits `design:type` only for decorators it applies itself, so these have no metadata.
+const decorate = (decorator: unknown, target: object, property: string) => (decorator as PropertyDecorator)(target, property);
+
 class Target extends ModelBase {}
-Primary()(Target.prototype, 'Id');
+decorate(Primary(), Target.prototype, 'Id');
 
 class Stamped extends ModelBase {}
-Primary()(Stamped.prototype, 'Id');
+decorate(Primary(), Stamped.prototype, 'Id');
 for (const [decorator, property] of [
   [CreatedAt, 'Created'],
   [UpdatedAt, 'Updated'],
@@ -18,7 +20,7 @@ for (const [decorator, property] of [
   [SetColumn, 'Roles'],
   [Bool, 'Active'],
 ] as const) {
-  decorator()(Stamped.prototype, property);
+  decorate(decorator(), Stamped.prototype, property);
 }
 
 class CustomList extends OneToManyRelationList<Target, Related> {}
@@ -26,12 +28,12 @@ class VirtualList extends OneToManyRelationList<Target, Related> {}
 class Junction extends ModelBase {}
 
 class Related extends ModelBase {}
-Primary()(Related.prototype, 'Id');
-HasMany(Target)(Related.prototype, 'Plain');
-HasMany(Target)(Related.prototype, 'Custom');
-HasManyToMany(Junction, Target)(Related.prototype, 'Linked');
-Virtual()(Related.prototype, 'Named');
-JunctionTable()(Related.prototype, 'Row');
+decorate(Primary(), Related.prototype, 'Id');
+decorate(HasMany(Target), Related.prototype, 'Plain');
+decorate(HasMany(Target), Related.prototype, 'Custom');
+decorate(HasManyToMany(Junction, Target), Related.prototype, 'Linked');
+decorate(Virtual(), Related.prototype, 'Named');
+decorate(JunctionTable(), Related.prototype, 'Row');
 
 const DECLARED: Record<string, Class<unknown>> = { Plain: Relation, Custom: CustomList, Linked: Relation, Named: VirtualList, Row: Junction };
 

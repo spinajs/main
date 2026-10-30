@@ -52,7 +52,7 @@ class Plugins {
 class ServiceHolder {
   public db: Db;
 }
-AutoinjectService('app.db')(ServiceHolder.prototype, 'db');
+(AutoinjectService('app.db') as PropertyDecorator)(ServiceHolder.prototype, 'db');
 
 // Every suite in this process boots: the classes above are declared for the tests that list them.
 forgetPendingProperties();
