@@ -1,8 +1,7 @@
 import { ClassInfo, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { isProduction } from '@spinajs/authz';
-import { BaseController, CONTROLLED_DESCRIPTOR_SYMBOL, ControllerSource } from '@spinajs/http';
-import type { IControllerDescriptor } from '@spinajs/http';
+import { BaseController, ControllerSource } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 
 import { ExplainController } from './controller.js';
@@ -33,7 +32,9 @@ export class ExplainControllerSource extends ControllerSource {
     const ci = new ClassInfo<BaseController>();
     ci.name = ExplainController.name;
     ci.type = ExplainController;
-    ci.file = (Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, ExplainController.prototype) as IControllerDescriptor | undefined)?.SourceFile ?? '<di>';
+    // Handed over by this source, not found in a scanned dir, so it has no manifest entry: like a DI-registered controller it
+    // takes its parameter names from the handler, which keeps `require` mode from asking the manifest or typescript.
+    ci.file = '<di>';
     return [ci];
   }
 }

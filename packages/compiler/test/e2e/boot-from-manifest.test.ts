@@ -24,6 +24,7 @@ export default {
   ...(process.env.E2E_SCAN === '1'
     ? { system: { dirs: { controllers: dirs('controllers'), migrations: dirs('migrations'), schedules: dirs('schedules'), cli: dirs('commands'), socketControllers: dirs('socket') } } }
     : {}),
+  ...(process.env.E2E_EXPLAIN === '1' ? { authz: { http: { explainRoute: { enabled: true } } } } : {}),
   fs: { defaultProvider: 'fs-temp', providers: [provider('fs-temp'), provider('__fs_controller_cache__')] },
   logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget', layout: '\${message}' }], rules: [{ name: '*', level: 'error', target: 'Empty' }] },
   intl: { locales: ['en'], defaultLocale: 'en' },
@@ -103,6 +104,8 @@ describe('app-basic boots from its manifest', function () {
 
   let required: ProbeResult;
   let discovered: ProbeResult;
+  let explainRequired: ProbeResult;
+  let explainDiscovered: ProbeResult;
 
   before(async function () {
     if (!existsSync(join(WORKSPACE, 'node_modules', '@spinajs', 'configuration', 'lib', 'manifest.fragment.json'))) {
@@ -113,6 +116,8 @@ describe('app-basic boots from its manifest', function () {
     await installApp();
     required = boot({ SPINAJS_MANIFEST_MODE: 'require', SPINAJS_MANIFEST: join(INSTALLED, 'app.manifest.json') });
     discovered = boot({ SPINAJS_MANIFEST_MODE: 'off', E2E_SCAN: '1' });
+    explainRequired = boot({ SPINAJS_MANIFEST_MODE: 'require', SPINAJS_MANIFEST: join(INSTALLED, 'app.manifest.json'), E2E_EXPLAIN: '1' });
+    explainDiscovered = boot({ SPINAJS_MANIFEST_MODE: 'off', E2E_SCAN: '1', E2E_EXPLAIN: '1' });
   });
 
   after(() => {
@@ -132,6 +137,13 @@ describe('app-basic boots from its manifest', function () {
   it('does not mount the explain route, which only its own source serves', () => {
     expect(required.responses.explain.status).to.equal(404);
     expect(required.controllers).to.not.include('ExplainController');
+  });
+
+  it('serves the explain route through its own source when the flag is on, in require as in off mode', () => {
+    expect(explainDiscovered.controllers).to.include('ExplainController');
+    expect(explainRequired.controllers).to.include('ExplainController');
+    expect(explainRequired.responses.explain.status).to.not.equal(404);
+    expect(explainRequired.responses.explain.status).to.equal(explainDiscovered.responses.explain.status);
   });
 
   it('lists no abstract controller base', () => {

@@ -15,9 +15,11 @@ nodeModule.registerHooks({
   },
 });
 
+// an app's entry imports its packages before anything resolves, which registers the sources they ship
+const { PrincipalMiddleware } = await import('@spinajs/authz-http');
 const { DI, Bootstrapper } = await import('@spinajs/di');
 const { Configuration, BaseFileSource } = await import('@spinajs/configuration');
-const { BaseController, Controllers, HttpServer, FilesystemControllerSource } = await import('@spinajs/http');
+const { BaseController, Controllers, HttpServer, ServerMiddleware, FilesystemControllerSource } = await import('@spinajs/http');
 const { Orm, FilesystemMigrationSource } = await import('@spinajs/orm');
 const { ScheduleRegistry } = await import('@spinajs/scheduler');
 const { SocketHandlerRegistry, SocketServer } = await import('@spinajs/http-socket');
@@ -57,6 +59,8 @@ countDirScans('migrationDirScans', FilesystemMigrationSource, 'getMigrations');
 
 const result = { imports, scans };
 try {
+  // the middleware stops the server when no authz domain boots; which domain answers is not what this probe checks
+  DI.unregister(ServerMiddleware, PrincipalMiddleware);
   for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
   await DI.resolve(Configuration);
   await DI.resolve(fsService);
