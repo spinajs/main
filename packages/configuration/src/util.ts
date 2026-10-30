@@ -67,13 +67,16 @@ export async function loadJsConfigFile(file: string): Promise<IConfigLike> {
       cfg = (await cfg.onConfigLoad(cfg))!;
     }
 
-    for (const k in cfg) {
-      if (typeof cfg[k] === 'object' && !Array.isArray(cfg[k]) && cfg[k] !== null) {
-        (cfg[k] as Record<string, unknown>).__file__ = [file];
+    // Copies: the module object is cached, and FrameworkConfiguration seeds every later load from its own config file.
+    const tagged: IConfigLike = { ...cfg };
+    for (const k in tagged) {
+      const value = tagged[k];
+      if (typeof value === 'object' && !Array.isArray(value) && value !== null) {
+        tagged[k] = { ...(value as Record<string, unknown>), __file__: [file] };
       }
     }
 
-    return cfg;
+    return tagged;
   } catch (err) {
     InternalLogger.error({ error: err, file }, 'error loading configuration file ${file}', 'configuration');
     return {};
