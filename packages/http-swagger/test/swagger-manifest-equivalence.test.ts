@@ -2,13 +2,14 @@ import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
 import { resolve } from 'node:path';
-import { ClassInfo, DI } from '@spinajs/di';
+import { ClassInfo } from '@spinajs/di';
 import { Configuration, MANIFEST, MANIFEST_SETTINGS, registerManifest, registerManifestSettings } from '@spinajs/configuration';
 import { analyzePackage } from '@spinajs/compiler';
-import { BaseController, Controllers } from '@spinajs/http';
+import { BaseController, Controllers, ManifestControllerMetadata, parseFnParamNames } from '@spinajs/http';
 import { DefaultControllerCache } from '@spinajs/http/cache';
-import { FsBootsrapper, fsService } from '@spinajs/fs';
-import { testManifest } from '@spinajs/testing';
+import { fsService } from '@spinajs/fs';
+import { createTestApp, testManifest } from '@spinajs/testing';
+import type { TestApp } from '@spinajs/testing';
 import type { Manifest } from '@spinajs/manifest';
 import { OpenApiBuilder } from '../src/openapi-builder.js';
 import { SwaggerDocCache } from '../src/swagger-cache.js';
@@ -33,11 +34,12 @@ interface StrippedOperation {
 describe('swagger: cache vs manifest documentation', function () {
   this.timeout(120000);
 
+  let app: TestApp;
   let manifest: Manifest;
   let controllers: Array<ClassInfo<BaseController>>;
 
   async function docsOf(): Promise<Docs> {
-    const cache = await DI.resolve(SwaggerDocCache);
+    const cache = await app.resolve(SwaggerDocCache);
     const docs: Docs = new Map();
     for (const controller of controllers) {
       docs.set(controller, await cache.getCache(controller));
@@ -46,7 +48,8 @@ describe('swagger: cache vs manifest documentation', function () {
   }
 
   async function build(docs: Docs): Promise<Record<string, Record<string, StrippedOperation>>> {
-    const builder = await DI.resolve(OpenApiBuilder, [DI.get(Configuration)!.get<ISwaggerConfig>('http.swagger')]);
+    const config = (await app.resolve(Configuration)).get<ISwaggerConfig>('http.swagger');
+    const builder = await app.container.resolve(OpenApiBuilder, [config]);
     for (const [controller, doc] of docs) {
       builder.addController(controller, doc);
     }
@@ -70,26 +73,46 @@ describe('swagger: cache vs manifest documentation', function () {
     const fragment = await analyzePackage({ tsconfig: resolve(process.cwd(), 'tsconfig.json'), packageRoot: process.cwd(), schemaDerivation: false });
     manifest = testManifest({ root: process.cwd(), controllers: fragment.controllers });
 
-    DI.clearCache();
-    DI.register(TestConfiguration).as(Configuration);
-    DI.resolve(FsBootsrapper).bootstrap();
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
-    controllers = await (await DI.resolve(Controllers)).Controllers;
+    app = await createTestApp({ configuration: TestConfiguration, resolve: [fsService, Controllers] });
+    controllers = await (await app.resolve(Controllers)).Controllers;
   });
 
+  /** Registered as the configuration source would, after the controllers were listed and registered in off mode. */
   function decideManifest(): void {
-    registerManifestSettings(DI.RootContainer, { mode: 'prefer', path: 'app.manifest.json' });
-    registerManifest(DI.RootContainer, manifest);
+    registerManifestSettings(app.container, { mode: 'prefer', path: 'app.manifest.json' });
+    registerManifest(app.container, manifest);
   }
 
   afterEach(() => {
     sinon.restore();
-    DI.uncache(MANIFEST.key);
-    DI.uncache(MANIFEST_SETTINGS.key);
+    app.container.uncache(MANIFEST.key);
+    app.container.uncache(MANIFEST_SETTINGS.key);
   });
 
-  after(() => DI.clearCache());
+  after(async () => {
+    await app?.dispose();
+  });
+
+  it('answers the same parameter names from the manifest as the TypeScript cache, argument by argument', async () => {
+    decideManifest();
+    const provider = await app.resolve(ManifestControllerMetadata);
+    const cache = await app.resolve(DefaultControllerCache);
+
+    for (const controller of controllers) {
+      const fromCache = await cache.getCache(controller);
+      for (const [method, route] of controller.instance!.Descriptor.Routes) {
+        // what Controllers.register() binds: a route inherited from another file is in neither answer, so the loader
+        // reads its names off the function
+        const declared = parseFnParamNames((controller.instance as unknown as Record<string, (...args: never[]) => unknown>)[String(method)]);
+        const answered = await provider.parameters(controller, String(method));
+        const fromManifest = answered.length > 0 ? answered : declared;
+        const expected = fromCache[String(method)] ?? declared;
+        for (const index of route.Parameters.keys()) {
+          expect(fromManifest[index], `${controller.name}.${String(method)}[${index}]`).to.equal(expected[index]);
+        }
+      }
+    }
+  });
 
   it('documents the same operations, summaries, parameters and method tags from both providers', async () => {
     const fromCache = await docsOf();
@@ -107,7 +130,7 @@ describe('swagger: cache vs manifest documentation', function () {
   it('http:swagger:cache does nothing when the manifest carries the documentation', async () => {
     decideManifest();
     const getCache = sinon.spy(SwaggerDocCache.prototype, 'getCache');
-    const command = await DI.resolve(SwaggerCacheCommand);
+    const command = await app.resolve(SwaggerCacheCommand);
     const warn = sinon.spy((command as unknown as { Log: { warn: (message: string) => void } }).Log, 'warn');
 
     await command.execute();
