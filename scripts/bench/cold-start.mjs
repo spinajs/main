@@ -67,7 +67,7 @@ const BOOT_SOURCE = `import { performance } from 'node:perf_hooks';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { DI, Bootstrapper } from '@spinajs/di';
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { Configuration, FrameworkConfiguration, effectiveManifestOf } from '@spinajs/configuration';
 import { fsService } from '@spinajs/fs';
 import { Intl } from '@spinajs/intl';
 import { Controllers, HttpServer } from '@spinajs/http';
@@ -97,7 +97,8 @@ await DI.resolve(Intl);
 await DI.resolve(Controllers);
 const server = await DI.resolve(HttpServer);
 await server.start();
-console.log('LISTENING ' + JSON.stringify({ port: server.Server.address().port, inProcessMs: Math.round(performance.now()) }));
+const effective = effectiveManifestOf(DI.RootContainer);
+console.log('LISTENING ' + JSON.stringify({ port: server.Server.address().port, inProcessMs: Math.round(performance.now()), mode: effective?.settings.mode, hasManifest: effective?.manifest !== undefined }));
 `;
 
 function generateApp(dir, { controllers, routes }) {
@@ -159,6 +160,12 @@ function waitForListening(child, captured) {
   });
 }
 
+// Guards the comparison: a switch that is silently ignored would turn require-vs-off into off-vs-off.
+function assertMode(line, mode) {
+  if (line.mode !== mode) fail(`app booted in manifest mode ${String(line.mode)}, expected ${mode}`);
+  if (mode === 'require' && !line.hasManifest) fail('app booted in require mode without a manifest');
+}
+
 async function bootOnce(dir, mode, { controllers, routes }) {
   const env = { ...process.env, SPINAJS_MANIFEST_MODE: mode };
   if (mode === 'off') delete env.SPINAJS_MANIFEST;
@@ -169,11 +176,13 @@ async function bootOnce(dir, mode, { controllers, routes }) {
   children.add(child);
   const closed = new Promise((done) => child.once('close', done));
   const captured = { text: '' };
+  child.once('error', (err) => (captured.text += String(err)));
   child.stderr.on('data', (chunk) => (captured.text += chunk));
 
   try {
     const line = await waitForListening(child, captured);
     const elapsed = performance.now() - started;
+    assertMode(line, mode);
     const base = `http://127.0.0.1:${line.port}`;
     // The last route proves the whole set loaded, not just the first controller.
     await getOk(`${base}/c0/r0`);
@@ -186,7 +195,7 @@ async function bootOnce(dir, mode, { controllers, routes }) {
   }
 }
 
-export function median(values) {
+function median(values) {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = sorted.length >> 1;
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
@@ -234,7 +243,7 @@ async function main() {
   const dir = mkdtempSync(join(cache, 'spinajs-cold-start-'));
   const cleanup = () => {
     killChildren();
-    if (!options.keep) rmSync(dir, { recursive: true, force: true });
+    if (!options.keep) rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
   };
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.once(signal, () => {
