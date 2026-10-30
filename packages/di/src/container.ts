@@ -5,6 +5,7 @@ import { ChainArray, TypedArray } from './array.js';
 import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
 import { ResolveType } from './enums.js';
 import { getTypeName, isAsyncService, isChainArray, isFactory, isTypedArray, isPromise } from './helpers.js';
+import { isToken, Token } from './token.js';
 import { ChildOptions, ContainerCacheStats, ContainerSnapshot, IBind, IContainer, IDisposeOptions, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service, ResolveChainResult } from './interfaces.js';
 import { Class, Factory, ResolveResult } from './types.js';
 import { EventEmitter } from './events.js';
@@ -438,9 +439,14 @@ export class Container extends EventEmitter implements IContainer {
    * @param serviceName - name of service to get
    * @returns null if no service has been resolved at given name
    */
+  public get<T>(service: Token<T>, parent?: boolean): T | undefined;
   public get<T>(service: TypedArray<T>, parent?: boolean): T[];
   public get<T>(service: string | Class<T>, parent?: boolean): T;
-  public get<T>(service: string | Class<T> | TypedArray<T>, parent = true): T | T[] {
+  public get<T>(service: string | Class<T> | TypedArray<T> | Token<T>, parent = true): T | T[] | undefined {
+    if (isToken(service)) {
+      return this.get<T>(service.key, parent);
+    }
+
     rejectChain(service, 'get');
 
     // get value registered as TypedArray ( mean to return all created instances )
@@ -452,7 +458,11 @@ export class Container extends EventEmitter implements IContainer {
     return r[r.length - 1] as T;
   }
 
-  public hasRegistered<T>(service: Class<T> | string, parent = true): boolean {
+  public hasRegistered<T>(service: Class<T> | string | Token<T>, parent = true): boolean {
+    if (isToken(service)) {
+      return this.Registry.hasRegistered(service.key, parent);
+    }
+
     return this.Registry.hasRegistered(service, parent);
   }
 
@@ -468,7 +478,11 @@ export class Container extends EventEmitter implements IContainer {
    * @returns true if service instance already exists, otherwise false.
    * @throws {@link InvalidArgument} when service is null or empty
    */
-  public isResolved<T>(service: string | Class<T> | TypedArray<T>, parent = true): boolean {
+  public isResolved<T>(service: string | Class<T> | TypedArray<T> | Token<T>, parent = true): boolean {
+    if (isToken(service)) {
+      return this.isResolved(service.key, parent);
+    }
+
     rejectChain(service, 'isResolved');
 
     if (service instanceof Array && service.constructor.name === 'TypedArray' || service instanceof TypedArray) {
@@ -492,9 +506,14 @@ export class Container extends EventEmitter implements IContainer {
    * Resolves `type` only when it is registered (here or in an ancestor), otherwise returns `undefined`.
    * Unlike `resolve`, it never falls back to instantiating the class itself.
    */
+  public resolveOptional<T>(type: Token<T>, options?: unknown[]): T | undefined;
   public resolveOptional<T>(type: string, options?: unknown[]): T | undefined;
   public resolveOptional<T>(type: Class<T>, options?: unknown[]): ResolveResult<T> | undefined;
-  public resolveOptional<T>(type: Class<T> | string, options?: unknown[]): unknown {
+  public resolveOptional<T>(type: Class<T> | string | Token<T>, options?: unknown[]): unknown {
+    if (isToken(type)) {
+      return this.resolveOptional<T>(type.key, options);
+    }
+
     return this.hasRegistered(type) ? this.resolve(type as Class<T>, options) : undefined;
   }
 
@@ -520,6 +539,7 @@ export class Container extends EventEmitter implements IContainer {
    * @param type - what to resolve, can be class definition or factory function
    * @param options - options passed to constructor / factory
    */
+  public resolve<T>(type: Token<T>, options?: unknown[]): T;
   public resolve<T>(type: string, options?: unknown[], check?: boolean, tType?: Class<T>): T;
   public resolve<T>(type: string, check?: boolean): T;
 
@@ -555,7 +575,11 @@ export class Container extends EventEmitter implements IContainer {
    * @param options - options passed to constructor / factory
    * @param check - strict check if serivice is registered in container before resolving. Default behavior is not to check and resolve
    */
-  public resolve<T>(type: Class<T> | TypedArray<T> | string, options?: unknown[] | boolean, check?: boolean, tType?: Class<unknown>): Promise<T | T[]> | T | T[] {
+  public resolve<T>(type: Class<T> | TypedArray<T> | string | Token<T>, options?: unknown[] | boolean, check?: boolean, tType?: Class<unknown>): Promise<T | T[]> | T | T[] {
+    if (isToken(type)) {
+      return this.resolve<T>(type.key, options as unknown[] | undefined, check);
+    }
+
     if (!type) {
       throw new InvalidArgument('argument `type` cannot be null or undefined');
     }

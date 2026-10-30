@@ -2,6 +2,7 @@ import { ChainArray, TypedArray } from './array.js';
 import { ResolveException } from './exceptions.js';
 import { AsyncService, SyncService } from './interfaces.js';
 import { Factory, Class } from './types.js';
+import { isToken } from './token.js';
 // re-exported from @spinajs/util to keep a single implementation across the framework
 export { isPromise } from '@spinajs/util';
 /**
@@ -106,7 +107,7 @@ function nameOf(ctor: Function): string {
 }
 
 export function getTypeName(type: TypedArray<any> | Class<any> | string | object): string {
-  return typeof type === 'string' ? type : isTypedArray(type) ? getTypeName(type.Type) : isConstructor(type) ? nameOf(type) : nameOf(type.constructor);
+  return typeof type === 'string' ? type : isToken(type) ? type.key : isTypedArray(type) ? getTypeName(type.Type) : isConstructor(type) ? nameOf(type) : nameOf(type.constructor);
 }
 
 /**

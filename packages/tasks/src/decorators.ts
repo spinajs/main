@@ -4,7 +4,7 @@ import { DI } from '@spinajs/di';
 import { __task } from './models/__task.js';
 import { DateTime } from 'luxon';
 import { __task_history } from './models/__task_history.js';
-import { Log } from '@spinajs/log-common';
+import { Log, LOG } from '@spinajs/log-common';
 import { TaskSuccess } from './events/TaskSuccess.js';
 import { TaskFailed } from './events/TaskFailed.js';
 
@@ -124,7 +124,7 @@ export async function runTask(
   args: unknown[],
   opts: RunTaskOptions,
 ): Promise<unknown> {
-  const log = DI.resolve('__log__', ['TASKS']) as Log;
+  const log = DI.resolve(LOG, ['TASKS']);
   log.info({ taskName: decl.name }, 'Executing task ${taskName} ...');
 
   let task: __task;

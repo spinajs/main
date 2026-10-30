@@ -1,5 +1,6 @@
 import { get, resolve } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
+import { FILE_PROVIDER } from './tokens.js';
 import { FileHasher, FileInfoService, fs, IFileInfo, IStat } from './interfaces.js';
 import { _check_arg, _is_string, _non_empty, _trim } from '@spinajs/util';
 import { access, constants, readFile as nodeReadFile } from 'fs';
@@ -45,7 +46,7 @@ export function getFs(fileSystem: string | fs | undefined | null): fs | undefine
     return fileSystem;
   }
 
-  return resolve<fs>('__file_provider__', [fileSystem]);
+  return resolve(FILE_PROVIDER, [fileSystem]);
 }
 
 /**

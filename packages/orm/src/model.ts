@@ -1,6 +1,7 @@
 import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './symbols.js';
+import { ORM_MODEL_FACTORY } from './tokens.js';
 import { IModelDescriptor, RelationType, InsertBehaviour, IInsertResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IColumnDescriptor, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult, ITransactionOptions } from './interfaces.js';
 import { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
@@ -1284,7 +1285,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
         return data;
       },
       modelCreation(_: any): ModelBase {
-        return DI.resolve<ModelBase>('__orm_model_factory__', [relationDescriptor.TargetModel]);
+        return DI.resolve(ORM_MODEL_FACTORY, [relationDescriptor.TargetModel]);
       },
       async afterHydration(_relationData: ModelBase[]) { },
     };
@@ -1774,4 +1775,4 @@ export const _modelProxyFactory = (_c: IContainer, model: Constructor<ModelBase>
   return new model();
 };
 
-DI.register(_modelProxyFactory).as('__orm_model_factory__');
+DI.register(_modelProxyFactory).asToken(ORM_MODEL_FACTORY);

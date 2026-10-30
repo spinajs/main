@@ -10,6 +10,7 @@ import {
   ConfigurationOptions,
   IConfigurable,
   ConfigVar,
+  CONFIGURATION_SOURCES,
 } from '@spinajs/configuration-common';
 import { Autoinject, Class, Container, Injectable } from '@spinajs/di';
 
@@ -106,7 +107,7 @@ export class BrowserFrameworkConfiguration extends Configuration {
      * Root-level merge ( not per-key this.merge ) so keys that don't exist in
      * the config yet are still applied — merge() into a missing key is a no-op.
      */
-    this.Container.resolve(Array.ofType<IConfigLike>('__configuration__')).forEach((c: IConfigLike) => {
+    this.Container.resolve(Array.ofType<IConfigLike>(CONFIGURATION_SOURCES.key)).forEach((c: IConfigLike) => {
       _.mergeWith(this.Config, c, mergeArrays);
     });
 

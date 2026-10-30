@@ -1,5 +1,6 @@
 import type { IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration, InvalidConfiguration, resolveNamedService } from '@spinajs/configuration';
+import { CONFIGURATION_SCHEMA } from '@spinajs/configuration';
 import type { IConfigurationSchema } from '@spinajs/configuration';
 
 import { AuthenticationStrategy } from '../../contracts/strategy.js';
@@ -92,7 +93,7 @@ function authnSchemas(container: IContainer): IConfigurationSchema[] {
   type Schema = IConfigurationSchema & { $id?: string };
   const found: Schema[] = [AUTHN_CONFIGURATION_SCHEMA];
   for (let c: IContainer | undefined = container; c; c = c.Parent) {
-    for (const s of (c.Cache.get('__configurationSchema__', false) ?? []) as Schema[]) {
+    for (const s of (c.Cache.get(CONFIGURATION_SCHEMA.key, false) ?? []) as Schema[]) {
       if (s.$configurationModule.startsWith('authn.') && !found.some((f) => f === s || f.$id === s.$id)) found.push(s);
     }
   }

@@ -3,6 +3,8 @@ import { Container } from './container.js';
 import { ChildOptions, ContainerSnapshot, IBind, IContainer, IDisposeOptions, ResolvableObject, ResolveChainResult } from './interfaces.js';
 import { Class, InferClass, InferTypedArray, ResolveResult, ResolveArrayResult, Factory } from './types.js';
 import { ChainArray, TypedArray } from './array.js';
+import { token } from './token.js';
+import type { Token } from './token.js';
 
 /**
  * App main DI container
@@ -144,6 +146,7 @@ export function uncache<T>(type: string | Class<T> | TypedArray<T>, parent?: boo
  * @param check - use parent container to check when resolving
  * @throws {@link InvalidArgument} if type is null or undefined
  */
+export function resolve<T>(type: Token<T>, options?: unknown[]): T;
 export function resolve<T>(type: string, options?: unknown[], check?: boolean): T;
 export function resolve<T>(type: string, check?: boolean): T;
 export function resolve<T>(type: Class<T>, check?: boolean): ResolveResult<T>;
@@ -156,7 +159,7 @@ export function resolve<T extends Class<any>>(type: T, check?: boolean): Resolve
 export function resolve<T extends TypedArray<any>>(type: T, check?: boolean): ResolveArrayResult<InferTypedArray<T>>;
 export function resolve<T extends Class<any>>(type: T, options?: unknown[] | boolean, check?: boolean): ResolveResult<InferClass<T>>;
 export function resolve<T extends TypedArray<any>>(type: T, options?: unknown[] | boolean, check?: boolean): ResolveArrayResult<InferTypedArray<T>>;
-export function resolve(type: Class<any> | TypedArray<any> | string, options?: unknown[] | boolean, check?: boolean): unknown {
+export function resolve(type: Class<any> | TypedArray<any> | string | Token<unknown>, options?: unknown[] | boolean, check?: boolean): unknown {
   return RootContainer.resolve(type as any, options, check);
 }
 
@@ -165,10 +168,11 @@ export function resolve(type: Class<any> | TypedArray<any> | string, options?: u
  *
  * @param serviceName - name of service to get
  */
+export function get<T>(serviceName: Token<T>): T | undefined;
 export function get<T>(serviceName: TypedArray<T>): T[] | null;
 export function get<T>(serviceName: string | Class<T>): T | null;
-export function get<T>(serviceName: string | Class<T> | TypedArray<T>): T | T[] | null {
-  return RootContainer.get(serviceName) as T;
+export function get<T>(serviceName: string | Class<T> | TypedArray<T> | Token<T>): T | T[] | null | undefined {
+  return RootContainer.get(serviceName as string) as T;
 }
 
 /**
@@ -189,7 +193,7 @@ export function getRegisteredTypes<T>(type: string | Class<T> | TypedArray<T>): 
  *
  * @param service - service name or class to check
  */
-export function has<T>(service: string | Class<T>): boolean {
+export function has<T>(service: string | Class<T> | Token<T>): boolean {
   return RootContainer.isResolved(service);
 }
 
@@ -198,7 +202,7 @@ export function has<T>(service: string | Class<T>): boolean {
  *
  * @param service - service class object to check
  */
-export function check<T>(service: Class<T> | string): boolean {
+export function check<T>(service: Class<T> | string | Token<T>): boolean {
   return RootContainer.hasRegistered(service);
 }
 
@@ -240,9 +244,12 @@ export interface IModuleLoader {
   load(module: string): Promise<unknown>;
 }
 
+/** Optional module loader; when registered it replaces dynamic `import()` in `__spinajs_require__`. */
+export const MODULE_LOADER = token<IModuleLoader>('__module_loader__');
+
 export async function __spinajs_require__(module: string): Promise<unknown> {
   // DI seam first: if an explicit module loader is registered, delegate to it.
-  const loader = RootContainer.get<IModuleLoader>('__module_loader__');
+  const loader = RootContainer.get(MODULE_LOADER);
   if (loader) {
     return loader.load(module);
   }

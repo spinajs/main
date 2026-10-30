@@ -1,5 +1,6 @@
 import { Constructor, Container, DI } from '@spinajs/di';
 import { ManyToManyRelationList, OneToManyRelationList } from './relation-objects.js';
+import { ORM_RELATION_HAS_MANY_FACTORY, ORM_RELATION_HAS_MANY_TO_MANY_FACTORY } from './tokens.js';
 
 /**
  * Pool telemetry needs no registration: the ORM publishes into the `Metrics` singleton from
@@ -22,5 +23,5 @@ import { ManyToManyRelationList, OneToManyRelationList } from './relation-object
  * To change relation type for single use - set relation option
  * `type` property in decorators
  */
-DI.register((_: Container, type: Constructor<unknown>) => (type.name.toLowerCase() === 'relation' ? OneToManyRelationList : type)).as('__orm_relation_has_many_factory__');
-DI.register((_: Container, type: Constructor<unknown>) => (type.name.toLowerCase() === 'relation' ? ManyToManyRelationList : type)).as('__orm_relation_has_many_to_many_factory__');
+DI.register((_: Container, type: Constructor<unknown>) => (type.name.toLowerCase() === 'relation' ? OneToManyRelationList : type)).asToken(ORM_RELATION_HAS_MANY_FACTORY);
+DI.register((_: Container, type: Constructor<unknown>) => (type.name.toLowerCase() === 'relation' ? ManyToManyRelationList : type)).asToken(ORM_RELATION_HAS_MANY_TO_MANY_FACTORY);

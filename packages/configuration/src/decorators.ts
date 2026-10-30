@@ -1,6 +1,6 @@
 import _ from 'lodash';
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { ConfigPath, ConfigPaths, Configuration, IConfigEntryOptions } from '@spinajs/configuration-common';
+import { ConfigPath, ConfigPaths, Configuration, IConfigEntryOptions, CONFIGURATION_PROPERTY } from '@spinajs/configuration-common';
 import { AddDependencyForProperty, Class, Container, DI, IContainer, IInjectDescriptor, IMappableService, isFactory, isPromise, ServiceNotFound } from '@spinajs/di';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { InternalLogger } from '@spinajs/internal-logger';
@@ -156,7 +156,7 @@ export function Config(path: string, options?: IConfigEntryOptions): PropertyDec
 export function Config(path: string, options?: IConfigEntryOptions) {
   return (target: any, key: string): any => {
     // register conf, so we can expose eg. in db if config is set
-    DI.register({ path, options }).asValue('__configuration_property__');
+    DI.register({ path, options }).asValue(CONFIGURATION_PROPERTY.key);
 
     // The container is injected, not the (async) Configuration, so the class keeps resolving synchronously.
     AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>) => {

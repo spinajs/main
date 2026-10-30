@@ -1,8 +1,9 @@
 import { Config, InvalidConfiguration } from '@spinajs/configuration';
 import { AsyncService, ResolveException, sortByDependencies } from '@spinajs/di';
-import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
+import { Injectable, Bootstrapper, DI, IContainer, token } from '@spinajs/di';
 import { fs, IFsConfiguration, IProviderConfiguration } from './interfaces.js';
 import { Log, Logger } from '@spinajs/log-common';
+import { FILE_PROVIDER } from './tokens.js';
 
 export * from './interfaces.js';
 export * from './local-provider.js';
@@ -12,6 +13,7 @@ export * from './decorators.js';
 export * from './file-hasher.js';
 export * from './file-info.js';
 export * from './helpers.js';
+export * from './tokens.js';
 export * from './fp.js';
 export * from './paths.js';
 export * from './actions.js';
@@ -19,10 +21,11 @@ export * from './streams.js';
 
 /** DI key of the `Map<string, fs>` that fsService publishes every provider into, by name. */
 export const FILE_PROVIDER_INSTANCES = '__file_provider_instance__';
+export const FILE_PROVIDER_INSTANCES_TOKEN = token<Map<string, fs>>(FILE_PROVIDER_INSTANCES);
 
 /** The provider fsService published under `name`, or `undefined`. */
 export function publishedFs(name: string, container: IContainer = DI.RootContainer): fs | undefined {
-  const published = container.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES);
+  const published = container.get(FILE_PROVIDER_INSTANCES_TOKEN);
   return published instanceof Map ? published.get(name) : undefined;
 }
 
@@ -95,7 +98,7 @@ export class fsService extends AsyncService {
    * leave it here. A name a newer fsService published again stays, and so does one that maps to another provider now.
    */
   public async dispose() {
-    const providers = DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES);
+    const providers = DI.get(FILE_PROVIDER_INSTANCES_TOKEN);
     const publishers = DI.get<Map<string, fsService>>(PROVIDER_PUBLISHERS);
     for (const [name, provider] of this.published) {
       if (publishers?.get(name) !== this) {
@@ -116,7 +119,7 @@ export class fsService extends AsyncService {
 export class FsBootstrapper extends Bootstrapper {
   public bootstrap() {
     DI.register((_container: IContainer, name: string) => {
-      const provider = DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES);
+      const provider = DI.get(FILE_PROVIDER_INSTANCES_TOKEN);
 
       if(!provider) {
         throw new ResolveException(`No __file_provider_instance__ registered, make sure fs package is imported in your application and fsService is resolved.`);
@@ -129,7 +132,7 @@ export class FsBootstrapper extends Bootstrapper {
       }
       
       return instance;
-    }).as('__file_provider__');
+    }).asToken(FILE_PROVIDER);
   }
 }
 

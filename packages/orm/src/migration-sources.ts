@@ -10,6 +10,7 @@ import { OrmException } from './exceptions.js';
 import { OrmMigration } from './interfaces.js';
 import { MIGRATION_DI_SOURCE } from './migration-environment.js';
 import { MIGRATION_FILE_REGEXP } from './symbols.js';
+import { MIGRATIONS } from './tokens.js';
 
 /**
  * Fallback for `system.dirs.migrations` when that key is absent or empty - see the comment on it
@@ -184,7 +185,7 @@ export class FilesystemMigrationSource extends MigrationSource {
 @Injectable(MigrationSource)
 export class DiRegistryMigrationSource extends MigrationSource {
   public async getMigrations(): Promise<Array<ClassInfo<OrmMigration>>> {
-    const types = (DI.getRegisteredTypes<OrmMigration>('__migrations__') ?? []) as Array<Class<OrmMigration>>;
+    const types = (DI.getRegisteredTypes<OrmMigration>(MIGRATIONS.key) ?? []) as Array<Class<OrmMigration>>;
 
     return types.map((type) => {
       // chain-walking is fine here without being load-bearing: every entry in `__migrations__` is

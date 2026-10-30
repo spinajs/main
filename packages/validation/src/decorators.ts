@@ -1,6 +1,9 @@
-import { Constructor, DI } from '@spinajs/di';
+import { Constructor, DI, token } from '@spinajs/di';
 
 export const SCHEMA_SYMBOL = Symbol('SCHEMA_SYMBOL');
+
+/** `@Schema` registrations by class name, held as a map value. */
+export const SCHEMAS = token<Map<string, Record<string, unknown>>>('__schemas__');
 
 /**
  * Every `@Schema`-decorated class by name, kept here as well as in the container.
@@ -17,11 +20,11 @@ export const SCHEMA_SYMBOL = Symbol('SCHEMA_SYMBOL');
  * durable copy; the container registration stays for anything that reads `'__schemas__'`
  * directly.
  */
-const SCHEMAS = new Map<string, object>();
+const REGISTERED_SCHEMAS = new Map<string, object>();
 
 /** The schema registered for a `@Schema`-decorated class name, or undefined. */
 export function getRegisteredSchema(typeName: string): object | undefined {
-  return SCHEMAS.get(typeName);
+  return REGISTERED_SCHEMAS.get(typeName);
 }
 
 /**
@@ -39,7 +42,7 @@ export function Schema(schema: object | string) {
     // from validation package
     const registered = typeof schema === 'object' ? schema : { $ref: schema };
 
-    SCHEMAS.set(target.name, registered);
-    DI.register(registered).asMapValue('__schemas__', target.name);
+    REGISTERED_SCHEMAS.set(target.name, registered);
+    DI.register(registered).asMapValue(SCHEMAS.key, target.name);
   };
 }

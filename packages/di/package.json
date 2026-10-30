@@ -57,7 +57,8 @@
     "reflect-metadata": "^0.1.13"
   },
   "devDependencies": {
-    "@types/lodash": "^4.14.191"
+    "@types/lodash": "^4.14.191",
+    "expect-type": "^1.4.0"
   },
   "types": "./lib/index.d.ts"
 }

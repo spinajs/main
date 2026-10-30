@@ -1,4 +1,5 @@
 import { Class, DI, Injectable } from '@spinajs/di';
+import { MODELS } from './tokens.js';
 import { SchemaProvider } from '@spinajs/validation';
 import { IModelDescriptor } from './interfaces.js';
 
@@ -14,7 +15,7 @@ export class ModelSchemaProvider extends SchemaProvider {
   protected Models = new Map<string, Class<unknown>>();
 
   public resolve(): void {
-    for (const model of DI.getRegisteredTypes('__models__') ?? []) {
+    for (const model of DI.getRegisteredTypes(MODELS.key) ?? []) {
       this.Models.set(model.name, model as Class<unknown>);
     }
   }

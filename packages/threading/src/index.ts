@@ -1,5 +1,5 @@
 import { DI } from '@spinajs/di';
-import { Log } from '@spinajs/log-common';
+import { Log, LOG } from '@spinajs/log-common';
 import { sleep as _utilSleep } from '@spinajs/util';
 
 export * from "./mutex.js";
@@ -34,7 +34,7 @@ export const criticalSection = <T>(name: string, callback: () => Promise<T>): Pr
 
   const run = previous.then(async () => {
     // logger is optional, @spinajs/log may not be loaded
-    const log = DI.resolve('__log__', ['THREADING']) as Log | null;
+    const log: Log | null = DI.resolve(LOG, ['THREADING']);
 
     try {
       log?.trace({ section: name }, 'Entering critical section ${section}');

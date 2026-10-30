@@ -1,4 +1,4 @@
-import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, TextWrapper, Wrap, ColumnCompareStatement, ColumnConditionStatement, IWhereBuilder, OuterColumn, outerBuilder, qualifierOf, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER, IJoinStatementOptions, OrmDriver } from '@spinajs/orm';
+import { ORM_DB_VALUE_CONVERTERS, IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, TextWrapper, Wrap, ColumnCompareStatement, ColumnConditionStatement, IWhereBuilder, OuterColumn, outerBuilder, qualifierOf, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER, IJoinStatementOptions, OrmDriver } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers.js';
 import { Autoinject, NewInstance } from '@spinajs/di';
@@ -291,9 +291,10 @@ export class SqlWhereStatement extends WhereStatement {
         if (dsc && dsc.Converters.has(this._column as string)) {
           converter = this._container.resolve<ValueConverter>(dsc.Converters.get(this._column as string)!.Class);
         } else {
-          const converters = this._container.get<Map<string, any>>('__orm_db_value_converters__');
-          if (converters && this._value && converters.has(this._value.constructor.name)) {
-            converter = this._container.resolve<ValueConverter>(converters.get(this._value.constructor.name));
+          const converters = this._container.get(ORM_DB_VALUE_CONVERTERS);
+          const converterType = this._value ? converters?.get(this._value.constructor.name) : undefined;
+          if (converterType) {
+            converter = this._container.resolve<ValueConverter>(converterType);
             val = converter.toDB(val, null as any, null as any, null);
           }
         }
@@ -571,7 +572,7 @@ export class SqlInStatement extends InStatement {
       return (value): unknown => converter.toDB(value, null as any, columnDescriptor as any, null);
     }
 
-    const converters = container.get<Map<string, any>>('__orm_db_value_converters__');
+    const converters = container.get(ORM_DB_VALUE_CONVERTERS);
     if (!converters) {
       return (value) => value;
     }
@@ -584,7 +585,7 @@ export class SqlInStatement extends InStatement {
       }
 
       if (!byClass.has(type)) {
-        byClass.set(type, container.resolve<ValueConverter>(converters.get(type)));
+        byClass.set(type, container.resolve<ValueConverter>(converters.get(type)!));
       }
       return byClass.get(type)!.toDB(value, null as any, null as any, null);
     };

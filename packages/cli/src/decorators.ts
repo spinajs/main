@@ -1,6 +1,7 @@
 import { DI } from '@spinajs/di';
 import { CommandOptions } from 'commander';
 import { IArgument, ICommand, IOption } from './interfaces.js';
+import { CLI_COMMAND } from './tokens.js';
 
 export const META_COMMAND = 'cli:command';
 export const META_ARGUMENT = 'cli:argument';
@@ -32,7 +33,7 @@ export function Command(nameAndArgsOrConfig: string | ICommand, description?: st
 
     Reflect.defineMetadata(META_COMMAND, meta, target);
 
-    DI.register(target).as('__cli_command__');
+    DI.register(target).asToken(CLI_COMMAND);
   };
 }
 

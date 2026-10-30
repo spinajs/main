@@ -1,5 +1,5 @@
 import { DI, IContainer } from '@spinajs/di';
-import { Log } from '@spinajs/log-common';
+import { Log, LOG, LOG_IMPLEMENTATION } from '@spinajs/log-common';
 import { RendererOrmDriverBridge } from './electronRendererOrm.js';
 import { ElectronRendererLogger } from './electronRendererLogger.js';
 import './electronRendererConfiguration.js';
@@ -60,14 +60,14 @@ const logFactoryFunction = (container: IContainer, logName: string) => {
     if (ElectronRendererLogger.Loggers.has(logName)) {
         return ElectronRendererLogger.Loggers.get(logName);
     }
-    return container.resolve("__logImplementation__", [logName]);
+    return container.resolve(LOG_IMPLEMENTATION, [logName]);
 };
 
 // register as string identifier to allow for
 // resolving logs without referencing class
 // to avoid circular dependencies in some @spinajs packages
 // it should not be used in production code
-DI.register(logFactoryFunction).as("__log__");
+DI.register(logFactoryFunction).asToken(LOG);
 
 // register log factory function as Log class
 // this way we can create or return already created
@@ -77,7 +77,7 @@ DI.register(logFactoryFunction).as(Log);
 // register Log class as string literal
 // so we can resolve Log class
 // it should not be used in production code
-DI.register(ElectronRendererLogger).as("__logImplementation__");
+DI.register(ElectronRendererLogger).asToken(LOG_IMPLEMENTATION);
 
 /**
  * Register all services that are available in renderer process by default

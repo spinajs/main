@@ -4,6 +4,7 @@ import { isFactory, isConstructor, getTypeName } from './helpers.js';
 import { IBind, IContainer, IInjectDescriptor, RegisterOptions, ResolvableObject } from './interfaces.js';
 import { Class, Factory } from './types.js';
 import { AddDependency } from './decorators.js';
+import { Token } from './token.js';
 
 export class Binder<T> implements IBind {
   private isFactory: boolean;
@@ -23,6 +24,10 @@ export class Binder<T> implements IBind {
     this.container.emit(`di.registered.${tType}`, this.implementation);
 
     return this;
+  }
+
+  asToken<V>(token: Token<V>, options?: RegisterOptions): this {
+    return this.as(token.key, options);
   }
 
   /**

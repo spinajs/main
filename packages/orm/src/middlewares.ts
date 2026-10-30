@@ -5,6 +5,7 @@ import _ from 'lodash';
 import { ManyQueryRelationList, ManyToManyRelationList, OneToManyRelationList, SingleQueryRelation } from './relation-objects.js';
 import { BelongsToRelation, NativeOrmRelation } from './relations.js';
 import { DI } from '@spinajs/di';
+import { ORM_MODEL_FACTORY } from './tokens.js';
 import { OrmException } from './exceptions.js';
 import { DiscriminationMapMiddleware } from './discrimination-middleware.js';
 
@@ -266,7 +267,7 @@ export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
       return undefined;
     }
 
-    const junction = DI.resolve<ModelBase>('__orm_model_factory__', [JunctionModel]);
+    const junction = DI.resolve(ORM_MODEL_FACTORY, [JunctionModel]);
     junction.hydrate(row);
     junction.takeSnapshot();
     return junction;

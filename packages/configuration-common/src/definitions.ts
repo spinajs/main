@@ -1,4 +1,4 @@
-import { AsyncService, Class } from '@spinajs/di';
+import { AsyncService, Class, token } from '@spinajs/di';
 import type { ConfigPath, ConfigPaths } from './typed.js';
 
 /**
@@ -140,6 +140,18 @@ export interface IConfigEntryOptions {
   defaultValue?: unknown;
   required?: boolean;
 }
+
+/** Plain config objects merged over the loaded configuration; resolve as `Array.ofType(CONFIGURATION_SOURCES.key)`. */
+export const CONFIGURATION_SOURCES = token<IConfigLike>('__configuration__');
+
+/** JSON schemas of the configuration, one value per module. */
+export const CONFIGURATION_SCHEMA = token<IConfigurationSchema>('__configurationSchema__');
+
+/** One `@Config` property declaration, registered as a value when the decorator runs. */
+export const CONFIGURATION_PROPERTY = token<{ path: string; options?: IConfigEntryOptions }>('__configuration_property__');
+
+/** Optional `{ value }` override of the config watch interval in milliseconds. */
+export const CONFIG_WATCH_INTERVAL = token<{ value: number }>('__config_watch_interval__');
 
 /**
  * wrapper for lazy load config vars from protocols

@@ -5838,7 +5838,7 @@
       "count": 2
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
@@ -7696,9 +7696,6 @@
     }
   },
   "packages/tasks/src/decorators.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
     "@typescript-eslint/no-unsafe-function-type": {
       "count": 1
     }
@@ -8190,9 +8187,6 @@
     }
   },
   "packages/threading/src/index.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
     "@typescript-eslint/prefer-promise-reject-errors": {
       "count": 1
     },
@@ -8829,14 +8823,6 @@
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 7
-    }
-  },
-  "packages/validation/src/schema-providers.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
     }
   },
   "packages/validation/src/validator.ts": {

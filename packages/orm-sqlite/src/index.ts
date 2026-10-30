@@ -22,10 +22,10 @@ export * from './expressions.js';
 // orm-foundation; ConnectionState / IPoolMetrics are the connection-resilience additions from
 // orm-infra. QueryBuilder / TransactionCallback / ITransaction went with the old
 // `{ commit, rollback }` shape.
-import { DatetimeValueConverter, IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, InStatement, StartsWithStatement, backoffDelay, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, NowExpression, SqlExpressions, IndexQueryCompiler, Builder, AlterTableQueryBuilder, AlterColumnQueryBuilder, ColumnAlterationType } from '@spinajs/orm';
+import { ORM_DB_VALUE_CONVERTERS, DatetimeValueConverter, IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, InStatement, StartsWithStatement, backoffDelay, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, NowExpression, SqlExpressions, IndexQueryCompiler, Builder, AlterTableQueryBuilder, AlterColumnQueryBuilder, ColumnAlterationType } from '@spinajs/orm';
 import sqlite3 from 'sqlite3';
 import { BacktickIdentifierQuoter, SqlAlterTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver, SqlLiteralQuoter, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler, IsoDatetimeValueConverter } from '@spinajs/orm-sql';
-import { Injectable, NewInstance } from '@spinajs/di';
+import { Class, Injectable, NewInstance } from '@spinajs/di';
 import { SqlLiteJoinStatement, SqliteInSetStatement, SqliteInStatement, SqliteNowExpression, SqliteStartsWithStatement } from './statements.js';
 import { mapSqliteError } from './errors.js';
 import { IForeignKeyList, IIndexInfo, IIndexInfoList, ITableInfo } from './types.js';
@@ -597,7 +597,7 @@ export class SqliteOrmDriver extends SqlDriver {
     //
     // Falling back to an empty map degrades exactly as an unrecognised column type already does:
     // `DefaultValue` keeps the raw `dflt_value` sqlite reported.
-    const converters = this.Container.get<Map<string, any>>('__orm_db_value_converters__') ?? new Map<string, any>();
+    const converters = this.Container.get(ORM_DB_VALUE_CONVERTERS) ?? new Map<string, Class<ValueConverter>>();
 
     const quoted = (identifier: string) => `"${identifier.replace(/"/g, '""')}"`;
 
@@ -634,7 +634,7 @@ export class SqliteOrmDriver extends SqlDriver {
         Type: r.type,
         MaxLength: -1,
         Comment: '',
-        DefaultValue: converter ? this.Container.resolve<ValueConverter>(converters.get(r.type.toLocaleLowerCase())).fromDB(r.dflt_value) : r.dflt_value,
+        DefaultValue: converter ? this.Container.resolve<ValueConverter>(converter).fromDB(r.dflt_value) : r.dflt_value,
         NativeType: r.type,
         Unsigned: false,
         Nullable: r.notnull === 0,

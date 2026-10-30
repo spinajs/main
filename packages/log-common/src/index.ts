@@ -1,4 +1,4 @@
-import { Autoinject, Container, DI, SyncService } from "@spinajs/di";
+import { Autoinject, Container, DI, SyncService, token } from "@spinajs/di";
 import _ from "lodash";
 import { format } from "./format.js";
 import { applySerializers, type ISerializedError } from "./serializers.js";
@@ -449,6 +449,10 @@ export function createLogMessageObject(err: Error | string, message: string | an
 }
 
 export const WARN_ONCE_MAX_KEYS = 1024;
+
+/** Log factory; resolve with `[logName]` to get a logger without importing @spinajs/log. */
+export const LOG = token<Log>("__log__");
+export const LOG_IMPLEMENTATION = token<Log>("__logImplementation__");
 
 export abstract class Log extends SyncService {
   public static Loggers: Map<string, Log> = new Map();
