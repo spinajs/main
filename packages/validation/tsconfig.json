@@ -22,6 +22,9 @@
     },
     {
       "path": "../log-common/tsconfig.json"
+    },
+    {
+      "path": "../manifest/tsconfig.json"
     }
   ]
 }

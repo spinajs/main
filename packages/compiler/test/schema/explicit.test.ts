@@ -78,11 +78,23 @@ describe('Standard Schema as @Schema argument', () => {
     expect(result.schema).to.have.property('x-derived');
     expect(result.diagnostics).to.deep.equal([]);
   });
-  it('reports SCH004 and publishes the derived schema when zod >= 4 has no exported JSON Schema', () => {
+  it('reports SCH004 and publishes the derived schema, marked partial, when zod >= 4 has no exported JSON Schema', () => {
     const result = derive('StdZodMissingDto');
     expect(codes('StdZodMissingDto')).to.deep.equal([['SCH004', 'warning']]);
     expect(result.diagnostics[0].message).to.include('StdZodMissingDtoJsonSchema');
-    expect(result.schema).to.deep.equal({ $id: 'fixture/StdZodMissingDto', type: 'object', properties: { name: { type: 'string' } }, required: ['name'], additionalProperties: false });
+    expect(result.schema).to.deep.equal({
+      $id: 'fixture/StdZodMissingDto',
+      type: 'object',
+      properties: { name: { type: 'string' } },
+      required: ['name'],
+      additionalProperties: false,
+      'x-explicit': 'partial',
+    });
+  });
+  it('marks every unreadable Standard Schema partial, whatever the library', () => {
+    for (const name of ['StdZod3Dto', 'StdOtherDto', 'StdLocalDto']) {
+      expect(derive(name).schema, name).to.deep.include({ 'x-explicit': 'partial' });
+    }
   });
   it('reports SCH006 when the exported JSON Schema is not a literal (a call is never executed)', () => {
     const result = derive('StdZodCallDto');

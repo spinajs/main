@@ -54,7 +54,11 @@ async function boot(manifest: Switch | undefined, prefix?: string, configured?: 
 describe('SwaggerService with a manifest', function () {
   this.timeout(30000);
 
-  afterEach(() => DI.clearCache());
+  afterEach(() => {
+    DI.clearCache();
+    DI.uncache(MANIFEST.key);
+    DI.uncache(MANIFEST_SETTINGS.key);
+  });
 
   after(() => {
     DI.uncache(MANIFEST.key);

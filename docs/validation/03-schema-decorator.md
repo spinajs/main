@@ -152,7 +152,7 @@ export class CreateUserDto {
 - Issue messages that contain any string or number of the validated input (a library echoing `received hunter2`) are replaced by `Invalid value`, so the errors and the problem+json body never repeat the offending value. Other messages and the `instancePath` are kept.
 - Validate only: the output of the schema (transforms, defaults, coercion such as `z.coerce.number()`, stripped keys) is not applied to the handler argument yet; the handler receives the raw input. Applying it is a planned follow-up.
 - The class is not added to the `'__schemas__'` map, so `getRegisteredSchema` returns `undefined` for it.
-- For the manifest and OpenAPI, the compiler never runs the schema. For zod 4 export a literal JSON Schema next to the class: `export const CreateUserDtoJsonSchema = { ... }`. Otherwise it reports `SCH004` and publishes the schema derived from the class. See the [compiler diagnostics](../compiler/README.md).
+- For the manifest and OpenAPI, the compiler never runs the schema. For zod 4 export a literal JSON Schema next to the class: `export const CreateUserDtoJsonSchema = { ... }`. Otherwise it reports `SCH004` and publishes the schema derived from the class, marked `x-explicit: 'partial'`. See the [compiler diagnostics](../compiler/README.md).
 
 ## Related
 

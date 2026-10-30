@@ -28,6 +28,12 @@ export function getRegisteredSchema(typeName: string): object | undefined {
   return REGISTERED_SCHEMAS.get(typeName);
 }
 
+/** The schema `@Schema` attached to a class ( JSON Schema, schema id or Standard Schema ), or undefined. */
+export function schemaOfClass(type: unknown): unknown {
+  if (typeof type !== 'function') return undefined;
+  return (Reflect.getMetadata(SCHEMA_SYMBOL, type) as unknown) ?? (Reflect.getMetadata(SCHEMA_SYMBOL, (type as { prototype: object }).prototype) as unknown);
+}
+
 /**
  *
  * Add schema for object eg. model or dto.

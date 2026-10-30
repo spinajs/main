@@ -340,14 +340,14 @@ describe('diffManifest', () => {
   describe('other sections', () => {
     it('removed config module is breaking', () => {
       const head = clone();
-      head.configModules = head.configModules.filter((c) => c.module !== 'hooks');
-      expect(find(diffManifest(base, head).changes, 'config', 'hooks')).to.include({ kind: 'removed', breaking: true });
+      head.configModules = head.configModules.filter((c) => c.module !== 'app');
+      expect(find(diffManifest(base, head).changes, 'config', 'app')).to.include({ kind: 'removed', breaking: true });
     });
 
     it('changed config schema is not breaking', () => {
       const head = clone();
-      head.schemas['spinajs/hooks.configuration.schema.json'] = { type: 'object' };
-      expect(find(diffManifest(base, head).changes, 'config', 'hooks')).to.include({ kind: 'changed', breaking: false });
+      head.schemas['spinajs/app-basic/app.configuration.schema.json'] = { type: 'object' };
+      expect(find(diffManifest(base, head).changes, 'config', 'app')).to.include({ kind: 'changed', breaking: false });
     });
 
     it('removed migration is breaking, added is not', () => {
@@ -422,7 +422,7 @@ describe('renderMarkdown', () => {
     routeOf(head, 'get', '/users/list').params = [];
     routeOf(head, 'get', '/health/get').access = ['health:read'];
     delete schemaOf(head, 'UserDto').properties.name;
-    head.configModules = head.configModules.filter((c) => c.module !== 'hooks');
+    head.configModules = head.configModules.filter((c) => c.module !== 'app');
     snapshot('breaking.md', renderMarkdown(diffManifest(base, head)));
   });
 

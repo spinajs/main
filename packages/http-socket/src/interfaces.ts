@@ -260,6 +260,8 @@ export interface IRegisteredHandler {
   readonly policies: IResolvedRoutePolicies;
   /** Set at registration for a handler of a contract-bound controller; throws the error the client receives */
   contractValidator?: (payload: unknown) => void;
+  /** Set at registration when the manifest derived a schema for the `@Payload` type and no contract applies; an explicit schema wins over it */
+  payloadValidator?: (payload: unknown) => void;
 }
 
 /**

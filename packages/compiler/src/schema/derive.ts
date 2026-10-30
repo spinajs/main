@@ -78,7 +78,8 @@ export function deriveType(ctx: DeriveContext, type: ts.Type): JsonSchema {
   const hoisted = hoistedId(inner, type);
   if (!hoisted) return deriveAlias(inner, type);
 
-  const explicit = usableExplicit(inner, explicitSchema(inner, type));
+  const found = explicitSchema(inner, type);
+  const explicit = usableExplicit(inner, found);
   const id = explicit?.id ?? hoisted;
   if (inner.registry.has(id)) reportCollision(inner, id, type);
   else {
@@ -89,7 +90,8 @@ export function deriveType(ctx: DeriveContext, type: ts.Type): JsonSchema {
     }
     inner.registry.set(id, { $id: id });
     const derived = deriveBody(inner, type);
-    inner.registry.set(id, publishedBody(inner, id, type, explicit, derived));
+    // The runtime Standard Schema validates the class and may accept more than its shape (passthrough, coercion, defaults).
+    inner.registry.set(id, found?.standardIssue ? { $id: id, ...derived, 'x-explicit': 'partial' } : publishedBody(inner, id, type, explicit, derived));
   }
   return { $ref: id };
 }
