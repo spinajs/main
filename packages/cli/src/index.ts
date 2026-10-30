@@ -2,12 +2,13 @@ import { CliCommand, IArgument, ICommand, IOption } from './interfaces.js';
 import { META_ARGUMENT, META_COMMAND, META_OPTION } from './decorators.js';
 import { CLI_ARGV_PROVIDER } from './tokens.js';
 import { AsyncService, Autoinject, ClassInfo, DI } from '@spinajs/di';
-import { Logger, Log } from '@spinajs/log-common';
+import type { Log } from '@spinajs/log-common';
 import { Configuration } from '@spinajs/configuration';
 import { Command, Option, Argument, CommandOptions, InvalidArgumentError } from 'commander';
 import { ListFromFiles } from '@spinajs/reflection';
 import { createRequire } from 'module';
 import { stripFrameworkOptions } from './argv.js';
+import { resolveCliLog } from './cliLog.js';
 
 export * from './interfaces.js';
 export * from './decorators.js';
@@ -41,8 +42,12 @@ function parseWithChoices(choices: string[], parser: (value: string, previous: a
 }
 
 export class Cli extends AsyncService {
-  @Logger('CLI')
-  protected Log!: Log;
+  private log?: Log;
+
+  /** Outside an application no command loads @spinajs/log, and `@Logger` would resolve the abstract class. */
+  protected get Log(): Log {
+    return (this.log ??= resolveCliLog());
+  }
 
   @Autoinject()
   protected Configuration!: Configuration;
