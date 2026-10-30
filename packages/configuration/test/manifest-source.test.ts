@@ -140,6 +140,16 @@ describe('ManifestConfigurationSource', () => {
       expect(listed).to.deep.equal(walk);
       expect((walk as { system: { dirs: { cli: string[] } } }).system.dirs.cli.slice(0, 4)).to.deep.equal(['alpha-cli', 'beta-cli', 'app-cli', 'alpha-test-cli']);
     });
+
+    for (const mode of ['off', 'prefer']) {
+      it(`${mode} mode: an app array replaces the package default, package arrays and system.dirs compose`, async () => {
+        const { config } = await start({ SPINAJS_MANIFEST_MODE: mode, APP_ENV: 'test' });
+        expect(config.get('alpha.transports')).to.deep.equal(['websocket']);
+        expect(config.get('app.list')).to.deep.equal(['app-test']);
+        expect(config.get('shared.packages')).to.deep.equal(['alpha', 'beta']);
+        expect(config.get<string[]>('system.dirs.cli').slice(0, 4)).to.deep.equal(['alpha-cli', 'beta-cli', 'app-cli', 'alpha-test-cli']);
+      });
+    }
   });
 
   describe('the effective system.manifest', () => {

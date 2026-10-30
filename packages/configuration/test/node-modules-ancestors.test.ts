@@ -101,9 +101,11 @@ describe('BaseFileSource node_modules lookup', () => {
 });
 
 class LoadProbe extends BaseFileSource {
-  public loadFrom(dirs: string[]): Promise<{ files?: string[] }> {
+  // The __file__ trail of a section concatenates across every file, so it lists the files in merge order.
+  public async loadFrom(dirs: string[]): Promise<{ files?: string[] }> {
     this.CommonDirs = dirs;
-    return this.load('!(*.*).{cjs,js}', (file) => Promise.resolve({ files: [file] } as unknown as IConfigLike));
+    const loaded = (await this.load('!(*.*).{cjs,js}', (file) => Promise.resolve({ probe: { __file__: [file] } } as unknown as IConfigLike))) as { probe?: { __file__?: string[] } };
+    return { files: loaded.probe?.__file__ };
   }
 
   public Load(): Promise<IConfigLike> {

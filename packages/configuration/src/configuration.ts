@@ -27,7 +27,7 @@ import {
 import { Autoinject, Class, Container, IContainer, Injectable } from '@spinajs/di';
 
 import { ConfigurationViolation, InvalidConfiguration } from './exception.js';
-import { mapObject, mergeArrays, parseArgv, pickObjects, pickString, sameSchema, schemaNameOf } from './util.js';
+import { mapObject, mergeConfig, mergeInto, parseArgv, pickObjects, pickString, sameSchema, schemaNameOf } from './util.js';
 import config, { buildEnvironmentFlags } from './config/configuration.js';
 import './sources.js';
 import { MANIFEST_SETTINGS } from './manifest-runtime.js';
@@ -242,8 +242,8 @@ export class FrameworkConfiguration extends Configuration {
   public merge(path: string[] | string, value: unknown) {
     assertSafePath(path);
     const schemas = this.schemasAt(path);
-    this.checkChange(schemas, path, (root) => _.mergeWith(_.get(root, path), copyForCheck(value), mergeArrays));
-    _.mergeWith(this.get(path), value, mergeArrays);
+    this.checkChange(schemas, path, (root) => mergeInto(_.get(root, path), copyForCheck(value)));
+    mergeInto(this.get(path), value);
     this.applySchemas(schemas);
   }
 
@@ -298,12 +298,12 @@ export class FrameworkConfiguration extends Configuration {
     const source = this.Container.resolve(sType);
     const sCfg = await source.Load(this);
     const schemas = sCfg ? _.uniq(Object.keys(sCfg).flatMap((k) => this.schemasAt([k]))) : [];
-    this.checkChange(schemas, [], (root) => _.mergeWith(root, copyForCheck(sCfg), mergeArrays));
+    this.checkChange(schemas, [], (root) => mergeConfig(root, copyForCheck(sCfg), 'replace'));
 
     this.Sources.push(source);
 
     if (sCfg) {
-      _.mergeWith(this.Config, sCfg, mergeArrays);
+      mergeConfig(this.Config, sCfg, 'replace');
     }
     this.applySchemas(schemas);
   }
@@ -340,7 +340,8 @@ export class FrameworkConfiguration extends Configuration {
     });
 
     // Defaults of this module, which sources may override. The flags follow the APP_ENV that selects the config files.
-    _.mergeWith(this.Config, _.cloneDeep(config), { configuration: buildEnvironmentFlags({ APP_ENV: appEnv }) }, mergeArrays);
+    mergeConfig(this.Config, _.cloneDeep(config), 'concat');
+    mergeConfig(this.Config, { configuration: buildEnvironmentFlags({ APP_ENV: appEnv }) }, 'concat');
 
     InternalLogger.info({ appEnv: this.get<string>('process.env.APP_ENV') }, 'APP_ENV set to ${appEnv}', 'Configuration');
 
@@ -348,11 +349,11 @@ export class FrameworkConfiguration extends Configuration {
       const rCfg = await source.Load(this);
 
       if (rCfg) {
-        _.mergeWith(this.Config, rCfg, mergeArrays);
+        mergeConfig(this.Config, rCfg, 'replace');
       }
     }
 
-    _.mergeWith(this.Config, this.onLoad(), mergeArrays);
+    mergeConfig(this.Config, this.onLoad(), 'replace');
 
 
     /**
@@ -360,9 +361,10 @@ export class FrameworkConfiguration extends Configuration {
      * eg. when custom modules have config and dont want to use files
      * eg. in webpack environment
      */
-    // Merged at the root: merge() writes nothing at a key no source defines.
+    // Merged at the root: merge() writes nothing at a key no source defines. These values stand in for package config
+    // files, so their arrays concatenate like those of package files.
     this.Container.resolve(Array.ofType<IConfigLike>(CONFIGURATION_SOURCES.key)).forEach((c: IConfigLike) => {
-      _.mergeWith(this.Config, c, mergeArrays);
+      mergeConfig(this.Config, c, 'concat');
     });
 
     // Every source, onLoad and DI value may set system.manifest; what was decided before the package configs loaded wins.

@@ -3281,7 +3281,7 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 6
+      "count": 5
     },
     "no-useless-escape": {
       "count": 1
@@ -3314,7 +3314,7 @@
   },
   "packages/configuration/src/sources.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 3
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 5

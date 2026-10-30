@@ -1,14 +1,19 @@
 import { Autoinject, Container, IContainer, Injectable } from '@spinajs/di';
 import glob from 'glob';
-import { default as _ } from 'lodash';
 import { join, normalize, resolve } from 'path';
-import { findBasePath, loadJsConfigFile, mergeArrays } from './util.js';
+import { findBasePath, loadJsConfigFile, mergeConfig } from './util.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { InternalLogger } from '@spinajs/internal-logger';
 import type { Manifest } from '@spinajs/manifest';
 import { activeManifestOf, manifestPackageConfigFiles, manifestSettingsOf, projectConfigDirs } from './manifest-runtime.js';
 import { Configuration, ConfigurationSource, IConfigLike, normalizeEnvironment } from '@spinajs/configuration-common';
+
+/** A config file to load; the arrays of a package's file concatenate, those of any other file replace. */
+export interface ConfigFile {
+  file: string;
+  fromPackage: boolean;
+}
 
 export abstract class BaseFileSource extends ConfigurationSource {
   /**
@@ -181,39 +186,45 @@ export abstract class BaseFileSource extends ConfigurationSource {
    * Config files matching `extension`, in merge order. With a manifest the package config files come from it, in
    * the place and order the package dir globs list them; everything else is the same.
    */
-  protected configFiles(extension: string): string[] {
-    const globDirs = (dirs: string[]): string[] =>
-      dirs.map((f) => (path.isAbsolute(f) ? f : join(this.BasePath, f))).flatMap((d) => glob.sync(path.join(d, `/**/${extension}`).replace(/\\/g, '/')));
+  protected configFiles(extension: string): ConfigFile[] {
+    const globDirs = (dirs: string[], fromPackage: boolean): ConfigFile[] =>
+      dirs
+        .map((f) => (path.isAbsolute(f) ? f : join(this.BasePath, f)))
+        .flatMap((d) => glob.sync(path.join(d, `/**/${extension}`).replace(/\\/g, '/')))
+        .map((file) => ({ file, fromPackage }));
 
-    const manifest = this.commonDirsOverride ? undefined : this.activeManifest();
-    if (!manifest) {
-      return globDirs(this.CommonDirs);
+    if (this.commonDirsOverride) {
+      return globDirs(this.commonDirsOverride, false);
     }
 
-    return [...globDirs(this.LeadingProjectDirs), ...manifestPackageConfigFiles(manifest, extension, process.cwd(), this.Container ? manifestSettingsOf(this.Container)?.mode : undefined), ...globDirs(this.ProjectDirs)];
+    const manifest = this.activeManifest();
+    const packageFiles = manifest
+      ? manifestPackageConfigFiles(manifest, extension, process.cwd(), this.Container ? manifestSettingsOf(this.Container)?.mode : undefined).map((file) => ({ file, fromPackage: true }))
+      : globDirs(this.packageConfigDirs(), true);
+
+    return [...globDirs(this.LeadingProjectDirs, false), ...packageFiles, ...globDirs(this.ProjectDirs, false)];
   }
 
-  protected async load(extension: string, callback: (file: string) => Promise<IConfigLike>) {
-    const config = {};
-
-    const toResolve = this.configFiles(extension)
+  /** Loads the config files matching `extension` and merges them, in order, into `into`. */
+  protected async load(extension: string, callback: (file: string) => Promise<IConfigLike>, into: IConfigLike = {}): Promise<IConfigLike> {
+    const files = this.configFiles(extension)
       // Overlapping globs (ancestors and WORKSPACE_ROOT_PATH) list the same path twice: the first listing wins.
-      .map((f: string) => normalize(resolve(f)))
-      .filter((f: string, index: number, self: string[]) => self.indexOf(f) === index)
+      .map((f) => ({ ...f, file: normalize(resolve(f.file)) }))
+      .filter((f, index, self) => self.findIndex((o) => o.file === f.file) === index)
       // A workspace package's own lib/config is also reached through its node_modules symlink. The last place a
       // file is reached wins, so a project dir searched later still merges over the package globs.
-      .map((f: string) => fs.realpathSync(f))
-      .filter((f: string, index: number, self: string[]) => self.lastIndexOf(f) === index)
-      .map(callback);
+      .map((f) => ({ ...f, file: fs.realpathSync(f.file) }))
+      .filter((f, index, self) => self.findLastIndex((o) => o.file === f.file) === index);
 
-    const result = await Promise.all<IConfigLike>(toResolve);
+    const result = await Promise.all<IConfigLike>(files.map((f) => callback(f.file)));
 
-    result
-      .filter((v: IConfigLike) => v !== undefined && v !== null)
-      // load & merge configs
-      .map((c: IConfigLike) => _.mergeWith(config, c.default ?? c, mergeArrays));
+    result.forEach((c, i) => {
+      if (c !== undefined && c !== null) {
+        mergeConfig(into, c.default ?? c, files[i].fromPackage ? 'concat' : 'replace');
+      }
+    });
 
-    return config;
+    return into;
   }
 
   /**
@@ -230,10 +241,7 @@ export class JsFileSource extends BaseFileSource {
   public async Load(config: Configuration): Promise<IConfigLike> {
     const env = this.getEnvironment(config);
     const common = await this.load(`!(*.*).{cjs,js}`, loadJsConfigFile);
-    const fExt = `*.${env}.{cjs,js}`;
-    const cfg = (await this.load(fExt, loadJsConfigFile)) as IConfigLike;
-
-    return _.mergeWith(common, cfg, mergeArrays);
+    return this.load(`*.${env}.{cjs,js}`, loadJsConfigFile, common);
   }
 }
 
@@ -242,9 +250,7 @@ export class JsonFileSource extends BaseFileSource {
   public async Load(config: Configuration): Promise<IConfigLike> {
     const env = this.getEnvironment(config);
     const common = await this.load(`!(*.*).json`, _load);
-    const fExt = `*.${env}.json`;
-    const cfg = await this.load(fExt, _load);
-    return _.mergeWith(common, cfg, mergeArrays) as IConfigLike;
+    return this.load(`*.${env}.json`, _load, common);
 
     function _load(file: string) {
       try {

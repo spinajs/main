@@ -14,7 +14,7 @@ import {
 } from '@spinajs/configuration-common';
 import { Autoinject, Class, Container, Injectable } from '@spinajs/di';
 
-import { mergeArrays, mapObject } from './util-common.js';
+import { mergeConfig, mergeInto, mapObject } from './util-common.js';
 
 /**
  * Browser variant of FrameworkConfiguration.
@@ -58,7 +58,7 @@ export class BrowserFrameworkConfiguration extends Configuration {
   }
 
   public merge(path: string[] | string, value: unknown) {
-    _.mergeWith(this.get(path), value, mergeArrays);
+    mergeInto(this.get(path), value);
   }
 
   public async resolve(): Promise<void> {
@@ -85,7 +85,7 @@ export class BrowserFrameworkConfiguration extends Configuration {
     this.Sources.push(source);
 
     if (sCfg) {
-      _.mergeWith(this.Config, sCfg, mergeArrays);
+      mergeConfig(this.Config, sCfg, 'replace');
     }
   }
 
@@ -95,20 +95,21 @@ export class BrowserFrameworkConfiguration extends Configuration {
     for (const source of this.Sources) {
       const rCfg = await source.Load(this);
       if (rCfg) {
-        _.mergeWith(this.Config, rCfg, mergeArrays);
+        mergeConfig(this.Config, rCfg, 'replace');
       }
     }
 
-    _.mergeWith(this.Config, this.onLoad(), mergeArrays);
+    mergeConfig(this.Config, this.onLoad(), 'replace');
 
     /**
      * Merge from DI container ( '__configuration__' seam )
      * eg. when custom modules have config and dont want to use files.
      * Root-level merge ( not per-key this.merge ) so keys that don't exist in
      * the config yet are still applied — merge() into a missing key is a no-op.
+     * They stand in for package config files, so their arrays concatenate.
      */
     this.Container.resolve(Array.ofType<IConfigLike>(CONFIGURATION_SOURCES.key)).forEach((c: IConfigLike) => {
-      _.mergeWith(this.Config, c, mergeArrays);
+      mergeConfig(this.Config, c, 'concat');
     });
 
     /**
