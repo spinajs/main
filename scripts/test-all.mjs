@@ -126,7 +126,8 @@ async function main() {
   );
   const { exitCode, lines } = summarize(results.sort((a, b) => a.name.localeCompare(b.name)), knownFailing);
   console.log(lines.join('\n'));
-  process.exit(exitCode);
+  // Not process.exit(): it drops what is still queued on a piped stdout, which on CI is the end of the last failed suite and this summary.
+  process.exitCode = exitCode;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main();
