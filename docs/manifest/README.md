@@ -1,6 +1,6 @@
 # @spinajs/manifest
 
-Versioned types, JSON Schema and helpers for the application manifest (`manifestVersion: 1`). See the package README for the reader, hash and merge helpers.
+Versioned types, JSON Schema and helpers for the application manifest (`manifestVersion: 2`; version 1 fragments, whose `fullPath` and parameter `kind` values mean something else, are refused). See the package README for the reader, hash and merge helpers.
 
 ## Runtime
 

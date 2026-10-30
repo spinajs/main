@@ -33,6 +33,28 @@ describe('route-builder', () => {
     it('ignores empty global prefix', () => {
       expect(buildRoutePath('user', route({ Path: 'grants' }), undefined)).to.eq('/user/grants');
     });
+
+    // The manifest computes `fullPath` with the same function; these rows pin what http mounts, slashes included.
+    const table: [string, string | undefined, string, string][] = [
+      ['users', undefined, 'list', '/users/list'],
+      ['users', '', 'emptyString', '/users/emptyString'],
+      ['users', '/', 'root', '/users'],
+      ['users', ':id', 'get', '/users/:id'],
+      ['users', '/slash', 'leadingSlash', '/users//slash'],
+      ['api/v2/things', undefined, 'all', '/api/v2/things/all'],
+      ['api/v2/things', '/', 'index', '/api/v2/things'],
+      ['nobasecontroller', undefined, 'pong', '/nobasecontroller/pong'],
+      ['/', 'health', 'health', '/health'],
+      ['/', undefined, 'bare', '///bare'],
+      ['/', '/', 'slash', '//'],
+      ['/lead', 'x', 'x', '//lead/x'],
+    ];
+    for (const [basePath, path, method, served] of table) {
+      it(`mounts ${JSON.stringify(basePath)} + ${JSON.stringify(path)} on ${method}() at ${served}`, () => {
+        expect(buildRoutePath(basePath, route({ Path: path, Method: method }))).to.eq(served);
+        expect(buildRoutePath(basePath, route({ Path: path, Method: method }), 'api')).to.eq(`/api${served}`);
+      });
+    }
   });
 
   describe('resolveRoutePolicies', () => {

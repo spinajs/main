@@ -37,7 +37,17 @@ function diffKeyed<T>(section: Section, base: Keyed<T>[], head: Keyed<T>[], opts
 const compareCodeUnits = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 const differs = (a: unknown, b: unknown): boolean => canonicalize(a) !== canonicalize(b);
 const routeKey = (r: RouteEntry): string => `${r.method.toUpperCase()} ${r.fullPath}`;
-const requestParams = (r: RouteEntry): ParamEntry[] => r.params.filter((p) => p.kind !== 'FromDI');
+// Kinds of injected and user-agent arguments, for params recorded without `wire`; `Req`/`Res` are what compilers before the runtime names wrote.
+const NOT_SENT_KINDS = new Set(['FromDi', 'ArgAsRequest', 'ArgAsResponse', 'Req', 'Res', 'IpRouteArgs', 'RequestIdRouteArgs', 'UserAgentRouteArgs', 'RefererRouteArgs', 'RequestTypeRouteArgs', 'FromModel']);
+const requestParams = (r: RouteEntry): ParamEntry[] => r.params.filter((p) => (p.wire ? p.wire.in !== 'none' : !NOT_SENT_KINDS.has(p.kind)));
+
+/** A param is identified by where it travels, so renaming a whole-body or header argument in code is not a change. */
+const legacyKey = (p: ParamEntry): string => `${p.kind}:${p.name}`;
+const wireKey = (p: ParamEntry): string => {
+  const { wire } = p;
+  if (!wire) return legacyKey(p);
+  return wire.shape === 'whole' ? `${wire.in}:*:${p.kind}` : `${wire.in}:${wire.name ?? p.name}`;
+};
 
 function compareTypes(b: TypeRef, h: TypeRef, direction: 'request' | 'response', label: string, base: Manifest, head: Manifest): Finding[] {
   if (b.schema && h.schema) return compareSchemaRefs(b.schema, h.schema, direction, base.schemas, head.schemas, label);
@@ -45,7 +55,7 @@ function compareTypes(b: TypeRef, h: TypeRef, direction: 'request' | 'response',
 }
 
 function compareParams(b: RouteEntry, h: RouteEntry, base: Manifest, head: Manifest): Finding[] {
-  const key = (p: ParamEntry): string => `${p.kind}:${p.name}`;
+  const key = [...b.params, ...h.params].every((p) => p.wire) ? wireKey : legacyKey;
   const before = new Map(requestParams(b).map((p) => [key(p), p]));
   const after = new Map(requestParams(h).map((p) => [key(p), p]));
   const findings: Finding[] = [];

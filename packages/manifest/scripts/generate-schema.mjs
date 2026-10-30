@@ -11,7 +11,7 @@ export function generate() {
   for (const type of ['Manifest', 'ManifestFragment']) {
     Object.assign(definitions, createGenerator({ ...config, type }).createSchema(type).definitions);
   }
-  return { $schema: 'http://json-schema.org/draft-07/schema#', $id: 'https://spinajs.dev/schemas/manifest-v1.json', definitions };
+  return { $schema: 'http://json-schema.org/draft-07/schema#', $id: 'https://spinajs.dev/schemas/manifest-v2.json', definitions };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

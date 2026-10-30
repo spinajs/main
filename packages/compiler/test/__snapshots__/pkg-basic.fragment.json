@@ -1,5 +1,5 @@
 {
-  "manifestVersion": 1,
+  "manifestVersion": 2,
   "package": {
     "name": "pkg-basic",
     "version": "1.0.0",
@@ -608,6 +608,7 @@
       "id": "pkg-basic:UsersController",
       "className": "UsersController",
       "basePath": "users",
+      "mountPath": "users",
       "policies": [
         [
           {
@@ -639,7 +640,12 @@
                 "text": "number",
                 "schema": "spinajs/pkg-basic/UsersController_get_id"
               },
-              "required": true
+              "required": true,
+              "wire": {
+                "in": "path",
+                "name": "id",
+                "shape": "value"
+              }
             },
             {
               "index": 1,
@@ -649,7 +655,12 @@
                 "text": "boolean",
                 "schema": "spinajs/pkg-basic/UsersController_get_verbose"
               },
-              "required": false
+              "required": false,
+              "wire": {
+                "in": "query",
+                "name": "verbose",
+                "shape": "value"
+              }
             }
           ],
           "returnType": {
@@ -693,7 +704,7 @@
           "method": "post",
           "path": "",
           "handler": "create",
-          "fullPath": "/users",
+          "fullPath": "/users/create",
           "params": [
             {
               "index": 0,
@@ -706,6 +717,10 @@
               "required": true,
               "options": {
                 "required": true
+              },
+              "wire": {
+                "in": "body",
+                "shape": "whole"
               }
             }
           ],
@@ -755,7 +770,12 @@
                 "schema": "spinajs/pkg-basic/UsersController_remove_id"
               },
               "required": true,
-              "schema": "spinajs/pkg-basic/UsersController.remove.id"
+              "schema": "spinajs/pkg-basic/UsersController.remove.id",
+              "wire": {
+                "in": "path",
+                "name": "id",
+                "shape": "value"
+              }
             }
           ],
           "returnType": {
@@ -786,7 +806,7 @@
           "method": "get",
           "path": "",
           "handler": "list",
-          "fullPath": "/users",
+          "fullPath": "/users/list",
           "params": [],
           "returnType": {
             "text": "UserDto[]",

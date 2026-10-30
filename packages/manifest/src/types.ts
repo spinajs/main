@@ -1,4 +1,4 @@
-export const MANIFEST_VERSION = 1 as const;
+export const MANIFEST_VERSION = 2 as const;
 
 export interface SourceRef { file: string; line: number; col: number; package: string }
 
@@ -35,14 +35,37 @@ export interface TypeRef {
   schema?: string;
 }
 
+/** `none`: injected by the framework or set by the user agent (`FromDi`, `Req`, `Ip`, `UserAgent`, ...), not part of a call. */
+export type WireLocation = 'query' | 'path' | 'body' | 'header' | 'cookie' | 'multipart' | 'none';
+
+/**
+ * - `value`: one plain string under `name` (a primitive, literal union or enum; a file part; a hydrated type such as luxon `DateTime`).
+ * - `json`: `JSON.stringify(value)` under `name` (a class, object, array, `any` or mixed union read from a query key, url segment, header or cookie).
+ * - `whole`: the argument is the container itself: the whole query (flat, string values), params, headers, form, or body.
+ * - `field`: `body[name]` (one of several `@Body` arguments, or a primitive single `@Body`).
+ */
+export type WireShape = 'value' | 'json' | 'whole' | 'field';
+
+/** How a client sends a route argument, as the `@spinajs/http` route-arg that reads it binds it. */
+export interface ParamWire {
+  in: WireLocation;
+  /** Key on the wire; absent for `whole`. A header name is lower-cased. */
+  name?: string;
+  shape: WireShape;
+  /** Repeated parts or fields under `name` (`@Files`, an array `@FormField`). */
+  multiple?: true;
+}
+
 export interface ParamEntry {
   index: number;
   name: string;                      // from the AST, replaces cache.ts
-  kind: string;                      // ParameterType value, e.g. 'FromBody', 'FromQuery', 'FromParams', 'FromDI', …
+  kind: string;                      // the ParameterType the runtime registers it under: 'FromBody', 'FromQuery', 'FromDi', 'ArgAsRequest', orm-http 'AsDbModel', …
   runtimeType: TypeRef;
   required: boolean;
   options?: unknown;                 // decorator options object when it is a literal
   schema?: string;                   // explicit @Body/@Query schema `$id` (inline schemas are hoisted into `schemas`)
+  /** Absent in fragments older than the field. */
+  wire?: ParamWire;
 }
 
 export interface PolicyRef { type: string; options?: unknown[] }
@@ -51,7 +74,12 @@ export interface RouteEntry {
   method: 'get' | 'post' | 'put' | 'patch' | 'delete' | 'head' | 'file';
   path: string;
   handler: string;                   // method name
-  fullPath: string;                  // basePath + path; computed by the extractor, kept at merge
+  /**
+   * The request path the route answers at, `servedPath(routeFullPath(mountPath, path, handler))`, without the global
+   * `http.controllers.route.prefix`: with one, it is `servedPath(withRoutePrefix(prefix, fullPath))`. A `basePathConfig`
+   * controller uses its default.
+   */
+  fullPath: string;
   params: ParamEntry[];
   returnType: TypeRef;
   policies: PolicyRef[][];           // groups: OR between groups, AND inside
@@ -64,7 +92,9 @@ export interface RouteEntry {
 
 export interface ControllerEntry {
   id: string; className: string;
-  basePath: string | null; basePathConfig?: string;
+  basePath: string | null; basePathConfig?: string;   // as declared; null without @BasePath
+  /** Effective base the routes are mounted under (`controllerMountPath`); absent in fragments older than the field. */
+  mountPath?: string;
   policies: PolicyRef[][]; middlewares: { type: string; options?: unknown[] }[];
   access?: string[]; allowAnonymous?: boolean;   // class-level @Access / @AllowAnonymous
   routes: RouteEntry[];

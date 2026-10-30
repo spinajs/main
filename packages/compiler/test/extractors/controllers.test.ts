@@ -19,18 +19,18 @@ describe('extractControllers', () => {
     const r = route('get');
     expect(r).to.deep.include({ method: 'get', path: ':id', fullPath: '/users/:id', access: ['user:read'], policies: [[{ type: 'AccessPolicy', options: ['route'] }]] });
     expect(r.params).to.deep.equal([
-      { index: 0, name: 'id', kind: 'FromParams', runtimeType: { text: 'number', schema: 'spinajs/pkg-basic/UsersController_get_id' }, required: true },
-      { index: 1, name: 'verbose', kind: 'FromQuery', runtimeType: { text: 'boolean', schema: 'spinajs/pkg-basic/UsersController_get_verbose' }, required: false },
+      { index: 0, name: 'id', kind: 'FromParams', runtimeType: { text: 'number', schema: 'spinajs/pkg-basic/UsersController_get_id' }, required: true, wire: { in: 'path', name: 'id', shape: 'value' } },
+      { index: 1, name: 'verbose', kind: 'FromQuery', runtimeType: { text: 'boolean', schema: 'spinajs/pkg-basic/UsersController_get_verbose' }, required: false, wire: { in: 'query', name: 'verbose', shape: 'value' } },
     ]);
     expect(r.returnType).to.deep.equal({ text: 'UserDto', schema: 'spinajs/pkg-basic/UserDto' });
     expect(r.doc).to.deep.equal({ summary: 'Get one user', tags: ['users'], responses: [{ status: 404, description: 'not found' }] });
   });
   it('POST with required body, several permissions and options', () => {
     const r = route('create');
-    expect(r.params[0]).to.deep.equal({ index: 0, name: 'body', kind: 'FromBody', runtimeType: { text: 'CreateUserDto', schema: 'spinajs/pkg-basic/CreateUserDto' }, required: true, options: { required: true } });
+    expect(r.params[0]).to.deep.equal({ index: 0, name: 'body', kind: 'FromBody', runtimeType: { text: 'CreateUserDto', schema: 'spinajs/pkg-basic/CreateUserDto' }, required: true, options: { required: true }, wire: { in: 'body', shape: 'whole' } });
     expect(r.access).to.deep.equal(['user:create', 'user:update']);
     expect(r.middlewares).to.deep.equal([{ type: 'AuthzFieldsMiddleware', options: [] }]);
-    expect(r.fullPath).to.equal('/users');
+    expect(r.fullPath).to.equal('/users/create');
   });
   it('DELETE with inline schema hoisted, anonymous, policy group with config key', () => {
     const r = route('remove');

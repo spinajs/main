@@ -10,11 +10,6 @@ export interface MergeMeta {
 
 const prefixId = (pkg: string, id: string): string => (id.startsWith(`${pkg}:`) ? id : `${pkg}:${id}`);
 
-function joinPath(basePath: string | null, path: string): string {
-  const joined = [basePath ?? '', path].join('/').replace(/\/{2,}/g, '/');
-  return joined.startsWith('/') ? joined : `/${joined}`;
-}
-
 /** Dependencies come first so that, with "last wins" at runtime, the app overrides its packages. */
 export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], meta: MergeMeta): Manifest {
   const fragments = [...deps, app];
@@ -51,18 +46,13 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
     }
   }
 
-  const controllers = collect((f) => f.controllers).map((c) => ({
-    ...c,
-    routes: c.routes.map((r) => ({ ...r, fullPath: r.fullPath || joinPath(c.basePath, r.path) })),
-  }));
-
   const manifest: Manifest = {
     manifestVersion: MANIFEST_VERSION,
     app: meta.app,
     packages: meta.packages,
     services: collect((f) => f.services),
     values: plain((f) => f.values),
-    controllers,
+    controllers: collect((f) => f.controllers),
     socketControllers: collect((f) => f.socketControllers),
     socketContracts: collect((f) => f.socketContracts),
     configModules: plain((f) => f.configModules),

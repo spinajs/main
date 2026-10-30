@@ -1,13 +1,13 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://spinajs.dev/schemas/manifest-v1.json",
+  "$id": "https://spinajs.dev/schemas/manifest-v2.json",
   "definitions": {
     "Manifest": {
       "type": "object",
       "properties": {
         "manifestVersion": {
           "type": "number",
-          "const": 1
+          "const": 2
         },
         "services": {
           "type": "array",
@@ -406,6 +406,9 @@
         "basePathConfig": {
           "type": "string"
         },
+        "mountPath": {
+          "type": "string"
+        },
         "policies": {
           "type": "array",
           "items": {
@@ -626,6 +629,9 @@
         "options": {},
         "schema": {
           "type": "string"
+        },
+        "wire": {
+          "$ref": "#/definitions/ParamWire"
         }
       },
       "required": [
@@ -648,6 +654,49 @@
       },
       "required": [
         "text"
+      ]
+    },
+    "ParamWire": {
+      "type": "object",
+      "properties": {
+        "in": {
+          "$ref": "#/definitions/WireLocation"
+        },
+        "name": {
+          "type": "string"
+        },
+        "shape": {
+          "$ref": "#/definitions/WireShape"
+        },
+        "multiple": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "in",
+        "shape"
+      ]
+    },
+    "WireLocation": {
+      "type": "string",
+      "enum": [
+        "query",
+        "path",
+        "body",
+        "header",
+        "cookie",
+        "multipart",
+        "none"
+      ]
+    },
+    "WireShape": {
+      "type": "string",
+      "enum": [
+        "value",
+        "json",
+        "whole",
+        "field"
       ]
     },
     "SocketControllerEntry": {
@@ -1126,7 +1175,7 @@
       "properties": {
         "manifestVersion": {
           "type": "number",
-          "const": 1
+          "const": 2
         },
         "package": {
           "type": "object",

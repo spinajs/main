@@ -24,13 +24,10 @@ describe('mergeFragments', () => {
     expect(m.services[0].id).to.equal('dep:B');
   });
 
-  it('computes fullPath from basePath and path when missing', () => {
-    const app = fragment('app', {
-      controllers: [controller('app', 'C', '/users', [route('/:id'), route('list'), route('/x', '/kept/x')]), controller('app', 'D', null, [route('/root')])],
-    });
+  it('keeps fullPath as the fragment recorded it', () => {
+    const app = fragment('app', { controllers: [controller('app', 'C', '/users', [route('/x', '//users//x'), route('', '/users/h')])] });
     const m = mergeFragments(app, [], meta(['app']));
-    expect(m.controllers[0].routes.map((r) => r.fullPath)).to.deep.equal(['/users/:id', '/users/list', '/kept/x']);
-    expect(m.controllers[1].routes[0].fullPath).to.equal('/root');
+    expect(m.controllers[0].routes.map((r) => r.fullPath)).to.deep.equal(['//users//x', '/users/h']);
   });
 
   it('reports duplicate registeredAs across packages as info', () => {
@@ -75,7 +72,7 @@ describe('mergeFragments', () => {
   it('keeps fragment diagnostics and stamps app, packages and hash', () => {
     const dep = fragment('dep', { diagnostics: [{ code: 'X', severity: 'warning', message: 'm' }] });
     const m = mergeFragments(fragment('app'), [dep], meta(['dep', 'app']));
-    expect(m.manifestVersion).to.equal(1);
+    expect(m.manifestVersion).to.equal(2);
     expect(m.app.name).to.equal('app');
     expect(m.packages).to.have.length(2);
     expect(m.diagnostics.map((x) => x.code)).to.deep.equal(['X']);

@@ -2,15 +2,15 @@
 
 Result: non-breaking (4 changes)
 
-`246587929cea` -> `eeeeeeeeeeee`
+`7a5a49a0abb5` -> `eeeeeeeeeeee`
 
 ### routes
 
 | Change | Id | Breaking | Detail |
 | --- | --- | --- | --- |
-| changed | `GET /users` | no | response[].nick property added |
 | changed | `GET /users/:id` | no | response.nick property added |
-| changed | `POST /users` | no | response\|UserDto.nick property added |
+| changed | `GET /users/list` | no | response[].nick property added |
+| changed | `POST /users/create` | no | response\|UserDto.nick property added |
 
 ### schemas
 

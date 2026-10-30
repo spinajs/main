@@ -73,7 +73,7 @@ A package that wants to take part in an app manifest ships its fragment and poin
 | --- | --- | --- |
 | `services` | `@Injectable()` classes; `DI.register(X).as(...)`, `.asSelf()`, `.singleInstance()` chains | Records `registeredAs`, lifetime, `async` (`AsyncService`), `bootstrapper`, `@Inject` constructor tokens, injected properties, and `DI.resolve(...)` calls inside methods. |
 | `values` | `.asValue(...)`, `.asMapValue(...)` on a register chain; `registerConfigurationSchema` calls | Token and, for maps, the map key. |
-| `controllers`, routes, params | Classes extending `BaseController`; `@BasePath`; `@Get`, `@Post`, `@Put`, `@Patch`, `@Del`, `@Head`; parameter decorators such as `@Query`, `@Body`, `@Param`, `@Header`, `@File`, `@Form`, `@Cookie`, `@PKey`, `@Uuid` | Policies (`@Policy`), middlewares, `@Access` and `@AllowAnonymous` are recorded at class and route level. The return type is unwrapped from `Promise` and the transparent response wrappers. JSDoc tags (`@summary`, `@description`, `@tags`, `@deprecated`, `@response`) fill `doc`. |
+| `controllers`, routes, params | Classes extending `BaseController`; `@BasePath`; `@Get`, `@Post`, `@Put`, `@Patch`, `@Del`, `@Head`; parameter decorators such as `@Query`, `@Body`, `@Param`, `@Header`, `@File`, `@Form`, `@Cookie`, `@PKey`, `@Uuid` | Policies (`@Policy`), middlewares, `@Access` and `@AllowAnonymous` are recorded at class and route level. The return type is unwrapped from `Promise` and the transparent response wrappers. JSDoc tags (`@summary`, `@description`, `@tags`, `@deprecated`, `@response`) fill `doc`. `fullPath` is the path `@spinajs/http` serves (`routeFullPath`, without `http.controllers.route.prefix`), `mountPath` the effective base, and each parameter's `wire` says how a client sends it (see below). |
 | `socketControllers` | `@SocketController`, `@Command`, `@OnEvent`, `@Payload`, `@SocketPolicy`, `@SocketAccess` | Command options (`idempotent`, `ordered`, `timeoutMs`) are kept when literal. |
 | `socketContracts` | `const X = defineContract<T>()` with a type argument describing `commands` (payload and result tuples), `events` and `clientEvents` | Payload and result types are recorded as type references. |
 | `configModules` | `registerConfigurationSchema` and the at-import variant with a literal schema | Needs `$id` and `$configurationModule` on the schema. `defaultsFile` is set when `src/config/<module>.ts` exists. |
@@ -87,6 +87,34 @@ A package that wants to take part in an app manifest ships its fragment and poin
 ### Conditions
 
 A service, value or controller that is registered conditionally carries a `condition`. A registration guarded by a `@Config` property or a `config.get(...)` check becomes `{ kind: 'config', path, expected? }`. Anything the analyzer cannot decide (loops, arbitrary expressions, registration inside `bootstrap()` without a guard) becomes `{ kind: 'dynamic', reason }` with a `CMP003` diagnostic. Such entries are kept, never dropped.
+
+### Route paths and wire format
+
+`fullPath` is the request path the route answers at: `servedPath(routeFullPath(mountPath, path, handler))`. `routeFullPath` is the function `@spinajs/http` mounts routes with: a bare or empty route path falls back to the handler name (`@Get()` on `list()` under `users` is `/users/list`), `@Get('/')` is the base itself, and parts are joined as written, so a leading slash gives `//`. `servedPath` strips trailing slashes, as the router does when it matches a route: `@BasePath('/')` + `@Get('/')` is mounted as `//` but answers at `/` (a request for `//` is a 404), so its `fullPath` is `/`. `mountPath` is the `@BasePath` value, the lower-cased class name without one, or the default of a configured base path without its outer slashes. With `http.controllers.route.prefix`, the path is `servedPath(withRoutePrefix(prefix, fullPath))`.
+
+`kind` is the `ParameterType` the runtime registers the argument under: `@AsModel` is `AsDbModel` and `@FromModel` is `FromDbModel` (orm-http), `@FromXml` is `FromXmlRouteArgs`, `@Req`/`@Res` are `ArgAsRequest`/`ArgAsResponse`, and `@PKey(X)`/`@Uuid(X)` record `X` (`FromParams` without it).
+
+`wire` follows the route-arg that binds the parameter. "Scalar" is a type of one primitive family (string, number, boolean, bigint, their literals and enums; `null`/`undefined` ignored), luxon `DateTime`, or a built-in constructor other than `Object`/`Array`; anything else is parsed with `JSON.parse` by the server. A built-in constructor such as `Date` is not converted at all: `@Query() since: Date` hands the handler the string as sent (no `format` is recorded, the server applies none), so type it as `string` or luxon `DateTime` to say what it is.
+
+| Decorator | `in` | `name` | `shape` |
+| --- | --- | --- | --- |
+| `@Query()` | `query` | parameter name | `value` when scalar, else `json` |
+| `@QueryField()` | `query` | | `whole` (flat keys, string values) |
+| `@Param()`, `@PKey()`, `@Uuid()` | `path` (`@PKey(ParameterType.X)`: that location) | parameter name; `_name` is recorded as `name` when only `:name` is in the path (`FromParams` falls back to it) | `value` when scalar, else `json` |
+| `@ParamField()` | `path` | | `whole` |
+| `@Header(key?)` | `header` | `key`, else the parameter name, lower-cased | `value` when scalar, else `json` |
+| `@HeadersField()` | `header` | | `whole` |
+| `@Cookie()` | `cookie` | parameter name | `value` when scalar, else `json` |
+| `@Body()`, the only `FromBody` argument of the route, not scalar | `body` | | `whole` |
+| `@Body()`, one of several `FromBody` arguments (`@PKey`/`@Uuid(ParameterType.FromBody)` count too), or scalar | `body` | parameter name | `field` (`body[name]`) |
+| `@BodyField()`, `@RawBody()`, `@FromXml()` | `body` | | `whole` |
+| `@File()`, `@CsvFile()`, `@JsonFile()` | `multipart` | parameter name | `value`; array type: `multiple: true` |
+| `@Files()` | `multipart` | parameter name | `value`, `multiple: true` |
+| `@FormField()` | `multipart` | parameter name | array type: `value`, `multiple: true`; else `value` when scalar, `json` otherwise |
+| `@Form()` | `multipart` | | `whole` |
+| orm-http `@FromModel({ paramType?, paramField? })` | `path`, or `paramType` | `paramField`, else the parameter name | `value` (`field` in the body) |
+| orm-http `@AsModel(field?, type?)` | `body`, or `type` | `field`, else the parameter name | body: `whole` when it is the only one and has no `field`, else `field`; elsewhere `json` |
+| `@FromDI()`, `@Req()`, `@Res()`, `@Ip()`, `@RequestId()`, `@UserAgent()`, `@Referer()`, `@AcceptType()`, `@Model()` | `none` | | `whole` |
 
 ## Schema derivation
 
@@ -113,6 +141,7 @@ Every diagnostic has a `code`, a `severity` (`error`, `warning`, `info`), a `mes
 | `CMP001` | info | A decorator argument is not a literal, so the value is `undefined` in the manifest. |
 | `CMP002` | info | A `@response` JSDoc tag could not be parsed. |
 | `CMP003` | info | A registration has a dynamic condition. |
+| `CMP005` | info | A route argument read from one string (query key, url segment, header, cookie, form field) has a type converted by a custom `@Hydrator`, which receives the raw string. Its `wire.shape` is recorded as `value`; the hydrator decides the real format. |
 | `CFG010` | warning | A configuration schema is not a literal with `$id` and `$configurationModule`. |
 | `SCH001` | warning / info | A type has no JSON Schema form and is emitted as `{}`: `any`, a function, `symbol`, `never`. Give the member a real type. `unknown`, `object` and an `any` index signature are `info`: the value is accepted as is, which suits an opaque value. A model read from a declaration file is `info` too (see the model row above). A type declared outside the package says where in the message (`declared in X`). |
 | `SCH002` | warning | A type nests deeper than the depth limit (20) and the cut is emitted as `{}`. Usually a framework type reached through a member; a recursive alias no longer causes it. |
@@ -134,7 +163,7 @@ The triage of `users-http`, `teams-http` and `authz-http-admin` left these diagn
 | `SCH001` warning | `@spinajs/orm` `MetadataModel.Value` (`orm/src/metadata.ts`), reached through `users-http` `FilterableUserMetadata` | The `Value` accessor is typed `any`. | Type it `unknown` in `@spinajs/orm`. Out of scope for the triage: the type change reaches every metadata consumer. |
 | `SCH001` info | `users-http` (5) and `authz-http-admin` (4) | Opaque by design: `unknown` values (`UserProfile.AdditionalData`, `CreateUserDto.Metadata`, link `attributes`) and models read from `@spinajs/users` declaration files (`User`, `UserMetadataBase`, `FilterableUserMetadata`). | None needed. |
 
-`runDoctor` runs consistency rules over a manifest and is exported from the same package.
+`runDoctor` runs consistency rules over a manifest and is exported from the same package. The route rules (`HTTP001`, `HTTP003`, `HTTP004`, `HTTP005`) are listed in [doctor](doctor.md).
 
 ## TypeScript version
 

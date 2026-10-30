@@ -1,5 +1,5 @@
 {
-  "manifestVersion": 1,
+  "manifestVersion": 2,
   "app": {
     "name": "app-basic",
     "version": "0.1.0",
@@ -50,6 +50,7 @@
       "id": "app-basic:HealthController",
       "className": "HealthController",
       "basePath": "health",
+      "mountPath": "health",
       "policies": [],
       "middlewares": [],
       "routes": [
@@ -57,7 +58,7 @@
           "method": "get",
           "path": "",
           "handler": "get",
-          "fullPath": "/health",
+          "fullPath": "/health/get",
           "params": [],
           "returnType": {
             "text": "{ ok: boolean; }",
@@ -85,6 +86,7 @@
       "id": "app-basic:UsersController",
       "className": "UsersController",
       "basePath": "users",
+      "mountPath": "users",
       "policies": [],
       "middlewares": [],
       "routes": [
@@ -92,7 +94,7 @@
           "method": "get",
           "path": "",
           "handler": "list",
-          "fullPath": "/users",
+          "fullPath": "/users/list",
           "params": [
             {
               "index": 0,
@@ -102,7 +104,12 @@
                 "text": "ListQuery",
                 "schema": "spinajs/app-basic/ListQuery"
               },
-              "required": true
+              "required": true,
+              "wire": {
+                "in": "query",
+                "name": "query",
+                "shape": "json"
+              }
             }
           ],
           "returnType": {
@@ -135,7 +142,12 @@
                 "text": "number",
                 "schema": "spinajs/app-basic/UsersController_get_id"
               },
-              "required": true
+              "required": true,
+              "wire": {
+                "in": "path",
+                "name": "id",
+                "shape": "value"
+              }
             }
           ],
           "returnType": {
@@ -167,7 +179,7 @@
           "method": "post",
           "path": "",
           "handler": "create",
-          "fullPath": "/users",
+          "fullPath": "/users/create",
           "params": [
             {
               "index": 0,
@@ -177,7 +189,11 @@
                 "text": "CreateUserDto",
                 "schema": "spinajs/app-basic/CreateUserDto"
               },
-              "required": true
+              "required": true,
+              "wire": {
+                "in": "body",
+                "shape": "whole"
+              }
             }
           ],
           "returnType": {
@@ -219,7 +235,12 @@
                 "text": "number",
                 "schema": "spinajs/app-basic/UsersController_avatar_id"
               },
-              "required": true
+              "required": true,
+              "wire": {
+                "in": "path",
+                "name": "id",
+                "shape": "value"
+              }
             },
             {
               "index": 1,
@@ -228,7 +249,12 @@
               "runtimeType": {
                 "text": "IUploadedFile<any>"
               },
-              "required": true
+              "required": true,
+              "wire": {
+                "in": "multipart",
+                "name": "file",
+                "shape": "value"
+              }
             }
           ],
           "returnType": {
@@ -608,6 +634,6 @@
     }
   },
   "diagnostics": [],
-  "generatedAt": "2026-10-27T08:15:06.874Z",
-  "hash": "246587929ceac27f5c84d573e910b229cdb51bb473e50e9019676127822ec6a9"
+  "generatedAt": "2026-10-30T02:12:15.440Z",
+  "hash": "7a5a49a0abb5eff812be0a90223a13c8e4d69b3d531dff8765aa6d150f187a5a"
 }
