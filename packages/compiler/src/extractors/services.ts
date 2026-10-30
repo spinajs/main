@@ -45,9 +45,9 @@ function registrationsIn(expr: ts.Expression): ts.Expression[] {
 function fromRegister(expr: ts.Expression, ctx: ExtractorContext): ServiceEntry | undefined {
   const chain = registerChainOf(expr);
   const cls = chain && classDeclarationOf(chain.target, ctx);
-  if (!chain || !cls?.name || !chain.calls.some((c) => c.name === 'as' || c.name === 'asSelf')) return undefined;
+  if (!chain || !cls?.name || !chain.calls.some((c) => c.name === 'as' || c.name === 'asToken' || c.name === 'asSelf')) return undefined;
   const className = cls.name.text;
-  const registeredAs = chain.calls.flatMap((c) => (c.name === 'as' ? [tokenKey(c.args[0], ctx)] : c.name === 'asSelf' ? [className] : []));
+  const registeredAs = chain.calls.flatMap((c) => (c.name === 'as' || c.name === 'asToken' ? [tokenKey(c.args[0], ctx)] : c.name === 'asSelf' ? [className] : []));
   const lifetime = chain.calls.some((c) => c.name === 'singleInstance') ? 'singleton' : lifetimeOf(cls);
   return entryFor(cls as NamedClass, registeredAs, lifetime, expr, ctx);
 }

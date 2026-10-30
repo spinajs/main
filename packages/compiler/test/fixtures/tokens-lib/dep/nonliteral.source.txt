@@ -1,0 +1,2 @@
+import { token } from '@spinajs/di';
+export const Cache = token<object>(compute());

@@ -53,7 +53,7 @@ describe('authz-rbac ConfigRuleStore', () => {
 
   it('follows a replaced authz.rbac.rules list, as ConfigRoleStore follows its roles', async () => {
     const values: Record<string, unknown> = { rules: [cap()] };
-    const store = new ConfigRuleStore({ get: () => values.rules } as unknown as Configuration);
+    const store = new ConfigRuleStore({ get: () => values.rules });
     const first = store.all();
     const version = await store.version();
     expect(store.all()).to.equal(first);
@@ -137,7 +137,7 @@ describe('authz-rbac ConfigRuleStore', () => {
     });
 
     it('does not read a null authz.rbac.rules as no rules', () => {
-      expect(() => new ConfigRuleStore({ get: () => null } as unknown as Configuration).all()).to.throw();
+      expect(() => new ConfigRuleStore({ get: () => null }).all()).to.throw();
     });
   });
 });
@@ -174,7 +174,7 @@ describe('authz-rbac authz.rbac.rules schema', () => {
         },
       )
       .as(Configuration);
-    return (await child.resolve(Configuration)) as Configuration;
+    return await child.resolve<Configuration>(Configuration);
   }
 
   it('takes valid rules of each kind; ConfigRuleStore gives a rule without a scope GLOBAL', async () => {

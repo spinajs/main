@@ -2031,11 +2031,6 @@
       "count": 1
     }
   },
-  "packages/authz-rbac/test/rules/store.test.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    }
-  },
   "packages/authz-rbac/test/stores/config-role-store.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 4
@@ -2928,14 +2923,11 @@
     }
   },
   "packages/authz/test/engine/evaluate.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 2
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     },
     "promise/param-names": {
-      "count": 2
+      "count": 1
     }
   },
   "packages/authz/test/engine/fakes.ts": {
@@ -4262,9 +4254,6 @@
   "packages/http-swagger/test/swagger-responses.test.ts": {
     "@typescript-eslint/no-floating-promises": {
       "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 42
     }
   },
   "packages/http-swagger/test/swagger-schema-generation.test.ts": {
@@ -4546,9 +4535,6 @@
     },
     "max-nested-callbacks": {
       "count": 4
-    },
-    "no-useless-assignment": {
-      "count": 1
     },
     "promise/always-return": {
       "count": 3

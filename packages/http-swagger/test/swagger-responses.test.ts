@@ -7,10 +7,14 @@ import { TestConfiguration, req } from './common.js';
 import '../src/index.js';
 import { FsBootsrapper, fsService } from '@spinajs/fs';
 
+interface JsonNode {
+  [key: string]: JsonNode;
+}
+
 describe('Swagger error response components', function () {
   this.timeout(30000);
 
-  let spec: any;
+  let spec: JsonNode;
 
   before(async () => {
     DI.clearCache();
@@ -27,7 +31,7 @@ describe('Swagger error response components', function () {
     server.start();
 
     const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
-    spec = JSON.parse(result.text);
+    spec = JSON.parse(result.text) as JsonNode;
   });
 
   after(async () => {
@@ -64,8 +68,10 @@ describe('Swagger error response components', function () {
   });
 
   it('each registered component should reference the ProblemDetails schema', () => {
-    for (const name of ['Unauthorized', 'Forbidden', 'NotFound', 'ServerError']) {
-      const resp = spec.components.responses[name];
+    const names = ['Unauthorized', 'Forbidden', 'NotFound', 'ServerError'];
+    const checked = Object.entries(spec.components.responses).filter(([name]) => names.includes(name));
+    expect(checked).to.have.length(names.length);
+    for (const [, resp] of checked) {
       expect(resp.content).to.have.keys(['application/problem+json']);
       expect(resp.content['application/problem+json'].schema.$ref).to.equal('#/components/schemas/ProblemDetails');
     }

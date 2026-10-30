@@ -1,7 +1,8 @@
 import ts from 'typescript';
 import type { Lifetime, ServiceEntry } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
-import { decoratorsOf, findDecorator, identifierName, isArrayOfType, literalValue } from '../decorators.js';
+import { decoratorsOf, findDecorator, isArrayOfType, literalValue } from '../decorators.js';
+import { injectedName, tokenConstantKey } from './token-constant.js';
 
 type PropertyInject = ServiceEntry['propertyInjects'][number];
 type PropertyHandler = (d: { args: readonly ts.Expression[] }, prop: ts.PropertyDeclaration, ctx: ExtractorContext) => PropertyInject;
@@ -21,7 +22,7 @@ export function lifetimeOf(cls: ts.ClassDeclaration): Lifetime {
 }
 
 export function tokenKey(expr: ts.Expression | undefined, ctx: ExtractorContext): string {
-  const name = identifierName(expr);
+  const name = injectedName(expr, ctx);
   if (name) return name;
   const value = literalValue(expr, ctx);
   return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : 'unknown';
@@ -88,7 +89,7 @@ const PROPERTY_DECORATORS: Record<string, PropertyHandler> = {
   Autoinject: (d, prop, ctx) => {
     const declared = tokenOfTypeNode(prop.type, ctx);
     const first = d.args[0];
-    const explicit = first && (ts.isIdentifier(first) || isArrayOfType(first)) ? identifierName(first) : undefined;
+    const explicit = first && (ts.isIdentifier(first) || isArrayOfType(first)) ? injectedName(first, ctx) : undefined;
     const options = optionsOf(first && ts.isObjectLiteralExpression(first) ? first : d.args[1], ctx);
     const array = declared.array || isArrayOfType(first);
     const concrete = !array && isConcreteClass(autoinjectSymbol(first, explicit, prop, ctx), ctx);
@@ -103,14 +104,14 @@ const PROPERTY_DECORATORS: Record<string, PropertyHandler> = {
   },
   LazyInject: (d, prop, ctx) => {
     const declared = tokenOfTypeNode(prop.type, ctx);
-    return { property: propertyName(prop), token: identifierName(d.args[0]) ?? declared.token, optional: false, array: declared.array, lazy: true };
+    return { property: propertyName(prop), token: injectedName(d.args[0], ctx) ?? declared.token, optional: false, array: declared.array, lazy: true };
   },
   Config: (_d, prop) => ({ property: propertyName(prop), token: 'Configuration', optional: false, array: false }),
   AutoinjectService: (d, prop, ctx) => {
     const declared = tokenOfTypeNode(prop.type, ctx);
     return {
       property: propertyName(prop),
-      token: identifierName(d.args[1]) ?? declared.token,
+      token: injectedName(d.args[1], ctx) ?? declared.token,
       optional: optionsOf(d.args[2], ctx).optional === true,
       array: declared.array,
     };
@@ -146,7 +147,7 @@ export function imperativeResolvesOf(cls: ts.ClassDeclaration, ctx: ExtractorCon
     const visit = (node: ts.Node): void => {
       if (ts.isCallExpression(node) && isContainerResolve(node.expression)) {
         const arg = node.arguments[0];
-        const token = arg && (ts.isIdentifier(arg) || ts.isStringLiteralLike(arg)) ? arg.text : undefined;
+        const token = tokenConstantKey(arg, ctx) ?? (arg && (ts.isIdentifier(arg) || ts.isStringLiteralLike(arg)) ? arg.text : undefined);
         if (token) out.push({ token, method, awaited: ts.isAwaitExpression(node.parent), source: ctx.sourceRef(node) });
       }
       ts.forEachChild(node, visit);

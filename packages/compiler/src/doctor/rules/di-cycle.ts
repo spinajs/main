@@ -1,4 +1,5 @@
 import type { Diagnostic, Manifest, ServiceEntry } from '@spinajs/manifest';
+import { isUnresolvedTokenKey } from '../../token-key.js';
 import { compareCodeUnits } from '../../sort.js';
 import { diagnostic, type DoctorRule } from '../index.js';
 
@@ -52,8 +53,8 @@ function edgesOf(manifest: Manifest): Map<string, Edge[]> {
   const out = new Map<string, Edge[]>();
   for (const s of manifest.services) {
     const edges: Edge[] = [];
-    for (const token of s.ctorInjects) for (const t of byToken.get(token) ?? []) edges.push({ to: t.id, soft: false });
-    for (const p of s.propertyInjects) for (const t of byToken.get(p.token) ?? []) edges.push({ to: t.id, soft: p.optional || p.lazy === true });
+    for (const token of s.ctorInjects.filter((t) => !isUnresolvedTokenKey(t))) for (const t of byToken.get(token) ?? []) edges.push({ to: t.id, soft: false });
+    for (const p of s.propertyInjects.filter((q) => !isUnresolvedTokenKey(q.token))) for (const t of byToken.get(p.token) ?? []) edges.push({ to: t.id, soft: p.optional || p.lazy === true });
     out.set(s.id, edges);
   }
   return out;
