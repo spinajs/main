@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import _ from 'lodash';
 import { DI, IContainer } from '@spinajs/di';
 import { Configuration, ConfigurationSource, IConfigLike, StaticConfigurationSource } from '@spinajs/configuration-common';
 
@@ -43,6 +44,12 @@ describe('config array merge', () => {
       expect(merged.authz.rbac.roles['admin.users'].grants).to.deep.equal(['a', 'b']);
     });
 
+    it('an empty array replaces a value array and leaves a composed one', () => {
+      const merged = mergeConfig({ list: [1, 2], system: { dirs: { cli: ['a'] } } }, { list: [], system: { dirs: { cli: [] } } }, 'replace');
+      expect(merged.list).to.deep.equal([]);
+      expect(merged.system.dirs.cli).to.deep.equal(['a']);
+    });
+
     it('copies a replacing array, so changing the result never changes the source', () => {
       const source = { list: [{ a: 1 }] };
       const merged = mergeConfig({ list: [{ a: 0 }] }, source, 'replace');
@@ -51,8 +58,19 @@ describe('config array merge', () => {
       expect(source.list).to.deep.equal([{ a: 1 }]);
     });
 
-    it('lists system.dirs as composed', () => {
-      expect(COMPOSED_CONFIG_ARRAYS).to.include('system.dirs.*');
+    for (const pattern of COMPOSED_CONFIG_ARRAYS) {
+      it(`concatenates ${pattern} in replace mode`, () => {
+        const path = pattern.split('.').map((s) => (s === '*' ? 'any.key' : s));
+        const merged = mergeConfig(_.set({}, path, ['default']), _.set({}, path, ['app']), 'replace');
+        expect(_.get(merged, path)).to.deep.equal(['default', 'app']);
+      });
+    }
+
+    it('replaces a value array next to a composed one and under a key a pattern only starts with', () => {
+      const merged = mergeConfig({ system: { dirs: { cli: ['a'] }, list: ['a'] }, authz: { rbac: { ladders: { team: { roles: ['a'] } } } } }, { system: { dirs: { cli: ['b'] }, list: ['b'] }, authz: { rbac: { ladders: { team: { roles: ['b'] } } } } }, 'replace');
+      expect(merged.system.dirs.cli).to.deep.equal(['a', 'b']);
+      expect(merged.system.list).to.deep.equal(['b']);
+      expect(merged.authz.rbac.ladders.team.roles).to.deep.equal(['b']);
     });
   });
 

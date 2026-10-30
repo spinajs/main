@@ -40,6 +40,8 @@ export const COMPOSED_CONFIG_ARRAYS: readonly string[] = [
   'authz.rbac.serviceRoles.*',
   'authz.abac.policies',
   'authz.admin.guard.keepHolders',
+  'authz.fields.neverRead',
+  'validation.strict.idPrefixes',
   '*.__file__',
 ];
 

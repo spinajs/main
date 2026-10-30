@@ -8,7 +8,7 @@ import { InternalLogger } from '@spinajs/internal-logger';
 import type { IConfigLike } from '@spinajs/configuration-common';
 
 // pure helpers live in util-common ( browser-safe ); re-export for compat
-export { merge, mergeArrays, mergeConfig, mergeInto, mapObject, pickString, pickObjects } from './util-common.js';
+export { merge, mergeArrays, mergeConfig, mergeInto, mapObject, pickString, pickObjects, type ArrayMerge } from './util-common.js';
 
 /**
  * Hack to inform ts that jasmine var is declared to skip syntax error

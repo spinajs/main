@@ -1,7 +1,7 @@
 import { Autoinject, Container, IContainer, Injectable } from '@spinajs/di';
 import glob from 'glob';
 import { join, normalize, resolve } from 'path';
-import { findBasePath, loadJsConfigFile, mergeConfig } from './util.js';
+import { findBasePath, loadJsConfigFile, mergeConfig, type ArrayMerge } from './util.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { InternalLogger } from '@spinajs/internal-logger';
@@ -9,10 +9,10 @@ import type { Manifest } from '@spinajs/manifest';
 import { activeManifestOf, manifestPackageConfigFiles, manifestSettingsOf, projectConfigDirs } from './manifest-runtime.js';
 import { Configuration, ConfigurationSource, IConfigLike, normalizeEnvironment } from '@spinajs/configuration-common';
 
-/** A config file to load; the arrays of a package's file concatenate, those of any other file replace. */
+/** A config file to load and how its arrays merge: a package's file concatenates them, any other file replaces them. */
 export interface ConfigFile {
   file: string;
-  fromPackage: boolean;
+  arrays: ArrayMerge;
 }
 
 export abstract class BaseFileSource extends ConfigurationSource {
@@ -187,22 +187,22 @@ export abstract class BaseFileSource extends ConfigurationSource {
    * the place and order the package dir globs list them; everything else is the same.
    */
   protected configFiles(extension: string): ConfigFile[] {
-    const globDirs = (dirs: string[], fromPackage: boolean): ConfigFile[] =>
+    const globDirs = (dirs: string[], arrays: ArrayMerge): ConfigFile[] =>
       dirs
         .map((f) => (path.isAbsolute(f) ? f : join(this.BasePath, f)))
         .flatMap((d) => glob.sync(path.join(d, `/**/${extension}`).replace(/\\/g, '/')))
-        .map((file) => ({ file, fromPackage }));
+        .map((file) => ({ file, arrays }));
 
     if (this.commonDirsOverride) {
-      return globDirs(this.commonDirsOverride, false);
+      return globDirs(this.commonDirsOverride, 'replace');
     }
 
     const manifest = this.activeManifest();
     const packageFiles = manifest
-      ? manifestPackageConfigFiles(manifest, extension, process.cwd(), this.Container ? manifestSettingsOf(this.Container)?.mode : undefined).map((file) => ({ file, fromPackage: true }))
-      : globDirs(this.packageConfigDirs(), true);
+      ? manifestPackageConfigFiles(manifest, extension, process.cwd(), this.Container ? manifestSettingsOf(this.Container)?.mode : undefined).map((file) => ({ file, arrays: 'concat' as const }))
+      : globDirs(this.packageConfigDirs(), 'concat');
 
-    return [...globDirs(this.LeadingProjectDirs, false), ...packageFiles, ...globDirs(this.ProjectDirs, false)];
+    return [...globDirs(this.LeadingProjectDirs, 'replace'), ...packageFiles, ...globDirs(this.ProjectDirs, 'replace')];
   }
 
   /** Loads the config files matching `extension` and merges them, in order, into `into`. */
@@ -220,7 +220,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
 
     result.forEach((c, i) => {
       if (c !== undefined && c !== null) {
-        mergeConfig(into, c.default ?? c, files[i].fromPackage ? 'concat' : 'replace');
+        mergeConfig(into, c.default ?? c, files[i].arrays);
       }
     });
 
