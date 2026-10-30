@@ -3,7 +3,7 @@ import '@spinajs/authn/register-schema';
 import '../../register-schema.js';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { BaseController, BasePath, Body, BotCheck, Get, HTTP_STATUS_CODE, Header, Ok, Post, Redirect, Req } from '@spinajs/http';
+import { BaseController, BasePath, Body, BotCheck, Get, HTTP_STATUS_CODE, Header, Ok, Post, Public, Redirect, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 import { SessionIssuer } from '@spinajs/authn/contracts';
@@ -22,6 +22,8 @@ import { NO_STORE, authnClearedSessionCookie, hookRefusedAnswer } from '../respo
 import { runLogoutExtensions } from '../logout-extension.js';
 import { answerFor, auditEnded, completeLogin, contextOf, isNavigation, pendingAnswer, pendingSteps, publishAuthnEvent } from '../routes.js';
 import '../../hooks.js';
+// Registers the webhook audit sink: the controller scan imports this file, and an app may never import the package entry.
+import '../../webhook/sink.js';
 
 // Sec-Fetch-Mode values are a few characters; an Accept header is bounded by the header size limit alone.
 const FETCH_MODE_HEADER = { type: 'string', maxLength: 64 } as const;
@@ -62,6 +64,7 @@ export class AuthnLoginController extends BaseController {
    * @security []
    */
   @Post('login')
+  @Public('anyone may try to sign in; the credentials are the guard')
   @BotCheck('login')
   @IpThrottle('login', throttledLogin)
   @OnInvalidInput(failedLogin)
@@ -83,6 +86,7 @@ export class AuthnLoginController extends BaseController {
    * @response 403 {AuthnError} action_refused (with `code`) when an `authn.logout` hook refuses
    */
   @Post('logout')
+  @Public('answers 401 itself when the request has no session')
   public async logout(
     @ClientContext() client: AuthnClientContext,
     // Typed plain string, not string | undefined: a union reaches the route args as Object, and Object values are parsed as JSON.
@@ -129,6 +133,7 @@ export class AuthnLoginController extends BaseController {
    * @response 401 {AuthnError} No principal and no pending session
    */
   @Get('/')
+  @Public('answers 401 itself when there is no principal and no pending session')
   public async whoami(@ClientContext() client: AuthnClientContext) {
     const principal = client.principal;
     if (principal?.authenticated === true) return new Ok(await answerFor(this.Container, 'whoami', principal), { Headers: [NO_STORE] });

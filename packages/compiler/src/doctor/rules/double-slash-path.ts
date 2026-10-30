@@ -1,5 +1,5 @@
 import { controllerMountPath, type ControllerEntry, type Diagnostic, type RouteEntry } from '@spinajs/manifest';
-import { diagnostic, type DoctorRule } from '../index.js';
+import { diagnostic, type DoctorRule } from '../rule.js';
 
 function hint(c: ControllerEntry, r: RouteEntry): string {
   if (r.path.startsWith('/') && r.path !== '/') return `Remove the leading slash from the route path ('${r.path}').`;

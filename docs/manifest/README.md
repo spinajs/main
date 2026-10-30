@@ -12,15 +12,30 @@ Versioned types, JSON Schema and helpers for the application manifest (`manifest
 | `loadRuntimeManifest({ path, mode }, cwd?)` | Reads and validates the manifest. `off` never reads; `prefer` returns `undefined` when the file is missing; `require` throws `ManifestMissing`. Relative paths resolve against `cwd`. |
 | `manifestFileFor(entry, manifest, cwd)` | Built `.js` file of an entry: `src/x/y.ts` of package P becomes `<root of P>/<outDir>/x/y.js`. |
 | `packageRootOf(name, manifest, cwd)` | Install root (real path) of a package listed in `manifest.packages`: `node_modules/<name>` of the nearest ancestor of the app root that has it, as node resolves it, also for an ESM-only package whose `exports` hide `package.json`; Node resolution is the fallback. |
-| `appRootOf(manifest, cwd)` | App root: `SPINAJS_MANIFEST_ROOT` if set, else `app.root` when it exists on this machine, else `cwd`. |
+| `appRootOf(manifest, cwd)` | App root: `SPINAJS_MANIFEST_ROOT` if set (even when `app.root` exists), else `app.root` when it exists on this machine, else `cwd`. |
 
 `outDir` (relative to the package root, default `lib`) is recorded per package in `package.outDir` and `packages[].outDir`, and for the app in `app.outDir`. It comes from the `outDir` of the package's tsconfig.
 
 `package.configFiles` and `packages[].configFiles` list the package's built config files relative to its `outDir` (`config/log.js`, `config/log.production.js`), collected by the compiler from `src/config/**`. With a manifest, `@spinajs/configuration` loads these instead of globbing `node_modules/@spinajs/*/lib/config`: the same files, at the same place in the merge and in the same order, so the merged configuration is the one the walk gives. A manifest whose fragment predates the field globs that package's one config dir. Like the walk, only `@spinajs/*` packages contribute config files.
 
-A manifest built on one machine and run on another (container image, bundle) keeps working when `app.root` no longer exists there: the working directory is used, or set `SPINAJS_MANIFEST_ROOT` to the deployed app directory.
+A manifest built on one machine and run on another (container image, bundle) keeps working when `app.root` no longer exists there: the working directory is used, or set `SPINAJS_MANIFEST_ROOT` to the deployed app directory. Every manifest-backed source resolves files through `manifestFileFor`, so the remap applies to config files, controllers, migrations and reflection alike, with the root containment and hash checks unchanged.
 
 The `system.manifest` configuration section (`path`, default `app.manifest.json`; `mode`, default `off`) selects the file and the mode; it is defined by `SYSTEM_CONFIGURATION_SCHEMA` in `@spinajs/configuration`.
+
+### Single-file bundle
+
+`packages/http-socket-example` shows an esbuild bundle that boots in `require` mode from a directory with no `node_modules` at all (`npm run bundle`, output in `dist/bundle`):
+
+- `main.mjs` holds the app and every dependency. It sets `SPINAJS_MANIFEST_ROOT` and `SPINAJS_MANIFEST` to its own directory, so the manifest built from the source tree still verifies.
+- `package-roots.json` maps each listed package to a directory under the bundle (`packages/<name>`); `main.mjs` points `SPINAJS_PACKAGE_ROOTS` at it. See "Package roots" below.
+- Package config files are separate small bundles at `packages/<pkg>/<outDir>/config/`, because the configuration source imports them by path. They are standalone module copies, not part of `main.mjs`: safe while they are plain data, but a config file that imports stateful modules would get its own instance of them.
+- `main.mjs` defaults `SPINAJS_MANIFEST_MODE` to `require`; the DI loader refuses a file under the bundle root that it did not bundle.
+- Controller, socket controller, schedule and migration files the manifest lists are inlined into `main.mjs` and handed to the runtime's import by path through the DI module loader (`__module_loader__`), so they are the same module instances as the app's own imports.
+- `typescript` is replaced by a stub that throws on use: manifest mode does not call it.
+
+### Package roots
+
+`SPINAJS_PACKAGE_ROOTS` is an opt-in for apps that ship without `node_modules`: it names a JSON file mapping a package name to a directory relative to the app root (`{ "@spinajs/http": "packages/@spinajs/http" }`). `packageRootOf` consults it first, so config files, controllers, migrations and reflection all find the package through the same resolve. A mapped directory that leaves the app root (lexically or through a symlink) is refused; every file still goes through `manifestFileFor`, with its containment checks, and the manifest hash is verified as before. A package that is not in the map, or whose directory does not exist, is located the usual way: a listed package that is not installed is skipped, and a missing direct dependency fails `require` mode. Without the variable nothing changes.
 
 ### One switch
 
@@ -83,6 +98,7 @@ What happens when the manifest has no answer:
 | A route argument, `@Payload` or `@FromDI()` it cannot type, or whose entry describes another argument | fails the boot, with the reason when the compiler recorded one | logs a named error, stays untyped | logs a named error, stays untyped (a `@Payload` is read as a plain object) |
 | An `@Autoinject()` / `@LazyInject()` property the table does not list | fails the boot, listing them | logs a named error at boot; `ResolveException` when the owner is resolved | `ResolveException` when the owner is resolved |
 | An `@Autoinject(X)` / `@LazyInject(X)` property the table does not list | fails the boot, listing them | logs a named error at boot, injects one instance, even for a list | injects one instance, even for a list |
+| A property with a row but no type: a decorator of your own that names no class, a class the manifest cannot name | fails the boot, listing them | logs a named error at boot; `ResolveException` when the owner is resolved | `ResolveException` when the owner is resolved |
 | An `@Autoinject(X)` / `@LazyInject(X)` list resolved before `Configuration` | fails the boot, listing them | logs a named error at boot, keeps the one instance | injects one instance |
 | Two classes of one name, in any packages, that declare the property differently | `ResolveException` | `ResolveException` | |
 
@@ -97,7 +113,7 @@ An argument of a kind that never reads its type (`@Req`, `@Res`, `@Ip`, `@Reques
 Models work too. `@HasMany`, `@HasManyToMany`, `@Virtual` and `@JunctionTable` read the class the property declares from `classProperties` when a relation is first built, because a model file loads before the boot. `@AutoinjectService` is typed like `@Autoinject()`. Two things stay different without metadata:
 
 - `@CreatedAt`, `@UpdatedAt`, `@SoftDelete`, `@Archived`, `@DateTime`, `@Bool` and `@Set` use the type only to refuse a wrong one when the class is defined. Without metadata that check does not run: `@Bool() x: string` loads, and gets the boolean converter.
-- A property under a decorator of your own has a row with its list shape and no type, because the compiler knows the decorators by name. A wrapper around `Autoinject(Dep)` works, a list too. A wrapper that names no class throws `ResolveException` when its owner is resolved, or when a relation is first built.
+- A property under a decorator of your own has a row with its list shape and no type, because the compiler knows the decorators by name. A wrapper around `Autoinject(Dep)` works, a list too. A wrapper that names no class fails a `require` boot saying so, and in `prefer` logs a named error and throws `ResolveException` when its owner is resolved or a relation is first built. A relation's wrapper has no type to pass: put `@HasMany` back on the property.
 
 Relations read the root container, as the ORM does elsewhere, so an app in an isolated child container with its own manifest needs `withManifest` to hold it in root.
 

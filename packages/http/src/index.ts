@@ -25,6 +25,7 @@ export * from './transformers/index.js';
 export * from './file-middlewares/index.js';
 export * from './bootstrap.js';
 export * from './schemas/http.configuration.js';
+export * from './schemas/https.configuration.js';
 export * from './bot/index.js';
 export * from './controller-documentation.js';
 export * from './cache-helpers.js';

@@ -7,6 +7,9 @@ import { compact, SchedulerControllerBase } from '../scheduler-controller.js';
 import { SCHEDULER_READ, SCHEDULER_RUN } from '../permissions.js';
 import { DEFAULT_PAGE_SIZE, LAST_EVENT_ID_SCHEMA, MAX_PAGE_SIZE, RetryRunDto, RUN_ID_SCHEMA, RUN_STATUSES, RUN_TRIGGERS } from '../dto/requests.js';
 import { streamRunEvents } from '../sse/run-events.js';
+// The controller scan imports this file, and an app may never import the package entry: these register the 409 mapping and the response schema.
+import '../errors.js';
+import '../dto/responses.js';
 
 /**
  * Scheduler runs: history, details, live events, cancel and retry.

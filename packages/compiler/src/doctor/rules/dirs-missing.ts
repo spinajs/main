@@ -1,5 +1,5 @@
 import type { Diagnostic } from '@spinajs/manifest';
-import { configAt, diagnostic, type DoctorRule } from '../index.js';
+import { configAt, diagnostic, type DoctorRule } from '../rule.js';
 
 export const dirsMissing: DoctorRule = {
   code: 'CFG002',

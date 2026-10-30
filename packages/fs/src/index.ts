@@ -18,6 +18,7 @@ export * from './fp.js';
 export * from './paths.js';
 export * from './actions.js';
 export * from './streams.js';
+export * from './schemas/fs.configuration.js';
 
 /** DI key of the `Map<string, fs>` that fsService publishes every provider into, by name. */
 export const FILE_PROVIDER_INSTANCES = '__file_provider_instance__';

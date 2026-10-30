@@ -54,6 +54,8 @@ sequenceDiagram
 
 The package config contains **no** providers. Configure at least the default provider, and `fs-temp` when you zip with a local source (see [File operations](02-file-operations.md#zip-and-unzip)).
 
+The `fs` section is checked at boot against `FS_CONFIGURATION_SCHEMA`: a provider entry without `name` or `service`, a non-array `providers` or a mistyped `fileInfo.timeout` fails with `InvalidConfiguration`. The schema leaves the section and the provider entries open, so provider options and sections of other packages (`fs.onedrive`) pass.
+
 ```ts sample
 const config = {
   fs: {

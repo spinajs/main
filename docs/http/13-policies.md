@@ -37,6 +37,29 @@ class X {
 
 Order of stacked `@Policy` decorators changes only which failure is reported.
 
+### `@Public(reason)`: a route that is open on purpose
+
+`@Public('why')` on a class or a method says the route is meant to be reachable by everyone, and why. It is metadata
+only: it adds no policy and changes nothing at request time. `spinajs doctor` reads it, so a deliberately open route
+(a login, a health check, a webhook) is not reported by HTTP002 as a route with no `@Access`, `@Policy` or
+`@AllowAnonymous`. A package that must not depend on `@spinajs/authz-http` declares such a route with it.
+
+```ts
+@BasePath('auth')
+class LoginController extends BaseController {
+  @Post('login')
+  @Public('anyone may try to sign in; the credentials are the guard')
+  public async login(@Body() body: LoginBody) {}
+}
+```
+
+- The reason is required: an empty or blank string throws when the decorator is applied.
+- The manifest records it as `public` (the reason) on the controller or the route, and `spinajs generate:openapi` gives
+  such an operation `security: []`, as it does for `@AllowAnonymous`.
+- `@Public` next to `@Access` or `@Policy` on the same route, or on its class, contradicts the guard: the guard still
+  runs, doctor warns (HTTP006) and the OpenAPI operation keeps its security. A class-level `@Public` with a guard on one
+  of its routes is not reported; the route's guard wins.
+
 ## Configuration
 
 A string in `@Policy` is a configuration key whose value names a policy class:
