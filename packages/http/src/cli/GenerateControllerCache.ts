@@ -4,7 +4,7 @@ import { ClassInfo, DI } from '@spinajs/di';
 import { Exception } from '@spinajs/exceptions';
 import { fsService } from '@spinajs/fs';
 import { uniqueBy } from '@spinajs/util';
-import { DefaultControllerCache, isOnDiskSource } from '../cache.js';
+import { isOnDiskSource } from '../cache-helpers.js';
 import { ControllerSource } from '../controller-sources.js';
 import { BaseController } from '../base-controller.js';
 
@@ -30,6 +30,8 @@ export class ControllersCacheCommand extends CliCommand {
     await DI.resolve(fsService);
 
     const rebuild = options?.rebuild === true;
+    // imported here so only this command, not the CLI that lists it, loads typescript
+    const { DefaultControllerCache } = await import('../cache.js');
     const cache = await DI.resolve(DefaultControllerCache);
 
     // Same discovery the runtime loader uses — filesystem scan, DI registry

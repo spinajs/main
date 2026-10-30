@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/await-thenable */
 /* eslint-disable @typescript-eslint/no-floating-promises */
-import { ListFromFiles, ReflectionException, ResolveFromFiles, TypescriptCompiler } from './../src/index.js';
+import { ListFromFiles, ReflectionException, ResolveFromFiles } from './../src/index.js';
+import { TypescriptCompiler } from './../src/typescript-compiler.js';
 import { FrameworkConfiguration, Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import * as chai from 'chai';
