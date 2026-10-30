@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { MANIFEST_VERSION } from './types.js';
 import type { Manifest, ManifestFragment } from './types.js';
-import { validateFragment, validateManifest } from './validate.js';
+import { validateFragment, validateManifest } from './validator.js';
 
 export class ManifestVersionError extends Error {
   constructor(public readonly found: unknown, public readonly file: string) {

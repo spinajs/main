@@ -21,6 +21,11 @@ describe('manifest types and schema', () => {
     expect(Object.keys(manifestSchema.definitions).filter((n) => /src_types.ts|structure-/.test(n))).to.deep.equal([]);
   });
 
+  it('never forbids additional properties, so readers ignore unknown fields', () => {
+    expect(JSON.stringify(manifestSchema)).to.not.contain('"additionalProperties": false');
+    expect(JSON.stringify(manifestSchema)).to.not.contain('"additionalProperties":false');
+  });
+
   it('schema.ts mirrors schema.json', () => {
     expect(manifestSchema).to.deep.equal(JSON.parse(readFileSync(file('../src/schema.json'), 'utf8')));
   });
