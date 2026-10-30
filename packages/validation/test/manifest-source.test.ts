@@ -1,12 +1,22 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { registerManifest, registerManifestSettings } from '@spinajs/configuration';
+import { Configuration, FrameworkConfiguration, registerManifest, registerManifestSettings } from '@spinajs/configuration';
 import { MANIFEST_VERSION, type Manifest } from '@spinajs/manifest';
 import '@spinajs/log';
 
 import { ManifestSchemaSource, manifestSchemaKey, manifestValidatorOf, prepareManifestSchemas } from '../src/manifest-source.js';
 import { ValidationFailed } from '../src/exceptions/index.js';
+import { DataValidator } from '../src/validator.js';
+
+class QuietConfiguration extends FrameworkConfiguration {
+  protected onLoad() {
+    return {
+      logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] },
+      validation: { allErrors: true, coerceTypes: true, useDefaults: true, messages: false },
+    };
+  }
+}
 
 const closed = (properties: Record<string, unknown>, required: string[] = Object.keys(properties)) => ({ type: 'object', properties, required, additionalProperties: false });
 
@@ -163,6 +173,19 @@ describe('manifest schemas', function () {
       registerManifestSettings(child, { mode: 'prefer', path: 'app.manifest.json' });
       const loaded = await child.resolve(ManifestSchemaSource).Load();
       expect(loaded.map((s) => s.schema.$id)).to.include(manifestSchemaKey('spinajs/app/Item'));
+    });
+
+    it('lets DataValidator validate against them by manifestSchemaKey', async () => {
+      const child = DI.child({ isolateSingletons: true });
+      child.register(QuietConfiguration).as(Configuration);
+      // The configuration source decides the switch while Configuration resolves; the test decides it after.
+      await child.resolve(Configuration);
+      registerManifest(child, manifest);
+      registerManifestSettings(child, { mode: 'prefer', path: 'app.manifest.json' });
+
+      const validator = await child.resolve(DataValidator);
+      expect(() => validator.validate(manifestSchemaKey('spinajs/app/Both'), { name: 'a', count: 1 })).to.not.throw();
+      expect(() => validator.validate(manifestSchemaKey('spinajs/app/Both'), { name: 'a', count: 1, extra: true })).to.throw(ValidationFailed);
     });
   });
 });
