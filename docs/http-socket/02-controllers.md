@@ -21,7 +21,7 @@ A socket controller is a class whose methods answer client commands, receive cli
 
 | Decorator | Target | Options | Effect |
 | --- | --- | --- | --- |
-| `@SocketController(prefix?)` | class extending `BaseSocketController` | `prefix`: string; empty or omitted means no prefix | Registers the class as a socket controller; handler names get `prefix.` |
+| `@SocketController(prefix?, { contract }?)` | class extending `BaseSocketController` | `prefix`: string; empty or omitted means no prefix; `contract`: a `defineContract()` value, see [Server-enforced contracts](#server-enforced-contracts) | Registers the class as a socket controller; handler names get `prefix.` |
 | `@Command(name?, options?)` | method | `name` (default: method name); `ICommandOptions`: `schema`, `timeoutMs`, `idempotent`, `ordered` | Request/response command answered through the socket.io ack |
 | `@OnEvent(name?, options?)` | method | `name` (default: method name); `IEventOptions`: `schema` | Fire-and-forget client event |
 | `@OnConnect()` | method | none | Hook run for every new or recovered connection |
@@ -198,6 +198,30 @@ export class PresenceSocket extends BaseSocketController {
   }
 }
 ```
+
+## Server-enforced contracts
+
+`@SocketController('docs', { contract: DOCS_CONTRACT })` binds the controller to a contract declared with
+`defineContract<C>('<id>')` from `@spinajs/http-socket-common`. The check needs the application manifest
+(`spinajs build`) and `system.manifest.mode` other than `off`; with `off` the option does nothing.
+
+At `SocketServer.resolve()` the controller is matched to its manifest entry by class name and prefix. Its handlers
+are then compared with the contract (doctor rules SOCK001-SOCK003), and each incoming payload of a command or client event is
+validated with Ajv against the contract schema before the handler runs. Validation does not coerce types, applies
+no defaults, and enforces `format`. A failure answers `invalid_argument` with `details: { errors, total }`: the first 10
+errors (`path`, `keyword`, `message`) and the total count. A schema marked `x-explicit: 'partial'` is documentation only and is not enforced.
+
+| Situation | `require` | `prefer` |
+| --- | --- | --- |
+| handler missing or incompatible, controller not in the manifest, runtime and manifest contract ids differ, contract absent or declared twice, schema cannot compile (for example an unresolved `$ref`) | boot fails with an error naming the controller and contract | warning; a contract that cannot compile is skipped, every other contract still enforces |
+| the manifest binds a contract but the code declares none | the manifest contract is enforced, with a warning | not enforced, warning (fail-open) |
+| no manifest file | boot fails | nothing is checked or enforced (fail-open) |
+
+`prefer` never stops the server and never enforces what it could not verify, so use `require` where the contract is a security or correctness boundary.
+The manifest binding is authoritative: a stale manifest is a `require` boot error, not a silent fallback.
+
+A contract with no explicit id takes `<package>:<VARIABLE>` from the compiler. A contract imported from another package
+resolves through that package's manifest fragment; otherwise give it an explicit id (see SOCK004 in [spinajs doctor](../compiler/doctor.md)).
 
 ## Related
 

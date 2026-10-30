@@ -711,6 +711,9 @@
         "prefix": {
           "type": "string"
         },
+        "contract": {
+          "type": "string"
+        },
         "commands": {
           "type": "array",
           "items": {
@@ -818,6 +821,9 @@
       "type": "object",
       "properties": {
         "id": {
+          "type": "string"
+        },
+        "exportName": {
           "type": "string"
         },
         "commands": {

@@ -118,6 +118,8 @@ export class SocketArgumentResolver {
       throw new InvalidArgument('socket handler arguments cannot be resolved before the handler is known');
     }
 
+    handler.contractValidator?.(ctx.payload);
+
     const params = [...handler.descriptor.Parameters.values()];
     const args = new Array<unknown>(params.reduce((max, p) => Math.max(max, p.Index + 1), 0));
 

@@ -11,7 +11,6 @@ import { AuthenticationFailed } from '@spinajs/exceptions';
 import type { Principal } from '@spinajs/authz';
 import '@spinajs/log';
 import { CommandReply, CommandRequest, EventFrame, PROTOCOL_VERSION, SocketError, WIRE_EVENTS } from '@spinajs/http-socket-common';
-import socketConfig from '../src/config/http-socket.js';
 import { ISocketHandshake, SocketHttpHost, SocketPrincipalSource } from '../src/interfaces.js';
 import { SocketServer } from '../src/server.js';
 import { SOCKET_CONFIGURATION_SCHEMA } from '../src/schema.js';
@@ -69,7 +68,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         },
         configuration: { isProduction: false },
         // W1's tests close servers with handlers still running; without a drain they close as fast as before
-        http: { socket: { ..._.cloneDeep(socketConfig.http.socket), drainMs: 0 } },
+        http: { socket: { drainMs: 0 } },
       },
       overrides,
     );

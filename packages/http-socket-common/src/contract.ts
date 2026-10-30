@@ -13,12 +13,14 @@ export interface ContractShape {
 
 export interface SocketContract<C extends ContractShape> {
   readonly kind: 'socket-contract';
+  /** Stable id the runtime matches against `manifest.socketContracts`; absent when the compiler derives it from the variable name. */
+  readonly id?: string;
   /** Type carrier only, never set at runtime. */
   readonly __contract?: C;
 }
 
-export function defineContract<C extends ContractShape>(): SocketContract<C> {
-  return { kind: 'socket-contract' };
+export function defineContract<C extends ContractShape>(id?: string): SocketContract<C> {
+  return id === undefined ? { kind: 'socket-contract' } : { kind: 'socket-contract', id };
 }
 
 export type CommandName<C extends ContractShape> = Extract<keyof C['commands'], string>;
