@@ -12,6 +12,8 @@ export interface OpenApiOptions {
   securitySchemes?: Record<string, OpenAPIV3_1.SecuritySchemeObject>;
   /** `$id` of the problem+json schema; default 'spinajs/http/ProblemDetails'. */
   errorSchemaId?: string;
+  /** Document-wide requirement; defaults to the first of `securitySchemes`. Anonymous operations opt out with `security: []`. */
+  security?: OpenAPIV3_1.SecurityRequirementObject[];
   /** Body of the problem+json schema, used when `manifest.schemas` does not hold `errorSchemaId`; defaults to the RFC 9457 shape `@spinajs/http` emits. */
   errorSchema?: Record<string, unknown>;
   /** Prepended to every path as written, e.g. where a proxy mounts the app. */
@@ -27,17 +29,25 @@ function schemasWithError(manifest: Manifest, errorSchemaId: string, errorSchema
   return { ...manifest.schemas, [errorSchemaId]: errorSchema ?? FALLBACK_PROBLEM_SCHEMA };
 }
 
+function topLevelSecurity(options: OpenApiOptions): OpenAPIV3_1.SecurityRequirementObject[] | undefined {
+  if (options.security) return options.security;
+  const [first] = Object.keys(options.securitySchemes ?? {});
+  return first === undefined ? undefined : [{ [first]: [] }];
+}
+
 export function manifestToOpenApi(manifest: Manifest, options: OpenApiOptions): OpenAPIV3_1.Document {
   const errorSchemaId = options.errorSchemaId ?? DEFAULT_ERROR_SCHEMA_ID;
   const registry = createComponentRegistry(schemasWithError(manifest, errorSchemaId, options.errorSchema));
   const paths = buildPaths(manifest, registry, { errorSchemaId, basePath: options.basePath ?? '', routePrefix: options.routePrefix });
   const tagNames = manifest.controllers.flatMap((c) => [c.className.replace(/Controller$/, ''), ...c.routes.flatMap((r) => r.doc?.tags ?? [])]);
   const tags = [...new Set(tagNames)].sort().map((name) => ({ name }));
+  const security = topLevelSecurity(options);
   const document: OpenAPIV3_1.Document = {
     openapi: '3.1.0',
     info: { title: options.title, version: options.version, 'x-spinajs-manifest-hash': manifest.hash } as OpenAPIV3_1.InfoObject,
     ...(options.servers ? { servers: options.servers } : {}),
     tags,
+    ...(security ? { security } : {}),
     paths,
     components: {
       schemas: registry.schemas() as Record<string, OpenAPIV3_1.SchemaObject>,

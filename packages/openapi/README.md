@@ -2,7 +2,7 @@
 
 `manifestToOpenApi(manifest, options)` turns an `app.manifest.json` produced by `spinajs build`
 into an OpenAPI 3.1 document. Response schemas come from the manifest's derived schemas, so every
-route has an exact `200` schema. Error responses use `application/problem+json`.
+route with a declared return type has an exact `200` schema. Error responses use `application/problem+json`.
 
 Paths are the request paths the router answers (`RouteEntry.fullPath`); pass `routePrefix` with the
 app's `http.controllers.route.prefix`. Parameters and request bodies follow `ParamEntry.wire`:
@@ -19,6 +19,8 @@ app's `http.controllers.route.prefix`. Parameters and request bodies follow `Par
 
 A parameter without `wire` throws: the manifest was built by a compiler that does not record it.
 
-CLI: `spinajs generate:openapi --manifest app.manifest.json --out openapi.json`.
+Options: `title`, `version`, `servers`, `securitySchemes` (the first scheme becomes the document-wide `security`; `security` overrides it; anonymous operations keep `security: []`), `basePath`, `routePrefix`, `errorSchema`/`errorSchemaId` (default: the built-in RFC 9457 `ProblemDetails`).
+
+CLI: `spinajs generate:openapi --manifest app.manifest.json --out openapi.json` (also `--title`, `--doc-version`, `--server-url`, `--base-path`, `--route-prefix`). `@spinajs/openapi` is an optional peer of `@spinajs/cli`.
 
 Guides: [`docs/openapi`](../../docs/openapi/README.md).

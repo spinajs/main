@@ -147,3 +147,27 @@ describe('manifestToOpenApi fix round 1', () => {
     expect(manifestToOpenApi(m, options).tags!.map((t) => t.name)).to.include('extra');
   });
 });
+
+describe('top-level security', () => {
+  let manifest: Manifest;
+  const schemes = { cookieAuth: { type: 'apiKey', in: 'cookie', name: 'ssid' }, other: { type: 'http', scheme: 'bearer' } } as const;
+
+  before(async () => {
+    manifest = await appBasicManifest();
+  });
+
+  it('requires the first security scheme document-wide; anonymous operations keep security: []', () => {
+    const out = manifestToOpenApi(manifest, { title: 't', version: '1', securitySchemes: { ...schemes } });
+    expect(out.security).to.deep.equal([{ cookieAuth: [] }]);
+    expect(out.paths!['/health/get']!.get!.security).to.deep.equal([]);
+  });
+
+  it('takes an explicit security requirement over the derived one', () => {
+    const out = manifestToOpenApi(manifest, { title: 't', version: '1', securitySchemes: { ...schemes }, security: [{ other: [] }] });
+    expect(out.security).to.deep.equal([{ other: [] }]);
+  });
+
+  it('emits no top-level security without schemes', () => {
+    expect(manifestToOpenApi(manifest, { title: 't', version: '1' })).to.not.have.property('security');
+  });
+});

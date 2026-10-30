@@ -1,7 +1,9 @@
 import { AsyncService, Autoinject, DI, LazyInject, Singleton } from '@spinajs/di';
 import { UnexpectedServerError } from '@spinajs/exceptions';
 import { Config } from '@spinajs/configuration';
-import { Controllers } from '@spinajs/http';
+import { Controllers, PROBLEM_DETAILS_SCHEMA } from '@spinajs/http';
+import { loadRuntimeManifest, type ManifestMode } from '@spinajs/manifest';
+import { manifestToOpenApi, type OpenApiOptions } from '@spinajs/openapi';
 import { Logger, Log } from '@spinajs/log';
 import { SwaggerDocCache } from './swagger-cache.js';
 import { OpenApiBuilder } from './openapi-builder.js';
@@ -33,6 +35,9 @@ export class SwaggerService extends AsyncService {
    */
   @Config('http.controllers.route.prefix', { defaultValue: '' })
   protected RoutePrefix!: string;
+
+  @Config('system.manifest', { defaultValue: { path: 'app.manifest.json', mode: 'off' } })
+  protected ManifestConfig!: { path: string; mode: ManifestMode };
 
   private _spec: IOpenApiDocument | null = null;
 
@@ -107,6 +112,22 @@ export class SwaggerService extends AsyncService {
       ...baseConfig,
       basePath: baseConfig.basePath || this.RoutePrefix || '',
     };
+
+    // A stale manifest is rejected by the hash check: 'prefer' then falls back to the JSDoc builder, 'require' throws.
+    const manifest = loadRuntimeManifest(this.ManifestConfig);
+    if (manifest) {
+      this._spec = manifestToOpenApi(manifest, {
+        title: config.title,
+        version: config.version,
+        servers: config.servers,
+        securitySchemes: config.securitySchemes as OpenApiOptions['securitySchemes'],
+        security: config.security,
+        basePath: baseConfig.basePath,
+        routePrefix: this.RoutePrefix,
+        errorSchema: PROBLEM_DETAILS_SCHEMA as unknown as Record<string, unknown>,
+      }) as unknown as IOpenApiDocument;
+      return this._spec;
+    }
 
     const builder = await DI.resolve(OpenApiBuilder, [config]);
     const controllers = await this.ControllersService.Controllers;

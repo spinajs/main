@@ -58,6 +58,8 @@ export async function printDocumentedPaths() {
 }
 ```
 
+With `system.manifest.mode` set to `prefer` or `require`, `/docs/swagger.json` is OpenAPI 3.1 built by [`@spinajs/openapi`](../openapi/README.md) from `app.manifest.json`; `off` (the default) keeps the JSDoc-based 3.0.3 document.
+
 Open `/docs/` for Swagger UI. Compile controllers with `declaration: true` and without `removeComments`: the JSDoc is read from the `.d.ts` files; see [Documentation cache](08-documentation-cache.md).
 
 ## Related packages
