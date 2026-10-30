@@ -2,8 +2,8 @@ import { expect } from 'chai';
 import 'mocha';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { diffManifest, renderMarkdown } from '../src/index.js';
-import type { Change, Manifest, ParamEntry, RouteEntry } from '../src/index.js';
+import { diffManifest, renderMarkdown, routeFullPath } from '../src/index.js';
+import type { Change, ControllerEntry, Manifest, ParamEntry, ParamWire, RouteEntry } from '../src/index.js';
 
 const fixture = fileURLToPath(new URL('../../compiler/test/fixtures/app-basic/app.manifest.json', import.meta.url));
 const base = JSON.parse(readFileSync(fixture, 'utf8')) as Manifest;
@@ -134,6 +134,46 @@ describe('diffManifest', () => {
       const b = clone();
       for (const m of [a, b]) m.schemas['spinajs/app-basic/UserDto'] = { $id: 'spinajs/app-basic/UserDto', type: 'object', properties: { parent: { $ref: 'spinajs/app-basic/UserDto' } } };
       expect(diffManifest(a, b).changes).to.deep.equal([]);
+    });
+  });
+
+  describe('route identity and wire keys', () => {
+    const wired = (name: string, wire: ParamWire, required = true, text = 'string'): ParamEntry => ({ index: 0, name, kind: 'FromQuery', runtimeType: { text }, required, wire });
+    const bare = (handler: string, params: ParamEntry[] = []): RouteEntry => ({
+      method: 'get', path: '', handler, fullPath: routeFullPath('things', '', handler), params, returnType: { text: 'void' }, policies: [], middlewares: [], source: { file: 'src/things.ts', line: 1, col: 1, package: 'app-basic' },
+    });
+    const withThings = (...routes: RouteEntry[]): Manifest => {
+      const m = clone();
+      const things: ControllerEntry = { id: 'app-basic:Things', className: 'Things', basePath: 'things', mountPath: 'things', policies: [], middlewares: [], routes, source: routes[0].source };
+      m.controllers.push(things);
+      return m;
+    };
+    const thingsChanges = (b: Manifest, h: Manifest): Change[] => diffManifest(b, h).changes.filter((c) => c.id.includes('/things'));
+
+    it('renaming the handler of a bare route moves its URL: the old route is removed (breaking)', () => {
+      expect(thingsChanges(withThings(bare('list')), withThings(bare('all')))).to.deep.equal([
+        { section: 'routes', kind: 'added', id: 'GET /things/all', breaking: false },
+        { section: 'routes', kind: 'removed', id: 'GET /things/list', breaking: true },
+      ]);
+    });
+
+    it('an injected argument is not a request parameter, by wire or by its FromDi kind', () => {
+      const di = (wire?: ParamWire): ParamEntry => ({ index: 1, name: 'svc', kind: 'FromDi', runtimeType: { text: 'Svc' }, required: true, ...(wire ? { wire } : {}) });
+      expect(thingsChanges(withThings(bare('list')), withThings(bare('list', [di({ in: 'none', shape: 'whole' })])))).to.deep.equal([]);
+      expect(thingsChanges(withThings(bare('list')), withThings(bare('list', [di()])))).to.deep.equal([]);
+    });
+
+    it('renaming a whole-body parameter keeps the wire, renaming a JSON query key breaks it', () => {
+      const body = (name: string): ParamEntry => ({ ...wired(name, { in: 'body', shape: 'whole' }, true, 'Dto'), kind: 'FromBody' });
+      expect(thingsChanges(withThings(bare('list', [body('body')])), withThings(bare('list', [body('payload')])))).to.deep.equal([]);
+      const [change] = thingsChanges(withThings(bare('list', [wired('query', { in: 'query', name: 'query', shape: 'json' })])), withThings(bare('list', [wired('q', { in: 'query', name: 'q', shape: 'json' })])));
+      expect(change).to.include({ id: 'GET /things/list', kind: 'changed', breaking: true });
+      expect(change.detail).to.include('parameter query (FromQuery) removed');
+    });
+
+    it('a header renamed in code but sent under the same key is not a change', () => {
+      const header = (name: string): ParamEntry => ({ ...wired(name, { in: 'header', name: 'x-tenant', shape: 'value' }), kind: 'FromHeader' });
+      expect(thingsChanges(withThings(bare('list', [header('tenant')])), withThings(bare('list', [header('tenantId')])))).to.deep.equal([]);
     });
   });
 
