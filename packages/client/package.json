@@ -47,10 +47,22 @@
   "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
   "license": "MIT",
   "dependencies": {
-    "@spinajs/manifest": "3.0.23"
+    "@spinajs/manifest": "3.0.23",
+    "json-schema-to-typescript": "^16.0.0"
   },
   "devDependencies": {
+    "@spinajs/authz-http": "3.0.23",
+    "@spinajs/compiler": "3.0.23",
+    "@spinajs/configuration": "3.0.23",
+    "@spinajs/di": "3.0.23",
+    "@spinajs/exceptions": "3.0.23",
+    "@spinajs/fs": "3.0.23",
+    "@spinajs/http": "3.0.23",
+    "@spinajs/http-socket-common": "3.0.23",
+    "@spinajs/intl": "3.0.23",
+    "@spinajs/testing": "3.0.23",
     "chai-as-promised": "^7.1.1",
+    "express": "^5.1.0",
     "typescript": "~5.9.0"
   },
   "spinajs": {

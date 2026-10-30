@@ -106,3 +106,4 @@ Diagnostics are printed as `severity CODE file:line message`, followed by a summ
 | Command | What it does |
 | --- | --- |
 | `generate:asyncapi` | Reads an application manifest (`--manifest`, default `app.manifest.json`) and writes an AsyncAPI 3.0 document (`--out`, default `asyncapi.json`). Also `--title`, `--doc-version` (`--version` is taken by the root command) and `--server-url`. See [`@spinajs/asyncapi`](../asyncapi/README.md). |
+| `generate:client` | Reads an application manifest (`--manifest`) and writes a typed HTTP client and socket contracts (`--out`, default `src/generated/client.ts`). Also `--module` (import path of the runtime) and `--no-socket`. Needs `@spinajs/client`. See [`@spinajs/client`](../client/README.md). |

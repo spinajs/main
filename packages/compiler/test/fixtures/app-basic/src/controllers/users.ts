@@ -1,4 +1,4 @@
-import { BaseController, BasePath, Body, File, Get, HandleException, NotFound, Param, Post, Query } from '@spinajs/http';
+import { BaseController, BasePath, Body, File, Get, HandleException, NoContent, NotFound, Ok, Param, Post, Query } from '@spinajs/http';
 import type { IUploadedFile } from '@spinajs/http';
 import { Access } from '@spinajs/authz-http';
 import { ResourceNotFound } from '@spinajs/exceptions';
@@ -17,32 +17,33 @@ export class UserNotFound extends NotFound {}
 export class UsersController extends BaseController {
   /** List users, paginated. */
   @Get()
-  public async list(@Query() query: ListQuery): Promise<UserDto[]> {
+  public async list(@Query() query: ListQuery): Promise<Ok<UserDto[]>> {
     const page = query.page ?? 1;
     const perPage = query.perPage ?? 10;
-    return USERS.slice((page - 1) * perPage, page * perPage);
+    return new Ok(USERS.slice((page - 1) * perPage, page * perPage));
   }
 
   @Get(':id')
   @Access('user:read')
-  public async get(@Param() id: number): Promise<UserDto> {
+  public async get(@Param() id: number): Promise<Ok<UserDto>> {
     const user = USERS.find((u) => u.id === id);
     if (!user) throw new ResourceNotFound(`user ${id}`);
-    return user;
+    return new Ok(user);
   }
 
   @Post()
   @Access('user:create')
-  public async create(@Body() body: CreateUserDto): Promise<UserDto | ValidationProblem> {
-    if (!body.email.includes('@')) return { kind: 'validation', errors: ['email'] };
+  public async create(@Body() body: CreateUserDto): Promise<Ok<UserDto | ValidationProblem>> {
+    if (!body.email.includes('@')) return new Ok({ kind: 'validation', errors: ['email'] });
     const user = { id: USERS.length + 1, ...body };
     USERS.push(user);
-    return user;
+    return new Ok(user);
   }
 
   @Post(':id/avatar')
-  public async avatar(@Param() id: number, @File() file: IUploadedFile): Promise<void> {
+  public async avatar(@Param() id: number, @File() file: IUploadedFile): Promise<NoContent<void>> {
     void id;
     void file;
+    return new NoContent<void>(null);
   }
 }
