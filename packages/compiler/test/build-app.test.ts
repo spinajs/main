@@ -73,6 +73,13 @@ describe('buildAppManifest', () => {
     expect(typeRefs.every((t) => t.schema === undefined)).to.be.true;
   });
 
+  it('merges the app and its dependency fragments without a schema $id collision', async () => {
+    const { manifest } = await buildAppManifest(APP);
+    expect(manifest.diagnostics.filter((d) => d.severity === 'error')).to.deep.equal([]);
+    const owners = manifest.configModules.filter((c) => c.module === 'hooks');
+    expect(owners.length).to.be.at.most(1);
+  });
+
   it('is deterministic across runs except generatedAt', async () => {
     const a = (await buildAppManifest(APP)).manifest;
     const b = (await buildAppManifest(APP)).manifest;

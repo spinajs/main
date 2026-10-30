@@ -33,16 +33,6 @@
         "col": 1,
         "package": "app-basic"
       }
-    },
-    {
-      "token": "__configurationSchema__",
-      "kind": "value",
-      "source": {
-        "file": "src/schemas/hooks.ts",
-        "line": 14,
-        "col": 1,
-        "package": "app-basic"
-      }
     }
   ],
   "controllers": [
@@ -357,17 +347,6 @@
         "col": 1,
         "package": "app-basic"
       }
-    },
-    {
-      "module": "hooks",
-      "schemaId": "spinajs/hooks.configuration.schema.json",
-      "defaultsFile": "src/config/hooks.ts",
-      "source": {
-        "file": "src/schemas/hooks.ts",
-        "line": 14,
-        "col": 1,
-        "package": "app-basic"
-      }
     }
   ],
   "configUsages": [],
@@ -612,28 +591,9 @@
           "default": "app-basic"
         }
       }
-    },
-    "spinajs/hooks.configuration.schema.json": {
-      "$id": "spinajs/hooks.configuration.schema.json",
-      "$configurationModule": "hooks",
-      "type": "object",
-      "properties": {
-        "timeoutMs": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 60000,
-          "default": 5000
-        },
-        "maxDepth": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 32,
-          "default": 8
-        }
-      }
     }
   },
   "diagnostics": [],
-  "generatedAt": "2026-10-30T02:12:15.440Z",
-  "hash": "7a5a49a0abb5eff812be0a90223a13c8e4d69b3d531dff8765aa6d150f187a5a"
+  "generatedAt": "2026-10-30T05:54:09.909Z",
+  "hash": "f011e006028949a8b609d8772c42c7d468d8c19cfe4c17435eb8de6c22d86054"
 }
