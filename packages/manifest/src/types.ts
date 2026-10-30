@@ -126,7 +126,11 @@ export interface Diagnostic { code: string; severity: 'error' | 'warning' | 'inf
 
 export interface ManifestFragment {
   manifestVersion: typeof MANIFEST_VERSION;
-  package: { name: string; version: string; entry: string /* relative to package root, e.g. lib/index.js */; outDir: string /* from tsconfig, maps src/x.ts to <outDir>/x.js */ };
+  package: {
+    name: string; version: string; entry: string /* relative to package root, e.g. lib/index.js */; outDir: string /* from tsconfig, maps src/x.ts to <outDir>/x.js */;
+    /** Built files of `src/config/**`, relative to `outDir` (`config/x.js`). Absent in fragments older than the field. */
+    configFiles?: string[];
+  };
   services: ServiceEntry[]; values: ValueEntry[];
   controllers: ControllerEntry[]; socketControllers: SocketControllerEntry[]; socketContracts: SocketContractEntry[];
   configModules: ConfigModuleEntry[]; configUsages: ConfigUsageEntry[];
@@ -137,7 +141,7 @@ export interface ManifestFragment {
 
 export interface Manifest extends Omit<ManifestFragment, 'package'> {
   app: { name: string; version: string; root: string; outDir: string };
-  packages: { name: string; version: string; entry: string; outDir: string; fragment: string }[];
+  packages: { name: string; version: string; entry: string; outDir: string; fragment: string; configFiles?: string[] }[];
   generatedAt: string;
   hash: string;                        // sha256 of canonical JSON with `hash` and `generatedAt` blanked
 }

@@ -6,7 +6,8 @@ import { findBasePath, loadJsConfigFile, mergeArrays } from './util.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { InternalLogger } from '@spinajs/internal-logger';
-import { manifestOf } from './manifest-source.js';
+import type { Manifest } from '@spinajs/manifest';
+import { manifestOf, manifestPackageConfigFiles, projectConfigDirs } from './manifest-runtime.js';
 import { Configuration, ConfigurationSource, IConfigLike, normalizeEnvironment } from '@spinajs/configuration-common';
 
 export abstract class BaseFileSource extends ConfigurationSource {
@@ -18,62 +19,38 @@ export abstract class BaseFileSource extends ConfigurationSource {
   @Autoinject(Container)
   protected Container!: IContainer;
 
+  /** App config dirs merged before the package configs ( `src/config`, for tests ). */
+  protected LeadingProjectDirs: string[] = [];
+
+  /** App config dirs merged after the package configs, so the app overrides them. */
   protected ProjectDirs: string[] = [];
 
   private commonDirsOverride: string[] | undefined;
 
+  private packageDirs: string[] | undefined;
+
   /**
    * `node_modules/@spinajs/*\/lib/config` of every ancestor up to the workspace root, nearest first, plus the
-   * WORKSPACE_ROOT_PATH one. Computed on every read, not in the constructor: when ManifestConfigurationSource ran
-   * first the manifest already named every package defaults file and the walk is skipped.
+   * WORKSPACE_ROOT_PATH one. Computed on first use instead of in the constructor, so it never runs with a manifest.
+   *
+   * Every ancestor with a node_modules is searched, mirroring how Node resolves: an app at <root>/packages/<app>
+   * has its dependencies hoisted to <root>/node_modules, two levels up.
    */
   protected packageConfigDirs(): string[] {
-    this.ensureWorkspaceRoot();
+    if (!this.packageDirs) {
+      const packageGlob = 'node_modules/@spinajs/*/lib/config';
+      this.packageDirs = BaseFileSource.nodeModulesAncestors(resolve(process.cwd())).map((dir) => normalize(join(dir, packageGlob)));
 
-    if (this.manifestRegistered()) {
-      return [];
-    }
-
-    const packageGlob = 'node_modules/@spinajs/*/lib/config';
-    const dirs = BaseFileSource.nodeModulesAncestors(resolve(process.cwd())).map((dir) => normalize(join(dir, packageGlob)));
-
-    if (process.env.WORKSPACE_ROOT_PATH) {
-      dirs.push(normalize(join(resolve(process.env.WORKSPACE_ROOT_PATH), packageGlob)));
-    }
-
-    return dirs;
-  }
-
-  private ensureWorkspaceRoot(): void {
-    // Package configs ( http, fs, rbac, templates, ... ) locate their own assets as
-    // `${WORKSPACE_ROOT_PATH ?? process.cwd()}/node_modules/@spinajs/<pkg>/lib/...`.
-    // In a workspace, cwd is the app package but the dependencies are hoisted to the
-    // repo root, so leaving this unset yields paths that do not exist - and an
-    // fsNative provider CREATES its basePath, leaving empty dirs that shadow the real
-    // package and break module resolution for everything importing it. Detect the
-    // root once here so every package config resolves correctly; an explicitly
-    // provided value always wins.
-    if (!process.env.WORKSPACE_ROOT_PATH) {
-      const hoistingRoot = BaseFileSource.findHoistingRoot(resolve(process.cwd()));
-
-      if (hoistingRoot) {
-        InternalLogger.trace({ hoistingRoot }, 'WORKSPACE_ROOT_PATH not set, detected hoisting root at ${hoistingRoot}', 'Configuration');
-        process.env.WORKSPACE_ROOT_PATH = hoistingRoot;
+      if (process.env.WORKSPACE_ROOT_PATH) {
+        this.packageDirs.push(normalize(join(resolve(process.env.WORKSPACE_ROOT_PATH), packageGlob)));
       }
     }
+    return this.packageDirs;
   }
 
-  private manifestRegistered(): boolean {
-    try {
-      return this.Container !== undefined && manifestOf(this.Container) !== undefined;
-    } catch {
-      return false;
-    }
-  }
-
-  /** Package dirs first, project dirs after, so the project wins on merge. Assignable by subclasses that own their dirs. */
+  /** Every dir globbed without a manifest, in merge order. Assignable by subclasses that own their dirs. */
   protected get CommonDirs(): string[] {
-    return this.commonDirsOverride ?? [...this.packageConfigDirs(), ...this.ProjectDirs];
+    return this.commonDirsOverride ?? [...this.LeadingProjectDirs, ...this.packageConfigDirs(), ...this.ProjectDirs];
   }
 
   protected set CommonDirs(dirs: string[]) {
@@ -84,6 +61,26 @@ export abstract class BaseFileSource extends ConfigurationSource {
 
   public get Order() {
     return 1;
+  }
+
+  /**
+   * Package configs ( http, fs, rbac, templates, ... ) locate their own assets as
+   * `${WORKSPACE_ROOT_PATH ?? process.cwd()}/node_modules/@spinajs/<pkg>/lib/...`.
+   * In a workspace, cwd is the app package but the dependencies are hoisted to the
+   * repo root, so leaving this unset yields paths that do not exist - and an
+   * fsNative provider CREATES its basePath, leaving empty dirs that shadow the real
+   * package and break module resolution for everything importing it. Must run before
+   * any config file is imported; an explicitly provided value always wins.
+   */
+  public static ensureWorkspaceRoot(): void {
+    if (!process.env.WORKSPACE_ROOT_PATH) {
+      const hoistingRoot = BaseFileSource.findHoistingRoot(resolve(process.cwd()));
+
+      if (hoistingRoot) {
+        InternalLogger.trace({ hoistingRoot }, 'WORKSPACE_ROOT_PATH not set, detected hoisting root at ${hoistingRoot}', 'Configuration');
+        process.env.WORKSPACE_ROOT_PATH = hoistingRoot;
+      }
+    }
   }
 
   /**
@@ -159,14 +156,11 @@ export abstract class BaseFileSource extends ConfigurationSource {
   ) {
     super();
 
-    // project paths - after the package dirs, so an app config overrides a package default
-    this.ProjectDirs = [
-      normalize(join(resolve(process.cwd()), 'src', '/config')),
-      normalize(join(resolve(process.cwd()), 'lib/config')),
-      normalize(join(resolve(process.cwd()), 'dist/config')),
-      normalize(join(resolve(process.cwd()), 'build/config')),
-      normalize(join(resolve(process.cwd()), 'config')),
-    ];
+    BaseFileSource.ensureWorkspaceRoot();
+
+    const dirs = projectConfigDirs(process.cwd(), this.RunApp, this.appBaseDir, this.CustomConfigPaths);
+    this.LeadingProjectDirs = dirs.beforePackages;
+    this.ProjectDirs = dirs.afterPackages;
 
     // try to find root folder with node_modules
     // on server environment
@@ -176,37 +170,33 @@ export abstract class BaseFileSource extends ConfigurationSource {
     // assume that process working dir is base path
     // eg. on electron environment
     this.BasePath = bPath === null ? process.cwd() : bPath;
+  }
 
-    if (this.RunApp) {
+  /** The manifest whose package config files replace the package dir globs, when one is registered. */
+  protected activeManifest(): Manifest | undefined {
+    return this.Container ? manifestOf(this.Container) : undefined;
+  }
 
-      if(this.appBaseDir) {
-        this.ProjectDirs.push(join(this.appBaseDir, `/${this.RunApp}/config`));
-      }
+  /**
+   * Config files matching `extension`, in merge order. With a manifest the package config files come from it, in
+   * the place and order the package dir globs list them; everything else is the same.
+   */
+  protected configFiles(extension: string): string[] {
+    const globDirs = (dirs: string[]): string[] =>
+      dirs.map((f) => (path.isAbsolute(f) ? f : join(this.BasePath, f))).flatMap((d) => glob.sync(path.join(d, `/**/${extension}`).replace(/\\/g, '/')));
 
-      // common dirs for app where config resides
-      this.ProjectDirs.push(join(process.cwd(), `/apps/${this.RunApp}/config`));
-      this.ProjectDirs.push(join(process.cwd(), `/dist/apps/${this.RunApp}/config`));
-      this.ProjectDirs.push(join(process.cwd(), `/lib/apps/${this.RunApp}/config`));
-      this.ProjectDirs.push(join(process.cwd(), `/build/apps/${this.RunApp}/config`));
+    const manifest = this.commonDirsOverride ? undefined : this.activeManifest();
+    if (!manifest) {
+      return globDirs(this.CommonDirs);
     }
 
-    if (this.CustomConfigPaths) {
-      this.ProjectDirs.push(...this.CustomConfigPaths);
-    }
+    return [...globDirs(this.LeadingProjectDirs), ...manifestPackageConfigFiles(manifest, extension, process.cwd()), ...globDirs(this.ProjectDirs)];
   }
 
   protected async load(extension: string, callback: (file: string) => Promise<IConfigLike>) {
     const config = {};
 
-    const toResolve = this.CommonDirs.map((f) => (path.isAbsolute(f) ? f : join(this.BasePath, f)))
-      // get all config files
-      .map((d) => {
-        return glob.sync(path.join(d, `/**/${extension}`).replace(/\\/g, '/'));
-      })
-      // flatten files
-      .reduce((prev, current) => {
-        return prev.concat(_.flattenDeep(current));
-      }, [])
+    const toResolve = this.configFiles(extension)
       // Overlapping globs (ancestors and WORKSPACE_ROOT_PATH) list the same path twice: the first listing wins.
       .map((f: string) => normalize(resolve(f)))
       .filter((f: string, index: number, self: string[]) => self.indexOf(f) === index)
@@ -274,6 +264,6 @@ export class JsonFileSource extends BaseFileSource {
         InternalLogger.error({ error: err, file }, 'error loading configuration file ${file}', 'configuration');
         return Promise.resolve({} as IConfigLike);
       }
-    } 
+    }
   }
 }

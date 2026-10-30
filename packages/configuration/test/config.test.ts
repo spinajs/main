@@ -395,8 +395,7 @@ describe('workspace root detection', () => {
     // every launch script to set it by hand.
     delete process.env.WORKSPACE_ROOT_PATH;
 
-    // detected on first use of the dirs, not at construction: a manifest may make the walk unnecessary
-    void (new JsFileSource() as unknown as { CommonDirs: string[] }).CommonDirs;
+    new JsFileSource();
 
     expect(process.env.WORKSPACE_ROOT_PATH).to.equal(resolve(process.cwd(), '..', '..'));
   });

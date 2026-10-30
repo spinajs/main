@@ -31,6 +31,7 @@ describe('buildAppManifest', () => {
     const { manifest, written } = await buildAppManifest(APP);
     expect(manifest.app).to.deep.include({ name: 'app-basic', version: '0.1.0', outDir: 'lib' });
     expect(ownPackage(manifest.packages).map((p) => [p.name, p.outDir])).to.deep.equal([['pkg-basic', 'lib']]);
+    expect(ownPackage(manifest.packages)[0].configFiles).to.deep.equal(['config/basic.js', 'config/basic.production.js', 'config/nested/extra.js']);
     expect(own(manifest.controllers).map((c) => c.id)).to.deep.equal(['pkg-basic:UsersController', 'app-basic:HealthController', 'app-basic:UsersController']);
     const health = manifest.controllers.find((c) => c.id === 'app-basic:HealthController');
     expect(health?.routes[0].fullPath).to.equal('/health/get');

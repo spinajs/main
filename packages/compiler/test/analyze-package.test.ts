@@ -17,7 +17,13 @@ describe('analyzePackage', () => {
   it('emits a fragment with every section, sorted by source, and matches the snapshot', async () => {
     const fragment = await analyzePackage({ tsconfig: 'test/fixtures/pkg-basic/tsconfig.json', packageRoot: 'test/fixtures/pkg-basic' });
     expect(fragment.manifestVersion).to.equal(2);
-    expect(fragment.package).to.deep.equal({ name: 'pkg-basic', version: '1.0.0', entry: 'lib/index.js', outDir: 'lib' });
+    expect(fragment.package).to.deep.equal({
+      name: 'pkg-basic',
+      version: '1.0.0',
+      entry: 'lib/index.js',
+      outDir: 'lib',
+      configFiles: ['config/basic.js', 'config/basic.production.js', 'config/nested/extra.js'],
+    });
     expect(fragment.controllers).to.have.length(1);
     expect(fragment.socketControllers).to.have.length(1);
     expect(fragment.socketContracts).to.have.length(1);

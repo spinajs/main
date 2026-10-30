@@ -1,0 +1,57 @@
+{
+  "manifestVersion": 2,
+  "app": {
+    "name": "parity-app",
+    "version": "0.0.0",
+    "root": "/nonexistent/build-machine/parity-app",
+    "outDir": "lib"
+  },
+  "packages": [
+    {
+      "name": "@spinajs/beta",
+      "version": "0.0.0",
+      "entry": "lib/index.js",
+      "fragment": "lib/manifest.fragment.json",
+      "outDir": "lib",
+      "configFiles": [
+        "config/beta.js",
+        "config/beta.test.js"
+      ]
+    },
+    {
+      "name": "@spinajs/alpha",
+      "version": "0.0.0",
+      "entry": "lib/index.js",
+      "fragment": "lib/manifest.fragment.json",
+      "outDir": "lib",
+      "configFiles": [
+        "config/alpha.js",
+        "config/alpha.test.js",
+        "config/nested/alpha-extra.js"
+      ]
+    },
+    {
+      "name": "@spinajs/gamma",
+      "version": "0.0.0",
+      "entry": "lib/index.js",
+      "fragment": "lib/manifest.fragment.json",
+      "outDir": "lib"
+    }
+  ],
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "hash": "78fabc0444adec2d7c8737c1dd4fb74088a79b3542994e7609f822b0f3bf0b33",
+  "services": [],
+  "values": [],
+  "controllers": [],
+  "socketControllers": [],
+  "socketContracts": [],
+  "configModules": [],
+  "configUsages": [],
+  "models": [],
+  "migrations": [],
+  "schedules": [],
+  "commands": [],
+  "queueMessages": [],
+  "schemas": {},
+  "diagnostics": []
+}

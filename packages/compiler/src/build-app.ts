@@ -20,7 +20,10 @@ export async function buildAppManifest(options: BuildAppOptions): Promise<{ mani
 
   const merged = mergeFragments(app, fragments, {
     app: { name: app.package.name, version: app.package.version, root, outDir: app.package.outDir },
-    packages: locations.map((l, i) => ({ name: l.name, version: l.version, entry: l.entry, outDir: fragments[i].package.outDir, fragment: l.fragmentRel })),
+    packages: locations.map((l, i) => {
+      const { outDir, configFiles } = fragments[i].package;
+      return { name: l.name, version: l.version, entry: l.entry, outDir, fragment: l.fragmentRel, ...(configFiles ? { configFiles } : {}) };
+    }),
     generatedAt: new Date().toISOString(),
   });
   const manifest: Manifest = { ...merged, hash: hashManifest(merged) };

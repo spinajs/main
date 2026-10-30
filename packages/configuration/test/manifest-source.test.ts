@@ -3,18 +3,21 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import sinon from 'sinon';
 import glob from 'glob';
+import _ from 'lodash';
 import { resolve } from 'node:path';
 import { DI, IContainer } from '@spinajs/di';
 import { Configuration, ConfigurationSource } from '@spinajs/configuration-common';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { BaseFileSource, JsFileSource } from '../src/sources.js';
 import { FrameworkConfiguration } from '../src/configuration.js';
-import { ManifestConfigurationSource, manifestOf } from '../src/manifest-source.js';
+import { ManifestConfigurationSource } from '../src/manifest-source.js';
+import { manifestOf } from '../src/manifest-runtime.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
 
 const FIX = resolve(process.cwd(), 'test', 'fixtures', 'manifest-app');
+const PARITY = resolve(process.cwd(), 'test', 'fixtures', 'parity-app');
 
 async function boot(env: Record<string, string>) {
   const container = DI.RootContainer.child({ isolateSingletons: true });
@@ -25,6 +28,9 @@ async function boot(env: Record<string, string>) {
   const config = await container.resolve(Configuration);
   return { container, config };
 }
+
+// Everything a config file contributes: process.env is the environment and system.manifest the switch itself.
+const loaded = (config: Configuration): unknown => JSON.parse(JSON.stringify(_.omit((config as FrameworkConfiguration).RootConfig, ['process', 'system.manifest'])));
 
 describe('ManifestConfigurationSource', () => {
   let cwd: sinon.SinonStub;
@@ -38,6 +44,8 @@ describe('ManifestConfigurationSource', () => {
     open.push(booted.container);
     return booted;
   };
+
+  const packageDirGlobs = () => globSync.getCalls().filter((c) => String(c.args[0]).includes('@spinajs/*'));
 
   beforeEach(() => {
     workspaceRoot = process.env.WORKSPACE_ROOT_PATH;
@@ -61,15 +69,25 @@ describe('ManifestConfigurationSource', () => {
     expect(config.get('dep.loaded')).to.equal(true);
   });
 
-  it('registers the manifest and loads only the listed defaults files', async () => {
+  it('registers the manifest and takes the package config files from it', async () => {
     const { container, config } = await start({ SPINAJS_MANIFEST_MODE: 'prefer', APP_ENV: 'test' });
     expect(manifestOf(container)?.app.name).to.equal('manifest-app');
     expect(config.get('sample.value')).to.equal('from-test-env');
     expect(config.get('dep.loaded')).to.equal(true);
-    expect(ancestors.called, 'node_modules walk must not run').to.equal(false);
-    const packageGlobs = globSync.getCalls().filter((c) => String(c.args[0]).includes('node_modules/@spinajs'));
-    expect(packageGlobs, 'no glob over package config dirs').to.have.length(0);
+    expect(packageDirGlobs(), 'no glob over the package config dirs').to.have.length(0);
     expect(process.env.WORKSPACE_ROOT_PATH).to.equal(FIX);
+  });
+
+  it('never walks node_modules with a manifest when WORKSPACE_ROOT_PATH is given', async () => {
+    process.env.WORKSPACE_ROOT_PATH = FIX;
+    const { config } = await start({ SPINAJS_MANIFEST_MODE: 'prefer', APP_ENV: 'test' });
+    expect(config.get('dep.loaded')).to.equal(true);
+    expect(ancestors.called).to.equal(false);
+  });
+
+  it("loads the app's own config files once", async () => {
+    const { config } = await start({ SPINAJS_MANIFEST_MODE: 'prefer', APP_ENV: 'test' });
+    expect(config.get<string[]>('sample.__file__').map((f) => f.replace(/\\/g, '/').split('/').pop())).to.deep.equal(['sample.js', 'sample.test.js']);
   });
 
   it('loads the plain defaults when no env sibling exists', async () => {
@@ -92,6 +110,28 @@ describe('ManifestConfigurationSource', () => {
     expect(manifestOf(container)?.app.name).to.equal('manifest-app');
   });
 
+  describe('package config files', () => {
+    beforeEach(() => cwd.returns(PARITY));
+
+    it('loads every package config file, also those no configuration module names', async () => {
+      const { config } = await start({ SPINAJS_MANIFEST_MODE: 'require', APP_ENV: 'test' });
+      expect(packageDirGlobs()).to.have.length(0);
+      expect(config.get('alpha')).to.deep.include({ value: 'app-override', overridden: 'beta', env: 'alpha-test' });
+      expect(config.get('alphaExtra.loaded')).to.equal(true);
+      expect(config.get('beta')).to.deep.include({ value: 'app-env-override', env: 'beta-test' });
+      expect(config.get('app')).to.deep.include({ common: true, env: 'test' });
+      // gamma's fragment predates configFiles: its one config dir is globbed
+      expect(config.get('gamma.loaded')).to.equal(true);
+    });
+
+    it('merges to exactly the configuration the node_modules walk gives', async () => {
+      const walk = loaded((await start({ SPINAJS_MANIFEST_MODE: 'off', APP_ENV: 'test' })).config);
+      const listed = loaded((await start({ SPINAJS_MANIFEST_MODE: 'prefer', APP_ENV: 'test' })).config);
+      expect(listed).to.deep.equal(walk);
+      expect((walk as { system: { dirs: { cli: string[] } } }).system.dirs.cli.slice(0, 4)).to.deep.equal(['alpha-cli', 'beta-cli', 'app-cli', 'alpha-test-cli']);
+    });
+  });
+
   describe('reading system.manifest', () => {
     const configOf = (values: Record<string, unknown>) => ({ get: (path: string, def?: unknown) => (values[path] ?? def) }) as unknown as Configuration;
     const source = () => {
@@ -101,8 +141,9 @@ describe('ManifestConfigurationSource', () => {
     };
 
     it('lets SPINAJS_MANIFEST_MODE win over system.manifest.mode', async () => {
-      const result = await source().Load(configOf({ 'system.manifest': { mode: 'require' }, 'system.manifest.mode': 'require', 'process.env.SPINAJS_MANIFEST_MODE': 'off' }));
-      expect(result).to.deep.equal({});
+      const s = source();
+      await s.Load(configOf({ 'system.manifest': { mode: 'require' }, 'process.env.SPINAJS_MANIFEST_MODE': 'off' }));
+      expect(manifestOf((s as unknown as { Container: IContainer }).Container)).to.equal(undefined);
     });
 
     it('warns about unknown system.manifest keys', async () => {
