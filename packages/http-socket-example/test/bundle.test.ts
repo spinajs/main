@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { cpSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const PACKAGE = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BOOT_TIMEOUT_MS = 30_000;
 
-function listen(child: ChildProcess): Promise<string> {
+function listen(child: ChildProcessWithoutNullStreams): Promise<string> {
   return new Promise((resolve, reject) => {
     let out = '';
     const timer = setTimeout(() => reject(new Error(`bundle did not start in ${BOOT_TIMEOUT_MS} ms:\n${out}`)), BOOT_TIMEOUT_MS);
@@ -34,7 +34,7 @@ describe('single-file bundle', function () {
   this.timeout(120_000);
 
   let work: string;
-  let child: ChildProcess | undefined;
+  let child: ChildProcessWithoutNullStreams | undefined;
 
   before(() => {
     const built = spawnSync(process.execPath, [join(PACKAGE, 'scripts', 'bundle.mjs')], { cwd: PACKAGE, encoding: 'utf8' });
