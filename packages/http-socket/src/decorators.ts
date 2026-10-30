@@ -1,5 +1,6 @@
 import { Class, DI, getInheritedDescriptor } from '@spinajs/di';
 import { BasePolicy, IPolicyGroup } from '@spinajs/http';
+import type { ContractShape, SocketContract } from '@spinajs/http-socket-common';
 import { BaseSocketController } from './controller.js';
 import { ConnectionArg, FromDiArg, PayloadArg, ReasonArg, SignalArg } from './args.js';
 import { ICommandOptions, IEventOptions, ISocketControllerDescriptor, ISocketHandlerDescriptor, ISocketParameter, SOCKET_CONTROLLER_DESCRIPTOR, SocketArg, SocketHandlerKind } from './interfaces.js';
@@ -71,10 +72,15 @@ function Handler(kind: Exclude<SocketHandlerKind, 'unknown'>, name: string | und
 /**
  * Marks a socket controller. Command and event names get the prefix ( `docs` + `open` = `docs.open` ).
  * Keep socket controllers out of `system.dirs.controllers`; list their folders in `system.dirs.socketControllers`.
+ * With `contract`, the handlers are checked against the contract in `manifest.socketContracts` and incoming
+ * payloads are validated against its schemas; both need `system.manifest.mode` other than `off`.
  */
-export function SocketController(prefix?: string) {
+export function SocketController(prefix?: string, options: { contract?: SocketContract<ContractShape> } = {}) {
   const describe = SocketDescriptor((descriptor) => {
     descriptor.Prefix = prefix ? prefix : null;
+    if (options.contract) {
+      descriptor.Contract = options.contract;
+    }
   });
 
   return (target: Class<BaseSocketController>) => {

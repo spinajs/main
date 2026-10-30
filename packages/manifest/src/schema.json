@@ -711,6 +711,9 @@
         "prefix": {
           "type": "string"
         },
+        "contract": {
+          "type": "string"
+        },
         "commands": {
           "type": "array",
           "items": {

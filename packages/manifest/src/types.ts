@@ -103,7 +103,7 @@ export interface ControllerEntry {
 }
 
 export interface SocketCommandEntry { name: string; handler: string; payload: TypeRef; result: TypeRef; /** The handler returns an async iterable; `result` describes one item */ stream?: true; options: { idempotent?: boolean; ordered?: 'connection' | 'client'; timeoutMs?: number }; access?: string[]; policies: PolicyRef[][]; source: SourceRef }
-export interface SocketControllerEntry { id: string; className: string; prefix: string; commands: SocketCommandEntry[]; events: { name: string; payload: TypeRef }[]; source: SourceRef }
+export interface SocketControllerEntry { id: string; className: string; prefix: string; /** `id` of the `socketContracts` entry named by `@SocketController(prefix, { contract })` */ contract?: string; commands: SocketCommandEntry[]; events: { name: string; payload: TypeRef }[]; source: SourceRef }
 export interface SocketContractCommand { payload: TypeRef; result: TypeRef }
 export interface SocketContractEntry { id: string; commands: Record<string, SocketContractCommand>; events: Record<string, TypeRef>; clientEvents: Record<string, TypeRef>; source: SourceRef }
 

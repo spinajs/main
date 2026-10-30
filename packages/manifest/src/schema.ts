@@ -712,6 +712,9 @@ export const manifestSchema: Record<string, any> = {
         "prefix": {
           "type": "string"
         },
+        "contract": {
+          "type": "string"
+        },
         "commands": {
           "type": "array",
           "items": {

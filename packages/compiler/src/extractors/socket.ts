@@ -51,6 +51,32 @@ function commandOf(m: NamedMethod, className: string, cmd: DecoratorInfo, ctx: E
   };
 }
 
+function isDefineContract(init: ts.Expression | undefined): init is ts.CallExpression {
+  return !!init && ts.isCallExpression(init) && ts.isIdentifier(init.expression) && init.expression.text === 'defineContract';
+}
+
+function contractIdOf(decl: ts.VariableDeclaration & { name: ts.Identifier }, call: ts.CallExpression, ctx: ExtractorContext): string {
+  return (literalValue(call.arguments[0], ctx) as string | undefined) ?? `${ctx.packageName}:${decl.name.text}`;
+}
+
+/** The id of the contract named by `@SocketController(prefix, { contract })`; its declaration must be a `defineContract` call in a source file. */
+function boundContractOf(sc: DecoratorInfo, ctx: ExtractorContext): string | undefined {
+  const options = sc.args[1];
+  if (!options || !ts.isObjectLiteralExpression(options)) return undefined;
+  const property = options.properties.find((p) => (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) && p.name.getText() === 'contract');
+  const expr = property && (ts.isPropertyAssignment(property) ? property.initializer : (property as ts.ShorthandPropertyAssignment).name);
+  if (!expr) return undefined;
+
+  let symbol = ctx.checker.getSymbolAtLocation(expr);
+  if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = ctx.checker.getAliasedSymbol(symbol);
+  const decl = symbol?.valueDeclaration;
+  if (decl && ts.isVariableDeclaration(decl) && ts.isIdentifier(decl.name) && isDefineContract(decl.initializer)) {
+    return contractIdOf(decl as ts.VariableDeclaration & { name: ts.Identifier }, decl.initializer, ctx);
+  }
+  ctx.warn('SOCK004', `cannot resolve the contract bound to this socket controller: ${expr.getText()} is not a defineContract() variable declared in a source file`, expr);
+  return undefined;
+}
+
 function controllerOf(node: ts.ClassDeclaration & { name: ts.Identifier }, sc: DecoratorInfo, ctx: ExtractorContext): SocketControllerEntry {
   const commands: SocketCommandEntry[] = [];
   const events: SocketControllerEntry['events'] = [];
@@ -62,10 +88,12 @@ function controllerOf(node: ts.ClassDeclaration & { name: ts.Identifier }, sc: D
     if (cmd) commands.push(commandOf(named, node.name.text, cmd, ctx));
     else if (ev) events.push({ name: (literalValue(ev.args[0], ctx) as string | undefined) ?? named.name.text, payload: payloadOf(named, node.name.text, ctx) });
   }
+  const contract = boundContractOf(sc, ctx);
   return {
     id: `${ctx.packageName}:${node.name.text}`,
     className: node.name.text,
     prefix: (literalValue(sc.args[0], ctx) as string | undefined) ?? '',
+    ...(contract ? { contract } : {}),
     commands,
     events,
     source: ctx.sourceRef(node),
@@ -120,9 +148,10 @@ export const extractSocketContracts: Extractor<SocketContractEntry> = (ctx, file
     if (!ts.isVariableStatement(st)) continue;
     for (const decl of st.declarationList.declarations) {
       const init = decl.initializer;
-      const typeArg = init && ts.isCallExpression(init) && ts.isIdentifier(init.expression) && init.expression.text === 'defineContract' ? init.typeArguments?.[0] : undefined;
-      if (!typeArg || !ts.isIdentifier(decl.name)) continue;
-      out.push(contractOf(decl as ts.VariableDeclaration & { name: ts.Identifier }, ctx.checker.getTypeFromTypeNode(typeArg), ctx));
+      const typeArg = isDefineContract(init) ? init.typeArguments?.[0] : undefined;
+      if (!typeArg || !isDefineContract(init) || !ts.isIdentifier(decl.name)) continue;
+      const named = decl as ts.VariableDeclaration & { name: ts.Identifier };
+      out.push({ ...contractOf(named, ctx.checker.getTypeFromTypeNode(typeArg), ctx), id: contractIdOf(named, init, ctx) });
     }
   }
   return out;

@@ -7,3 +7,4 @@ export * from './merge.js';
 export * from './diff.js';
 export * from './runtime.js';
 export * from './route-path.js';
+export * from './socket-contract.js';

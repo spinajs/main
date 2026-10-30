@@ -13,6 +13,7 @@ import { conditionUnmet } from './condition-unmet.js';
 import { fragmentStale } from './fragment-stale.js';
 import { modelsWithoutAccessResource } from './models-without-access-resource.js';
 import { explicitSchemaDrift } from './explicit-schema-drift.js';
+import { socketContract } from './socket-contract.js';
 
 export const DEFAULT_RULES: DoctorRule[] = [
   unresolvedInjection,
@@ -29,6 +30,7 @@ export const DEFAULT_RULES: DoctorRule[] = [
   fragmentStale,
   modelsWithoutAccessResource,
   explicitSchemaDrift,
+  socketContract,
 ];
 
 export {
@@ -46,4 +48,5 @@ export {
   fragmentStale,
   modelsWithoutAccessResource,
   explicitSchemaDrift,
+  socketContract,
 };

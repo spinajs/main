@@ -8,7 +8,7 @@ import type { Decision, IAuthnPrincipalStorage, IAuthzAsyncStorage } from '@spin
 import type { SocketConnection } from './connection.js';
 import type { BaseSocketController } from './controller.js';
 import { SocketException } from '@spinajs/http-socket-common';
-import type { CommandRequest, SocketError } from '@spinajs/http-socket-common';
+import type { CommandRequest, ContractShape, SocketContract, SocketError } from '@spinajs/http-socket-common';
 import { AuthenticationFailed } from '@spinajs/exceptions';
 import type { TokenBucket } from './limits.js';
 
@@ -248,6 +248,8 @@ export interface ISocketControllerDescriptor {
   Prefix: string | null;
   Policies: IPolicyGroup[];
   Handlers: Map<string | symbol, ISocketHandlerDescriptor>;
+  /** Set by `@SocketController(prefix, { contract })`; checked against the manifest when `system.manifest.mode` is not `off` */
+  Contract?: SocketContract<ContractShape>;
 }
 
 export interface IRegisteredHandler {
@@ -256,6 +258,8 @@ export interface IRegisteredHandler {
   readonly controller: BaseSocketController;
   readonly descriptor: ISocketHandlerDescriptor;
   readonly policies: IResolvedRoutePolicies;
+  /** Set at registration for a handler of a contract-bound controller; throws the error the client receives */
+  contractValidator?: (payload: unknown) => void;
 }
 
 /**
