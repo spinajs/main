@@ -69,6 +69,14 @@ class NestedRouteController extends BaseController {
   }
 }
 
+@BasePath('/')
+class RootRouteController extends BaseController {
+  @Get('/')
+  public slash() {
+    return new Ok({ handler: 'slash' });
+  }
+}
+
 @BasePath('/lead')
 class LeadingSlashRouteController extends BaseController {
   @Get('x')
@@ -114,7 +122,7 @@ class WireRouteController extends BaseController {
   }
 }
 
-const CONTROLLERS = [UsersRouteController, NoBaseRouteController, NestedRouteController, LeadingSlashRouteController, WireRouteController];
+const CONTROLLERS = [UsersRouteController, NoBaseRouteController, NestedRouteController, RootRouteController, LeadingSlashRouteController, WireRouteController];
 
 class RoutePathConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
@@ -180,6 +188,12 @@ describe('served route paths and argument binding', function () {
 
   it('keeps the double slash of a leading-slash @BasePath', () => {
     expect(mounted(LeadingSlashRouteController)).to.deep.equal(['GET //lead/x']);
+  });
+
+  it("registers @BasePath('/') + @Get('/') as // and answers it at / only (the router strips trailing slashes)", async () => {
+    expect(mounted(RootRouteController)).to.deep.equal(['GET //']);
+    expect(await status('GET', '/')).to.deep.equal([200, 'slash']);
+    expect((await status('GET', '//'))[0]).to.equal(404);
   });
 
   it('answers on the mounted paths only', async () => {

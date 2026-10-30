@@ -1,5 +1,5 @@
 import ts from 'typescript';
-import { configuredMountPath, controllerMountPath, routeFullPath } from '@spinajs/manifest';
+import { configuredMountPath, controllerMountPath, routeFullPath, servedPath } from '@spinajs/manifest';
 import type { ControllerEntry, ParamEntry, RouteEntry } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
 import { decoratorsOf, findDecorator, literalValue } from '../decorators.js';
@@ -73,7 +73,7 @@ function routeOf(m: ts.MethodDeclaration, mountPath: string, className: string, 
   const countOf = (decorator: string): number => m.parameters.filter((p) => decoratorsOf(p).some((d) => d.name === decorator)).length;
   const wire: RouteWireContext = { bodyParams: countOf('Body'), asModelParams: countOf('AsModel') };
   return {
-    method: ROUTE_METHODS[dec.name], path, handler, fullPath: routeFullPath(mountPath, path, handler),
+    method: ROUTE_METHODS[dec.name], path, handler, fullPath: servedPath(routeFullPath(mountPath, path, handler)),
     params: m.parameters.map((p, i) => paramOf(p, i, `${className}.${handler}`, wire, ctx)).filter((p): p is ParamEntry => !!p),
     returnType, policies: policyGroupsOf(m, ctx, 'route'), middlewares: middlewaresOf(m, ctx),
     ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}), ...(doc ? { doc } : {}),

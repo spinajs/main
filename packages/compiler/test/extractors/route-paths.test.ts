@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import { buildRoutePath } from '@spinajs/http';
 import type { IRoute } from '@spinajs/http';
-import type { ControllerEntry } from '@spinajs/manifest';
+import { servedPath, type ControllerEntry } from '@spinajs/manifest';
 import { createProgramFromTsconfig, createContext, extractControllers } from '../../src/index.js';
 
 describe('controller and route paths', () => {
@@ -11,10 +11,10 @@ describe('controller and route paths', () => {
   const byName = (name: string): ControllerEntry => controllers.find((c) => c.className === name)!;
   const paths = (name: string): string[] => byName(name).routes.map((r) => `${r.method} ${r.fullPath}`);
 
-  it('records the path @spinajs/http serves: handler fallback, slashes as written', () => {
+  it('records the path a request reaches: handler fallback, inner slashes as written, trailing ones stripped as Express does', () => {
     expect(paths('UsersPathController')).to.deep.equal(['get /users/list', 'get /users/emptyString', 'get /users', 'get /users//slash', 'post /users/create', 'get /users/:id']);
     expect(paths('NestedController')).to.deep.equal(['get /api/v2/things/all', 'get /api/v2/things']);
-    expect(paths('RootController')).to.deep.equal(['get /health', 'get ///bare', 'get //']);
+    expect(paths('RootController')).to.deep.equal(['get /health', 'get ///bare', 'get /']);
     expect(paths('LeadingSlashBaseController')).to.deep.equal(['get //lead/x']);
   });
 
@@ -32,10 +32,10 @@ describe('controller and route paths', () => {
     expect(paths('ConfiguredController')).to.deep.equal(['get /admin/ping']);
   });
 
-  it('agrees with the http route builder for every route', () => {
+  it('agrees with the http route builder for every route, as Express answers it', () => {
     for (const c of controllers) {
       for (const r of c.routes) {
-        expect(r.fullPath, `${c.className}.${r.handler}`).to.equal(buildRoutePath(c.mountPath!, { Path: r.path, Method: r.handler } as IRoute));
+        expect(r.fullPath, `${c.className}.${r.handler}`).to.equal(servedPath(buildRoutePath(c.mountPath!, { Path: r.path, Method: r.handler } as IRoute)));
       }
     }
   });

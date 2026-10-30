@@ -31,6 +31,15 @@ describe('HTTP001 duplicate-route', () => {
     ]);
   });
 
+  it('matches a trailing slash the way the non-strict router does', () => {
+    const m = fixture({
+      controllers: [controller({ className: 'Users', routes: [route({ handler: 'list', fullPath: '/users/list' }), route({ handler: 'all', path: 'list/', fullPath: '/users/list/', source: src('src/users.ts', 5) })] })],
+    });
+    expect(duplicateRoute.run(m, ctx)).to.deep.equal([
+      { code: 'HTTP001', severity: 'error', message: 'Duplicate route GET /users/list: Users.list and Users.all (as /users/list/)', source: src('src/users.ts', 5) },
+    ]);
+  });
+
   it('does not report bare sibling routes, which are served under their handler names', () => {
     const unit = createProgramFromTsconfig('test/fixtures/unit/tsconfig.json');
     const controllers = extractControllers(createContext(unit, 'unit', 'test/fixtures/unit'), unit.sourceFiles.find((f) => f.fileName.endsWith('route-paths.ts'))!);

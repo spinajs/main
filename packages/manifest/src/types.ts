@@ -75,8 +75,9 @@ export interface RouteEntry {
   path: string;
   handler: string;                   // method name
   /**
-   * The path `@spinajs/http` serves the route at (`routeFullPath(mountPath, path, handler)`), without the global
-   * `http.controllers.route.prefix`; apply it with `withRoutePrefix`. A `basePathConfig` controller uses its default.
+   * The request path the route answers at, `servedPath(routeFullPath(mountPath, path, handler))`, without the global
+   * `http.controllers.route.prefix`: with one, it is `servedPath(withRoutePrefix(prefix, fullPath))`. A `basePathConfig`
+   * controller uses its default.
    */
   fullPath: string;
   params: ParamEntry[];

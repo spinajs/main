@@ -10,13 +10,12 @@ const ctx = { cwd: '/fixture', fileExists: () => true, fragmentMtime: () => unde
 const body = (name: string, schema: string | undefined, wire: ParamEntry['wire']): ParamEntry => ({ index: 0, name, kind: 'FromBody', runtimeType: { text: 'Dto', ...(schema ? { schema } : {}) }, required: true, ...(wire ? { wire } : {}) });
 
 describe('HTTP003 double-slash-path', () => {
-  it('reports every route whose served path keeps a // from a leading or trailing slash', () => {
+  it("reports every route whose request path keeps a // from a leading or trailing slash, not the root route under @BasePath('/')", () => {
     const unit = createProgramFromTsconfig('test/fixtures/unit/tsconfig.json');
     const controllers = extractControllers(createContext(unit, 'unit', 'test/fixtures/unit'), unit.sourceFiles.find((f) => f.fileName.endsWith('route-paths.ts'))!);
     expect(doubleSlashPath.run(fixture({ controllers }), ctx).map((d) => [d.code, d.severity, d.message])).to.deep.equal([
       ['HTTP003', 'warning', "UsersPathController.leadingSlash is mounted at /users//slash, not /users/slash: @spinajs/http keeps the slashes of @BasePath and the route path as written. Remove the leading slash from the route path ('/slash')."],
-      ['HTTP003', 'warning', "RootController.bare is mounted at ///bare, not /bare: @spinajs/http keeps the slashes of @BasePath and the route path as written. Under @BasePath('/'), give the route a path without a leading slash."],
-      ['HTTP003', 'warning', "RootController.slash is mounted at //, not /: @spinajs/http keeps the slashes of @BasePath and the route path as written. Under @BasePath('/'), give the route a path without a leading slash."],
+      ['HTTP003', 'warning', "RootController.bare is mounted at ///bare, not /bare: @spinajs/http keeps the slashes of @BasePath and the route path as written. Under @BasePath('/'), give the route an explicit path."],
       ['HTTP003', 'warning', "LeadingSlashBaseController.x is mounted at //lead/x, not /lead/x: @spinajs/http keeps the slashes of @BasePath and the route path as written. Remove the outer slashes from @BasePath ('/lead')."],
     ]);
   });

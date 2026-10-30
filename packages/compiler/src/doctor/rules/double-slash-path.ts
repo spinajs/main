@@ -5,7 +5,7 @@ function hint(c: ControllerEntry, r: RouteEntry): string {
   if (r.path.startsWith('/') && r.path !== '/') return `Remove the leading slash from the route path ('${r.path}').`;
   const mountPath = c.mountPath ?? controllerMountPath(c.basePath, c.className);
   if (mountPath !== '/') return `Remove the outer slashes from @BasePath ('${mountPath}').`;
-  return "Under @BasePath('/'), give the route a path without a leading slash.";
+  return "Under @BasePath('/'), give the route an explicit path.";
 }
 
 export const doubleSlashPath: DoctorRule = {
