@@ -1,4 +1,4 @@
-import { AutoinjectService } from '@spinajs/configuration';
+import { AutoinjectService, Config } from '@spinajs/configuration';
 import { Autoinject, Injectable, LazyInject, Singleton } from '@spinajs/di';
 
 export class Db {}
@@ -53,6 +53,25 @@ export class Configured {
 
   @AutoinjectService('app.plugin', Plugin)
   public one: Plugin;
+}
+
+function InjectPlugin() {
+  return Autoinject(Plugin);
+}
+
+@Singleton()
+export class Wrapped {
+  @InjectPlugin()
+  public one: Plugin;
+
+  @InjectPlugin()
+  public list: Plugin[];
+
+  @InjectPlugin()
+  public alias: Plugins;
+
+  @Config('app.name')
+  public name: string;
 }
 
 export abstract class Base {

@@ -148,15 +148,27 @@ export function propertyInjectsOf(cls: ts.ClassDeclaration, ctx: ExtractorContex
 const TYPE_READING_DECORATORS = new Set(['Autoinject', 'LazyInject']);
 
 /**
+ * The compiler knows decorators by name, so one of the app's own may wrap `@Autoinject(X)`. Only the list shape is
+ * recorded: a row without `tokenRef` imports nothing, whichever decorator it turns out to be.
+ */
+function otherDecoratedOf(cls: ts.ClassDeclaration, ctx: ExtractorContext): PropertyInject[] {
+  return cls.members.filter(ts.isPropertyDeclaration).flatMap((member) => {
+    const decorators = decoratorsOf(member);
+    if (decorators.length === 0 || decorators.some((d) => PROPERTY_DECORATORS[d.name])) return [];
+    return [{ property: propertyName(member), token: tokenOfTypeNode(member.type, ctx).token, optional: !!member.questionToken, array: declaresList(member, ctx) }];
+  });
+}
+
+/**
  * A class of any kind can declare these: a policy, a model, a schedule, an abstract base. Nothing reads the table in a
- * build with decorator metadata, and each entry is a class the runtime has to import at boot, so such a build has none.
+ * build with decorator metadata, and the runtime imports every `tokenRef` at boot, so such a build has none.
  */
 export const extractClassProperties: Extractor<ClassPropertiesEntry> = (ctx, file) => {
   if (ctx.program.getCompilerOptions().emitDecoratorMetadata) return [];
   const out: ClassPropertiesEntry[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isClassDeclaration(node) && node.name) {
-      const properties = propertyInjectsOf(node, ctx, TYPE_READING_DECORATORS);
+      const properties = [...propertyInjectsOf(node, ctx, TYPE_READING_DECORATORS), ...otherDecoratedOf(node, ctx)];
       if (properties.length > 0) out.push({ id: `${ctx.packageName}:${node.name.text}`, className: node.name.text, properties, source: ctx.sourceRef(node) });
     }
     ts.forEachChild(node, visit);

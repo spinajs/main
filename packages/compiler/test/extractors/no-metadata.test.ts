@@ -107,6 +107,17 @@ describe('what a build without decorator metadata needs from the manifest', () =
       expect(property('map')).to.include({ array: true }).and.not.have.property('tokenRef');
     });
 
+    it('records a property under a decorator it does not know, for the list shape alone', () => {
+      const wrapped = (name: string) => entry('Wrapped')?.properties.find((p) => p.property === name);
+      expect(wrapped('one')).to.include({ array: false }).and.not.have.property('tokenRef');
+      expect(wrapped('list')).to.include({ array: true }).and.not.have.property('tokenRef');
+      expect(wrapped('alias')).to.include({ array: true }).and.not.have.property('tokenRef');
+    });
+
+    it('leaves out a decorator it knows injects by its own arguments', () => {
+      expect(entry('Wrapped')?.properties.map((p) => p.property)).to.not.include('name');
+    });
+
     it('records nothing for a package built with decorator metadata: it never needs the table', async () => {
       const metadata = await analyzePackage({ tsconfig: 'test/fixtures/pkg-basic/tsconfig.json', packageRoot: 'test/fixtures/pkg-basic' });
       expect(metadata).to.not.have.property('classProperties');

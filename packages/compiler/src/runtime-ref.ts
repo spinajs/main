@@ -61,7 +61,10 @@ function serializeObject(type: ts.Type, checker: ts.TypeChecker): Serialized {
   return { global: type.getCallSignatures().length ? 'Function' : 'Object' };
 }
 
-/** Decided as `@Autoinject` decides from `design:type`: on what the type resolves to, so an alias and `readonly` count. */
+/**
+ * On what the type resolves to, so an alias and `readonly` count. This goes beyond `design:type`, which holds `Object`
+ * for an alias of `Map` and for a nullable alias of a list: those are one instance with metadata, a list here.
+ */
 export function isListType(type: ts.Type, checker: ts.TypeChecker): boolean {
   const serialized = serialize(type, checker);
   return serialized !== undefined && 'global' in serialized && (serialized.global === 'Array' || serialized.global === 'Map');

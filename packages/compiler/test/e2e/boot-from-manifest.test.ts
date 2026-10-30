@@ -34,6 +34,35 @@ export default {
 };
 `;
 
+// A decorator of the app's own: the compiler sees neither `Autoinject` nor the class it names.
+const WRAPPED_CONTROLLER = `
+import { Autoinject, Injectable } from '@spinajs/di';
+import { BaseController, BasePath, Get, Ok } from '@spinajs/http';
+
+@Injectable()
+export class WrappedDep {
+  public readonly name = 'dep';
+}
+
+function InjectDep() {
+  return Autoinject(WrappedDep);
+}
+
+@BasePath('wrapped')
+export class WrappedController extends BaseController {
+  @InjectDep()
+  public dep: WrappedDep;
+
+  @InjectDep()
+  public deps: WrappedDep[];
+
+  @Get()
+  public async get(): Promise<Ok<{ dep: string; deps: number }>> {
+    return new Ok({ dep: this.dep.name, deps: this.deps.length });
+  }
+}
+`;
+
 interface ProbeResult {
   unsupported?: string;
   error?: { name: string; message: string; stack: string };
@@ -63,6 +92,7 @@ async function installApp(installed: string, emitDecoratorMetadata: boolean): Pr
   rmSync(installed, { recursive: true, force: true });
   mkdirSync(installed, { recursive: true });
   cpSync(join(APP, 'src'), join(installed, 'src'), { recursive: true });
+  writeFileSync(join(installed, 'src', 'controllers', 'wrapped.ts'), WRAPPED_CONTROLLER);
   const tsconfig = readFileSync(join(APP, 'tsconfig.json'), 'utf8').replace('"emitDecoratorMetadata": true', `"emitDecoratorMetadata": ${String(emitDecoratorMetadata)}`);
   writeFileSync(join(installed, 'tsconfig.json'), tsconfig);
 
@@ -192,6 +222,11 @@ describe('app-basic boots from its manifest', function () {
       expect(requiredWithoutMetadata.scans.migrationDirScans).to.equal(0);
       expect(requiredWithoutMetadata.imports.filter((i) => i.specifier.startsWith('typescript'))).to.deep.equal([]);
       expect(view(requiredWithoutMetadata)).to.deep.equal(view(required));
+    });
+
+    it("injects through a decorator of the app's own, a list as a list", () => {
+      expect(required.responses.wrapped).to.deep.equal({ status: 200, body: { dep: 'dep', deps: 1 } });
+      expect(requiredWithoutMetadata.responses.wrapped).to.deep.equal(required.responses.wrapped);
     });
   });
 });
