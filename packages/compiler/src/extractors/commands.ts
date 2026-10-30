@@ -1,3 +1,4 @@
+import { isAbstractClass } from './abstract.js';
 import ts from 'typescript';
 import type { CliCommandEntry } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
@@ -41,7 +42,7 @@ function commandMeta(d: DecoratorInfo, ctx: ExtractorContext): CommandMeta {
 export const extractCommands: Extractor<CliCommandEntry> = (ctx, file) => {
   const out: CliCommandEntry[] = [];
   for (const st of file.statements) {
-    if (!ts.isClassDeclaration(st) || !st.name) continue;
+    if (!ts.isClassDeclaration(st) || !st.name || isAbstractClass(st)) continue;
     const cmd = findDecorator(st, 'Command');
     if (!cmd || !ctx.isSubclassOf(st, 'CliCommand')) continue;
     const meta = commandMeta(cmd, ctx);
