@@ -62,7 +62,8 @@
     "@spinajs/authz-testing": "3.0.23",
     "@spinajs/fs": "3.0.23",
     "@spinajs/http-swagger": "3.0.23",
-    "@spinajs/log": "3.0.23"
+    "@spinajs/log": "3.0.23",
+    "@spinajs/testing": "3.0.23"
   },
   "types": "./lib/index.d.ts",
   "spinajs": {

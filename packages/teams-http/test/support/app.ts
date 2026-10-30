@@ -1,6 +1,7 @@
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import chai from 'chai';
 import chaiHttp from 'chai-http';
@@ -21,6 +22,8 @@ import { PrincipalSource } from '@spinajs/authz-http';
 import { DbScopeAttributeStore } from '@spinajs/authz-orm';
 import { registerRbac } from '@spinajs/authz-rbac';
 import { testHost, userPrincipal } from '@spinajs/authz-testing';
+import { installContractTesting, manifestOfFragments } from '@spinajs/testing';
+import type { ContractTestingHandle } from '@spinajs/testing';
 import { InvitationMailer, VerifiedEmailSource } from '@spinajs/teams';
 import type { InvitationMail } from '@spinajs/teams';
 
@@ -132,6 +135,10 @@ class TeamsHttpTestConfiguration extends FrameworkConfiguration {
   }
 }
 
+const FRAGMENT = fileURLToPath(new URL('../../lib/manifest.fragment.json', import.meta.url));
+
+let contract: ContractTestingHandle | undefined;
+
 let running: { readonly server: HttpServer; readonly port: number } | undefined;
 
 /**
@@ -152,6 +159,9 @@ export async function startTeamsApp(): Promise<number> {
     await b.bootstrap();
   }
   const config = (await DI.resolve(Configuration)) as Configuration;
+  contract = await installContractTesting({ manifest: await manifestOfFragments([FRAGMENT]) });
+  contract.register(DI.RootContainer);
+  contract.enable(config);
   // Before anything resolves the root AuthzService, whose boot reads the models and stores registered here.
   const root = DI.RootContainer;
   const attributes = new DbScopeAttributeStore();
@@ -181,6 +191,10 @@ export async function stopTeamsApp(): Promise<void> {
   await ((await DI.resolve(Orm)) as Orm).dispose();
   // fsTemp's cleanup interval would keep the mocha process alive after the last suite.
   for (const provider of DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES)?.values() ?? []) await provider.dispose();
+
+  const finished = contract;
+  contract = undefined;
+  finished?.assertClean();
 }
 
 export function appPort(): number {
