@@ -4,6 +4,7 @@ import { Schema } from './decorators-shim.js';
 import * as zod4 from './vendor/zod4/index.js';
 import * as zod3 from './vendor/zod3/index.js';
 import * as valibot from './vendor/valibot/index.js';
+import * as zod325v4 from './vendor/zod325/v4/index.js';
 
 // --- primitives and literals (Task 2)
 export type PString = string;
@@ -197,3 +198,10 @@ export class StdZod3Dto { public name: string }
 export const StdZod3DtoJsonSchema = { type: 'object' };
 @Schema(valibot.object({ name: 'string' }))
 export class StdOtherDto { public name: string }
+@Schema(zod325v4.object({ name: 'string' }))
+export class StdZodV4SubpathDto { public name: string }
+export const StdZodV4SubpathDtoJsonSchema = { type: 'object', properties: { name: { type: 'string' } }, required: ['name'], additionalProperties: false };
+interface LocalStandard { readonly '~standard': { readonly version: 1; readonly vendor: 'my-lib'; readonly validate: (value: unknown) => { value: unknown } } }
+declare const localStandard: LocalStandard;
+@Schema(localStandard)
+export class StdLocalDto { public name: string }

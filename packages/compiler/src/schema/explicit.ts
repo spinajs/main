@@ -44,23 +44,36 @@ interface StandardVendor {
   name: string | undefined;
   /** Version of the package that declares the schema type, when it can be read. */
   version: string | undefined;
+  /** zod 3.25.x ships the v4 API under `zod/v4`; that subpath is v4 whatever the package version says. */
+  zodV4Subpath: boolean;
+  local: boolean;
 }
 
 /** The vendor is the package declaring the `~standard` member: libraries type `vendor` as plain `string`. */
 function standardVendor(checker: ts.TypeChecker, argument: ts.Expression): StandardVendor | undefined {
-  const marker = checker.getTypeAtLocation(argument).getProperty('~standard');
+  const type = checker.getTypeAtLocation(argument);
+  const marker = type.getProperty('~standard');
   if (!marker) return undefined;
   const file = marker.declarations?.[0]?.getSourceFile().fileName;
   const declaring = file ? declaringPackage(file) : undefined;
-  return { name: declaring?.name, version: declaring?.version };
+  const local = !declaring || declaring.dir === declaringPackage(argument.getSourceFile().fileName)?.dir;
+  if (local) return { name: literalVendor(checker, marker, argument) ?? 'local', version: undefined, zodV4Subpath: false, local: true };
+  const subpath = path.relative(declaring.dir, file!).split(path.sep)[0];
+  return { name: declaring.name, version: declaring.version, zodV4Subpath: subpath === 'v4' || subpath === 'v4-mini', local: false };
+}
+
+function literalVendor(checker: ts.TypeChecker, marker: ts.Symbol, argument: ts.Expression): string | undefined {
+  const vendor = checker.getTypeOfSymbolAtLocation(marker, argument).getProperty('vendor');
+  const type = vendor && checker.getTypeOfSymbolAtLocation(vendor, argument);
+  return type?.isStringLiteral() ? type.value : undefined;
 }
 
 /** The nearest named package.json above `file`; read as data, nothing in the package is loaded. */
-function declaringPackage(file: string): { name: string; version?: string } | undefined {
+function declaringPackage(file: string): { name: string; version?: string; dir: string } | undefined {
   for (let dir = path.dirname(file); ; dir = path.dirname(dir)) {
     const text = ts.sys.readFile(path.join(dir, 'package.json'));
     const parsed = text ? (ts.parseConfigFileTextToJson('package.json', text).config as { name?: unknown; version?: unknown } | undefined) : undefined;
-    if (typeof parsed?.name === 'string') return { name: parsed.name, version: typeof parsed.version === 'string' ? parsed.version : undefined };
+    if (typeof parsed?.name === 'string') return { name: parsed.name, dir, version: typeof parsed.version === 'string' ? parsed.version : undefined };
     if (path.dirname(dir) === dir) return undefined;
   }
 }
@@ -68,9 +81,9 @@ function declaringPackage(file: string): { name: string; version?: string } | un
 function standardSchema(checker: ts.TypeChecker, declaration: ts.ClassDeclaration, vendor: StandardVendor): ExplicitSchema {
   const className = declaration.name?.text ?? 'Dto';
   const exportName = `${className}JsonSchema`;
-  const label = vendor.name ? `${vendor.name}${vendor.version ? ` ${vendor.version}` : ''}` : 'an unknown vendor';
+  const label = vendor.local ? `a locally defined schema (${vendor.name})` : vendor.name ? `${vendor.name}${vendor.version ? ` ${vendor.version}` : ''}` : 'an unknown vendor';
   const derivedNote = 'the published schema is derived from the class';
-  if (vendor.name !== 'zod' || !(Number(vendor.version?.split('.')[0]) >= 4)) {
+  if (vendor.local || vendor.name !== 'zod' || !(vendor.zodV4Subpath || Number(vendor.version?.split('.')[0]) >= 4)) {
     return { schema: {}, unresolved: [], standardIssue: `@Schema of ${className} is a Standard Schema from ${label}, whose JSON Schema the compiler cannot read; ${derivedNote}` };
   }
   const initializer = exportedConstInitializer(declaration.getSourceFile(), exportName);

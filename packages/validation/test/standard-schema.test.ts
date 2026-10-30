@@ -127,6 +127,64 @@ describe('Standard Schema input', function () {
     });
   });
 
+  describe('callable, async and echoing validators', () => {
+    const callable = Object.assign(() => 'callable', {
+      '~standard': { version: 1 as const, vendor: 'hand', validate: (value: unknown) => ((value as { n?: unknown })?.n === 1 ? { value } : { issues: [{ message: 'Expected 1', path: ['n'] }] }) },
+    });
+
+    it('validates a callable Standard Schema passed directly', async () => {
+      const v = await validator();
+      expect(v.tryValidate(callable, { n: 1 })).to.deep.equal([true, null]);
+      const [ok, errors] = v.tryValidate(callable, { n: 2 });
+      expect(ok).to.be.false;
+      expect(errors![0]).to.include({ keyword: 'standardSchema', instancePath: '/n' });
+    });
+
+    it('awaits an asynchronous validator in validateAsync', async () => {
+      const v = await validator();
+      const asyncSchema = handWritten(async (value) => ((value as { ok?: boolean }).ok ? { value } : { issues: [{ message: 'nope', path: ['ok'] }] }));
+      await v.validateAsync(asyncSchema, { ok: true });
+      let failure: unknown;
+      try {
+        await v.validateAsync(asyncSchema, { ok: false });
+      } catch (e) {
+        failure = e;
+      }
+      expect(failure).to.be.instanceOf(ValidationFailed);
+      expect((failure as ValidationFailed).details[0]).to.include({ field: '/ok' });
+    });
+
+    it('detects thenables that are not native promises', async () => {
+      const v = await validator();
+      const thenable = handWritten(() => ({ then: (resolve: (r: unknown) => void) => resolve({ issues: [{ message: 'x' }] }) }) as never);
+      expect(() => v.validate(thenable, { a: 1 })).to.throw(InvalidOperation, /validateAsync/);
+      let failure: unknown;
+      try {
+        await v.validateAsync(thenable, { a: 1 });
+      } catch (e) {
+        failure = e;
+      }
+      expect(failure).to.be.instanceOf(ValidationFailed);
+    });
+
+    it('does not echo the input value in issue messages', async () => {
+      const v = await validator();
+      const echo = handWritten((value) => ({ issues: [{ message: `received ${(value as { password: string }).password}`, path: ['password'] }, { message: 'Too short', path: ['password'] }] }));
+      const [, errors] = v.tryValidate(echo, { password: 'hunter2-secret' });
+      expect(JSON.stringify(errors)).not.to.include('hunter2-secret');
+      expect(errors![0].instancePath).to.equal('/password');
+      expect(errors![1].message).to.equal('Too short');
+      const asyncEcho = handWritten(async (value) => ({ issues: [{ message: `bad ${(value as { password: string }).password}` }] }));
+      let failure: ValidationFailed | undefined;
+      try {
+        await v.validateAsync(asyncEcho, { password: 'hunter2-secret' });
+      } catch (e) {
+        failure = e as ValidationFailed;
+      }
+      expect(JSON.stringify(failure!.details)).not.to.include('hunter2-secret');
+    });
+  });
+
   describe('zod', () => {
     const User = z.object({ name: z.string(), age: z.number().int() });
 

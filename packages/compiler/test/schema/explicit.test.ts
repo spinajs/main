@@ -97,4 +97,14 @@ describe('Standard Schema as @Schema argument', () => {
     expect(codes('StdOtherDto')).to.deep.equal([['SCH004', 'warning']]);
     expect(derive('StdOtherDto').diagnostics[0].message).to.include('valibot');
   });
+  it('treats the zod/v4 subpath of zod 3.25.x as zod 4', () => {
+    expect(codes('StdZodV4SubpathDto')).to.deep.equal([]);
+    expect(derive('StdZodV4SubpathDto').schema).to.deep.include({ properties: { name: { type: 'string' } } });
+  });
+  it('labels a locally defined Standard Schema as local, not with the user package name', () => {
+    expect(codes('StdLocalDto')).to.deep.equal([['SCH004', 'warning']]);
+    const message = derive('StdLocalDto').diagnostics[0].message;
+    expect(message).to.include('locally defined').and.to.include('my-lib');
+    expect(message).not.to.include('@spinajs/compiler');
+  });
 });

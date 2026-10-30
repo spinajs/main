@@ -28,16 +28,51 @@ const pointerSegment = (segment: PropertyKey | { key: PropertyKey }): string => 
   return String(key).replace(/~/g, '~0').replace(/\//g, '~1');
 };
 
-/** Issues in the shape of an Ajv error, so `ValidationFailed` and the problem+json bodies built from it do not change. */
-export function toValidationErrors(issues: readonly StandardIssue[]): IValidationError[] {
-  return issues.map(
-    (issue) =>
-      ({
-        keyword: 'standardSchema',
-        instancePath: (issue.path ?? []).map((segment) => `/${pointerSegment(segment)}`).join(''),
-        schemaPath: '#',
-        params: {},
-        message: issue.message,
-      }),
-  );
+export function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return (typeof value === 'object' || typeof value === 'function') && value !== null && typeof (value as { then?: unknown }).then === 'function';
+}
+
+const GENERIC_MESSAGE = 'Invalid value';
+const MAX_LEAVES = 1000;
+const MAX_DEPTH = 8;
+
+/** Strings and numbers anywhere in `input`, bounded so a hostile payload cannot make the scan expensive. */
+function leafValues(input: unknown): string[] {
+  const leaves: string[] = [];
+  const seen = new Set<object>();
+  const walk = (value: unknown, depth: number): void => {
+    if (leaves.length >= MAX_LEAVES) return;
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') {
+      const text = String(value);
+      if (text.length > 0) leaves.push(text);
+    } else if (typeof value === 'object' && value !== null && depth < MAX_DEPTH && !seen.has(value)) {
+      seen.add(value);
+      for (const child of Object.values(value)) walk(child, depth + 1);
+    }
+  };
+  walk(input, 0);
+  return leaves;
+}
+
+/**
+ * Issues in the shape of an Ajv error, so `ValidationFailed` and the problem+json bodies built from it do not change.
+ * Libraries may echo the input in a message ("received 123"); a message containing any value of `input` is replaced
+ * by a generic one, the same way the Ajv path drops value-bearing params.
+ */
+export function toValidationErrors(issues: readonly StandardIssue[], input?: unknown): IValidationError[] {
+  const leaves = input === undefined ? [] : leafValues(input);
+  return issues.map((issue) => {
+    const message = typeof issue.message === 'string' && !leaves.some((leaf) => issue.message.includes(leaf)) ? issue.message : GENERIC_MESSAGE;
+    return {
+      keyword: 'standardSchema',
+      instancePath: (issue.path ?? []).map((segment) => `/${pointerSegment(segment)}`).join(''),
+      schemaPath: '#',
+      params: {},
+      message,
+    };
+  });
+}
+
+export function standardOutcome(result: StandardResult<unknown>, input: unknown): [boolean, IValidationError[] | null] {
+  return result.issues ? [false, toValidationErrors(result.issues, input)] : [true, null];
 }

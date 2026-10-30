@@ -96,7 +96,7 @@ export abstract class RouteArgs implements IRouteArgs {
 
       // absent optional params are not validated - validator treats null / undefined data as failure
       if (schema && result !== null && result !== undefined) {
-        this.Validator.validate(schema, result);
+        await this.Validator.validateAsync(schema, result);
       }
     } else {
       hydrator = this.getHydrator(routeParameter);
@@ -104,7 +104,7 @@ export abstract class RouteArgs implements IRouteArgs {
 
       // absent optional params are not validated - validator treats null / undefined data as failure
       if (schema && result !== null && result !== undefined) {
-        this.Validator.validate(schema, result);
+        await this.Validator.validateAsync(schema, result);
       }
 
       if (hydrator) {
