@@ -476,6 +476,9 @@
         "allowAnonymous": {
           "type": "boolean"
         },
+        "public": {
+          "type": "string"
+        },
         "routes": {
           "type": "array",
           "items": {
@@ -588,6 +591,9 @@
         },
         "allowAnonymous": {
           "type": "boolean"
+        },
+        "public": {
+          "type": "string"
         },
         "doc": {
           "type": "object",

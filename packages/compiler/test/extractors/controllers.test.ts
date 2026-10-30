@@ -68,4 +68,26 @@ describe('extractControllers', () => {
     expect(open.routes[0]).to.not.have.property('allowAnonymous');
     expect(open.routes[0].fullPath).to.equal('/open/ping');
   });
+  describe('@Public', () => {
+    const unit = createProgramFromTsconfig('test/fixtures/unit/tsconfig.json');
+    const unitCtx = createContext(unit, 'unit', 'test/fixtures/unit');
+    const extract = (name: string) => extractControllers(unitCtx, unit.sourceFiles.find((f) => f.fileName.endsWith(name))!);
+
+    it('records the reason of a class decorator, found through an import alias', () => {
+      const [probe] = extract('public-marker.ts');
+      expect(probe.public).to.equal('infrastructure probes');
+      expect(probe.routes[0]).to.not.have.property('public');
+    });
+    it('records the reason of a method decorator on the route only', () => {
+      const [, mixed] = extract('public-marker.ts');
+      expect(mixed).to.not.have.property('public');
+      expect(mixed.routes.find((r) => r.handler === 'login')!.public).to.equal('credentials are the guard');
+      expect(mixed.routes.find((r) => r.handler === 'other')).to.not.have.property('public');
+    });
+    it('ignores a Public that does not resolve to @spinajs/http', () => {
+      const [fake] = extract('public-lookalike.ts');
+      expect(fake).to.not.have.property('public');
+      expect(fake.routes[0]).to.not.have.property('public');
+    });
+  });
 });

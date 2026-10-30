@@ -10,6 +10,7 @@ import intervalParse from 'math-interval-parser';
 import { TranslationSource } from './interfaces.js';
 
 export * from "./interfaces.js"
+export * from "./schemas/intl.configuration.js";
 
 const globalAny: any = global;
 
