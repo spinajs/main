@@ -211,6 +211,60 @@ describe('ManifestConfigurationSource', () => {
     });
   });
 
+  describe('with a listed package that is not installed', () => {
+    let ws: string;
+    let app: string;
+
+    const entry = (name: string) => ({ name: `@spinajs/${name}`, version: '0.0.0', entry: 'lib/index.js', fragment: 'lib/manifest.fragment.json', outDir: 'lib', configFiles: [`config/${name}.js`] });
+
+    const install = (name: string) => {
+      const root = join(app, 'node_modules', '@spinajs', name);
+      write(join(root, 'package.json'), { name: `@spinajs/${name}`, version: '0.0.0', type: 'module', exports: { '.': './lib/index.js', './package.json': './package.json' } });
+      write(join(root, 'lib', 'index.js'), 'export {};');
+      write(join(root, 'lib', 'config', `${name}.js`), `export default { ${name}: { loaded: true } };`);
+    };
+
+    const setup = (dependencies: Record<string, string>) => {
+      write(join(app, 'package.json'), { name: 'app', version: '0.0.0', type: 'module', dependencies });
+      install('present');
+      const manifest = JSON.parse(JSON.stringify(readFixtureManifest())) as Manifest;
+      manifest.app = { name: 'app', version: '0.0.0', root: '/nonexistent/build-machine/app', outDir: 'lib' };
+      manifest.packages = [entry('absent'), entry('present')];
+      manifest.hash = hashManifest(manifest);
+      write(join(app, 'app.manifest.json'), manifest);
+      cwd.returns(app);
+    };
+
+    beforeEach(() => {
+      ws = realpathSync(mkdtempSync(join(tmpdir(), 'spinajs-absent-ws-')));
+      app = join(ws, 'app');
+    });
+
+    afterEach(() => rmSync(ws, { recursive: true, force: true }));
+
+    for (const mode of ['prefer', 'require']) {
+      it(`${mode} mode skips an absent optional peer and merges what the walk merges`, async () => {
+        setup({ '@spinajs/present': '0.0.0' });
+        const walk = loaded((await start({ SPINAJS_MANIFEST_MODE: 'off', APP_ENV: 'test' })).config);
+        const listed = loaded((await start({ SPINAJS_MANIFEST_MODE: mode, APP_ENV: 'test' })).config);
+        expect(listed).to.deep.equal(walk);
+        expect((listed as { present: unknown }).present).to.deep.equal({ loaded: true, __file__: [join(app, 'node_modules', '@spinajs', 'present', 'lib', 'config', 'present.js')] });
+        expect(listed).to.not.have.property('absent');
+      });
+    }
+
+    it('require mode fails for a missing direct dependency of the app', async () => {
+      setup({ '@spinajs/present': '0.0.0', '@spinajs/absent': '0.0.0' });
+      await expect(start({ SPINAJS_MANIFEST_MODE: 'require', APP_ENV: 'test' })).to.be.rejectedWith(/@spinajs\/absent.*not installed/);
+    });
+
+    it('prefer mode skips a missing direct dependency like the walk', async () => {
+      setup({ '@spinajs/present': '0.0.0', '@spinajs/absent': '0.0.0' });
+      const { config } = await start({ SPINAJS_MANIFEST_MODE: 'prefer', APP_ENV: 'test' });
+      expect(config.get('present.loaded')).to.equal(true);
+    });
+  });
+
   describe('in a linked workspace', () => {
     let ws: string;
     let app: string;

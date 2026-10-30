@@ -1,7 +1,8 @@
 import { AsyncService, ClassInfo, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
+import { InternalLogger } from '@spinajs/internal-logger';
 import { manifestOf, manifestSettingsOf } from '@spinajs/configuration';
-import { manifestFileFor, ManifestMissing } from '@spinajs/manifest';
+import { isPackageSkipped, manifestFileFor, ManifestMissing } from '@spinajs/manifest';
 import type { Manifest, ManifestMode, SourceRef } from '@spinajs/manifest';
 
 export type ManifestSection = 'controllers' | 'socketControllers' | 'schedules' | 'commands' | 'migrations';
@@ -50,7 +51,14 @@ export async function listFromManifest(container: IContainer, section: ManifestS
   }
 
   const byFile = new Map<string, Named[]>();
+  const skipped = new Set<string>();
   for (const entry of manifest[section] as Named[]) {
+    const pkg = entry.source.package;
+    if (!skipped.has(pkg) && isPackageSkipped(pkg, manifest, process.cwd(), mode)) {
+      skipped.add(pkg);
+      InternalLogger.debug({ name: pkg, section }, 'Package ${name} is listed in the manifest but not installed, its ${section} are skipped', 'Reflection');
+    }
+    if (skipped.has(pkg)) continue;
     const file = manifestFileFor(entry, manifest, process.cwd());
     byFile.set(file, [...(byFile.get(file) ?? []), entry]);
   }

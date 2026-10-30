@@ -7,7 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { InternalLogger } from '@spinajs/internal-logger';
 import type { Manifest } from '@spinajs/manifest';
-import { activeManifestOf, manifestPackageConfigFiles, projectConfigDirs } from './manifest-runtime.js';
+import { activeManifestOf, manifestPackageConfigFiles, manifestSettingsOf, projectConfigDirs } from './manifest-runtime.js';
 import { Configuration, ConfigurationSource, IConfigLike, normalizeEnvironment } from '@spinajs/configuration-common';
 
 export abstract class BaseFileSource extends ConfigurationSource {
@@ -190,7 +190,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
       return globDirs(this.CommonDirs);
     }
 
-    return [...globDirs(this.LeadingProjectDirs), ...manifestPackageConfigFiles(manifest, extension, process.cwd()), ...globDirs(this.ProjectDirs)];
+    return [...globDirs(this.LeadingProjectDirs), ...manifestPackageConfigFiles(manifest, extension, process.cwd(), this.Container ? manifestSettingsOf(this.Container)?.mode : undefined), ...globDirs(this.ProjectDirs)];
   }
 
   protected async load(extension: string, callback: (file: string) => Promise<IConfigLike>) {

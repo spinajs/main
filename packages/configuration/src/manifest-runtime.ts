@@ -3,8 +3,9 @@ import { dirname, join, normalize, relative, resolve, sep } from 'node:path';
 import glob from 'glob';
 import minimatch from 'minimatch';
 import { token } from '@spinajs/di';
+import { InternalLogger } from '@spinajs/internal-logger';
 import type { IContainer } from '@spinajs/di';
-import { appRootOf, manifestFileFor, MANIFEST_TOKEN, type Manifest, type ManifestMode } from '@spinajs/manifest';
+import { appRootOf, isPackageSkipped, manifestFileFor, MANIFEST_TOKEN, type Manifest, type ManifestMode } from '@spinajs/manifest';
 
 /** Typed key of the runtime manifest; same string key as MANIFEST_TOKEN. */
 export const MANIFEST = token<Manifest>(MANIFEST_TOKEN, 'runtime manifest');
@@ -100,14 +101,18 @@ function installLevel(name: string, appRoot: string): number {
 /**
  * Config files of the manifest packages that match `pattern` ( a file-source pattern such as `!(*.*).{cjs,js}` ),
  * in the order the walk lists them: the `node_modules/@spinajs/*\/lib/config/**` glob of the nearest level first.
- * Every file goes through `manifestFileFor`, which keeps it inside its package root.
+ * Every file goes through `manifestFileFor`, which keeps it inside its package root. A listed package that is not installed is skipped.
  */
-export function manifestPackageConfigFiles(manifest: Manifest, pattern: string, cwd: string): string[] {
+export function manifestPackageConfigFiles(manifest: Manifest, pattern: string, cwd: string, mode: ManifestMode = 'prefer'): string[] {
   const listed: ListedConfigFile[] = [];
   const appRoot = appRootOf(manifest, cwd);
 
   for (const pkg of manifest.packages) {
     if (!pkg.name.startsWith(PACKAGE_SCOPE)) continue;
+    if (isPackageSkipped(pkg.name, manifest, cwd, mode)) {
+      InternalLogger.debug({ name: pkg.name }, 'Package ${name} is listed in the manifest but not installed, its config is skipped', 'Configuration');
+      continue;
+    }
     const level = installLevel(pkg.name, appRoot);
 
     const resolveFile = (file: string) => manifestFileFor({ source: { file: `${pkg.outDir}/${file}`, line: 1, col: 1, package: pkg.name } }, manifest, cwd);

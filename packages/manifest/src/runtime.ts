@@ -114,6 +114,39 @@ export function packageRootOf(name: string, manifest: Manifest, cwd: string): st
 }
 
 /**
+ * True for a package the manifest lists but the run-time install lacks (pruned devDependency, absent optional peer):
+ * the manifest describes what may be installed, so it is skipped. In `require` mode a missing direct `dependency`
+ * of the app is an error instead: the app cannot run without it.
+ */
+export function isPackageSkipped(name: string, manifest: Manifest, cwd: string, mode: ManifestMode): boolean {
+  if (name === manifest.app.name) {
+    return false;
+  }
+  try {
+    packageRootOf(name, manifest, cwd);
+    return false;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'MODULE_NOT_FOUND') {
+      throw err;
+    }
+  }
+
+  if (mode === 'require' && directDependenciesOf(appRootOf(manifest, cwd)).includes(name)) {
+    throw new ManifestMissing(`package ${name} is a dependency of ${manifest.app.name} and listed in the manifest, but is not installed`);
+  }
+  return true;
+}
+
+function directDependenciesOf(appRoot: string): string[] {
+  try {
+    const pkg = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8')) as { dependencies?: Record<string, string> };
+    return Object.keys(pkg.dependencies ?? {});
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Built file of a manifest entry: `src/x/y.ts` of package P becomes `<root of P>/<outDir>/x/y.js`.
  * A source already under `<outDir>/` (hand-written test manifests) keeps its directory.
  */

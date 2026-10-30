@@ -144,6 +144,24 @@ describe('ListFromFiles manifest fast path', () => {
     await expect(app.container.resolve(listerOf()).Items).to.be.rejectedWith(ManifestMissing, /leaves the root/);
   });
 
+  it('skips the entries of a listed package that is not installed', async () => {
+    const absent = '@spinajs/absent-peer';
+    const withAbsent = testManifest({
+      root,
+      packages: [{ name: absent, version: '0.0.0', entry: 'lib/index.js', fragment: 'lib/manifest.fragment.json', outDir: 'lib' }],
+      commands: [
+        ...manifest.commands,
+        { name: 'gone', className: 'Gone', options: [], arguments: [], source: { file: 'src/cli/Gone.ts', line: 1, col: 1, package: absent } },
+      ],
+    });
+    for (const mode of ['prefer', 'require'] as const) {
+      const app = await createTestApp({ config, register: withManifest(withAbsent, mode) });
+      const items = await app.container.resolve(listerOf()).Items;
+      expect(items.map((i) => i.name)).to.deep.equal(['FooService']);
+      await disposeTestApps();
+    }
+  });
+
   describe('with the switch decided by ManifestConfigurationSource', () => {
     let dir: string;
 

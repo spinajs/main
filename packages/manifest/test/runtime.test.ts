@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { loadRuntimeManifest, manifestFileFor, ManifestMissing, packageRootOf } from '../src/runtime.js';
+import { isPackageSkipped, loadRuntimeManifest, manifestFileFor, ManifestMissing, packageRootOf } from '../src/runtime.js';
 import type { Manifest } from '../src/index.js';
 import { hashManifest } from '../src/hash.js';
 
@@ -160,5 +160,39 @@ describe('manifestFileFor', () => {
         rmSync(outside, { recursive: true, force: true });
       }
     });
+  });
+});
+
+describe('isPackageSkipped', () => {
+  let app: string;
+  const listed = (name: string) => ({ name, version: '0.0.0', entry: 'lib/index.js', fragment: 'lib/manifest.fragment.json', outDir: 'lib' });
+  const manifestOf = (...names: string[]): Manifest => {
+    const base = JSON.parse(readFileSync(join(FIX, 'app.manifest.json'), 'utf8')) as Manifest;
+    return { ...base, app: { ...base.app, name: 'skip-app', root: app }, packages: names.map(listed) };
+  };
+
+  beforeEach(() => {
+    app = realpathSync(mkdtempSync(join(tmpdir(), 'spinajs-skipped-')));
+    writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'skip-app', dependencies: { '@spinajs/direct': '0.0.0' }, peerDependencies: { '@spinajs/peer': '0.0.0' } }));
+    mkdirSync(join(app, 'node_modules', '@spinajs', 'here'), { recursive: true });
+    writeFileSync(join(app, 'node_modules', '@spinajs', 'here', 'package.json'), JSON.stringify({ name: '@spinajs/here' }));
+  });
+
+  afterEach(() => rmSync(app, { recursive: true, force: true }));
+
+  it('keeps an installed package', () => {
+    expect(isPackageSkipped('@spinajs/here', manifestOf('@spinajs/here'), app, 'require')).to.equal(false);
+  });
+
+  it('skips a listed package that is not installed, in prefer and require mode', () => {
+    const m = manifestOf('@spinajs/peer');
+    expect(isPackageSkipped('@spinajs/peer', m, app, 'prefer')).to.equal(true);
+    expect(isPackageSkipped('@spinajs/peer', m, app, 'require')).to.equal(true);
+  });
+
+  it('fails require mode for a direct dependency of the app that is not installed, but not prefer', () => {
+    const m = manifestOf('@spinajs/direct');
+    expect(() => isPackageSkipped('@spinajs/direct', m, app, 'require')).to.throw(ManifestMissing, /@spinajs\/direct.*not installed/);
+    expect(isPackageSkipped('@spinajs/direct', m, app, 'prefer')).to.equal(true);
   });
 });
