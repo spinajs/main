@@ -42,6 +42,9 @@ export class WireController extends BaseController {
   @Post('prim')
   public prim(@Body() email: string): void {}
 
+  @Post('keyed-body')
+  public keyedBody(@Body() dto: CreateUserDto, @PKey(ParameterType.FromBody) id: number, @Uuid(ParameterType.FromBody) uuid: string): void {}
+
   @Post('files')
   public files(@File() avatar: unknown, @Files() photos: unknown[], @CsvFile() csv: unknown, @JsonFile() json: unknown, @FormField() title: string, @FormField() tags: string[], @FormField() meta: ListQuery): void {}
 

@@ -2,7 +2,7 @@ import ts from 'typescript';
 import { configuredMountPath, controllerMountPath, routeFullPath, servedPath } from '@spinajs/manifest';
 import type { ControllerEntry, ParamEntry, RouteEntry } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
-import { decoratorsOf, findDecorator, literalValue } from '../decorators.js';
+import { decoratorsOf, findDecorator, literalValue, type DecoratorInfo } from '../decorators.js';
 import { accessOf, middlewaresOf, policyGroupsOf } from './policies.js';
 import { routeDocOf } from './jsdoc.js';
 import { conditionOf } from './conditions.js';
@@ -26,6 +26,8 @@ const BUILTIN_SCHEMAS: Record<string, unknown> = {
 const UNDERIVED_KINDS = new Set(['FromFile', 'Req', 'Res', 'FromDi']);
 // Decorators whose first argument is neither the schema nor the options but still shapes the wire (header key, key location).
 const WIRE_FIRST_ARG = new Set(['Header', 'PKey', 'Uuid']);
+// `@PKey(type?)` / `@Uuid(type?)` register under the ParameterType given as their first argument.
+const TYPED_BY_FIRST_ARG = new Set(['PKey', 'Uuid']);
 const OPTIONS_ARG_INDEX: Record<string, number> = { Query: 1, Param: 1, Header: 2, FormField: 1, Body: 0, File: 0, Files: 0, Form: 0, JsonFile: 0, CsvFile: 0, FromXml: 0, Model: 0, FromModel: 0, AsModel: 0 };
 
 type NamedClass = ts.ClassDeclaration & { name: ts.Identifier };
@@ -36,8 +38,16 @@ function isRequired(p: ts.ParameterDeclaration, type: ts.Type): boolean {
   return !members.some((t) => t.flags & ts.TypeFlags.Undefined);
 }
 
+const paramDecoratorOf = (p: ts.ParameterDeclaration): DecoratorInfo | undefined => decoratorsOf(p).find((d) => PARAM_KINDS[d.name]);
+
+/** The `ParameterType` the runtime registers the argument under, which route-args such as `FromBody` count. */
+function parameterTypeOf(dec: DecoratorInfo, ctx: ExtractorContext): string {
+  const given = TYPED_BY_FIRST_ARG.has(dec.name) ? literalValue(dec.args[0], ctx) : undefined;
+  return typeof given === 'string' && given !== '' ? given : PARAM_KINDS[dec.name];
+}
+
 function paramOf(p: ts.ParameterDeclaration, index: number, owner: string, route: RouteWireContext, ctx: ExtractorContext): ParamEntry | undefined {
-  const dec = decoratorsOf(p).find((d) => PARAM_KINDS[d.name]);
+  const dec = paramDecoratorOf(p);
   if (!dec) return undefined;
   const name = ts.isIdentifier(p.name) ? p.name.text : p.name.getText();
   const optionsIdx = OPTIONS_ARG_INDEX[dec.name];
@@ -71,7 +81,8 @@ function routeOf(m: ts.MethodDeclaration, mountPath: string, className: string, 
   const { access, allowAnonymous } = accessOf(m, ctx);
   const doc = routeDocOf(m, ctx);
   const countOf = (decorator: string): number => m.parameters.filter((p) => decoratorsOf(p).some((d) => d.name === decorator)).length;
-  const wire: RouteWireContext = { bodyParams: countOf('Body'), asModelParams: countOf('AsModel') };
+  const types = m.parameters.map((p) => paramDecoratorOf(p)).map((d) => (d ? parameterTypeOf(d, ctx) : undefined));
+  const wire: RouteWireContext = { bodyParams: types.filter((t) => t === 'FromBody').length, asModelParams: countOf('AsModel') };
   return {
     method: ROUTE_METHODS[dec.name], path, handler, fullPath: servedPath(routeFullPath(mountPath, path, handler)),
     params: m.parameters.map((p, i) => paramOf(p, i, `${className}.${handler}`, wire, ctx)).filter((p): p is ParamEntry => !!p),

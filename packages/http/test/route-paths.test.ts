@@ -9,7 +9,7 @@ import { fsService } from '@spinajs/fs';
 import { Intl } from '@spinajs/intl';
 import { createTestApp, type TestApp } from '@spinajs/testing';
 
-import { BaseController, BasePath, Body, Controllers, Get, HttpServer, Ok, Param, Post, Query, QueryField } from '../src/index.js';
+import { BaseController, BasePath, Body, Controllers, Get, HttpServer, Ok, Param, ParameterType, PKey, Post, Query, QueryField } from '../src/index.js';
 
 @BasePath('users')
 class UsersRouteController extends BaseController {
@@ -120,6 +120,11 @@ class WireRouteController extends BaseController {
   public prim(@Body() email: string) {
     return new Ok({ handler: 'prim', value: email ?? null });
   }
+
+  @Post('keyed')
+  public keyed(@Body() dto: CreateUser, @PKey(ParameterType.FromBody) id: number) {
+    return new Ok({ handler: 'keyed', value: [dto ?? null, id ?? null] });
+  }
 }
 
 const CONTROLLERS = [UsersRouteController, NoBaseRouteController, NestedRouteController, RootRouteController, LeadingSlashRouteController, WireRouteController];
@@ -229,5 +234,10 @@ describe('served route paths and argument binding', function () {
     expect(await call('POST', '/wire/two', { a: { email: 'a@b' }, b: { email: 'b@b' } })).to.deep.equal([200, [{ email: 'a@b' }, { email: 'b@b' }]]);
     expect(await call('POST', '/wire/prim', { email: 'x@y' })).to.deep.equal([200, 'x@y']);
     expect((await call('POST', '/wire/prim', 'x@y'))[0]).to.equal(400);
+  });
+
+  it('counts @PKey(ParameterType.FromBody) as a body argument: a @Body next to it is a field, not the whole body', async () => {
+    expect(await call('POST', '/wire/keyed', { email: 'a@b', id: 1 })).to.deep.equal([200, [null, 1]]);
+    expect(await call('POST', '/wire/keyed', { dto: { email: 'a@b' }, id: 1 })).to.deep.equal([200, [{ email: 'a@b' }, 1]]);
   });
 });

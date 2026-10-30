@@ -103,8 +103,8 @@ A service, value or controller that is registered conditionally carries a `condi
 | `@Header(key?)` | `header` | `key`, else the parameter name, lower-cased | `value` when scalar, else `json` |
 | `@HeadersField()` | `header` | | `whole` |
 | `@Cookie()` | `cookie` | parameter name | `value` when scalar, else `json` |
-| `@Body()`, the only one on the route, not scalar | `body` | | `whole` |
-| `@Body()`, one of several, or scalar | `body` | parameter name | `field` (`body[name]`) |
+| `@Body()`, the only `FromBody` argument of the route, not scalar | `body` | | `whole` |
+| `@Body()`, one of several `FromBody` arguments (`@PKey`/`@Uuid(ParameterType.FromBody)` count too), or scalar | `body` | parameter name | `field` (`body[name]`) |
 | `@BodyField()`, `@RawBody()`, `@FromXml()` | `body` | | `whole` |
 | `@File()`, `@CsvFile()`, `@JsonFile()` | `multipart` | parameter name | `value` |
 | `@Files()` | `multipart` | parameter name | `value`, `multiple: true` |

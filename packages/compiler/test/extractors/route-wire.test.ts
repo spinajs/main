@@ -66,6 +66,14 @@ describe('route argument wire format', () => {
     expect(wireOf('prim')).to.deep.equal({ email: { in: 'body', name: 'email', shape: 'field' } });
   });
 
+  it('@Body counts every FromBody argument, @PKey and @Uuid(ParameterType.FromBody) included, as FromBody.extract does', () => {
+    expect(wireOf('keyedBody')).to.deep.equal({
+      dto: { in: 'body', name: 'dto', shape: 'field' },
+      id: { in: 'body', name: 'id', shape: 'field' },
+      uuid: { in: 'body', name: 'uuid', shape: 'field' },
+    });
+  });
+
   it('files and form fields are multipart parts under the parameter name', () => {
     expect(wireOf('files')).to.deep.equal({
       avatar: { in: 'multipart', name: 'avatar', shape: 'value' },
