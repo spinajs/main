@@ -13,7 +13,8 @@ interface IHydratorMetadata {
 
 /**
  * The payload, validated against the command `schema`, else the `@Payload(schema)`, else the DTO's
- * `@Schema`, then hydrated as http hydrates a body ( `@Hydrator`, else `new Dto(payload)` ).
+ * `@Schema`, else the schema the manifest derived from the `@Payload` type, then hydrated as http hydrates a
+ * body ( `@Hydrator`, else `new Dto(payload)` ).
  */
 @Injectable()
 export class PayloadArg extends SocketArg {
@@ -31,6 +32,8 @@ export class PayloadArg extends SocketArg {
       }
 
       this.Validator.validate(schema, payload as object);
+    } else if (payload !== undefined && payload !== null) {
+      ctx.handler?.payloadValidator?.(payload);
     }
 
     return this.hydrate(payload, param);

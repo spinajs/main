@@ -5,7 +5,9 @@ import { Configuration, effectiveManifestOf, type EffectiveManifest } from '@spi
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { SocketException } from '@spinajs/http-socket-common';
+import { manifestValidatorOf, schemaOfClass } from '@spinajs/validation';
 import { authoritativeSchema, checkSocketContract, loadRuntimeManifest, type Manifest, type ManifestMode, type SocketContractEntry, type SocketControllerEntry, type TypeRef } from '@spinajs/manifest';
+import { PayloadArg } from './args.js';
 import type { IRegisteredHandler, ISocketControllerDescriptor } from './interfaces.js';
 
 const MAX_REPORTED_ERRORS = 10;
@@ -51,6 +53,12 @@ function compileFailure(error: unknown): string {
 }
 
 type Validator = (payload: unknown) => void;
+
+/** The command's `schema`, the `@Payload(schema)` or the DTO's `@Schema` wins in `PayloadArg`; the derived schema is then not compiled. */
+function hasExplicitPayloadSchema(handler: IRegisteredHandler): boolean {
+  if (handler.descriptor.Options.schema) return true;
+  return [...handler.descriptor.Parameters.values()].some((p) => p.Type === PayloadArg && (!!p.Schema || schemaOfClass(p.RuntimeType) !== undefined));
+}
 
 function validatorOf(manifest: Manifest, ref: TypeRef): Validator | undefined {
   const id = authoritativeSchema(manifest, ref);
@@ -141,6 +149,33 @@ export class SocketContractEnforcer {
     for (const [handler, validator] of compiled?.validators ?? []) {
       handler.contractValidator = validator;
     }
+
+    this.bindDerived(manifest, controllerName, label, descriptor, [...commands, ...events]);
+  }
+
+  /**
+   * A handler no contract validates gets the schema the manifest derived from its `@Payload` type; `PayloadArg` applies
+   * it when no explicit schema does. JSON payloads are never coerced. One that cannot compile is a problem like any other.
+   */
+  protected bindDerived(manifest: Manifest, controllerName: string, label: string, descriptor: ISocketControllerDescriptor, handlers: IRegisteredHandler[]): void {
+    const named = manifest.socketControllers.filter((c) => c.className === controllerName && c.prefix === (descriptor.Prefix ?? ''));
+    if (named.length !== 1) return;
+
+    const entry = named[0];
+    const payloadOf = (handler: IRegisteredHandler): TypeRef | undefined =>
+      handler.descriptor.Kind === 'command' ? entry.commands.find((c) => c.handler === String(handler.descriptor.Method))?.payload : entry.events.find((e) => e.name === handler.descriptor.Name)?.payload;
+
+    const problems: string[] = [];
+    for (const handler of handlers) {
+      const id = handler.contractValidator || hasExplicitPayloadSchema(handler) ? undefined : payloadOf(handler)?.schema;
+      if (id === undefined) continue;
+      try {
+        handler.payloadValidator = manifestValidatorOf(manifest).validator(id, { coerce: false });
+      } catch (error) {
+        problems.push(`the derived payload schema of ${handler.fullName} cannot be compiled: ${(error as Error).message}`);
+      }
+    }
+    this.report(label, problems);
   }
 
   /**
