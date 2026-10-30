@@ -96,9 +96,15 @@ describe('request validation from the manifest', function () {
       expect(res.text).to.not.include('hunter2-secret');
     });
 
-    it('does not coerce a JSON body and rejects undeclared properties', async () => {
+    it('does not coerce a JSON body', async () => {
       expect((await post('create', { name: 'a', count: '2' })).status).to.eq(400);
-      expect((await post('create', { name: 'a', count: 2, admin: true })).status).to.eq(400);
+      expect((await post('create', { name: 'a', count: 2, tags: [1] })).status).to.eq(400);
+    });
+
+    it('lets the root of a whole body carry keys other readers take, but closes a single body field', async () => {
+      expect((await post('create', { name: 'a', count: 2, reauthPassword: 'x' })).status).to.eq(200);
+      expect((await post('pair', { first: { name: 'a' }, second: { count: 1 } })).status).to.eq(200);
+      expect((await post('pair', { first: { name: 'a', admin: true }, second: { count: 1 } })).status).to.eq(400);
     });
 
     it('validates an intersection of closed objects as one object', async () => {

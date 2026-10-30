@@ -8,14 +8,16 @@ import { manifestValidatorOf, schemaOfClass, type ManifestDataValidator, type Ma
 import { ParameterType, type IRoute, type IRouteParameter } from '../interfaces.js';
 
 const FROM_STRING: ManifestValidationOptions = { coerce: true };
-// A whole query, path or header object also holds the keys other arguments read.
+// A whole query, path, header object or body also holds keys other readers take: other arguments, a reauth strategy's
+// `reauthPassword`. Its root accepts them; nested objects and single fields stay closed.
 const WHOLE_FROM_STRINGS: ManifestValidationOptions = { coerce: true, openRoot: true };
-const JSON_BODY: ManifestValidationOptions = { coerce: false };
+const WHOLE_BODY: ManifestValidationOptions = { coerce: false, openRoot: true };
+const BODY_FIELD: ManifestValidationOptions = { coerce: false };
 
 /** The argument kinds checked against their derived schema; other kinds ( models, files, custom args ) never are. */
 const DERIVED_KINDS: Partial<Record<string, ManifestValidationOptions>> = {
-  [ParameterType.FromBody]: JSON_BODY,
-  [ParameterType.BodyField]: JSON_BODY,
+  [ParameterType.FromBody]: WHOLE_BODY,
+  [ParameterType.BodyField]: WHOLE_BODY,
   [ParameterType.FromQuery]: FROM_STRING,
   [ParameterType.FromParams]: FROM_STRING,
   [ParameterType.FromHeader]: FROM_STRING,
@@ -60,6 +62,19 @@ function hasExplicitSchema(param: IRouteParameter): boolean {
   return !!param.Schema || schemaOfClass(type) !== undefined;
 }
 
+interface DerivedCheck {
+  id: string;
+  name: string;
+  options: ManifestValidationOptions;
+}
+
+function derivedCheckOf(declared: ParamEntry | undefined, param: IRouteParameter): DerivedCheck | undefined {
+  const kindOptions = DERIVED_KINDS[param.Type];
+  const id = declared?.runtimeType.schema;
+  if (!kindOptions || !declared || !id || !describes(declared, param) || hasExplicitSchema(param)) return undefined;
+  return { id, name: declared.name, options: declared.wire?.shape === 'field' ? BODY_FIELD : kindOptions };
+}
+
 export interface DerivedValidatorsOptions {
   container: IContainer;
   controller: string;
@@ -82,15 +97,16 @@ export function derivedValidatorsOf({ container, controller, route, mountPath, l
 
   const validators = new Map<IRouteParameter, ManifestDataValidator>();
   for (const param of route.Parameters.values()) {
-    const declared = entry.params.find((p) => p.index === param.Index);
-    const options = DERIVED_KINDS[param.Type];
-    const id = declared && describes(declared, param) && !hasExplicitSchema(param) ? declared.runtimeType.schema : undefined;
-    if (!declared || !options || !id) continue;
+    const check = derivedCheckOf(
+      entry.params.find((p) => p.index === param.Index),
+      param,
+    );
+    if (!check) continue;
 
     try {
-      validators.set(param, manifestValidatorOf(manifest).validator(id, options));
+      validators.set(param, manifestValidatorOf(manifest).validator(check.id, check.options));
     } catch (err) {
-      const problem = `argument ${declared.name} of ${controller}::${String(route.Method)} cannot be validated: ${(err as Error).message}`;
+      const problem = `argument ${check.name} of ${controller}::${String(route.Method)} cannot be validated: ${(err as Error).message}`;
       if (effective.settings.mode === 'require') {
         throw new InvalidOperation(problem);
       }

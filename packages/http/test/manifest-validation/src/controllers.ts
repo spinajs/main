@@ -97,6 +97,11 @@ export class ManifestValidationController extends BaseController {
     return new Ok({ name: body.name, count: body.count });
   }
 
+  @Post()
+  public pair(@Body() first: Named, @Body() second: Counted) {
+    return new Ok({ name: first.name, count: second.count });
+  }
+
   @Get()
   public search(@QueryField() query: SearchQuery) {
     return new Ok({ page: query.page, pageType: typeof query.page, exact: query.exact ?? null });
