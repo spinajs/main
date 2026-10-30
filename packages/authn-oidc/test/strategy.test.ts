@@ -305,17 +305,23 @@ describe('authn-oidc login', () => {
       expect(done.body).to.have.property('message');
     });
 
-    it('JIT provisions only with the global and the provider switch on', async () => {
-      const both = await world({ linking: { jit: true, byVerifiedEmail: false }, provider: { linking: { jit: true } } });
-      expect((await both.roundTrip({ claims: { sub: 'new-1', email: 'n@example.test' } })).done.status).to.eq(303);
-      expect(both.identities.calls.provision).to.have.length(1);
+    describe('JIT provisions only with the global and the provider switch on', () => {
+      it('both on', async () => {
+        const both = await world({ linking: { jit: true, byVerifiedEmail: false }, provider: { linking: { jit: true } } });
+        expect((await both.roundTrip({ claims: { sub: 'new-1', email: 'n@example.test' } })).done.status).to.eq(303);
+        expect(both.identities.calls.provision).to.have.length(1);
+      });
 
-      const globalOnly = await world({ linking: { jit: true, byVerifiedEmail: false } });
-      expect((await globalOnly.roundTrip({ claims: { sub: 'new-1' } })).done.status).to.eq(401);
-      expect(globalOnly.identities.calls.provision).to.have.length(0);
+      it('only the global switch', async () => {
+        const globalOnly = await world({ linking: { jit: true, byVerifiedEmail: false } });
+        expect((await globalOnly.roundTrip({ claims: { sub: 'new-1' } })).done.status).to.eq(401);
+        expect(globalOnly.identities.calls.provision).to.have.length(0);
+      });
 
-      const providerOnly = await world({ provider: { linking: { jit: true } } });
-      expect((await providerOnly.roundTrip({ claims: { sub: 'new-1' } })).done.status).to.eq(401);
+      it('only the provider switch', async () => {
+        const providerOnly = await world({ provider: { linking: { jit: true } } });
+        expect((await providerOnly.roundTrip({ claims: { sub: 'new-1' } })).done.status).to.eq(401);
+      });
     });
 
     it('a throwing hook fails the login and no session is issued', async () => {

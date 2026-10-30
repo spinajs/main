@@ -87,23 +87,27 @@ describe('authn.token and authn.jwt through the schema', () => {
   });
 
   describe('authn.jwt.issuers violations', () => {
-    it('names the bad member', async () => {
-      const cases: [Record<string, unknown>, string][] = [
-        [{ ...ISSUER, audience: undefined }, 'authn.jwt.issuers.0.audience'],
-        [{ ...ISSUER, issuer: '' }, 'authn.jwt.issuers.0.issuer'],
-        [{ ...ISSUER, algorithms: ['HS256'] }, 'authn.jwt.issuers.0.algorithms.0'],
-        [{ ...ISSUER, algorithms: [] }, 'authn.jwt.issuers.0.algorithms'],
-        [{ ...ISSUER, clockSkewSeconds: 61 }, 'authn.jwt.issuers.0.clockSkewSeconds'],
-        [{ ...ISSUER, subjectClaim: '' }, 'authn.jwt.issuers.0.subjectClaim'],
-        [{ ...ISSUER, provider: 'p'.repeat(129) }, 'authn.jwt.issuers.0.provider'],
-        [{ ...ISSUER, jwksUri: 'not a uri' }, 'authn.jwt.issuers.0.jwksUri'],
-        [{ ...ISSUER, typo: 1 }, 'authn.jwt.issuers.0.typo'],
-        [{ ...ISSUER, linking: { jit: true, byVerifiedEmail: true } }, 'authn.jwt.issuers.0.linking.byVerifiedEmail'],
-        [{ ...ISSUER, linking: { jit: 'sometimes' } }, 'authn.jwt.issuers.0.linking.jit'],
-        [{ ...ISSUER, keys: [{ kty: 'OKP' }] }, 'authn.jwt.issuers.0'],
-        [{ ...ISSUER, jwksUri: undefined }, 'authn.jwt.issuers.0'],
+    describe('names the bad member', () => {
+      const cases: [string, Record<string, unknown>, string][] = [
+        ['no audience', { ...ISSUER, audience: undefined }, 'authn.jwt.issuers.0.audience'],
+        ['an empty issuer', { ...ISSUER, issuer: '' }, 'authn.jwt.issuers.0.issuer'],
+        ['HS256', { ...ISSUER, algorithms: ['HS256'] }, 'authn.jwt.issuers.0.algorithms.0'],
+        ['no algorithms', { ...ISSUER, algorithms: [] }, 'authn.jwt.issuers.0.algorithms'],
+        ['a clock skew over 60', { ...ISSUER, clockSkewSeconds: 61 }, 'authn.jwt.issuers.0.clockSkewSeconds'],
+        ['an empty subject claim', { ...ISSUER, subjectClaim: '' }, 'authn.jwt.issuers.0.subjectClaim'],
+        ['a provider over 128 chars', { ...ISSUER, provider: 'p'.repeat(129) }, 'authn.jwt.issuers.0.provider'],
+        ['a jwks uri that is no uri', { ...ISSUER, jwksUri: 'not a uri' }, 'authn.jwt.issuers.0.jwksUri'],
+        ['an unknown key', { ...ISSUER, typo: 1 }, 'authn.jwt.issuers.0.typo'],
+        ['jit with email linking', { ...ISSUER, linking: { jit: true, byVerifiedEmail: true } }, 'authn.jwt.issuers.0.linking.byVerifiedEmail'],
+        ['a jit that is no boolean', { ...ISSUER, linking: { jit: 'sometimes' } }, 'authn.jwt.issuers.0.linking.jit'],
+        ['keys next to a jwks uri', { ...ISSUER, keys: [{ kty: 'OKP' }] }, 'authn.jwt.issuers.0'],
+        ['neither keys nor a jwks uri', { ...ISSUER, jwksUri: undefined }, 'authn.jwt.issuers.0'],
       ];
-      for (const [issuer, path] of cases) expect(await bad(issuers(issuer)), path).to.include(path);
+      for (const [name, issuer, path] of cases) {
+        it(`${name} at ${path}`, async () => {
+          expect(await bad(issuers(issuer))).to.include(path);
+        });
+      }
     });
 
     it("refuses 'none', both key sources and an issuer with neither; accepts either source alone", async () => {

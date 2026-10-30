@@ -53,7 +53,7 @@ describe('authn.mfa.totp, authn.mfa.encryptionKey and authn.freshAuth through th
   });
 
   describe('violations', () => {
-    it('names the bad totp key', async () => {
+    describe('names the bad totp key', () => {
       const cases: [Record<string, unknown>, string][] = [
         [{ issuer: '' }, 'authn.mfa.totp.issuer'],
         [{ algorithm: '' }, 'authn.mfa.totp.algorithm'],
@@ -69,7 +69,11 @@ describe('authn.mfa.totp, authn.mfa.encryptionKey and authn.freshAuth through th
         [{ recoveryCodes: 101 }, 'authn.mfa.totp.recoveryCodes'],
         [{ period: 30.5 }, 'authn.mfa.totp.period'],
       ];
-      for (const [totp, path] of cases) expect(await bad({ mfa: { totp } }), JSON.stringify(totp)).to.include(path);
+      for (const [totp, path] of cases) {
+        it(`${JSON.stringify(totp)} at ${path}`, async () => {
+          expect(await bad({ mfa: { totp } })).to.include(path);
+        });
+      }
     });
 
     it('accepts the limits and the three algorithms', async () => {
