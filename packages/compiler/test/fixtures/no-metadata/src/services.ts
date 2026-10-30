@@ -55,6 +55,18 @@ export class Configured {
   public one: Plugin;
 }
 
+@Injectable()
+export class ConfiguredByType {
+  @AutoinjectService('app.plugins')
+  public alias: Plugins;
+
+  @AutoinjectService('app.plugins')
+  public list: Plugin[];
+
+  @AutoinjectService('app.plugin')
+  public one: Plugin;
+}
+
 function InjectPlugin() {
   return Autoinject(Plugin);
 }

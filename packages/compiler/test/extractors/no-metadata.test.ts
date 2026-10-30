@@ -101,6 +101,14 @@ describe('what a build without decorator metadata needs from the manifest', () =
       expect(array('one')).to.equal(false);
     });
 
+    it('records no type for a list under @AutoinjectService, written either way', () => {
+      const { properties } = entry('ConfiguredByType')!;
+      const row = (name: string) => properties.find((p) => p.property === name);
+      expect(row('alias')).to.include({ array: true }).and.not.have.property('tokenRef');
+      expect(row('list')).to.include({ array: true }).and.not.have.property('tokenRef');
+      expect(row('one')?.tokenRef).to.deep.equal({ package: 'no-metadata', file: 'src/services.ts', export: 'Plugin' });
+    });
+
     it('records whether an explicitly typed property is a list', () => {
       expect(property('one')).to.include({ array: false }).and.not.have.property('tokenRef');
       expect(property('list')).to.include({ array: true }).and.not.have.property('tokenRef');
@@ -156,8 +164,9 @@ describe('what a build without decorator metadata needs from the manifest', () =
       expect(ref('Junction')).to.deep.equal({ package: 'no-metadata', file: 'src/models.ts', export: 'Link' });
     });
 
-    it('records nothing for a column', () => {
-      expect(owner()?.map((p) => p.property)).to.not.include('Id');
+    it('gives a column nothing to import', () => {
+      expect(owner()?.filter((p) => p.property === 'Id')).to.have.length(1);
+      expect(ref('Id')).to.equal(undefined);
     });
 
     it('records the declared type of @AutoinjectService unless the decorator names one', () => {

@@ -122,12 +122,13 @@ const PROPERTY_DECORATORS: Record<string, PropertyHandler> = {
   AutoinjectService: (d, prop, ctx) => {
     const declared = tokenOfTypeNode(prop.type, ctx);
     const explicit = injectedName(d.args[1], ctx);
-    const tokenRef = explicit || declared.array ? undefined : declaredTypeRef(prop, ctx);
+    const array = declaresList(prop, ctx);
+    const tokenRef = explicit || array ? undefined : declaredTypeRef(prop, ctx);
     return {
       property: propertyName(prop),
       token: explicit ?? declared.token,
       optional: optionsOf(d.args[2], ctx).optional === true,
-      array: declaresList(prop, ctx),
+      array,
       ...(tokenRef ? { tokenRef } : {}),
     };
   },
