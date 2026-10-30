@@ -5,7 +5,7 @@ import { SortOrder, WhereBoolean } from './enums.js';
 import { IQueryStatement, OuterColumn, Wrap } from './statements.js';
 import { ModelData, ModelDataWithRelationData, ModelDataWithRelationDataSearchable, PartialArray, PickRelations, Unbox, WhereFunction } from './types.js';
 import { IOrmRelation } from './relations.js';
-import { OrmDriver } from './driver.js';
+import type { OrmDriver } from './driver.js';
 import { NewInstance, Constructor, Singleton, IContainer } from '@spinajs/di';
 import { ModelBase } from './model.js';
 import { MethodNotImplemented } from '@spinajs/exceptions';

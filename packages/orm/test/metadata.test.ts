@@ -5,12 +5,9 @@ import { MetaTest } from './mocks/models/MetaTest.js';
 import { Meta } from './mocks/models/Meta.js';
 
 /* eslint-disable prettier/prettier */
-import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator } from './../src/hydrators.js';
-import { Configuration } from '@spinajs/configuration';
-import { Bootstrapper, DI } from '@spinajs/di';
-import 'mocha';
-import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeInsertQueryCompiler, FakeUpdateQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeConverter, FakeTableQueryCompiler } from './misc.js';
-import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, DatetimeValueConverter, TableQueryCompiler } from '../src/interfaces.js';
+import { DI } from '@spinajs/di';
+import { useTestApp } from '@spinajs/testing';
+import { ormApp } from './misc.js';
 import * as sinon from 'sinon';
 import { _modelProxyFactory } from './../src/model.js';
 import './../src/bootstrap.js';
@@ -23,31 +20,9 @@ async function db() {
 }
 
 describe('Metadata', () => {
-  before(() => {
-    DI.register(ConnectionConf).as(Configuration);
-    DI.register(FakeSqliteDriver).as('sqlite');
-    DI.register(FakeMysqlDriver).as('mysql');
+  useTestApp(() => ormApp({ resolve: [Orm] }));
 
-    DI.register(FakeSelectQueryCompiler).as(SelectQueryCompiler);
-    DI.register(FakeDeleteQueryCompiler).as(DeleteQueryCompiler);
-    DI.register(FakeUpdateQueryCompiler).as(UpdateQueryCompiler);
-    DI.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
-    DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
-
-    DI.register(DbPropertyHydrator).as(ModelHydrator);
-    DI.register(NonDbPropertyHydrator).as(ModelHydrator);
-    DI.register(FakeConverter).as(DatetimeValueConverter);
-  });
-
-  beforeEach(async () => {
-    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
-    for (const b of bootstrappers) {
-      await b.bootstrap();
-    }
-  });
-
-  afterEach(async () => {
-    DI.clearCache();
+  afterEach(() => {
     sinon.restore();
   });
 

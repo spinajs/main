@@ -4,7 +4,7 @@ import { DateTime } from 'luxon';
 import { createHash } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { TableQueryBuilder } from './builders.js';
-import { OrmDriver } from './driver.js';
+import type { OrmDriver } from './driver.js';
 import { MigrationTransactionMode, OrmMigration } from './interfaces.js';
 import { OrmException } from './exceptions.js';
 import { runMigrationUp } from './schema-touches.js';

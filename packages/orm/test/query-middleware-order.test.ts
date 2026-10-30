@@ -1,12 +1,10 @@
 /* eslint-disable prettier/prettier */
-import { Configuration } from '@spinajs/configuration';
-import { Bootstrapper, DI } from '@spinajs/di';
+import { useTestApp } from '@spinajs/testing';
 import * as chai from 'chai';
 import 'mocha';
 import * as sinon from 'sinon';
-import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeInsertQueryCompiler, FakeUpdateQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeTableQueryCompiler } from './misc.js';
-import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, TableQueryCompiler, QueryMiddleware } from '../src/interfaces.js';
-import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator, OneToManyRelationHydrator } from '../src/hydrators.js';
+import { FakeSqliteDriver, ormApp, registerRelationHydrators } from './misc.js';
+import { QueryMiddleware } from '../src/interfaces.js';
 import { Orm } from '../src/orm.js';
 import { Model1 } from './mocks/models/Model1.js';
 import '../src/bootstrap.js';
@@ -47,42 +45,23 @@ class NotANumber extends Recording {
 const OWN = [Late, Default, Early, AlsoEarly, NotANumber];
 
 describe('Query middleware order', () => {
-  beforeEach(async () => {
-    DI.register(ConnectionConf).as(Configuration);
-    DI.register(FakeSqliteDriver).as('sqlite');
-    DI.register(FakeMysqlDriver).as('mysql');
+  useTestApp(() =>
+    ormApp({
+      register: (c) => {
+        registerRelationHydrators(c);
+        // Registered after the 1000 one on purpose: DI order must not decide.
+        for (const m of OWN) c.register(m).as(QueryMiddleware);
+      },
+      resolve: [Orm],
+    }),
+  );
 
-    DI.register(FakeSelectQueryCompiler).as(SelectQueryCompiler);
-    DI.register(FakeDeleteQueryCompiler).as(DeleteQueryCompiler);
-    DI.register(FakeUpdateQueryCompiler).as(UpdateQueryCompiler);
-    DI.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
-    DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
-
-    DI.register(DbPropertyHydrator).as(ModelHydrator);
-    DI.register(NonDbPropertyHydrator).as(ModelHydrator);
-    DI.register(OneToOneRelationHydrator).as(ModelHydrator);
-    DI.register(JunctionModelPropertyHydrator).as(ModelHydrator);
-    DI.register(OneToManyRelationHydrator).as(ModelHydrator);
-
-    // Registered after the 1000 one on purpose: DI order must not decide.
-    for (const m of OWN) DI.register(m).as(QueryMiddleware);
-
-    DI.removeAllListeners('di.resolved.Configuration');
-
-    const bootstrappers = DI.resolve(Array.ofType(Bootstrapper)) as Bootstrapper[];
-    for (const b of bootstrappers) {
-      await b.bootstrap();
-    }
-
-    await DI.resolve(Orm);
-
+  beforeEach(() => {
     CALLS.length = 0;
   });
 
   afterEach(() => {
     sinon.restore();
-    for (const m of OWN) DI.unregister(m);
-    DI.clearCache();
   });
 
   const own = (phase: string) => CALLS.filter((c) => c.startsWith(`${phase}:`)).map((c) => c.slice(phase.length + 1));

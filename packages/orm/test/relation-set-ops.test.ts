@@ -1,15 +1,14 @@
 /* eslint-disable prettier/prettier */
-import { Configuration } from '@spinajs/configuration';
-import { Bootstrapper, DI } from '@spinajs/di';
+import { useTestApp } from '@spinajs/testing';
+import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
 import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
 import '@spinajs/log';
 
-import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeInsertQueryCompiler, FakeUpdateQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeTableQueryCompiler } from './misc.js';
-import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, RelationType, TableQueryCompiler, IRelationDescriptor } from '../src/interfaces.js';
-import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator, OneToManyRelationHydrator } from '../src/hydrators.js';
+import { ormApp, registerRelationHydrators } from './misc.js';
+import { RelationType, IRelationDescriptor } from '../src/interfaces.js';
 import { Dataset, ManyToManyRelationList, OneToManyRelationList } from '../src/relation-objects.js';
 import { OrmException } from '../src/exceptions.js';
 import { Orm } from '../src/orm.js';
@@ -61,35 +60,9 @@ function manyToMany(objects: Model1[]): ManyToManyRelationList<Model1, Model4> {
 }
 
 describe('Relation set operations', () => {
-  beforeEach(() => {
-    DI.register(ConnectionConf).as(Configuration);
-    DI.register(FakeSqliteDriver).as('sqlite');
-    DI.register(FakeMysqlDriver).as('mysql');
+  useTestApp(() => ormApp({ register: registerRelationHydrators }));
 
-    DI.register(FakeSelectQueryCompiler).as(SelectQueryCompiler);
-    DI.register(FakeDeleteQueryCompiler).as(DeleteQueryCompiler);
-    DI.register(FakeUpdateQueryCompiler).as(UpdateQueryCompiler);
-    DI.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
-    DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
-
-    DI.register(DbPropertyHydrator).as(ModelHydrator);
-    DI.register(NonDbPropertyHydrator).as(ModelHydrator);
-    DI.register(OneToOneRelationHydrator).as(ModelHydrator);
-    DI.register(JunctionModelPropertyHydrator).as(ModelHydrator);
-    DI.register(OneToManyRelationHydrator).as(ModelHydrator);
-
-    DI.removeAllListeners('di.resolved.Configuration');
-  });
-
-  beforeEach(async () => {
-    const bootstrappers = DI.resolve(Array.ofType(Bootstrapper));
-    for (const b of bootstrappers) {
-      await b.bootstrap();
-    }
-  });
-
-  afterEach(async () => {
-    DI.clearCache();
+  afterEach(() => {
     sinon.restore();
   });
 

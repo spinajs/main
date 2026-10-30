@@ -1,24 +1,25 @@
 /* eslint-disable prettier/prettier */
+import { useTestApp } from '@spinajs/testing';
 import './../src/bootstrap.js';
-import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator } from './../src/hydrators.js';
+import { ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator } from './../src/hydrators.js';
 import { ModelNoConnection } from './mocks/models/ModelNoConnection.js';
 import { ModelNoDescription } from './mocks/models/ModelNoDescription.js';
 import { DeleteQueryBuilder, SelectQueryBuilder } from './../src/builders.js';
 import { Model1 } from './mocks/models/Model1.js';
 import { Configuration } from '@spinajs/configuration';
-import { Bootstrapper, DI } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import _ from 'lodash';
 import 'mocha';
 import { Orm } from '../src/index.js';
-import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeInsertQueryCompiler, FakeUpdateQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeConverter, FakeTableQueryCompiler, FakeServerResponseMapper } from './misc.js';
-import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, InsertBehaviour, DatetimeValueConverter, TableQueryCompiler, ServerResponseMapper } from '../src/interfaces.js';
+import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeInsertQueryCompiler, FakeUpdateQueryCompiler, ConnectionConf, FakeConverter, FakeServerResponseMapper, ormApp } from './misc.js';
+import { InsertBehaviour, ServerResponseMapper } from '../src/interfaces.js';
 import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
 import chaiSubset from 'chai-subset';
 import { RawModel } from './mocks/models/RawModel.js';
 import { Model, Connection } from '../src/decorators.js';
-import { ModelBase, _modelProxyFactory } from './../src/model.js';
+import { ModelBase } from './../src/model.js';
 import { Model4, Model6, ModelDisc1, ModelDisc2, ModelDiscBase } from './mocks/models/index.js';
 import { ModelWithScopeQueryScope } from './mocks/models/ModelWithScope.js';
 import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from './../src/dehydrators.js';
@@ -38,32 +39,9 @@ async function db() {
 }
 
 describe('General model tests', () => {
-  before(() => {
-    DI.register(ConnectionConf).as(Configuration);
-    DI.register(FakeSqliteDriver).as('sqlite');
-    DI.register(FakeMysqlDriver).as('mysql');
+  useTestApp(() => ormApp({ register: (c) => c.register(FakeServerResponseMapper).as(ServerResponseMapper) }));
 
-    DI.register(FakeSelectQueryCompiler).as(SelectQueryCompiler);
-    DI.register(FakeDeleteQueryCompiler).as(DeleteQueryCompiler);
-    DI.register(FakeUpdateQueryCompiler).as(UpdateQueryCompiler);
-    DI.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
-    DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
-
-    DI.register(DbPropertyHydrator).as(ModelHydrator);
-    DI.register(NonDbPropertyHydrator).as(ModelHydrator);
-    DI.register(FakeConverter).as(DatetimeValueConverter);
-    DI.register(FakeServerResponseMapper).as(ServerResponseMapper);
-  });
-
-  beforeEach(async () => {
-    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
-    for (const b of bootstrappers) {
-      await b.bootstrap();
-    }
-  });
-
-  afterEach(async () => {
-    DI.clearCache();
+  afterEach(() => {
     sinon.restore();
   });
 
@@ -71,9 +49,10 @@ describe('General model tests', () => {
     const orm = await db();
     const models = await orm.Models;
 
-    // Cardinality of the '__models__' DI bag: every @Model in test/mocks/models counts, so this
-    // number moves whenever a mock model is added or removed.
-    expect(models.length).to.eq(26);
+    // Other files in the same process add their own models to the bag, so assert membership, not size.
+    expect(models.map((m) => m.name)).to.include.members([
+      'JunctionModel', 'Model1', 'Model2', 'Model3', 'Model4', 'Model5', 'Model6', 'ModelArchived', 'ModelDisc1', 'ModelDisc2', 'ModelDiscBase', 'ModelNested1', 'ModelNested2', 'ModelNested3', 'ModelNoConnection', 'ModelWithScope', 'RawModel', 'RelationModel1', 'RelationModel2', 'RelationRecursive'
+    ]);
   });
 
   it('Should set different connections to model', async () => {
@@ -1499,21 +1478,16 @@ describe('General model tests', () => {
 });
 
 describe('Model discrimination tests', () => {
+  useTestApp(() =>
+    ormApp({
+      register: (c) => {
+        c.register(OneToOneRelationHydrator).as(ModelHydrator);
+        c.register(JunctionModelPropertyHydrator).as(ModelHydrator);
+      },
+    }),
+  );
+
   beforeEach(() => {
-    DI.register(ConnectionConf).as(Configuration);
-    DI.register(FakeSqliteDriver).as('sqlite');
-    DI.register(FakeMysqlDriver).as('mysql');
-
-    DI.register(FakeSelectQueryCompiler).as(SelectQueryCompiler);
-    DI.register(FakeDeleteQueryCompiler).as(DeleteQueryCompiler);
-    DI.register(FakeUpdateQueryCompiler).as(UpdateQueryCompiler);
-    DI.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
-    DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
-
-    DI.register(DbPropertyHydrator).as(ModelHydrator);
-    DI.register(NonDbPropertyHydrator).as(ModelHydrator);
-    DI.register(OneToOneRelationHydrator).as(ModelHydrator);
-    DI.register(JunctionModelPropertyHydrator).as(ModelHydrator);
     DI.resolve<Orm>(Orm);
 
     const tableInfoStub = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');
@@ -1589,8 +1563,7 @@ describe('Model discrimination tests', () => {
     );
   });
 
-  afterEach(async () => {
-    DI.clearCache();
+  afterEach(() => {
     sinon.restore();
   });
 

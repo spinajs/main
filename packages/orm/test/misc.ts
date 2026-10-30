@@ -1,10 +1,14 @@
 /* eslint-disable prettier/prettier */
-import { ITransactionContext, ITransactionOptions, ValueConverter } from './../src/interfaces.js';
+import { ITransactionContext, ITransactionOptions, ValueConverter, DatetimeValueConverter } from './../src/interfaces.js';
 import { join, normalize, resolve } from 'path';
 import { IColumnDescriptor, ColumnQueryCompiler, DropTableCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder, Builder, SelectQueryBuilder, DefaultValueBuilder, RawQuery, IMigrationRecord, MIGRATION_TABLE_NAME } from '../src/index.js';
 import { OrmDriver } from './../src/driver.js';
+import { DbPropertyHydrator, NonDbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator, OneToManyRelationHydrator } from './../src/hydrators.js';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Bootstrapper, DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+import type { TestAppOptions } from '@spinajs/testing';
+import '@spinajs/log';
 import * as sinon from 'sinon';
 import _ from 'lodash';
 import { renderTemplate } from '@spinajs/log-common';
@@ -1362,25 +1366,46 @@ export class FakeDefaultValueBuilder<T> extends DefaultValueBuilder<T> {
   }
 }
 
-/**
- * The DI wiring a suite needs before it can resolve a driver: the fake configuration, the fake
- * driver and every compiler the builders reach for. Shared rather than copied per suite, so a
- * new fake ( eg. DefaultValueBuilder, which only the dialect packages register for real ) lands
- * in all of them at once.
- */
-export function registerFakes() {
-  DI.register(ConnectionConf).as(Configuration);
-  DI.register(FakeSqliteDriver).as('sqlite');
-  DI.register(FakeSelectQueryCompiler).as(SelectQueryCompiler);
-  DI.register(FakeDeleteQueryCompiler).as(DeleteQueryCompiler);
-  DI.register(FakeUpdateQueryCompiler).as(UpdateQueryCompiler);
-  DI.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
-  DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
-  DI.register(FakeColumnQueryCompiler).as(ColumnQueryCompiler);
-  DI.register(FakeTableExistsCompiler).as(TableExistsCompiler);
+/** The fake drivers, compilers and hydrators every orm suite registers. */
+export function registerFakes(c: IContainer): void {
+  c.register(FakeSqliteDriver).as('sqlite');
+  c.register(FakeMysqlDriver).as('mysql');
+  c.register(FakeSelectQueryCompiler).as(SelectQueryCompiler);
+  c.register(FakeDeleteQueryCompiler).as(DeleteQueryCompiler);
+  c.register(FakeUpdateQueryCompiler).as(UpdateQueryCompiler);
+  c.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
+  c.register(FakeTableQueryCompiler).as(TableQueryCompiler);
+  c.register(DbPropertyHydrator).as(ModelHydrator);
+  c.register(NonDbPropertyHydrator).as(ModelHydrator);
+  c.register(FakeConverter).as(DatetimeValueConverter);
+}
+
+/** The relation hydrators on top of `registerFakes`, for suites that populate or save relations. */
+export function registerRelationHydrators(c: IContainer): void {
+  c.register(OneToOneRelationHydrator).as(ModelHydrator);
+  c.register(JunctionModelPropertyHydrator).as(ModelHydrator);
+  c.register(OneToManyRelationHydrator).as(ModelHydrator);
+}
+
+/** The compilers and builders the migration suites reach for on top of `registerFakes`. */
+export function registerMigrationFakes(c: IContainer): void {
+  c.register(FakeColumnQueryCompiler).as(ColumnQueryCompiler);
+  c.register(FakeTableExistsCompiler).as(TableExistsCompiler);
   // dialect packages own the concrete DefaultValueBuilder; without one, `default()` resolves
   // the abstract class and dies on `value()`
-  DI.register(FakeDefaultValueBuilder).as(DefaultValueBuilder);
+  c.register(FakeDefaultValueBuilder).as(DefaultValueBuilder);
+}
+
+/** One orm app per test: ConnectionConf, the fakes, every Bootstrapper. Use with `useTestApp(() => ormApp())`. */
+export function ormApp(options: Omit<TestAppOptions, 'config'> = {}): TestAppOptions {
+  return {
+    configuration: ConnectionConf,
+    ...options,
+    register: async (c) => {
+      registerFakes(c);
+      await options.register?.(c);
+    },
+  };
 }
 
 export async function bootstrapAll() {

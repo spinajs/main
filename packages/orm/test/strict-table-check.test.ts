@@ -1,5 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
+import { useTestApp, createTestApp, disposeTestApps } from '@spinajs/testing';
+import type { TestAppOptions } from '@spinajs/testing';
+import { FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
@@ -94,20 +96,25 @@ describe('Orm strict table check (db.StrictTableCheck)', () => {
 
   after(() => {
     Object.values(models).forEach((m) => DI.unregister(m));
-    DI.unregister(StrictCheckConf);
-    DI.clearCache();
   });
 
   beforeEach(() => {
-    DI.clearCache();
     TABLES.clear();
     strictSetting = undefined;
-    DI.register(StrictCheckConf).as(Configuration);
-    DI.register(StrictCheckDriver).as('strict-check-driver');
   });
 
-  afterEach(() => {
-    DI.clearCache();
+  const appOptions = (): TestAppOptions => ({ configuration: StrictCheckConf, register: (c) => c.register(StrictCheckDriver).as('strict-check-driver') });
+
+  useTestApp(appOptions);
+
+  // the configuration reads `strictSetting` when the app boots
+  async function reboot(): Promise<void> {
+    await disposeTestApps();
+    await createTestApp(appOptions());
+  }
+
+  afterEach(async () => {
+    await disposeTestApps();
   });
 
   it('fails the Orm resolve naming every model whose table is missing, its table and its connection', async () => {
@@ -134,6 +141,7 @@ describe('Orm strict table check (db.StrictTableCheck)', () => {
 
   it('boots with db.StrictTableCheck false and binds the model whose table is missing', async () => {
     strictSetting = false;
+    await reboot();
 
     const orm = await DI.resolve(Orm);
 
@@ -153,6 +161,7 @@ describe('Orm strict table check (db.StrictTableCheck)', () => {
 
   it('reloadTableInfo() called by hand is lenient unless asked to be strict', async () => {
     strictSetting = false;
+    await reboot();
     const orm = await DI.resolve(Orm);
 
     await orm.reloadTableInfo();
@@ -163,16 +172,10 @@ describe('Orm strict table check (db.StrictTableCheck)', () => {
 describe('db.StrictTableCheck configuration schema', () => {
   class SchemaConf extends FrameworkConfiguration {}
 
-  afterEach(() => {
-    DI.unregister(SchemaConf);
-    DI.clearCache();
-  });
+  const app = useTestApp({ configuration: SchemaConf });
 
   it('defaults the key to true and refuses a value that is not a boolean', async () => {
-    DI.clearCache();
-    DI.register(SchemaConf).as(Configuration);
-
-    const config = (await DI.resolve(Configuration)) as FrameworkConfiguration;
+    const config = app().config as FrameworkConfiguration;
     expect(config.get('db.StrictTableCheck')).to.equal(true);
 
     expect(() => config.set(['db', 'StrictTableCheck'], 'no')).to.throw(InvalidConfiguration, 'db.StrictTableCheck');

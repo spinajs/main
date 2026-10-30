@@ -2,7 +2,7 @@
 import { Constructor, DI } from '@spinajs/di';
 import { createQuery, SelectQueryBuilder } from './builders.js';
 import { extractModelDescriptor } from './descriptor.js';
-import { OrmDriver } from './driver.js';
+import type { OrmDriver } from './driver.js';
 import { OrmException } from './exceptions.js';
 import { IdentityMap } from './identity-map.js';
 import { IIdentityMap, IModelDescriptor, ISaveOptions, ISaveResult, RelationType } from './interfaces.js';

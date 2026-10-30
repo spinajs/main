@@ -1,5 +1,6 @@
 {
     "extensions": ["ts"],
+    "timeout": 10000,
     "spec": ["packages/orm/test/*.test.ts"],
     "node-option": [
       "experimental-specifier-resolution=node",

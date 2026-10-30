@@ -2,6 +2,7 @@
 import { expect } from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
+import { useTestApp } from '@spinajs/testing';
 import { Metrics } from '@spinajs/telemetry-common';
 import { ORM_METRIC_POOL_SIZE, ORM_METRIC_POOL_IN_USE, ORM_METRIC_POOL_WAITING, ORM_METRIC_CONNECTION_STATE, ORM_METRIC_ACQUIRE_SECONDS } from '../src/metrics.js';
 import { ConnectionState } from '../src/resilience.js';
@@ -43,7 +44,7 @@ function stub<T extends OrmDriver>(d: T): T {
 
 /**
  * `Metrics` is a `@Singleton()`, so this is the very instance the driver publishes into. Every
- * test gets a fresh one because `afterEach` clears the DI cache — the ORM keys its one-time
+ * test gets a fresh one because the app is restored after it — the ORM keys its one-time
  * `defineMetrics` call on the service instance, so a new service means a clean registry.
  */
 function metrics(): Metrics {
@@ -51,7 +52,7 @@ function metrics(): Metrics {
 }
 
 describe('pool metrics', () => {
-  afterEach(() => DI.clearCache());
+  useTestApp();
 
   it('publishes size, in-use, waiting and state with a connection label', async () => {
     const m = metrics();
