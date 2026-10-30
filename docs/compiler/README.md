@@ -143,6 +143,8 @@ Where `ref` and the metadata differ, because the checked type knows more than th
 | A parameter with no annotation (`page = 5`) | `Number` | `Object` |
 | An interface with a call signature | `Function` | `Object` |
 | `declare global { class X {} }` that a polyfill provides at runtime | `Object` | `X` |
+| `@Autoinject(Plugin) byName: ByName`, with `type ByName = Map<string, Plugin>` | `array: true` in `classProperties`, the map | `Object`, one instance |
+| `@Autoinject(Plugin) all: Plugins \| null`, with `type Plugins = Plugin[]` | `array: true` in `classProperties`, the list | `Object`, one instance |
 
 A class without a `ref` is reported as `TYP001` (not exported) or `TYP002` (declared in a package without a manifest fragment, or in an ambient module such as `node:async_hooks`). An enum records `Number` or `String`, as the metadata does, not the enum object.
 
@@ -152,7 +154,7 @@ An abstract controller, or one that `declaredDirsOnly` leaves out, goes to `cont
 
 A class without a `ref` records why in `refProblem`, which the runtime puts in its error. For the kinds that never read the type (`@Req`, `@Res`, `@Ip`, `@RequestId`, `@UserAgent`, `@Referer`, `@RawBody`, `@AcceptType`, `@RequestStream`, `@ContentDigest`) it records `Object` instead.
 
-A package built with `emitDecoratorMetadata: false` also gets `classProperties`: one entry per class that declares `@Autoinject` or `@LazyInject` properties, whatever the class is, keyed by `id` (`<package>:<class>`). Each property has `array`, decided from what the type resolves to as the metadata is, so an alias and `readonly T[]` count, and, when the decorator names no type, the declared type as `tokenRef`. A package built with metadata has none: the runtime imports every class the table names at boot, and such a build would not read them. `services[].propertyInjects` records `tokenRef` too.
+A package built with `emitDecoratorMetadata: false` also gets `classProperties`: one entry per class with a decorated property, whatever the class is, keyed by `id` (`<package>:<class>`). Each `@Autoinject` or `@LazyInject` property has `array`, decided from what the type resolves to, so an alias and `readonly T[]` count, and, when the decorator names no type, the declared type as `tokenRef`. A property under any other decorator, other than the ones that inject by their own arguments (`@Logger`, `@Config`, `@FileSystem`, `@AutoinjectService`), has `array` alone, because the decorator may wrap `@Autoinject(X)`; a row without `tokenRef` imports nothing. A package built with metadata has none: the runtime imports every `tokenRef` at boot, and such a build would not read them. `services[].propertyInjects` records `tokenRef` too.
 
 ## Schema derivation
 

@@ -43,7 +43,7 @@ await DI.resolve(Configuration);
 
 Bootstrappers typically register configuration schemas, process handlers or DI overrides. A bootstrapper's module must be imported before the list is resolved, or it is not in the list.
 
-In a build without decorator metadata, a bootstrapper runs before anything can read the manifest, so an `@Autoinject()` property with no type on it throws `ResolveException`, as on any class resolved before `Configuration`. Pass the type to the decorator, `@Autoinject(Dep)`. See [Building without decorator metadata](../manifest/README.md#building-without-decorator-metadata).
+In a build without decorator metadata, a bootstrapper runs before anything can read the manifest, so an `@Autoinject()` property with no type on it throws `ResolveException`, as on any class resolved before `Configuration`. Pass the type to the decorator, `@Autoinject(Dep)`. That holds for a single class only: a list resolved here gets one instance, and the check after `Configuration` fails a `require` boot or logs a named error in `prefer`. State the list instead, `@Autoinject(Array.ofType(Dep))`. See [Building without decorator metadata](../manifest/README.md#building-without-decorator-metadata).
 
 ### A custom bootstrapper and an async service
 
