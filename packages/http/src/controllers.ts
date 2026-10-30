@@ -4,7 +4,10 @@ import { AsyncService, IContainer, Autoinject, ClassInfo, Container, Class } fro
 import { Logger, Log } from '@spinajs/log';
 import { HttpServer } from './server.js';
 import { uniqueBy } from '@spinajs/util';
-import { DefaultControllerCache, parseFnParamNames, isOnDiskSource } from './cache.js';
+import { effectiveManifestOf } from '@spinajs/configuration';
+import { parseFnParamNames, isOnDiskSource } from './cache-helpers.js';
+import { ControllerMetadataProvider, NoControllerMetadata, metadataProviderFor } from './controller-metadata.js';
+import { ManifestControllerMetadata } from './manifest-controller-metadata.js';
 import { BaseController } from './base-controller.js';
 import { ControllerSource } from './controller-sources.js';
 import { ControllerRegistrationException, RouteRegistrationException } from './exceptions.js';
@@ -31,9 +34,6 @@ export class Controllers extends AsyncService {
   @Autoinject()
   protected Server!: HttpServer;
 
-  @Autoinject()
-  protected ControllersCache!: DefaultControllerCache;
-
   /**
    * Single Express router that all controllers' routers are mounted onto.
    * It occupies one fixed position in the parent Express stack, so
@@ -58,10 +58,28 @@ export class Controllers extends AsyncService {
     return (await this.Container.resolve(Array.ofType(ControllerSource))) as ControllerSource[];
   }
 
+  protected async getMetadataProviders(): Promise<ControllerMetadataProvider[]> {
+    return await this.Container.resolve(Array.ofType(ControllerMetadataProvider));
+  }
+
+  /** In require mode the manifest is the only acceptable answer for a controller loaded from a file. */
+  protected async metadataProviderFor(controller: ClassInfo<BaseController>): Promise<ControllerMetadataProvider> {
+    const provider = metadataProviderFor(await this.getMetadataProviders(), controller);
+    if (!provider) {
+      throw new NoControllerMetadata(`No controller metadata provider supports ${controller.name} ( ${controller.file} )`);
+    }
+
+    if (!(provider instanceof ManifestControllerMetadata) && isOnDiskSource(controller.file) && effectiveManifestOf(this.Container)?.settings.mode === 'require') {
+      throw new NoControllerMetadata(`${controller.name} ( ${controller.file} ) is not in the manifest and system.manifest.mode is 'require': rebuild the manifest ( spinajs build ), or use mode 'prefer'`);
+    }
+
+    return provider;
+  }
+
   /**
    * Gathers controllers from every source and dedupes them: for the same
    * type an entry with a real on-disk file wins over a `<di>` / `<dynamic>`
-   * sentinel (the file path feeds ControllersCache source parsing).
+   * sentinel (the file path feeds the TypeScript cache provider).
    */
   protected async listControllers(): Promise<Array<ClassInfo<BaseController>>> {
     const sources = await this.getSources();
@@ -142,23 +160,21 @@ export class Controllers extends AsyncService {
       );
     }
 
-    const parameters = await this.ControllersCache.getCache(controller);
-
     if (!controller.instance.Descriptor) {
       this.Log.warn({ controller: controller.name, file: controller.file }, 'Controller ${controller} in file ${file} dont have descriptor or routes defined');
     } else {
+      const provider = await this.metadataProviderFor(controller);
       for (const [name, route] of controller.instance.Descriptor.Routes) {
-        let member = parameters[name as string];
+        let member = await provider.parameters(controller, name as string);
 
-        if (!member) {
+        if (member.length === 0) {
           const action = (controller.instance as any)[name as string];
           if (typeof action !== 'function') {
             throw new RouteRegistrationException(`Controller ${controller.name} does not have member ${String(name)} for route ${route.Path}`);
           }
 
-          // Route inherited from a base class declared in another source file
-          // — the parsed source of THIS class has no such member. Extract
-          // parameter names from the runtime function instead.
+          // No source to read ( a DI-registered controller ), or a route inherited from a base class declared in
+          // another source file: the parsed source of THIS class has no such member. Read the runtime function.
           member = parseFnParamNames(action);
         }
 
@@ -202,7 +218,7 @@ export class Controllers extends AsyncService {
 
     // Remember the original file path per type so the second loop can preserve
     // it. Without this every controller would end up tagged `<di>`, breaking
-    // ControllersCache.getCache() which expects a real on-disk source file.
+    // CacheControllerMetadata, which parses the real on-disk source file.
     const fileByType = new Map<Class<BaseController>, ClassInfo<BaseController>>();
 
     for (const ci of uniqueBy(listed, (c) => c.name)) {

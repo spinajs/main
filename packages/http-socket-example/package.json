@@ -13,10 +13,13 @@
     "compile": "tsc -b tsconfig.build.json",
     "start": "node lib/main.js",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
-    "coverage": "c8 npm run test"
+    "coverage": "c8 npm run test",
+    "bundle": "npm run compile && node scripts/bundle.mjs"
   },
   "license": "MIT",
   "dependencies": {
+    "@spinajs/authn": "3.0.23",
+    "@spinajs/authn-session": "3.0.23",
     "@spinajs/authz": "3.0.23",
     "@spinajs/configuration": "3.0.23",
     "@spinajs/di": "3.0.23",
@@ -29,5 +32,10 @@
   "types": "./lib/main.d.ts",
   "spinajs": {
     "manifest": "lib/manifest.fragment.json"
+  },
+  "devDependencies": {
+    "@spinajs/compiler": "3.0.23",
+    "@spinajs/manifest": "3.0.23",
+    "esbuild": "^0.28.1"
   }
 }

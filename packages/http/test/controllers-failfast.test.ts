@@ -21,7 +21,12 @@ const noopLog = {
 function makeLoader(parameters: Record<string, string[]> = {}) {
   const loader = new Controllers();
   Object.defineProperty(loader, 'Log', { value: noopLog });
-  (loader as any).ControllersCache = { getCache: async () => parameters };
+  Object.assign(loader, {
+    Container: DI.RootContainer,
+    getMetadataProviders: async () => [
+      { Priority: 0, supports: () => true, parameters: async (_c: unknown, method: string) => parameters[method] ?? [], documentation: async () => ({ className: '', methods: {} }) },
+    ],
+  });
   (loader as any).ControllersRouter = Express.Router();
   return loader;
 }

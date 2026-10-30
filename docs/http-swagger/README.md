@@ -70,5 +70,5 @@ Open `/docs/` for Swagger UI. Compile controllers with `declaration: true` and w
 - [`@spinajs/orm-http`](../orm-http/README.md): `@FromModel`, `@Filter` and DTO `@Relation` are documented with their real wire shape.
 - [`@spinajs/fs`](../fs/README.md): the `__fs_swagger_views__` provider serves the UI template.
 - [`@spinajs/cli`](../cli/README.md): runs the `http:swagger:cache` command.
-- `@spinajs/http`: controllers, route decorators and `DefaultControllerCache`, which parses the JSDoc.
+- `@spinajs/http`: controllers, route decorators and the controller metadata providers; `DefaultControllerCache` (`@spinajs/http/cache`) parses the JSDoc.
 - `@spinajs/validation`: `SchemaProvider` and `@Schema`, the source of named schemas.

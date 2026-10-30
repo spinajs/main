@@ -4,6 +4,7 @@ import { diCycle } from './di-cycle.js';
 import { asyncIntoSync } from './async-into-sync.js';
 import { duplicateRoute } from './duplicate-route.js';
 import { routeWithoutPolicy } from './route-without-policy.js';
+import { publicContradictsGuard } from './public-contradicts-guard.js';
 import { doubleSlashPath } from './double-slash-path.js';
 import { shadowedRoute } from './shadowed-route.js';
 import { ambiguousBody } from './ambiguous-body.js';
@@ -21,6 +22,7 @@ export const DEFAULT_RULES: DoctorRule[] = [
   asyncIntoSync,
   duplicateRoute,
   routeWithoutPolicy,
+  publicContradictsGuard,
   doubleSlashPath,
   shadowedRoute,
   ambiguousBody,
@@ -39,6 +41,7 @@ export {
   asyncIntoSync,
   duplicateRoute,
   routeWithoutPolicy,
+  publicContradictsGuard,
   doubleSlashPath,
   shadowedRoute,
   ambiguousBody,

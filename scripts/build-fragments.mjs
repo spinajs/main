@@ -45,7 +45,7 @@ export async function mapPool(items, limit, worker) {
 async function analyzeInThread(dir) {
   const { analyzePackage } = await import('@spinajs/compiler');
   const started = performance.now();
-  const fragment = await analyzePackage({ tsconfig: join(dir, 'tsconfig.build.json'), packageRoot: dir, schemaDerivation: true });
+  const fragment = await analyzePackage({ tsconfig: join(dir, 'tsconfig.build.json'), packageRoot: dir, schemaDerivation: true, declaredDirsOnly: true });
   const out = join(dir, MANIFEST_PATH);
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, `${JSON.stringify(fragment, null, 2)}\n`);

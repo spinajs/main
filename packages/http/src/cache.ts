@@ -1,4 +1,4 @@
-import ts from 'typescript';
+import type TS from 'typescript';
 import { resolve as resolvePath, dirname, join, isAbsolute } from 'path';
 import { existsSync } from 'fs';
 import { createRequire } from 'module';
@@ -6,104 +6,23 @@ import { AsyncService, Autoinject, ClassInfo, Singleton } from '@spinajs/di';
 import { fs as fFs, FileHasher, FileSystem } from '@spinajs/fs';
 import type { BaseController } from './base-controller.js';
 import { Logger, Log } from '@spinajs/log';
+import type { IControllerDocumentation, IExampleDoc, IMethodDoc, IPolicyDoc, ITagExtractor, ITagExtractorContext, ITypeSchema } from './controller-documentation.js';
+import { isOnDiskSource, parseFnParamNames } from './cache-helpers.js';
+import { NoControllerMetadata } from './controller-metadata.js';
 
-// ---------------------------------------------------------------------------
-// Documentation types — generic enough to live in http, used by http-swagger
-// ---------------------------------------------------------------------------
+// Assigned by loadTypescript() before any parse: a process whose cache entries all exist never loads the compiler.
+let ts: typeof TS;
 
-export interface IParamDoc {
-  name: string;
-  description?: string;
-  type?: string;
+async function loadTypescript(): Promise<void> {
+  try {
+    ts ??= (await import('typescript')).default;
+  } catch (err) {
+    if ((err as { code?: string }).code === 'ERR_MODULE_NOT_FOUND' && String((err as Error).message).includes("'typescript'")) {
+      throw new NoControllerMetadata('The TypeScript controller cache needs the optional peer dependency `typescript` to parse controller declarations: install it, pre-build the cache ( spinajs http:controllers:cache ), or build the app manifest ( spinajs build ) and set system.manifest.mode.', err);
+    }
+    throw err;
+  }
 }
-
-export interface IResponseDoc {
-  description: string;
-  /** Optional `{type}` annotation, e.g. `@response 400 {string} message` */
-  type?: string;
-}
-
-/** `@body {Type} description`: the JSON body of a route that reads it without a body route argument. */
-export interface IBodyDoc {
-  type: string;
-  description?: string;
-}
-
-export interface IExampleDoc {
-  name?: string;
-  description?: string;
-  value?: string;
-}
-
-/** JSON-Schema-compatible shape produced by the TypeScript return-type analyser */
-export interface ITypeSchema {
-  type?: string;
-  items?: ITypeSchema;
-  properties?: Record<string, ITypeSchema>;
-  required?: string[];
-  $ref?: string;
-  description?: string;
-}
-
-export interface IReturnDoc {
-  description?: string;
-  type?: string;
-  schema?: ITypeSchema;
-}
-
-export interface IMethodDoc {
-  summary?: string;
-  description?: string;
-  params: Record<string, IParamDoc>;
-  returns?: IReturnDoc;
-  body?: IBodyDoc;
-  responses?: Record<string, IResponseDoc>;
-  examples?: IExampleDoc[];
-  tags?: string[];
-  deprecated?: boolean;
-  /**
-   * Per-operation security override.
-   * Empty array means public (no auth required).
-   * Each entry is a security requirement object: { schemeName: scopes[] }.
-   */
-  security?: Array<Record<string, string[]>>;
-}
-
-export interface IPolicyDoc {
-  /** Source/declaration file where the policy class is defined */
-  file?: string;
-  /** JSDoc class-level description, if present */
-  description?: string;
-}
-
-export interface IControllerDocumentation {
-  className: string;
-  classDescription?: string;
-  classTags?: string[];
-  methods: Record<string, IMethodDoc>;
-}
-
-/** Context passed to every JSDoc tag extractor */
-export interface ITagExtractorContext {
-  /** Doc object being populated for the current method */
-  doc: IMethodDoc;
-  /** Source file the tag was parsed from (needed for safe getText() calls) */
-  sourceFile: ts.SourceFile;
-  /** Cache instance — exposes helper methods like getTagComment, safeGetText */
-  cache: DefaultControllerCache;
-}
-
-/**
- * JSDoc tag handler. Register new tags by pushing into
- * `DefaultControllerCache.tagExtractors`.
- */
-export interface ITagExtractor {
-  /** Tag names this handler accepts (e.g. ['returns', 'return']) */
-  tags: string[];
-  extract(tag: ts.JSDocTag, ctx: ITagExtractorContext): void;
-}
-
-// ---------------------------------------------------------------------------
 
 /** Stand-in prefix used when the package version cannot be read - see `resolveVersion()`. */
 const UNKNOWN_VERSION = 'unknown';
@@ -243,6 +162,7 @@ export class DefaultControllerCache extends AsyncService {
 
     if (!paramExists || !docExists) {
       this.Log.info({ controller: controller.name }, 'Generating controller cache for ${controller}');
+      await loadTypescript();
       const { parameters, documentation } = this.extractAll(file, controller.name);
 
       if (!paramExists) await this.CacheFS.write(paramHash, JSON.stringify(parameters));
@@ -318,6 +238,7 @@ export class DefaultControllerCache extends AsyncService {
     if (policyNames.length === 0) return out;
 
     const controllerJs = resolvePath(controller.file);
+    await loadTypescript();
     const importMap = this.extractImports(controllerJs);
     if (importMap.size === 0) return out;
 
@@ -381,7 +302,7 @@ export class DefaultControllerCache extends AsyncService {
         if (!methodName) continue;
 
         // Param names (for routing)
-        parameters[methodName] = member.parameters.map((p) => (p.name as ts.Identifier).text);
+        parameters[methodName] = member.parameters.map((p) => (p.name as TS.Identifier).text);
 
         // JSDoc documentation
         documentation.methods[methodName] = this.extractMethodDoc(member, sourceFile);
@@ -395,7 +316,7 @@ export class DefaultControllerCache extends AsyncService {
   // JSDoc extraction helpers
   // ---------------------------------------------------------------------------
 
-  private extractMethodDoc(method: ts.MethodDeclaration, sourceFile: ts.SourceFile): IMethodDoc {
+  private extractMethodDoc(method: TS.MethodDeclaration, sourceFile: TS.SourceFile): IMethodDoc {
     const doc: IMethodDoc = { params: {} };
 
     const comment = this.getJSDocComment(method);
@@ -439,8 +360,8 @@ export class DefaultControllerCache extends AsyncService {
    * custom JSDoc tag handlers without overriding extractMethodDoc.
    */
   public readonly tagExtractors: ITagExtractor[] = [
-    { tags: ['param'], extract: (tag, ctx) => this.extractParamTag(tag as ts.JSDocParameterTag, ctx) },
-    { tags: ['returns', 'return'], extract: (tag, ctx) => this.extractReturnTag(tag as ts.JSDocReturnTag, ctx) },
+    { tags: ['param'], extract: (tag, ctx) => this.extractParamTag(tag as TS.JSDocParameterTag, ctx) },
+    { tags: ['returns', 'return'], extract: (tag, ctx) => this.extractReturnTag(tag as TS.JSDocReturnTag, ctx) },
     { tags: ['response'], extract: (tag, ctx) => this.extractResponseTag(tag, ctx) },
     { tags: ['body'], extract: (tag, ctx) => this.extractBodyTag(tag, ctx) },
     { tags: ['example'], extract: (tag, ctx) => this.extractExampleTag(tag, ctx) },
@@ -450,7 +371,7 @@ export class DefaultControllerCache extends AsyncService {
     { tags: ['security'], extract: (tag, ctx) => this.extractSecurityTag(tag, ctx) },
   ];
 
-  private extractParamTag(tag: ts.JSDocParameterTag, ctx: ITagExtractorContext): void {
+  private extractParamTag(tag: TS.JSDocParameterTag, ctx: ITagExtractorContext): void {
     const name = ts.isIdentifier(tag.name) ? tag.name.text : (tag.name as any)?.right?.text ?? '';
     if (!name) return;
     ctx.doc.params[name] = {
@@ -460,13 +381,13 @@ export class DefaultControllerCache extends AsyncService {
     };
   }
 
-  private extractReturnTag(tag: ts.JSDocReturnTag, ctx: ITagExtractorContext): void {
+  private extractReturnTag(tag: TS.JSDocReturnTag, ctx: ITagExtractorContext): void {
     if (!ctx.doc.returns) ctx.doc.returns = {};
     ctx.doc.returns.description = this.getTagComment(tag) ?? undefined;
     ctx.doc.returns.type = this.safeGetText(tag.typeExpression, ctx.sourceFile);
   }
 
-  private extractResponseTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {
+  private extractResponseTag(tag: TS.JSDocTag, ctx: ITagExtractorContext): void {
     const comment = this.getTagComment(tag);
     if (!comment) return;
     const space = comment.indexOf(' ');
@@ -486,29 +407,29 @@ export class DefaultControllerCache extends AsyncService {
     (ctx.doc.responses ??= {})[code] = { description: desc, ...(type ? { type } : {}) };
   }
 
-  private extractBodyTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {
+  private extractBodyTag(tag: TS.JSDocTag, ctx: ITagExtractorContext): void {
     const match = /^\{([^}]+)\}\s*([\s\S]*)$/.exec(this.getTagComment(tag)?.trim() ?? '');
     if (!match) return;
     const description = match[2].trim();
     ctx.doc.body = { type: match[1].trim(), ...(description ? { description } : {}) };
   }
 
-  private extractExampleTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {
+  private extractExampleTag(tag: TS.JSDocTag, ctx: ITagExtractorContext): void {
     const ex = this.parseExample(tag);
     if (ex) (ctx.doc.examples ??= []).push(ex);
   }
 
-  private extractTagsTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {
+  private extractTagsTag(tag: TS.JSDocTag, ctx: ITagExtractorContext): void {
     const val = this.getTagComment(tag);
     if (val) ctx.doc.tags = val.split(',').map((t) => t.trim());
   }
 
-  private extractSummaryTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {
+  private extractSummaryTag(tag: TS.JSDocTag, ctx: ITagExtractorContext): void {
     const val = this.getTagComment(tag);
     if (val) ctx.doc.summary = val;
   }
 
-  private extractSecurityTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {
+  private extractSecurityTag(tag: TS.JSDocTag, ctx: ITagExtractorContext): void {
     const val = this.getTagComment(tag)?.trim();
     if (val === '[]' || val === '') {
       ctx.doc.security = [];
@@ -520,8 +441,8 @@ export class DefaultControllerCache extends AsyncService {
     }
   }
 
-  private getJSDocComment(node: ts.Node): string | undefined {
-    const jsDocs = (node as any).jsDoc as ts.JSDoc[] | undefined;
+  private getJSDocComment(node: TS.Node): string | undefined {
+    const jsDocs = (node as any).jsDoc as TS.JSDoc[] | undefined;
     if (!jsDocs?.length) return undefined;
     const { comment } = jsDocs[0];
     if (!comment) return undefined;
@@ -530,8 +451,8 @@ export class DefaultControllerCache extends AsyncService {
     return undefined;
   }
 
-  private getJSDocTagValue(node: ts.Node, tagName: string): string | undefined {
-    const rawJsDocs = (node as any).jsDoc as ts.JSDoc[] | undefined;
+  private getJSDocTagValue(node: TS.Node, tagName: string): string | undefined {
+    const rawJsDocs = (node as any).jsDoc as TS.JSDoc[] | undefined;
     if (!rawJsDocs) return undefined;
     for (const jsDoc of rawJsDocs) {
       if (!jsDoc.tags) continue;
@@ -541,13 +462,13 @@ export class DefaultControllerCache extends AsyncService {
     return undefined;
   }
 
-  private getRawJSDocTags(node: ts.Node): ts.JSDocTag[] {
-    const rawJsDocs = (node as any).jsDoc as ts.JSDoc[] | undefined;
+  private getRawJSDocTags(node: TS.Node): TS.JSDocTag[] {
+    const rawJsDocs = (node as any).jsDoc as TS.JSDoc[] | undefined;
     if (!rawJsDocs) return [];
     return rawJsDocs.flatMap((j) => (j.tags ? Array.from(j.tags) : []));
   }
 
-  private safeGetText(node: ts.Node | undefined, sourceFile: ts.SourceFile): string | undefined {
+  private safeGetText(node: TS.Node | undefined, sourceFile: TS.SourceFile): string | undefined {
     if (!node) return undefined;
     try {
       return node.getText(sourceFile);
@@ -662,14 +583,14 @@ export class DefaultControllerCache extends AsyncService {
     return description;
   }
 
-  private getTagComment(tag: ts.JSDocTag): string | undefined {
+  private getTagComment(tag: TS.JSDocTag): string | undefined {
     if (!tag.comment) return undefined;
     if (typeof tag.comment === 'string') return tag.comment;
     if (Array.isArray(tag.comment)) return (tag.comment as any[]).map((p) => p.text ?? p).join('');
     return undefined;
   }
 
-  private parseExample(tag: ts.JSDocTag): IExampleDoc | undefined {
+  private parseExample(tag: TS.JSDocTag): IExampleDoc | undefined {
     const comment = this.getTagComment(tag);
     if (!comment) return undefined;
     const captionMatch = comment.match(/<caption>(.*?)<\/caption>/s);
@@ -683,7 +604,7 @@ export class DefaultControllerCache extends AsyncService {
   // TypeScript return-type → ITypeSchema inference
   // ---------------------------------------------------------------------------
 
-  private inferSchemaFromTypeNode(typeNode: ts.TypeNode): ITypeSchema {
+  private inferSchemaFromTypeNode(typeNode: TS.TypeNode): ITypeSchema {
     switch (typeNode.kind) {
       case ts.SyntaxKind.StringKeyword:  return { type: 'string' };
       case ts.SyntaxKind.NumberKeyword:  return { type: 'number' };
@@ -738,7 +659,7 @@ export class DefaultControllerCache extends AsyncService {
    * Schema for a named type: unwrap wrappers and `Array<T>`, otherwise tag it as a named object.
    * The parser only names the type; http-swagger's providers expand it later.
    */
-  private schemaFromNamedType(name: string, typeArguments: ts.NodeArray<ts.TypeNode> | undefined): ITypeSchema {
+  private schemaFromNamedType(name: string, typeArguments: TS.NodeArray<TS.TypeNode> | undefined): ITypeSchema {
     if (TRANSPARENT_WRAPPERS.has(name) && typeArguments?.length) {
       return this.inferSchemaFromTypeNode(typeArguments[0]);
     }
@@ -749,33 +670,7 @@ export class DefaultControllerCache extends AsyncService {
   }
 }
 
-/**
- * Whether a ClassInfo `file` points at a real on-disk source. Bracketed
- * sentinels (e.g. `<di>`, `<dynamic>`) are used by Controllers for entries
- * that were never loaded from a file.
- */
-export function isOnDiskSource(file: string | undefined): boolean {
-  if (!file) return false;
-  return !(file.startsWith('<') && file.endsWith('>'));
-}
-
 /** Rightmost identifier of an entity name. */
-function entityNameRight(name: ts.EntityName): string {
+function entityNameRight(name: TS.EntityName): string {
   return ts.isIdentifier(name) ? name.text : name.right.text;
-}
-
-/**
- * Pull parameter names from `Function.prototype.toString()` output. Modern V8
- * preserves the literal signature so we can regex out `(a, b = 1, ...rest)`.
- * Stripped of default values and TypeScript type annotations.
- */
-export function parseFnParamNames(fn: Function): string[] {
-  const src = Function.prototype.toString.call(fn);
-  const match = src.match(/^[^(]*\(([\s\S]*?)\)/);
-  if (!match) return [];
-  return match[1]
-    .split(',')
-    .map((p: string) => p.trim())
-    .filter(Boolean)
-    .map((p: string) => p.replace(/^\.\.\./, '').split(/[=:]/)[0].trim());
 }

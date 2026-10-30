@@ -12,6 +12,12 @@
   ],
   "references": [
     {
+      "path": "../authn/tsconfig.build.json"
+    },
+    {
+      "path": "../authn-session/tsconfig.build.json"
+    },
+    {
       "path": "../http-socket/tsconfig.build.json"
     },
     {

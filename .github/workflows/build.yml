@@ -94,6 +94,20 @@ jobs:
       - name: package exports and types ( publint, attw )
         run: npm run check:packages
 
+      # Manifest mode off vs require; medians go to the step summary. No gate yet.
+      - name: cold-start benchmark
+        continue-on-error: true
+        timeout-minutes: 15
+        run: node scripts/bench/cold-start.mjs --controllers 200 --routes 5 --out bench.json
+
+      - name: upload bench.json
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench
+          path: bench.json
+          if-no-files-found: warn
+
   # Every package suite must pass before a release. Suites that are red on master are tracked in
   # scripts/known-failing.json ( warning only ); packages needing external services are skipped under --ci.
   test:

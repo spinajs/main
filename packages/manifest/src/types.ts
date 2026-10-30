@@ -86,6 +86,7 @@ export interface RouteEntry {
   middlewares: { type: string; options?: unknown[] }[];
   access?: string[];                 // @Access permissions (authz-http)
   allowAnonymous?: boolean;
+  public?: string;                   // @Public reason (http)
   doc?: { summary?: string; description?: string; tags?: string[]; deprecated?: boolean; responses?: { status: number; description?: string; type?: TypeRef }[] };
   source: SourceRef;
 }
@@ -97,6 +98,7 @@ export interface ControllerEntry {
   mountPath?: string;
   policies: PolicyRef[][]; middlewares: { type: string; options?: unknown[] }[];
   access?: string[]; allowAnonymous?: boolean;   // class-level @Access / @AllowAnonymous
+  public?: string;                   // class-level @Public reason
   routes: RouteEntry[];
   condition?: Condition;
   source: SourceRef;

@@ -8,15 +8,15 @@ import chaiHttp from 'chai-http';
 import * as cs from 'cookie-signature';
 import { v4 as uuidv4 } from 'uuid';
 import { Bootstrapper, DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import type { Class, Factory } from '@spinajs/di';
+import { Configuration, FrameworkConfiguration, MANIFEST, MANIFEST_SETTINGS, registerManifest, registerManifestSettings } from '@spinajs/configuration';
 import { finishContractTesting, installContractTesting, manifestOfFragments } from '@spinajs/testing';
 import type { ContractTestingHandle } from '@spinajs/testing';
 import { MigrationTransactionMode, OrmMigrator } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
-import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
+import { BaseController, ControllerSource, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
 import { appEnvOf, sessionCookieName } from '@spinajs/authn-session';
@@ -62,9 +62,15 @@ export interface UsersHttpAppOptions {
   readonly permissions?: Readonly<Record<string, unknown>>;
   /** Turns off `list` on every shipped list permission, for kit models that cannot plan lists; `permissions` may set it again. */
   readonly unlistShipped?: boolean;
+  /** Boots with this package's and authz-http-admin's fragments as the effective manifest; still mounts only `controllers`. */
+  readonly manifestMode?: 'prefer' | 'require';
 }
 
 let options: UsersHttpAppOptions | undefined;
+
+// By name: a suite run can load @spinajs/http both from lib/ and from src/, each registering its own classes.
+const FILE_SOURCES = new Set(['FilesystemControllerSource', 'ManifestControllerSource']);
+let removedSources: Array<Class<unknown> | Factory<unknown>> = [];
 
 /**
  * The package defaults of every installed @spinajs package (ESM mode), as an app loads them, with this test's
@@ -254,6 +260,16 @@ export async function startUsersHttpApp(opts: UsersHttpAppOptions): Promise<User
   const before = new Set(DI.getRegisteredTypes(BaseController) ?? []);
   for (const c of opts.controllers) DI.register(c).as(BaseController);
 
+  if (opts.manifestMode) {
+    registerManifestSettings(DI.RootContainer, { mode: opts.manifestMode, path: 'app.manifest.json' });
+    registerManifest(DI.RootContainer, await manifestOfFragments(FRAGMENTS));
+    // both file-backed sources would list every controller of the fragments, built in lib/; the app mounts only `controllers`
+    removedSources = DI.getRegisteredTypes(ControllerSource).filter((t) => FILE_SOURCES.has(t.name));
+    for (const source of removedSources) DI.RootContainer.unregister(ControllerSource, source);
+    // an earlier app in this process resolved the sources, and the container hands out what it resolved
+    DI.uncache(ControllerSource);
+  }
+
   await DI.resolve(Controllers);
   const server = (await DI.resolve(HttpServer)) as HttpServer;
   await server.start();
@@ -287,7 +303,15 @@ export async function startUsersHttpApp(opts: UsersHttpAppOptions): Promise<User
 
 /** Stops the server and removes what {@link startUsersHttpApp} registered and resolved. */
 async function teardown(): Promise<void> {
+  const manifestMode = options?.manifestMode;
   options = undefined;
+  if (manifestMode) {
+    DI.uncache(MANIFEST.key);
+    DI.uncache(MANIFEST_SETTINGS.key);
+    for (const source of removedSources) DI.register(source).as(ControllerSource);
+    removedSources = [];
+    DI.uncache(ControllerSource);
+  }
   if (!running) return;
   const { server, controllers } = running;
   running = undefined;

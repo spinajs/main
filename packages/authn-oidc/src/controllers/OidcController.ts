@@ -27,6 +27,9 @@ import { OidcBeginQuery, OidcCallbackQueryDto, OidcUnlinkQuery, oidcHeader, oidc
 import type { BackchannelForm } from '../dto.js';
 import { Connection, QueryObject } from '../args.js';
 import type { OidcConnection } from '../args.js';
+// Registers the RP-initiated logout extension and the oidc:<name> strategies: the controller scan imports this file, and an app may never import the package entry.
+import '../logout-extension.js';
+import '../bootstrap.js';
 
 const ROUTE_PREFIX = 'auth/oidc';
 const FORM = 'application/x-www-form-urlencoded';

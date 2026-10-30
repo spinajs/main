@@ -1,3 +1,4 @@
+import { isAbstractClass } from './abstract.js';
 import ts from 'typescript';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -141,7 +142,7 @@ function controllerOf(node: ts.ClassDeclaration & { name: ts.Identifier }, sc: D
 export const extractSocketControllers: Extractor<SocketControllerEntry> = (ctx, file) => {
   const out: SocketControllerEntry[] = [];
   const visit = (node: ts.Node): void => {
-    if (ts.isClassDeclaration(node) && node.name) {
+    if (ts.isClassDeclaration(node) && node.name && !isAbstractClass(node)) {
       const sc = findDecorator(node, 'SocketController');
       if (sc) out.push(controllerOf(node as ts.ClassDeclaration & { name: ts.Identifier }, sc, ctx));
     }

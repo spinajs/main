@@ -31,6 +31,8 @@ Renderers that compile templates (handlebars, pug and your own `CompiledTemplate
 
 The package config leaves `mode` unset on purpose: a shipped value would disable the dev and production fallback.
 
+`TEMPLATES_CONFIGURATION_SCHEMA` checks the section at boot: a `mode` outside the three values fails with `InvalidConfiguration`. It sets no default for the same reason, and leaves the section open for the renderer packages (`templates.pug`, `templates.pdf`).
+
 ```ts
 // config/templates.ts in your application: edit templates on a running server
 export default {
