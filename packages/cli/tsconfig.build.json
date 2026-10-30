@@ -43,6 +43,9 @@
     },
     {
       "path": "../codemods/tsconfig.build.json"
+    },
+    {
+      "path": "../client/tsconfig.build.json"
     }
   ]
 }
