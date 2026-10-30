@@ -13,7 +13,7 @@ import { InternalLoggerProxy } from '@spinajs/internal-logger';
 export * from 'typescript-mix';
 export * from './manifest.js';
 import { listFromManifest, MANIFEST_SECTIONS, resolveListed } from './manifest.js';
-import { manifestSettingsOf } from '@spinajs/configuration';
+import { manifestOf, manifestSettingsOf } from '@spinajs/configuration';
 import type { ListOptions } from './manifest.js';
 
 /**
@@ -125,16 +125,24 @@ function _listOrResolveFromFiles(
     _check_arg(_is_string(), _non_empty())(filter, 'filter');
     _check_arg(_is_string(), _non_empty())(configPath, 'configPath');
 
-    // One result per effective manifest switch: an app booted with another mode lists again.
-    const cache = new WeakMap<object, Promise<Array<ClassInfo<any>>>>();
+    // Keyed by the settings' content and the loaded manifest: every app registers its own settings object, and an
+    // identity key would make a second app with the same mode re-resolve what the first one already listed.
+    const cache = new Map<string, WeakMap<object, Promise<Array<ClassInfo<any>>>>>();
 
     const getter = function (this: { Container?: IContainer } | undefined) {
       const owner = this?.Container;
-      const key = manifestSettingsOf(owner ?? DI.RootContainer) ?? NO_SETTINGS;
-      let instances = cache.get(key);
+      const container = owner ?? DI.RootContainer;
+      const settingsKey = JSON.stringify(manifestSettingsOf(container) ?? null);
+      let byManifest = cache.get(settingsKey);
+      if (!byManifest) {
+        byManifest = new WeakMap();
+        cache.set(settingsKey, byManifest);
+      }
+      const manifestKey = manifestOf(container) ?? NO_SETTINGS;
+      let instances = byManifest.get(manifestKey);
       if (!instances) {
         instances = _loadInstances(owner);
-        cache.set(key, instances);
+        byManifest.set(manifestKey, instances);
       }
 
       return instances;

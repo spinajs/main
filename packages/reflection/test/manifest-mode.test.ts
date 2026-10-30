@@ -135,6 +135,19 @@ describe('ListFromFiles manifest fast path', () => {
     expect(globSync.called).to.equal(false);
   });
 
+  it('lists once for two apps whose settings are equal', async () => {
+    const Lister = listerOf();
+    const globSync = sinon.spy(glob, 'sync');
+    const first = await createTestApp({ config, register: withManifest(manifest, 'off') });
+    const listed = await first.container.resolve(Lister).Items;
+    await disposeTestApps();
+
+    globSync.resetHistory();
+    const second = await createTestApp({ config, register: withManifest(manifest, 'off') });
+    expect(await second.container.resolve(Lister).Items).to.equal(listed);
+    expect(globSync.called).to.equal(false);
+  });
+
   it('prefer mode without a manifest scans', async () => {
     const globSync = sinon.spy(glob, 'sync');
     const app = await createTestApp({ config, register: (c) => registerManifestSettings(c, { mode: 'prefer', path: 'app.manifest.json' }) });
