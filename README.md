@@ -34,6 +34,18 @@ npm run check:packages   # publint + are-the-types-wrong on what each package pu
 and `.dependency-cruiser-known-violations.json`. After fixing old findings, shrink the baselines with
 `npm run lint:prune` and `npm run deps:baseline`. Do not regenerate them to make a new finding pass.
 
+## Manifest generators
+
+Each generator reads `app.manifest.json` (built by `spinajs build`) and is a thin `spinajs` command over a pure function.
+The generator packages are optional peers of `@spinajs/cli`: install the one you use.
+
+| Command | Package | Output |
+| --- | --- | --- |
+| `spinajs generate:openapi` | [@spinajs/openapi](packages/openapi) | OpenAPI 3.1 document (`openapi.json`) |
+| `spinajs generate:asyncapi` | [@spinajs/asyncapi](packages/asyncapi) | AsyncAPI 3.0 document for socket commands and queue messages |
+| `spinajs generate:client` | [@spinajs/client](packages/client) | typed HTTP and socket client |
+| `spinajs generate:config-types` | [@spinajs/compiler](packages/compiler) | `ConfigPaths` declarations (`src/spinajs-config.d.ts`) |
+
 ## Running integration tests
 
 The unit suites (`npm test`) never touch a real database — they run everywhere, including CI
