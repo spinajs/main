@@ -1,4 +1,5 @@
 import '@spinajs/log';
+import '@spinajs/authn-session';
 import { createServer, Server as NodeHttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { DI } from '@spinajs/di';
