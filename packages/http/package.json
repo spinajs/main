@@ -70,20 +70,7 @@
     "@types/qs": "^6.15.1",
     "@types/uuid": "^9.0.0",
     "cpx": "1.5.0",
-    "glob": "^8.1.0",
-    "typescript": "^5.9.2"
-  },
-  "peerDependencies": {
-    "typescript": ">=5.0.0",
     "glob": "^8.1.0"
-  },
-  "peerDependenciesMeta": {
-    "typescript": {
-      "optional": true
-    },
-    "glob": {
-      "optional": true
-    }
   },
   "dependencies": {
     "@spinajs/configuration": "3.0.23",
@@ -111,6 +98,7 @@
     "mime": "^4.1.0",
     "qs": "^6.15.3",
     "randomstring": "^1.2.3",
+    "typescript": "^5.0.0",
     "uuid": "^9.0.0"
   },
   "types": "./lib/index.d.ts",

@@ -2,7 +2,7 @@
 
 `TypescriptCompiler` parses one `.ts` file with the TypeScript compiler API and returns the method declarations of a class in it. Use it in tooling that needs what runtime metadata loses: parameter names, optional markers, declared return types.
 
-It is **not** used by the scan decorators, and it is not available in the `browser` build. Import it from the `@spinajs/reflection/typescript` subpath: the package root does not load `typescript`, which is an optional peer dependency. Install it next to `@spinajs/reflection` to use this class.
+It is **not** used by the scan decorators, and it is not available in the `browser` build. Import it from the `@spinajs/reflection/typescript` subpath: the package root does not load `typescript`.
 
 ## How it works
 

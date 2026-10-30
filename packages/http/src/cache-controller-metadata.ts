@@ -1,14 +1,14 @@
 import { Autoinject, ClassInfo, Container, IContainer, Injectable, Singleton } from '@spinajs/di';
 import type { BaseController } from './base-controller.js';
-import { ControllerMetadataProvider, NoControllerMetadata } from './controller-metadata.js';
+import { ControllerMetadataProvider } from './controller-metadata.js';
 import type { IControllerDocumentation, IPolicyDoc } from './controller-documentation.js';
 import { isOnDiskSource } from './cache-helpers.js';
 import type { DefaultControllerCache } from './cache.js';
 
 /**
  * Parameter names and JSDoc parsed from the controller's `.d.ts` by the TypeScript compiler, cached under
- * `__fs_controller_cache__`. `./cache.js`, and with it `typescript`, is imported on the first on-disk controller, so a
- * process that never reaches this provider never loads the compiler.
+ * `__fs_controller_cache__`. `./cache.js` is imported on the first controller with a source file, and `typescript` only
+ * on a cache miss, so neither a process that never reaches this provider nor one with a complete cache loads it.
  */
 @Singleton()
 @Injectable(ControllerMetadataProvider)
@@ -26,20 +26,14 @@ export class CacheControllerMetadata extends ControllerMetadataProvider {
     return true;
   }
 
+  /** A failed load is not kept, so a later controller tries again. */
   protected getCacheService(): Promise<DefaultControllerCache> {
-    this.cache ??= import('./cache.js').then(
-      ({ DefaultControllerCache }) => this.Container.resolve(DefaultControllerCache),
-      (err: unknown) => {
+    this.cache ??= import('./cache.js')
+      .then(({ DefaultControllerCache }) => this.Container.resolve(DefaultControllerCache))
+      .catch((err: unknown) => {
         this.cache = undefined;
-        if ((err as { code?: string }).code === 'ERR_MODULE_NOT_FOUND' && String((err as Error).message).includes("'typescript'")) {
-          throw new NoControllerMetadata(
-            'Controller parameter names come from the TypeScript controller cache, which needs the optional peer dependency `typescript`. Install it, or build the app manifest ( spinajs build ) and set system.manifest.mode.',
-            err,
-          );
-        }
         throw err;
-      },
-    );
+      });
     return this.cache;
   }
 

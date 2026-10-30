@@ -26,8 +26,8 @@ async function loadGlob(configPath: string): Promise<typeof import('glob')> {
   try {
     return (await import('glob')).default;
   } catch (err) {
-    if ((err as { code?: string }).code === 'ERR_MODULE_NOT_FOUND') {
-      throw new ReflectionException(`Scanning the directories of ${configPath} needs the optional peer dependency glob: install it, or list from the manifest ( system.manifest.mode )`, err);
+    if ((err as { code?: string }).code === 'ERR_MODULE_NOT_FOUND' && String((err as Error).message).includes("'glob'")) {
+      throw new ReflectionException(`Scanning the directories of ${configPath} needs glob: install it, or list from the manifest ( system.manifest.mode )`, err);
     }
     throw err;
   }

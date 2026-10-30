@@ -1,19 +1,35 @@
-// Boots the built @spinajs/http in require mode, serves one request, and prints which modules imported typescript or glob.
-import { createRequire, registerHooks } from 'node:module';
+// Boots the built @spinajs/http, serves one request, and prints which modules imported typescript or glob.
+//   probe.mjs                                   require mode, ProbeController listed in the manifest
+//   probe.mjs off <cache dir> [no-typescript]   off mode, ProbeController registered in DI, its parameter names from the
+//                                               controller cache in <cache dir>; `no-typescript` makes typescript unresolvable
+import * as nodeModule from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+const [mode = 'require', controllerCache = tmpdir(), typescript] = process.argv.slice(2);
+const withoutTypescript = typescript === 'no-typescript';
+
+if (typeof nodeModule.registerHooks !== 'function') {
+  console.log(`<<JSON\n${JSON.stringify({ unsupported: `module.registerHooks is missing in Node ${process.version}; this probe needs Node >= 22.15` })}\nJSON>>`);
+  process.exit(0);
+}
+
 const imports = [];
-registerHooks({
+nodeModule.registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (/^(typescript|glob)(\/|$)/.test(specifier)) imports.push({ specifier, parent: context.parentURL ?? '' });
+    if (/^(typescript|glob)(\/|$)/.test(specifier)) {
+      imports.push({ specifier, parent: context.parentURL ?? '' });
+      if (withoutTypescript && specifier.startsWith('typescript')) {
+        throw Object.assign(new Error(`Cannot find package '${specifier}' imported from ${context.parentURL}`), { code: 'ERR_MODULE_NOT_FOUND' });
+      }
+    }
     return nextResolve(specifier, context);
   },
 });
 
 const { createTestApp, sourceRef, testManifest, withManifest } = await import('@spinajs/testing');
 const { fsService } = await import('@spinajs/fs');
-const { Controllers, HttpServer } = await import('@spinajs/http');
+const { BaseController, Controllers, HttpServer } = await import('@spinajs/http');
 
 const source = sourceRef('test/support/no-typescript/ProbeController.mjs');
 const manifest = testManifest({
@@ -44,35 +60,48 @@ const manifest = testManifest({
   ],
 });
 
-const app = await createTestApp({
-  config: {
-    system: { dirs: { controllers: [] } },
-    fs: {
-      defaultProvider: 'fs-temp',
-      providers: [
-        { service: 'fsNative', name: 'fs-temp', basePath: tmpdir() },
-        { service: 'fsNative', name: '__fs_http_response_templates__', basePath: join(process.cwd(), 'src', 'views', 'responses') },
-        // only the TypeScript cache writes here; registered so the base code fails on typescript, not on a missing provider
-        { service: 'fsNative', name: '__fs_controller_cache__', basePath: join(tmpdir(), 'spinajs-probe-controller-cache') },
-      ],
-    },
-    logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'error', target: 'Empty' }] },
-    http: { port: 0 },
-  },
-  register: withManifest(manifest, 'require'),
-  resolve: [fsService, Controllers],
-});
+async function boot() {
+  const register =
+    mode === 'off'
+      ? async (container) => {
+          const { ProbeController } = await import('./ProbeController.mjs');
+          container.register(ProbeController).as(BaseController);
+        }
+      : withManifest(manifest, 'require');
 
-let body;
-try {
-  const server = await app.resolve(HttpServer);
-  await server.start();
-  const response = await fetch(`http://localhost:${server.Server.address().port}/probe/ping?value=ok`);
-  body = await response.json();
-} finally {
-  await app.dispose();
+  return createTestApp({
+    config: {
+      system: { dirs: { controllers: [] } },
+      fs: {
+        defaultProvider: 'fs-temp',
+        providers: [
+          { service: 'fsNative', name: 'fs-temp', basePath: tmpdir() },
+          { service: 'fsNative', name: '__fs_http_response_templates__', basePath: join(process.cwd(), 'src', 'views', 'responses') },
+          { service: 'fsNative', name: '__fs_controller_cache__', basePath: controllerCache },
+        ],
+      },
+      logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'error', target: 'Empty' }] },
+      http: { port: 0 },
+    },
+    register,
+    resolve: [fsService, Controllers],
+  });
 }
 
-const loaded = Object.keys(createRequire(import.meta.url).cache);
-console.log(`<<JSON\n${JSON.stringify({ body, imports, loaded })}\nJSON>>`);
+const result = { imports };
+try {
+  const app = await boot();
+  try {
+    const server = await app.resolve(HttpServer);
+    await server.start();
+    const response = await fetch(`http://localhost:${server.Server.address().port}/probe/ping?value=ok`);
+    result.body = await response.json();
+  } finally {
+    await app.dispose();
+  }
+} catch (err) {
+  result.error = { name: err?.constructor?.name, message: String(err?.message) };
+}
+
+console.log(`<<JSON\n${JSON.stringify(result)}\nJSON>>`);
 process.exit(0);
