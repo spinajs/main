@@ -3,7 +3,7 @@ import type { ValueEntry } from '@spinajs/manifest';
 import type { Extractor } from '../context.js';
 import { findDecorator, identifierName, literalValue } from '../decorators.js';
 import type { ExtractorContext } from '../context.js';
-import { registerChainOf } from './register-chain.js';
+import { classDeclarationOf, registerChainOf } from './register-chain.js';
 import { tokenKey } from './injections.js';
 import { conditionOf } from './conditions.js';
 
@@ -64,7 +64,7 @@ export const extractValues: Extractor<ValueEntry> = (ctx, file) => {
       const chain = registerChainOf(e);
       if (chain) {
         for (const call of chain.calls) {
-          if (call.name === 'asValue') out.push({ token: tokenKey(call.args[0], ctx), kind: 'value', ...base() });
+          if (call.name === 'asValue' || (call.name === 'asToken' && !classDeclarationOf(chain.target, ctx))) out.push({ token: tokenKey(call.args[0], ctx), kind: 'value', ...base() });
           if (call.name === 'asMapValue') {
             const mapKey = literalValue(call.args[1], ctx);
             out.push({ token: tokenKey(call.args[0], ctx), kind: 'map', mapKey: typeof mapKey === 'string' ? mapKey : '', ...base() });
