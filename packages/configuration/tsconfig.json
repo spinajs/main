@@ -23,6 +23,9 @@
     },
     {
       "path": "../di/tsconfig.json"
+    },
+    {
+      "path": "../manifest/tsconfig.json"
     }
   ]
 }
