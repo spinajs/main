@@ -19,8 +19,11 @@ spinajs doctor --manifest dist/app.manifest.json
 | DI001 | error | an injected token nothing registers |
 | DI002 | error / warning | a dependency cycle between services (warning when an `optional` or `@LazyInject` edge breaks it) |
 | DI003 | error / warning | an asynchronous service injected into a synchronous one, or `DI.resolve()` of an asynchronous service without `await` |
-| HTTP001 | error | two routes with the same method and path |
+| HTTP001 | error | two routes with the same method and path, compared as Express does: case-insensitive, parameter names ignored (`/users/:id` and `/Users/:userId` clash) |
 | HTTP002 | error | a route with no `@Access`, `@Policy` or `@AllowAnonymous` on it or on its class |
+| HTTP003 | warning | a route mounted at a path with `//`: a leading slash in the route path (`@Get('/x')` under `users` is `/users//x`) or an outer slash in `@BasePath` is kept as written |
+| HTTP004 | warning | a route that an earlier parameterised route of the same controller and method shadows: `@Get(':id')` declared before `@Get('slash')` takes `/users/slash` |
+| HTTP005 | warning | a whole-body `@Body() x: T` where `T` has a property `x`: a body carrying `x` binds `body.x` instead of the whole body |
 | CFG001 | warning | a configuration path read in code whose module has no schema |
 | CFG002 | error | a `system.dirs.*` entry that does not exist (`--config`) |
 | CFG003 | info / warning | a registration whose config condition is unmet (`--config`), or one the compiler could not decide |

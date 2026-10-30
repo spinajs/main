@@ -4,6 +4,9 @@ import { diCycle } from './di-cycle.js';
 import { asyncIntoSync } from './async-into-sync.js';
 import { duplicateRoute } from './duplicate-route.js';
 import { routeWithoutPolicy } from './route-without-policy.js';
+import { doubleSlashPath } from './double-slash-path.js';
+import { shadowedRoute } from './shadowed-route.js';
+import { ambiguousBody } from './ambiguous-body.js';
 import { configUsageWithoutSchema } from './config-usage-without-schema.js';
 import { dirsMissing } from './dirs-missing.js';
 import { conditionUnmet } from './condition-unmet.js';
@@ -17,6 +20,9 @@ export const DEFAULT_RULES: DoctorRule[] = [
   asyncIntoSync,
   duplicateRoute,
   routeWithoutPolicy,
+  doubleSlashPath,
+  shadowedRoute,
+  ambiguousBody,
   configUsageWithoutSchema,
   dirsMissing,
   conditionUnmet,
@@ -31,6 +37,9 @@ export {
   asyncIntoSync,
   duplicateRoute,
   routeWithoutPolicy,
+  doubleSlashPath,
+  shadowedRoute,
+  ambiguousBody,
   configUsageWithoutSchema,
   dirsMissing,
   conditionUnmet,
