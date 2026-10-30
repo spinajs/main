@@ -94,6 +94,11 @@ A type passed to the decorator works at any time for a single class only. Whethe
 
 An argument of a kind that never reads its type (`@Req`, `@Res`, `@Ip`, `@RequestId`, `@UserAgent`, `@Referer`, `@RawBody`, `@AcceptType`, `@RequestStream`, `@ContentDigest`) never fails a boot: an annotation the manifest cannot name records `Object`. Any other argument typed by a class of a package without a manifest fragment, such as luxon's `DateTime` on `@Query()`, fails `require`: name the class with `@Type(DateTime)`.
 
-A property under a decorator of your own that wraps `Autoinject(Dep)` works, a list too: the table has a row for a property under any decorator, with its list shape. The compiler knows `@Autoinject` and `@LazyInject` by name, so that row has no type, and a wrapper has to pass one. A wrapper around `Autoinject()` with no class boots, and throws `ResolveException` when its owner is resolved. Models still need decorator metadata: `@CreatedAt`, `@UpdatedAt`, `@SoftDelete`, `@Archived`, `@DateTime`, `@Bool` and `@Set` read it when the class is defined, and so do `@AutoinjectService`, `@HasMany`, `@HasManyToMany`, `@Virtual` and `@JunctionTable`.
+Models work too. `@HasMany`, `@HasManyToMany`, `@Virtual` and `@JunctionTable` read the class the property declares from `classProperties` when a relation is first built, because a model file loads before the boot. `@AutoinjectService` is typed like `@Autoinject()`. Two things stay different without metadata:
 
-`packages/compiler/test/e2e/boot-from-manifest.test.ts` boots `app-basic` compiled with `emitDecoratorMetadata: false` in `require`, in a separate process, and compares what it serves with the build that has metadata.
+- `@CreatedAt`, `@UpdatedAt`, `@SoftDelete`, `@Archived`, `@DateTime`, `@Bool` and `@Set` use the type only to refuse a wrong one when the class is defined. Without metadata that check does not run: `@Bool() x: string` loads, and gets the boolean converter.
+- A property under a decorator of your own that wraps `Autoinject()` is not in the table: the compiler knows the decorators by name. Pass the type to it, or resolving the owner throws `ResolveException`.
+
+Relations read the root container, as the ORM does elsewhere, so an app in an isolated child container with its own manifest needs `withManifest` to hold it in root.
+
+`packages/compiler/test/e2e/boot-from-manifest.test.ts` boots `app-basic` compiled with `emitDecoratorMetadata: false` in `require`, in a separate process, and compares what it serves with the build that has metadata. `orm-no-metadata.test.ts` does the same for a timestamped model with relations against sqlite.

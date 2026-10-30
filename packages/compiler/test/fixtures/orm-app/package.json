@@ -1,0 +1,12 @@
+{
+  "name": "orm-app",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "main": "lib/index.js",
+  "dependencies": {
+    "@spinajs/configuration": "3.0.23",
+    "@spinajs/orm": "3.0.23",
+    "@spinajs/orm-sqlite": "3.0.23"
+  }
+}
