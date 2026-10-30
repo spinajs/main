@@ -68,5 +68,8 @@
   "types": "./lib/index.d.ts",
   "devDependencies": {
     "expect-type": "^1.4.0"
+  },
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
   }
 }

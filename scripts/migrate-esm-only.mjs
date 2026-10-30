@@ -4,11 +4,13 @@
  * Pure functions are exported for tests; `main` applies them to the tree.
  *
  *   node scripts/migrate-esm-only.mjs --all [--dry-run]
+ *   node scripts/migrate-esm-only.mjs --manifest-field [--dry-run]
  *   node scripts/migrate-esm-only.mjs --tsconfigs --package-json --config-dirs --engines --strip-githead
  */
 import { readdirSync, readFileSync, writeFileSync, existsSync, rmSync, statSync } from 'node:fs';
 import { join, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { addManifestField, isAnalyzable } from './manifest-field.mjs';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const PACKAGES = join(ROOT, 'packages');
@@ -183,6 +185,21 @@ function stripGitHead(dryRun) {
   }
 }
 
+export function applyManifestField(pkg, { analyzable }) {
+  return analyzable ? addManifestField(pkg) : pkg;
+}
+
+export function applyManifestFields(dryRun, packagesDir = PACKAGES) {
+  const dirs = readdirSync(packagesDir).map((name) => join(packagesDir, name));
+  for (const dir of dirs) {
+    if (!isAnalyzable(dir)) continue;
+    const file = join(dir, 'package.json');
+    const pkg = readJson(file);
+    const next = applyManifestField(pkg, { analyzable: true });
+    if (next !== pkg) writeJson(file, next, dryRun);
+  }
+}
+
 function main() {
   const args = process.argv.slice(2);
   const has = (f) => args.includes(f) || args.includes('--all');
@@ -191,6 +208,7 @@ function main() {
   if (has('--package-json')) applyPackageJson({ engines: has('--engines') ? '>=22.0.0' : undefined, dryRun });
   if (has('--config-dirs')) applyConfigDirs(dryRun);
   if (has('--strip-githead')) stripGitHead(dryRun);
+  if (args.includes('--manifest-field')) applyManifestFields(dryRun);
   const gen = join(ROOT, 'scripts', 'generate-packages-for-modules.mjs');
   if (has('--tsconfigs') && existsSync(gen) && !dryRun) rmSync(gen);
 }

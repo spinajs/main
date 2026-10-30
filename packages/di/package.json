@@ -60,5 +60,8 @@
     "@types/lodash": "^4.14.191",
     "expect-type": "^1.4.0"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

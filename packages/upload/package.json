@@ -109,5 +109,8 @@
     "@types/luxon": "^3.4.2",
     "@types/mime-types": "^3.0.1"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

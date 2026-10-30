@@ -77,5 +77,8 @@
     "@spinajs/validation": "3.0.23",
     "socket.io": "^4.8.1"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

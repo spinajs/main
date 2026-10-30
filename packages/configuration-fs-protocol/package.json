@@ -55,5 +55,8 @@
     "@spinajs/internal-logger": "3.0.23",
     "@aws-sdk/client-secrets-manager": "^3.709.0"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

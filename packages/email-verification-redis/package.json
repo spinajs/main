@@ -64,5 +64,8 @@
     "ioredis-mock": "^8.13.1",
     "@types/node": "^22.14.1"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

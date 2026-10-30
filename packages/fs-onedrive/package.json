@@ -69,5 +69,8 @@
     "@types/luxon": "^3.6.1",
     "@types/uuid": "^9.0.0"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

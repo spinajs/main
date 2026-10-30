@@ -61,5 +61,8 @@
   "peerDependencies": {
     "mocha": ">=10"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

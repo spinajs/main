@@ -62,5 +62,8 @@
     "xlsx-renderer": "^2.4.4",
     "exceljs": "^4.4.0"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

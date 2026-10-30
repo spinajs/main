@@ -1,0 +1,125 @@
+name: manifest-diff
+
+# Builds the application manifest of the PR base and head, diffs them and keeps one PR comment up to
+# date. The example app is the monorepo's reference application. Not a required check: a breaking
+# change fails the diff job so reviewers notice, a merge is not blocked by it.
+#
+# PR code only runs in the read-only `diff` job. The `comment` job holds the write token, checks out
+# nothing and only posts the prepared file. Fork PRs get a read-only token, so they skip the comment;
+# the diff is always written to the job summary.
+
+on:
+  pull_request:
+    branches: [v4]
+
+permissions:
+  contents: read
+
+env:
+  APP: packages/http-socket-example
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: manifest-diff-${{ github.ref }}
+      cancel-in-progress: true
+    outputs:
+      has-comment: ${{ steps.diff.outputs.has-comment }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: head
+          persist-credentials: false
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.x
+          cache: npm
+          cache-dependency-path: head/package-lock.json
+
+      - name: build head
+        working-directory: head
+        run: npm ci && npm run build
+
+      # Compile the base only; its fragments are regenerated below with the head compiler so both
+      # sides are analyzed by the same code.
+      - name: build base
+        working-directory: base
+        run: npm ci && node node_modules/typescript-7/lib/tsc.js -b tsconfig.build.json && npm run copy-static
+
+      - name: base fragments with the head compiler
+        run: node head/scripts/build-fragments.mjs --packages-dir base/packages
+
+      # The base may predate `spinajs build`; the head CLI builds both manifests.
+      - name: manifests
+        run: |
+          for side in base head; do
+            (cd "$side/$APP" && node "$GITHUB_WORKSPACE/head/packages/cli/lib/cli.js" build --tsconfig tsconfig.build.json --out "$GITHUB_WORKSPACE/$side.manifest.json")
+          done
+
+      # Exit 1 with a non-empty report means breaking changes; any other failure is a real error.
+      - name: diff
+        id: diff
+        run: |
+          set +e
+          node head/packages/cli/lib/cli.js manifest:diff base.manifest.json head.manifest.json --fail-on breaking > diff.md
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            echo "breaking=false" >> "$GITHUB_OUTPUT"
+          elif [ "$code" -eq 1 ] && [ -s diff.md ]; then
+            echo "breaking=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::manifest:diff failed with exit code $code"
+            exit "$code"
+          fi
+          { echo '<!-- spinajs-manifest-diff -->'; echo '## Manifest diff'; echo; cat diff.md; } > comment.md
+          cat comment.md >> "$GITHUB_STEP_SUMMARY"
+          echo "has-comment=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.diff.outputs.has-comment == 'true'
+        with:
+          name: manifest-diff
+          path: comment.md
+          retention-days: 1
+
+      - name: fail on breaking changes
+        if: steps.diff.outputs.breaking == 'true'
+        run: |
+          echo '::warning::The manifest diff contains breaking changes'
+          exit 1
+
+  comment:
+    needs: diff
+    if: ${{ !cancelled() && needs.diff.outputs.has-comment == 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: manifest-diff
+
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- spinajs-manifest-diff -->';
+            const body = fs.readFileSync('comment.md', 'utf8');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const existing = comments.find((c) => c.user && c.user.type === 'Bot' && c.body && c.body.includes(marker));
+            if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number, body });

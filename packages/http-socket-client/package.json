@@ -61,5 +61,8 @@
     "fake-indexeddb": "^6.2.5",
     "socket.io": "^4.8.1"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

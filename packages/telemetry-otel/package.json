@@ -59,5 +59,8 @@
     "@opentelemetry/resources": "^2.0.0",
     "@opentelemetry/semantic-conventions": "^1.30.0"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

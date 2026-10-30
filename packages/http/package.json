@@ -95,5 +95,8 @@
     "typescript": "^5.0.0",
     "uuid": "^9.0.0"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

@@ -55,5 +55,8 @@
     "luxon": "^3.6.1"
   },
   "homepage": "https://github.com/spinajs/main#readme",
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

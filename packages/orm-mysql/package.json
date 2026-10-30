@@ -67,5 +67,8 @@
     "asn1": "^0.2.6",
     "bcrypt-pbkdf": "^1.0.2"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }

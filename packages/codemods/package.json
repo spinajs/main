@@ -49,5 +49,8 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
     "ts-morph": "27.0.2"
+  },
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
   }
 }

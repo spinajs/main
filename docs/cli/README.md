@@ -75,6 +75,23 @@ spinajs generate:config-types --manifest app.manifest.json --out src/spinajs-con
 
 The command needs `@spinajs/compiler`, an optional peer dependency of `@spinajs/cli`; install it to use this command.
 
+## `build`
+
+Analyzes the application and writes its manifest.
+
+```sh
+spinajs build --tsconfig tsconfig.json --out app.manifest.json
+```
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--tsconfig <path>` | `tsconfig.json` | Application `tsconfig`; its folder is the application root and must hold the `package.json` |
+| `-o, --out <path>` | `app.manifest.json` | Manifest to write |
+| `--schemas` / `--no-schemas` | `--schemas` | Derive JSON Schemas from TypeScript types, or skip derivation |
+| `--fail-on-warning` | off | Exit with code 1 when the analyzer reports a warning |
+
+Diagnostics are printed as `severity CODE file:line message`, followed by a summary of services, controllers, routes, models, schemas and diagnostics by severity. An analyzer error always exits with code 1; a warning does so only with `--fail-on-warning`. The manifest merges the fragments (`lib/manifest.fragment.json`) that the app's `@spinajs/*` dependencies ship. The command needs `@spinajs/compiler`, an optional peer dependency of `@spinajs/cli`; install it to use this command.
+
 ## Related packages
 
 - `@spinajs/di`: every command and the `Cli` service are resolved from the DI container.

@@ -24,13 +24,20 @@ function readPackageJson(path: string): PackageJson {
   return JSON.parse(readFileSync(path, 'utf8')) as PackageJson;
 }
 
-/** A package restricting `exports` hides its package.json from `require.resolve`, hence the node_modules fallback. */
-function packageJsonPath(root: string, name: string, require: NodeRequire): string | undefined {
+/** Hoisted installs (npm workspaces) put dependencies in an ancestor node_modules; a package restricting `exports` hides its package.json from `require.resolve`, so walk up directly. */
+function hoistedPackageJson(root: string, name: string): string | undefined {
+  for (let dir = root; ; dir = dirname(dir)) {
+    const candidate = join(dir, 'node_modules', name, 'package.json');
+    if (existsSync(candidate)) return candidate;
+    if (dirname(dir) === dir) return undefined;
+  }
+}
+
+function resolvedPackageJson(name: string, require: NodeRequire): string | undefined {
   try {
     return require.resolve(`${name}/package.json`);
   } catch {
-    const direct = join(root, 'node_modules', name, 'package.json');
-    return existsSync(direct) ? direct : undefined;
+    return undefined;
   }
 }
 
@@ -41,13 +48,14 @@ export function locateFragments(appRoot: string): Promise<FragmentLocation[]> {
   const out: FragmentLocation[] = [];
 
   for (const name of Object.keys(pkg.dependencies ?? {}).sort()) {
-    const depPkgPath = packageJsonPath(root, name, require);
+    const hoisted = hoistedPackageJson(root, name);
+    const depPkgPath = hoisted ?? resolvedPackageJson(name, require);
     if (!depPkgPath) continue;
     const dep = readPackageJson(depPkgPath);
     if (!dep.spinajs?.manifest) continue;
     const fragment = join(dirname(depPkgPath), dep.spinajs.manifest);
     if (!existsSync(fragment)) continue;
-    const installed = existsSync(join(root, 'node_modules', name));
+    const installed = hoisted !== undefined || existsSync(join(root, 'node_modules', name));
     const fragmentRel = installed ? `node_modules/${name}/${dep.spinajs.manifest.replace(/^\.\//, '')}` : relative(root, fragment).split(sep).join('/');
     out.push({ name: dep.name, version: dep.version, entry: (dep.main ?? 'lib/index.js').replace(/^\.\//, ''), fragment, fragmentRel });
   }

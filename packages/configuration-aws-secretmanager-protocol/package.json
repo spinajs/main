@@ -57,5 +57,8 @@
     "@aws-sdk/client-secrets-manager": "^3.840.0",
     "@aws-sdk/client-ssm": "^3.840.0"
   },
-  "types": "./lib/index.d.ts"
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
 }
