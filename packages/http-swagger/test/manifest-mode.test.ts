@@ -41,6 +41,8 @@ function decide(settings: Switch | undefined): void {
 /** `manifest` undefined: an app built without the configuration source, which only `configured` switches. */
 async function boot(manifest: Switch | undefined, prefix?: string, configured?: Switch): Promise<SwaggerService> {
   DI.clearCache();
+  // the previous case's decision is a registered value, which clearCache() keeps; with it the loader would list app-basic
+  decide(undefined);
   DI.setESMModuleSupport();
   DI.register(configWith(prefix, configured)).as(Configuration);
   DI.resolve(FsBootsrapper).bootstrap();

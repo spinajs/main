@@ -4,7 +4,7 @@ Every route of every loaded controller becomes one OpenAPI operation. Decorators
 
 ## How it works
 
-1. `SwaggerDocCache.getCache()` asks `DefaultControllerCache` (`@spinajs/http`) for the controller's documentation. It parses the controller's `.d.ts` file, the compiled file name with `.js` replaced by `.d.ts`; see [Documentation cache](08-documentation-cache.md).
+1. `SwaggerDocCache.getCache()` asks the first controller metadata provider that supports the controller for its documentation; without a manifest that is `DefaultControllerCache` (`@spinajs/http/cache`). It parses the controller's `.d.ts` file, the compiled file name with `.js` replaced by `.d.ts`; see [Documentation cache](08-documentation-cache.md).
 2. Per class, the JSDoc comment becomes the tag description, and `@tags` (or `@category`) becomes the tag name.
 3. Per method, the first comment line becomes `summary`, the remaining lines become `description`, a return type annotation becomes the inferred response schema, and every known JSDoc tag fills one field.
 4. `OpenApiBuilder.addController()` skips a controller without a runtime `Descriptor`. Otherwise it registers the controller tag and walks `Descriptor.Routes`.

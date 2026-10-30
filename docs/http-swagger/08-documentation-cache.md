@@ -1,17 +1,17 @@
 # Documentation cache
 
-`SwaggerDocCache` collects what the builder needs to know about one controller beyond its decorators: the JSDoc of the class and its methods, and the policies applied to it. The JSDoc is parsed once per controller file by `DefaultControllerCache` from `@spinajs/http` and kept on disk. Replace either class, or add a JSDoc tag, to change what the document says.
+`SwaggerDocCache` collects what the builder needs to know about one controller beyond its decorators: the JSDoc of the class and its methods, and the policies applied to it. It asks the first [`ControllerMetadataProvider`](../http/21-controller-cache-and-cli.md#metadata-providers) that supports the controller: `ManifestControllerMetadata` for a controller the effective manifest lists, else `CacheControllerMetadata`, whose `DefaultControllerCache` (`@spinajs/http/cache`) parses the JSDoc once per controller file and keeps it on disk. Replace either class, or add a JSDoc tag, to change what the document says.
 
 ## How it works
 
 `SwaggerDocCache.getCache(controller)`:
 
-1. Calls `DefaultControllerCache.getDocumentation(controller)`:
+1. Calls `documentation(controller)` on the provider. From the manifest: summary (`@summary`, else the first comment line), description, method `@tags`, `@deprecated` and `@response`; no class-level JSDoc, no `@param` descriptions, no `@returns`, `@body` or `@example`. From `CacheControllerMetadata`, `DefaultControllerCache.getDocumentation(controller)`:
    - a controller whose `file` is a placeholder such as `<dynamic>` gets `{ className, methods: {} }`, so no JSDoc;
    - otherwise the key is `doc_<@spinajs/http version>_<hash of the .d.ts>` in the `__fs_controller_cache__` file provider (`<cwd>/__cache__/__controllers__`). A missing `.d.ts` makes the hasher throw `IOFail`;
    - a missing entry is generated: the `.d.ts` (the controller file with `.js` replaced) is parsed with the TypeScript compiler API, every method's JSDoc goes through `tagExtractors`, and the entry is written.
 2. Reads `controller.instance.Descriptor` for controller-level and route-level policy names; see [Policies and access](05-policies-and-access.md).
-3. Asks `DefaultControllerCache.getPolicyDocumentation()` for the JSDoc of those policies.
+3. When `CacheControllerMetadata` answered, asks `DefaultControllerCache.getPolicyDocumentation()` for the JSDoc of those policies.
 4. Returns an `ISwaggerCacheEntry`, copying for each method only `summary`, `description`, `params`, `returns`, `responses`, `examples`, `tags`, `deprecated` and `security`.
 
 At startup `DefaultControllerCache` deletes entries written by other `@spinajs/http` versions. Entries of the current version stay until the `.d.ts` content changes.
@@ -33,7 +33,8 @@ At startup `DefaultControllerCache` deletes entries written by other `@spinajs/h
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `SwaggerDocCache` | class `SwaggerDocCache`, `@Singleton()`; resolved by type through `@Autoinject()` in `SwaggerService` and `DI.resolve()` in `SwaggerCacheCommand` | `SwaggerDocCache` | none | Subclass, override `getCache()`, `DI.register(Sub).as(SwaggerDocCache)` before the first build |
-| `DefaultControllerCache` (`@spinajs/http`) | class `DefaultControllerCache`, `@Singleton()`; `@Autoinject(DefaultControllerCache)` in `SwaggerDocCache`, also used by `@spinajs/http` for argument names | `DefaultControllerCache` | none | Add entries to its public `tagExtractors` array in a subclass; `DI.register(Sub).as(DefaultControllerCache)` before `Controllers` is resolved |
+| `ControllerMetadataProvider` (`@spinajs/http`) | abstract class; `SwaggerDocCache` resolves every implementation and takes the first that supports the controller, by `Priority` | `ManifestControllerMetadata`, `CacheControllerMetadata` | your own subclass | See [Metadata providers](../http/21-controller-cache-and-cli.md#metadata-providers) |
+| `DefaultControllerCache` (`@spinajs/http/cache`) | class `DefaultControllerCache`, `@Singleton()`; resolved by `CacheControllerMetadata`, which `@spinajs/http` also uses for argument names | `DefaultControllerCache` | none | Add entries to its public `tagExtractors` array in a subclass; `DI.register(Sub).as(DefaultControllerCache)` before `Controllers` is resolved |
 | `SwaggerCacheCommand` | CLI command `http:swagger:cache`, loaded from `system.dirs.cli` | `SwaggerCacheCommand` | `http:controllers:cache` (`@spinajs/http`) | none |
 
 ### `SwaggerDocCache`: custom implementation
@@ -74,7 +75,7 @@ A handler can only fill fields `SwaggerDocCache` copies: `summary`, `description
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { DefaultControllerCache } from '@spinajs/http';
+import { DefaultControllerCache } from '@spinajs/http/cache';
 
 /**
  * `@public` marks a route that needs no authentication,
@@ -116,6 +117,7 @@ spinajs http:swagger:cache
 `SwaggerCacheCommand.execute()` resolves `fsService` and `SwaggerDocCache`, lists the classes in `system.dirs.controllers` with `@ListFromFiles`, and calls `getCache()` for each one that is a controller (extends `BaseController` or carries the route descriptor). Run it in an image build so the first docs request does not parse every controller.
 
 - It writes the same `__fs_controller_cache__` entries as `http:controllers:cache`, which also offers `--rebuild`.
+- With a manifest (`system.manifest.mode` `prefer` or `require` and a loaded manifest) it logs a deprecation warning and does nothing: the manifest already carries the documentation.
 - `@ListFromFiles` does not create controller instances, so the command reads no policies.
 
 ## Important behaviour
