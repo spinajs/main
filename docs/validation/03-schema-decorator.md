@@ -133,6 +133,27 @@ export async function describeAddress() {
 }
 ```
 
+## Standard Schema
+
+`@Schema` also accepts a [Standard Schema](https://standardschema.dev) v1 object, such as `z.object(...)` from zod. `@spinajs/validation` does not depend on any schema library: it detects the `~standard` member and calls `~standard.validate(data)`.
+
+```ts
+import { z } from 'zod';
+
+@Schema(z.object({ name: z.string() }))
+export class CreateUserDto {
+  public name: string;
+}
+```
+
+- Issues become Ajv-shaped errors (`keyword: 'standardSchema'`, a JSON pointer `instancePath`, the issue message), so `ValidationFailed` and the problem+json body keep their shape.
+- `validate` and `tryValidate` are synchronous: a validator that returns a promise (any thenable) makes them throw `InvalidOperation`. Use `await validator.validateAsync(schema, data)` from asynchronous code; the http route-argument hydration does, so async refinements work on request bodies and parameters. A validator that throws yields a generic error without its message.
+- A callable Standard Schema (ArkType) is accepted wherever a schema is.
+- Issue messages that contain any string or number of the validated input (a library echoing `received hunter2`) are replaced by `Invalid value`, so the errors and the problem+json body never repeat the offending value. Other messages and the `instancePath` are kept.
+- Validate only: the output of the schema (transforms, defaults, coercion such as `z.coerce.number()`, stripped keys) is not applied to the handler argument yet; the handler receives the raw input. Applying it is a planned follow-up.
+- The class is not added to the `'__schemas__'` map, so `getRegisteredSchema` returns `undefined` for it.
+- For the manifest and OpenAPI, the compiler never runs the schema. For zod 4 export a literal JSON Schema next to the class: `export const CreateUserDtoJsonSchema = { ... }`. Otherwise it reports `SCH004` and publishes the schema derived from the class. See the [compiler diagnostics](../compiler/README.md).
+
 ## Related
 
 - [Schema providers](06-schema-providers.md): `DtoSchemaProvider` reads what this decorator registers.

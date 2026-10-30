@@ -1,4 +1,5 @@
 import { Constructor, DI, token } from '@spinajs/di';
+import { isStandardSchema, type StandardSchemaV1 } from './standard-schema.js';
 
 export const SCHEMA_SYMBOL = Symbol('SCHEMA_SYMBOL');
 
@@ -33,9 +34,12 @@ export function getRegisteredSchema(typeName: string): object | undefined {
  *
  * @param schema - schema for object or schema name
  */
-export function Schema(schema: object | string) {
+export function Schema(schema: object | string | StandardSchemaV1) {
   return (target: Constructor<any>) => {
     Reflect.defineMetadata(SCHEMA_SYMBOL, schema, target.prototype ?? target);
+    // Not JSON Schema: keep it out of the name → schema map that JSON Schema consumers read.
+    if (isStandardSchema(schema)) return;
+
     // Register under '__schemas__' so the class can be resolved by name.
 
     // If schema is a string, we register a reference to it, so it can be resolved by name.

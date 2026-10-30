@@ -13,3 +13,4 @@ export * from './exceptions/index.js';
 export * from './sources.js';
 export * from './validator.js';
 export * from './types.js';
+export * from './standard-schema.js';

@@ -6,6 +6,7 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { SCHEMA_SYMBOL } from './decorators.js';
 import { IValidationOptions, SchemaSource, ISchemaObject } from './types.js';
 import { Logger, Log } from '@spinajs/log-common';
+import { isStandardSchema, isThenable, standardOutcome, type StandardResult, type StandardSchemaV1 } from './standard-schema.js';
 
 // import default souces
 import './sources.js';
@@ -233,6 +234,10 @@ export class DataValidator extends AsyncService {
       return [false, [syntheticError('empty_schema', 'objects schema is not set')]];
     }
 
+    if (isStandardSchema(schema)) {
+      return this.validateStandard(schema, target);
+    }
+
     const strict = this.isStrict(schema) || (hasSchemaArg && typeof schemaOrData === 'string' && this.isStrict(schemaOrData));
     const ajv = strict ? this.StrictValidator : this.Validator;
     const result = ajv.validate(this.uniqueIdSchema(schema, ajv), target);
@@ -241,6 +246,31 @@ export class DataValidator extends AsyncService {
     }
 
     return [true, null];
+  }
+
+  private validateStandard(schema: StandardSchemaV1, data: unknown): [boolean, IValidationError[] | null] {
+    let result: unknown;
+    try {
+      result = schema['~standard'].validate(data);
+    } catch {
+      // A library's own error text may quote the offending value.
+      return [false, [syntheticError('standardSchema', 'schema validator failed')]];
+    }
+
+    if (isThenable(result)) {
+      void Promise.resolve(result).catch(() => undefined);
+      throw new InvalidOperation(`Standard Schema validator (${schema['~standard'].vendor}) is asynchronous; use validateAsync, synchronous validation cannot await it`);
+    }
+
+    return standardOutcome(result as StandardResult<unknown>, data);
+  }
+
+  private async validateStandardAsync(schema: StandardSchemaV1, data: unknown): Promise<[boolean, IValidationError[] | null]> {
+    try {
+      return standardOutcome(await schema['~standard'].validate(data), data);
+    } catch {
+      return [false, [syntheticError('standardSchema', 'schema validator failed')]];
+    }
   }
 
   /**
@@ -294,6 +324,11 @@ export class DataValidator extends AsyncService {
       /* eslint-enable */
     }
 
+    // Callable Standard Schemas (ArkType) are functions too, so this must come before the class branch.
+    if (isStandardSchema(schemaOrData)) {
+      return schemaOrData as unknown as ISchemaObject;
+    }
+
     if (typeof schemaOrData === 'function') {
       return this.extractSchema(schemaOrData) ?? null;
     }
@@ -345,17 +380,35 @@ export class DataValidator extends AsyncService {
   public validate(schema: object | string, data: object): void;
   public validate(schemaOrData: object | string, data?: object): void {
     const hasSchemaArg = arguments.length > 1;
-    const [isValid, errors] = this.tryValidateInternal(hasSchemaArg, schemaOrData, data);
-    if (!isValid) {
-      switch (errors![0]?.keyword) {
-        case 'invalid_argument':
-          throw new InvalidArgument('data is null or undefined');
-        case 'empty_schema':
-          throw new InvalidArgument('objects schema is not set');
-        default: {
-          throw new ValidationFailed('validation error', errors ?? [], this.resolveSchema(hasSchemaArg, schemaOrData));
-        }
-      }
+    this.throwIfInvalid(hasSchemaArg, schemaOrData, this.tryValidateInternal(hasSchemaArg, schemaOrData, data));
+  }
+
+  /**
+   * Like {@link DataValidator.validate}, but awaits asynchronous Standard Schema validators
+   * ( e.g. zod `refine(async ...)` ). Use it from already asynchronous code.
+   */
+  public validateAsync(data: object): Promise<void>;
+  public validateAsync(schema: object | string, data: object): Promise<void>;
+  public async validateAsync(schemaOrData: object | string, data?: object): Promise<void> {
+    const hasSchemaArg = arguments.length > 1;
+    const target = hasSchemaArg ? data : schemaOrData;
+    const schema = target === null || target === undefined ? null : this.resolveSchema(hasSchemaArg, schemaOrData);
+    if (schema && isStandardSchema(schema)) {
+      this.throwIfInvalid(hasSchemaArg, schemaOrData, await this.validateStandardAsync(schema, target));
+      return;
+    }
+    this.throwIfInvalid(hasSchemaArg, schemaOrData, this.tryValidateInternal(hasSchemaArg, schemaOrData, data));
+  }
+
+  private throwIfInvalid(hasSchemaArg: boolean, schemaOrData: object | string, [isValid, errors]: [boolean, IValidationError[] | null]): void {
+    if (isValid) return;
+    switch (errors![0]?.keyword) {
+      case 'invalid_argument':
+        throw new InvalidArgument('data is null or undefined');
+      case 'empty_schema':
+        throw new InvalidArgument('objects schema is not set');
+      default:
+        throw new ValidationFailed('validation error', errors ?? [], this.resolveSchema(hasSchemaArg, schemaOrData));
     }
   }
 }
