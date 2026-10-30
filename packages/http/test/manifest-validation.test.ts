@@ -3,6 +3,8 @@ import { expect } from 'chai';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DI } from '@spinajs/di';
+import { MANIFEST, MANIFEST_SETTINGS } from '@spinajs/configuration';
 import { Intl } from '@spinajs/intl';
 import { analyzePackage } from '@spinajs/compiler';
 import { hashManifest, type Manifest, type ManifestMode } from '@spinajs/manifest';
@@ -64,6 +66,9 @@ describe('request validation from the manifest', function () {
 
   after(() => {
     rmSync(MANIFEST_DIR, { recursive: true, force: true });
+    // A later app built without the configuration source would read this suite's decision from root.
+    DI.uncache(MANIFEST.key);
+    DI.uncache(MANIFEST_SETTINGS.key);
   });
 
   describe('prefer mode', () => {
