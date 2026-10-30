@@ -7,7 +7,7 @@ A configuration source returns part of the configuration tree. Every class regis
 1. **Register.** `@Injectable(ConfigurationSource)` on the class, or `DI.register(MySource).as(ConfigurationSource)`, before the configuration resolves.
 2. **Resolve.** `FrameworkConfiguration.loadSources()` resolves `Array.ofType(ConfigurationSource)` in the configuration's container, passing `[RunApp, CustomConfigPaths, AppBaseDir, Env]` to each constructor, and sorts the instances by `Order`, ascending.
 3. **Load.** `load()` calls `await source.Load(configuration)` on each, in order. `configuration` holds everything merged so far, so a source can read values earlier sources loaded (credentials, a connection name).
-4. **Merge.** A returned object is deep-merged into the tree. Its arrays replace those already there, except the composed ones such as `system.dirs.*` (see [Arrays](01-configuration-service.md#arrays)). A falsy result is skipped.
+4. **Merge.** A returned object is deep-merged into the tree. Its arrays replace those already there, except the composed ones such as `system.dirs.*` (see [Arrays](01-configuration-service.md#arrays)), so a source below `Order` `1` loses a value array to the package default. A falsy result is skipped.
 5. **Then** `onLoad()`, the `__configuration__` values and the protocols run (see [Configuration service](01-configuration-service.md#how-it-works)).
 
 An exception thrown by `Load()` rejects the configuration's resolve.

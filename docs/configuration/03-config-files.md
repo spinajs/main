@@ -8,24 +8,24 @@
    1. sets `process.env.WORKSPACE_ROOT_PATH` to the nearest ancestor of the working directory whose `node_modules/@spinajs` is not empty, up to the workspace root, when the variable is unset;
    2. builds `CommonDirs`, the search list below;
    3. sets `BasePath` to the nearest ancestor of the working directory that has a `node_modules` folder, or the working directory itself.
-2. **`Load(configuration)`** reads the environment with `getEnvironment(configuration)` (see [Environments](02-environments.md)), then calls `load()` twice:
+2. **`LoadLayers(configuration)`** reads the environment with `getEnvironment(configuration)` (see [Environments](02-environments.md)), then calls `loadLayers()` with two passes:
    1. common files: `**/!(*.*).{cjs,js}` or `**/!(*.*).json`, file names with no dot before the extension;
    2. environment files: `**/*.<env>.{cjs,js}` or `**/*.<env>.json`.
-3. **`load(extension, callback, into?)`** resolves relative directories against `BasePath`, globs each directory recursively, removes duplicate paths, runs `callback` on each file in parallel and deep-merges the results in directory order into `into` (a new object by default). A module's `default` export is used when present. `configFiles()` tags each file with how its arrays merge: a package config file concatenates them, any other file replaces them (see [Arrays](01-configuration-service.md#arrays)).
+3. **`loadLayers(extensions, callback)`** resolves relative directories against `BasePath`, globs each directory recursively, removes duplicate paths, runs `callback` on each file in parallel and deep-merges the results in directory order. A module's `default` export is used when present. `configFiles()` tags each file: a package config file goes to the `packages` layer and concatenates its arrays, any other file goes to the `app` layer and replaces them (see [Arrays](01-configuration-service.md#arrays)).
 4. **Per file.** `JsFileSource` imports the module with `DI.__spinajs_require__()`, calls its `onConfigLoad(cfg)` when it exports one and uses the returned object. `JsonFileSource` reads and parses the file. Both add `__file__: [path]` to every top-level object.
-5. The environment files merge into the common result, file by file, and the result is returned to the configuration.
+5. The configuration joins the `packages` layers of the file sources next to each other, whatever the format, merges that over the tree, then merges each `app` layer on top. `Load(configuration)` gives one source's layers merged, for `mergeSource()`.
 
 A file that fails to import or parse is logged with `InternalLogger.error` and counts as `{}`. The boot goes on.
 
 ## Search directories
 
-In merge order; later directories win for scalars:
+In merge order within a [layer](01-configuration-service.md#arrays); rows 1 and 2 are the package layer, the others the app layer. Later directories win for scalars, and every app file wins over every package file:
 
 | # | Directory | When |
 | --- | --- | --- |
-| 1 | `<cwd>/src/config` | always (package tests) |
-| 2 | `<dir>/node_modules/@spinajs/*/lib/config` for every ancestor `<dir>` of the working directory that has `node_modules`, nearest first, up to the workspace root | always |
-| 3 | `<WORKSPACE_ROOT_PATH>/node_modules/@spinajs/*/lib/config` | when `WORKSPACE_ROOT_PATH` is set or detected |
+| 1 | `<dir>/node_modules/@spinajs/*/lib/config` for every ancestor `<dir>` of the working directory that has `node_modules`, nearest first, up to the workspace root | always |
+| 2 | `<WORKSPACE_ROOT_PATH>/node_modules/@spinajs/*/lib/config` | when `WORKSPACE_ROOT_PATH` is set or detected |
+| 3 | `<cwd>/src/config` | always |
 | 4 | `<cwd>/lib/config`, `<cwd>/dist/config`, `<cwd>/build/config`, `<cwd>/config` | always |
 | 5 | `<appBaseDir>/<app>/config` | when `app` and `appBaseDir` are set |
 | 6 | `<cwd>/apps/<app>/config`, `<cwd>/dist/apps/<app>/config`, `<cwd>/lib/apps/<app>/config`, `<cwd>/build/apps/<app>/config` | when `app` is set |
@@ -37,7 +37,7 @@ A directory that does not exist is skipped. A file reached through more than one
 
 ## With a manifest
 
-When the effective `system.manifest.mode` is `prefer` or `require` and a manifest is loaded (see [the manifest runtime](../manifest/README.md#runtime)), rows 2 and 3 are replaced by the config files the manifest lists for each `@spinajs/*` package (`packages[].configFiles`), at the same position and in the same order the glob gives: packages installed in a nearer `node_modules` first, then by name. Every other row, the deduplication and the merge are unchanged, so the result is the configuration the `node_modules` walk gives.
+When the effective `system.manifest.mode` is `prefer` or `require` and a manifest is loaded (see [the manifest runtime](../manifest/README.md#runtime)), rows 1 and 2 are replaced by the config files the manifest lists for each `@spinajs/*` package (`packages[].configFiles`), at the same position and in the same order the glob gives: packages installed in a nearer `node_modules` first, then by name. Every other row, the deduplication and the merge are unchanged, so the result is the configuration the `node_modules` walk gives.
 
 The compiler lists every package of the app's installed dependency closure, transitive dependencies included (see [`locateFragments`](../compiler/README.md#the-fragment-contract)). The two modes still differ in these cases:
 
@@ -94,7 +94,7 @@ export default {
 };
 ```
 
-`mergeConfig(target, source, arrays)` is the merge the sources use (`concat`, or `replace` except for the paths in `COMPOSED_CONFIG_ARRAYS`). `merge(to, from)` and `mergeArrays` are exported too: `merge` deep-merges in place and unions arrays; `mergeArrays` is a `_.mergeWith` customizer that concatenates arrays.
+`mergeConfig(target, source, arrays)` is the merge the sources use (`concat`, or `replace` except for the paths in `COMPOSED_CONFIG_ARRAYS`, which `isComposedConfigArray(path)` checks). `merge(to, from)` and `mergeArrays` are exported too: `merge` deep-merges in place and unions arrays; `mergeArrays` is a `_.mergeWith` customizer that concatenates arrays.
 
 ## Services and extension points
 
@@ -112,10 +112,12 @@ Subclass `BaseFileSource` to load a format the framework does not read: YAML, TO
 | Member | Kind | Use |
 | --- | --- | --- |
 | `Load(configuration)` | abstract, from `ConfigurationSource` | Call `this.load()` for the common and the environment pattern, merge the two. |
-| `load(extension, callback)` | protected | Globs `extension` under every search directory; `callback(file)` returns a promise of the parsed object. |
+| `LoadLayers(configuration)` | optional | Return `this.loadLayers([common, env], callback)` to join the file sources' layers, so the package files of your format stay below the app. A source without it merges as a plain source, in `Order`. |
+| `load(extension, callback)` | protected | Globs `extension` under every search directory into one tree; `callback(file)` returns a promise of the parsed object. |
+| `loadLayers(extensions, callback)` | protected | The same for several passes, keeping the `packages` and `app` layers apart. |
 | `getEnvironment(configuration)` | protected | Returns the normalized environment name. |
 | `Order` | getter, `1` | Override to load before or after the other sources. |
-| `CommonDirs`, `BasePath` | protected fields | Read or extend the search list in your constructor. |
+| `CommonDirs`, `BasePath` | protected fields | Read or extend the search list in your constructor, or override the `CommonDirs` getter. Without a manifest, a directory that is a package config dir counts as a package, any other as the app. |
 
 Register the subclass under `ConfigurationSource` before the configuration resolves. A constructor you add must accept the four source arguments (`RunApp`, `CustomConfigPaths`, `appBaseDir`, `Env`) and pass them to `super`.
 
@@ -168,12 +170,12 @@ void main();
 
 ## Important behaviour
 
-- Files load in two passes: every common file from every directory, then every environment file. An environment file in a package directory still wins over a common file in your project.
+- Files load in two passes: every common file, then every environment file, once for the package layer and once for the app layer. A common file in your project wins over an environment file in a package directory.
 - A file whose name has a dot before the extension (`my.settings.js`) is not a common file. It loads only when the environment is named after its second part (`settings`).
 - Directories are globbed recursively: `config/nested/db.js` loads like `config/db.js`. The directory structure does not change the config keys; only the exported object does.
 - A config module that throws on import, or a JSON file with a syntax error, is logged and skipped. The configuration boots without it, and a schema may then fill defaults for the missing module.
 - `WORKSPACE_ROOT_PATH` is detected once per source construction and written to `process.env`. In a workspace, without it, package configs build paths under the app package that do not exist.
-- The ancestor walk (row 2 and the `WORKSPACE_ROOT_PATH` detection) stops at the workspace root, but an explicit `WORKSPACE_ROOT_PATH` is searched wherever it points (row 3). In a nested checkout, leave it unset or point it at the inner checkout, or the outer packages load again.
+- The ancestor walk (row 1 and the `WORKSPACE_ROOT_PATH` detection) stops at the workspace root, but an explicit `WORKSPACE_ROOT_PATH` is searched wherever it points (row 2). In a nested checkout, leave it unset or point it at the inner checkout, or the outer packages load again.
 - A project with neither `workspaces` nor `pnpm-workspace.yaml` walks up to the filesystem root. Inside another project's tree it loads that project's `@spinajs` package configs; add a `pnpm-workspace.yaml` or a `workspaces` entry to stop the walk.
 - The sources are singletons: the constructor arguments (`app`, paths, `Env`) are read when a source is first resolved in a container.
 - A `.js` config module runs as code at boot. Keep it free of side effects other than building the object; put setup in a [`configure()` hook](01-configuration-service.md#configure-hooks).
@@ -187,11 +189,11 @@ void main();
 ## Patterns and antipatterns
 
 ```js
-// Don't: list only the entry you add; the app's array replaces the package's, so the package's transports are gone
-export default { http: { socket: { transports: ['webtransport'] } } };
+// Don't: list only the entry you add; the app's array replaces the package's, so the package's 'en' is gone
+export default { intl: { locales: ['pl'] } };
 
 // Do: list the whole array
-export default { http: { socket: { transports: ['websocket', 'polling', 'webtransport'] } } };
+export default { intl: { locales: ['en', 'pl'] } };
 ```
 
 ## Examples

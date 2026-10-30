@@ -156,15 +156,20 @@ void main();
 
 An array is a value, like a scalar: the app's array replaces the one a package config sets. Package config files are the exception: among themselves they concatenate their arrays, so two packages can both contribute to one list.
 
+The config files merge in two layers, and packages sit strictly below the app:
+
+1. **Packages.** Every package config file (`node_modules/@spinajs/*/lib/config`, or the manifest's `configFiles`), in every format, common files then environment files. Arrays concatenate, so a package JSON file adds to what a package JS file set.
+2. **App.** Every other search directory (see [Config files](03-config-files.md#search-directories)), `src/config` included, common files then environment files. Arrays replace, so an environment file of the app replaces an array its common file set, and no package file can override the app, in any format or pass.
+
 | Merge | Arrays |
 | --- | --- |
-| Package config files (`node_modules/@spinajs/*/lib/config`, or the manifest's `configFiles`), in file order | concatenate |
+| Package config files among themselves | concatenate |
 | `__configuration__` DI values (they stand in for package config files) | concatenate |
-| The app's own config files: every other search directory (see [Config files](03-config-files.md#search-directories)), common and environment files alike | replace |
-| The result of each source over the tree, `onLoad()`, `mergeSource()` | replace |
+| The app's own config files, over the packages and over each other | replace |
+| The result of each other source over the tree, `onLoad()`, `mergeSource()` | replace |
 | `merge(path, value)` | concatenate |
 
-The file sources merge file by file: the common files of every directory, then the environment files. An environment file of the app therefore replaces an array its common file set, and a package environment file adds to whatever is there.
+A source merges in `Order`, and the file sources, which hold the package defaults, have `Order` `1`. A source below that loads first, so the package default replaces its value array. `StaticConfigurationSource(cfg)` defaults to `Order` `0`: to override a package array, give it an `Order` above `1`, as in `StaticConfigurationSource(cfg, 10)`.
 
 Some arrays collect entries from several packages and the app, so they concatenate in every merge. `COMPOSED_CONFIG_ARRAYS` (exported) lists them; `*` matches one key, dots inside the key included:
 
@@ -175,7 +180,7 @@ Some arrays collect entries from several packages and the app, so they concatena
 | `queue.connections` | queue connections, by name |
 | `http.Static` | static file routes |
 | `logger.filters` | log filters |
-| `authz.rbac.roles.*.*` | the `grants`, `extends`, `revoke` and `scopeTypes` of a role |
+| `authz.rbac.roles.*.grants`, `.extends`, `.revoke` | the grants of a role, and the roles it extends |
 | `authz.rbac.serviceRoles.*` | the roles of a service principal |
 | `authz.abac.policies` | ABAC policies |
 | `authz.admin.guard.keepHolders` | role holders the admin guard keeps |
@@ -194,12 +199,12 @@ export default {
 
 To add to a package's value array instead of replacing it, call `merge()`, for example in a [`configure()` hook](#configure-hooks): `this.merge('http.middlewares', [requestId])`. `load()` rebuilds the tree without running the hooks again.
 
-`mergeConfig(target, source, 'concat' | 'replace')` is the merge itself, exported for custom sources and tools.
+`mergeConfig(target, source, 'concat' | 'replace')` is the merge itself and `isComposedConfigArray(path)` tells whether a path is composed, both exported for custom sources and tools.
 
 ## Important behaviour
 
 - Merge rules for every source, `onLoad()` and `merge()`: objects merge deeply, scalars from the later source win. Arrays follow the rules under [Arrays](#arrays).
-- `JsFileSource` and `JsonFileSource` both have `Order` `1`. For the same scalar key, the JSON value wins over the JS value.
+- `JsFileSource` and `JsonFileSource` both have `Order` `1`. Within one [layer](#arrays), the JSON value of a scalar key wins over the JS value. An app JS file wins over a package JSON file.
 - Every top-level object loaded from a file gets a `__file__` array with the paths it came from, for debugging.
 - After boot, `set()`, `merge()`, `mergeSource()` and `load()` validate the modules they change. A refused change throws `InvalidConfiguration` and is not applied.
 - `merge(path, value)` writes nothing when `path` holds no object yet. Use `set()` for a new key.

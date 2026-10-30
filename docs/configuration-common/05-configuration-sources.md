@@ -150,7 +150,7 @@ export async function port() {
 
 ## Important behaviour
 
-- **Arrays replace.** `FrameworkConfiguration` merges a source's result with `mergeConfig(tree, result, 'replace')`: an array from a later source replaces the earlier one, except the composed arrays such as `system.dirs.*`, which concatenate. To add to a list, `merge()` it in code. See [Arrays](../configuration/01-configuration-service.md#arrays).
+- **Arrays replace.** `FrameworkConfiguration` merges a source's result with `mergeConfig(tree, result, 'replace')`: an array from a later source replaces the earlier one, except the composed arrays such as `system.dirs.*`, which concatenate. `StaticConfigurationSource(cfg)` defaults to `Order` `0`, below the file sources, so a package default replaces its value array: pass an `Order` above `1` to override one. To add to a list, `merge()` it in code. See [Arrays](../configuration/01-configuration-service.md#arrays).
 - **A source can read earlier sources.** `Load(configuration)` runs after every lower `Order` source has merged, which is how the database source finds its connection settings.
 - **A source that throws fails the boot.** `load()` does not catch `Load()` errors; the file sources catch per-file errors themselves and return `{}`.
 - **`mergeSource()` does not merge in `FrameworkConfiguration`.** It appends the source; the values arrive with the next `load()`.

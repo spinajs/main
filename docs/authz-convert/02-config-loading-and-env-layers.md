@@ -30,7 +30,9 @@ Only `NODE_ENV` and `APP_ENV` vary. A value computed from another variable, the 
 
 ## Arrays across layers
 
-The 3.0 loader concatenates arrays across config files, so an env file can add to an array but cannot replace or empty it. Four 3.0 keys are arrays that come from 2.x scalars (`SCALAR_TO_ARRAY_KEYS`):
+The 2.x and 3.x loaders concatenated arrays across config files; the 4.x loader lets an env file replace an array (see [Arrays](../configuration/01-configuration-service.md#arrays)). So an env file that sets an array the common file also sets gets the joined list, common entries first, with duplicates dropped. A composed array such as `authz.rbac.roles.<role>.grants` stays a delta, because the loader still joins it.
+
+Four 3.0 keys are arrays that come from 2.x scalars (`SCALAR_TO_ARRAY_KEYS`), where an env value replaced the common one:
 
 - `authz.rbac.defaultRoles`
 - `authz.rbac.anonymousRoles`
@@ -39,9 +41,9 @@ The 3.0 loader concatenates arrays across config files, so an env file can add t
 
 For each one, in each env layer, `convertLayers()`:
 
-- drops the env value when it equals the common value (written twice it would be listed twice);
-- writes a manual `env-array` item when it differs from the common value;
-- writes a manual `env-array` item when the env turns off what common fills (for example `twoFactorAuth.enabled: false` in an env while common writes the TOTP step).
+- drops the env value when it equals the common value;
+- writes a manual `env-array` item when it differs from the common value: the env file replaces the common list, so check it is the whole list that env needs;
+- writes a manual `env-array` item, because the env file sets nothing, when the env turns off what common fills (for example `twoFactorAuth.enabled: false` in an env while common writes the TOTP step).
 
 The login strategy follows the same rule. When the common view holds `rbac` keys but no `rbac.auth.service`, the common file gets `authn.strategies: [{ name: 'local', service: 'LocalPasswordStrategy' }]`, the 2.x default. An env whose 2.x login provider differs from the common one gets a manual `env-array` item. When only env files hold `rbac` keys, each such env layer gets the local strategy itself.
 
