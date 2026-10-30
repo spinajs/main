@@ -2,7 +2,8 @@ import 'mocha';
 import { expect } from 'chai';
 import { readManifestObject } from '@spinajs/manifest';
 import { DI } from '@spinajs/di';
-import { MANIFEST_TOKEN } from '@spinajs/manifest';
+import { MANIFEST_TOKEN, type Manifest } from '@spinajs/manifest';
+import { manifestSettingsOf } from '@spinajs/configuration';
 import { createTestApp } from '../src/create-test-app.js';
 import { testManifest, sourceRef, withManifest } from '../src/manifest.js';
 
@@ -31,19 +32,48 @@ describe('testManifest', () => {
 });
 
 describe('withManifest', () => {
+  const rootManifest = () => DI.RootContainer.get(MANIFEST_TOKEN, false) as Manifest | undefined;
+
   it('registers in the app and, for a child app, in root until disposed', async () => {
     const manifest = testManifest();
-    const app = await createTestApp({ scope: 'child', register: withManifest(manifest) });
+    const app = await createTestApp({ scope: 'child', register: withManifest(manifest, 'require') });
     expect(app.container.get(MANIFEST_TOKEN, false)).to.equal(manifest);
-    expect(DI.RootContainer.get(MANIFEST_TOKEN, false)).to.equal(manifest);
+    expect(manifestSettingsOf(app.container)?.mode).to.equal('require');
+    expect(rootManifest()).to.equal(manifest);
     await app.dispose();
-    expect(DI.RootContainer.get(MANIFEST_TOKEN, false)).to.equal(undefined);
+    expect(rootManifest()).to.equal(undefined);
+    expect(manifestSettingsOf(DI.RootContainer)).to.equal(undefined);
   });
 
   it('leaves no manifest behind after a root app is disposed', async () => {
     const app = await createTestApp({ register: withManifest(testManifest()) });
-    expect(DI.RootContainer.get(MANIFEST_TOKEN, false)).to.not.equal(undefined);
+    expect(rootManifest()).to.not.equal(undefined);
     await app.dispose();
-    expect(DI.RootContainer.get(MANIFEST_TOKEN, false)).to.equal(undefined);
+    expect(rootManifest()).to.equal(undefined);
+  });
+
+  it('removes from root only what it added', async () => {
+    const before = testManifest({ root: '/before' });
+    DI.RootContainer.register(before).asValue(MANIFEST_TOKEN);
+    try {
+      const app = await createTestApp({ scope: 'child', register: withManifest(testManifest()) });
+      await app.dispose();
+      expect(rootManifest()).to.equal(before);
+    } finally {
+      DI.RootContainer.uncache(MANIFEST_TOKEN);
+    }
+  });
+
+  it('keeps the root registration of a child app that is still live', async () => {
+    const shared = testManifest();
+    const other = testManifest({ root: '/other' });
+    const first = await createTestApp({ scope: 'child', register: withManifest(shared) });
+    const second = await createTestApp({ scope: 'child', register: withManifest(shared) });
+    const third = await createTestApp({ scope: 'child', register: withManifest(other) });
+    await third.dispose();
+    await first.dispose();
+    expect(rootManifest()).to.equal(shared);
+    await second.dispose();
+    expect(rootManifest()).to.equal(undefined);
   });
 });

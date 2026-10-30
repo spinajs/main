@@ -94,12 +94,19 @@ export class TypescriptCompiler {
  *
  * @param filter - files to look at, uses glob pattern to search
  * @param configPath - dir paths taken from app config eg. "system.dirs.controllers". Path MUST be avaible in configuration
+ * @param options - `manifest`: the manifest section to list instead of scanning. Without it, `configPath` picks the
+ *   section through `MANIFEST_SECTIONS`, but only when no `typeMatcher` is given: the manifest names each class, so a
+ *   matcher would be ignored.
  *
+ * The scanned dirs come from the root container's Configuration; the manifest and its effective mode from the
+ * decorated instance's container lineage. The result is cached per decorated property, so the first instance's
+ * container decides it for every app.
  */
 export function ResolveFromFiles(filter: string, configPath: string, typeMatcher?: (fileName: string, exportName: string) => string, options: ListOptions = {}) {
   return _listOrResolveFromFiles(filter, configPath, false, typeMatcher, options);
 }
 
+/** Like `ResolveFromFiles`, without resolving the classes. */
 export function ListFromFiles(filter: string, configPath: string, typeMatcher?: (fileName: string, exportName: string) => string, options: ListOptions = {}) {
   return _listOrResolveFromFiles(filter, configPath, true, typeMatcher, options);
 }
@@ -142,7 +149,7 @@ function _listOrResolveFromFiles(
       // tsconfig reference cycle, so fall back to the pre-logger proxy
       const logger = DI.check(Log) ? DI.resolve(Log, ['reflection']) : DI.resolve(InternalLoggerProxy, ['reflection']);
 
-      const section = options.manifest ?? MANIFEST_SECTIONS[configPath];
+      const section = options.manifest ?? (typeMatcher ? undefined : MANIFEST_SECTIONS[configPath]);
       if (section) {
         const container = owner ?? DI.RootContainer;
         const listed = await listFromManifest(container, section, manifestMode(container));

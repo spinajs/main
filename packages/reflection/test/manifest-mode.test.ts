@@ -97,6 +97,23 @@ describe('ListFromFiles manifest fast path', () => {
     expect(globSync.called).to.equal(true);
   });
 
+  it('maps system.dirs.cli to the commands section, but not for a lister with a typeMatcher', async () => {
+    class Mapped {
+      @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.cli')
+      public Items!: Promise<Listed>;
+    }
+    class Matched {
+      @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.cli', (_file, exportName) => exportName)
+      public Items!: Promise<Listed>;
+    }
+    const globSync = sinon.spy(glob, 'sync');
+    const app = await createTestApp({ config: { system: { dirs: { cli: [singletons] } } }, register: withManifest(manifest) });
+    expect((await app.container.resolve(Mapped).Items).map((i) => i.name)).to.deep.equal(['FooService']);
+    expect(globSync.called).to.equal(false);
+    await app.container.resolve(Matched).Items;
+    expect(globSync.called).to.equal(true);
+  });
+
   it('prefer mode without a manifest scans', async () => {
     const globSync = sinon.spy(glob, 'sync');
     const app = await createTestApp({ config, register: (c) => registerManifestSettings(c, { mode: 'prefer', path: 'app.manifest.json' }) });
