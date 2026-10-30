@@ -2,6 +2,7 @@ import ts from 'typescript';
 import type { ClassPropertiesEntry, Lifetime, PropertyInject, ServiceEntry } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
 import { decoratorsOf, findDecorator, isArrayOfType, literalValue } from '../decorators.js';
+import { isListType } from '../runtime-ref.js';
 import { injectedName, tokenConstantKey } from './token-constant.js';
 
 type PropertyHandler = (d: { args: readonly ts.Expression[] }, prop: ts.PropertyDeclaration, ctx: ExtractorContext) => PropertyInject;
@@ -84,6 +85,8 @@ function autoinjectSymbol(first: ts.Expression | undefined, explicit: string | u
   return first && ts.isIdentifier(first) ? ctx.checker.getSymbolAtLocation(first) : undefined;
 }
 
+const declaresList = (prop: ts.PropertyDeclaration, ctx: ExtractorContext): boolean => isListType(ctx.checker.getTypeAtLocation(prop), ctx.checker);
+
 /** The class the container injects when the decorator names none: what `design:type` would hold. */
 function declaredTypeRef(prop: ts.PropertyDeclaration, ctx: ExtractorContext): PropertyInject['tokenRef'] {
   return ctx.runtimeRef(ctx.checker.getTypeAtLocation(prop), prop);
@@ -95,7 +98,7 @@ const PROPERTY_DECORATORS: Record<string, PropertyHandler> = {
     const first = d.args[0];
     const explicit = first && (ts.isIdentifier(first) || isArrayOfType(first)) ? injectedName(first, ctx) : undefined;
     const options = optionsOf(first && ts.isObjectLiteralExpression(first) ? first : d.args[1], ctx);
-    const array = declared.array || isArrayOfType(first);
+    const array = declaresList(prop, ctx) || isArrayOfType(first);
     const concrete = !array && isConcreteClass(autoinjectSymbol(first, explicit, prop, ctx), ctx);
     const tokenRef = explicit || array ? undefined : declaredTypeRef(prop, ctx);
     return {
@@ -111,8 +114,9 @@ const PROPERTY_DECORATORS: Record<string, PropertyHandler> = {
   LazyInject: (d, prop, ctx) => {
     const declared = tokenOfTypeNode(prop.type, ctx);
     const explicit = injectedName(d.args[0], ctx);
-    const tokenRef = explicit || declared.array ? undefined : declaredTypeRef(prop, ctx);
-    return { property: propertyName(prop), token: explicit ?? declared.token, optional: false, array: declared.array, lazy: true, ...(tokenRef ? { tokenRef } : {}) };
+    const array = declaresList(prop, ctx);
+    const tokenRef = explicit || array ? undefined : declaredTypeRef(prop, ctx);
+    return { property: propertyName(prop), token: explicit ?? declared.token, optional: false, array, lazy: true, ...(tokenRef ? { tokenRef } : {}) };
   },
   Config: (_d, prop) => ({ property: propertyName(prop), token: 'Configuration', optional: false, array: false }),
   AutoinjectService: (d, prop, ctx) => {
@@ -121,7 +125,7 @@ const PROPERTY_DECORATORS: Record<string, PropertyHandler> = {
       property: propertyName(prop),
       token: injectedName(d.args[1], ctx) ?? declared.token,
       optional: optionsOf(d.args[2], ctx).optional === true,
-      array: declared.array,
+      array: declaresList(prop, ctx),
     };
   },
   Logger: (_d, prop) => ({ property: propertyName(prop), token: 'Log', optional: false, array: false }),

@@ -21,8 +21,7 @@ function payloadOf(m: NamedMethod, className: string, ctx: ExtractorContext): Ty
   const p = m.parameters.find((param) => findDecorator(param, 'Payload'));
   if (!p) return { text: 'void' };
   const type = ctx.checker.getTypeAtLocation(p);
-  const ref = ctx.runtimeRef(type, p);
-  return { ...ctx.typeRef(type, p, `${className}_${m.name.text}_Payload`), ...(ref ? { ref } : {}) };
+  return { ...ctx.typeRef(type, p, `${className}_${m.name.text}_Payload`), ...ctx.runtimeTypeFields(type, p) };
 }
 
 const STREAM_TYPES = new Set(['AsyncIterable', 'AsyncIterableIterator', 'AsyncGenerator']);
@@ -105,14 +104,11 @@ function boundContractOf(sc: DecoratorInfo, ctx: ExtractorContext): string | und
 
 function diArgsOf(node: ts.ClassDeclaration, ctx: ExtractorContext): NonNullable<SocketControllerEntry['diArgs']> {
   return node.members.filter(ts.isMethodDeclaration).flatMap((m) =>
-    m.parameters.flatMap((p, index) => {
-      const ref = findDecorator(p, 'FromDI') ? ctx.runtimeRef(ctx.checker.getTypeAtLocation(p), p) : undefined;
-      return ref ? [{ handler: m.name.getText(), index, ref }] : [];
-    }),
+    m.parameters.flatMap((p, index) => (findDecorator(p, 'FromDI') ? [{ handler: m.name.getText(), index, ...ctx.runtimeTypeFields(ctx.checker.getTypeAtLocation(p), p) }] : [])),
   );
 }
 
-function controllerOf(node: ts.ClassDeclaration & { name: ts.Identifier }, sc: DecoratorInfo, ctx: ExtractorContext): SocketControllerEntry {
+function controllerOf(node: ts.ClassDeclaration & { name: ts.Identifier }, sc: DecoratorInfo | undefined, ctx: ExtractorContext): SocketControllerEntry {
   const commands: SocketCommandEntry[] = [];
   const events: SocketControllerEntry['events'] = [];
   for (const m of node.members) {
@@ -123,12 +119,12 @@ function controllerOf(node: ts.ClassDeclaration & { name: ts.Identifier }, sc: D
     if (cmd) commands.push(commandOf(named, node.name.text, cmd, ctx));
     else if (ev) events.push({ name: (literalValue(ev.args[0], ctx) as string | undefined) ?? named.name.text, payload: payloadOf(named, node.name.text, ctx) });
   }
-  const contract = boundContractOf(sc, ctx);
+  const contract = sc && boundContractOf(sc, ctx);
   const diArgs = diArgsOf(node, ctx);
   return {
     id: `${ctx.packageName}:${node.name.text}`,
     className: node.name.text,
-    prefix: (literalValue(sc.args[0], ctx) as string | undefined) ?? '',
+    prefix: (literalValue(sc?.args[0], ctx) as string | undefined) ?? '',
     ...(contract ? { contract } : {}),
     commands,
     events,
@@ -137,18 +133,27 @@ function controllerOf(node: ts.ClassDeclaration & { name: ts.Identifier }, sc: D
   };
 }
 
-export const extractSocketControllers: Extractor<SocketControllerEntry> = (ctx, file) => {
+function socketControllersIn(file: ts.SourceFile, ctx: ExtractorContext, wanted: (node: ts.ClassDeclaration, sc: DecoratorInfo | undefined) => boolean): SocketControllerEntry[] {
   const out: SocketControllerEntry[] = [];
   const visit = (node: ts.Node): void => {
-    if (ts.isClassDeclaration(node) && node.name && !isAbstractClass(node)) {
+    if (ts.isClassDeclaration(node) && node.name) {
       const sc = findDecorator(node, 'SocketController');
-      if (sc) out.push(controllerOf(node as ts.ClassDeclaration & { name: ts.Identifier }, sc, ctx));
+      if (wanted(node, sc)) out.push(controllerOf(node as ts.ClassDeclaration & { name: ts.Identifier }, sc, ctx));
     }
     ts.forEachChild(node, visit);
   };
   visit(file);
   return out;
-};
+}
+
+export const extractSocketControllers: Extractor<SocketControllerEntry> = (ctx, file) => socketControllersIn(file, ctx, (node, sc) => !!sc && !isAbstractClass(node));
+
+const SOCKET_HANDLER_DECORATORS = ['Command', 'OnEvent', 'OnConnect', 'OnDisconnect'];
+const hasSocketHandler = (node: ts.ClassDeclaration): boolean => node.members.some((m) => ts.isMethodDeclaration(m) && SOCKET_HANDLER_DECORATORS.some((name) => findDecorator(m, name)));
+
+/** Nothing mounts an abstract or undecorated base, but a subclass serves its handlers and looks their types up here. */
+export const extractSocketControllerBases: Extractor<SocketControllerEntry> = (ctx, file) =>
+  socketControllersIn(file, ctx, (node, sc) => (isAbstractClass(node) || !sc) && hasSocketHandler(node) && ctx.isSubclassOf(node, 'BaseSocketController'));
 
 function membersOf(type: ts.Type, ctx: ExtractorContext, node: ts.Node): Map<string, ts.Type> {
   return new Map(type.getProperties().map((p) => [p.name, ctx.checker.getTypeOfSymbolAtLocation(p, node)]));

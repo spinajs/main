@@ -46,6 +46,12 @@ export const manifestSchema: Record<string, any> = {
             "$ref": "#/definitions/ControllerEntry"
           }
         },
+        "socketControllerBases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SocketControllerEntry"
+          }
+        },
         "classProperties": {
           "type": "array",
           "items": {
@@ -697,6 +703,9 @@ export const manifestSchema: Record<string, any> = {
         },
         "ref": {
           "$ref": "#/definitions/RuntimeTypeRef"
+        },
+        "refProblem": {
+          "type": "string"
         }
       },
       "required": [
@@ -798,12 +807,14 @@ export const manifestSchema: Record<string, any> = {
               },
               "ref": {
                 "$ref": "#/definitions/RuntimeTypeRef"
+              },
+              "refProblem": {
+                "type": "string"
               }
             },
             "required": [
               "handler",
-              "index",
-              "ref"
+              "index"
             ]
           }
         },
@@ -1341,6 +1352,12 @@ export const manifestSchema: Record<string, any> = {
           "type": "array",
           "items": {
             "$ref": "#/definitions/ControllerEntry"
+          }
+        },
+        "socketControllerBases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SocketControllerEntry"
           }
         },
         "classProperties": {

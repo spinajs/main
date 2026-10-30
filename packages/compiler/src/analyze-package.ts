@@ -9,7 +9,7 @@ import { extractServices, mergeById } from './extractors/services.js';
 import { extractValues } from './extractors/values.js';
 import { extractConfigModules, extractConfigUsages } from './extractors/config.js';
 import { extractControllerBases, extractControllers } from './extractors/controllers.js';
-import { extractSocketContracts, extractSocketControllers } from './extractors/socket.js';
+import { extractSocketContracts, extractSocketControllerBases, extractSocketControllers } from './extractors/socket.js';
 import { extractModels } from './extractors/models.js';
 import { extractMigrations } from './extractors/migrations.js';
 import { extractSchedules } from './extractors/schedules.js';
@@ -82,6 +82,8 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   const scanned = <T extends { source: SourceRef }>(section: DirSection, extractor: Extractor<T>): T[] => run(extractor).filter((e) => isListed(section, e));
   const controllers = run(extractControllers);
   const controllerBases = sortBySource([...run(extractControllerBases), ...controllers.filter((c) => !isListed('controllers', c))]);
+  const socketControllers = run(extractSocketControllers);
+  const socketControllerBases = sortBySource([...run(extractSocketControllerBases), ...socketControllers.filter((c) => !isListed('socketControllers', c))]);
   const classProperties = run(extractClassProperties);
 
   const fragment: ManifestFragment = {
@@ -98,7 +100,8 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
     controllers: controllers.filter((c) => isListed('controllers', c)),
     ...(controllerBases.length ? { controllerBases } : {}),
     ...(classProperties.length ? { classProperties } : {}),
-    socketControllers: scanned('socketControllers', extractSocketControllers),
+    socketControllers: socketControllers.filter((c) => isListed('socketControllers', c)),
+    ...(socketControllerBases.length ? { socketControllerBases } : {}),
     socketContracts: run(extractSocketContracts),
     configModules: run(extractConfigModules),
     configUsages: run(extractConfigUsages),

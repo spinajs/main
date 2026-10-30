@@ -41,6 +41,8 @@ export interface TypeRef {
   schema?: string;
   /** The runtime value `emitDecoratorMetadata` would record for the type; set on route arguments, socket payloads and property injections only. */
   ref?: RuntimeTypeRef;
+  /** Why a class has no `ref`, for the error of a build without decorator metadata: not exported, or in a package without a manifest fragment. */
+  refProblem?: string;
 }
 
 /**
@@ -123,7 +125,7 @@ export interface ControllerEntry {
 }
 
 export interface SocketCommandEntry { name: string; handler: string; payload: TypeRef; result: TypeRef; /** The handler returns an async iterable; `result` describes one item */ stream?: true; options: { idempotent?: boolean; ordered?: 'connection' | 'client'; timeoutMs?: number }; access?: string[]; policies: PolicyRef[][]; source: SourceRef }
-export interface SocketControllerEntry { id: string; className: string; prefix: string; /** `id` of the `socketContracts` entry named by `@SocketController(prefix, { contract })` */ contract?: string; commands: SocketCommandEntry[]; events: { name: string; payload: TypeRef }[]; /** The declared type of every `@FromDI()` parameter, hooks included; omitted when there is none. */ diArgs?: { handler: string; index: number; ref: RuntimeTypeRef }[]; source: SourceRef }
+export interface SocketControllerEntry { id: string; className: string; prefix: string; /** `id` of the `socketContracts` entry named by `@SocketController(prefix, { contract })` */ contract?: string; commands: SocketCommandEntry[]; events: { name: string; payload: TypeRef }[]; /** The declared type of every `@FromDI()` parameter, hooks included; omitted when there is none. */ diArgs?: { handler: string; index: number; ref?: RuntimeTypeRef; refProblem?: string }[]; source: SourceRef }
 export interface SocketContractCommand { payload: TypeRef; result: TypeRef }
 export interface SocketContractEntry { id: string; /** Name the `defineContract` variable is exported under; lets a dependent package resolve a contract it imports */ exportName?: string; commands: Record<string, SocketContractCommand>; events: Record<string, TypeRef>; clientEvents: Record<string, TypeRef>; source: SourceRef }
 
@@ -155,6 +157,8 @@ export interface ManifestFragment {
   controllers: ControllerEntry[]; socketControllers: SocketControllerEntry[]; socketContracts: SocketContractEntry[];
   /** Controllers nothing mounts (abstract, or outside the declared dirs); a subclass inherits their routes. Omitted when empty. */
   controllerBases?: ControllerEntry[];
+  /** The same for socket controllers: abstract, undecorated or outside the declared dirs. Omitted when empty. */
+  socketControllerBases?: SocketControllerEntry[];
   /** Omitted when empty, which it is for a package built with decorator metadata. */
   classProperties?: ClassPropertiesEntry[];
   configModules: ConfigModuleEntry[]; configUsages: ConfigUsageEntry[];

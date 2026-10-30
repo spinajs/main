@@ -1,6 +1,6 @@
 import ts from 'typescript';
 import { relative } from 'node:path';
-import type { RuntimeTypeRef } from '@spinajs/manifest';
+import type { RuntimeTypeRef, TypeRef } from '@spinajs/manifest';
 import { owningPackage } from './owning-package.js';
 
 export const globalRef = (name: string): RuntimeTypeRef => ({ package: 'global', file: '', export: name });
@@ -61,6 +61,12 @@ function serializeObject(type: ts.Type, checker: ts.TypeChecker): Serialized {
   return { global: type.getCallSignatures().length ? 'Function' : 'Object' };
 }
 
+/** Decided as `@Autoinject` decides from `design:type`: on what the type resolves to, so an alias and `readonly` count. */
+export function isListType(type: ts.Type, checker: ts.TypeChecker): boolean {
+  const serialized = serialize(type, checker);
+  return serialized !== undefined && 'global' in serialized && (serialized.global === 'Array' || serialized.global === 'Map');
+}
+
 function exportNameOf(cls: ts.Symbol, file: ts.SourceFile, checker: ts.TypeChecker): string | undefined {
   const module = checker.getSymbolAtLocation(file);
   if (!module) return undefined;
@@ -78,6 +84,8 @@ export interface RuntimeRefHost {
 
 const NOT_LOADABLE = 'without decorator metadata the runtime cannot load it';
 
+export type RuntimeTypeFields = Pick<TypeRef, 'ref' | 'refProblem'>;
+
 /** `declare module 'name' { ... }`: a node built-in or an untyped package, never a file the manifest lists. */
 function ambientModuleOf(node: ts.Node): string | undefined {
   for (let current: ts.Node | undefined = node.parent; current; current = current.parent) {
@@ -86,14 +94,15 @@ function ambientModuleOf(node: ts.Node): string | undefined {
   return undefined;
 }
 
-const notImportable = (cls: ts.Symbol, where: string, node: ts.Node, host: RuntimeRefHost): undefined => {
-  host.info('TYP002', `runtime-type-not-importable: ${cls.name} is declared in ${where}, which ships no manifest fragment; ${NOT_LOADABLE}`, node);
-  return undefined;
+const notImportable = (cls: ts.Symbol, where: string, node: ts.Node, host: RuntimeRefHost): RuntimeTypeFields => {
+  const refProblem = `${cls.name} is declared in ${where}, which ships no manifest fragment`;
+  host.info('TYP002', `runtime-type-not-importable: ${refProblem}; ${NOT_LOADABLE}`, node);
+  return { refProblem };
 };
 
-function classRef(cls: ts.Symbol, node: ts.Node, host: RuntimeRefHost): RuntimeTypeRef | undefined {
+function classRef(cls: ts.Symbol, node: ts.Node, host: RuntimeRefHost): RuntimeTypeFields {
   const decl = cls.valueDeclaration ?? cls.declarations?.[0];
-  if (!decl) return undefined;
+  if (!decl) return {};
   const ambient = ambientModuleOf(decl);
   if (ambient) return notImportable(cls, `module '${ambient}'`, node, host);
   const file = decl.getSourceFile();
@@ -101,20 +110,21 @@ function classRef(cls: ts.Symbol, node: ts.Node, host: RuntimeRefHost): RuntimeT
   const at = (root: string) => relative(root, file.fileName).replaceAll('\\', '/');
 
   if (!name) {
-    host.info('TYP001', `runtime-type-not-exported: ${cls.name} is not exported from ${at(host.packageRoot)}; ${NOT_LOADABLE}`, node);
-    return undefined;
+    const refProblem = `${cls.name} is not exported from ${at(host.packageRoot)}`;
+    host.info('TYP001', `runtime-type-not-exported: ${refProblem}; ${NOT_LOADABLE}`, node);
+    return { refProblem };
   }
-  if (host.inPackage(decl)) return file.isDeclarationFile ? globalRef('Object') : { package: host.packageName, file: at(host.packageRoot), export: name };
+  if (host.inPackage(decl)) return { ref: file.isDeclarationFile ? globalRef('Object') : { package: host.packageName, file: at(host.packageRoot), export: name } };
 
   const owner = owningPackage(file.fileName);
   if (!owner?.fragment) return notImportable(cls, owner?.name ?? file.fileName, node, host);
   // A dependency is seen through its declaration files; the runtime imports the JavaScript next to them.
-  return { package: owner.name, file: at(owner.root).replace(/\.d\.([mc]?)ts$/, '.$1js'), export: name };
+  return { ref: { package: owner.name, file: at(owner.root).replace(/\.d\.([mc]?)ts$/, '.$1js'), export: name } };
 }
 
 /** What `design:type` / `design:paramtypes` would hold for `type`, as a reference the runtime can import. */
-export function runtimeRefOf(type: ts.Type, node: ts.Node, host: RuntimeRefHost): RuntimeTypeRef | undefined {
+export function runtimeRefOf(type: ts.Type, node: ts.Node, host: RuntimeRefHost): RuntimeTypeFields {
   const serialized = serialize(type, host.checker);
-  if (serialized === undefined) return undefined;
-  return 'global' in serialized ? globalRef(serialized.global) : classRef(serialized.cls, node, host);
+  if (serialized === undefined) return {};
+  return 'global' in serialized ? { ref: globalRef(serialized.global) } : classRef(serialized.cls, node, host);
 }

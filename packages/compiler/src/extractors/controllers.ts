@@ -1,8 +1,9 @@
 import { isAbstractClass } from './abstract.js';
 import ts from 'typescript';
 import { configuredMountPath, controllerMountPath, DECORATED_PARAM_KIND, routeFullPath, servedPath } from '@spinajs/manifest';
-import type { ControllerEntry, ParamEntry, RouteEntry } from '@spinajs/manifest';
+import type { ControllerEntry, ParamEntry, RouteEntry, TypeRef } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
+import { globalRef } from '../runtime-ref.js';
 import { decoratorsOf, findDecorator, literalValue, type DecoratorInfo } from '../decorators.js';
 import { accessOf, middlewaresOf, policyGroupsOf } from './policies.js';
 import { routeDocOf } from './jsdoc.js';
@@ -56,13 +57,20 @@ function firstArgOf(dec: DecoratorInfo, options: unknown, ctx: ExtractorContext)
 
 const paramName = (p: ts.ParameterDeclaration): string => (ts.isIdentifier(p.name) ? p.name.text : p.name.getText());
 
+// Route-args that never read `RuntimeType`: an annotation such as `Readable` or `IncomingMessage` is no reason to fail a boot.
+const TYPE_UNREAD_DECORATORS = new Set(['Req', 'Res', 'Ip', 'RequestId', 'UserAgent', 'Referer', 'RawBody', 'AcceptType', 'RequestStream', 'ContentDigest']);
+
+function runtimeTypeOf(p: ts.ParameterDeclaration, type: ts.Type, ctx: ExtractorContext): Pick<TypeRef, 'ref' | 'refProblem'> {
+  const fields = ctx.runtimeTypeFields(type, p);
+  return fields.refProblem && decoratorsOf(p).some((d) => TYPE_UNREAD_DECORATORS.has(d.name)) ? { ref: globalRef('Object') } : fields;
+}
+
 /** Under a decorator outside `PARAM_KINDS`: built on `Route(Parameter(...))`, so the runtime still needs its type. */
 function decoratedParamOf(p: ts.ParameterDeclaration, index: number, ctx: ExtractorContext): ParamEntry | undefined {
   if (decoratorsOf(p).length === 0) return undefined;
   const type = ctx.checker.getTypeAtLocation(p);
-  const ref = ctx.runtimeRef(type, p);
-  const runtimeType = ctx.plainTypeRef(ctx.checker.getNonNullableType(type));
-  return { index, name: paramName(p), kind: DECORATED_PARAM_KIND, runtimeType: ref ? { ...runtimeType, ref } : runtimeType, required: isRequired(p, type), wire: { in: 'none', shape: 'whole' } };
+  const runtimeType = { ...ctx.plainTypeRef(ctx.checker.getNonNullableType(type)), ...runtimeTypeOf(p, type, ctx) };
+  return { index, name: paramName(p), kind: DECORATED_PARAM_KIND, runtimeType, required: isRequired(p, type), wire: { in: 'none', shape: 'whole' } };
 }
 
 function paramOf(p: ts.ParameterDeclaration, index: number, owner: string, route: RouteWireContext, ctx: ExtractorContext): ParamEntry | undefined {
@@ -82,9 +90,8 @@ function paramOf(p: ts.ParameterDeclaration, index: number, owner: string, route
   const kind = parameterTypeOf(dec, ctx);
   const nonNull = ctx.checker.getNonNullableType(type);
   const runtimeType = UNDERIVED_KINDS.has(kind) ? ctx.plainTypeRef(nonNull) : ctx.typeRef(nonNull, p, `${owner.replace('.', '_')}_${name}`);
-  const ref = ctx.runtimeRef(type, p);
   return {
-    index, name, kind, runtimeType: ref ? { ...runtimeType, ref } : runtimeType,
+    index, name, kind, runtimeType: { ...runtimeType, ...runtimeTypeOf(p, type, ctx) },
     required: options?.required === true || isRequired(p, type),
     ...(options !== undefined ? { options } : {}), ...(schemaId ? { schema: schemaId } : {}),
     wire: wireOf({ dec, firstArg: firstArgOf(dec, options, ctx), p, name, type, route, ctx }),

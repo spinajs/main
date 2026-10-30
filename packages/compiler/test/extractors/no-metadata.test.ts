@@ -34,6 +34,24 @@ describe('what a build without decorator metadata needs from the manifest', () =
     });
   });
 
+  describe('an argument whose class the manifest cannot name', () => {
+    const route = (handler: string) => fragment.controllers.find((c) => c.className === 'UsersController')!.routes.find((r) => r.handler === handler)!;
+    const OBJECT = { package: 'global', file: '', export: 'Object' };
+
+    it('records Object for a kind that never reads the type', () => {
+      const [body, req] = route('upload').params;
+      expect(body.runtimeType.ref).to.deep.equal(OBJECT);
+      expect(req.runtimeType.ref).to.deep.equal(OBJECT);
+      expect(body.runtimeType).to.not.have.property('refProblem');
+    });
+
+    it('records why for a kind that does read it', () => {
+      const [when] = route('since').params;
+      expect(when.runtimeType).to.not.have.property('ref');
+      expect(when.runtimeType.refProblem).to.match(/^DateTime is declared in @types\/luxon, which ships no manifest fragment/);
+    });
+  });
+
   describe('inherited routes', () => {
     it('keeps an abstract controller as a base: never mounted, its routes still answer for subclasses', () => {
       expect(fragment.controllers.map((c) => c.className)).to.deep.equal(['UsersController']);
@@ -64,6 +82,25 @@ describe('what a build without decorator metadata needs from the manifest', () =
       expect(property('lazy').tokenRef).to.deep.equal(db);
     });
 
+    it('decides a list from the checked type: an alias, readonly, optional', () => {
+      for (const name of ['alias', 'readonlyList', 'optionalAlias', 'mapAlias', 'lazyAlias', 'lazyReadonly']) {
+        expect(property(name), name).to.include({ array: true }).and.not.have.property('tokenRef');
+      }
+    });
+
+    it('keeps the token the decorator names', () => {
+      expect(property('readonlyList').token).to.equal('Plugin');
+      expect(property('alias').token).to.equal('Plugin');
+    });
+
+    it('decides a list the same way for @AutoinjectService', () => {
+      const configured = fragment.services.find((s) => s.className === 'Configured')!.propertyInjects;
+      const array = (name: string) => configured.find((p) => p.property === name)?.array;
+      expect(array('alias')).to.equal(true);
+      expect(array('readonlyList')).to.equal(true);
+      expect(array('one')).to.equal(false);
+    });
+
     it('records whether an explicitly typed property is a list', () => {
       expect(property('one')).to.include({ array: false }).and.not.have.property('tokenRef');
       expect(property('list')).to.include({ array: true }).and.not.have.property('tokenRef');
@@ -73,6 +110,23 @@ describe('what a build without decorator metadata needs from the manifest', () =
     it('records nothing for a package built with decorator metadata: it never needs the table', async () => {
       const metadata = await analyzePackage({ tsconfig: 'test/fixtures/pkg-basic/tsconfig.json', packageRoot: 'test/fixtures/pkg-basic' });
       expect(metadata).to.not.have.property('classProperties');
+    });
+  });
+
+  describe('inherited socket handlers', () => {
+    const base = () => fragment.socketControllerBases?.find((c) => c.className === 'CrudSocket');
+
+    it('keeps an abstract socket controller as a base: never mounted, its handlers still answer for subclasses', () => {
+      expect(fragment.socketControllers.map((c) => c.className)).to.include('ThingsSocket').and.not.include('CrudSocket');
+      expect(fragment.socketControllers.find((c) => c.className === 'ThingsSocket')?.commands).to.deep.equal([]);
+      expect(fragment.socketControllerBases?.map((c) => c.className)).to.deep.equal(['CrudSocket']);
+    });
+
+    it('records the commands, events and @FromDI() types of the base', () => {
+      const hello = { package: 'no-metadata', file: 'src/sockets.ts', export: 'Hello' };
+      expect(base()?.commands[0].payload.ref).to.deep.equal(hello);
+      expect(base()?.events[0].payload.ref).to.deep.equal(hello);
+      expect(base()?.diArgs).to.deep.equal([{ handler: 'save', index: 1, ref: db }]);
     });
   });
 

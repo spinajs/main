@@ -47,6 +47,7 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
   }
 
   const controllerBases = collect((f) => f.controllerBases ?? []);
+  const socketControllerBases = collect((f) => f.socketControllerBases ?? []);
   const classProperties = collect((f) => f.classProperties ?? []);
 
   const manifest: Manifest = {
@@ -59,6 +60,7 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
     socketControllers: collect((f) => f.socketControllers),
     socketContracts: collect((f) => f.socketContracts),
     ...(controllerBases.length ? { controllerBases } : {}),
+    ...(socketControllerBases.length ? { socketControllerBases } : {}),
     ...(classProperties.length ? { classProperties } : {}),
     configModules: plain((f) => f.configModules),
     configUsages: plain((f) => f.configUsages),
