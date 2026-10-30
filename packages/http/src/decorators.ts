@@ -130,14 +130,11 @@ function captureControllerSourceFile(): string | undefined {
 
     let file = m[1];
     if (file.startsWith('file://')) {
-      // Strip ESM file:// URL scheme. Windows: file:///C:/foo → C:/foo.
+      // Strip the ESM url scheme. Windows: file:///C:/foo -> C:/foo, POSIX: file:///foo -> /foo.
       try {
         file = decodeURIComponent(file.replace(/^file:\/\/\/?/, ''));
-        // Normalize Windows drive letter forms (`/C:/...` → `C:/...`).
-        if (/^[A-Za-z]:/.test(file)) {
-          // already a drive-letter path
-        } else if (file.startsWith('/')) {
-          // POSIX absolute path stays as-is
+        if (!/^[A-Za-z]:/.test(file) && !file.startsWith('/')) {
+          file = `/${file}`;
         }
       } catch {
         // fall through with the raw match
