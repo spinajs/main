@@ -27,11 +27,6 @@
       "count": 1
     }
   },
-  "packages/authn-http/test/support/config-boot.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    }
-  },
   "packages/authn-http/test/v3-app/app.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
@@ -294,11 +289,6 @@
       "count": 3
     }
   },
-  "packages/authn-keys/test/support/config-boot.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    }
-  },
   "packages/authn-local/src/cli/SetUserPassword.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
@@ -374,11 +364,6 @@
     },
     "promise/param-names": {
       "count": 3
-    }
-  },
-  "packages/authn-local/test/support/config-boot.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
     }
   },
   "packages/authn-local/test/support/recording-log.ts": {
@@ -489,11 +474,6 @@
       "count": 1
     }
   },
-  "packages/authn-oidc/test/support/config-boot.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    }
-  },
   "packages/authn-oidc/test/support/harness.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 2
@@ -545,11 +525,6 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 2
-    }
-  },
-  "packages/authn-orm/test/support/config-boot.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
     }
   },
   "packages/authn-orm/test/support/db.ts": {
@@ -680,11 +655,6 @@
       "count": 2
     }
   },
-  "packages/authn-token/test/support/config-boot.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    }
-  },
   "packages/authn-token/test/v3/cli.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 9
@@ -725,11 +695,6 @@
   },
   "packages/authn-totp/src/store/memory.ts": {
     "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    }
-  },
-  "packages/authn-totp/test/support/config-boot.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
   },
@@ -7060,7 +7025,7 @@
   },
   "packages/orm/test/migration-runner.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 6
+      "count": 5
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 22
@@ -7088,9 +7053,6 @@
   "packages/orm/test/migration.test.ts": {
     "@typescript-eslint/ban-ts-comment": {
       "count": 6
-    },
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 2
@@ -7336,9 +7298,6 @@
     }
   },
   "packages/orm/test/query-middleware-hooks.test.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
     "@typescript-eslint/unbound-method": {
       "count": 2
     },
@@ -7347,17 +7306,11 @@
     }
   },
   "packages/orm/test/query-middleware-order.test.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
     "prettier/prettier": {
       "count": 1
     }
   },
   "packages/orm/test/query-middleware.test.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
     "prettier/prettier": {
       "count": 1
     }
