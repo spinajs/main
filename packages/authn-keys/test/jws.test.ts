@@ -123,7 +123,8 @@ describe('LocalJwsSigner', () => {
     const kp = generateKeyPair('EdDSA');
     const jwk = privateJwkOf(kp, 'k1');
     const other = privateJwkOf(generateKeyPair('EdDSA'), 'k2');
-    assert.throws(() => new LocalJwsSigner([{ ...jwk, x: other.x }]), /does not match d/);
+    // Which check catches the mismatch depends on the OpenSSL: Node 24 refuses the pair at load, Node 22 loads it.
+    assert.throws(() => new LocalJwsSigner([{ ...jwk, x: other.x }]), /does not match d|does not load/);
     assert.throws(() => new LocalJwsSigner([jwk, { ...other, kid: 'k1' }]), /twice/);
     assert.throws(() => new LocalJwsSigner([{ ...jwk, kid: 'a b' }]), /kid/);
     assert.throws(() => new LocalJwsSigner([{ ...jwk, x: Buffer.from(SMALL_ORDER[1], 'hex').toString('base64url') }]), /not a valid/);

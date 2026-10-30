@@ -172,7 +172,8 @@ describe('jwk: the small-order R check', () => {
           .digest(),
       ) % L;
     const forged = Buffer.concat([R, n2le((k * a) % L)]);
-    assert.ok(verify(null, message, pair.publicKey, forged), 'OpenSSL accepts it');
+    // The OpenSSL of Node 24 refuses this signature itself, so only Node 22 can prove the forgery is well formed.
+    if (process.versions.node.startsWith('22.')) assert.ok(verify(null, message, pair.publicKey, forged), 'OpenSSL accepts it');
     assert.strictEqual(verifySignature({ alg: 'EdDSA', jwk: okp(jwk.x) } as never, message, forged), false);
   });
 });
