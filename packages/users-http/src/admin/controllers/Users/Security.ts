@@ -10,6 +10,8 @@ import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { Schema } from '@spinajs/validation';
 
+// Registers AccountDisableHook: the controller scan imports this file, and an app may never import the package entry.
+import '../../../services/account-disable-hook.js';
 import { asActionRefusal } from '../../../services/action-refusal.js';
 import { userActor } from '../../../services/actor.js';
 import { withCredentialAdmin } from '../../../services/credential-admin.js';
