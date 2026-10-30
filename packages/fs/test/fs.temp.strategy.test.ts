@@ -160,6 +160,18 @@ describe('temp fs cleanup strategy tests', function () {
       s.stop();
     }
   });
+
+  it('does not keep the process alive on its own', async () => {
+    const { fs } = stubFs({});
+    const s = await DI.resolve(MaxAgeTempCleanupStrategy);
+
+    try {
+      s.start(fs, OPTIONS);
+      expect((s as unknown as { cleanupTimer: NodeJS.Timeout }).cleanupTimer.hasRef()).to.eq(false);
+    } finally {
+      s.stop();
+    }
+  });
 });
 
 describe('temp fs cron cleanup strategy tests', function () {

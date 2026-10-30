@@ -10,7 +10,7 @@ html
             div(class="item")
                 div(class="entry")
                     h1 400 - #{__("Validation error")}
-                    div #{__(message)}
+                    div #{__(detail || message || title)}
                     ul 
-                        each param in parameter
+                        each param in (errors || [])
                             li #{param.instancePath} #{param.message} ( type: #{param.type} ), schemaPath: #{param.schemaPath}

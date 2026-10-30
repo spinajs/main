@@ -111,10 +111,10 @@ describe('authz-orm runtime guard', function () {
     const stack = [
       'Error',
       'at AccessGuardMiddleware.afterQueryCreation (C:\\repo\\packages\\authz-orm\\lib\\mjs\\guard\\middleware.js:67:62)',
-      'at SqliteOrmDriver.select (/srv/app/node_modules/@spinajs/orm-sqlite/lib/mjs/driver.js:40:3)',
-      'at OracleOrmDriver.select (/srv/app/node_modules/@spinajs/orm-oracle/lib/cjs/driver.js:40:3)',
-      'at createQuery (/srv/app/node_modules/@spinajs/orm/lib/mjs/builders.js:3422:9)',
-      'at Container.resolve (/srv/app/node_modules/@spinajs/di/lib/mjs/container.js:10:1)',
+      'at SqliteOrmDriver.select (/srv/app/node_modules/@spinajs/orm-sqlite/lib/driver.js:40:3)',
+      'at OracleOrmDriver.select (/srv/app/node_modules/@spinajs/orm-oracle/lib/driver.js:40:3)',
+      'at createQuery (/srv/app/node_modules/@spinajs/orm/lib/builders.js:3422:9)',
+      'at Container.resolve (/srv/app/node_modules/@spinajs/di/lib/container.js:10:1)',
       'at Array.forEach (<anonymous>)',
       app,
     ].join('\n');

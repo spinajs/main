@@ -20,7 +20,7 @@ const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_LOCAL_CONFIGURATION_SCHEMA];
 
 /** `authn.local.policy.blocklist` of the built shipped config, loaded in a fresh process under `env`. */
 function shippedBlocklistUnder(env: Record<string, string>): unknown {
-  const file = pathToFileURL(join(process.cwd(), 'lib', 'mjs', 'config', 'authn-local.js')).href;
+  const file = pathToFileURL(join(process.cwd(), 'lib', 'config', 'authn-local.js')).href;
   const base = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'APP_ENV' && k !== 'NODE_ENV' && k !== 'NODE_OPTIONS'));
   const run = spawnSync(process.execPath, ['--input-type=module', '-e', `const m = await import(${JSON.stringify(file)}); process.stdout.write(JSON.stringify(m.default.authn.local.policy.blocklist));`], {
     env: { ...base, ...env },

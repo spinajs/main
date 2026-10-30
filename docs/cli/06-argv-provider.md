@@ -49,7 +49,6 @@ function stripToolOptions(argv: string[]): string[] {
 }
 
 export async function main(): Promise<void> {
-  DI.setESMModuleSupport();
   DI.register(() => stripToolOptions(process.argv)).as('__cli_argv_provider__');
 
   await DI.resolve(Configuration);
@@ -117,7 +116,6 @@ class TestConfiguration extends FrameworkConfiguration {
 
 export async function warmCacheRunsWithAll(): Promise<void> {
   DI.clearCache();
-  DI.setESMModuleSupport();
   DI.register(TestConfiguration).as(Configuration);
   await DI.resolve(Configuration);
 

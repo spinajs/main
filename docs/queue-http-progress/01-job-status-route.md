@@ -52,14 +52,14 @@ The package ships one config file. It has no keys of its own.
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `system.dirs.controllers` | `string[]` | the package adds `<WORKSPACE_ROOT_PATH or cwd>/node_modules/@spinajs/queue-http-progress/lib/<mjs or cjs>/controllers` | absolute directories | Where `FilesystemControllerSource` finds `JobsController`. `mjs` is picked in an ES module build, `cjs` in CommonJS. |
+| `system.dirs.controllers` | `string[]` | the package adds `<WORKSPACE_ROOT_PATH or cwd>/node_modules/@spinajs/queue-http-progress/lib/controllers` | absolute directories | Where `FilesystemControllerSource` finds `JobsController`. `mjs` is picked in an ES module build, `cjs` in CommonJS. |
 
 ```ts
-// What the package's lib/<mjs|cjs>/config/queue-http-progress.js contributes.
+// What the package's lib/config/queue-http-progress.js contributes.
 export default {
   system: {
     dirs: {
-      controllers: ['/srv/app/node_modules/@spinajs/queue-http-progress/lib/mjs/controllers'],
+      controllers: ['/srv/app/node_modules/@spinajs/queue-http-progress/lib/controllers'],
     },
   },
 };

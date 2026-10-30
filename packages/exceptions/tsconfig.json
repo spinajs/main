@@ -2,10 +2,11 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "rootDir": "./",
-    "outDir": "./lib/mjs",
+    "outDir": "./lib",
     "module": "node16",
     "moduleResolution": "node16"
   },
-  "include": ["src/**/*"]
+  "include": [
+    "src/**/*"
+  ]
 }
-

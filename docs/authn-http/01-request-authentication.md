@@ -65,7 +65,7 @@ sequenceDiagram
    - `KeyPrincipalResolver`, `TokenPrincipalResolver`, `SessionPrincipalResolver` as `AuthnPrincipalResolver`;
    - the route argument classes `AuthnIdentityArg`, `AuthnSessionArg`, `AuthnSessionIdArg`, `AuthnSessionDataArg`.
 2. `ClientIp` and `CsrfOriginGuard` register themselves with `@Injectable(ServerMiddleware)` when their modules load, which the package entry does.
-3. The shipped config file adds `lib/<cjs|mjs>/v3/controllers` and `lib/<cjs|mjs>/cli` under `node_modules/@spinajs/authn-http` (resolved against `WORKSPACE_ROOT_PATH`, else the working directory) to `system.dirs.controllers` and `system.dirs.cli`. The route controllers load only through that scan; importing the package loads none of them.
+3. The shipped config file adds `lib/v3/controllers` and `lib/cli` under `node_modules/@spinajs/authn-http` (resolved against `WORKSPACE_ROOT_PATH`, else the working directory) to `system.dirs.controllers` and `system.dirs.cli`. The route controllers load only through that scan; importing the package loads none of them.
 4. A session issuer must be registered, from [`@spinajs/authn-session`](../authn-session/README.md): `AuthnMiddleware` autoinjects `SessionIssuer`.
 5. A cookie parser must fill `req.cookies`. The default `http.middlewares` of `@spinajs/http` contain one; see [Cookies](../http/20-cookies.md).
 

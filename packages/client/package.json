@@ -1,0 +1,56 @@
+{
+  "name": "@spinajs/client",
+  "version": "3.0.23",
+  "description": "Typed HTTP and socket client for SpinaJS applications, generated from the application manifest",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    },
+    "./runtime": {
+      "types": "./lib/runtime/index.d.ts",
+      "import": "./lib/runtime/index.js"
+    }
+  },
+  "type": "module",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.build.json",
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
+    "pretest": "npm run compile",
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "coverage": "c8 npm run test",
+    "lint": "cd ../.. && npm run lint -- packages/client"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "client",
+    "fetch",
+    "manifest"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "dependencies": {
+    "@spinajs/manifest": "3.0.23"
+  },
+  "devDependencies": {
+    "chai-as-promised": "^7.1.1",
+    "typescript": "~5.9.0"
+  }
+}

@@ -69,14 +69,15 @@ describe('authn shipped config', () => {
     expect(authn.linking).to.deep.eq({ jit: false, byVerifiedEmail: false });
     expect(authn.login).to.deep.eq(check({}).config.login);
     expect(authn.login).to.deep.eq({ requireVerifiedAddress: false });
-    expect(authn.mfa.policy).to.deep.eq({ service: 'DefaultMfaPolicy', force: false, forceForRoles: [], methods: ['password'] });
+    expect(authn.mfa.policy).to.deep.eq({ service: 'DefaultMfaPolicy', force: false });
+    expect((check({}).config.mfa as Json).policy).to.deep.include({ forceForRoles: [], methods: ['password'] });
     expect(authn).to.not.have.property('config');
   });
 
   it('passes the schema unchanged', () => {
     const r = check(authn);
     expect(r.paths).to.deep.eq([]);
-    expect(r.config).to.deep.eq({ ...clone(authn), mfa: { ...clone(authn.mfa), steps: [] }, throttle: { ...clone(authn.throttle), maxRows: DEFAULT_THROTTLE_MAX_ROWS }, token: check({}).config.token, keys: check({}).config.keys, http: {}, session: { expiration: { maxLifetime: 480 } } });
+    expect(r.config).to.deep.eq({ ...clone(authn), mfa: { ...clone(authn.mfa), policy: { ...clone((authn.mfa as Json).policy as Json), forceForRoles: [], methods: ['password'] }, steps: [] }, throttle: { ...clone(authn.throttle), maxRows: DEFAULT_THROTTLE_MAX_ROWS }, token: check({}).config.token, keys: check({}).config.keys, http: {}, session: { expiration: { maxLifetime: 480 } } });
   });
 });
 
@@ -164,17 +165,6 @@ describe('AuthnConfigBootstrapper', () => {
     // Loading every package config takes seconds.
     this.timeout(60000);
     const children: { dispose(): Promise<void> }[] = [];
-    let setEsm = false;
-
-    // The file sources load package configs only in ESM mode here (lib/mjs); the rest of the suite runs without it.
-    before(() => {
-      setEsm = !DI.get('__esmMode__' as never);
-      if (setEsm) DI.setESMModuleSupport();
-    });
-
-    after(() => {
-      if (setEsm) DI.uncache('__esmMode__' as never);
-    });
 
     afterEach(async () => {
       for (const c of children.splice(0)) await c.dispose();

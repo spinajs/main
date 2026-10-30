@@ -69,6 +69,13 @@ export const HTTP_CONFIGURATION_SCHEMA = {
       type: 'object',
       default: {},
       properties: {
+        includeStack: { type: 'boolean', default: false, description: 'Adds the exception stack to error bodies. Ignored when configuration.isProduction is set.' },
+        includeFields: {
+          type: 'array',
+          default: [],
+          description: 'Own enumerable properties of an exception copied into its application/problem+json body as extension members. Names the body already defines are ignored.',
+          items: nonEmpty,
+        },
         handlers: {
           type: 'array',
           default: [],

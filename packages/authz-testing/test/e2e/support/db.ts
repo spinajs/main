@@ -8,7 +8,7 @@ import type { OrmDriver } from '@spinajs/orm';
 import { testHost } from '@spinajs/authz-testing';
 
 // The built authz-orm, which '@spinajs/authz-orm' resolves to: its registry is the one the decorators fill.
-import { unregisterResource } from '../../../../authz-orm/lib/mjs/registry.js';
+import { unregisterResource } from '../../../../authz-orm/lib/registry.js';
 // authz-rbac's test database helpers import only libraries.
 import { createPgDatabase, dropPgDatabase } from '../../../../authz-rbac/test/support/db.js';
 

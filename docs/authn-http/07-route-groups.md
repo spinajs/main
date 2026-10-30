@@ -1,6 +1,6 @@
 # Route groups
 
-The package mounts its routes from seventeen controllers in `lib/<cjs|mjs>/v3/controllers`, which the shipped config adds to the controller scan. Most groups switch on by themselves when the service behind them is registered: install the strategy package (or `@spinajs/users`) and the routes appear; leave it out and they answer 404 as if they did not exist.
+The package mounts its routes from seventeen controllers in `lib/v3/controllers`, which the shipped config adds to the controller scan. Most groups switch on by themselves when the service behind them is registered: install the strategy package (or `@spinajs/users`) and the routes appear; leave it out and they answer 404 as if they did not exist.
 
 ## How it works
 

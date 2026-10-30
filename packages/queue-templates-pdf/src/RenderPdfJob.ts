@@ -12,21 +12,7 @@ const DEFAULT_RENDER_TIMEOUT_MS = 120000;
 /** Time the worker gets to clean up after SIGTERM before it is SIGKILLed (ms). */
 const KILL_GRACE_MS = 5000;
 
-/**
- * This module's directory, resolved across the dual ESM/CJS build. Under CJS
- * `__dirname` exists; under ESM it does not, so we fall back to `import.meta.url`
- * - accessed via `eval` so the `import.meta` token never appears in the
- * commonjs-compiled output (which would otherwise fail to compile).
- */
-function moduleDir(): string {
-  if (typeof __dirname !== 'undefined') {
-    return __dirname;
-  }
-
-  // eslint-disable-next-line no-eval
-  const url = eval('import.meta.url') as string;
-  return dirname(fileURLToPath(url));
-}
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Queue job that renders a PDF in an isolated worker process and reports render
@@ -62,7 +48,7 @@ export class RenderPdfJob extends QueueJob {
 
   /** Spawn the render worker process. Overridable in tests. */
   protected spawnWorker(): ChildProcess {
-    return fork(join(moduleDir(), 'render-worker.js'), process.argv.slice(2));
+    return fork(join(MODULE_DIR, 'render-worker.js'), process.argv.slice(2));
   }
 
   protected buildRequest(): IRenderRequest {

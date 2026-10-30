@@ -55,7 +55,7 @@ export interface LanePart {
 }
 
 // authn-orm's root registers DbAuthnThrottle and DbAuthnAuditSink over N8a's throttle and sink: files are loaded one by one.
-const ORM_LIB = new URL('../../../../authn-orm/lib/mjs/', import.meta.url);
+const ORM_LIB = new URL('../../../../authn-orm/lib/', import.meta.url);
 const ormModule = async <T>(file: string): Promise<T> => (await import(new URL(file, ORM_LIB).href)) as T;
 
 export const PASSWORD_ROUTES: Partial<HttpRoutes> = {
@@ -208,7 +208,7 @@ let recorderBound = false;
 
 // TotpService comes through the subpath export; the step, the store base and authn-orm's DbMfaStore by file,
 // since authn-orm's root registers its throttle and audit sink.
-const TOTP_LIB = new URL('../../../../authn-totp/lib/mjs/', import.meta.url);
+const TOTP_LIB = new URL('../../../../authn-totp/lib/', import.meta.url);
 const totpModule = async <T>(file: string): Promise<T> => (await import(new URL(file, TOTP_LIB).href)) as T;
 
 export const MFA_ROUTES: Partial<HttpRoutes> = {
@@ -377,7 +377,7 @@ export const totpPart: LanePart = {
 
 // N8a's harness loads authn-token's service, strategy and migrations by file from this build (harness.ts); the same
 // URL gives the same module, so TokenProfilePolicy below is the base DbTokenService injects.
-const TOKEN_LIB = new URL('../../../../authn-token/lib/mjs/', import.meta.url);
+const TOKEN_LIB = new URL('../../../../authn-token/lib/', import.meta.url);
 
 export const TOKEN_ROUTES: Partial<HttpRoutes> = {
   tokenCreate: (o) => ({ method: 'POST', path: '/user/tokens', body: { name: o.name, expiresAt: o.expiresAt.toISOString(), ...(o.reauthPassword !== undefined ? { reauthPassword: o.reauthPassword } : {}) } }),

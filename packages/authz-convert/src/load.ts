@@ -206,7 +206,7 @@ export async function loadLayers(dirs: readonly string[]): Promise<ConfigLayers>
     walk(dir, all);
     const ts = all.filter((f) => TS_SOURCE.test(f) && !/\.d\.[mc]?ts$/.test(f));
     if (ts.length > 0) {
-      problems.push(`config dir ${dir} holds TypeScript sources (${path.basename(ts[0])}); build the app and point the converter at the compiled config dir (for example lib/mjs/config)`);
+      problems.push(`config dir ${dir} holds TypeScript sources (${path.basename(ts[0])}); build the app and point the converter at the compiled config dir (for example lib/config)`);
       continue;
     }
     const configs = all.filter((f) => CONFIG_EXT.test(f));
@@ -230,7 +230,6 @@ export async function loadLayers(dirs: readonly string[]): Promise<ConfigLayers>
   }
   if (problems.length > 0) throw new ConversionError(problems);
 
-  DI.setESMModuleSupport();
   const envList = [...envs].sort();
   const first = await readAll(resolved, envList);
   const { source, common, bySuffix } = first;

@@ -904,6 +904,11 @@ export abstract class Response<T = any> {
 
   constructor(protected responseData?: T | Promise<T> | null, protected options?: IResponseOptions) { }
 
+  /** Status code `execute` answers with. */
+  public get statusCode(): number {
+    return this.options?.StatusCode ?? this._errorCode;
+  }
+
   public async execute(_req: express.Request, _res: express.Response, _next?: express.NextFunction): Promise<ResponseFunction | void> {
     const response = await this.prepareResponse();
     const { httpResponse } = await import('./responses.js');

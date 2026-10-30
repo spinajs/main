@@ -175,7 +175,7 @@ describe('loadTaskMethodLookup', () => {
   it('rethrows any other failure to load @spinajs/tasks', async () => {
     await expect(loadTaskMethodLookup(failing('broken module'))).to.be.rejectedWith('broken module');
     const missingInside = failing(
-      "Cannot find package 'luxon' imported from /app/node_modules/@spinajs/tasks/lib/mjs/decorators.js",
+      "Cannot find package 'luxon' imported from /app/node_modules/@spinajs/tasks/lib/decorators.js",
       'ERR_MODULE_NOT_FOUND',
     );
     await expect(loadTaskMethodLookup(missingInside)).to.be.rejectedWith(/luxon/);

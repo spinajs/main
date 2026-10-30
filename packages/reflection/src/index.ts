@@ -162,7 +162,7 @@ function _listOrResolveFromFiles(
           logger.trace({ file: f }, 'Loading file ${file}');
 
           return DI.__spinajs_require__(f).then((loaded: any) => {
-            // in ESM mode __spinajs_require__ unwraps a default export to the class itself
+            // __spinajs_require__ unwraps a default export to the class itself
             const fTypes = typeof loaded === 'function' ? { [loaded.name]: loaded } : loaded;
             const _k = Object.keys(fTypes);
             if (_k.length === 0) {

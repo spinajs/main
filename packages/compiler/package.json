@@ -2,36 +2,47 @@
   "name": "@spinajs/compiler",
   "version": "3.0.23",
   "description": "Build-time analyzer that emits the SpinaJS application manifest",
-  "main": "lib/cjs/index.js",
-  "module": "lib/mjs/index.js",
+  "main": "./lib/index.js",
   "exports": {
     ".": {
-      "types": "./lib/mjs/index.d.ts",
-      "import": "./lib/mjs/index.js",
-      "require": "./lib/cjs/index.js"
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
     }
   },
   "type": "module",
   "private": false,
-  "publishConfig": { "access": "public" },
-  "engines": { "node": ">=22.0.0" },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "compile": "tsc -b tsconfig.build.json",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "pretest": "npm run compile",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
     "coverage": "c8 npm run test",
     "lint": "cd ../.. && npm run lint -- packages/compiler"
   },
-  "files": ["lib/**/*"],
-  "repository": { "type": "git", "url": "git+https://github.com/spinajs/main.git" },
-  "keywords": ["spinajs", "compiler", "manifest"],
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "compiler",
+    "manifest"
+  ],
   "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
   "license": "MIT",
   "dependencies": {
     "@spinajs/manifest": "3.0.23",
+    "json-schema-to-typescript": "^16.0.0",
     "typescript": "~5.9.0"
   },
   "devDependencies": {
@@ -47,6 +58,10 @@
     "@spinajs/orm": "3.0.23",
     "@spinajs/queue": "3.0.23",
     "@spinajs/scheduler": "3.0.23",
-    "@spinajs/validation": "3.0.23"
-  }
+    "@spinajs/validation": "3.0.23",
+    "@types/luxon": "^3.6.1",
+    "@types/node": "^22.14.1",
+    "luxon": "^3.6.1"
+  },
+  "types": "./lib/index.d.ts"
 }

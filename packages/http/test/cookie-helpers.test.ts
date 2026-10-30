@@ -3,7 +3,7 @@ import { expect } from 'chai';
 
 import { HTTP_PUBLIC_COOKIE_SECRET, clearCookie, hostPrefixedCookie, isPublicCookieSecret } from '../src/index.js';
 // The built config: ts-node's type check rejects the default helmet import that the build accepts.
-import httpConfig from '../lib/mjs/config/http.js';
+import httpConfig from '../lib/config/http.js';
 
 describe('public cookie secret', () => {
   it('is the secret the default config ships', () => {

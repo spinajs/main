@@ -99,7 +99,7 @@ The answer must be HTTP 200 with a JSON object, `token_type` `Bearer` (any case)
 - Every answer carries `Cache-Control: no-store`.
 - The 401 body is the login route's body (`AUTHN_FAILURE_BODY` of `@spinajs/authn/contracts`), so a client cannot tell an OIDC failure from a wrong password.
 - The success page is a `<meta http-equiv="refresh">` page with `referrer` `no-referrer`. A `SameSite=Strict` session cookie does not travel on the cross-site redirect chain from the IdP, so the last hop starts on your site.
-- A core result `mfa_required` (a custom `MfaPolicy` that asks steps for `oidc` logins) sets the pending session cookie and moves on the same way. By default `DefaultMfaPolicy` asks no step for an `oidc` login; list `oidc` in `authn.mfa.policy.methods` to make it do so.
+- A core result `mfa_required` (a custom `MfaPolicy` that asks steps for `oidc` logins) sets the pending session cookie and moves on the same way. By default `DefaultMfaPolicy` asks no step for an `oidc` login; set `authn.mfa.policy.methods` to `['password', 'oidc']` to make it do so. The list replaces the default, so keep `password` in it: without it, password logins no longer get a second step.
 
 ## Flow cookie
 
@@ -130,7 +130,7 @@ The controller has the fixed prefix `auth/oidc`.
 | `DELETE /auth/oidc/:provider/link` | Removes a link of the current identity. | [Account linking](06-account-linking.md) |
 | `GET /auth/oidc/:provider/reauth` | Re-authenticates the current session. Optional `?returnTo=/path`; any other query key is refused. | this page |
 
-`OidcController` is not exported. The package config file adds its `lib/<cjs|mjs>/controllers` directory to `system.dirs.controllers`, and the HTTP server finds it by that scan.
+`OidcController` is not exported. The package config file adds its `lib/controllers` directory to `system.dirs.controllers`, and the HTTP server finds it by that scan.
 
 ## Configuration
 

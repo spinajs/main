@@ -50,5 +50,4 @@ export * from './configuration-schema.js';
 export * from './metadata.js';
 
 // NOTE: metadata.js is not exported from index to avoid circular dependency issues
-// Import directly from './metadata.js' if needed:
-// import { MetadataModel, MetadataRelation } from '@spinajs/orm/lib/mjs/metadata.js';
+// Import directly from './metadata.js' if needed.

@@ -12,7 +12,7 @@ import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from '.
 import { BaseController, BasePath, Controllers, HttpServer, Ok, Post, Req } from '../src/index.js';
 import type { Request } from '../src/index.js';
 // The built config, as in shipped-config.test.ts: ts-node's type check rejects the source's default helmet import.
-import shipped from '../lib/mjs/config/http.js';
+import shipped from '../lib/config/http.js';
 
 interface IReadResult {
   state: { flowing: boolean | null; ended: boolean };

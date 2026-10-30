@@ -1,0 +1,8 @@
+{
+  "name": "s11",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "main": "lib/index.js",
+  "spinajs": { "manifest": "lib/manifest.fragment.json" }
+}

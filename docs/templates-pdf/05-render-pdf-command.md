@@ -35,7 +35,7 @@ spinajs render-pdf <input> -o <file> [-t] [-m <model.json>] [-l <lang>] [--forma
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `system.dirs.cli` | `string[]` | this package's `lib/<mjs\|cjs>/cli` under `WORKSPACE_ROOT_PATH ?? cwd`, and one directory up | Directory paths | Where `@spinajs/cli` finds `render-pdf` |
+| `system.dirs.cli` | `string[]` | this package's `lib/cli` under `WORKSPACE_ROOT_PATH ?? cwd`, and one directory up | Directory paths | Where `@spinajs/cli` finds `render-pdf` |
 | `templates.pdf.*` | | | | Chromium, ports and timeouts; see [Renderer configuration](02-renderer-configuration.md) |
 
 ## Services and extension points

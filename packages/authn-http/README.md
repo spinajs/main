@@ -5,7 +5,7 @@ HTTP integration for SpinaJS authentication.
 ## Usage
 
 ```
-const authnHttp = require('@spinajs/authn-http');
+import * as authnHttp from '@spinajs/authn-http';
 
 // TODO: DEMONSTRATE API
 ```

@@ -44,15 +44,15 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20.x
+          node-version: 22.x
           cache: npm
 
       - name: install
         run: npm ci
 
-      # ts-mocha resolves @spinajs/* to lib/mjs; this builds orm-postgres and its reference graph.
-      - name: build orm-postgres + deps (mjs)
-        run: npx tsc -b packages/orm-postgres/tsconfig.mjs.json
+      # ts-mocha resolves @spinajs/* to lib; this builds orm-postgres and its reference graph.
+      - name: build orm-postgres + deps
+        run: npx tsc -b packages/orm-postgres/tsconfig.build.json
 
       - name: unit suite
         working-directory: packages/orm-postgres

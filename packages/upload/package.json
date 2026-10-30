@@ -2,32 +2,28 @@
   "name": "@spinajs/upload",
   "version": "3.0.23",
   "description": "Resumable, verified chunked uploads for SpinaJS: sessions, parts, assembly and cleanup",
-  "main": "lib/cjs/index.js",
-  "module": "lib/mjs/index.js",
+  "main": "./lib/index.js",
   "exports": {
     ".": {
-      "types": "./lib/mjs/index.d.ts",
-      "import": "./lib/mjs/index.js",
-      "require": "./lib/cjs/index.js"
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
     },
     "./scheduler": {
-      "types": "./lib/mjs/scheduler.d.ts",
-      "import": "./lib/mjs/scheduler.js",
-      "require": "./lib/cjs/scheduler.js"
+      "types": "./lib/scheduler.d.ts",
+      "import": "./lib/scheduler.js"
     },
     "./http": {
-      "types": "./lib/mjs/http/index.d.ts",
-      "import": "./lib/mjs/http/index.js",
-      "require": "./lib/cjs/http/index.js"
+      "types": "./lib/http/index.d.ts",
+      "import": "./lib/http/index.js"
     }
   },
   "typesVersions": {
     "*": {
       "scheduler": [
-        "lib/cjs/scheduler.d.ts"
+        "lib/scheduler.d.ts"
       ],
       "http": [
-        "lib/cjs/http/index.d.ts"
+        "lib/http/index.d.ts"
       ]
     }
   },
@@ -37,15 +33,14 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=20.19"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "compile": "tsc -b tsconfig.build.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
-    "pretest": "npm run compile && npm run compile:cjs && cd ../.. && node scripts/generate-packages-for-modules.mjs",
+    "pretest": "npm run compile",
     "test": "ts-mocha -p tsconfig.json --timeout 60000 test/**/*.test.ts",
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
@@ -112,5 +107,6 @@
     "@spinajs/validation": "3.0.23",
     "@types/luxon": "^3.4.2",
     "@types/mime-types": "^3.0.1"
-  }
+  },
+  "types": "./lib/index.d.ts"
 }

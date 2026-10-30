@@ -18,7 +18,7 @@ npm install @spinajs/configuration
 | --- | --- |
 | [Configuration service](01-configuration-service.md) | `FrameworkConfiguration`: boot steps, `get` / `set` / `merge` / `load`, options, CLI arguments, `configure()` hooks |
 | [Environments](02-environments.md) | How `APP_ENV`, `NODE_ENV` and `--env` pick the environment, the `*.dev.js` / `*.prod.json` suffixes, the `configuration.isProduction` flags |
-| [Config files](03-config-files.md) | `JsFileSource` and `JsonFileSource`: search directories, merge order, `onConfigLoad`, workspaces and ESM mode |
+| [Config files](03-config-files.md) | `JsFileSource` and `JsonFileSource`: search directories, merge order, `onConfigLoad`, workspaces |
 | [Custom configuration sources](04-custom-configuration-sources.md) | Add a source (database, remote service, YAML), `Order`, `StaticConfigurationSource`, the `__configuration__` value |
 | [Config var protocols](05-config-var-protocols.md) | `ConfigVarProtocol` and `ConfigVar`: resolve `proto://...` strings at load time, eagerly or lazily |
 | [Schema validation](06-schema-validation.md) | `__configurationSchema__`, `registerConfigurationSchema`, defaults, coercion, `InvalidConfiguration` and late schemas |
@@ -56,8 +56,6 @@ class Mailer {
 }
 
 async function main() {
-  DI.setESMModuleSupport();
-
   const configuration = await DI.resolve(Configuration);
   const retries = configuration.get<number>('mailer.retryCount', 1);
 
@@ -67,6 +65,24 @@ async function main() {
 
 void main();
 ```
+
+## Typed paths
+
+`Configuration.get()` and `@Config()` return the declared type for every path listed in the `ConfigPaths` interface of `@spinajs/configuration-common`. Paths that are not declared keep the untyped `get<T>(path, defaultValue?)` overload.
+
+```ts
+declare module '@spinajs/configuration-common' {
+  interface ConfigPaths {
+    'hooks.timeoutMs': number;
+  }
+}
+
+const timeout = config.get('hooks.timeoutMs'); // number
+```
+
+`spinajs generate:config-types` writes these declarations from the config module schemas in `app.manifest.json`: one entry per module, one per nested property. Include the generated file in the package's `tsconfig.json`.
+
+A declared path only accepts a default of its declared type: `config.get('hooks.timeoutMs', 'x')` does not match the typed overload and falls back to the untyped `get<T>()`, so the mismatch is not reported.
 
 ## Related packages
 

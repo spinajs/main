@@ -170,7 +170,7 @@ const CLI_PROCESS = `
     await store.putPending(carol, process.env.N8A_CHECK_CONFIG_CONFIRMED_STEP, 'v1.AAAA.BBBB.CCCC', 'kid-cli');
     await store.confirm(carol, process.env.N8A_CHECK_CONFIG_CONFIRMED_STEP);
   }
-  const dirs = [join(process.cwd(), 'lib', 'mjs', 'cli'), join(process.cwd(), '..', '..', 'node_modules', '@spinajs', 'authn-local', 'lib', 'mjs', 'cli')];
+  const dirs = [join(process.cwd(), 'lib', 'cli'), join(process.cwd(), '..', '..', 'node_modules', '@spinajs', 'authn-local', 'lib', 'cli')];
   for (const dir of dirs) for (const f of readdirSync(dir).filter((f) => f.endsWith('.js'))) await import(pathToFileURL(join(dir, f)).href);
   const { AuthnCheckConfig } = await import(pathToFileURL(join(dirs[0], 'AuthnCheckConfig.js')).href);
   await (await DI.resolve(AuthnCheckConfig)).execute();
@@ -234,18 +234,15 @@ describe('authn:check-config in a process that loads only what the CLI loads', f
 describe('importIfInstalled', () => {
   const failing = (e: object) => () => Promise.reject(Object.assign(new Error((e as { message: string }).message), e));
 
-  it('answers undefined for a package that is not installed, in plain node (ESM and CJS builds)', function () {
+  it('answers undefined for a package that is not installed, in plain node', function () {
     // ts-node's loader drops the error code, so the real errors are checked against the built package outside it.
     this.timeout(60000);
     const env: NodeJS.ProcessEnv = { ...process.env };
     delete env.NODE_OPTIONS;
-    const esm = `const { importIfInstalled } = await import('./lib/mjs/optional-import.js'); console.log(String(await importIfInstalled('@spinajs/n8a-no-such-package')));`;
-    const cjs = `require('./lib/cjs/optional-import.js').importIfInstalled('@spinajs/n8a-no-such-package').then((m) => console.log(String(m)), (e) => { console.error(e); process.exit(1); });`;
-    for (const [inputType, body] of [['module', esm], ['commonjs', cjs]]) {
-      const r = spawnSync(process.execPath, [`--input-type=${inputType}`, '-e', body], { cwd: PKG_ROOT, encoding: 'utf8', env });
-      expect(r.status, r.stderr).to.eq(0);
-      expect(r.stdout.trim(), inputType).to.eq('undefined');
-    }
+    const body = `const { importIfInstalled } = await import('./lib/optional-import.js'); console.log(String(await importIfInstalled('@spinajs/n8a-no-such-package')));`;
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e', body], { cwd: PKG_ROOT, encoding: 'utf8', env });
+    expect(r.status, r.stderr).to.eq(0);
+    expect(r.stdout.trim()).to.eq('undefined');
   });
 
   it('answers undefined only when the named package itself is missing (ESM and CJS errors)', async () => {

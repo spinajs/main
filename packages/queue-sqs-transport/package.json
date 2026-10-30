@@ -2,13 +2,9 @@
   "name": "@spinajs/queue-sqs-transport",
   "version": "3.0.23",
   "description": "spinajs queue transport based on Amazon SQS. Sends & reads queue messages ( jobs & events ) from an Amazon SQS queue.",
-  "main": "lib/cjs/index.js",
-  "module": "lib/mjs/index.js",
+  "main": "./lib/index.js",
   "exports": {
-    ".": {
-      "import": "./lib/mjs/index.js",
-      "require": "./lib/cjs/index.js"
-    }
+    ".": "./lib/index.js"
   },
   "type": "module",
   "private": false,
@@ -16,12 +12,11 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=16.11"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "compile": "tsc -b tsconfig.build.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -62,5 +57,6 @@
     "@spinajs/exceptions": "3.0.23",
     "@spinajs/log": "3.0.23",
     "@spinajs/queue": "3.0.23"
-  }
+  },
+  "types": "./lib/index.d.ts"
 }

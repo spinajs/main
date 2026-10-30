@@ -110,7 +110,7 @@ void main();
 - `resolve(Array.chainOf(T))` with a non-async base is typed `T[] | Promise<T[]>`; `await` it.
 - A single resolve of an unregistered `T` registers nothing, so its bare instance never shows up in `Array.ofType(T)` or `Array.chainOf(T)`.
 - `Array.ofType(T)` and `Array.chainOf(T)` in one `@Inject` are two separate dependencies.
-- **A second copy of `@spinajs/di` in the process** (the cjs and the mjs build side by side, or the packages of another checkout) does not replace `Array.ofType` and `Array.chainOf`: each is installed on `Array` only when absent, so the first copy loaded keeps them.
+- **A second copy of `@spinajs/di` in the process** (two installs, or the packages of another checkout) does not replace `Array.ofType` and `Array.chainOf`: each is installed on `Array` only when absent, so the first copy loaded keeps them.
 - The container recognises a list marker by its class name (`TypedArray`, `ChainArray`), not by `instanceof`. A marker built by another copy resolves as a list, collects singletons already cached under their own name, and is cached as the collection, not as its first element.
 
 ## Best practices

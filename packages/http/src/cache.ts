@@ -119,9 +119,9 @@ const ENTRY_NAME = /^(doc_)?[^_]+_[0-9a-f]+$/;
  * Best-effort lookup of this package's version, the same way `@spinajs/cli` reads its own.
  *
  * Resolved rather than joined onto cwd: node walks the parent `node_modules` chain, so this holds
- * when the process starts somewhere below the app root - a monorepo package, a test runner. Node's
- * own resolver is used because neither `import.meta.url` nor `__filename` exists in both the ESM
- * and the CommonJS build of this module. Requires `./package.json` in the package's `exports`.
+ * when the process starts somewhere below the app root - a monorepo package, a test runner. Anchored
+ * at the app root (WORKSPACE_ROOT_PATH or cwd) on purpose, so the version is the one the app installed.
+ * Requires `./package.json` in the package's `exports`.
  */
 function resolveVersion(): string {
   try {

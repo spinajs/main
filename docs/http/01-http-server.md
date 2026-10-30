@@ -120,8 +120,8 @@ The package configuration also adds three `fs.providers` entries and two `system
 | `fs.providers` `__file_upload_default_provider__` | `fsNative` at `os.tmpdir()` | [File uploads](08-file-uploads.md) |
 | `fs.providers` `__fs_http_response_templates__` | `fsNative` at `<package>/lib/views/responses` | HTML responses and error pages |
 | `fs.providers` `__fs_controller_cache__` | `fsNative` at `<cwd>/__cache__/__controllers__` | [Controller cache](21-controller-cache-and-cli.md) |
-| `system.dirs.locales` | `<package>/lib/<cjs\|mjs>/locales` | translations |
-| `system.dirs.cli` | `<package>/lib/<cjs\|mjs>/cli` | the `http:controllers:cache` command |
+| `system.dirs.locales` | `<package>/lib/locales` | translations |
+| `system.dirs.cli` | `<package>/lib/cli` | the `http:controllers:cache` command |
 
 `<package>` resolves to `node_modules/@spinajs/http` under `WORKSPACE_ROOT_PATH`, or under the current directory when that variable is not set.
 

@@ -1,5 +1,5 @@
 import { Autoinject, ClassInfo, NewInstance, TypedArray } from '@spinajs/di';
-import { BaseController, IRoute, IRouteParameter, ParameterType, RouteType } from '@spinajs/http';
+import { BaseController, IRoute, IRouteParameter, PROBLEM_DETAILS_SCHEMA, ParameterType, RouteType } from '@spinajs/http';
 import { SCHEMA_SYMBOL, SchemaProvider } from '@spinajs/validation';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { safeParse } from '@spinajs/util';
@@ -1493,7 +1493,7 @@ ${line}` : line;
       responses[name] = {
         description: description || STANDARD_RESPONSE_DESCRIPTIONS[statusCode] || name,
         content: {
-          'application/json': { schema: { $ref: '#/components/schemas/Error' } },
+          'application/problem+json': { schema: { $ref: '#/components/schemas/ProblemDetails' } },
         },
       };
       this.registeredResponses.add(name);
@@ -1503,25 +1503,18 @@ ${line}` : line;
   }
 
   /**
-   * Register the shared Error schema once. Matches the runtime error envelope
-   * built in packages/http/src/error.ts (spread of the Error instance + message,
-   * with optional stack in dev).
+   * Register the shared ProblemDetails schema once, from PROBLEM_DETAILS_SCHEMA of @spinajs/http.
    */
   private ensureErrorSchema(): void {
     if (this.errorSchemaRegistered) return;
 
     const components = (this.document.components ??= {});
     const schemas = (components.schemas ??= {});
-    if (!schemas.Error) {
-      schemas.Error = {
-        type: 'object',
-        required: ['message'],
-        properties: {
-          message: { type: 'string', description: 'Human-readable error message' },
-          code: { type: 'integer', description: 'HTTP status code (when present)' },
-          stack: { type: 'object', description: 'Stack trace — dev environments only', nullable: true },
-        },
-      };
+    if (!schemas.ProblemDetails) {
+      const schema = structuredClone(PROBLEM_DETAILS_SCHEMA) as Record<string, unknown>;
+      delete schema.$schema;
+      delete schema.$id;
+      schemas.ProblemDetails = schema;
     }
     this.errorSchemaRegistered = true;
   }

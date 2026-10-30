@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 export function generate() {
-  const config = { path: resolve(root, 'src/types.ts'), tsconfig: resolve(root, 'tsconfig.mjs.json'), additionalProperties: true, skipTypeCheck: true, expose: 'all', jsDoc: 'none' };
+  const config = { path: resolve(root, 'src/types.ts'), tsconfig: resolve(root, 'tsconfig.build.json'), additionalProperties: true, skipTypeCheck: true, expose: 'all', jsDoc: 'none' };
   const definitions = {};
   for (const type of ['Manifest', 'ManifestFragment']) {
     Object.assign(definitions, createGenerator({ ...config, type }).createSchema(type).definitions);

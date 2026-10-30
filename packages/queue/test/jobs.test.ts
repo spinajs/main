@@ -11,7 +11,7 @@ import '@spinajs/orm-sqlite';
 import * as sinon from 'sinon';
 import { Socket } from 'net';
 
-import '../../queue-stomp-transport/lib/mjs/connection.js';
+import '../../queue-stomp-transport/lib/connection.js';
 import { MigrationTransactionMode, OrmMigrator } from '@spinajs/orm';
 
 chai.use(chaiAsPromised);

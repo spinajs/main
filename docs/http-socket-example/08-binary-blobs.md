@@ -58,7 +58,7 @@ const text = new TextDecoder().decode(toBytes(await notes.command('blob.get', { 
 ```ts sample
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { connectNotes, toBytes } from '@spinajs/http-socket-example/lib/mjs/client.js';
+import { connectNotes, toBytes } from '@spinajs/http-socket-example/lib/client.js';
 import { SocketException } from '@spinajs/http-socket-client';
 
 async function uploadAttachment(url: string, path: string, file: string): Promise<string> {

@@ -8,7 +8,7 @@ import { Log, Logger } from '@spinajs/log';
 import { CodedHttpException, Forbidden } from '@spinajs/exceptions';
 import { Hooks } from '@spinajs/hooks';
 import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
-import { SINGLETON_CREDENTIAL_HEADERS, ServerMiddleware, repeatedHeader } from '@spinajs/http';
+import { SINGLETON_CREDENTIAL_HEADERS, ServerMiddleware, repeatedHeader, withProblemFields } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { CredentialExtractor, SessionIssuer, resolveSession } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, Principal, Session, SignedRequest } from '@spinajs/authn/contracts';
@@ -166,7 +166,7 @@ export class AuthnMiddleware extends ServerMiddleware {
       if (!refusal) throw err;
       await publishAuthnEvent(this.Container, req, { type: 'request.refuse', outcome: 'failure', reason: refusal.reason, ...(principal ? { identity: { type: principal.type, id: principal.id } } : {}) });
       // @spinajs/http spreads the error's own props into the 403 body.
-      throw Object.assign(new Forbidden('the request was refused'), { error: 'action_refused', code: refusal.code });
+      throw withProblemFields(new Forbidden('the request was refused'), { error: 'action_refused', code: refusal.code });
     }
   }
 

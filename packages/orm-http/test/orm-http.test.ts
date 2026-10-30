@@ -144,7 +144,7 @@ describe('Http orm tests', function () {
       const result = await req().get('filter/testFilter?filter=[{"Column": "Number", "Operator": "between","Value": 1}]').set('Accept', 'application/json');
       expect(result.status).to.eq(400);
       expect(result.body).to.be.an('object');
-      expect(result.body.message).to.be.eq('validation error');
+      expect(result.body.detail).to.be.eq('validation error');
     });
 
     it('simple query', async () => {

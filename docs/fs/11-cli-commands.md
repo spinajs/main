@@ -45,7 +45,7 @@ spinajs fs-hash uploads incoming/video.mp4 --algo sha512
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `system.dirs.cli` | `string[]` | includes `node_modules/@spinajs/fs/lib/<cjs or mjs>/cli` under `WORKSPACE_ROOT_PATH` (or `cwd`) and one directory up | directory paths | Where `@spinajs/cli` finds commands. Set `WORKSPACE_ROOT_PATH` when you run `spinajs` from another directory. |
+| `system.dirs.cli` | `string[]` | includes `node_modules/@spinajs/fs/lib/cli` under `WORKSPACE_ROOT_PATH` (or `cwd`) and one directory up | directory paths | Where `@spinajs/cli` finds commands. Set `WORKSPACE_ROOT_PATH` when you run `spinajs` from another directory. |
 
 Provider configuration is the same as for the application: see [Providers and configuration](01-providers-and-configuration.md#configuration).
 

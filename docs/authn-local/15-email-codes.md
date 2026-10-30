@@ -40,7 +40,7 @@ List the strategy: `authn.strategies: [{ name: 'email-code', service: 'EmailCode
 
 1. `PasswordService.requestCode(login, ctx)` counts the attempt in the `reset` throttle flow under the keys `code:<normalised login>` and the client ip, answers `{ status: 'accepted' }` at once, and does the lookup and the mail as deferred work. An unknown login, a login that is not active, and a login whose address the store reports unverified (`addressVerified === false`) get no mail and the same answer. A store that does not track verification still gets the mail.
 2. `authenticate({ kind: 'email-code', login, code })` verifies the code once: `method: 'email-code'`, `assurance: 'aal1'`. A wrong, spent, expired or voided code, an unknown login and a malformed code all answer `invalid_credentials`.
-3. A code login is a single factor like a password. `authn.mfa.policy.methods` defaults to `['password']`, so it asks for no second step. Add `email-code` to the list to ask for one.
+3. A code login is a single factor like a password. `authn.mfa.policy.methods` defaults to `['password']`, so it asks for no second step. Set the list to `['password', 'email-code']` to ask for one. The list replaces the default, so keep `password` in it: without it, password logins no longer get a second step.
 
 The strategy counts in the account key `code:<normalised login>` of the `login` flow, not in the password one, so wrong codes and a successful code login neither use up nor clear the password backoff. `authn.login.requireVerifiedAddress` applies to it like to any login method.
 

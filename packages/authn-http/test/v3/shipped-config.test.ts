@@ -11,6 +11,6 @@ describe('authn-http shipped config', () => {
 
   it('scans its cli dir, so authn:check-config is on in every app', () => {
     const dirs = (shipped.system.dirs as { cli?: string[] }).cli ?? [];
-    expect(dirs.map((d) => d.replace(/\\/g, '/'))).to.satisfy((list: string[]) => list.some((d) => /\/@spinajs\/authn-http\/lib\/(mjs|cjs)\/cli$/.test(d)));
+    expect(dirs.map((d) => d.replace(/\\/g, '/'))).to.satisfy((list: string[]) => list.some((d) => /\/@spinajs\/authn-http\/lib\/cli$/.test(d)));
   });
 });

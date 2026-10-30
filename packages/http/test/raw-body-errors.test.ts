@@ -50,13 +50,13 @@ describe('raw body error responses', function () {
   it('answers 413 for a LimitExceeded', async () => {
     const res = await req().get('raw-body-errors/limit');
     expect(res).to.have.status(HTTP_STATUS_CODE.ENTITY_TOO_LARGE);
-    expect((res.body as { message: string }).message).to.eq('stream is over 10 bytes');
+    expect((res.body as { detail: string }).detail).to.eq('stream is over 10 bytes');
   });
 
   it('answers 415 for an UnsupportedMediaTypeException', async () => {
     const res = await req().get('raw-body-errors/unsupported');
     expect(res).to.have.status(415);
-    expect((res.body as { message: string }).message).to.eq('this route reads a raw request body');
+    expect((res.body as { detail: string }).detail).to.eq('this route reads a raw request body');
   });
 
   it('renders the 415 page for an html client', async () => {

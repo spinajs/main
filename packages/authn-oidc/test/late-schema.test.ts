@@ -22,16 +22,16 @@ const APP_PROCESS = `
   }
   DI.register(AppConfiguration).as(Configuration);
   await DI.resolve(Configuration);
-  const { OidcController } = await import('./lib/mjs/controllers/OidcController.js');
+  const { OidcController } = await import('./lib/controllers/OidcController.js');
   const { AuthnService, SessionIssuer } = await import('@spinajs/authn/contracts');
   DI.register(() => ({})).as(AuthnService);
   DI.register(() => ({})).as(SessionIssuer);
-  const { OidcBeginQuery } = await import('./lib/mjs/dto.js');
+  const { OidcBeginQuery } = await import('./lib/dto.js');
   const connection = { encrypted: false, peer: '127.0.0.1', clientIp: undefined };
   try {
     const controller = await DI.resolve(OidcController);
     const response = await controller.begin('corp', new OidcBeginQuery({}), null, connection);
-    const { OidcProviders } = await import('./lib/mjs/providers.js');
+    const { OidcProviders } = await import('./lib/providers.js');
     const providers = await DI.resolve(OidcProviders);
     console.log(JSON.stringify({ status: response.answer.status, providers: providers.options.providers.size, redirects: providers.options.redirects }));
   } catch (e) {

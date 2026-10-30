@@ -3,7 +3,7 @@ import { Config } from '@spinajs/configuration';
 import { AccessDenied, AuthzConfigError, AuthzDomains, FALSE, ResourceAdapter, Unauthenticated, authzStorage, isProduction, parsePermission, DefaultAuthzDomains } from '@spinajs/authz';
 import type { AuthzService, Decision, DenyReason, Permission, Principal, ResourceRef } from '@spinajs/authz';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { BasePolicy } from '@spinajs/http';
+import { BasePolicy, withProblemFields } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 
 import { domainConfig } from '../domains.js';
@@ -17,7 +17,7 @@ export type AccessScope = 'route' | 'class';
 
 /** 401 body: `{ error: 'unauthenticated', message }`. */
 export function unauthenticated(message: string): Unauthenticated {
-  return Object.assign(new Unauthenticated(message), { error: 'unauthenticated' });
+  return withProblemFields(new Unauthenticated(message), { error: 'unauthenticated' });
 }
 
 /** The reason as the 403 body shows it: its payload without the ordering keys (design §11.2). */
@@ -33,7 +33,7 @@ export function forbidden(decision: Decision, trace?: unknown): AccessDenied {
   const reason = publicReason(decision.reason);
   if (reason) body.reason = reason;
   if (trace !== undefined) body.trace = trace;
-  return Object.assign(new AccessDenied(decision), body);
+  return withProblemFields(new AccessDenied(decision), body);
 }
 
 /** The check of the explain permission; only an unconditional grant holds it, since nothing on the explain paths would enforce a residual. */

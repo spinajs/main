@@ -1,1 +1,1 @@
-{ "compilerOptions": { "target": "ES2021", "module": "node16", "moduleResolution": "node16", "experimentalDecorators": true, "emitDecoratorMetadata": true, "strict": true, "noEmit": true, "skipLibCheck": true, "types": ["node"] }, "include": ["*.ts"] }
+{ "compilerOptions": { "target": "ES2021", "module": "node16", "moduleResolution": "node16", "experimentalDecorators": true, "emitDecoratorMetadata": true, "strict": true, "noEmit": true, "skipLibCheck": true, "types": ["node"] }, "include": ["*.ts", "inner/*.ts"] }

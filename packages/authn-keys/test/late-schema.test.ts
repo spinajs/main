@@ -22,8 +22,8 @@ const CLI_PROCESS = `
   }
   DI.register(CliProcessConfiguration).as(Configuration);
   await DI.resolve(Configuration);
-  await import('./lib/mjs/cli/AddKey.js');
-  const { DefaultKeyRegistry } = await import('./lib/mjs/registry/registry.js');
+  await import('./lib/cli/AddKey.js');
+  const { DefaultKeyRegistry } = await import('./lib/registry/registry.js');
   const registry = new DefaultKeyRegistry();
   try {
     console.log(JSON.stringify({ options: registry.options }));

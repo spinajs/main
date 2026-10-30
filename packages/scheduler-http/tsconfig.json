@@ -2,24 +2,53 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "rootDir": "./",
-    "outDir": "./lib/mjs",
+    "outDir": "./lib",
     "module": "node16",
     "moduleResolution": "node16"
   },
-  "include": ["src/**/*", "test/**/*"],
+  "include": [
+    "src/**/*",
+    "test/**/*"
+  ],
   "references": [
-    { "path": "../authz/tsconfig.json" },
-    { "path": "../authz-http/tsconfig.json" },
-    { "path": "../authz-testing/tsconfig.json" },
-    { "path": "../configuration/tsconfig.json" },
-    { "path": "../di/tsconfig.json" },
-    { "path": "../exceptions/tsconfig.json" },
-    { "path": "../fs/tsconfig.json" },
-    { "path": "../http/tsconfig.json" },
-    { "path": "../http-swagger/tsconfig.json" },
-    { "path": "../orm/tsconfig.json" },
-    { "path": "../orm-sqlite/tsconfig.json" },
-    { "path": "../scheduler/tsconfig.json" },
-    { "path": "../validation/tsconfig.json" }
+    {
+      "path": "../authz/tsconfig.json"
+    },
+    {
+      "path": "../authz-http/tsconfig.json"
+    },
+    {
+      "path": "../authz-testing/tsconfig.json"
+    },
+    {
+      "path": "../configuration/tsconfig.json"
+    },
+    {
+      "path": "../di/tsconfig.json"
+    },
+    {
+      "path": "../exceptions/tsconfig.json"
+    },
+    {
+      "path": "../fs/tsconfig.json"
+    },
+    {
+      "path": "../http/tsconfig.json"
+    },
+    {
+      "path": "../http-swagger/tsconfig.json"
+    },
+    {
+      "path": "../orm/tsconfig.json"
+    },
+    {
+      "path": "../orm-sqlite/tsconfig.json"
+    },
+    {
+      "path": "../scheduler/tsconfig.json"
+    },
+    {
+      "path": "../validation/tsconfig.json"
+    }
   ]
 }

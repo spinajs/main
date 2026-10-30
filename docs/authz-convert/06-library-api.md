@@ -84,7 +84,7 @@ import { ConversionError, convert, readDbFacts, scanSources } from '@spinajs/aut
 export async function migrateConfig(outDir: string): Promise<void> {
   try {
     const result = await convert({
-      dirs: ['lib/mjs/config'],
+      dirs: ['lib/config'],
       db: readDbFacts('exports/rbac-facts.json'),
       src: scanSources('src'),
       selfResources: ['user', 'profile'],

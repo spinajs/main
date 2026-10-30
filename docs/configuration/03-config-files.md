@@ -24,8 +24,8 @@ In merge order; later directories win for scalars:
 | # | Directory | When |
 | --- | --- | --- |
 | 1 | `<cwd>/src/config` | always (package tests) |
-| 2 | `<dir>/node_modules/@spinajs/*/lib/<mjs\|cjs>/config` for every ancestor `<dir>` of the working directory that has `node_modules`, nearest first, up to the workspace root | always |
-| 3 | `<WORKSPACE_ROOT_PATH>/node_modules/@spinajs/*/lib/<mjs\|cjs>/config` | when `WORKSPACE_ROOT_PATH` is set or detected |
+| 2 | `<dir>/node_modules/@spinajs/*/lib/config` for every ancestor `<dir>` of the working directory that has `node_modules`, nearest first, up to the workspace root | always |
+| 3 | `<WORKSPACE_ROOT_PATH>/node_modules/@spinajs/*/lib/config` | when `WORKSPACE_ROOT_PATH` is set or detected |
 | 4 | `<cwd>/lib/config`, `<cwd>/dist/config`, `<cwd>/build/config`, `<cwd>/config` | always |
 | 5 | `<appBaseDir>/<app>/config` | when `app` and `appBaseDir` are set |
 | 6 | `<cwd>/apps/<app>/config`, `<cwd>/dist/apps/<app>/config`, `<cwd>/lib/apps/<app>/config`, `<cwd>/build/apps/<app>/config` | when `app` is set |
@@ -33,7 +33,7 @@ In merge order; later directories win for scalars:
 
 The workspace root is the nearest ancestor, the working directory included, whose `package.json` declares `workspaces` or that holds a `pnpm-workspace.yaml`. Directories above it belong to another project and are not searched, so a checkout nested in another one (a git worktree inside the main checkout) does not load the outer checkout's packages. Without a workspace root the search goes up to the filesystem root.
 
-`mjs` is used when ESM mode is on (`DI.setESMModuleSupport()`), `cjs` otherwise. A directory that does not exist is skipped.
+A directory that does not exist is skipped. A file reached through more than one directory (a workspace package is also reached through its `node_modules` symlink) loads once, at the last place it is reached.
 
 ## Configuration
 
@@ -71,7 +71,7 @@ export default {
 };
 ```
 
-A package config points `system.dirs` at its own build with `packageLibDirs(pkg, sub)`. It returns two paths, `<root>/node_modules/<pkg>/lib/<cjs|mjs>/<sub>` and the same one directory up (for a process started from an app or build folder), where `<root>` is `WORKSPACE_ROOT_PATH`, else the working directory. `cjs` or `mjs` follows how `@spinajs/configuration` was loaded. Node only.
+A package config points `system.dirs` at its own build with `packageLibDirs(pkg, sub)`. It returns two paths, `<root>/node_modules/<pkg>/lib/<sub>` and the same one directory up (for a process started from an app or build folder), where `<root>` is `WORKSPACE_ROOT_PATH`, else the working directory. Node only.
 
 ```ts
 // src/config/my-package.ts
@@ -91,7 +91,7 @@ export default {
 | JS file source | `ConfigurationSource`, singleton (`@Injectable(ConfigurationSource)`), `Order` 1 | `JsFileSource` | none | Subclass `BaseFileSource`; or remove it with `DI.unregister(JsFileSource)` before the configuration resolves. |
 | JSON file source | `ConfigurationSource`, singleton (`@Injectable(ConfigurationSource)`), `Order` 1 | `JsonFileSource` | none | Same as above. |
 | File source base | abstract class `BaseFileSource` | none | `JsFileSource`, `JsonFileSource` | Extend it for another format; override `Order` and `getEnvironment()` as needed. |
-| Module loader | `__module_loader__` DI value, read by `DI.__spinajs_require__()` | `import()` in ESM mode, `require()` otherwise | any `{ load(path) }` | Register to load config modules in a bundled build. See [`@spinajs/di`](../di/README.md). |
+| Module loader | `__module_loader__` DI value, read by `DI.__spinajs_require__()` | `import()` | any `{ load(path) }` | Register to load config modules in a bundled build. See [`@spinajs/di`](../di/README.md). |
 
 ### BaseFileSource: custom file format
 
@@ -160,7 +160,6 @@ void main();
 - A file whose name has a dot before the extension (`my.settings.js`) is not a common file. It loads only when the environment is named after its second part (`settings`).
 - Directories are globbed recursively: `config/nested/db.js` loads like `config/db.js`. The directory structure does not change the config keys; only the exported object does.
 - A config module that throws on import, or a JSON file with a syntax error, is logged and skipped. The configuration boots without it, and a schema may then fill defaults for the missing module.
-- Without `DI.setESMModuleSupport()`, the sources search `lib/cjs/config` of each `@spinajs` package and load files with `require()`. An ESM app must call it before the configuration resolves.
 - `WORKSPACE_ROOT_PATH` is detected once per source construction and written to `process.env`. In a workspace, without it, package configs build paths under the app package that do not exist.
 - The ancestor walk (row 2 and the `WORKSPACE_ROOT_PATH` detection) stops at the workspace root, but an explicit `WORKSPACE_ROOT_PATH` is searched wherever it points (row 3). In a nested checkout, leave it unset or point it at the inner checkout, or the outer packages load again.
 - A project with neither `workspaces` nor `pnpm-workspace.yaml` walks up to the filesystem root. Inside another project's tree it loads that project's `@spinajs` package configs; add a `pnpm-workspace.yaml` or a `workspaces` entry to stop the walk.
@@ -199,8 +198,6 @@ import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 
 async function main() {
-  DI.setESMModuleSupport();
-
   const configuration = await DI.resolve(Configuration, [
     { cfgCustomPaths: [join(process.cwd(), 'test', 'fixtures', 'config')] },
   ]);

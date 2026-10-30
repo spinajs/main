@@ -1,4 +1,5 @@
 import { AuthzConfigError, AuthzDomains } from '@spinajs/authz';
+import { withProblemFields } from '@spinajs/http';
 import type { Principal } from '@spinajs/authz';
 import { RoleSource, TokenService } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
@@ -20,7 +21,7 @@ interface ProfilePolicy {
 /** 404, as authn-http's token routes answer, while no TokenService is registered: no token can be created. */
 export function assertTokenRoutesOn(): void {
   if (!DI.RootContainer.hasImplementation(TokenService)) {
-    throw Object.assign(new ResourceNotFound('the token routes are off: no TokenService is registered'), { error: 'not_found' });
+    throw withProblemFields(new ResourceNotFound('the token routes are off: no TokenService is registered'), { error: 'not_found' });
   }
 }
 

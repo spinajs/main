@@ -1,117 +1,329 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/cli/tsconfig.mjs.json" },
-    { "path": "packages/compiler/tsconfig.mjs.json" },
-    { "path": "packages/configuration/tsconfig.mjs.json" },
-    { "path": "packages/configuration-common/tsconfig.mjs.json" },
-    { "path": "packages/configuration-db-source/tsconfig.mjs.json" },
-    { "path": "packages/di/tsconfig.mjs.json" },
-    { "path": "packages/exceptions/tsconfig.mjs.json" },
-    { "path": "packages/internal-logger/tsconfig.mjs.json" },
-    { "path": "packages/log-common/tsconfig.mjs.json" },
-    { "path": "packages/telemetry-common/tsconfig.mjs.json" },
-    { "path": "packages/http-socket-common/tsconfig.mjs.json" },
-    { "path": "packages/http-socket-client/tsconfig.mjs.json" },
-    { "path": "packages/util/tsconfig.mjs.json" },
-    { "path": "packages/hooks/tsconfig.mjs.json" },
-    { "path": "packages/manifest/tsconfig.mjs.json" },
-    { "path": "packages/principal/tsconfig.mjs.json" },
-    { "path": "packages/fs/tsconfig.mjs.json" },
-    { "path": "packages/electron/tsconfig.mjs.json" },
-    { "path": "packages/email/tsconfig.mjs.json" },
-    { "path": "packages/email-smtp-transport/tsconfig.mjs.json" },
-    { "path": "packages/fs-s3/tsconfig.mjs.json" },
-    { "path": "packages/http/tsconfig.mjs.json" },
-    { "path": "packages/queue-http-progress/tsconfig.mjs.json" },
-    { "path": "packages/http-swagger/tsconfig.mjs.json" },
-    { "path": "packages/intl/tsconfig.mjs.json" },
-    { "path": "packages/intl-http/tsconfig.mjs.json" },
-    { "path": "packages/intl-orm/tsconfig.mjs.json" },
-    { "path": "packages/log/tsconfig.mjs.json" },
-    { "path": "packages/log-source-graphana-loki/tsconfig.mjs.json" },
-    { "path": "packages/orm/tsconfig.mjs.json" },
-    { "path": "packages/orm-http/tsconfig.mjs.json" },
-    { "path": "packages/orm-mssql/tsconfig.mjs.json" },
-    { "path": "packages/orm-mysql/tsconfig.mjs.json" },
-    { "path": "packages/orm-postgres/tsconfig.mjs.json" },
-    { "path": "packages/orm-sql/tsconfig.mjs.json" },
-    { "path": "packages/orm-sqlite/tsconfig.mjs.json" },
-    { "path": "packages/orm-cli/tsconfig.mjs.json" },
-    { "path": "packages/queue/tsconfig.mjs.json" },
-    { "path": "packages/queue-orm-transport/tsconfig.mjs.json" },
-    { "path": "packages/queue-stomp-transport/tsconfig.mjs.json" },
-    { "path": "packages/queue-templates-pdf/tsconfig.mjs.json" },
-    { "path": "packages/users/tsconfig.mjs.json" },
-    { "path": "packages/reflection/tsconfig.mjs.json" },
-    { "path": "packages/session-provider-db/tsconfig.mjs.json" },
-    { "path": "packages/session-provider-dynamodb/tsconfig.mjs.json" },
-    { "path": "packages/email-verification/tsconfig.mjs.json" },
-    { "path": "packages/email-verification-orm/tsconfig.mjs.json" },
-    { "path": "packages/email-verification-redis/tsconfig.mjs.json" },
-    { "path": "packages/email-verification-dynamodb/tsconfig.mjs.json" },
-    { "path": "packages/templates/tsconfig.mjs.json" },
-    { "path": "packages/templates-handlebars/tsconfig.mjs.json" },
-    { "path": "packages/templates-pug/tsconfig.mjs.json" },
-    { "path": "packages/templates-puppeteer/tsconfig.mjs.json" },
-    { "path": "packages/templates-xlsx/tsconfig.mjs.json" },
-    { "path": "packages/templates-image/tsconfig.mjs.json" },
-    { "path": "packages/validation/tsconfig.mjs.json" },
-    { "path": "packages/telemetry/tsconfig.mjs.json" },
-    { "path": "packages/telemetry-otel/tsconfig.mjs.json" },
-    { "path": "packages/templates-pdf/tsconfig.mjs.json" },
-    { "path": "packages/templates-csv/tsconfig.mjs.json" },
-    { "path": "packages/template-mjml/tsconfig.mjs.json" },
-    { "path": "packages/tasks/tsconfig.mjs.json" },
-    { "path": "packages/scheduler/tsconfig.mjs.json" },
-    { "path": "packages/scheduler-http/tsconfig.mjs.json" },
-    { "path": "packages/threading/tsconfig.mjs.json" },
-    { "path": "packages/orm-threading/tsconfig.mjs.json" },
-    { "path": "packages/configuration-aws-secretmanager-protocol/tsconfig.mjs.json" },
-    { "path": "packages/configuration-fs-protocol/tsconfig.mjs.json"},
-    { "path": "packages/configuration-http/tsconfig.mjs.json"},
-    { "path": "packages/http-socket/tsconfig.mjs.json"},
-    { "path": "packages/http-socket-example/tsconfig.mjs.json" },
-    { "path": "packages/fs-ftp/tsconfig.mjs.json" },
-    { "path": "packages/fs-onedrive/tsconfig.mjs.json" },
-    { "path": "packages/http-bot/tsconfig.mjs.json" },
-    { "path": "packages/http-lazy-file-uploader/tsconfig.mjs.json" },
-    { "path": "packages/log-otlp/tsconfig.mjs.json" },
-    { "path": "packages/queue-amqp-transport/tsconfig.mjs.json" },
-    { "path": "packages/queue-sqs-transport/tsconfig.mjs.json" },
-    { "path": "packages/session-provider-redis/tsconfig.mjs.json" },
-    { "path": "packages/authz/tsconfig.mjs.json" },
-    { "path": "packages/authz-testing/tsconfig.mjs.json" },
-    { "path": "packages/authz-rbac/tsconfig.mjs.json" },
-    { "path": "packages/authz-abac/tsconfig.mjs.json" },
-    { "path": "packages/eslint-plugin-authz/tsconfig.mjs.json" },
-    { "path": "packages/authz-orm/tsconfig.mjs.json" },
-    { "path": "packages/authz-http/tsconfig.mjs.json" },
-    { "path": "packages/authz-http-admin/tsconfig.mjs.json" },
-    { "path": "packages/authz-rebac/tsconfig.mjs.json" },
-    { "path": "packages/authz-queue/tsconfig.mjs.json" },
-    { "path": "packages/authz-fs/tsconfig.mjs.json" },
-    { "path": "packages/authz-convert/tsconfig.mjs.json" },
-    { "path": "packages/teams/tsconfig.mjs.json" },
-    { "path": "packages/teams-http/tsconfig.mjs.json" },
-    { "path": "packages/upload/tsconfig.mjs.json" },
-    { "path": "packages/authn/tsconfig.mjs.json" },
-    { "path": "packages/authn-testing/tsconfig.mjs.json" },
-    { "path": "packages/authn-orm/tsconfig.mjs.json" },
-    { "path": "packages/authn-session/tsconfig.mjs.json" },
-    { "path": "packages/authn-local/tsconfig.mjs.json" },
-    { "path": "packages/authn-totp/tsconfig.mjs.json" },
-    { "path": "packages/authn-webauthn/tsconfig.mjs.json" },
-    { "path": "packages/authn-token/tsconfig.mjs.json" },
-    { "path": "packages/authn-keys/tsconfig.mjs.json" },
-    { "path": "packages/authn-http/tsconfig.mjs.json" },
-    { "path": "packages/authn-oidc/tsconfig.mjs.json" },
-    { "path": "packages/users-http/tsconfig.mjs.json" }
-
-
-
-
-
-
+    {
+      "path": "packages/asyncapi/tsconfig.build.json"
+    },
+    {
+      "path": "packages/cli/tsconfig.build.json"
+    },
+    {
+      "path": "packages/compiler/tsconfig.build.json"
+    },
+    {
+      "path": "packages/configuration/tsconfig.build.json"
+    },
+    {
+      "path": "packages/configuration-common/tsconfig.build.json"
+    },
+    {
+      "path": "packages/configuration-db-source/tsconfig.build.json"
+    },
+    {
+      "path": "packages/di/tsconfig.build.json"
+    },
+    {
+      "path": "packages/exceptions/tsconfig.build.json"
+    },
+    {
+      "path": "packages/internal-logger/tsconfig.build.json"
+    },
+    {
+      "path": "packages/log-common/tsconfig.build.json"
+    },
+    {
+      "path": "packages/telemetry-common/tsconfig.build.json"
+    },
+    {
+      "path": "packages/http-socket-common/tsconfig.build.json"
+    },
+    {
+      "path": "packages/http-socket-client/tsconfig.build.json"
+    },
+    {
+      "path": "packages/util/tsconfig.build.json"
+    },
+    {
+      "path": "packages/hooks/tsconfig.build.json"
+    },
+    {
+      "path": "packages/manifest/tsconfig.build.json"
+    },
+    {
+      "path": "packages/principal/tsconfig.build.json"
+    },
+    {
+      "path": "packages/fs/tsconfig.build.json"
+    },
+    {
+      "path": "packages/electron/tsconfig.build.json"
+    },
+    {
+      "path": "packages/email/tsconfig.build.json"
+    },
+    {
+      "path": "packages/email-smtp-transport/tsconfig.build.json"
+    },
+    {
+      "path": "packages/fs-s3/tsconfig.build.json"
+    },
+    {
+      "path": "packages/http/tsconfig.build.json"
+    },
+    {
+      "path": "packages/queue-http-progress/tsconfig.build.json"
+    },
+    {
+      "path": "packages/http-swagger/tsconfig.build.json"
+    },
+    {
+      "path": "packages/intl/tsconfig.build.json"
+    },
+    {
+      "path": "packages/intl-http/tsconfig.build.json"
+    },
+    {
+      "path": "packages/intl-orm/tsconfig.build.json"
+    },
+    {
+      "path": "packages/log/tsconfig.build.json"
+    },
+    {
+      "path": "packages/log-source-graphana-loki/tsconfig.build.json"
+    },
+    {
+      "path": "packages/orm/tsconfig.build.json"
+    },
+    {
+      "path": "packages/orm-http/tsconfig.build.json"
+    },
+    {
+      "path": "packages/orm-mssql/tsconfig.build.json"
+    },
+    {
+      "path": "packages/orm-mysql/tsconfig.build.json"
+    },
+    {
+      "path": "packages/orm-postgres/tsconfig.build.json"
+    },
+    {
+      "path": "packages/orm-sql/tsconfig.build.json"
+    },
+    {
+      "path": "packages/orm-sqlite/tsconfig.build.json"
+    },
+    {
+      "path": "packages/orm-cli/tsconfig.build.json"
+    },
+    {
+      "path": "packages/queue/tsconfig.build.json"
+    },
+    {
+      "path": "packages/queue-orm-transport/tsconfig.build.json"
+    },
+    {
+      "path": "packages/queue-stomp-transport/tsconfig.build.json"
+    },
+    {
+      "path": "packages/queue-templates-pdf/tsconfig.build.json"
+    },
+    {
+      "path": "packages/users/tsconfig.build.json"
+    },
+    {
+      "path": "packages/reflection/tsconfig.build.json"
+    },
+    {
+      "path": "packages/session-provider-db/tsconfig.build.json"
+    },
+    {
+      "path": "packages/session-provider-dynamodb/tsconfig.build.json"
+    },
+    {
+      "path": "packages/email-verification/tsconfig.build.json"
+    },
+    {
+      "path": "packages/email-verification-orm/tsconfig.build.json"
+    },
+    {
+      "path": "packages/email-verification-redis/tsconfig.build.json"
+    },
+    {
+      "path": "packages/email-verification-dynamodb/tsconfig.build.json"
+    },
+    {
+      "path": "packages/templates/tsconfig.build.json"
+    },
+    {
+      "path": "packages/templates-handlebars/tsconfig.build.json"
+    },
+    {
+      "path": "packages/templates-pug/tsconfig.build.json"
+    },
+    {
+      "path": "packages/templates-puppeteer/tsconfig.build.json"
+    },
+    {
+      "path": "packages/templates-xlsx/tsconfig.build.json"
+    },
+    {
+      "path": "packages/templates-image/tsconfig.build.json"
+    },
+    {
+      "path": "packages/validation/tsconfig.build.json"
+    },
+    {
+      "path": "packages/telemetry/tsconfig.build.json"
+    },
+    {
+      "path": "packages/telemetry-otel/tsconfig.build.json"
+    },
+    {
+      "path": "packages/templates-pdf/tsconfig.build.json"
+    },
+    {
+      "path": "packages/templates-csv/tsconfig.build.json"
+    },
+    {
+      "path": "packages/template-mjml/tsconfig.build.json"
+    },
+    {
+      "path": "packages/tasks/tsconfig.build.json"
+    },
+    {
+      "path": "packages/scheduler/tsconfig.build.json"
+    },
+    {
+      "path": "packages/scheduler-http/tsconfig.build.json"
+    },
+    {
+      "path": "packages/threading/tsconfig.build.json"
+    },
+    {
+      "path": "packages/orm-threading/tsconfig.build.json"
+    },
+    {
+      "path": "packages/configuration-aws-secretmanager-protocol/tsconfig.build.json"
+    },
+    {
+      "path": "packages/configuration-fs-protocol/tsconfig.build.json"
+    },
+    {
+      "path": "packages/configuration-http/tsconfig.build.json"
+    },
+    {
+      "path": "packages/http-socket/tsconfig.build.json"
+    },
+    {
+      "path": "packages/http-socket-example/tsconfig.build.json"
+    },
+    {
+      "path": "packages/fs-ftp/tsconfig.build.json"
+    },
+    {
+      "path": "packages/fs-onedrive/tsconfig.build.json"
+    },
+    {
+      "path": "packages/http-bot/tsconfig.build.json"
+    },
+    {
+      "path": "packages/http-lazy-file-uploader/tsconfig.build.json"
+    },
+    {
+      "path": "packages/log-otlp/tsconfig.build.json"
+    },
+    {
+      "path": "packages/queue-amqp-transport/tsconfig.build.json"
+    },
+    {
+      "path": "packages/queue-sqs-transport/tsconfig.build.json"
+    },
+    {
+      "path": "packages/session-provider-redis/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authz/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authz-testing/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authz-rbac/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authz-abac/tsconfig.build.json"
+    },
+    {
+      "path": "packages/eslint-plugin-authz/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authz-orm/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authz-http/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authz-http-admin/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authz-rebac/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authz-queue/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authz-fs/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authz-convert/tsconfig.build.json"
+    },
+    {
+      "path": "packages/teams/tsconfig.build.json"
+    },
+    {
+      "path": "packages/teams-http/tsconfig.build.json"
+    },
+    {
+      "path": "packages/upload/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authn/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authn-testing/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authn-orm/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authn-session/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authn-local/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authn-totp/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authn-webauthn/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authn-token/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authn-keys/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authn-http/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authn-oidc/tsconfig.build.json"
+    },
+    {
+      "path": "packages/users-http/tsconfig.build.json"
+    },
+    {
+      "path": "packages/client/tsconfig.build.json"
+    }
   ]
 }

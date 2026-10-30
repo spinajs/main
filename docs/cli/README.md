@@ -12,7 +12,7 @@ It does **not** scaffold projects or generate code, and it does **not** import y
 npm install @spinajs/cli
 ```
 
-The package ships the `spinajs` bin (`lib/mjs/cli.js`).
+The package ships the `spinajs` bin (`lib/cli.js`).
 
 ## Features
 
@@ -59,6 +59,22 @@ export class PurgeSessionsCommand extends CliCommand {
 }
 ```
 
+## Generating typed config paths
+
+`spinajs generate:config-types` reads an application manifest and writes the `ConfigPaths` declarations that type `Configuration.get()` and `@Config()`.
+
+```bash
+spinajs generate:config-types --manifest app.manifest.json --out src/spinajs-config.d.ts --modules hooks
+```
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `-m, --manifest <path>` | `app.manifest.json` | Manifest to read |
+| `-o, --out <path>` | `src/spinajs-config.d.ts` | Declaration file to write |
+| `--modules <list>` | all | Comma separated config modules to include; a name the manifest lacks is reported as a warning |
+
+The command needs `@spinajs/compiler`, an optional peer dependency of `@spinajs/cli`; install it to use this command.
+
 ## Related packages
 
 - `@spinajs/di`: every command and the `Cli` service are resolved from the DI container.
@@ -67,3 +83,9 @@ export class PurgeSessionsCommand extends CliCommand {
 - `@spinajs/log`: commander errors and the bin's messages go through the framework logger.
 - `@spinajs/intl`: optional; when its global `__` works, help text is translated.
 - [`@spinajs/orm`](../orm/README.md): its migration commands ship in `@spinajs/orm-cli`, built on this package.
+
+## Built-in generators
+
+| Command | What it does |
+| --- | --- |
+| `generate:asyncapi` | Reads an application manifest (`--manifest`, default `app.manifest.json`) and writes an AsyncAPI 3.0 document (`--out`, default `asyncapi.json`). Also `--title`, `--doc-version` (`--version` is taken by the root command) and `--server-url`. See [`@spinajs/asyncapi`](../asyncapi/README.md). |

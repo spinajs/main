@@ -2,13 +2,11 @@
   "name": "@spinajs/templates-mjml",
   "version": "3.0.23",
   "description": "MJML template renderer for @spinajs/templates - generates responsive emails.",
-  "main": "lib/cjs/index.js",
-  "module": "lib/mjs/index.js",
+  "main": "./lib/index.js",
   "exports": {
     ".": {
-      "types": "./lib/mjs/index.d.ts",
-      "import": "./lib/mjs/index.js",
-      "require": "./lib/cjs/index.js"
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
     }
   },
   "type": "module",
@@ -17,12 +15,11 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=16.11"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "compile": "tsc -b tsconfig.build.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -67,5 +64,5 @@
     "@types/mjml": "^4.7.4",
     "mjml": "^4.15.3"
   },
-  "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
+  "types": "./lib/index.d.ts"
 }

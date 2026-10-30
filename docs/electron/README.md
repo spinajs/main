@@ -19,10 +19,10 @@ The package has three pieces, each for one Electron process.
 | Piece | Process | How you load it | What it does on load |
 | --- | --- | --- | --- |
 | `@spinajs/electron` (condition `node`) | main | `import '@spinajs/electron'` | Registers the three IPC handlers (`exposeIpcBridge()`) and the `ElectronPathVariables` config variable. |
-| `lib/mjs/preload.js` | preload | `webPreferences.preload` path | Exposes `window.ipc.__spinaJsIpcBridge` through `contextBridge`. |
+| `lib/preload.js` | preload | `webPreferences.preload` path | Exposes `window.ipc.__spinaJsIpcBridge` through `contextBridge`. |
 | `@spinajs/electron` (condition `browser`) | renderer | `import ... from '@spinajs/electron'` in a bundled renderer | Registers renderer proxies for `Configuration`, `Intl`, `Log`, `Orm`, `Templates`, `EmailService` and the ORM driver tokens. |
 
-`package.json` exports only `.`, so no subpath like `@spinajs/electron/lib/mjs/preload.js` can be imported. See [Preload script](02-preload-script.md) for how to ship the preload.
+`package.json` exports only `.`, so no subpath like `@spinajs/electron/lib/preload.js` can be imported. See [Preload script](02-preload-script.md) for how to ship the preload.
 
 ## Features
 

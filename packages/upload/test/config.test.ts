@@ -64,7 +64,7 @@ describe('upload configuration', () => {
 
   it('ships the CLI scan dir of the upload:sweep command', () => {
     expect(shipped.system.dirs.cli).to.have.length(2);
-    for (const dir of shipped.system.dirs.cli) expect(dir.replace(/\\/g, '/')).to.match(/\/node_modules\/@spinajs\/upload\/lib\/(mjs|cjs)\/cli$/);
+    for (const dir of shipped.system.dirs.cli) expect(dir.replace(/\\/g, '/')).to.match(/\/node_modules\/@spinajs\/upload\/lib\/cli$/);
   });
 
   it('caps maxPartSize at UPLOAD_MAX_PART_BYTES, the controller stream limit', async () => {

@@ -1,0 +1,39 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./lib",
+    "tsBuildInfoFile": "./lib/tsconfig.build.tsbuildinfo",
+    "module": "node16",
+    "moduleResolution": "node16"
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "references": [
+    {
+      "path": "../authz/tsconfig.build.json"
+    },
+    {
+      "path": "../authz-orm/tsconfig.build.json"
+    },
+    {
+      "path": "../orm/tsconfig.build.json"
+    },
+    {
+      "path": "../configuration/tsconfig.build.json"
+    },
+    {
+      "path": "../di/tsconfig.build.json"
+    },
+    {
+      "path": "../exceptions/tsconfig.build.json"
+    },
+    {
+      "path": "../queue/tsconfig.build.json"
+    },
+    {
+      "path": "../util/tsconfig.build.json"
+    }
+  ]
+}

@@ -157,10 +157,7 @@ A migration belongs to every environment unless it is tagged:
 
 ### Discovery directories
 
-`FilesystemMigrationSource` scans the directories in `system.dirs.migrations`. When the key is absent or empty, it scans `DEFAULT_MIGRATION_DIRS` plus `currentBuildMigrationDir()`:
-
-- `src/migrations`, `lib/migrations`, `dist/migrations`, `build/migrations` and `migrations`, under `process.cwd()`;
-- `lib/mjs/migrations` under ESM (`DI.setESMModuleSupport()`), `lib/cjs/migrations` otherwise.
+`FilesystemMigrationSource` scans the directories in `system.dirs.migrations`. When the key is absent or empty, it scans `DEFAULT_MIGRATION_DIRS`: `src/migrations`, `lib/migrations`, `dist/migrations`, `build/migrations` and `migrations`, under `process.cwd()`.
 
 In each directory it matches `**/!(*.*).{ts,js,cjs,mjs}` (no environment tag) and `**/*.<env>.{ts,js,cjs,mjs}`. It keeps only exports that extend `OrmMigration` and whose class name carries a timestamp.
 
@@ -297,7 +294,7 @@ export default {
   },
   system: {
     dirs: {
-      migrations: ['lib/mjs/migrations'],
+      migrations: ['lib/migrations'],
     },
   },
 };

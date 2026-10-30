@@ -1,16 +1,80 @@
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { TypedArray } from './array.js';
 import { getTypeName, isConstructor, isFactory, isObject } from './helpers.js';
-import { IChainRegistration, IContainer } from './interfaces.js';
+import { IChainRegistration, IContainer, RegisterOptions } from './interfaces.js';
 import { Class, Factory } from './types.js';
+
+export type ValueMapContents = Map<Map<unknown, unknown>, [unknown, unknown][]>;
+
+function copyLists(source: ReadonlyMap<string, unknown[]>): Map<string, any[]> {
+  return new Map([...source].map(([key, list]) => [key, [...list]]));
+}
 
 export class Registry {
   protected registry: Map<string, any[]> = new Map<string, any[]>();
+
+  /** Plain values bound with asValue / asMapValue. They are registrations, not resolved instances, so clearCache leaves them. */
+  protected values: Map<string, unknown[]> = new Map<string, unknown[]>();
 
   constructor(protected container: IContainer) { }
 
   public clear() {
     this.registry.clear();
+    this.values.clear();
+  }
+
+  /** `maps`: the entries of every Map value ( asMapValue ), so restoreState can refill the same Map objects. */
+  public snapshotState(): { registry: Map<string, unknown[]>; values: Map<string, unknown[]>; maps: ValueMapContents } {
+    const maps: ValueMapContents = new Map();
+    for (const { value } of this.valueEntries()) {
+      if (value instanceof Map && !maps.has(value)) {
+        maps.set(value, [...value]);
+      }
+    }
+
+    return { registry: copyLists(this.registry), values: copyLists(this.values), maps };
+  }
+
+  public restoreState(registry: ReadonlyMap<string, unknown[]>, values: ReadonlyMap<string, unknown[]>, maps?: ValueMapContents): void {
+    this.registry = copyLists(registry);
+    this.values = copyLists(values);
+    for (const [map, entries] of maps ?? []) {
+      map.clear();
+      for (const [key, value] of entries) {
+        map.set(key, value);
+      }
+    }
+  }
+
+  public registerValue(name: string, value: unknown, override = false): void {
+    const list = override ? undefined : this.values.get(name);
+    if (!list) {
+      this.values.set(name, [value]);
+      return;
+    }
+    if (!list.includes(value)) {
+      list.push(value);
+    }
+  }
+
+  public hasValue(name: string): boolean {
+    return this.values.has(name);
+  }
+
+  public getValues(name: string): unknown[] | undefined {
+    return this.values.get(name);
+  }
+
+  public removeValue(name: string): boolean {
+    return this.values.delete(name);
+  }
+
+  public *valueEntries(): Iterable<{ key: string; value: unknown }> {
+    for (const [key, list] of this.values) {
+      for (const value of list) {
+        yield { key, value };
+      }
+    }
   }
 
   /**
@@ -47,25 +111,30 @@ export class Registry {
     }
   }
 
-  public register(name: string | Class<any> | TypedArray<any>, type: any) {
+  public register(name: string | Class<any> | TypedArray<any>, type: any, options?: RegisterOptions) {
     if (!isConstructor(type) && !isFactory(type) && !isObject(type)) {
       throw new InvalidOperation('cannot register type if its not an class or factory function');
-    } else {
-      const tname = getTypeName(name);
-      const value = this.registry.get(tname);
+    }
 
-      if (value) {
-        // factory functions, we always add to registry
-        // its impossible to check for duplicates
-        // all would return 'Function' type
-        if (isFactory(type)) {
-          value.push(type);
-        } else if (!value.find((v) => getTypeName(v) === getTypeName(type))) {
-          value.push(type);
-        }
-      } else {
-        this.registry.set(tname, [type]);
-      }
+    const tname = getTypeName(name);
+    const value = this.registry.get(tname);
+    if (!value) {
+      this.registry.set(tname, [type]);
+      return;
+    }
+
+    // factory functions are always appended: they all have the name 'Function', so duplicates cannot be told apart
+    if (isFactory(type)) {
+      value.push(type);
+      return;
+    }
+
+    const index = value.findIndex((v) => getTypeName(v) === getTypeName(type));
+    if (index === -1) {
+      value.push(type);
+    } else if (options?.replace) {
+      value.splice(index, 1);
+      value.push(type);
     }
   }
 

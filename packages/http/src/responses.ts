@@ -18,6 +18,7 @@ import { UnexpectedServerError } from '@spinajs/exceptions';
 import * as cs from 'cookie-signature';
 import { XMLBuilder } from 'fast-xml-parser';
 import { FIELD_NAME_PATTERN, strictHeader } from './headers.js';
+import { isProblem, PROBLEM_CONTENT_TYPE } from './problem.js';
 
 const TRANSFORMER_HEADER_MAX_LENGTH = 256;
 // RFC 9110 token: only such a name is repeated back in the 400 for an unknown transformer.
@@ -75,6 +76,9 @@ export function jsonResponse(model: any, options?: IResponseOptions) {
     // Presence check, not truthiness: 0 / false / '' are valid JSON bodies and
     // must be sent. Only undefined / null mean "no body".
     if (model !== undefined && model !== null) {
+      if (isProblem(model) && !res.get('Content-Type')) {
+        res.type(PROBLEM_CONTENT_TYPE);
+      }
       res.json(model);
     } else {
       res.json();

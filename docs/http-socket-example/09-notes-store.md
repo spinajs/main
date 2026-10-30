@@ -40,9 +40,9 @@ Replace the store to add limits, persistence or auditing. Every public method is
 ```ts sample
 import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import type { NoteEntity } from '@spinajs/http-socket-example/lib/mjs/contract.js';
-import { NotesStore } from '@spinajs/http-socket-example/lib/mjs/store.js';
-import { startNotesServer } from '@spinajs/http-socket-example/lib/mjs/server.js';
+import type { NoteEntity } from '@spinajs/http-socket-example/lib/contract.js';
+import { NotesStore } from '@spinajs/http-socket-example/lib/store.js';
+import { startNotesServer } from '@spinajs/http-socket-example/lib/server.js';
 
 // Caps blob size and document count, and keeps an edit history per document.
 class BoundedNotesStore extends NotesStore {

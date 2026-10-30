@@ -8,8 +8,6 @@ A notes server on `@spinajs/http-socket` and its client on `@spinajs/http-socket
 - binary payloads and results (`blob.put`, `blob.get`)
 - a principal source; this demo one knows two fixed tokens
 
-The package is an ES module, so `startNotesServer` (`src/server.ts`) calls `DI.setESMModuleSupport()` before it resolves the configuration; without it the `http.socket` defaults of `@spinajs/http-socket` are not loaded.
-
 ## Documentation
 
 See [docs/http-socket-example](../../docs/http-socket-example/README.md): one page per feature, with every extension point (configuration, HTTP host, principal source, socket controllers, store) and how to replace or extend it.
@@ -21,7 +19,7 @@ From the repository root, after `npm run build`:
 ```
 cd packages/http-socket-example
 npm run compile
-npm start            # or: node lib/mjs/main.js --verbose
+npm start            # or: node lib/main.js --verbose
 ```
 
 ## Test

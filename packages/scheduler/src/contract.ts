@@ -272,6 +272,8 @@ export class ErrorGroupNotFound extends ResourceNotFound {
 }
 
 export class RunConflict extends ResourceDuplicated {
+  public static problemFields = ['runId'];
+
   constructor(message: string, public readonly runId: string | null) {
     super(message);
   }
@@ -284,6 +286,8 @@ export class InvalidRunState extends InvalidOperation {
 }
 
 export class SchedulePaused extends InvalidOperation {
+  public static problemFields = ['schedule'];
+
   constructor(public readonly schedule: string) {
     super(`Schedule '${schedule}' is hard-paused; manual runs are disabled`);
   }
@@ -295,6 +299,8 @@ export interface ParamError {
 }
 
 export class InvalidRunParams extends InvalidArgument {
+  public static problemFields = ['errors'];
+
   constructor(message: string, public readonly errors: ParamError[]) {
     super(message);
   }

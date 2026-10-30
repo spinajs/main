@@ -11,7 +11,7 @@ Loading `@spinajs/telemetry` registers its services, and two bootstrappers wire 
    - `PublicPolicy` and `TelemetryTokenPolicy` join the `BasePolicy` list.
    - `TelemetryAccessContributor` joins the `AuthzContributor` list.
    - `schema.ts` calls `registerConfigurationSchemaAtImport(TELEMETRY_CONFIGURATION_SCHEMA)`.
-2. `@spinajs/configuration` merges the package config file (`lib/<mjs|cjs>/config/telemetry.js`). It adds `system.dirs.controllers`, the `telemetry.*` defaults, the permission `telemetry:read`, and the RBAC role `telemetry`.
+2. `@spinajs/configuration` merges the package config file (`lib/config/telemetry.js`). It adds `system.dirs.controllers`, the `telemetry.*` defaults, the permission `telemetry:read`, and the RBAC role `telemetry`.
 3. The app runs every `Bootstrapper`. `TelemetryBootstrapper.bootstrap()`:
    1. registers `TELEMETRY_CONFIGURATION_SCHEMA` again with `registerConfigurationSchema()`;
    2. resolves `Configuration` and the `Metrics` singleton;

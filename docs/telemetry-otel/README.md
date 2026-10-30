@@ -10,7 +10,7 @@ It does **not** register its provider as the OpenTelemetry global, so auto-instr
 npm install @spinajs/telemetry-otel
 ```
 
-Importing the package registers `OtelTracing` and `LongSpanRegistry` in the root DI container, both as singletons. Its default config (`otel.*`, tracing off) is picked up from `lib/<mjs|cjs>/config/otel.js` by `@spinajs/configuration`.
+Importing the package registers `OtelTracing` and `LongSpanRegistry` in the root DI container, both as singletons. Its default config (`otel.*`, tracing off) is picked up from `lib/config/otel.js` by `@spinajs/configuration`.
 
 ## Features
 

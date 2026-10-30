@@ -2,13 +2,11 @@
   "name": "@spinajs/fs",
   "version": "3.0.23",
   "description": "wrapper for file operations",
-  "main": "lib/cjs/index.js",
-  "module": "lib/mjs/index.js",
+  "main": "./lib/index.js",
   "exports": {
     ".": {
-      "types": "./lib/mjs/index.d.ts",
-      "import": "./lib/mjs/index.js",
-      "require": "./lib/cjs/index.js"
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
     }
   },
   "type": "module",
@@ -17,13 +15,12 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=16.11"
+    "node": ">=22.0.0"
   },
   "scripts": {
-    "watch": "tsc -b tsconfig.mjs.json -watch",
+    "watch": "tsc -b tsconfig.build.json -watch",
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.mjs.json",
-    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "compile": "tsc -b tsconfig.build.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json --exit test/**/*.test.ts",
@@ -53,7 +50,6 @@
     "url": "https://github.com/spinajs/exceptions/issues"
   },
   "homepage": "https://github.com/spinajs/exceptions#readme",
-  "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee",
   "dependencies": {
     "@spinajs/cli": "3.0.23",
     "@spinajs/configuration": "3.0.23",
@@ -75,5 +71,6 @@
     "@types/luxon": "^3.6.1",
     "@types/unzipper": "^0.10.11",
     "@types/uuid": "^9.0.0"
-  }
+  },
+  "types": "./lib/index.d.ts"
 }

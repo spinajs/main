@@ -1,5 +1,4 @@
 import { DI } from '@spinajs/di';
 
-// Config sources pick lib/mjs or lib/cjs on their first resolve; a lib/cjs config file loads a
-// second, CommonJS copy of @spinajs/di, whose Array.ofType resolves nothing (see http's test/setup.ts).
+// Loaded by .mocharc.json before every suite. Kept for 4.x; DI.setESMModuleSupport() is a deprecated no-op and the file goes away in 5.0.
 DI.setESMModuleSupport();

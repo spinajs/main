@@ -8,8 +8,7 @@
  * every app's scan set forever, on top of whatever that app configures, with no way to switch it
  * off. Five cwd defaults ( `src/migrations`, `lib/migrations`, `dist/migrations`, `build/migrations`,
  * and bare `migrations` - one per build layout a project might have been compiled to ) live instead
- * as `DEFAULT_MIGRATION_DIRS` in `migration-sources.ts`, plus one more: `lib/cjs/migrations` or
- * `lib/mjs/migrations`, selected at runtime by module format. `FilesystemMigrationSource` falls back
+ * as `DEFAULT_MIGRATION_DIRS` in `migration-sources.ts`. `FilesystemMigrationSource` falls back
  * to these only when this key is absent or empty - so a configured value REPLACES them rather than
  * adding to them.
  */

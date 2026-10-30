@@ -77,21 +77,26 @@ export class IOFail extends Exception {}
  */
 export class ResourceNotFound extends Exception {}
 
-/** The body `CodedHttpExceptionResponse` ( `@spinajs/http` ) answers a `CodedHttpException` with. */
+/** The `application/problem+json` body `CodedHttpExceptionResponse` ( `@spinajs/http` ) answers a `CodedHttpException` with. */
 export interface CodedErrorBody<TCode extends string = string, TDetails = unknown> {
+  type: string;
+  title: string;
+  status: number;
+  /** The exception message. */
+  detail?: string;
+  instance?: string;
   code: TCode;
-  message: string;
   details?: TDetails;
 }
 
 /**
  * A refusal with its own HTTP status and a stable, machine-readable code. `CodedHttpExceptionResponse` ( `@spinajs/http` )
- * answers it with `{ code, message, details? }` and `status`, never with a stack.
+ * answers it with a problem document ( `status`, `code`, `detail`, `details?` ), never with a stack.
  *
  * Narrow the code to the app's own union with a subclass: `class ApiException extends CodedHttpException<ApiErrorCode> {}`.
  */
 export class CodedHttpException<TCode extends string = string, TDetails = unknown> extends Exception {
-  // Own enumerable fields: the error handler hands the response `{ ...err, message }`, not the exception.
+  // Own enumerable fields; the error handler copies `details` into the problem body.
   public readonly status: number;
   public readonly code: TCode;
   public readonly details?: TDetails;
