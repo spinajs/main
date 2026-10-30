@@ -200,8 +200,14 @@ export interface IContainer extends EventEmitter {
   /** The registrations, values, cached instances and listeners of this container, copied. */
   snapshot(): ContainerSnapshot;
   /**
-   * Waits for resolutions in flight, puts registry, values ( Map contents included ), cache and listeners back,
-   * then disposes the children and every Service cached since the snapshot. Further passes ( at most 5 ) take back what that disposal added.
+   * Waits for resolutions in flight and disposes the children created and every Service cached since the snapshot, latest first,
+   * while the state they were created in is still live. What a dispose() resolves is disposed right after it ( at most 5 nested
+   * generations ). Services disposed earlier stay cached until the swap, so a dispose() may get an already disposed one. Then puts
+   * registry, values ( Map contents included ), cache and listeners back in one step. Resolutions started after it returns are not tracked.
+   * Children that predate the snapshot are kept, with what was resolved into them since.
+   *
+   * @throws RestoreIncomplete when resolutions kept starting ( 10 rounds, or 10 settle passes in a row ). The state is put back first;
+   * the resolutions still in flight are named, and each is disposed when it finishes instead of being cached.
    */
   restore(snapshot: ContainerSnapshot): Promise<void>;
 

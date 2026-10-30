@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { DI, Bootstrapper, Injectable, AsyncService } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Config, Configuration } from '@spinajs/configuration';
 import type { IConfigurationSchema } from '@spinajs/configuration-common';
 import { createTestApp, disposeTestApps } from '../src/index.js';
 
@@ -31,6 +31,45 @@ class SpecService extends AsyncService {
     this.disposed = true;
   }
 }
+
+class ConfiguredService extends AsyncService {
+  @Config('spec.port')
+  protected Port: number;
+
+  public portAtDispose: number | undefined;
+
+  public async dispose(): Promise<void> {
+    this.portAtDispose = this.Port;
+  }
+}
+
+// dispose() starts a reconnect loop that resolves a failing connection again as soon as it fails.
+function reconnecting() {
+  const loop = { running: true };
+  class Connection extends AsyncService {
+    public async resolve(): Promise<void> {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      throw new Error('connection refused');
+    }
+  }
+  class Client extends AsyncService {
+    public async dispose(): Promise<void> {
+      const connect = (): void => {
+        DI.resolve(Connection).catch(() => loop.running && connect());
+      };
+      connect();
+    }
+  }
+  return { loop, Client };
+}
+
+function deferred() {
+  let release!: () => void;
+  const promise = new Promise<void>((resolve) => (release = resolve));
+  return { promise, release };
+}
+
+const tick = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('createTestApp (root scope)', () => {
   afterEach(disposeTestApps);
@@ -128,6 +167,28 @@ describe('createTestApp (root scope)', () => {
     expect(DI.RootContainer.hasRegistered(SpecService)).to.be.false;
   });
 
+  it('a service whose dispose() reads a @Config property disposes without a failure', async () => {
+    const app = await createTestApp({
+      config: { spec: { port: 4321 } },
+      register: (c) => c.register(ConfiguredService).asSelf(),
+      resolve: [ConfiguredService],
+    });
+    const svc = DI.get(ConfiguredService)!;
+
+    const warnings: unknown[] = [];
+    const warn = console.warn;
+    console.warn = (...args: unknown[]) => warnings.push(args[0]);
+    try {
+      await app.dispose();
+    } finally {
+      console.warn = warn;
+    }
+
+    expect(warnings).to.deep.equal([]);
+    expect(svc.portAtDispose).to.equal(4321);
+    expect(DI.RootContainer.isResolved(Configuration)).to.be.false;
+  });
+
   it('restores root exactly when the boot fails with a validation error', async () => {
     const before = rootState();
     let error: Error | undefined;
@@ -143,6 +204,147 @@ describe('createTestApp (root scope)', () => {
     expect(error!.constructor.name).to.equal('InvalidConfiguration');
     expect(error!.message).to.include('schema spec/y');
     expect(rootState()).to.deep.equal(before);
+  });
+
+  it('dispose rejects with the restore error when resolutions keep starting, and still restores root', async () => {
+    const { loop, Client } = reconnecting();
+    const before = rootState();
+    const app = await createTestApp({ config: {}, register: (c) => c.register(Client).asSelf(), resolve: [Client] });
+    let error: Error | undefined;
+    try {
+      await app.dispose().catch((e: Error) => (error = e));
+    } finally {
+      loop.running = false;
+    }
+
+    expect(error?.constructor.name).to.equal('RestoreIncomplete');
+    expect(error?.message).to.match(/Still resolving: Connection/);
+    expect(rootState()).to.deep.equal(before);
+  });
+
+  it('disposeTestApps disposes every app before it rethrows a restore error', async () => {
+    const { loop, Client } = reconnecting();
+    const child = await createTestApp({ scope: 'child', config: {}, register: (c) => c.register(SpecService).asSelf(), resolve: [SpecService] });
+    const svc = await child.resolve(SpecService);
+    await createTestApp({ config: {}, register: (c) => c.register(Client).asSelf(), resolve: [Client] });
+    let error: Error | undefined;
+    try {
+      await disposeTestApps().catch((e: Error) => (error = e));
+    } finally {
+      loop.running = false;
+    }
+
+    expect(error?.constructor.name).to.equal('RestoreIncomplete');
+    expect(svc.disposed).to.be.true;
+  });
+
+  describe('a boot that does not finish', () => {
+    it('bootTimeout rejects a boot that never resolves, frees the slot and restores root', async () => {
+      const before = rootState();
+      let error: Error | undefined;
+      await createTestApp({ config: {}, bootTimeout: 30, register: () => new Promise(() => undefined) }).catch((e: Error) => (error = e));
+
+      expect(error?.message).to.match(/did not finish booting within 30 ms/);
+      expect(rootState()).to.deep.equal(before);
+
+      const next = await createTestApp({ config: { n: { k: 1 } } });
+      expect(next.config.get('n.k')).to.equal(1);
+      await next.dispose();
+      expect(rootState()).to.deep.equal(before);
+    });
+
+    it('bootTimeout does not wait for a resolution that hangs, and disposes it when it finally finishes', async () => {
+      const gate = deferred();
+      const created: HangingService[] = [];
+      class HangingService extends AsyncService {
+        public disposed = false;
+        public async resolve(): Promise<void> {
+          created.push(this);
+          await gate.promise;
+        }
+        public async dispose(): Promise<void> {
+          this.disposed = true;
+        }
+      }
+      const before = rootState();
+      let error: Error | undefined;
+      await createTestApp({ config: {}, bootTimeout: 30, register: (c) => c.register(HangingService).asSelf(), resolve: [HangingService] }).catch(
+        (e: Error) => (error = e),
+      );
+      expect(error?.message).to.match(/did not finish booting/);
+      expect(rootState()).to.deep.equal(before);
+
+      gate.release();
+      await tick();
+      expect(created[0]?.disposed).to.be.true;
+      expect(rootState()).to.deep.equal(before);
+    });
+
+    it('a boot that finishes after its timeout registers nothing and does not keep the slot', async () => {
+      const gate = deferred();
+      const runs = SpecBootstrapper.Runs;
+      const before = rootState();
+      let afterGate = false;
+      const stuck = createTestApp({
+        config: {},
+        bootTimeout: 30,
+        register: async (c) => {
+          c.register(SpecService).asSelf();
+          await gate.promise;
+          afterGate = true;
+        },
+        resolve: [SpecService],
+      }).catch((e: Error) => e);
+      expect(await stuck).to.be.instanceOf(Error);
+
+      gate.release();
+      await tick();
+      expect(afterGate).to.be.true;
+      expect(SpecBootstrapper.Runs).to.equal(runs);
+      expect(rootState()).to.deep.equal(before);
+
+      const next = await createTestApp({ config: { n: { k: 2 } } });
+      expect(next.config.get('n.k')).to.equal(2);
+      expect(DI.RootContainer.hasRegistered(SpecService)).to.be.false;
+      expect(DI.RootContainer.isResolved(SpecService)).to.be.false;
+      await next.dispose();
+      expect(rootState()).to.deep.equal(before);
+    });
+
+    it('a second root create fails fast while the first one is still booting', async () => {
+      const gate = deferred();
+      const before = rootState();
+      const first = createTestApp({ name: 'slow-suite', config: {}, bootTimeout: 5000, register: () => gate.promise });
+
+      let error: Error | undefined;
+      await createTestApp({ config: {} }).catch((e: Error) => (error = e));
+      gate.release();
+      const app = await first;
+      expect(error?.message).to.match(/"slow-suite" \(booting, started \d+ ms ago\) is still booting/);
+      expect(app.config).to.be.instanceOf(Configuration);
+      await app.dispose();
+      expect(rootState()).to.deep.equal(before);
+    });
+
+    it('a root create while the previous app is still disposing fails fast', async () => {
+      const gate = deferred();
+      class SlowDispose extends AsyncService {
+        public async dispose(): Promise<void> {
+          await gate.promise;
+        }
+      }
+      const app = await createTestApp({ config: {}, register: (c) => c.register(SlowDispose).asSelf(), resolve: [SlowDispose] });
+      const disposing = app.dispose();
+      await tick();
+
+      let error: Error | undefined;
+      await createTestApp({ config: {} }).catch((e: Error) => (error = e));
+      expect(error?.message).to.match(/still being disposed/);
+
+      gate.release();
+      await disposing;
+      await (await createTestApp({ config: {} })).dispose();
+    });
   });
 
   it('dispose is idempotent', async () => {

@@ -20,7 +20,7 @@ Two services hold the package together: `fsService` creates the providers, and t
 | `fsService` | `fsService` class, singleton; an `AsyncService`, so `DI.resolve(fsService)` returns a promise | `fsService` | none | Subclass it and `DI.register(MySubclass).as(fsService)` before the first `DI.resolve(fsService)`. Override `resolve()` (call `super.resolve()`). |
 | `FsBootstrapper` | `Bootstrapper`, through `@Injectable(Bootstrapper)` | `FsBootstrapper` | none | Leave it; replace the factory it registers. |
 | Provider lookup | `'__file_provider__'`, a factory; the last registered factory wins | name lookup in `'__file_provider_instance__'` | none | `DI.register(factory).as('__file_provider__')` after `FsBootstrapper.bootstrap()` ran. |
-| Provider map | `'__file_provider_instance__'`, a `Map<string, fs>` built with `asMapValue()` | filled by `fsService` | none | Read it with `DI.get<Map<string, fs>>('__file_provider_instance__')`, eg. to list providers. Do not write to it outside `fsService`. |
+| Provider map | `'__file_provider_instance__'`, a `Map<string, fs>` built with `asMapValue()` | filled by `fsService` | none | Read it with `DI.get<Map<string, fs>>('__file_provider_instance__')`, eg. to list providers. Do not write to it outside `fsService`. `fsService.dispose()` removes the names it published, unless a newer `fsService` published the name again or another provider now sits under it. |
 
 ### `fsService`: custom implementation
 
