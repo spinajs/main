@@ -71,11 +71,12 @@ describe('typescript at runtime', function () {
       rmSync(cache, { recursive: true, force: true });
     });
 
-    it('fails a cache miss naming typescript and the manifest alternative, importing typescript only from the cache', () => {
+    it('fails a cache miss naming the optional peer and the alternatives, importing typescript only from the cache', () => {
       const result = probe('off', cache, 'no-typescript');
 
       expect(result.error?.name).to.equal('NoControllerMetadata');
-      expect(result.error?.message).to.include('`typescript`');
+      expect(result.error?.message).to.include('optional peer dependency `typescript`');
+      expect(result.error?.message).to.include('spinajs http:controllers:cache');
       expect(result.error?.message).to.include('spinajs build');
       expect(result.imports.filter(isTypescript).map((i) => fileURLToPath(i.parent).slice(HTTP_LIB.length))).to.deep.equal(['cache.js']);
     });

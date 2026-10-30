@@ -44,3 +44,18 @@ describe('reflection does not load typescript or glob on import', function () {
     expect(probe.subpath.filter(fromReflection).map((i) => i.specifier)).to.deep.equal(['typescript']);
   });
 });
+
+describe('reflection without glob installed', function () {
+  this.timeout(60000);
+
+  it('fails the first directory scan naming the optional peer and the manifest alternative', () => {
+    const run = spawnSync(process.execPath, [resolve(process.cwd(), 'test', 'support', 'probe.missing-glob.mjs')], { cwd: process.cwd(), encoding: 'utf8', timeout: 55000 });
+    const match = /<<JSON\n([\s\S]*?)\nJSON>>/.exec(run.stdout);
+    if (!match) throw new Error(`probe failed (${String(run.status)}):\n${run.stdout}\n${run.stderr}`);
+    const result = JSON.parse(match[1]) as { error?: { name: string; message: string } };
+
+    expect(result.error?.name).to.equal('ReflectionException');
+    expect(result.error?.message).to.include('optional peer dependency `glob`');
+    expect(result.error?.message).to.include('system.manifest.mode');
+  });
+});

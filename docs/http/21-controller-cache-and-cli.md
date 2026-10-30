@@ -2,7 +2,7 @@
 
 `DefaultControllerCache` reads each controller's compiled `.d.ts` with the TypeScript compiler once and stores two JSON entries: the parameter names of every action (route argument binding needs them) and the JSDoc documentation of the controller (`@spinajs/http-swagger` builds OpenAPI from it). The `http:controllers:cache` command builds the entries ahead of time, for example in a Docker image, so the first start does not pay the parsing cost.
 
-`DefaultControllerCache` is on the `@spinajs/http/cache` subpath. It imports `typescript` only to parse a controller it has no entry for, so a process whose entries all exist (built ahead of time with the command below) never loads the compiler. With a manifest (`system.manifest.mode` `prefer` or `require`), parameter names and documentation come from the manifest and the cache is not used for the controllers it lists.
+`DefaultControllerCache` is on the `@spinajs/http/cache` subpath. It imports `typescript`, an optional peer dependency of `@spinajs/http`, only to parse a controller it has no entry for, so a process whose entries all exist (built ahead of time with the command below) never loads the compiler. An app without a manifest either installs `typescript` as a dependency or ships a pre-built cache; otherwise the first cache miss fails the boot with `NoControllerMetadata`, which names the peer. With a manifest (`system.manifest.mode` `prefer` or `require`), parameter names and documentation come from the manifest and the cache is not used for the controllers it lists.
 
 ## Metadata providers
 

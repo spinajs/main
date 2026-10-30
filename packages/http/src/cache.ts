@@ -18,7 +18,7 @@ async function loadTypescript(): Promise<void> {
     ts ??= (await import('typescript')).default;
   } catch (err) {
     if ((err as { code?: string }).code === 'ERR_MODULE_NOT_FOUND' && String((err as Error).message).includes("'typescript'")) {
-      throw new NoControllerMetadata('The TypeScript controller cache needs `typescript` to parse controller declarations: install it, or build the app manifest ( spinajs build ) and set system.manifest.mode.', err);
+      throw new NoControllerMetadata('The TypeScript controller cache needs the optional peer dependency `typescript` to parse controller declarations: install it, pre-build the cache ( spinajs http:controllers:cache ), or build the app manifest ( spinajs build ) and set system.manifest.mode.', err);
     }
     throw err;
   }
