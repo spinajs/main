@@ -31,3 +31,7 @@ export function runtimeTypes(
 export function ambient(storage: import('node:async_hooks').AsyncLocalStorage<number>): void {
   void storage;
 }
+
+export function documented(buffer: Buffer, big: bigint, sym: symbol, tuple: [string, number], nothing: null, undef: undefined, callback: () => void): void {
+  void [buffer, big, sym, tuple, nothing, undef, callback];
+}

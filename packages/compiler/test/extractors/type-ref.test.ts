@@ -66,6 +66,21 @@ describe('runtime type references', () => {
       expect(refOf('bytes')).to.deep.equal(global('Uint8Array'));
     });
 
+    it('records the remaining documented cases', () => {
+      const fn = loaded.sourceFiles.find((f) => f.fileName.endsWith('type-ref.ts'))!.statements.find((s): s is ts.FunctionDeclaration => ts.isFunctionDeclaration(s) && s.name?.text === 'documented')!;
+      const of = (name: string) => {
+        const p = fn.parameters.find((x) => (x.name as ts.Identifier).text === name)!;
+        return ctx.runtimeRef(ctx.checker.getTypeAtLocation(p), p);
+      };
+      expect(of('buffer')).to.deep.equal(global('Buffer'));
+      expect(of('big')).to.deep.equal(global('BigInt'));
+      expect(of('sym')).to.deep.equal(global('Symbol'));
+      expect(of('tuple')).to.deep.equal(global('Array'));
+      expect(of('callback')).to.deep.equal(global('Function'));
+      expect(of('nothing')).to.equal(undefined);
+      expect(of('undef')).to.equal(undefined);
+    });
+
     it('records an exported class, also behind null', () => {
       expect(refOf('exported')).to.deep.equal({ package: 'unit', file: 'type-ref.ts', export: 'Exported' });
       expect(refOf('nullable')).to.deep.equal({ package: 'unit', file: 'type-ref.ts', export: 'Exported' });

@@ -129,10 +129,11 @@ Route arguments, socket `@Payload` types and `@Autoinject()` / `@LazyInject()` p
 | A global class or constructor (`Date`, `Map`, `Uint8Array`, `Buffer`) | that global |
 | An exported class of the package | `{ package, file: 'src/x.ts', export }` |
 | An exported class of a dependency that ships a manifest fragment | `{ package, file: 'lib/x.js', export }` (the JavaScript next to its declaration file) |
+| A function type | the global `Function` |
 | An interface, a type literal, `any`, `unknown`, a union of different types | the global `Object` |
 | `null`, `undefined`, `void` | none |
 
-A class without a `ref` is reported as `TYP001` (not exported) or `TYP002` (declared in a package without a manifest fragment, or in an ambient module such as `node:async_hooks`). Unlike the plan's first draft, an enum records `Number` or `String`, as the metadata does, not the enum object. Property injections are recorded on `services`, and also on `controllers` and `socketControllers` (`propertyInjects`, omitted when empty), with the declared type as `tokenRef`.
+A class without a `ref` is reported as `TYP001` (not exported) or `TYP002` (declared in a package without a manifest fragment, or in an ambient module such as `node:async_hooks`). An enum records `Number` or `String`, as the metadata does, not the enum object. Property injections are recorded on `services`, and also on `controllers` and `socketControllers` (`propertyInjects`, omitted when empty), with the declared type as `tokenRef`.
 
 ## Schema derivation
 
