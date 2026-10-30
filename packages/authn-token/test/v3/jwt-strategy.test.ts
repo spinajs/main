@@ -13,8 +13,8 @@ import { FakeClock, b64url, compactJws, generateKeyPair, signCompactJws, startJw
 import type { JwksServer, KitKeyPair } from '@spinajs/authn-testing';
 
 import { JwtBearerStrategy } from '../../src/jwt/JwtBearerStrategy.js';
-import { boot, disposeBooted, readingFrom } from '../support/config-boot.js';
 import { bootV3Db, shutdownV3Db } from './db.js';
+import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 const ISSUER = 'https://idp.unit.test';
 const AUDIENCE = 'unit-api';
@@ -93,7 +93,7 @@ describe('JwtBearerStrategy', function () {
 
   /** Boots the issuers through the schema, as an app does, then the strategy. */
   async function make(issuers: unknown): Promise<JwtBearerStrategy> {
-    const { child } = await boot([AUTHN_CONFIGURATION_SCHEMA, AUTHN_JWT_CONFIGURATION_SCHEMA], { authn: { jwt: { issuers } } });
+    const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [AUTHN_CONFIGURATION_SCHEMA, AUTHN_JWT_CONFIGURATION_SCHEMA], config: { authn: { jwt: { issuers } } } });
     const s = readingFrom(new JwtBearerStrategy(), child);
     await s.resolve();
     return s;
@@ -125,7 +125,7 @@ describe('JwtBearerStrategy', function () {
 
   afterEach(async () => {
     setIssuers(saved);
-    await disposeBooted();
+    await disposeTestApps();
   });
 
   describe('shape and boot', () => {

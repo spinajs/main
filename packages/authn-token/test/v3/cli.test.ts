@@ -20,7 +20,7 @@ import { CreateToken } from '../../src/cli/CreateToken.js';
 import { DeleteToken } from '../../src/cli/DeleteToken.js';
 import { DeleteExpiredTokens } from '../../src/cli/DeleteExpiredTokens.js';
 import { bootV3Db, insertUserRow, shutdownV3Db, v3Connection } from './db.js';
-import { setPastSchema } from '../support/config-boot.js';
+import { setPastSchema } from '@spinajs/testing';
 
 const TABLE = 'rbac_access_tokens';
 const SECOND = 1000;

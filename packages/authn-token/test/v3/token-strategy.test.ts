@@ -13,9 +13,9 @@ import '../../src/generator.js';
 import { AccessToken } from '../../src/models/AccessToken.js';
 import { DbTokenService, TokenProfilePolicy } from '../../src/service/index.js';
 import { TokenStrategy } from '../../src/strategy/TokenStrategy.js';
-import { readingFrom } from '../support/config-boot.js';
 import { bootV3Db, insertUserRow, shutdownV3Db } from './db.js';
 import { tokenServiceOver, tokenStrategyOver } from './services.js';
+import { readingFrom } from '@spinajs/testing';
 
 const NOW = new Date('2026-10-03T10:00:00.000Z');
 const SECOND = 1000;

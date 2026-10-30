@@ -7,7 +7,7 @@ import { AUTHN_SESSION_CONFIGURATION_SCHEMA } from '@spinajs/authn-session';
 
 import { AUTHN_HTTP_CONFIGURATION_SCHEMA } from '../../src/index.js';
 import { AuthnCredentialAdminController } from '../../src/v3/controllers/AuthnCredentialAdminController.js';
-import { boot, disposeBooted, violationsOf } from '../support/config-boot.js';
+import { configurationViolations, createTestApp, disposeTestApps } from '@spinajs/testing';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_SESSION_CONFIGURATION_SCHEMA, HTTP_CONFIGURATION_SCHEMA];
 
@@ -15,7 +15,7 @@ const SUFFIXES = [':uuid/password-reset', ':uuid/mfa-reset', ':uuid/sessions', '
 
 /** The paths the controller mounts under the given configuration, as BaseController.resolve builds them. */
 async function mountedPaths(values: Record<string, unknown>): Promise<string[]> {
-  const { configuration } = await boot(SCHEMAS, values);
+  const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: values });
   const controller = new AuthnCredentialAdminController();
   Object.defineProperty(controller, '_cfg', { value: configuration });
   const descriptor = Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, controller) as IControllerDescriptor;
@@ -27,7 +27,7 @@ const under = (base: string) => SUFFIXES.map((s) => `${base}/${s}`).sort();
 
 describe('authn.http.admin.basePath', function () {
   this.timeout(20000);
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   it('keeps the credential admin routes under /authn/admin/users by default', async () => {
     expect(await mountedPaths({})).to.deep.eq(under('/authn/admin/users'));
@@ -43,11 +43,11 @@ describe('authn.http.admin.basePath', function () {
   });
 
   it('leaves the effective authn.http.admin unset when the app names nothing', async () => {
-    const { configuration } = await boot(SCHEMAS, {});
+    const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
     expect(configuration.get('authn.http.admin')).to.eq(undefined);
   });
 
   it('refuses an empty basePath at boot, naming its full path', async () => {
-    expect(await violationsOf(SCHEMAS, { authn: { http: { admin: { basePath: '' } } } })).to.include('authn.http.admin.basePath');
+    expect(await configurationViolations({ schemas: SCHEMAS, config: { authn: { http: { admin: { basePath: '' } } } } })).to.include('authn.http.admin.basePath');
   });
 });

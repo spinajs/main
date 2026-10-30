@@ -11,8 +11,8 @@ import type { AuthnContext, ThrottleFlow, ThrottleKey } from '@spinajs/authn/con
 import { CsrfOriginGuard } from '../../src/middleware/csrf.js';
 import { TokenServiceRegistered } from '../../src/token/gate.js';
 import { AuthnTokenRevocationController } from '../../src/v3/controllers/AuthnTokenRevocationController.js';
-import { fakeContainer, readingFrom } from '../support/config-boot.js';
 import { callRoute } from '../support/route-call.js';
+import { fakeContainer, readingFrom } from '@spinajs/testing';
 
 const ROUTE = '/auth/tokens/revoke';
 const IP = '192.0.2.7';

@@ -11,9 +11,9 @@ import { OIDC_ID_TOKEN_KEY, OidcLogoutExtension, OidcRpLogout } from '../src/log
 import { AUTHN_OIDC_CONFIGURATION_SCHEMA } from '../src/options/schema.js';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
 import { FAKE_CLIENT_ID, FAKE_ISSUER, FakeIdp } from './support/fake-idp.js';
-import { disposeBooted, fakeContainer, readingFrom, violationsOf } from './support/config-boot.js';
 import { ORIGIN, SESSION_COOKIE, world } from './support/world.js';
 import type { WorldOptions } from './support/world.js';
+import { configurationViolations, disposeTestApps, fakeContainer, readingFrom } from '@spinajs/testing';
 
 const END = `${FAKE_ISSUER}/protocol/openid-connect/logout`;
 const STRATEGY = 'oidc:corp';
@@ -236,7 +236,7 @@ describe('authn-oidc RP-initiated logout (FLOW-3)', () => {
   });
 
   describe('configuration', () => {
-    afterEach(disposeBooted);
+    afterEach(disposeTestApps);
     const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_OIDC_CONFIGURATION_SCHEMA];
     const provider = (logout: unknown) => ({ authn: { oidc: { providers: { corp: { issuer: FAKE_ISSUER, clientId: 'canvas', clientSecret: { secret: 'a-client-secret' }, logout } } } } });
 
@@ -246,7 +246,7 @@ describe('authn-oidc RP-initiated logout (FLOW-3)', () => {
     });
 
     it('accepts logout.storeIdToken and logout.postLogoutRedirectUri', async () => {
-      expect(await violationsOf(SCHEMAS, provider({ storeIdToken: true, postLogoutRedirectUri: 'https://app.example.test/bye' }))).to.deep.eq([]);
+      expect(await configurationViolations({ schemas: SCHEMAS, config: provider({ storeIdToken: true, postLogoutRedirectUri: 'https://app.example.test/bye' }) })).to.deep.eq([]);
     });
 
     it('refuses an unknown logout member, a non-boolean storeIdToken and an empty postLogoutRedirectUri', async () => {
@@ -255,7 +255,7 @@ describe('authn-oidc RP-initiated logout (FLOW-3)', () => {
         [{ storeIdToken: 'maybe' }, 'logout.storeIdToken'],
         [{ postLogoutRedirectUri: '' }, 'logout.postLogoutRedirectUri'],
       ] as const) {
-        expect(await violationsOf(SCHEMAS, provider(logout)), path).to.include(`authn.oidc.providers.corp.${path}`);
+        expect(await configurationViolations({ schemas: SCHEMAS, config: provider(logout) }), path).to.include(`authn.oidc.providers.corp.${path}`);
       }
     });
 

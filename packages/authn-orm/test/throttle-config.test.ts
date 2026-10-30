@@ -11,11 +11,11 @@ import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 
 import { DbAuthnThrottle } from '../src/index.js';
 import type { DbThrottleOptions } from '../src/index.js';
-import { boot, disposeBooted, setPastSchema, violationsOf } from './support/config-boot.js';
+import { configurationViolations, createTestApp, disposeTestApps, setPastSchema } from '@spinajs/testing';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA];
 const HASH_KEY = 'k'.repeat(40);
-const bad = (authn: Record<string, unknown>) => violationsOf(SCHEMAS, { authn });
+const bad = (authn: Record<string, unknown>) => configurationViolations({ schemas: SCHEMAS, config: { authn } });
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
 /** A throttle DI builds in its own child of `from`, so it reads the configuration of `from`. */
@@ -24,7 +24,7 @@ async function throttleIn(from: IContainer, options?: DbThrottleOptions): Promis
 }
 
 describe('DbAuthnThrottle configuration', () => {
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   it("uses authn core's throttle parameters, not a copy", () => {
     expect(THROTTLE_FLOWS).to.deep.eq(['login', 'mfa', 'reset', 'reauth', 'register']);
@@ -33,14 +33,14 @@ describe('DbAuthnThrottle configuration', () => {
   });
 
   it('reads the schema defaults when authn.throttle is not configured', async () => {
-    const { child } = await boot(SCHEMAS, {});
+    const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
     const throttle = await throttleIn(child);
     await throttle.init();
     expect(clone(throttle.params)).to.deep.eq(clone(DEFAULT_THROTTLE_PARAMS));
   });
 
   it('snapshots authn.throttle at init: frozen, and not the live configuration object', async () => {
-    const { child, configuration } = await boot(SCHEMAS, {});
+    const { container: child, config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
     const throttle = await throttleIn(child);
     await throttle.init();
     expect(throttle.params.login.account?.free).to.eq(5);
@@ -56,7 +56,7 @@ describe('DbAuthnThrottle configuration', () => {
     DI.uncache('__configurationSchema__' as never);
     let error: unknown;
     try {
-      const { child } = await boot([], {});
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [], config: {} });
       const throttle = await throttleIn(child);
       await throttle.init();
     } catch (e) {
@@ -84,7 +84,7 @@ describe('DbAuthnThrottle configuration', () => {
   });
 
   it('refuses limits set past the schema before init', async () => {
-    const { child, configuration } = await boot(SCHEMAS, {});
+    const { container: child, config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
     setPastSchema(configuration, 'authn.throttle.reset.ip.maxDelayMs', 0);
     const throttle = await throttleIn(child);
     let error: unknown;
@@ -94,7 +94,7 @@ describe('DbAuthnThrottle configuration', () => {
   });
 
   it("keys rows with authn.audit.hashKey.secret from the container's configuration", async () => {
-    const { child } = await boot(SCHEMAS, { authn: { audit: { hashKey: { secret: HASH_KEY } } } });
+    const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { audit: { hashKey: { secret: HASH_KEY } } } } });
     const throttle = await throttleIn(child);
     await throttle.init();
     const key: ThrottleKey = { kind: 'account', value: 'keyed@example.test' };
@@ -118,7 +118,7 @@ describe('DbAuthnThrottle without authn.audit.hashKey.secret', () => {
 
   afterEach(async () => {
     DI.uncache(DbAuthnThrottle);
-    await disposeBooted();
+    await disposeTestApps();
   });
 
   async function checkError(throttle: DbAuthnThrottle, booting: Parameters<DbAuthnThrottle['checkConfiguration']>[0]): Promise<unknown> {
@@ -132,7 +132,7 @@ describe('DbAuthnThrottle without authn.audit.hashKey.secret', () => {
 
   it('refuses a production boot when the throttle reads no key, naming the key', async () => {
     for (const audit of [{}, { hashKey: { secret: null } }]) {
-      const { child, configuration } = await boot(SCHEMAS, { authn: { audit } }, 'production');
+      const { container: child, config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { audit } }, env: 'production' });
       const error = await checkError(await throttleIn(child), configuration);
       expect(error, JSON.stringify(audit)).to.be.instanceOf(InvalidOption);
       expect((error as Error).message).to.contain('authn.audit.hashKey.secret');
@@ -140,22 +140,22 @@ describe('DbAuthnThrottle without authn.audit.hashKey.secret', () => {
   });
 
   it('judges the key the throttle uses, under the env of the booting configuration', async () => {
-    const keyed = await boot(SCHEMAS, { authn: { audit: { hashKey: { secret: HASH_KEY } } } }, 'production');
-    const unkeyed = await boot(SCHEMAS, {}, 'production');
-    const lenient = await boot(SCHEMAS, {}, 'test');
+    const keyed = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { audit: { hashKey: { secret: HASH_KEY } } } }, env: 'production' });
+    const unkeyed = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {}, env: 'production' });
+    const lenient = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {}, env: 'test' });
     const throttle = (from: IContainer, hashKey?: string | null) => throttleIn(from, hashKey !== undefined ? { hashKey } : undefined);
-    expect(await checkError(await throttle(unkeyed.child), keyed.configuration), 'only the booting configuration has the key').to.be.instanceOf(InvalidOption);
-    expect(await checkError(await throttle(keyed.child), unkeyed.configuration), 'only the throttle configuration has the key').to.eq(undefined);
-    expect(await checkError(await throttle(unkeyed.child, HASH_KEY), unkeyed.configuration), 'a key given to the constructor').to.eq(undefined);
-    expect(await checkError(await throttle(keyed.child, null), keyed.configuration), 'hashKey null over a configured secret').to.be.instanceOf(InvalidOption);
-    expect(await checkError(await throttle(unkeyed.child), lenient.configuration), 'booting in test').to.eq(undefined);
+    expect(await checkError(await throttle(unkeyed.container), keyed.config), 'only the booting configuration has the key').to.be.instanceOf(InvalidOption);
+    expect(await checkError(await throttle(keyed.container), unkeyed.config), 'only the throttle configuration has the key').to.eq(undefined);
+    expect(await checkError(await throttle(unkeyed.container, HASH_KEY), unkeyed.config), 'a key given to the constructor').to.eq(undefined);
+    expect(await checkError(await throttle(keyed.container, null), keyed.config), 'hashKey null over a configured secret').to.be.instanceOf(InvalidOption);
+    expect(await checkError(await throttle(unkeyed.container), lenient.config), 'booting in test').to.eq(undefined);
   });
 
   for (const env of ['development', 'test']) {
     it(`keys rows with a random key of this process in ${env}, never a public constant`, async () => {
-      const { child, configuration } = await boot(SCHEMAS, {}, env);
+      const { container: child, config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {}, env: env });
       const a = await throttleIn(child);
-      const b = await throttleIn((await boot(SCHEMAS, {}, env)).child);
+      const b = await throttleIn((await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {}, env: env })).container);
       await a.checkConfiguration(configuration);
       await a.init();
       await b.init();
@@ -181,10 +181,10 @@ describe('DbAuthnThrottle without authn.audit.hashKey.secret', () => {
     /** The service boots in a child of its own; `throttle` reads the configuration of another child, as the root singleton reads the root's. */
     async function bootService(env: string, audit: Record<string, unknown>, throttle?: { audit: Record<string, unknown>; hashKey?: string | null }): Promise<unknown> {
       const service = throttle ? 'SeparateDbThrottle' : 'DbAuthnThrottle';
-      const { child } = await boot(SCHEMAS, { authn: { strategies: [], throttle: { service }, audit }, http: { cookie: { secret: COOKIE_SECRET } } }, env);
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { strategies: [], throttle: { service }, audit }, http: { cookie: { secret: COOKIE_SECRET } } }, env: env });
       if (throttle) {
-        const own = await boot(SCHEMAS, { authn: { audit: throttle.audit } }, env);
-        bind(child, AuthnThrottle, service, await throttleIn(own.child, throttle.hashKey !== undefined ? { hashKey: throttle.hashKey } : undefined));
+        const own = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { audit: throttle.audit } }, env: env });
+        bind(child, AuthnThrottle, service, await throttleIn(own.container, throttle.hashKey !== undefined ? { hashKey: throttle.hashKey } : undefined));
       }
       bind(child, IdentityStore, 'HashKeyIdentityStore', new FakeIdentityStore());
       bind(child, PrincipalFactory, 'HashKeyPrincipalFactory', new RecordingPrincipalFactory());

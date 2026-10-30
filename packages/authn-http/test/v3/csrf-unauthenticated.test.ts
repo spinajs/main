@@ -5,7 +5,7 @@ import { CONFIGURATION_CONTAINER_KEY } from '@spinajs/configuration';
 
 import { CsrfOriginGuard } from '../../src/middleware/csrf.js';
 import authnHttpConfig from '../../src/config/authn-http.js';
-import { fakeContainer } from '../support/config-boot.js';
+import { fakeContainer } from '@spinajs/testing';
 
 const OWN = 'http://app.example.test';
 const PARTNER = 'https://partner.example.org';

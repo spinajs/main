@@ -11,16 +11,16 @@ import authnToken from '../../src/config/authn-token.js';
 import { SecureRandomTokenProvider } from '../../src/generator.js';
 import { JwtBearerStrategy } from '../../src/jwt/JwtBearerStrategy.js';
 import { TokenStrategy } from '../../src/strategy/TokenStrategy.js';
-import { boot, disposeBooted, readingFrom, violationsOf } from '../support/config-boot.js';
+import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_TOKEN_CONFIGURATION_SCHEMA, AUTHN_JWT_CONFIGURATION_SCHEMA];
-const bad = (authn: Record<string, unknown>) => violationsOf(SCHEMAS, { authn });
+const bad = (authn: Record<string, unknown>) => configurationViolations({ schemas: SCHEMAS, config: { authn } });
 
 const ISSUER = { issuer: 'https://id.example.com', audience: 'api', algorithms: ['ES256'], jwksUri: 'https://id.example.com/jwks' };
 const issuers = (...items: Record<string, unknown>[]) => ({ jwt: { issuers: items } });
 
 async function jwtBootError(...items: Record<string, unknown>[]): Promise<string> {
-  const { child } = await boot(SCHEMAS, { authn: issuers(...items) });
+  const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: issuers(...items) } });
   try {
     await readingFrom(new JwtBearerStrategy(), child).resolve();
     return '';
@@ -30,7 +30,7 @@ async function jwtBootError(...items: Record<string, unknown>[]): Promise<string
 }
 
 describe('authn.token and authn.jwt through the schema', () => {
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   describe('defaults', () => {
     it('AuthnTokenConfigBootstrapper registers the authn.token and authn.jwt fragments', () => {
@@ -39,18 +39,18 @@ describe('authn.token and authn.jwt through the schema', () => {
     });
 
     it('with no user config, the effective authn.token and authn.jwt equal the defaults of the former single authn schema', async () => {
-      const { configuration } = await boot(SCHEMAS, {});
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
       expect(configuration.get('authn.token')).to.deep.eq({ prefix: 'spt_', length: 32, maxTtlDays: 90, defaultTtlDays: 30, agentMaxTtlMinutes: 1440, headerName: 'x-api-key', lastUsedUpdateInterval: 60, cache: { ttlSeconds: 10, maxEntries: 10000 } });
       expect(configuration.get('authn.jwt')).to.deep.eq({ issuers: [] });
     });
 
     it('fills authn.token in whole', async () => {
-      const { configuration } = await boot(SCHEMAS, {});
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
       expect(configuration.get('authn.token')).to.deep.include({ prefix: 'spt_', length: 32, maxTtlDays: 90, defaultTtlDays: 30, agentMaxTtlMinutes: 1440, headerName: 'x-api-key', lastUsedUpdateInterval: 60 });
     });
 
     it('equals the shipped package config', async () => {
-      const { configuration } = await boot(SCHEMAS, {});
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
       const shipped = authnToken.authn.token;
       for (const key of ['prefix', 'length', 'maxTtlDays', 'defaultTtlDays', 'agentMaxTtlMinutes', 'headerName', 'lastUsedUpdateInterval'] as const) {
         expect(configuration.get(`authn.token.${key}`), key).to.eq(shipped[key]);
@@ -63,8 +63,8 @@ describe('authn.token and authn.jwt through the schema', () => {
     });
 
     it('has no issuer by default, and gives an issuer its skew and subject claim', async () => {
-      expect((await boot(SCHEMAS, {})).configuration.get('authn.jwt.issuers')).to.deep.eq([]);
-      const { configuration } = await boot(SCHEMAS, { authn: issuers(ISSUER) });
+      expect((await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} })).config.get('authn.jwt.issuers')).to.deep.eq([]);
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: issuers(ISSUER) } });
       expect(configuration.get('authn.jwt.issuers.0')).to.deep.include({ clockSkewSeconds: 30, subjectClaim: 'sub' });
     });
   });
@@ -137,7 +137,7 @@ describe('authn.token and authn.jwt through the schema', () => {
 
   describe('what the code still checks', () => {
     it('refuses a prefix and length that make a token over 1024 characters', async () => {
-      const { child } = await boot(SCHEMAS, { authn: { token: { prefix: 'p'.repeat(1000), length: 300 } } });
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { token: { prefix: 'p'.repeat(1000), length: 300 } } } });
       await child.resolve(Configuration);
       const provider = readingFrom(new SecureRandomTokenProvider(), child);
       let error: unknown;
@@ -158,7 +158,7 @@ describe('authn.token and authn.jwt through the schema', () => {
     });
 
     it('reads the configured token format through @Config', async () => {
-      const { child } = await boot(SCHEMAS, { authn: { token: { prefix: 'acme_', length: 48 } } });
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { token: { prefix: 'acme_', length: 48 } } } });
       const token = await readingFrom(new SecureRandomTokenProvider(), child).generate();
       expect(token.Plaintext.startsWith('acme_')).to.eq(true);
       expect(token.Plaintext.length).to.eq('acme_'.length + Math.ceil((48 * 4) / 3));

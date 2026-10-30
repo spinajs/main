@@ -3,7 +3,6 @@ import { expect } from 'chai';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configuration';
-import { fakeContainer } from '../support/config-boot.js';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Orm, OrmMigrator } from '@spinajs/orm';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
@@ -14,6 +13,7 @@ import * as barrel from '../../src/index.js';
 import { ClientIp } from '../../src/middleware/client-ip.js';
 import { AUTHN_PROBE_PATH } from './probe.js';
 import { TestConfiguration, req, restoreHttpErrorMap, startHttpServer } from '../token-common.js';
+import { fakeContainer } from '@spinajs/testing';
 
 const SPOOF = '198.51.100.66';
 

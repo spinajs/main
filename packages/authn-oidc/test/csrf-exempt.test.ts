@@ -4,7 +4,7 @@ import { CsrfGuard, isCsrfExempt } from '@spinajs/http';
 import type { BaseController } from '@spinajs/http';
 
 import { OidcController } from '../src/controllers/OidcController.js';
-import { fakeContainer, readingFrom } from './support/config-boot.js';
+import { fakeContainer, readingFrom } from '@spinajs/testing';
 
 const EVIL = 'https://evil.example.net';
 

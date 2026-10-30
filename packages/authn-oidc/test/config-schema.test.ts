@@ -12,9 +12,9 @@ import { OIDC_SIGNING_ALGORITHMS } from '../src/contracts.js';
 import { buildOidcOptions } from '../src/options/options.js';
 import { AUTHN_OIDC_CONFIGURATION_SCHEMA, OIDC_RESERVED_PARAMS } from '../src/options/schema.js';
 import { OidcProviders } from '../src/providers.js';
-import { boot, configurationOf, disposeBooted, readingFrom, violationsOf } from './support/config-boot.js';
 import { withSchemaDefaults } from './support/oidc-config.js';
 import { recordingLog } from './support/recording-log.js';
+import { configurationOf, configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_OIDC_CONFIGURATION_SCHEMA];
 const SECRET = 'SUPER-SECRET-VALUE-42';
@@ -24,13 +24,13 @@ const ISSUER = 'https://idp.example.test/realms/corp';
 const client = (over: Record<string, unknown> = {}) => ({ clientId: 'canvas', clientSecret: { secret: SECRET }, ...over });
 const generic = (over: Record<string, unknown> = {}) => client({ issuer: ISSUER, ...over });
 const oidc = (providers: Record<string, unknown>, redirects?: Record<string, unknown>) => ({ authn: { oidc: { providers, ...(redirects ? { redirects } : {}) } } });
-const bad = (providers: Record<string, unknown>, redirects?: Record<string, unknown>) => violationsOf(SCHEMAS, oidc(providers, redirects));
+const bad = (providers: Record<string, unknown>, redirects?: Record<string, unknown>) => configurationViolations({ schemas: SCHEMAS, config: oidc(providers, redirects) });
 const at = (name: string, key: string) => `authn.oidc.providers.${name}.${key}`;
 
 describe('authn.oidc through its own schema', function () {
   // Some cases boot dozens of Configurations.
   this.timeout(30000);
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   it('compiles under the app validator without strict-mode warnings', () => {
     const require = createRequire(import.meta.url);
@@ -54,13 +54,13 @@ describe('authn.oidc through its own schema', function () {
 
   describe('defaults', () => {
     it('gives an unconfigured authn.oidc no providers and the default redirects', async () => {
-      const { configuration } = await boot(SCHEMAS, {});
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
       expect(configuration.get('authn.oidc')).to.deep.eq({ providers: {}, redirects: { success: '/', failure: '/' } });
     });
 
     it('fills every default of a provider, equal to the fixture the build tests use', async () => {
       const raw = { providers: { corp: generic() }, redirects: { success: '/app' } };
-      const { configuration } = await boot(SCHEMAS, { authn: { oidc: raw } });
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { oidc: raw } } });
       expect(configuration.get('authn.oidc')).to.deep.eq(withSchemaDefaults(raw));
       expect(configuration.get('authn.oidc.providers.corp.algorithms')).to.deep.eq([...OIDC_SIGNING_ALGORITHMS]);
       expect(configuration.get('authn.oidc.providers.corp.clockSkewSeconds')).to.eq(30);
@@ -68,13 +68,13 @@ describe('authn.oidc through its own schema', function () {
     });
 
     it('fills the global linking switches', async () => {
-      const { configuration } = await boot(SCHEMAS, {});
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
       expect(configuration.get('authn.linking')).to.deep.eq({ jit: false, byVerifiedEmail: false });
     });
 
     it('keeps required claim values as configured, with no coercion between string, number and boolean', async () => {
       const requiredClaims = { hd: 'example.com', tier: 2, staff: true, guest: false, level: 0 };
-      const { configuration } = await boot(SCHEMAS, oidc({ corp: generic({ requiredClaims }) }));
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: oidc({ corp: generic({ requiredClaims }) }) });
       expect(configuration.get('authn.oidc.providers.corp.requiredClaims')).to.deep.eq(requiredClaims);
     });
   });
@@ -94,7 +94,7 @@ describe('authn.oidc through its own schema', function () {
     });
 
     it('names the key an unknown authn.oidc member or redirect would be', async () => {
-      expect(await violationsOf(SCHEMAS, { authn: { oidc: { providers: {}, flow: 'implicit' } } })).to.include('authn.oidc.flow');
+      expect(await configurationViolations({ schemas: SCHEMAS, config: { authn: { oidc: { providers: {}, flow: 'implicit' } } } })).to.include('authn.oidc.flow');
       expect(await bad({}, { other: '/x' })).to.include('authn.oidc.redirects.other');
     });
 
@@ -201,7 +201,7 @@ describe('authn.oidc through its own schema', function () {
     it('never puts a configured value into the error', async () => {
       let error: unknown;
       try {
-        await boot(SCHEMAS, oidc({ corp: generic({ clockSkewSeconds: 999 }) }));
+        await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: oidc({ corp: generic({ clockSkewSeconds: 999 }) }) });
       } catch (e) {
         error = e;
       }
@@ -212,7 +212,7 @@ describe('authn.oidc through its own schema', function () {
   });
 
   describe('what buildOidcOptions still checks', () => {
-    const configOf = async (providers: Record<string, unknown>) => (await boot(SCHEMAS, oidc(providers))).configuration.get<never>('authn.oidc');
+    const configOf = async (providers: Record<string, unknown>) => (await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: oidc(providers) })).config.get<never>('authn.oidc');
 
     it('refuses http endpoints outside development and test, naming the key', async () => {
       const cfg = await configOf({ corp: generic({ issuer: 'http://idp.example.test/realms/corp' }) });

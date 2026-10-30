@@ -3,15 +3,15 @@ import { expect } from 'chai';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 
 import { AUTHN_SESSION_CONFIGURATION_SCHEMA, AuthnSessionConfigBootstrapper } from '../src/index.js';
-import { boot, disposeBooted, violationsOf } from './support/config-boot.js';
 import { registeredSchemasAfter } from './support/registered-schemas.js';
+import { configurationViolations, createTestApp, disposeTestApps } from '@spinajs/testing';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_SESSION_CONFIGURATION_SCHEMA];
-const bad = (session: Record<string, unknown>) => violationsOf(SCHEMAS, { authn: { session } });
+const bad = (session: Record<string, unknown>) => configurationViolations({ schemas: SCHEMAS, config: { authn: { session } } });
 
 describe('authn.session through the schemas', function () {
   this.timeout(30000);
-  afterEach(disposeBooted);
+  afterEach(disposeTestApps);
 
   it('AuthnSessionConfigBootstrapper registers the authn.session fragment', () => {
     expect(AUTHN_SESSION_CONFIGURATION_SCHEMA.$configurationModule).to.eq('authn.session');
@@ -19,7 +19,7 @@ describe('authn.session through the schemas', function () {
   });
 
   it('with no user config, the effective authn.session equals the defaults of the former single authn schema', async () => {
-    const configuration = await boot(SCHEMAS, {});
+    const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
     expect(configuration.get('authn.session')).to.deep.eq({
       expiration: { ttl: 30, maxLifetime: 480 },
       pendingTtlSeconds: 300,
@@ -31,13 +31,13 @@ describe('authn.session through the schemas', function () {
   });
 
   it('keeps a configured value and fills the rest', async () => {
-    const configuration = await boot(SCHEMAS, { authn: { session: { expiration: { service: 'AbsoluteExpiration', ttl: 5 } } } });
+    const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { session: { expiration: { service: 'AbsoluteExpiration', ttl: 5 } } } } });
     expect(configuration.get('authn.session.expiration')).to.deep.eq({ service: 'AbsoluteExpiration', ttl: 5, maxLifetime: 480 });
   });
 
   it('accepts the cookie values the cookie writers accept and keeps them as given', async () => {
     for (const cookie of [{ sameSite: true }, { sameSite: false }, { sameSite: 'Lax' }, { sameSite: 'STRICT' }, { sameSite: 'none' }, { secure: 'true' }, { secure: 'false' }, { hostPrefix: 'true' }, { secure: true, hostPrefix: false }]) {
-      const configuration = await boot(SCHEMAS, { authn: { session: { cookie: { ...cookie } } } });
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { session: { cookie: { ...cookie } } } } });
       expect(configuration.get('authn.session.cookie'), JSON.stringify(cookie)).to.deep.include(cookie);
     }
   });

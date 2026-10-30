@@ -82,7 +82,8 @@
   "devDependencies": {
     "@spinajs/authn-orm": "3.0.23",
     "@spinajs/authn-testing": "3.0.23",
-    "@spinajs/orm-sqlite": "3.0.23"
+    "@spinajs/orm-sqlite": "3.0.23",
+    "@spinajs/testing": "3.0.23"
   },
   "types": "./lib/index.d.ts"
 }

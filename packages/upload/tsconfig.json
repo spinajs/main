@@ -55,6 +55,9 @@
     },
     {
       "path": "../validation/tsconfig.json"
+    },
+    {
+      "path": "../testing/tsconfig.json"
     }
   ]
 }

@@ -43,6 +43,9 @@
     },
     {
       "path": "../queue/tsconfig.json"
+    },
+    {
+      "path": "../testing/tsconfig.json"
     }
   ]
 }
