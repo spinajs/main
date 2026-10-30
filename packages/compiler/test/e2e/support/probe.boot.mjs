@@ -16,6 +16,7 @@ nodeModule.registerHooks({
 });
 
 // an app's entry imports its packages before anything resolves, which registers the sources they ship
+if (process.env.E2E_APP_SOURCE === '1') await import(new URL('lib/elsewhere/SourcedController.js', import.meta.url).href);
 const { PrincipalMiddleware } = await import('@spinajs/authz-http');
 const { DI, Bootstrapper } = await import('@spinajs/di');
 const { Configuration, BaseFileSource } = await import('@spinajs/configuration');
@@ -81,6 +82,9 @@ try {
     users: await get('/users/list?query=' + encodeURIComponent(JSON.stringify({ page: 1, perPage: 5 }))),
     // mounted by ExplainControllerSource only, and never in production
     explain: await get('/authz/explain'),
+    // outside the app's dirs: nothing mounts the first, only its own source the second
+    elsewhere: await get('/elsewhere/get'),
+    sourced: await get('/sourced/get'),
   };
 
   await DI.resolve(SocketServer);

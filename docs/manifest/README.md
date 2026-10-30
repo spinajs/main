@@ -47,7 +47,7 @@ The `system.manifest` configuration section (`path`, default `app.manifest.json`
 
 It registers the result under `MANIFEST_SETTINGS` and the loaded manifest under `MANIFEST` (`MANIFEST_TOKEN`), and the final configuration's `system.manifest` is set to the result, whatever a later source or `onLoad` merged there. The file sources, `ListFromFiles` / `ResolveFromFiles` (`@spinajs/reflection`) and the http and orm sources read `manifestSettingsOf(container)` / `activeManifestOf(container)`; socket contract enforcement (`@spinajs/http-socket`) and `SwaggerService` (`@spinajs/http-swagger`) read `effectiveManifestOf(container)`, which falls back to the `system.manifest` key and the file it names only in an app whose container holds no decision (built without the configuration source); contract testing (`@spinajs/testing`) defaults to the manifest the app container registered; a `system.manifest` key that reaches the configuration any other way switches nothing. An unknown key in the app's `system.manifest` is logged as a warning (the schema then drops it). Only the environment and the app's config files set the switch; a `system.manifest` from another source (a static or remote source, `onLoad`) is replaced by the effective value.
 
-The manifest lists every controller, migration and so on of the app and its listed packages: `system.dirs.*` does not narrow what the manifest sources return. They sort it like a directory scan does (`glob`'s locale-aware order, migrations with the unsuffixed files first), so load order is the same in both modes, although the compiler sorts by code unit to keep hashes stable.
+At runtime `system.dirs.*` does not narrow what the manifest sources return: `spinajs build` decided what the manifest lists (see [The app's own classes](#the-apps-own-classes)). They sort it like a directory scan does (`glob`'s locale-aware order, migrations with the unsuffixed files first), so load order is the same in both modes, although the compiler sorts by code unit to keep hashes stable.
 
 `ListFromFiles` and `ResolveFromFiles` map `configPath` to a manifest section (`MANIFEST_SECTIONS`: `system.dirs.controllers`, `socketControllers`, `schedules`, `cli`, `migrations`), or take it from `options.manifest`. The default mapping applies only without a `typeMatcher`. They read the scanned dirs from the root container's Configuration, and the manifest and its mode from the decorated instance's container lineage.
 
@@ -78,7 +78,32 @@ With a manifest in `require` mode the boot skips: the `node_modules/@spinajs/*` 
 
 `packages/compiler/test/e2e/boot-from-manifest.test.ts` proves this on the `app-basic` fixture: it installs the compiled fixture next to only the `@spinajs` packages it depends on, boots it in `require` mode in a fresh process, and compares what it serves with an `off` boot that scans. Both boots serve the same controllers, schedules, commands, socket commands and migrations; only the order of the migrations differs (discovery lists the app's dir first, the manifest by package).
 
-The manifest holds what discovery finds. The app's own classes are all listed (abstract bases excepted). A dependency's fragment (built with `declaredDirsOnly`, as `scripts/build-fragments.mjs` does) lists a controller, socket controller, schedule, command or migration only when its file is under a `system.dirs.*` dir that the package's own config declares for that section; classes outside them are registered by importing the package (migrations, `AccessPushSocket`) or by an opt-in subpath (`@spinajs/upload/scheduler`), or are not served at all. Abstract classes are never listed.
+The manifest holds what discovery finds. A dependency's fragment (built with `declaredDirsOnly`, as `scripts/build-fragments.mjs` does) lists a controller, socket controller, schedule, command or migration only when its file is under a `system.dirs.*` dir that the package's own config declares for that section; classes outside them are registered by importing the package (migrations, `AccessPushSocket`) or by an opt-in subpath (`@spinajs/upload/scheduler`), or are not served at all. Abstract classes are never listed.
+
+### The app's own classes
+
+`spinajs build` checks the app's controllers, socket controllers, schedules, CLI commands and migrations against the `system.dirs.*` the app runs with, so a class discovery never loads is not mounted in `prefer` or `require` either. These five are the sections discovery scans; models and queue messages have no `system.dirs` scan and stay listed.
+
+1. The CLI boots `Configuration` and reads `system.dirs`. That value holds the app's config for this `APP_ENV` and the dirs `--app` and `--apppath` add. An empty `system.dirs.migrations` counts as the dirs the orm scans in that case (`defaultMigrationDirs()`).
+2. It hands them to the compiler as data (`buildAppManifest({ effectiveDirs })`); the compiler never evaluates config. Each dir maps back to the sources through the `tsconfig` `outDir` and `rootDir`, so `lib/controllers` becomes `src/controllers`. A dir outside the app, such as a package's, counts for nothing.
+3. Each class of the five sections is then one of these:
+
+| The class | In the manifest | Reported |
+| --- | --- | --- |
+| Under a dir of its section, at any depth | Yes | No |
+| Outside every dir of its section | No | `CMP006` warning: class, file, dirs searched |
+| In a section with no dir in the app | Yes | `CMP007` warning: class, file, key to declare |
+| A controller registered with `DI.register(X).as(BaseController)` or `@Injectable(BaseController)` | Yes: `DiRegistryControllerSource` finds it wherever it lives | No |
+| A controller your own `ControllerSource` hands over with `ci.file = '<di>'` | No, and it is still served: a `<di>` controller needs no entry | `CMP006` warning; nothing to fix |
+| A migration, schedule or socket controller outside the dirs that an import registers | No, and it still registers on import, as in discovery | `CMP006` warning; nothing to fix |
+
+A `ControllerSource` that hands over a class outside the dirs with its real file fails in `require` with `NoControllerMetadata`: set `ci.file = '<di>'`.
+
+A section with no dir in the app keeps its classes on purpose. The key may be absent or empty, or all its dirs may belong to packages. From the build that looks the same as a config it could not read (`lib/config` not compiled yet, a build run from another folder), and emptying the section would take every route away. Such classes are served although discovery would not load them, which is why each one gets a warning; `--fail-on-warning` turns that into a failed build.
+
+**The manifest reflects the config of the build's `APP_ENV`.** A config file of another environment (`*.prod.js`) that adds a dir counts only in a build under that environment. Run `spinajs build` with the `APP_ENV` (or `--env`) and `--app` of the deployment, from the app's folder, after compiling: the CLI reads `lib/config`, not `src/config`.
+
+A direct call of `buildAppManifest` without `effectiveDirs` filters nothing.
 
 ### Building without decorator metadata
 

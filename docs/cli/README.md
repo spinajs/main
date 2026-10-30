@@ -90,7 +90,7 @@ spinajs build --tsconfig tsconfig.json --out app.manifest.json
 | `--schemas` / `--no-schemas` | `--schemas` | Derive JSON Schemas from TypeScript types, or skip derivation |
 | `--fail-on-warning` | off | Exit with code 1 when the analyzer reports a warning |
 
-Diagnostics are printed as `severity CODE file:line message`, followed by a summary of services, controllers, routes, models, schemas and diagnostics by severity. An analyzer error always exits with code 1; a warning does so only with `--fail-on-warning`. The manifest merges the fragments (`lib/manifest.fragment.json`) that the app's `@spinajs/*` dependencies ship. The command needs `@spinajs/compiler`, an optional peer dependency of `@spinajs/cli`; install it to use this command.
+Diagnostics are printed as `severity CODE file:line message`, followed by a summary of services, controllers, routes, models, schemas and diagnostics by severity. An analyzer error always exits with code 1; a warning does so only with `--fail-on-warning`. The command reads `system.dirs` from the booted configuration and leaves out an app class that discovery would not load, with a `CMP006` warning; the manifest therefore reflects the config of the build's `APP_ENV` (see [The app's own classes](../manifest/README.md#the-apps-own-classes)). The manifest merges the fragments (`lib/manifest.fragment.json`) that the app's `@spinajs/*` dependencies ship. The command needs `@spinajs/compiler`, an optional peer dependency of `@spinajs/cli`; install it to use this command.
 
 ## Related packages
 

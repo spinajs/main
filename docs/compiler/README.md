@@ -18,7 +18,7 @@ npm install --save-dev @spinajs/compiler
 ## `analyzePackage`
 
 ```text
-analyzePackage({ tsconfig, packageRoot, schemaDerivation? }): Promise<ManifestFragment>
+analyzePackage({ tsconfig, packageRoot, schemaDerivation?, effectiveDirs? }): Promise<ManifestFragment>
 ```
 
 | Option | Meaning |
@@ -26,6 +26,7 @@ analyzePackage({ tsconfig, packageRoot, schemaDerivation? }): Promise<ManifestFr
 | `tsconfig` | Path to the `tsconfig` that lists the package sources. Files under its `rootDir` (default: the `tsconfig` folder) that are not declaration files are analyzed. |
 | `packageRoot` | Folder with the package's `package.json`. Every `source.file` in the result is relative to it, with forward slashes. |
 | `schemaDerivation` | Accepted for forward compatibility. It has no effect yet: extractors do not derive JSON Schemas from types. |
+| `effectiveDirs` | The app's `system.dirs` by key, as plain data. A controller, socket controller, schedule, command or migration is listed only under one of them; see [The app's own classes](../manifest/README.md#the-apps-own-classes). Omitted, nothing is filtered. The analyzer never evaluates config: `spinajs build` reads these from the booted `Configuration`. |
 
 The fragment's `package` member comes from `package.json` and the `tsconfig`:
 
@@ -42,10 +43,10 @@ The same sources always give the same fragment. Source files are visited in path
 ## `buildAppManifest`
 
 ```text
-buildAppManifest({ tsconfig, appRoot, out?, schemaDerivation? }): Promise<{ manifest, written }>
+buildAppManifest({ tsconfig, appRoot, out?, schemaDerivation?, effectiveDirs? }): Promise<{ manifest, written }>
 ```
 
-1. Analyzes the application with `analyzePackage`.
+1. Analyzes the application with `analyzePackage`, passing `effectiveDirs` on.
 2. Calls `locateFragments(appRoot)` to find the fragment of every package in the app's installed dependency closure.
 3. Reads and validates each fragment, then calls `mergeFragments`. Dependencies come first, the application last, so the application wins where the last registration wins at runtime.
 4. Computes `hash` with `hashManifest` and writes the file. `out` defaults to `<appRoot>/app.manifest.json`.
@@ -161,6 +162,8 @@ Every diagnostic has a `code`, a `severity` (`error`, `warning`, `info`), a `mes
 | `CMP002` | info | A `@response` JSDoc tag could not be parsed. |
 | `CMP003` | info | A registration has a dynamic condition. |
 | `CMP005` | info | A route argument read from one string (query key, url segment, header, cookie, form field) has a type converted by a custom `@Hydrator`, which receives the raw string. Its `wire.shape` is recorded as `value`; the hydrator decides the real format. |
+| `CMP006` | warning | An app's class is left out of the manifest: it is outside every `effectiveDirs` entry of its section, so discovery does not find it. The message names the class, the file and the dirs searched. |
+| `CMP007` | warning | An app's class stays in the manifest although no `effectiveDirs` entry of its section lies in the app, so discovery would not load it. Declare its folder, or run the build from the app's folder after compiling its config. |
 | `TYP001` | info | `runtime-type-not-exported`: a route argument, socket payload or injected property has a class type that is not exported, so the manifest records no `ref` for it. Without decorator metadata the runtime cannot load it; export the class. |
 | `TYP002` | info | `runtime-type-not-importable`: the class is declared in a package without a manifest fragment (types from `@types/*`), or in an ambient module (`node:async_hooks`). Without decorator metadata the runtime cannot load it; pass the type to the decorator (`@Type(X)`, `@Autoinject(X)`). |
 | `CFG010` | warning | A configuration schema is not a literal with `$id` and `$configurationModule`. |

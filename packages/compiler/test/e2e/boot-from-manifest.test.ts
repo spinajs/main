@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import type { Manifest } from '@spinajs/manifest';
 import ts from 'typescript';
 import { buildAppManifest } from '../../src/index.js';
 
@@ -33,6 +34,44 @@ export default {
 };
 `;
 
+// Classes the fixture keeps outside the dirs its config declares. The second is mounted by its own source, as authz-http
+// mounts the explain route.
+const ELSEWHERE_CONTROLLER = `
+import { BaseController, BasePath, Get, Ok } from '@spinajs/http';
+
+@BasePath('elsewhere')
+export class ElsewhereController extends BaseController {
+  @Get()
+  public async get(): Promise<Ok<string>> {
+    return new Ok('elsewhere');
+  }
+}
+`;
+
+const SOURCED_CONTROLLER = `
+import { ClassInfo, Injectable } from '@spinajs/di';
+import { BaseController, BasePath, ControllerSource, Get, Ok } from '@spinajs/http';
+
+@BasePath('sourced')
+export class SourcedController extends BaseController {
+  @Get()
+  public async get(): Promise<Ok<string>> {
+    return new Ok('sourced');
+  }
+}
+
+@Injectable(ControllerSource)
+export class SourcedControllerSource extends ControllerSource {
+  public async getControllers(): Promise<ClassInfo<BaseController>[]> {
+    const ci = new ClassInfo<BaseController>();
+    ci.name = SourcedController.name;
+    ci.type = SourcedController;
+    ci.file = '<di>';
+    return [ci];
+  }
+}
+`;
+
 interface ProbeResult {
   unsupported?: string;
   error?: { name: string; message: string; stack: string };
@@ -58,7 +97,7 @@ function compileApp(root: string): void {
 }
 
 /** The app as a deployment lays it out: its own lib/ and a node_modules/@spinajs holding only the packages it depends on. */
-async function installApp(): Promise<void> {
+async function installApp(): Promise<Manifest> {
   rmSync(TMP, { recursive: true, force: true });
   mkdirSync(INSTALLED, { recursive: true });
   cpSync(join(APP, 'src'), join(INSTALLED, 'src'), { recursive: true });
@@ -70,18 +109,24 @@ async function installApp(): Promise<void> {
   // `workspaces` makes it a root: the configuration walk does not climb into the repo above it
   writeFileSync(join(INSTALLED, 'package.json'), JSON.stringify({ ...pkg, workspaces: [] }));
   rmSync(join(INSTALLED, 'src', 'index.ts'));
+  mkdirSync(join(INSTALLED, 'src', 'elsewhere'));
+  writeFileSync(join(INSTALLED, 'src', 'elsewhere', 'ElsewhereController.ts'), ELSEWHERE_CONTROLLER);
+  writeFileSync(join(INSTALLED, 'src', 'elsewhere', 'SourcedController.ts'), SOURCED_CONTROLLER);
 
   compileApp(INSTALLED);
   mkdirSync(join(INSTALLED, 'lib', 'config'), { recursive: true });
   writeFileSync(join(INSTALLED, 'lib', 'config', 'e2e.js'), E2E_CONFIG);
 
-  const { manifest } = await buildAppManifest({ tsconfig: join(INSTALLED, 'tsconfig.json'), appRoot: INSTALLED, out: join(INSTALLED, 'app.manifest.json') });
+  const built = (name: string): string[] => [join(INSTALLED, 'lib', name)];
+  const effectiveDirs = { controllers: built('controllers'), migrations: built('migrations'), schedules: built('schedules'), cli: built('commands'), socketControllers: built('socket') };
+  const { manifest } = await buildAppManifest({ tsconfig: join(INSTALLED, 'tsconfig.json'), appRoot: INSTALLED, out: join(INSTALLED, 'app.manifest.json'), effectiveDirs });
   for (const { name } of manifest.packages) {
     const link = join(INSTALLED, 'node_modules', name);
     mkdirSync(dirname(link), { recursive: true });
     symlinkSync(realpathSync(join(WORKSPACE, 'node_modules', name)), link, 'junction');
   }
   writeFileSync(join(INSTALLED, 'probe.mjs'), readFileSync(PROBE));
+  return manifest;
 }
 
 function boot(env: NodeJS.ProcessEnv): ProbeResult {
@@ -106,6 +151,7 @@ describe('app-basic boots from its manifest', function () {
   let discovered: ProbeResult;
   let explainRequired: ProbeResult;
   let explainDiscovered: ProbeResult;
+  let manifest: Manifest;
 
   before(async function () {
     if (!existsSync(join(WORKSPACE, 'node_modules', '@spinajs', 'configuration', 'lib', 'manifest.fragment.json'))) {
@@ -113,11 +159,11 @@ describe('app-basic boots from its manifest', function () {
       console.log('    skipped: no built @spinajs fragments (lib/manifest.fragment.json), run `npm run build` at the repo root');
       this.skip();
     }
-    await installApp();
+    manifest = await installApp();
     required = boot({ SPINAJS_MANIFEST_MODE: 'require', SPINAJS_MANIFEST: join(INSTALLED, 'app.manifest.json') });
     discovered = boot({ SPINAJS_MANIFEST_MODE: 'off', E2E_SCAN: '1' });
-    explainRequired = boot({ SPINAJS_MANIFEST_MODE: 'require', SPINAJS_MANIFEST: join(INSTALLED, 'app.manifest.json'), E2E_EXPLAIN: '1' });
-    explainDiscovered = boot({ SPINAJS_MANIFEST_MODE: 'off', E2E_SCAN: '1', E2E_EXPLAIN: '1' });
+    explainRequired = boot({ SPINAJS_MANIFEST_MODE: 'require', SPINAJS_MANIFEST: join(INSTALLED, 'app.manifest.json'), E2E_EXPLAIN: '1', E2E_APP_SOURCE: '1' });
+    explainDiscovered = boot({ SPINAJS_MANIFEST_MODE: 'off', E2E_SCAN: '1', E2E_EXPLAIN: '1', E2E_APP_SOURCE: '1' });
   });
 
   after(() => {
@@ -144,6 +190,20 @@ describe('app-basic boots from its manifest', function () {
     expect(explainRequired.controllers).to.include('ExplainController');
     expect(explainRequired.responses.explain.status).to.not.equal(404);
     expect(explainRequired.responses.explain.status).to.equal(explainDiscovered.responses.explain.status);
+  });
+
+  it('does not mount a class of the app outside its dirs, which discovery never loads, and reports it', () => {
+    expect(discovered.responses.elsewhere.status).to.equal(404);
+    expect(required.responses.elsewhere.status).to.equal(404);
+    expect(required.controllers).to.not.include('ElsewhereController');
+    const reported = manifest.diagnostics.find((d) => d.code === 'CMP006' && d.message.includes('ElsewhereController'));
+    expect(reported?.source?.file).to.equal('src/elsewhere/ElsewhereController.ts');
+  });
+
+  it('serves a class of the app that a source hands over as <di>, in require as in off mode, without a manifest entry', () => {
+    expect(manifest.controllers.map((c) => c.className)).to.not.include('SourcedController');
+    expect(explainDiscovered.responses.sourced.status).to.equal(200);
+    expect(explainRequired.responses.sourced).to.deep.equal(explainDiscovered.responses.sourced);
   });
 
   it('lists no abstract controller base', () => {
