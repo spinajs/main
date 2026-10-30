@@ -50,7 +50,7 @@ buildAppManifest({ tsconfig, appRoot, out?, schemaDerivation? }): Promise<{ mani
 3. Reads and validates each fragment, then calls `mergeFragments`. Dependencies come first, the application last, so the application wins where the last registration wins at runtime.
 4. Computes `hash` with `hashManifest` and writes the file. `out` defaults to `<appRoot>/app.manifest.json`.
 
-`manifest.app.outDir` and each `manifest.packages[].outDir` are the compiled output folders (`compilerOptions.outDir` of the respective `tsconfig`, relative to its package root). `packages[].fragment` is relative to `app.root` with forward slashes: `node_modules/<name>/<spinajs.manifest>` when the package is installed under the app, the relative real path when it is hoisted above it. `app.root` itself is absolute but excluded from `hash`, so the hash is the same on every machine and checkout. `generatedAt` is the only other member that differs between two runs on the same sources; it is excluded from `hash`.
+`manifest.app.outDir` and each `manifest.packages[].outDir` are the compiled output folders (`compilerOptions.outDir` of the respective `tsconfig`, relative to its package root). `packages[].fragment` is relative to `app.root` with forward slashes: `node_modules/<name>/<spinajs.manifest>` when the package is installed under the app, the relative real path when it is found elsewhere. `app.root` itself is absolute but excluded from `hash`, so the hash is the same on every machine and checkout. `generatedAt` is the only other member that differs between two runs on the same sources; it is excluded from `hash`.
 
 ## The fragment contract
 
@@ -65,7 +65,7 @@ A package that wants to take part in an app manifest ships its fragment and poin
 }
 ```
 
-`locateFragments` resolves each dependency's `package.json` (through Node resolution, falling back to `node_modules/<name>`), reads `spinajs.manifest` and returns `{ name, version, entry, fragment }` with an absolute `fragment` path. A dependency without the field, or whose fragment file does not exist, is skipped silently. Only packages listed under `dependencies` are considered.
+`locateFragments` finds each dependency's `package.json` (in the app's or an ancestor `node_modules`, so hoisted workspace installs and packages whose `exports` hide `package.json` work; Node resolution is the fallback), reads `spinajs.manifest` and returns `{ name, version, entry, fragment }` with an absolute `fragment` path. A dependency without the field, or whose fragment file does not exist, is skipped silently. Only packages listed under `dependencies` are considered.
 
 ## What is extracted
 

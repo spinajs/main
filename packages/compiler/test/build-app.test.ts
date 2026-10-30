@@ -4,6 +4,9 @@ import { resolve } from 'node:path';
 import { analyzePackage, buildAppManifest, locateFragments } from '../src/index.js';
 
 const OUT_DIR = 'test/fixtures/.tmp-out';
+// Built @spinajs/* dependencies carry fragments too; these tests pin only the fixture packages.
+const own = <T extends { id: string }>(items: T[]): T[] => items.filter((i) => /^(app|pkg)-basic:/.test(i.id));
+const ownPackage = <T extends { name: string }>(items: T[]): T[] => items.filter((i) => i.name === 'pkg-basic');
 const APP = { tsconfig: 'test/fixtures/app-basic/tsconfig.json', appRoot: 'test/fixtures/app-basic', out: `${OUT_DIR}/app.manifest.json` };
 
 describe('buildAppManifest', () => {
@@ -19,7 +22,7 @@ describe('buildAppManifest', () => {
   });
 
   it('locates dependency fragments through package.json#spinajs.manifest', async () => {
-    const found = await locateFragments('test/fixtures/app-basic');
+    const found = ownPackage(await locateFragments('test/fixtures/app-basic'));
     expect(found.map((f) => [f.name, f.version, f.entry])).to.deep.equal([['pkg-basic', '1.0.0', 'lib/index.js']]);
     expect(found[0].fragment.replaceAll('\\', '/')).to.match(/pkg-basic\/lib\/manifest\.fragment\.json$/);
   });
@@ -27,18 +30,18 @@ describe('buildAppManifest', () => {
   it('merges app and dependency fragments and writes the manifest', async () => {
     const { manifest, written } = await buildAppManifest(APP);
     expect(manifest.app).to.deep.include({ name: 'app-basic', version: '0.1.0', outDir: 'lib' });
-    expect(manifest.packages.map((p) => [p.name, p.outDir])).to.deep.equal([['pkg-basic', 'lib']]);
-    expect(manifest.controllers.map((c) => c.id)).to.deep.equal(['pkg-basic:UsersController', 'app-basic:HealthController', 'app-basic:UsersController']);
+    expect(ownPackage(manifest.packages).map((p) => [p.name, p.outDir])).to.deep.equal([['pkg-basic', 'lib']]);
+    expect(own(manifest.controllers).map((c) => c.id)).to.deep.equal(['pkg-basic:UsersController', 'app-basic:HealthController', 'app-basic:UsersController']);
     const health = manifest.controllers.find((c) => c.id === 'app-basic:HealthController');
     expect(health?.routes[0].fullPath).to.equal('/health');
-    expect(manifest.packages[0].fragment).to.equal('node_modules/pkg-basic/lib/manifest.fragment.json');
+    expect(ownPackage(manifest.packages)[0].fragment).to.equal('node_modules/pkg-basic/lib/manifest.fragment.json');
     expect(manifest.hash).to.match(/^[0-9a-f]{64}$/);
     expect((JSON.parse(readFileSync(written, 'utf8')) as { hash: string }).hash).to.equal(manifest.hash);
   });
 
   it('every body and query param and every non-void response has a schema in the manifest', async () => {
     const { manifest } = await buildAppManifest(APP);
-    const routes = manifest.controllers.flatMap((controller) => controller.routes);
+    const routes = own(manifest.controllers).flatMap((controller) => controller.routes);
     expect(routes.length).to.be.greaterThan(0);
     for (const route of routes) {
       for (const param of route.params.filter((p) => p.kind === 'FromBody' || p.kind === 'FromQuery')) {
@@ -76,7 +79,7 @@ describe('buildAppManifest', () => {
       for (const f of ['src', 'package.json', 'tsconfig.json']) cpSync(`test/fixtures/app-basic/${f}`, `${dir}/${f}`, { recursive: true });
       symlinkSync(resolve('test/fixtures/pkg-basic'), resolve(dir, 'node_modules/pkg-basic'), 'junction');
       const { manifest } = await buildAppManifest({ tsconfig: `${dir}/tsconfig.json`, appRoot: dir, out: `${dir}/app.manifest.json` });
-      expect(manifest.packages[0].fragment).to.equal('node_modules/pkg-basic/lib/manifest.fragment.json');
+      expect(ownPackage(manifest.packages)[0].fragment).to.equal('node_modules/pkg-basic/lib/manifest.fragment.json');
       hashes.push(manifest.hash);
     }
     rmSync('test/fixtures/.tmp-a', { recursive: true, force: true });
