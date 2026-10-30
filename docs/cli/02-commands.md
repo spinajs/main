@@ -245,6 +245,10 @@ export class DbVacuumCommand extends CliCommand {
 }
 ```
 
+## Built-in commands
+
+- `doctor`: checks `app.manifest.json`; see [compiler/doctor](../compiler/doctor.md).
+
 ## Related
 
 - [Arguments and options](03-arguments-and-options.md): `@Argument` and `@Option`.

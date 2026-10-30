@@ -3,7 +3,7 @@ import { diagnostic, type DoctorRule } from '../index.js';
 
 function asyncProviders(manifest: Manifest): Map<string, ServiceEntry> {
   const out = new Map<string, ServiceEntry>();
-  for (const s of manifest.services) if (s.async) for (const key of s.registeredAs) out.set(key, s);
+  for (const s of manifest.services) if (s.async) for (const key of s.registeredAs) if (key !== 'Configuration') out.set(key, s);
   return out;
 }
 
@@ -14,7 +14,9 @@ export const asyncIntoSync: DoctorRule = {
     const providers = asyncProviders(manifest);
     const out: Diagnostic[] = [];
     for (const s of manifest.services) {
-      if (!s.async) {
+      // The container awaits async dependencies of property and constructor injection; the promise only leaks
+      // when the dependent also resolves something synchronously by hand.
+      if (!s.async && (s.imperativeResolves ?? []).some((r) => !r.awaited)) {
         for (const p of s.propertyInjects) {
           const provider = providers.get(p.token);
           if (!provider) continue;

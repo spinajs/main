@@ -33,6 +33,26 @@ export function ctorInjectsOf(cls: ts.ClassDeclaration, ctx: ExtractorContext): 
   return inject.args.map((a) => tokenKey(a, ctx));
 }
 
+function isConcreteClass(symbol: ts.Symbol | undefined, ctx: ExtractorContext): boolean {
+  if (!symbol) return false;
+  const target = symbol.flags & ts.SymbolFlags.Alias ? ctx.checker.getAliasedSymbol(symbol) : symbol;
+  return !!target.declarations?.some((d) => ts.isClassDeclaration(d) && !d.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword));
+}
+
+function typeNodeSymbol(node: ts.TypeNode | undefined, ctx: ExtractorContext): ts.Symbol | undefined {
+  if (!node) return undefined;
+  if (ts.isUnionTypeNode(node)) return typeNodeSymbol(node.types.find((t) => t.kind !== ts.SyntaxKind.UndefinedKeyword && !(ts.isLiteralTypeNode(t) && t.literal.kind === ts.SyntaxKind.NullKeyword)), ctx);
+  if (!ts.isTypeReferenceNode(node)) return undefined;
+  return ctx.checker.getSymbolAtLocation(ts.isIdentifier(node.typeName) ? node.typeName : node.typeName.right);
+}
+
+/** Per `@Inject` argument: the token is a non-abstract class, which the container constructs even when nothing registers it. */
+export function ctorConcreteOf(cls: ts.ClassDeclaration, ctx: ExtractorContext): boolean[] {
+  const inject = findDecorator(cls, 'Inject');
+  if (!inject) return [];
+  return inject.args.map((a) => (ts.isIdentifier(a) || ts.isPropertyAccessExpression(a)) && isConcreteClass(ctx.checker.getSymbolAtLocation(a), ctx));
+}
+
 export function tokenOfTypeNode(node: ts.TypeNode | undefined, ctx: ExtractorContext): { token: string; array: boolean } {
   if (!node) return { token: 'unknown', array: false };
   if (ts.isArrayTypeNode(node)) return { token: tokenOfTypeNode(node.elementType, ctx).token, array: true };
@@ -54,9 +74,14 @@ function propertyName(prop: ts.PropertyDeclaration): string {
   return ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name) ? prop.name.text : prop.name.getText();
 }
 
-function optionsOf(arg: ts.Expression | undefined, ctx: ExtractorContext): { optional?: boolean } {
+function optionsOf(arg: ts.Expression | undefined, ctx: ExtractorContext): { optional?: boolean; check?: boolean } {
   const value = literalValue(arg, ctx);
   return typeof value === 'object' && value !== null ? value : {};
+}
+
+function autoinjectSymbol(first: ts.Expression | undefined, explicit: string | undefined, prop: ts.PropertyDeclaration, ctx: ExtractorContext): ts.Symbol | undefined {
+  if (!explicit) return typeNodeSymbol(prop.type, ctx);
+  return first && ts.isIdentifier(first) ? ctx.checker.getSymbolAtLocation(first) : undefined;
 }
 
 const PROPERTY_DECORATORS: Record<string, PropertyHandler> = {
@@ -65,11 +90,15 @@ const PROPERTY_DECORATORS: Record<string, PropertyHandler> = {
     const first = d.args[0];
     const explicit = first && (ts.isIdentifier(first) || isArrayOfType(first)) ? identifierName(first) : undefined;
     const options = optionsOf(first && ts.isObjectLiteralExpression(first) ? first : d.args[1], ctx);
+    const array = declared.array || isArrayOfType(first);
+    const concrete = !array && isConcreteClass(autoinjectSymbol(first, explicit, prop, ctx), ctx);
     return {
       property: propertyName(prop),
       token: explicit ?? declared.token,
       optional: options.optional === true || !!prop.questionToken,
-      array: declared.array || isArrayOfType(first),
+      array,
+      ...(concrete ? { concrete: true } : {}),
+      ...(options.check === true ? { check: true } : {}),
     };
   },
   LazyInject: (d, prop, ctx) => {

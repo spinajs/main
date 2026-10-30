@@ -2,7 +2,7 @@ import type { Diagnostic } from '@spinajs/manifest';
 import { diagnostic, type DoctorRule } from '../index.js';
 
 // Filled by the Configuration itself, never by a package schema.
-const BUILTIN_MODULES = new Set(['system', 'app']);
+const BUILTIN_MODULES = new Set(['system', 'app', 'configuration', 'process']);
 
 function commonSegments(a: string[], b: string[]): number {
   let i = 0;
