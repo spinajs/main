@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import { checkPendingProperties, registerManifest, registerManifestSettings } from '@spinajs/configuration';
 import { DI, forgetPendingProperties, pendingProperties, PROPERTY_TYPE_RESOLVER, ResolveException, type Class, type IPropertyTypeResolver } from '@spinajs/di';
 import { Archived, Bool, CreatedAt, DateTime, HasMany, HasManyToMany, JunctionTable, ModelBase, OneToManyRelationList, ManyToManyRelationList, Primary, Relation, Set as SetColumn, SoftDelete, UpdatedAt, Virtual, extractModelDescriptor } from '../src/index.js';
 
@@ -102,6 +103,21 @@ describe('model decorators without decorator metadata', () => {
     decorate(Primary(), Named.prototype, 'Id');
     decorate(Virtual(CustomList), Named.prototype, 'Names');
     expect(pendingProperties().filter((p) => p.owner === Named)).to.deep.equal([]);
+  });
+
+  it('fail the boot check when a decorator of the app around @HasMany leaves nothing to type the relation', () => {
+    class Wrapped extends ModelBase {}
+    const Notes = () => HasMany(Target);
+    decorate(Notes(), Wrapped.prototype, 'Notes');
+
+    const container = DI.RootContainer.child();
+    registerManifestSettings(container, { mode: 'require', path: 'app.manifest.json' });
+    registerManifest(container, { classProperties: [{ id: 'app:Wrapped', className: 'Wrapped', properties: [{ property: 'Notes', token: 'Relation', optional: false, array: false }], source: { file: 'src/x.ts', line: 1, col: 1, package: 'app' } }] } as never);
+    try {
+      expect(() => checkPendingProperties(container)).to.throw(ResolveException, /Wrapped\.Notes/);
+    } finally {
+      forgetPendingProperties(Wrapped);
+    }
   });
 
   it('say to resolve Configuration first when no resolver is registered', () => {
