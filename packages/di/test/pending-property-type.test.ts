@@ -242,6 +242,29 @@ describe('property types without decorator metadata', () => {
         expect(boundSingle(Stated)).to.equal(undefined);
       });
 
+      it('remembers it when a resolver is registered but has no answer yet', () => {
+        class Unanswered {
+          public list: Foo[];
+        }
+        Autoinject(Foo)(Unanswered.prototype, 'list');
+        const container = withResolver(() => undefined);
+        container.register(Foo).asSelf();
+        container.resolve(Unanswered);
+        expect(boundSingle(Unanswered)).to.equal(true);
+      });
+
+      it('keeps a forgotten pair forgotten', () => {
+        class Forgotten {
+          public list: Foo[];
+        }
+        Autoinject(Foo)(Forgotten.prototype, 'list');
+        forgetPendingProperties(Forgotten);
+        const container = DI.child();
+        container.register(Foo).asSelf();
+        container.resolve(Forgotten);
+        expect(pendingProperties().some((p) => p.owner === Forgotten)).to.equal(false);
+      });
+
       it('remembers nothing when a resolver answered', () => {
         const container = withResolver(lists);
         container.register(Foo).asSelf();

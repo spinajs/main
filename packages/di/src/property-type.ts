@@ -8,7 +8,7 @@ export const PROPERTY_TYPE_RESOLVER = token<IPropertyTypeResolver>('__property_t
 export interface IPendingProperty {
   owner: Class<unknown>;
   property: string;
-  /** An explicit class bound with no resolver to ask: one instance, even if the property is a list. */
+  /** An explicit class bound with no answer from a resolver: one instance, even if the property is a list. */
   boundSingle?: boolean;
 }
 
@@ -25,11 +25,7 @@ export function notePendingProperty(owner: Class<unknown>, property: string): vo
 
 export function noteBoundSingle(owner: Class<unknown>, property: string): void {
   const pair = pairOf(owner, property);
-  if (pair) {
-    pair.boundSingle = true;
-  } else {
-    pending.push({ owner, property, boundSingle: true });
-  }
+  if (pair) pair.boundSingle = true;
 }
 
 export function pendingProperties(): readonly IPendingProperty[] {

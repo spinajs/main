@@ -1139,8 +1139,8 @@ export class Container extends EventEmitter implements IContainer {
   private pendingInjection(pending: IToInject<unknown>, owner: Class<unknown>): IToInject<unknown> {
     const { property, explicit, bind } = pending.pendingType!;
     const resolver = this.get(PROPERTY_TYPE_RESOLVER);
-    if (explicit && !resolver) noteBoundSingle(owner, String(property));
     const declared = resolver?.typeOf(owner, String(property), this);
+    if (explicit && !declared) noteBoundSingle(owner, String(property));
     const type = explicit ?? declared?.type;
     if (!type) {
       const remedy = resolver ? 'pass the type to the decorator, or boot from a manifest that records it ( spinajs build )' : 'nothing reads a manifest before Configuration: resolve Configuration first, or pass the type to the decorator';
