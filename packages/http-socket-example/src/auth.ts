@@ -1,5 +1,7 @@
 import { Injectable } from '@spinajs/di';
 import type { Principal } from '@spinajs/authz';
+import { IdentityStore, PrincipalFactory } from '@spinajs/authn/contracts';
+import type { AuthnFacts, IdentityRef, IdentityStatus } from '@spinajs/authn/contracts';
 import { SocketPrincipalSource } from '@spinajs/http-socket';
 import type { ISocketHandshake } from '@spinajs/http-socket';
 
@@ -30,5 +32,34 @@ export class DemoTokenSource extends SocketPrincipalSource {
     }
 
     return Object.freeze({ type: 'user', id: known.id, authenticated: true, source: 'demo', attributes: Object.freeze({}), identity: known.user });
+  }
+}
+
+const DEMO_USERS = new Map([...DEMO_TOKENS.values()].map(({ id, user }) => [id, user]));
+
+/**
+ * Demo only: the two fixed users. @spinajs/authn resolves its login service through these contracts; a real app
+ * installs @spinajs/users (identity store and principal factory) instead.
+ */
+@Injectable(IdentityStore)
+export class DemoIdentityStore extends IdentityStore {
+  public async findByLogin(login: string): Promise<IdentityRef | null> {
+    const found = [...DEMO_TOKENS.values()].find(({ user }) => user.name === login);
+    return found ? { type: 'user', id: found.id } : null;
+  }
+
+  public async status(id: IdentityRef): Promise<IdentityStatus> {
+    return { exists: DEMO_USERS.has(id.id), active: true, banned: false, deleted: false };
+  }
+
+  public async display(id: IdentityRef): Promise<{ name?: string }> {
+    return { name: DEMO_USERS.get(id.id)?.name };
+  }
+}
+
+@Injectable(PrincipalFactory)
+export class DemoPrincipalFactory extends PrincipalFactory {
+  public async principalOf(id: IdentityRef, _facts: AuthnFacts, extra: { attributes?: Readonly<Record<string, unknown>> }): Promise<Principal> {
+    return Object.freeze({ type: 'user', id: id.id, authenticated: true, source: 'demo', attributes: Object.freeze({ ...extra.attributes }), identity: DEMO_USERS.get(id.id) });
   }
 }
