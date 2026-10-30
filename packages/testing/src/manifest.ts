@@ -1,4 +1,6 @@
-import { hashManifest, MANIFEST_VERSION } from '@spinajs/manifest';
+import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+import { hashManifest, MANIFEST_TOKEN, MANIFEST_VERSION } from '@spinajs/manifest';
 import type { Manifest, SourceRef } from '@spinajs/manifest';
 
 export function sourceRef(file: string, pkg = 'test-app'): SourceRef {
@@ -32,4 +34,21 @@ export function testManifest(overrides: Partial<Manifest> & { root?: string } = 
   };
   manifest.hash = hashManifest(manifest);
   return manifest;
+}
+
+/**
+ * `TestAppOptions.register` helper that makes `manifest` visible to the app. Decorators such as `ListFromFiles`
+ * look it up from the root container, so a child app registers it there too until it is disposed.
+ */
+export function withManifest(manifest: Manifest): (container: IContainer) => void {
+  return (container) => {
+    container.register(manifest).asValue(MANIFEST_TOKEN);
+    if (container !== DI.RootContainer) {
+      DI.RootContainer.register(manifest).asValue(MANIFEST_TOKEN);
+      container.once('di.dispose', () => {
+        DI.RootContainer.unregister(MANIFEST_TOKEN);
+        DI.RootContainer.uncache(MANIFEST_TOKEN);
+      });
+    }
+  };
 }
