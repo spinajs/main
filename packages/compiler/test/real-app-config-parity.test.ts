@@ -1,9 +1,8 @@
 import { expect } from 'chai';
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { hashManifest, type Manifest } from '@spinajs/manifest';
-import type { IContainer } from '@spinajs/di';
 import { buildAppManifest, locateFragments } from '../src/index.js';
 
 const WORKSPACE = resolve('../..');
@@ -11,8 +10,25 @@ const APP = resolve('../http-socket-example');
 const TMP = resolve('test/fixtures/.tmp-real-app');
 const INSTALLED = join(TMP, 'app');
 
-type ConfigModule = typeof import('@spinajs/configuration');
-type DiModule = typeof import('@spinajs/di');
+const BOOT_SCRIPT = join(TMP, 'boot.mjs');
+const RESULT_MARK = '@@config@@';
+
+const BOOT_SOURCE = `
+import { DI } from '@spinajs/di';
+import * as configuration from '@spinajs/configuration';
+
+const container = DI.RootContainer.child({ isolateSingletons: true });
+container.register({ ...process.env }).asValue('process.env');
+for (const source of [configuration.ManifestConfigurationSource, configuration.JsFileSource, configuration.JsonFileSource]) container.register(source).as(configuration.ConfigurationSource);
+container.register(configuration.FrameworkConfiguration).as(configuration.Configuration, { replace: true });
+const config = await container.resolve(configuration.Configuration);
+if (process.env.WORKSPACE_ROOT_PATH !== process.cwd()) throw new Error('the hoisting root of the installed app is ' + process.env.WORKSPACE_ROOT_PATH);
+const root = JSON.parse(JSON.stringify(config.RootConfig));
+delete root.process;
+delete root.system?.manifest;
+process.stdout.write(${JSON.stringify(RESULT_MARK)} + JSON.stringify(root));
+process.exit(0);
+`;
 
 interface NpmTree {
   dependencies?: Record<string, NpmTree>;
@@ -62,32 +78,12 @@ function installLayout(manifest: Manifest, installed: string[]): void {
 }
 
 describe('configuration of a real app (http-socket-example)', function () {
-  let configuration: ConfigModule;
-  let di: DiModule;
-  const realCwd = process.cwd.bind(process);
-  const open: IContainer[] = [];
-
-  async function boot(mode: string): Promise<unknown> {
-    const workspaceRoot = process.env.WORKSPACE_ROOT_PATH;
-    delete process.env.WORKSPACE_ROOT_PATH;
-    process.cwd = () => INSTALLED;
-    try {
-      const container = di.DI.RootContainer.child({ isolateSingletons: true });
-      open.push(container);
-      container.register({ ...process.env, SPINAJS_MANIFEST_MODE: mode, APP_ENV: 'development' }).asValue('process.env');
-      for (const source of [configuration.ManifestConfigurationSource, configuration.JsFileSource, configuration.JsonFileSource]) container.register(source).as(configuration.ConfigurationSource);
-      container.register(configuration.FrameworkConfiguration).as(configuration.Configuration, { replace: true });
-      const config = (await container.resolve(configuration.Configuration)) as InstanceType<ConfigModule['FrameworkConfiguration']>;
-      expect(process.env.WORKSPACE_ROOT_PATH, 'the hoisting root of the installed app').to.equal(INSTALLED);
-      const root = JSON.parse(JSON.stringify(config.RootConfig)) as { process?: unknown; system?: { manifest?: unknown } };
-      delete root.process;
-      delete root.system?.manifest;
-      return root;
-    } finally {
-      process.cwd = realCwd;
-      if (workspaceRoot === undefined) delete process.env.WORKSPACE_ROOT_PATH;
-      else process.env.WORKSPACE_ROOT_PATH = workspaceRoot;
-    }
+  /** Each mode boots in a process of its own: the ESM cache keeps config modules evaluated by an earlier boot. */
+  function boot(mode: string): unknown {
+    const env: NodeJS.ProcessEnv = { ...process.env, SPINAJS_MANIFEST_MODE: mode, APP_ENV: 'development' };
+    delete env.WORKSPACE_ROOT_PATH;
+    const out = execFileSync(process.execPath, ['--experimental-specifier-resolution=node', BOOT_SCRIPT], { cwd: INSTALLED, env, encoding: 'utf8', timeout: 120_000, stdio: ['ignore', 'pipe', 'inherit'] });
+    return JSON.parse(out.slice(out.lastIndexOf(RESULT_MARK) + RESULT_MARK.length)) as unknown;
   }
 
   before(async function () {
@@ -102,21 +98,19 @@ describe('configuration of a real app (http-socket-example)', function () {
       console.log('    skipped: `npm ls` listed no installed @spinajs packages for the app');
       this.skip();
     }
-    configuration = await import('@spinajs/configuration');
-    di = await import('@spinajs/di');
     mkdirSync(TMP, { recursive: true });
     const { manifest } = await buildAppManifest({ tsconfig: join(APP, 'tsconfig.json'), appRoot: APP, out: join(TMP, 'built.manifest.json') });
     installLayout(manifest, installed);
+    writeFileSync(BOOT_SCRIPT, BOOT_SOURCE);
   });
 
-  after(async () => {
-    for (const c of open.splice(0).reverse()) await c.dispose();
+  after(() => {
     rmSync(TMP, { recursive: true, force: true });
   });
 
   it('merges the same configuration in off and prefer mode', async () => {
-    const walk = await boot('off');
-    const listed = await boot('prefer');
+    const walk = boot('off');
+    const listed = boot('prefer');
     expect(Object.keys(walk as object)).to.include.members(['http', 'logger', 'fs']);
     expect(listed).to.deep.equal(walk);
   });
