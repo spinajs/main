@@ -12,13 +12,22 @@ export function routeFullPath(basePath: string, path: string | undefined, handle
   return `/${basePath}/${path}`;
 }
 
+// A loop, not a `/+$` regex: that backtracks on a long run of slashes inside the path.
+function withoutOuterSlashes(path: string, leading: boolean): string {
+  let start = 0;
+  let end = path.length;
+  while (leading && start < end && path[start] === '/') start++;
+  while (end > start && path[end - 1] === '/') end--;
+  return path.slice(start, end);
+}
+
 /**
  * The path a request reaches a registered route at. The router matches a non-strict route with its trailing
  * slashes removed (`loosen` in `router/lib/layer.js`), so `//` (`@BasePath('/')` + `@Get('/')`) answers at `/`
  * and a request for `//` is a 404. Apply it after `withRoutePrefix`.
  */
 export function servedPath(registered: string): string {
-  return registered.replace(/\/+$/, '') || '/';
+  return withoutOuterSlashes(registered, false) || '/';
 }
 
 /** The base a controller's routes are mounted under: `@BasePath` when set, else the lower-cased class name. */
@@ -28,7 +37,7 @@ export function controllerMountPath(basePath: string | null | undefined, classNa
 
 /** A base path read from configuration (`@BasePath({ config, default })`) is used without its outer slashes. */
 export function configuredMountPath(value: string): string {
-  return value.trim().replace(/^\/+|\/+$/g, '') || '/';
+  return withoutOuterSlashes(value.trim(), true) || '/';
 }
 
 /** Applies `http.controllers.route.prefix`; an empty prefix leaves the path unchanged. */
