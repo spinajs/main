@@ -8,7 +8,6 @@
   "cli",
   "http-socket",
   "internal-logger",
-  "log",
   "teams-http",
   "telemetry",
   "templates",

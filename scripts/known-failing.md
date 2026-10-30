@@ -11,10 +11,8 @@ Packages in `known-failing.json` may fail `scripts/test-all.mjs` and `scripts/co
 | authz-queue | 2 failing: `authz.admin.guard.privilegedPermission` required by the authz config schema |
 | authz-testing | 705 passing, then the process does not exit |
 | cli | 1 failing: `Should run command with arg and options` times out at 2000 ms |
-| fs | 2 failing in `fs.temp.generic.test.ts` ( pre-existing on master ) |
 | http-socket | 631 passing, 2 failing |
 | internal-logger | 1 failing: logs before configuration is resolved are not written |
-| log | 13 failing in `perf-sink.test.ts`: `LogMetricSink` collector is undefined |
 | teams-http | 5 failing, e.g. `GET /teams` response mismatch |
 | telemetry | 3 failing |
 | templates | 1 failing: `cache should be the default mode` ( 2 compiles instead of 1 ) |
