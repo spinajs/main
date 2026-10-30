@@ -196,3 +196,74 @@ describe('isPackageSkipped', () => {
     expect(isPackageSkipped('@spinajs/direct', m, app, 'prefer')).to.equal(true);
   });
 });
+
+describe('SPINAJS_MANIFEST_ROOT', () => {
+  const base = loadRuntimeManifest({ path: 'app.manifest.json', mode: 'prefer' }, FIX) as Manifest;
+  let root: string;
+
+  beforeEach(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'spinajs-remap-')));
+    process.env.SPINAJS_MANIFEST_ROOT = root;
+  });
+
+  afterEach(() => {
+    delete process.env.SPINAJS_MANIFEST_ROOT;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const moved = (): Manifest => ({ ...base, app: { ...base.app, root: '/built/elsewhere' } });
+  const installDep = (): void => {
+    mkdirSync(join(root, 'node_modules', '@spinajs', 'dep'), { recursive: true });
+    writeFileSync(join(root, 'node_modules', '@spinajs', 'dep', 'package.json'), JSON.stringify({ name: '@spinajs/dep' }));
+  };
+
+  it('resolves app files, dependency files and package roots under the remapped root', () => {
+    installDep();
+    const m = moved();
+    expect(manifestFileFor(m.controllers.find((c) => c.className === 'A')!, m, '/unrelated')).to.equal(resolve(root, 'lib', 'controllers', 'A.js'));
+    expect(manifestFileFor(m.commands.find((c) => c.className === 'Cmd')!, m, '/unrelated')).to.equal(resolve(root, 'node_modules', '@spinajs', 'dep', 'lib', 'cli', 'Cmd.js'));
+    expect(isPackageSkipped('@spinajs/dep', m, '/unrelated', 'require')).to.equal(false);
+  });
+
+  it('takes the remap over an app.root that exists on this machine', () => {
+    const m = { ...base, app: { ...base.app, root: FIX } };
+    expect(manifestFileFor(m.controllers.find((c) => c.className === 'A')!, m, FIX)).to.equal(resolve(root, 'lib', 'controllers', 'A.js'));
+  });
+
+  it('keeps the containment checks: `..`, absolute paths and an escaping outDir are refused', () => {
+    const m = moved();
+    const entryOf = (file: string) => ({ source: { file, line: 1, col: 1, package: m.app.name } });
+    expect(() => manifestFileFor(entryOf('src/../../../x.ts'), m, '/unrelated')).to.throw(ManifestMissing);
+    expect(() => manifestFileFor(entryOf('/etc/x.ts'), m, '/unrelated')).to.throw(ManifestMissing);
+    expect(() => manifestFileFor(entryOf('src/A.ts'), { ...m, app: { ...m.app, outDir: '../..' } }, '/unrelated')).to.throw(ManifestMissing, /leaves the root/);
+  });
+
+  it('keeps the symlink containment check under the remapped root', function () {
+    const outside = mkdtempSync(join(tmpdir(), 'spinajs-remap-outside-'));
+    try {
+      mkdirSync(join(root, 'lib'));
+      writeFileSync(join(outside, 'evil.js'), '');
+      try {
+        symlinkSync(outside, join(root, 'lib', 'link'), 'junction');
+      } catch {
+        this.skip();
+      }
+      const entry = { source: { file: 'src/link/evil.ts', line: 1, col: 1, package: base.app.name } };
+      expect(() => manifestFileFor(entry, moved(), '/unrelated')).to.throw(ManifestMissing, /leaves the root/);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('does not relax the hash check: an edited manifest is refused with the remap set', () => {
+    writeFileSync(join(root, 'app.manifest.json'), JSON.stringify({ ...base, app: { ...base.app, name: 'edited' } }));
+    expect(() => loadRuntimeManifest({ path: join(root, 'app.manifest.json'), mode: 'require' }, '/unrelated')).to.throw(/hash mismatch/);
+  });
+
+  it('verifies a manifest whose app.root was built elsewhere', () => {
+    const m = moved();
+    m.hash = hashManifest(m);
+    writeFileSync(join(root, 'app.manifest.json'), JSON.stringify(m));
+    expect(loadRuntimeManifest({ path: join(root, 'app.manifest.json'), mode: 'require' }, '/unrelated')?.app.root).to.equal('/built/elsewhere');
+  });
+});
