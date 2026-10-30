@@ -1,5 +1,8 @@
-import { hashManifest, MANIFEST_VERSION } from '@spinajs/manifest';
-import type { Manifest, SourceRef } from '@spinajs/manifest';
+import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+import { hashManifest, MANIFEST_TOKEN, MANIFEST_VERSION } from '@spinajs/manifest';
+import type { Manifest, ManifestMode, SourceRef } from '@spinajs/manifest';
+import { MANIFEST_SETTINGS, registerManifest, registerManifestSettings } from '@spinajs/configuration';
 
 export function sourceRef(file: string, pkg = 'test-app'): SourceRef {
   return { file, line: 1, col: 1, package: pkg };
@@ -32,4 +35,48 @@ export function testManifest(overrides: Partial<Manifest> & { root?: string } = 
   };
   manifest.hash = hashManifest(manifest);
   return manifest;
+}
+
+// How many live child apps added each value to root: two apps may share one manifest object.
+const rootHolds = new Map<object, number>();
+
+function holdInRoot(key: string, value: object): void {
+  rootHolds.set(value, (rootHolds.get(value) ?? 0) + 1);
+  DI.RootContainer.register(value).asValue(key);
+}
+
+function releaseFromRoot(key: string, value: object): void {
+  const left = (rootHolds.get(value) ?? 1) - 1;
+  if (left > 0) {
+    rootHolds.set(value, left);
+    return;
+  }
+  rootHolds.delete(value);
+  const values = DI.RootContainer.Registry.getValues(key);
+  const index = values?.indexOf(value) ?? -1;
+  if (values && index !== -1) {
+    values.splice(index, 1);
+    if (values.length === 0) DI.RootContainer.Registry.removeValue(key);
+  }
+}
+
+/**
+ * `TestAppOptions.register` helper that makes `manifest` the app's runtime manifest with `mode` as the effective
+ * `system.manifest.mode`, as `ManifestConfigurationSource` would. Decorators such as `ListFromFiles` look both up from
+ * the root container, so a child app adds them to root too until it is disposed; what root held before stays.
+ */
+export function withManifest(manifest: Manifest, mode: ManifestMode = 'prefer'): (container: IContainer) => void {
+  return (container) => {
+    const settings = { mode, path: 'app.manifest.json' };
+    registerManifest(container, manifest);
+    registerManifestSettings(container, settings);
+    if (container === DI.RootContainer) return;
+
+    holdInRoot(MANIFEST_TOKEN, manifest);
+    holdInRoot(MANIFEST_SETTINGS.key, settings);
+    container.once('di.dispose', () => {
+      releaseFromRoot(MANIFEST_TOKEN, manifest);
+      releaseFromRoot(MANIFEST_SETTINGS.key, settings);
+    });
+  };
 }

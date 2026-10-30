@@ -64,3 +64,10 @@ tsconfig.tsbuildinfo
 docs
 
 lib
+
+!test/fixtures/manifest-app/lib/
+!test/fixtures/manifest-app/node_modules/
+!test/fixtures/manifest-app/node_modules/@spinajs/dep/lib/
+!test/fixtures/parity-app/lib/
+!test/fixtures/parity-app/node_modules/
+!test/fixtures/parity-app/node_modules/@spinajs/*/lib/

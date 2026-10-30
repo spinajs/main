@@ -203,7 +203,9 @@ export class PresenceSocket extends BaseSocketController {
 
 `@SocketController('docs', { contract: DOCS_CONTRACT })` binds the controller to a contract declared with
 `defineContract<C>('<id>')` from `@spinajs/http-socket-common`. The check needs the application manifest
-(`spinajs build`) and `system.manifest.mode` other than `off`; with `off` the option does nothing.
+(`spinajs build`) and an effective `system.manifest.mode` other than `off`; with `off` the option does nothing. The mode is
+the one the configuration source decided (`SPINAJS_MANIFEST_MODE` or the app's config files, see
+[One switch](../manifest/README.md#one-switch)); a `system.manifest` merged later, e.g. by `onLoad`, does not turn it on.
 
 At `SocketServer.resolve()` the controller is matched to its manifest entry by class name and prefix. Its handlers
 are then compared with the contract (doctor rules SOCK001-SOCK003), and each incoming payload of a command or client event is

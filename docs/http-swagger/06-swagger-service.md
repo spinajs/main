@@ -15,7 +15,7 @@
 
 1. Takes `http.swagger`, or `{ enabled: true, title: 'API Documentation', version: '1.0.0' }` when the key is missing.
 2. Sets `basePath` to `http.swagger.basePath`, else `http.controllers.route.prefix`, else `''`.
-3. With `system.manifest.mode` set to `prefer` or `require` and a valid `app.manifest.json`, returns `manifestToOpenApi()` from `@spinajs/openapi` (OpenAPI 3.1) and stops here; `http.controllers.route.prefix` becomes `routePrefix`, `http.swagger.basePath` stays a literal prefix, and `http.swagger.security` replaces the default requirement (the first security scheme). A missing or stale manifest falls back to the next step in `prefer` mode and throws in `require` mode.
+3. With the effective `system.manifest.mode` (decided by the configuration source, see [One switch](../manifest/README.md#one-switch)) set to `prefer` or `require` and a valid manifest, returns `manifestToOpenApi()` from `@spinajs/openapi` (OpenAPI 3.1) and stops here; `http.controllers.route.prefix` becomes `routePrefix`, `http.swagger.basePath` stays a literal prefix, and `http.swagger.security` replaces the default requirement (the first security scheme). A missing or stale manifest falls back to the next step in `prefer` mode and throws in `require` mode.
 4. Resolves a new `OpenApiBuilder` with that config: `DI.resolve(OpenApiBuilder, [config])`.
 5. Reads `Controllers.Controllers` from `@spinajs/http`.
 6. For each controller, calls `SwaggerDocCache.getCache(controller)` and `OpenApiBuilder.addController()`. An error is recorded with the controller name, and the loop goes on.

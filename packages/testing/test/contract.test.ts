@@ -1,8 +1,12 @@
 import 'mocha';
 import { expect } from 'chai';
-import { Configuration } from '@spinajs/configuration';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Configuration, registerManifestSettings } from '@spinajs/configuration';
 import type { ControllerEntry, RouteEntry } from '@spinajs/manifest';
-import { createTestApp, disposeTestApps, manifestContractValidator, sourceRef, stripExtensions, testManifest } from '../src/index.js';
+import { createTestApp, disposeTestApps, manifestContractValidator, sourceRef, stripExtensions, testManifest, withManifest } from '../src/index.js';
+import type { ContractValidator } from '../src/index.js';
 import { CONTRACT_VALIDATOR_KEY, CONTRACT_VIOLATIONS_KEY, finishContractTesting, installContractTesting } from '../src/index.js';
 import { DI } from '@spinajs/di';
 
@@ -233,5 +237,38 @@ describe('finishContractTesting', () => {
 
   it('does nothing without a handle', async () => {
     await finishContractTesting(() => Promise.resolve(), undefined);
+  });
+});
+
+describe('contract testing without a manifest option', () => {
+  afterEach(disposeTestApps);
+
+  const manifest = () => testManifest({ controllers: [controller([route('get', 'spinajs/test/User')])], schemas: { 'spinajs/test/User': USER } });
+  const checkGet = (container: { get(key: string): unknown }, body: unknown) => (container.get(CONTRACT_VALIDATOR_KEY) as ContractValidator).checkResponse({ controller: 'A', handler: 'get' }, body, 200);
+
+  it('checks against the manifest the app registered, per app container', async () => {
+    const app = await createTestApp({ bootstrap: false, config: {}, scope: 'child', register: withManifest(manifest()), contractTesting: true });
+    const plain = await createTestApp({ bootstrap: false, config: {}, scope: 'child', register: withManifest(testManifest()), contractTesting: true });
+    expect(checkGet(app.container, { id: 'x' })).to.not.equal(null);
+    expect(checkGet(plain.container, { id: 'x' })).to.equal(null);
+  });
+
+  it('reads the file of the effective system.manifest.path when no manifest is registered', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'contract-default-'));
+    const file = join(dir, 'built.manifest.json');
+    writeFileSync(file, JSON.stringify(manifest()));
+    const container = DI.RootContainer.child();
+    try {
+      registerManifestSettings(container, { mode: 'off', path: file });
+      const handle = await installContractTesting(true);
+      handle.register(container);
+      handle.enable({ set: () => undefined } as unknown as Configuration);
+      expect(handle.checkedRoutes).to.equal(1);
+      expect(checkGet(container, { id: 1, email: 'a@b.c' })).to.equal(null);
+      handle.unregister();
+    } finally {
+      await container.dispose();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -132,6 +132,12 @@
               },
               "fragment": {
                 "type": "string"
+              },
+              "configFiles": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             },
             "required": [
@@ -1197,6 +1203,12 @@
             },
             "outDir": {
               "type": "string"
+            },
+            "configFiles": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           },
           "required": [

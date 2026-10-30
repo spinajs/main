@@ -66,6 +66,22 @@ export function appRootOf(manifest: Manifest, cwd: string): string {
   return existsSync(manifest.app.root) ? manifest.app.root : resolve(cwd);
 }
 
+/**
+ * `node_modules/<name>` of the nearest ancestor of `fromDir` that has it, as a real path. Looked up directly because
+ * `require.resolve` fails for an ESM-only package whose `exports` hide package.json and have no `require` condition.
+ */
+function installedPackageRoot(fromDir: string, name: string): string | undefined {
+  for (let dir = fromDir; ; dir = dirname(dir)) {
+    const candidate = join(dir, 'node_modules', name);
+    if (existsSync(join(candidate, 'package.json'))) {
+      return realpathSync(candidate);
+    }
+    if (dirname(dir) === dir) {
+      return undefined;
+    }
+  }
+}
+
 /** Root directory of a package listed in `manifest.packages`, resolved from the app root the way node resolves it. */
 export function packageRootOf(name: string, manifest: Manifest, cwd: string): string {
   if (name === manifest.app.name) {
@@ -77,7 +93,13 @@ export function packageRootOf(name: string, manifest: Manifest, cwd: string): st
     throw new ManifestMissing(`package ${name} is referenced by a manifest entry but is not listed in manifest.packages`);
   }
 
-  const require = createRequire(join(appRootOf(manifest, cwd), 'package.json'));
+  const appRoot = appRootOf(manifest, cwd);
+  const installed = installedPackageRoot(appRoot, name);
+  if (installed) {
+    return installed;
+  }
+
+  const require = createRequire(join(appRoot, 'package.json'));
   try {
     return dirname(require.resolve(`${name}/package.json`));
   } catch {
@@ -88,6 +110,39 @@ export function packageRootOf(name: string, manifest: Manifest, cwd: string): st
       throw new ManifestMissing(`cannot locate the root of package ${name}: resolved entry ${entry} does not end with ${listed.entry}`);
     }
     return entry.slice(0, entry.length - suffix.length);
+  }
+}
+
+/**
+ * True for a package the manifest lists but the run-time install lacks (pruned devDependency, absent optional peer):
+ * the manifest describes what may be installed, so it is skipped. In `require` mode a missing direct `dependency`
+ * of the app is an error instead: the app cannot run without it.
+ */
+export function isPackageSkipped(name: string, manifest: Manifest, cwd: string, mode: ManifestMode): boolean {
+  if (name === manifest.app.name) {
+    return false;
+  }
+  try {
+    packageRootOf(name, manifest, cwd);
+    return false;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'MODULE_NOT_FOUND') {
+      throw err;
+    }
+  }
+
+  if (mode === 'require' && directDependenciesOf(appRootOf(manifest, cwd)).includes(name)) {
+    throw new ManifestMissing(`package ${name} is a dependency of ${manifest.app.name} and listed in the manifest, but is not installed`);
+  }
+  return true;
+}
+
+function directDependenciesOf(appRoot: string): string[] {
+  try {
+    const pkg = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8')) as { dependencies?: Record<string, string> };
+    return Object.keys(pkg.dependencies ?? {});
+  } catch {
+    return [];
   }
 }
 

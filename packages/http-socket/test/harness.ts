@@ -75,6 +75,24 @@ export class TestConfiguration extends FrameworkConfiguration {
   }
 }
 
+const MANIFEST_ENV = ['SPINAJS_MANIFEST_MODE', 'SPINAJS_MANIFEST'] as const;
+
+/**
+ * Turns the manifest on as a deployed app does, through the environment the configuration source reads before any
+ * config file; `system.manifest` merged by `onLoad` cannot switch it. Returns the restore of the previous environment.
+ */
+export function manifestFromEnv(mode: string, path: string): () => void {
+  const saved = MANIFEST_ENV.map((key) => [key, process.env[key]] as const);
+  process.env.SPINAJS_MANIFEST_MODE = mode;
+  process.env.SPINAJS_MANIFEST = path;
+  return () => {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+}
+
 /** Fresh DI cache and configuration; `cfg` is merged over the test defaults. */
 export async function configure(cfg: Record<string, unknown> = {}): Promise<void> {
   overrides = cfg;

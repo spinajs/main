@@ -4,6 +4,8 @@
  */
 export * from '@spinajs/configuration-common';
 export * from './sources.js';
+export * from './manifest-runtime.js';
+export * from './manifest-source.js';
 export * from './decorators.js';
 export * from './configuration.js';
 export * from './exception.js';

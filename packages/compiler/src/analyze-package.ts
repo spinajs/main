@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { MANIFEST_VERSION, type Diagnostic, type ManifestFragment, type SourceRef } from '@spinajs/manifest';
 import { compareCodeUnits } from './sort.js';
@@ -39,6 +39,28 @@ export function outDirOf(rootDir: string, outDir: string | undefined): string {
   return outDir ? relative(rootDir, outDir).split(sep).join('/') || '.' : 'lib';
 }
 
+const BUILT_EXTENSIONS: Readonly<Record<string, string>> = { '.ts': '.js', '.mts': '.mjs', '.cts': '.cjs', '.js': '.js', '.mjs': '.mjs', '.cjs': '.cjs', '.json': '.json' };
+
+/**
+ * Built names of the files under `src/config`, relative to the outDir: what the runtime globs from
+ * `<package>/<outDir>/config` when it runs without a manifest.
+ */
+export function configFilesOf(packageRoot: string): string[] {
+  const dir = join(packageRoot, 'src', 'config');
+  if (!existsSync(dir)) return [];
+
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile() || /\.d\.[mc]?ts$/.test(entry.name)) continue;
+    const ext = /\.[^.]+$/.exec(entry.name)?.[0] ?? '';
+    const built = BUILT_EXTENSIONS[ext];
+    if (!built) continue;
+    const rel = relative(dir, join(entry.parentPath, entry.name)).split(sep).join('/');
+    out.push(`config/${rel.slice(0, rel.length - ext.length)}${built}`);
+  }
+  return out.sort(compareCodeUnits);
+}
+
 export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragment> {
   const root = resolve(options.packageRoot);
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { name: string; version: string; main?: string };
@@ -55,6 +77,7 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
       version: pkg.version,
       entry: (pkg.main ?? 'lib/index.js').replace(/^\.\//, ''),
       outDir: outDirOf(root, loaded.program.getCompilerOptions().outDir),
+      configFiles: configFilesOf(root),
     },
     services: sortBySource(mergeById(files.flatMap((f) => extractServices(ctx, f)))),
     values: run(extractValues),

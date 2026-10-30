@@ -46,7 +46,7 @@ buildAppManifest({ tsconfig, appRoot, out?, schemaDerivation? }): Promise<{ mani
 ```
 
 1. Analyzes the application with `analyzePackage`.
-2. Calls `locateFragments(appRoot)` to find the fragment of every entry in the app's `dependencies`.
+2. Calls `locateFragments(appRoot)` to find the fragment of every package in the app's installed dependency closure.
 3. Reads and validates each fragment, then calls `mergeFragments`. Dependencies come first, the application last, so the application wins where the last registration wins at runtime.
 4. Computes `hash` with `hashManifest` and writes the file. `out` defaults to `<appRoot>/app.manifest.json`.
 
@@ -65,7 +65,9 @@ A package that wants to take part in an app manifest ships its fragment and poin
 }
 ```
 
-`locateFragments` finds each dependency's `package.json` (in the app's or an ancestor `node_modules`, so hoisted workspace installs and packages whose `exports` hide `package.json` work; Node resolution is the fallback), reads `spinajs.manifest` and returns `{ name, version, entry, fragment }` with an absolute `fragment` path. A dependency without the field, or whose fragment file does not exist, is skipped silently. Only packages listed under `dependencies` are considered.
+`locateFragments` finds each dependency's `package.json` (in the app's or an ancestor `node_modules`, so hoisted workspace installs and packages whose `exports` hide `package.json` work; Node resolution is the fallback), reads `spinajs.manifest` and returns `{ name, version, entry, fragment }` with an absolute `fragment` path. A dependency without the field, or whose fragment file does not exist, is skipped silently.
+
+The packages considered are the app's installed dependency closure: `dependencies`, `devDependencies`, `optionalDependencies` and `peerDependencies` of the app, then `dependencies`, `optionalDependencies` and `peerDependencies` of each package found, transitively. A package without a fragment is walked through, since it can depend on one that has a fragment. Each dependency resolves from the real directory of the package that declares it, as Node resolves it. One that is not installed (an optional or peer dependency) is skipped, and a cycle ends at a package already visited. Each package found is then located from the app root, so the list matches what the runtime and the config walk see: a package installed only inside another package's `node_modules` is left out. The result is sorted by name. A dependency's own `devDependencies` are never followed. The manifest may list more than a given install holds (a pruned production install lacks the devDependencies); the runtime skips a listed package that is not installed.
 
 ## What is extracted
 

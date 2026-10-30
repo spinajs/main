@@ -12,6 +12,7 @@ import { configurationOf, NoSource } from './fixtures.js';
 import { FrameworkConfiguration } from '../src/configuration.js';
 import { AutoinjectService } from './../src/decorators.js';
 import { JsFileSource } from '../src/sources.js';
+import { loadJsConfigFile } from '../src/util.js';
  
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
@@ -507,5 +508,27 @@ describe('FrameworkConfiguration load', () => {
     expect(config.get('section.lazy', 'fallback')).to.eq('fallback');
     LazyRootProtocol.Value = 'lazy-root-val';
     expect(config.get('section.lazy', 'fallback')).to.eq('lazy-root-val');
+  });
+});
+
+describe('loadJsConfigFile', () => {
+  it('tags a copy, so the cached module merges with one __file__ on every later load in the process', async () => {
+    const file = resolve(normalize(join(process.cwd(), 'test', 'mocks', 'config', 'bar.cjs')));
+    await loadJsConfigFile(file);
+    const second = (await loadJsConfigFile(file)) as { test: { __file__: string[]; array: number[] } };
+    const cached = (await DI.__spinajs_require__(file)) as { test: Record<string, unknown> };
+    expect(cached.test).to.not.have.property('__file__');
+    expect(second.test.__file__).to.deep.equal([file]);
+    expect(second.test.array).to.deep.equal([3, 4]);
+  });
+
+  it('passes a root section that is not a plain object through untouched', async () => {
+    const file = resolve(normalize(join(process.cwd(), 'test', 'mocks', 'config', 'non-plain.cjs')));
+    const loaded = (await loadJsConfigFile(file)) as { stamp: Date; holder: { computed: number }; plain: { __file__: string[] } };
+    const cached = (await DI.__spinajs_require__(file)) as { stamp: Date; holder: unknown };
+    expect(loaded.stamp).to.equal(cached.stamp);
+    expect(loaded.holder).to.equal(cached.holder);
+    expect(loaded.holder.computed).to.equal(42);
+    expect(loaded.plain.__file__).to.deep.equal([file]);
   });
 });

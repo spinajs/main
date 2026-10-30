@@ -4,13 +4,16 @@ import * as path from 'path';
 import ts from 'typescript';
 import _ from 'lodash';
 import { Configuration } from '@spinajs/configuration-common';
-import { AsyncService, Class, ClassInfo, DI } from '@spinajs/di';
+import { AsyncService, Class, ClassInfo, DI, IContainer } from '@spinajs/di';
 import { Exception } from '@spinajs/exceptions';
 import { _check_arg, _is_string, _non_empty } from '@spinajs/util';
 import { Log } from '@spinajs/log-common';
 import { InternalLoggerProxy } from '@spinajs/internal-logger';
 
 export * from 'typescript-mix';
+export * from './manifest.js';
+import { listFromManifest, MANIFEST_SECTIONS, manifestMode, resolveListed } from './manifest.js';
+import type { ListOptions } from './manifest.js';
 
 /**
  * Exception thrown when some error during reflection occurs
@@ -91,14 +94,21 @@ export class TypescriptCompiler {
  *
  * @param filter - files to look at, uses glob pattern to search
  * @param configPath - dir paths taken from app config eg. "system.dirs.controllers". Path MUST be avaible in configuration
+ * @param options - `manifest`: the manifest section to list instead of scanning. Without it, `configPath` picks the
+ *   section through `MANIFEST_SECTIONS`, but only when no `typeMatcher` is given: the manifest names each class, so a
+ *   matcher would be ignored.
  *
+ * The scanned dirs come from the root container's Configuration; the manifest and its effective mode from the
+ * decorated instance's container lineage. The result is cached per decorated property, so the first instance's
+ * container decides it for every app.
  */
-export function ResolveFromFiles(filter: string, configPath: string, typeMatcher?: (fileName: string, exportName: string) => string) {
-  return _listOrResolveFromFiles(filter, configPath, false, typeMatcher);
+export function ResolveFromFiles(filter: string, configPath: string, typeMatcher?: (fileName: string, exportName: string) => string, options: ListOptions = {}) {
+  return _listOrResolveFromFiles(filter, configPath, false, typeMatcher, options);
 }
 
-export function ListFromFiles(filter: string, configPath: string, typeMatcher?: (fileName: string, exportName: string) => string) {
-  return _listOrResolveFromFiles(filter, configPath, true, typeMatcher);
+/** Like `ResolveFromFiles`, without resolving the classes. */
+export function ListFromFiles(filter: string, configPath: string, typeMatcher?: (fileName: string, exportName: string) => string, options: ListOptions = {}) {
+  return _listOrResolveFromFiles(filter, configPath, true, typeMatcher, options);
 }
 
 function _listOrResolveFromFiles(
@@ -106,6 +116,7 @@ function _listOrResolveFromFiles(
   configPath: string,
   noResolve: boolean,
   typeMatcher?: (fileName: string, exportName: string) => string,
+  options: ListOptions = {},
 ) {
   return (target: any, propertyKey: string | symbol) => {
     _check_arg(_is_string(), _non_empty())(filter, 'filter');
@@ -113,9 +124,9 @@ function _listOrResolveFromFiles(
 
     let instances: Array<ClassInfo<any>> | Promise<Array<ClassInfo<any>>> | null = null;
 
-    const getter = () => {
+    const getter = function (this: { Container?: IContainer } | undefined) {
       if (!instances) {
-        instances = _loadInstances();
+        instances = _loadInstances(this?.Container);
       }
 
       return instances;
@@ -126,7 +137,7 @@ function _listOrResolveFromFiles(
       get: getter,
     });
 
-    async function _loadInstances(): Promise<Array<ClassInfo<any>>> {
+    async function _loadInstances(owner: IContainer | undefined): Promise<Array<ClassInfo<any>>> {
       const config = DI.get(Configuration);
       if (!config) {
         throw new ReflectionException(`Cannot scan files for ${configPath}: Configuration is not resolved, call DI.resolve(Configuration) first`);
@@ -137,6 +148,16 @@ function _listOrResolveFromFiles(
       // that as a side effect ) — this package cannot import it itself due to a
       // tsconfig reference cycle, so fall back to the pre-logger proxy
       const logger = DI.check(Log) ? DI.resolve(Log, ['reflection']) : DI.resolve(InternalLoggerProxy, ['reflection']);
+
+      const section = options.manifest ?? (typeMatcher ? undefined : MANIFEST_SECTIONS[configPath]);
+      if (section) {
+        const container = owner ?? DI.RootContainer;
+        const listed = await listFromManifest(container, section, manifestMode(container));
+        if (listed) {
+          return noResolve ? listed : resolveListed(listed, (err, ci) => logger.error({ error: err, type: ci.name, file: ci.file }, 'Cannot resolve type ${type} from file ${file}'));
+        }
+      }
+
       let directories = config.get<string[]>(configPath);
 
       if (!directories || directories.length === 0) {

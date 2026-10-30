@@ -4,16 +4,19 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DI } from '@spinajs/di';
+import { Configuration, MANIFEST, MANIFEST_SETTINGS } from '@spinajs/configuration';
 import { hashManifest, type Manifest, type SocketContractEntry, type SocketControllerEntry } from '@spinajs/manifest';
 import { WIRE_EVENTS, defineContract } from '@spinajs/http-socket-common';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, OnEvent, Payload, SocketController } from '../src/decorators.js';
 import { SocketContractEnforcer } from '../src/contract.js';
 import { SocketHandlerRegistry } from '../src/registry.js';
-import { ITestServer, command, configure, errorOf, open, resultOf, startServer } from './harness.js';
+import { ContractSocket, OkSocket, seen } from './contract-sockets.js';
+import { ITestServer, command, configure, errorOf, manifestFromEnv, open, resultOf, startServer } from './harness.js';
 
 const CONTRACT_ID = 'app:CTR_CONTRACT';
 const source = { file: 'src/x.ts', line: 1, col: 1, package: 'app' };
+const controllerSource = { ...source, file: 'test/contract-sockets.ts' };
 const ref = (schema: string) => ({ text: schema, schema });
 
 const SCHEMAS = {
@@ -52,7 +55,7 @@ function manifestOf(overrides: { controller?: Partial<SocketControllerEntry>; co
       { name: 'loose', handler: 'loose', payload: ref('spinajs/app/Loose'), result: { text: 'void' }, options: {}, policies: [], source },
     ],
     events: [{ name: 'ping', payload: ref('spinajs/app/Greet') }],
-    source,
+    source: controllerSource,
     ...overrides.controller,
   };
   const okContract: SocketContractEntry = { id: OK_CONTRACT_ID, commands: { 'ok.say': { payload: ref('spinajs/app/Ok'), result: { text: 'void' } } }, events: {}, clientEvents: {}, source };
@@ -63,11 +66,11 @@ function manifestOf(overrides: { controller?: Partial<SocketControllerEntry>; co
     contract: OK_CONTRACT_ID,
     commands: [{ name: 'say', handler: 'say', payload: ref('spinajs/app/Ok'), result: { text: 'void' }, options: {}, policies: [], source }],
     events: [],
-    source,
+    source: controllerSource,
   };
   const manifest: Manifest = {
     manifestVersion: 2,
-    app: { name: 'app', version: '0.0.0', root: '.', outDir: 'lib' },
+    app: { name: 'app', version: '0.0.0', root: '.', outDir: 'test' },
     packages: [],
     generatedAt: '2026-10-30T00:00:00.000Z',
     hash: '',
@@ -93,26 +96,6 @@ const CONTRACT = defineContract<{ commands: Record<string, never>; events: Recor
 const OK_CONTRACT = defineContract<{ commands: Record<string, never>; events: Record<string, never> }>(OK_CONTRACT_ID);
 const ANONYMOUS_CONTRACT = defineContract<{ commands: Record<string, never>; events: Record<string, never> }>();
 
-let seen: Array<{ command: string; payload: unknown }> = [];
-
-class ContractSocket extends BaseSocketController {
-  @Command('say')
-  public async say(@Payload() payload: { name: string }) {
-    seen.push({ command: 'say', payload });
-    return { hello: payload.name };
-  }
-
-  @Command('loose')
-  public async loose(@Payload() payload: unknown) {
-    seen.push({ command: 'loose', payload });
-  }
-
-  @OnEvent('ping')
-  public async ping(@Payload() payload: unknown) {
-    seen.push({ command: 'ping', payload });
-  }
-}
-
 class MissingSocket extends BaseSocketController {
   @Command('say')
   public async say(@Payload() payload: { name: string }) {
@@ -120,13 +103,6 @@ class MissingSocket extends BaseSocketController {
   }
 }
 Object.defineProperty(MissingSocket, 'name', { value: 'ContractSocket' });
-
-class OkSocket extends BaseSocketController {
-  @Command('say')
-  public async say(@Payload() payload: { n: number }) {
-    seen.push({ command: 'ok.say', payload });
-  }
-}
 
 // same class name and commands as ContractSocket, but another prefix and no contract option
 class ImpostorSocket extends BaseSocketController {
@@ -179,12 +155,17 @@ describe('socket contract enforcement', function () {
   let dir: string;
   let path: string;
   let server: ITestServer | undefined;
+  let restoreEnv: (() => void) | undefined;
 
   const writeManifest = (manifest: Manifest) => writeFileSync(path, JSON.stringify(manifest));
-  const manifestConfig = (mode: string) => ({ system: { manifest: { mode, path } } });
+  const useManifest = (mode: string) => {
+    restoreEnv?.();
+    restoreEnv = manifestFromEnv(mode, path);
+  };
 
   async function start(mode: string): Promise<ITestServer> {
-    server = await startServer(manifestConfig(mode));
+    useManifest(mode);
+    server = await startServer();
     return server;
   }
 
@@ -203,10 +184,15 @@ describe('socket contract enforcement', function () {
     declare(AnonSocket, 'ctr', ANONYMOUS_CONTRACT);
   });
 
-  after(() => rmSync(dir, { recursive: true, force: true }));
+  after(() => {
+    rmSync(dir, { recursive: true, force: true });
+    // the configuration source left this suite's manifest in root, where a later app without that source would read it
+    DI.uncache(MANIFEST.key);
+    DI.uncache(MANIFEST_SETTINGS.key);
+  });
 
   beforeEach(() => {
-    seen = [];
+    seen.length = 0;
     DI.register(ContractSocket).as(BaseSocketController);
   });
 
@@ -215,6 +201,8 @@ describe('socket contract enforcement', function () {
     for (const type of [MissingSocket, OkSocket, ImpostorSocket, BareSocket, AnonSocket]) DI.unregister(type);
     await server?.close();
     server = undefined;
+    restoreEnv?.();
+    restoreEnv = undefined;
   });
 
   describe('payload validation', () => {
@@ -302,6 +290,25 @@ describe('socket contract enforcement', function () {
       client.close();
     });
 
+    it('a system.manifest merged after the configuration source decided does not turn enforcement on', async () => {
+      writeManifest(manifestOf());
+      server = await startServer({ system: { manifest: { mode: 'require', path } } });
+      const client = await open(server);
+      expect(resultOf(await command(client, 'ctr.say', { name: 'ada', age: 'x' }))).to.deep.equal({ hello: 'ada' });
+      client.close();
+    });
+
+    it('an app built without the configuration source is switched by its system.manifest', async () => {
+      writeManifest(manifestOf());
+      await configure();
+      DI.uncache(MANIFEST.key);
+      DI.uncache(MANIFEST_SETTINGS.key);
+      DI.get(Configuration)!.set('system.manifest', { mode: 'require', path });
+      const enforcer = DI.resolve(SocketContractEnforcer);
+      expect(enforcer.mode()).to.equal('require');
+      expect(enforcer.manifest()?.socketContracts.map((c) => c.id)).to.include(CONTRACT_ID);
+    });
+
     it('a controller without a contract is never touched', async () => {
       writeManifest(manifestOf());
       DI.register(PlainSocket).as(BaseSocketController);
@@ -317,7 +324,8 @@ describe('socket contract enforcement', function () {
 
   describe('registry build', () => {
     const buildWith = async (mode: string, ...bound: Array<typeof BaseSocketController>) => {
-      await configure(manifestConfig(mode));
+      useManifest(mode);
+      await configure();
       if (!bound.includes(ContractSocket)) {
         DI.unregister(ContractSocket);
       }

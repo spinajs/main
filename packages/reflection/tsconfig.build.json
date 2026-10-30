@@ -28,6 +28,12 @@
     },
     {
       "path": "../util/tsconfig.build.json"
+    },
+    {
+      "path": "../configuration/tsconfig.build.json"
+    },
+    {
+      "path": "../manifest/tsconfig.build.json"
     }
   ]
 }

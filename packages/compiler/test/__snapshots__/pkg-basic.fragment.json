@@ -4,7 +4,12 @@
     "name": "pkg-basic",
     "version": "1.0.0",
     "entry": "lib/index.js",
-    "outDir": "lib"
+    "outDir": "lib",
+    "configFiles": [
+      "config/basic.js",
+      "config/basic.production.js",
+      "config/nested/extra.js"
+    ]
   },
   "services": [
     {

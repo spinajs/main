@@ -22,6 +22,9 @@
     },
     {
       "path": "../log/tsconfig.json"
+    },
+    {
+      "path": "../testing/tsconfig.json"
     }
   ]
 }

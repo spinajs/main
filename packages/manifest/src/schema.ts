@@ -133,6 +133,12 @@ export const manifestSchema: Record<string, any> = {
               },
               "fragment": {
                 "type": "string"
+              },
+              "configFiles": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             },
             "required": [
@@ -1198,6 +1204,12 @@ export const manifestSchema: Record<string, any> = {
             },
             "outDir": {
               "type": "string"
+            },
+            "configFiles": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           },
           "required": [

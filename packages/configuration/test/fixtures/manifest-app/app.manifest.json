@@ -1,0 +1,57 @@
+{
+  "manifestVersion": 2,
+  "app": {
+    "name": "manifest-app",
+    "version": "0.0.0",
+    "root": "/nonexistent/build-machine/manifest-app",
+    "outDir": "lib"
+  },
+  "packages": [
+    {
+      "name": "@spinajs/dep",
+      "version": "0.0.0",
+      "entry": "lib/index.js",
+      "fragment": "lib/manifest.fragment.json",
+      "outDir": "lib"
+    }
+  ],
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "hash": "7cdc19ce446946ed51c61e593a6e8a6a9c3dace7f12bd9d775ad58003215837f",
+  "services": [],
+  "values": [],
+  "controllers": [],
+  "socketControllers": [],
+  "socketContracts": [],
+  "configModules": [
+    {
+      "module": "sample",
+      "schemaId": "x",
+      "defaultsFile": "src/config/sample.ts",
+      "source": {
+        "file": "src/config/sample.ts",
+        "line": 1,
+        "col": 1,
+        "package": "manifest-app"
+      }
+    },
+    {
+      "module": "dep",
+      "schemaId": "y",
+      "defaultsFile": "src/config/dep.ts",
+      "source": {
+        "file": "src/config/dep.ts",
+        "line": 1,
+        "col": 1,
+        "package": "@spinajs/dep"
+      }
+    }
+  ],
+  "configUsages": [],
+  "models": [],
+  "migrations": [],
+  "schedules": [],
+  "commands": [],
+  "queueMessages": [],
+  "schemas": {},
+  "diagnostics": []
+}
