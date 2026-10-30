@@ -138,6 +138,15 @@ describe('manifest schemas', function () {
       expect(() => body('spinajs/app/Holder')({ user: { Password: 'x', Anything: 1 } })).to.not.throw();
     });
 
+    it('lists the root properties only of a root that accepts no other keys', () => {
+      const validators = manifestValidatorOf(manifest);
+      expect(validators.closedRootProperties('spinajs/app/Item')).to.deep.equal(['name', 'count', 'tags']);
+      expect(validators.closedRootProperties('spinajs/app/Both')).to.deep.equal(['name', 'count']);
+      expect(validators.closedRootProperties('spinajs/app/NamedAndAnything')).to.equal(undefined);
+      expect(validators.closedRootProperties('spinajs/app/Partial')).to.equal(undefined);
+      expect(validators.closedRootProperties('spinajs/app/User')).to.equal(undefined);
+    });
+
     it('compiles a schema once per coercion mode', () => {
       const validators = manifestValidatorOf(manifest);
       expect(validators.validator('spinajs/app/Item', { coerce: false })).to.equal(validators.validator('spinajs/app/Item', { coerce: false }));

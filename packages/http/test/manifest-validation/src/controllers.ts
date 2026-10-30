@@ -1,5 +1,5 @@
 import { Schema, type StandardSchemaV1 } from '@spinajs/validation';
-import { BaseController, BasePath, Body, Get, Ok, Post, Query, QueryField } from '../../../src/index.js';
+import { BaseController, BasePath, Body, BodyField, Get, Ok, Post, Query, QueryField, Req, type Request } from '../../../src/index.js';
 
 export class CreateItem {
   public name: string;
@@ -61,6 +61,15 @@ export class Envelope {
   }
 }
 
+/** Assigns every key it is given, as ORM `ModelBase.hydrate()` does. */
+export class HydratedRecord {
+  [key: string]: unknown;
+
+  public hydrate(data: object): void {
+    Object.assign(this, data);
+  }
+}
+
 export type Named = { name: string };
 export type Counted = { count: number };
 
@@ -90,6 +99,18 @@ export class ManifestValidationController extends BaseController {
   @Post()
   public envelope(@Body() envelope: Envelope) {
     return new Ok({ name: envelope.item.name });
+  }
+
+  @Post()
+  public assign(@Body() item: CreateItem, @Req() req: Request) {
+    const record = new HydratedRecord();
+    record.hydrate(item);
+    return new Ok({ dto: Object.keys(item), model: Object.keys(record), reauthPassword: (req.body as Record<string, unknown>).reauthPassword ?? null });
+  }
+
+  @Post()
+  public assignFields(@BodyField() item: CreateItem, @Req() req: Request) {
+    return new Ok({ dto: Object.keys(item), reauthPassword: (req.body as Record<string, unknown>).reauthPassword ?? null });
   }
 
   @Post()

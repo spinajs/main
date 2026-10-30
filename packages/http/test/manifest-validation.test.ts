@@ -107,6 +107,16 @@ describe('request validation from the manifest', function () {
       expect((await post('pair', { first: { name: 'a', admin: true }, second: { count: 1 } })).status).to.eq(400);
     });
 
+    it('hands the DTO and a model hydrated from it only the declared root keys, and leaves them on the raw body', async () => {
+      const res = await post('assign', { name: 'a', count: 2, admin: true, reauthPassword: 'pw' });
+      expect(res.status, res.text).to.eq(200);
+      expect(res.body).to.deep.equal({ dto: ['name', 'count'], model: ['name', 'count'], reauthPassword: 'pw' });
+
+      const fields = await post('assignFields', { name: 'a', count: 2, admin: true, reauthPassword: 'pw' });
+      expect(fields.status, fields.text).to.eq(200);
+      expect(fields.body).to.deep.equal({ dto: ['name', 'count'], reauthPassword: 'pw' });
+    });
+
     it('validates an intersection of closed objects as one object', async () => {
       expect((await post('both', { name: 'a', count: 1 })).status).to.eq(200);
       expect((await post('both', { name: 'a' })).status).to.eq(400);

@@ -4,9 +4,9 @@ import * as express from 'express';
 import { ArgHydrator } from './ArgHydrator.js';
 import { ArgInputFilter } from '../arg-input-filter.js';
 import _ from 'lodash';
-import { DataValidator, ValidationFailed, type ManifestDataValidator } from '@spinajs/validation';
+import { DataValidator, ValidationFailed } from '@spinajs/validation';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { derivedValidatorOf } from './manifest-schema.js';
+import { derivedValidatorOf, type DerivedArgCheck } from './manifest-schema.js';
 
 /**
  * Extracts schema from runtime type. Handles TypedArray by extracting
@@ -97,8 +97,7 @@ export abstract class RouteArgs implements IRouteArgs {
 
       // A hydrator reads its own wire format, which the schema derived from the hydrated type does not describe.
       if (derived && !hydrator && arg !== null && arg !== undefined) {
-        arg = this.parseJsonArg(arg, routeParameter);
-        derived(arg);
+        arg = derived(this.parseJsonArg(arg, routeParameter));
       }
 
       result = hydrator ? arg : this.tryExtractObject(arg, routeParameter);
@@ -121,7 +120,7 @@ export abstract class RouteArgs implements IRouteArgs {
    * manifest derived from the parameter type is checked against the request value ( `derived` ), next to the
    * framework's default for scalars ( `RouteParamSchema` ).
    */
-  protected schemasOf(param: IRouteParameter, route: IRoute): { schema: any; derived?: ManifestDataValidator } {
+  protected schemasOf(param: IRouteParameter, route: IRoute): { schema: any; derived?: DerivedArgCheck } {
     if (route.Schema && route.Schema[param.Name]) {
       return { schema: route.Schema[param.Name] };
     }
@@ -142,8 +141,7 @@ export abstract class RouteArgs implements IRouteArgs {
 
     // Coercion rewrites what it checks; other arguments and middlewares read req.params and req.headers as sent.
     const checked = _.isPlainObject(value) ? ({ ...value } as T) : value;
-    derived(checked);
-    return checked;
+    return derived(checked) as T;
   }
 
   /** The value as `tryExtractObject` reads it, before it builds the class: what the client sent, JSON parsed. */

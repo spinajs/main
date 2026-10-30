@@ -152,6 +152,18 @@ export class ManifestValidator {
     return validator;
   }
 
+  /**
+   * The root property names of `id` when its root accepts no other keys: a closed object, or an intersection of closed
+   * ones. Undefined for an open, union, partial or `$ref` root, whose accepted keys are not a known list.
+   */
+  public closedRootProperties(id: string): readonly string[] | undefined {
+    const schema = this.schemas.get(manifestSchemaKey(id));
+    if (!schema || schema.additionalProperties !== false || !isObject(schema.properties) || schema.patternProperties !== undefined) {
+      return undefined;
+    }
+    return Object.keys(schema.properties);
+  }
+
   protected compile(id: string, options: ManifestValidationOptions): ManifestDataValidator {
     const schema = this.schemas.get(manifestSchemaKey(id));
     if (!schema) {
