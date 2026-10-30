@@ -37,6 +37,14 @@ describe("@spinajs/internal-logger", () => {
     sinon.restore();
   });
 
+  it("attaches one beforeExit dump per process, however many bootstrappers run", () => {
+    new InternalLogger().bootstrap();
+    const attached = process.listenerCount("beforeExit");
+    new InternalLogger().bootstrap();
+    new InternalLogger().bootstrap();
+    expect(process.listenerCount("beforeExit")).to.equal(attached);
+  });
+
   it("should write logs before configuration is resolved and logger botstrapped", async () => {
     const spy = sinon.spy(BlackHoleTarget.prototype, "write");
 

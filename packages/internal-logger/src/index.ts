@@ -106,7 +106,8 @@ export class InternalLogger extends Bootstrapper {
     [LogLevel.Warn]: console.warn,
   };
 
-  private exitDumpAttached = false;
+  // Per process, not per instance: a restored DI container resolves a new bootstrapper for every app it boots.
+  private static exitDumpAttached = false;
 
   public bootstrap(): void {
     const write = () => {
@@ -135,8 +136,8 @@ export class InternalLogger extends Bootstrapper {
 
     // Node-only: flush any buffered messages to the console on exit.
     // Guard so the browser ( no `process` ) never touches this path.
-    if (!this.exitDumpAttached && typeof process !== "undefined" && typeof process.on === "function") {
-      this.exitDumpAttached = true;
+    if (!InternalLogger.exitDumpAttached && typeof process !== "undefined" && typeof process.on === "function") {
+      InternalLogger.exitDumpAttached = true;
       process.on("beforeExit", () => {
         // when application is about to exit, write all messages to console
         // if buffer is not empty it mean, that we cannot write to normal logger
