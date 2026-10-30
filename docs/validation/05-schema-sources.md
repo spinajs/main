@@ -206,7 +206,7 @@ With an effective manifest (`system.manifest.mode` `prefer` or `require`), `Mani
 validator.validate(manifestSchemaKey('spinajs/my-app/CreateItem'), body);
 ```
 
-Request validation in `@spinajs/http` and `@spinajs/http-socket` does not go through `DataValidator`: `manifestValidatorOf(manifest).validator(id, { coerce, openRoot })` compiles each schema once per option set on its own Ajv instances, coerces only when asked (query, path, header and cookie values, never a JSON body), and throws `ValidationFailed`. See [Validation from the manifest](../http/04-route-arguments.md#validation-from-the-manifest).
+Request validation in `@spinajs/http` and `@spinajs/http-socket` does not go through `DataValidator`: `manifestValidatorOf(manifest).validator(id, { coerce, openRoot })` compiles each schema once per option set on its own Ajv instances, coerces only when asked (query, path, header and cookie values, never a JSON body), and throws `ValidationFailed`. A manifest schema Ajv refuses (not a valid JSON Schema, or a `$schema` other than draft-07 such as 2020-12) is left out on its own: `validator()` throws `schema <id> is not a valid JSON Schema` for it and `schema <id> references <refused id>, which is not a valid JSON Schema` for a schema that references it, and every other schema validates as usual. `closedRootProperties(id)` lists the root properties of a closed object root (or an intersection of closed objects), else `undefined`. See [Validation from the manifest](../http/04-route-arguments.md#validation-from-the-manifest).
 
 ## Important behaviour
 

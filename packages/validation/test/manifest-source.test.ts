@@ -159,6 +159,31 @@ describe('manifest schemas', function () {
     });
   });
 
+  describe('a manifest with schemas Ajv refuses', () => {
+    const broken = manifestOf({
+      ...SCHEMAS,
+      'spinajs/app/Bad': { type: 'strin' },
+      'spinajs/app/Modern': { $schema: 'https://json-schema.org/draft/2020-12/schema', ...closed({ a: { type: 'string' } }) },
+      'spinajs/app/UsesBad': closed({ bad: { $ref: 'spinajs/app/Bad' } }),
+      'spinajs/app/UsesUsesBad': closed({ inner: { $ref: 'spinajs/app/UsesBad' } }),
+    });
+
+    it('still validates every schema that does not reference them', () => {
+      const validators = manifestValidatorOf(broken);
+      expect(() => validators.validator('spinajs/app/Item', { coerce: false })({ name: 'a', count: 1 })).to.not.throw();
+      expect(() => validators.validator('spinajs/app/Item', { coerce: false })({ name: 'a', count: 'x' })).to.throw(ValidationFailed);
+      expect(() => validators.validator('spinajs/app/Query', { coerce: true, openRoot: true })({ page: '2' })).to.not.throw();
+    });
+
+    it('refuses them and the schemas referencing them, naming the refused schema without Ajv text', () => {
+      const validators = manifestValidatorOf(broken);
+      expect(() => validators.validator('spinajs/app/Bad', { coerce: false })).to.throw(/^schema spinajs\/app\/Bad is not a valid JSON Schema$/);
+      expect(() => validators.validator('spinajs/app/Modern', { coerce: true })).to.throw(/^schema spinajs\/app\/Modern is not a valid JSON Schema$/);
+      expect(() => validators.validator('spinajs/app/UsesBad', { coerce: false })).to.throw(/^schema spinajs\/app\/UsesBad references spinajs\/app\/Bad, which is not a valid JSON Schema$/);
+      expect(() => validators.validator('spinajs/app/UsesUsesBad', { coerce: false, openRoot: true })).to.throw(/^schema spinajs\/app\/UsesUsesBad references spinajs\/app\/Bad, which is not a valid JSON Schema$/);
+    });
+  });
+
   describe('ManifestSchemaSource', () => {
     afterEach(() => {
       DI.clearCache();

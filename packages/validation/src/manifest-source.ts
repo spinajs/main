@@ -125,17 +125,15 @@ export type ManifestDataValidator = (data: unknown) => void;
 // The CJS plugin is callable at runtime, while its types describe the module namespace.
 const withFormats = addFormats as unknown as (ajv: Ajv) => Ajv;
 
-function compileFailure(id: string, error: unknown): Error {
-  const missing = (error as { missingRef?: unknown } | null)?.missingRef;
-  // Ajv messages and stacks carry schema internals; only the unresolved reference is worth reporting.
-  return new Error(typeof missing === 'string' ? `schema ${id} has an unresolved $ref ${manifestId(missing)}` : `schema ${id} is not a valid JSON Schema`);
-}
+const invalidSchema = (id: string): Error => new Error(`schema ${id} is not a valid JSON Schema`);
 
 /** Validators for one manifest's schemas; each schema compiles once per option set. */
 export class ManifestValidator {
   protected instances = new Map<boolean, Ajv>();
   protected validators = new Map<string, ManifestDataValidator>();
   protected schemas: Map<string, ISchemaObject>;
+  /** Keys of the schemas Ajv refused; each Ajv instance refuses the same ones. */
+  protected refused = new Set<string>();
 
   constructor(protected manifest: Manifest) {
     this.schemas = new Map(prepareManifestSchemas(manifest).map((schema) => [schema.$id, schema]));
@@ -171,14 +169,17 @@ export class ManifestValidator {
     }
 
     const ajv = this.ajv(options.coerce);
+    if (this.refused.has(schema.$id)) {
+      throw invalidSchema(id);
+    }
     let validate: ValidateFunction | undefined;
     try {
       validate = options.openRoot && schema.additionalProperties === false ? ajv.compile(opened(schema)) : ajv.getSchema(schema.$id);
     } catch (error) {
-      throw compileFailure(id, error);
+      throw this.compileFailure(id, error);
     }
     if (!validate) {
-      throw new Error(`schema ${id} is not a valid JSON Schema`);
+      throw invalidSchema(id);
     }
 
     const compiled = validate;
@@ -189,16 +190,43 @@ export class ManifestValidator {
     };
   }
 
+  protected compileFailure(id: string, error: unknown): Error {
+    // Ajv messages and stacks carry schema internals; only the unresolved reference is worth reporting.
+    const { missingRef, missingSchema } = (error ?? {}) as { missingRef?: unknown; missingSchema?: unknown };
+    if (typeof missingRef !== 'string') {
+      return invalidSchema(id);
+    }
+    const target = typeof missingSchema === 'string' ? missingSchema : missingRef;
+    return new Error(
+      this.refused.has(target) ? `schema ${id} references ${manifestId(target)}, which is not a valid JSON Schema` : `schema ${id} has an unresolved $ref ${manifestId(missingRef)}`,
+    );
+  }
+
   protected ajv(coerce: boolean): Ajv {
     let ajv = this.instances.get(coerce);
     if (!ajv) {
       // No defaults or removal: the data is checked, never rewritten, apart from coercion of string inputs.
       // strictNumbers: a query `?n=abc` converted to NaN is not a number.
       ajv = withFormats(new Ajv({ strict: false, strictNumbers: true, allErrors: true, messages: false, coerceTypes: coerce ? 'array' : false }));
-      ajv.addSchema([...this.schemas.values()]);
+      for (const schema of this.schemas.values()) {
+        this.add(ajv, schema);
+      }
       this.instances.set(coerce, ajv);
     }
     return ajv;
+  }
+
+  /** Ajv checks a schema against its meta-schema when it is added; one it refuses must not take the others down with it. */
+  protected add(ajv: Ajv, schema: ISchemaObject): void {
+    try {
+      if (ajv.validateSchema(schema) === true) {
+        ajv.addSchema(schema);
+        return;
+      }
+    } catch {
+      // A `$schema` Ajv does not know ( 2020-12 ) throws instead of failing the check.
+    }
+    this.refused.add(schema.$id);
   }
 }
 

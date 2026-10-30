@@ -1,11 +1,13 @@
 import 'mocha';
 import { expect } from 'chai';
+import sinon from 'sinon';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DI } from '@spinajs/di';
 import { MANIFEST, MANIFEST_SETTINGS } from '@spinajs/configuration';
 import { Intl } from '@spinajs/intl';
+import { FrameworkLogger } from '@spinajs/log';
 import { analyzePackage } from '@spinajs/compiler';
 import { hashManifest, type Manifest, type ManifestMode } from '@spinajs/manifest';
 import { testManifest } from '@spinajs/testing';
@@ -221,6 +223,44 @@ describe('request validation from the manifest', function () {
         expect((await post('both', { name: 'a' })).status).to.eq(400);
       } finally {
         await app.dispose();
+      }
+    });
+  });
+
+  describe('a manifest schema Ajv refuses', () => {
+    const CREATE_ITEM = 'spinajs/manifest-validation-fixture/CreateItem';
+    const refused = () => {
+      const copy = structuredClone(manifest);
+      (copy.schemas[CREATE_ITEM] as { properties: Record<string, unknown> }).properties.count = { type: 'strin' };
+      copy.schemas['spinajs/elsewhere/Modern'] = { $id: 'spinajs/elsewhere/Modern', $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object' };
+      return copy;
+    };
+
+    it('fails a require boot naming the argument and the schema, without Ajv text', async () => {
+      const error = await boot(refused(), 'require').then(
+        async (app) => {
+          await app.dispose();
+          return undefined;
+        },
+        (e: unknown) => e as Error,
+      );
+      expect(error?.message).to.include(`argument item of ManifestValidationController::create cannot be validated: schema ${CREATE_ITEM} is not a valid JSON Schema`);
+      expect(error?.message).to.not.match(/data\/|must be|schema is invalid/);
+    });
+
+    it('in prefer, warns naming the schema and still validates the arguments whose schemas are valid', async () => {
+      const warn = sinon.spy(FrameworkLogger.prototype, 'warn');
+      let app: TestApp | undefined;
+      try {
+        app = await boot(refused());
+        const problems = warn.getCalls().map((call) => (call.args[0] as { problem?: string }).problem ?? '');
+        expect(problems.filter((p) => p.includes(`schema ${CREATE_ITEM} is not a valid JSON Schema`))).to.not.be.empty;
+        expect((await post('create', { name: 'a', count: 'x' })).status).to.eq(200);
+        expect((await post('both', { name: 'a' })).status).to.eq(400);
+        expect((await get('search?page=two')).status).to.eq(400);
+      } finally {
+        warn.restore();
+        await app?.dispose();
       }
     });
   });
