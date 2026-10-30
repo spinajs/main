@@ -2,11 +2,24 @@
 
 `DefaultControllerCache` reads each controller's compiled `.d.ts` with the TypeScript compiler once and stores two JSON entries: the parameter names of every action (route argument binding needs them) and the JSDoc documentation of the controller (`@spinajs/http-swagger` builds OpenAPI from it). The `http:controllers:cache` command builds the entries ahead of time, for example in a Docker image, so the first start does not pay the parsing cost.
 
+`DefaultControllerCache` is on the `@spinajs/http/cache` subpath, and `typescript` is an optional peer dependency of `@spinajs/http`: install it when an app runs without a manifest. With a manifest (`system.manifest.mode` `prefer` or `require`), parameter names and documentation come from the manifest, and a process that never needs the cache never loads `typescript`.
+
+## Metadata providers
+
+`Controllers.register()` and `@spinajs/http-swagger` ask a `ControllerMetadataProvider` for a controller's parameter names and documentation. Every provider registered as `ControllerMetadataProvider` is tried by `Priority`, lowest first; the first whose `supports(controller)` is true answers.
+
+| Provider | Priority | Supports | Reads |
+| --- | --- | --- | --- |
+| `ManifestControllerMetadata` | 10 | controllers the effective manifest lists (by class name, and by mount path when a name is taken twice); none in `off` mode | `RouteEntry.params` (names by `index`) and `RouteEntry.doc` (summary, description, tags, deprecated, responses) |
+| `CacheControllerMetadata` | 100 | every controller | `DefaultControllerCache`, imported on the first controller with a source file |
+
+In `require` mode a controller with a source file that the manifest does not list throws `NoControllerMetadata` instead of falling back to the cache. In `prefer` mode it falls back. A controller without a source file (`<di>`, `<dynamic>`) never loads the cache: its names come from the function.
+
 ## How it works
 
 **At startup**, `DefaultControllerCache.resolve()` removes entries written by other versions of `@spinajs/http`, then logs the cache directory.
 
-**Per controller**, `Controllers.register()` calls `getCache(controllerInfo)`:
+**Per controller**, when `CacheControllerMetadata` answers, it calls `getCache(controllerInfo)` once per controller:
 
 1. A controller without a real source file (`file` is `<di>` or `<dynamic>`) gets its parameter names from `Function.prototype.toString()` of each action; no documentation.
 2. Otherwise it takes the file, replaces `.js` with `.d.ts`, and hashes it with `FileHasher` (`@spinajs/fs`).
@@ -40,7 +53,7 @@ A route whose method is not in the parsed class (inherited from a base class in 
 
 `spinajs http:controllers:cache [-r | --rebuild]` (`ControllersCacheCommand`, loaded from `system.dirs.cli`):
 
-1. Resolves the file providers and `DefaultControllerCache`.
+1. Resolves the file providers and `DefaultControllerCache` (imported when the command runs, not when the CLI lists it).
 2. Asks every [`ControllerSource`](03-controller-discovery.md) for controllers and keeps those with a real file, one per class name.
 3. With `--rebuild`, deletes every cache entry first (only names shaped like entries).
 4. Generates the missing entries and logs `<ok> ok, <failed> failed`.
@@ -88,7 +101,8 @@ While developing controllers, rebuild from a watcher:
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `DefaultControllerCache` | Class `DefaultControllerCache`, `@Singleton()`, autoinjected into `Controllers`, the CLI command and `@spinajs/http-swagger` | `DefaultControllerCache` | none shipped | Subclass and `DI.register(Mine).as(DefaultControllerCache)` before `Controllers` resolves. Push into `tagExtractors` to read new JSDoc tags; override the public `getCache()`, `getDocumentation()` or `clear()` for another storage. |
+| `ControllerMetadataProvider` | Abstract class `ControllerMetadataProvider`, implementations `@Singleton()` | `ManifestControllerMetadata` (10), `CacheControllerMetadata` (100) | | `@Injectable(ControllerMetadataProvider)` on your own subclass with a `Priority` below the one it should win over. |
+| `DefaultControllerCache` | Class `DefaultControllerCache` from `@spinajs/http/cache`, `@Singleton()`, resolved by `CacheControllerMetadata` and the CLI command | `DefaultControllerCache` | none shipped | Subclass and `DI.register(Mine).as(DefaultControllerCache)` before `Controllers` resolves. Push into `tagExtractors` to read new JSDoc tags; override the public `getCache()`, `getDocumentation()` or `clear()` for another storage. |
 | `ITagExtractor` | entries of the public `tagExtractors` array | `param`, `returns`/`return`, `response`, `body`, `example`, `tags`/`tag`/`category`, `deprecated`, `summary`, `security` | | Add `{ tags: ['mytag'], extract(tag, ctx) {...} }`. The first extractor whose `tags` contains the tag name wins, so put an override before the built-in one with `unshift`. |
 | `FileHasher` | `@spinajs/fs` | `DefaultFileHasher` | | See [`@spinajs/fs`](../fs/README.md). |
 
@@ -100,7 +114,7 @@ Document per-route rate limits with a `@rateLimit` JSDoc tag. The extractor writ
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { DefaultControllerCache } from '@spinajs/http';
+import { DefaultControllerCache } from '@spinajs/http/cache';
 import type { JSDocTag } from 'typescript';
 
 declare module '@spinajs/http' {

@@ -6,104 +6,8 @@ import { AsyncService, Autoinject, ClassInfo, Singleton } from '@spinajs/di';
 import { fs as fFs, FileHasher, FileSystem } from '@spinajs/fs';
 import type { BaseController } from './base-controller.js';
 import { Logger, Log } from '@spinajs/log';
-
-// ---------------------------------------------------------------------------
-// Documentation types — generic enough to live in http, used by http-swagger
-// ---------------------------------------------------------------------------
-
-export interface IParamDoc {
-  name: string;
-  description?: string;
-  type?: string;
-}
-
-export interface IResponseDoc {
-  description: string;
-  /** Optional `{type}` annotation, e.g. `@response 400 {string} message` */
-  type?: string;
-}
-
-/** `@body {Type} description`: the JSON body of a route that reads it without a body route argument. */
-export interface IBodyDoc {
-  type: string;
-  description?: string;
-}
-
-export interface IExampleDoc {
-  name?: string;
-  description?: string;
-  value?: string;
-}
-
-/** JSON-Schema-compatible shape produced by the TypeScript return-type analyser */
-export interface ITypeSchema {
-  type?: string;
-  items?: ITypeSchema;
-  properties?: Record<string, ITypeSchema>;
-  required?: string[];
-  $ref?: string;
-  description?: string;
-}
-
-export interface IReturnDoc {
-  description?: string;
-  type?: string;
-  schema?: ITypeSchema;
-}
-
-export interface IMethodDoc {
-  summary?: string;
-  description?: string;
-  params: Record<string, IParamDoc>;
-  returns?: IReturnDoc;
-  body?: IBodyDoc;
-  responses?: Record<string, IResponseDoc>;
-  examples?: IExampleDoc[];
-  tags?: string[];
-  deprecated?: boolean;
-  /**
-   * Per-operation security override.
-   * Empty array means public (no auth required).
-   * Each entry is a security requirement object: { schemeName: scopes[] }.
-   */
-  security?: Array<Record<string, string[]>>;
-}
-
-export interface IPolicyDoc {
-  /** Source/declaration file where the policy class is defined */
-  file?: string;
-  /** JSDoc class-level description, if present */
-  description?: string;
-}
-
-export interface IControllerDocumentation {
-  className: string;
-  classDescription?: string;
-  classTags?: string[];
-  methods: Record<string, IMethodDoc>;
-}
-
-/** Context passed to every JSDoc tag extractor */
-export interface ITagExtractorContext {
-  /** Doc object being populated for the current method */
-  doc: IMethodDoc;
-  /** Source file the tag was parsed from (needed for safe getText() calls) */
-  sourceFile: ts.SourceFile;
-  /** Cache instance — exposes helper methods like getTagComment, safeGetText */
-  cache: DefaultControllerCache;
-}
-
-/**
- * JSDoc tag handler. Register new tags by pushing into
- * `DefaultControllerCache.tagExtractors`.
- */
-export interface ITagExtractor {
-  /** Tag names this handler accepts (e.g. ['returns', 'return']) */
-  tags: string[];
-  extract(tag: ts.JSDocTag, ctx: ITagExtractorContext): void;
-}
-
-// ---------------------------------------------------------------------------
+import type { IControllerDocumentation, IExampleDoc, IMethodDoc, IPolicyDoc, ITagExtractor, ITagExtractorContext, ITypeSchema } from './controller-documentation.js';
+import { isOnDiskSource, parseFnParamNames } from './cache-helpers.js';
 
 /** Stand-in prefix used when the package version cannot be read - see `resolveVersion()`. */
 const UNKNOWN_VERSION = 'unknown';
@@ -749,33 +653,7 @@ export class DefaultControllerCache extends AsyncService {
   }
 }
 
-/**
- * Whether a ClassInfo `file` points at a real on-disk source. Bracketed
- * sentinels (e.g. `<di>`, `<dynamic>`) are used by Controllers for entries
- * that were never loaded from a file.
- */
-export function isOnDiskSource(file: string | undefined): boolean {
-  if (!file) return false;
-  return !(file.startsWith('<') && file.endsWith('>'));
-}
-
 /** Rightmost identifier of an entity name. */
 function entityNameRight(name: ts.EntityName): string {
   return ts.isIdentifier(name) ? name.text : name.right.text;
-}
-
-/**
- * Pull parameter names from `Function.prototype.toString()` output. Modern V8
- * preserves the literal signature so we can regex out `(a, b = 1, ...rest)`.
- * Stripped of default values and TypeScript type annotations.
- */
-export function parseFnParamNames(fn: Function): string[] {
-  const src = Function.prototype.toString.call(fn);
-  const match = src.match(/^[^(]*\(([\s\S]*?)\)/);
-  if (!match) return [];
-  return match[1]
-    .split(',')
-    .map((p: string) => p.trim())
-    .filter(Boolean)
-    .map((p: string) => p.replace(/^\.\.\./, '').split(/[=:]/)[0].trim());
 }

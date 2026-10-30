@@ -1,5 +1,6 @@
 import { AsyncService, Autoinject, ClassInfo, Singleton } from '@spinajs/di';
-import { DefaultControllerCache, IMethodDoc, IPolicyDoc } from '@spinajs/http';
+import { IMethodDoc, IPolicyDoc } from '@spinajs/http';
+import { DefaultControllerCache } from '@spinajs/http/cache';
 import { BaseController } from '@spinajs/http';
 import { Logger, Log } from '@spinajs/log';
 import { ISwaggerCacheEntry } from './interfaces.js';
