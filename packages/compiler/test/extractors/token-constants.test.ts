@@ -43,3 +43,27 @@ describe('token<T>() constants declared in a dependency build output', () => {
     expect(ctx.diagnostics.filter((d) => d.code === 'CMP005')).to.have.length(0);
   });
 });
+
+describe('token<T>() keys that cannot be read', () => {
+  const loaded = createProgramFromTsconfig('test/fixtures/tokens-lib/tsconfig.json');
+  const ctx = createContext(loaded, 'tokens-lib', 'test/fixtures/tokens-lib');
+  const services = extractServices(ctx, loaded.sourceFiles.find((f) => f.fileName.endsWith('consumer.ts'))!);
+  const injects = (name: string) => services.find((s) => s.className === name)!.ctorInjects;
+  const warnings = ctx.diagnostics.filter((d) => d.code === 'CMP005');
+
+  it('evaluates template and concatenated keys in the program and through declaration maps', () => {
+    expect(injects('Readable')).to.deep.equal(['mail.tpl', 'mail.cat', 'emb.key', 'local.tpl', 'local.cat', 'token:unresolved:src/consumer.ts#LOCAL_DYNAMIC']);
+  });
+
+  it('never turns an unreadable key into the constant name', () => {
+    expect(injects('Unreadable')).to.deep.equal(['dep/nomap.d.ts', 'dep/malformed.d.ts', 'dep/missing.d.ts', 'dep/nonliteral.d.ts'].map((f) => `token:unresolved:${f}#Cache`));
+  });
+
+  it('warns with the step that failed, without throwing on a malformed map', () => {
+    expect(warnings.every((d) => d.severity === 'warning')).to.equal(true);
+    const messages = warnings.map((d) => d.message);
+    for (const part of ['has no declaration map', 'declaration map is malformed', 'gone.txt, which is not on disk', 'is not a literal string']) {
+      expect(messages.some((m) => m.includes(part)), part).to.equal(true);
+    }
+  });
+});

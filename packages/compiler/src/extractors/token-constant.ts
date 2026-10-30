@@ -1,6 +1,8 @@
 import ts from 'typescript';
 import type { ExtractorContext } from '../context.js';
-import { identifierName, literalValue } from '../decorators.js';
+import { identifierName } from '../decorators.js';
+import { unresolvedTokenKey } from '../token-key.js';
+import { evaluateKey, type IdentifierResolver } from './key-evaluator.js';
 import { declaredTokenKey } from './declared-token.js';
 
 function unwrap(expr: ts.Expression): ts.Expression {
@@ -25,17 +27,45 @@ function isTokenFactory(callee: ts.Expression, ctx: ExtractorContext): boolean {
   return target?.name === 'token' && !!target.declarations?.some((d) => ts.isFunctionDeclaration(d));
 }
 
+function moduleOf(file: string): string {
+  const normalized = file.replaceAll('\\', '/');
+  const at = normalized.lastIndexOf('node_modules/');
+  return at >= 0 ? normalized.slice(at + 'node_modules/'.length) : normalized.split('/').slice(-2).join('/');
+}
+
+function unresolved(decl: ts.VariableDeclaration, reason: string, expr: ts.Expression, ctx: ExtractorContext): string {
+  const name = ts.isIdentifier(decl.name) ? decl.name.text : decl.name.getText();
+  ctx.warn('CMP005', `cannot read the key of token ${name}: ${reason}`, expr);
+  return unresolvedTokenKey(moduleOf(decl.getSourceFile().fileName), name);
+}
+
 function declaredKey(decl: ts.VariableDeclaration, expr: ts.Expression, ctx: ExtractorContext): string | undefined {
   if (ctx.checker.getTypeAtLocation(decl).getSymbol()?.name !== 'Token' || !ts.isIdentifier(decl.name)) return undefined;
-  const key = declaredTokenKey(decl.getSourceFile().fileName, decl.name.text, ctx.program.getCompilerOptions());
-  if (key === undefined) ctx.info('CMP005', `cannot read the key of token ${decl.name.text}: its declaration file has no source map to the original`, expr);
-  return key;
+  const found = declaredTokenKey(decl.getSourceFile().fileName, decl.name.text, ctx.program.getCompilerOptions());
+  return 'key' in found ? found.key : unresolved(decl, found.failure, expr, ctx);
+}
+
+const MAX_DEPTH = 8;
+
+function programResolver(ctx: ExtractorContext, depth = 0): IdentifierResolver {
+  return (id) => {
+    if (depth > MAX_DEPTH) return undefined;
+    const symbol = ctx.checker.getSymbolAtLocation(ts.isIdentifier(id) ? id : id.name);
+    const target = symbol && (symbol.flags & ts.SymbolFlags.Alias ? ctx.checker.getAliasedSymbol(symbol) : symbol);
+    const decl = target?.valueDeclaration;
+    if (decl && ts.isVariableDeclaration(decl) && decl.initializer && ts.getCombinedNodeFlags(decl) & ts.NodeFlags.Const) {
+      const value = evaluateKey(decl.initializer, programResolver(ctx, depth + 1));
+      if (value !== undefined) return value;
+    }
+    const type = ctx.checker.getTypeAtLocation(id);
+    return type.isStringLiteral() ? type.value : undefined;
+  };
 }
 
 /**
  * Key of a `const X = token<T>('key')` constant, followed through imports and re-exports. `X.key` gives
  * the same key. Undefined when the expression is not such a constant. A token declared in a `.d.ts`
- * has no initializer: its key is read from the original source named by the declaration map, else CMP005.
+ * has no initializer: its key is read from the original source named by the declaration map, else a reserved unresolvable key and a CMP005 warning.
  */
 export function tokenConstantKey(expr: ts.Expression | undefined, ctx: ExtractorContext): string | undefined {
   if (!expr) return undefined;
@@ -49,8 +79,9 @@ export function tokenConstantKey(expr: ts.Expression | undefined, ctx: Extractor
   const init = decl.initializer && unwrap(decl.initializer);
   if (!init) return declaredKey(decl, expr, ctx);
   if (!ts.isCallExpression(init) || !isTokenFactory(init.expression, ctx)) return undefined;
-  const key = literalValue(init.arguments[0], ctx);
-  return typeof key === 'string' ? key : undefined;
+  const arg = init.arguments[0];
+  const key = arg && evaluateKey(arg, programResolver(ctx));
+  return key ?? unresolved(decl, 'its key is not a literal string', expr, ctx);
 }
 
 /** The DI key an expression stands for: a token constant's key, otherwise the identifier name. */

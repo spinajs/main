@@ -1,0 +1,5 @@
+import { token } from '@spinajs/di';
+const P = 'mail';
+export const TPL = token<object>(`${P}.tpl`);
+export const CAT = token<object>(P + '.cat');
+export const MISSING_KEY = token<object>('mail.missing');

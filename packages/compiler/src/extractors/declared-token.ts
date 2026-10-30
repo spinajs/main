@@ -1,5 +1,6 @@
 import ts from 'typescript';
 import { dirname, resolve } from 'node:path';
+import { evaluateKey } from './key-evaluator.js';
 
 const MAX_DEPTH = 6;
 
@@ -48,36 +49,42 @@ function stringConst(sf: ts.SourceFile, name: string, options: ts.CompilerOption
 
 function stringValue(expr: ts.Expression, sf: ts.SourceFile, options: ts.CompilerOptions, depth: number): string | undefined {
   if (depth > MAX_DEPTH) return undefined;
-  if (ts.isParenthesizedExpression(expr) || ts.isAsExpression(expr) || ts.isSatisfiesExpression(expr)) return stringValue(expr.expression, sf, options, depth);
-  if (ts.isStringLiteralLike(expr)) return expr.text;
-  if (ts.isIdentifier(expr)) return stringConst(sf, expr.text, options, depth);
-  if (!ts.isTemplateExpression(expr)) return undefined;
-  let out = expr.head.text;
-  for (const span of expr.templateSpans) {
-    const part = stringValue(span.expression, sf, options, depth);
-    if (part === undefined) return undefined;
-    out += part + span.literal.text;
-  }
-  return out;
+  return evaluateKey(expr, (id) => (ts.isIdentifier(id) ? stringConst(sf, id.text, options, depth) : undefined));
 }
 
-function sourceOfDeclaration(declarationFile: string): string | undefined {
-  const map = ts.sys.readFile(`${declarationFile}.map`);
-  if (!map) return undefined;
-  const { sources, sourceRoot } = JSON.parse(map) as { sources?: string[]; sourceRoot?: string };
-  return sources?.[0] ? resolve(dirname(declarationFile), sourceRoot ?? '', sources[0]) : undefined;
+type MapSource = { sf: ts.SourceFile } | { failure: string };
+
+function sourceOfDeclaration(declarationFile: string): MapSource {
+  const text = ts.sys.readFile(`${declarationFile}.map`);
+  if (!text) return { failure: 'its declaration file has no declaration map' };
+  let map: { sources?: string[]; sourceRoot?: string; sourcesContent?: (string | null)[] };
+  try {
+    map = JSON.parse(text);
+  } catch {
+    return { failure: 'its declaration map is malformed' };
+  }
+  const source = map.sources?.[0];
+  if (typeof source !== 'string') return { failure: 'its declaration map lists no source' };
+  const file = resolve(dirname(declarationFile), map.sourceRoot ?? '', source);
+  const embedded = map.sourcesContent?.[0];
+  if (typeof embedded === 'string') return { sf: ts.createSourceFile(file, embedded, ts.ScriptTarget.Latest, true) };
+  const sf = parse(file);
+  return sf ? { sf } : { failure: `its declaration map points to ${source}, which is not on disk` };
 }
 
 /**
  * Key of `export const NAME = token<T>(key)` read from the original source of a declaration file, found
- * through its declaration map. Works for workspace packages; a published package ships no source.
+ * through its declaration map (embedded `sourcesContent` first). Works for workspace packages; a published
+ * package usually ships neither. A failure names the step that failed.
  */
-export function declaredTokenKey(declarationFile: string, name: string, options: ts.CompilerOptions): string | undefined {
-  const sourceFile = sourceOfDeclaration(declarationFile);
-  const sf = sourceFile && parse(sourceFile);
-  const init = sf && topLevelConst(sf, name);
-  if (!sf || !init || !ts.isCallExpression(init)) return undefined;
+export function declaredTokenKey(declarationFile: string, name: string, options: ts.CompilerOptions): { key: string } | { failure: string } {
+  const found = sourceOfDeclaration(declarationFile);
+  if ('failure' in found) return found;
+  const init = topLevelConst(found.sf, name);
+  if (!init || !ts.isCallExpression(init)) return { failure: `${name} is not a top-level token(...) constant in its source` };
   const callee = ts.isIdentifier(init.expression) ? init.expression.text : ts.isPropertyAccessExpression(init.expression) ? init.expression.name.text : '';
   const arg = init.arguments[0];
-  return callee === 'token' && arg ? stringValue(arg, sf, options, 0) : undefined;
+  if (callee !== 'token' || !arg) return { failure: `${name} is not a top-level token(...) constant in its source` };
+  const key = stringValue(arg, found.sf, options, 0);
+  return key === undefined ? { failure: 'its key in the source is not a literal string' } : { key };
 }

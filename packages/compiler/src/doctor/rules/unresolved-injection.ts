@@ -1,4 +1,5 @@
 import type { Diagnostic, Manifest } from '@spinajs/manifest';
+import { isUnresolvedTokenKey } from '../../token-key.js';
 import { diagnostic, type DoctorRule } from '../index.js';
 
 export function providersOf(manifest: Manifest): Set<string> {
@@ -20,10 +21,10 @@ export const unresolvedInjection: DoctorRule = {
     const out: Diagnostic[] = [];
     for (const s of manifest.services) {
       s.ctorInjects.forEach((token, index) => {
-        if (!s.ctorConcrete?.[index] && !AMBIENT_TOKENS.has(token) && !providers.has(token)) out.push(diagnostic('DI001', 'error', `${s.className} injects '${token}' (constructor argument ${index}) but nothing registers it`, s.source));
+        if (!s.ctorConcrete?.[index] && !AMBIENT_TOKENS.has(token) && !isUnresolvedTokenKey(token) && !providers.has(token)) out.push(diagnostic('DI001', 'error', `${s.className} injects '${token}' (constructor argument ${index}) but nothing registers it`, s.source));
       });
       for (const p of s.propertyInjects) {
-        if (p.optional || p.array || (p.concrete && !p.check) || AMBIENT_TOKENS.has(p.token) || providers.has(p.token)) continue;
+        if (p.optional || p.array || (p.concrete && !p.check) || AMBIENT_TOKENS.has(p.token) || isUnresolvedTokenKey(p.token) || providers.has(p.token)) continue;
         out.push(diagnostic('DI001', 'error', `${s.className} injects '${p.token}' (property ${p.property}) but nothing registers it`, s.source));
       }
     }

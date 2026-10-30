@@ -15,3 +15,13 @@ describe('DI001 with token constants', () => {
     ]);
   });
 });
+
+describe('DI001 with unresolvable token keys', () => {
+  it('skips an unreadable key even when a class carries the constant name, and still reports a real gap', async () => {
+    const fragment = await analyzePackage({ tsconfig: 'test/fixtures/tokens-lib/tsconfig.json', packageRoot: 'test/fixtures/tokens-lib', schemaDerivation: false });
+    const manifest = fixture({ services: fragment.services, values: fragment.values });
+    const messages = unresolvedInjection.run(manifest, ctx).map((d) => d.message);
+    expect(messages).to.include("NeedsMissing injects 'mail.missing' (constructor argument 0) but nothing registers it");
+    expect(messages.filter((m) => m.includes('Unreadable') || m.includes('unresolved') || m.includes('LOCAL_DYNAMIC'))).to.deep.equal([]);
+  });
+});
