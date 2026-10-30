@@ -733,12 +733,6 @@ describe('engine/evaluate', () => {
       );
     });
 
-    // Slow references: plain recursion over the pattern, written independently.
-    const refWildcard = (p: string, t: string): boolean => {
-      if (p === '') return t === '';
-      if (p[0] === '*') return refWildcard(p.slice(1), t) || (t !== '' && refWildcard(p, t.slice(1)));
-      return t !== '' && t[0] === p[0] && refWildcard(p.slice(1), t.slice(1));
-    };
     const refGlob = (p: string, t: string): boolean => {
       if (p === '') return t === '';
       if (p.startsWith('**')) return refGlob(p.slice(2), t) || (t !== '' && refGlob(p, t.slice(1)));
