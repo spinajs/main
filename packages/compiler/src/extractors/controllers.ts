@@ -8,6 +8,7 @@ import { accessOf, middlewaresOf, policyGroupsOf } from './policies.js';
 import { routeDocOf } from './jsdoc.js';
 import { conditionOf } from './conditions.js';
 import { wireOf, type RouteWireContext } from './wire.js';
+import { propertyInjectsOf } from './injections.js';
 
 /** Parameter decorator -> the `ParameterType` (http) or route-arg type (orm-http) it registers; `ParamEntry.kind` records it. */
 export const PARAM_KINDS: Record<string, string> = {
@@ -70,8 +71,10 @@ function paramOf(p: ts.ParameterDeclaration, index: number, owner: string, route
   const type = ctx.checker.getTypeAtLocation(p);
   const kind = parameterTypeOf(dec, ctx);
   const nonNull = ctx.checker.getNonNullableType(type);
+  const runtimeType = UNDERIVED_KINDS.has(kind) ? ctx.plainTypeRef(nonNull) : ctx.typeRef(nonNull, p, `${owner.replace('.', '_')}_${name}`);
+  const ref = ctx.runtimeRef(type, p);
   return {
-    index, name, kind, runtimeType: UNDERIVED_KINDS.has(kind) ? ctx.plainTypeRef(nonNull) : ctx.typeRef(nonNull, p, `${owner.replace('.', '_')}_${name}`),
+    index, name, kind, runtimeType: ref ? { ...runtimeType, ref } : runtimeType,
     required: options?.required === true || isRequired(p, type),
     ...(options !== undefined ? { options } : {}), ...(schemaId ? { schema: schemaId } : {}),
     wire: wireOf({ dec, firstArg: firstArgOf(dec, options, ctx), p, name, type, route, ctx }),
@@ -109,11 +112,13 @@ function controllerOf(node: NamedClass, ctx: ExtractorContext): ControllerEntry 
   const mountPath = basePathConfig && basePath ? configuredMountPath(basePath) : controllerMountPath(basePath, node.name.text);
   const { access, allowAnonymous } = accessOf(node, ctx);
   const condition = conditionOf(node, ctx);
+  const propertyInjects = propertyInjectsOf(node, ctx);
   return {
     id: `${ctx.packageName}:${node.name.text}`, className: node.name.text, basePath, ...(basePathConfig ? { basePathConfig } : {}), mountPath,
     policies: policyGroupsOf(node, ctx, 'class'), middlewares: middlewaresOf(node, ctx),
     ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}),
     routes: node.members.filter(ts.isMethodDeclaration).map((m) => routeOf(m, mountPath, node.name.text, ctx)).filter((r): r is RouteEntry => !!r),
+    ...(propertyInjects.length ? { propertyInjects } : {}),
     ...(condition ? { condition } : {}), source: ctx.sourceRef(node),
   };
 }

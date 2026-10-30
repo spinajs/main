@@ -1,0 +1,33 @@
+import type { DateTime } from 'luxon';
+import type { Container } from '@spinajs/di';
+
+export class Exported { public id!: number }
+class Hidden { public id!: number }
+export enum Color { Red = 'red', Blue = 'blue' }
+export enum Level { Low, High }
+export interface Shape { id: number }
+
+export function runtimeTypes(
+  num: number,
+  exported: Exported,
+  hidden: Hidden,
+  color: Color,
+  level: Level,
+  shape: Shape,
+  date: Date,
+  literal: 'a' | 'b',
+  list: Exported[],
+  flag: boolean | undefined,
+  loose: any,
+  nullable: Exported | null,
+  mixed: string | number,
+  foreign: Container,
+  untracked: DateTime,
+  bytes: Uint8Array,
+): void {
+  void [num, exported, hidden, color, level, shape, date, literal, list, flag, loose, nullable, mixed, foreign, untracked, bytes];
+}
+
+export function ambient(storage: import('node:async_hooks').AsyncLocalStorage<number>): void {
+  void storage;
+}

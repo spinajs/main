@@ -92,7 +92,12 @@
               "kind": "FromQuery",
               "runtimeType": {
                 "text": "ListQuery",
-                "schema": "spinajs/app-basic/ListQuery"
+                "schema": "spinajs/app-basic/ListQuery",
+                "ref": {
+                  "package": "global",
+                  "file": "",
+                  "export": "Object"
+                }
               },
               "required": true,
               "wire": {
@@ -130,7 +135,12 @@
               "kind": "FromParams",
               "runtimeType": {
                 "text": "number",
-                "schema": "spinajs/app-basic/UsersController_get_id"
+                "schema": "spinajs/app-basic/UsersController_get_id",
+                "ref": {
+                  "package": "global",
+                  "file": "",
+                  "export": "Number"
+                }
               },
               "required": true,
               "wire": {
@@ -177,7 +187,12 @@
               "kind": "FromBody",
               "runtimeType": {
                 "text": "CreateUserDto",
-                "schema": "spinajs/app-basic/CreateUserDto"
+                "schema": "spinajs/app-basic/CreateUserDto",
+                "ref": {
+                  "package": "global",
+                  "file": "",
+                  "export": "Object"
+                }
               },
               "required": true,
               "wire": {
@@ -223,7 +238,12 @@
               "kind": "FromParams",
               "runtimeType": {
                 "text": "number",
-                "schema": "spinajs/app-basic/UsersController_avatar_id"
+                "schema": "spinajs/app-basic/UsersController_avatar_id",
+                "ref": {
+                  "package": "global",
+                  "file": "",
+                  "export": "Number"
+                }
               },
               "required": true,
               "wire": {
@@ -237,7 +257,12 @@
               "name": "file",
               "kind": "FromFile",
               "runtimeType": {
-                "text": "IUploadedFile<any>"
+                "text": "IUploadedFile<any>",
+                "ref": {
+                  "package": "global",
+                  "file": "",
+                  "export": "Object"
+                }
               },
               "required": true,
               "wire": {
@@ -279,7 +304,12 @@
           "handler": "send",
           "payload": {
             "text": "{ text: string; }",
-            "schema": "spinajs/app-basic/ChatSocketController_send_Payload"
+            "schema": "spinajs/app-basic/ChatSocketController_send_Payload",
+            "ref": {
+              "package": "global",
+              "file": "",
+              "export": "Object"
+            }
           },
           "result": {
             "text": "{ id: string; }",
@@ -301,7 +331,12 @@
           "handler": "history",
           "payload": {
             "text": "{ since: string; }",
-            "schema": "spinajs/app-basic/ChatSocketController_history_Payload"
+            "schema": "spinajs/app-basic/ChatSocketController_history_Payload",
+            "ref": {
+              "package": "global",
+              "file": "",
+              "export": "Object"
+            }
           },
           "result": {
             "text": "ChatMessage",
@@ -323,7 +358,12 @@
           "name": "message",
           "payload": {
             "text": "ChatMessage",
-            "schema": "spinajs/app-basic/ChatMessage"
+            "schema": "spinajs/app-basic/ChatMessage",
+            "ref": {
+              "package": "global",
+              "file": "",
+              "export": "Object"
+            }
           }
         }
       ],
@@ -635,6 +675,6 @@
     }
   },
   "diagnostics": [],
-  "generatedAt": "2026-10-30T10:49:22.774Z",
-  "hash": "9d0fe29927c14a4ae0df47eebcdb4ec3a34ea9f7fe974a7c8804d97a694d081c"
+  "generatedAt": "2026-10-30T15:36:02.762Z",
+  "hash": "e8c022b23448e14475f69d3729820cfbaea3f5b1db9cb43d4a0d1c760eae2f21"
 }

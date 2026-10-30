@@ -8,3 +8,4 @@ export * from './diff.js';
 export * from './runtime.js';
 export * from './route-path.js';
 export * from './socket-contract.js';
+export * from './runtime-types.js';

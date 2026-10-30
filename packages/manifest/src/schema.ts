@@ -218,36 +218,7 @@ export const manifestSchema: Record<string, any> = {
         "propertyInjects": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "property": {
-                "type": "string"
-              },
-              "token": {
-                "type": "string"
-              },
-              "optional": {
-                "type": "boolean"
-              },
-              "array": {
-                "type": "boolean"
-              },
-              "lazy": {
-                "type": "boolean"
-              },
-              "concrete": {
-                "type": "boolean"
-              },
-              "check": {
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "property",
-              "token",
-              "optional",
-              "array"
-            ]
+            "$ref": "#/definitions/PropertyInject"
           }
         },
         "imperativeResolves": {
@@ -303,6 +274,60 @@ export const manifestSchema: Record<string, any> = {
         "per-child",
         "per-instance",
         "per-instance-check"
+      ]
+    },
+    "PropertyInject": {
+      "type": "object",
+      "properties": {
+        "property": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string"
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "array": {
+          "type": "boolean"
+        },
+        "lazy": {
+          "type": "boolean"
+        },
+        "concrete": {
+          "type": "boolean"
+        },
+        "check": {
+          "type": "boolean"
+        },
+        "tokenRef": {
+          "$ref": "#/definitions/RuntimeTypeRef"
+        }
+      },
+      "required": [
+        "property",
+        "token",
+        "optional",
+        "array"
+      ]
+    },
+    "RuntimeTypeRef": {
+      "type": "object",
+      "properties": {
+        "package": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "export": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "package",
+        "file",
+        "export"
       ]
     },
     "SourceRef": {
@@ -456,6 +481,12 @@ export const manifestSchema: Record<string, any> = {
           "type": "array",
           "items": {
             "$ref": "#/definitions/RouteEntry"
+          }
+        },
+        "propertyInjects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PropertyInject"
           }
         },
         "condition": {
@@ -657,6 +688,9 @@ export const manifestSchema: Record<string, any> = {
         },
         "schema": {
           "type": "string"
+        },
+        "ref": {
+          "$ref": "#/definitions/RuntimeTypeRef"
         }
       },
       "required": [
@@ -743,6 +777,12 @@ export const manifestSchema: Record<string, any> = {
               "name",
               "payload"
             ]
+          }
+        },
+        "propertyInjects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PropertyInject"
           }
         },
         "source": {
