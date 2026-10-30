@@ -1,29 +1,36 @@
-import { AsyncService, Autoinject, ClassInfo, Singleton } from '@spinajs/di';
-import { DefaultControllerCache, IMethodDoc, IPolicyDoc } from '@spinajs/http';
-import { BaseController } from '@spinajs/http';
+import { AsyncService, Autoinject, ClassInfo, Container, IContainer, Singleton } from '@spinajs/di';
+import { BaseController, CacheControllerMetadata, ControllerMetadataProvider, IMethodDoc, IPolicyDoc, NoControllerMetadata, metadataProviderFor } from '@spinajs/http';
 import { Logger, Log } from '@spinajs/log';
 import { ISwaggerCacheEntry } from './interfaces.js';
 
 /**
- * Provides JSDoc / TypeScript-annotation documentation for controllers.
- * Delegates all TypeScript parsing to DefaultControllerCache (http package),
- * which already runs during HTTP module resolution — no extra parse pass needed.
+ * Documentation for controllers from the first `ControllerMetadataProvider` that supports them: the manifest when it
+ * lists the controller, else the TypeScript cache the loader already filled while registering routes.
  */
 @Singleton()
 export class SwaggerDocCache extends AsyncService {
   @Logger('http-swagger')
   protected Log!: Log;
 
-  @Autoinject(DefaultControllerCache)
-  protected ControllerCache!: DefaultControllerCache;
+  @Autoinject(Container)
+  protected Container!: IContainer;
 
   public async resolve() {
     await super.resolve();
   }
 
+  protected async providerFor(controller: ClassInfo<BaseController>): Promise<ControllerMetadataProvider> {
+    const provider = metadataProviderFor(await this.Container.resolve(Array.ofType(ControllerMetadataProvider)), controller);
+    if (!provider) {
+      throw new NoControllerMetadata(`No controller metadata provider supports ${controller.name} ( ${controller.file} )`);
+    }
+    return provider;
+  }
+
   public async getCache(controller: ClassInfo<BaseController>): Promise<ISwaggerCacheEntry> {
     this.Log.trace({ controller: controller.name }, 'Getting swagger doc cache for ${controller}');
-    const doc = await this.ControllerCache.getDocumentation(controller);
+    const provider = await this.providerFor(controller);
+    const doc = await provider.documentation(controller);
 
     // Walk runtime descriptors to learn which policy classes are applied where
     // (.d.ts strips decorators, so we can only get this from the live class).
@@ -56,9 +63,10 @@ export class SwaggerDocCache extends AsyncService {
       }
     }
 
+    // policy docs are read from the policy classes' sources, which only the cache provider parses
     let policies: Record<string, IPolicyDoc> | undefined;
-    if (allPolicyNames.size > 0) {
-      policies = await this.ControllerCache.getPolicyDocumentation(controller, [...allPolicyNames]);
+    if (allPolicyNames.size > 0 && provider instanceof CacheControllerMetadata) {
+      policies = await provider.policyDocumentation(controller, [...allPolicyNames]);
     }
 
     return {

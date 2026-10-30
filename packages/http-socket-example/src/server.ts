@@ -1,6 +1,5 @@
 import '@spinajs/log';
-import '@spinajs/authn-session';
-import { createServer, Server as NodeHttpServer } from 'node:http';
+import { createServer, Server as NodeHttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
@@ -9,9 +8,16 @@ import { NotesStore } from './store.js';
 import './auth.js';
 import './notes.socket.js';
 
+/** socket.io answers its own path first; everything else lands here. */
+function plainRoutes(req: IncomingMessage, res: ServerResponse): void {
+  const found = req.method === 'GET' && req.url === '/health';
+  res.writeHead(found ? 200 : 404, { 'content-type': 'application/json' });
+  res.end(found ? '{"status":"ok"}' : '{"status":"not found"}');
+}
+
 /** socket.io attaches to this plain node http server. An app on @spinajs/http needs no host of its own: the default HttpServerHost uses that server. */
 export class NotesHttpHost extends SocketHttpHost {
-  public readonly Http: NodeHttpServer = createServer();
+  public readonly Http: NodeHttpServer = createServer(plainRoutes);
 
   public async server(): Promise<NodeHttpServer> {
     return this.Http;

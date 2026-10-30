@@ -1,6 +1,7 @@
 import { CliCommand, Command } from '@spinajs/cli';
 import { Logger, Log } from '@spinajs/log-common';
 import { ClassInfo, DI } from '@spinajs/di';
+import { effectiveManifestOf } from '@spinajs/configuration';
 import { fsService } from '@spinajs/fs';
 import { ListFromFiles } from '@spinajs/reflection';
 import { BaseController, CONTROLLED_DESCRIPTOR_SYMBOL } from '@spinajs/http';
@@ -18,6 +19,12 @@ export class SwaggerCacheCommand extends CliCommand {
   protected Controllers!: Promise<Array<ClassInfo<BaseController>>>;
 
   public async execute(): Promise<void> {
+    const effective = effectiveManifestOf(DI.RootContainer);
+    if (effective?.manifest && effective.settings.mode !== 'off') {
+      this.Log.warn('http:swagger:cache is deprecated: the manifest already carries controller documentation; this command is a no-op');
+      return;
+    }
+
     await DI.resolve(fsService);
 
     this.Log.info('Generating Swagger documentation cache...');
