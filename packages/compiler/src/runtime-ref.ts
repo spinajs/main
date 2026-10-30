@@ -50,7 +50,10 @@ function serialize(type: ts.Type, checker: ts.TypeChecker): Serialized {
   }
   if (type.flags & NULLISH) return undefined;
   if (checker.isArrayType(type) || checker.isTupleType(type)) return { global: 'Array' };
+  return serializeObject(type, checker);
+}
 
+function serializeObject(type: ts.Type, checker: ts.TypeChecker): Serialized {
   const symbol = type.getSymbol();
   // The metadata reads `typeof X !== 'undefined' ? X : Object`, which is `Object` for lib.dom's classes on node.
   if (symbol && isGlobalValue(symbol, checker)) return { global: symbol.name in globalThis ? symbol.name : 'Object' };

@@ -30,8 +30,8 @@ class Repo {
     return this.db.kind;
   }
 }
-Singleton()(Repo);
-Autoinject()(Repo.prototype, 'db');
+(Singleton() as ClassDecorator)(Repo);
+(Autoinject() as PropertyDecorator)(Repo.prototype, 'db');
 
 class LazyRepo {
   public db: Db;
@@ -43,7 +43,7 @@ class Plugin {}
 class Plugins {
   public list: Plugin[];
 }
-Autoinject(Plugin)(Plugins.prototype, 'list');
+(Autoinject(Plugin) as PropertyDecorator)(Plugins.prototype, 'list');
 
 const entry = (className: string, property: string, tokenRef?: RuntimeTypeRef, id = `property-types:${className}`, array = false): ClassPropertiesEntry => ({
   id,

@@ -49,7 +49,7 @@ describe('withManifest', () => {
     class Owner {
       public when: Date;
     }
-    Autoinject()(Owner.prototype, 'when');
+    (Autoinject() as PropertyDecorator)(Owner.prototype, 'when');
 
     const manifest = testManifest({
       classProperties: [{ id: 'test-app:Owner', className: 'Owner', properties: [{ property: 'when', token: 'Date', optional: false, array: false, tokenRef: { package: 'global', file: '', export: 'Date' } }], source: sourceRef('owner.ts') }],
