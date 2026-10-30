@@ -1,4 +1,4 @@
-import type { DoctorRule } from '../index.js';
+import type { DoctorRule } from '../rule.js';
 import { unresolvedInjection } from './unresolved-injection.js';
 import { diCycle } from './di-cycle.js';
 import { asyncIntoSync } from './async-into-sync.js';

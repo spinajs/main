@@ -4339,7 +4339,7 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 8
+      "count": 6
     }
   },
   "packages/http/src/error.ts": {

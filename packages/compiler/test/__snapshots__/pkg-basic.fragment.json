@@ -490,7 +490,12 @@
           "token": "Clock",
           "optional": false,
           "array": false,
-          "concrete": true
+          "concrete": true,
+          "tokenRef": {
+            "package": "pkg-basic",
+            "file": "src/services.ts",
+            "export": "Clock"
+          }
         },
         {
           "property": "optionalMailer",
@@ -643,7 +648,12 @@
               "kind": "FromParams",
               "runtimeType": {
                 "text": "number",
-                "schema": "spinajs/pkg-basic/UsersController_get_id"
+                "schema": "spinajs/pkg-basic/UsersController_get_id",
+                "ref": {
+                  "package": "global",
+                  "file": "",
+                  "export": "Number"
+                }
               },
               "required": true,
               "wire": {
@@ -658,7 +668,12 @@
               "kind": "FromQuery",
               "runtimeType": {
                 "text": "boolean",
-                "schema": "spinajs/pkg-basic/UsersController_get_verbose"
+                "schema": "spinajs/pkg-basic/UsersController_get_verbose",
+                "ref": {
+                  "package": "global",
+                  "file": "",
+                  "export": "Boolean"
+                }
               },
               "required": false,
               "wire": {
@@ -717,7 +732,12 @@
               "kind": "FromBody",
               "runtimeType": {
                 "text": "CreateUserDto",
-                "schema": "spinajs/pkg-basic/CreateUserDto"
+                "schema": "spinajs/pkg-basic/CreateUserDto",
+                "ref": {
+                  "package": "pkg-basic",
+                  "file": "src/dto.ts",
+                  "export": "CreateUserDto"
+                }
               },
               "required": true,
               "options": {
@@ -772,7 +792,12 @@
               "kind": "FromParams",
               "runtimeType": {
                 "text": "number",
-                "schema": "spinajs/pkg-basic/UsersController_remove_id"
+                "schema": "spinajs/pkg-basic/UsersController_remove_id",
+                "ref": {
+                  "package": "global",
+                  "file": "",
+                  "export": "Number"
+                }
               },
               "required": true,
               "schema": "spinajs/pkg-basic/UsersController.remove.id",
@@ -883,7 +908,12 @@
           "handler": "open",
           "payload": {
             "text": "OpenDoc",
-            "schema": "spinajs/pkg-basic/OpenDoc"
+            "schema": "spinajs/pkg-basic/OpenDoc",
+            "ref": {
+              "package": "pkg-basic",
+              "file": "src/socket.ts",
+              "export": "OpenDoc"
+            }
           },
           "result": {
             "text": "DocOpened",
@@ -919,7 +949,12 @@
           "handler": "close",
           "payload": {
             "text": "OpenDoc",
-            "schema": "spinajs/pkg-basic/OpenDoc"
+            "schema": "spinajs/pkg-basic/OpenDoc",
+            "ref": {
+              "package": "pkg-basic",
+              "file": "src/socket.ts",
+              "export": "OpenDoc"
+            }
           },
           "result": {
             "text": "void"
@@ -939,14 +974,24 @@
           "name": "created",
           "payload": {
             "text": "UserCreated",
-            "schema": "spinajs/pkg-basic/UserCreated"
+            "schema": "spinajs/pkg-basic/UserCreated",
+            "ref": {
+              "package": "pkg-basic",
+              "file": "src/queue.ts",
+              "export": "UserCreated"
+            }
           }
         },
         {
           "name": "ping",
           "payload": {
             "text": "Ping",
-            "schema": "spinajs/pkg-basic/Ping"
+            "schema": "spinajs/pkg-basic/Ping",
+            "ref": {
+              "package": "pkg-basic",
+              "file": "src/socket.ts",
+              "export": "Ping"
+            }
           }
         }
       ],

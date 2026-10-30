@@ -29,6 +29,10 @@
     "@spinajs/http-socket-common": "3.0.23",
     "@spinajs/log": "3.0.23"
   },
+  "devDependencies": {
+    "@spinajs/compiler": "3.0.23",
+    "typescript": "~5.9.0"
+  },
   "types": "./lib/main.d.ts",
   "spinajs": {
     "manifest": "lib/manifest.fragment.json"

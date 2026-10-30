@@ -1,6 +1,7 @@
 export * from './services.js';
 export * from './values.js';
 export * from './controller.js';
+export * from './dto.js';
 export * from './socket.js';
 export * from './contract.js';
 export * from './model.js';

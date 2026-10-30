@@ -1,10 +1,9 @@
 import ts from 'typescript';
-import type { Lifetime, ServiceEntry } from '@spinajs/manifest';
+import type { Lifetime, PropertyInject, ServiceEntry } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
 import { decoratorsOf, findDecorator, isArrayOfType, literalValue } from '../decorators.js';
 import { injectedName, tokenConstantKey } from './token-constant.js';
 
-type PropertyInject = ServiceEntry['propertyInjects'][number];
 type PropertyHandler = (d: { args: readonly ts.Expression[] }, prop: ts.PropertyDeclaration, ctx: ExtractorContext) => PropertyInject;
 type ImperativeResolve = NonNullable<ServiceEntry['imperativeResolves']>[number];
 
@@ -85,6 +84,11 @@ function autoinjectSymbol(first: ts.Expression | undefined, explicit: string | u
   return first && ts.isIdentifier(first) ? ctx.checker.getSymbolAtLocation(first) : undefined;
 }
 
+/** The class the container injects when the decorator names none: what `design:type` would hold. */
+function declaredTypeRef(prop: ts.PropertyDeclaration, ctx: ExtractorContext): PropertyInject['tokenRef'] {
+  return ctx.runtimeRef(ctx.checker.getTypeAtLocation(prop), prop);
+}
+
 const PROPERTY_DECORATORS: Record<string, PropertyHandler> = {
   Autoinject: (d, prop, ctx) => {
     const declared = tokenOfTypeNode(prop.type, ctx);
@@ -93,6 +97,7 @@ const PROPERTY_DECORATORS: Record<string, PropertyHandler> = {
     const options = optionsOf(first && ts.isObjectLiteralExpression(first) ? first : d.args[1], ctx);
     const array = declared.array || isArrayOfType(first);
     const concrete = !array && isConcreteClass(autoinjectSymbol(first, explicit, prop, ctx), ctx);
+    const tokenRef = explicit || array ? undefined : declaredTypeRef(prop, ctx);
     return {
       property: propertyName(prop),
       token: explicit ?? declared.token,
@@ -100,11 +105,14 @@ const PROPERTY_DECORATORS: Record<string, PropertyHandler> = {
       array,
       ...(concrete ? { concrete: true } : {}),
       ...(options.check === true ? { check: true } : {}),
+      ...(tokenRef ? { tokenRef } : {}),
     };
   },
   LazyInject: (d, prop, ctx) => {
     const declared = tokenOfTypeNode(prop.type, ctx);
-    return { property: propertyName(prop), token: injectedName(d.args[0], ctx) ?? declared.token, optional: false, array: declared.array, lazy: true };
+    const explicit = injectedName(d.args[0], ctx);
+    const tokenRef = explicit || declared.array ? undefined : declaredTypeRef(prop, ctx);
+    return { property: propertyName(prop), token: explicit ?? declared.token, optional: false, array: declared.array, lazy: true, ...(tokenRef ? { tokenRef } : {}) };
   },
   Config: (_d, prop) => ({ property: propertyName(prop), token: 'Configuration', optional: false, array: false }),
   AutoinjectService: (d, prop, ctx) => {
@@ -120,8 +128,8 @@ const PROPERTY_DECORATORS: Record<string, PropertyHandler> = {
   FileSystem: (_d, prop) => ({ property: propertyName(prop), token: '__file_provider__', optional: false, array: false }),
 };
 
-export function propertyInjectsOf(cls: ts.ClassDeclaration, ctx: ExtractorContext): ServiceEntry['propertyInjects'] {
-  const out: ServiceEntry['propertyInjects'] = [];
+export function propertyInjectsOf(cls: ts.ClassDeclaration, ctx: ExtractorContext): PropertyInject[] {
+  const out: PropertyInject[] = [];
   for (const member of cls.members) {
     if (!ts.isPropertyDeclaration(member)) continue;
     for (const d of decoratorsOf(member)) {
