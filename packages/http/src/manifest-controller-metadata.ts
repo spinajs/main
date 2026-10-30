@@ -3,6 +3,7 @@ import { effectiveManifestOf } from '@spinajs/configuration';
 import { controllerMountPath, type ControllerEntry, type RouteEntry } from '@spinajs/manifest';
 import type { BaseController } from './base-controller.js';
 import { ControllerMetadataProvider } from './controller-metadata.js';
+import { parseFnParamNames } from './cache-helpers.js';
 import type { IControllerDocumentation, IMethodDoc, IResponseDoc } from './controller-documentation.js';
 
 /** The compiler records the whole comment as the description; the cache splits off its first line as the summary. */
@@ -12,6 +13,12 @@ function summaryOf(summary: string | undefined, description: string | undefined)
   }
   const [first, ...rest] = description.split(/\r?\n/);
   return { summary: first.trim(), description: rest.join('\n').trim() || undefined };
+}
+
+function declaredParameters(controller: ClassInfo<BaseController>, method: string): string[] {
+  const owner = (controller.instance ?? (controller.type as { prototype?: object } | undefined)?.prototype) as Record<string, unknown> | undefined;
+  const handler = owner?.[method];
+  return typeof handler === 'function' ? parseFnParamNames(handler as (...args: never[]) => unknown) : [];
 }
 
 /** Parameter names and documentation recorded by the compiler, for the controllers the effective manifest lists. */
@@ -44,13 +51,22 @@ export class ManifestControllerMetadata extends ControllerMetadataProvider {
     return this.entry(controller) !== undefined;
   }
 
+  /**
+   * The compiler records only the argument decorators it knows; an argument under another one ( orm-http's `@Filter`,
+   * `@CurrentUser`, an app's own `Parameter()` decorator ) has no entry and keeps the name the handler declares.
+   */
   public parameters(controller: ClassInfo<BaseController>, method: string): Promise<string[]> {
     const route = this.entry(controller)?.routes.find((r) => r.handler === method);
-    const names: string[] = [];
-    for (const param of route?.params ?? []) {
-      names[param.index] = param.name;
+    if (!route) {
+      return Promise.resolve([]);
     }
-    return Promise.resolve(Array.from(names, (name) => name ?? ''));
+
+    const recorded: string[] = [];
+    for (const param of route.params) {
+      recorded[param.index] = param.name;
+    }
+    const declared = declaredParameters(controller, method);
+    return Promise.resolve(Array.from({ length: Math.max(recorded.length, declared.length) }, (_, i) => recorded[i] || declared[i] || ''));
   }
 
   public documentation(controller: ClassInfo<BaseController>): Promise<IControllerDocumentation> {

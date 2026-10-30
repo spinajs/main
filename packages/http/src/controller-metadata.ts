@@ -13,7 +13,7 @@ export abstract class ControllerMetadataProvider extends AsyncService {
 
   public abstract supports(controller: ClassInfo<BaseController>): boolean;
 
-  /** Parameter names by argument index; empty when the provider does not know the method. */
+  /** A name for every argument of the handler, by index; empty when the provider does not know the method. */
   public abstract parameters(controller: ClassInfo<BaseController>, method: string): Promise<string[]>;
 
   public abstract documentation(controller: ClassInfo<BaseController>): Promise<IControllerDocumentation>;

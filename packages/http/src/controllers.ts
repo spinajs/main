@@ -70,7 +70,7 @@ export class Controllers extends AsyncService {
     }
 
     if (!(provider instanceof ManifestControllerMetadata) && isOnDiskSource(controller.file) && effectiveManifestOf(this.Container)?.settings.mode === 'require') {
-      throw new NoControllerMetadata(`${controller.name} ( ${controller.file} ) is not in the manifest and system.manifest.mode is 'require'`);
+      throw new NoControllerMetadata(`${controller.name} ( ${controller.file} ) is not in the manifest and system.manifest.mode is 'require': rebuild the manifest ( spinajs build ), or use mode 'prefer'`);
     }
 
     return provider;

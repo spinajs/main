@@ -1,13 +1,18 @@
 import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
+import { join } from 'node:path';
 import { ClassInfo } from '@spinajs/di';
+import { analyzePackage } from '@spinajs/compiler';
 import type { ControllerEntry, Manifest, ManifestMode } from '@spinajs/manifest';
 import { sourceRef, testManifest, withManifest } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
 import { DefaultControllerCache } from '../src/cache.js';
-import { BaseController, CacheControllerMetadata, ControllerMetadataProvider, Controllers, HttpServer, ManifestControllerMetadata, NoControllerMetadata } from '../src/index.js';
-import { MetadataParamsController, MetadataUnlistedController } from './controller-metadata/MetadataParamsController.js';
+import { BaseController, CacheControllerMetadata, CONTROLLED_DESCRIPTOR_SYMBOL, ControllerMetadataProvider, Controllers, HttpServer, ManifestControllerMetadata, NoControllerMetadata } from '../src/index.js';
+import type { IControllerDescriptor } from '../src/index.js';
+import { MetadataParamsController } from './controller-metadata/MetadataParamsController.js';
+import { MetadataUnlistedController } from './controller-metadata/MetadataUnlistedController.js';
+import { MetadataMixedController } from './controller-metadata/MetadataMixedController.js';
 import { dir, httpApp, req } from './common.js';
 
 // The source names the arguments `a` and `b`; the manifest says `first` and `second`, so a request bound by the
@@ -41,8 +46,16 @@ const entry: ControllerEntry = {
 
 const manifest: Manifest = testManifest({ root: process.cwd(), controllers: [entry] });
 
-function classInfo(type: typeof BaseController, name = type.name): ClassInfo<BaseController> {
-  return Object.assign(new ClassInfo<BaseController>(), { name, type, file: dir('controller-metadata/MetadataParamsController.ts') });
+function classInfo(type: typeof BaseController, name = type.name, file = 'MetadataParamsController'): ClassInfo<BaseController> {
+  return Object.assign(new ClassInfo<BaseController>(), { name, type, file: dir(`controller-metadata/${file}.ts`) });
+}
+
+const FIXTURE = dir('controller-metadata');
+
+/** The fixture controllers as the compiler records them: arguments under an unknown decorator get no entry. */
+async function compiledManifest(): Promise<Manifest> {
+  const fragment = await analyzePackage({ tsconfig: join(FIXTURE, 'tsconfig.json'), packageRoot: FIXTURE, schemaDerivation: false });
+  return testManifest({ app: { name: fragment.package.name, version: fragment.package.version, root: FIXTURE, outDir: '.' }, controllers: fragment.controllers });
 }
 
 describe('ControllerMetadataProvider', function () {
@@ -130,5 +143,45 @@ describe('ControllerMetadataProvider', function () {
     const res = await req().get('metadata-unlisted/ping?value=v');
     expect(res.status, res.text).to.equal(200);
     expect(res.body).to.deep.equal({ value: 'v' });
+  });
+
+  describe('with a compiler-built manifest', () => {
+    let compiled: Manifest;
+
+    before(async () => {
+      compiled = await compiledManifest();
+    });
+
+    it('answers the same parameter names as the TypeScript cache, argument by argument', async () => {
+      app = await httpApp({ register: withManifest(compiled, 'prefer') });
+      const provider = await app.resolve(ManifestControllerMetadata);
+      const cache = await app.resolve(DefaultControllerCache);
+
+      const fixtures: Array<[typeof BaseController, string]> = [
+        [MetadataParamsController, 'MetadataParamsController'],
+        [MetadataUnlistedController, 'MetadataUnlistedController'],
+        [MetadataMixedController, 'MetadataMixedController'],
+      ];
+      for (const [type, file] of fixtures) {
+        const ci = classInfo(type, type.name, file);
+        const fromCache = await cache.getCache(ci);
+        const descriptor = Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, type.prototype) as IControllerDescriptor;
+        for (const [method, route] of descriptor.Routes) {
+          const fromManifest = await provider.parameters(ci, String(method));
+          for (const index of route.Parameters.keys()) {
+            expect(fromManifest[index], `${type.name}.${String(method)}[${index}]`).to.equal(fromCache[String(method)][index]);
+          }
+        }
+      }
+    });
+
+    it('binds every argument of a route that mixes recorded and unrecorded decorators in require mode', async () => {
+      app = await httpApp({ register: withManifest(compiled, 'require'), resolve: [Controllers] });
+      await (await app.resolve(HttpServer)).start();
+
+      const res = await req().get('metadata-mixed/args?first=a&second=b&third=3');
+      expect(res.status, res.text).to.equal(200);
+      expect(res.body).to.deep.equal({ first: 'a', second: 'b', third: 3 });
+    });
   });
 });

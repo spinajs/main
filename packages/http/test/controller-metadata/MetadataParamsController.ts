@@ -7,11 +7,3 @@ export class MetadataParamsController extends BaseController {
     return new Ok({ a, b });
   }
 }
-
-@BasePath('metadata-unlisted')
-export class MetadataUnlistedController extends BaseController {
-  @Get('ping')
-  public ping(@Query() value: string) {
-    return new Ok({ value });
-  }
-}
