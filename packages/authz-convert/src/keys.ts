@@ -9,11 +9,11 @@ export interface KeyOutput {
   readonly authz: Plain;
   readonly users: Plain;
   readonly authn: Plain;
-  /** Array keys this layer needs empty (a 2.x switch turned off); an env layer cannot empty what common fills. */
+  /** Array keys this layer needs empty (a 2.x switch turned off). */
   readonly cleared: string[];
 }
 
-/** 3.0 array keys a 2.x scalar becomes. Arrays concatenate across config files, so an env layer cannot replace them. */
+/** 3.0 array keys a 2.x scalar becomes: an env value replaced the common one, so an env layer keeps its own list. */
 export const SCALAR_TO_ARRAY_KEYS: readonly string[] = Object.freeze(['authz.rbac.defaultRoles', 'authz.rbac.anonymousRoles', 'authn.strategies', 'authn.mfa.steps']);
 
 const SERVICES = {
