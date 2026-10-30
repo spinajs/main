@@ -26,6 +26,17 @@ export class UntypedSocket extends BaseSocketController {
     return { kind: injected.kind };
   }
 }
+export abstract class CrudSocket extends BaseSocketController {
+  public async save(payload: { name: string }, injected: Injected) {
+    return { type: payload.constructor.name, kind: injected.kind };
+  }
+}
+Payload()(CrudSocket.prototype, 'save', 0);
+FromDI()(CrudSocket.prototype, 'save', 1);
+Command('save')(CrudSocket.prototype, 'save', Object.getOwnPropertyDescriptor(CrudSocket.prototype, 'save'));
+
+export class ThingsSocket extends CrudSocket {}
+
 Payload()(UntypedSocket.prototype, 'create', 0);
 Command('create')(UntypedSocket.prototype, 'create', Object.getOwnPropertyDescriptor(UntypedSocket.prototype, 'create'));
 Payload()(UntypedSocket.prototype, 'inject', 0);

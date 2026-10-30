@@ -5,11 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DI } from '@spinajs/di';
 import { MANIFEST, MANIFEST_SETTINGS } from '@spinajs/configuration';
-import { hashManifest, type Manifest, type TypeRef } from '@spinajs/manifest';
+import { hashManifest, type Manifest, type SocketControllerEntry, type TypeRef } from '@spinajs/manifest';
 import { BaseSocketController } from '../src/controller.js';
 import { SocketController } from '../src/decorators.js';
 import type { ISocketControllerDescriptor } from '../src/interfaces.js';
-import { UntypedSocket } from './manifest-runtime-type-sockets.js';
+import { ThingsSocket, UntypedSocket } from './manifest-runtime-type-sockets.js';
 import { SOCKET_CONTROLLER_DESCRIPTOR } from '../src/interfaces.js';
 import { ITestServer, command, manifestFromEnv, open, resultOf, startServer } from './harness.js';
 
@@ -18,7 +18,19 @@ const TYPED: TypeRef = { text: 'TypedItem', ref: { package: 'app', file: 'test/m
 const INJECTED = { package: 'app', file: 'test/manifest-runtime-type-sockets.ts', export: 'Injected' };
 const DI_ARGS = [{ handler: 'inject', index: 1, ref: INJECTED }];
 
-function manifestOf(payload: TypeRef = TYPED, diArgs = DI_ARGS): Manifest {
+const SCHEMA_ID = 'app/TypedItem';
+const CRUD_BASE: SocketControllerEntry = {
+  id: 'app:CrudSocket',
+  className: 'CrudSocket',
+  prefix: '',
+  commands: [{ name: 'save', handler: 'save', payload: { ...TYPED, schema: SCHEMA_ID }, result: { text: 'unknown' }, options: {}, policies: [], source }],
+  events: [],
+  diArgs: [{ handler: 'save', index: 1, ref: INJECTED }],
+  source,
+};
+const THINGS: SocketControllerEntry = { id: 'app:ThingsSocket', className: 'ThingsSocket', prefix: 'things', commands: [], events: [], source };
+
+function manifestOf(payload: TypeRef = TYPED, diArgs = DI_ARGS, overrides: Partial<Manifest> = {}): Manifest {
   const manifest: Manifest = {
     manifestVersion: 2,
     app: { name: 'app', version: '0.0.0', root: '.', outDir: 'test' },
@@ -41,7 +53,9 @@ function manifestOf(payload: TypeRef = TYPED, diArgs = DI_ARGS): Manifest {
         ...(diArgs.length ? { diArgs } : {}),
         source,
       },
+      THINGS,
     ],
+    socketControllerBases: [CRUD_BASE],
     socketContracts: [],
     configModules: [],
     configUsages: [],
@@ -50,8 +64,9 @@ function manifestOf(payload: TypeRef = TYPED, diArgs = DI_ARGS): Manifest {
     schedules: [],
     commands: [],
     queueMessages: [],
-    schemas: {},
+    schemas: { [SCHEMA_ID]: { $id: SCHEMA_ID, type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
     diagnostics: [],
+    ...overrides,
   };
   return { ...manifest, hash: hashManifest(manifest) };
 }
@@ -76,6 +91,8 @@ describe('socket payload types from the manifest ( no decorator metadata )', fun
     path = join(dir, 'app.manifest.json');
     SocketController('untyped')(UntypedSocket);
     DI.unregister(UntypedSocket);
+    SocketController('things')(ThingsSocket);
+    DI.unregister(ThingsSocket);
   });
 
   after(() => {
@@ -86,10 +103,12 @@ describe('socket payload types from the manifest ( no decorator metadata )', fun
 
   beforeEach(() => {
     DI.register(UntypedSocket).as(BaseSocketController);
+    DI.register(ThingsSocket).as(BaseSocketController);
   });
 
   afterEach(async () => {
     DI.unregister(UntypedSocket);
+    DI.unregister(ThingsSocket);
     await server?.close();
     server = undefined;
     restoreEnv?.();
@@ -128,6 +147,35 @@ describe('socket payload types from the manifest ( no decorator metadata )', fun
       (e: Error) => e,
     );
     expect(error?.message).to.match(/the @FromDI\(\) argument #1 of UntypedSocket::inject has no runtime type/);
+  });
+
+  describe('a handler inherited from an abstract base', () => {
+    it('types the @Payload and the @FromDI() through the class chain', async () => {
+      const client = await open(await start('require'));
+      expect(resultOf(await command(client, 'things.save', { name: 'a' }))).to.deep.equal({ type: 'TypedItem', kind: 'injected' });
+      client.close();
+    });
+
+    it('applies the derived schema of the base', async () => {
+      const client = await open(await start('prefer'));
+      expect(JSON.stringify(await command(client, 'things.save', { name: 5 }))).to.include('/name must be of type string');
+      client.close();
+    });
+
+    it('fails the build in require mode when no base answers', async () => {
+      const error = await start('require', manifestOf(TYPED, DI_ARGS, { socketControllerBases: [] })).then(
+        () => undefined,
+        (e: Error) => e,
+      );
+      expect(error?.message).to.match(/the @Payload of ThingsSocket::save has no runtime type/);
+    });
+
+    it('counts the handler for the contract the controller is bound to', async () => {
+      const contract = { id: 'app:things', commands: { 'things.save': { payload: { text: 'TypedItem' }, result: { text: 'unknown' } } }, events: {}, clientEvents: {}, source };
+      const bound = manifestOf(TYPED, DI_ARGS, { socketContracts: [contract] });
+      bound.socketControllers[1] = { ...THINGS, contract: contract.id };
+      await start('require', { ...bound, hash: hashManifest(bound) });
+    });
   });
 
   it('keeps what a boot filled out of the class descriptor', async () => {

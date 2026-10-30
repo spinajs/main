@@ -1,13 +1,14 @@
 import 'mocha';
 import { expect } from 'chai';
+import sinon from 'sinon';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { DI, type Class } from '@spinajs/di';
+import { DI, forgetPendingProperties, Injectable, notePendingProperty, type Class, ClassInfo } from '@spinajs/di';
 import { MANIFEST, MANIFEST_SETTINGS, registerManifest, registerManifestSettings } from '@spinajs/configuration';
 import { Intl } from '@spinajs/intl';
-import type { Log } from '@spinajs/log';
+import { FrameworkLogger, type Log } from '@spinajs/log';
 import { analyzePackage } from '@spinajs/compiler';
 import { hashManifest, type Manifest, type ManifestMode, type RouteEntry } from '@spinajs/manifest';
 import { testManifest, type TestApp } from '@spinajs/testing';
@@ -84,6 +85,29 @@ async function bootFailure(controller: Class<BaseController>, manifest: Manifest
   );
 }
 
+async function httpBootWith(source: Class<ControllerSource>, manifest: Manifest): Promise<TestApp> {
+  const file = join(MANIFEST_DIR, `late-${booted++}.json`);
+  writeFileSync(file, JSON.stringify({ ...manifest, hash: hashManifest(manifest) }));
+  const saved = { SPINAJS_MANIFEST: process.env.SPINAJS_MANIFEST, SPINAJS_MANIFEST_MODE: process.env.SPINAJS_MANIFEST_MODE };
+  process.env.SPINAJS_MANIFEST = file;
+  process.env.SPINAJS_MANIFEST_MODE = 'require';
+  try {
+    return await httpApp({
+      register: (c) => {
+        c.unregister(ControllerSource, FilesystemControllerSource);
+        c.unregister(ControllerSource, ManifestControllerSource);
+        c.register(source).as(ControllerSource);
+      },
+      resolve: [Intl, Controllers],
+    });
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
 const routesOf = (controller: Class<BaseController>): Map<string | symbol, IRoute> => (Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, controller.prototype) as IControllerDescriptor).Routes;
 
 const paramsOf = (routes: Map<string | symbol, IRoute>): IRouteParameter[] => [...routes.values()].flatMap((r) => [...r.Parameters.values()]);
@@ -118,10 +142,12 @@ describe('route argument types from the manifest ( no decorator metadata )', fun
   let AppUserWithout: Class<BaseController>;
   let CreateUserDto: Class<unknown>;
   let withMetadata: Array<[number, unknown]>;
+  let controllerNamed: (name: string) => Class<BaseController>;
 
   before(async () => {
     compileWithoutMetadata(FIXTURE);
     const controllers = (await import(pathToFileURL(join(FIXTURE, 'lib', 'controllers.js')).href)) as Record<string, Class<BaseController>>;
+    controllerNamed = (name) => controllers[name];
     WithoutMetadata = controllers.RuntimeTypeController;
     CrudWithout = controllers.ConcreteCrudController;
     AppUserWithout = controllers.AppUserController;
@@ -193,6 +219,87 @@ describe('route argument types from the manifest ( no decorator metadata )', fun
     const untyped = structuredClone(manifest);
     delete routeOf(untyped, 'create').params[0].runtimeType.ref;
     expect((await bootFailure(WithoutMetadata, untyped, 'require'))?.message).to.match(/argument dto of RuntimeTypeController::create has no runtime type/);
+  });
+
+  describe('an argument whose class the manifest cannot name', () => {
+    it('boots in require mode when the argument kind never reads the type', async () => {
+      const app = await boot(controllerNamed('UnnamedTypesController'), manifest, 'require');
+      try {
+        expect((await req().get('unnamed/request')).body).to.deep.equal({ method: 'GET' });
+        expect((await req().post('unnamed/upload').set('Content-Type', 'application/octet-stream').send('x')).body).to.deep.equal({ stream: 'function' });
+      } finally {
+        await app.dispose();
+      }
+    });
+
+    it('fails require with the reason, and the way out, when the argument kind reads it', async () => {
+      const message = (await bootFailure(controllerNamed('UntypableController'), manifest, 'require'))?.message;
+      expect(message).to.match(/argument when of UntypableController::since has no runtime type: DateTime is declared in .*luxon, which ships no manifest fragment/);
+      expect(message).to.match(/with @Type\(\)/);
+      expect(message).to.not.match(/run spinajs build/);
+    });
+
+    it('takes that way out: @Type names the class', async () => {
+      const app = await boot(controllerNamed('NamedTypeController'), manifest, 'require');
+      try {
+        expect((await req().get('named/since?when=0')).status).to.equal(200);
+      } finally {
+        await app.dispose();
+      }
+    });
+  });
+
+  it('logs a named error for each untyped argument on a real boot with no manifest', async () => {
+    const error = sinon.spy(FrameworkLogger.prototype, 'error');
+    // Off mode reads argument names from the declaration file a real build emits next to the JavaScript.
+    const declarations = join(FIXTURE, 'lib', 'controllers.d.ts');
+    writeFileSync(declarations, 'export declare class UntypableController { since(when: unknown): unknown; }\n');
+    try {
+      const app = await boot(controllerNamed('UntypableController'));
+      try {
+        const logged = error.getCalls().map((c) => String(c.args[0]));
+        expect(logged.filter((m) => /argument #0 of UntypableController::since has no runtime type: .*no manifest answers/.test(m))).to.have.length(1);
+        expect((await req().get('since/since?when=0')).status).to.equal(500);
+      } finally {
+        await app.dispose();
+      }
+    } finally {
+      error.restore();
+      rmSync(declarations, { force: true });
+    }
+  });
+
+  it('checks again once the controllers are loaded: a class that loads after Configuration still fails the boot', async () => {
+    @Injectable(ControllerSource)
+    class LateSource extends ControllerSource {
+      public async getControllers() {
+        const late = (await import(`${pathToFileURL(join(FIXTURE, 'lib', 'controllers.js')).href}?late`)) as Record<string, Class<BaseController>>;
+        const info = new ClassInfo<BaseController>();
+        info.name = 'RuntimeTypeController';
+        info.type = late.RuntimeTypeController;
+        return [info];
+      }
+    }
+
+    const lacking = structuredClone(manifest);
+    delete lacking.classProperties;
+    forgetPendingProperties();
+    try {
+      const app = await httpBootWith(LateSource, lacking).catch((e: unknown) => e as Error);
+      expect(app).to.be.instanceOf(Error);
+      expect((app as Error).message).to.match(/does not list RuntimeTypeController\.Counter/);
+    } finally {
+      forgetPendingProperties();
+      notePendingProperty(WithoutMetadata, 'Counter');
+      DI.unregister(LateSource);
+    }
+  });
+
+  it('fails the boot listing every property the manifest lacks, before any controller resolves', async () => {
+    const lacking = structuredClone(manifest);
+    delete lacking.classProperties;
+    const message = (await bootFailure(WithoutMetadata, lacking, 'require'))?.message;
+    expect(message).to.match(/does not list RuntimeTypeController\.Counter/);
   });
 
   it('does not take a type from a stale entry whose kind differs', async () => {

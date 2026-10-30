@@ -1,5 +1,8 @@
+import type { IncomingMessage } from 'node:http';
+import type { Readable } from 'node:stream';
 import { Autoinject } from '@spinajs/di';
-import { BaseController, BasePath, Body, Get, Ok, Param, Parameter, ParameterType, Post, Route } from '../../../src/index.js';
+import { DateTime } from 'luxon';
+import { BaseController, BasePath, Body, Get, Ok, Param, Parameter, ParameterType, Post, Query, Req, RequestStream, Route, Type } from '../../../src/index.js';
 import { Counter, CreateUserDto } from './dto.js';
 
 // Built like orm-http's `@Filter` and authn's `@CurrentUser`: the compiler does not know its name.
@@ -23,6 +26,35 @@ export class RuntimeTypeController extends BaseController {
   @Get('paged/list')
   public paged(@Page() page: number) {
     return new Ok({ page, type: typeof page });
+  }
+}
+
+@BasePath('unnamed')
+export class UnnamedTypesController extends BaseController {
+  @Post()
+  public upload(@RequestStream() body: Readable) {
+    return new Ok({ stream: typeof body.on });
+  }
+
+  @Get()
+  public request(@Req() req: IncomingMessage) {
+    return new Ok({ method: req.method });
+  }
+}
+
+@BasePath('since')
+export class UntypableController extends BaseController {
+  @Get()
+  public since(@Query() when: DateTime) {
+    return new Ok({ year: when.year });
+  }
+}
+
+@BasePath('named')
+export class NamedTypeController extends BaseController {
+  @Get()
+  public since(@Query() @Type(DateTime) when: DateTime) {
+    return new Ok({ year: when.year });
   }
 }
 

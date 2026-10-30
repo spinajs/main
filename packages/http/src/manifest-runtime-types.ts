@@ -24,7 +24,8 @@ const isUntyped = (route: IRoute): boolean => [...route.Parameters.values()].som
 
 async function typeOf(param: IRouteParameter, declared: ParamEntry | undefined, effective: EffectiveManifest): Promise<unknown> {
   if (!declared?.runtimeType.ref) {
-    throw new InvalidOperation('the manifest records no runtime type for it, run spinajs build');
+    const problem = declared?.runtimeType.refProblem;
+    throw new InvalidOperation(problem ? `${problem}, so the manifest cannot name it; name the class on the argument with @Type()` : 'the manifest records no runtime type for it, run spinajs build');
   }
   if (!describes(declared, param)) {
     throw new InvalidOperation('the manifest describes another argument at this position, run spinajs build');

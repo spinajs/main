@@ -4,7 +4,7 @@ import { AsyncService, IContainer, Autoinject, ClassInfo, Container, Class } fro
 import { Logger, Log } from '@spinajs/log';
 import { HttpServer } from './server.js';
 import { uniqueBy } from '@spinajs/util';
-import { effectiveManifestOf } from '@spinajs/configuration';
+import { checkPendingProperties, effectiveManifestOf } from '@spinajs/configuration';
 import { parseFnParamNames, isOnDiskSource } from './cache-helpers.js';
 import { ControllerMetadataProvider, NoControllerMetadata, metadataProviderFor } from './controller-metadata.js';
 import { ManifestControllerMetadata } from './manifest-controller-metadata.js';
@@ -215,6 +215,8 @@ export class Controllers extends AsyncService {
     // (multiple `as(BaseController)` calls for the same type resolve to one
     // singleton).
     const listed = await this.Controllers;
+    // Sources have imported the controller files by now, and nothing has resolved one yet.
+    checkPendingProperties(this.Container);
 
     // Remember the original file path per type so the second loop can preserve
     // it. Without this every controller would end up tagged `<di>`, breaking

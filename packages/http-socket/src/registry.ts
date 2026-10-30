@@ -1,8 +1,8 @@
 import { Autoinject, Class, Container, DI, IContainer, Injectable } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { checkPendingProperties, Configuration } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { MAX_NAME_LENGTH, NAME_PATTERN } from '@spinajs/http-socket-common';
-import { IControllerDescriptor, IRoute, resolveRoutePolicies } from '@spinajs/http';
+import { classLineage, IControllerDescriptor, IRoute, resolveRoutePolicies } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 import { BaseSocketController } from './controller.js';
 import { SocketContractEnforcer } from './contract.js';
@@ -37,6 +37,7 @@ export class SocketHandlerRegistry {
     this.connectHooks = [];
     this.disconnectHooks = [];
 
+    checkPendingProperties(this.Container);
     const types = [...new Set(DI.getRegisteredTypes(BaseSocketController) ?? [])] as Array<Class<BaseSocketController>>;
 
     for (const type of types) {
@@ -47,7 +48,8 @@ export class SocketHandlerRegistry {
         continue;
       }
 
-      const descriptor = await this.Contracts.runtimeTypes(type.name, controller.Descriptor);
+      const lineage = classLineage(type);
+      const descriptor = await this.Contracts.runtimeTypes(type.name, controller.Descriptor, lineage);
 
       const before = { commands: new Set(this.commands.values()), events: new Set(this.events.values()) };
 
@@ -60,6 +62,7 @@ export class SocketHandlerRegistry {
         descriptor,
         [...this.commands.values()].filter((h) => !before.commands.has(h)),
         [...this.events.values()].filter((h) => !before.events.has(h)),
+        lineage,
       );
     }
   }
