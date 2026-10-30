@@ -12,7 +12,7 @@ import { FrameworkConfiguration } from '@spinajs/configuration';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { testHost } from '@spinajs/authz-testing';
-import { installContractTesting, manifestOfFragments } from '@spinajs/testing';
+import { finishContractTesting, installContractTesting, manifestOfFragments } from '@spinajs/testing';
 import type { ContractTestingHandle } from '@spinajs/testing';
 
 import { PrincipalMiddleware } from '@spinajs/authz-http';
@@ -94,7 +94,7 @@ export async function startApp(opts: { controllers?: Class<BaseController>[]; co
 }
 
 /** Stops the server and removes what `startApp` added; never `DI.clearCache()`. */
-export async function stopApp(): Promise<void> {
+async function teardown(): Promise<void> {
   if (!app) return;
   const { server, controllers } = app;
   app = undefined;
@@ -110,8 +110,11 @@ export async function stopApp(): Promise<void> {
   for (const type of DI.getRegisteredTypes(ServerMiddleware) ?? []) DI.uncache(type as Class<ServerMiddleware>);
   DI.uncache(ServerMiddleware);
   await testHost.uninstallHost();
+}
 
+/** Stops the app; a failing teardown step still reports the contract violations. */
+export async function stopApp(): Promise<void> {
   const finished = contract;
   contract = undefined;
-  finished?.assertClean();
+  await finishContractTesting(teardown, finished);
 }

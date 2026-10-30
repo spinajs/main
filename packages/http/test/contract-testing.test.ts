@@ -1,11 +1,13 @@
 import 'mocha';
 import { expect } from 'chai';
+import type Express from 'express';
 import { Intl } from '@spinajs/intl';
 import { ResourceNotFound } from '@spinajs/exceptions';
+import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
 
 import { httpApp, req } from './common.js';
-import { BaseController, BasePath, CONTRACT_VALIDATOR, CONTRACT_VIOLATIONS, Controllers, Get, HandleException, HttpServer, NotFound, Ok } from '../src/index.js';
+import { BaseController, BasePath, CONTRACT_VALIDATOR, CONTRACT_VIOLATIONS, Controllers, Get, guardResponseContract, HandleException, HttpServer, NotFound, Ok, ResponseContractViolation } from '../src/index.js';
 import type { ContractValidator, ContractViolation, ContractViolations } from '../src/index.js';
 
 @HandleException(ResourceNotFound)
@@ -39,7 +41,7 @@ const requiresId = (body: unknown): unknown[] | null => (typeof body === 'object
 class StubValidator implements ContractValidator {
   public problems: unknown[] = [];
 
-  public checkResponse(route: { handler: string }, body: unknown): unknown[] | null {
+  public checkResponse(route: { handler: string }, body: unknown, _status?: number): unknown[] | null {
     return route.handler === 'unchecked' ? null : requiresId(body);
   }
 
@@ -137,5 +139,71 @@ describe('response contract validation', function () {
     await boot({ enabled: true, mode: 'throw' });
     expect((await req().get('contract/nowhere')).status).to.eq(404);
     expect(validator.problems).to.have.length(1);
+  });
+});
+
+describe('response contract guard per container', () => {
+  const fakeRes = (statusCode = 200) => {
+    const sent: unknown[] = [];
+    const res = { statusCode, json: (body: unknown) => (sent.push(body), res) } as unknown as Express.Response;
+    return { res, sent };
+  };
+
+  const apps: TestApp[] = [];
+  afterEach(async () => {
+    await Promise.all(apps.splice(0).map((a) => a.dispose()));
+  });
+
+  const containerWith = async (settings: Record<string, unknown>, withValidator = true) => {
+    const violations = new Violations();
+    const app = await createTestApp({
+      scope: 'child',
+      bootstrap: false,
+      config: { http: { contractTesting: settings } },
+      register: (c) => {
+        if (withValidator) {
+          c.register(new StubValidator()).asValue(CONTRACT_VALIDATOR.key);
+          c.register(violations).asValue(CONTRACT_VIOLATIONS.key);
+        }
+      },
+    });
+    apps.push(app);
+    return { container: app.container, violations };
+  };
+
+  it('resolves validator, log and settings from the given container, not from root', async () => {
+    const { container, violations } = await containerWith({ enabled: true, mode: 'throw' });
+    const { res } = fakeRes();
+    guardResponseContract(res, container, { controller: 'C', handler: 'bad' });
+    expect(() => res.json({ name: 'no id' })).to.throw(ResponseContractViolation);
+    expect(violations.count).to.eq(1);
+  });
+
+  it('checks nothing when only root has the validator and the given container does not', async () => {
+    const { container } = await containerWith({ enabled: true, mode: 'throw' }, false);
+    const { res, sent } = fakeRes();
+    guardResponseContract(res, container, { controller: 'C', handler: 'bad' });
+    res.json({ name: 'no id' });
+    expect(sent).to.have.length(1);
+  });
+
+  it('records a body that cannot be serialized instead of crashing the guard', async () => {
+    const { container, violations } = await containerWith({ enabled: true, mode: 'log' });
+    const { res, sent } = fakeRes();
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    guardResponseContract(res, container, { controller: 'C', handler: 'bad' });
+    res.json(circular);
+    expect(violations.count).to.eq(1);
+    expect(JSON.stringify(violations.list[0].errors)).to.match(/serialized/);
+    expect(sent).to.have.length(1);
+  });
+
+  it('passes the status to the validator so non-2xx bodies can be checked', async () => {
+    const { container, violations } = await containerWith({ enabled: true, mode: 'log' });
+    const { res } = fakeRes(409);
+    guardResponseContract(res, container, { controller: 'C', handler: 'bad' });
+    res.json({ name: 'no id' });
+    expect(violations.list[0]).to.deep.include({ status: 409, kind: 'response' });
   });
 });

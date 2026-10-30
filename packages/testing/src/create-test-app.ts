@@ -4,7 +4,7 @@ import { Configuration } from '@spinajs/configuration';
 import { CONFIGURATION_SCHEMA } from '@spinajs/configuration-common';
 import type { IConfigurationSchema } from '@spinajs/configuration-common';
 import { configurationOf } from './configuration-of.js';
-import { installContractTesting } from './contract.js';
+import { finishContractTesting, installContractTesting } from './contract.js';
 import type { ContractTestingHandle, ContractTestingOptions, ContractViolation } from './contract.js';
 
 export interface TestAppOptions {
@@ -204,15 +204,14 @@ async function createRootApp(options: TestAppOptions): Promise<TestApp> {
       if (!disposed) {
         claim.phase = 'disposing';
         open.delete(app);
-        disposed = (async () => {
+        disposed = finishContractTesting(async () => {
           try {
             await container.restore(snapshot);
             strictSizeCheck(container, sizeBefore);
           } finally {
             release();
           }
-          contract?.assertClean();
-        })();
+        }, contract);
       }
       await disposed;
     },
@@ -241,10 +240,9 @@ async function createChildApp(options: TestAppOptions): Promise<TestApp> {
     contractViolations: contract?.violations.list ?? [],
     resolve: <T>(type: Class<T> | string) => Promise.resolve(container.resolve(type as Class<T>) as T | Promise<T>),
     dispose: () =>
-      (disposed ??= (async () => {
+      (disposed ??= (() => {
         open.delete(app);
-        await container.dispose({ plainOwners: true });
-        contract?.assertClean();
+        return finishContractTesting(() => container.dispose({ plainOwners: true }), contract);
       })()),
   };
   open.add(app);

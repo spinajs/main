@@ -8,20 +8,21 @@ import { ResourceNotFound } from '@spinajs/exceptions';
 import { redactUrl } from './util/redact-url.js';
 import { guardResponseContract } from './contract.js';
 import type { ContractRoute } from './contract.js';
+import type { IContainer } from '@spinajs/di';
 
 /**
  * Express middleware that handles responses set in res.locals.response
  *
  * @returns Express middleware that handles responses set in res.locals.response
  */
-export function __handle_response__(route?: ContractRoute) {
+export function __handle_response__(container: IContainer, route?: ContractRoute) {
     return (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
         if (!res.locals.response) {
             next(new ResourceNotFound(`Resource not found ${req.method}:${redactUrl(req.originalUrl)}`));
             return;
         }
 
-        guardResponseContract(res, route);
+        guardResponseContract(res, container, route);
 
         res.locals.response
             .execute(req, res)

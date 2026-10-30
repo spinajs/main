@@ -108,8 +108,8 @@ export abstract class BaseController extends AsyncService implements IController
         createActionHandler(this as ControllerActionHost, route, enabledMiddlewares, this._actionLocalStorage),
         ...enabledMiddlewares.map((m) => wrapMiddlewareAction(m, m.onAfter.bind(m), route, this, 'after')),
         createOnErrorHandler(errorHandlers, route, this, this._container, this._log),
-        __handle_response__({ controller: this.constructor.name, handler: String(route.Method) }),
-        __handle_error__(),
+        __handle_response__(this._container, { controller: this.constructor.name, handler: String(route.Method) }),
+        __handle_error__(this._container),
       ];
 
       (this._router as any)[route.InternalType as string](path, handlers);

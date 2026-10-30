@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { Configuration } from '@spinajs/configuration';
 import type { ControllerEntry, RouteEntry } from '@spinajs/manifest';
 import { createTestApp, disposeTestApps, manifestContractValidator, sourceRef, stripExtensions, testManifest } from '../src/index.js';
-import { CONTRACT_VALIDATOR_KEY, CONTRACT_VIOLATIONS_KEY } from '../src/index.js';
+import { CONTRACT_VALIDATOR_KEY, CONTRACT_VIOLATIONS_KEY, finishContractTesting, installContractTesting } from '../src/index.js';
 import { DI } from '@spinajs/di';
 
 const route = (handler: string, schema?: string): RouteEntry => ({
@@ -122,5 +122,116 @@ describe('createTestApp contractTesting', () => {
     const off = await createTestApp({ bootstrap: false, config: {} });
     expect(off.contractViolations).to.have.length(0);
     await off.dispose();
+  });
+});
+
+describe('contract testing isolation', () => {
+  afterEach(disposeTestApps);
+
+  const manifest = () => testManifest({ controllers: [controller([route('get', 'spinajs/test/User')])], schemas: { 'spinajs/test/User': USER } });
+  const violation = { controller: 'A', handler: 'get', kind: 'response' as const, status: 200, errors: [{ message: 'bad' }] };
+
+  it('two child apps keep separate validators and violation logs', async () => {
+    const a = await createTestApp({ bootstrap: false, config: {}, scope: 'child', contractTesting: { manifest: manifest() } });
+    const b = await createTestApp({ bootstrap: false, config: {}, scope: 'child', contractTesting: { manifest: manifest() } });
+    expect(a.container.get(CONTRACT_VIOLATIONS_KEY)).to.not.equal(b.container.get(CONTRACT_VIOLATIONS_KEY));
+    (a.container.get(CONTRACT_VIOLATIONS_KEY) as { record(v: unknown): void }).record(violation);
+    expect(a.contractViolations).to.have.length(1);
+    expect(b.contractViolations).to.have.length(0);
+    await a.dispose().catch(() => undefined);
+    await b.dispose();
+  });
+
+  it('leaves nothing registered on root after a root app is disposed', async () => {
+    const app = await createTestApp({ bootstrap: false, config: {}, contractTesting: { manifest: manifest() } });
+    await app.dispose();
+    expect(DI.get(CONTRACT_VALIDATOR_KEY)).to.not.exist;
+    expect(DI.get(CONTRACT_VIOLATIONS_KEY)).to.not.exist;
+  });
+
+  it('unregister removes what register put in the container, and only there', async () => {
+    const one = await installContractTesting({ manifest: manifest() });
+    const two = await installContractTesting({ manifest: manifest() });
+    const c1 = DI.RootContainer.child();
+    const c2 = DI.RootContainer.child();
+    one.register(c1);
+    two.register(c2);
+    expect(c1.get(CONTRACT_VIOLATIONS_KEY)).to.equal(one.violations);
+    expect(c2.get(CONTRACT_VIOLATIONS_KEY)).to.equal(two.violations);
+    one.unregister();
+    expect(c1.get(CONTRACT_VIOLATIONS_KEY)).to.not.exist;
+    expect(c1.get(CONTRACT_VALIDATOR_KEY)).to.not.exist;
+    expect(c2.get(CONTRACT_VIOLATIONS_KEY)).to.equal(two.violations);
+    two.unregister();
+  });
+
+  it('assertClean reports violations even when called after unregister', async () => {
+    const handle = await installContractTesting({ manifest: manifest() });
+    handle.violations.record(violation);
+    handle.unregister();
+    expect(() => handle.assertClean()).to.throw(/1 response\(s\) broke their contract/);
+  });
+
+  it('exposes how many routes the manifest gives a response schema', async () => {
+    const handle = await installContractTesting({ manifest: testManifest({ controllers: [controller([route('get', 'spinajs/test/User'), route('bare')])], schemas: { 'spinajs/test/User': USER } }) });
+    expect(handle.checkedRoutes).to.equal(1);
+  });
+});
+
+describe('contract validator by status and schema reuse', () => {
+  const declared = { ...route('get', 'spinajs/test/User'), doc: { responses: [{ status: 404, type: { text: 'Gone', schema: 'spinajs/test/Gone' } }] } };
+  const v = manifestContractValidator(
+    testManifest({
+      controllers: [controller([declared])],
+      schemas: {
+        'spinajs/test/User': USER,
+        'spinajs/test/Gone': { $id: 'spinajs/test/Gone', type: 'object', required: ['reason'], properties: { reason: { type: 'string' } } },
+      },
+    }),
+  );
+
+  it('checks a non-2xx body against the schema the route declares for that status', () => {
+    expect(v.checkResponse({ controller: 'A', handler: 'get' }, { reason: 'x' }, 404)).to.equal(null);
+    expect(v.checkResponse({ controller: 'A', handler: 'get' }, {}, 404)).to.have.length(1);
+  });
+
+  it('leaves a status without a declared schema unchecked', () => {
+    expect(v.checkResponse({ controller: 'A', handler: 'get' }, {}, 409)).to.equal(null);
+  });
+
+  it('compiles the same $id schema twice without failing', () => {
+    const schema = { $id: 'spinajs/test/Twice', type: 'object', required: ['a'] };
+    expect(v.checkSchema(schema, { a: 1 })).to.equal(null);
+    expect(v.checkSchema(schema, {})).to.have.length(1);
+  });
+});
+
+describe('finishContractTesting', () => {
+  const violation = { controller: 'A', handler: 'get', kind: 'response' as const, status: 200, errors: [] };
+  const handleWithViolation = async () => {
+    const handle = await installContractTesting({ manifest: testManifest({}) });
+    handle.violations.record(violation);
+    return handle;
+  };
+
+  it('reports the violations even when teardown throws, with both errors', async () => {
+    const error = await finishContractTesting(() => Promise.reject(new Error('teardown broke')), await handleWithViolation()).then(
+      () => undefined,
+      (e: unknown) => e as Error,
+    );
+    expect(error?.message).to.match(/teardown broke[\s\S]*broke their contract/);
+  });
+
+  it('rethrows the teardown error alone when the run was clean', async () => {
+    const handle = await installContractTesting({ manifest: testManifest({}) });
+    const error = await finishContractTesting(() => Promise.reject(new Error('teardown broke')), handle).then(
+      () => undefined,
+      (e: unknown) => e as Error,
+    );
+    expect(error?.message).to.equal('teardown broke');
+  });
+
+  it('does nothing without a handle', async () => {
+    await finishContractTesting(() => Promise.resolve(), undefined);
   });
 });

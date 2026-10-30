@@ -17,9 +17,9 @@ const app = await createTestApp({
 
 ## What is checked
 
-- A 2xx JSON body against the schema of its route (`returnType.schema`), after a JSON round trip, so a `Date` is compared as the string the client receives.
+- A JSON body against the schema its route declares for the status: `returnType.schema` for 2xx, the `doc.responses` entry of that status otherwise. The body goes through a JSON round trip first, so a `Date` is compared as the string the client receives. A body that cannot be serialized (a cycle, a `BigInt`) is recorded as a violation.
 - A problem document (`application/problem+json`) against `PROBLEM_DETAILS_SCHEMA`, on any route and on 404s no route answers. A broken problem is recorded, never turned into another response.
-- Nothing else: HTML, files, empty bodies, routes or controllers the manifest does not know, and routes without a derived schema.
+- Nothing else. Only `res.json` is observed, so files, streams, `sendFile`, HTML, empty bodies (204, redirects), routes or controllers the manifest does not know, and routes or statuses without a derived schema are not checked. A clean run means every JSON body that had a schema matched it, not that every response was verified.
 
 Schemas reach Ajv without their `x-*` keys. An `x-explicit: 'partial'` entry is documentation only (the runtime `@Schema` validates), so it accepts anything. A model from a dependency derives to an open object and accepts any object.
 
@@ -31,10 +31,13 @@ Violations are logged at `error` and collected in `app.contractViolations`. `dis
 
 ```ts
 const contract = await installContractTesting({ manifest: await manifestOfFragments([fragmentFile]) });
-contract.register(DI.RootContainer); // before the app resolves anything
+contract.register(DI.RootContainer); // before the app resolves anything; the check reads the container that serves the request
 contract.enable(configuration); // after Configuration resolved
 // ... run requests ...
-contract.assertClean(); // after the app stopped
+contract.unregister(); // removes the validator and the log again
+contract.assertClean(); // after the app stopped; `finishContractTesting(teardown, contract)` does all three even when teardown throws
 ```
+
+`contract.checkedRoutes` is the number of routes that have a response schema; assert it in a suite so a compiler regression that drops schemas cannot pass vacuously.
 
 `manifestOfFragments` merges built `lib/manifest.fragment.json` files, for packages that have no `app.manifest.json`.

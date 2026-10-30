@@ -13,7 +13,7 @@ export interface ContractRoute {
 }
 
 export interface ContractValidator {
-  checkResponse(route: ContractRoute, body: unknown): readonly unknown[] | null;
+  checkResponse(route: ContractRoute, body: unknown, status?: number): readonly unknown[] | null;
   checkSchema(schema: object, body: unknown): readonly unknown[] | null;
 }
 
@@ -91,14 +91,17 @@ export function manifestContractValidator(manifest: Manifest): ContractValidator
     ajv.addSchema(partial ? {} : { ...(prepare(schema, ids) as Schema), $id: BASE + id }, BASE + id);
   }
 
-  const schemaOf = (route: ContractRoute): string | undefined =>
-    manifest.controllers.filter((c) => c.className === route.controller).flatMap((c) => c.routes).find((r) => r.handler === route.handler)?.returnType.schema;
+  const schemaOf = (route: ContractRoute, status?: number): string | undefined => {
+    const entry = manifest.controllers.filter((c) => c.className === route.controller).flatMap((c) => c.routes).find((r) => r.handler === route.handler);
+    const declared = entry?.doc?.responses?.find((r) => r.status === status)?.type?.schema;
+    return declared ?? (status === undefined || (status >= 200 && status < 300) ? entry?.returnType.schema : undefined);
+  };
 
   const run = (validate: ValidateFunction, body: unknown): readonly ErrorObject[] | null => (validate(body) ? null : (validate.errors ?? []));
 
   return {
-    checkResponse(route, body) {
-      const id = schemaOf(route);
+    checkResponse(route, body, status) {
+      const id = schemaOf(route, status);
       if (!id) {
         return null;
       }
@@ -124,6 +127,10 @@ export interface ContractTestingHandle {
   readonly violations: ContractViolationLog;
   /** Registers the validator and the violation log; before the app resolves anything. */
   register(container: IContainer): void;
+  /** Routes the manifest gives a response schema; a suite asserts it so a compiler regression that drops schemas cannot pass vacuously. */
+  readonly checkedRoutes: number;
+  /** Removes what `register` put in the containers; `assertClean` still works afterwards. */
+  unregister(): void;
   /** Switches `http.contractTesting` on in a resolved configuration. */
   enable(configuration: Configuration): void;
   /** Throws when a response broke its contract. */
@@ -137,12 +144,24 @@ export async function installContractTesting(options: true | ContractTestingOpti
   const manifest = typeof source === 'string' ? await readManifest(source) : source;
   const validator = manifestContractValidator(manifest);
   const violations = new ContractViolationLog();
+  const registered = new Set<IContainer>();
 
   return {
     violations,
+    checkedRoutes: manifest.controllers.flatMap((c) => c.routes).filter((r) => r.returnType.schema).length,
     register(container) {
       container.register(validator).asValue(CONTRACT_VALIDATOR_KEY);
       container.register(violations).asValue(CONTRACT_VIOLATIONS_KEY);
+      registered.add(container);
+    },
+    unregister() {
+      for (const container of registered) {
+        container.Registry.removeValue(CONTRACT_VALIDATOR_KEY);
+        container.uncache(CONTRACT_VALIDATOR_KEY);
+        container.Registry.removeValue(CONTRACT_VIOLATIONS_KEY);
+        container.uncache(CONTRACT_VIOLATIONS_KEY);
+      }
+      registered.clear();
     },
     enable(configuration) {
       configuration.set('http.contractTesting', { enabled: true, mode: settings.mode ?? 'throw' });
@@ -163,4 +182,26 @@ export async function manifestOfFragments(fragmentFiles: readonly string[]): Pro
     throw new Error('manifestOfFragments: no fragment given');
   }
   return mergeFragments(app, deps, { app: { name: app.package.name, version: app.package.version, root: '.', outDir: app.package.outDir }, packages: [] });
+}
+
+/** Runs `teardown`, unregisters the handle, then asserts the run was clean; a failing teardown does not hide violations (both errors are reported). */
+export async function finishContractTesting(teardown: () => Promise<void>, handle: ContractTestingHandle | undefined): Promise<void> {
+  const errors: Error[] = [];
+  try {
+    await teardown();
+  } catch (err) {
+    errors.push(err as Error);
+  }
+  handle?.unregister();
+  try {
+    handle?.assertClean();
+  } catch (err) {
+    errors.push(err as Error);
+  }
+  if (errors.length === 1) {
+    throw errors[0];
+  }
+  if (errors.length > 1) {
+    throw new Error(errors.map((e) => e.message).join('\n'));
+  }
 }

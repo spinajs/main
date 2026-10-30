@@ -10,7 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { installContractTesting, manifestOfFragments } from '@spinajs/testing';
+import { finishContractTesting, installContractTesting, manifestOfFragments } from '@spinajs/testing';
 import type { ContractTestingHandle } from '@spinajs/testing';
 import { MigrationTransactionMode, OrmMigrator } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
@@ -286,7 +286,7 @@ export async function startUsersHttpApp(opts: UsersHttpAppOptions): Promise<User
 }
 
 /** Stops the server and removes what {@link startUsersHttpApp} registered and resolved. */
-export async function stopUsersHttpApp(): Promise<void> {
+async function teardown(): Promise<void> {
   options = undefined;
   if (!running) return;
   const { server, controllers } = running;
@@ -307,8 +307,11 @@ export async function stopUsersHttpApp(): Promise<void> {
   // fsTemp's cleanup interval would keep the mocha process alive after the last suite.
   for (const provider of DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES)?.values() ?? []) await provider.dispose();
   release();
+}
 
+/** Stops the app; a failing teardown step still reports the contract violations. */
+export async function stopUsersHttpApp(): Promise<void> {
   const finished = contract;
   contract = undefined;
-  finished?.assertClean();
+  await finishContractTesting(teardown, finished);
 }

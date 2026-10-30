@@ -3,7 +3,6 @@ import { expect } from 'chai';
 import type { AddressInfo } from 'node:net';
 import { runInNewContext } from 'node:vm';
 import { AccessPolicy, PrincipalMiddleware } from '@spinajs/authz-http';
-import { DI } from '@spinajs/di';
 import { fsService } from '@spinajs/fs';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { Intl } from '@spinajs/intl';
@@ -25,9 +24,10 @@ function extractDefinition(generated: string): ClientDefinition {
   return runInNewContext(`(${match[1]})`) as ClientDefinition;
 }
 
-async function boot(manifest: Manifest, contractManifest: Manifest = manifest): Promise<{ app: TestApp; client: AppClient; baseUrl: string }> {
+async function boot(manifest: Manifest, contractManifest: Manifest = manifest, scope: 'root' | 'child' = 'root'): Promise<{ app: TestApp; client: AppClient; baseUrl: string }> {
   const app = await createTestApp({
     configuration: E2eConfiguration,
+    scope,
     register: (c) => {
       c.unregister(ServerMiddleware, PrincipalMiddleware);
       for (const controller of [HealthController, UsersController]) c.register(controller).as(BaseController);
@@ -38,7 +38,7 @@ async function boot(manifest: Manifest, contractManifest: Manifest = manifest): 
     bootTimeout: 50000,
   });
   await (await app.resolve(HttpServer)).start();
-  const { port } = DI.get(HttpServer)!.Server.address() as AddressInfo;
+  const { port } = (app.container.get(HttpServer) as HttpServer).Server.address() as AddressInfo;
   const baseUrl = `http://127.0.0.1:${port}`;
   return { app, baseUrl, client: createClient<AppClient>(extractDefinition(await generateClient({ manifest })), { baseUrl }) };
 }
@@ -74,12 +74,29 @@ describe('contract tests against the app-basic manifest', function () {
   });
 
   describe('a manifest that disagrees with the handlers', () => {
-    it('answers 500 for the route and fails dispose', async () => {
+    const stricterThan = async () => {
       const manifest = await appBasicManifest();
       const stricter = structuredClone(manifest);
       const user = stricter.schemas['spinajs/app-basic/UserDto'] as { required: string[] };
       user.required.push('phone');
+      return { manifest, stricter };
+    };
 
+    it('answers 500 for the route and fails dispose in a child scope too', async () => {
+      const { manifest, stricter } = await stricterThan();
+      const { app, client } = await boot(manifest, stricter, 'child');
+      const error = await client.users.get(1).catch((e: unknown) => e);
+      expect((error as ProblemError).status).to.equal(500);
+      expect(app.contractViolations).to.have.length(1);
+      const disposed = await app.dispose().then(
+        () => undefined,
+        (e: unknown) => e as Error,
+      );
+      expect(disposed?.message).to.match(/broke their contract[\s\S]*UsersController\.get/);
+    });
+
+    it('answers 500 for the route and fails dispose', async () => {
+      const { manifest, stricter } = await stricterThan();
       const { app, client, baseUrl } = await boot(manifest, stricter);
       const error = await client.users.get(1).catch((e: unknown) => e);
       expect(error).to.be.instanceOf(ProblemError);

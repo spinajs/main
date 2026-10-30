@@ -22,7 +22,7 @@ import { PrincipalSource } from '@spinajs/authz-http';
 import { DbScopeAttributeStore } from '@spinajs/authz-orm';
 import { registerRbac } from '@spinajs/authz-rbac';
 import { testHost, userPrincipal } from '@spinajs/authz-testing';
-import { installContractTesting, manifestOfFragments } from '@spinajs/testing';
+import { finishContractTesting, installContractTesting, manifestOfFragments } from '@spinajs/testing';
 import type { ContractTestingHandle } from '@spinajs/testing';
 import { InvitationMailer, VerifiedEmailSource } from '@spinajs/teams';
 import type { InvitationMail } from '@spinajs/teams';
@@ -183,7 +183,7 @@ export async function startTeamsApp(): Promise<number> {
   return running.port;
 }
 
-export async function stopTeamsApp(): Promise<void> {
+async function teardown(): Promise<void> {
   if (!running) return;
   const { server } = running;
   running = undefined;
@@ -191,10 +191,13 @@ export async function stopTeamsApp(): Promise<void> {
   await ((await DI.resolve(Orm)) as Orm).dispose();
   // fsTemp's cleanup interval would keep the mocha process alive after the last suite.
   for (const provider of DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES)?.values() ?? []) await provider.dispose();
+}
 
+/** Stops the app; a failing teardown step still reports the contract violations. */
+export async function stopTeamsApp(): Promise<void> {
   const finished = contract;
   contract = undefined;
-  finished?.assertClean();
+  await finishContractTesting(teardown, finished);
 }
 
 export function appPort(): number {
