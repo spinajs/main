@@ -1,6 +1,8 @@
 # `@spinajs/reflection`
 
-Loads classes from directories named in configuration, and optionally resolves them through `@spinajs/di`. It also re-exports the `use` and `delegate` mixin decorators and ships `TypescriptCompiler`, a reader for method declarations in a TypeScript source file.
+Loads classes from directories named in configuration, and optionally resolves them through `@spinajs/di`. It also re-exports the `use` and `delegate` mixin decorators and ships `TypescriptCompiler` (on the `@spinajs/reflection/typescript` subpath), a reader for method declarations in a TypeScript source file.
+
+`typescript` and `glob` are optional peer dependencies: `glob` is imported on the first directory scan, `typescript` only by `@spinajs/reflection/typescript`. An app that scans directories needs `glob` installed; one that lists everything from the manifest does not.
 
 It does **not** register anything in DI by itself, and it does **not** watch directories: a scan runs once, on the first read of the decorated property. It is not `reflect-metadata`; decorator metadata lives in [`@spinajs/di`](../di/README.md).
 
