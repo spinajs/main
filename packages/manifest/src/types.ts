@@ -105,7 +105,7 @@ export interface ControllerEntry {
 export interface SocketCommandEntry { name: string; handler: string; payload: TypeRef; result: TypeRef; /** The handler returns an async iterable; `result` describes one item */ stream?: true; options: { idempotent?: boolean; ordered?: 'connection' | 'client'; timeoutMs?: number }; access?: string[]; policies: PolicyRef[][]; source: SourceRef }
 export interface SocketControllerEntry { id: string; className: string; prefix: string; /** `id` of the `socketContracts` entry named by `@SocketController(prefix, { contract })` */ contract?: string; commands: SocketCommandEntry[]; events: { name: string; payload: TypeRef }[]; source: SourceRef }
 export interface SocketContractCommand { payload: TypeRef; result: TypeRef }
-export interface SocketContractEntry { id: string; commands: Record<string, SocketContractCommand>; events: Record<string, TypeRef>; clientEvents: Record<string, TypeRef>; source: SourceRef }
+export interface SocketContractEntry { id: string; /** Name the `defineContract` variable is exported under; lets a dependent package resolve a contract it imports */ exportName?: string; commands: Record<string, SocketContractCommand>; events: Record<string, TypeRef>; clientEvents: Record<string, TypeRef>; source: SourceRef }
 
 export interface ConfigModuleEntry { module: string; schemaId: string; defaultsFile?: string; source: SourceRef }
 export interface ConfigUsageEntry { path: string; source: SourceRef }   // every @Config('x.y') / config.get('x.y') literal

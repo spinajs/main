@@ -21,16 +21,19 @@ const SCHEMAS = {
   'spinajs/app/Greet': {
     $id: 'spinajs/app/Greet',
     type: 'object',
-    properties: { name: { type: 'string' }, age: { type: 'integer' }, home: { $ref: 'spinajs/app/Inner' } },
+    properties: { name: { type: 'string' }, age: { type: 'integer' }, email: { type: 'string', format: 'email' }, home: { $ref: 'spinajs/app/Inner' } },
     required: ['name'],
     additionalProperties: false,
     'x-derived': { type: 'object', 'x-nested': { deep: true } },
   },
   'spinajs/app/Greeted': { $id: 'spinajs/app/Greeted', type: 'object', properties: { hello: { type: 'string' } }, required: ['hello'], additionalProperties: false },
+  'spinajs/app/Ok': { $id: 'spinajs/app/Ok', type: 'object', properties: { n: { type: 'integer' } }, required: ['n'], additionalProperties: false },
   'spinajs/app/Loose': { $id: 'spinajs/app/Loose', type: 'object', properties: { only: { type: 'string' } }, required: ['only'], 'x-explicit': 'partial' },
 };
 
-function manifestOf(overrides: { controller?: Partial<SocketControllerEntry>; contract?: Partial<SocketContractEntry> } = {}): Manifest {
+const OK_CONTRACT_ID = 'app:OK_CONTRACT';
+
+function manifestOf(overrides: { controller?: Partial<SocketControllerEntry>; contract?: Partial<SocketContractEntry>; schemas?: Manifest['schemas']; extraContracts?: SocketContractEntry[]; extraControllers?: SocketControllerEntry[] } = {}): Manifest {
   const contract: SocketContractEntry = {
     id: CONTRACT_ID,
     commands: { 'ctr.say': { payload: ref('spinajs/app/Greet'), result: ref('spinajs/app/Greeted') }, 'ctr.loose': { payload: ref('spinajs/app/Loose'), result: { text: 'void' } } },
@@ -52,6 +55,16 @@ function manifestOf(overrides: { controller?: Partial<SocketControllerEntry>; co
     source,
     ...overrides.controller,
   };
+  const okContract: SocketContractEntry = { id: OK_CONTRACT_ID, commands: { 'ok.say': { payload: ref('spinajs/app/Ok'), result: { text: 'void' } } }, events: {}, clientEvents: {}, source };
+  const okController: SocketControllerEntry = {
+    id: 'app:OkSocket',
+    className: 'OkSocket',
+    prefix: 'ok',
+    contract: OK_CONTRACT_ID,
+    commands: [{ name: 'say', handler: 'say', payload: ref('spinajs/app/Ok'), result: { text: 'void' }, options: {}, policies: [], source }],
+    events: [],
+    source,
+  };
   const manifest: Manifest = {
     manifestVersion: 2,
     app: { name: 'app', version: '0.0.0', root: '.', outDir: 'lib' },
@@ -61,8 +74,8 @@ function manifestOf(overrides: { controller?: Partial<SocketControllerEntry>; co
     services: [],
     values: [],
     controllers: [],
-    socketControllers: [controller],
-    socketContracts: [contract],
+    socketControllers: [controller, okController, ...(overrides.extraControllers ?? [])],
+    socketContracts: [contract, okContract, ...(overrides.extraContracts ?? [])],
     configModules: [],
     configUsages: [],
     models: [],
@@ -70,13 +83,15 @@ function manifestOf(overrides: { controller?: Partial<SocketControllerEntry>; co
     schedules: [],
     commands: [],
     queueMessages: [],
-    schemas: SCHEMAS,
+    schemas: overrides.schemas ?? SCHEMAS,
     diagnostics: [],
   };
   return { ...manifest, hash: hashManifest(manifest) };
 }
 
 const CONTRACT = defineContract<{ commands: Record<string, never>; events: Record<string, never> }>(CONTRACT_ID);
+const OK_CONTRACT = defineContract<{ commands: Record<string, never>; events: Record<string, never> }>(OK_CONTRACT_ID);
+const ANONYMOUS_CONTRACT = defineContract<{ commands: Record<string, never>; events: Record<string, never> }>();
 
 let seen: Array<{ command: string; payload: unknown }> = [];
 
@@ -106,6 +121,49 @@ class MissingSocket extends BaseSocketController {
 }
 Object.defineProperty(MissingSocket, 'name', { value: 'ContractSocket' });
 
+class OkSocket extends BaseSocketController {
+  @Command('say')
+  public async say(@Payload() payload: { n: number }) {
+    seen.push({ command: 'ok.say', payload });
+  }
+}
+
+// same class name and commands as ContractSocket, but another prefix and no contract option
+class ImpostorSocket extends BaseSocketController {
+  @Command('say')
+  public async say(@Payload() payload: { name: string }) {
+    return { hello: payload.name };
+  }
+}
+Object.defineProperty(ImpostorSocket, 'name', { value: 'ContractSocket' });
+
+class BareSocket extends BaseSocketController {
+  @Command('say')
+  public async say(@Payload() payload: { name: string }) {
+    seen.push({ command: 'say', payload });
+    return { hello: payload.name };
+  }
+
+  @Command('loose')
+  public async loose(@Payload() payload: unknown) {
+    seen.push({ command: 'loose', payload });
+  }
+
+  @OnEvent('ping')
+  public async ping(@Payload() payload: unknown) {
+    seen.push({ command: 'ping', payload });
+  }
+}
+Object.defineProperty(BareSocket, 'name', { value: 'ContractSocket' });
+
+class AnonSocket extends BaseSocketController {
+  @Command('say')
+  public async say(@Payload() payload: { name: string }) {
+    return { hello: payload.name };
+  }
+}
+Object.defineProperty(AnonSocket, 'name', { value: 'ContractSocket' });
+
 @SocketController('plain')
 class PlainSocket extends BaseSocketController {
   @Command('echo')
@@ -133,10 +191,16 @@ describe('socket contract enforcement', function () {
   before(() => {
     dir = mkdtempSync(join(tmpdir(), 'socket-contract-'));
     path = join(dir, 'app.manifest.json');
-    for (const type of [ContractSocket, MissingSocket]) {
-      SocketController('ctr', { contract: CONTRACT })(type);
+    const declare = (type: typeof BaseSocketController, prefix: string, contract?: typeof CONTRACT) => {
+      SocketController(prefix, contract ? { contract } : {})(type);
       DI.unregister(type);
-    }
+    };
+    declare(ContractSocket, 'ctr', CONTRACT);
+    declare(MissingSocket, 'ctr', CONTRACT);
+    declare(OkSocket, 'ok', OK_CONTRACT);
+    declare(ImpostorSocket, 'other', CONTRACT);
+    declare(BareSocket, 'ctr');
+    declare(AnonSocket, 'ctr', ANONYMOUS_CONTRACT);
   });
 
   after(() => rmSync(dir, { recursive: true, force: true }));
@@ -148,7 +212,7 @@ describe('socket contract enforcement', function () {
 
   afterEach(async () => {
     DI.unregister(ContractSocket);
-    DI.unregister(MissingSocket);
+    for (const type of [MissingSocket, OkSocket, ImpostorSocket, BareSocket, AnonSocket]) DI.unregister(type);
     await server?.close();
     server = undefined;
   });
@@ -183,6 +247,21 @@ describe('socket contract enforcement', function () {
     it('refuses a missing payload', async () => {
       const client = await open(await start('require'));
       expect(errorOf(await command(client, 'ctr.say')).code).to.equal('invalid_argument');
+      client.close();
+    });
+
+    it('refuses a payload whose string breaks a format', async () => {
+      const client = await open(await start('require'));
+      expect(errorOf(await command(client, 'ctr.say', { name: 'ada', email: 'not-an-email' })).code).to.equal('invalid_argument');
+      client.close();
+    });
+
+    it('bounds the reported errors and says how many there were', async () => {
+      const client = await open(await start('require'));
+      const payload = { name: 'ada', ...Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`extra${i}`, i])) };
+      const details = errorOf(await command(client, 'ctr.say', payload)).details as { errors: unknown[]; total: number };
+      expect(details.errors).to.have.length(10);
+      expect(details.total).to.equal(40);
       client.close();
     });
 
@@ -237,13 +316,22 @@ describe('socket contract enforcement', function () {
   });
 
   describe('registry build', () => {
-    const buildWith = async (mode: string, bound: typeof MissingSocket) => {
+    const buildWith = async (mode: string, ...bound: Array<typeof BaseSocketController>) => {
       await configure(manifestConfig(mode));
-      if (bound !== ContractSocket) {
+      if (!bound.includes(ContractSocket)) {
         DI.unregister(ContractSocket);
-        DI.register(bound).as(BaseSocketController);
+      }
+      for (const type of bound) {
+        if (type !== ContractSocket) DI.register(type).as(BaseSocketController);
       }
       return DI.resolve(SocketHandlerRegistry);
+    };
+
+    const warningsOf = (): string[] => {
+      const warnings: string[] = [];
+      const enforcer = DI.resolve(SocketContractEnforcer) as unknown as { Log: { warn(fields: { problem: string }): void } };
+      enforcer.Log.warn = (fields) => void warnings.push(fields.problem);
+      return warnings;
     };
 
     it('require: a command the contract declares but the controller lacks fails build()', async () => {
@@ -272,13 +360,88 @@ describe('socket contract enforcement', function () {
     it('require: a controller absent from the manifest fails build()', async () => {
       writeManifest(manifestOf({ controller: { className: 'Other' } }));
       const registry = await buildWith('require', ContractSocket);
-      await expect(registry.build()).to.be.rejectedWith(/ContractSocket is not in the manifest/);
+      await expect(registry.build()).to.be.rejectedWith(/ContractSocket \(prefix 'ctr'\) is not in the manifest/);
     });
 
     it('require: a runtime contract id that differs from the manifest binding fails build()', async () => {
       writeManifest(manifestOf({ controller: { contract: 'app:OTHER' } }));
       const registry = await buildWith('require', ContractSocket);
       await expect(registry.build()).to.be.rejectedWith(/bound to contract app:CTR_CONTRACT at runtime but to app:OTHER/);
+    });
+
+    it('require: a schema with an unresolved $ref fails build() naming the contract and the ref, without dumping the schema', async () => {
+      const { 'spinajs/app/Inner': _inner, ...withoutInner } = SCHEMAS;
+      writeManifest(manifestOf({ schemas: withoutInner }));
+      const registry = await buildWith('require', ContractSocket);
+      const error = await registry.build().then(
+        () => undefined,
+        (e: Error) => e,
+      );
+      expect(error?.message).to.match(/ContractSocket/).and.match(/app:CTR_CONTRACT/).and.match(/spinajs\/app\/Inner/);
+      expect(error?.message).to.not.match(/properties|additionalProperties|MissingRefError/);
+    });
+
+    it('prefer: a contract whose schema cannot compile is skipped with a warning; the other contracts still enforce', async () => {
+      const { 'spinajs/app/Inner': _inner, ...withoutInner } = SCHEMAS;
+      writeManifest(manifestOf({ schemas: withoutInner }));
+      DI.register(OkSocket).as(BaseSocketController);
+      const client = await open(await start('prefer'));
+      expect(resultOf(await command(client, 'ctr.say', { name: 'ada', age: 'old' }))).to.deep.equal({ hello: 'ada' });
+      expect(errorOf(await command(client, 'ok.say', { n: 'x' })).code).to.equal('invalid_argument');
+      client.close();
+    });
+
+    it('prefer: the skipped contract is reported as a warning', async () => {
+      const { 'spinajs/app/Inner': _inner, ...withoutInner } = SCHEMAS;
+      writeManifest(manifestOf({ schemas: withoutInner }));
+      const registry = await buildWith('prefer', ContractSocket);
+      const warnings = warningsOf();
+      await registry.build();
+      expect(warnings.join('\n')).to.match(/app:CTR_CONTRACT[\s\S]*spinajs\/app\/Inner/);
+    });
+
+    it('require: a same-named controller with another prefix does not adopt the manifest entry', async () => {
+      writeManifest(manifestOf());
+      const registry = await buildWith('require', ImpostorSocket);
+      await expect(registry.build()).to.be.rejectedWith(/ContractSocket \(prefix 'other'\) is not in the manifest/);
+    });
+
+    it('require: two manifest entries with the same class name and prefix are ambiguous', async () => {
+      writeManifest(manifestOf({ extraControllers: [{ ...manifestOf().socketControllers[0], id: 'other-pkg:ContractSocket' }] }));
+      const registry = await buildWith('require', MissingSocket);
+      await expect(registry.build()).to.be.rejectedWith(/ambiguous/);
+    });
+
+    it('require: a manifest-bound controller whose runtime declaration has no contract is still enforced', async () => {
+      writeManifest(manifestOf());
+      DI.unregister(ContractSocket);
+      DI.register(BareSocket).as(BaseSocketController);
+      const client = await open(await start('require'));
+      expect(errorOf(await command(client, 'ctr.say', { age: 'old' })).code).to.equal('invalid_argument');
+      expect(seen).to.deep.equal([]);
+      client.close();
+    });
+
+    it('prefer: a manifest-bound controller without a runtime contract is not enforced and the gap is reported', async () => {
+      writeManifest(manifestOf());
+      const registry = await buildWith('prefer', BareSocket);
+      const warnings = warningsOf();
+      await registry.build();
+      expect(warnings.join('\n')).to.match(/declares no contract/);
+      expect(registry.command('ctr.say')?.contractValidator).to.equal(undefined);
+    });
+
+    it('require: a runtime contract without an id that the manifest does not bind fails with a fixing hint', async () => {
+      writeManifest(manifestOf({ controller: { contract: undefined } }));
+      const registry = await buildWith('require', AnonSocket);
+      await expect(registry.build()).to.be.rejectedWith(/contract of ContractSocket is not in the manifest: give it an explicit id with defineContract\('<id>'\) or export it from a package with a manifest fragment/);
+    });
+
+    it('a duplicate contract id in the manifest fails build() in require', async () => {
+      const manifest = manifestOf();
+      writeManifest(manifestOf({ extraContracts: [{ ...manifest.socketContracts[0], source: { ...source, line: 9 } }] }));
+      const registry = await buildWith('require', ContractSocket);
+      await expect(registry.build()).to.be.rejectedWith(/app:CTR_CONTRACT is declared twice/);
     });
   });
 });

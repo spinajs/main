@@ -36,4 +36,12 @@ describe('socket controllers bound to a contract', () => {
     // NamedSocket lacks all three commands
     expect(found.filter((f) => f === 'SOCK001 error')).to.have.length(4);
   });
+
+  it('reports a contract id declared twice as SOCK005', () => {
+    const manifest: Manifest = { ...fixture(), socketContracts: [contracts[0], { ...contracts[0], source: { ...contracts[0].source, line: 99 } }] };
+    manifest.hash = hashManifest(manifest);
+
+    const found = socketContract.run(manifest, createDoctorContext(manifest, { cwd: process.cwd() }));
+    expect(found.filter((d) => d.code === 'SOCK005')).to.have.length(1);
+  });
 });

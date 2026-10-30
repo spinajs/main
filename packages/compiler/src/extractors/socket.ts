@@ -1,4 +1,6 @@
 import ts from 'typescript';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { SocketCommandEntry, SocketContractEntry, SocketControllerEntry, TypeRef } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
 import { findDecorator, literalValue, type DecoratorInfo } from '../decorators.js';
@@ -59,6 +61,34 @@ function contractIdOf(decl: ts.VariableDeclaration & { name: ts.Identifier }, ca
   return (literalValue(call.arguments[0], ctx) as string | undefined) ?? `${ctx.packageName}:${decl.name.text}`;
 }
 
+interface IOwningPackage {
+  name: string;
+  root: string;
+  fragment?: string;
+}
+
+function owningPackage(file: string): IOwningPackage | undefined {
+  for (let dir = dirname(file); ; dir = dirname(dir)) {
+    const path = join(dir, 'package.json');
+    if (existsSync(path)) {
+      const pkg = JSON.parse(readFileSync(path, 'utf8')) as { name?: string; spinajs?: { manifest?: string } };
+      if (pkg.name) return { name: pkg.name, root: dir, fragment: pkg.spinajs?.manifest };
+    }
+    if (dirname(dir) === dir) return undefined;
+  }
+}
+
+/** A contract declared in a dependency is only a `.d.ts` here; its id lives in the dependency's manifest fragment, found by package and export name. */
+function dependencyContractId(decl: ts.VariableDeclaration & { name: ts.Identifier }): string | undefined {
+  const owner = decl.getSourceFile().isDeclarationFile ? owningPackage(decl.getSourceFile().fileName) : undefined;
+  const fragment = owner?.fragment ? join(owner.root, owner.fragment) : undefined;
+  if (!owner || !fragment || !existsSync(fragment)) return undefined;
+
+  const { socketContracts = [] } = JSON.parse(readFileSync(fragment, 'utf8')) as { socketContracts?: SocketContractEntry[] };
+  const exported = decl.name.text;
+  return (socketContracts.find((c) => c.exportName === exported) ?? socketContracts.find((c) => c.id === `${owner.name}:${exported}`))?.id;
+}
+
 /** The id of the contract named by `@SocketController(prefix, { contract })`; its declaration must be a `defineContract` call in a source file. */
 function boundContractOf(sc: DecoratorInfo, ctx: ExtractorContext): string | undefined {
   const options = sc.args[1];
@@ -70,10 +100,18 @@ function boundContractOf(sc: DecoratorInfo, ctx: ExtractorContext): string | und
   let symbol = ctx.checker.getSymbolAtLocation(expr);
   if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = ctx.checker.getAliasedSymbol(symbol);
   const decl = symbol?.valueDeclaration;
-  if (decl && ts.isVariableDeclaration(decl) && ts.isIdentifier(decl.name) && isDefineContract(decl.initializer)) {
-    return contractIdOf(decl as ts.VariableDeclaration & { name: ts.Identifier }, decl.initializer, ctx);
+  if (decl && ts.isVariableDeclaration(decl) && ts.isIdentifier(decl.name)) {
+    const named = decl as ts.VariableDeclaration & { name: ts.Identifier };
+    if (isDefineContract(decl.initializer)) return contractIdOf(named, decl.initializer, ctx);
+
+    const imported = dependencyContractId(named);
+    if (imported) return imported;
   }
-  ctx.warn('SOCK004', `cannot resolve the contract bound to this socket controller: ${expr.getText()} is not a defineContract() variable declared in a source file`, expr);
+  ctx.warn(
+    'SOCK004',
+    `cannot resolve the contract bound to this socket controller: ${expr.getText()} is neither a defineContract() variable in this package nor exported by a dependency with a manifest fragment; give it an explicit id with defineContract('<id>') or export it from a package with a manifest fragment`,
+    expr,
+  );
   return undefined;
 }
 
@@ -151,7 +189,10 @@ export const extractSocketContracts: Extractor<SocketContractEntry> = (ctx, file
       const typeArg = isDefineContract(init) ? init.typeArguments?.[0] : undefined;
       if (!typeArg || !isDefineContract(init) || !ts.isIdentifier(decl.name)) continue;
       const named = decl as ts.VariableDeclaration & { name: ts.Identifier };
-      out.push({ ...contractOf(named, ctx.checker.getTypeFromTypeNode(typeArg), ctx), id: contractIdOf(named, init, ctx) });
+      const id = contractIdOf(named, init, ctx);
+      // the default id already encodes the export name
+      const exportName = id === `${ctx.packageName}:${named.name.text}` ? {} : { exportName: named.name.text };
+      out.push({ ...contractOf(named, ctx.checker.getTypeFromTypeNode(typeArg), ctx), id, ...exportName });
     }
   }
   return out;

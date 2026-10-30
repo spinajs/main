@@ -823,6 +823,9 @@
         "id": {
           "type": "string"
         },
+        "exportName": {
+          "type": "string"
+        },
         "commands": {
           "$ref": "#/definitions/Record%3Cstring%2CSocketContractCommand%3E"
         },

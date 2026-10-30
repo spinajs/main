@@ -30,6 +30,11 @@ spinajs doctor --manifest dist/app.manifest.json
 | BLD001 | error | a dependency fragment older than its build output, or missing |
 | ORM001 | warning | a model loaded from the database by `@FromModel` (kind `FromDbModel`) that is not an `@AccessResource`. `@AsModel` (`AsDbModel`) builds the model from the request and is not reported |
 | SCH003 | warning | an explicit `@Schema` that differs structurally from the schema derived from its class |
+| SOCK001 | error | a socket controller bound to a contract (`@SocketController(prefix, { contract })`) has no `@Command` or `@OnEvent` for a name the contract declares, or the bound contract is not in the manifest |
+| SOCK002 | warning | a handler payload that accepts less than the contract lets a client send |
+| SOCK003 | warning | a handler result that returns more than the contract promises |
+| SOCK004 | warning | the contract named in `@SocketController(prefix, { contract })` cannot be resolved: it is not a `defineContract()` variable of this package and no dependency with a manifest fragment exports it, so the controller is left unbound |
+| SOCK005 | error | two `defineContract` declarations share one contract id |
 
 ### DI002 details
 
@@ -46,6 +51,19 @@ carries a real cycle path found by breadth-first search: `Dependency cycle: A ->
 A config path is covered when it equals a declared module or starts with `<module>.`. Modules may be dotted
 (`authn.oidc`), so the match is by prefix on whole segments, not on the first segment alone. The `system` and
 `app` roots are filled by the configuration itself and are never reported. Each distinct path is reported once.
+
+### SOCK001-SOCK005 details
+
+A contract id is the literal argument of `defineContract('<id>')`, else `<package>:<VARIABLE>`. The rules compare
+handlers with the contract by derived schema structure: payloads as requests (the handler must accept what the
+contract allows), results as responses (the handler must not return more than promised). A side whose schema is
+missing or `x-explicit: 'partial'` is skipped.
+
+A contract imported from another package is resolved through that package's manifest fragment (`package.json#spinajs.manifest`),
+by package and export name. When the dependency has no fragment, or its fragment does not list the export, SOCK004 is
+reported and the controller is unbound in the manifest. Fix it with an explicit id, `defineContract('<id>')`, or export
+the contract from a package that ships a manifest fragment. At runtime `system.manifest.mode: require` refuses to boot
+such a controller ("contract of X is not in the manifest").
 
 ## Output formats
 

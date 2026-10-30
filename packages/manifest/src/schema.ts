@@ -824,6 +824,9 @@ export const manifestSchema: Record<string, any> = {
         "id": {
           "type": "string"
         },
+        "exportName": {
+          "type": "string"
+        },
         "commands": {
           "$ref": "#/definitions/Record%3Cstring%2CSocketContractCommand%3E"
         },
