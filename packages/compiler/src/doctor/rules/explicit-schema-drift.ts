@@ -41,7 +41,7 @@ export const explicitSchemaDrift: DoctorRule = {
     for (const [id, value] of Object.entries(manifest.schemas)) {
       const schema = value as JsonSchema;
       const derived = schema['x-derived'] as JsonSchema | undefined;
-      if (!derived) continue;
+      if (!derived || schema['x-explicit'] === 'partial') continue;
       const diffs = structuralDiff(schema, derived);
       if (diffs.length) out.push({ code: 'SCH003', severity: 'warning', message: `${id}: explicit schema drifts from the class: ${diffs.join('; ')}` });
     }

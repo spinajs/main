@@ -7,8 +7,21 @@ export const BIGINT_SCHEMA = { type: 'string', pattern: '^-?[0-9]+$' };
 // ts.pseudoBigIntToString is not part of the public API.
 const bigintLiteral = ({ negative, base10Value }: ts.PseudoBigInt): string => (negative ? `-${base10Value}` : base10Value);
 
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+
+/** Only `${string}` spans become a pattern (`.*`); `${number}` and the like have no exact regex worth emitting. */
+function templateLiteral(type: ts.TemplateLiteralType): { type: 'string'; pattern?: string } {
+  if (!type.types.every((span) => span.flags & ts.TypeFlags.String)) return { type: 'string' };
+  const { texts } = type;
+  const body = texts.map(escapeRegExp).join('.*').replace(/^(\.\*)+|(\.\*)+$/g, '');
+  const pattern = (texts[0] ? '^' : '') + body + (texts[texts.length - 1] ? '$' : '');
+  return pattern ? { type: 'string', pattern } : { type: 'string' };
+}
+
 export const primitive: TypeHandler = (_ctx, type) => {
   const flags = type.flags;
+  if (flags & ts.TypeFlags.TemplateLiteral) return templateLiteral(type as ts.TemplateLiteralType);
+  if (flags & ts.TypeFlags.StringMapping) return { type: 'string' };
   if (flags & ts.TypeFlags.StringLiteral) return { const: (type as ts.StringLiteralType).value };
   if (flags & ts.TypeFlags.NumberLiteral) return { const: (type as ts.NumberLiteralType).value };
   if (flags & ts.TypeFlags.BooleanLiteral) return { const: (type as unknown as { intrinsicName: string }).intrinsicName === 'true' };

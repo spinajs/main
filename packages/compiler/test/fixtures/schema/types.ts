@@ -125,6 +125,24 @@ export class ExplicitWithIdDto { public a: string; public b: number }
 @Schema('fixture/by-ref')
 export class ExplicitRefDto { public a: string }
 
+// --- explicit @Schema the analyzer cannot fully evaluate
+const helperBody = (): object => ({ type: 'object', properties: { a: { type: 'string' } } });
+function buildSchema(): object {
+  return { type: 'object' };
+}
+const KEYS = ['a', 'b'] as const;
+const KEY = 'a';
+@Schema({ ...helperBody(), description: 'spread of a call' })
+export class ExplicitSpreadDto { public a: string; public b?: number }
+@Schema({ type: 'object', description: 'mapped', anyOf: KEYS.map((k) => ({ required: [k] })) })
+export class ExplicitMappedDto { public a?: string; public b?: number }
+@Schema(buildSchema())
+export class ExplicitCallDto { public a: string }
+@Schema({ type: 'object', properties: { [KEY]: { type: 'string' } }, required: [KEY] })
+export class ExplicitComputedKeyDto { public a: string }
+@Schema({ type: 'object', properties: { [helperBody.name]: { type: 'string' } } })
+export class ExplicitUnknownKeyDto { public a: string }
+
 // --- review fixes
 export interface OUndef { x: number | undefined; y: string }
 export class CUndef { public x!: number | undefined; public z: string }
@@ -133,3 +151,31 @@ export interface OAnyIndex { [key: string]: any }
 export class ExplicitRefNested { public inner: Point }
 export namespace Other { export interface Point { z: string } }
 export interface Collide { a: Point; b: Other.Point }
+
+// --- template literal types
+export type TPrefix = `native:${string}`;
+export type TSuffix = `${string}.json`;
+export type TInfix = `a${string}b${string}c`;
+export type TNumber = `v${number}`;
+export type TUpper = Uppercase<string>;
+
+// --- recursive aliases
+export type RFilter = { op: 'not'; arg: RFilter } | { op: 'and'; args: readonly RFilter[] } | { op: 'leaf'; field: string };
+export interface RHolder { filter: RFilter; again: RFilter }
+export type OFilter = { op: 'not'; arg?: OFilter } | { op: 'leaf'; field: string };
+export type NFilter = { op: 'not'; arg: NFilter | null } | { op: 'leaf'; field: string };
+export interface OHolder { filter: OFilter; maybe?: OFilter; nullable: NFilter | null }
+
+// --- class member visibility
+export class CVisibility {
+  public a: string;
+  protected b: any;
+  private c: number;
+  #d = 1;
+  constructor(protected e?: string) {}
+}
+
+// --- generic arguments in hoisted names
+export interface Dict<T> { [key: string]: T }
+export type DRec<T> = { value: T; next: DRec<T> } | { end: true };
+export interface DHolder { a: Dict<string>; b: Dict<string[]>; c: Dict<[string, number]>; d: DRec<string>; e: DRec<string[]> }

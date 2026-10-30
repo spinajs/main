@@ -1,7 +1,8 @@
 import ts from 'typescript';
 import type { ModelEntry } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
-import { decoratorsOf, findDecorator, identifierName, literalValue } from '../decorators.js';
+import { findDecorator, identifierName, literalValue } from '../decorators.js';
+import { modelMembers } from '../model-members.js';
 import { stringArg } from './string-arg.js';
 
 type Relation = ModelEntry['relations'][number];
@@ -13,7 +14,6 @@ const RELATIONS: Record<string, { kind: Relation['kind']; targetArg: number }> =
   HasMany: { kind: 'hasMany', targetArg: 0 },
   HasManyToMany: { kind: 'hasManyToMany', targetArg: 1 },
 };
-const NON_COLUMN = new Set(['Virtual', 'Query', 'Historical', ...Object.keys(RELATIONS)]);
 const NULLISH = ts.TypeFlags.Null | ts.TypeFlags.Undefined;
 
 function relationTarget(expr: ts.Expression | undefined, ctx: ExtractorContext): string {
@@ -25,32 +25,34 @@ function relationTarget(expr: ts.Expression | undefined, ctx: ExtractorContext):
   return identifierName(expr) ?? stringArg(expr, ctx, 'unknown');
 }
 
-function isNullable(type: ts.Type, prop: ts.PropertyDeclaration): boolean {
-  return !!prop.questionToken || (type.isUnion() && type.types.some((t) => t.flags & NULLISH));
-}
-
 function stripNullable(type: ts.Type): ts.Type {
   if (!type.isUnion()) return type;
   const rest = type.types.filter((t) => !(t.flags & NULLISH));
   return rest.length === 1 ? rest[0] : type;
 }
 
+const isNullable = (type: ts.Type, optional: boolean): boolean => optional || (type.isUnion() && type.types.some((t) => t.flags & NULLISH));
+
 function readMembers(node: ts.ClassDeclaration, ctx: ExtractorContext): Pick<ModelEntry, 'columns' | 'relations'> {
   const columns: Column[] = [];
   const className = node.name?.text ?? '';
   const relations: Relation[] = [];
-  for (const m of node.members) {
-    if (!ts.isPropertyDeclaration(m) || !ts.isIdentifier(m.name) || m.modifiers?.some((x) => x.kind === ts.SyntaxKind.StaticKeyword)) continue;
-    const decs = decoratorsOf(m);
-    const rel = decs.find((d) => RELATIONS[d.name]);
-    if (rel) {
-      const spec = RELATIONS[rel.name];
-      relations.push({ name: m.name.text, kind: spec.kind, target: relationTarget(rel.args[spec.targetArg], ctx) });
+  const symbol = node.name && ctx.checker.getSymbolAtLocation(node.name);
+  if (!symbol) return { columns, relations };
+  for (const member of modelMembers(ctx.checker, ctx.checker.getDeclaredTypeOfSymbol(symbol))) {
+    if (member.kind === 'computed') continue;
+    if (member.kind === 'relation') {
+      // A relation typed but not decorated has no kind or target to record.
+      const rel = member.decorators.find((d) => RELATIONS[d.name]);
+      if (rel) relations.push({ name: member.name, kind: RELATIONS[rel.name].kind, target: relationTarget(rel.args[RELATIONS[rel.name].targetArg], ctx) });
       continue;
     }
-    if (decs.some((d) => NON_COLUMN.has(d.name))) continue;
-    const type = ctx.checker.getTypeAtLocation(m);
-    columns.push({ name: m.name.text, type: ctx.typeRef(stripNullable(type), m, `${className}_${m.name.text}`), primary: decs.some((d) => d.name === 'Primary'), nullable: isNullable(type, m) });
+    columns.push({
+      name: member.name,
+      type: ctx.typeRef(stripNullable(member.type), member.declaration, `${className}_${member.name}`),
+      primary: member.decorators.some((d) => d.name === 'Primary'),
+      nullable: isNullable(member.type, member.optional),
+    });
   }
   return { columns, relations };
 }

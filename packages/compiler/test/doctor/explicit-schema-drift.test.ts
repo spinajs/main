@@ -21,6 +21,11 @@ describe('SCH003 explicit-schema-drift', () => {
       structuralDiff({ type: 'object', properties: { a: { type: 'string' } }, required: ['a'] }, { type: 'object', properties: { a: { type: 'string' } }, required: ['a'], additionalProperties: false }),
     ).to.deep.equal([]);
   });
+  it('skips an entry whose explicit schema was only partly evaluated', () => {
+    const manifest = loadFixture('explicit-schema-drift');
+    for (const schema of Object.values(manifest.schemas)) (schema as Record<string, unknown>)['x-explicit'] = 'partial';
+    expect(explicitSchemaDrift.run(manifest, createDoctorContext(manifest, { cwd: process.cwd() }))).to.deep.equal([]);
+  });
   it('is part of the default rules', () => {
     expect(DEFAULT_RULES).to.include(explicitSchemaDrift);
   });

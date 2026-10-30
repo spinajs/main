@@ -151,3 +151,92 @@ describe('deriveSchema id collisions', () => {
     expect(result.diagnostics.filter((d) => d.code === 'SCH005')).to.deep.equal([]);
   });
 });
+
+describe('deriveSchema generic argument names', () => {
+  it('keeps array and tuple arguments apart from their element type', () => {
+    const result = derive('DHolder');
+    expect(result.schema.properties).to.deep.equal({
+      a: ref('Dict_string'),
+      b: ref('Dict_string_Array'),
+      c: ref('Dict_Tuple_string_number'),
+      d: ref('DRec_string'),
+      e: ref('DRec_string_Array'),
+    });
+    expect(result.diagnostics).to.deep.equal([]);
+  });
+});
+
+describe('deriveSchema template literal types', () => {
+  const rows: Array<[string, JsonSchema]> = [
+    ['TPrefix', { type: 'string', pattern: '^native:' }],
+    ['TSuffix', { type: 'string', pattern: '\\.json$' }],
+    ['TInfix', { type: 'string', pattern: '^a.*b.*c$' }],
+    ['TNumber', { type: 'string' }],
+    ['TUpper', { type: 'string' }],
+  ];
+  for (const [name, schema] of rows) {
+    it(`derives ${name} as a string`, () => {
+      const result = derive(name);
+      expect(result.schema).to.deep.equal(schema);
+      expect(result.diagnostics).to.deep.equal([]);
+    });
+  }
+});
+
+describe('deriveSchema recursive aliases', () => {
+  const node = (props: Record<string, JsonSchema>): JsonSchema => ({ type: 'object', properties: props, required: Object.keys(props), additionalProperties: false });
+  const R_FILTER: JsonSchema = {
+    $id: 'fixture/RFilter',
+    oneOf: [
+      node({ op: { const: 'not' }, arg: ref('RFilter') }),
+      node({ op: { const: 'and' }, args: { type: 'array', items: ref('RFilter') } }),
+      node({ op: { const: 'leaf' }, field: { type: 'string' } }),
+    ],
+  };
+  it('hoists a recursive union alias so the recursion closes through $ref', () => {
+    const result = derive('RFilter');
+    expect(result.id).to.equal('fixture/RFilter');
+    expect(result.schema).to.deep.equal(R_FILTER);
+    expect(result.diagnostics).to.deep.equal([]);
+  });
+  it('references the hoisted alias from every use and derives it once', () => {
+    const result = derive('RHolder');
+    expect(result.schema.properties).to.deep.equal({ filter: ref('RFilter'), again: ref('RFilter') });
+    expect(result.registry.get('fixture/RFilter')).to.deep.equal(R_FILTER);
+    expect(result.diagnostics).to.deep.equal([]);
+  });
+  const LEAF: JsonSchema = node({ op: { const: 'leaf' }, field: { type: 'string' } });
+  it('closes an optional self-reference through $ref', () => {
+    const result = derive('OFilter');
+    expect(result.schema).to.deep.equal({
+      $id: 'fixture/OFilter',
+      oneOf: [{ type: 'object', properties: { op: { const: 'not' }, arg: ref('OFilter') }, required: ['op'], additionalProperties: false }, LEAF],
+    });
+    expect(result.diagnostics).to.deep.equal([]);
+  });
+  it('closes a nullable self-reference through $ref', () => {
+    const result = derive('NFilter');
+    expect(result.schema).to.deep.equal({
+      $id: 'fixture/NFilter',
+      oneOf: [node({ op: { const: 'not' }, arg: { anyOf: [ref('NFilter'), { type: 'null' }] } }), LEAF],
+    });
+    expect(result.diagnostics).to.deep.equal([]);
+  });
+  it('references a hoisted alias from its optional and nullable uses', () => {
+    const result = derive('OHolder');
+    expect(result.schema.properties).to.deep.equal({ filter: ref('OFilter'), maybe: ref('OFilter'), nullable: { anyOf: [ref('NFilter'), { type: 'null' }] } });
+    expect(result.diagnostics).to.deep.equal([]);
+  });
+  it('keeps a non-recursive union alias inline', () => {
+    expect(derive('UMixed').id).to.equal(undefined);
+    expect(derive('Shape').id).to.equal(undefined);
+  });
+});
+
+describe('deriveSchema class members', () => {
+  it('keeps public instance data members only', () => {
+    const result = derive('CVisibility');
+    expect(result.schema).to.deep.equal({ $id: 'fixture/CVisibility', type: 'object', properties: { a: { type: 'string' } }, required: ['a'], additionalProperties: false });
+    expect(result.diagnostics).to.deep.equal([]);
+  });
+});

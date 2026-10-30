@@ -2,11 +2,13 @@ import ts from 'typescript';
 import type { Diagnostic, SourceRef } from '@spinajs/manifest';
 import { arrayType, tupleType } from './handlers/array.js';
 import { enumType } from './handlers/enum.js';
+import { modelDataType, modelType } from './handlers/model.js';
 import { objectType, setPropertyConstraints } from './handlers/object.js';
 import { primitive } from './handlers/primitive.js';
 import { jsdocConstraints } from './jsdoc.js';
-import { explicitSchema } from './explicit.js';
-import { hoistedId } from './naming.js';
+import { explicitSchema, type ExplicitSchema } from './explicit.js';
+import { aliasName, hoistedId } from './naming.js';
+import { addsNull, nullableAliasOf } from './nullable-alias.js';
 import { wellKnown } from './wellknown.js';
 import { intersectionType, unionType } from './handlers/union.js';
 
@@ -38,6 +40,9 @@ export interface DeriveContext {
   diagnostics: Diagnostic[];
   seen: Map<ts.Type, string>;
   owners: Map<string, ts.Type>;
+  /** Union and intersection aliases being derived on the current path, and the ones found to refer to themselves. */
+  aliasStack: Set<ts.Type>;
+  recursiveAliases: Set<ts.Type>;
   depth: number;
 }
 
@@ -45,20 +50,20 @@ export type TypeHandler = (ctx: DeriveContext, type: ts.Type) => JsonSchema | un
 
 let handlerList: TypeHandler[] | undefined;
 
-/** Built on first use: the handler modules import this one, so a top-level list would hit a TDZ when one of them loads first. Order matters (enum before primitive, well-known before object). */
+/** Built on first use: the handler modules import this one, so a top-level list would hit a TDZ when one of them loads first. Order matters (enum before primitive, model data before intersection, well-known and model before object). */
 export function handlers(): TypeHandler[] {
   if (!handlerList) setPropertyConstraints(jsdocConstraints);
-  handlerList ??= [enumType, primitive, wellKnown, arrayType, tupleType, unionType, intersectionType, objectType];
+  handlerList ??= [enumType, primitive, wellKnown, modelDataType, arrayType, tupleType, unionType, intersectionType, modelType, objectType];
   return handlerList;
 }
 
-export function diagnose(ctx: DeriveContext, code: 'SCH001' | 'SCH002' | 'SCH005', severity: Diagnostic['severity'], message: string): void {
+export function diagnose(ctx: DeriveContext, code: 'SCH001' | 'SCH002' | 'SCH005' | 'SCH006', severity: Diagnostic['severity'], message: string): void {
   const owner = ctx.options.foreignOwner?.(ctx.node);
   ctx.diagnostics.push({ code, severity, message: owner ? `${message} (declared in ${owner})` : message, source: ctx.options.sourceRef?.(ctx.node) });
 }
 
 export function deriveSchema(checker: ts.TypeChecker, type: ts.Type, node: ts.Node, options: DeriveOptions, registry: Map<string, JsonSchema>): DeriveResult {
-  const ctx: DeriveContext = { checker, node, options, registry, diagnostics: [], seen: new Map(), owners: options.owners ?? new Map(), depth: 0 };
+  const ctx: DeriveContext = { checker, node, options, registry, diagnostics: [], seen: new Map(), owners: options.owners ?? new Map(), aliasStack: new Set(), recursiveAliases: new Set(), depth: 0 };
   const schema = deriveType(ctx, type);
   const id = typeof schema.$ref === 'string' && registry.has(schema.$ref) ? schema.$ref : undefined;
   return { schema: (id && registry.get(id)) || schema, id, diagnostics: ctx.diagnostics };
@@ -71,7 +76,7 @@ export function deriveType(ctx: DeriveContext, type: ts.Type): JsonSchema {
   }
   const inner: DeriveContext = { ...ctx, depth: ctx.depth + 1 };
   const hoisted = hoistedId(inner, type);
-  if (!hoisted) return deriveBody(inner, type);
+  if (!hoisted) return deriveAlias(inner, type);
 
   const explicit = explicitSchema(inner, type);
   const id = explicit?.id ?? hoisted;
@@ -84,10 +89,64 @@ export function deriveType(ctx: DeriveContext, type: ts.Type): JsonSchema {
     }
     inner.registry.set(id, { $id: id });
     const derived = deriveBody(inner, type);
-    if (!explicit) inner.registry.set(id, { $id: id, ...derived });
-    else inner.registry.set(id, { ...explicit.schema, $id: id, 'x-derived': derived });
+    inner.registry.set(id, publishedBody(inner, id, type, explicit, derived));
   }
   return { $ref: id };
+}
+
+/** A partly evaluated explicit schema would publish a truncated contract, so the derived one stands in for it, marked partial. */
+function publishedBody(ctx: DeriveContext, id: string, type: ts.Type, explicit: ExplicitSchema | undefined, derived: JsonSchema): JsonSchema {
+  if (!explicit) return { $id: id, ...derived };
+  if (!explicit.unresolved.length) return { ...explicit.schema, $id: id, 'x-derived': derived };
+  const unresolved = explicit.unresolved.map((node) => shortText(node)).join(', ');
+  const name = ctx.checker.typeToString(type);
+  diagnose({ ...ctx, node: explicit.unresolved[0] }, 'SCH006', 'warning', `explicit @Schema of ${name} cannot be evaluated at ${unresolved}; the schema derived from the class is published instead, marked x-explicit: partial`);
+  const { title, description } = explicit.schema;
+  return { $id: id, ...derived, ...(title !== undefined && { title }), ...(description !== undefined && { description }), 'x-explicit': 'partial' };
+}
+
+function shortText(node: ts.Node): string {
+  const text = node.getText().replace(/\s+/g, ' ');
+  return text.length > 60 ? `${text.slice(0, 57)}...` : text;
+}
+
+/** Inlined unless it refers to itself; a recursive alias is hoisted so the recursion ends in a `$ref`, not at the depth limit. */
+function deriveAlias(ctx: DeriveContext, type: ts.Type): JsonSchema {
+  const nullable = nullableAliasOf(ctx, type);
+  if (nullable && type.isUnion() && isRecursiveAlias(ctx, nullable)) {
+    const ref = deriveAlias(ctx, nullable);
+    return addsNull(type, nullable) ? { anyOf: [ref, { type: 'null' }] } : ref;
+  }
+  const name = aliasName(ctx.checker, type);
+  if (!name) return deriveBody(ctx, type);
+  const id = ctx.options.idPrefix + name;
+  if (ctx.owners.get(id) === type && ctx.registry.has(id)) return { $ref: id };
+  if (ctx.aliasStack.has(type)) {
+    ctx.recursiveAliases.add(type);
+    return { $ref: id };
+  }
+  ctx.aliasStack.add(type);
+  const body = deriveBody(ctx, type);
+  ctx.aliasStack.delete(type);
+  if (!ctx.recursiveAliases.has(type)) return body;
+  const owner = ctx.owners.get(id);
+  if (owner && owner !== type) {
+    diagnose(ctx, 'SCH005', 'warning', `schema id ${id} is produced by two different types: ${describeType(ctx, owner)} and ${describeType(ctx, type)}`);
+    return { $ref: id };
+  }
+  ctx.owners.set(id, type);
+  ctx.registry.set(id, { $id: id, ...body });
+  return { $ref: id };
+}
+
+/** A non-recursive alias keeps its inline shape under `| null`, so recursion is probed on a throwaway registry first. */
+function isRecursiveAlias(ctx: DeriveContext, alias: ts.Type): boolean {
+  if (ctx.aliasStack.has(alias) || ctx.recursiveAliases.has(alias)) return true;
+  const name = aliasName(ctx.checker, alias);
+  if (name && ctx.owners.get(ctx.options.idPrefix + name) === alias) return true;
+  const probe: DeriveContext = { ...ctx, registry: new Map(ctx.registry), diagnostics: [], owners: new Map(ctx.owners), recursiveAliases: new Set() };
+  deriveAlias(probe, alias);
+  return probe.recursiveAliases.has(alias);
 }
 
 function bodyOf(schema: JsonSchema | undefined): string {

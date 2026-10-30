@@ -20,6 +20,8 @@ const BUILTIN_SCHEMAS: Record<string, unknown> = {
   PKey: { type: 'number', minimum: 0 },
   Uuid: { type: 'string', minLength: 36, maxLength: 36, pattern: '^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$' },
 };
+// Values the framework injects (or binary uploads): their types are not wire input, so nothing is derived from them.
+const UNDERIVED_KINDS = new Set(['FromFile', 'Req', 'Res', 'FromDi']);
 const OPTIONS_ARG_INDEX: Record<string, number> = { Query: 1, Param: 1, Header: 2, FormField: 1, Body: 0, File: 0, Files: 0, Form: 0, JsonFile: 0, CsvFile: 0, FromXml: 0, Model: 0, FromModel: 0, AsModel: 0 };
 
 type NamedClass = ts.ClassDeclaration & { name: ts.Identifier };
@@ -52,7 +54,7 @@ function paramOf(p: ts.ParameterDeclaration, index: number, owner: string, ctx: 
   const kind = PARAM_KINDS[dec.name];
   const nonNull = ctx.checker.getNonNullableType(type);
   return {
-    index, name, kind, runtimeType: kind === 'FromFile' ? ctx.plainTypeRef(nonNull) : ctx.typeRef(nonNull, p, `${owner.replace('.', '_')}_${name}`),
+    index, name, kind, runtimeType: UNDERIVED_KINDS.has(kind) ? ctx.plainTypeRef(nonNull) : ctx.typeRef(nonNull, p, `${owner.replace('.', '_')}_${name}`),
     required: options?.required === true || isRequired(p, type),
     ...(options !== undefined ? { options } : {}), ...(schemaId ? { schema: schemaId } : {}),
   };

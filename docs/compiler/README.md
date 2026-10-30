@@ -88,6 +88,22 @@ A package that wants to take part in an app manifest ships its fragment and poin
 
 A service, value or controller that is registered conditionally carries a `condition`. A registration guarded by a `@Config` property or a `config.get(...)` check becomes `{ kind: 'config', path, expected? }`. Anything the analyzer cannot decide (loops, arbitrary expressions, registration inside `bootstrap()` without a guard) becomes `{ kind: 'dynamic', reason }` with a `CMP003` diagnostic. Such entries are kept, never dropped.
 
+## Schema derivation
+
+With `schemaDerivation` on (the default), every route parameter and response, socket payload and result, queue message and model column gets a JSON Schema (draft-07) derived from its TypeScript type. Named classes, interfaces and enums are hoisted under `spinajs/<package>/<Name>` and referenced by `$ref`; anonymous types are inlined. These rules decide what is derived and how:
+
+| Type | Schema |
+| --- | --- |
+| `@Req()`, `@Res()`, `@FromDI()` and file parameters | None. The framework supplies the value, so the parameter keeps only its type text. |
+| `Promise<T>`, `Ok<T>` and the other transparent wrappers | The schema of `T`. A wrapper without a type argument (`Ok`, `Ok<any>`) is bare: type text only, no schema. |
+| A class extending the `@spinajs/http` `Response` | A response wrapper, matched by the declaring package. http's generic responses (`ForbiddenResponse<T>`, ...) unwrap to their first type argument, a non-generic one to its base class argument (`BufferResponse` to `Buffer`). `Response`, `Response<any>` and a route returning a union of responses (`Ok \| Unauthorized`) are bare; document those with `@response` tags. |
+| A class | Its public data members. Private, protected and `#private` fields, methods and function-typed members are left out. |
+| A model (a class extending `@spinajs/orm` `ModelBase`) | Its columns, closed with `additionalProperties: false`. The columns are the ones the manifest `models` section lists: public data members of the class and its bases below `ModelBase`, writable accessors included, get-only accessors and function-typed members left out. A relation (a relation decorator, or a `Relation`/`SingleRelation` type) is optional: `SingleRelation<M>` becomes a `$ref` to `M`, `Relation<M, O>` an array of it, a decorated member typed `M` a `$ref` to `M`. `@Hidden`, `@Virtual`, `@Query` and `@Historical` members are left out. A model read from a declaration file (a dependency's model, such as `User` from `@spinajs/users`), or one extending such a class, derives to an open `{ type: 'object' }` with an `SCH001` info: declaration files carry no decorators, so a column list would publish its `@Hidden` columns. |
+| A type built from a model's members (`Partial<M>`, `Pick<M, K>`, `Omit<M, K>`, `Readonly<M>`, `Required<M>`, `Partial<ModelData<M>>`, an interface extending `M`) | The model rules apply per member, by the class that declares it. A member of a model read from a declaration file makes the whole object an open `{ type: 'object' }` with an `SCH001` info. A member of an in-program model is published only when the model's own schema has it: `@Hidden`, computed and `ModelBase` members are left out, and relations keep their relation schema and are never required. A key-remapping mapped type (`` { [K in keyof M as `get${K}`]: M[K] } ``, `Uppercase` keys) follows the original member under its new name. When a value that depends on the key cannot be traced to the member it reads (a literal key union such as `{ [K in 'Id' \| 'Password']: M[K] }`), the whole object is an open `{ type: 'object' }` with an `SCH001` info. Known limits: `Record<keyof M, V>` publishes every member *name* of `M` (with values of type `V`), and an indexed type the checker has already resolved (`M['Password']`, `Record<'pw', M['Password']>`) is plain `string`, so no member origin is left to check. |
+| `ModelData<M>`, `ModelDataWithRelationData<M>` | The schema of the model `M`, wherever the type appears. |
+| A template literal type | `{ type: 'string' }`. When every placeholder is `${string}`, a `pattern` keeps the fixed text: `` `native:${string}` `` gives `^native:`, `` `${string}.json` `` gives `\.json$`. Other placeholders (`${number}`) give no pattern. `Uppercase<string>` and the other string mappings give a plain string. |
+| A union or intersection alias | Inlined, unless it refers to itself. A recursive alias (`type Filter = { not: Filter } \| ...`) is hoisted under its name, so the recursion ends in a `$ref`. An optional (`arg?: Filter`) or nullable (`arg: Filter \| null`) self-reference closes the same way; `null` adds `anyOf: [{ $ref }, { type: 'null' }]`. |
+
 ## Diagnostics
 
 Every diagnostic has a `code`, a `severity` (`error`, `warning`, `info`), a `message` and, when it points at code, a `source`.
@@ -98,6 +114,25 @@ Every diagnostic has a `code`, a `severity` (`error`, `warning`, `info`), a `mes
 | `CMP002` | info | A `@response` JSDoc tag could not be parsed. |
 | `CMP003` | info | A registration has a dynamic condition. |
 | `CFG010` | warning | A configuration schema is not a literal with `$id` and `$configurationModule`. |
+| `SCH001` | warning / info | A type has no JSON Schema form and is emitted as `{}`: `any`, a function, `symbol`, `never`. Give the member a real type. `unknown`, `object` and an `any` index signature are `info`: the value is accepted as is, which suits an opaque value. A model read from a declaration file is `info` too (see the model row above). A type declared outside the package says where in the message (`declared in X`). |
+| `SCH002` | warning | A type nests deeper than the depth limit (20) and the cut is emitted as `{}`. Usually a framework type reached through a member; a recursive alias no longer causes it. |
+| `SCH003` | warning | An explicit `@Schema` differs from the schema derived from its class (reported by `spinajs doctor`). Align the schema and the class. Entries marked `x-explicit: partial` (see `SCH006`) are skipped. |
+| `SCH005` | warning | Two different types derive to the same schema `$id`. Rename one of them. Generic arguments are part of the id (`Page<Point>` is `Page_Point`; an array argument adds `_Array`, a tuple is `Tuple_A_B`), so two instantiations of one generic never collide. |
+| `SCH006` | warning | An explicit `@Schema` argument cannot be fully evaluated at build time: a spread of a call (`...bodyOf(...)`), a `.map(...)`, a computed key or any other non-literal part. The message names each part. Publishing what was read would document a truncated contract, so the schema derived from the class is published instead, with the explicit `title` and `description` and `'x-explicit': 'partial'`; runtime validation still uses the real `@Schema` object. A partial entry is documentation and typing only: request validation and contract tests must not treat it as authoritative; the runtime `@Schema` object is what validates. Make the argument a literal (or a `const` of one) to publish it. |
+
+Run `node packages/compiler/scripts/report-diagnostics.mjs <packageDir> [--fail-on CODE,...]` to list one package's diagnostics with a count per code and severity. `--fail-on` exits 1 when a listed code occurs as a `warning` or an `error`; `info` never fails it.
+
+### Known findings in the framework packages
+
+The triage of `users-http`, `teams-http` and `authz-http-admin` left these diagnostics open. `teams-http` has none.
+
+| Code | Where | Cause | Fix |
+| --- | --- | --- | --- |
+| `SCH003` | `users-http` `UserMetadataDto` (`src/dto/metadata-dto.ts`) | The schema makes `Value` optional (`required: [Key, Type]`), the class declares it required. The schema types `Type` as `{ type: 'string', enum: [...] }`, the class as a literal union, which the drift rule reads as an enum. | Declare `public Value?: string`. For `Type`, drop `type: 'string'` from the schema (the `enum` alone says the same), or teach the drift rule that a string `enum` matches a literal union. |
+| `SCH003` | `users-http` `arrow.common.banUserDTO` (`BanUserDto`, `Security.ts`) and `arrow.common.updateUserDto` (`UpdateUserDto`, `Users.ts`) | `reauthPassword` is in the schema (the fresh-authentication password) but not on the class. | Declare `public reauthPassword?: string` on both classes. |
+| `SCH006` (was false `SCH003`) | `authz-http-admin` `AuthzAssignmentGrant`, `AuthzAssignmentPatch`, `AuthzLinkCreate`, `AuthzLinkPatch`, `AuthzRuleBody`, `AuthzPolicyBody` (`src/dto`) | Each schema is built at runtime (`{ ...bodyOf(...), description }`, `anyOf: KEYS.map(...)`). The analyzer cannot evaluate those parts, so the manifest publishes the schema derived from each class, marked `x-explicit: partial`, and `SCH003` skips them. | Export the bodies as literal schemas if the published contract must carry their exact constraints (`anyOf`, descriptions per field). |
+| `SCH001` warning | `@spinajs/orm` `MetadataModel.Value` (`orm/src/metadata.ts`), reached through `users-http` `FilterableUserMetadata` | The `Value` accessor is typed `any`. | Type it `unknown` in `@spinajs/orm`. Out of scope for the triage: the type change reaches every metadata consumer. |
+| `SCH001` info | `users-http` (5) and `authz-http-admin` (4) | Opaque by design: `unknown` values (`UserProfile.AdditionalData`, `CreateUserDto.Metadata`, link `attributes`) and models read from `@spinajs/users` declaration files (`User`, `UserMetadataBase`, `FilterableUserMetadata`). | None needed. |
 
 `runDoctor` runs consistency rules over a manifest and is exported from the same package.
 
