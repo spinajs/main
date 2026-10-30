@@ -1,4 +1,5 @@
 import { BooleanValueConverter, DatetimeValueConverter, IValueConverter, TimeValueConverter } from './interfaces.js';
+import { checkPendingProperties } from '@spinajs/configuration';
 import { Configuration, normalizeEnvironment } from '@spinajs/configuration-common';
 import { AsyncService, ClassInfo, Autoinject, Container, Class, DI, IContainer } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
@@ -241,6 +242,8 @@ export class Orm extends AsyncService {
     for (const m of await this.discoverMigrations()) {
       this.registerMigration(m.type, m.file);
     }
+
+    checkPendingProperties(this.Container);
 
     const models = DI.getRegisteredTypes<ModelBase>(MODELS.key);
     if (models) {

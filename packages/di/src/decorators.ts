@@ -364,9 +364,11 @@ export function LazyInject<T>(service?: Class<T> | TypedArray<T> | string, optio
 
 /** What `design:type` would hold for a property in a build without decorator metadata, for a decorator that needs the type after boot. */
 export function declaredPropertyType(owner: Class<unknown>, property: string, container: IContainer = DI.RootContainer): Class<unknown> {
-  const type = container.get(PROPERTY_TYPE_RESOLVER)?.typeOf(owner, property, container)?.type;
+  const resolver = container.get(PROPERTY_TYPE_RESOLVER);
+  const type = resolver?.typeOf(owner, property, container)?.type;
   if (!type) {
-    throw new ResolveException(`cannot read the type of ${owner.name}.${property}: the build emits no decorator metadata; boot from a manifest that records it ( spinajs build )`);
+    const remedy = resolver ? 'boot from a manifest that records it ( spinajs build )' : 'nothing reads a manifest before Configuration: resolve Configuration first';
+    throw new ResolveException(`cannot read the type of ${owner.name}.${property}: the build emits no decorator metadata; ${remedy}`);
   }
   return type;
 }

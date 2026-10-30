@@ -1,7 +1,7 @@
 import _ from 'lodash';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { ConfigPath, ConfigPaths, Configuration, IConfigEntryOptions, CONFIGURATION_PROPERTY } from '@spinajs/configuration-common';
-import { AddDependencyForProperty, Class, Container, DI, IContainer, IInjectDescriptor, IMappableService, IToInject, isFactory, isPromise, ServiceNotFound } from '@spinajs/di';
+import { AddDependencyForProperty, Class, Container, DI, IContainer, IInjectDescriptor, IMappableService, IToInject, isFactory, isPromise, notePendingProperty, ServiceNotFound } from '@spinajs/di';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { InternalLogger } from '@spinajs/internal-logger';
 
@@ -407,6 +407,7 @@ export function AutoinjectService(path: string, type?: Class<unknown>, options?:
       },
     });
 
+    if (!declared) notePendingProperty(target.constructor as Class<unknown>, String(propertyKey));
     descriptor.inject.push(declared ? injection(declared) : { ...injection(Object), pendingType: { property: propertyKey, bind: injection } });
   });
 }

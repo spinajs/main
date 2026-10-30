@@ -241,6 +241,12 @@ describe('property types from the manifest', () => {
       }
     });
 
+    it('lists @AutoinjectService properties too', async () => {
+      class Picked {}
+      (AutoinjectService('app.db') as PropertyDecorator)(Picked.prototype, 'db');
+      await expect(boot(manifestOf({}), 'require')).to.be.rejectedWith(/Picked\.db/);
+    });
+
     it('stays out of the way in off mode', async () => {
       await boot(manifestOf({}), 'off');
     });

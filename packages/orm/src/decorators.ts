@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { Int64Mode, Int64ValueConverter, JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
-import { Constructor, DI, IContainer, declaredPropertyType, getInheritedDescriptor } from '@spinajs/di';
+import { Constructor, DI, IContainer, declaredPropertyType, getInheritedDescriptor, notePendingProperty } from '@spinajs/di';
 import { IModelDescriptor, IMigrationDescriptor, IMigrationOptions, RelationType, IRelationDescriptor, IDiscriminationEntry, BooleanValueConverter, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder, IColumnDescriptor, IPrimaryKeyOptions, OrphanPolicy } from './interfaces.js';
 import 'reflect-metadata';
 import { ModelBase } from './model.js';
@@ -85,7 +85,15 @@ type RelationConstructor = Constructor<Relation<ModelBase<unknown>, ModelBase<un
  */
 function _declaredType<T>(target: any, propertyKey: string): () => T {
   const type = Reflect.getMetadata('design:type', target.prototype, propertyKey) as T | undefined;
+  if (!type) notePendingProperty(target, propertyKey);
   return () => type ?? (declaredPropertyType(target, propertyKey) as T);
+}
+
+/** The relation class of a list: the one the options name, else what the property declares, through `factory`. */
+function _relationClass(type: RelationConstructor | undefined, factory: typeof ORM_RELATION_HAS_MANY_FACTORY | typeof ORM_RELATION_HAS_MANY_TO_MANY_FACTORY, target: any, propertyKey: string): RelationConstructor | (() => RelationConstructor) {
+  if (type) return type;
+  const declared = _declaredType<RelationConstructor>(target, propertyKey);
+  return () => DI.resolve(factory, [declared()]) as RelationConstructor;
 }
 
 function _getMetadataFrom(target: any) {
@@ -485,7 +493,7 @@ export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignK
 
 export function Virtual(virtualRelation?: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>, typeof ModelBase<ModelBase<unknown>>>>) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    const declared = _declaredType<RelationConstructor>(target, propertyKey);
+    const declared = virtualRelation ? () => virtualRelation : _declaredType<RelationConstructor>(target, propertyKey);
 
     model.Relations.set(propertyKey, {
       Name: propertyKey,
@@ -500,7 +508,7 @@ export function Virtual(virtualRelation?: Constructor<Relation<ModelBase<unknown
       Recursive: false,
       // A getter, not a thunk like @HasMany's: VirtualRelationMiddleware resolves RelationClass directly.
       get RelationClass() {
-        return virtualRelation ?? declared();
+        return declared();
       },
     });
   });
@@ -642,8 +650,6 @@ export interface IHasManyDecoratorOptions extends IRelationDecoratorOptions {
  */
 export function HasMany(targetModel: Constructor<ModelBase> | string, options?: IHasManyDecoratorOptions) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    const declared = _declaredType<RelationConstructor>(target, propertyKey);
-
     model.Relations.set(propertyKey, {
       Name: propertyKey,
       Type: RelationType.Many,
@@ -655,7 +661,7 @@ export function HasMany(targetModel: Constructor<ModelBase> | string, options?: 
       Recursive: false,
       Orphan: options?.orphan,
       Factory: options?.factory ? options.factory : undefined,
-      RelationClass: options?.type ? options.type : () => DI.resolve(ORM_RELATION_HAS_MANY_FACTORY, [declared()]),
+      RelationClass: _relationClass(options?.type, ORM_RELATION_HAS_MANY_FACTORY, target, propertyKey),
     });
   });
 }
@@ -683,7 +689,6 @@ export function Historical(targetModel: Constructor<ModelBase>) {
  */
 export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel: Constructor<ModelBase> | string, options?: IHasManyToManyDecoratorOptions) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    const declared = _declaredType<RelationConstructor>(target, propertyKey);
     const descriptor: IRelationDescriptor = {
       Name: propertyKey,
       Recursive: false,
@@ -699,7 +704,7 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
       // JunctionModelTargetModelFKey_Name: options?.junctionModelTargetPk ?? `${targetModelDescriptor.Name.toLowerCase()}_id`,
       JunctionModelTargetModelFKey_Name: '',
       JunctionModelSourceModelFKey_Name: options?.junctionModelSourcePk ?? `${model.Name.toLowerCase()}_id`,
-      RelationClass: options?.type ? options.type : () => DI.resolve(ORM_RELATION_HAS_MANY_TO_MANY_FACTORY, [declared()]),
+      RelationClass: _relationClass(options?.type, ORM_RELATION_HAS_MANY_TO_MANY_FACTORY, target, propertyKey),
       Factory: options ? options.factory : undefined,
       JoinMode: options ? options.joinMode : undefined,
     };

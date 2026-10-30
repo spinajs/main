@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { DI, PROPERTY_TYPE_RESOLVER, ResolveException, type Class, type IPropertyTypeResolver } from '@spinajs/di';
+import { DI, forgetPendingProperties, pendingProperties, PROPERTY_TYPE_RESOLVER, ResolveException, type Class, type IPropertyTypeResolver } from '@spinajs/di';
 import { Archived, Bool, CreatedAt, DateTime, HasMany, HasManyToMany, JunctionTable, ModelBase, OneToManyRelationList, ManyToManyRelationList, Primary, Relation, Set as SetColumn, SoftDelete, UpdatedAt, Virtual, extractModelDescriptor } from '../src/index.js';
 
 // Applied by hand: TypeScript emits `design:type` only for decorators it applies itself, so these have no metadata.
@@ -34,6 +34,9 @@ decorate(HasMany(Target), Related.prototype, 'Custom');
 decorate(HasManyToMany(Junction, Target), Related.prototype, 'Linked');
 decorate(Virtual(), Related.prototype, 'Named');
 decorate(JunctionTable(), Related.prototype, 'Row');
+
+// Every suite in this process boots: the classes above are declared for this suite alone.
+forgetPendingProperties();
 
 const DECLARED: Record<string, Class<unknown>> = { Plain: Relation, Custom: CustomList, Linked: Relation, Named: VirtualList, Row: Junction };
 
@@ -78,6 +81,31 @@ describe('model decorators without decorator metadata', () => {
 
   it('give @JunctionTable the class the property declares', () => {
     withResolver(declared, () => expect(extractModelDescriptor(Related)!.JunctionModelProperties[0].Model).to.equal(Junction));
+  });
+
+  it('report what only the manifest can answer, so a boot can check it', () => {
+    class Late extends ModelBase {}
+    decorate(Primary(), Late.prototype, 'Id');
+    decorate(HasMany(Target), Late.prototype, 'Pets');
+    decorate(HasManyToMany(Junction, Target), Late.prototype, 'Tags');
+    decorate(Virtual(), Late.prototype, 'Names');
+    decorate(JunctionTable(), Late.prototype, 'Row');
+    try {
+      expect(pendingProperties().filter((p) => p.owner === Late).map((p) => p.property)).to.deep.equal(['Pets', 'Tags', 'Names', 'Row']);
+    } finally {
+      forgetPendingProperties(Late);
+    }
+  });
+
+  it('do not report a relation the decorator names the class of', () => {
+    class Named extends ModelBase {}
+    decorate(Primary(), Named.prototype, 'Id');
+    decorate(Virtual(CustomList), Named.prototype, 'Names');
+    expect(pendingProperties().filter((p) => p.owner === Named)).to.deep.equal([]);
+  });
+
+  it('say to resolve Configuration first when no resolver is registered', () => {
+    expect(() => relationClass('Plain')).to.throw(ResolveException, /Related\.Plain.*resolve Configuration first/);
   });
 
   it('throw ResolveException naming the class and the property when nothing declares the type', () => {
