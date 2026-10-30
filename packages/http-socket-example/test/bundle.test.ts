@@ -10,7 +10,7 @@ const PACKAGE = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BOOT_TIMEOUT_MS = 30_000;
 
 function listen(child: ChildProcess): Promise<string> {
-  return new Promise((resolveUrl, reject) => {
+  return new Promise((resolve, reject) => {
     let out = '';
     const timer = setTimeout(() => reject(new Error(`bundle did not start in ${BOOT_TIMEOUT_MS} ms:\n${out}`)), BOOT_TIMEOUT_MS);
     const onData = (chunk: Buffer) => {
@@ -18,11 +18,11 @@ function listen(child: ChildProcess): Promise<string> {
       const match = /listening (http:\/\/\S+)/.exec(out);
       if (match) {
         clearTimeout(timer);
-        resolveUrl(match[1]!);
+        resolve(match[1]);
       }
     };
-    child.stdout!.on('data', onData);
-    child.stderr!.on('data', (c: Buffer) => (out += c.toString()));
+    child.stdout.on('data', onData);
+    child.stderr.on('data', (c: Buffer) => (out += c.toString()));
     child.once('exit', (code) => {
       clearTimeout(timer);
       reject(new Error(`bundle exited with ${code} before listening:\n${out}`));
