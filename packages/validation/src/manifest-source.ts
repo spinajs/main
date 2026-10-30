@@ -20,7 +20,8 @@ const NAMED_SCHEMAS = new Set(['properties', 'patternProperties', '$defs', 'defi
 
 const isObject = (value: unknown): value is Json => typeof value === 'object' && value !== null && !Array.isArray(value);
 const isPartial = (schema: unknown): boolean => isObject(schema) && schema['x-explicit'] === 'partial';
-const isClosedObject = (schema: Json): boolean => schema.additionalProperties === false && isObject(schema.properties) && !schema.allOf && !schema.anyOf && !schema.oneOf;
+// An `allOf` node with its own `additionalProperties: false` accepts only its own `properties`, as a prepared intersection does.
+const isClosedObject = (schema: Json): boolean => schema.additionalProperties === false && isObject(schema.properties) && !schema.anyOf && !schema.oneOf;
 
 function opened(schema: Json): Json {
   const copy = { ...schema };

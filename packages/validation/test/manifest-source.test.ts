@@ -51,6 +51,8 @@ const SCHEMAS = {
   'spinajs/app/Both': { allOf: [{ $ref: 'spinajs/app/Named' }, { $ref: 'spinajs/app/Counted' }] },
   'spinajs/app/NamedAndAnything': { allOf: [{ $ref: 'spinajs/app/Named' }, { type: 'object' }] },
   'spinajs/app/Inline': { allOf: [closed({ a: { type: 'string' } }), closed({ b: { type: 'number' } })] },
+  'spinajs/app/NestedRef': { allOf: [{ $ref: 'spinajs/app/Both' }, closed({ c: { type: 'boolean' } })] },
+  'spinajs/app/NestedInline': { allOf: [{ allOf: [closed({ a: { type: 'string' } }), closed({ b: { type: 'number' } })] }, closed({ c: { type: 'boolean' } })] },
   'spinajs/app/Partial': { ...closed({ name: { type: 'string' } }), 'x-explicit': 'partial' },
   'spinajs/app/Envelope': closed({ item: { $ref: 'spinajs/app/Partial' }, inner: { $ref: 'spinajs/app/Both' } }, ['item']),
   'spinajs/app/User': { type: 'object' },
@@ -127,6 +129,15 @@ describe('manifest schemas', function () {
       expect(() => body('spinajs/app/Both')({ name: 'a', count: 1, extra: true })).to.throw(ValidationFailed);
       expect(() => body('spinajs/app/Inline')({ a: 'x', b: 1 })).to.not.throw();
       expect(() => body('spinajs/app/Envelope')({ item: {}, inner: { name: 'a', count: 1 } })).to.not.throw();
+    });
+
+    it('treats a nested intersection of closed objects as one closed object', () => {
+      for (const id of ['spinajs/app/NestedRef', 'spinajs/app/NestedInline']) {
+        const valid = id === 'spinajs/app/NestedRef' ? { name: 'a', count: 1, c: true } : { a: 'x', b: 1, c: true };
+        expect(() => body(id)(valid), id).to.not.throw();
+        expect(() => body(id)({ ...valid, extra: true }), id).to.throw(ValidationFailed);
+        expect(() => body(id)({ ...valid, c: undefined }), id).to.throw(ValidationFailed);
+      }
     });
 
     it('leaves an intersection with an open member open', () => {
