@@ -24,11 +24,12 @@ The `system.manifest` configuration section (`path`, default `app.manifest.json`
 
 ### Single-file bundle
 
-`packages/http-socket-example` shows an esbuild bundle that boots in `require` mode with no installed dependencies (`npm run bundle`, output in `dist/bundle`):
+`packages/http-socket-example` shows an esbuild bundle that boots in `require` mode with no dependency code installed (only marker files under `node_modules`, below) (`npm run bundle`, output in `dist/bundle`):
 
 - `main.mjs` holds the app and every dependency. It sets `SPINAJS_MANIFEST_ROOT` and `SPINAJS_MANIFEST` to its own directory, so the manifest built from the source tree still verifies.
 - `node_modules/<pkg>/package.json` is only a marker: the manifest runtime locates a listed package by it, and `require` mode fails for a direct dependency it cannot find.
-- Package config files are separate small bundles at `node_modules/<pkg>/<outDir>/config/`, because the configuration source imports them by path.
+- Package config files are separate small bundles at `node_modules/<pkg>/<outDir>/config/`, because the configuration source imports them by path. They are standalone module copies, not part of `main.mjs`: safe while they are plain data, but a config file that imports stateful modules would get its own instance of them.
+- `main.mjs` defaults `SPINAJS_MANIFEST_MODE` to `require`; the DI loader refuses a file under the bundle root that it did not bundle.
 - Controller, socket controller, schedule and migration files the manifest lists are inlined into `main.mjs` and handed to the runtime's import by path through the DI module loader (`__module_loader__`), so they are the same module instances as the app's own imports.
 - `typescript` is replaced by a stub that throws on use: manifest mode does not call it.
 

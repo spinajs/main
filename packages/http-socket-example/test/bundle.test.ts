@@ -51,7 +51,7 @@ describe('single-file bundle', function () {
 
   after(() => rmSync(work, { recursive: true, force: true }));
 
-  it('boots from the manifest in require mode without node_modules dependencies and answers /health', async () => {
+  it('boots from the manifest in require mode with marker-only node_modules (no dependency code) and answers /health', async () => {
     const started = Date.now();
     child = spawn(process.execPath, [join(work, 'main.mjs')], {
       cwd: work,
@@ -72,10 +72,10 @@ describe('single-file bundle', function () {
     const empty = mkdtempSync(join(tmpdir(), 'spinajs-bundle-empty-'));
     try {
       cpSync(join(work, 'main.mjs'), join(empty, 'main.mjs'));
-      child = spawn(process.execPath, [join(empty, 'main.mjs')], { cwd: empty, env: { ...process.env, SPINAJS_MANIFEST_MODE: 'require', PORT: '0' } });
+      child = spawn(process.execPath, [join(empty, 'main.mjs')], { cwd: empty, env: { ...process.env, PORT: '0' } });
       await listen(child).then(
         () => expect.fail('the bundle booted without a manifest'),
-        (err: Error) => expect(err.message).to.match(/manifest/i),
+        (err: Error) => expect(err.message).to.match(/ManifestMissing: system\.manifest\.mode is 'require' but .*app\.manifest\.json does not exist/),
       );
     } finally {
       rmSync(empty, { recursive: true, force: true });

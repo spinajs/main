@@ -52,9 +52,14 @@ async function main() {
 
   const { manifest } = await buildAppManifest({ tsconfig: join(PACKAGE, 'tsconfig.build.json'), appRoot: PACKAGE, out: join(OUT, 'app.manifest.json'), schemaDerivation: true });
 
-  const configEntries = [];
+  // The manifest runtime locates a listed package by its package.json and a direct dependency must be found, so the
+  // markers have to exist before any path is resolved against the bundle root below.
   for (const pkg of manifest.packages) {
     writeFileSync(join(prepared(join(OUT, 'node_modules', pkg.name)), 'package.json'), JSON.stringify({ name: pkg.name, version: pkg.version, type: 'module' }));
+  }
+
+  const configEntries = [];
+  for (const pkg of manifest.packages) {
     for (const file of pkg.configFiles ?? []) {
       const source = manifestFileFor(entryOf(pkg.name, pkg.outDir, file), manifest, PACKAGE);
       configEntries.push({ in: source, out: join('node_modules', pkg.name, pkg.outDir, file.replace(/\.[mc]?js$/, '')) });
@@ -62,14 +67,16 @@ async function main() {
   }
   writeFileSync(join(OUT, 'package.json'), JSON.stringify({ name: manifest.app.name, version: manifest.app.version, type: 'module' }));
 
-  // Package configs are plain data: a standalone copy of each is safe, and the loader seam below does not cover them.
+  // Package configs are separate module copies beside the bundle, not part of main.mjs: safe only while they are plain
+  // data. A config file that imports stateful modules would get its own instance of them.
   await build({ ...COMMON, entryPoints: configEntries, outdir: OUT, outExtension: { '.js': '.js' } });
 
   const files = LOADED_SECTIONS.flatMap((section) => manifest[section]).map((entry) => ({ entry, from: manifestFileFor(entry, manifest, PACKAGE) }));
-  // the keys are bundle-relative paths, as the manifest runtime resolves them once SPINAJS_MANIFEST_ROOT points at the bundle
-  process.env.SPINAJS_MANIFEST_ROOT = OUT;
-  const listed = files.map(({ entry, from }) => ({ from, key: relative(OUT, manifestFileFor(entry, manifest, OUT)).split(sep).join('/') }));
-  delete process.env.SPINAJS_MANIFEST_ROOT;
+  // bundle-relative keys, resolved against the bundle root without touching the environment
+  const rebased = { ...manifest, app: { ...manifest.app, root: OUT } };
+  const keyOf = (file) => relative(OUT, file).split(sep).join('/');
+  const listed = files.map(({ entry, from }) => ({ from, key: keyOf(manifestFileFor(entry, rebased, OUT)) }));
+  const onDisk = configEntries.map((c) => `${c.out.split(sep).join('/')}.js`);
   const unique = [...new Map(listed.map((l) => [l.key, l])).values()];
 
   const contents = `
@@ -82,11 +89,16 @@ import { startBundle } from ${JSON.stringify(join(PACKAGE, 'lib', 'bundle.js').s
 const root = dirname(fileURLToPath(import.meta.url));
 process.env.SPINAJS_MANIFEST_ROOT ??= root;
 process.env.SPINAJS_MANIFEST ??= join(root, 'app.manifest.json');
+process.env.SPINAJS_MANIFEST_MODE ??= 'require';
 
+const onDisk = new Set(${JSON.stringify(onDisk)});
 const listed = { ${unique.map((l, i) => `${JSON.stringify(l.key)}: listed${i}`).join(', ')} };
 DI.register({
   async load(file) {
-    const found = listed[relative(root, file).split(sep).join('/')];
+    const key = relative(root, file).split(sep).join('/');
+    const found = listed[key];
+    // a file under the root that is neither inlined nor a bundled config would load as a second module instance
+    if (!found && !key.startsWith('..') && !onDisk.has(key)) throw new Error(\`\${file} is not part of this bundle\`);
     const loaded = found ?? (await import(pathToFileURL(file).href));
     return loaded.default ?? loaded;
   },
