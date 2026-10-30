@@ -26,4 +26,12 @@ describe('DI001 unresolved-injection', () => {
     });
     expect(unresolvedInjection.run(m, ctx)).to.deep.equal([]);
   });
+
+  it('treats container-provided tokens and empty array injections as resolvable', () => {
+    const inject = (token: string, array = false) => ({ property: token, token, optional: false, array });
+    const m = fixture({
+      services: [service({ className: 'C', propertyInjects: [inject('Container'), inject('Log'), inject('Configuration'), inject('AsyncLocalStorage'), inject('BotVerifier', true)] })],
+    });
+    expect(unresolvedInjection.run(m, ctx)).to.deep.equal([]);
+  });
 });

@@ -36,4 +36,14 @@ describe('CFG001 config-usage-without-schema', () => {
       { code: 'CFG001', severity: 'warning', message: "Config path 'authz.http.typo' is read but no configuration schema declares module 'authz.http'", source: src('src/b.ts', 2) },
     ]);
   });
+
+  it('ignores the roots the configuration fills itself', () => {
+    const m = fixture({
+      configUsages: [
+        { path: 'configuration.isProduction', source: src('src/a.ts') },
+        { path: 'process.env.APP_ENV', source: src('src/b.ts') },
+      ],
+    });
+    expect(configUsageWithoutSchema.run(m, ctx)).to.deep.equal([]);
+  });
 });

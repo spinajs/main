@@ -44,4 +44,14 @@ describe('DI003 async-into-sync', () => {
     });
     expect(asyncIntoSync.run(m, ctx)).to.deep.equal([]);
   });
+
+  it('does not treat @Config injections as async: the configuration is loaded before any service resolves', () => {
+    const m = fixture({
+      services: [
+        service({ className: 'AppConfiguration', async: true, registeredAs: ['Configuration'] }),
+        service({ className: 'Reader', async: false, propertyInjects: [{ property: 'cfg', token: 'Configuration', optional: false, array: false }] }),
+      ],
+    });
+    expect(asyncIntoSync.run(m, ctx)).to.deep.equal([]);
+  });
 });

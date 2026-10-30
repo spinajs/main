@@ -1,9 +1,10 @@
 import type { Diagnostic, Manifest, ServiceEntry } from '@spinajs/manifest';
 import { diagnostic, type DoctorRule } from '../index.js';
+import { AMBIENT_TOKENS } from './unresolved-injection.js';
 
 function asyncProviders(manifest: Manifest): Map<string, ServiceEntry> {
   const out = new Map<string, ServiceEntry>();
-  for (const s of manifest.services) if (s.async) for (const key of s.registeredAs) out.set(key, s);
+  for (const s of manifest.services) if (s.async) for (const key of s.registeredAs) if (!AMBIENT_TOKENS.has(key)) out.set(key, s);
   return out;
 }
 
