@@ -46,7 +46,7 @@ Check these before you set `prefer` or `require` (`off` changes none of them):
 - **Route parameter names come from the manifest.** `ManifestControllerMetadata` answers for every controller the manifest lists, so `typescript` is not loaded to parse controller declarations. In `require`, a controller with a source file that the manifest does not list fails registration with `NoControllerMetadata`; in `prefer` it falls back to the TypeScript cache. See [Controller cache and CLI](../http/21-controller-cache-and-cli.md#metadata-providers).
 - **Request arguments are validated against derived schemas.** An argument without an explicit schema (`route.Schema`, the decorator's, the class `@Schema`) is checked against the schema derived from its TypeScript type: wrong types, literal unions and enums, and `NaN` numbers answer 400, and nested objects and single body fields reject undeclared properties. Constraints written only in a removed `@Schema` (`format`, `minLength`, `pattern`) are not derived; keep the `@Schema` or add JSDoc tags. See [Validation from the manifest](../http/04-route-arguments.md#validation-from-the-manifest).
 - **Query, path and header values are coerced.** Handlers of `@QueryField()`, `@ParamField()`, `@HeadersField()` and object-typed `@Query()` get the derived types instead of strings: `query.exact === 'true'` turns `false`, because `exact` is now the boolean `true`, `?ids=7` becomes `[7]`, and a repeated scalar (`?page=1&page=2`) answers 400.
-- **Decorator metadata becomes optional.** Argument types (`@Body() dto: Dto`, `@Param() id: number`), socket `@Payload` types and the types of `@Autoinject()` / `@LazyInject()` properties that name none come from the manifest (`TypeRef.ref`, `propertyInjects[].tokenRef`) when the build emits no `design:*` metadata. See [Building without decorator metadata](#building-without-decorator-metadata).
+- **Decorator metadata becomes optional.** Argument types (`@Body() dto: Dto`, `@Param() id: number`), socket `@Payload` and `@FromDI()` types and the types of `@Autoinject()` / `@LazyInject()` properties that name none come from the manifest (`TypeRef.ref`, `diArgs`, `classProperties`) when the build emits no `design:*` metadata. See [Building without decorator metadata](#building-without-decorator-metadata).
 - **Undeclared root keys of a whole body are dropped from the argument.** A DTO built from a whole body (`@Body()` as the only body argument, `@BodyField()`) gets only its declared root keys; read others (`reauthPassword`, a CSRF token) from `req.body`, which stays as sent.
 
 ### Runtime modes
@@ -67,10 +67,25 @@ The manifest holds what discovery finds. The app's own classes are all listed (a
 
 ### Building without decorator metadata
 
-An app that boots in `prefer` or `require` can compile with `"emitDecoratorMetadata": false` (`experimentalDecorators` stays on). The compiler records what the metadata would have held: `TypeRef.ref` on route arguments and socket payloads, and `tokenRef` on property injections that name no type (see [Runtime types](../compiler/README.md#runtime-types)). At boot:
+An app that boots in `prefer` or `require` can compile with `"emitDecoratorMetadata": false` (`experimentalDecorators` stays on). Set it in the tsconfig `spinajs build` reads: `classProperties` is recorded only then. The compiler records what the metadata would have held (see [Runtime types](../compiler/README.md#runtime-types)). At boot:
 
-- `@spinajs/http` types each argument whose `RuntimeType` is missing before the routes are built, so validation, the scalar schemas and DTO hydration behave as with metadata. `@spinajs/http-socket` does the same for `@Payload` before the handlers register.
-- `@spinajs/di` records an `@Autoinject()` or `@LazyInject()` property without a type as pending. When the owner is resolved, the container asks the property type resolver that `@spinajs/configuration` registers with the manifest decision; the first resolution of such an owner can be asynchronous, because the class file is imported then.
+- `@spinajs/configuration` imports every class `classProperties` names, at the end of `Configuration.resolve()`, so the first resolve of a sync service stays sync. A class that cannot load fails the boot in `require` and is logged in `prefer`. These imports are the one thing a build without metadata does earlier than a build with it: a class file that resolves `Configuration` with a top-level `await` would wait for itself.
+- `@spinajs/http` types each argument whose `RuntimeType` is missing before the routes are built, so validation, the scalar schemas and DTO hydration behave as with metadata. `@spinajs/http-socket` does the same for `@Payload` and `@FromDI()` before the handlers register. Both fill a copy: the class descriptor stays as decorated, several boots in one process do not share what they filled, and the routes a boot serves are `BaseController.Routes`.
+- A route a controller inherits is looked up along its class chain, in `controllers` and then `controllerBases`. Request validation finds it the same way, with metadata too.
+- `@spinajs/di` records an `@Autoinject()` or `@LazyInject()` property as pending. When the owner is resolved, the container asks the property type resolver that `@spinajs/configuration` registers with the manifest decision, for the type and for whether the property is a list: `@Autoinject(X)` on an array or `Map` property injects the list, as with metadata.
 - `resolveTypeRef(ref, manifest)` imports every referenced file through `manifestFileFor` (root containment), memoised per manifest.
 
-In `off` mode nothing is filled: arguments stay untyped, and a property without a type throws `ResolveException` naming the class and the property. In `require` an argument or payload the manifest cannot type fails the boot; in `prefer` it stays untyped with a warning. A type the manifest cannot reference (`TYP001`, `TYP002`), an `@Autoinject(X)` on an array property, and a socket `@FromDI()` argument still need an explicit type.
+What happens when the manifest has no answer:
+
+| Case | `require` | `prefer` | `off`, or no manifest |
+| --- | --- | --- | --- |
+| A route argument, `@Payload` or `@FromDI()` it cannot type, or whose entry describes another argument | fails the boot | logs a named error, stays untyped | logs a named error, stays untyped (a `@Payload` is read as a plain object) |
+| An `@Autoinject()` / `@LazyInject()` property that names no type | `ResolveException` naming class and property, when the owner is resolved | the same | the same |
+| An `@Autoinject(X)` property the table does not list | `ResolveException` | injects one instance | injects one instance |
+| Two classes of one name, in any packages, that declare the property differently | `ResolveException` | `ResolveException` | |
+
+The runtime knows a class by name alone. Two classes of one name that declare a property alike are fine; rename one otherwise, or pass the type to the decorator.
+
+A property under a decorator of your own that wraps `Autoinject()` is not in the table: the compiler knows `@Autoinject` and `@LazyInject` by name. Models still need decorator metadata: `@CreatedAt`, `@UpdatedAt`, `@SoftDelete`, `@Archived`, `@DateTime`, `@Bool` and `@Set` read it when the class is defined, and so do `@AutoinjectService`, `@HasMany`, `@HasManyToMany`, `@Virtual` and `@JunctionTable`.
+
+`packages/compiler/test/e2e/boot-from-manifest.test.ts` boots `app-basic` compiled with `emitDecoratorMetadata: false` in `require`, in a separate process, and compares what it serves with the build that has metadata.
