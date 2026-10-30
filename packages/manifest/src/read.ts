@@ -17,14 +17,21 @@ export class ManifestValidationError extends Error {
   }
 }
 
-async function load<T>(path: string, validate: (v: unknown) => string[]): Promise<T> {
-  const value = JSON.parse(await readFile(path, 'utf8')) as { manifestVersion?: unknown };
-  if (value?.manifestVersion !== MANIFEST_VERSION) throw new ManifestVersionError(value?.manifestVersion, path);
+function check<T>(value: unknown, file: string, validate: (v: unknown) => string[]): T {
+  const version = (value as { manifestVersion?: unknown } | null)?.manifestVersion;
+  if (version !== MANIFEST_VERSION) throw new ManifestVersionError(version, file);
 
   const errors = validate(value);
-  if (errors.length) throw new ManifestValidationError(errors, path);
+  if (errors.length) throw new ManifestValidationError(errors, file);
   return value as T;
+}
+
+async function load<T>(path: string, validate: (v: unknown) => string[]): Promise<T> {
+  return check<T>(JSON.parse(await readFile(path, 'utf8')), path, validate);
 }
 
 export const readManifest = (path: string): Promise<Manifest> => load<Manifest>(path, validateManifest);
 export const readFragment = (path: string): Promise<ManifestFragment> => load<ManifestFragment>(path, validateFragment);
+
+/** Validates an already parsed manifest; `file` only labels errors. */
+export const readManifestObject = (value: unknown, file = '<manifest>'): Manifest => check<Manifest>(value, file, validateManifest);

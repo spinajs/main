@@ -48,6 +48,12 @@ const config = {
     name: 'spinajs',
     version: '1.0.0',
   },
+  system: {
+    manifest: {
+      path: 'app.manifest.json',
+      mode: 'off',
+    },
+  },
 };
 
 export default config;

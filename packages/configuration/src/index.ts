@@ -8,6 +8,7 @@ export * from './decorators.js';
 export * from './configuration.js';
 export * from './exception.js';
 export * from './schemas.js';
+export * from './schemas/system.js';
 export * from './helpers.js';
 export * from './fp.js';
 export * from './lib-dirs.js';

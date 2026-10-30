@@ -8,5 +8,5 @@
     "moduleResolution": "node16"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../di/tsconfig.build.json" }, { "path": "../configuration/tsconfig.build.json" }, { "path": "../configuration-common/tsconfig.build.json" }]
+  "references": [{ "path": "../di/tsconfig.build.json" }, { "path": "../configuration/tsconfig.build.json" }, { "path": "../configuration-common/tsconfig.build.json" }, { "path": "../manifest/tsconfig.build.json" }]
 }
