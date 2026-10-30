@@ -4,8 +4,9 @@ import * as express from 'express';
 import { ArgHydrator } from './ArgHydrator.js';
 import { ArgInputFilter } from '../arg-input-filter.js';
 import _ from 'lodash';
-import { DataValidator, ValidationFailed } from '@spinajs/validation';
+import { DataValidator, ValidationFailed, type ManifestDataValidator } from '@spinajs/validation';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { derivedValidatorOf } from './manifest-schema.js';
 
 /**
  * Extracts schema from runtime type. Handles TypedArray by extracting
@@ -77,19 +78,8 @@ export abstract class RouteArgs implements IRouteArgs {
     }
 
     let result = null;
-    let schema = null;
     let hydrator = null;
-
-    // first validate route parameter / body params etc
-    if (route.Schema && route.Schema[routeParameter.Name]) {
-      schema = route.Schema[routeParameter.Name];
-    } else if (routeParameter.Schema) {
-      schema = routeParameter.Schema;
-    } else if (routeParameter.RouteParamSchema) {
-      schema = routeParameter.RouteParamSchema;
-    } else {
-      schema = extractSchemaFromRuntimeType(routeParameter.RuntimeType, this.Validator);
-    }
+    const { schema, derived } = this.schemasOf(routeParameter, route);
 
     if (this.isRuntimeType(routeParameter)) {
       result = this.fromRuntimeType(routeParameter, arg);
@@ -98,8 +88,19 @@ export abstract class RouteArgs implements IRouteArgs {
       if (schema && result !== null && result !== undefined) {
         await this.Validator.validateAsync(schema, result);
       }
+      // JSON Schema has no bigint
+      if (derived && result !== null && result !== undefined && typeof result !== 'bigint') {
+        derived(result);
+      }
     } else {
       hydrator = this.getHydrator(routeParameter);
+
+      // A hydrator reads its own wire format, which the schema derived from the hydrated type does not describe.
+      if (derived && !hydrator && arg !== null && arg !== undefined) {
+        arg = this.parseJsonArg(arg, routeParameter);
+        derived(arg);
+      }
+
       result = hydrator ? arg : this.tryExtractObject(arg, routeParameter);
 
       // absent optional params are not validated - validator treats null / undefined data as failure
@@ -113,6 +114,52 @@ export abstract class RouteArgs implements IRouteArgs {
     }
 
     return result;
+  }
+
+  /**
+   * The explicit schema ( `route.Schema`, the decorator's, the class `@Schema` ) wins. Without one, the schema the
+   * manifest derived from the parameter type is checked against the request value ( `derived` ), next to the
+   * framework's default for scalars ( `RouteParamSchema` ).
+   */
+  protected schemasOf(param: IRouteParameter, route: IRoute): { schema: any; derived?: ManifestDataValidator } {
+    if (route.Schema && route.Schema[param.Name]) {
+      return { schema: route.Schema[param.Name] };
+    }
+    if (param.Schema) {
+      return { schema: param.Schema };
+    }
+
+    const classSchema = param.RouteParamSchema ? null : extractSchemaFromRuntimeType(param.RuntimeType, this.Validator);
+    return { schema: param.RouteParamSchema || classSchema, derived: classSchema ? undefined : derivedValidatorOf(param) };
+  }
+
+  /** Checks a whole request part ( `@QueryField()`, `@BodyField()`, ... ) against its derived schema, unless its class has a `@Schema`. */
+  protected checkDerived<T>(value: T, param: IRouteParameter): T {
+    const derived = derivedValidatorOf(param);
+    if (!derived || value === null || value === undefined || extractSchemaFromRuntimeType(param.RuntimeType, this.Validator)) {
+      return value;
+    }
+
+    // Coercion rewrites what it checks; other arguments and middlewares read req.params and req.headers as sent.
+    const checked = _.isPlainObject(value) ? ({ ...value } as T) : value;
+    derived(checked);
+    return checked;
+  }
+
+  /** The value as `tryExtractObject` reads it, before it builds the class: what the client sent, JSON parsed. */
+  protected parseJsonArg(arg: unknown, param: IRouteParameter): unknown {
+    const type = param.RuntimeType as { name?: unknown } | null | undefined;
+    const parsed = type instanceof TypedArray || isClass(type) || type?.name === 'Object' || type?.name === 'Array';
+    if (!parsed || !_.isString(arg)) {
+      return arg;
+    }
+
+    try {
+      return JSON.parse(arg) as unknown;
+    } catch {
+      // The parser message quotes the input.
+      throw new InvalidArgument(`Argument '${param.Name}' is invalid JSON`, param.Name);
+    }
   }
 
   protected async filterInput(arg: unknown, routeParameter: IRouteParameter, route?: IRoute): Promise<unknown> {

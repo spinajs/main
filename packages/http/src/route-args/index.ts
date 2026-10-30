@@ -15,3 +15,4 @@ export * from './RequestFields.js';
 export * from './limit-request-stream.js';
 export * from './RequestStreamArg.js';
 export * from './ContentDigestArg.js';
+export * from './manifest-schema.js';

@@ -14,3 +14,4 @@ export * from './sources.js';
 export * from './validator.js';
 export * from './types.js';
 export * from './standard-schema.js';
+export * from './manifest-source.js';

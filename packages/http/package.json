@@ -52,6 +52,7 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
+    "@spinajs/compiler": "3.0.23",
     "@spinajs/testing": "3.0.23",
     "@types/compression": "^1.7.2",
     "@types/cookie-parser": "^1.4.3",

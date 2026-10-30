@@ -24,6 +24,8 @@ File and form arguments (`@File`, `@Files`, `@CsvFile`, `@JsonFile`, `@Form`, `@
    2. the schema given to the decorator (`@Query(schema)`);
    3. the default for the type: `number` accepts a number or a digit string, `string` has `maxLength: 512`, `boolean` accepts `true`, `false`, `0`, `1`;
    4. the schema `DataValidator.extractSchema()` finds on the runtime type (eg. `@Schema` from `@spinajs/validation`); for `@Type(Array.ofType(X))` an array of `X`'s schema.
+
+   Without 1, 2 and 4, in manifest mode, the schema derived from the TypeScript type is checked too; see [Validation from the manifest](#validation-from-the-manifest).
 4. **Primitive types** (`string`, `number`, `bigint`, `boolean`) are converted first, then validated:
    - `number`: `Number(value)`; `''` becomes `undefined`, `0` stays `0`;
    - `bigint`: `BigInt(value)`; a bad value throws `InvalidArgument` (400);
@@ -39,6 +41,30 @@ File and form arguments (`@File`, `@Files`, `@CsvFile`, `@JsonFile`, `@Form`, `@
 Validation runs after the policies and the route middlewares' `onBefore`, right before the action. A failure throws `ValidationFailed`, which answers 400 unless an [`@OnError`](11-error-handling.md#route-error-handlers) handler with the `'arguments'` stage answers it differently, for example with the uniform 401 of a login route.
 
 A schema whose `$id` starts with a `validation.strict.idPrefixes` entry (by default `authn.` and `authz.`) is validated without type coercion: `{ "login": 123 }` fails a `type: 'string'` field instead of becoming `"123"`. See [Validator options](../validation/02-validator-options.md#strict-schema-ids).
+
+### Validation from the manifest
+
+When the app runs with a manifest (`system.manifest.mode` `prefer` or `require`, decided by the configuration source), an argument without an explicit schema is validated against the JSON Schema the compiler derived from its TypeScript type. A DTO needs no `@Schema` that repeats its class:
+
+```ts
+export class CreateItem {
+  public name: string;
+  public count: number;
+  public tags?: string[];
+}
+
+@Post()
+public create(@Body() item: CreateItem) {} // { "name": "a", "count": "x" } answers 400
+```
+
+- **Precedence.** An explicit schema always wins and the derived one is then not used: `route.Schema[paramName]`, the decorator's schema, the class `@Schema` (a JSON Schema or a Standard Schema). Without one, the derived schema is checked; for `number`, `string` and `boolean` the default schema of the type is checked as well.
+- **Which arguments.** `@Body()`, `@Query()`, `@Param()`, `@Header()`, `@Cookie()`, `@BodyField()`, `@QueryField()`, `@ParamField()` and `@HeadersField()`. Files, forms, models (`@FromModel`, `@AsModel`) and custom arguments are not. A type with a [hydrator](06-argument-hydrators.md) is not, since the hydrator reads its own wire format. Absent optional arguments are not validated, and a non-optional TypeScript parameter does not make an argument required: use `{ required: true }` for that.
+- **What is checked.** The value as the client sent it, JSON-parsed, before `new Dto(value)` builds the instance; for primitives the converted value.
+- **Coercion.** Query, path, header and cookie values arrive as strings, so they are coerced to the derived types (Ajv `coerceTypes: 'array'`): `?page=2` becomes `2`, `?ids=7` becomes `[7]`, and the handler receives the coerced values. A JSON body is never coerced: `{ "count": "2" }` fails a `number` field. A number converted to `NaN` (`?n=abc`) fails.
+- **Closed objects.** Derived object schemas reject undeclared properties. A whole query, path or header object (`@QueryField()`, `@ParamField()`, `@HeadersField()`) accepts keys it does not declare, because other arguments read them too.
+- **Never stricter than the runtime where the compiler could not see it.** A nested class whose explicit `@Schema` the compiler could not evaluate (`x-explicit: 'partial'`) accepts anything, and so does a model from a dependency package (an open object). The intersection `A & B` of two closed objects is checked as one closed object with the properties of both.
+- **Errors.** A failure throws `ValidationFailed`, answered as the usual 400 `application/problem+json`; the errors name the path and the rule, never the value.
+- **Startup.** Every derived schema is compiled once, when the controller registers its routes. One that cannot compile (an unresolved `$ref`) fails the boot in `require` and leaves that argument unchecked, with a warning, in `prefer`. An argument whose index, kind or name disagrees with the manifest (a stale build) is not checked. In `off` mode, or without a manifest, nothing changes.
 
 ### Body size limits
 

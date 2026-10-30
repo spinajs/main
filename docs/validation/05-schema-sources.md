@@ -198,6 +198,16 @@ DI.register(NamedSchemaFiles).as(SchemaSource);
 
 Removing every source makes `DataValidator` fail to resolve with `InvalidOperation`. A project with no schema files keeps `FileSystemSource`: without `system.dirs.schemas` it returns `[]`.
 
+### `ManifestSchemaSource`: the manifest's schemas
+
+With an effective manifest (`system.manifest.mode` `prefer` or `require`), `ManifestSchemaSource` registers every schema of `manifest.schemas` under `manifestSchemaKey(id)` (`https://manifest.spinajs.invalid/<id>`; absolute, so the `$ref`s between them resolve). `x-*` keywords are dropped, an `x-explicit: 'partial'` schema accepts anything, and an intersection of closed objects is checked as one closed object. In `off` mode, or without a manifest, it loads nothing.
+
+```ts
+validator.validate(manifestSchemaKey('spinajs/my-app/CreateItem'), body);
+```
+
+Request validation in `@spinajs/http` and `@spinajs/http-socket` does not go through `DataValidator`: `manifestValidatorOf(manifest).validator(id, { coerce, openRoot })` compiles each schema once per option set on its own Ajv instances, coerces only when asked (query, path, header and cookie values, never a JSON body), and throws `ValidationFailed`. See [Validation from the manifest](../http/04-route-arguments.md#validation-from-the-manifest).
+
 ## Important behaviour
 
 - **Every schema needs `$id`.** It is the registry key; schemas without one are logged and dropped.

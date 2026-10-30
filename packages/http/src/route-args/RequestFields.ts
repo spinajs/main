@@ -13,7 +13,7 @@ export class BodyFieldRouteArgs extends RouteArgs {
   public async extract(callData: IRouteCall,_args : unknown [],  param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
     return {
       CallData: callData,
-      Args: req.body === undefined || req.body === null ? req.body : await this.filterInput(req.body, param, route),
+      Args: req.body === undefined || req.body === null ? req.body : this.checkDerived(await this.filterInput(req.body, param, route), param),
     };
   }
 }
@@ -60,10 +60,10 @@ export class QueryFieldRouteArgs extends RouteArgs {
     return ParameterType.QueryField;
   }
 
-  public async extract(callData: IRouteCall, _args : unknown [], _param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
+  public async extract(callData: IRouteCall, _args : unknown [], param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
     return {
       CallData: callData,
-      Args: req.query,
+      Args: this.checkDerived(req.query, param),
     };
   }
 }
@@ -74,10 +74,10 @@ export class HeadersFieldRouteArgs extends RouteArgs {
     return ParameterType.Headers;
   }
 
-  public async extract(callData: IRouteCall,_args : unknown [],  _param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
+  public async extract(callData: IRouteCall,_args : unknown [],  param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
     return {
       CallData: callData,
-      Args: req.headers,
+      Args: this.checkDerived(req.headers, param),
     };
   }
 }
@@ -88,10 +88,10 @@ export class ParamFieldRouteArgs extends RouteArgs {
     return ParameterType.ParamField;
   }
 
-  public async extract(callData: IRouteCall, _args : unknown [],  _param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
+  public async extract(callData: IRouteCall, _args : unknown [],  param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
     return {
       CallData: callData,
-      Args: req.params,
+      Args: this.checkDerived(req.params, param),
     };
   }
 }

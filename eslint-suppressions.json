@@ -4523,7 +4523,7 @@
       "count": 1
     },
     "no-useless-assignment": {
-      "count": 4
+      "count": 3
     }
   },
   "packages/http/src/route-builder.ts": {

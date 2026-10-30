@@ -11,6 +11,7 @@ import { AuthenticationFailed, UnexpectedServerError } from '@spinajs/exceptions
 import { Log } from '@spinajs/log';
 import { Configuration } from '@spinajs/configuration';
 import { RouteArgs } from './route-args/index.js';
+import { withDerivedValidators, type DerivedArgValidators } from './route-args/manifest-schema.js';
 import { Request as sRequest, Response, IController, IControllerDescriptor, IPolicyDescriptor, IPolicyGroup, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext } from './interfaces.js';
 import { RouteRegistrationException } from './exceptions.js';
 import { markStage } from './errors/on-error.js';
@@ -238,12 +239,13 @@ export function createActionHandler(
   route: IRoute,
   enabledMiddlewares: RouteMiddleware[],
   storage: AsyncLocalStorage<IActionLocalStoregeContext>,
+  derived?: DerivedArgValidators,
 ): Express.RequestHandler {
   const actionHandler = async (req: sRequest, res: Express.Response, next: Express.NextFunction) => {
     try {
       await storage.run(req.storage, async () => {
         markStage(res, 'arguments');
-        const args = (await extractRouteArgs(route, req, res, controller.constructor.name)).concat([req, res, next]);
+        const args = (await extractRouteArgs(route, req, res, controller.constructor.name, derived)).concat([req, res, next]);
 
         let result: unknown;
 
@@ -284,9 +286,13 @@ export function createActionHandler(
 /**
  * Extracts route argument values for an action call. Route-arg handlers are
  * resolved from DI by parameter type and executed in Priority order
- * (higher first).
+ * (higher first). `derived` holds the manifest-derived schema checks of the route's arguments.
  */
-export async function extractRouteArgs(route: IRoute, req: sRequest, res: Express.Response, controllerName: string): Promise<any[]> {
+export function extractRouteArgs(route: IRoute, req: sRequest, res: Express.Response, controllerName: string, derived?: DerivedArgValidators): Promise<any[]> {
+  return withDerivedValidators(derived, () => extractArgs(route, req, res, controllerName));
+}
+
+async function extractArgs(route: IRoute, req: sRequest, res: Express.Response, controllerName: string): Promise<any[]> {
   const callArgs = new Array(route.Parameters.size);
   const argsCache = new Map<ParameterType | string, RouteArgs>();
 
