@@ -353,7 +353,7 @@ describe('SPINAJS_PACKAGE_ROOTS', () => {
 
   it('does not read inherited keys of the map', () => {
     useMap({});
-    expect(isPackageSkipped('constructor', { ...base, packages: [{ ...base.packages[0]!, name: 'constructor' }] }, '/unrelated', 'prefer')).to.equal(true);
+    expect(isPackageSkipped('constructor', { ...base, packages: [{ ...base.packages[0], name: 'constructor' }] }, '/unrelated', 'prefer')).to.equal(true);
   });
 
   it('rejects a map that is not an object of strings', () => {
