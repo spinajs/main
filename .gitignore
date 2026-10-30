@@ -162,6 +162,7 @@ graphify-out/
 !/docs/log-otlp/
 !/docs/log-source-graphana-loki/
 !/docs/manifest/
+!/docs/openapi/
 !/docs/orm/
 !/docs/orm-cli/
 !/docs/orm-http/
