@@ -5,6 +5,11 @@ import { join, normalize, resolve } from 'path';
  * under `node_modules` of WORKSPACE_ROOT_PATH (else the working directory), then one level up for a process that runs
  * from an app or build folder.
  */
+/** Where migrations are scanned when `system.dirs.migrations` is empty: one dir per build layout a project may have. */
+export function defaultMigrationDirs(cwd: string = process.cwd()): string[] {
+  return ['src', 'lib', 'dist', 'build', '.'].map((d) => resolve(normalize(join(cwd, d, 'migrations'))));
+}
+
 export function packageLibDirs(pkg: string, sub: string): string[] {
   const root = process.env.WORKSPACE_ROOT_PATH ?? process.cwd();
   return [resolve(normalize(join(root, 'node_modules', pkg, 'lib', sub))), resolve(normalize(join(root, '../', 'node_modules', pkg, 'lib', sub)))];

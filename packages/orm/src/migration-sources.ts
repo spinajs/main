@@ -1,4 +1,4 @@
-import { effectiveManifestOf } from '@spinajs/configuration';
+import { defaultMigrationDirs, effectiveManifestOf } from '@spinajs/configuration';
 import { Configuration, normalizeEnvironment } from '@spinajs/configuration-common';
 import { AsyncService, Autoinject, Class, ClassInfo, Container, DI, IContainer, Injectable } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
@@ -19,7 +19,7 @@ import { MIGRATIONS } from './tokens.js';
  * itself. One entry per build layout a project might have been compiled to; a migration reachable
  * through more than one resolves to the same class name twice and is deduped by `Orm`.
  */
-export const DEFAULT_MIGRATION_DIRS: string[] = ['src', 'lib', 'dist', 'build', '.'].map((d) => path.resolve(path.normalize(path.join(process.cwd(), d, 'migrations'))));
+export const DEFAULT_MIGRATION_DIRS: string[] = defaultMigrationDirs();
 
 /**
  * `env` ( normalized `process.env.APP_ENV` ) is interpolated straight into a glob pattern in

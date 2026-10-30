@@ -1,4 +1,6 @@
 import { dirname, resolve } from 'node:path';
+import { Configuration, defaultMigrationDirs } from '@spinajs/configuration';
+import { Autoinject } from '@spinajs/di';
 import type { Manifest } from '@spinajs/manifest';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { CliCommand, Command, Option } from '../index.js';
@@ -19,6 +21,10 @@ type Compiler = typeof import('@spinajs/compiler');
 @Option('--no-schemas', false, 'skip schema derivation')
 @Option('--fail-on-warning', false, 'exit with code 1 when the analyzer reports a warning')
 export class Build extends CliCommand {
+  /** Absent only for a command built by hand, which filters nothing. */
+  @Autoinject(Configuration)
+  protected Config?: Configuration;
+
   protected write(text: string): void {
     process.stdout.write(text);
   }
@@ -49,6 +55,7 @@ export class Build extends CliCommand {
       appRoot: dirname(tsconfig),
       out: resolve(options.out),
       schemaDerivation: options.schemas !== false,
+      effectiveDirs: this.effectiveDirs(),
     });
 
     const lines = manifest.diagnostics.map((d) => `${d.severity} ${d.code} ${d.source ? `${d.source.file}:${d.source.line}` : '-'} ${d.message}`);
@@ -56,6 +63,19 @@ export class Build extends CliCommand {
     this.write([...lines, ...this.summaryTable(manifest, counts), `manifest written to ${written}`, ''].join('\n'));
 
     if (counts.error > 0 || (options.failOnWarning === true && counts.warning > 0)) process.exitCode = 1;
+  }
+
+  /**
+   * What discovery scans in this process: the configuration already merged the app's config for this `APP_ENV` and added
+   * the `RunApp` dirs. A scan reads a relative dir from the working directory and takes a single string as well.
+   */
+  private effectiveDirs(): Record<string, string[]> | undefined {
+    if (!this.Config) return undefined;
+    const dirs = this.Config.get<Record<string, unknown>>(['system', 'dirs'], {});
+    const paths = (value: unknown): string[] => [value].flat().filter((d) => typeof d === 'string').map((d) => resolve(d));
+    const effective = Object.fromEntries(Object.entries(dirs).map(([key, value]) => [key, paths(value)]));
+    // FilesystemMigrationSource scans its defaults only while this key is empty: the configured value replaces them
+    return { ...effective, migrations: effective.migrations?.length ? effective.migrations : defaultMigrationDirs() };
   }
 
   private summaryTable(manifest: Manifest, counts: { error: number; warning: number; info: number }): string[] {
