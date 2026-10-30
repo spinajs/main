@@ -13,6 +13,7 @@ npm install --save-dev @spinajs/testing
 | Feature | What it does |
 | --- | --- |
 | [createTestApp](01-create-test-app.md) | Boot a Configuration from an object or a class, run bootstrappers, resolve services, dispose; `useTestApp` for mocha; root and child scopes; configuration helpers. |
+| [Contract tests](02-contract-tests.md) | Validate every JSON response against the manifest's derived schemas; `dispose()` fails on a violation. |
 
 ## Quick start
 

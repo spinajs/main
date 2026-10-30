@@ -65,6 +65,15 @@ export const HTTP_CONFIGURATION_SCHEMA = {
         },
       },
     },
+    contractTesting: {
+      type: 'object',
+      default: {},
+      description: 'Test mode: validates response bodies against the schemas of a registered contract validator (createTestApp contractTesting). Leave off in production.',
+      properties: {
+        enabled: { enum: [true, false], default: false },
+        mode: { enum: ['throw', 'log'], default: 'throw', description: 'throw: a body that breaks its schema answers 500; log: it is only recorded.' },
+      },
+    },
     errors: {
       type: 'object',
       default: {},

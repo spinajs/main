@@ -4,6 +4,8 @@ import { Configuration } from '@spinajs/configuration';
 import { CONFIGURATION_SCHEMA } from '@spinajs/configuration-common';
 import type { IConfigurationSchema } from '@spinajs/configuration-common';
 import { configurationOf } from './configuration-of.js';
+import { installContractTesting } from './contract.js';
+import type { ContractTestingHandle, ContractTestingOptions, ContractViolation } from './contract.js';
 
 export interface TestAppOptions {
   /** Plain config object; replaces FrameworkConfiguration subclassing in tests. Exclusive with `configuration`. */
@@ -27,6 +29,8 @@ export interface TestAppOptions {
    * 0 or Infinity disables it. Keep it below the mocha hook timeout, or the hook fails first and the stuck boot holds the slot.
    */
   bootTimeout?: number;
+  /** Validate every http response against the manifest's derived schemas; `dispose()` rejects when any response broke its contract. Needs the http package. */
+  contractTesting?: boolean | ContractTestingOptions;
   /** Root scope: how this app is named in "still booting" / "already live" errors. */
   name?: string;
 }
@@ -34,6 +38,8 @@ export interface TestAppOptions {
 export interface TestApp {
   readonly container: IContainer;
   readonly config: Configuration;
+  /** Contract violations recorded so far; empty without `contractTesting`. */
+  readonly contractViolations: readonly ContractViolation[];
   resolve<T>(type: Class<T> | string): Promise<T>;
   /** Root scope: restores the root snapshot. Child scope: disposes the child. Idempotent. */
   dispose(): Promise<void>;
@@ -61,6 +67,8 @@ class BootAbandoned extends Error {
   }
 }
 
+const contractOf = (options: TestAppOptions): Promise<ContractTestingHandle | undefined> => (options.contractTesting ? installContractTesting(options.contractTesting) : Promise.resolve(undefined));
+
 function configurationClass(options: TestAppOptions): Class<Configuration> {
   if (options.config && options.configuration) {
     throw new Error('createTestApp: pass either `config` or `configuration`, not both');
@@ -68,7 +76,7 @@ function configurationClass(options: TestAppOptions): Class<Configuration> {
   return options.configuration ?? configurationOf(options.config ?? {}, options.env);
 }
 
-async function boot(container: IContainer, options: TestAppOptions, attempt: BootAttempt): Promise<Configuration> {
+async function boot(container: IContainer, options: TestAppOptions, attempt: BootAttempt, contract: ContractTestingHandle | undefined): Promise<Configuration> {
   // An abandoned boot must not touch root again; checked after every await.
   const alive = (): void => {
     if (attempt.abandoned) {
@@ -81,6 +89,7 @@ async function boot(container: IContainer, options: TestAppOptions, attempt: Boo
     container.register(schema).asValue(CONFIGURATION_SCHEMA.key);
   }
   await options.register?.(container);
+  contract?.register(container);
   alive();
 
   if (options.bootstrap ?? true) {
@@ -94,6 +103,7 @@ async function boot(container: IContainer, options: TestAppOptions, attempt: Boo
 
   const configuration = await container.resolve(Configuration);
   alive();
+  contract?.enable(configuration);
   for (const type of options.resolve ?? []) {
     await container.resolve(type as Class<unknown>);
     alive();
@@ -131,8 +141,8 @@ function assertRootFree(): void {
   }
 }
 
-async function bootWithTimeout(container: IContainer, options: TestAppOptions, attempt: BootAttempt, claim: RootClaim): Promise<Configuration> {
-  const booting = boot(container, options, attempt);
+async function bootWithTimeout(container: IContainer, options: TestAppOptions, attempt: BootAttempt, claim: RootClaim, contract: ContractTestingHandle | undefined): Promise<Configuration> {
+  const booting = boot(container, options, attempt, contract);
   const limit = options.bootTimeout ?? DEFAULT_BOOT_TIMEOUT;
   if (!Number.isFinite(limit) || limit <= 0) {
     return booting;
@@ -170,9 +180,10 @@ async function createRootApp(options: TestAppOptions): Promise<TestApp> {
     }
   };
 
+  const contract = await contractOf(options);
   let configuration: Configuration;
   try {
-    configuration = await bootWithTimeout(container, options, { abandoned: false }, claim);
+    configuration = await bootWithTimeout(container, options, { abandoned: false }, claim, contract);
   } catch (err) {
     claim.phase = 'disposing';
     try {
@@ -187,6 +198,7 @@ async function createRootApp(options: TestAppOptions): Promise<TestApp> {
   const app: TestApp = {
     container,
     config: configuration,
+    contractViolations: contract?.violations.list ?? [],
     resolve: <T>(type: Class<T> | string) => Promise.resolve(container.resolve(type as Class<T>) as T | Promise<T>),
     dispose: async () => {
       if (!disposed) {
@@ -199,6 +211,7 @@ async function createRootApp(options: TestAppOptions): Promise<TestApp> {
           } finally {
             release();
           }
+          contract?.assertClean();
         })();
       }
       await disposed;
@@ -212,9 +225,10 @@ async function createRootApp(options: TestAppOptions): Promise<TestApp> {
 async function createChildApp(options: TestAppOptions): Promise<TestApp> {
   const container = DI.RootContainer.child({ isolateSingletons: true });
 
+  const contract = await contractOf(options);
   let configuration: Configuration;
   try {
-    configuration = await boot(container, options, { abandoned: false });
+    configuration = await boot(container, options, { abandoned: false }, contract);
   } catch (err) {
     await container.dispose({ plainOwners: true }).catch(() => undefined);
     throw err;
@@ -224,11 +238,13 @@ async function createChildApp(options: TestAppOptions): Promise<TestApp> {
   const app: TestApp = {
     container,
     config: configuration,
+    contractViolations: contract?.violations.list ?? [],
     resolve: <T>(type: Class<T> | string) => Promise.resolve(container.resolve(type as Class<T>) as T | Promise<T>),
     dispose: () =>
       (disposed ??= (async () => {
         open.delete(app);
         await container.dispose({ plainOwners: true });
+        contract?.assertClean();
       })()),
   };
   open.add(app);

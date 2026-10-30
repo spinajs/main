@@ -12,6 +12,7 @@ import { Log } from '@spinajs/log';
 import { Configuration, isProduction } from '@spinajs/configuration';
 import { redactUrl, urlPath } from './util/redact-url.js';
 import { PROBLEM_CONTENT_TYPE, toProblem } from './problem.js';
+import { guardResponseContract } from './contract.js';
 import type { ProblemDetails, ProblemOptions } from './problem.js';
 /**
  * The response registered for an exception, or for the nearest MAPPED class it inherits from.
@@ -134,6 +135,8 @@ export function __handle_error__() {
             response = new ResponseClass(error);
             error.status = err instanceof CodedHttpException && isErrorStatus(err.status) ? err.status : response.statusCode;
         }
+
+        guardResponseContract(res);
 
         response
             .execute(req, res)

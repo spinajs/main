@@ -6,6 +6,7 @@ export { answeredAsServerError } from './error.js';
 export * from './tokens.js';
 export * from './responses.js';
 export * from './problem.js';
+export * from './contract.js';
 export * from './headers.js';
 export * from './cookie.js';
 export * from './cidr.js';

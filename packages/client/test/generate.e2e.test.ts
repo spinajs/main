@@ -1,20 +1,17 @@
 import 'mocha';
 import { expect } from 'chai';
 import type { AddressInfo } from 'node:net';
-import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { AccessPolicy, PrincipalMiddleware } from '@spinajs/authz-http';
 import { analyzePackage } from '@spinajs/compiler';
-import { FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { fsService } from '@spinajs/fs';
-import { BaseController, BasePolicy, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
+import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { mergeFragments, type Manifest } from '@spinajs/manifest';
 import { Intl } from '@spinajs/intl';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
-import shipped from '../../http/lib/config/http.js';
 import { HealthController } from '../../compiler/test/fixtures/app-basic/src/controllers/HealthController.js';
 import { UsersController } from '../../compiler/test/fixtures/app-basic/src/controllers/users.js';
 import { createClient, ProblemError } from '../src/runtime/index.js';
@@ -24,16 +21,7 @@ import type { AppClient } from './__snapshots__/app-basic.client.js';
 import { MixedController, WireController, received as wireReceived } from './fixtures/wire-app/src/controllers.js';
 import type { CreateDto, Filter, Meta, Profile } from './fixtures/wire-app/src/controllers.js';
 import { appBasicManifest } from './support/fixture.js';
-
-// The fixture guards two routes with @Access; authorization is not what this suite checks. Importing the fixture
-// also registers authz-http's PrincipalMiddleware, which stops the server when no authz domain boots.
-class AllowAccess extends BasePolicy {
-  public isEnabled(): boolean {
-    return true;
-  }
-
-  public async execute(): Promise<void> {}
-}
+import { AllowAccess, E2eConfiguration } from './support/harness.js';
 
 interface WireClient {
   values(page: number, verbose: boolean, since: Date): Promise<void>;
@@ -74,23 +62,6 @@ const wireApp = fileURLToPath(new URL('./fixtures/wire-app', import.meta.url));
 async function wireManifest(): Promise<Manifest> {
   const fragment = await analyzePackage({ tsconfig: `${wireApp}/tsconfig.json`, packageRoot: wireApp });
   return mergeFragments(fragment, [], { app: { name: 'wire-app', version: '0.1.0', root: '.', outDir: 'lib' }, packages: [], generatedAt: '' });
-}
-
-class E2eConfiguration extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-    const provider = (name: string) => ({ service: 'fsNative', name, basePath: tmpdir() });
-    this.Config = {
-      system: { dirs: { controllers: [] } },
-      fs: {
-        defaultProvider: 'fs-temp',
-        providers: [provider('fs-temp'), provider('__file_upload_default_provider__'), provider('__fs_http_templates__'), provider('__fs_controller_cache__'), provider('__fs_http_response_templates__')],
-      },
-      intl: { locales: ['en'], defaultLocale: 'en' },
-      logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget', layout: '${message}' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] },
-      http: { port: 0, middlewares: shipped.http.middlewares, AcceptHeaders: 1 | 2 },
-    };
-  }
 }
 
 function extractDefinition(generated: string): ClientDefinition {
