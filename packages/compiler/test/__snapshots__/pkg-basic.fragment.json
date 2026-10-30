@@ -470,6 +470,9 @@
       "ctorInjects": [
         "Clock"
       ],
+      "ctorConcrete": [
+        true
+      ],
       "propertyInjects": [
         {
           "property": "mailer",
@@ -481,7 +484,8 @@
           "property": "clock",
           "token": "Clock",
           "optional": false,
-          "array": false
+          "array": false,
+          "concrete": true
         },
         {
           "property": "optionalMailer",

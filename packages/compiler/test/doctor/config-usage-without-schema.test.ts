@@ -37,13 +37,14 @@ describe('CFG001 config-usage-without-schema', () => {
     ]);
   });
 
-  it('ignores the roots the configuration fills itself', () => {
+  it('ignores the roots the configuration fills itself but still reports other roots beside them', () => {
     const m = fixture({
       configUsages: [
         { path: 'configuration.isProduction', source: src('src/a.ts') },
         { path: 'process.env.APP_ENV', source: src('src/b.ts') },
+        { path: 'billing.key', source: src('src/c.ts') },
       ],
     });
-    expect(configUsageWithoutSchema.run(m, ctx)).to.deep.equal([]);
+    expect(configUsageWithoutSchema.run(m, ctx).map((d) => d.message)).to.deep.equal(["Config path 'billing.key' is read but no configuration schema declares module 'billing'"]);
   });
 });

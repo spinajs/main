@@ -2,7 +2,7 @@ import ts from 'typescript';
 import type { ServiceEntry } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
 import { findDecorator } from '../decorators.js';
-import { ctorInjectsOf, imperativeResolvesOf, lifetimeOf, propertyInjectsOf, tokenKey } from './injections.js';
+import { ctorConcreteOf, ctorInjectsOf, imperativeResolvesOf, lifetimeOf, propertyInjectsOf, tokenKey } from './injections.js';
 import { conditionOf } from './conditions.js';
 import { classDeclarationOf, registerChainOf } from './register-chain.js';
 
@@ -11,6 +11,7 @@ type NamedClass = ts.ClassDeclaration & { name: ts.Identifier };
 function entryFor(cls: NamedClass, registeredAs: string[], lifetime: ServiceEntry['lifetime'], site: ts.Node, ctx: ExtractorContext): ServiceEntry {
   const condition = conditionOf(site, ctx);
   const imperativeResolves = imperativeResolvesOf(cls, ctx);
+  const ctorConcrete = ctorConcreteOf(cls, ctx);
   return {
     id: `${ctx.packageName}:${cls.name.text}`,
     className: cls.name.text,
@@ -19,6 +20,7 @@ function entryFor(cls: NamedClass, registeredAs: string[], lifetime: ServiceEntr
     async: ctx.isSubclassOf(cls, 'AsyncService'),
     bootstrapper: ctx.isSubclassOf(cls, 'Bootstrapper'),
     ctorInjects: ctorInjectsOf(cls, ctx),
+    ...(ctorConcrete.some(Boolean) ? { ctorConcrete } : {}),
     propertyInjects: propertyInjectsOf(cls, ctx),
     ...(imperativeResolves.length ? { imperativeResolves } : {}),
     ...(condition ? { condition } : {}),
