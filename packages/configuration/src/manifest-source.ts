@@ -7,6 +7,7 @@ import { InternalLogger } from '@spinajs/internal-logger';
 import { loadRuntimeManifest, type ManifestMode } from '@spinajs/manifest';
 import { MANIFEST, projectConfigDirs, registerManifest, registerManifestSettings, type ManifestSettings } from './manifest-runtime.js';
 import { findBasePath } from './util.js';
+import { BaseFileSource } from './sources.js';
 
 const MANIFEST_KEYS: ReadonlySet<string> = new Set(['path', 'mode']);
 
@@ -40,6 +41,8 @@ export class ManifestConfigurationSource extends ConfigurationSource {
   }
 
   public async Load(config: Configuration): Promise<IConfigLike> {
+    // The app config files read below, and package configs later, build paths from it when they are imported.
+    BaseFileSource.ensureWorkspaceRoot();
     const settings = await this.effectiveSettings(config);
 
     // loadRuntimeManifest rejects an unknown mode, so a typo cannot silently turn the manifest off.

@@ -4,7 +4,11 @@ import chaiAsPromised from 'chai-as-promised';
 import sinon from 'sinon';
 import glob from 'glob';
 import _ from 'lodash';
-import { resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { hashManifest, type Manifest } from '@spinajs/manifest';
 import { DI, IContainer } from '@spinajs/di';
 import { Configuration, ConfigurationSource } from '@spinajs/configuration-common';
 import { InternalLogger } from '@spinajs/internal-logger';
@@ -18,12 +22,13 @@ const expect = chai.expect;
 
 const FIX = resolve(process.cwd(), 'test', 'fixtures', 'manifest-app');
 const PARITY = resolve(process.cwd(), 'test', 'fixtures', 'parity-app');
+const readFixtureManifest = (): unknown => JSON.parse(readFileSync(join(PARITY, 'app.manifest.json'), 'utf8'));
 
-async function boot(env: Record<string, string>) {
+async function boot(env: Record<string, string>, fileSources = true) {
   const container = DI.RootContainer.child({ isolateSingletons: true });
   container.register({ ...process.env, ...env }).asValue('process.env');
   container.register(ManifestConfigurationSource).as(ConfigurationSource);
-  container.register(JsFileSource).as(ConfigurationSource);
+  if (fileSources) container.register(JsFileSource).as(ConfigurationSource);
   container.register(FrameworkConfiguration).as(Configuration, { replace: true });
   const config = await container.resolve(Configuration);
   return { container, config };
@@ -39,8 +44,8 @@ describe('ManifestConfigurationSource', () => {
   let workspaceRoot: string | undefined;
   const open: IContainer[] = [];
 
-  const start = async (env: Record<string, string>) => {
-    const booted = await boot(env);
+  const start = async (env: Record<string, string>, fileSources = true) => {
+    const booted = await boot(env, fileSources);
     open.push(booted.container);
     return booted;
   };
@@ -159,6 +164,53 @@ describe('ManifestConfigurationSource', () => {
       const warn = sinon.stub(InternalLogger, 'warn');
       await start({ SPINAJS_MANIFEST_MODE: 'prefer', APP_ENV: 'typo' });
       expect(warn.getCalls().some((c) => JSON.stringify(c.args).includes('modee'))).to.equal(true);
+    });
+  });
+
+  describe('in a linked workspace', () => {
+    let ws: string;
+    let app: string;
+
+    const write = (file: string, content: unknown) => {
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, typeof content === 'string' ? content : JSON.stringify(content));
+    };
+
+    beforeEach(() => {
+      ws = realpathSync(mkdtempSync(join(tmpdir(), 'spinajs-linked-ws-')));
+      app = join(ws, 'apps', 'app');
+      const linked = join(ws, 'packages', 'linked');
+      write(join(ws, 'package.json'), { name: 'ws', private: true, workspaces: ['apps/*', 'packages/*'] });
+      write(join(linked, 'package.json'), { name: '@spinajs/linked', version: '0.0.0', type: 'module', exports: { '.': './lib/index.js', './package.json': './package.json' } });
+      write(join(linked, 'lib', 'index.js'), 'export {};');
+      write(join(linked, 'lib', 'config', 'linked.js'), 'export default { linked: { root: process.env.WORKSPACE_ROOT_PATH ?? null } };');
+      mkdirSync(join(ws, 'node_modules', '@spinajs'), { recursive: true });
+      // a junction needs no elevation on Windows
+      symlinkSync(linked, join(ws, 'node_modules', '@spinajs', 'linked'), 'junction');
+      write(join(app, 'package.json'), { name: 'app', version: '0.0.0', type: 'module' });
+      // the empty scope dir a workspace member keeps from linking; it must not be taken for the hoisting root
+      mkdirSync(join(app, 'node_modules', '@spinajs'), { recursive: true });
+      write(join(app, 'lib', 'config', 'app.js'), 'export const seenRoot = process.env.WORKSPACE_ROOT_PATH ?? null;\nexport default { app: { linked: true } };');
+      const manifest = JSON.parse(JSON.stringify(readFixtureManifest())) as Manifest;
+      manifest.app = { name: 'app', version: '0.0.0', root: '/nonexistent/build-machine/app', outDir: 'lib' };
+      manifest.packages = [{ name: '@spinajs/linked', version: '0.0.0', entry: 'lib/index.js', fragment: 'lib/manifest.fragment.json', outDir: 'lib', configFiles: ['config/linked.js'] }];
+      manifest.hash = hashManifest(manifest);
+      write(join(app, 'app.manifest.json'), manifest);
+      cwd.returns(app);
+    });
+
+    afterEach(() => rmSync(ws, { recursive: true, force: true }));
+
+    it('detects the hoisting root before the linked package config is imported', async () => {
+      const { config } = await start({ SPINAJS_MANIFEST_MODE: 'require', APP_ENV: 'test' });
+      expect(config.get('linked.root')).to.equal(ws);
+      expect(config.get('app.linked')).to.equal(true);
+    });
+
+    it('detects it before the app config files that decide the switch are read', async () => {
+      await start({ SPINAJS_MANIFEST_MODE: 'require', APP_ENV: 'test' }, false);
+      const module = (await import(pathToFileURL(join(app, 'lib', 'config', 'app.js')).href)) as { seenRoot: string | null };
+      expect(module.seenRoot).to.equal(ws);
     });
   });
 });
