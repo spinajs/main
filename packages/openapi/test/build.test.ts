@@ -56,16 +56,16 @@ describe('manifestToOpenApi', () => {
 
   it('prefixes every path with basePath', () => {
     const prefixed = manifestToOpenApi(manifest, { ...options, basePath: '/api' });
-    expect(Object.keys(prefixed.paths!)).to.deep.equal(['/api/health', '/api/users', '/api/users/{id}', '/api/users/{id}/avatar']);
+    expect(Object.keys(prefixed.paths!)).to.deep.equal(['/api/health/get', '/api/users/{id}', '/api/users/{id}/avatar', '/api/users/create', '/api/users/list']);
   });
 
   it('turns a union return type into a union of component refs', () => {
-    const schema = schemaOf(doc.paths!['/users']!.post!.responses['200'], 'application/json');
+    const schema = schemaOf(doc.paths!['/users/create']!.post!.responses['200'], 'application/json');
     expect((schema.anyOf as { $ref: string }[]).map((s) => s.$ref)).to.deep.equal(['#/components/schemas/UserDto', '#/components/schemas/ValidationProblem']);
   });
 
   it('keeps an array return inline over a component item', () => {
-    const schema = schemaOf(doc.paths!['/users']!.get!.responses['200'], 'application/json');
+    const schema = schemaOf(doc.paths!['/users/list']!.get!.responses['200'], 'application/json');
     expect(schema).to.deep.equal({ type: 'array', items: { $ref: '#/components/schemas/UserDto' } });
   });
 
@@ -77,10 +77,10 @@ describe('manifestToOpenApi', () => {
   });
 
   it('marks anonymous routes and leaves them without 401/403', () => {
-    const op = doc.paths!['/health']!.get! as unknown as Json;
+    const op = doc.paths!['/health/get']!.get! as unknown as Json;
     expect(op['x-authz-anonymous']).to.equal(true);
     expect(op.security).to.deep.equal([]);
-    expect(Object.keys(doc.paths!['/health']!.get!.responses)).to.deep.equal(['200']);
+    expect(Object.keys(doc.paths!['/health/get']!.get!.responses)).to.deep.equal(['200']);
   });
 
   it('documents a file upload as multipart/form-data', () => {
@@ -91,7 +91,7 @@ describe('manifestToOpenApi', () => {
   });
 
   it('documents a body parameter as application/json', () => {
-    const body = doc.paths!['/users']!.post!.requestBody as { required: boolean; content: Record<string, { schema: Json }> };
+    const body = doc.paths!['/users/create']!.post!.requestBody as { required: boolean; content: Record<string, { schema: Json }> };
     expect(body.required).to.equal(true);
     expect(body.content['application/json'].schema).to.deep.equal({ $ref: '#/components/schemas/CreateUserDto' });
   });
@@ -99,20 +99,17 @@ describe('manifestToOpenApi', () => {
   it('maps the controller exception map to a problem+json response', () => {
     const resp = doc.paths!['/users/{id}']!.get!.responses['404'];
     expect(schemaOf(resp, 'application/problem+json')).to.deep.equal({ $ref: '#/components/schemas/ProblemDetails' });
-    expect(doc.paths!['/health']!.get!.responses).to.not.have.property('404');
+    expect(doc.paths!['/health/get']!.get!.responses).to.not.have.property('404');
   });
 
-  it('serialises query DTO properties as individual query parameters', () => {
-    const params = doc.paths!['/users']!.get!.parameters as { name: string; in: string; required: boolean }[];
-    expect(params.map((p) => [p.name, p.in, p.required])).to.deep.equal([
-      ['page', 'query', false],
-      ['perPage', 'query', false],
-    ]);
+  it('documents a @Query() DTO as one JSON-encoded query parameter', () => {
+    const params = doc.paths!['/users/list']!.get!.parameters as { name: string; in: string; required: boolean; content: Json }[];
+    expect(params.map((p) => [p.name, p.in, p.required, Object.keys(p.content)])).to.deep.equal([['query', 'query', true, ['application/json']]]);
   });
 
   it('slugifies manifest ids and disambiguates collisions', () => {
     expect(slugify('spinajs/app-basic/UserDto')).to.equal('UserDto');
-    expect(doc.components!.schemas).to.have.keys(['CreateUserDto', 'HealthController_get_Response', 'ProblemDetails', 'UserDto', 'ValidationProblem']);
+    expect(doc.components!.schemas).to.have.keys(['CreateUserDto', 'HealthController_get_Response', 'ListQuery', 'ProblemDetails', 'UserDto', 'ValidationProblem']);
 
     const registry = createComponentRegistry({ 'spinajs/a/Item': { type: 'object' }, 'spinajs/b/Item': { type: 'object' } });
     expect(registry.ref('spinajs/a/Item')).to.equal('#/components/schemas/Item');
@@ -141,7 +138,7 @@ describe('manifestToOpenApi', () => {
     const copy = structuredClone(manifest);
     copy.controllers[0].routes[0].returnType = { text: 'Ok' };
     const out = manifestToOpenApi(copy, options);
-    expect(out.paths!['/health']!.get!.responses['200']).to.deep.equal({ description: 'Successful response' });
+    expect(out.paths!['/health/get']!.get!.responses['200']).to.deep.equal({ description: 'Successful response' });
   });
 
   it('uses the manifest ProblemDetails schema over the option fallback', () => {
@@ -153,7 +150,7 @@ describe('manifestToOpenApi', () => {
 
   it('rejects a path parameter without a placeholder', () => {
     const copy = structuredClone(manifest);
-    copy.controllers[1].routes[0].params.push({ index: 1, name: 'ghost', kind: 'FromParams', runtimeType: { text: 'string' }, required: true });
+    copy.controllers[1].routes[0].params.push({ index: 1, name: 'ghost', kind: 'FromParams', runtimeType: { text: 'string' }, required: true, wire: { in: 'path', name: 'ghost', shape: 'value' } });
     expect(() => manifestToOpenApi(copy, options)).to.throw(/ghost/);
   });
 

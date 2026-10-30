@@ -14,8 +14,6 @@ const STANDARD: Record<number, string> = {
   500: 'Internal server error',
 };
 
-const INPUT_KINDS = new Set(['FromBody', 'FromForm', 'FromQuery', 'FromParams', 'FromFile']);
-
 function problem(status: number, description: string | undefined, registry: ComponentRegistry, errorSchemaId: string): OpenAPIV3_1.ResponseObject {
   return { description: description ?? STANDARD[status] ?? String(status), content: { 'application/problem+json': { schema: { $ref: registry.ref(errorSchemaId) } } } };
 }
@@ -41,7 +39,7 @@ function implied(route: RouteEntry, controller: ControllerEntry, errorMap: Recor
     statuses.add(401);
     statuses.add(403);
   }
-  if (route.params.some((p) => INPUT_KINDS.has(p.kind))) statuses.add(400);
+  if (route.params.some((p) => p.wire && p.wire.in !== 'none')) statuses.add(400);
   return [...statuses];
 }
 

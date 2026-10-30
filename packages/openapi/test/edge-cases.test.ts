@@ -51,7 +51,7 @@ describe('manifestToOpenApi fix round 1', () => {
       },
       'spinajs/t/Closed',
     );
-    routeOf(m, '/users/:id').params.push({ index: 5, name: 'q', kind: 'FromBody', runtimeType: { text: 'X', schema: 'spinajs/t/Open' }, required: true });
+    routeOf(m, '/users/:id').params.push({ index: 5, name: 'q', kind: 'FromBody', runtimeType: { text: 'X', schema: 'spinajs/t/Open' }, required: true, wire: { in: 'body', shape: 'whole' } });
     const out = manifestToOpenApi(m, options);
     const closed = out.components!.schemas!.Closed as Json;
     expect((closed.properties as Json).p).to.deep.equal({ type: 'array', prefixItems: [{ type: 'string' }, { type: 'number' }], items: false });
@@ -91,18 +91,6 @@ describe('manifestToOpenApi fix round 1', () => {
     expect(registry.schemas()).to.deep.equal({ T: { type: 'object', default: { 'x-a': 1, $ref: 'y' }, properties: { e: { enum: [{ 'x-b': 1 }] } } } });
   });
 
-  it('sets style and explode on query parameters', () => {
-    const m = structuredClone(manifest);
-    m.schemas['spinajs/t/Q'] = { type: 'object', properties: { a: { type: 'string' }, list: { type: 'array', items: { type: 'number' } }, filter: { type: 'object', properties: { b: { type: 'string' } } } } };
-    routeOf(m, '/users').params = [{ index: 0, name: 'query', kind: 'FromQuery', runtimeType: { text: 'Q', schema: 'spinajs/t/Q' }, required: false }];
-    const params = manifestToOpenApi(m, options).paths!['/users']!.get!.parameters as unknown as { name: string; style: string; explode: boolean }[];
-    expect(params.map((p) => [p.name, p.style, p.explode])).to.deep.equal([
-      ['a', 'form', true],
-      ['list', 'form', true],
-      ['filter', 'deepObject', true],
-    ]);
-  });
-
   it('lets a route-level @Access win over an anonymous controller', () => {
     const m = structuredClone(manifest);
     const route = routeOf(m, '/users/:id');
@@ -135,7 +123,7 @@ describe('manifestToOpenApi fix round 1', () => {
     download.handler = 'download';
     download.returnType = { text: 'Buffer' };
     owner.routes.push(download);
-    upload.params = [...upload.params.filter((p) => p.kind !== 'FromFile'), { index: 9, name: 'raw', kind: 'RawBody', runtimeType: { text: 'Buffer' }, required: true }];
+    upload.params = [...upload.params.filter((p) => p.kind !== 'FromFile'), { index: 9, name: 'raw', kind: 'RawBodyRouteArgs', runtimeType: { text: 'Buffer' }, required: true, wire: { in: 'body', shape: 'whole' } }];
     const out = manifestToOpenApi(m, options);
     expect(out.paths!['/users/{id}/avatar.bin']!.get!.responses['200']).to.deep.equal({ description: 'Successful response', content: { 'application/octet-stream': { schema: { type: 'string', format: 'binary' } } } });
     const body = out.paths!['/users/{id}/avatar']!.post!.requestBody as unknown as { content: Record<string, { schema: Json }> };
@@ -155,7 +143,7 @@ describe('manifestToOpenApi fix round 1', () => {
 
   it('declares route tags at the top level', () => {
     const m = structuredClone(manifest);
-    routeOf(m, '/users').doc = { tags: ['extra'] };
+    routeOf(m, '/users/list').doc = { tags: ['extra'] };
     expect(manifestToOpenApi(m, options).tags!.map((t) => t.name)).to.include('extra');
   });
 });

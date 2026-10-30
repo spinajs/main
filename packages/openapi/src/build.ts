@@ -14,8 +14,10 @@ export interface OpenApiOptions {
   errorSchemaId?: string;
   /** Body of the problem+json schema, used when `manifest.schemas` does not hold `errorSchemaId`; defaults to the RFC 9457 shape `@spinajs/http` emits. */
   errorSchema?: Record<string, unknown>;
-  /** Prepended to every path, e.g. the runtime route prefix. */
+  /** Prepended to every path as written, e.g. where a proxy mounts the app. */
   basePath?: string;
+  /** The app's `http.controllers.route.prefix`, applied to every route as the router applies it. */
+  routePrefix?: string;
 }
 
 const DEFAULT_ERROR_SCHEMA_ID = 'spinajs/http/ProblemDetails';
@@ -28,7 +30,7 @@ function schemasWithError(manifest: Manifest, errorSchemaId: string, errorSchema
 export function manifestToOpenApi(manifest: Manifest, options: OpenApiOptions): OpenAPIV3_1.Document {
   const errorSchemaId = options.errorSchemaId ?? DEFAULT_ERROR_SCHEMA_ID;
   const registry = createComponentRegistry(schemasWithError(manifest, errorSchemaId, options.errorSchema));
-  const paths = buildPaths(manifest, registry, { errorSchemaId, basePath: options.basePath ?? '' });
+  const paths = buildPaths(manifest, registry, { errorSchemaId, basePath: options.basePath ?? '', routePrefix: options.routePrefix });
   const tagNames = manifest.controllers.flatMap((c) => [c.className.replace(/Controller$/, ''), ...c.routes.flatMap((r) => r.doc?.tags ?? [])]);
   const tags = [...new Set(tagNames)].sort().map((name) => ({ name }));
   const document: OpenAPIV3_1.Document = {
