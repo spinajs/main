@@ -130,7 +130,7 @@ describe('controller action test params', function () {
       await req().get('params/query/queryDateFromUnixtime?a=1656367511');
 
       expect(spy.args[0][0].constructor.name).to.eq('DateTime');
-      expect(spy.args[0][0].toUTC().toFormat('dd-MM-yyyy')).to.eq('27-06-2022');
+      expect(spy.args[0][0].toMillis()).to.eq(1656367511000);
     });
     it('queryUuid', async () => {
       const spy = DI.get(QueryParams)!.queryUuid as sinon.SinonSpy;
@@ -166,7 +166,7 @@ describe('controller action test params', function () {
 
       await req().get('params/headers/headerDate').set('x-custom-header', 'Date: Wed, 21 Oct 2015 07:28:00 GMT');
       expect(spy.args[0][0].constructor.name).to.eq('DateTime');
-      expect(spy.args[0][0].toUTC().toFormat('dd-MM-yyyy HH:mm:ss')).to.eq('21-10-2015 07:28:00');
+      expect(spy.args[0][0].toMillis()).to.eq(Date.UTC(2015, 9, 21, 7, 28, 0));
     });
 
     it('headerParamNoName', async () => {
