@@ -163,6 +163,11 @@ export class BoundSocket extends BaseSocketController {
   }
 }
 `,
+  'elsewhere/twin-a.ts': controller('TwinController', 'twin-a'),
+  'elsewhere/twin-b.ts': controller('TwinController', 'twin-b'),
+  'controllers/stars.ts': "export * from '../elsewhere/twin-a.js';\n// @ts-expect-error both name TwinController: at runtime the module exports neither\nexport * from '../elsewhere/twin-b.js';\n",
+  'elsewhere/local-other.ts': controller('LocalController', 'local-other'),
+  'controllers/own.ts': `${controller('LocalController', 'local-own')}\nexport * from '../elsewhere/local-other.js';\n`,
   'migrations/legacy.old.ts': `
 import { Migration, OrmMigration } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
@@ -379,6 +384,15 @@ describe('app-basic boots from its manifest', function () {
   it('serves a class exported as a value under another name, as discovery does', () => {
     expect(discovered.responses.const.status).to.equal(200);
     expect(required.responses.const).to.deep.equal(discovered.responses.const);
+  });
+
+  it('follows ES module export precedence on a name collision: two stars export neither, a local export wins', () => {
+    for (const result of [discovered, required]) {
+      expect(result.responses.twinA.status).to.equal(404);
+      expect(result.responses.twinB.status).to.equal(404);
+      expect(result.responses.localOwn.status).to.equal(200);
+      expect(result.responses.localOther.status).to.equal(404);
+    }
   });
 
   it('runs a dotted migration file only in the environment its name matches, as a scan does', () => {

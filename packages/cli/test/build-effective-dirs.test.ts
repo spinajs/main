@@ -15,7 +15,7 @@ const BIN = join(CLI_PACKAGE, 'lib', 'cli.js');
 const MANIFEST = join(TMP, 'app.manifest.json');
 const APP_CONFIG = join(TMP, 'lib', 'config', 'app.js');
 
-const LOADED_CONTROLLERS = ['AliasedController', 'BarrelledController', 'ConstController', 'ImportedValueController', 'KeptController', 'NestedController', 'StarController'];
+const LOADED_CONTROLLERS = ['AliasedController', 'BarrelledController', 'ConstController', 'ImportedValueController', 'KeptController', 'LocalController', 'NestedController', 'SameController', 'StarController'];
 const LOADED_MIGRATIONS = ['Kept_2026_01_01_00_00_00', 'Legacy_2026_02_02_00_00_00', 'Tested_2026_02_03_00_00_00', 'Unexported_2026_01_03_00_00_00'];
 
 // Written the way an app ships it. No `migrations` key: the app relies on the orm's default dirs. `spinajs` itself has no

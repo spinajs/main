@@ -3,12 +3,18 @@ import ts from 'typescript';
 const hasModifier = (node: ts.HasModifiers, kind: ts.SyntaxKind): boolean => ts.getModifiers(node)?.some((m) => m.kind === kind) ?? false;
 const isExported = (node: ts.HasModifiers): boolean => hasModifier(node, ts.SyntaxKind.ExportKeyword) && !hasModifier(node, ts.SyntaxKind.DeclareKeyword);
 
+/** An export's class; `null` for a value that is no class, which still takes part in a name collision. */
+type Exported = ts.ClassDeclaration | null;
+
+const isStarExport = (statement: ts.Statement): statement is ts.ExportDeclaration =>
+  ts.isExportDeclaration(statement) && !statement.isTypeOnly && !statement.exportClause && statement.moduleSpecifier !== undefined;
+
 /**
  * What a module holds once compiled. Read from the statements and not from symbols, which see through a type-only alias:
  * `export type *` and a re-exported `import type` name a class and emit nothing.
  */
 export class EmittedModules {
-  private readonly exported = new Map<ts.SourceFile, Map<string, ts.ClassDeclaration>>();
+  private readonly exported = new Map<ts.SourceFile, Map<string, Exported>>();
   private readonly imported = new Map<ts.SourceFile, ts.SourceFile[]>();
 
   public constructor(
@@ -16,16 +22,43 @@ export class EmittedModules {
     private readonly options: ts.CompilerOptions,
   ) {}
 
-  /** Classes a module exports at runtime, by export name. */
-  public exportsOf(file: ts.SourceFile): ReadonlyMap<string, ts.ClassDeclaration> {
+  /** What a module exports at runtime, by export name. */
+  public exportsOf(file: ts.SourceFile): ReadonlyMap<string, Exported> {
     const known = this.exported.get(file);
     if (known) return known;
 
-    const found = new Map<string, ts.ClassDeclaration>();
+    const found = new Map<string, Exported>();
     // Set first: in an import cycle a module sees what is known of the other one so far.
     this.exported.set(file, found);
-    for (const statement of file.statements) this.readExport(file, statement, found);
+    for (const statement of file.statements) {
+      if (!isStarExport(statement)) this.readExport(file, statement, found);
+    }
+    this.readStars(file, found);
     return found;
+  }
+
+  /** Classes a module exports at runtime. */
+  public exportedClasses(file: ts.SourceFile): ts.ClassDeclaration[] {
+    return [...this.exportsOf(file).values()].filter((e) => e !== null);
+  }
+
+  // Module semantics: a star never replaces a local or named export, and a name two stars bind differently is not exported.
+  private readStars(file: ts.SourceFile, found: Map<string, Exported>): void {
+    const starred = new Map<string, Exported>();
+    const ambiguous = new Set<string>();
+
+    for (const statement of file.statements.filter(isStarExport)) {
+      const from = this.moduleOf(statement.moduleSpecifier as ts.Expression);
+      for (const [name, declaration] of from ? this.exportsOf(from) : []) {
+        if (name === 'default' || found.has(name)) continue;
+        if (starred.has(name) && starred.get(name) !== declaration) ambiguous.add(name);
+        starred.set(name, declaration);
+      }
+    }
+
+    for (const [name, declaration] of starred) {
+      if (!ambiguous.has(name)) found.set(name, declaration);
+    }
   }
 
   /** `files` and everything they load, through the imports that survive compilation. */
@@ -42,10 +75,12 @@ export class EmittedModules {
     return declaration && ts.isSourceFile(declaration) && !declaration.isDeclarationFile ? declaration : undefined;
   }
 
-  private readExport(file: ts.SourceFile, statement: ts.Statement, found: Map<string, ts.ClassDeclaration>): void {
+  private readExport(file: ts.SourceFile, statement: ts.Statement, found: Map<string, Exported>): void {
     if (ts.isClassDeclaration(statement) && isExported(statement)) {
       const name = hasModifier(statement, ts.SyntaxKind.DefaultKeyword) ? 'default' : statement.name?.text;
       if (name) found.set(name, statement);
+    } else if ((ts.isFunctionDeclaration(statement) || ts.isEnumDeclaration(statement)) && isExported(statement) && statement.name) {
+      found.set(statement.name.text, null);
     } else if (ts.isExportAssignment(statement) && !statement.isExportEquals && ts.isIdentifier(statement.expression)) {
       this.record(found, 'default', this.local(file, statement.expression.text));
     } else if (ts.isVariableStatement(statement) && isExported(statement)) {
@@ -55,30 +90,26 @@ export class EmittedModules {
     }
   }
 
-  private readExportedVariables(file: ts.SourceFile, statement: ts.VariableStatement, found: Map<string, ts.ClassDeclaration>): void {
+  private readExportedVariables(file: ts.SourceFile, statement: ts.VariableStatement, found: Map<string, Exported>): void {
     for (const { name, initializer } of statement.declarationList.declarations) {
-      if (ts.isIdentifier(name) && initializer && ts.isIdentifier(initializer)) this.record(found, name.text, this.local(file, initializer.text));
+      if (!ts.isIdentifier(name)) continue;
+      const declaration = initializer && ts.isIdentifier(initializer) ? this.local(file, initializer.text) : undefined;
+      found.set(name.text, declaration ?? null);
     }
   }
 
-  private record(found: Map<string, ts.ClassDeclaration>, name: string, declaration: ts.ClassDeclaration | undefined): void {
-    if (declaration) found.set(name, declaration);
+  private record(found: Map<string, Exported>, name: string, declaration: Exported | undefined): void {
+    if (declaration !== undefined) found.set(name, declaration);
   }
 
-  private readExportDeclaration(file: ts.SourceFile, statement: ts.ExportDeclaration, found: Map<string, ts.ClassDeclaration>): void {
+  private readExportDeclaration(file: ts.SourceFile, statement: ts.ExportDeclaration, found: Map<string, Exported>): void {
     const from = statement.moduleSpecifier && this.moduleOf(statement.moduleSpecifier);
-    if (statement.moduleSpecifier && !from) return;
+    if ((statement.moduleSpecifier && !from) || !statement.exportClause || !ts.isNamedExports(statement.exportClause)) return;
 
-    if (!statement.exportClause) {
-      for (const [name, declaration] of from ? this.exportsOf(from) : []) {
-        if (name !== 'default') found.set(name, declaration);
-      }
-    } else if (ts.isNamedExports(statement.exportClause)) {
-      for (const element of statement.exportClause.elements) {
-        if (element.isTypeOnly) continue;
-        const name = (element.propertyName ?? element.name).text;
-        this.record(found, element.name.text, from ? this.exportsOf(from).get(name) : this.local(file, name));
-      }
+    for (const element of statement.exportClause.elements) {
+      if (element.isTypeOnly) continue;
+      const name = (element.propertyName ?? element.name).text;
+      this.record(found, element.name.text, from ? this.exportsOf(from).get(name) : this.local(file, name));
     }
   }
 
@@ -105,11 +136,11 @@ export class EmittedModules {
     const clause = statement.importClause;
     const from = clause && !clause.isTypeOnly ? this.moduleOf(statement.moduleSpecifier) : undefined;
     if (!clause || !from) return undefined;
-    if (clause.name?.text === name) return this.exportsOf(from).get('default');
+    if (clause.name?.text === name) return this.exportsOf(from).get('default') ?? undefined;
     if (!clause.namedBindings || !ts.isNamedImports(clause.namedBindings)) return undefined;
 
     const element = clause.namedBindings.elements.find((e) => e.name.text === name && !e.isTypeOnly);
-    return element && this.exportsOf(from).get((element.propertyName ?? element.name).text);
+    return element && (this.exportsOf(from).get((element.propertyName ?? element.name).text) ?? undefined);
   }
 
   private importsOf(file: ts.SourceFile): ts.SourceFile[] {

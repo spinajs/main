@@ -100,7 +100,7 @@ export function discoveredBy({ effectiveDirs, defaultDirs = {}, requireAppDirs }
 
   const reachedBy = (section: DirSection, scanned: ts.SourceFile[]): ((entry: ScannedEntry) => boolean) => {
     if (READ_FROM_EXPORTS.has(section)) {
-      const classes = new Set(scanned.flatMap((f) => [...modules.exportsOf(f).values()]).map((c) => classKey(inApp(c.getSourceFile()), c.name?.text ?? '')));
+      const classes = new Set(scanned.flatMap((f) => modules.exportedClasses(f)).map((c) => classKey(inApp(c.getSourceFile()), c.name?.text ?? '')));
       return ({ className, source }) => classes.has(classKey(source.file, className));
     }
     // A tagged file is imported in its environment only, so what it alone loads must not load in every other one.

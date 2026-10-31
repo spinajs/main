@@ -157,6 +157,25 @@ describe("an app's classes against its effective dirs", function () {
       expect(files('schedules')).to.not.include('src/schedules/KeptTask.ts');
     });
 
+    it('stays flagged for a name two star exports supply with different classes: ES modules export neither', () => {
+      const twins = fragment.controllers.filter((c) => c.className === 'TwinController');
+      expect(twins.map((c) => c.mountedBy)).to.deep.equal(['di', 'di']);
+    });
+
+    it('stays flagged when a star name collides with a value that is no class', () => {
+      expect(flagged(fragment.controllers)).to.include('ShadowController');
+    });
+
+    it('loads the same class reached through two stars: that is no ambiguity', () => {
+      expect(loaded(fragment.controllers)).to.include('SameController');
+    });
+
+    it('lets a local export win over a star of the same name', () => {
+      const locals = fragment.controllers.filter((c) => c.className === 'LocalController');
+      expect(locals.find((c) => c.source.file === 'src/controllers/own.ts')?.mountedBy).to.equal(undefined);
+      expect(locals.find((c) => c.source.file === 'src/elsewhere/local-other.ts')?.mountedBy).to.equal('di');
+    });
+
     it('stays flagged in a file no scan matches: the glob of the section is .ts and .js', () => {
       expect(flagged(fragment.controllers)).to.include('ModernController');
     });
