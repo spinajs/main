@@ -4,7 +4,7 @@ import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BaseP
 import { ArgHydrator } from './route-args/ArgHydrator.js';
 import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas.js';
 import { Options as CsvParseOptions } from 'csv-parse';
-import { toArray } from '@spinajs/util';
+import { filePathOfUrl, toArray } from '@spinajs/util';
 
 import { RequestTypeRouteArgs } from './route-args/RequestFields.js';
 import { ExpectedResponseUnacceptable, InvalidArgument } from '@spinajs/exceptions';
@@ -130,15 +130,8 @@ function captureControllerSourceFile(): string | undefined {
 
     let file = m[1];
     if (file.startsWith('file://')) {
-      // Strip ESM file:// URL scheme. Windows: file:///C:/foo → C:/foo.
       try {
-        file = decodeURIComponent(file.replace(/^file:\/\/\/?/, ''));
-        // Normalize Windows drive letter forms (`/C:/...` → `C:/...`).
-        if (/^[A-Za-z]:/.test(file)) {
-          // already a drive-letter path
-        } else if (file.startsWith('/')) {
-          // POSIX absolute path stays as-is
-        }
+        file = filePathOfUrl(file);
       } catch {
         // fall through with the raw match
       }

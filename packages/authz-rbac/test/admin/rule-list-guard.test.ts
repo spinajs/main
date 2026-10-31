@@ -1,5 +1,7 @@
 import { AuthzAdminFailure, AuthzConfigError, GLOBAL, ListSupportGuard, PermissionRegistryImpl } from '@spinajs/authz';
 import type { AdminContext, AuthzCommand, AuthzService } from '@spinajs/authz';
+// `policy.put` joins AuthzCommand through this package's module augmentation; ts-node type-checks each file on its own.
+import type {} from '@spinajs/authz-abac';
 import { fakeModelInitContext } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import * as chai from 'chai';

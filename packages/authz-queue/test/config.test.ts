@@ -9,6 +9,7 @@ import type { IContainer } from '@spinajs/di';
 
 import { AUTHZ_BUS_TOPIC_CONFIGURATION_SCHEMA, AUTHZ_QUEUE_CONFIGURATION_SCHEMA, AuthzQueueConfigBootstrapper, AuthzQueueHook, StampedInitiatorPrincipalFactory } from '../src/index.js';
 import { AuthzQueueTrackingHook } from '../src/job/index.js';
+import { setPastSchema } from './support/set-past-schema.js';
 
 describe('authz-queue configuration through @Config', () => {
   const children: IContainer[] = [];
@@ -42,7 +43,7 @@ describe('authz-queue configuration through @Config', () => {
     try {
       for (const domain of ['', 'nowhere']) {
         const child = await boot({});
-        (await child.resolve(Configuration)).set(['authz', 'queue', 'domain'], domain);
+        setPastSchema(await child.resolve(Configuration), 'authz.queue.domain', domain);
         // DI caches the hook in root; a fresh one reads this child's domain.
         DI.uncache(AuthzQueueHook);
         const hook = (await child.resolve(AuthzQueueHook)) as unknown as { service(): Promise<unknown> };
@@ -92,7 +93,7 @@ describe('authz-queue configuration through @Config', () => {
 
     it('a value the schema never saw keeps the warning', async () => {
       const child = await boot({});
-      (await child.resolve(Configuration)).set(['authz', 'queue', 'stampedInitiatorWarning'], 'no');
+      setPastSchema(await child.resolve(Configuration), 'authz.queue.stampedInitiatorWarning', 'no');
       expect(await warnings(bindConfiguration(new StampedInitiatorPrincipalFactory(), child))).to.equal(1);
     });
 

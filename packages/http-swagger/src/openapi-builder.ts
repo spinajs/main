@@ -1,4 +1,4 @@
-import { Autoinject, ClassInfo, NewInstance, TypedArray } from '@spinajs/di';
+import { Autoinject, ClassInfo, NewInstance, isTypedArray, type TypedArray } from '@spinajs/di';
 import { BaseController, IRoute, IRouteParameter, PROBLEM_DETAILS_SCHEMA, ParameterType, RouteType } from '@spinajs/http';
 import { SCHEMA_SYMBOL, SchemaProvider } from '@spinajs/validation';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -1130,7 +1130,7 @@ ${line}` : line;
 
     const runtimeType = param.RuntimeType;
     if (runtimeType) {
-      if (runtimeType instanceof TypedArray) {
+      if (isTypedArray(runtimeType)) {
         const itemType = (runtimeType as TypedArray<any>).Type as any;
         const itemSchema = Reflect.getMetadata(SCHEMA_SYMBOL, itemType) ?? (itemType?.prototype ? Reflect.getMetadata(SCHEMA_SYMBOL, itemType.prototype) : undefined);
         if (itemSchema) {

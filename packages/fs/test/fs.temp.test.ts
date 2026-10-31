@@ -2,6 +2,7 @@ import 'mocha';
 import { fsApp } from './common.js';
 import { expect } from 'chai';
 import sinon from 'sinon';
+import { join } from 'node:path';
 
 import { DI } from '@spinajs/di';
 import { fs, fsService } from '../src/index.js';
@@ -47,7 +48,7 @@ describe('fs temp tests', function () {
     const tmpPath = t.resolvePath('tmp.txt');
     const exists = await t.exists('tmp.txt');
     expect(exists).to.true;
-    expect(tmpPath.endsWith('packages\\fs\\test\\temp\\tmp.txt')).to.true;
+    expect(tmpPath.endsWith(join('packages', 'fs', 'test', 'temp', 'tmp.txt'))).to.true;
   });
 
   it('should keep the extension passed to tmppath', async () => {

@@ -23,7 +23,8 @@ describe('@spinajs/eslint-plugin-authz', () => {
       overrideConfig: [
         {
           files: ['**/*.ts'],
-          languageOptions: { parser: tseslint.parser, parserOptions: { project: './tsconfig.json', tsconfigRootDir: fixtures } },
+          // Under CI=true the parser infers a single run and types the file on disk, not the text linted below.
+          languageOptions: { parser: tseslint.parser, parserOptions: { project: './tsconfig.json', tsconfigRootDir: fixtures, disallowAutomaticSingleRunInference: true } },
         },
         // typescript-eslint's FlatConfig types and ESLint's own Linter.Config differ only in index signatures.
         configs.recommended as unknown as Linter.Config,

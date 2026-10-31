@@ -30,7 +30,7 @@ const ROLES: Record<string, object> = {
   'support.peer': { grants: ['user:impersonate', 'users:read', 'users:update', 'doc:read', 'doc:write'] },
   auditor: { grants: ['users:credentials'] },
   superadmin: { extends: ['admin'] },
-  'team.member': { subjectSet: true },
+  'unit.member': { subjectSet: true },
   projectowner: { implies: [{ role: 'admin', at: 'self-and-descendants' }] },
   // Ladder 'ops' (admin joins it in configure): each rank holds the grants of the ranks below it.
   opsmember: { ladder: 'ops', grants: ['doc:read'] },
@@ -296,8 +296,8 @@ describe('AuthzImpersonationGuard (users DB, root authz host)', function () {
       const actor = await signedIn(await user('support'));
       const team = { type: 'project', id: 'team-1' };
       const target = await user('member');
-      await grantTo({ set: { role: 'team.member', scope: team } }, 'admin');
-      await grantAt(target, 'team.member', team);
+      await grantTo({ set: { role: 'unit.member', scope: team } }, 'admin');
+      await grantAt(target, 'unit.member', team);
 
       expect(await guard.allowed(actor, target)).to.deep.eq({ ok: false, code: 'protected_role' });
     });

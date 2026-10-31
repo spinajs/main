@@ -12,7 +12,7 @@
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "compile": "tsc -b tsconfig.build.json",
     "start": "node lib/main.js",
-    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "test": "ts-mocha -p tsconfig.json \"test/**/*.test.ts\"",
     "coverage": "c8 npm run test",
     "bundle": "npm run compile && node scripts/bundle.mjs"
   },

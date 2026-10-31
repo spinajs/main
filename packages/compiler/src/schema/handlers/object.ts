@@ -1,26 +1,16 @@
 import ts from 'typescript';
 import { modelOrigin, type ModelMember, type ModelOrigin } from '../../model-members.js';
-import { deriveType, diagnose, type DeriveContext, type JsonSchema, type TypeHandler } from '../derive.js';
+import type { DeriveContext, JsonSchema, TypeHandler } from '../derive.js';
+import { diagnose } from '../diagnose.js';
+import { jsdocConstraints } from '../jsdoc.js';
 import { UNTRACEABLE, valueDeclaration } from '../mapped-origin.js';
-import { opaqueModel, relationSchema } from './model.js';
-
-type PropertyConstraints = (ctx: DeriveContext, symbol: ts.Symbol, declaration: ts.Node | undefined) => JsonSchema;
-
-let constraints: PropertyConstraints = () => ({});
-
-/** Seam for the JSDoc tag parser, so the object handler never imports it directly. */
-export const propertyConstraints: PropertyConstraints = (ctx, symbol, declaration) => constraints(ctx, symbol, declaration);
-export function setPropertyConstraints(fn: PropertyConstraints): void {
-  constraints = fn;
-}
+import { includesUndefined, opaqueModel, relationSchema } from './model.js';
 
 export const isCallable = (checker: ts.TypeChecker, type: ts.Type): boolean =>
   checker.getSignaturesOfType(type, ts.SignatureKind.Call).length > 0 || checker.getSignaturesOfType(type, ts.SignatureKind.Construct).length > 0;
 
-export const includesUndefined = (type: ts.Type): boolean => (type.isUnion() ? type.types : [type]).some((member) => member.flags & ts.TypeFlags.Undefined);
-
 function indexSchema(ctx: DeriveContext, type: ts.Type): JsonSchema {
-  if (!(type.flags & ts.TypeFlags.Any)) return deriveType(ctx, type);
+  if (!(type.flags & ts.TypeFlags.Any)) return ctx.derive(ctx, type);
   diagnose(ctx, 'SCH001', 'info', 'index signature typed any accepts any value');
   return {};
 }
@@ -89,7 +79,7 @@ export const objectType: TypeHandler = (ctx, type) => {
       properties[property.name] = relationSchema(propertyContext, ctx.checker.getNonNullableType(propertyType));
       continue;
     }
-    properties[property.name] = { ...deriveType(propertyContext, propertyType), ...propertyConstraints(propertyContext, property, declaration) };
+    properties[property.name] = { ...ctx.derive(propertyContext, propertyType), ...jsdocConstraints(propertyContext, property, declaration) };
     if (!(property.flags & ts.SymbolFlags.Optional) && !includesUndefined(propertyType)) required.push(property.name);
   }
 

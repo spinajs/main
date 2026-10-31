@@ -1,17 +1,1 @@
-[
-  "authn",
-  "authn-http",
-  "authz-http",
-  "authz-http-admin",
-  "authz-queue",
-  "authz-testing",
-  "cli",
-  "http-socket",
-  "internal-logger",
-  "log",
-  "teams-http",
-  "telemetry",
-  "templates",
-  "templates-image",
-  "users"
-]
+[]

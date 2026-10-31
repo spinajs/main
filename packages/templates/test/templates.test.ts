@@ -137,6 +137,8 @@ before(async () => {
 
 async function setup(cacheMode?: string) {
   Cfg.set('templates.cache.mode', cacheMode);
+  // No NODE_ENV under mocha means development, where an unset mode is 'always'; the dev mode tests set it themselves.
+  Cfg.set('configuration.isDevelopment', false);
   Renderer.reset();
 
   return TemplatesInstance;
