@@ -1,5 +1,4 @@
 [
-  "authn-http",
   "internal-logger",
   "teams-http",
   "telemetry",

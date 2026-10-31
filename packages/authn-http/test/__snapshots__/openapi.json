@@ -135,7 +135,7 @@
           "Authentication"
         ],
         "summary": "Request a login code",
-        "description": "Body `{ login }`. Answers 202 `{ Ok: true }` at once, whether or not the account exists and whether or not a mail goes\r\nout; the code travels only in the mail. 429 with Retry-After when throttled (per login and per client ip), 400\r\n`invalid_login` without a login. An `authn.code.request` hook that refuses gets the same 202, and no mail goes out.\n\n**Policies applied:**\n- [`CodeLoginRegistered`](#policy-codeloginregistered) (controller)",
+        "description": "Body `{ login }`. Answers 202 `{ Ok: true }` at once, whether or not the account exists and whether or not a mail goes\nout; the code travels only in the mail. 429 with Retry-After when throttled (per login and per client ip), 400\n`invalid_login` without a login. An `authn.code.request` hook that refuses gets the same 202, and no mail goes out.\n\n**Policies applied:**\n- [`CodeLoginRegistered`](#policy-codeloginregistered) (controller)",
         "responses": {
           "202": {
             "description": "Always { Ok: true }",
@@ -192,7 +192,7 @@
           "Authentication"
         ],
         "summary": "Log in with a code",
-        "description": "Body `{ login, code }`. Ends a session the caller already holds. Success: the session cookie and the principal summary\r\nwith the login extensions. Any failure, a wrong or spent code included: 401 with the one login failure body, plus\r\nRetry-After when throttled.\n\n**Policies applied:**\n- [`CodeLoginRegistered`](#policy-codeloginregistered) (controller)",
+        "description": "Body `{ login, code }`. Ends a session the caller already holds. Success: the session cookie and the principal summary\nwith the login extensions. Any failure, a wrong or spent code included: 401 with the one login failure body, plus\nRetry-After when throttled.\n\n**Policies applied:**\n- [`CodeLoginRegistered`](#policy-codeloginregistered) (controller)",
         "responses": {
           "200": {
             "description": "The principal summary, or the pending answer when MFA is required",
@@ -255,7 +255,7 @@
           "Authentication"
         ],
         "summary": "Reset a user's password",
-        "description": "Body `{ sendReset?, reauthPassword? }`. The current password stops working at once; every session of the user ends,\r\nthose where it impersonates included, and with authn.local.reset.revokeTokens every token. With `sendReset`\r\n(default true) the owner gets a reset mail; the secret is never in this answer. Answers\r\n`{ expired: true, resetMailRequested }`. `resetMailRequested` echoes `sendReset` only: the password service decides\r\nwhether a mail goes out (none without a PasswordMailer or for a user it finds not eligible). 400\r\n`invalid_send_reset` for a `sendReset` that is not a boolean.\n\n**Policies applied:**\n- [`CredentialAdminRuleRegistered`](#policy-credentialadminruleregistered) (controller) — The first policy of the credential admin controller: 404 `not_found` while no CredentialAdminRule (an ActionHook on `authn.\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) — 404 while no PasswordService is registered: the password routes are off (design §22.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "Body `{ sendReset?, reauthPassword? }`. The current password stops working at once; every session of the user ends,\nthose where it impersonates included, and with authn.local.reset.revokeTokens every token. With `sendReset`\n(default true) the owner gets a reset mail; the secret is never in this answer. Answers\n`{ expired: true, resetMailRequested }`. `resetMailRequested` echoes `sendReset` only: the password service decides\nwhether a mail goes out (none without a PasswordMailer or for a user it finds not eligible). 400\n`invalid_send_reset` for a `sendReset` that is not a boolean.\n\n**Policies applied:**\n- [`CredentialAdminRuleRegistered`](#policy-credentialadminruleregistered) (controller) — The first policy of the credential admin controller: 404 `not_found` while no CredentialAdminRule (an ActionHook on `authn.\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) — 404 while no PasswordService is registered: the password routes are off (design §22.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "parameters": [
           {
             "name": "uuid",
@@ -332,7 +332,7 @@
           "Authentication"
         ],
         "summary": "Reset a user's TOTP",
-        "description": "Removes the enrolment, confirmed or begun, and its recovery codes; the owner enrols again. Answers `{ reset }`, false\r\nwhen there was nothing to remove. Never a secret. 404 while the MFA enrolment routes are off.\n\n**Policies applied:**\n- [`CredentialAdminRuleRegistered`](#policy-credentialadminruleregistered) (controller) — The first policy of the credential admin controller: 404 `not_found` while no CredentialAdminRule (an ActionHook on `authn.\n- [`AdminMfaResetOn`](#policy-adminmfareseton) — 404 `not_found` unless `mfaEnrolmentOn`, as for the enrolment routes: an MFA that login never asks for has nothing to reset.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "Removes the enrolment, confirmed or begun, and its recovery codes; the owner enrols again. Answers `{ reset }`, false\nwhen there was nothing to remove. Never a secret. 404 while the MFA enrolment routes are off.\n\n**Policies applied:**\n- [`CredentialAdminRuleRegistered`](#policy-credentialadminruleregistered) (controller) — The first policy of the credential admin controller: 404 `not_found` while no CredentialAdminRule (an ActionHook on `authn.\n- [`AdminMfaResetOn`](#policy-adminmfareseton) — 404 `not_found` unless `mfaEnrolmentOn`, as for the enrolment routes: an MFA that login never asks for has nothing to reset.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "parameters": [
           {
             "name": "uuid",
@@ -660,7 +660,7 @@
           "Impersonation"
         ],
         "summary": "Stop impersonating",
-        "description": "A new session for the impersonator. When the impersonator may no longer log in, the impersonation ends anyway, the\r\ncookie is cleared and the answer is `{ Active: false }`. 400 when no impersonation is active.\n\n**Policies applied:**\n- [`ImpersonationGuardRegistered`](#policy-impersonationguardregistered) (controller)\n- [`Authenticated`](#policy-authenticated)",
+        "description": "A new session for the impersonator. When the impersonator may no longer log in, the impersonation ends anyway, the\ncookie is cleared and the answer is `{ Active: false }`. 400 when no impersonation is active.\n\n**Policies applied:**\n- [`ImpersonationGuardRegistered`](#policy-impersonationguardregistered) (controller)\n- [`Authenticated`](#policy-authenticated)",
         "responses": {
           "200": {
             "description": "The principal summary of the impersonator, or { Active: false }",
@@ -725,7 +725,7 @@
           "Keys"
         ],
         "summary": "Register a key",
-        "description": "Body `{ jwk, proof: { challengeId, signature }, kid?, name?, expiresAt?, reauthPassword? }`: an Ed25519 or P-256\r\npublic JWK and its signature over a register challenge this user asked for (POST /auth/keys/challenge). Needs fresh\r\nauth: a login within authn.freshAuth.maxAgeSeconds or the account password in `reauthPassword`, verified for this\r\nrequest only. Answers the key. 400 `invalid_key`, `invalid_kid`, `invalid_name`, `invalid_expiry`, `invalid_scope`\r\nor `invalid_proof` (also a used, expired or foreign challenge), `invalid_field` for another unknown field; 409\r\n`key_taken` when the kid or the key is registered already; 403 `fresh_auth_required` for a stale session without\r\nthe password; a wrong or throttled password, or one that is no string, the login failure body without Retry-After.\r\nThe body is checked before fresh auth, so a malformed one costs no re-authentication.\n\n**Policies applied:**\n- [`KeyRoutesOn`](#policy-keyrouteson) (controller) — The first policy of the key routes: 404 `not_found` while no KeyRegistry is registered, or while authn.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "Body `{ jwk, proof: { challengeId, signature }, kid?, name?, expiresAt?, reauthPassword? }`: an Ed25519 or P-256\npublic JWK and its signature over a register challenge this user asked for (POST /auth/keys/challenge). Needs fresh\nauth: a login within authn.freshAuth.maxAgeSeconds or the account password in `reauthPassword`, verified for this\nrequest only. Answers the key. 400 `invalid_key`, `invalid_kid`, `invalid_name`, `invalid_expiry`, `invalid_scope`\nor `invalid_proof` (also a used, expired or foreign challenge), `invalid_field` for another unknown field; 409\n`key_taken` when the kid or the key is registered already; 403 `fresh_auth_required` for a stale session without\nthe password; a wrong or throttled password, or one that is no string, the login failure body without Retry-After.\nThe body is checked before fresh auth, so a malformed one costs no re-authentication.\n\n**Policies applied:**\n- [`KeyRoutesOn`](#policy-keyrouteson) (controller) — The first policy of the key routes: 404 `not_found` while no KeyRegistry is registered, or while authn.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "responses": {
           "200": {
             "description": "The registered key",
@@ -877,7 +877,7 @@
           "Keys"
         ],
         "summary": "Revoke an own key",
-        "description": "The key fails on its next request. 404 `key_not_found` for any kid that is not a key of the caller, whoever owns\r\nit; revoking a revoked key of the caller changes nothing.\n\n**Policies applied:**\n- [`KeyRoutesOn`](#policy-keyrouteson) (controller) — The first policy of the key routes: 404 `not_found` while no KeyRegistry is registered, or while authn.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "The key fails on its next request. 404 `key_not_found` for any kid that is not a key of the caller, whoever owns\nit; revoking a revoked key of the caller changes nothing.\n\n**Policies applied:**\n- [`KeyRoutesOn`](#policy-keyrouteson) (controller) — The first policy of the key routes: 404 `not_found` while no KeyRegistry is registered, or while authn.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "parameters": [
           {
             "name": "kid",
@@ -924,7 +924,7 @@
           "Keys"
         ],
         "summary": "Key challenge",
-        "description": "Body `{ purpose: 'login', kid }` (anonymous) or `{ purpose: 'register' }` (the caller's own full session, the\r\nchallenge bound to its user). Answers `{ id, nonce, expiresAt }`. A login challenge for an unknown kid looks the\r\nsame as one for a known kid (A02); login challenges count against the client ip, and a throttled one answers 429\r\nwith Retry-After. Register challenges count against nothing here: each throttle flow (login, mfa, reset, reauth)\r\nis a budget of the owner's own, which a burst of challenges would spend; http.throttle caps the route per ip.\r\n400 `invalid_purpose`, `invalid_kid`.\n\n**Policies applied:**\n- [`KeyRoutesOn`](#policy-keyrouteson) (controller) — The first policy of the key routes: 404 `not_found` while no KeyRegistry is registered, or while authn.",
+        "description": "Body `{ purpose: 'login', kid }` (anonymous) or `{ purpose: 'register' }` (the caller's own full session, the\nchallenge bound to its user). Answers `{ id, nonce, expiresAt }`. A login challenge for an unknown kid looks the\nsame as one for a known kid (A02); login challenges count against the client ip, and a throttled one answers 429\nwith Retry-After. Register challenges count against nothing here: each throttle flow (login, mfa, reset, reauth)\nis a budget of the owner's own, which a burst of challenges would spend; http.throttle caps the route per ip.\n400 `invalid_purpose`, `invalid_kid`.\n\n**Policies applied:**\n- [`KeyRoutesOn`](#policy-keyrouteson) (controller) — The first policy of the key routes: 404 `not_found` while no KeyRegistry is registered, or while authn.",
         "responses": {
           "200": {
             "description": "The challenge to sign",
@@ -988,7 +988,7 @@
           "Keys"
         ],
         "summary": "Key login",
-        "description": "Body `{ keyId, challengeId, signature }`: the key's signature over a login challenge for it. Logs in as POST\r\n/auth/login does: ends a session the caller already holds, sets the session cookie and answers the principal\r\nsummary with the login extensions. Key logins ask for no MFA step under the default MFA policy (a key challenge\r\nproves possession); a policy that asks for one gets 200 `{ MfaRequired: [steps] }` with the pending session cookie.\r\nAny failure: 401 with the login failure body, plus Retry-After when throttled.\n\n**Policies applied:**\n- [`KeyRoutesOn`](#policy-keyrouteson) (controller) — The first policy of the key routes: 404 `not_found` while no KeyRegistry is registered, or while authn.",
+        "description": "Body `{ keyId, challengeId, signature }`: the key's signature over a login challenge for it. Logs in as POST\n/auth/login does: ends a session the caller already holds, sets the session cookie and answers the principal\nsummary with the login extensions. Key logins ask for no MFA step under the default MFA policy (a key challenge\nproves possession); a policy that asks for one gets 200 `{ MfaRequired: [steps] }` with the pending session cookie.\nAny failure: 401 with the login failure body, plus Retry-After when throttled.\n\n**Policies applied:**\n- [`KeyRoutesOn`](#policy-keyrouteson) (controller) — The first policy of the key routes: 404 `not_found` while no KeyRegistry is registered, or while authn.",
         "responses": {
           "200": {
             "description": "The principal summary, or the pending answer when MFA is required",
@@ -1056,7 +1056,7 @@
           "Authentication"
         ],
         "summary": "Login",
-        "description": "Body `{ login, password }`. Ends a session the caller already holds. Success: the session cookie and the principal summary with the login extensions. MFA required: 200\r\n`{ MfaRequired: [steps], MfaEnrol: [steps to enrol first] }` with the pending session cookie. Any failure, a body\r\nthe schema refuses included: 401 with one body, plus Retry-After when throttled.",
+        "description": "Body `{ login, password }`. Ends a session the caller already holds. Success: the session cookie and the principal summary with the login extensions. MFA required: 200\n`{ MfaRequired: [steps], MfaEnrol: [steps to enrol first] }` with the pending session cookie. Any failure, a body\nthe schema refuses included: 401 with one body, plus Retry-After when throttled.",
         "responses": {
           "200": {
             "description": "The principal summary, or the pending answer when MFA is required",
@@ -1116,7 +1116,7 @@
           "Authentication"
         ],
         "summary": "Logout",
-        "description": "Ends the session of the cookie, pending ones included (an impersonation ends with it), and clears the cookie and\r\nthe site data of `authn.http.logout.clearSiteData` (default cache, cookies and storage). Audited as `logout`, and as\r\n`impersonation.end` (reason `logout`) for an impersonation (A20, A21).\r\nPOST, so no cross-site link can log anyone out. After the revoke every AuthnLogoutExtension may name a redirect (an OIDC\r\nprovider's end_session_endpoint): a navigation request gets 303 to it, any other client 200 `{ endSession }`. An\r\n`authn.logout` hook that refuses answers 403 `action_refused` with its code and keeps the session and the cookie.",
+        "description": "Ends the session of the cookie, pending ones included (an impersonation ends with it), and clears the cookie and\nthe site data of `authn.http.logout.clearSiteData` (default cache, cookies and storage). Audited as `logout`, and as\n`impersonation.end` (reason `logout`) for an impersonation (A20, A21).\nPOST, so no cross-site link can log anyone out. After the revoke every AuthnLogoutExtension may name a redirect (an OIDC\nprovider's end_session_endpoint): a navigation request gets 303 to it, any other client 200 `{ endSession }`. An\n`authn.logout` hook that refuses answers 403 `action_refused` with its code and keeps the session and the cookie.",
         "parameters": [
           {
             "name": "accept",
@@ -1441,7 +1441,7 @@
           "Authentication"
         ],
         "summary": "Send the code of an MFA step",
-        "description": "Body `{ step? }`: asks the pending step (as in `mfa/verify`) that delivers its code out of band, such as the email\r\ncode, to send it. 202 `{ Ok: true }` whether or not a step sends anything and whether or not the send worked, so the\r\nanswer tells nothing about the account; a step with no `challenge` needs none. Repeats are throttled by the step.\n\n**Policies applied:**\n- [`PendingSessionOnly`](#policy-pendingsessiononly) — 401 without a session, 403 `mfa_not_pending` for an active one: the routes that complete a pending login.",
+        "description": "Body `{ step? }`: asks the pending step (as in `mfa/verify`) that delivers its code out of band, such as the email\ncode, to send it. 202 `{ Ok: true }` whether or not a step sends anything and whether or not the send worked, so the\nanswer tells nothing about the account; a step with no `challenge` needs none. Repeats are throttled by the step.\n\n**Policies applied:**\n- [`PendingSessionOnly`](#policy-pendingsessiononly) — 401 without a session, 403 `mfa_not_pending` for an active one: the routes that complete a pending login.",
         "responses": {
           "202": {
             "description": "Always { Ok: true }",
@@ -1491,7 +1491,7 @@
           "Authentication"
         ],
         "summary": "MFA status",
-        "description": "`{ steps: [{ name, enrolled }] }` for each step of authn.mfa.steps; a begun but unconfirmed enrolment is not\r\nenrolled. Never a secret.\n\n**Policies applied:**\n- [`TotpEnrolmentOn`](#policy-totpenrolmenton) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "`{ steps: [{ name, enrolled }] }` for each step of authn.mfa.steps; a begun but unconfirmed enrolment is not\nenrolled. Never a secret.\n\n**Policies applied:**\n- [`TotpEnrolmentOn`](#policy-totpenrolmenton) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "responses": {
           "200": {
             "description": "Each configured step and whether the caller is enrolled in it",
@@ -1522,7 +1522,7 @@
           "Authentication"
         ],
         "summary": "Begin a TOTP enrolment",
-        "description": "Body `{ reauthPassword? }`. Answers `{ provisioning }`, the otpauth URI, once; a later begin replaces a begun\r\nenrolment with a new secret.\n\n**Policies applied:**\n- [`TotpEnrolmentOn`](#policy-totpenrolmenton) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)\n- [`PendingMfaEnrolment`](#policy-pendingmfaenrolment)",
+        "description": "Body `{ reauthPassword? }`. Answers `{ provisioning }`, the otpauth URI, once; a later begin replaces a begun\nenrolment with a new secret.\n\n**Policies applied:**\n- [`TotpEnrolmentOn`](#policy-totpenrolmenton) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)\n- [`PendingMfaEnrolment`](#policy-pendingmfaenrolment)",
         "responses": {
           "200": {
             "description": "The otpauth URI",
@@ -1852,7 +1852,7 @@
           "Authentication"
         ],
         "summary": "Passkey challenge",
-        "description": "Anonymous: assertion options for any discoverable credential. With a pending session, a challenge for the WebAuthn\r\nMFA step that allows only that identity's credentials; its answer goes to POST /auth/mfa/verify as the step code.\r\nAnswers `{ challengeId, options }`. An anonymous caller counts in the `login` throttle on its ip: 429 with Retry-After\r\nwhen refused. 503 with Retry-After while the stored challenges are at `authn.webauthn.challenges.maxRows`.\n\n**Policies applied:**\n- [`PasskeyRoutesOn`](#policy-passkeyrouteson) (controller)",
+        "description": "Anonymous: assertion options for any discoverable credential. With a pending session, a challenge for the WebAuthn\nMFA step that allows only that identity's credentials; its answer goes to POST /auth/mfa/verify as the step code.\nAnswers `{ challengeId, options }`. An anonymous caller counts in the `login` throttle on its ip: 429 with Retry-After\nwhen refused. 503 with Retry-After while the stored challenges are at `authn.webauthn.challenges.maxRows`.\n\n**Policies applied:**\n- [`PasskeyRoutesOn`](#policy-passkeyrouteson) (controller)",
         "responses": {
           "200": {
             "description": "The challenge and the options for navigator.credentials.get()",
@@ -1878,7 +1878,7 @@
           "Authentication"
         ],
         "summary": "Passkey login",
-        "description": "Body `{ challengeId, response }`: a login challenge and the browser's AuthenticationResponseJSON. Logs in as POST\r\n/auth/login does: ends a session the caller already holds, sets the session cookie and answers the principal\r\nsummary with the login extensions. Any failure: 401 with the login failure body, plus Retry-After when throttled.\n\n**Policies applied:**\n- [`PasskeyRoutesOn`](#policy-passkeyrouteson) (controller)",
+        "description": "Body `{ challengeId, response }`: a login challenge and the browser's AuthenticationResponseJSON. Logs in as POST\n/auth/login does: ends a session the caller already holds, sets the session cookie and answers the principal\nsummary with the login extensions. Any failure: 401 with the login failure body, plus Retry-After when throttled.\n\n**Policies applied:**\n- [`PasskeyRoutesOn`](#policy-passkeyrouteson) (controller)",
         "responses": {
           "200": {
             "description": "The principal summary, or the pending answer when MFA is required",
@@ -1991,7 +1991,7 @@
           "Authentication"
         ],
         "summary": "Passkey registration options",
-        "description": "Body `{ reauthPassword? }`. Answers `{ challengeId, options }` for navigator.credentials.create(): a discoverable\r\ncredential bound to the caller, the caller's passkeys excluded.\n\n**Policies applied:**\n- [`PasskeyRoutesOn`](#policy-passkeyrouteson) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "Body `{ reauthPassword? }`. Answers `{ challengeId, options }` for navigator.credentials.create(): a discoverable\ncredential bound to the caller, the caller's passkeys excluded.\n\n**Policies applied:**\n- [`PasskeyRoutesOn`](#policy-passkeyrouteson) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "responses": {
           "200": {
             "description": "The challenge and the options for navigator.credentials.create()",
@@ -2042,7 +2042,7 @@
           "Authentication"
         ],
         "summary": "Register a passkey",
-        "description": "Body `{ challengeId, response, name?, reauthPassword? }`: a challenge from POST /user/passkeys/options and the\r\nbrowser's RegistrationResponseJSON. Answers the passkey `{ id, name, transports, createdAt, lastUsedAt }`. 400\r\n`invalid_response` (also a used, expired or foreign challenge), `invalid_name` or `invalid_field`; 409\r\n`passkey_taken`; 403 `action_refused` with `code` when an `authn.passkey.register` hook refuses. The body is checked\r\nbefore fresh auth.\n\n**Policies applied:**\n- [`PasskeyRoutesOn`](#policy-passkeyrouteson) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "Body `{ challengeId, response, name?, reauthPassword? }`: a challenge from POST /user/passkeys/options and the\nbrowser's RegistrationResponseJSON. Answers the passkey `{ id, name, transports, createdAt, lastUsedAt }`. 400\n`invalid_response` (also a used, expired or foreign challenge), `invalid_name` or `invalid_field`; 409\n`passkey_taken`; 403 `action_refused` with `code` when an `authn.passkey.register` hook refuses. The body is checked\nbefore fresh auth.\n\n**Policies applied:**\n- [`PasskeyRoutesOn`](#policy-passkeyrouteson) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "responses": {
           "200": {
             "description": "The registered passkey",
@@ -2226,7 +2226,7 @@
           "Authentication"
         ],
         "summary": "Delete an own passkey",
-        "description": "404 `passkey_not_found` for any id that is not a passkey of the caller, whoever holds it; 403 `action_refused` with\r\n`code` when an `authn.passkey.revoke` hook refuses.\n\n**Policies applied:**\n- [`PasskeyRoutesOn`](#policy-passkeyrouteson) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "404 `passkey_not_found` for any id that is not a passkey of the caller, whoever holds it; 403 `action_refused` with\n`code` when an `authn.passkey.revoke` hook refuses.\n\n**Policies applied:**\n- [`PasskeyRoutesOn`](#policy-passkeyrouteson) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "parameters": [
           {
             "name": "id",
@@ -2283,7 +2283,7 @@
           "Authentication"
         ],
         "summary": "Password policy",
-        "description": "What every new password must satisfy: `minLength`, `maxLength`, and `pattern` and `description` when a rule is\r\nconfigured. Public: the reset flow needs it before there is a session.\n\n**Policies applied:**\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) (controller)",
+        "description": "What every new password must satisfy: `minLength`, `maxLength`, and `pattern` and `description` when a rule is\nconfigured. Public: the reset flow needs it before there is a session.\n\n**Policies applied:**\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) (controller)",
         "responses": {
           "200": {
             "description": "The rules a new password must satisfy",
@@ -2309,7 +2309,7 @@
           "Authentication"
         ],
         "summary": "Request a password reset",
-        "description": "Body `{ login }`. Answers at once with `{ Ok: true }`, whether or not the account exists and whether or not the\r\nmail goes out (A11, SR-04); the secret travels only in the mail. 429 with Retry-After when throttled (per login\r\nand per client ip), 400 `invalid_login` without a login.\n\n**Policies applied:**\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) (controller)",
+        "description": "Body `{ login }`. Answers at once with `{ Ok: true }`, whether or not the account exists and whether or not the\nmail goes out (A11, SR-04); the secret travels only in the mail. 429 with Retry-After when throttled (per login\nand per client ip), 400 `invalid_login` without a login.\n\n**Policies applied:**\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) (controller)",
         "responses": {
           "200": {
             "description": "Always { Ok: true }",
@@ -2366,7 +2366,7 @@
           "Authentication"
         ],
         "summary": "Reset the password",
-        "description": "Body `{ login, secret, password, confirmPassword? }`. Redeems a reset secret, or an invite secret while the\r\naccount is invite-pending (A32), once, and sets the password; ends every session of the account. `{ Ok: true }`\r\non success; 400 `password_rejected` with `violations` before the secret is spent; 400 `password_mismatch` or\r\n`invalid_password`; 400 `action_refused` with `code` when an `authn.password.reset.redeem` hook refuses (the secret is\r\nnot spent); any other failure, a malformed login or secret and an unknown field included, the login failure body\r\n(A02, A11).\n\n**Policies applied:**\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) (controller)",
+        "description": "Body `{ login, secret, password, confirmPassword? }`. Redeems a reset secret, or an invite secret while the\naccount is invite-pending (A32), once, and sets the password; ends every session of the account. `{ Ok: true }`\non success; 400 `password_rejected` with `violations` before the secret is spent; 400 `password_mismatch` or\n`invalid_password`; 400 `action_refused` with `code` when an `authn.password.reset.redeem` hook refuses (the secret is\nnot spent); any other failure, a malformed login or secret and an unknown field included, the login failure body\n(A02, A11).\n\n**Policies applied:**\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) (controller)",
         "responses": {
           "200": {
             "description": "The password is set",
@@ -2450,7 +2450,7 @@
           "Authentication"
         ],
         "summary": "Change the own password",
-        "description": "Body `{ oldPassword, password, confirmPassword? }`. The old password is the fresh authentication, verified inline\r\nand counted in the reauth throttle. Success: 200 with the rotated session cookie; every other session of the\r\naccount ends, API tokens stay (A30). 400 `password_rejected` with `violations`, `password_mismatch` or\r\n`invalid_password`; 400 `action_refused` with `code` when an `authn.password.change` hook refuses; a wrong old password\r\nor a throttled change: the login failure body without Retry-After. A session only: 403 `session_required` for a token\r\nor key, 403 `impersonating` while impersonating.\n\n**Policies applied:**\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "Body `{ oldPassword, password, confirmPassword? }`. The old password is the fresh authentication, verified inline\nand counted in the reauth throttle. Success: 200 with the rotated session cookie; every other session of the\naccount ends, API tokens stay (A30). 400 `password_rejected` with `violations`, `password_mismatch` or\n`invalid_password`; 400 `action_refused` with `code` when an `authn.password.change` hook refuses; a wrong old password\nor a throttled change: the login failure body without Retry-After. A session only: 403 `session_required` for a token\nor key, 403 `impersonating` while impersonating.\n\n**Policies applied:**\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "responses": {
           "200": {
             "description": "Successful response"
@@ -2609,7 +2609,7 @@
           "Authentication"
         ],
         "summary": "Register",
-        "description": "Body `{ login, email, password, confirmPassword? }`. Answers 202 `{ status: 'accepted' }` whether the account is new or\r\nthe address is taken, so it tells a stranger nothing about who has an account. RegistrationMailHook, an\r\n`authn.registration` after hook, sends a new account a verification mail and the owner of a taken address an\r\naccount-exists mail (`authn.http.registration.notifyExisting`). A\r\npassword that breaks the policy answers 400 `password_rejected` with its violations: they depend on the input only. 429\r\nwith Retry-After when throttled (the `register` flow, per address and per client ip). An `authn.registration` hook\r\nmay change `login` and `email` (checked again against the policy, then by the registrar) or refuse: 400\r\n`action_refused` with `code`.\n\n**Policies applied:**\n- [`IdentityRegistrarRegistered`](#policy-identityregistrarregistered) (controller) — 404 while no IdentityRegistrar is registered, or the registered factory yields none (users.",
+        "description": "Body `{ login, email, password, confirmPassword? }`. Answers 202 `{ status: 'accepted' }` whether the account is new or\nthe address is taken, so it tells a stranger nothing about who has an account. RegistrationMailHook, an\n`authn.registration` after hook, sends a new account a verification mail and the owner of a taken address an\naccount-exists mail (`authn.http.registration.notifyExisting`). A\npassword that breaks the policy answers 400 `password_rejected` with its violations: they depend on the input only. 429\nwith Retry-After when throttled (the `register` flow, per address and per client ip). An `authn.registration` hook\nmay change `login` and `email` (checked again against the policy, then by the registrar) or refuse: 400\n`action_refused` with `code`.\n\n**Policies applied:**\n- [`IdentityRegistrarRegistered`](#policy-identityregistrarregistered) (controller) — 404 while no IdentityRegistrar is registered, or the registered factory yields none (users.",
         "responses": {
           "202": {
             "description": "Always { status: 'accepted' }",
@@ -2684,7 +2684,7 @@
           "Sessions"
         ],
         "summary": "List own sessions",
-        "description": "Newest first; `Current` marks the one making the request. Sessions in which someone impersonates the caller are\r\nlisted too, with the impersonator's ip and user agent.\n\n**Policies applied:**\n- [`Authenticated`](#policy-authenticated) (controller)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy) (controller)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy) (controller)",
+        "description": "Newest first; `Current` marks the one making the request. Sessions in which someone impersonates the caller are\nlisted too, with the impersonator's ip and user agent.\n\n**Policies applied:**\n- [`Authenticated`](#policy-authenticated) (controller)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy) (controller)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy) (controller)",
         "responses": {
           "200": {
             "description": "The own sessions, newest first",
@@ -2717,7 +2717,7 @@
           "Sessions"
         ],
         "summary": "Revoke every other session",
-        "description": "Ends all own sessions but the current one. 403 `action_refused` with the hook's code when an `authn.sessions.revoke`\r\nhook refuses.\n\n**Policies applied:**\n- [`Authenticated`](#policy-authenticated) (controller)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy) (controller)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy) (controller)",
+        "description": "Ends all own sessions but the current one. 403 `action_refused` with the hook's code when an `authn.sessions.revoke`\nhook refuses.\n\n**Policies applied:**\n- [`Authenticated`](#policy-authenticated) (controller)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy) (controller)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy) (controller)",
         "responses": {
           "200": {
             "description": "The count of ended sessions",
@@ -2759,7 +2759,7 @@
           "Sessions"
         ],
         "summary": "Revoke one session",
-        "description": "Ends the own session with that handle; ending the current one logs the caller out. 404 for any other handle; 403\r\n`action_refused` with the hook's code when an `authn.sessions.revoke` hook refuses.\n\n**Policies applied:**\n- [`Authenticated`](#policy-authenticated) (controller)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy) (controller)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy) (controller)",
+        "description": "Ends the own session with that handle; ending the current one logs the caller out. 404 for any other handle; 403\n`action_refused` with the hook's code when an `authn.sessions.revoke` hook refuses.\n\n**Policies applied:**\n- [`Authenticated`](#policy-authenticated) (controller)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy) (controller)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy) (controller)",
         "parameters": [
           {
             "name": "handle",
@@ -2816,7 +2816,7 @@
           "AccessTokens"
         ],
         "summary": "Revoke a token by its plaintext",
-        "description": "Body `{ token }`, as JSON or a form. Answers `200 {}` whether or not a token was revoked (unknown, malformed,\r\nalready revoked, or a previous secret whose grace has ended), so the answer tells nothing about any token. Every\r\nrequest counts in the `reset` throttle flow keyed on the client ip, shared with the password reset routes, before\r\nits body is read; a refused one answers 429 with Retry-After and revokes nothing.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.",
+        "description": "Body `{ token }`, as JSON or a form. Answers `200 {}` whether or not a token was revoked (unknown, malformed,\nalready revoked, or a previous secret whose grace has ended), so the answer tells nothing about any token. Every\nrequest counts in the `reset` throttle flow keyed on the client ip, shared with the password reset routes, before\nits body is read; a refused one answers 429 with Retry-After and revokes nothing.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.",
         "responses": {
           "200": {
             "description": "Always {}",
@@ -2901,7 +2901,7 @@
           "AccessTokens"
         ],
         "summary": "Create a token",
-        "description": "Body `{ name, expiresAt, roles?, profile?, kind?, scope?, reauthPassword? }`. Needs fresh auth: a login within\r\nauthn.freshAuth.maxAgeSeconds or the account password in `reauthPassword`, verified for this request only. Answers\r\n`{ Token, Plaintext }`; the plaintext is shown here once and never again. `expiresAt` is mandatory, at most\r\nauthn.token.maxTtlDays ahead (an agent token authn.token.agentMaxTtlMinutes). 400 `invalid_name`,\r\n`invalid_expiry`, `invalid_kind`, `invalid_roles`, `invalid_profile`, or `invalid_scope` (also a role the owner\r\ndoes not hold, a profile the profile policy does not offer, or a scope that does not fit the kind), `invalid_field`\r\nfor an unknown field; 403 `fresh_auth_required` for a stale session without the password; a wrong or throttled\r\npassword, or one that is no string, the login failure body without Retry-After. The body is checked before fresh\r\nauth.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "Body `{ name, expiresAt, roles?, profile?, kind?, scope?, reauthPassword? }`. Needs fresh auth: a login within\nauthn.freshAuth.maxAgeSeconds or the account password in `reauthPassword`, verified for this request only. Answers\n`{ Token, Plaintext }`; the plaintext is shown here once and never again. `expiresAt` is mandatory, at most\nauthn.token.maxTtlDays ahead (an agent token authn.token.agentMaxTtlMinutes). 400 `invalid_name`,\n`invalid_expiry`, `invalid_kind`, `invalid_roles`, `invalid_profile`, or `invalid_scope` (also a role the owner\ndoes not hold, a profile the profile policy does not offer, or a scope that does not fit the kind), `invalid_field`\nfor an unknown field; 403 `fresh_auth_required` for a stale session without the password; a wrong or throttled\npassword, or one that is no string, the login failure body without Retry-After. The body is checked before fresh\nauth.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "responses": {
           "200": {
             "description": "The token and its plaintext, shown once",
@@ -3056,7 +3056,7 @@
           "AccessTokens"
         ],
         "summary": "Revoke an own token",
-        "description": "The token stops working on its next request. 404 `token_not_found` for any id that is not a live token of the\r\ncaller, whoever owns it; 403 `action_refused` with the hook's code when an `authn.token.revoke` hook refuses.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "The token stops working on its next request. 404 `token_not_found` for any id that is not a live token of the\ncaller, whoever owns it; 403 `action_refused` with the hook's code when an `authn.token.revoke` hook refuses.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "parameters": [
           {
             "name": "uuid",
@@ -3112,7 +3112,7 @@
           "AccessTokens"
         ],
         "summary": "Narrow an own token",
-        "description": "Body `{ name?, roles?, expiresAt? }`. Only narrows: roles must be a subset of the token's (or of the owner's, for a token\r\nwithout roles) and expiresAt not later than the current one. No fresh auth. 400 `invalid_name`, `invalid_roles`,\r\n`invalid_expiry`, `invalid_scope` or `invalid_field` (any other key, before the others); 404 `token_not_found`; 403\r\n`action_refused` with `code` when an `authn.token.update` hook refuses.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "Body `{ name?, roles?, expiresAt? }`. Only narrows: roles must be a subset of the token's (or of the owner's, for a token\nwithout roles) and expiresAt not later than the current one. No fresh auth. 400 `invalid_name`, `invalid_roles`,\n`invalid_expiry`, `invalid_scope` or `invalid_field` (any other key, before the others); 404 `token_not_found`; 403\n`action_refused` with `code` when an `authn.token.update` hook refuses.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "parameters": [
           {
             "name": "uuid",
@@ -3220,7 +3220,7 @@
           "AccessTokens"
         ],
         "summary": "Rotate an own token",
-        "description": "Replaces the secret of a live token; the id, name, roles and expiry stay. Needs fresh auth like the create route.\r\nBody `{ graceSeconds?, reauthPassword? }`: the old secret works for `graceSeconds` more (0 to 604800, default 0).\r\nAnswers `{ Token, Plaintext }`; the new plaintext is shown here once. 400 `invalid_grace` or `invalid_field`; 404\r\n`token_not_found` for any id that is not a live token of the caller; 403 `action_refused` with `code` when an\r\n`authn.token.rotate` hook refuses.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "Replaces the secret of a live token; the id, name, roles and expiry stay. Needs fresh auth like the create route.\nBody `{ graceSeconds?, reauthPassword? }`: the old secret works for `graceSeconds` more (0 to 604800, default 0).\nAnswers `{ Token, Plaintext }`; the new plaintext is shown here once. 400 `invalid_grace` or `invalid_field`; 404\n`token_not_found` for any id that is not a live token of the caller; 403 `action_refused` with `code` when an\n`authn.token.rotate` hook refuses.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "parameters": [
           {
             "name": "uuid",
@@ -3318,7 +3318,7 @@
           "Authentication"
         ],
         "summary": "Request a verification mail",
-        "description": "Mails a single-use link to the address of the session's account. 202 `{ Ok: true }` whether or not a mail goes out\r\n(an address already verified gets none); 429 with Retry-After when throttled. A session only: 403\r\n`session_required` for a token or key, 403 `impersonating` while impersonating.\n\n**Policies applied:**\n- [`AddressVerificationRegistered`](#policy-addressverificationregistered) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "Mails a single-use link to the address of the session's account. 202 `{ Ok: true }` whether or not a mail goes out\n(an address already verified gets none); 429 with Retry-After when throttled. A session only: 403\n`session_required` for a token or key, 403 `impersonating` while impersonating.\n\n**Policies applied:**\n- [`AddressVerificationRegistered`](#policy-addressverificationregistered) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "responses": {
           "202": {
             "description": "Always { Ok: true }",
@@ -3351,7 +3351,7 @@
           "Authentication"
         ],
         "summary": "Verify the address",
-        "description": "Body `{ secret }`, the secret of the verification link. 200 `{ Ok: true }`; any refused secret, a missing one\r\nincluded, 400 `invalid_secret` with one body. 429 with Retry-After while the client ip is throttled (the `reset` flow).\n\n**Policies applied:**\n- [`AddressVerificationRegistered`](#policy-addressverificationregistered) (controller)",
+        "description": "Body `{ secret }`, the secret of the verification link. 200 `{ Ok: true }`; any refused secret, a missing one\nincluded, 400 `invalid_secret` with one body. 429 with Retry-After while the client ip is throttled (the `reset` flow).\n\n**Policies applied:**\n- [`AddressVerificationRegistered`](#policy-addressverificationregistered) (controller)",
         "responses": {
           "200": {
             "description": "The address is verified",
