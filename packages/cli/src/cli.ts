@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 import { Bootstrapper, DI } from '@spinajs/di';
-import { Cli, CommanderError } from './index.js';
+import { Cli } from './index.js';
 import { Configuration } from '@spinajs/configuration-common';
-import { resolveCliLog } from './cliLog.js';
-import { Log } from '@spinajs/log-common';
+import { reportFatal, resolveCliLog } from './cliLog.js';
 import './args.js';
 
 async function cli() {
@@ -32,11 +31,7 @@ async function cli() {
     // process.exit() ignores an already-assigned exitCode unless it is passed in.
     process.exit(process.exitCode ?? 0);
   } catch (err) {
-    // Commander errors already went through the framework logger when one is registered. Anything else is printed
-    // here: until a command loads @spinajs/log this entry point logs to a buffering proxy, and process.exit() drops it.
-    if (!(err instanceof CommanderError && DI.check(Log))) {
-      console.error(err);
-    }
+    await reportFatal(err);
     process.exit(-1);
   }
 }

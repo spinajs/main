@@ -2,7 +2,6 @@
   "authn",
   "authn-http",
   "authz-queue",
-  "cli",
   "http-socket",
   "internal-logger",
   "teams-http",

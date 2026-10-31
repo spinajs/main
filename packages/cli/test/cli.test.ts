@@ -36,6 +36,13 @@ export function dir(path: string) {
 }
 
 export class ConnectionConf extends FrameworkConfiguration {
+  // Merged, the dirs also list every workspace package's commands: 119 imports and 4 s in the first test, none of them used here.
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    const dirs = this.get<string[]>(['system', 'dirs', 'cli'], []);
+    this.set(['system', 'dirs', 'cli'], dirs.filter((d) => d === dir('./commands') || d.replaceAll('\\', '/').includes('/@spinajs/cli/')));
+  }
+
   protected onLoad() {
     return {
       logger: {
