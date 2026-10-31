@@ -601,9 +601,9 @@ export class FrameworkConfiguration extends Configuration {
       // An unconfigured module still gets its schema defaults, unless the schema needs values from the app.
       const empty = {};
       if (this.Validator.validate(s, empty)) {
-        // An empty object under another schema's module is no default: that schema would judge a section nobody set, so
-        // its verdict would depend on which module is checked first.
-        if (!_.isEmpty(empty) || !this.isUnderAnotherModule(s)) _.set(this.Config, s.$configurationModule, empty);
+        // A schema over this path that refuses an empty section would judge one nobody set, and its verdict would depend
+        // on which module is checked first.
+        if (!_.isEmpty(empty) || this.ownersAcceptEmpty(s)) _.set(this.Config, s.$configurationModule, empty);
       } else {
         InternalLogger.warn({ module: s.$configurationModule }, 'Cannot validate configuration for module ${module}, configuration is not set', 'Configuration');
       }
@@ -620,11 +620,13 @@ export class FrameworkConfiguration extends Configuration {
     return this.failureOf(s);
   }
 
-  private isUnderAnotherModule(s: IConfigurationSchema): boolean {
+  private ownersAcceptEmpty(s: IConfigurationSchema): boolean {
     const path = _.toPath(s.$configurationModule);
-    return this.schemasOfLineage().some((o) => {
-      const module = _.toPath(o.$configurationModule);
-      return module.length < path.length && _.isEqual(module, path.slice(0, module.length));
+    return this.schemasOfLineage().every((owner) => {
+      const module = _.toPath(owner.$configurationModule);
+      if (module.length >= path.length || !_.isEqual(module, path.slice(0, module.length))) return true;
+      const value = copyForCheck(_.get(this.Config, module) ?? {}) as object;
+      return this.Validator.validate(owner, _.set(value, path.slice(module.length), {}));
     });
   }
 

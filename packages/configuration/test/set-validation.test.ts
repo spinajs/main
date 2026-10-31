@@ -218,6 +218,11 @@ describe('configuration set, merge and reload validation', () => {
       const config = await boot(() => ({}), NESTED);
       expect(config.get('app.mail.smtp')).to.deep.equal({});
     });
+
+    it('still gives a module its empty object when the parent accepts one', async () => {
+      const config = await boot(() => ({}), { ...OWNER, $id: 'test-set-open-owner', properties: { section: { type: 'object' } } }, SECTION);
+      expect(config.get('owner.section')).to.deep.equal({});
+    });
   });
 
   describe('load()', () => {
