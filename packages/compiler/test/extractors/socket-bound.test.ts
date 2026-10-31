@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { hashManifest, type Manifest } from '@spinajs/manifest';
+import { hashManifest, mergeFragments, type Manifest, type ManifestFragment } from '@spinajs/manifest';
 import { createProgramFromTsconfig, createContext, extractSocketContracts, extractSocketControllers } from '../../src/index.js';
 import { socketContract } from '../../src/doctor/rules/socket-contract.js';
 import { createDoctorContext, DEFAULT_RULES } from '../../src/doctor/index.js';
@@ -43,5 +43,15 @@ describe('socket controllers bound to a contract', () => {
 
     const found = socketContract.run(manifest, createDoctorContext(manifest, { cwd: process.cwd() }));
     expect(found.filter((d) => d.code === 'SOCK005')).to.have.length(1);
+  });
+
+  it('two packages declaring one explicit id reach SOCK005 through the merge', () => {
+    const named = contracts.find((c) => c.id === 'greet.v1')!;
+    const fragmentOf = (name: string) => ({ ...fixture(), package: { name, version: '1.0.0' }, socketContracts: [named], schemas: {} }) as unknown as ManifestFragment;
+    const merged = mergeFragments(fragmentOf('app'), [fragmentOf('dep')], { app: fixture().app, packages: [] });
+
+    expect(merged.socketContracts.map((c) => c.id)).to.deep.equal(['greet.v1', 'greet.v1']);
+    const found = socketContract.run(merged, createDoctorContext(merged, { cwd: process.cwd() }));
+    expect(found.filter((d) => d.code === 'SOCK005').map((d) => d.message)).to.deep.equal(['socket contract id greet.v1 is declared more than once; give each defineContract a unique id']);
   });
 });
