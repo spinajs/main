@@ -1,5 +1,4 @@
 [
-  "authn",
   "authn-http",
   "http-socket",
   "internal-logger",

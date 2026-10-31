@@ -351,7 +351,8 @@ describe('StrategyRegistry', function () {
     });
 
     const refused: [string, unknown, string][] = [
-      ['a string instead of a list', 'LocalPassword', 'authn.strategies'],
+      // Config files concatenate arrays, so the string lands in the shipped empty list as its first entry.
+      ['a string instead of a list', 'LocalPassword', 'authn.strategies.0'],
       ['an entry without a service', [{ name: 'local' }], 'authn.strategies.0.service'],
       ['an entry with an empty name', [{ name: '', service: 'LocalPassword' }], 'authn.strategies.0.name'],
       ['a null entry', [null], 'authn.strategies.0'],

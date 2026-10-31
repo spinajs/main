@@ -4,7 +4,6 @@ Packages in `known-failing.json` may fail `scripts/test-all.mjs` and `scripts/co
 
 | Package | Symptom |
 | --- | --- |
-| authn | Never exits: killed by the runner timeout ( scripts/test-timeouts.json ) |
 | authn-http | 541 passing, then the process does not exit ( killed ) |
 | http-socket | 631 passing, 2 failing |
 | internal-logger | 1 failing: logs before configuration is resolved are not written |
