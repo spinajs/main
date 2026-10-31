@@ -128,6 +128,12 @@ describe("an app's classes against its effective dirs", function () {
     expect(names(fragment.controllers)).to.not.include('ElsewhereController');
   });
 
+  it('takes a dir above the sources for all of them, as a recursive scan does', async () => {
+    const fragment = await analyze({ controllers: [ROOT, ...built('controllers')] });
+    expect(names(fragment.controllers)).to.include('ElsewhereController');
+    expect(withCode(fragment.diagnostics, 'CMP006').filter((d) => d.message.includes('system.dirs.controllers'))).to.deep.equal([]);
+  });
+
   it('reads a relative dir from the app root', async () => {
     const fragment = await analyze({ controllers: ['lib/controllers'] });
     expect(names(fragment.controllers)).to.include('KeptController');

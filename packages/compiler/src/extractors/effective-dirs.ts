@@ -31,7 +31,8 @@ function sourceDirsOf(dir: string, layout: AppLayout): string[] {
   const path = resolve(layout.root, dir);
   const built = below(layout.outDir, path);
   const inside = built ?? below(layout.rootDir, path);
-  if (inside === undefined || inside.split(sep).includes('node_modules')) return [];
+  if (inside === undefined) return below(path, layout.rootDir) === undefined ? [] : [layout.rootDir];
+  if (inside.split(sep).includes('node_modules')) return [];
   return built === undefined ? [path] : [join(layout.rootDir, built), join(layout.root, 'src', built)];
 }
 
