@@ -2,10 +2,15 @@ import { AsyncService, ClassInfo, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { effectiveManifestOf } from '@spinajs/configuration';
+import { existsSync } from 'node:fs';
 import { isPackageSkipped, loadsFromManifest, manifestFileFor, ManifestMissing } from '@spinajs/manifest';
-import type { Manifest, MountedBy, SourceRef } from '@spinajs/manifest';
+import type { Manifest, ManifestSection, MountedBy, SourceRef } from '@spinajs/manifest';
 
-export type ManifestSection = 'controllers' | 'socketControllers' | 'schedules' | 'commands' | 'migrations';
+export type { ManifestSection };
+export { ManifestMissing };
+
+// Their classes register themselves as their module is evaluated, so an import is all they need, exported or not.
+const REGISTERS_ON_IMPORT: ReadonlySet<ManifestSection> = new Set(['socketControllers', 'schedules', 'migrations']);
 
 export interface ListOptions {
   /** Manifest section that lists the same classes as the scanned directories; defaults by `configPath`. */
@@ -67,6 +72,7 @@ export async function listFromManifest(
 
   const byFile = new Map<string, ManifestEntryRef[]>();
   const skipped = new Set<string>();
+  const scanFiles = (manifest.scanFiles ?? []).filter((f) => f.section === section).map((f) => ({ className: '', source: f.source }));
   for (const entry of manifest[section] as ManifestEntryRef[]) {
     if (!loadsFromManifest(entry) || (include && !include(entry))) continue;
     const pkg = entry.source.package;
@@ -79,6 +85,13 @@ export async function listFromManifest(
     byFile.set(file, [...(byFile.get(file) ?? []), entry]);
   }
 
+  // The tsconfig of a build may hold a file the emit leaves out, and then no scan finds it either.
+  for (const entry of scanFiles) {
+    if (include && !include(entry)) continue;
+    const file = manifestFileFor(entry, manifest, process.cwd());
+    if (existsSync(file) && !byFile.has(file)) byFile.set(file, []);
+  }
+
   const result: Array<ClassInfo<unknown>> = [];
 
   for (const [file, entries] of byFile) {
@@ -87,8 +100,10 @@ export async function listFromManifest(
     const exported: Record<string, unknown> = typeof loaded === 'function' ? { [loaded.name]: loaded } : loaded;
 
     for (const entry of entries) {
-      const type = exported[entry.className];
+      // `export const Visible = Hidden`: a scan goes by the value, whatever the export is called.
+      const type = exported[entry.className] ?? Object.values(exported).find((v) => typeof v === 'function' && v.name === entry.className);
       if (typeof type !== 'function') {
+        if (REGISTERS_ON_IMPORT.has(section)) continue;
         throw new ManifestMissing(listedMissing(file, entry, section, manifest));
       }
       result.push(Object.assign(new ClassInfo<unknown>(), { file, name: entry.className, type: type as Class<unknown>, instance: undefined }));

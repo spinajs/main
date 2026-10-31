@@ -2,8 +2,9 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
 import { hashManifest } from './hash.js';
+import { loadsFromManifest } from './mounted.js';
 import { readManifestObject } from './read.js';
-import type { Manifest, SourceRef } from './types.js';
+import type { Manifest, MountedBy, SourceRef } from './types.js';
 
 /** DI key the runtime manifest is registered under. */
 export const MANIFEST_TOKEN = '__manifest__';
@@ -185,6 +186,36 @@ function directDependenciesOf(appRoot: string): string[] {
   } catch {
     return [];
   }
+}
+
+const stemOf = (path: string): string => (existsSync(path) ? realpathSync(path) : path).replace(/\.[mc]?[jt]s$/, '');
+
+function isOwnFile(entry: { source: SourceRef }, file: string, manifest: Manifest, cwd: string): boolean {
+  try {
+    const own = stemOf(resolve(file));
+    const written = [manifestFileFor(entry, manifest, cwd), join(packageRootOf(entry.source.package, manifest, cwd), entry.source.file)];
+    return written.some((path) => relative(stemOf(path), own) === '');
+  } catch {
+    // an entry of a package that is not installed is not the class that just ran
+    return false;
+  }
+}
+
+/**
+ * Of the entries that share a class name, the ones that describe the class at hand. The name alone proves little: an
+ * abandoned copy keeps its entry, flagged. The class's own file decides; without one, what the caller can tell (`matches`),
+ * then a loaded entry over a flagged one. More than one left is ambiguity the caller reports.
+ */
+export function ownEntries<T extends { mountedBy?: MountedBy; source: SourceRef }>(candidates: T[], owner: { file?: string; matches?: (entry: T) => boolean }, manifest: Manifest, cwd = process.cwd()): T[] {
+  if (candidates.length <= 1) return candidates;
+
+  const { file, matches } = owner;
+  const sameFile = file ? candidates.filter((c) => isOwnFile(c, file, manifest, cwd)) : [];
+  if (sameFile.length > 0) return sameFile;
+
+  const matching = matches ? candidates.filter(matches) : candidates;
+  const loaded = matching.filter(loadsFromManifest);
+  return loaded.length > 0 ? loaded : matching;
 }
 
 /**

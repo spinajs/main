@@ -95,9 +95,16 @@ try {
     loop: await get('/loop/get'),
     added: await get('/added/get'),
     barrelled: await get('/barrelled/get'),
+    typestar: await get('/typestar/get'),
+    importType: await get('/import-type/get'),
+    const: await get('/const/get'),
+    sideEffect: await get('/side-effect/get'),
     sourced: await get('/sourced/get?page=2'),
     sourcedInvalid: await get('/sourced/get?page=abc'),
   };
+
+  // Only with a manifest: a scan-only boot has no derived validation to prove.
+  result.validation = { users: await get('/users/list?query=' + encodeURIComponent(JSON.stringify({ page: 'abc' }))) };
 
   await DI.resolve(SocketServer);
   const sockets = await DI.resolve(SocketHandlerRegistry);

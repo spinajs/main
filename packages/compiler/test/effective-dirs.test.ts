@@ -34,6 +34,7 @@ describe("an app's classes against its effective dirs", function () {
 
   it('flags nothing without the data, as a direct call of the analyzer always did', async () => {
     const fragment = await analyze();
+    expect(fragment.scanFiles).to.equal(undefined);
     expect(loaded(fragment.controllers)).to.include.members(['ElsewhereController', 'ShopController', 'OldController']);
     expect(flagged(fragment.controllers)).to.deep.equal([]);
     expect(withCode(fragment.diagnostics, 'CMP006')).to.deep.equal([]);
@@ -105,8 +106,59 @@ describe("an app's classes against its effective dirs", function () {
       expect(about(withCode(fragment.diagnostics, 'CMP006'), 'BarrelledController')).to.equal(undefined);
     });
 
-    it('stays flagged for a type-only re-export, which is gone at runtime', () => {
-      expect(flagged(fragment.controllers)).to.include('TypeOnlyController');
+    for (const [form, className] of [
+      ['export type { X } from', 'TypeOnlyController'],
+      ['export type *', 'TypeStarController'],
+      ['import type, then export { X }', 'ImportTypeController'],
+      ['import { type X }, then export { X }', 'InlineTypeController'],
+      ['export { type X } from', 'SpecifierTypeController'],
+      ['export * of a barrel holding export type *', 'ThroughBarrelController'],
+    ]) {
+      it(`stays flagged and reported for ${form}, which emits nothing`, () => {
+        expect(flagged(fragment.controllers)).to.include(className);
+        expect(about(withCode(fragment.diagnostics, 'CMP006'), className)).to.not.equal(undefined);
+      });
+    }
+
+    for (const [form, className] of [
+      ['export const Served = X', 'ConstController'],
+      ['export { X as Renamed } of an import', 'ImportedValueController'],
+      ['export const Visible = X of a class no file exports by name', 'AliasedController'],
+    ]) {
+      it(`is loaded for ${form}: discovery takes any class-valued export`, () => {
+        expect(loaded(fragment.controllers)).to.include(className);
+      });
+    }
+
+    it('is not called an export of a dir for a command nothing exports, as the CLI reads exports', () => {
+      expect(flagged(fragment.commands)).to.include('HiddenCommand');
+    });
+
+    it('is loaded in the sections that register on import when a file under the dir declares it, exported or not', () => {
+      expect(loaded(fragment.schedules)).to.include('UnexportedTask');
+      expect(loaded(fragment.socketControllers)).to.include('UnexportedSocket');
+      expect(loaded(fragment.migrations)).to.include('Unexported_2026_01_03_00_00_00');
+    });
+
+    it('is loaded in those sections when a file under the dir imports its file', () => {
+      expect(loaded(fragment.schedules)).to.include('ViaImportTask');
+    });
+
+    it('stays flagged when the import that names it is elided from the output', () => {
+      expect(flagged(fragment.schedules)).to.include('ElidedTask');
+      expect(about(withCode(fragment.diagnostics, 'CMP006'), 'ElidedTask')?.message).to.include('imports it');
+    });
+
+    it('lists the files a scan imports that no loaded entry brings in, per section', () => {
+      const files = (section: string): string[] => (fragment.scanFiles ?? []).filter((f) => f.section === section).map((f) => f.source.file);
+      expect(files('controllers')).to.include('src/controllers/register.ts');
+      expect(files('controllers')).to.not.include('src/controllers/KeptController.ts');
+      expect(files('schedules')).to.include('src/schedules/index.ts');
+      expect(files('schedules')).to.not.include('src/schedules/KeptTask.ts');
+    });
+
+    it('stays flagged for a controller a side-effect file registers: the registration decides, not the manifest', () => {
+      expect(flagged(fragment.controllers)).to.include('SideEffectController');
     });
 
     it('stays flagged under a declared dir when no file exports it, as discovery never sees it', () => {
@@ -182,7 +234,7 @@ describe("an app's classes against its effective dirs", function () {
   it('lets a default dir filter its section, and configured dirs replace it', async () => {
     const options = { tsconfig: join(ROOT, 'tsconfig.json'), packageRoot: ROOT, schemaDerivation: false, defaultDirs: { migrations: built('migrations') } };
     const byDefault = await analyzePackage({ ...options, effectiveDirs: { controllers: built('controllers') } });
-    expect(loaded(byDefault.migrations)).to.deep.equal(['Kept_2026_01_01_00_00_00']);
+    expect(loaded(byDefault.migrations)).to.deep.equal(['Kept_2026_01_01_00_00_00', 'Unexported_2026_01_03_00_00_00']);
     const replaced = await analyzePackage({ ...options, effectiveDirs: { controllers: built('controllers'), migrations: built('elsewhere') } });
     expect(loaded(replaced.migrations)).to.deep.equal(['Elsewhere_2026_01_02_00_00_00']);
   });
@@ -208,7 +260,7 @@ describe("an app's classes against its effective dirs", function () {
   it('keeps migrations an app leaves to the default dirs the CLI hands over', async () => {
     const defaults = ['src', 'lib', 'dist', 'build', '.'].map((d) => join(ROOT, d, 'migrations'));
     const fragment = await analyze({ ...DIRS, migrations: defaults });
-    expect(loaded(fragment.migrations)).to.deep.equal(['Kept_2026_01_01_00_00_00']);
+    expect(loaded(fragment.migrations)).to.deep.equal(['Kept_2026_01_01_00_00_00', 'Unexported_2026_01_03_00_00_00']);
   });
 
   it('loads the classes of a RunApp layout, under the dir `applyAppDirs` adds', async () => {

@@ -86,12 +86,21 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   const declared = options.declaredDirsOnly ? declaredDirsOf(files, root) : undefined;
   const { effectiveDirs, defaultDirs, requireAppDirs } = options;
   const discovered = effectiveDirs
-    ? discoveredBy({ effectiveDirs, defaultDirs, requireAppDirs }, { root, rootDir: loaded.emitRoot, outDir: resolve(root, outDir) }, { checker: loaded.checker, files }, (diagnostic) => ctx.diagnostics.push(diagnostic))
+    ? discoveredBy(
+        { effectiveDirs, defaultDirs, requireAppDirs },
+        { root, rootDir: loaded.emitRoot, outDir: resolve(root, outDir) },
+        { checker: loaded.checker, options: loaded.program.getCompilerOptions(), files, packageName: pkg.name },
+        (diagnostic) => ctx.diagnostics.push(diagnostic),
+      )
     : undefined;
-  const scanned = <T extends ScannedEntry>(section: DirSection, extractor: Extractor<T>): T[] => {
-    const entries = run(extractor).filter((e) => !declared || isUnderDeclaredDirs(e.source.file, section, declared));
-    return discovered ? discovered(section, entries) : entries;
-  };
+  const scanned = <T extends ScannedEntry>(section: DirSection, extractor: Extractor<T>): T[] => run(extractor).filter((e) => !declared || isUnderDeclaredDirs(e.source.file, section, declared));
+  const controllers = scanned('controllers', extractControllers);
+  const socketControllers = scanned('socketControllers', extractSocketControllers);
+  const migrations = scanned('migrations', extractMigrations);
+  const schedules = scanned('schedules', extractSchedules);
+  const commands = scanned('commands', extractCommands);
+  discovered?.requireDirs(controllers.length + socketControllers.length + migrations.length + schedules.length + commands.length);
+  const marked = <T extends ScannedEntry>(section: DirSection, entries: T[]): T[] => (discovered ? discovered.filter(section, entries) : entries);
 
   const fragment: ManifestFragment = {
     manifestVersion: MANIFEST_VERSION,
@@ -104,15 +113,16 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
     },
     services: sortBySource(mergeById(files.flatMap((f) => extractServices(ctx, f)))),
     values: run(extractValues),
-    controllers: scanned('controllers', extractControllers),
-    socketControllers: scanned('socketControllers', extractSocketControllers),
+    controllers: marked('controllers', controllers),
+    socketControllers: marked('socketControllers', socketControllers),
     socketContracts: run(extractSocketContracts),
     configModules: run(extractConfigModules),
     configUsages: run(extractConfigUsages),
     models: run(extractModels),
-    migrations: scanned('migrations', extractMigrations),
-    schedules: scanned('schedules', extractSchedules),
-    commands: scanned('commands', extractCommands),
+    migrations: marked('migrations', migrations),
+    schedules: marked('schedules', schedules),
+    commands: marked('commands', commands),
+    ...(discovered?.scanFiles.length ? { scanFiles: discovered.scanFiles } : {}),
     queueMessages: run(extractQueueMessages),
     schemas: Object.fromEntries([...Object.entries(ctx.schemas), ...ctx.schemaRegistry].sort(([a], [b]) => compareCodeUnits(a, b))),
     diagnostics: sortDiagnostics(ctx.diagnostics),

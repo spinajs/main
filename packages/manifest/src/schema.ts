@@ -82,6 +82,12 @@ export const manifestSchema: Record<string, any> = {
             "$ref": "#/definitions/QueueMessageEntry"
           }
         },
+        "scanFiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ScanFile"
+          }
+        },
         "schemas": {
           "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"
         },
@@ -1221,6 +1227,31 @@ export const manifestSchema: Record<string, any> = {
         "source"
       ]
     },
+    "ScanFile": {
+      "type": "object",
+      "properties": {
+        "section": {
+          "$ref": "#/definitions/ManifestSection"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "section",
+        "source"
+      ]
+    },
+    "ManifestSection": {
+      "type": "string",
+      "enum": [
+        "controllers",
+        "socketControllers",
+        "schedules",
+        "commands",
+        "migrations"
+      ]
+    },
     "Diagnostic": {
       "type": "object",
       "properties": {
@@ -1354,6 +1385,12 @@ export const manifestSchema: Record<string, any> = {
           "type": "array",
           "items": {
             "$ref": "#/definitions/QueueMessageEntry"
+          }
+        },
+        "scanFiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ScanFile"
           }
         },
         "schemas": {

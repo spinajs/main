@@ -1,5 +1,5 @@
 import { Class, DI, getInheritedDescriptor } from '@spinajs/di';
-import { BasePolicy, IPolicyGroup } from '@spinajs/http';
+import { BasePolicy, captureControllerSourceFile, IPolicyGroup } from '@spinajs/http';
 import type { ContractShape, SocketContract } from '@spinajs/http-socket-common';
 import { BaseSocketController } from './controller.js';
 import { ConnectionArg, FromDiArg, PayloadArg, ReasonArg, SignalArg } from './args.js';
@@ -78,6 +78,7 @@ function Handler(kind: Exclude<SocketHandlerKind, 'unknown'>, name: string | und
 export function SocketController(prefix?: string, options: { contract?: SocketContract<ContractShape> } = {}) {
   const describe = SocketDescriptor((descriptor) => {
     descriptor.Prefix = prefix ? prefix : null;
+    descriptor.SourceFile = captureControllerSourceFile();
     if (options.contract) {
       descriptor.Contract = options.contract;
     }

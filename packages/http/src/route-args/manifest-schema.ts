@@ -3,7 +3,7 @@ import { TypedArray, type IContainer } from '@spinajs/di';
 import { effectiveManifestOf } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
 import type { Log } from '@spinajs/log';
-import { routeFullPath, servedPath, type Manifest, type ParamEntry, type RouteEntry } from '@spinajs/manifest';
+import { ownEntries, routeFullPath, servedPath, type Manifest, type ParamEntry, type RouteEntry } from '@spinajs/manifest';
 import { manifestValidatorOf, schemaOfClass, type ManifestDataValidator, type ManifestValidationOptions, type ManifestValidator } from '@spinajs/validation';
 import { ParameterType, type IRoute, type IRouteParameter } from '../interfaces.js';
 
@@ -45,14 +45,15 @@ export function derivedValidatorOf(param: IRouteParameter): DerivedArgCheck | un
   return current.getStore()?.get(param);
 }
 
-/** The runtime knows a controller by class name, handler and mount path; the class name alone may be taken twice. */
-export function routeEntryOf(manifest: Manifest, controller: string, route: IRoute, mountPath: string): RouteEntry | undefined {
+/** The runtime knows a controller by class name, source file, handler and mount path; the class name alone may be taken twice. */
+export function routeEntryOf(manifest: Manifest, controller: string, route: IRoute, mountPath: string, file?: string): RouteEntry | undefined {
   const handler = String(route.Method);
-  const candidates = manifest.controllers.filter((c) => c.className === controller).flatMap((c) => c.routes.filter((r) => r.handler === handler));
-  if (candidates.length <= 1) return candidates[0];
-
   const fullPath = servedPath(routeFullPath(mountPath, route.Path, handler));
-  const matching = candidates.filter((r) => r.fullPath === fullPath);
+  const candidates = manifest.controllers.filter((c) => c.className === controller && c.routes.some((r) => r.handler === handler));
+  const routes = ownEntries(candidates, { file, matches: (c) => c.routes.some((r) => r.handler === handler && r.fullPath === fullPath) }, manifest).flatMap((c) => c.routes.filter((r) => r.handler === handler));
+  if (routes.length <= 1) return routes[0];
+
+  const matching = routes.filter((r) => r.fullPath === fullPath);
   return matching.length === 1 ? matching[0] : undefined;
 }
 
@@ -108,6 +109,8 @@ export interface DerivedValidatorsOptions {
   controller: string;
   route: IRoute;
   mountPath: string;
+  /** The controller's source file, to tell apart classes of the same name. */
+  file?: string;
   log: Log;
 }
 
@@ -117,10 +120,10 @@ export interface DerivedValidatorsOptions {
  * compile fails the boot in `require` and leaves that argument unchecked, with a warning, in `prefer`. Arguments whose
  * index, kind or name disagree with the manifest ( a stale build ) are not checked.
  */
-export function derivedValidatorsOf({ container, controller, route, mountPath, log }: DerivedValidatorsOptions): DerivedArgValidators | undefined {
+export function derivedValidatorsOf({ container, controller, route, mountPath, file, log }: DerivedValidatorsOptions): DerivedArgValidators | undefined {
   const effective = effectiveManifestOf(container);
   const manifest = effective?.manifest;
-  const entry = manifest && routeEntryOf(manifest, controller, route, mountPath);
+  const entry = manifest && routeEntryOf(manifest, controller, route, mountPath, file);
   if (!effective || !manifest || !entry) return undefined;
 
   const validators = new Map<IRouteParameter, DerivedArgCheck>();

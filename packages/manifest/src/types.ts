@@ -108,6 +108,17 @@ export interface RouteEntry {
  */
 export type MountedBy = 'di';
 
+export type ManifestSection = 'controllers' | 'socketControllers' | 'schedules' | 'commands' | 'migrations';
+
+/**
+ * A file a directory scan of the section imports and no loaded entry of it brings in. The manifest imports it as well: the
+ * scan runs its decorators and registrations.
+ */
+export interface ScanFile {
+  section: ManifestSection;
+  source: SourceRef;
+}
+
 export interface ControllerEntry {
   id: string; className: string;
   basePath: string | null; basePathConfig?: string;   // as declared; null without @BasePath
@@ -157,6 +168,8 @@ export interface ManifestFragment {
   controllers: ControllerEntry[]; socketControllers: SocketControllerEntry[]; socketContracts: SocketContractEntry[];
   configModules: ConfigModuleEntry[]; configUsages: ConfigUsageEntry[];
   models: ModelEntry[]; migrations: MigrationEntry[]; schedules: ScheduleEntry[]; commands: CliCommandEntry[]; queueMessages: QueueMessageEntry[];
+  /** Omitted when there are none; only an app built with its dirs has any. */
+  scanFiles?: ScanFile[];
   schemas: Record<string, unknown>;   // $id → JSON Schema
   diagnostics: Diagnostic[];
 }

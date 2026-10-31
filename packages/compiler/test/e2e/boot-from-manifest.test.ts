@@ -67,6 +67,64 @@ export function enableDebug(): void {
   'elsewhere/AddedController.ts': controller('AddedController', 'added'),
   'elsewhere/BarrelledController.ts': controller('BarrelledController', 'barrelled'),
   'controllers/barrel.ts': "export { BarrelledController } from '../elsewhere/BarrelledController.js';\n",
+  'elsewhere/TypeStarController.ts': controller('TypeStarController', 'typestar'),
+  'elsewhere/ImportTypeController.ts': controller('ImportTypeController', 'import-type'),
+  'controllers/type-barrel.ts': `
+export type * from '../elsewhere/TypeStarController.js';
+
+import type { ImportTypeController } from '../elsewhere/ImportTypeController.js';
+export { ImportTypeController };
+`,
+  'elsewhere/ConstController.ts': controller('ConstController', 'const'),
+  'controllers/served.ts': "import { ConstController } from '../elsewhere/ConstController.js';\n\nexport const Served = ConstController;\n",
+  'elsewhere/SideEffectController.ts': controller('SideEffectController', 'side-effect'),
+  'controllers/register.ts': `
+import { DI } from '@spinajs/di';
+import { BaseController } from '@spinajs/http';
+import { SideEffectController } from '../elsewhere/SideEffectController.js';
+
+DI.register(SideEffectController).as(BaseController);
+`,
+  'schedules/unexported.ts': `
+import { Schedule, ScheduledTask } from '@spinajs/scheduler';
+
+@Schedule('unexported-task', { every: '1h' })
+class UnexportedTask extends ScheduledTask {}
+
+void UnexportedTask;
+`,
+  'elsewhere/ViaImportTask.ts': `
+import { Schedule, ScheduledTask } from '@spinajs/scheduler';
+
+@Schedule('via-import-task', { every: '1h' })
+export class ViaImportTask extends ScheduledTask {}
+`,
+  'schedules/via-import.ts': "import '../elsewhere/ViaImportTask.js';\n",
+  'socket/unexported.ts': `
+import { BaseSocketController, Command, Payload, SocketController } from '@spinajs/http-socket';
+
+@SocketController('unexported')
+class UnexportedSocket extends BaseSocketController {
+  @Command('ping')
+  public async ping(@Payload() payload: { text: string }): Promise<{ text: string }> {
+    return payload;
+  }
+}
+
+void UnexportedSocket;
+`,
+  'migrations/Unexported_2026_10_28_00_00_00.ts': `
+import { Migration, OrmMigration } from '@spinajs/orm';
+import type { OrmDriver } from '@spinajs/orm';
+
+@Migration('default')
+class Unexported_2026_10_28_00_00_00 extends OrmMigration {
+  public async up(_: OrmDriver): Promise<void> {}
+  public async down(_: OrmDriver): Promise<void> {}
+}
+
+void Unexported_2026_10_28_00_00_00;
+`,
   'elsewhere/SourcedController.ts': `
 import { ClassInfo, Injectable } from '@spinajs/di';
 import { BaseController, BasePath, ControllerSource, Get, Ok, Query } from '@spinajs/http';
@@ -124,6 +182,7 @@ interface ProbeResult {
   imports: Array<{ specifier: string; parent: string }>;
   scans: { ancestorWalks: number; controllerDirScans: number; migrationDirScans: number; globPatterns: string[] };
   responses: Record<string, { status: number; body: unknown }>;
+  validation: Record<string, { status: number; body: unknown }>;
   controllers: string[];
   migrations: string[];
   schedules: string[];
@@ -167,6 +226,11 @@ async function installApp(): Promise<Manifest> {
     mkdirSync(dirname(join(INSTALLED, 'src', file)), { recursive: true });
     writeFileSync(join(INSTALLED, 'src', file), source);
   }
+  // Abandoned copies with the same class name, mount path and socket prefix as the live classes.
+  for (const [from, to] of [['controllers/HealthController.ts', 'controllers-old/HealthController.ts'], ['controllers/users.ts', 'controllers-old/users.ts'], ['socket/chat.ts', 'socket-old/chat.ts']]) {
+    mkdirSync(dirname(join(INSTALLED, 'src', to)), { recursive: true });
+    cpSync(join(INSTALLED, 'src', from), join(INSTALLED, 'src', to));
+  }
 
   compileApp(INSTALLED);
   dropDecoratorMetadata(INSTALLED, 'elsewhere/SourcedController');
@@ -207,6 +271,7 @@ describe('app-basic boots from its manifest', function () {
   let discovered: ProbeResult;
   let explainRequired: ProbeResult;
   let explainDiscovered: ProbeResult;
+  let preferred: ProbeResult;
   let manifest: Manifest;
 
   before(async function () {
@@ -218,6 +283,7 @@ describe('app-basic boots from its manifest', function () {
     manifest = await installApp();
     required = boot({ SPINAJS_MANIFEST_MODE: 'require', SPINAJS_MANIFEST: join(INSTALLED, 'app.manifest.json') });
     discovered = boot({ SPINAJS_MANIFEST_MODE: 'off', E2E_SCAN: '1' });
+    preferred = boot({ SPINAJS_MANIFEST_MODE: 'prefer', SPINAJS_MANIFEST: join(INSTALLED, 'app.manifest.json') });
     explainRequired = boot({ SPINAJS_MANIFEST_MODE: 'require', SPINAJS_MANIFEST: join(INSTALLED, 'app.manifest.json'), E2E_EXPLAIN: '1', E2E_APP_SOURCE: '1' });
     explainDiscovered = boot({ SPINAJS_MANIFEST_MODE: 'off', E2E_SCAN: '1', E2E_EXPLAIN: '1', E2E_APP_SOURCE: '1' });
   });
@@ -271,6 +337,41 @@ describe('app-basic boots from its manifest', function () {
       expect(explainDiscovered.responses[route].status, route).to.equal(200);
       expect(explainRequired.responses[route], route).to.deep.equal(explainDiscovered.responses[route]);
     }
+  });
+
+  it('does not mount a class a file under the dirs re-exports only as a type: nothing is emitted, so no scan sees it', () => {
+    for (const route of ['typestar', 'importType']) {
+      expect(discovered.responses[route].status, route).to.equal(404);
+      expect(required.responses[route].status, route).to.equal(404);
+      expect(preferred.responses[route].status, route).to.equal(404);
+    }
+    const flagged = manifest.controllers.filter((c) => c.mountedBy === 'di').map((c) => c.className);
+    expect(flagged).to.include.members(['TypeStarController', 'ImportTypeController']);
+  });
+
+  it('serves a class exported as a value under another name, as discovery does', () => {
+    expect(discovered.responses.const.status).to.equal(200);
+    expect(required.responses.const).to.deep.equal(discovered.responses.const);
+  });
+
+  it('runs what a scan brings in without an export, as discovery does', () => {
+    for (const result of [discovered, required]) {
+      expect(result.schedules).to.include.members(['unexported-task', 'via-import-task']);
+      expect(result.socketCommands).to.include('unexported.ping');
+      expect(result.migrations).to.include('Unexported_2026_10_28_00_00_00');
+      expect(result.responses.sideEffect.status).to.equal(200);
+    }
+  });
+
+  it('is not disturbed by an abandoned copy of a live controller or socket', () => {
+    expect(required.responses.health).to.deep.equal({ status: 200, body: { ok: true } });
+    expect(required.socketCommands).to.include('chat.send');
+    expect(manifest.controllers.filter((c) => c.className === 'HealthController').map((c) => c.mountedBy)).to.have.members([undefined, 'di']);
+  });
+
+  it('keeps derived validation of a live controller with an abandoned copy, in require and in prefer', () => {
+    expect(required.validation.users.status).to.equal(400);
+    expect(preferred.validation.users.status).to.equal(400);
   });
 
   it('serves a class a file under the dirs re-exports, as discovery does', () => {

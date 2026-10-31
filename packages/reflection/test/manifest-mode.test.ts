@@ -88,6 +88,69 @@ describe('ListFromFiles manifest fast path', () => {
     expect(listed?.map((i) => i.name)).to.deep.equal(['FooService']);
   });
 
+  describe('what a scan brings in besides listed classes', () => {
+    let dir: string;
+    const marker = (name: string) => `${dir.replace(/[^a-z0-9]/gi, '')}${name}`;
+    const ran = (name: string): unknown => (globalThis as Record<string, unknown>)[marker(name)];
+    const scanFile = (file: string, section: 'schedules' | 'commands' = 'commands') => ({ section, source: sourceRef(file) });
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), 'spinajs-scan-files-'));
+      mkdirSync(join(dir, 'test'));
+      writeFileSync(join(dir, 'test', 'side-effect.js'), `globalThis['${marker('sideEffect')}'] = true;\n`);
+      writeFileSync(join(dir, 'test', 'filtered.js'), `globalThis['${marker('filtered')}'] = true;\n`);
+      writeFileSync(join(dir, 'test', 'unexported.js'), 'class Hidden {}\n');
+      writeFileSync(join(dir, 'test', 'aliased.js'), 'class Hidden {}\nexports.Visible = Hidden;\n');
+    });
+
+    afterEach(() => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    const appOf = (overrides: Partial<Parameters<typeof testManifest>[0]>) => createTestApp({ config, register: withManifest(testManifest({ root: dir, ...overrides }), 'require') });
+
+    it('imports the section\'s scan files and lists nothing for them', async () => {
+      const app = await appOf({ scanFiles: [scanFile('side-effect.ts')] });
+      expect(await listFromManifest(app.container, 'commands')).to.deep.equal([]);
+      expect(ran('sideEffect')).to.equal(true);
+    });
+
+    it('leaves the scan files of another section alone', async () => {
+      const app = await appOf({ scanFiles: [scanFile('side-effect.ts', 'schedules')] });
+      await listFromManifest(app.container, 'commands');
+      expect(ran('sideEffect')).to.equal(undefined);
+    });
+
+    it('skips a scan file that was not built, as a scan never finds it', async () => {
+      const app = await appOf({ scanFiles: [scanFile('never-built.ts')] });
+      expect(await listFromManifest(app.container, 'commands')).to.deep.equal([]);
+    });
+
+    it('passes scan files through include, which the migration environment filter relies on', async () => {
+      const app = await appOf({ scanFiles: [scanFile('filtered.ts')] });
+      await listFromManifest(app.container, 'commands', (entry) => !entry.source.file.includes('filtered'));
+      expect(ran('filtered')).to.equal(undefined);
+    });
+
+    it('accepts a class its module does not export in a section that registers on import', async () => {
+      const schedule = { name: 'hidden', className: 'Hidden', options: {}, source: sourceRef('unexported.ts') };
+      const app = await appOf({ schedules: [schedule] });
+      expect(await listFromManifest(app.container, 'schedules')).to.deep.equal([]);
+    });
+
+    it('still refuses it in a section read from exports', async () => {
+      const command = { name: 'hidden', className: 'Hidden', options: [], arguments: [], source: sourceRef('unexported.ts') };
+      const app = await appOf({ commands: [command] });
+      await expect(listFromManifest(app.container, 'commands')).to.be.rejectedWith(ManifestMissing);
+    });
+
+    it('finds a class exported under another name, as a scan goes by the value', async () => {
+      const command = { name: 'hidden', className: 'Hidden', options: [], arguments: [], source: sourceRef('aliased.ts') };
+      const app = await appOf({ commands: [command] });
+      expect((await listFromManifest(app.container, 'commands'))?.map((i) => i.name)).to.deep.equal(['Hidden']);
+    });
+  });
+
   it('resolves instances for ResolveFromFiles', async () => {
     const app = await createTestApp({ config, register: withManifest(manifest) });
     const items = await app.container.resolve(resolverOf()).Items;
