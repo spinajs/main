@@ -1,18 +1,26 @@
 import assert from 'node:assert/strict';
+import { mock } from 'node:test';
 import 'mocha';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { assertSameTiming, compareTiming, repeat, timingDefaults, timingTimeoutMs } from '../../src/helpers/index.js';
 import type { TimedSource } from '../../src/helpers/index.js';
 
+// A fake clock: on a loaded runner two real busy-waits differ by more than these limits, and the arithmetic is what is under test.
+let now = 0n;
 const spin = (ms: number) => async () => {
-  const end = process.hrtime.bigint() + BigInt(Math.round(ms * 1e6));
-  while (process.hrtime.bigint() < end) {
-    // busy wait: timers would add CI jitter
-  }
+  now += BigInt(Math.round(ms * 1e6));
 };
 
 describe('timing helpers', () => {
   const quick = { runs: 20, warmup: 2, noiseFloorMs: 0.1, retries: 0 };
+
+  beforeEach(() => {
+    mock.method(process.hrtime, 'bigint', () => now);
+  });
+
+  afterEach(() => {
+    mock.restoreAll();
+  });
 
   it('passes for two equal busy-waits', async () => {
     const r = await compareTiming(repeat(spin(2)), repeat(spin(2)), quick);
