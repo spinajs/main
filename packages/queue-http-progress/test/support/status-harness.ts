@@ -118,8 +118,21 @@ export function statusHarness(opts: { rbac?: boolean } = {}): BehaviourHarness {
         }
       });
 
-      const controllers = (await DI.resolve(Controllers)) as Controllers;
-      for (const c of registered) await controllers.add(c);
+      const release = async () => {
+        unregisterCase();
+        await orm.dispose();
+        DI.uncache(Orm);
+        DI.uncache(OrmMigrator);
+      };
+
+      // Past this point the seeded rows live in an Orm only dispose() removes, and a failed add never returns it.
+      try {
+        const controllers = (await DI.resolve(Controllers)) as Controllers;
+        for (const c of registered) await controllers.add(c);
+      } catch (err) {
+        await release();
+        throw err;
+      }
 
       const http: HttpHandle = {
         async request(req: HttpRequest): Promise<HttpResponse> {
@@ -137,12 +150,7 @@ export function statusHarness(opts: { rbac?: boolean } = {}): BehaviourHarness {
 
       return {
         lane: { http },
-        async dispose() {
-          unregisterCase();
-          await orm.dispose();
-          DI.uncache(Orm);
-          DI.uncache(OrmMigrator);
-        },
+        dispose: release,
       } as Partial<HarnessSession>;
     },
   });

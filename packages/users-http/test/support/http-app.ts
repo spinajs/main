@@ -303,6 +303,7 @@ export async function startUsersHttpApp(opts: UsersHttpAppOptions): Promise<User
 
 /** Stops the server and removes what {@link startUsersHttpApp} registered and resolved. */
 async function teardown(): Promise<void> {
+  const started = options !== undefined;
   const manifestMode = options?.manifestMode;
   options = undefined;
   if (manifestMode) {
@@ -312,11 +313,12 @@ async function teardown(): Promise<void> {
     removedSources = [];
     DI.uncache(ControllerSource);
   }
-  if (!running) return;
-  const { server, controllers } = running;
+  // A boot that failed still registered its Configuration, and the next suite would get it.
+  if (!started) return;
+  const { server, controllers = [] } = running ?? {};
   running = undefined;
 
-  await server.stop();
+  await server?.stop();
   DI.uncache(HttpServer);
   DI.uncache(Controllers);
   for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type as Class<BaseController>);
