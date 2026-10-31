@@ -63,7 +63,10 @@ describe('the identity stores over a user model that is an @AccessResource', fun
   });
 
   beforeEach(async () => {
-    await bootUsersDb();
+    // Shipped configs of the whole workspace load here; these list permissions belong to packages this process never imports.
+    await bootUsersDb((config) => {
+      for (const permission of ['configuration:read', 'group:read', 'team:read']) config.set(['authz', 'permissions', permission, 'list'], false);
+    });
     await rootAuthz();
     // The runtime guard throws only in the test env; the stores must pass it without the old scoping.
     (DI.get(Configuration) as Configuration).set(['process', 'env', 'APP_ENV'], 'test');

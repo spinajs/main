@@ -779,9 +779,6 @@ describe('MemoryAuthnThrottle', function () {
       ['a zero sweepBatch', { memory: { sweepBatch: 0 } }, 'authn.throttle.memory.sweepBatch'],
       ['a zero fullRetrySeconds', { memory: { fullRetrySeconds: 0 } }, 'authn.throttle.memory.fullRetrySeconds'],
       ['a negative holdOffMs', { memory: { holdOffMs: -1 } }, 'authn.throttle.memory.holdOffMs'],
-      // The schema requires all three fields of a given backoff key.
-      ['a partial backoff key', { login: { account: { free: 2 } } }, 'authn.throttle.login.account.baseDelayMs'],
-      ['a partial ip key', { mfa: { ip: { free: 20, baseDelayMs: 1000 } } }, 'authn.throttle.mfa.ip.maxDelayMs'],
     ];
     for (const [what, bad, path] of refused) {
       it(`fails boot on ${what}, naming ${path}`, async () => {
@@ -789,6 +786,24 @@ describe('MemoryAuthnThrottle', function () {
         assert.ok(paths.includes(path), paths.join(', '));
       });
     }
+
+    // A boot merges the shipped config first, so this rule bites on a key the shipped config does not hold, or without it.
+    const partial: [string, unknown, string][] = [
+      ['a partial backoff key', { login: { account: { free: 2 } } }, 'authn.throttle.login.account.baseDelayMs'],
+      ['a partial ip key', { mfa: { ip: { free: 20, baseDelayMs: 1000 } } }, 'authn.throttle.mfa.ip.maxDelayMs'],
+    ];
+    for (const [what, bad, path] of partial) {
+      it(`the schema alone refuses ${what}, naming ${path}`, async () => {
+        const paths = await violationPaths(configuredChild({ authn: { throttle: bad } }, undefined, true));
+        assert.ok(paths.includes(path), paths.join(', '));
+      });
+    }
+
+    it('a partial key over the shipped config keeps the shipped values of its other fields', async () => {
+      const child = await configuredChild({ authn: { throttle: { login: { account: { free: 2 } } } } });
+      kids.push(child);
+      assert.deepStrictEqual(child.get(Configuration)!.get('authn.throttle.login.account'), { ...DEFAULT_THROTTLE_PARAMS.login.account, free: 2 });
+    });
   });
 
   describe('limiters', () => {

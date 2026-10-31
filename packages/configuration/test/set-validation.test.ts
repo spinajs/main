@@ -30,6 +30,21 @@ const NESTED = {
   properties: { port: { type: 'integer', minimum: 1 } },
 };
 
+// The parent refuses an empty section, as authz does for authz.admin.guard, whose child schema lives in authz-rbac.
+const OWNER = {
+  $id: 'test-set-owner',
+  $configurationModule: 'owner',
+  type: 'object',
+  properties: { flag: { type: 'boolean' }, section: { type: 'object', required: ['needed'] } },
+};
+
+const SECTION = {
+  $id: 'test-set-owner-section',
+  $configurationModule: 'owner.section',
+  type: 'object',
+  properties: { extra: { type: 'array' } },
+};
+
 const booted: IContainer[] = [];
 
 async function boot(values: () => Record<string, unknown>, ...schemas: object[]) {
@@ -179,6 +194,34 @@ describe('configuration set, merge and reload validation', () => {
       config.set('mailer', undefined);
       await config.mergeSource(sourceOf({ mailer: { retryCount: 1 } }));
       expect(config.get('mailer')).to.deep.equal({ retryCount: 1, timeoutMs: 2000 });
+    });
+  });
+
+  describe("a schema with no defaults under another schema's module", () => {
+    for (const [order, schemas] of [
+      ['parent first', [OWNER, SECTION]],
+      ['child first', [SECTION, OWNER]],
+    ] as const) {
+      it(`leaves the unset section unset, ${order}, so a later set of the parent module passes`, async () => {
+        const config = await boot(() => ({ owner: { flag: true } }), ...schemas);
+        expect(config.get('owner.section')).to.equal(undefined);
+        config.set('owner.flag', false);
+        expect(config.get('owner.flag')).to.equal(false);
+      });
+    }
+
+    it('still judges a section that was set', async () => {
+      await expect(boot(() => ({ owner: { section: {} } }), OWNER, SECTION)).to.be.rejectedWith(InvalidConfiguration);
+    });
+
+    it('still gives a module with no parent its empty object', async () => {
+      const config = await boot(() => ({}), NESTED);
+      expect(config.get('app.mail.smtp')).to.deep.equal({});
+    });
+
+    it('still gives a module its empty object when the parent accepts one', async () => {
+      const config = await boot(() => ({}), { ...OWNER, $id: 'test-set-open-owner', properties: { section: { type: 'object' } } }, SECTION);
+      expect(config.get('owner.section')).to.deep.equal({});
     });
   });
 

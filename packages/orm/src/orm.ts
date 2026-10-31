@@ -510,6 +510,7 @@ export class Orm extends AsyncService {
     for (const [, value] of this.Connections) {
       value.stopHealthCheck();
       await value.disconnect();
+      value.releaseTransactionStorage();
     }
   }
 }

@@ -12,6 +12,10 @@
       "types": "./lib/schema.d.ts",
       "import": "./lib/schema.js"
     },
+    "./register-schema": {
+      "types": "./lib/register-schema.d.ts",
+      "import": "./lib/register-schema.js"
+    },
     "./socket": {
       "types": "./lib/socket/index.d.ts",
       "import": "./lib/socket/index.js"

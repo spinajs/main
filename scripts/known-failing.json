@@ -1,12 +1,1 @@
-[
-  "authn",
-  "authn-http",
-  "authz-queue",
-  "http-socket",
-  "internal-logger",
-  "teams-http",
-  "telemetry",
-  "templates",
-  "templates-image",
-  "users"
-]
+[]

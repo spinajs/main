@@ -234,7 +234,8 @@ describe('OpenAPI document of the 3.0 authn routes', function () {
       }
     }
     const schemas = Object.fromEntries(Object.entries(spec.components.schemas).filter(([name]) => name.startsWith('Authn')));
-    const actual = { paths, schemas };
+    // The descriptions come from the JSDoc in lib, whose line ends follow the checkout.
+    const actual = JSON.parse(JSON.stringify({ paths, schemas }).replaceAll('\\r\\n', '\\n')) as unknown;
     if (process.env.UPDATE_SNAPSHOTS) {
       mkdirSync(dirname(SNAPSHOT), { recursive: true });
       writeFileSync(SNAPSHOT, `${JSON.stringify(actual, null, 2)}\n`);

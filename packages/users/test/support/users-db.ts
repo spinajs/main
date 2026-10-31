@@ -1,6 +1,6 @@
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { join, normalize, resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -101,12 +101,16 @@ export function releaseUsersHost(): void {
   }
 }
 
+let bootedOrm: Orm | undefined;
+
 /**
  * Bootstraps and resolves OrmMigrator, which boots the Orm and runs the migrations and seeds of the test database; the
  * suites call `releaseUsersHost()` after.
  * `configure` edits the resolved configuration before the Orm reads it.
  */
 export async function bootUsersDb(configure?: (config: Configuration) => void): Promise<void> {
+  // A suite's afterEach only drops the Orm from the cache: its connections, health checks and transaction storage go on.
+  await bootedOrm?.dispose();
   releaseUsersHost();
   for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
     await b.bootstrap();
@@ -115,6 +119,7 @@ export async function bootUsersDb(configure?: (config: Configuration) => void): 
   const config = await DI.resolve(Configuration, [null, null, [resolve(normalize(join(process.cwd(), 'test', './config')))]]);
   configure?.(config);
   await DI.resolve(OrmMigrator);
+  bootedOrm = DI.get(Orm) ?? undefined;
 }
 
 export interface SeedSpec {

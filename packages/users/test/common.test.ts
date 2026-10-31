@@ -195,6 +195,8 @@ export class TestConfiguration extends FrameworkConfiguration {
       },
 
       email: {
+        // The black hole sender renders no template; the shipped 'email-templates' would need a filesystem and fsService.
+        templateFs: '',
         connections: [
           {
             name: 'rbac-email-connection',

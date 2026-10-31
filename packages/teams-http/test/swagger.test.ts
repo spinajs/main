@@ -12,8 +12,7 @@ import { TEAMS_HTTP_SCHEMAS } from '../src/schemas/index.js';
 
 // The controllers' JSDoc is read from the compiled files (`pretest` compiles them).
 const compiled = (name: string) => resolve(process.cwd(), 'lib', 'controllers', `${name}.js`);
-// http-swagger documents a route declared `@Get('/')` / `@Post('/')` with a trailing slash.
-const openApiPath = (route: string) => route.slice(route.indexOf(' ') + 1).replace(/:(\w+)/g, '{$1}').replace(/^\/teams$/, '/teams/');
+const openApiPath = (route: string) => route.slice(route.indexOf(' ') + 1).replace(/:(\w+)/g, '{$1}');
 const verb = (route: string) => route.slice(0, route.indexOf(' ')).toLowerCase();
 const AUTHENTICATED_ONLY = ['POST /invitations/accept', 'GET /user/teams'];
 
@@ -71,8 +70,8 @@ describe('teams-http swagger', function () {
 
   it('documents the request bodies from the @Schema classes', () => {
     const body = (path: string, method: string) => doc.paths[path][method].requestBody?.content['application/json'].schema;
-    expect(body('/teams/', 'post').required).to.deep.eq(['slug', 'name']);
-    expect(Object.keys(body('/teams/', 'post').properties)).to.have.members(['slug', 'name', 'description', 'parentId']);
+    expect(body('/teams', 'post').required).to.deep.eq(['slug', 'name']);
+    expect(Object.keys(body('/teams', 'post').properties)).to.have.members(['slug', 'name', 'description', 'parentId']);
     expect(body('/teams/{team}/members', 'post').properties.subject.pattern).to.eq('^[^:]+:.+$');
     expect(body('/teams/{team}/invitations', 'post').required).to.deep.eq(['role']);
     expect(body('/groups/{group}/move', 'post').required).to.deep.eq(['parentId']);
@@ -83,7 +82,7 @@ describe('teams-http swagger', function () {
 
   it('documents the query parameters', () => {
     const query = (path: string) => Object.fromEntries(doc.paths[path].get.parameters.filter((p: any) => p.in === 'query').map((p: any) => [p.name, p]));
-    expect(Object.keys(query('/teams/'))).to.have.members(['parentId', 'root', 'page', 'size']);
+    expect(Object.keys(query('/teams'))).to.have.members(['parentId', 'root', 'page', 'size']);
     for (const path of ['/teams/{team}/members', '/teams/{team}/groups', '/teams/{team}/invitations', '/groups/{group}/members']) {
       expect(Object.keys(query(path)), path).to.have.members(['page', 'size']);
       expect(query(path).size.schema, path).to.include({ minimum: 1, maximum: 200 });
@@ -92,7 +91,7 @@ describe('teams-http swagger', function () {
 
   it('refers the answers to the Teams* components, and every $ref resolves', () => {
     const answer = (path: string, method: string, status = '200') => doc.paths[path][method].responses[status].content['application/json'].schema.$ref;
-    expect(answer('/teams/', 'get')).to.eq('#/components/schemas/TeamsTeamPage');
+    expect(answer('/teams', 'get')).to.eq('#/components/schemas/TeamsTeamPage');
     expect(answer('/teams/{team}', 'get')).to.eq('#/components/schemas/TeamsTeam');
     expect(answer('/teams/{team}/members', 'get')).to.eq('#/components/schemas/TeamsMemberPage');
     expect(answer('/teams/{team}/invitations', 'post')).to.eq('#/components/schemas/TeamsInvitationCreated');

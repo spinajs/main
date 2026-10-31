@@ -2,9 +2,11 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
+import { AsyncLocalStorage } from 'async_hooks';
 import { renderTemplate } from '@spinajs/log-common';
 
 import { OrmDriver } from '../src/driver.js';
+import { Orm } from '../src/orm.js';
 import { Builder } from '../src/builders.js';
 import { IColumnDescriptor, ISupportedFeature, ITransactionContext, ITransactionOptions, IsolationLevel } from '../src/interfaces.js';
 
@@ -160,6 +162,29 @@ describe('OrmDriver transaction contract ( F2, B24 )', () => {
     });
 
     expect(d.CurrentTransaction).to.be.undefined;
+  });
+});
+
+describe('Orm.dispose and the transaction storage', () => {
+  it('disables the storage of each connection, and a later transaction still runs in its context', async () => {
+    const driver = new FakeTxDriver();
+    const storage = (driver as unknown as { TransactionStorage: AsyncLocalStorage<unknown> }).TransactionStorage;
+    const disable = storage.disable.bind(storage);
+    let disabled = 0;
+    storage.disable = () => {
+      disabled++;
+      disable();
+    };
+    const orm = Object.assign(Object.create(Orm.prototype) as Orm, { Connections: new Map([['default', driver]]) });
+
+    await orm.dispose();
+    expect(disabled).to.eq(1);
+
+    let inTransaction = false;
+    await driver.transaction(async () => {
+      inTransaction = driver.CurrentTransaction !== undefined;
+    });
+    expect(inTransaction).to.eq(true);
   });
 });
 

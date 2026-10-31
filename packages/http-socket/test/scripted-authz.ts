@@ -1,6 +1,6 @@
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { AuthzDomains, AuthzService, FALSE, ResourceAdapter, TRUE } from '@spinajs/authz';
+import { AuthzService, DefaultAuthzDomains, FALSE, ResourceAdapter, TRUE } from '@spinajs/authz';
 import type { AccessPlan, AccessSummary, AuthorizationModel, AuthzAdmin, CheckInput, Decision, Permission, Principal, ResourceFilter, ResourceRef } from '@spinajs/authz';
 
 function unused(member: string): never {
@@ -100,8 +100,11 @@ export class ScriptedSocketAuthz extends AuthzService {
   }
 }
 
-/** Named domains answer through ScriptedSocketAuthz; `container()` holds `adapters`, which `subject: 'load'` asks for rows. */
-export class ScriptedSocketDomains extends AuthzDomains {
+/**
+ * Named domains answer through ScriptedSocketAuthz; `container()` holds `adapters`, which `subject: 'load'` asks for rows.
+ * A DefaultAuthzDomains because authz-http's field filter refuses any other: only the host's reads a domain's fields config.
+ */
+export class ScriptedSocketDomains extends DefaultAuthzDomains {
   public static adapters: Array<new () => ResourceAdapter> = [];
 
   public async service(name: string): Promise<AuthzService> {
@@ -130,7 +133,7 @@ export class ScriptedSocketDomains extends AuthzDomains {
     return unused('ScriptedSocketDomains.describe');
   }
 
-  public lineage(): readonly string[] {
-    return unused('ScriptedSocketDomains.lineage');
+  public lineage(name: string): readonly string[] {
+    return name === 'root' ? ['root'] : ['root', name];
   }
 }

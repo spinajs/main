@@ -29,7 +29,7 @@ function configure(config: Configuration): void {
   for (const role of ['support', 'member', 'auditor']) {
     config.set(['authz', 'rbac', 'roles', role], { grants: ['doc:read'] });
   }
-  config.set(['authz', 'rbac', 'roles', 'team.member'], { subjectSet: true });
+  config.set(['authz', 'rbac', 'roles', 'unit.member'], { subjectSet: true });
   // With no list every role asks for the password; most tests here are about which roles are listed.
   config.set(PASSWORD_KEY, []);
 }
@@ -113,11 +113,11 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
   it('lists every held role, once each and by name, despite a role switch ceiling', async () => {
     const ref = await user('support', 'member', 'auditor');
     const team = { type: 'project', id: 'team-1' };
-    await grantTo({ set: { role: 'team.member', scope: team } }, 'member');
-    await grantTo({ type: ref.type, id: ref.id }, 'team.member', team);
+    await grantTo({ set: { role: 'unit.member', scope: team } }, 'member');
+    await grantTo({ type: ref.type, id: ref.id }, 'unit.member', team);
 
-    expect(await source.rolesOf(await signedIn(ref))).to.deep.eq(roles('auditor', 'member', 'support', 'team.member'));
-    expect(await source.rolesOf(await signedIn(ref, FACTS, { roles: ['member'] }))).to.deep.eq(roles('auditor', 'member', 'support', 'team.member'));
+    expect(await source.rolesOf(await signedIn(ref))).to.deep.eq(roles('auditor', 'member', 'support', 'unit.member'));
+    expect(await source.rolesOf(await signedIn(ref, FACTS, { roles: ['member'] }))).to.deep.eq(roles('auditor', 'member', 'support', 'unit.member'));
   });
 
   it('flags the roles of authz.principals.roleSwitch.requirePassword', async () => {
@@ -169,14 +169,14 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
   it('lists roles held only at a scope, directly or through a subject set, and leaves out expired holdings', async () => {
     const ref = await user('member');
     const team = { type: 'project', id: 'team-2' };
-    await grantTo({ set: { role: 'team.member', scope: team } }, 'auditor', team);
-    await grantTo({ type: ref.type, id: ref.id }, 'team.member', team);
+    await grantTo({ set: { role: 'unit.member', scope: team } }, 'auditor', team);
+    await grantTo({ type: ref.type, id: ref.id }, 'unit.member', team);
     await grantTo({ type: ref.type, id: ref.id }, 'support', { type: 'project', id: 'p1' }, new Date(Date.now() + 60_000));
-    expect(await source.rolesOf(await signedIn(ref))).to.deep.eq(roles('auditor', 'member', 'support', 'team.member'));
+    expect(await source.rolesOf(await signedIn(ref))).to.deep.eq(roles('auditor', 'member', 'support', 'unit.member'));
 
     sinon.useFakeTimers({ now: Date.now() + 120_000, toFake: ['Date'] });
 
-    expect(await source.rolesOf(await signedIn(ref))).to.deep.eq(roles('auditor', 'member', 'team.member'));
+    expect(await source.rolesOf(await signedIn(ref))).to.deep.eq(roles('auditor', 'member', 'unit.member'));
   });
 
   it('offers roles to the interactive sign-ins: password, oidc, ldap, saml', async () => {

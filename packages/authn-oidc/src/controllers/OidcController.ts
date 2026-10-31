@@ -2,6 +2,7 @@ import type * as express from 'express';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn-http/register-schema';
 import '@spinajs/authn-session/register-schema';
 import { AuthnService, IdentityLinkStore, NonceStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnContext, SessionHandle } from '@spinajs/authn/contracts';

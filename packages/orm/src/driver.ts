@@ -121,6 +121,14 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
   public abstract disconnect(): Promise<OrmDriver>;
 
   /**
+   * Stops the driver's transaction context for a connection that is gone. On Node 22 every enabled AsyncLocalStorage is
+   * visited for each new promise of the process until it is disabled; a later transaction enables it again.
+   */
+  public releaseTransactionStorage(): void {
+    this.TransactionStorage.disable();
+  }
+
+  /**
    * Get list of supported features for this connection
    */
   public abstract supportedFeatures(): ISupportedFeature;
