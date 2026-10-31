@@ -13,6 +13,16 @@ describe('testHost.TestConfiguration', () => {
     expect(config.get('a')).to.deep.equal({ c: 2 });
   });
 
+  it('merge() appends to an array and ignores null and undefined, as the real service does', () => {
+    const config = new testHost.TestConfiguration();
+    config.set('a.list', [1]);
+    config.merge('a.list', [2]);
+    config.merge('a.list', 3);
+    config.merge('a.list', null);
+    config.merge('a.list', undefined);
+    expect(config.get('a.list')).to.deep.equal([1, 2, 3]);
+  });
+
   it('refuses writes through __proto__, constructor and prototype', () => {
     const config = new testHost.TestConfiguration();
     for (const path of ['__proto__.polluted', ['a', '__proto__', 'polluted'], 'constructor.prototype.polluted']) {

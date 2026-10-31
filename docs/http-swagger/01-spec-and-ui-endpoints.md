@@ -53,7 +53,7 @@ With `http.controllers.route.prefix: 'api'` the two controller routes become `/a
 | `http.swagger.version` | `string` | `'1.0.0'` | any | `info.version` |
 | `http.swagger.description` | `string` | `''` | Markdown | `info.description`. The builder appends a Policies section to it; see [Policies and access](05-policies-and-access.md) |
 | `http.swagger.basePath` | `string` | `''` | path without leading or trailing `/`, eg. `'api'` | Prefix for every documented path. Empty falls back to `http.controllers.route.prefix`. Leading and trailing `/` are stripped |
-| `http.swagger.servers` | `{ url: string; description?: string }[]` | `[]` | any | `servers` of the document. Arrays concatenate across config files |
+| `http.swagger.servers` | `{ url: string; description?: string }[]` | `[]` | any | `servers` of the document. The app's array replaces the default |
 | `http.swagger.securitySchemes` | `Record<string, ISecurityScheme>` | unset | `type`: `'apiKey'`, `'http'`, `'oauth2'`, `'openIdConnect'` | `components.securitySchemes` |
 | `http.swagger.security` | `Record<string, string[]>[]` | unset | scheme names from `securitySchemes` | Document-wide security requirement. Override per route with `@security`; see [Documenting routes](02-documenting-routes.md#security) |
 | `http.swagger.ui.cssUrl` | `string` | `'/docs/ui/swagger-ui.css'` | URL | Swagger UI stylesheet. Empty falls back to `https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css` |

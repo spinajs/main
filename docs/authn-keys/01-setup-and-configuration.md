@@ -61,7 +61,7 @@ authn: {
 }
 ```
 
-Config files concatenate arrays, so the package lists no strategy: list each one once, in one app config file. See [Config `authn.*`](../authn/13-configuration-and-boot-checks.md).
+The package lists no strategy: list each one once, in one app config file. See [Config `authn.*`](../authn/13-configuration-and-boot-checks.md).
 
 ## Schema
 

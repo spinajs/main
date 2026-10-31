@@ -64,7 +64,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
   description: 'Authentication configuration (authn.*, design §22.5)',
   type: 'object',
   properties: {
-    strategies: { ...named, description: 'Strategy services by name, each name once. Config files concatenate arrays, so packages ship no entry and the app lists each strategy in one file.' },
+    strategies: { ...named, description: 'Strategy services by name, each name once. Packages ship no entry; the app lists each strategy in one file.' },
     mfa: {
       type: 'object',
       default: {},

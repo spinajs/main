@@ -21,7 +21,7 @@ Each service is looked up per scan, on its first read, not at decoration time.
 
 ### Configuration: custom implementation
 
-Replace the configuration in tests, to point a scan at fixture directories without config files. `FrameworkConfiguration.onLoad()` returns an object merged over the loaded files, with arrays concatenated. Register the subclass before anything resolves `Configuration`, and resolve it before the first read.
+Replace the configuration in tests, to point a scan at fixture directories without config files. `FrameworkConfiguration.onLoad()` returns an object merged over the loaded files: `system.dirs.*` arrays are added to, other value arrays are replaced (see [Arrays](../configuration/01-configuration-service.md#arrays)). Register the subclass before anything resolves `Configuration`, and resolve it before the first read.
 
 ```ts sample
 import { join, resolve } from 'path';

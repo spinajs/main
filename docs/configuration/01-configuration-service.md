@@ -14,12 +14,11 @@
    1. resets the tree to `{}`;
    2. sets `process.env` to `process.env`, merged with the `process.env` DI value of its container, plus `APP_ENV` (see [Environments](02-environments.md));
    3. merges this package's defaults: `app.*`, and the `configuration.*` flags derived from that `APP_ENV`;
-   4. calls `Load(this)` on each source in order and deep-merges the result;
+   4. calls `Load(this)` on each source in order and deep-merges the result (see [Arrays](#arrays)); every `__configuration__` DI value joins the package layer, at the root;
    5. merges what `onLoad()` returns (`null` in `FrameworkConfiguration`; subclasses override it);
-   6. deep-merges every `__configuration__` DI value at the root;
-   7. with an app (`RunApp`), appends `<AppBaseDir>/<RunApp>/<name>` to every `system.dirs.<name>` list (`applyAppDirs()`);
-   8. resolves protocol strings with `loadProtocolVars()` (see [Config var protocols](05-config-var-protocols.md));
-   9. wraps each object that holds a `ConfigVar` in a proxy, so reading the key returns the var's value.
+   6. with an app (`RunApp`), appends `<AppBaseDir>/<RunApp>/<name>` to every `system.dirs.<name>` list (`applyAppDirs()`);
+   7. resolves protocol strings with `loadProtocolVars()` (see [Config var protocols](05-config-var-protocols.md));
+   8. wraps each object that holds a `ConfigVar` in a proxy, so reading the key returns the var's value.
 6. **Validate.** `validate()` checks every registered schema in the container lineage, applies defaults and coercion, and throws one `InvalidConfiguration` listing every violation.
 7. **Configure.** `configure()` calls `configure()` on every top-level section that defines one, with `this` bound to the configuration.
 8. DI caches the instance. Every later `DI.resolve(Configuration)` in that container returns it.
@@ -39,9 +38,9 @@ sequenceDiagram
   FC->>DI: resolve(Array.ofType(ConfigurationSource), [RunApp, paths, AppBaseDir, Env])
   loop each source, by Order
     FC->>S: Load(this)
-    S-->>FC: partial tree, deep-merged
+    S-->>FC: partial tree, deep-merged, __configuration__ values in the package layer
   end
-  FC->>FC: merge onLoad() and __configuration__ values
+  FC->>FC: merge onLoad()
   FC->>P: getVar(path, tree) for each proto:// string
   FC->>FC: validate() against __configurationSchema__
   FC->>FC: configure() on each section
@@ -54,7 +53,7 @@ sequenceDiagram
 | --- | --- |
 | `get<T>(path, defaultValue?)` | Returns the value at `path` (`'a.b.c'` or `['a', 'b', 'c']`), with lodash `_.get` semantics. `defaultValue` is returned only when the value is `undefined`. Throws `InvalidConfiguration` when `path` is inside a module a late schema refused. |
 | `set(path, value)` | Replaces the value at `path`, creating missing objects. After boot, the modules a schema covers at, under or above `path` are validated first; a violation throws `InvalidConfiguration` and nothing changes (see [Runtime changes](06-schema-validation.md#runtime-changes)). |
-| `merge(path, value)` | Deep-merges `value` into the object at `path`; arrays are concatenated. A no-op when nothing is stored at `path`. Validated like `set()`. |
+| `merge(path, value)` | Deep-merges `value` into the object at `path`; arrays are concatenated, also an array stored at `path` itself (`merge('http.middlewares', [mw])` appends `mw`). A no-op when nothing is stored at `path`. Validated like `set()`. |
 | `load()` | Rebuilds the tree from the sources, as in step 5. Values set with `set()` are lost. After boot, the new tree is validated and gets its schema defaults; a violation throws `InvalidConfiguration` and keeps the previous tree. |
 | `mergeSource(sourceClass)` | Resolves a source and adds it to the source list for later `load()` calls. See [Important behaviour](#important-behaviour). |
 | `RootConfig` | The whole tree. |
@@ -152,10 +151,60 @@ async function main() {
 void main();
 ```
 
+## Arrays
+
+An array is a value, like a scalar: the app's array replaces the one a package config sets. Package config files are the exception: among themselves they concatenate their arrays, so two packages can both contribute to one list.
+
+The config files merge in two layers, and packages sit strictly below the app:
+
+1. **Packages.** Every package config file (`node_modules/@spinajs/*/lib/config`, or the manifest's `configFiles`), in every format, common files then environment files. Arrays concatenate, so a package JSON file adds to what a package JS file set.
+   Every `__configuration__` DI value comes first in this layer, so an app value beats it, for scalars too. Without a file source these values merge first, below every source.
+2. **App.** Every other search directory (see [Config files](03-config-files.md#search-directories)), `src/config` included, common files then environment files. Arrays replace, so an environment file of the app replaces an array its common file set, and no package file can override the app, in any format or pass.
+
+| Merge | Arrays |
+| --- | --- |
+| Package config files among themselves | concatenate |
+| `__configuration__` DI values, which are package defaults: they lead the package layer | concatenate |
+| The app's own config files, over the packages and over each other | replace |
+| The result of each other source over the tree, `onLoad()`, `mergeSource()` | replace |
+| `merge(path, value)` | concatenate |
+
+A source merges in `Order`, and the file sources, which hold the package defaults, have `Order` `1`. A source below that loads first, so the package default replaces its value array. `StaticConfigurationSource(cfg)` defaults to `Order` `0`: to override a package array, give it an `Order` above `1`, as in `StaticConfigurationSource(cfg, 10)`.
+
+Some arrays collect entries from several packages and the app, so they concatenate in every merge. `COMPOSED_CONFIG_ARRAYS` (exported) lists them; `*` matches one key, dots inside the key included:
+
+| Path | Entries |
+| --- | --- |
+| `system.dirs.*` | directories scanned for controllers, migrations, CLI commands, ... |
+| `fs.providers` | file providers, by name |
+| `queue.connections` | queue connections, by name |
+| `http.Static` | static file routes |
+| `logger.filters` | log filters |
+| `authz.rbac.roles.*.grants`, `.extends`, `.revoke` | the grants of a role, and the roles it extends |
+| `authz.rbac.serviceRoles.*` | the roles of a service principal |
+| `authz.abac.policies` | ABAC policies |
+| `authz.admin.guard.keepHolders` | role holders the admin guard keeps |
+| `authz.fields.neverRead` | fields no response may carry |
+| `validation.strict.idPrefixes` | schema ids validated without type coercion; a list that replaced the shipped one would put `authn.` and `authz.` input back on coercion |
+| `*.__file__` | the files a section came from |
+
+```js
+// @spinajs/http-socket ships  http: { socket: { transports: ['websocket', 'polling'] } }
+// config/http.js
+export default {
+  http: { socket: { transports: ['websocket'] } }, // ['websocket']
+  system: { dirs: { controllers: ['./src/controllers'] } }, // added to the controller dirs of every package
+};
+```
+
+To add to a package's value array instead of replacing it, call `merge()`, for example in a [`configure()` hook](#configure-hooks): `this.merge('http.middlewares', [requestId])`. `load()` rebuilds the tree without running the hooks again.
+
+`mergeConfig(target, source, 'concat' | 'replace')` is the merge itself and `isComposedConfigArray(path)` tells whether a path is composed, both exported for custom sources and tools.
+
 ## Important behaviour
 
-- Merge rules for every source, `onLoad()` and `merge()`: objects merge deeply, scalars from the later source win, **arrays are concatenated**. A later file cannot shorten or replace an array a package config defines; it can only append to it.
-- `JsFileSource` and `JsonFileSource` both have `Order` `1`. For the same scalar key, the JSON value wins over the JS value.
+- Merge rules for every source, `onLoad()` and `merge()`: objects merge deeply, scalars from the later source win. Arrays follow the rules under [Arrays](#arrays).
+- `JsFileSource` and `JsonFileSource` both have `Order` `1`. Within one [layer](#arrays), the JSON value of a scalar key wins over the JS value. An app JS file wins over a package JSON file.
 - Every top-level object loaded from a file gets a `__file__` array with the paths it came from, for debugging.
 - After boot, `set()`, `merge()`, `mergeSource()` and `load()` validate the modules they change. A refused change throws `InvalidConfiguration` and is not applied.
 - `merge(path, value)` writes nothing when `path` holds no object yet. Use `set()` for a new key.

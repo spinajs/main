@@ -167,11 +167,12 @@ describe('Configuration tests', () => {
     expect(test).to.be.eq(111);
   });
 
-  it('should merge two config files', async () => {
+  it('should merge two config files, the later app file replacing an array', async () => {
     const config = await cfgNoApp();
-    const test = config.get('test.array');
 
-    expect(test).to.include.members([1, 2, 3, 4]);
+    // bar.cjs sets test.array to [3, 4]; test.cjs loads after it
+    expect(config.get('test.array')).to.deep.equal([1, 2]);
+    expect(config.get('test.confFunc')).to.eq(true);
   });
 
   it('should run configuration function', async () => {
@@ -258,8 +259,10 @@ describe('Configuration tests', () => {
     const config = await cfgNoApp();
 
     config.merge('test.array', [333]);
+    config.merge('test', { test2: { array: [5] } });
 
-    expect(config.get<number[]>('test.array')).to.include.members([1, 2, 333]);
+    expect(config.get<number[]>('test.array')).to.deep.equal([1, 2, 333]);
+    expect(config.get<number[]>('test.test2.array')).to.deep.equal([3, 4, 5]);
   });
 
   it('Should validate config', () => {

@@ -1,7 +1,5 @@
-import express from 'express';
-import helmet from 'helmet';
-import { HTTP_PUBLIC_COOKIE_SECRET, configuredCookieParser } from '../cookie.js';
-import compression from 'compression';
+import { HTTP_PUBLIC_COOKIE_SECRET } from '../cookie.js';
+import { defaultMiddlewares } from '../default-middlewares.js';
 import { join, normalize, resolve } from 'path';
 import os from 'os';
 
@@ -104,30 +102,7 @@ const http = {
       // { service: '<ErrorHandlerService class name>' } entries, see docs/http/11-error-handling.md
       handlers: [],
     },
-    middlewares: [
-      // helmet's default no-referrer makes browsers send `Origin: null` on same-origin
-      // form posts, which authn-http's CSRF guard (A22) refuses.
-      helmet({ referrerPolicy: { policy: 'strict-origin-when-cross-origin' } }),
-      express.json({
-        limit: '5mb',
-        // Capture the exact received bytes for the @RawBody() route arg
-        // (webhook signature verification needs the unmodified body).
-        verify: (req: any, _res: any, buf: Buffer) => {
-          req.rawBody = buf;
-        },
-      }),
-      express.urlencoded({
-        extended: true,
-      }),
-      // Parse XML request bodies as text so the @FromXml() route arg can read
-      // and parse them. Covers application/xml, text/xml and *+xml types.
-      express.text({
-        type: ['application/xml', 'text/xml', 'application/*+xml'],
-        limit: '5mb',
-      }),
-      configuredCookieParser,
-      compression(),
-    ],
+    middlewares: defaultMiddlewares(),
 
     /**
      * Static files folder. Feel free to override this per app

@@ -62,7 +62,7 @@ export default {
 
 ## Important behaviour
 
-- **Arrays concatenate across config files.** Your `static.portRange: [8080, 8090]` becomes `[3000, 4000, 8080, 8090]`, and only the first two entries count. Replace the range with `set()` in a `configure()` hook (see the example below).
+- **Your `static.portRange` replaces the shipped range** (see [Arrays](../configuration/01-configuration-service.md#arrays)). It must hold `[min, max]` or be empty.
 - **The default is a fixed range, not an OS port.** Two processes rendering at once pick from the same 1001 ports and retry on collisions. Set the range to `[]` to let the OS choose.
 - **`0` does not disable a timeout.** It falls back to `30000`. Only `debug.close: false` disables timeouts.
 - **`debug.close: false` leaks pages.** Pages are never closed and renders never time out. Use it only on a developer machine.
@@ -77,10 +77,13 @@ export default {
 ## Patterns and antipatterns
 
 ```js
-// Don't: arrays concatenate, the package range [3000, 4000] still wins
-export default { templates: { image: { static: { portRange: [8080, 8090] } } } };
+// Don't: one port is not a range; the server reads the last two elements of the array
+export default { templates: { image: { static: { portRange: [8080] } } } };
 
-// Do: replace the array after the merge
+// Do: set the range, or an empty array for an OS-assigned port
+export default { templates: { image: { static: { portRange: [] } } } };
+
+// Do: change it after the merge when it depends on the running configuration
 export default {
   templates: {
     configure() {

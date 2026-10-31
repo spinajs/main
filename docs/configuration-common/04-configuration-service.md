@@ -36,7 +36,7 @@ This is the flow of `FrameworkConfiguration`, the default implementation in `@sp
 1. `await DI.resolve(Configuration)` creates the last class registered under `Configuration` and awaits its `resolve()`.
 2. `resolve()` throws `InvalidOperation` when no `ConfigurationSource` is registered.
 3. `loadSources()` resolves every `ConfigurationSource` and sorts them by `Order`. See [Configuration sources](05-configuration-sources.md).
-4. `load()` sets `process.env`, merges every source's `Load()` result in order, then merges `onLoad()`, then every value registered as `'__configuration__'` in DI.
+4. `load()` sets `process.env`, merges every source's `Load()` result in order, with every value registered as `'__configuration__'` in DI in the package layer, then merges `onLoad()`.
 5. `load()` resolves protocol values (`fs-path://...`) through `ConfigVarProtocol`s. See [Config var protocols](06-config-var-protocols.md).
 6. `validate()` checks each section against its `IConfigurationSchema`; it throws `InvalidConfiguration` on violations.
 7. `configure()` calls `configure()` on every top-level section that has one, with `this` bound to the `Configuration`.
@@ -53,7 +53,7 @@ sequenceDiagram
   DI->>Cfg: new + resolve()
   Cfg->>DI: resolve(Array.ofType(ConfigurationSource))
   Cfg->>Src: Load(this), by Order
-  Cfg->>Cfg: merge onLoad(), '__configuration__'
+  Cfg->>Cfg: merge onLoad()
   Cfg->>DI: resolve(Array.ofType(ConfigVarProtocol))
   Cfg->>Proto: getVar(path, rootConfig)
   Cfg->>Cfg: validate(), configure()

@@ -122,7 +122,7 @@ export default {
 - With `debug.close: false` the page and its asset server stay open after the render, so the page can be reloaded. The server is never closed and the page only by `dispose()`; use it only while debugging. Combine it with `args.headless: false` to see the window.
 - Concurrent renders on one renderer share one Chromium. Each render gets its own page and its own asset server on its own port.
 - The browser stays alive between renders. A one-shot script must call `dispose()` on the renderer, or `DI.dispose()`, or the process does not exit.
-- Config arrays merge by concatenation, and package configs load before your app's. A `static.portRange` in your app config is appended to the shipped `[3000, 4000]`; the asset server reads the **last** two elements, so your range wins. The same concatenation applies to `args.args`, which is usually what you want.
+- An array in your app config replaces the package default, also `static.portRange` and `args.args` (see [Arrays](../configuration/01-configuration-service.md#arrays)). Package configs concatenate among themselves, so `templates.pdf.static.portRange`, which this package and `@spinajs/templates-pdf` both ship, holds four numbers unless your app sets it; the asset server reads the **last** two elements.
 
 ## Best practices
 
@@ -226,4 +226,4 @@ void snapshotReport();
 - [Custom Puppeteer renderers](03-custom-renderers.md): write `performRender()` and override the hooks used above.
 - [`@spinajs/templates`](../templates/README.md): `Templates`, `TemplateRenderer` and `IRenderOptions`.
 - [`@spinajs/templates-pug`](../templates-pug/README.md): compiles the `.pug` source in step 8.
-- [`@spinajs/configuration`](../configuration/README.md): how config files merge, including array concatenation.
+- [`@spinajs/configuration`](../configuration/README.md): how config files merge, including arrays.
