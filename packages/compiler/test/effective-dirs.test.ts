@@ -213,6 +213,12 @@ describe("an app's classes against its effective dirs", function () {
       expect(((await refused({})) as Error).message).to.include('none');
     });
 
+    it('is not refused for an app with no class to filter: a config-only app has nothing to get wrong', async () => {
+      const root = resolve('test/fixtures/app-empty');
+      const fragment = await analyzePackage({ tsconfig: join(root, 'tsconfig.json'), packageRoot: root, schemaDerivation: false, effectiveDirs: {}, requireAppDirs: true });
+      expect(fragment.controllers).to.deep.equal([]);
+    });
+
     it('is not rescued by a default dir, which exists without any config', async () => {
       const error = await refused({}, { defaultDirs: { migrations: built('migrations') } });
       expect(error).to.be.instanceOf(NoAppDirs);
@@ -248,6 +254,19 @@ describe("an app's classes against its effective dirs", function () {
     } finally {
       rmSync(join(ROOT, 'node_modules'), { recursive: true, force: true });
     }
+  });
+
+  it('warns once about a configured dir of the app that has no source folder behind it', async () => {
+    const fragment = await analyze({ controllers: built('controllers'), schedules: built('lib/schedules') });
+    const warnings = withCode(fragment.diagnostics, 'CMP008');
+    expect(warnings.map((d) => d.severity)).to.deep.equal(['warning']);
+    expect(warnings[0].message).to.include('system.dirs.schedules');
+    expect(warnings[0].message).to.include('lib/lib/schedules');
+  });
+
+  it('does not warn about a package dir, or a dir of a section that maps', async () => {
+    const fragment = await analyze(DIRS);
+    expect(withCode(fragment.diagnostics, 'CMP008')).to.deep.equal([]);
   });
 
   it('ignores a dir that maps to nothing beside one that maps', async () => {

@@ -39,6 +39,20 @@ describe('entries a registration has to serve', () => {
     expect(publishedManifest(m).controllers).to.deep.equal(m.controllers);
   });
 
+  it('still show a permission change in a diff, not breaking and marked as conditional: a registration may serve them', () => {
+    const base = flagged();
+    const head = flagged();
+    const route = head.controllers.flatMap((c) => c.routes)[0];
+    route.access = ['user:read'];
+
+    const changes = diffManifest(base, head).changes.filter((c) => c.section === 'permissions');
+    expect(changes.length).to.equal(1);
+    expect(changes[0].breaking).to.equal(false);
+    expect(changes[0].detail).to.include('user:read');
+    expect(changes[0].detail).to.include('only if a registration');
+    expect(diffManifest(base, head).changes.filter((c) => c.section === 'routes')).to.deep.equal([]);
+  });
+
   it('count as removed in a diff, because the manifest no longer serves them', () => {
     const base = load();
     const removed = diffManifest(base, flagged()).changes.filter((c) => c.section === 'routes' && c.kind === 'removed');

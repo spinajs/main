@@ -21,6 +21,14 @@ describe('--config-path', () => {
     expect(new Exposed().Paths).to.deep.equal([resolve('deploy/config')]);
   });
 
+  it('reads the = form, which the CLI strips from what commands see', () => {
+    process.argv = [...argv, '--config-path=deploy/config', '--app=shop', '--apppath=lib/apps'];
+    const configuration = new Exposed();
+    expect(configuration.Paths).to.deep.equal([resolve('deploy/config')]);
+    expect(configuration.RunApp).to.equal('shop');
+    expect(configuration.AppBaseDir).to.equal('lib/apps');
+  });
+
   it('gives way to cfgCustomPaths, as --apppath gives way to appBaseDir', () => {
     process.argv = [...argv, '--config-path', 'deploy/config'];
     expect(new Exposed({ cfgCustomPaths: ['from/code'] }).Paths).to.deep.equal(['from/code']);

@@ -15,7 +15,8 @@ const BIN = join(CLI_PACKAGE, 'lib', 'cli.js');
 const MANIFEST = join(TMP, 'app.manifest.json');
 const APP_CONFIG = join(TMP, 'lib', 'config', 'app.js');
 
-const LOADED_CONTROLLERS = ['BarrelledController', 'KeptController', 'NestedController', 'StarController'];
+const LOADED_CONTROLLERS = ['AliasedController', 'BarrelledController', 'ConstController', 'ImportedValueController', 'KeptController', 'NestedController', 'StarController'];
+const LOADED_MIGRATIONS = ['Kept_2026_01_01_00_00_00', 'Unexported_2026_01_03_00_00_00'];
 
 // Written the way an app ships it. No `migrations` key: the app relies on the orm's default dirs. `spinajs` itself has no
 // logger implementation: an app's import of @spinajs/log registers it.
@@ -97,10 +98,11 @@ describe('spinajs build reads the dirs the app runs with', function () {
     expect(status).to.equal(0);
     expect(loaded(manifest.controllers)).to.deep.equal(LOADED_CONTROLLERS);
     expect(flagged(manifest.controllers)).to.include.members(['ElsewhereController', 'RegisteredController', 'InjectableNeverImported', 'DebugController', 'AdminController']);
-    expect(loaded(manifest.socketControllers)).to.deep.equal(['KeptSocket']);
-    expect(loaded(manifest.schedules)).to.deep.equal(['KeptTask']);
+    expect(flagged(manifest.controllers)).to.include.members(['TypeStarController', 'ImportTypeController', 'ThroughBarrelController']);
+    expect(loaded(manifest.socketControllers)).to.deep.equal(['KeptSocket', 'UnexportedSocket']);
+    expect(loaded(manifest.schedules)).to.deep.equal(['KeptTask', 'UnexportedTask', 'ViaImportTask']);
     expect(loaded(manifest.commands)).to.deep.equal(['KeptCommand']);
-    expect(loaded(manifest.migrations)).to.deep.equal(['Kept_2026_01_01_00_00_00']);
+    expect(loaded(manifest.migrations)).to.deep.equal(LOADED_MIGRATIONS);
     expect(output).to.match(/^warning CMP006 src\/elsewhere\/ElsewhereController\.ts:\d+ ElsewhereController .*src\/controllers\b.*system\.dirs\.controllers/m);
     expect(output).to.match(new RegExp(`controllers\\s+${LOADED_CONTROLLERS.length}\\b`));
     expect(output).to.match(/not loaded\s+[1-9]/);
@@ -116,6 +118,7 @@ describe('spinajs build reads the dirs the app runs with', function () {
     writeFileSync(join(TMP, 'lib', 'deploy', 'tenant.js'), config("{ controllers: built('apps/shop/controllers') }"));
     expect(flagged(built().manifest.controllers)).to.include('ShopController');
     expect(loaded(built(['--config-path', 'lib/deploy']).manifest.controllers)).to.include('ShopController');
+    expect(loaded(built(['--config-path=lib/deploy']).manifest.controllers)).to.include('ShopController');
   });
 
   it('reflects the config of the APP_ENV of the build', () => {
@@ -134,7 +137,7 @@ describe('spinajs build reads the dirs the app runs with', function () {
       writeFileSync(APP_CONFIG, config("{ schedules: built('schedules') }"));
       const { manifest, output, status } = built();
       expect(status).to.equal(0);
-      expect(loaded(manifest.schedules)).to.deep.equal(['KeptTask']);
+      expect(loaded(manifest.schedules)).to.deep.equal(['KeptTask', 'UnexportedTask', 'ViaImportTask']);
       expect(loaded(manifest.controllers)).to.deep.equal([]);
       expect(flagged(manifest.controllers)).to.include('KeptController');
       expect(output).to.match(/^warning CMP006 src\/controllers\/KeptController\.ts:\d+ .*system\.dirs\.controllers names no source folder/m);
@@ -169,7 +172,7 @@ describe('spinajs build reads the dirs the app runs with', function () {
       writeFileSync(APP_CONFIG, config("{ migrations: built('migrations') }"));
       const { manifest, status } = built();
       expect(status).to.equal(0);
-      expect(loaded(manifest.migrations)).to.deep.equal(['Kept_2026_01_01_00_00_00']);
+      expect(loaded(manifest.migrations)).to.deep.equal(LOADED_MIGRATIONS);
       expect(loaded(manifest.controllers)).to.deep.equal([]);
     });
 
@@ -178,7 +181,7 @@ describe('spinajs build reads the dirs the app runs with', function () {
       const { manifest, status } = built(['--allow-no-dirs']);
       expect(status).to.equal(0);
       expect(loaded(manifest.controllers)).to.deep.equal([]);
-      expect(loaded(manifest.migrations)).to.deep.equal(['Kept_2026_01_01_00_00_00']);
+      expect(loaded(manifest.migrations)).to.deep.equal(LOADED_MIGRATIONS);
       expect(flagged(manifest.controllers)).to.include('KeptController');
     });
   });
@@ -197,6 +200,13 @@ describe('spinajs build reads the dirs the app runs with', function () {
     it('--fail-on-warning turns that warning into exit 1', () => {
       writeFileSync(APP_CONFIG, config(ALL_DIRS, 'process.cwd()'));
       expect(spinajs([...fromLib, '--fail-on-warning'], {}, join(TMP, 'lib')).status).to.equal(1);
+    });
+
+    it('names a dir with no source folder behind it when another dir of the app maps, as a partly right cwd gives', () => {
+      writeFileSync(APP_CONFIG, config("{ controllers: built('controllers'), schedules: built('lib/schedules') }"));
+      const { output, status } = built();
+      expect(status).to.equal(0);
+      expect(output).to.match(/^warning CMP008 - system\.dirs\.schedules entry lib\/lib\/schedules has no source folder/m);
     });
 
     it('refuses when the dirs computed from there name no source folder, instead of dropping every class', () => {

@@ -74,13 +74,13 @@ export async function listFromManifest(
   const skipped = new Set<string>();
   const scanFiles = (manifest.scanFiles ?? []).filter((f) => f.section === section).map((f) => ({ className: '', source: f.source }));
   for (const entry of manifest[section] as ManifestEntryRef[]) {
-    if (!loadsFromManifest(entry) || (include && !include(entry))) continue;
+    if (!loadsFromManifest(entry)) continue;
     const pkg = entry.source.package;
     if (!skipped.has(pkg) && isPackageSkipped(pkg, manifest, process.cwd(), mode)) {
       skipped.add(pkg);
       InternalLogger.debug({ name: pkg, section }, 'Package ${name} is listed in the manifest but not installed, its ${section} are skipped', 'Reflection');
     }
-    if (skipped.has(pkg)) continue;
+    if (skipped.has(pkg) || (include && !include(entry))) continue;
     const file = manifestFileFor(entry, manifest, process.cwd());
     byFile.set(file, [...(byFile.get(file) ?? []), entry]);
   }
