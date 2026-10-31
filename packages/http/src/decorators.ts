@@ -4,7 +4,7 @@ import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BaseP
 import { ArgHydrator } from './route-args/ArgHydrator.js';
 import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas.js';
 import { Options as CsvParseOptions } from 'csv-parse';
-import { toArray } from '@spinajs/util';
+import { filePathOfUrl, toArray } from '@spinajs/util';
 
 import { RequestTypeRouteArgs } from './route-args/RequestFields.js';
 import { ExpectedResponseUnacceptable, InvalidArgument } from '@spinajs/exceptions';
@@ -130,12 +130,8 @@ function captureControllerSourceFile(): string | undefined {
 
     let file = m[1];
     if (file.startsWith('file://')) {
-      // Strip the ESM url scheme. Windows: file:///C:/foo -> C:/foo, POSIX: file:///foo -> /foo.
       try {
-        file = decodeURIComponent(file.replace(/^file:\/\/\/?/, ''));
-        if (!/^[A-Za-z]:/.test(file) && !file.startsWith('/')) {
-          file = `/${file}`;
-        }
+        file = filePathOfUrl(file);
       } catch {
         // fall through with the raw match
       }
