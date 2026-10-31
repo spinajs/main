@@ -90,8 +90,10 @@ The manifest holds what discovery finds. A dependency's fragment (built with `de
 
 | Section | What discovery serves |
 | --- | --- |
-| Controllers, CLI commands | A class a file under the dirs **exports at runtime**, wherever it is declared. A barrel, `export *` and `export const Served = X` count. A non-exported class does not, and neither do the forms that emit nothing: `export type { X }`, `export type *`, `export { type X }`, and `export { X }` of an `import type` |
+| Controllers, CLI commands | A class a file under the dirs **exports at runtime**, wherever it is declared. A barrel, `export *` and `export const Served = X` count, with the module rules for a name collision: a local export wins over a star, and two stars with different classes export neither. A non-exported class does not count, and neither do the forms that emit nothing: `export type { X }`, `export type *`, `export { type X }`, and `export { X }` of an `import type` |
 | Schedules, socket controllers, migrations | A class in **any file that import loads**: under the dirs, or reached from there by an import that survives compilation. These register themselves as their module is evaluated, so an export is not needed. An import used only as a type is elided, and brings nothing in |
+
+File names count too, as in a scan. Every section but migrations matches `.ts` and `.js` files that are not `.d`, so a `.json` or `.mts` file under a dir is not scanned. A migrations dir matches a name with no dot, or one ending in `.<env>` compared literally with the normalized `APP_ENV`, whatever the rest looks like: `legacy.old.ts`, `helper.util.ts` and `Foo_2026_07_29_10_00_00.test.ts` belong to environments called `old`, `util` and `test`. The environment is known only at boot, so the manifest applies that test there, to entries and scan files alike, and such a file stays out of every other environment. A migration that only a tagged file imports gets `mountedBy`, because it must not load in the others.
 
 | The class | In the manifest | Loaded from the manifest | Reported |
 | --- | --- | --- | --- |
@@ -100,7 +102,11 @@ The manifest holds what discovery finds. A dependency's fragment (built with `de
 
 An entry with `mountedBy` keeps the class's metadata, but nothing imports the class for it. It runs only if something registers it, exactly as in discovery: an import that runs its decorators, `DI.register(X).as(BaseController)` that is really reached, `@Injectable(BaseController)` in a file something imports, your own `ControllerSource`, `Controllers.add()`. The compiler cannot tell whether that happens, so a registered class still gets `CMP006`. When it does run, the runtime finds its entry for parameter names, types without decorator metadata, request validation and socket contracts, and `require` accepts it. Entries that share a class name, such as an abandoned copy of a live controller, are told apart by the class's own file, so a flagged copy does not disturb the live class.
 
-A scan also imports files with no class of their own, and those run: `src/controllers/register.ts` with `DI.register(X).as(BaseController)`, or `src/schedules/index.ts` with `import '../elsewhere/Task.js'`. The manifest lists them in `scanFiles`, per section, and importing a section imports them too, unless the file was not built.
+A scan also imports files with no class of their own, and those run: `src/controllers/register.ts` with `DI.register(X).as(BaseController)`, or `src/schedules/index.ts` with `import '../elsewhere/Task.js'`. The manifest lists them in `scanFiles`, per section, and importing a section imports them too, unless the file was not built. Only the app's own `scanFiles` count.
+
+A class in a module that does not export it, in the three sections that register on import, is recorded with `exported: false`. Any other listed class missing from its module means a stale manifest and fails with `ManifestMissing`, in all five sections: rebuild.
+
+The build does not follow `await import()`, because such a call may never run. A class only that loads gets `CMP006`, and it still runs when the call does: the entry keeps its metadata, so only the warning is wrong.
 
 | What reads the manifest | Entries with `mountedBy` |
 | --- | --- |

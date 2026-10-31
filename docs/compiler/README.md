@@ -28,6 +28,7 @@ analyzePackage({ tsconfig, packageRoot, schemaDerivation?, effectiveDirs?, defau
 | `schemaDerivation` | Accepted for forward compatibility. It has no effect yet: extractors do not derive JSON Schemas from types. |
 | `effectiveDirs` | The app's `system.dirs` by key, as plain data. A controller, socket controller, schedule, command or migration that a scan of them does not bring in gets `mountedBy: 'di'`, and the files such a scan imports that no loaded entry brings in go to `scanFiles`; see [The app's own classes](../manifest/README.md#the-apps-own-classes). Omitted, nothing is marked. The analyzer never evaluates config: `spinajs build` reads these from the booted `Configuration`. |
 | `defaultDirs` | Dirs that apply while a key of `effectiveDirs` is empty. They filter their section but prove nothing about the config. |
+| `runAppRoot` | `<appBaseDir>/<app>`. The runtime adds a dir under it for every key, so `CMP008` skips those. |
 | `requireAppDirs` | Throw `NoAppDirs` before anything is written when the app has a class in one of the five sections and no dir of `effectiveDirs` maps into the app. Otherwise that means the app declares none, and every class is marked. |
 
 The fragment's `package` member comes from `package.json` and the `tsconfig`:
