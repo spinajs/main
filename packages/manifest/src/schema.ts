@@ -495,6 +495,9 @@ export const manifestSchema: Record<string, any> = {
         "condition": {
           "$ref": "#/definitions/Condition"
         },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -746,6 +749,10 @@ export const manifestSchema: Record<string, any> = {
         "field"
       ]
     },
+    "MountedBy": {
+      "type": "string",
+      "const": "di"
+    },
     "SocketControllerEntry": {
       "type": "object",
       "properties": {
@@ -790,6 +797,9 @@ export const manifestSchema: Record<string, any> = {
           "items": {
             "$ref": "#/definitions/PropertyInject"
           }
+        },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
         },
         "source": {
           "$ref": "#/definitions/SourceRef"
@@ -1071,6 +1081,9 @@ export const manifestSchema: Record<string, any> = {
         "file": {
           "type": "string"
         },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -1094,6 +1107,9 @@ export const manifestSchema: Record<string, any> = {
         },
         "options": {
           "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"
+        },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
         },
         "source": {
           "$ref": "#/definitions/SourceRef"
@@ -1158,6 +1174,9 @@ export const manifestSchema: Record<string, any> = {
         },
         "parent": {
           "type": "string"
+        },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
         },
         "source": {
           "$ref": "#/definitions/SourceRef"

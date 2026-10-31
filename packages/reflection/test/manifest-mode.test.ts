@@ -81,6 +81,13 @@ describe('ListFromFiles manifest fast path', () => {
     expect(listed?.map((i) => i.name)).to.deep.equal(['FooService']);
   });
 
+  it('listFromManifest neither lists nor imports an entry a registration has to serve', async () => {
+    const flagged = { name: 'bar', className: 'BarService', options: [], arguments: [], mountedBy: 'di' as const, source: sourceRef('test/test-services/singletons/NoSuchFile.ts') };
+    const app = await createTestApp({ config, register: withManifest(testManifest({ root, commands: [...manifest.commands, flagged] }), 'require') });
+    const listed = await listFromManifest(app.container, 'commands');
+    expect(listed?.map((i) => i.name)).to.deep.equal(['FooService']);
+  });
+
   it('resolves instances for ResolveFromFiles', async () => {
     const app = await createTestApp({ config, register: withManifest(manifest) });
     const items = await app.container.resolve(resolverOf()).Items;

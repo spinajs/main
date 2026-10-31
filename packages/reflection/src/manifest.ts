@@ -2,8 +2,8 @@ import { AsyncService, ClassInfo, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { effectiveManifestOf } from '@spinajs/configuration';
-import { isPackageSkipped, manifestFileFor, ManifestMissing } from '@spinajs/manifest';
-import type { Manifest, SourceRef } from '@spinajs/manifest';
+import { isPackageSkipped, loadsFromManifest, manifestFileFor, ManifestMissing } from '@spinajs/manifest';
+import type { Manifest, MountedBy, SourceRef } from '@spinajs/manifest';
 
 export type ManifestSection = 'controllers' | 'socketControllers' | 'schedules' | 'commands' | 'migrations';
 
@@ -33,6 +33,7 @@ function effectiveOf(container: IContainer, section: ManifestSection) {
 
 export interface ManifestEntryRef {
   className: string;
+  mountedBy?: MountedBy;
   source: SourceRef;
 }
 
@@ -67,7 +68,7 @@ export async function listFromManifest(
   const byFile = new Map<string, ManifestEntryRef[]>();
   const skipped = new Set<string>();
   for (const entry of manifest[section] as ManifestEntryRef[]) {
-    if (include && !include(entry)) continue;
+    if (!loadsFromManifest(entry) || (include && !include(entry))) continue;
     const pkg = entry.source.package;
     if (!skipped.has(pkg) && isPackageSkipped(pkg, manifest, process.cwd(), mode)) {
       skipped.add(pkg);

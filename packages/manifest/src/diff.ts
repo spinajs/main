@@ -1,3 +1,4 @@
+import { publishedManifest } from './mounted.js';
 import { canonicalize } from './hash.js';
 import { compareSchemaRefs } from './schema-compare.js';
 import type { Finding } from './schema-compare.js';
@@ -152,7 +153,9 @@ function diffMisc(base: Manifest, head: Manifest): Change[] {
   ];
 }
 
-export function diffManifest(base: Manifest, head: Manifest): ManifestDiff {
+export function diffManifest(baseManifest: Manifest, headManifest: Manifest): ManifestDiff {
+  const base = publishedManifest(baseManifest);
+  const head = publishedManifest(headManifest);
   const all = [...diffRoutes(base, head), ...diffPermissions(base, head), ...diffMisc(base, head)];
   const changes = all.sort((a, b) => SECTIONS.indexOf(a.section) - SECTIONS.indexOf(b.section) || compareCodeUnits(a.id, b.id) || compareCodeUnits(a.kind, b.kind));
   return { base: base.hash, head: head.hash, changes, breaking: changes.some((c) => c.breaking) };

@@ -494,6 +494,9 @@
         "condition": {
           "$ref": "#/definitions/Condition"
         },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -745,6 +748,10 @@
         "field"
       ]
     },
+    "MountedBy": {
+      "type": "string",
+      "const": "di"
+    },
     "SocketControllerEntry": {
       "type": "object",
       "properties": {
@@ -789,6 +796,9 @@
           "items": {
             "$ref": "#/definitions/PropertyInject"
           }
+        },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
         },
         "source": {
           "$ref": "#/definitions/SourceRef"
@@ -1070,6 +1080,9 @@
         "file": {
           "type": "string"
         },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -1093,6 +1106,9 @@
         },
         "options": {
           "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"
+        },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
         },
         "source": {
           "$ref": "#/definitions/SourceRef"
@@ -1157,6 +1173,9 @@
         },
         "parent": {
           "type": "string"
+        },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
         },
         "source": {
           "$ref": "#/definitions/SourceRef"
