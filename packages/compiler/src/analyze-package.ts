@@ -84,10 +84,10 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   const run = <T extends { source: SourceRef }>(extractor: Extractor<T>): T[] => sortBySource(files.flatMap((f) => extractor(ctx, f)));
   const outDir = outDirOf(root, loaded.program.getCompilerOptions().outDir);
   const declared = options.declaredDirsOnly ? declaredDirsOf(files, root) : undefined;
-  const { effectiveDirs, defaultDirs, requireAppDirs } = options;
+  const { effectiveDirs, defaultDirs, requireAppDirs, runAppRoot } = options;
   const discovered = effectiveDirs
     ? discoveredBy(
-        { effectiveDirs, defaultDirs, requireAppDirs },
+        { effectiveDirs, defaultDirs, requireAppDirs, runAppRoot },
         { root, rootDir: loaded.emitRoot, outDir: resolve(root, outDir) },
         { checker: loaded.checker, options: loaded.program.getCompilerOptions(), files, packageName: pkg.name },
         (diagnostic) => ctx.diagnostics.push(diagnostic),

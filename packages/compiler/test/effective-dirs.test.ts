@@ -303,6 +303,13 @@ describe("an app's classes against its effective dirs", function () {
     expect(warnings[0].message).to.include('lib/lib/schedules');
   });
 
+  it('does not warn about a dir under the RunApp root: such a dir is added for every key, folder or not', async () => {
+    const shop = join(ROOT, 'lib', 'apps', 'shop');
+    const dirs = { controllers: [...built('controllers'), join(shop, 'controllers')], schedules: [...built('schedules'), join(shop, 'schedules')] };
+    const fragment = await analyzePackage({ tsconfig: join(ROOT, 'tsconfig.json'), packageRoot: ROOT, schemaDerivation: false, effectiveDirs: dirs, runAppRoot: shop });
+    expect(withCode(fragment.diagnostics, 'CMP008')).to.deep.equal([]);
+  });
+
   it('does not warn about a package dir, or a dir of a section that maps', async () => {
     const fragment = await analyze(DIRS);
     expect(withCode(fragment.diagnostics, 'CMP008')).to.deep.equal([]);

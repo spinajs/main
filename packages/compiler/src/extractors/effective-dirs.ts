@@ -19,6 +19,8 @@ export interface AppDirs {
   defaultDirs?: EffectiveDirs;
   /** Throw `NoAppDirs` when no configured dir lies in the app. Otherwise that means the app declares none. */
   requireAppDirs?: boolean;
+  /** `<appBaseDir>/<app>`: the runtime adds a dir under it for every key, so one with no sources behind it says nothing. */
+  runAppRoot?: string;
 }
 
 /** No configured dir of any section lies in the app, so its config was not seen the way the runtime sees it. */
@@ -93,7 +95,7 @@ function searchedDirs(dirs: EffectiveDirs, root: string): string {
  * Marks what discovery would not load for a section. Such an entry keeps its metadata for a class a registration may still
  * bring in, but the manifest does not load it. A section with no dir in the app is empty, as it is for discovery.
  */
-export function discoveredBy({ effectiveDirs, defaultDirs = {}, requireAppDirs }: AppDirs, layout: AppLayout, sources: AppSources, report: (diagnostic: Diagnostic) => void) {
+export function discoveredBy({ effectiveDirs, defaultDirs = {}, requireAppDirs, runAppRoot }: AppDirs, layout: AppLayout, sources: AppSources, report: (diagnostic: Diagnostic) => void) {
   const modules = new EmittedModules(sources.checker, sources.options);
   const scanFiles: ScanFile[] = [];
   const mapped = (key: string): string[] => (effectiveDirs[key] ?? []).flatMap((d) => sourceDirsOf(d, layout));
@@ -119,7 +121,7 @@ export function discoveredBy({ effectiveDirs, defaultDirs = {}, requireAppDirs }
     for (const dir of effectiveDirs[key] ?? []) {
       const path = resolve(layout.root, dir);
       const rel = below(layout.root, path);
-      if (rel === undefined || rel.split(sep).includes('node_modules') || sourceDirsOf(dir, layout).length > 0) continue;
+      if (rel === undefined || rel.split(sep).includes('node_modules') || (runAppRoot && below(runAppRoot, path) !== undefined) || sourceDirsOf(dir, layout).length > 0) continue;
       report({ code: 'CMP008', severity: 'warning', message: `system.dirs.${key} entry ${shown(path, layout.root)} has no source folder behind it, so it maps to nothing. If it was computed from the working directory, run the build from the folder the app runs from` });
     }
   };

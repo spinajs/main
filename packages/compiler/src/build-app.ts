@@ -16,7 +16,7 @@ export interface BuildAppOptions extends Partial<AppDirs> {
 
 export async function buildAppManifest(options: BuildAppOptions): Promise<{ manifest: Manifest; written: string }> {
   const root = resolve(options.appRoot);
-  const app = await analyzePackage({ tsconfig: options.tsconfig, packageRoot: root, schemaDerivation: options.schemaDerivation, effectiveDirs: options.effectiveDirs, defaultDirs: options.defaultDirs, requireAppDirs: options.requireAppDirs });
+  const app = await analyzePackage({ tsconfig: options.tsconfig, packageRoot: root, schemaDerivation: options.schemaDerivation, effectiveDirs: options.effectiveDirs, defaultDirs: options.defaultDirs, requireAppDirs: options.requireAppDirs, runAppRoot: options.runAppRoot });
   const locations = await locateFragments(root);
   const fragments = await Promise.all(locations.map((l) => readFragment(l.fragment)));
 

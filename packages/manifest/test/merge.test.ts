@@ -11,6 +11,13 @@ const meta = (names: string[]): { app: Manifest['app']; packages: Manifest['pack
 });
 
 describe('mergeFragments', () => {
+  it('takes scanFiles from the app only: a dependency declares no dirs of the app', () => {
+    const scanFile = (pkg: string) => ({ section: 'schedules' as const, source: { file: 'src/x.ts', line: 1, col: 1, package: pkg } });
+    const dep = fragment('dep', { scanFiles: [scanFile('dep')] });
+    expect(mergeFragments(fragment('app', { scanFiles: [scanFile('app')] }), [dep], meta(['dep', 'app'])).scanFiles?.map((f) => f.source.package)).to.deep.equal(['app']);
+    expect(mergeFragments(fragment('app'), [dep], meta(['dep', 'app'])).scanFiles).to.equal(undefined);
+  });
+
   it('prefixes ids with package names and concatenates arrays', () => {
     const app = fragment('app', { services: [service('app', 'A')] });
     const dep = fragment('dep', { services: [service('dep', 'B')] });

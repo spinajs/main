@@ -110,7 +110,9 @@ describe('spinajs build reads the dirs the app runs with', function () {
 
   it('loads a RunApp layout, through the dir applyAppDirs adds for --app and --apppath', () => {
     expect(flagged(built().manifest.controllers)).to.include('ShopController');
-    expect(loaded(built(['--app', 'shop', '--apppath', 'lib/apps']).manifest.controllers)).to.include('ShopController');
+    const { manifest, output } = built(['--app', 'shop', '--apppath', 'lib/apps']);
+    expect(loaded(manifest.controllers)).to.include('ShopController');
+    expect(output).to.not.include('CMP008');
   });
 
   it('reads an extra config folder from --config-path, as the app gets it from cfgCustomPaths', () => {

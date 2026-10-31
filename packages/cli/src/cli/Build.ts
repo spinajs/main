@@ -107,7 +107,9 @@ export class Build extends CliCommand {
     const dirs = this.Config.get<Record<string, unknown>>(['system', 'dirs'], {});
     const paths = (value: unknown): string[] => [value].flat().filter((d) => typeof d === 'string').map(dirOf);
     const effectiveDirs = Object.fromEntries(Object.entries(dirs).map(([key, value]) => [key, paths(value)]));
-    return { effectiveDirs, defaultDirs: { migrations: defaultMigrationDirs().map(physical) }, requireAppDirs: options.allowNoDirs !== true };
+    const { RunApp, AppBaseDir } = this.Config;
+    const runAppRoot = RunApp ? dirOf(join(AppBaseDir, RunApp)) : undefined;
+    return { effectiveDirs, defaultDirs: { migrations: defaultMigrationDirs().map(physical) }, requireAppDirs: options.allowNoDirs !== true, runAppRoot };
   }
 
   private summaryTable(manifest: Manifest, counts: { error: number; warning: number; info: number }): string[] {
