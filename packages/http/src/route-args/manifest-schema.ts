@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { TypedArray, type IContainer } from '@spinajs/di';
+import { isTypedArray, type IContainer, type TypedArray } from '@spinajs/di';
 import { effectiveManifestOf } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
 import type { Log } from '@spinajs/log';
@@ -64,7 +64,7 @@ const describes = (declared: ParamEntry, param: IRouteParameter): boolean => dec
  * runtime, so it is not even compiled: a broken derived entry must not fail the boot for an argument it never checks.
  */
 function derivedUnused(declared: ParamEntry, param: IRouteParameter, route: IRoute): boolean {
-  const type: unknown = param.RuntimeType instanceof TypedArray ? (param.RuntimeType as TypedArray<unknown>).Type : param.RuntimeType;
+  const type: unknown = isTypedArray(param.RuntimeType) ? (param.RuntimeType as TypedArray<unknown>).Type : param.RuntimeType;
   const routeSchema = route.Schema as Record<string, unknown> | null | undefined;
   const hydrated = typeof type === 'function' && Reflect.getMetadata('custom:arg_hydrator', type) !== undefined;
   return !!routeSchema?.[declared.name] || !!param.Schema || schemaOfClass(type) !== undefined || hydrated;

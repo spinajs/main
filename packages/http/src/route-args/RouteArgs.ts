@@ -1,4 +1,4 @@
-import { DI, Autoinject, TypedArray, isClass } from '@spinajs/di';
+import { DI, Autoinject, type TypedArray, isClass, isTypedArray } from '@spinajs/di';
 import { ParameterType, IRouteParameter, IRouteCall, IRoute, Request } from './../interfaces.js';
 import * as express from 'express';
 import { ArgHydrator } from './ArgHydrator.js';
@@ -18,7 +18,7 @@ import { derivedValidatorOf, type DerivedArgCheck } from './manifest-schema.js';
  * @returns The extracted schema or null if not found
  */
 export function extractSchemaFromRuntimeType(runtimeType: any, validator: DataValidator): any {
-  if (runtimeType instanceof TypedArray) {
+  if (isTypedArray(runtimeType)) {
     const underlyingType = (runtimeType as TypedArray<any>).Type;
     const itemSchema = validator.extractSchema(underlyingType);
     if (itemSchema) {
@@ -147,7 +147,7 @@ export abstract class RouteArgs implements IRouteArgs {
   /** The value as `tryExtractObject` reads it, before it builds the class: what the client sent, JSON parsed. */
   protected parseJsonArg(arg: unknown, param: IRouteParameter): unknown {
     const type = param.RuntimeType as { name?: unknown } | null | undefined;
-    const parsed = type instanceof TypedArray || isClass(type) || type?.name === 'Object' || type?.name === 'Array';
+    const parsed = isTypedArray(type) || isClass(type) || type?.name === 'Object' || type?.name === 'Array';
     if (!parsed || !_.isString(arg)) {
       return arg;
     }
@@ -195,7 +195,7 @@ export abstract class RouteArgs implements IRouteArgs {
 
   protected getHydrator(param: IRouteParameter) {
     let hydrator = null;
-    if (param.RuntimeType instanceof TypedArray) {
+    if (isTypedArray(param.RuntimeType)) {
       hydrator = Reflect.getMetadata('custom:arg_hydrator', (param.RuntimeType as TypedArray<any>).Type);
     } else {
       hydrator = Reflect.getMetadata('custom:arg_hydrator', param.RuntimeType);
@@ -209,7 +209,7 @@ export abstract class RouteArgs implements IRouteArgs {
       // TypedArray must be checked BEFORE isClass: a TypedArray instance's
       // constructor is `class TypedArray`, so isClass() reports true for it and
       // would (wrongly) try `new <instance>()`. Handle the typed-array case here.
-      if (param.RuntimeType instanceof TypedArray) {
+      if (isTypedArray(param.RuntimeType)) {
         const type = (param.RuntimeType as TypedArray<any>).Type as any;
         const arrData = _.isString(arg) ? JSON.parse(arg) : arg;
         if (arrData === null || arrData === undefined) {
