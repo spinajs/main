@@ -52,7 +52,7 @@ jobs:
 
       # ts-mocha resolves @spinajs/* to lib; this builds orm-postgres and its reference graph.
       - name: build orm-postgres + deps
-        run: npx tsc -b packages/orm-postgres/tsconfig.build.json
+        run: node node_modules/typescript-7/lib/tsc.js -b packages/orm-postgres/tsconfig.build.json
 
       - name: unit suite
         working-directory: packages/orm-postgres

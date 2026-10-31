@@ -48,7 +48,7 @@ jobs:
       # which failed every run of this job with "Cannot find module .../orm-sqlite/lib/index.js".
       # Same pattern the mysql job below already uses for orm-mysql.
       - name: build queue + deps
-        run: npx tsc -b packages/queue/tsconfig.build.json packages/orm-sqlite/tsconfig.build.json
+        run: node node_modules/typescript-7/lib/tsc.js -b packages/queue/tsconfig.build.json packages/orm-sqlite/tsconfig.build.json
 
       - name: run broker-free queue suites (sqlite)
         working-directory: packages/queue
@@ -94,7 +94,7 @@ jobs:
       # ( which pulls in @spinajs/orm-sql ). Passing both build projects to `tsc -b` builds the
       # union of their reference graphs - everything the test needs, and nothing more.
       - name: build queue + orm-mysql + deps
-        run: npx tsc -b packages/queue/tsconfig.build.json packages/orm-mysql/tsconfig.build.json
+        run: node node_modules/typescript-7/lib/tsc.js -b packages/queue/tsconfig.build.json packages/orm-mysql/tsconfig.build.json
 
       - name: run mysql migration suite
         working-directory: packages/queue
