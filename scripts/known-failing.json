@@ -1,7 +1,5 @@
 [
   "internal-logger",
-  "teams-http",
-  "telemetry",
   "templates",
   "templates-image",
   "users"
