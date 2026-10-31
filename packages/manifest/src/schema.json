@@ -155,6 +155,9 @@
             ]
           }
         },
+        "buildEnv": {
+          "type": "string"
+        },
         "generatedAt": {
           "type": "string"
         },

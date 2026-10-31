@@ -156,6 +156,9 @@ export const manifestSchema: Record<string, any> = {
             ]
           }
         },
+        "buildEnv": {
+          "type": "string"
+        },
         "generatedAt": {
           "type": "string"
         },

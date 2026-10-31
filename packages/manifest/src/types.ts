@@ -183,6 +183,8 @@ export interface ManifestFragment {
 export interface Manifest extends Omit<ManifestFragment, 'package'> {
   app: { name: string; version: string; root: string; outDir: string };
   packages: { name: string; version: string; entry: string; outDir: string; fragment: string; configFiles?: string[] }[];
+  /** The `APP_ENV` the build read the app's `system.dirs` under. Omitted by a build without configuration. */
+  buildEnv?: string;
   generatedAt: string;
   hash: string;                        // sha256 of canonical JSON with `hash` and `generatedAt` blanked
 }
