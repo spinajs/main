@@ -50,9 +50,10 @@ jobs:
       - name: build queue + deps
         run: node node_modules/typescript-7/lib/tsc.js -b packages/queue/tsconfig.build.json packages/orm-sqlite/tsconfig.build.json
 
+      # --no-config: packages/queue/.mocharc.json adds its whole spec to these files, stomp suites included.
       - name: run broker-free queue suites (sqlite)
         working-directory: packages/queue
-        run: npx ts-mocha -p tsconfig.json test/tracking.test.ts test/emit.test.ts test/jobmodel.test.ts test/core.test.ts
+        run: TS_NODE_PROJECT=tsconfig.json npx mocha --no-config --extension ts --node-option experimental-specifier-resolution=node --node-option loader=ts-node/esm --exit test/tracking.test.ts test/emit.test.ts test/jobmodel.test.ts test/core.test.ts
 
   mysql:
     runs-on: ubuntu-latest
@@ -104,4 +105,4 @@ jobs:
           SPINAJS_TEST_MYSQL_USER: root
           SPINAJS_TEST_MYSQL_PASSWORD: root
           SPINAJS_TEST_MYSQL_DB: spinajs_queue_test
-        run: npx ts-mocha -p tsconfig.json test/migrations.mysql.test.ts
+        run: TS_NODE_PROJECT=tsconfig.json npx mocha --no-config --extension ts --node-option experimental-specifier-resolution=node --node-option loader=ts-node/esm --exit test/migrations.mysql.test.ts
