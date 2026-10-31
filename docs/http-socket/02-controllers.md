@@ -212,17 +212,31 @@ are then compared with the contract (doctor rules SOCK001-SOCK003), and each inc
 validated with Ajv against the contract schema before the handler runs. Validation does not coerce types, applies
 no defaults, and enforces `format`. A failure answers `invalid_argument` with `details: { errors, total }`: the first 10
 errors (`path`, `keyword`, `message`) and the total count. A schema marked `x-explicit: 'partial'` is documentation only and is not enforced.
+The manifest also holds the configuration schemas of your packages: one Ajv refuses matters only to a contract that references it.
+
+A contract schema is validated as the rest of the manifest is: an `x-*` keyword is ignored, a payload property named `x-*` is a
+property like any other, and `A & B` accepts the members of both. It may use JSON Schema draft-07 keywords and the `ajv-formats`
+formats, and nothing else: the `ajv-keywords` and `ajv-merge-patch` keywords `DataValidator` has, such as `regexp`,
+`uniqueItemProperties` and `$merge`, and any unknown keyword or format, make the schema fail to compile, because a rule the
+validator cannot apply must not look enforced. Keep those in a `@Schema` on the handler's own payload type.
+
+The client owns a `$data` rule: it reads its value from the payload, so it relates two fields a client sends and is never a limit.
+Omitting an optional referenced field or a typo in the pointer skips the rule without an error, and a client can choose whatever
+value passes. Make the referenced field `required` and typed, and do not use `$data` for `pattern` or `format`, where the client
+would supply the regular expression or the format. `spinajs doctor` warns about a pointer that names no property or an optional
+one (SOCK006). An error of such a rule names the rule and the pointer, never the value of the other field.
 
 | Situation | `require` | `prefer` |
 | --- | --- | --- |
-| handler missing or incompatible, controller not in the manifest, runtime and manifest contract ids differ, contract absent or declared twice, schema cannot compile (for example an unresolved `$ref`) | boot fails with an error naming the controller and contract | warning; a contract that cannot compile is skipped, every other contract still enforces |
+| handler missing or incompatible, controller not in the manifest, runtime and manifest contract ids differ, contract absent or declared twice, schema cannot compile (for example an unresolved `$ref`, a schema Ajv refuses, or a keyword the validator lacks), payload schema absent from the manifest | boot fails with an error naming the controller and contract | warning; a contract that cannot compile is skipped, every other contract still enforces |
 | the manifest binds a contract but the code declares none | the manifest contract is enforced, with a warning | not enforced, warning (fail-open) |
 | no manifest file | boot fails | nothing is checked or enforced (fail-open) |
 
 `prefer` never stops the server and never enforces what it could not verify, so use `require` where the contract is a security or correctness boundary.
 The manifest binding is authoritative: a stale manifest is a `require` boot error, not a silent fallback.
 
-A contract with no explicit id takes `<package>:<VARIABLE>` from the compiler. A contract imported from another package
+A contract with no explicit id takes `<package>:<VARIABLE>` from the compiler. An explicit id stays exactly as written in
+the manifest, so it must be unique across the app and its packages (SOCK005). A contract imported from another package
 resolves through that package's manifest fragment; otherwise give it an explicit id (see SOCK004 in [spinajs doctor](../compiler/doctor.md)).
 
 ## Related

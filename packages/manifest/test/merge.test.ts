@@ -24,6 +24,12 @@ describe('mergeFragments', () => {
     expect(m.services[0].id).to.equal('dep:B');
   });
 
+  it('keeps socket contract ids as written: the code and the controller entry bind the literal id', () => {
+    const contract = (id: string) => ({ id, commands: {}, events: {}, clientEvents: {}, source: src('app') });
+    const m = mergeFragments(fragment('app', { socketContracts: [contract('notes.v1'), contract('app:NOTES')] }), [fragment('dep', { socketContracts: [contract('dep.v1')] })], meta(['dep', 'app']));
+    expect(m.socketContracts.map((c) => c.id)).to.have.members(['notes.v1', 'app:NOTES', 'dep.v1']);
+  });
+
   it('keeps fullPath as the fragment recorded it', () => {
     const app = fragment('app', { controllers: [controller('app', 'C', '/users', [route('/x', '//users//x'), route('', '/users/h')])] });
     const m = mergeFragments(app, [], meta(['app']));
