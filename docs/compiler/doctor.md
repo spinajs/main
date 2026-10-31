@@ -55,7 +55,7 @@ A config path is covered when it equals a declared module or starts with `<modul
 
 ### SOCK001-SOCK005 details
 
-A contract id is the literal argument of `defineContract('<id>')`, else `<package>:<VARIABLE>`. The rules compare
+A contract id is the literal argument of `defineContract('<id>')`, kept as written across packages, else `<package>:<VARIABLE>`. The rules compare
 handlers with the contract by derived schema structure: payloads as requests (the handler must accept what the
 contract allows), results as responses (the handler must not return more than promised). A side whose schema is
 missing or `x-explicit: 'partial'` is skipped.

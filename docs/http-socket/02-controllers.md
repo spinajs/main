@@ -212,6 +212,8 @@ are then compared with the contract (doctor rules SOCK001-SOCK003), and each inc
 validated with Ajv against the contract schema before the handler runs. Validation does not coerce types, applies
 no defaults, and enforces `format`. A failure answers `invalid_argument` with `details: { errors, total }`: the first 10
 errors (`path`, `keyword`, `message`) and the total count. A schema marked `x-explicit: 'partial'` is documentation only and is not enforced.
+A `$data` rule in a contract schema is enforced; its error names the rule and the pointer, never the value of the other field.
+The manifest also holds the configuration schemas of your packages: one Ajv refuses matters only to a contract that references it.
 
 | Situation | `require` | `prefer` |
 | --- | --- | --- |
@@ -222,7 +224,8 @@ errors (`path`, `keyword`, `message`) and the total count. A schema marked `x-ex
 `prefer` never stops the server and never enforces what it could not verify, so use `require` where the contract is a security or correctness boundary.
 The manifest binding is authoritative: a stale manifest is a `require` boot error, not a silent fallback.
 
-A contract with no explicit id takes `<package>:<VARIABLE>` from the compiler. A contract imported from another package
+A contract with no explicit id takes `<package>:<VARIABLE>` from the compiler. An explicit id stays exactly as written in
+the manifest, so it must be unique across the app and its packages (SOCK005). A contract imported from another package
 resolves through that package's manifest fragment; otherwise give it an explicit id (see SOCK004 in [spinajs doctor](../compiler/doctor.md)).
 
 ## Related
