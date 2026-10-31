@@ -18,6 +18,14 @@ describe('mergeFragments', () => {
     expect(mergeFragments(fragment('app'), [dep], meta(['dep', 'app'])).scanFiles).to.equal(undefined);
   });
 
+  it('records the build environment, which the hash covers but not the app root', () => {
+    const build = (buildEnv: string | undefined, root = '.') => mergeFragments(fragment('app'), [], { ...meta(['app']), app: { ...meta(['app']).app, root }, buildEnv });
+    expect(build(undefined)).to.not.have.property('buildEnv');
+    expect(build('production').buildEnv).to.equal('production');
+    expect(build('production', '/other/checkout').hash).to.equal(build('production').hash);
+    expect(build('production').hash).to.not.equal(build('development').hash);
+  });
+
   it('prefixes ids with package names and concatenates arrays', () => {
     const app = fragment('app', { services: [service('app', 'A')] });
     const dep = fragment('dep', { services: [service('dep', 'B')] });

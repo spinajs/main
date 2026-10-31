@@ -12,6 +12,8 @@ export interface BuildAppOptions extends Partial<AppDirs> {
   /** Defaults to `<appRoot>/app.manifest.json`. */
   out?: string;
   schemaDerivation?: boolean;
+  /** `APP_ENV` of the configuration `effectiveDirs` came from. */
+  buildEnv?: string;
 }
 
 export async function buildAppManifest(options: BuildAppOptions): Promise<{ manifest: Manifest; written: string }> {
@@ -27,6 +29,7 @@ export async function buildAppManifest(options: BuildAppOptions): Promise<{ mani
       return { name: l.name, version: l.version, entry: l.entry, outDir, fragment: l.fragmentRel, ...(configFiles ? { configFiles } : {}) };
     }),
     generatedAt: new Date().toISOString(),
+    buildEnv: options.buildEnv,
   });
   const manifest: Manifest = { ...merged, hash: hashManifest(merged) };
 

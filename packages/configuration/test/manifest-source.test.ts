@@ -185,6 +185,58 @@ describe('ManifestConfigurationSource', () => {
     });
   });
 
+  describe('the environment the manifest was built under', () => {
+    let app: string;
+    let warn: sinon.SinonStub;
+
+    const bootWith = async (recorded: string | undefined, mode: string, appEnv: string) => {
+      const manifest = JSON.parse(JSON.stringify(readFixtureManifest())) as Manifest & { buildEnv?: string };
+      manifest.packages = [];
+      if (recorded !== undefined) manifest.buildEnv = recorded;
+      manifest.hash = hashManifest(manifest);
+      write(join(app, 'app.manifest.json'), manifest);
+      cwd.returns(app);
+      await start({ SPINAJS_MANIFEST_MODE: mode, APP_ENV: appEnv });
+    };
+
+    const buildEnvWarnings = () => warn.getCalls().filter((c) => JSON.stringify(c.args).includes('built under'));
+
+    beforeEach(() => {
+      app = realpathSync(mkdtempSync(join(tmpdir(), 'spinajs-build-env-')));
+      write(join(app, 'package.json'), { name: 'app', version: '0.0.0', type: 'module' });
+      warn = sinon.stub(InternalLogger, 'warn');
+    });
+
+    afterEach(() => rmSync(app, { recursive: true, force: true }));
+
+    it('is silent when the running APP_ENV is the one recorded', async () => {
+      await bootWith('production', 'require', 'production');
+      expect(buildEnvWarnings()).to.have.length(0);
+    });
+
+    for (const mode of ['prefer', 'require']) {
+      it(`warns once in ${mode} mode, naming both environments and the rebuild`, async () => {
+        await bootWith('development', mode, 'production');
+        const [call] = buildEnvWarnings();
+        expect(buildEnvWarnings()).to.have.length(1);
+        const text = JSON.stringify(call.args);
+        expect(text).to.include('development');
+        expect(text).to.include('production');
+        expect(text).to.include('spinajs build');
+      });
+    }
+
+    it('is silent when the manifest records no environment', async () => {
+      await bootWith(undefined, 'require', 'production');
+      expect(buildEnvWarnings()).to.have.length(0);
+    });
+
+    it('is silent in off mode', async () => {
+      await bootWith('development', 'off', 'production');
+      expect(buildEnvWarnings()).to.have.length(0);
+    });
+  });
+
   describe('with packages installed at two node_modules levels', () => {
     let ws: string;
 
