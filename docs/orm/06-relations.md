@@ -65,7 +65,7 @@ Filtering with `whereExist()`:
 | `@JunctionTable()` | Property of the many-to-many target model, typed as the junction model | none | Receives the junction row's columns as a junction model instance when the target is loaded through a many-to-many populate. |
 | `@Recursive()` | A relation property, placed above its relation decorator | none | Sets `Recursive: true`. Populate loads the whole tree with a recursive CTE. Throws `InvalidOperation` when the relation is not declared yet. |
 | `@Query(callback, mapper)` | Property typed `Relation<T, Owner>` | `callback(owners)` returns a select builder. `mapper(owner, rows)` returns one model or an array. | Custom relation, `RelationType.Query`. Read-only. |
-| `@Virtual(relationClass?)` | Property typed as a `Relation` subclass | `relationClass`: defaults to the property's declared type | Custom relation, `RelationType.Virtual`. Populate calls `relationClass.populate()` once per owner. |
+| `@Virtual(relationClass?)` | Property typed as a `Relation` subclass | `relationClass`: defaults to the property's declared type, which comes from the manifest in a [build without decorator metadata](../manifest/README.md#building-without-decorator-metadata) | Custom relation, `RelationType.Virtual`. Populate calls `relationClass.populate()` once per owner. |
 
 Decorators run in property order. Declare `@Primary()` above every relation that defaults a key from this model.
 
