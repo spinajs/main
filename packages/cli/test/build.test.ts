@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { defaultMigrationDirs, type Configuration } from '@spinajs/configuration';
 import type { Manifest } from '@spinajs/manifest';
 import { Build } from '../src/cli/Build.js';
+import { stripFrameworkOptions } from '../src/argv.js';
 
 const fixtures = fileURLToPath(new URL('../../compiler/test/fixtures/', import.meta.url));
 const appBasic = join(fixtures, 'app-basic/tsconfig.json');
@@ -21,7 +22,7 @@ class Captured extends Build {
 
 /** What `system.dirs` holds decides what reaches the compiler; a real configuration is exercised in build-effective-dirs.test.ts. */
 class WithDirs extends Captured {
-  public received?: { effectiveDirs?: Record<string, string[]> };
+  public received?: { effectiveDirs?: Record<string, string[]>; defaultDirs?: Record<string, string[]>; requireAppDirs?: boolean };
 
   public constructor(dirs: unknown) {
     super();
@@ -29,12 +30,12 @@ class WithDirs extends Captured {
   }
 
   protected override importCompiler(): ReturnType<Build['importCompiler']> {
-    const manifest = { diagnostics: [], services: [], controllers: [], models: [], schemas: {} };
+    const manifest = { diagnostics: [], services: [], controllers: [], socketControllers: [], schedules: [], commands: [], migrations: [], models: [], schemas: {} };
     const buildAppManifest = (options: WithDirs['received']) => {
       this.received = options;
       return Promise.resolve({ manifest, written: 'app.manifest.json' });
     };
-    return Promise.resolve({ buildAppManifest, summarize: () => ({ error: 0, warning: 0, info: 0 }) } as unknown as Awaited<ReturnType<Build['importCompiler']>>);
+    return Promise.resolve({ buildAppManifest, summarize: () => ({ error: 0, warning: 0, info: 0 }), NoAppDirs: class extends Error {} } as unknown as Awaited<ReturnType<Build['importCompiler']>>);
   }
 }
 
@@ -88,12 +89,17 @@ describe('build', function () {
     expect(existsSync(join(dir, 'm.json'))).to.equal(true);
   });
 
+  it('--config-path never reaches a command', () => {
+    expect(stripFrameworkOptions(['node', 'spinajs', 'build', '--config-path', 'deploy', '--config-path=other', '--out', 'x'])).to.deep.equal(['node', 'spinajs', 'build', '--out', 'x']);
+  });
+
   describe('the dirs it hands to the compiler', () => {
-    const handed = async (dirs: unknown): Promise<Record<string, string[]> | undefined> => {
+    const received = async (dirs: unknown, allowNoDirs?: boolean): Promise<WithDirs['received']> => {
       const cmd = new WithDirs(dirs);
-      await cmd.execute({ tsconfig: appBasic, out: join(dir, 'm.json') });
-      return cmd.received?.effectiveDirs;
+      await cmd.execute({ tsconfig: appBasic, out: join(dir, 'm.json'), allowNoDirs });
+      return cmd.received;
     };
+    const handed = async (dirs: unknown): Promise<Record<string, string[]> | undefined> => (await received(dirs))?.effectiveDirs;
 
     it('hands over nothing without a configuration: a command built by hand stays unfiltered', async () => {
       const cmd = new Captured();
@@ -120,13 +126,20 @@ describe('build', function () {
       ['absent', {}],
       ['not configured at all', undefined],
     ] as Array<[string, unknown]>) {
-      it(`gives migrations the orm's default dirs when the key is ${title}`, async () => {
-        expect((await handed(dirs))?.migrations).to.deep.equal(defaultMigrationDirs());
+      it(`hands the orm's default dirs apart from the config when the key is ${title}: they prove nothing`, async () => {
+        const options = await received(dirs);
+        expect(options?.defaultDirs?.migrations).to.deep.equal(defaultMigrationDirs());
+        expect(options?.effectiveDirs?.migrations ?? []).to.deep.equal([]);
       });
     }
 
     it('keeps configured migrations, which replace the defaults', async () => {
       expect((await handed({ migrations: ['db/migrations'] }))?.migrations).to.deep.equal([resolve('db/migrations')]);
+    });
+
+    it('requires a dir in the app unless --allow-no-dirs says otherwise', async () => {
+      expect((await received({}))?.requireAppDirs).to.equal(true);
+      expect((await received({}, true))?.requireAppDirs).to.equal(false);
     });
   });
 });

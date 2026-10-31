@@ -175,7 +175,8 @@ export class FrameworkConfiguration extends Configuration {
    */
   constructor(options?: ConfigurationOptions) {
     super();
-    this.CustomConfigPaths = options?.cfgCustomPaths ?? [];
+    const customPath = parseArgv('--config-path');
+    this.CustomConfigPaths = options?.cfgCustomPaths ?? (customPath ? [resolve(customPath)] : []);
     this.RunApp = options?.app ?? parseArgv('--app') ?? '';
     this.AppBaseDir = options?.appBaseDir ?? parseArgv('--apppath') ?? join(process.cwd(), '../apps/');
     this.Env = parseArgv('--env') ?? process.env.APP_ENV;
