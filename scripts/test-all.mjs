@@ -11,7 +11,7 @@
  * warnings, and a listed package that passes is reported so it can be removed from the list.
  * Build first ( `npm run build` ): packages import each other through the built lib/.
  */
-import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -47,6 +47,7 @@ export function selectPackages({ ci, root = ROOT, only }) {
 }
 
 export function summarize(results, knownFailing = new Set()) {
+  if (results.length === 0) return { exitCode: 1, lines: ['no test suite ran'] };
   const failed = results.filter((r) => !r.ok && !knownFailing.has(r.name));
   const tolerated = results.filter((r) => !r.ok && knownFailing.has(r.name));
   const fixed = results.filter((r) => r.ok && knownFailing.has(r.name));
@@ -112,6 +113,11 @@ async function main() {
   const only = flagValue(args, '--only')?.split(',');
   const knownFailing = loadKnownFailing();
   const queue = selectPackages({ ci, only });
+  const unmatched = only?.filter((name) => !queue.includes(name)) ?? [];
+  if (unmatched.length) {
+    console.error(`--only names what would not run: ${unmatched.join(', ')}`);
+    process.exit(2);
+  }
   const results = [];
   await Promise.all(
     Array.from({ length: concurrency }, async () => {
@@ -130,4 +136,5 @@ async function main() {
   process.exitCode = exitCode;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main();
+// Through a symlink or a junction argv[1] is the link, and a plain comparison would exit 0 having run nothing.
+if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) main();
