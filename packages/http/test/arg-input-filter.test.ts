@@ -61,7 +61,7 @@ class InputFilterParams extends BaseController {
 
   @Get()
   public date(@Query() a: DateTime) {
-    return new Ok({ date: a.toFormat('dd-MM-yyyy') });
+    return new Ok({ date: a.toUTC().toFormat('dd-MM-yyyy') });
   }
 
   @Get()

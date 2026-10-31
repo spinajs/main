@@ -122,7 +122,7 @@ describe('controller action test params', function () {
       await req().get('params/query/queryDate?a=2022-06-28T20:59:55Z');
 
       expect(spy.args[0][0].constructor.name).to.eq('DateTime');
-      expect(spy.args[0][0].toFormat('dd-MM-yyyy')).to.eq('28-06-2022');
+      expect(spy.args[0][0].toMillis()).to.eq(Date.UTC(2022, 5, 28, 20, 59, 55));
     });
     it('queryDateFromUnixtime', async () => {
       const spy = DI.get(QueryParams)!.queryDateFromUnixtime as sinon.SinonSpy;
