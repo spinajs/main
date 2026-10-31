@@ -426,6 +426,8 @@ export class DurableQueue {
       item.notBefore = Date.now() + FENCE_FLOOR_MS;
       item.timer = setTimeout(() => {
         item.timer = undefined;
+        // a timer can fire just before Date.now() reaches the floor, and nothing else would wake the queue then
+        item.notBefore = 0;
         this.pump();
       }, FENCE_FLOOR_MS);
       return;
