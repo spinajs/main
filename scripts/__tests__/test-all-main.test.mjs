@@ -23,7 +23,8 @@ function repo(suites, knownFailing = []) {
   return root;
 }
 
-const run = (root, ...args) => spawnSync(process.execPath, [join(root, 'scripts', 'test-all.mjs'), '--concurrency', '1', ...args], { encoding: 'utf8', env: { ...process.env, CI: '' } });
+const spawnOptions = { encoding: 'utf8', maxBuffer: 2 ** 26, env: { ...process.env, CI: '' } };
+const run = (root, ...args) => spawnSync(process.execPath, [join(root, 'scripts', 'test-all.mjs'), '--concurrency', '1', ...args], spawnOptions);
 
 const pass = 'node -e "0"';
 const failLoudly = 'node -e "process.stdout.write(String.fromCharCode(120).repeat(2000000)); process.exit(3)"';
@@ -87,7 +88,7 @@ test('started through a link it still runs', () => {
   const link = join(root, 'linked');
   symlinkSync(root, link, 'junction');
   try {
-    const result = spawnSync(process.execPath, [join(link, 'scripts', 'test-all.mjs'), '--concurrency', '1'], { encoding: 'utf8', env: { ...process.env, CI: '' } });
+    const result = spawnSync(process.execPath, [join(link, 'scripts', 'test-all.mjs'), '--concurrency', '1'], spawnOptions);
     assert.equal(result.status, 1);
     assert.match(result.stdout, /0\/1 test suites passed/);
   } finally {
