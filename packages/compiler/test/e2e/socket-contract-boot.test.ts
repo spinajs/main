@@ -51,6 +51,20 @@ export class NotesSocketController extends BaseSocketController {
 }
 `;
 
+const REFUSED_ID = 'spinajs/third-party.configuration.schema.json';
+
+// Not imported at runtime: it is in the manifest as a third-party package's schema would be. Ajv has no such draft.
+const THIRD_PARTY_SCHEMA = `
+import { registerConfigurationSchema } from '@spinajs/configuration';
+
+registerConfigurationSchema({
+  $id: '${REFUSED_ID}',
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  $configurationModule: 'thirdParty',
+  type: 'object',
+} as never);
+`;
+
 const CALLS = JSON.stringify([
   ['notes.save', { text: 'a' }],
   ['notes.save', { text: 'a', tag: 'b' }],
@@ -74,8 +88,7 @@ function expectContractEnforced(replies: SocketReply[]): void {
 for (const scenario of [
   { name: 'a contract with the default id', literal: '', id: 'app-basic:NOTES' },
   { name: 'an explicitly named contract', literal: `'notes.v1'`, id: 'notes.v1' },
-  // its configuration schema holds subschemas the compiler could not read, which Ajv refuses with or without $data
-  { name: 'a contract next to the authz-rbac configuration schema', literal: '', id: 'app-basic:NOTES', dependencies: ['@spinajs/authz-rbac'] },
+  { name: 'a contract next to a schema Ajv refuses, with partial configuration schemas', literal: '', id: 'app-basic:NOTES', dependencies: ['@spinajs/authz-rbac'], sources: { 'src/socket/third-party.ts': THIRD_PARTY_SCHEMA } },
 ]) {
   describe(`${scenario.name} in a real manifest boot`, function () {
     this.timeout(300_000);
@@ -89,7 +102,7 @@ for (const scenario of [
         console.log('    skipped: no built @spinajs fragments (lib/manifest.fragment.json), run `npm run build` at the repo root');
         this.skip();
       }
-      installed = await installApp(TMP, { sources: { 'src/socket/notes.ts': notesSocket(scenario.literal) }, dependencies: scenario.dependencies });
+      installed = await installApp(TMP, { sources: { 'src/socket/notes.ts': notesSocket(scenario.literal), ...scenario.sources }, dependencies: scenario.dependencies });
     });
 
     after(() => {
@@ -106,6 +119,12 @@ for (const scenario of [
       expect(module, 'the configuration module of @spinajs/http-socket').to.not.equal(undefined);
       expect(usesData(installed.manifest.schemas[module!.schemaId])).to.equal(true);
     });
+
+    if (scenario.sources) {
+      it('the manifest holds the schema Ajv refuses', () => {
+        expect(installed.manifest.schemas[REFUSED_ID]).to.have.property('$schema', 'https://json-schema.org/draft/2020-12/schema');
+      });
+    }
 
     it('require boots and the contract decides the wire', () => {
       const required = inMode('require');
