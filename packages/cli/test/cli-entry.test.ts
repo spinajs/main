@@ -28,8 +28,8 @@ describe('the cli entry point outside an application', function () {
   });
 
   it('prints why it failed instead of exiting silently', () => {
-    const result = run('no-such-command');
+    const result = run('--no-such-option');
     expect(result.status).to.not.equal(0);
-    expect(result.stderr).to.include('no-such-command');
+    expect(result.stderr).to.include('--no-such-option');
   });
 });
