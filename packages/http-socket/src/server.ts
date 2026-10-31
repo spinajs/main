@@ -4,7 +4,7 @@ import { AsyncService, Autoinject, ClassInfo, DI, Injectable } from '@spinajs/di
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Log, Logger } from '@spinajs/log';
-import { ListFromFiles } from '@spinajs/reflection';
+import { ListFromFiles, SCAN_GLOB } from '@spinajs/reflection';
 import { AuthzConfigError, UNATTENDED, Unauthenticated } from '@spinajs/authz';
 import { DisconnectNotice, EventFrame, MAX_ID_LENGTH, PROTOCOL_VERSION, SYSTEM_EVENTS, ShutdownNotice, SocketError, SocketException, WIRE_EVENTS, isId } from '@spinajs/http-socket-common';
 import { ISocketAuthState, ISocketClientState, ISocketHandshake, ISocketServerConfig, SocketHttpHost, SocketPrincipalSource } from './interfaces.js';
@@ -128,7 +128,7 @@ export class SocketServer extends AsyncService {
   protected Guard: SocketPrincipalGuard;
 
   // Loading the files is what runs their @SocketController decorators.
-  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.socketControllers')
+  @ListFromFiles(SCAN_GLOB, 'system.dirs.socketControllers')
   protected ControllerFiles: Promise<Array<ClassInfo<unknown>>>;
 
   protected _io: Server | null = null;

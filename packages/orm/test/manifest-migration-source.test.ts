@@ -149,6 +149,16 @@ describe('ManifestMigrationSource', function () {
     expect(found.map((f) => f.name)).to.deep.equal(['Alpha_2026_08_01_10_00_00']);
   });
 
+  it('never imports a file the scan of this environment does not match, whatever its name looks like', async () => {
+    const m = testManifest({
+      root: process.cwd(),
+      migrations: [{ ...entry('legacy.old.ts'), className: 'Legacy_2026_08_01_10_00_00' }, { ...entry('Foo_2026_08_01_10_00_00.test.ts'), className: 'Foo_2026_08_01_10_00_00' }],
+      scanFiles: [{ section: 'migrations', source: entry('helper.util.ts').source }],
+    });
+    const booted = await boot('require', 'prod', m);
+    expect(await (await booted.resolve(ManifestMigrationSource)).getMigrations()).to.deep.equal([]);
+  });
+
   it('fails when a listed class is not exported by its file', async () => {
     const m = testManifest({ root: process.cwd(), migrations: [{ ...entry('Alpha_2026_08_01_10_00_00.ts'), className: 'Missing_2026_08_01_10_00_00' }] });
     const booted = await boot('require', 'prod', m);

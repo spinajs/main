@@ -157,6 +157,19 @@ describe("an app's classes against its effective dirs", function () {
       expect(files('schedules')).to.not.include('src/schedules/KeptTask.ts');
     });
 
+    it('stays flagged in a file no scan matches: the glob of the section is .ts and .js', () => {
+      expect(flagged(fragment.controllers)).to.include('ModernController');
+    });
+
+    it('leaves a dotted migration file to the environment test at runtime, as only then the glob is known', () => {
+      expect(loaded(fragment.migrations)).to.include.members(['Legacy_2026_02_02_00_00_00', 'Tested_2026_02_03_00_00_00']);
+      expect((fragment.scanFiles ?? []).map((f) => f.source.file)).to.include('src/migrations/helper.util.ts');
+    });
+
+    it('flags a migration only a tagged file imports: it must not load in every environment', () => {
+      expect(flagged(fragment.migrations)).to.include('OnlyTagged_2026_02_04_00_00_00');
+    });
+
     it('stays flagged for a controller a side-effect file registers: the registration decides, not the manifest', () => {
       expect(flagged(fragment.controllers)).to.include('SideEffectController');
     });
@@ -240,9 +253,9 @@ describe("an app's classes against its effective dirs", function () {
   it('lets a default dir filter its section, and configured dirs replace it', async () => {
     const options = { tsconfig: join(ROOT, 'tsconfig.json'), packageRoot: ROOT, schemaDerivation: false, defaultDirs: { migrations: built('migrations') } };
     const byDefault = await analyzePackage({ ...options, effectiveDirs: { controllers: built('controllers') } });
-    expect(loaded(byDefault.migrations)).to.deep.equal(['Kept_2026_01_01_00_00_00', 'Unexported_2026_01_03_00_00_00']);
+    expect(loaded(byDefault.migrations)).to.deep.equal(['Kept_2026_01_01_00_00_00', 'Legacy_2026_02_02_00_00_00', 'Tested_2026_02_03_00_00_00', 'Unexported_2026_01_03_00_00_00']);
     const replaced = await analyzePackage({ ...options, effectiveDirs: { controllers: built('controllers'), migrations: built('elsewhere') } });
-    expect(loaded(replaced.migrations)).to.deep.equal(['Elsewhere_2026_01_02_00_00_00']);
+    expect(loaded(replaced.migrations)).to.deep.equal(['Elsewhere_2026_01_02_00_00_00', 'OnlyTagged_2026_02_04_00_00_00']);
   });
 
   it('does not read an installed package as part of the app when the rootDir is the app root', async () => {
@@ -269,6 +282,12 @@ describe("an app's classes against its effective dirs", function () {
     expect(withCode(fragment.diagnostics, 'CMP008')).to.deep.equal([]);
   });
 
+  it('does not list a JSON file under a dir: no scan matches it, and importing it without an attribute throws', async () => {
+    const fragment = await analyze(DIRS, 'tsconfig.json-files.json');
+    expect((fragment.scanFiles ?? []).map((f) => f.source.file)).to.not.include('src/controllers/data.json');
+    expect((fragment.scanFiles ?? []).map((f) => f.source.file)).to.include('src/controllers/register.ts');
+  });
+
   it('ignores a dir that maps to nothing beside one that maps', async () => {
     const fragment = await analyze({ controllers: built('mjs/controllers', 'controllers') });
     expect(loaded(fragment.controllers)).to.include('KeptController');
@@ -279,7 +298,7 @@ describe("an app's classes against its effective dirs", function () {
   it('keeps migrations an app leaves to the default dirs the CLI hands over', async () => {
     const defaults = ['src', 'lib', 'dist', 'build', '.'].map((d) => join(ROOT, d, 'migrations'));
     const fragment = await analyze({ ...DIRS, migrations: defaults });
-    expect(loaded(fragment.migrations)).to.deep.equal(['Kept_2026_01_01_00_00_00', 'Unexported_2026_01_03_00_00_00']);
+    expect(loaded(fragment.migrations)).to.deep.equal(['Kept_2026_01_01_00_00_00', 'Legacy_2026_02_02_00_00_00', 'Tested_2026_02_03_00_00_00', 'Unexported_2026_01_03_00_00_00']);
   });
 
   it('loads the classes of a RunApp layout, under the dir `applyAppDirs` adds', async () => {
@@ -302,13 +321,13 @@ describe("an app's classes against its effective dirs", function () {
   it('takes a dir above the sources for all of them, as a recursive scan does', async () => {
     const fragment = await analyze({ controllers: [ROOT, ...built('controllers')] });
     expect(loaded(fragment.controllers)).to.include('ElsewhereController');
-    expect(flagged(fragment.controllers)).to.deep.equal(['HiddenController']);
+    expect(flagged(fragment.controllers)).to.deep.equal(['HiddenController', 'ModernController']);
   });
 
   it('takes a dir above the outDir for all sources, as a recursive scan of the build does', async () => {
     const fragment = await analyze({ controllers: [join(ROOT, 'dist'), join(ROOT, 'dist', 'server', 'controllers')] }, 'tsconfig.nested.json');
     expect(loaded(fragment.controllers)).to.include('ElsewhereController');
-    expect(flagged(fragment.controllers)).to.deep.equal(['HiddenController']);
+    expect(flagged(fragment.controllers)).to.deep.equal(['HiddenController', 'ModernController']);
   });
 
   it('reads a relative dir from the app root', async () => {

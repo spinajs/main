@@ -1,7 +1,7 @@
 import { AsyncService, DI, Injectable, Singleton } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log-common';
-import { ListFromFiles } from '@spinajs/reflection';
+import { ListFromFiles, SCAN_GLOB } from '@spinajs/reflection';
 import { DataValidator } from '@spinajs/validation';
 import { ScheduleNotFound } from '../contract.js';
 import { getBuiltinDeclarations, getScheduleDeclarations } from '../decorators.js';
@@ -25,7 +25,7 @@ export class ScheduleRegistry extends AsyncService {
   protected QueueConfig: QueueRoutingConfig;
 
   // Listing the files imports them, which runs their @Schedule decorators.
-  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.schedules')
+  @ListFromFiles(SCAN_GLOB, 'system.dirs.schedules')
   protected ScheduleFiles: Promise<unknown[]>;
 
   public config: SchedulerConfig;

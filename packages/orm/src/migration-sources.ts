@@ -2,6 +2,7 @@ import { defaultMigrationDirs, effectiveManifestOf } from '@spinajs/configuratio
 import { Configuration, normalizeEnvironment } from '@spinajs/configuration-common';
 import { AsyncService, Autoinject, Class, ClassInfo, Container, DI, IContainer, Injectable } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
+import { migrationScanGlobs } from '@spinajs/manifest';
 import glob from 'glob';
 import _ from 'lodash';
 import * as fs from 'node:fs';
@@ -98,7 +99,7 @@ export class FilesystemMigrationSource extends MigrationSource {
 
     // `!(*.*)` - a basename with no dot at all, so it also excludes `*.d.ts` for free. `cjs` and
     // `mjs` join `ts`/`js` because an app may author migrations as .mjs or .cjs.
-    const patterns = ['/**/!(*.*).{ts,js,cjs,mjs}', `/**/*.${env}.{ts,js,cjs,mjs}`];
+    const patterns = migrationScanGlobs(env);
 
     const files = _.uniq(dirs)
       .filter((d) => {

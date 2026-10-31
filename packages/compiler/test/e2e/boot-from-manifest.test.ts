@@ -163,6 +163,28 @@ export class BoundSocket extends BaseSocketController {
   }
 }
 `,
+  'migrations/legacy.old.ts': `
+import { Migration, OrmMigration } from '@spinajs/orm';
+import type { OrmDriver } from '@spinajs/orm';
+
+@Migration('default')
+export class Legacy_2026_10_29_00_00_00 extends OrmMigration {
+  public async up(_: OrmDriver): Promise<void> {}
+  public async down(_: OrmDriver): Promise<void> {}
+}
+`,
+  'migrations/Tested_2026_10_29_00_00_00.test.ts': `
+import { Migration, OrmMigration } from '@spinajs/orm';
+import type { OrmDriver } from '@spinajs/orm';
+
+@Migration('default')
+export class Tested_2026_10_29_00_00_00 extends OrmMigration {
+  public async up(_: OrmDriver): Promise<void> {}
+  public async down(_: OrmDriver): Promise<void> {}
+}
+`,
+  'migrations/helper.util.ts': "throw new Error('no scan of this environment imports this file');\n\nexport {};\n",
+  'controllers/data.json': '{ "a": 1 }\n',
   'plugin/registrations.ts': `
 import { DI } from '@spinajs/di';
 import { BaseController } from '@spinajs/http';
@@ -214,7 +236,8 @@ async function installApp(): Promise<Manifest> {
   rmSync(TMP, { recursive: true, force: true });
   mkdirSync(INSTALLED, { recursive: true });
   cpSync(join(APP, 'src'), join(INSTALLED, 'src'), { recursive: true });
-  cpSync(join(APP, 'tsconfig.json'), join(INSTALLED, 'tsconfig.json'));
+  const tsconfig = JSON.parse(readFileSync(join(APP, 'tsconfig.json'), 'utf8')) as { compilerOptions: object; include: string[] };
+  writeFileSync(join(INSTALLED, 'tsconfig.json'), JSON.stringify({ ...tsconfig, compilerOptions: { ...tsconfig.compilerOptions, resolveJsonModule: true }, include: [...tsconfig.include, 'src/**/*.json'] }));
 
   // pkg-basic is another fixture package that is not built here, and only the app's entry point imports it
   const pkg = JSON.parse(readFileSync(join(APP, 'package.json'), 'utf8')) as { dependencies: Record<string, string> };
@@ -272,6 +295,8 @@ describe('app-basic boots from its manifest', function () {
   let explainRequired: ProbeResult;
   let explainDiscovered: ProbeResult;
   let preferred: ProbeResult;
+  let productionRequired: ProbeResult;
+  let productionDiscovered: ProbeResult;
   let manifest: Manifest;
 
   before(async function () {
@@ -284,6 +309,8 @@ describe('app-basic boots from its manifest', function () {
     required = boot({ SPINAJS_MANIFEST_MODE: 'require', SPINAJS_MANIFEST: join(INSTALLED, 'app.manifest.json') });
     discovered = boot({ SPINAJS_MANIFEST_MODE: 'off', E2E_SCAN: '1' });
     preferred = boot({ SPINAJS_MANIFEST_MODE: 'prefer', SPINAJS_MANIFEST: join(INSTALLED, 'app.manifest.json') });
+    productionRequired = boot({ SPINAJS_MANIFEST_MODE: 'require', SPINAJS_MANIFEST: join(INSTALLED, 'app.manifest.json'), APP_ENV: 'production' });
+    productionDiscovered = boot({ SPINAJS_MANIFEST_MODE: 'off', E2E_SCAN: '1', APP_ENV: 'production' });
     explainRequired = boot({ SPINAJS_MANIFEST_MODE: 'require', SPINAJS_MANIFEST: join(INSTALLED, 'app.manifest.json'), E2E_EXPLAIN: '1', E2E_APP_SOURCE: '1' });
     explainDiscovered = boot({ SPINAJS_MANIFEST_MODE: 'off', E2E_SCAN: '1', E2E_EXPLAIN: '1', E2E_APP_SOURCE: '1' });
   });
@@ -352,6 +379,22 @@ describe('app-basic boots from its manifest', function () {
   it('serves a class exported as a value under another name, as discovery does', () => {
     expect(discovered.responses.const.status).to.equal(200);
     expect(required.responses.const).to.deep.equal(discovered.responses.const);
+  });
+
+  it('runs a dotted migration file only in the environment its name matches, as a scan does', () => {
+    for (const result of [required, preferred, discovered, productionRequired, productionDiscovered]) {
+      expect(result.migrations).to.not.include('Legacy_2026_10_29_00_00_00');
+    }
+    expect(discovered.migrations).to.include('Tested_2026_10_29_00_00_00');
+    expect(required.migrations).to.include('Tested_2026_10_29_00_00_00');
+    expect(productionDiscovered.migrations).to.not.include('Tested_2026_10_29_00_00_00');
+    expect(productionRequired.migrations).to.not.include('Tested_2026_10_29_00_00_00');
+    expect([...productionRequired.migrations].sort()).to.deep.equal([...productionDiscovered.migrations].sort());
+  });
+
+  it('boots past a file no scan imports: a throwing helper, and JSON the build copied', () => {
+    expect(required.responses.health.status).to.equal(200);
+    expect((manifest.scanFiles ?? []).map((f) => f.source.file)).to.not.include('src/controllers/data.json');
   });
 
   it('runs what a scan brings in without an export, as discovery does', () => {

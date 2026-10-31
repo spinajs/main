@@ -1,7 +1,7 @@
 import ts from 'typescript';
 import { existsSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { Diagnostic, MountedBy, ScanFile, SourceRef } from '@spinajs/manifest';
+import { matchesMigrationGlob, matchesScanGlob, type Diagnostic, type MountedBy, type ScanFile, type SourceRef } from '@spinajs/manifest';
 import { compareCodeUnits } from '../sort.js';
 import { DIR_SECTIONS, type DirSection } from './declared-dirs.js';
 import { EmittedModules } from './emitted-modules.js';
@@ -48,6 +48,13 @@ export interface AppSources {
 // A scan imports every file of a section. These two then read the exports of what it imported; the other three register
 // themselves as their module is evaluated, so whatever that import loads counts, exported or not.
 const READ_FROM_EXPORTS: ReadonlySet<DirSection> = new Set(['controllers', 'commands']);
+
+// Migrations leave a dotted name to the runtime, which knows the environment: only there the glob is complete.
+const inSectionGlob = (section: DirSection, built: string): boolean => (section === 'migrations' ? matchesMigrationGlob(built) : matchesScanGlob(built));
+
+const builtName = (file: string): string => file.replace(/\.tsx?$/, '.js').replace(/\.mts$/, '.mjs').replace(/\.cts$/, '.cjs');
+
+const isEnvTagged = (file: string): boolean => matchesMigrationGlob(file) && !matchesMigrationGlob(file, '');
 
 const KEY_OF = Object.fromEntries(Object.entries(DIR_SECTIONS).map(([key, section]) => [section, key])) as Record<DirSection, string>;
 
@@ -96,7 +103,9 @@ export function discoveredBy({ effectiveDirs, defaultDirs = {}, requireAppDirs }
       const classes = new Set(scanned.flatMap((f) => [...modules.exportsOf(f).values()]).map((c) => classKey(inApp(c.getSourceFile()), c.name?.text ?? '')));
       return ({ className, source }) => classes.has(classKey(source.file, className));
     }
-    const files = new Set([...modules.closureOf(scanned)].map(inApp));
+    // A tagged file is imported in its environment only, so what it alone loads must not load in every other one.
+    const tagged = scanned.filter((f) => isEnvTagged(builtName(f.fileName)));
+    const files = new Set([...modules.closureOf(scanned.filter((f) => !tagged.includes(f))), ...tagged].map(inApp));
     return ({ source }) => files.has(source.file);
   };
 
@@ -123,7 +132,7 @@ export function discoveredBy({ effectiveDirs, defaultDirs = {}, requireAppDirs }
       const key = KEY_OF[section];
       reportUnmapped(key);
       const sourceDirs = effectiveDirs[key]?.length ? mapped(key) : (defaultDirs[key] ?? []).flatMap((d) => sourceDirsOf(d, layout));
-      const scanned = sources.files.filter((f) => sourceDirs.some((d) => below(d, resolve(f.fileName)) !== undefined));
+      const scanned = sources.files.filter((f) => inSectionGlob(section, builtName(f.fileName)) && sourceDirs.some((d) => below(d, resolve(f.fileName)) !== undefined));
       const reached = reachedBy(section, scanned);
       const searched = [...new Set(sourceDirs.map((d) => shown(d, layout.root)))].sort(compareCodeUnits).join(', ');
       const verb = READ_FROM_EXPORTS.has(section) ? 'exports' : 'imports';

@@ -7,7 +7,7 @@ import { isPackageSkipped, loadsFromManifest, manifestFileFor, ManifestMissing }
 import type { Manifest, ManifestMode, ManifestSection, MountedBy, SourceRef } from '@spinajs/manifest';
 
 export type { ManifestSection };
-export { ManifestMissing };
+export { SCAN_GLOB } from '@spinajs/manifest';
 
 // Their classes register themselves as their module is evaluated, so an import is all they need, exported or not.
 const REGISTERS_ON_IMPORT: ReadonlySet<ManifestSection> = new Set(['socketControllers', 'schedules', 'migrations']);
