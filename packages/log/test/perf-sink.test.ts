@@ -2,7 +2,7 @@ import "mocha";
 import { expect } from "chai";
 import { DI } from "@spinajs/di";
 import { Configuration, FrameworkConfiguration } from "@spinajs/configuration";
-import { Log, LogLevel, LogTarget, ICommonTargetOptions, ILogEntry, Perf, PerfSink, LogMetricSink } from "@spinajs/log";
+import { Log, LogLevel, LogTarget, ICommonTargetOptions, ILogEntry, Perf, PerfSink, LogMetricSink } from "../src/index.js";
 
 const captured: ILogEntry[] = [];
 
