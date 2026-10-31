@@ -76,17 +76,23 @@ export class EmittedModules {
   }
 
   private readExport(file: ts.SourceFile, statement: ts.Statement, found: Map<string, Exported>): void {
-    if (ts.isClassDeclaration(statement) && isExported(statement)) {
+    if (ts.isExportDeclaration(statement)) {
+      if (!statement.isTypeOnly) this.readExportDeclaration(file, statement, found);
+    } else if (ts.isExportAssignment(statement)) {
+      if (!statement.isExportEquals && ts.isIdentifier(statement.expression)) this.record(found, 'default', this.local(file, statement.expression.text));
+    } else if (ts.canHaveModifiers(statement) && isExported(statement)) {
+      this.readExportedDeclaration(file, statement, found);
+    }
+  }
+
+  private readExportedDeclaration(file: ts.SourceFile, statement: ts.Statement, found: Map<string, Exported>): void {
+    if (ts.isClassDeclaration(statement)) {
       const name = hasModifier(statement, ts.SyntaxKind.DefaultKeyword) ? 'default' : statement.name?.text;
       if (name) found.set(name, statement);
-    } else if ((ts.isFunctionDeclaration(statement) || ts.isEnumDeclaration(statement)) && isExported(statement) && statement.name) {
+    } else if ((ts.isFunctionDeclaration(statement) || ts.isEnumDeclaration(statement)) && statement.name) {
       found.set(statement.name.text, null);
-    } else if (ts.isExportAssignment(statement) && !statement.isExportEquals && ts.isIdentifier(statement.expression)) {
-      this.record(found, 'default', this.local(file, statement.expression.text));
-    } else if (ts.isVariableStatement(statement) && isExported(statement)) {
+    } else if (ts.isVariableStatement(statement)) {
       this.readExportedVariables(file, statement, found);
-    } else if (ts.isExportDeclaration(statement) && !statement.isTypeOnly) {
-      this.readExportDeclaration(file, statement, found);
     }
   }
 
