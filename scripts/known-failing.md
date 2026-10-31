@@ -4,7 +4,6 @@ Packages in `known-failing.json` may fail `scripts/test-all.mjs` and `scripts/co
 
 | Package | Symptom |
 | --- | --- |
-| internal-logger | 1 failing: logs before configuration is resolved are not written |
 | templates | 1 failing: `cache should be the default mode` ( 2 compiles instead of 1 ) |
 | templates-image | 6 passing, then the process does not exit |
 | users | Suite does not finish within the runner timeout ( killed ) |
