@@ -4,6 +4,7 @@ import { ResolveException } from './exceptions.js';
 import { Class } from './types.js';
 import { TypedArray } from './array.js';
 import * as DI from './root.js';
+import { notePendingProperty } from './property-type.js';
 import { getTypeName, isChainArray, isConstructor, isPromise, isTypedArray } from './helpers.js';
 
 export const DI_DESCRIPTION_SYMBOL = '__DI_INJECTION_DESCRIPTOR__';
@@ -167,15 +168,15 @@ export function Inject(...args: (Class<any> | TypedArray<any>)[]) {
 export function Autoinject<T>(typeOrOptions?: Class<T> | TypedArray<T> | IAutoinjectOptions<T>, options?: IAutoinjectOptions<T>) {
   return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol) => {
     // undefined when the build emits no decorator metadata (esbuild, tsx)
-    let type = Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown> | undefined;
-    const isArray = type?.name === 'Array' || type?.name === 'Map';
+    const declaredType = Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown> | undefined;
+    const isArray = declaredType?.name === 'Array' || declaredType?.name === 'Map';
     let opt = options;
 
     if (typeOrOptions instanceof TypedArray) {
       if (opt?.check || opt?.optional) {
         throw new Error(`@Autoinject: check and optional take a single class, ${String(propertyKey)} is an array or map`);
       }
-      if (type && !isArray) {
+      if (declaredType && !isArray) {
         throw new Error(`@Autoinject(${listName(typeOrOptions)}) needs an array or map property, ${String(propertyKey)} is not one`);
       }
 
@@ -189,28 +190,28 @@ export function Autoinject<T>(typeOrOptions?: Class<T> | TypedArray<T> | IAutoin
       return;
     }
 
-    if (isConstructor(typeOrOptions)) {
-      type = typeOrOptions;
-    } else {
-      opt = typeOrOptions;
+    const explicit = isConstructor(typeOrOptions) ? typeOrOptions : undefined;
+    if (!explicit) {
+      opt = typeOrOptions as IAutoinjectOptions<T> | undefined;
 
       if (isArray && !opt?.check && !opt?.optional) {
         throw new Error(`@Autoinject: you must provide inject type when injecting array or map, ${String(propertyKey)} has none`);
       }
     }
 
-    if (!type) {
+    if (!declaredType) {
       const declared = opt;
+      notePendingProperty(target.constructor as Class<unknown>, String(propertyKey), explicit);
       descriptor.inject.push({
         autoinject: true,
         autoinjectKey: propertyKey,
-        inject: Object,
-        pendingType: { property: propertyKey, bind: (resolved) => propertyInjection(resolved, propertyKey, declared, false) },
+        inject: explicit ?? Object,
+        pendingType: { property: propertyKey, explicit, bind: (resolved, isList) => propertyInjection(resolved, propertyKey, declared, isList) },
       });
       return;
     }
 
-    descriptor.inject.push(propertyInjection(type, propertyKey, opt, isArray));
+    descriptor.inject.push(propertyInjection(explicit ?? declaredType, propertyKey, opt, isArray));
   });
 }
 
@@ -266,7 +267,10 @@ function toMap(value: unknown, mapFunc: (x: any) => string | undefined) {
 }
 
 class LazyInjectBinding {
-  constructor(public readonly container: IContainer) {}
+  constructor(
+    public readonly container: IContainer,
+    public readonly type: unknown,
+  ) {}
 }
 
 /**
@@ -308,42 +312,41 @@ export function LazyInject<T>(service?: Class<T> | TypedArray<T> | string, optio
       throw new Error(`@LazyInject: ${key} is an array or map, pass the element type`);
     }
 
-    let type = isConstructor(service) && isList ? Array.ofType(service) : (service ?? declared);
+    const type = isConstructor(service) && isList ? Array.ofType(service) : (service ?? declared);
     const mapFunc = options?.mapFunc;
 
-    const containers = new WeakMap<object, IContainer>();
-    const binding = (inject: Class<unknown>): IToInject<unknown> => ({
+    const bindings = new WeakMap<object, LazyInjectBinding>();
+    const binding = (inject: Class<unknown> | TypedArray<unknown>): IToInject<unknown> => ({
       autoinject: true,
       autoinjectKey: key,
       inject,
-      resolveFunc: (_data: unknown, container: IContainer) => new LazyInjectBinding(container),
+      resolveFunc: (_data: unknown, container: IContainer) => new LazyInjectBinding(container, inject),
     });
+    const explicit = isConstructor(service) ? service : undefined;
 
     // The container assigns the binding right after construction, like any autoinject property; the setter keeps it per owner.
     AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>) => {
+      const pending = !declared && (!type || !!explicit);
+      if (pending) notePendingProperty((target as { constructor: Class<unknown> }).constructor, key, explicit);
       descriptor.inject.push(
-        type
+        !pending
           ? binding(type as Class<unknown>)
           : {
-              ...binding(Object),
-              pendingType: {
-                property: key,
-                bind: (resolved) => {
-                  type = resolved;
-                  return binding(resolved);
-                },
-              },
+              ...binding(explicit ?? Object),
+              pendingType: { property: key, explicit, bind: (resolved, isList) => binding(isList ? Array.ofType(resolved) : resolved) },
             },
       );
     })(target, key, undefined);
 
     Object.defineProperty(target, key, {
       get(this: object) {
-        if (!type) {
+        const bound = bindings.get(this);
+        const resolved = bound?.type ?? type;
+        if (!resolved) {
           throw new ResolveException(`@LazyInject: no type for ${(target as { constructor: { name: string } }).constructor.name}.${key}: pass it explicitly, enable emitDecoratorMetadata, or resolve the owner in manifest mode`);
         }
-        const container = containers.get(this) ?? DI.RootContainer;
-        const value = typeof type === 'string' ? container.get(type) : container.resolve(type as Class<unknown>);
+        const container = bound?.container ?? DI.RootContainer;
+        const value = typeof resolved === 'string' ? container.get(resolved) : container.resolve(resolved as Class<unknown>);
         if (!mapFunc) {
           return value;
         }
@@ -353,7 +356,7 @@ export function LazyInject<T>(service?: Class<T> | TypedArray<T> | string, optio
         if (!(value instanceof LazyInjectBinding)) {
           throw new TypeError(`@LazyInject property ${key} cannot be assigned`);
         }
-        containers.set(this, value.container);
+        bindings.set(this, value);
       },
     });
   };

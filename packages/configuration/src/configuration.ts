@@ -30,7 +30,7 @@ import { ConfigurationViolation, InvalidConfiguration } from './exception.js';
 import { mapObject, mergeArrays, parseArgv, pickObjects, pickString, sameSchema, schemaNameOf } from './util.js';
 import config, { buildEnvironmentFlags } from './config/configuration.js';
 import './sources.js';
-import { MANIFEST_SETTINGS } from './manifest-runtime.js';
+import { checkPendingProperties, MANIFEST_SETTINGS, preloadPropertyTypes } from './manifest-runtime.js';
 
 import { default as ajvMergePath } from 'ajv-merge-patch';
 import { default as ajvFormats } from 'ajv-formats';
@@ -292,6 +292,9 @@ export class FrameworkConfiguration extends Configuration {
       if (CHECKED.get(this.Container) === this) CHECKED.delete(this.Container);
       throw e;
     }
+
+    await preloadPropertyTypes(this.Container);
+    checkPendingProperties(this.Container);
   }
 
   public async mergeSource(sType: Class<ConfigurationSource>) {

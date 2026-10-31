@@ -14,7 +14,7 @@ import { Registry, ValueMapContents } from './registry.js';
 import { ContainerCache } from './container-cache.js';
 import _ from 'lodash';
 import { ResolveException, RestoreIncomplete, ServiceNotFound } from './exceptions.js';
-import { PROPERTY_TYPE_RESOLVER } from './property-type.js';
+import { noteBoundSingle, PROPERTY_TYPE_RESOLVER } from './property-type.js';
 
 const MAX_RESTORE_GENERATIONS = 5;
 // restore() gives up on resolutions that keep starting ( a poller, a reconnect loop ) after these. Counts, not a time
@@ -1137,25 +1137,15 @@ export class Container extends EventEmitter implements IContainer {
 
   /** A property whose type the build did not record: typed by the registered {@link PROPERTY_TYPE_RESOLVER}, else unresolvable. */
   private pendingInjection(pending: IToInject<unknown>, owner: Class<unknown>): IToInject<unknown> {
-    const { property, bind } = pending.pendingType!;
-    const type = this.get(PROPERTY_TYPE_RESOLVER)?.typeOf(owner, String(property), this);
+    const { property, explicit, bind } = pending.pendingType!;
+    const resolver = this.get(PROPERTY_TYPE_RESOLVER);
+    const declared = resolver?.typeOf(owner, String(property), this);
+    if (explicit && !declared) noteBoundSingle(owner, String(property));
+    const type = explicit ?? declared?.type;
     if (!type) {
-      throw new ResolveException(
-        `cannot inject ${owner.name}.${String(property)}: the decorator names no type and the build emits no decorator metadata; pass the type to the decorator, or boot from a manifest that records it ( spinajs build )`,
-      );
+      const remedy = resolver ? 'pass the type to the decorator, or boot from a manifest that records it ( spinajs build )' : 'nothing reads a manifest before Configuration: resolve Configuration first, or pass the type to the decorator';
+      throw new ResolveException(`cannot inject ${owner.name}.${String(property)}: the decorator names no type and the build emits no decorator metadata; ${remedy}`);
     }
-    if (!isPromise(type)) {
-      return bind(type);
-    }
-
-    return {
-      autoinject: true,
-      autoinjectKey: pending.autoinjectKey,
-      inject: pending.inject,
-      resolveFunc: async (_data: unknown, container: IContainer) => {
-        const [injected] = await (container as Container).resolveDependencies([bind(await type)]);
-        return (await injected).instance;
-      },
-    };
+    return bind(type, declared?.array ?? false);
   }
 }

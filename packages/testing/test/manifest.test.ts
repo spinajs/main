@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { readManifestObject } from '@spinajs/manifest';
-import { DI } from '@spinajs/di';
+import { Autoinject, DI, forgetPendingProperties, PROPERTY_TYPE_RESOLVER } from '@spinajs/di';
 import { MANIFEST_TOKEN, type Manifest } from '@spinajs/manifest';
 import { effectiveManifestOf, FrameworkConfiguration, manifestSettingsOf } from '@spinajs/configuration';
 import { createTestApp } from '../src/create-test-app.js';
@@ -43,6 +43,28 @@ describe('withManifest', () => {
     await app.dispose();
     expect(rootManifest()).to.equal(undefined);
     expect(manifestSettingsOf(DI.RootContainer)).to.equal(undefined);
+  });
+
+  it('holds the property type resolver in root: a root service resolves there, not in the child that asked', async () => {
+    class Owner {
+      public when: Date;
+    }
+    (Autoinject() as PropertyDecorator)(Owner.prototype, 'when');
+
+    const manifest = testManifest({
+      classProperties: [{ id: 'test-app:Owner', className: 'Owner', properties: [{ property: 'when', token: 'Date', optional: false, array: false, tokenRef: { package: 'global', file: '', export: 'Date' } }], source: sourceRef('owner.ts') }],
+    });
+    const child = DI.child();
+    withManifest(manifest)(child);
+    DI.RootContainer.register(Owner).asSelf();
+    try {
+      expect(child.resolve(Owner).when).to.be.instanceOf(Date);
+    } finally {
+      DI.RootContainer.unregister(Owner);
+      await child.dispose();
+      forgetPendingProperties(Owner);
+    }
+    expect(DI.RootContainer.get(PROPERTY_TYPE_RESOLVER, false)).to.equal(undefined);
   });
 
   it('leaves no manifest behind after a root app is disposed', async () => {
