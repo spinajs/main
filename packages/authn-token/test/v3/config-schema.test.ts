@@ -70,7 +70,7 @@ describe('authn.token and authn.jwt through the schema', () => {
   });
 
   describe('authn.token violations', () => {
-    it('names the bad key', async () => {
+    describe('names the bad key', () => {
       const cases: [Record<string, unknown>, string][] = [
         [{ prefix: '' }, 'authn.token.prefix'],
         [{ length: 31 }, 'authn.token.length'],
@@ -82,7 +82,11 @@ describe('authn.token and authn.jwt through the schema', () => {
         [{ lastUsedUpdateInterval: -1 }, 'authn.token.lastUsedUpdateInterval'],
         [{ lastUsedUpdateInterval: 'sixty' }, 'authn.token.lastUsedUpdateInterval'],
       ];
-      for (const [token, path] of cases) expect(await bad({ token }), JSON.stringify(token)).to.include(path);
+      for (const [token, path] of cases) {
+        it(`${JSON.stringify(token)} at ${path}`, async () => {
+          expect(await bad({ token })).to.include(path);
+        });
+      }
     });
   });
 

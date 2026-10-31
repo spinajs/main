@@ -76,9 +76,11 @@ describe('authn.mfa.totp, authn.mfa.encryptionKey and authn.freshAuth through th
       }
     });
 
-    it('accepts the limits and the three algorithms', async () => {
+    describe('accepts the limits and the three algorithms', () => {
       for (const totp of [{ digits: 6, period: 1, window: 0, recoveryCodes: 0 }, { digits: 10, period: 300, window: 10, recoveryCodes: 100 }, { algorithm: 'SHA256' }, { algorithm: 'SHA512' }]) {
-        expect(await bad({ mfa: { totp } }), JSON.stringify(totp)).to.deep.eq([]);
+        it(JSON.stringify(totp), async () => {
+          expect(await bad({ mfa: { totp } })).to.deep.eq([]);
+        });
       }
     });
 
