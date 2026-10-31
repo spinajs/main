@@ -5,8 +5,8 @@ import sinon from 'sinon';
 import { existsSync, readdirSync, statSync } from 'fs';
 import { join, resolve } from 'path';
 import { ClassInfo } from '@spinajs/di';
-import { DefaultControllerCache } from '../src/cache.js';
-import type { IControllerDocumentation } from '../src/cache.js';
+import { DefaultControllerCache, loadTypescript } from '../src/cache.js';
+import type { IControllerDocumentation } from '../src/controller-documentation.js';
 import type { BaseController } from '../src/base-controller.js';
 
 const PACKAGES = resolve(process.cwd(), '..');
@@ -26,9 +26,9 @@ const FIXTURE_DIRS = [
   join(process.cwd(), 'test', 'policies'),
   join(PACKAGES, 'http-swagger', 'test', 'controllers'),
   join(PACKAGES, 'http-swagger', 'test', 'policies'),
-  join(PACKAGES, 'authn-http', 'lib', 'mjs', 'v3', 'controllers'),
-  join(PACKAGES, 'authn-http', 'lib', 'mjs', 'policies'),
-  join(PACKAGES, 'authz-http', 'lib', 'mjs', 'controllers'),
+  join(PACKAGES, 'authn-http', 'lib', 'v3', 'controllers'),
+  join(PACKAGES, 'authn-http', 'lib', 'policies'),
+  join(PACKAGES, 'authz-http', 'lib', 'controllers'),
 ];
 
 const FILES = FIXTURE_DIRS.flatMap(sourcesUnder);
@@ -86,6 +86,8 @@ function extractEverything(cache: DefaultControllerCache, file: string) {
 }
 
 describe('DefaultControllerCache source parsing', function () {
+  before(loadTypescript);
+
   this.timeout(60000);
 
   it('extracts exactly what the per-call ts.Program extraction did', () => {

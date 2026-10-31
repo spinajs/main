@@ -13,7 +13,7 @@ import { NoControllerMetadata } from './controller-metadata.js';
 // Assigned by loadTypescript() before any parse: a process whose cache entries all exist never loads the compiler.
 let ts: typeof TS;
 
-async function loadTypescript(): Promise<void> {
+export async function loadTypescript(): Promise<void> {
   try {
     ts ??= (await import('typescript')).default;
   } catch (err) {
@@ -272,7 +272,7 @@ export class DefaultControllerCache extends AsyncService {
    * call, which made a boot with a few dozen controllers take tens of seconds. `ts.sys.readFile`
    * is what a program's compiler host reads with, so the text - BOM handling included - is the same.
    */
-  private parseSourceFile(file: string): ts.SourceFile | undefined {
+  private parseSourceFile(file: string): TS.SourceFile | undefined {
     const text = ts.sys.readFile(file);
     return text === undefined ? undefined : ts.createSourceFile(file, text, ts.ScriptTarget.Latest);
   }
