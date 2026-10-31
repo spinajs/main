@@ -1,7 +1,8 @@
 import ts from 'typescript';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import type { Diagnostic, SourceRef, TypeRef } from '@spinajs/manifest';
+import type { Diagnostic, RuntimeTypeRef, SourceRef, TypeRef } from '@spinajs/manifest';
 import type { LoadedProgram } from './program.js';
+import { runtimeRefOf, type RuntimeTypeFields } from './runtime-ref.js';
 import { deriveSchema, type DeriveOptions, type JsonSchema } from './schema/derive.js';
 import { isQueueFrameworkMember } from './schema/framework-members.js';
 import { sanitizeName } from './schema/naming.js';
@@ -16,6 +17,10 @@ export interface ExtractorContext {
   typeRef(type: ts.Type, node: ts.Node, nameHint?: string, derive?: Pick<DeriveOptions, 'excludeMembersOf'>): TypeRef;
   /** Type text only, no schema derivation (binary payloads such as uploaded files). */
   plainTypeRef(type: ts.Type): TypeRef;
+  /** What decorator metadata would record for `type`; reports TYP001/TYP002 at `node` for a class the runtime cannot import. */
+  runtimeRef(type: ts.Type, node: ts.Node): RuntimeTypeRef | undefined;
+  /** `runtimeRef`, or the reason there is none, as the fields of a `TypeRef`. */
+  runtimeTypeFields(type: ts.Type, node: ts.Node): RuntimeTypeFields;
   diagnostics: Diagnostic[];
   schemas: Record<string, unknown>;
   /** Schemas derived from TypeScript types, keyed by `$id`. */
@@ -114,6 +119,9 @@ export function createContext(loaded: LoadedProgram, packageName: string, packag
     return ref;
   };
 
+  const info = push('info');
+  const runtimeTypeFields = (type: ts.Type, node: ts.Node): RuntimeTypeFields => runtimeRefOf(type, node, { checker, packageName, packageRoot: root, inPackage, info });
+
   return {
     program: loaded.program,
     checker,
@@ -125,8 +133,10 @@ export function createContext(loaded: LoadedProgram, packageName: string, packag
     schemaRegistry,
     typeRef,
     plainTypeRef: (type) => ({ text: textOf(unwrapTransparent(checker, type)) }),
+    runtimeRef: (type, node) => runtimeTypeFields(type, node).ref,
+    runtimeTypeFields,
     isSubclassOf: (classNode, baseName) => baseChain(checker.getTypeAtLocation(classNode)).includes(baseName),
-    info: push('info'),
+    info,
     warn: push('warning'),
     error: push('error'),
   };

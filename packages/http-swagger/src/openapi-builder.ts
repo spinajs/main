@@ -297,7 +297,7 @@ export class OpenApiBuilder {
       });
     }
 
-    for (const [methodName, route] of descriptor.Routes) {
+    for (const [methodName, route] of controller.instance!.Routes ?? descriptor.Routes) {
       const methodNameStr = methodName as string;
       const methodDoc = docCache.methods[methodNameStr];
       const fullPath = this.buildPath(basePath, route.Path, route.Method as string);

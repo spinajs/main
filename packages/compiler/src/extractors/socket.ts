@@ -1,11 +1,12 @@
 import { isAbstractClass } from './abstract.js';
 import ts from 'typescript';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { SocketCommandEntry, SocketContractEntry, SocketControllerEntry, TypeRef } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
 import { findDecorator, literalValue, type DecoratorInfo } from '../decorators.js';
 import { policyGroupsOf } from './policies.js';
+import { owningPackage } from '../owning-package.js';
 
 type NamedMethod = ts.MethodDeclaration & { name: ts.Identifier };
 
@@ -18,7 +19,9 @@ function socketAccessOf(m: ts.MethodDeclaration, ctx: ExtractorContext): string[
 
 function payloadOf(m: NamedMethod, className: string, ctx: ExtractorContext): TypeRef {
   const p = m.parameters.find((param) => findDecorator(param, 'Payload'));
-  return p ? ctx.typeRef(ctx.checker.getTypeAtLocation(p), p, `${className}_${m.name.text}_Payload`) : { text: 'void' };
+  if (!p) return { text: 'void' };
+  const type = ctx.checker.getTypeAtLocation(p);
+  return { ...ctx.typeRef(type, p, `${className}_${m.name.text}_Payload`), ...ctx.runtimeTypeFields(type, p) };
 }
 
 const STREAM_TYPES = new Set(['AsyncIterable', 'AsyncIterableIterator', 'AsyncGenerator']);
@@ -62,23 +65,6 @@ function contractIdOf(decl: ts.VariableDeclaration & { name: ts.Identifier }, ca
   return (literalValue(call.arguments[0], ctx) as string | undefined) ?? `${ctx.packageName}:${decl.name.text}`;
 }
 
-interface IOwningPackage {
-  name: string;
-  root: string;
-  fragment?: string;
-}
-
-function owningPackage(file: string): IOwningPackage | undefined {
-  for (let dir = dirname(file); ; dir = dirname(dir)) {
-    const path = join(dir, 'package.json');
-    if (existsSync(path)) {
-      const pkg = JSON.parse(readFileSync(path, 'utf8')) as { name?: string; spinajs?: { manifest?: string } };
-      if (pkg.name) return { name: pkg.name, root: dir, fragment: pkg.spinajs?.manifest };
-    }
-    if (dirname(dir) === dir) return undefined;
-  }
-}
-
 /** A contract declared in a dependency is only a `.d.ts` here; its id lives in the dependency's manifest fragment, found by package and export name. */
 function dependencyContractId(decl: ts.VariableDeclaration & { name: ts.Identifier }): string | undefined {
   const owner = decl.getSourceFile().isDeclarationFile ? owningPackage(decl.getSourceFile().fileName) : undefined;
@@ -116,7 +102,13 @@ function boundContractOf(sc: DecoratorInfo, ctx: ExtractorContext): string | und
   return undefined;
 }
 
-function controllerOf(node: ts.ClassDeclaration & { name: ts.Identifier }, sc: DecoratorInfo, ctx: ExtractorContext): SocketControllerEntry {
+function diArgsOf(node: ts.ClassDeclaration, ctx: ExtractorContext): NonNullable<SocketControllerEntry['diArgs']> {
+  return node.members.filter(ts.isMethodDeclaration).flatMap((m) =>
+    m.parameters.flatMap((p, index) => (findDecorator(p, 'FromDI') ? [{ handler: m.name.getText(), index, ...ctx.runtimeTypeFields(ctx.checker.getTypeAtLocation(p), p) }] : [])),
+  );
+}
+
+function controllerOf(node: ts.ClassDeclaration & { name: ts.Identifier }, sc: DecoratorInfo | undefined, ctx: ExtractorContext): SocketControllerEntry {
   const commands: SocketCommandEntry[] = [];
   const events: SocketControllerEntry['events'] = [];
   for (const m of node.members) {
@@ -127,30 +119,41 @@ function controllerOf(node: ts.ClassDeclaration & { name: ts.Identifier }, sc: D
     if (cmd) commands.push(commandOf(named, node.name.text, cmd, ctx));
     else if (ev) events.push({ name: (literalValue(ev.args[0], ctx) as string | undefined) ?? named.name.text, payload: payloadOf(named, node.name.text, ctx) });
   }
-  const contract = boundContractOf(sc, ctx);
+  const contract = sc && boundContractOf(sc, ctx);
+  const diArgs = diArgsOf(node, ctx);
   return {
     id: `${ctx.packageName}:${node.name.text}`,
     className: node.name.text,
-    prefix: (literalValue(sc.args[0], ctx) as string | undefined) ?? '',
+    prefix: (literalValue(sc?.args[0], ctx) as string | undefined) ?? '',
     ...(contract ? { contract } : {}),
     commands,
     events,
+    ...(diArgs.length ? { diArgs } : {}),
     source: ctx.sourceRef(node),
   };
 }
 
-export const extractSocketControllers: Extractor<SocketControllerEntry> = (ctx, file) => {
+function socketControllersIn(file: ts.SourceFile, ctx: ExtractorContext, wanted: (node: ts.ClassDeclaration, sc: DecoratorInfo | undefined) => boolean): SocketControllerEntry[] {
   const out: SocketControllerEntry[] = [];
   const visit = (node: ts.Node): void => {
-    if (ts.isClassDeclaration(node) && node.name && !isAbstractClass(node)) {
+    if (ts.isClassDeclaration(node) && node.name) {
       const sc = findDecorator(node, 'SocketController');
-      if (sc) out.push(controllerOf(node as ts.ClassDeclaration & { name: ts.Identifier }, sc, ctx));
+      if (wanted(node, sc)) out.push(controllerOf(node as ts.ClassDeclaration & { name: ts.Identifier }, sc, ctx));
     }
     ts.forEachChild(node, visit);
   };
   visit(file);
   return out;
-};
+}
+
+export const extractSocketControllers: Extractor<SocketControllerEntry> = (ctx, file) => socketControllersIn(file, ctx, (node, sc) => !!sc && !isAbstractClass(node));
+
+const SOCKET_HANDLER_DECORATORS = ['Command', 'OnEvent', 'OnConnect', 'OnDisconnect'];
+const hasSocketHandler = (node: ts.ClassDeclaration): boolean => node.members.some((m) => ts.isMethodDeclaration(m) && SOCKET_HANDLER_DECORATORS.some((name) => findDecorator(m, name)));
+
+/** Nothing mounts an abstract or undecorated base, but a subclass serves its handlers and looks their types up here. */
+export const extractSocketControllerBases: Extractor<SocketControllerEntry> = (ctx, file) =>
+  socketControllersIn(file, ctx, (node, sc) => (isAbstractClass(node) || !sc) && hasSocketHandler(node) && ctx.isSubclassOf(node, 'BaseSocketController'));
 
 function membersOf(type: ts.Type, ctx: ExtractorContext, node: ts.Node): Map<string, ts.Type> {
   return new Map(type.getProperties().map((p) => [p.name, ctx.checker.getTypeOfSymbolAtLocation(p, node)]));

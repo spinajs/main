@@ -118,6 +118,44 @@ A service, value or controller that is registered conditionally carries a `condi
 | orm-http `@AsModel(field?, type?)` | `body`, or `type` | `field`, else the parameter name | body: `whole` when it is the only one and has no `field`, else `field`; elsewhere `json` |
 | `@FromDI()`, `@Req()`, `@Res()`, `@Ip()`, `@RequestId()`, `@UserAgent()`, `@Referer()`, `@AcceptType()`, `@Model()` | `none` | | `whole` |
 
+### Runtime types
+
+Every decorated route argument, socket `@Payload` and `@FromDI()` types, and `@Autoinject()` / `@LazyInject()` properties that name no type carry a `ref`: what the runtime reads where `emitDecoratorMetadata` would have recorded a value, so an app that boots from a manifest can be built without decorator metadata. It works on the checked type, not on the annotation, so it differs from the metadata in the cases listed under the table. Return types, model columns and contract types carry none.
+
+| Declared type | `ref` |
+| --- | --- |
+| `number`, `string`, `boolean` (literals, literal unions and enums included), `bigint`, `symbol` | `{ package: 'global', file: '', export: 'Number' }` and so on |
+| An array or tuple | the global `Array` |
+| A global class or constructor (`Date`, `Map`, `Uint8Array`, `Buffer`) | that global |
+| An exported class of the package | `{ package, file: 'src/x.ts', export }` |
+| An exported class of a dependency that ships a manifest fragment | `{ package, file: 'lib/x.js', export }` (the JavaScript next to its declaration file) |
+| A function type | the global `Function` |
+| An interface, a type literal, `any`, `unknown`, a union of different types | the global `Object` |
+| The static side of a class (`typeof Foo`) | the global `Object` |
+| A global no runtime provides on Node (`HTMLElement`, `declare global { class X {} }`), a `declare class` | the global `Object` |
+| `null`, `undefined`, `void` | none |
+
+Where `ref` and the metadata differ, because the checked type knows more than the annotation:
+
+| Declared | `ref` | Metadata |
+| --- | --- | --- |
+| `import type { Dto }`, then `dto: Dto` | the class, which the runtime imports | `Object` |
+| A parameter with no annotation (`page = 5`) | `Number` | `Object` |
+| An interface with a call signature | `Function` | `Object` |
+| `declare global { class X {} }` that a polyfill provides at runtime | `Object` | `X` |
+| `@Autoinject(Plugin) byName: ByName`, with `type ByName = Map<string, Plugin>` | `array: true` in `classProperties`, the map | `Object`, one instance |
+| `@Autoinject(Plugin) all: Plugins \| null`, with `type Plugins = Plugin[]` | `array: true` in `classProperties`, the list | `Object`, one instance |
+
+A class without a `ref` is reported as `TYP001` (not exported) or `TYP002` (declared in a package without a manifest fragment, or in an ambient module such as `node:async_hooks`). An enum records `Number` or `String`, as the metadata does, not the enum object.
+
+A parameter under a decorator the compiler does not know (`@Filter`, `@CurrentUser`, an app's own `Parameter()`) is recorded with `kind: 'Decorated'` and `wire: { in: 'none', shape: 'whole' }`: it has a type, and generators and request validation skip it. Socket `@FromDI()` types are in `socketControllers[].diArgs`, by handler and index, hooks included.
+
+An abstract controller, or one that `declaredDirsOnly` leaves out, goes to `controllerBases`: nothing mounts it, and the runtime finds the routes a subclass inherits there. `socketControllerBases` does the same for socket controllers, and also holds an undecorated class that declares handlers.
+
+A class without a `ref` records why in `refProblem`, which the runtime puts in its error. For the kinds that never read the type (`@Req`, `@Res`, `@Ip`, `@RequestId`, `@UserAgent`, `@Referer`, `@RawBody`, `@AcceptType`, `@RequestStream`, `@ContentDigest`) it records `Object` instead.
+
+A package built with `emitDecoratorMetadata: false` also gets `classProperties`: one entry per class with a decorated property, whatever the class is, keyed by `id` (`<package>:<class>`). Each `@Autoinject`, `@LazyInject`, `@AutoinjectService`, `@HasMany`, `@HasManyToMany`, `@Virtual` or `@JunctionTable` property has `array`, decided from what the type resolves to, so an alias and `readonly T[]` count, and, when the decorator names no type, the declared type as `tokenRef`. A property under any other decorator, other than the ones that inject by their own arguments (`@Logger`, `@Config`, `@FileSystem`), has `array` alone, because the decorator may wrap `@Autoinject(X)`; a row without `tokenRef` imports nothing. A package built with metadata has none: the runtime imports every `tokenRef` at boot, and such a build would not read them. `services[].propertyInjects` records `tokenRef` too.
+
 ## Schema derivation
 
 With `schemaDerivation` on (the default), every route parameter and response, socket payload and result, queue message and model column gets a JSON Schema (draft-07) derived from its TypeScript type. Named classes, interfaces and enums are hoisted under `spinajs/<package>/<Name>` and referenced by `$ref`; anonymous types are inlined. These rules decide what is derived and how:
@@ -144,6 +182,8 @@ Every diagnostic has a `code`, a `severity` (`error`, `warning`, `info`), a `mes
 | `CMP002` | info | A `@response` JSDoc tag could not be parsed. |
 | `CMP003` | info | A registration has a dynamic condition. |
 | `CMP005` | info | A route argument read from one string (query key, url segment, header, cookie, form field) has a type converted by a custom `@Hydrator`, which receives the raw string. Its `wire.shape` is recorded as `value`; the hydrator decides the real format. |
+| `TYP001` | info | `runtime-type-not-exported`: a route argument, socket payload or injected property has a class type that is not exported, so the manifest records no `ref` for it. Without decorator metadata the runtime cannot load it; export the class. |
+| `TYP002` | info | `runtime-type-not-importable`: the class is declared in a package without a manifest fragment (types from `@types/*`), or in an ambient module (`node:async_hooks`). Without decorator metadata the runtime cannot load it; pass the type to the decorator (`@Type(X)`, `@Autoinject(X)`). |
 | `CFG010` | warning | A configuration schema is not a literal with `$id` and `$configurationModule`. |
 | `SCH001` | warning / info | A type has no JSON Schema form and is emitted as `{}`: `any`, a function, `symbol`, `never`. Give the member a real type. `unknown`, `object` and an `any` index signature are `info`: the value is accepted as is, which suits an opaque value. A model read from a declaration file is `info` too (see the model row above). A type declared outside the package says where in the message (`declared in X`). |
 | `SCH002` | warning | A type nests deeper than the depth limit (20) and the cut is emitted as `{}`. Usually a framework type reached through a member; a recursive alias no longer causes it. |

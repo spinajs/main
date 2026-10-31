@@ -1,0 +1,7 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ES2022", "moduleResolution": "bundler", "rootDir": "./src", "outDir": "./lib",
+    "experimentalDecorators": true, "emitDecoratorMetadata": false, "esModuleInterop": true
+  },
+  "include": ["src/**/*"]
+}

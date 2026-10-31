@@ -37,6 +37,8 @@ A directory that does not exist is skipped. A file reached through more than one
 
 ## With a manifest
 
+In a build without decorator metadata, `Configuration.resolve()` also imports the classes that `manifest.classProperties` names, before it returns (see [Building without decorator metadata](../manifest/README.md#building-without-decorator-metadata)).
+
 When the effective `system.manifest.mode` is `prefer` or `require` and a manifest is loaded (see [the manifest runtime](../manifest/README.md#runtime)), rows 2 and 3 are replaced by the config files the manifest lists for each `@spinajs/*` package (`packages[].configFiles`), at the same position and in the same order the glob gives: packages installed in a nearer `node_modules` first, then by name. Every other row, the deduplication and the merge are unchanged, so the result is the configuration the `node_modules` walk gives.
 
 The compiler lists every package of the app's installed dependency closure, transitive dependencies included (see [`locateFragments`](../compiler/README.md#the-fragment-contract)). The two modes still differ in these cases:

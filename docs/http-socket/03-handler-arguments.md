@@ -23,7 +23,7 @@ Parameter decorators tell the server what to pass to each handler argument: the 
 | `@Connection()` | handler parameter | none | The `SocketConnection` (`ConnectionArg`) |
 | `@Signal()` | handler parameter | none | An `AbortSignal` (`SignalArg`): the command's signal; the connection's signal in events and connect hooks; a signal that never aborts in disconnect hooks |
 | `@Reason()` | handler parameter | none | The socket.io disconnect reason in `@OnDisconnect` hooks, else `null` (`ReasonArg`) |
-| `@FromDI(...options)` | handler parameter | constructor options | `DI.resolve(<parameter type>, options)` (`FromDiArg`) |
+| `@FromDI(...options)` | handler parameter | constructor options | `DI.resolve(<parameter type>, options)` (`FromDiArg`). In a build without decorator metadata the type comes from the manifest ([Building without decorator metadata](../manifest/README.md#building-without-decorator-metadata)), as for `@Payload` |
 | `SocketParameter(type, schema?, options?)` | handler parameter | extractor class, schema, any options | Base of every decorator above; use it to build your own |
 
 A command's `@Signal()` aborts on its deadline, a client cancel, a disconnect and shutdown. Its `reason` is the `SocketException` the client is answered with.

@@ -1,8 +1,8 @@
-import { DI } from '@spinajs/di';
+import { DI, PROPERTY_TYPE_RESOLVER } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { hashManifest, MANIFEST_TOKEN, MANIFEST_VERSION } from '@spinajs/manifest';
 import type { Manifest, ManifestMode, SourceRef } from '@spinajs/manifest';
-import { MANIFEST_SETTINGS, registerManifest, registerManifestSettings } from '@spinajs/configuration';
+import { MANIFEST_PROPERTY_TYPES, MANIFEST_SETTINGS, registerManifest, registerManifestSettings } from '@spinajs/configuration';
 
 export function sourceRef(file: string, pkg = 'test-app'): SourceRef {
   return { file, line: 1, col: 1, package: pkg };
@@ -62,8 +62,9 @@ function releaseFromRoot(key: string, value: object): void {
 
 /**
  * `TestAppOptions.register` helper that makes `manifest` the app's runtime manifest with `mode` as the effective
- * `system.manifest.mode`, as `ManifestConfigurationSource` would. Decorators such as `ListFromFiles` look both up from
- * the root container, so a child app adds them to root too until it is disposed; what root held before stays.
+ * `system.manifest.mode`, as `ManifestConfigurationSource` would. Decorators such as `ListFromFiles` look them up from
+ * the root container, and a service registered in root resolves there, so a child app adds them to root too until it
+ * is disposed; what root held before stays.
  */
 export function withManifest(manifest: Manifest, mode: ManifestMode = 'prefer'): (container: IContainer) => void {
   return (container) => {
@@ -74,9 +75,11 @@ export function withManifest(manifest: Manifest, mode: ManifestMode = 'prefer'):
 
     holdInRoot(MANIFEST_TOKEN, manifest);
     holdInRoot(MANIFEST_SETTINGS.key, settings);
+    holdInRoot(PROPERTY_TYPE_RESOLVER.key, MANIFEST_PROPERTY_TYPES);
     container.once('di.dispose', () => {
       releaseFromRoot(MANIFEST_TOKEN, manifest);
       releaseFromRoot(MANIFEST_SETTINGS.key, settings);
+      releaseFromRoot(PROPERTY_TYPE_RESOLVER.key, MANIFEST_PROPERTY_TYPES);
     });
   };
 }

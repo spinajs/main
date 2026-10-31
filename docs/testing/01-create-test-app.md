@@ -27,6 +27,10 @@ A root boot that does not finish within `bootTimeout` is abandoned: `createTestA
 
 Set `SPINAJS_TEST_STRICT=1` to make a root-scope `dispose()` throw when the root cache size differs from the size before the boot.
 
+## Building without decorator metadata
+
+`@spinajs/di` collects every property decorated without metadata, for the whole process, and a boot in `prefer` or `require` checks all of them against its manifest. Mocha loads every test file first, so a `testManifest()` with a partial table fails on classes of other suites, and classes a test decorates by hand count too. Call `forgetPendingProperties()` from `@spinajs/di` before such a boot, or `forgetPendingProperties(Owner)` for one class. See [Building without decorator metadata](../manifest/README.md#building-without-decorator-metadata).
+
 ## `useTestApp`
 
 ```ts sample
