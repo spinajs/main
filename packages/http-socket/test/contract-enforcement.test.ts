@@ -302,6 +302,14 @@ describe('socket contract enforcement', function () {
       client.close();
     });
 
+    it('skips a $data rule when the client omits the field it reads, which is why the docs ask for it to be required', async () => {
+      const greet = { ...SCHEMAS['spinajs/app/Greet'], properties: { name: { type: 'string' }, floor: { type: 'integer' }, age: { type: 'integer', minimum: { $data: '1/floor' } } } };
+      writeManifest(manifestOf({ schemas: { ...SCHEMAS, 'spinajs/app/Greet': greet } }));
+      const client = await open(await start('require'));
+      expect(resultOf(await command(client, 'ctr.say', { name: 'ada', age: -1 }))).to.deep.equal({ hello: 'ada' });
+      client.close();
+    });
+
     it('enforces a $data rule of the contract schema, and the error names the rule, not the other field of the payload', async () => {
       const greet = { ...SCHEMAS['spinajs/app/Greet'], properties: { name: { type: 'string' }, floor: { type: 'integer' }, age: { type: 'integer', minimum: { $data: '1/floor' } } } };
       writeManifest(manifestOf({ schemas: { ...SCHEMAS, 'spinajs/app/Greet': greet } }));

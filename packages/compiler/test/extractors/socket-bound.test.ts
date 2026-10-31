@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { hashManifest, mergeFragments, type Manifest, type ManifestFragment } from '@spinajs/manifest';
+import { hashManifest, mergeFragments, type Manifest, type ManifestFragment, type SocketContractEntry } from '@spinajs/manifest';
 import { createProgramFromTsconfig, createContext, extractSocketContracts, extractSocketControllers } from '../../src/index.js';
 import { socketContract } from '../../src/doctor/rules/socket-contract.js';
 import { createDoctorContext, DEFAULT_RULES } from '../../src/doctor/index.js';
@@ -43,6 +43,38 @@ describe('socket controllers bound to a contract', () => {
 
     const found = socketContract.run(manifest, createDoctorContext(manifest, { cwd: process.cwd() }));
     expect(found.filter((d) => d.code === 'SOCK005')).to.have.length(1);
+  });
+
+  describe('a $data rule in a contract payload', () => {
+    const range = (pointer: string, required: string[]) => ({
+      type: 'object',
+      properties: { low: { type: 'integer' }, high: { type: 'integer', minimum: { $data: pointer } }, nested: { type: 'object', properties: { top: { type: 'integer', maximum: { $data: '2/low' } } } } },
+      required,
+    });
+    const reported = (schema: object, event = false): string[] => {
+      const payload = { text: 'Range', schema: 'spinajs/app/Range' };
+      const contract: SocketContractEntry = { id: 'app:C', commands: event ? {} : { 'c.set': { payload, result: { text: 'void' } } }, events: {}, clientEvents: event ? { 'c.set': payload } : {}, source: contracts[0].source };
+      const manifest: Manifest = { ...fixture(), socketContracts: [contract], schemas: { 'spinajs/app/Range': schema } };
+      return socketContract.run(manifest, createDoctorContext(manifest, { cwd: process.cwd() })).filter((d) => d.code === 'SOCK006').map((d) => `${d.severity} ${d.message}`);
+    };
+
+    it('is quiet when the pointer names a required property', () => {
+      expect(reported(range('1/low', ['low', 'high']))).to.deep.equal([]);
+    });
+
+    it('warns about a pointer that names no property, where nothing else reports the typo', () => {
+      expect(reported(range('1/lwo', ['low', 'high']))).to.include("warning app:C: c.set: $data pointer 1/lwo names no property, so the rule never applies");
+    });
+
+    it('warns about a pointer to an optional property, which a client skips by omitting it', () => {
+      expect(reported(range('1/low', ['high']))).to.include("warning app:C: c.set: $data pointer 1/low names optional property low: a client that omits it skips the rule");
+    });
+
+    it('checks client events too, and pointers it can only partly follow are left alone', () => {
+      expect(reported(range('1/lwo', ['low']), true)).to.have.length(1);
+      expect(reported(range('1/low/deeper', ['low']))).to.deep.equal([]);
+      expect(reported(range('/low', ['low']))).to.deep.equal([]);
+    });
   });
 
   it('two packages declaring one explicit id reach SOCK005 through the merge', () => {
