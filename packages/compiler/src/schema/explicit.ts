@@ -16,6 +16,24 @@ export function resolveLiteral(checker: ts.TypeChecker, expression: ts.Expressio
   return { value, unresolved };
 }
 
+/**
+ * Drops what `literalValue` could not evaluate: `undefined`, which JSON writes as `null` inside an array, where a
+ * subschema cannot be null. A literal `null` stays. So does the rest of the array; one left empty goes, because
+ * `allOf: []` and `enum: []` are invalid.
+ */
+export function withoutUnresolved(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    const kept = value.map((member) => withoutUnresolved(member)).filter((member) => member !== undefined);
+    return kept.length === 0 && value.length > 0 ? undefined : kept;
+  }
+  if (value === null || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, member]) => [key, withoutUnresolved(member)])
+      .filter(([, member]) => member !== undefined),
+  );
+}
+
 export interface ExplicitSchema {
   schema: JsonSchema;
   id?: string;

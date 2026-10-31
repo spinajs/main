@@ -92,12 +92,29 @@ function boundValue(expr: ts.Identifier | ts.PropertyAccessExpression, ctx: Lite
   return undefined;
 }
 
+function arrayLiteralValue(expr: ts.ArrayLiteralExpression, ctx: LiteralContext): unknown[] {
+  return expr.elements.flatMap((element) => {
+    if (!ts.isSpreadElement(element)) return [literalValue(element, ctx)];
+    const spread = literalValue(element.expression, ctx);
+    if (Array.isArray(spread)) return spread as unknown[];
+    ctx.info('CMP001', `non-literal array member: ${element.getText()}`, element);
+    return [undefined];
+  });
+}
+
+/** The expression whose value `expr` has: a wrapper that leaves it unchanged, or `Object.freeze`, which schema constants use. */
+function transparentOperand(expr: ts.Expression): ts.Expression | undefined {
+  if (ts.isParenthesizedExpression(expr) || ts.isAsExpression(expr) || ts.isSatisfiesExpression(expr)) return expr.expression;
+  return ts.isCallExpression(expr) && expr.expression.getText() === 'Object.freeze' ? expr.arguments[0] : undefined;
+}
+
 export function literalValue(expr: ts.Expression | undefined, ctx: LiteralContext): unknown {
   if (!expr) return undefined;
   const primitive = primitiveValue(expr);
   if (primitive) return primitive.value;
-  if (ts.isParenthesizedExpression(expr) || ts.isAsExpression(expr) || ts.isSatisfiesExpression(expr)) return literalValue(expr.expression, ctx);
-  if (ts.isArrayLiteralExpression(expr)) return expr.elements.map((e) => literalValue(e, ctx));
+  const operand = transparentOperand(expr);
+  if (operand) return literalValue(operand, ctx);
+  if (ts.isArrayLiteralExpression(expr)) return arrayLiteralValue(expr, ctx);
   if (ts.isObjectLiteralExpression(expr)) return objectLiteralValue(expr, ctx);
   if (ts.isIdentifier(expr) || ts.isPropertyAccessExpression(expr)) {
     const bound = boundValue(expr, ctx);

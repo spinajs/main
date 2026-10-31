@@ -5,51 +5,73 @@ import { Configuration, effectiveManifestOf, type EffectiveManifest } from '@spi
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { SocketException } from '@spinajs/http-socket-common';
-import { manifestValidatorOf, schemaOfClass } from '@spinajs/validation';
+import { manifestSchemaKey, manifestValidatorOf, prepareManifestSchemas, sanitizeError, schemaOfClass, type IValidationError } from '@spinajs/validation';
 import { authoritativeSchema, checkSocketContract, loadRuntimeManifest, resolveTypeRef, type Manifest, type ManifestMode, type SocketContractEntry, type SocketControllerEntry, type TypeRef } from '@spinajs/manifest';
 import { PayloadArg } from './args.js';
 import type { IRegisteredHandler, ISocketControllerDescriptor, ISocketHandlerDescriptor } from './interfaces.js';
 
 const MAX_REPORTED_ERRORS = 10;
 
-/** Manifest ids are relative ('spinajs/pkg/Name'); Ajv would resolve a $ref against the $id of the schema holding it, so every id is made absolute. */
-const BASE = 'https://manifest.spinajs.invalid/';
-const absolute = (id: string): string => `${BASE}${id}`;
-const relativeId = (url: string): string => (url.startsWith(BASE) ? url.slice(BASE.length) : url);
+const relativeId = (key: string): string => (key.startsWith(manifestSchemaKey('')) ? key.slice(manifestSchemaKey('').length) : key);
 
-function prepare(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map((member) => prepare(member));
-  if (value === null || typeof value !== 'object') return value;
-
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(([key]) => !key.startsWith('x-'))
-      .map(([key, member]) => [key, key === '$ref' && typeof member === 'string' && !member.startsWith('#') ? absolute(member) : prepare(member)]),
-  );
+interface IContractAjv {
+  ajv: Ajv;
+  /** Keys of the schemas Ajv refused */
+  refused: Set<string>;
 }
 
-const INSTANCES = new WeakMap<Manifest, Ajv>();
+const INSTANCES = new WeakMap<Manifest, IContractAjv>();
 
-/** Strict on purpose: no coercion, defaults or removal, so a payload is accepted as the contract says or refused. */
-function ajvFor(manifest: Manifest): Ajv {
-  let ajv = INSTANCES.get(manifest);
-  if (!ajv) {
-    ajv = new Ajv({ strict: false, allErrors: true });
-    (addFormats as unknown as (instance: Ajv) => void)(ajv);
-    for (const [id, schema] of Object.entries(manifest.schemas)) {
-      ajv.addSchema({ ...(prepare(schema) as object), $id: absolute(id) });
-    }
-    INSTANCES.set(manifest, ajv);
+/** A manifest holds every package's configuration schemas too; one Ajv refuses only matters to a contract that needs it, which then fails to compile. */
+function addIfValid(ajv: Ajv, schema: object): boolean {
+  try {
+    if (ajv.validateSchema(schema) !== true) return false;
+    ajv.addSchema(schema);
+    return true;
+  } catch {
+    // A `$schema` Ajv does not know ( 2020-12 ) throws instead of failing the check.
+    return false;
   }
-  return ajv;
 }
 
-const describeError = (e: ErrorObject) => ({ path: e.instancePath, keyword: e.keyword, message: e.message ?? 'invalid' });
+/**
+ * Strict on purpose: no coercion, defaults or removal, so a payload is accepted as the contract says or refused.
+ * `strictSchema` stops a keyword or format this instance lacks compiling to nothing, which would leave the rule unenforced.
+ * `verbose` gives `sanitizeError` the rule behind an error: the message of a `$data` rule carries another field's value.
+ */
+function contractAjvOf(manifest: Manifest): IContractAjv {
+  let instance = INSTANCES.get(manifest);
+  if (!instance) {
+    const ajv = new Ajv({ strict: false, strictSchema: true, allErrors: true, $data: true, verbose: true });
+    (addFormats as unknown as (instance: Ajv) => void)(ajv);
+    ajv.addKeyword('$configurationModule');
+    const refused = new Set<string>();
+    for (const schema of prepareManifestSchemas(manifest)) {
+      if (!addIfValid(ajv, schema)) refused.add(schema.$id);
+    }
+    instance = { ajv, refused };
+    INSTANCES.set(manifest, instance);
+  }
+  return instance;
+}
 
-/** Ajv messages and stacks carry schema internals; only the unresolved reference is worth reporting. */
-function compileFailure(error: unknown): string {
-  const missing = (error as { missingRef?: unknown } | null)?.missingRef;
-  return typeof missing === 'string' ? `unresolved $ref ${relativeId(missing)}` : 'the schema is not valid';
+function describeError(e: ErrorObject) {
+  const { instancePath, keyword, message } = sanitizeError(e as IValidationError);
+  return { path: instancePath, keyword, message: message ?? 'invalid' };
+}
+
+class UnusableSchema extends Error {}
+
+/** Ajv messages and stacks carry schema internals; only what names the fix is worth reporting. */
+function compileFailure(manifest: Manifest, error: unknown): string {
+  if (error instanceof UnusableSchema) return error.message;
+
+  const { missingRef, missingSchema, message } = (error ?? {}) as { missingRef?: unknown; missingSchema?: unknown; message?: unknown };
+  if (typeof missingRef === 'string') {
+    const target = typeof missingSchema === 'string' ? missingSchema : missingRef;
+    return contractAjvOf(manifest).refused.has(target) ? `${relativeId(target)} is not a valid JSON Schema` : `unresolved $ref ${relativeId(missingRef)}`;
+  }
+  return typeof message === 'string' && /^(strict mode: |unknown format )/.test(message) ? message : 'the schema is not valid';
 }
 
 type Validator = (payload: unknown) => void;
@@ -61,12 +83,16 @@ function hasExplicitPayloadSchema(handler: IRegisteredHandler): boolean {
 }
 
 function validatorOf(manifest: Manifest, ref: TypeRef): Validator | undefined {
+  if (ref.schema !== undefined && !Object.hasOwn(manifest.schemas, ref.schema)) {
+    throw new UnusableSchema(`${ref.schema} is not in the manifest`);
+  }
+
   const id = authoritativeSchema(manifest, ref);
   if (id === undefined) return undefined;
 
-  const validate: ValidateFunction | undefined = ajvFor(manifest).getSchema(absolute(id));
+  const validate: ValidateFunction | undefined = contractAjvOf(manifest).ajv.getSchema(manifestSchemaKey(id));
   if (!validate) {
-    throw new Error('the schema is not valid');
+    throw new UnusableSchema(`${id} is not a valid JSON Schema`);
   }
 
   return (payload) => {
@@ -260,7 +286,7 @@ export class SocketContractEnforcer {
   protected contractOf(manifest: Manifest, entry: SocketControllerEntry, id: string, label: string): IResolved {
     const found = manifest.socketContracts.filter((c) => c.id === id);
     if (found.length > 1) {
-      return { entry, problems: [`contract ${id} is declared twice in the manifest (${found.map((c) => `${c.source.file}:${c.source.line}`).join(', ')}); give one of them an explicit id`] };
+      return { entry, problems: [`contract ${id} is declared twice in the manifest (${found.map((c) => `${c.source.file}:${c.source.line}`).join(', ')}); give one of them a different id`] };
     }
     return { entry, contract: found[0], problems: found[0] ? [] : [`contract ${id} bound to ${label} is not in the manifest; run spinajs build`] };
   }
@@ -282,7 +308,7 @@ export class SocketContractEnforcer {
       try {
         validators.push([handler, ref && validatorOf(manifest, ref)]);
       } catch (error) {
-        return { validators: [], problem: `contract ${contract.id} cannot be enforced: the schema of ${handler.fullName} cannot be compiled, ${compileFailure(error)}` };
+        return { validators: [], problem: `contract ${contract.id} cannot be enforced: the schema of ${handler.fullName} cannot be compiled, ${compileFailure(manifest, error)}` };
       }
     }
     return { validators };

@@ -34,6 +34,13 @@ const SCHEMAS = {
   'spinajs/app/Loose': { $id: 'spinajs/app/Loose', type: 'object', properties: { only: { type: 'string' } }, required: ['only'], 'x-explicit': 'partial' },
 };
 
+// The kinds of schema a real manifest holds next to the contract schemas: the configuration schemas of its packages.
+const UNUSABLE_SCHEMAS: Record<string, object> = {
+  'a $data rule': { type: 'object', properties: { burst: { type: 'integer' }, limit: { type: 'integer', minimum: { $data: '1/burst' } } } },
+  'a subschema the compiler could not read': { type: 'object', allOf: [null] },
+  'a $schema Ajv does not know': { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object' },
+};
+
 const OK_CONTRACT_ID = 'app:OK_CONTRACT';
 
 function manifestOf(overrides: { controller?: Partial<SocketControllerEntry>; contract?: Partial<SocketContractEntry>; schemas?: Manifest['schemas']; extraContracts?: SocketContractEntry[]; extraControllers?: SocketControllerEntry[] } = {}): Manifest {
@@ -232,6 +239,91 @@ describe('socket contract enforcement', function () {
       client.close();
     });
 
+    for (const [name, schema] of Object.entries(UNUSABLE_SCHEMAS)) {
+      for (const mode of ['require', 'prefer']) {
+        it(`${mode}: a schema no contract uses, ${name}, changes nothing`, async () => {
+          writeManifest(manifestOf({ schemas: { ...SCHEMAS, 'spinajs/app/Other': schema } }));
+          const client = await open(await start(mode));
+          expect(resultOf(await command(client, 'ctr.say', { name: 'ada' }))).to.deep.equal({ hello: 'ada' });
+          // the schema derived from the handler refuses this as well, with its own message
+          expect(errorOf(await command(client, 'ctr.say', { name: 'ada', age: 'old' })).message).to.equal('payload does not match the socket contract');
+          client.close();
+        });
+      }
+    }
+
+    describe('x-* names', () => {
+      const withToken = (extra: object) => ({ ...SCHEMAS, 'spinajs/app/Greet': { ...SCHEMAS['spinajs/app/Greet'], properties: { name: { type: 'string' }, 'x-token': { type: 'string', maxLength: 2 } }, ...extra } });
+
+      it('keeps the rule of a payload property named x-*, on an open object', async () => {
+        writeManifest(manifestOf({ schemas: withToken({ additionalProperties: true }) }));
+        const client = await open(await start('require'));
+        expect(errorOf(await command(client, 'ctr.say', { name: 'ada', 'x-token': 12345 })).message).to.equal('payload does not match the socket contract');
+        expect(resultOf(await command(client, 'ctr.say', { name: 'ada', 'x-token': 'ok' }))).to.deep.equal({ hello: 'ada' });
+        client.close();
+      });
+
+      it('accepts a payload property named x-* the closed schema declares', async () => {
+        writeManifest(manifestOf({ schemas: withToken({ required: ['name', 'x-token'] }) }));
+        const client = await open(await start('require'));
+        expect(resultOf(await command(client, 'ctr.say', { name: 'ada', 'x-token': 'ok' }))).to.deep.equal({ hello: 'ada' });
+        client.close();
+      });
+    });
+
+    it('accepts an intersection of closed objects, and only what its members declare', async () => {
+      const part = (name: string, type: string) => ({ $id: `spinajs/app/${name}`, type: 'object', properties: { [name]: { type } }, required: [name], additionalProperties: false });
+      const schemas = {
+        ...SCHEMAS,
+        'spinajs/app/name': part('name', 'string'),
+        'spinajs/app/age': part('age', 'integer'),
+        'spinajs/app/Greet': { $id: 'spinajs/app/Greet', allOf: [{ $ref: 'spinajs/app/name' }, { $ref: 'spinajs/app/age' }] },
+      };
+      writeManifest(manifestOf({ schemas }));
+      const client = await open(await start('require'));
+      expect(resultOf(await command(client, 'ctr.say', { name: 'ada', age: 36 }))).to.deep.equal({ hello: 'ada' });
+      expect(errorOf(await command(client, 'ctr.say', { name: 'ada', age: 36, extra: 1 })).code).to.equal('invalid_argument');
+      expect(errorOf(await command(client, 'ctr.say', { name: 'ada' })).code).to.equal('invalid_argument');
+      client.close();
+    });
+
+    it('accepts anything where the contract schema references a partial schema, as documentation only', async () => {
+      writeManifest(manifestOf({ schemas: { ...SCHEMAS, 'spinajs/app/Inner': { ...SCHEMAS['spinajs/app/Inner'], 'x-explicit': 'partial' } } }));
+      const client = await open(await start('require'));
+      expect(resultOf(await command(client, 'ctr.say', { name: 'ada', home: { other: 1 } }))).to.deep.equal({ hello: 'ada' });
+      client.close();
+    });
+
+    it('takes the annotation keywords of the framework and of JSON Schema', async () => {
+      const greet = { ...SCHEMAS['spinajs/app/Greet'], $configurationModule: 'greet', title: 'Greet', description: 'd', $comment: 'c', examples: [{}], deprecated: false, readOnly: false, writeOnly: false, default: {} };
+      writeManifest(manifestOf({ schemas: { ...SCHEMAS, 'spinajs/app/Greet': greet } }));
+      const client = await open(await start('require'));
+      expect(resultOf(await command(client, 'ctr.say', { name: 'ada' }))).to.deep.equal({ hello: 'ada' });
+      client.close();
+    });
+
+    it('skips a $data rule when the client omits the field it reads, which is why the docs ask for it to be required', async () => {
+      const greet = { ...SCHEMAS['spinajs/app/Greet'], properties: { name: { type: 'string' }, floor: { type: 'integer' }, age: { type: 'integer', minimum: { $data: '1/floor' } } } };
+      writeManifest(manifestOf({ schemas: { ...SCHEMAS, 'spinajs/app/Greet': greet } }));
+      const client = await open(await start('require'));
+      expect(resultOf(await command(client, 'ctr.say', { name: 'ada', age: -1 }))).to.deep.equal({ hello: 'ada' });
+      client.close();
+    });
+
+    it('enforces a $data rule of the contract schema, and the error names the rule, not the other field of the payload', async () => {
+      const greet = { ...SCHEMAS['spinajs/app/Greet'], properties: { name: { type: 'string' }, floor: { type: 'integer' }, age: { type: 'integer', minimum: { $data: '1/floor' } } } };
+      writeManifest(manifestOf({ schemas: { ...SCHEMAS, 'spinajs/app/Greet': greet } }));
+      const client = await open(await start('require'));
+
+      expect(resultOf(await command(client, 'ctr.say', { name: 'ada', floor: 18, age: 36 }))).to.deep.equal({ hello: 'ada' });
+
+      const error = errorOf(await command(client, 'ctr.say', { name: 'ada', floor: 987654, age: 36 }));
+      expect(error.code).to.equal('invalid_argument');
+      expect(JSON.stringify(error)).to.not.contain('987654');
+      expect((error.details as { errors: Array<{ message: string }> }).errors[0].message).to.equal('must pass "minimum" against the value at $data "1/floor"');
+      client.close();
+    });
+
     it('refuses a missing payload', async () => {
       const client = await open(await start('require'));
       expect(errorOf(await command(client, 'ctr.say')).code).to.equal('invalid_argument');
@@ -389,6 +481,80 @@ describe('socket contract enforcement', function () {
       expect(error?.message).to.not.match(/properties|additionalProperties|MissingRefError/);
     });
 
+    describe('a rule the contract validator cannot apply', () => {
+      const withMember = (member: object) => ({ ...SCHEMAS, 'spinajs/app/Greet': { ...SCHEMAS['spinajs/app/Greet'], properties: { ...SCHEMAS['spinajs/app/Greet'].properties, tags: member } } });
+      const cases: Array<[string, object, RegExp]> = [
+        ['regexp', { type: 'string', regexp: '/^a/' }, /unknown keyword: "regexp"/],
+        ['uniqueItemProperties', { type: 'array', uniqueItemProperties: ['id'] }, /unknown keyword: "uniqueItemProperties"/],
+        ['$merge', { $merge: { source: { type: 'string' }, with: {} } }, /unknown keyword: "\$merge"/],
+        ['an unknown format', { type: 'string', format: 'no-such-format' }, /unknown format "no-such-format"/],
+      ];
+
+      for (const [name, member, expected] of cases) {
+        it(`require: ${name} fails build() and names what it cannot apply`, async () => {
+          writeManifest(manifestOf({ schemas: withMember(member) }));
+          const registry = await buildWith('require', ContractSocket);
+          await expect(registry.build()).to.be.rejectedWith(expected);
+        });
+      }
+
+      it('require: the same, in a schema the contract reaches through a $ref', async () => {
+        writeManifest(manifestOf({ schemas: { ...SCHEMAS, 'spinajs/app/Inner': { ...SCHEMAS['spinajs/app/Inner'], regexp: '/^a/' } } }));
+        const registry = await buildWith('require', ContractSocket);
+        await expect(registry.build()).to.be.rejectedWith(/app:CTR_CONTRACT cannot be enforced.*unknown keyword: "regexp"/);
+      });
+
+      it('prefer: warns and does not claim to enforce it', async () => {
+        writeManifest(manifestOf({ schemas: withMember({ type: 'string', regexp: '/^a/' }) }));
+        const registry = await buildWith('prefer', ContractSocket);
+        const warnings = warningsOf();
+        await registry.build();
+        expect(warnings.join('\n')).to.match(/app:CTR_CONTRACT cannot be enforced.*unknown keyword: "regexp"/);
+      });
+    });
+
+    describe('a schema Ajv refuses', () => {
+      const REFUSED: Array<[string, object]> = [
+        ['with a subschema the compiler could not read', { ...SCHEMAS['spinajs/app/Inner'], allOf: [null] }],
+        ['in a $schema Ajv does not know', { ...SCHEMAS['spinajs/app/Inner'], $schema: 'https://json-schema.org/draft/2020-12/schema' }],
+      ];
+
+      for (const [name, schema] of REFUSED) {
+        it(`require: behind a $ref, ${name}, fails build() and is reported as refused, not as missing`, async () => {
+          writeManifest(manifestOf({ schemas: { ...SCHEMAS, 'spinajs/app/Inner': schema } }));
+          const registry = await buildWith('require', ContractSocket);
+          await expect(registry.build()).to.be.rejectedWith(/app:CTR_CONTRACT cannot be enforced.*spinajs\/app\/Inner is not a valid JSON Schema/);
+        });
+      }
+
+      it('prefer: warns, for a schema behind a $ref and for the root', async () => {
+        writeManifest(manifestOf({ schemas: { ...SCHEMAS, 'spinajs/app/Inner': REFUSED[0][1] } }));
+        const registry = await buildWith('prefer', ContractSocket);
+        const warnings = warningsOf();
+        await registry.build();
+        expect(warnings.join('\n')).to.match(/spinajs\/app\/Inner is not a valid JSON Schema/);
+
+        writeManifest(manifestOf({ schemas: { ...SCHEMAS, 'spinajs/app/Greet': REFUSED[0][1] } }));
+        const rootRegistry = await buildWith('prefer', ContractSocket);
+        const rootWarnings = warningsOf();
+        await rootRegistry.build();
+        expect(rootWarnings.join('\n')).to.match(/app:CTR_CONTRACT cannot be enforced/);
+      });
+    });
+
+    it('require: a contract payload schema absent from the manifest fails build()', async () => {
+      const commands = { 'ctr.say': { payload: ref('spinajs/app/Ghost'), result: ref('spinajs/app/Greeted') }, 'ctr.loose': { payload: ref('spinajs/app/Loose'), result: { text: 'void' } } };
+      writeManifest(manifestOf({ contract: { commands } }));
+      const registry = await buildWith('require', ContractSocket);
+      await expect(registry.build()).to.be.rejectedWith(/app:CTR_CONTRACT cannot be enforced.*spinajs\/app\/Ghost is not in the manifest/);
+    });
+
+    it('require: a contract that needs a schema Ajv refuses fails build()', async () => {
+      writeManifest(manifestOf({ schemas: { ...SCHEMAS, 'spinajs/app/Greet': UNUSABLE_SCHEMAS['a subschema the compiler could not read'] } }));
+      const registry = await buildWith('require', ContractSocket);
+      await expect(registry.build()).to.be.rejectedWith(/app:CTR_CONTRACT cannot be enforced/);
+    });
+
     it('prefer: a contract whose schema cannot compile is skipped with a warning; the other contracts still enforce', async () => {
       const { 'spinajs/app/Inner': _inner, ...withoutInner } = SCHEMAS;
       writeManifest(manifestOf({ schemas: withoutInner }));
@@ -449,7 +615,7 @@ describe('socket contract enforcement', function () {
       const manifest = manifestOf();
       writeManifest(manifestOf({ extraContracts: [{ ...manifest.socketContracts[0], source: { ...source, line: 9 } }] }));
       const registry = await buildWith('require', ContractSocket);
-      await expect(registry.build()).to.be.rejectedWith(/app:CTR_CONTRACT is declared twice/);
+      await expect(registry.build()).to.be.rejectedWith(/app:CTR_CONTRACT is declared twice .*give one of them a different id/);
     });
   });
 });

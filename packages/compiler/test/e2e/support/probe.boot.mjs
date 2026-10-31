@@ -23,6 +23,7 @@ const { BaseController, Controllers, HttpServer, ServerMiddleware, FilesystemCon
 const { Orm, FilesystemMigrationSource } = await import('@spinajs/orm');
 const { ScheduleRegistry } = await import('@spinajs/scheduler');
 const { SocketHandlerRegistry, SocketServer } = await import('@spinajs/http-socket');
+const { PROTOCOL_VERSION, WIRE_EVENTS } = await import('@spinajs/http-socket-common');
 const { Cli } = await import('@spinajs/cli');
 const { fsService } = await import('@spinajs/fs');
 const { Intl } = await import('@spinajs/intl');
@@ -56,6 +57,25 @@ const countDirScans = (kind, type, method) => {
 };
 countDirScans('controllerDirScans', FilesystemControllerSource, 'getControllers');
 countDirScans('migrationDirScans', FilesystemMigrationSource, 'getMigrations');
+
+/** Sends each `[command, payload]` of E2E_SOCKET_CALLS from a real client and returns what the booted server answers. */
+async function socketReplies(base) {
+  const calls = JSON.parse(process.env.E2E_SOCKET_CALLS ?? '[]');
+  if (calls.length === 0) return [];
+
+  const { io } = await import('socket.io-client');
+  const socket = io(base, { path: '/socket.io', transports: ['websocket'], reconnection: false, forceNew: true, auth: { protocol: PROTOCOL_VERSION, clientId: 'probe' } });
+  await new Promise((resolve, reject) => {
+    socket.once('connect', resolve);
+    socket.once('connect_error', reject);
+  });
+  const replies = [];
+  for (const [index, [name, payload]] of calls.entries()) {
+    replies.push(await socket.timeout(5000).emitWithAck(WIRE_EVENTS.command, { id: `probe-${index}`, name, payload }));
+  }
+  socket.close();
+  return replies;
+}
 
 const result = { imports, scans };
 try {
@@ -93,6 +113,7 @@ try {
   result.schedules = (await DI.resolve(ScheduleRegistry)).all().map((s) => s.name).sort();
   result.commands = (await cli.Commands).map((c) => c.name).sort();
   result.socketCommands = [...sockets.Commands.keys()].sort();
+  result.socketReplies = await socketReplies(base);
   await server.stop();
 } catch (err) {
   result.error = { name: err?.constructor?.name, message: String(err?.message), stack: String(err?.stack) };

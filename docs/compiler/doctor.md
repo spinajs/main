@@ -36,6 +36,7 @@ spinajs doctor --manifest dist/app.manifest.json
 | SOCK003 | warning | a handler result that returns more than the contract promises |
 | SOCK004 | warning | the contract named in `@SocketController(prefix, { contract })` cannot be resolved: it is not a `defineContract()` variable of this package and no dependency with a manifest fragment exports it, so the controller is left unbound |
 | SOCK005 | error | two `defineContract` declarations share one contract id |
+| SOCK006 | warning | a `$data` pointer in a contract payload schema names no property, or an optional one: Ajv then skips the rule without an error |
 
 ### DI002 details
 
@@ -53,9 +54,9 @@ A config path is covered when it equals a declared module or starts with `<modul
 (`authn.oidc`), so the match is by prefix on whole segments, not on the first segment alone. The `system` and
 `app` roots are filled by the configuration itself and are never reported. Each distinct path is reported once.
 
-### SOCK001-SOCK005 details
+### SOCK001-SOCK006 details
 
-A contract id is the literal argument of `defineContract('<id>')`, else `<package>:<VARIABLE>`. The rules compare
+A contract id is the literal argument of `defineContract('<id>')`, kept as written across packages, else `<package>:<VARIABLE>`. The rules compare
 handlers with the contract by derived schema structure: payloads as requests (the handler must accept what the
 contract allows), results as responses (the handler must not return more than promised). A side whose schema is
 missing or `x-explicit: 'partial'` is skipped.
