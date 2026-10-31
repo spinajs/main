@@ -56,6 +56,7 @@ interface IssuedCode {
 }
 
 const b64url = (b: Buffer | string): string => Buffer.from(b).toString('base64url');
+let sharedKeys: Promise<FakeIdpKey[]> | undefined;
 
 export function atHash(accessToken: string, alg: FakeKeyAlgorithm): string {
   const digest = createHash(alg === 'EdDSA' ? 'sha512' : 'sha256').update(accessToken, 'ascii').digest();
@@ -104,6 +105,17 @@ export class FakeIdp extends OidcHttpClient {
     for (const alg of algorithms) {
       await idp.addKey(alg);
     }
+    return idp;
+  }
+
+  /**
+   * A new IdP on the process's one key set. An RSA key takes up to a second to generate on a loaded runner, which is
+   * most of a test's budget when every test boots a world. For a test that needs a key nobody else has, use `create`.
+   */
+  static async withSharedKeys(): Promise<FakeIdp> {
+    sharedKeys ??= FakeIdp.create().then((idp) => idp.keys);
+    const idp = new FakeIdp(FAKE_ISSUER);
+    idp.keys.push(...(await sharedKeys));
     return idp;
   }
 

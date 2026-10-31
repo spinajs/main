@@ -82,7 +82,7 @@ export interface WorldOptions {
 
 /** One provider over a fake IdP, with the kit's fake AuthnService (which runs the recording hook through the hooks runner), stores. */
 export async function world(o: WorldOptions = {}) {
-  const idp = o.idp ?? (await FakeIdp.create());
+  const idp = o.idp ?? (await FakeIdp.withSharedKeys());
   const name = o.name ?? 'corp';
   const options = readOidcOptions({ providers: { [name]: { ...(o.provider?.preset ? {} : { issuer: idp.issuer }), clientId: FAKE_CLIENT_ID, clientSecret: { secret: FAKE_CLIENT_SECRET }, ...o.provider } } }, ENV).providers.get(name)!;
   const nonces = new MemoryNonceStore();
