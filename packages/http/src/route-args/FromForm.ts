@@ -42,8 +42,11 @@ export interface FormOptions {
   type?: string;
 }
 
-const parseForm = (req: express.Request, options: any) => {
+export const parseForm = (req: express.Request, options: any) => {
   const form = new IncomingForm(options);
+  // formidable lists files as each finishes storing, so a small file can overtake the one sent before it.
+  const sent = new Map<unknown, number>();
+  form.on('fileBegin', (_name, file) => sent.set(file, sent.size));
   return new Promise<FormData>((res, rej) => {
     form.parse(req, (err: any, fields: Fields, files: Files) => {
       if (err) {
@@ -55,6 +58,10 @@ const parseForm = (req: express.Request, options: any) => {
             rej(new Exception(err.message, err));
         }
         return;
+      }
+
+      for (const list of Object.values(files)) {
+        list?.sort((a, b) => sent.get(a)! - sent.get(b)!);
       }
 
       res({ Fields: fields, Files: files });
