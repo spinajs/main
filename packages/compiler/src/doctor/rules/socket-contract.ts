@@ -9,7 +9,7 @@ export const socketContract: DoctorRule = {
     const seen = new Set<string>();
     for (const contract of manifest.socketContracts) {
       if (seen.has(contract.id)) {
-        out.push(diagnostic('SOCK005', 'error', `socket contract id ${contract.id} is declared more than once; give each defineContract an unique id`, contract.source));
+        out.push(diagnostic('SOCK005', 'error', `socket contract id ${contract.id} is declared more than once; give each defineContract a unique id`, contract.source));
       }
       seen.add(contract.id);
     }
