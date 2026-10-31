@@ -49,11 +49,15 @@ export class EmittedModules {
     } else if (ts.isExportAssignment(statement) && !statement.isExportEquals && ts.isIdentifier(statement.expression)) {
       this.record(found, 'default', this.local(file, statement.expression.text));
     } else if (ts.isVariableStatement(statement) && isExported(statement)) {
-      for (const { name, initializer } of statement.declarationList.declarations) {
-        if (ts.isIdentifier(name) && initializer && ts.isIdentifier(initializer)) this.record(found, name.text, this.local(file, initializer.text));
-      }
+      this.readExportedVariables(file, statement, found);
     } else if (ts.isExportDeclaration(statement) && !statement.isTypeOnly) {
       this.readExportDeclaration(file, statement, found);
+    }
+  }
+
+  private readExportedVariables(file: ts.SourceFile, statement: ts.VariableStatement, found: Map<string, ts.ClassDeclaration>): void {
+    for (const { name, initializer } of statement.declarationList.declarations) {
+      if (ts.isIdentifier(name) && initializer && ts.isIdentifier(initializer)) this.record(found, name.text, this.local(file, initializer.text));
     }
   }
 

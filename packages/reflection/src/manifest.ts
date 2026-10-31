@@ -4,7 +4,7 @@ import { InternalLogger } from '@spinajs/internal-logger';
 import { effectiveManifestOf } from '@spinajs/configuration';
 import { existsSync } from 'node:fs';
 import { isPackageSkipped, loadsFromManifest, manifestFileFor, ManifestMissing } from '@spinajs/manifest';
-import type { Manifest, ManifestSection, MountedBy, SourceRef } from '@spinajs/manifest';
+import type { Manifest, ManifestMode, ManifestSection, MountedBy, SourceRef } from '@spinajs/manifest';
 
 export type { ManifestSection };
 export { ManifestMissing };
@@ -52,27 +52,13 @@ export function inScanOrder<T extends { file: string }>(listed: T[], group: (ite
   return [...listed].sort((a, b) => group(a) - group(b) || key(a).localeCompare(key(b), 'en'));
 }
 
-/**
- * ClassInfo list for a manifest section, or undefined when the caller should scan directories instead
- * ( mode `off`, or `prefer` without a manifest ). An empty array is a real empty section. Every listed file
- * is imported once and the export named `className` is the type; the file comes from `manifestFileFor`, which
- * keeps it inside the package root. `include` drops entries before their file is imported.
- */
-export async function listFromManifest(
-  container: IContainer,
-  section: ManifestSection,
-  include?: (entry: ManifestEntryRef) => boolean,
-): Promise<Array<ClassInfo<unknown>> | undefined> {
-  const effective = effectiveOf(container, section);
-  if (!effective?.manifest) {
-    return undefined;
-  }
-  const { manifest, settings } = effective;
-  const mode = settings.mode;
+type Include = (entry: ManifestEntryRef) => boolean;
 
+/** The files to import for a section and the entries each one holds; a scan file holds none. */
+function filesOf(manifest: Manifest, section: ManifestSection, mode: ManifestMode, include: Include | undefined): Map<string, ManifestEntryRef[]> {
   const byFile = new Map<string, ManifestEntryRef[]>();
   const skipped = new Set<string>();
-  const scanFiles = (manifest.scanFiles ?? []).filter((f) => f.section === section).map((f) => ({ className: '', source: f.source }));
+
   for (const entry of manifest[section] as ManifestEntryRef[]) {
     if (!loadsFromManifest(entry)) continue;
     const pkg = entry.source.package;
@@ -86,22 +72,44 @@ export async function listFromManifest(
   }
 
   // The tsconfig of a build may hold a file the emit leaves out, and then no scan finds it either.
-  for (const entry of scanFiles) {
+  for (const { source } of (manifest.scanFiles ?? []).filter((f) => f.section === section)) {
+    const entry = { className: '', source };
     if (include && !include(entry)) continue;
     const file = manifestFileFor(entry, manifest, process.cwd());
     if (existsSync(file) && !byFile.has(file)) byFile.set(file, []);
   }
 
+  return byFile;
+}
+
+// `export const Visible = Hidden`: a scan goes by the value, whatever the export is called.
+const classOf = (exported: Record<string, unknown>, className: string): unknown => exported[className] ?? Object.values(exported).find((v) => typeof v === 'function' && v.name === className);
+
+/**
+ * ClassInfo list for a manifest section, or undefined when the caller should scan directories instead
+ * ( mode `off`, or `prefer` without a manifest ). An empty array is a real empty section. Every listed file
+ * is imported once and the export named `className` is the type; the file comes from `manifestFileFor`, which
+ * keeps it inside the package root. `include` drops entries before their file is imported.
+ */
+export async function listFromManifest(
+  container: IContainer,
+  section: ManifestSection,
+  include?: Include,
+): Promise<Array<ClassInfo<unknown>> | undefined> {
+  const effective = effectiveOf(container, section);
+  if (!effective?.manifest) {
+    return undefined;
+  }
+  const { manifest, settings } = effective;
   const result: Array<ClassInfo<unknown>> = [];
 
-  for (const [file, entries] of byFile) {
+  for (const [file, entries] of filesOf(manifest, section, settings.mode, include)) {
     const loaded = (await DI.__spinajs_require__(file)) as Record<string, unknown> | (Class<unknown> & { name: string });
     // __spinajs_require__ unwraps a default export to the class itself
     const exported: Record<string, unknown> = typeof loaded === 'function' ? { [loaded.name]: loaded } : loaded;
 
     for (const entry of entries) {
-      // `export const Visible = Hidden`: a scan goes by the value, whatever the export is called.
-      const type = exported[entry.className] ?? Object.values(exported).find((v) => typeof v === 'function' && v.name === entry.className);
+      const type = classOf(exported, entry.className);
       if (typeof type !== 'function') {
         if (REGISTERS_ON_IMPORT.has(section)) continue;
         throw new ManifestMissing(listedMissing(file, entry, section, manifest));
