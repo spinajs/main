@@ -1,7 +1,6 @@
 [
   "authn",
   "authn-http",
-  "authz-queue",
   "http-socket",
   "internal-logger",
   "teams-http",
