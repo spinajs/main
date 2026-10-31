@@ -26,9 +26,9 @@ analyzePackage({ tsconfig, packageRoot, schemaDerivation?, effectiveDirs?, defau
 | `tsconfig` | Path to the `tsconfig` that lists the package sources. Files under its `rootDir` (default: the `tsconfig` folder) that are not declaration files are analyzed. |
 | `packageRoot` | Folder with the package's `package.json`. Every `source.file` in the result is relative to it, with forward slashes. |
 | `schemaDerivation` | Accepted for forward compatibility. It has no effect yet: extractors do not derive JSON Schemas from types. |
-| `effectiveDirs` | The app's `system.dirs` by key, as plain data. A controller, socket controller, schedule, command or migration that no file under them exports gets `mountedBy: 'di'`; see [The app's own classes](../manifest/README.md#the-apps-own-classes). Omitted, nothing is marked. The analyzer never evaluates config: `spinajs build` reads these from the booted `Configuration`. |
+| `effectiveDirs` | The app's `system.dirs` by key, as plain data. A controller, socket controller, schedule, command or migration that a scan of them does not bring in gets `mountedBy: 'di'`, and the files such a scan imports that no loaded entry brings in go to `scanFiles`; see [The app's own classes](../manifest/README.md#the-apps-own-classes). Omitted, nothing is marked. The analyzer never evaluates config: `spinajs build` reads these from the booted `Configuration`. |
 | `defaultDirs` | Dirs that apply while a key of `effectiveDirs` is empty. They filter their section but prove nothing about the config. |
-| `requireAppDirs` | Throw `NoAppDirs` before anything is written when no dir of `effectiveDirs` maps into the app. Otherwise that means the app declares none, and every class is marked. |
+| `requireAppDirs` | Throw `NoAppDirs` before anything is written when the app has a class in one of the five sections and no dir of `effectiveDirs` maps into the app. Otherwise that means the app declares none, and every class is marked. |
 
 The fragment's `package` member comes from `package.json` and the `tsconfig`:
 
@@ -164,8 +164,9 @@ Every diagnostic has a `code`, a `severity` (`error`, `warning`, `info`), a `mes
 | `CMP002` | info | A `@response` JSDoc tag could not be parsed. |
 | `CMP003` | info | A registration has a dynamic condition. |
 | `CMP005` | info | A route argument read from one string (query key, url segment, header, cookie, form field) has a type converted by a custom `@Hydrator`, which receives the raw string. Its `wire.shape` is recorded as `value`; the hydrator decides the real format. |
-| `CMP006` | warning | An app's class is not loaded from the manifest: no file under the `effectiveDirs` of its section exports it, so discovery does not find it. Its entry stays, with `mountedBy: 'di'`; it runs only if something registers it. The message names the class, the file and the dirs searched. |
+| `CMP006` | warning | An app's class is not loaded from the manifest: by the rule of its section, a scan of its `effectiveDirs` does not bring it in. Its entry stays, with `mountedBy: 'di'`; it runs only if something registers it. The message names the class, the file and the dirs searched. |
 | `CMP007` | error | `spinajs build` only: no configured `system.dirs` entry of any section maps to a source folder of the app. The build exits 1 and writes nothing; see [When no dir applies](../manifest/README.md#the-apps-own-classes). |
+| `CMP008` | warning | A configured `system.dirs` entry inside the app has no source folder behind it, so it maps to nothing. Usually a dir computed from the wrong working directory. |
 | `CLI001` | warning | `spinajs build` only: the working directory is not the `tsconfig` folder, and `system.dirs` was computed from it. |
 | `TYP001` | info | `runtime-type-not-exported`: a route argument, socket payload or injected property has a class type that is not exported, so the manifest records no `ref` for it. Without decorator metadata the runtime cannot load it; export the class. |
 | `TYP002` | info | `runtime-type-not-importable`: the class is declared in a package without a manifest fragment (types from `@types/*`), or in an ambient module (`node:async_hooks`). Without decorator metadata the runtime cannot load it; pass the type to the decorator (`@Type(X)`, `@Autoinject(X)`). |
