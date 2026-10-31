@@ -1,3 +1,5 @@
+import { filePathOfUrl } from '@spinajs/util';
+
 /**
  * Walk the current V8 stack and return the absolute path of the first frame that is NOT inside
  * one of `skipMarkers`. Called from a decorator, that frame is the decorated class's own source
@@ -22,12 +24,7 @@ export function captureSourceFile(skipMarkers: string[]): string | undefined {
 
     if (file.startsWith('file://')) {
       try {
-        // Strip the ESM url scheme. Windows: file:///C:/foo -> C:/foo, POSIX paths stay as-is.
-        file = decodeURIComponent(file.replace(/^file:\/\/\/?/, ''));
-
-        if (!/^[A-Za-z]:/.test(file) && !file.startsWith('/')) {
-          file = `/${file}`;
-        }
+        file = filePathOfUrl(file);
       } catch {
         // fall through with the raw match
       }

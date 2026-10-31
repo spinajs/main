@@ -45,21 +45,28 @@ describe('authz.http through @Config and its schema', () => {
     expect(configuration.get('authz.http.access.domain')).to.equal('fs');
   });
 
-  it('refuses a malformed value at boot, naming its full path', async () => {
-    expect(await refused({ admin: { domain: '' } })).to.include('authz.http.admin.domain');
-    expect(await refused({ links: { query: '' } })).to.include('authz.http.links.query');
-    expect(await refused({ services: [{ header: 'X', token: 't' }] })).to.include('authz.http.services.0.name');
-    expect(await refused({ services: [{ name: 'a', token: 't' }] })).to.include('authz.http.services.0.header');
-    expect(await refused({ services: [{ name: 'a', header: 'X', token: '' }] })).to.include('authz.http.services.0.token');
-    expect(await refused({ services: [{ name: 'a', header: 'X', token: [] }] })).to.include('authz.http.services.0.token');
-    expect(await refused({ services: [{ name: 'a', header: 'X', token: 't', attributes: 1 }] })).to.include('authz.http.services.0.attributes');
-    expect(await refused({ services: 'x' })).to.include('authz.http.services');
-    expect(await refused({ explainRoute: { enabled: 'yes' } })).to.include('authz.http.explainRoute.enabled');
-    expect(await refused({ explainRoute: { permission: '' } })).to.include('authz.http.explainRoute.permission');
-    expect(await refused({ access: { domain: '' } })).to.include('authz.http.access.domain');
-    expect(await refused({ events: { maxStreamsPerPrincipal: 0 } })).to.include('authz.http.events.maxStreamsPerPrincipal');
-    expect(await refused({ events: { maxStreamsPerPrincipal: 1.5 } })).to.include('authz.http.events.maxStreamsPerPrincipal');
-    expect(await refused({ unguardedRoutes: 'loud' })).to.include('authz.http.unguardedRoutes');
+  describe('refuses a malformed value at boot, naming its full path', () => {
+    const cases: [Record<string, unknown>, string][] = [
+      [{ admin: { domain: '' } }, 'authz.http.admin.domain'],
+      [{ links: { query: '' } }, 'authz.http.links.query'],
+      [{ services: [{ header: 'X', token: 't' }] }, 'authz.http.services.0.name'],
+      [{ services: [{ name: 'a', token: 't' }] }, 'authz.http.services.0.header'],
+      [{ services: [{ name: 'a', header: 'X', token: '' }] }, 'authz.http.services.0.token'],
+      [{ services: [{ name: 'a', header: 'X', token: [] }] }, 'authz.http.services.0.token'],
+      [{ services: [{ name: 'a', header: 'X', token: 't', attributes: 1 }] }, 'authz.http.services.0.attributes'],
+      [{ services: 'x' }, 'authz.http.services'],
+      [{ explainRoute: { enabled: 'yes' } }, 'authz.http.explainRoute.enabled'],
+      [{ explainRoute: { permission: '' } }, 'authz.http.explainRoute.permission'],
+      [{ access: { domain: '' } }, 'authz.http.access.domain'],
+      [{ events: { maxStreamsPerPrincipal: 0 } }, 'authz.http.events.maxStreamsPerPrincipal'],
+      [{ events: { maxStreamsPerPrincipal: 1.5 } }, 'authz.http.events.maxStreamsPerPrincipal'],
+      [{ unguardedRoutes: 'loud' }, 'authz.http.unguardedRoutes'],
+    ];
+    for (const [value, path] of cases) {
+      it(`${JSON.stringify(value)} at ${path}`, async () => {
+        expect(await refused(value)).to.include(path);
+      });
+    }
   });
 
   it('ServicePrincipalSource reads the services of the Configuration its container resolves', async () => {

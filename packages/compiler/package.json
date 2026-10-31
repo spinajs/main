@@ -22,7 +22,7 @@
     "compile": "tsc -b tsconfig.build.json",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "pretest": "npm run compile",
-    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "test": "ts-mocha -p tsconfig.json \"test/**/*.test.ts\"",
     "coverage": "c8 npm run test",
     "lint": "cd ../.. && npm run lint -- packages/compiler"
   },

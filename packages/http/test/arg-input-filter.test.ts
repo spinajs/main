@@ -61,7 +61,7 @@ class InputFilterParams extends BaseController {
 
   @Get()
   public date(@Query() a: DateTime) {
-    return new Ok({ date: a.toFormat('dd-MM-yyyy') });
+    return new Ok({ date: a.toUTC().toFormat('dd-MM-yyyy') });
   }
 
   @Get()
@@ -186,10 +186,10 @@ describe('ArgInputFilter', function () {
     expect(iso.body.date).to.eq('28-06-2022');
     expect(calls[0].input).to.eq('2022-06-28T20:59:55Z');
 
-    const unix = await req().get('params/input-filter/date?a=1656367511');
+    const unix = await req().get('params/input-filter/date?a=1656410711');
     expect(unix.status).to.eq(200);
     expect(unix.body.date).to.eq('28-06-2022');
-    expect(calls[2].input).to.eq('1656367511');
+    expect(calls[2].input).to.eq('1656410711');
   });
 
   it('a JSON object string reaches a hydrator as a string, filtered', async () => {

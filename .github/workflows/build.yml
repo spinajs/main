@@ -94,6 +94,9 @@ jobs:
       - name: package exports and types ( publint, attw )
         run: npm run check:packages
 
+      - name: tests of the repository scripts
+        run: npm run test:scripts
+
       # Manifest mode off vs require; medians go to the step summary. No gate yet.
       - name: cold-start benchmark
         continue-on-error: true

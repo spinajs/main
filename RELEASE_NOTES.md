@@ -1,3 +1,33 @@
+# Release notes — http: controller cache parses one file, not a TypeScript program
+
+> Branch `perf/http-controller-cache`. Package: http (read by http-swagger).
+>
+> Docs: `docs/http/21-controller-cache-and-cli.md`.
+
+## Fixes
+
+- `DefaultControllerCache` parsed every file it reads (a controller's `.d.ts` in `getCache()`, its `.js` and each
+  policy file in `getPolicyDocumentation()`) through its own `ts.createProgram()`. A program also parses the default
+  lib and every `@types` package it can reach, about 110 files and 3 MB, on each call, while the extractors read one
+  file's syntax tree. Each call cost 0.5 to 1 s. The files are now parsed alone with `ts.createSourceFile()`, from
+  the text `ts.sys.readFile()` returns, which is what a program's compiler host reads. Parameter names, controller
+  documentation, policy descriptions and the OpenAPI document are byte-identical.
+- An app with `@spinajs/authn-http`, `@spinajs/authz-http` and `@spinajs/http-swagger` (28 controllers, 17 of them
+  with policies), starting with an empty `__fs_controller_cache__`, as every test process does:
+
+  | | Before | After |
+  | --- | --- | --- |
+  | `Controllers` registration (28 `getCache()`) | 15.8 to 26.9 s | 0.4 to 0.6 s |
+  | boot, `start()` | 19.7 to 31.0 s | 3.2 s |
+  | first `GET /docs/swagger.json` | 38.7 to 44.6 s | 0.3 s |
+
+  A warm on-disk cache skipped only the `getCache()` parse; the policy documentation was parsed on every first
+  swagger build.
+- A controller whose file is neither `.js` nor `.d.ts` (for example `.mjs` or `.cjs`) used to yield no parameter
+  names and a warning, because its program had no `allowJs`. It is now parsed like any other file.
+
+---
+
 # Release notes — http, http-socket, authn, authn-http, authn-oidc, telemetry, http-swagger: credential and origin headers
 
 > Branch `feat/authn-header-hardening`, stacked on `feat/http-untrusted-headers`. Packages: http, http-socket, authn,

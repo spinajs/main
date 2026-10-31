@@ -24,7 +24,7 @@
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "pretest": "npm run compile",
-    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "test": "ts-mocha -p tsconfig.json \"test/**/*.test.ts\"",
     "coverage": "c8 npm run test",
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "cd ../.. && npm run lint -- packages/codemods"

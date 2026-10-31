@@ -109,7 +109,8 @@ describe('templates', () => {
   it('should render text center & right', async() =>{
     const t = await tp();
     const result = await t.render(dir('templates/text.handlebars'), { hello: 'world' });
-    expect(result).to.eq('       world        \r\n               world\r\n');
+    // The template's line ends are the checkout's: LF on Linux, CRLF on a Windows checkout with autocrlf.
+    expect(result.replaceAll('\r\n', '\n')).to.eq('       world        \n               world\n');
 
   });
 

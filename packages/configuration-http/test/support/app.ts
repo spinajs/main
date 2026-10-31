@@ -28,6 +28,7 @@ function plain(value: unknown): unknown {
 }
 
 let running: { server: HttpServer; controllers: Class<BaseController>[] } | undefined;
+let hostInstalled = false;
 
 /**
  * Boots an http server over testHost's in-memory configuration, seeded with the package defaults and
@@ -50,6 +51,7 @@ export async function startApp(opts: {
   DI.uncache(DefaultsConfiguration);
 
   const cfg = await testHost.installHost();
+  hostInstalled = true;
   cfg.set([], seeded);
   for (const [path, value] of Object.entries(opts.config)) cfg.set(path.split('.'), value);
 
@@ -71,7 +73,12 @@ export async function startApp(opts: {
 
 /** Stops the server and removes what `startApp` added; never `DI.clearCache()`. */
 export async function stopApp(): Promise<void> {
-  if (!running) return;
+  // A boot that failed left the host installed, and the next suite would read this one's configuration.
+  if (!running) {
+    if (hostInstalled) await testHost.uninstallHost();
+    hostInstalled = false;
+    return;
+  }
   const { server, controllers } = running;
   running = undefined;
 
@@ -85,4 +92,5 @@ export async function stopApp(): Promise<void> {
   for (const type of DI.getRegisteredTypes(ServerMiddleware) ?? []) DI.uncache(type as Class<ServerMiddleware>);
   DI.uncache(ServerMiddleware);
   await testHost.uninstallHost();
+  hostInstalled = false;
 }
