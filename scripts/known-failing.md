@@ -4,7 +4,6 @@ Packages in `known-failing.json` may fail `scripts/test-all.mjs` and `scripts/co
 
 | Package | Symptom |
 | --- | --- |
-| users | Suite does not finish within the runner timeout ( killed ) |
 
 Observed on Windows under load; `http`, `reflection` and `authn-local` failed in some runs and passed in others, so they are not listed. Re-verify the "does not exit" entries on Linux CI.
 

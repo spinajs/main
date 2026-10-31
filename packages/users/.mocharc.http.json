@@ -5,6 +5,9 @@
   "spec": [
     "test/http/**/*.test.ts"
   ],
+  "file": [
+    "test/support/one-storage.ts"
+  ],
   "node-option": [
     "experimental-specifier-resolution=node",
     "loader=ts-node/esm"
