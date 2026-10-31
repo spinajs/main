@@ -1,6 +1,6 @@
 import 'mocha';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync, sign } from 'node:crypto';
+import { createPrivateKey, generateKeyPairSync, sign } from 'node:crypto';
 import type { JwsClaims, JwsKey, JwsVerifyOptions, KeyAlgorithm } from '@spinajs/authn/contracts';
 import { generateKeyPair, runAuthnBehaviour, signCompactJws } from '@spinajs/authn-testing';
 import { SMALL_ORDER } from '../src/jwk/index.js';
@@ -123,8 +123,15 @@ describe('LocalJwsSigner', () => {
     const kp = generateKeyPair('EdDSA');
     const jwk = privateJwkOf(kp, 'k1');
     const other = privateJwkOf(generateKeyPair('EdDSA'), 'k2');
-    // Which check catches the mismatch depends on the OpenSSL: Node 24 refuses the pair at load, Node 22 loads it.
-    assert.throws(() => new LocalJwsSigner([{ ...jwk, x: other.x }]), /does not match d|does not load/);
+    // Which check catches the mismatch depends on the OpenSSL: some refuse the pair at load, some load it.
+    const mismatched = { ...jwk, x: other.x };
+    let loads = true;
+    try {
+      createPrivateKey({ key: { kty: mismatched.kty, crv: mismatched.crv, x: mismatched.x, d: mismatched.d }, format: 'jwk' });
+    } catch {
+      loads = false;
+    }
+    assert.throws(() => new LocalJwsSigner([mismatched]), loads ? /does not match d/ : /does not load/);
     assert.throws(() => new LocalJwsSigner([jwk, { ...other, kid: 'k1' }]), /twice/);
     assert.throws(() => new LocalJwsSigner([{ ...jwk, kid: 'a b' }]), /kid/);
     assert.throws(() => new LocalJwsSigner([{ ...jwk, x: Buffer.from(SMALL_ORDER[1], 'hex').toString('base64url') }]), /not a valid/);

@@ -1,6 +1,8 @@
 import 'mocha';
 import assert from 'node:assert/strict';
-import { createHash, generateKeyPairSync, sign, verify } from 'node:crypto';
+import crypto, { createHash, generateKeyPairSync, sign } from 'node:crypto';
+import { syncBuiltinESMExports } from 'node:module';
+import { mock } from 'node:test';
 import { checkPublicJwk, decodeB64url, isCanonicalPoint, isSmallOrder, isValidKid, publicKeyObject, SMALL_ORDER, thumbprint, verifySignature } from '../src/jwk/index.js';
 
 const RFC8037_X = '11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo';
@@ -151,7 +153,7 @@ describe('jwk: kid and key objects', () => {
 });
 
 describe('jwk: the small-order R check', () => {
-  it('refuses a signature with R = identity that OpenSSL accepts (the key holder can make one for any message)', () => {
+  it('refuses a signature with R = identity (the key holder can make one for any message)', () => {
     const L = 2n ** 252n + 27742317777372353535851937790883648493n;
     const le2n = (b: Buffer): bigint => BigInt(`0x${Buffer.from(b).reverse().toString('hex')}`);
     const n2le = (n: bigint): Buffer => Buffer.from(n.toString(16).padStart(64, '0'), 'hex').reverse();
@@ -172,8 +174,20 @@ describe('jwk: the small-order R check', () => {
           .digest(),
       ) % L;
     const forged = Buffer.concat([R, n2le((k * a) % L)]);
-    // The OpenSSL of Node 24 refuses this signature itself, so only Node 22 can prove the forgery is well formed.
-    if (process.versions.node.startsWith('22.')) assert.ok(verify(null, message, pair.publicKey, forged), 'OpenSSL accepts it');
     assert.strictEqual(verifySignature({ alg: 'EdDSA', jwk: okp(jwk.x) } as never, message, forged), false);
+  });
+
+  it('refuses a small-order R whatever OpenSSL would answer: some versions accept it', () => {
+    const x = (generateKeyPairSync('ed25519').publicKey.export({ format: 'jwk' }) as { x: string }).x;
+    const material = { alg: 'EdDSA', jwk: okp(x) } as never;
+    mock.method(crypto, 'verify', () => true);
+    syncBuiltinESMExports();
+    try {
+      assert.strictEqual(verifySignature(material, Buffer.from('m'), Buffer.alloc(64, 1)), true);
+      assert.strictEqual(verifySignature(material, Buffer.from('m'), Buffer.concat([Buffer.from(SMALL_ORDER[0], 'hex'), Buffer.alloc(32)])), false);
+    } finally {
+      mock.restoreAll();
+      syncBuiltinESMExports();
+    }
   });
 });
