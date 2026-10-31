@@ -601,7 +601,9 @@ export class FrameworkConfiguration extends Configuration {
       // An unconfigured module still gets its schema defaults, unless the schema needs values from the app.
       const empty = {};
       if (this.Validator.validate(s, empty)) {
-        _.set(this.Config, s.$configurationModule, empty);
+        // An empty object under another schema's module is no default: that schema would judge a section nobody set, so
+        // its verdict would depend on which module is checked first.
+        if (!_.isEmpty(empty) || !this.isUnderAnotherModule(s)) _.set(this.Config, s.$configurationModule, empty);
       } else {
         InternalLogger.warn({ module: s.$configurationModule }, 'Cannot validate configuration for module ${module}, configuration is not set', 'Configuration');
       }
@@ -616,6 +618,14 @@ export class FrameworkConfiguration extends Configuration {
     }
 
     return this.failureOf(s);
+  }
+
+  private isUnderAnotherModule(s: IConfigurationSchema): boolean {
+    const path = _.toPath(s.$configurationModule);
+    return this.schemasOfLineage().some((o) => {
+      const module = _.toPath(o.$configurationModule);
+      return module.length < path.length && _.isEqual(module, path.slice(0, module.length));
+    });
   }
 
   // The violations of the last failed this.Validator.validate(s, ...) call.
