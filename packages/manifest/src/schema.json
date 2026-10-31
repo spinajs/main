@@ -806,6 +806,9 @@
         "mountedBy": {
           "$ref": "#/definitions/MountedBy"
         },
+        "exported": {
+          "$ref": "#/definitions/NotExported"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -884,6 +887,10 @@
         "policies",
         "source"
       ]
+    },
+    "NotExported": {
+      "type": "boolean",
+      "const": false
     },
     "SocketContractEntry": {
       "type": "object",
@@ -1089,6 +1096,9 @@
         "mountedBy": {
           "$ref": "#/definitions/MountedBy"
         },
+        "exported": {
+          "$ref": "#/definitions/NotExported"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -1115,6 +1125,9 @@
         },
         "mountedBy": {
           "$ref": "#/definitions/MountedBy"
+        },
+        "exported": {
+          "$ref": "#/definitions/NotExported"
         },
         "source": {
           "$ref": "#/definitions/SourceRef"

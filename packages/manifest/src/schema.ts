@@ -807,6 +807,9 @@ export const manifestSchema: Record<string, any> = {
         "mountedBy": {
           "$ref": "#/definitions/MountedBy"
         },
+        "exported": {
+          "$ref": "#/definitions/NotExported"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -885,6 +888,10 @@ export const manifestSchema: Record<string, any> = {
         "policies",
         "source"
       ]
+    },
+    "NotExported": {
+      "type": "boolean",
+      "const": false
     },
     "SocketContractEntry": {
       "type": "object",
@@ -1090,6 +1097,9 @@ export const manifestSchema: Record<string, any> = {
         "mountedBy": {
           "$ref": "#/definitions/MountedBy"
         },
+        "exported": {
+          "$ref": "#/definitions/NotExported"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -1116,6 +1126,9 @@ export const manifestSchema: Record<string, any> = {
         },
         "mountedBy": {
           "$ref": "#/definitions/MountedBy"
+        },
+        "exported": {
+          "$ref": "#/definitions/NotExported"
         },
         "source": {
           "$ref": "#/definitions/SourceRef"

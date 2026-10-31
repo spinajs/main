@@ -1,7 +1,7 @@
 import ts from 'typescript';
 import { existsSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { matchesMigrationGlob, matchesScanGlob, type Diagnostic, type MountedBy, type ScanFile, type SourceRef } from '@spinajs/manifest';
+import { matchesMigrationGlob, matchesScanGlob, type Diagnostic, type MountedBy, type NotExported, type ScanFile, type SourceRef } from '@spinajs/manifest';
 import { compareCodeUnits } from '../sort.js';
 import { DIR_SECTIONS, type DirSection } from './declared-dirs.js';
 import { EmittedModules } from './emitted-modules.js';
@@ -34,6 +34,7 @@ export interface AppLayout {
 export interface ScannedEntry {
   className: string;
   mountedBy?: MountedBy;
+  exported?: NotExported;
   source: SourceRef;
 }
 
@@ -109,6 +110,11 @@ export function discoveredBy({ effectiveDirs, defaultDirs = {}, requireAppDirs }
     return ({ source }) => files.has(source.file);
   };
 
+  const exportsItself = ({ className, source }: ScannedEntry): boolean => {
+    const own = sources.files.find((f) => inApp(f) === source.file);
+    return own !== undefined && modules.exportedClasses(own).some((c) => inApp(c.getSourceFile()) === source.file && c.name?.text === className);
+  };
+
   const reportUnmapped = (key: string): void => {
     for (const dir of effectiveDirs[key] ?? []) {
       const path = resolve(layout.root, dir);
@@ -140,7 +146,7 @@ export function discoveredBy({ effectiveDirs, defaultDirs = {}, requireAppDirs }
 
       const marked = entries.map((entry) => {
         const { className, source } = entry;
-        if (reached(entry)) return entry;
+        if (reached(entry)) return READ_FROM_EXPORTS.has(section) || exportsItself(entry) ? entry : { ...entry, exported: false };
         const message = `${className} (${source.file}) is not loaded from the manifest: ${missing}, so a directory scan does not bring it in. It runs only if something registers it; otherwise move it there or declare its folder`;
         report({ code: 'CMP006', severity: 'warning', message, source });
         return { ...entry, mountedBy: 'di' };

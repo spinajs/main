@@ -4,13 +4,10 @@ import { InternalLogger } from '@spinajs/internal-logger';
 import { effectiveManifestOf } from '@spinajs/configuration';
 import { existsSync } from 'node:fs';
 import { isPackageSkipped, loadsFromManifest, manifestFileFor, ManifestMissing } from '@spinajs/manifest';
-import type { Manifest, ManifestMode, ManifestSection, MountedBy, SourceRef } from '@spinajs/manifest';
+import type { Manifest, ManifestMode, ManifestSection, MountedBy, NotExported, SourceRef } from '@spinajs/manifest';
 
 export type { ManifestSection };
 export { SCAN_GLOB } from '@spinajs/manifest';
-
-// Their classes register themselves as their module is evaluated, so an import is all they need, exported or not.
-const REGISTERS_ON_IMPORT: ReadonlySet<ManifestSection> = new Set(['socketControllers', 'schedules', 'migrations']);
 
 export interface ListOptions {
   /** Manifest section that lists the same classes as the scanned directories; defaults by `configPath`. */
@@ -39,6 +36,7 @@ function effectiveOf(container: IContainer, section: ManifestSection) {
 export interface ManifestEntryRef {
   className: string;
   mountedBy?: MountedBy;
+  exported?: NotExported;
   source: SourceRef;
 }
 
@@ -111,7 +109,7 @@ export async function listFromManifest(
     for (const entry of entries) {
       const type = classOf(exported, entry.className);
       if (typeof type !== 'function') {
-        if (REGISTERS_ON_IMPORT.has(section)) continue;
+        if (entry.exported === false) continue;
         throw new ManifestMissing(listedMissing(file, entry, section, manifest));
       }
       result.push(Object.assign(new ClassInfo<unknown>(), { file, name: entry.className, type: type as Class<unknown>, instance: undefined }));

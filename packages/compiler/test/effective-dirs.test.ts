@@ -140,6 +140,13 @@ describe("an app's classes against its effective dirs", function () {
       expect(loaded(fragment.migrations)).to.include('Unexported_2026_01_03_00_00_00');
     });
 
+    it('marks such a class as not exported, and only that one: any other missing class is a stale manifest', () => {
+      const marked = (entries: Array<Entry & { exported?: false }>): string[] => entries.filter((e) => e.exported === false).map((e) => e.className);
+      expect(marked(fragment.schedules)).to.deep.equal(['UnexportedTask']);
+      expect(marked(fragment.socketControllers)).to.deep.equal(['UnexportedSocket']);
+      expect(marked(fragment.migrations)).to.deep.equal(['Unexported_2026_01_03_00_00_00']);
+    });
+
     it('is loaded in those sections when a file under the dir imports its file', () => {
       expect(loaded(fragment.schedules)).to.include('ViaImportTask');
     });

@@ -132,16 +132,21 @@ describe('ListFromFiles manifest fast path', () => {
       expect(ran('filtered')).to.equal(undefined);
     });
 
-    it('accepts a class its module does not export in a section that registers on import', async () => {
-      const schedule = { name: 'hidden', className: 'Hidden', options: {}, source: sourceRef('unexported.ts') };
+    it('accepts a class the build recorded as not exported: the import is all it needs', async () => {
+      const schedule = { name: 'hidden', className: 'Hidden', options: {}, exported: false as const, source: sourceRef('unexported.ts') };
       const app = await appOf({ schedules: [schedule] });
       expect(await listFromManifest(app.container, 'schedules')).to.deep.equal([]);
     });
 
-    it('still refuses it in a section read from exports', async () => {
+    it('refuses any other missing class, in every section: a renamed or moved one is a stale manifest', async () => {
+      const schedule = { name: 'hidden', className: 'Hidden', options: {}, source: sourceRef('unexported.ts') };
+      const socket = { id: 'x:Hidden', className: 'Hidden', prefix: 'hidden', commands: [], events: [], source: sourceRef('unexported.ts') };
       const command = { name: 'hidden', className: 'Hidden', options: [], arguments: [], source: sourceRef('unexported.ts') };
-      const app = await appOf({ commands: [command] });
-      await expect(listFromManifest(app.container, 'commands')).to.be.rejectedWith(ManifestMissing);
+      await expect(listFromManifest((await appOf({ schedules: [schedule] })).container, 'schedules')).to.be.rejectedWith(ManifestMissing);
+      await disposeTestApps();
+      await expect(listFromManifest((await appOf({ socketControllers: [socket] })).container, 'socketControllers')).to.be.rejectedWith(ManifestMissing);
+      await disposeTestApps();
+      await expect(listFromManifest((await appOf({ commands: [command] })).container, 'commands')).to.be.rejectedWith(ManifestMissing);
     });
 
     it('finds a class exported under another name, as a scan goes by the value', async () => {
