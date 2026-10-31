@@ -15,7 +15,7 @@ import { MIGRATION_FILE_REGEXP } from './symbols.js';
  * The remaining environment filter stays in `Orm.discoverMigrations()`.
  *
  * The list is in the directory scan's order: unsuffixed files first, then the environment's, each sorted as `glob` does.
- * The manifest names every migration of the app and its packages, whatever `system.dirs.migrations` says.
+ * `spinajs build` decided what the manifest loads; `system.dirs.migrations` narrows nothing here.
  */
 @Injectable(MigrationSource)
 export class ManifestMigrationSource extends MigrationSource {

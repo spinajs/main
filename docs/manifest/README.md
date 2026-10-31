@@ -82,28 +82,41 @@ The manifest holds what discovery finds. A dependency's fragment (built with `de
 
 ### The app's own classes
 
-`spinajs build` checks the app's controllers, socket controllers, schedules, CLI commands and migrations against the `system.dirs.*` the app runs with, so a class discovery never loads is not mounted in `prefer` or `require` either. These five are the sections discovery scans; models and queue messages have no `system.dirs` scan and stay listed.
+`spinajs build` checks the app's controllers, socket controllers, schedules, CLI commands and migrations against the `system.dirs.*` the app runs with. A class discovery never loads is not loaded from the manifest in `prefer` or `require` either. These five are the sections discovery scans; models and queue messages have no `system.dirs` scan and stay as they are.
 
-1. The CLI boots `Configuration` and reads `system.dirs`. That value holds the app's config for this `APP_ENV` and the dirs `--app` and `--apppath` add. An empty `system.dirs.migrations` counts as the dirs the orm scans in that case (`defaultMigrationDirs()`).
-2. It hands them to the compiler as data (`buildAppManifest({ effectiveDirs })`); the compiler never evaluates config. Each dir maps back to the sources through the `tsconfig` `outDir` and `rootDir`, so `lib/controllers` becomes `src/controllers`. A dir outside the app, such as a package's, counts for nothing.
-3. Each class of the five sections is then one of these:
+1. The CLI boots `Configuration` and reads `system.dirs`. That value holds the app's config for this `APP_ENV` and the dirs `--app`, `--apppath` and `--config-path` add. An empty `system.dirs.migrations` falls back to the dirs the orm scans in that case (`defaultMigrationDirs()`).
+2. It hands them to the compiler as data (`buildAppManifest({ effectiveDirs, defaultDirs, requireAppDirs })`); the compiler never evaluates config. Each dir maps back to the sources through the `tsconfig` `outDir` and `rootDir`, so `lib/controllers` becomes `src/controllers`. A dir above the `outDir` or the `rootDir` covers all sources. A dir outside the app, such as a package's, or one with no source folder behind it, maps nothing.
+3. The rule is discovery's: a class counts when a file under a dir of its section exports it at runtime, at any depth, wherever the class is declared. A barrel under the dir counts; a `export type` re-export and a class no file exports do not.
 
-| The class | In the manifest | Reported |
-| --- | --- | --- |
-| Under a dir of its section, at any depth | Yes | No |
-| Outside every dir of its section | No | `CMP006` warning: class, file, dirs searched |
-| In a section with no dir in the app | Yes | `CMP007` warning: class, file, key to declare |
-| A controller registered with `DI.register(X).as(BaseController)` or `@Injectable(BaseController)` | Yes: `DiRegistryControllerSource` finds it wherever it lives | No |
-| A controller your own `ControllerSource` hands over with `ci.file = '<di>'` | No, and it is still served: a `<di>` controller needs no entry | `CMP006` warning; nothing to fix |
-| A migration, schedule or socket controller outside the dirs that an import registers | No, and it still registers on import, as in discovery | `CMP006` warning; nothing to fix |
+| The class | In the manifest | Loaded from the manifest | Reported |
+| --- | --- | --- | --- |
+| Exported from a file under a dir of its section | Yes | Yes | No |
+| Anything else | Yes, with `mountedBy: 'di'` | No | `CMP006` warning: class, file, dirs searched |
 
-A `ControllerSource` that hands over a class outside the dirs with its real file fails in `require` with `NoControllerMetadata`: set `ci.file = '<di>'`.
+An entry with `mountedBy` keeps the class's metadata, but nothing imports the class for it. It runs only if something registers it, exactly as in discovery: an import that runs its decorators, `DI.register(X).as(BaseController)` that is really reached, `@Injectable(BaseController)` in a file something imports, your own `ControllerSource`, `Controllers.add()`. The compiler cannot tell whether that happens, so a registered class still gets `CMP006`. When it does run, the runtime finds its entry for parameter names, types without decorator metadata, request validation and socket contracts, and `require` accepts it.
 
-A section with no dir in the app keeps its classes on purpose. The key may be absent or empty, or all its dirs may belong to packages. From the build that looks the same as a config it could not read (`lib/config` not compiled yet, a build run from another folder), and emptying the section would take every route away. Such classes are served although discovery would not load them, which is why each one gets a warning; `--fail-on-warning` turns that into a failed build.
+| What reads the manifest | Entries with `mountedBy` |
+| --- | --- |
+| `ManifestControllerSource`, `listFromManifest` (socket controllers, schedules, commands, migrations) | Skipped: this is what keeps the class unloaded |
+| `ManifestControllerMetadata`, the runtime type fill, request validation, socket contracts | Read: a route a registration serves is typed and validated as any other |
+| `spinajs doctor` | Read: a route a registration serves must stay guarded, so its rules report these too |
+| `generate:openapi`, `generate:client`, `generate:asyncapi`, `manifest:diff` | Left out: nothing static can tell that the registration runs. The Swagger UI of `@spinajs/http-swagger` lists what is really mounted, so it shows a class that is served |
 
-**The manifest reflects the config of the build's `APP_ENV`.** A config file of another environment (`*.prod.js`) that adds a dir counts only in a build under that environment. Run `spinajs build` with the `APP_ENV` (or `--env`) and `--app` of the deployment, from the app's folder, after compiling: the CLI reads `lib/config`, not `src/config`.
+**When no dir applies.** What the build does depends on whether the config it read names any folder of the app:
 
-A direct call of `buildAppManifest` without `effectiveDirs` filters nothing.
+| Case | Result |
+| --- | --- |
+| Some section's configured dirs map into the app | The config was read. A section with no dir is empty: its classes get `mountedBy`, each with `CMP006` |
+| No configured dir of any section maps into the app | The build stops with `CMP007`, exit code 1, and writes nothing, naming what it searched. The orm's default migration dirs do not count: they exist without any config. Usual causes: `lib/config` is not compiled, the build runs from another folder, or it lacks the `--app`, `--apppath` or `--config-path` the app runs with |
+| The same, with `--allow-no-dirs` | For an app that really declares no dirs. The build goes on and every class except those under the default migration dirs gets `mountedBy`: nothing loads from the manifest, as nothing loads in discovery |
+
+**The manifest reflects the config of the build's `APP_ENV`.** A config file of another environment (`*.prod.js`) that adds a dir counts only in a build under that environment. Run `spinajs build` with the `APP_ENV` (or `--env`) and the `--app`, `--apppath` and `--config-path` of the deployment, after compiling: the CLI reads `lib/config`, not `src/config`.
+
+**Run it from the folder the app runs from.** `system.dirs` is usually computed from `process.cwd()`, so the build warns with `CLI001` when that is not the `tsconfig` folder. It is a warning and not a refusal, because an app that runs from its build folder gets the right dirs only from there. Paths are compared physically, so a release folder behind a symlink maps either way.
+
+**The CLI sees only what it can read.** `--app`, `--apppath` and `--config-path` stand in for the `app`, `appBaseDir` and `cfgCustomPaths` options. A value an app sets only in code (those options passed to `FrameworkConfiguration`, `configuration.set()`, a `Configuration` subclass) does not reach the build: pass the matching option, or put the value in a config file.
+
+A direct call of `buildAppManifest` without `effectiveDirs` marks nothing.
 
 ### Building without decorator metadata
 

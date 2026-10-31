@@ -34,29 +34,48 @@ export default {
 };
 `;
 
-// Classes the fixture keeps outside the dirs its config declares. The second is mounted by its own source, as authz-http
-// mounts the explain route.
-const ELSEWHERE_CONTROLLER = `
+const controller = (name: string, path: string, decorators = ''): string => `
+import { DI, Injectable } from '@spinajs/di';
 import { BaseController, BasePath, Get, Ok } from '@spinajs/http';
 
-@BasePath('elsewhere')
-export class ElsewhereController extends BaseController {
+void DI;
+void Injectable;
+
+${decorators}
+@BasePath('${path}')
+export class ${name} extends BaseController {
   @Get()
   public async get(): Promise<Ok<string>> {
-    return new Ok('elsewhere');
+    return new Ok('${path}');
   }
 }
 `;
 
-const SOURCED_CONTROLLER = `
+// Classes the fixture keeps outside the dirs its config declares. Which of them run depends on what the app does, not on
+// the manifest: lib/plugin/registrations.js stands for its entry point and is imported only with E2E_APP_SOURCE.
+const OUTSIDE_THE_DIRS: Record<string, string> = {
+  'elsewhere/ElsewhereController.ts': controller('ElsewhereController', 'elsewhere'),
+  'elsewhere/InjectableNeverImported.ts': controller('InjectableNeverImported', 'injectable', '@Injectable(BaseController)'),
+  'elsewhere/dev-only.ts': `${controller('DebugController', 'debug')}
+export function enableDebug(): void {
+  if (process.env.ENABLE_DEBUG === '1') DI.register(DebugController).as(BaseController);
+}
+`,
+  'elsewhere/AdminController.ts': controller('AdminController', 'elsewhere-admin'),
+  'plugin/AdminController.ts': controller('AdminController', 'plugin-admin'),
+  'elsewhere/LoopController.ts': controller('LoopController', 'loop'),
+  'elsewhere/AddedController.ts': controller('AddedController', 'added'),
+  'elsewhere/BarrelledController.ts': controller('BarrelledController', 'barrelled'),
+  'controllers/barrel.ts': "export { BarrelledController } from '../elsewhere/BarrelledController.js';\n",
+  'elsewhere/SourcedController.ts': `
 import { ClassInfo, Injectable } from '@spinajs/di';
-import { BaseController, BasePath, ControllerSource, Get, Ok } from '@spinajs/http';
+import { BaseController, BasePath, ControllerSource, Get, Ok, Query } from '@spinajs/http';
 
 @BasePath('sourced')
 export class SourcedController extends BaseController {
   @Get()
-  public async get(): Promise<Ok<string>> {
-    return new Ok('sourced');
+  public async get(@Query() page: number): Promise<Ok<{ page: number; type: string }>> {
+    return new Ok({ page, type: typeof page });
   }
 }
 
@@ -70,7 +89,34 @@ export class SourcedControllerSource extends ControllerSource {
     return [ci];
   }
 }
-`;
+`,
+  'elsewhere/BoundSocket.ts': `
+import { BaseSocketController, Command, Payload, SocketController } from '@spinajs/http-socket';
+
+export interface Ping {
+  text: string;
+}
+
+@SocketController('bound')
+export class BoundSocket extends BaseSocketController {
+  @Command('ping')
+  public async ping(@Payload() payload: Ping): Promise<Ping> {
+    return payload;
+  }
+}
+`,
+  'plugin/registrations.ts': `
+import { DI } from '@spinajs/di';
+import { BaseController } from '@spinajs/http';
+import { AdminController } from './AdminController.js';
+import { LoopController } from '../elsewhere/LoopController.js';
+import '../elsewhere/SourcedController.js';
+import '../elsewhere/BoundSocket.js';
+
+DI.register(AdminController).as(BaseController);
+for (const registered of [LoopController]) DI.register(registered).as(BaseController);
+`,
+};
 
 interface ProbeResult {
   unsupported?: string;
@@ -96,6 +142,14 @@ function compileApp(root: string): void {
   if (errors.length > 0) throw new Error(ts.formatDiagnostics(errors, { getCurrentDirectory: () => root, getCanonicalFileName: (f) => f, getNewLine: () => '\n' }));
 }
 
+/** One file built as with `emitDecoratorMetadata: false`: its argument types can only come from the manifest. */
+function dropDecoratorMetadata(root: string, file: string): void {
+  const read = ts.readConfigFile(join(root, 'tsconfig.json'), (f) => ts.sys.readFile(f));
+  const { options } = ts.parseJsonConfigFileContent(read.config, ts.sys, root);
+  const { outputText } = ts.transpileModule(readFileSync(join(root, 'src', `${file}.ts`), 'utf8'), { compilerOptions: { ...options, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, emitDecoratorMetadata: false, declaration: false } });
+  writeFileSync(join(root, 'lib', `${file}.js`), outputText);
+}
+
 /** The app as a deployment lays it out: its own lib/ and a node_modules/@spinajs holding only the packages it depends on. */
 async function installApp(): Promise<Manifest> {
   rmSync(TMP, { recursive: true, force: true });
@@ -109,11 +163,13 @@ async function installApp(): Promise<Manifest> {
   // `workspaces` makes it a root: the configuration walk does not climb into the repo above it
   writeFileSync(join(INSTALLED, 'package.json'), JSON.stringify({ ...pkg, workspaces: [] }));
   rmSync(join(INSTALLED, 'src', 'index.ts'));
-  mkdirSync(join(INSTALLED, 'src', 'elsewhere'));
-  writeFileSync(join(INSTALLED, 'src', 'elsewhere', 'ElsewhereController.ts'), ELSEWHERE_CONTROLLER);
-  writeFileSync(join(INSTALLED, 'src', 'elsewhere', 'SourcedController.ts'), SOURCED_CONTROLLER);
+  for (const [file, source] of Object.entries(OUTSIDE_THE_DIRS)) {
+    mkdirSync(dirname(join(INSTALLED, 'src', file)), { recursive: true });
+    writeFileSync(join(INSTALLED, 'src', file), source);
+  }
 
   compileApp(INSTALLED);
+  dropDecoratorMetadata(INSTALLED, 'elsewhere/SourcedController');
   mkdirSync(join(INSTALLED, 'lib', 'config'), { recursive: true });
   writeFileSync(join(INSTALLED, 'lib', 'config', 'e2e.js'), E2E_CONFIG);
 
@@ -200,10 +256,41 @@ describe('app-basic boots from its manifest', function () {
     expect(reported?.source?.file).to.equal('src/elsewhere/ElsewhereController.ts');
   });
 
-  it('serves a class of the app that a source hands over as <di>, in require as in off mode, without a manifest entry', () => {
-    expect(manifest.controllers.map((c) => c.className)).to.not.include('SourcedController');
-    expect(explainDiscovered.responses.sourced.status).to.equal(200);
-    expect(explainRequired.responses.sourced).to.deep.equal(explainDiscovered.responses.sourced);
+  it('mounts no class outside the dirs on the strength of a registration that never ran', () => {
+    for (const result of [required, explainRequired]) {
+      expect(result.responses.injectable.status).to.equal(404);
+      expect(result.responses.debug.status).to.equal(404);
+      expect(result.responses.adminElsewhere.status).to.equal(404);
+    }
+    expect(required.responses.adminPlugin.status).to.equal(404);
+    expect(required.controllers).to.not.include.members(['InjectableNeverImported', 'DebugController', 'AdminController']);
+  });
+
+  it('serves what a registration that ran brings in, in require as in off mode', () => {
+    for (const route of ['adminPlugin', 'loop', 'added']) {
+      expect(explainDiscovered.responses[route].status, route).to.equal(200);
+      expect(explainRequired.responses[route], route).to.deep.equal(explainDiscovered.responses[route]);
+    }
+  });
+
+  it('serves a class a file under the dirs re-exports, as discovery does', () => {
+    expect(discovered.responses.barrelled.status).to.equal(200);
+    expect(required.responses.barrelled).to.deep.equal(discovered.responses.barrelled);
+    expect(manifest.controllers.find((c) => c.className === 'BarrelledController')?.source.file).to.equal('src/elsewhere/BarrelledController.ts');
+  });
+
+  it('types and validates a <di> controller from its flagged entry, in a file built without decorator metadata', () => {
+    expect(manifest.controllers.find((c) => c.className === 'SourcedController')?.mountedBy).to.equal('di');
+    expect(required.responses.sourced.status).to.equal(404);
+    expect(explainRequired.responses.sourced).to.deep.equal({ status: 200, body: { page: 2, type: 'number' } });
+    expect(explainRequired.responses.sourcedInvalid.status).to.equal(400);
+  });
+
+  it('serves a socket controller an import registers, from its flagged entry', () => {
+    expect(manifest.socketControllers.find((c) => c.className === 'BoundSocket')?.mountedBy).to.equal('di');
+    expect(required.socketCommands).to.not.include('bound.ping');
+    expect(explainDiscovered.socketCommands).to.include('bound.ping');
+    expect(explainRequired.socketCommands).to.include('bound.ping');
   });
 
   it('lists no abstract controller base', () => {

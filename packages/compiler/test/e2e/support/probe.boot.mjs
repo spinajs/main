@@ -16,7 +16,7 @@ nodeModule.registerHooks({
 });
 
 // an app's entry imports its packages before anything resolves, which registers the sources they ship
-if (process.env.E2E_APP_SOURCE === '1') await import(new URL('lib/elsewhere/SourcedController.js', import.meta.url).href);
+if (process.env.E2E_APP_SOURCE === '1') await import(new URL('lib/plugin/registrations.js', import.meta.url).href);
 const { PrincipalMiddleware } = await import('@spinajs/authz-http');
 const { DI, Bootstrapper } = await import('@spinajs/di');
 const { Configuration, BaseFileSource } = await import('@spinajs/configuration');
@@ -67,7 +67,11 @@ try {
   await DI.resolve(fsService);
   await DI.resolve(Intl);
   const orm = await DI.resolve(Orm);
-  await DI.resolve(Controllers);
+  const controllers = await DI.resolve(Controllers);
+  if (process.env.E2E_APP_SOURCE === '1') {
+    const { AddedController } = await import(new URL('lib/elsewhere/AddedController.js', import.meta.url).href);
+    await controllers.add(AddedController);
+  }
   const server = await DI.resolve(HttpServer);
   await server.start();
   const base = `http://127.0.0.1:${server.Server.address().port}`;
@@ -82,9 +86,17 @@ try {
     users: await get('/users/list?query=' + encodeURIComponent(JSON.stringify({ page: 1, perPage: 5 }))),
     // mounted by ExplainControllerSource only, and never in production
     explain: await get('/authz/explain'),
-    // outside the app's dirs: nothing mounts the first, only its own source the second
+    // outside the app's dirs: served only if a registration ran
     elsewhere: await get('/elsewhere/get'),
-    sourced: await get('/sourced/get'),
+    injectable: await get('/injectable/get'),
+    debug: await get('/debug/get'),
+    adminElsewhere: await get('/elsewhere-admin/get'),
+    adminPlugin: await get('/plugin-admin/get'),
+    loop: await get('/loop/get'),
+    added: await get('/added/get'),
+    barrelled: await get('/barrelled/get'),
+    sourced: await get('/sourced/get?page=2'),
+    sourcedInvalid: await get('/sourced/get?page=abc'),
   };
 
   await DI.resolve(SocketServer);
