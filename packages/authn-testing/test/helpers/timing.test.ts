@@ -22,7 +22,7 @@ describe('timing helpers', () => {
     mock.restoreAll();
   });
 
-  it('passes for two equal busy-waits', async () => {
+  it('passes for two equal durations', async () => {
     const r = await compareTiming(repeat(spin(2)), repeat(spin(2)), quick);
     assert.equal(r.pass, true);
     assert.equal(r.attempts, 1);
