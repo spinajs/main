@@ -5,7 +5,7 @@ import { Configuration, effectiveManifestOf, type EffectiveManifest } from '@spi
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { SocketException } from '@spinajs/http-socket-common';
-import { manifestValidatorOf, schemaOfClass } from '@spinajs/validation';
+import { manifestValidatorOf, sanitizeError, schemaOfClass, type IValidationError } from '@spinajs/validation';
 import { authoritativeSchema, checkSocketContract, loadRuntimeManifest, resolveTypeRef, type Manifest, type ManifestMode, type SocketContractEntry, type SocketControllerEntry, type TypeRef } from '@spinajs/manifest';
 import { PayloadArg } from './args.js';
 import type { IRegisteredHandler, ISocketControllerDescriptor, ISocketHandlerDescriptor } from './interfaces.js';
@@ -30,21 +30,36 @@ function prepare(value: unknown): unknown {
 
 const INSTANCES = new WeakMap<Manifest, Ajv>();
 
-/** Strict on purpose: no coercion, defaults or removal, so a payload is accepted as the contract says or refused. */
+/** A manifest holds every package's configuration schemas too; one Ajv refuses only matters to a contract that needs it, which then fails to compile. */
+function addIfValid(ajv: Ajv, schema: object): void {
+  try {
+    if (ajv.validateSchema(schema) === true) ajv.addSchema(schema);
+  } catch {
+    // A `$schema` Ajv does not know ( 2020-12 ) throws instead of failing the check.
+  }
+}
+
+/**
+ * Strict on purpose: no coercion, defaults or removal, so a payload is accepted as the contract says or refused.
+ * `verbose` gives `sanitizeError` the rule behind an error: the message of a `$data` rule carries another field's value.
+ */
 function ajvFor(manifest: Manifest): Ajv {
   let ajv = INSTANCES.get(manifest);
   if (!ajv) {
-    ajv = new Ajv({ strict: false, allErrors: true });
+    ajv = new Ajv({ strict: false, allErrors: true, $data: true, verbose: true });
     (addFormats as unknown as (instance: Ajv) => void)(ajv);
     for (const [id, schema] of Object.entries(manifest.schemas)) {
-      ajv.addSchema({ ...(prepare(schema) as object), $id: absolute(id) });
+      addIfValid(ajv, { ...(prepare(schema) as object), $id: absolute(id) });
     }
     INSTANCES.set(manifest, ajv);
   }
   return ajv;
 }
 
-const describeError = (e: ErrorObject) => ({ path: e.instancePath, keyword: e.keyword, message: e.message ?? 'invalid' });
+function describeError(e: ErrorObject) {
+  const { instancePath, keyword, message } = sanitizeError(e as IValidationError);
+  return { path: instancePath, keyword, message: message ?? 'invalid' };
+}
 
 /** Ajv messages and stacks carry schema internals; only the unresolved reference is worth reporting. */
 function compileFailure(error: unknown): string {
