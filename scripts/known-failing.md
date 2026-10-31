@@ -2,6 +2,8 @@
 
 Packages in `known-failing.json` may fail `scripts/test-all.mjs` and `scripts/coverage/run.mjs --ci` without failing the run; they print a warning. Recorded by `node scripts/test-all.mjs --ci` after `npm ci && npm run build`. Fix the package, then remove it from the list ( the runner says when a listed package passes ).
 
+The list is empty. A package added to it needs a row here:
+
 | Package | Symptom |
 | --- | --- |
 
