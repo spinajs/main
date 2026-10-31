@@ -107,7 +107,7 @@ describe('model decorators without decorator metadata', () => {
 
   it('fail the boot check when a decorator of the app around @HasMany leaves nothing to type the relation', () => {
     class Wrapped extends ModelBase {}
-    const Notes = () => HasMany(Target);
+    const Notes = (): unknown => HasMany(Target);
     decorate(Notes(), Wrapped.prototype, 'Notes');
 
     const container = DI.RootContainer.child();

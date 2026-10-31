@@ -5,7 +5,8 @@ const { Configuration } = await import('@spinajs/configuration');
 const { Orm, OrmMigrator } = await import('@spinajs/orm');
 await import('@spinajs/orm-sqlite');
 await import('@spinajs/log');
-const { Owner, OwnerTag, Pet } = await import('./lib/models.js');
+// Built next to the installed copy of this probe, so it does not resolve from here.
+const { Owner, OwnerTag, Pet } = await import(new URL('./lib/models.js', import.meta.url).href);
 
 const isInstant = (value) => typeof value?.toISO === 'function';
 
