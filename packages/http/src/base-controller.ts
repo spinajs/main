@@ -85,7 +85,7 @@ export abstract class BaseController extends AsyncService implements IController
     this._router = Express.Router();
 
     const configErrorHandlers = await resolveConfigErrorHandlers(this._cfg, this._container);
-    await runtimeTypesFromManifest({ container: this._container, controller: this.constructor.name, routes: this.Descriptor.Routes.values(), mountPath: () => this.BasePath, log: this._log });
+    await runtimeTypesFromManifest({ container: this._container, controller: this.constructor.name, routes: this.Descriptor.Routes.values(), mountPath: () => this.BasePath, file: this.Descriptor.SourceFile, log: this._log });
 
     for (const [, route] of this.Descriptor.Routes) {
       // Fail fast: an unknown route type means the route decorator never set a
@@ -104,7 +104,7 @@ export abstract class BaseController extends AsyncService implements IController
       this._log.trace({ httpMethod: route.Type.toUpperCase(), controller: this.constructor.name, method: route.Method, path }, 'Registering route ${httpMethod} ${controller}::${method} at ${path}');
 
       const errorHandlers = [...(route.ErrorHandlers ?? []), ...(this.Descriptor.ErrorHandlers ?? []), ...configErrorHandlers];
-      const derived = derivedValidatorsOf({ container: this._container, controller: this.constructor.name, route, mountPath: this.BasePath, log: this._log });
+      const derived = derivedValidatorsOf({ container: this._container, controller: this.constructor.name, route, mountPath: this.BasePath, file: this.Descriptor.SourceFile, log: this._log });
 
       const handlers: (Express.RequestHandler | Express.ErrorRequestHandler)[] = [
         createPolicyGate(policies, route, this, this._log),

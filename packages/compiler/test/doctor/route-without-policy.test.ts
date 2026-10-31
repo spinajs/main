@@ -6,6 +6,11 @@ import { fixture, controller, route, src } from './fixture.js';
 const ctx = { cwd: '/fixture', fileExists: () => true, fragmentMtime: () => undefined, libMtime: () => undefined };
 
 describe('HTTP002 route-without-policy', () => {
+  it('still reports a route only a registration serves: it is served when that registration runs', () => {
+    const m = fixture({ controllers: [controller({ className: 'Registered', mountedBy: 'di', routes: [route({ handler: 'leak' })] })] });
+    expect(routeWithoutPolicy.run(m, ctx).map((d) => d.code)).to.deep.equal(['HTTP002']);
+  });
+
   it('reports a route with no guard on it or on its class', () => {
     const m = fixture({
       controllers: [

@@ -11,8 +11,8 @@ const isController = (prototype: object): boolean => prototype instanceof BaseCo
  * Controllers listed in `app.manifest.json`. Empty when the effective manifest mode is `off`, or `prefer` without a
  * registered manifest; `require` without one throws.
  *
- * Listed in the directory scan's order, so routes register the same way in both modes. The manifest names every
- * controller of the app and its packages, whatever `system.dirs.controllers` says.
+ * Listed in the directory scan's order, so routes register the same way in both modes. `spinajs build` decided what
+ * the manifest loads; `system.dirs.controllers` narrows nothing here.
  */
 @Injectable(ControllerSource)
 export class ManifestControllerSource extends ControllerSource {

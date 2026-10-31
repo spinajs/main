@@ -3,7 +3,7 @@ import { Logger, Log } from '@spinajs/log-common';
 import { ClassInfo, DI } from '@spinajs/di';
 import { effectiveManifestOf } from '@spinajs/configuration';
 import { fsService } from '@spinajs/fs';
-import { ListFromFiles } from '@spinajs/reflection';
+import { ListFromFiles, SCAN_GLOB } from '@spinajs/reflection';
 import { BaseController, CONTROLLED_DESCRIPTOR_SYMBOL } from '@spinajs/http';
 import { SwaggerDocCache } from '../swagger-cache.js';
 
@@ -15,7 +15,7 @@ export class SwaggerCacheCommand extends CliCommand {
   // @ListFromFiles installs a getter returning a Promise, so this must be
   // awaited before iterating — otherwise `for..of` over a Promise throws
   // "is not iterable" and the command always crashes.
-  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.controllers')
+  @ListFromFiles(SCAN_GLOB, 'system.dirs.controllers')
   protected Controllers!: Promise<Array<ClassInfo<BaseController>>>;
 
   public async execute(): Promise<void> {

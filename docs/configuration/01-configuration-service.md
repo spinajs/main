@@ -69,6 +69,7 @@ sequenceDiagram
 | Option | Command line | Type | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `app` | `--app <name>` | `string` | `''` | App name. Adds the app's config directories (see [Config files](03-config-files.md)). |
+| `cfgCustomPaths` | `--config-path <dir>` (one folder) | `string[]` | `[]` | Extra config folders, merged after the package configs |
 | `appBaseDir` | `--apppath <dir>` | `string` | `<cwd>/../apps/` | Directory that holds the apps; `<appBaseDir>/<app>/config` is searched. |
 | `cfgCustomPaths` | none | `string[]` | `[]` | Extra config directories, searched after all others. |
 | `watchFileChanges` | none | `boolean` | none | Declared in the contract; not read by any shipped implementation. |

@@ -52,6 +52,7 @@ These options belong to `@spinajs/configuration`. The default argv provider remo
 | `--app` | `--app web`, `--app=web` | Selects the application whose config is loaded |
 | `--env` | `--env production`, `--env=production` | Selects the environment |
 | `--apppath` | `--apppath ./apps`, `--apppath=./apps` | Overrides the applications base directory |
+| `--config-path` | `--config-path ./deploy/config`, `--config-path=./deploy/config` | Adds one config folder, as the `cfgCustomPaths` option does |
 
 ## Exit codes
 

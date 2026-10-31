@@ -6,7 +6,7 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { SocketException } from '@spinajs/http-socket-common';
 import { manifestValidatorOf, schemaOfClass } from '@spinajs/validation';
-import { authoritativeSchema, checkSocketContract, loadRuntimeManifest, resolveTypeRef, type Manifest, type ManifestMode, type SocketContractEntry, type SocketControllerEntry, type TypeRef } from '@spinajs/manifest';
+import { authoritativeSchema, checkSocketContract, loadRuntimeManifest, ownEntries, resolveTypeRef, type Manifest, type ManifestMode, type SocketContractEntry, type SocketControllerEntry, type TypeRef } from '@spinajs/manifest';
 import { PayloadArg } from './args.js';
 import type { IRegisteredHandler, ISocketControllerDescriptor, ISocketHandlerDescriptor } from './interfaces.js';
 
@@ -163,7 +163,7 @@ export class SocketContractEnforcer {
     const manifest = untyped.length > 0 ? this.manifest() : undefined;
     if (!manifest) return;
 
-    const named = manifest.socketControllers.filter((c) => c.className === controllerName && c.prefix === (descriptor.Prefix ?? ''));
+    const named = this.entriesOf(manifest, controllerName, descriptor);
     const entry = named.length === 1 ? named[0] : undefined;
     const payloadOf = (handler: ISocketHandlerDescriptor): TypeRef | undefined =>
       handler.Kind === 'command' ? entry?.commands.find((c) => c.handler === String(handler.Method))?.payload : entry?.events.find((e) => e.name === handler.Name)?.payload;
@@ -190,7 +190,7 @@ export class SocketContractEnforcer {
    * it when no explicit schema does. JSON payloads are never coerced. One that cannot compile is a problem like any other.
    */
   protected bindDerived(manifest: Manifest, controllerName: string, label: string, descriptor: ISocketControllerDescriptor, handlers: IRegisteredHandler[]): void {
-    const named = manifest.socketControllers.filter((c) => c.className === controllerName && c.prefix === (descriptor.Prefix ?? ''));
+    const named = this.entriesOf(manifest, controllerName, descriptor);
     if (named.length !== 1) return;
 
     const entry = named[0];
@@ -210,8 +210,13 @@ export class SocketContractEnforcer {
     this.report(label, problems);
   }
 
+  protected entriesOf(manifest: Manifest, controllerName: string, descriptor: ISocketControllerDescriptor): SocketControllerEntry[] {
+    const named = manifest.socketControllers.filter((c) => c.className === controllerName && c.prefix === (descriptor.Prefix ?? ''));
+    return ownEntries(named, { file: descriptor.SourceFile }, manifest);
+  }
+
   /**
-   * A controller is identified by class name plus prefix, the only parts of its manifest entry that exist at runtime.
+   * A controller is identified by class name, prefix and source file, the parts of its manifest entry that exist at runtime.
    * The manifest's binding is authoritative: a contract declared in code that disagrees with it is a problem, and a
    * controller the manifest binds is enforced in `require` even when its code declares no contract.
    */
@@ -219,7 +224,7 @@ export class SocketContractEnforcer {
     const declared = descriptor.Contract !== undefined;
     const runtimeId = descriptor.Contract?.id;
 
-    const named = manifest.socketControllers.filter((c) => c.className === controllerName && c.prefix === (descriptor.Prefix ?? ''));
+    const named = this.entriesOf(manifest, controllerName, descriptor);
     const bound = runtimeId === undefined ? [] : named.filter((c) => c.contract === runtimeId);
     const candidates = bound.length > 0 ? bound : named;
 

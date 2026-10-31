@@ -103,7 +103,7 @@ function createDefaultControllerDescriptor(): IControllerDescriptor {
  * (path frames like `at ... (C:\\foo\\bar.js:12:3)`) and ESM (URL frames like
  * `at ... (file:///C:/foo/bar.js:12:3)`).
  */
-function captureControllerSourceFile(): string | undefined {
+export function captureControllerSourceFile(): string | undefined {
   const stack = new Error().stack;
   if (!stack) return undefined;
 

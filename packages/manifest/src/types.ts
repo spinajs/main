@@ -102,6 +102,29 @@ export interface RouteEntry {
   source: SourceRef;
 }
 
+/**
+ * On an app's class outside the `system.dirs` of its section. The entry keeps the class's metadata, but the manifest never
+ * loads the class: it runs only if something registers it (an import, `DI.register`, a source, `Controllers.add`), as in discovery.
+ */
+export type MountedBy = 'di';
+
+/**
+ * On a schedule, socket controller or migration its module does not export. These register as the module is evaluated, so
+ * the import is enough; any other class missing from its module means the manifest is stale.
+ */
+export type NotExported = false;
+
+export type ManifestSection = 'controllers' | 'socketControllers' | 'schedules' | 'commands' | 'migrations';
+
+/**
+ * A file a directory scan of the section imports and no loaded entry of it brings in. The manifest imports it as well: the
+ * scan runs its decorators and registrations.
+ */
+export interface ScanFile {
+  section: ManifestSection;
+  source: SourceRef;
+}
+
 export interface ControllerEntry {
   id: string; className: string;
   basePath: string | null; basePathConfig?: string;   // as declared; null without @BasePath
@@ -114,11 +137,12 @@ export interface ControllerEntry {
   /** Omitted when the controller injects nothing into properties. */
   propertyInjects?: PropertyInject[];
   condition?: Condition;
+  mountedBy?: MountedBy;
   source: SourceRef;
 }
 
 export interface SocketCommandEntry { name: string; handler: string; payload: TypeRef; result: TypeRef; /** The handler returns an async iterable; `result` describes one item */ stream?: true; options: { idempotent?: boolean; ordered?: 'connection' | 'client'; timeoutMs?: number }; access?: string[]; policies: PolicyRef[][]; source: SourceRef }
-export interface SocketControllerEntry { id: string; className: string; prefix: string; /** `id` of the `socketContracts` entry named by `@SocketController(prefix, { contract })` */ contract?: string; commands: SocketCommandEntry[]; events: { name: string; payload: TypeRef }[]; /** Omitted when the controller injects nothing into properties. */ propertyInjects?: PropertyInject[]; source: SourceRef }
+export interface SocketControllerEntry { id: string; className: string; prefix: string; /** `id` of the `socketContracts` entry named by `@SocketController(prefix, { contract })` */ contract?: string; commands: SocketCommandEntry[]; events: { name: string; payload: TypeRef }[]; /** Omitted when the controller injects nothing into properties. */ propertyInjects?: PropertyInject[]; mountedBy?: MountedBy; exported?: NotExported; source: SourceRef }
 export interface SocketContractCommand { payload: TypeRef; result: TypeRef }
 export interface SocketContractEntry { id: string; /** Name the `defineContract` variable is exported under; lets a dependent package resolve a contract it imports */ exportName?: string; commands: Record<string, SocketContractCommand>; events: Record<string, TypeRef>; clientEvents: Record<string, TypeRef>; source: SourceRef }
 
@@ -132,9 +156,9 @@ export interface ModelEntry {
   accessResource: boolean;
   source: SourceRef;
 }
-export interface MigrationEntry { id: string; className: string; connection: string; env?: string[]; file: string; source: SourceRef }
-export interface ScheduleEntry { name: string; className: string; options: Record<string, unknown>; source: SourceRef }
-export interface CliCommandEntry { name: string; className: string; description?: string; options: { flags: string; description?: string }[]; arguments: { name: string; description?: string }[]; parent?: string; source: SourceRef }
+export interface MigrationEntry { id: string; className: string; connection: string; env?: string[]; file: string; mountedBy?: MountedBy; exported?: NotExported; source: SourceRef }
+export interface ScheduleEntry { name: string; className: string; options: Record<string, unknown>; mountedBy?: MountedBy; exported?: NotExported; source: SourceRef }
+export interface CliCommandEntry { name: string; className: string; description?: string; options: { flags: string; description?: string }[]; arguments: { name: string; description?: string }[]; parent?: string; mountedBy?: MountedBy; source: SourceRef }
 export interface QueueMessageEntry { className: string; kind: 'job' | 'event'; payload: TypeRef; options: Record<string, unknown>; source: SourceRef }
 
 export interface Diagnostic { code: string; severity: 'error' | 'warning' | 'info'; message: string; source?: SourceRef }
@@ -150,6 +174,8 @@ export interface ManifestFragment {
   controllers: ControllerEntry[]; socketControllers: SocketControllerEntry[]; socketContracts: SocketContractEntry[];
   configModules: ConfigModuleEntry[]; configUsages: ConfigUsageEntry[];
   models: ModelEntry[]; migrations: MigrationEntry[]; schedules: ScheduleEntry[]; commands: CliCommandEntry[]; queueMessages: QueueMessageEntry[];
+  /** Omitted when there are none; only an app built with its dirs has any. */
+  scanFiles?: ScanFile[];
   schemas: Record<string, unknown>;   // $id → JSON Schema
   diagnostics: Diagnostic[];
 }

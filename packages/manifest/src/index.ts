@@ -5,6 +5,8 @@ export * from './read.js';
 export * from './hash.js';
 export * from './merge.js';
 export * from './diff.js';
+export * from './mounted.js';
+export * from './scan-files.js';
 export * from './runtime.js';
 export * from './route-path.js';
 export * from './socket-contract.js';

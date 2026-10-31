@@ -15,8 +15,9 @@ import { extractSchedules } from './extractors/schedules.js';
 import { extractCommands } from './extractors/commands.js';
 import { extractQueueMessages } from './extractors/queue.js';
 import { declaredDirsOf, isUnderDeclaredDirs, type DirSection } from './extractors/declared-dirs.js';
+import { discoveredBy, type AppDirs, type ScannedEntry } from './extractors/effective-dirs.js';
 
-export interface AnalyzeOptions {
+export interface AnalyzeOptions extends Partial<AppDirs> {
   tsconfig: string;
   packageRoot: string;
   /** Derive JSON Schemas from TypeScript types (default true). */
@@ -27,6 +28,11 @@ export interface AnalyzeOptions {
    * rest is registered by importing the package, or not at all (an opt-in subpath, an abstract base).
    */
   declaredDirsOnly?: boolean;
+  /**
+   * For an app: with `effectiveDirs`, mark a controller, socket controller, schedule, command or migration `mountedBy` unless
+   * a file under those dirs exports it. The dirs map back to the sources through the tsconfig `outDir` and `rootDir`.
+   * Without them nothing is marked.
+   */
 }
 
 const compareSource = (a: SourceRef, b: SourceRef): number => compareCodeUnits(a.file, b.file) || a.line - b.line || a.col - b.col;
@@ -76,9 +82,25 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   const files = [...loaded.sourceFiles].sort((a, b) => compareCodeUnits(a.fileName, b.fileName));
 
   const run = <T extends { source: SourceRef }>(extractor: Extractor<T>): T[] => sortBySource(files.flatMap((f) => extractor(ctx, f)));
+  const outDir = outDirOf(root, loaded.program.getCompilerOptions().outDir);
   const declared = options.declaredDirsOnly ? declaredDirsOf(files, root) : undefined;
-  const scanned = <T extends { source: SourceRef }>(section: DirSection, extractor: Extractor<T>): T[] =>
-    run(extractor).filter((e) => !declared || isUnderDeclaredDirs(e.source.file, section, declared));
+  const { effectiveDirs, defaultDirs, requireAppDirs, runAppRoot } = options;
+  const discovered = effectiveDirs
+    ? discoveredBy(
+        { effectiveDirs, defaultDirs, requireAppDirs, runAppRoot },
+        { root, rootDir: loaded.emitRoot, outDir: resolve(root, outDir) },
+        { checker: loaded.checker, options: loaded.program.getCompilerOptions(), files, packageName: pkg.name },
+        (diagnostic) => ctx.diagnostics.push(diagnostic),
+      )
+    : undefined;
+  const scanned = <T extends ScannedEntry>(section: DirSection, extractor: Extractor<T>): T[] => run(extractor).filter((e) => !declared || isUnderDeclaredDirs(e.source.file, section, declared));
+  const controllers = scanned('controllers', extractControllers);
+  const socketControllers = scanned('socketControllers', extractSocketControllers);
+  const migrations = scanned('migrations', extractMigrations);
+  const schedules = scanned('schedules', extractSchedules);
+  const commands = scanned('commands', extractCommands);
+  discovered?.requireDirs(controllers.length + socketControllers.length + migrations.length + schedules.length + commands.length);
+  const marked = <T extends ScannedEntry>(section: DirSection, entries: T[]): T[] => (discovered ? discovered.filter(section, entries) : entries);
 
   const fragment: ManifestFragment = {
     manifestVersion: MANIFEST_VERSION,
@@ -86,20 +108,21 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
       name: pkg.name,
       version: pkg.version,
       entry: (pkg.main ?? 'lib/index.js').replace(/^\.\//, ''),
-      outDir: outDirOf(root, loaded.program.getCompilerOptions().outDir),
+      outDir,
       configFiles: configFilesOf(root),
     },
     services: sortBySource(mergeById(files.flatMap((f) => extractServices(ctx, f)))),
     values: run(extractValues),
-    controllers: scanned('controllers', extractControllers),
-    socketControllers: scanned('socketControllers', extractSocketControllers),
+    controllers: marked('controllers', controllers),
+    socketControllers: marked('socketControllers', socketControllers),
     socketContracts: run(extractSocketContracts),
     configModules: run(extractConfigModules),
     configUsages: run(extractConfigUsages),
     models: run(extractModels),
-    migrations: scanned('migrations', extractMigrations),
-    schedules: scanned('schedules', extractSchedules),
-    commands: scanned('commands', extractCommands),
+    migrations: marked('migrations', migrations),
+    schedules: marked('schedules', schedules),
+    commands: marked('commands', commands),
+    ...(discovered?.scanFiles.length ? { scanFiles: discovered.scanFiles } : {}),
     queueMessages: run(extractQueueMessages),
     schemas: Object.fromEntries([...Object.entries(ctx.schemas), ...ctx.schemaRegistry].sort(([a], [b]) => compareCodeUnits(a, b))),
     diagnostics: sortDiagnostics(ctx.diagnostics),

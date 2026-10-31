@@ -13,6 +13,8 @@ export interface ManifestRuntimeTypesOptions {
   routes: Iterable<IRoute>;
   /** Read only for a route with an untyped argument: a `@BasePath({ config })` controller reads its configuration. */
   mountPath: () => string;
+  /** The controller's source file, to tell apart classes of the same name. */
+  file?: string;
   log: Log;
 }
 
@@ -22,7 +24,7 @@ export interface ManifestRuntimeTypesOptions {
  * given. Nothing happens without an effective manifest. An argument it cannot type fails the boot in `require` and
  * stays untyped, with a warning, in `prefer`.
  */
-export async function runtimeTypesFromManifest({ container, controller, routes, mountPath, log }: ManifestRuntimeTypesOptions): Promise<void> {
+export async function runtimeTypesFromManifest({ container, controller, routes, mountPath, file, log }: ManifestRuntimeTypesOptions): Promise<void> {
   const effective = effectiveManifestOf(container);
   const manifest = effective?.manifest;
   if (!effective || !manifest) return;
@@ -31,7 +33,7 @@ export async function runtimeTypesFromManifest({ container, controller, routes, 
     const untyped = [...route.Parameters.values()].filter((p) => p.RuntimeType === undefined);
     if (untyped.length === 0) continue;
 
-    const entry = routeEntryOf(manifest, controller, route, mountPath());
+    const entry = routeEntryOf(manifest, controller, route, mountPath(), file);
     for (const param of untyped) {
       const declared = entry?.params.find((p) => p.index === param.Index);
       try {
