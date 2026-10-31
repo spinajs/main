@@ -295,7 +295,7 @@ export function socketHarness(opts: SocketHarnessOptions = {}): BehaviourHarness
         }
       };
       cfg.set('logger', { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
-      cfg.set('db', { DefaultConnection: 'sqlite', Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite' }] });
+      cfg.set('db', { DefaultConnection: 'sqlite', Aliases: { authz: 'sqlite' }, StrictTableCheck: false, Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite' }] });
       cfg.set('http', { socket: structuredClone({ ...socketConfig.http.socket, transports: ['websocket'] }) });
 
       const undo = [testHost.registerInRoot(SocketHttpHost, BehaviourHttpHost), testHost.registerInRoot(SocketPrincipalSource, BehaviourSocketSource)];

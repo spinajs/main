@@ -1,6 +1,5 @@
 [
   "authn-http",
-  "http-socket",
   "internal-logger",
   "teams-http",
   "telemetry",
