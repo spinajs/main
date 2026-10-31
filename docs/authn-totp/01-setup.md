@@ -1,6 +1,6 @@
 # Turning TOTP on
 
-The package lists no MFA step in its own config, so TOTP stays off until the app turns it on. Config arrays concatenate across files: a step the package listed could not be removed by an app.
+The package lists no MFA step in its own config, so TOTP stays off until the app turns it on.
 
 ## How it works
 
@@ -81,7 +81,7 @@ The package ships no table and no migration. `DbMfaSecretStore` writes `authn_mf
 ## Patterns and antipatterns
 
 ```ts
-// Don't: a package config file cannot turn TOTP off again; arrays concatenate across config files
+// Don't: every app that loads a shared config file and sets no steps of its own gets TOTP
 // (shared-config/authn.ts, loaded by several apps)
 const shared = { authn: { mfa: { steps: [{ name: 'totp', service: 'TotpMfaStep' }] } } };
 

@@ -5,7 +5,7 @@ The package ships a config file that adds its compiled `cli` directory to `syste
 ## How it works
 
 1. `@spinajs/configuration` loads `node_modules/@spinajs/orm-cli/lib/config/orm-cli.js` with every other `@spinajs/*` config file.
-2. Its default export appends two directories to `system.dirs.cli`; arrays merge by concatenation, so the entries of `@spinajs/cli` and your application stay.
+2. Its default export appends two directories to `system.dirs.cli`; `system.dirs.*` arrays concatenate, so the entries of `@spinajs/cli` and your application stay.
 3. `Cli.resolve()` lists every exported class of every file in those directories and keeps the ones decorated with `@Command`. See [`@spinajs/cli`: command discovery](../cli/05-command-discovery.md).
 4. `Cli` reads the `@Command` and `@Option` metadata of each kept class and builds the commander command. It resolves the class from DI only when the command is invoked.
 

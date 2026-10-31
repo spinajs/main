@@ -22,7 +22,7 @@ At boot:
 | --- | --- | --- | --- | --- |
 | `authz.rbac.defaultRoles` | `string[]` | unset: no roles | assignable roles defined in a `RoleStore`, allowed at GLOBAL | Roles of a user created without explicit roles. |
 
-users ships no `defaultRoles` (or `anonymousRoles`): config arrays are concatenated on merge, so a shipped list could not be removed by the application.
+users ships no `defaultRoles` (or `anonymousRoles`), so a new user gets no role until the application lists one.
 
 ```ts
 // config/authz.ts in your app

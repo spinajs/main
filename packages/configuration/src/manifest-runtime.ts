@@ -75,30 +75,25 @@ export function activeManifestOf(container: IContainer): Manifest | undefined {
   return mode === 'off' ? undefined : manifestOf(container);
 }
 
-/** The app's own config dirs, in merge order; package config files merge between the two lists. */
-export interface ProjectConfigDirs {
-  beforePackages: string[];
-  afterPackages: string[];
-}
-
-export function projectConfigDirs(cwd: string, runApp?: string, appBaseDir?: string, customPaths?: string[]): ProjectConfigDirs {
+/** The app's own config dirs, in merge order. */
+export function projectConfigDirs(cwd: string, runApp?: string, appBaseDir?: string, customPaths?: string[]): string[] {
   const root = resolve(cwd);
-  const afterPackages = ['lib/config', 'dist/config', 'build/config', 'config'].map((d) => normalize(join(root, d)));
+  const dirs = ['src/config', 'lib/config', 'dist/config', 'build/config', 'config'].map((d) => normalize(join(root, d)));
 
   if (runApp) {
     if (appBaseDir) {
-      afterPackages.push(join(appBaseDir, `/${runApp}/config`));
+      dirs.push(join(appBaseDir, `/${runApp}/config`));
     }
     for (const prefix of ['', '/dist', '/lib', '/build']) {
-      afterPackages.push(join(cwd, `${prefix}/apps/${runApp}/config`));
+      dirs.push(join(cwd, `${prefix}/apps/${runApp}/config`));
     }
   }
 
   if (customPaths) {
-    afterPackages.push(...customPaths);
+    dirs.push(...customPaths);
   }
 
-  return { beforePackages: [normalize(join(root, 'src', '/config'))], afterPackages };
+  return dirs;
 }
 
 /** Without a manifest only this scope is globbed ( `node_modules/@spinajs/*` ), so only it is loaded with one. */

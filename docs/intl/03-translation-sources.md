@@ -51,7 +51,7 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | `system.dirs.locales` | `string[]` | `[]` in code; `@spinajs/http` and `@spinajs/users-http` add their own `lib/locales` directories | Absolute directory paths | Directories the file sources scan recursively |
 
-Configuration arrays from several files are concatenated, so your directory is added to the package directories, not substituted for them (see [Config files](../configuration/03-config-files.md)).
+`system.dirs.*` arrays concatenate, so your directory is added to the package directories, not substituted for them (see [Config files](../configuration/03-config-files.md)).
 
 ```ts
 import { join } from 'path';

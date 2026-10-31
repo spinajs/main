@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { BaseFileSource } from '@spinajs/configuration';
-import type { IConfigLike } from '@spinajs/configuration';
+import type { ConfigFile, IConfigLike } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import _ from 'lodash';
 
@@ -37,7 +37,7 @@ export interface ConfigLayers {
   view(env: string | null): Plain;
 }
 
-// The same customizer as @spinajs/configuration's mergeArrays: arrays concatenate across files.
+// The 3.x loader's customizer: arrays concatenate across files.
 export const mergeArrays = (target: unknown, source: unknown): unknown => (Array.isArray(target) ? target.concat(source) : undefined);
 
 export const mergeLayers = (...layers: Plain[]): Plain => layers.reduce((acc: Plain, l) => _.mergeWith(acc, _.cloneDeep(l), mergeArrays) as Plain, {});
@@ -69,6 +69,11 @@ class LayerSource extends BaseFileSource {
     // The app's own config dirs only: package defaults come from the 3.0 packages after the upgrade.
     this.CommonDirs = [...dirs];
     this.BasePath = '';
+  }
+
+  // The files were written for the 3.x loader, which concatenated the arrays of every file.
+  protected configFiles(extension: string): ConfigFile[] {
+    return super.configFiles(extension).map((f) => ({ ...f, arrays: 'concat' }));
   }
 
   public Load(): Promise<IConfigLike> {

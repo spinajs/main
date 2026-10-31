@@ -94,7 +94,8 @@ The worker re-bootstraps the app configuration by default (it runs in the app's
 config environment: same config sources / cwd, so it resolves the same
 `templates.pdf` launch args and fs providers). For environments where that is not
 possible, pass an inline `config` object in the payload: it is deep-merged over the
-loaded configuration (arrays are concatenated), it does not replace it.
+loaded configuration as `onLoad()` (a value array replaces the loaded one, `fs.providers`
+and the other composed arrays are added to), it does not replace it.
 
 The worker only loads `@spinajs/fs` itself, so it supports the `fsNative` and `fsTemp`
 providers. Providers from other packages (`fsS3`, `fsFTP`, `fsOneDrive`) need a

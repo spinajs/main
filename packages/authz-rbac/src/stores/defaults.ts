@@ -2,8 +2,7 @@ import type { Configuration } from '@spinajs/configuration';
 
 export type RbacStoreKind = 'roles' | 'assignments' | 'rules' | 'links' | 'membership';
 
-// Kept in code, not in the config fragment: fragment arrays concatenate with the app's, so a default
-// listed there could never be removed and would appear twice when the app names it too.
+// Kept in code, not in the config fragment: the membership default follows the assignment store the app names.
 export const RBAC_STORE_DEFAULTS: Readonly<Record<RbacStoreKind, readonly string[]>> = Object.freeze({
   roles: Object.freeze(['ConfigRoleStore']),
   assignments: Object.freeze(['DbAssignmentStore']),

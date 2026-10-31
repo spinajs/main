@@ -130,7 +130,7 @@ Exported helpers: `compileRoles(roles, ladders, opts)` returns a `RoleGraph`; `a
 ## Important behaviour
 
 - **Boot fails closed.** Every malformed role, grant, pattern or field set throws `AuthzConfigError` (or `UnknownPermission`) at boot and names the role and its source.
-- **Config arrays concatenate.** Package fragments add roles and grants; an app cannot drop a fragment's grant by redefining the role, so use `revoke`.
+- **Role arrays concatenate.** Package fragments add roles and grants; an app cannot drop a fragment's grant by redefining the role, so use `revoke`.
 - **Union of roles (H1).** Effective permissions are the union of all live assignments' grants. No role shadows another, except a deny role.
 - **Assignments of unknown roles are ignored** and logged once per role. Assignments that break `assignable` or `scopeTypes` (rows written before the role changed) are ignored and logged once per row.
 - **Reload fails closed.** When reloaded roles do not compile, RBAC votes fail until a reload succeeds; the model does not keep the last good graph.

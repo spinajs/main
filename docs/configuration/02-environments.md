@@ -103,7 +103,7 @@ export default { db: { Connections: [{ Name: 'main', Driver: 'orm-driver-sqlite'
 export default { db: { Connections: [{ Name: 'main', Driver: 'orm-driver-mysql', Host: 'db.internal' }] } };
 ```
 
-`db.Connections` is an array, so the environment file appends its connection to the shared, empty list.
+`db.Connections` is an array, so the environment file's list replaces the shared, empty one (see [Arrays](01-configuration-service.md#arrays)).
 
 ## Related
 

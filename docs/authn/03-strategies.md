@@ -80,7 +80,7 @@ authn: {
 }
 ```
 
-List the strategies in one config file of the app. Config arrays concatenate across files, so no package lists one.
+List the strategies in one config file of the app; no package lists one. A later app config file that sets `authn.strategies` replaces the list (see [Arrays](../configuration/01-configuration-service.md#arrays)).
 
 ## Services and extension points
 

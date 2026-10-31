@@ -101,13 +101,33 @@ describe('BaseFileSource node_modules lookup', () => {
 });
 
 class LoadProbe extends BaseFileSource {
-  public loadFrom(dirs: string[]): Promise<{ files?: string[] }> {
+  // The __file__ trail of a section concatenates across every file, so it lists the files in merge order.
+  public async loadFrom(dirs: string[]): Promise<{ files?: string[] }> {
     this.CommonDirs = dirs;
-    return this.load('!(*.*).{cjs,js}', (file) => Promise.resolve({ files: [file] } as unknown as IConfigLike));
+    const loaded = (await this.load('!(*.*).{cjs,js}', (file) => Promise.resolve({ probe: { __file__: [file] } } as unknown as IConfigLike))) as { probe?: { __file__?: string[] } };
+    return { files: loaded.probe?.__file__ };
   }
 
   public Load(): Promise<IConfigLike> {
     return Promise.resolve({} as IConfigLike);
+  }
+}
+
+// CommonDirs is an extension point: a subclass may override the getter instead of assigning it.
+class GetterProbe extends BaseFileSource {
+  public static dirs: string[] = [];
+
+  protected get CommonDirs(): string[] {
+    return GetterProbe.dirs;
+  }
+
+  public Load(): Promise<IConfigLike> {
+    return Promise.resolve({} as IConfigLike);
+  }
+
+  public async files(): Promise<string[] | undefined> {
+    const loaded = (await this.load('!(*.*).{cjs,js}', (file) => Promise.resolve({ probe: { __file__: [file] } } as unknown as IConfigLike))) as { probe?: { __file__?: string[] } };
+    return loaded.probe?.__file__;
   }
 }
 
@@ -120,6 +140,15 @@ describe('BaseFileSource config file discovery', () => {
 
   afterEach(() => {
     fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('honours a subclass that overrides the CommonDirs getter', async () => {
+    const own = join(tmp, 'own', 'config');
+    fs.mkdirSync(own, { recursive: true });
+    fs.writeFileSync(join(own, 'own.js'), 'export default {};\n');
+    GetterProbe.dirs = [own];
+
+    expect(await new GetterProbe().files()).to.deep.equal([join(own, 'own.js')]);
   });
 
   // A workspace package's own lib/config is also reached through node_modules/@spinajs/<pkg>, a symlink.

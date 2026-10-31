@@ -47,8 +47,7 @@ login gets an `aal1` session. A step takes part only when both hold:
 
 1. its class is registered under `MfaStep` (`@Injectable(MfaStep)` in a
    package the app imports), and
-2. the app lists it in `authn.mfa.steps`. Packages never list a step, since
-   arrays concatenate across config files.
+2. the app lists it in `authn.mfa.steps`. Packages never list a step.
 
 | Step | Name | Package | Notes |
 | --- | --- | --- | --- |
@@ -126,8 +125,7 @@ Rules the list is held to:
 
 - The entry `name` must equal the step's own `name`. `recovery` is reserved
   and the schema refuses it.
-- Names are unique. Arrays concatenate across config files, so a package
-  never lists a step itself; the app does.
+- Names are unique. A package never lists a step itself; the app does.
 - The service is found by class name in the container and its ancestors,
   nearest first.
 - A step that keeps secrets (TOTP seeds, for example) sets

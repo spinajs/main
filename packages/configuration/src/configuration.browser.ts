@@ -14,7 +14,7 @@ import {
 } from '@spinajs/configuration-common';
 import { Autoinject, Class, Container, Injectable } from '@spinajs/di';
 
-import { mergeArrays, mapObject } from './util-common.js';
+import { mergeConfig, mergeInto, mapObject } from './util-common.js';
 
 /**
  * Browser variant of FrameworkConfiguration.
@@ -24,8 +24,7 @@ import { mergeArrays, mapObject } from './util-common.js';
  *  - config comes exclusively from DI-registered `ConfigurationSource`s
  *    ( eg. StaticConfigurationSource ) and the `__configuration__` DI seam
  *  - no file loading, no schema validation, no CLI-arg / env-var probing
- *  - runtime overrides via `set` / `merge` or another `__configuration__` value
- *    followed by `load()`
+ *  - runtime overrides via `set` / `merge`; a `__configuration__` value is a default
  */
 @Injectable(Configuration)
 export class BrowserFrameworkConfiguration extends Configuration {
@@ -58,7 +57,7 @@ export class BrowserFrameworkConfiguration extends Configuration {
   }
 
   public merge(path: string[] | string, value: unknown) {
-    _.mergeWith(this.get(path), value, mergeArrays);
+    mergeInto(this.get(path), value);
   }
 
   public async resolve(): Promise<void> {
@@ -85,31 +84,30 @@ export class BrowserFrameworkConfiguration extends Configuration {
     this.Sources.push(source);
 
     if (sCfg) {
-      _.mergeWith(this.Config, sCfg, mergeArrays);
+      mergeConfig(this.Config, sCfg, 'replace');
     }
   }
 
   public async load() {
     this.Config = {};
 
+    /**
+     * The '__configuration__' seam: package defaults of modules without config files, below
+     * every source and onLoad(). Root-level merge ( not per-key this.merge ) so keys that don't
+     * exist in the config yet are still applied — merge() into a missing key is a no-op.
+     */
+    this.Container.resolve(Array.ofType<IConfigLike>(CONFIGURATION_SOURCES.key)).forEach((c: IConfigLike) => {
+      mergeConfig(this.Config, c, 'concat');
+    });
+
     for (const source of this.Sources) {
       const rCfg = await source.Load(this);
       if (rCfg) {
-        _.mergeWith(this.Config, rCfg, mergeArrays);
+        mergeConfig(this.Config, rCfg, 'replace');
       }
     }
 
-    _.mergeWith(this.Config, this.onLoad(), mergeArrays);
-
-    /**
-     * Merge from DI container ( '__configuration__' seam )
-     * eg. when custom modules have config and dont want to use files.
-     * Root-level merge ( not per-key this.merge ) so keys that don't exist in
-     * the config yet are still applied — merge() into a missing key is a no-op.
-     */
-    this.Container.resolve(Array.ofType<IConfigLike>(CONFIGURATION_SOURCES.key)).forEach((c: IConfigLike) => {
-      _.mergeWith(this.Config, c, mergeArrays);
-    });
+    mergeConfig(this.Config, this.onLoad(), 'replace');
 
     /**
      * Each object in config replace with proxy to handle lazy ConfigVars.
