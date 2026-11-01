@@ -1,9 +1,10 @@
-import { AsyncService, Autoinject, Container } from '@spinajs/di';
+import { AsyncService, Autoinject, Container, DI } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { OrmException } from './exceptions.js';
 import { OrmMigration } from './interfaces.js';
 import { IMigrationUpOptions, MigrationRunner } from './migration-runner.js';
 import type { Orm } from './orm.js';
+import { ORM_MIGRATOR_CLASS } from './tokens.js';
 
 /** What `DI.resolve(OrmMigrator, [ ... ])` hands the migrator: a property of the process, not of the deployment. */
 export interface IOrmMigratorOptions {
@@ -141,3 +142,6 @@ export class OrmMigrator extends AsyncService {
     }
   }
 }
+
+// A value, not a registration of the class: the Orm resolves it in its own container, as an unregistered class.
+DI.register(OrmMigrator).asValue(ORM_MIGRATOR_CLASS.key);

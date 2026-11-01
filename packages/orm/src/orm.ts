@@ -16,8 +16,8 @@ import { TimeSpan } from '@spinajs/util';
 import { MIGRATION_FILE_REGEXP } from './migration-runner.js';
 import { MIGRATION_DI_SOURCE, mergeMigrationEnv, resolveMigrationEnv } from './migration-environment.js';
 import { MigrationSource } from './migration-sources.js';
-import { OrmMigrator } from './migrator.js';
-import { MODELS, ORM_DB_VALUE_CONVERTERS } from './tokens.js';
+import type { OrmMigrator } from './migrator.js';
+import { MODELS, ORM_DB_VALUE_CONVERTERS, ORM_MIGRATOR_CLASS } from './tokens.js';
 
 /**
  * Used to exclude sensitive data to others. eg. removed password field from cfg
@@ -252,7 +252,7 @@ export class Orm extends AsyncService {
     this.registerDefaultConverters();
 
     // A migration tool resolves its migrator ( MigrateOnStartup: false ) first, and the Orm picks that one up.
-    this.Migrator = await this.Container.resolve(OrmMigrator);
+    this.Migrator = await this.Container.resolve(migratorClass(this.Container));
 
     try {
       // before the table read, so it reads the migrated schema
@@ -522,12 +522,20 @@ export class Orm extends AsyncService {
   }
 }
 
+function migratorClass(container: IContainer): Class<OrmMigrator> {
+  const type = container.get(ORM_MIGRATOR_CLASS);
+  if (!type) {
+    throw new OrmException('OrmMigrator is not registered: import @spinajs/orm itself, not one of its files');
+  }
+  return type;
+}
+
 /**
  * A migration tool's boot ( `@spinajs/orm-cli`, deploy gates ): the migrator without its startup migrations, then the
  * Orm, which picks that migrator up, applies nothing and skips its `db.StrictTableCheck` check.
  */
 export async function resolveMigrationTool(container: IContainer = DI.RootContainer): Promise<OrmMigrator> {
-  const migrator = await container.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+  const migrator = await container.resolve(migratorClass(container), [{ MigrateOnStartup: false }]);
   await container.resolve(Orm);
   return migrator;
 }
