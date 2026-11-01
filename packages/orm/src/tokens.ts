@@ -2,7 +2,6 @@ import { Class, Constructor, token } from '@spinajs/di';
 import type { ModelBase } from './model.js';
 import type { Relation } from './relation-objects.js';
 import type { OrmMigration, ValueConverter } from './interfaces.js';
-import type { OrmMigrator } from './migrator.js';
 
 type RelationType = Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>, typeof ModelBase<ModelBase<unknown>>>>;
 
@@ -11,9 +10,6 @@ export const MODELS = token<ModelBase>('__models__');
 
 /** Migration classes registered by `@Migration`. */
 export const MIGRATIONS = token<OrmMigration>('__migrations__');
-
-/** The `OrmMigrator` class, for orm.ts: the migrator reaches orm.ts through its runner, so an import there would close a cycle. */
-export const ORM_MIGRATOR_CLASS = token<Class<OrmMigrator>>('__orm_migrator_class__');
 
 /** Resolve with `[ModelClass]` to get the model instance factory result. */
 export const ORM_MODEL_FACTORY = token<ModelBase>('__orm_model_factory__');
