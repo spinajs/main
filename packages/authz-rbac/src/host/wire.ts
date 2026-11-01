@@ -37,7 +37,7 @@ const instance =
  *   or assignments store, too many stores of a kind, two rule stores of one sort, or `authz.rbac.rules` with no
  *   ConfigRuleStore to read them
  */
-export async function rbacStoreOptions(container: IContainer, configuration: Pick<Configuration, 'get'>, opts: RegisterRbacOptions = {}): Promise<RbacModelOptions> {
+function checkStoreNames(container: IContainer, configuration: Pick<Configuration, 'get'>): void {
   const count = (kind: RbacStoreKind, min: number, max: number): void => {
     const n = rbacStoreNames(configuration, kind).length;
     if (n > max) throw new AuthzConfigError(`authz.rbac.stores.${kind}: the RBAC model reads ${max === 1 ? 'one store' : `${max} stores at most`}, not ${n}`);
@@ -56,19 +56,28 @@ export async function rbacStoreOptions(container: IContainer, configuration: Pic
   const inMemory = ruleNames
     .map((n) => storeClass(container, n))
     .filter((c) => c !== undefined)
-    .map((c) => typeof c.prototype.rulesOn === 'function' && typeof c.prototype.all === 'function');
+    .map((c) => c.prototype as Partial<Record<'rulesOn' | 'all', unknown>>)
+    .map((p) => typeof p.rulesOn === 'function' && typeof p.all === 'function');
   if (inMemory.filter((m) => m).length > 1 || inMemory.filter((m) => !m).length > 1) throw new AuthzConfigError(`authz.rbac.stores.rules: one in-memory store and one other at most (ConfigRuleStore, DbRuleStore), not ${JSON.stringify(ruleNames)}`);
+}
+
+export async function rbacStoreOptions(container: IContainer, configuration: Pick<Configuration, 'get'>, opts: RegisterRbacOptions = {}): Promise<RbacModelOptions> {
+  checkStoreNames(container, configuration);
   registerRbacStores(container, configuration);
 
   // Only what registerRbacStores put here: a parent's store must not slip in for a kind the config turned off.
-  const store = async <T>(token: Class<T>): Promise<T | undefined> => (container.hasRegistered(token, false) ? ((await container.resolve(token)) as T) : undefined);
+  const store = async <T>(token: Class<T>): Promise<T | undefined> => {
+    if (!container.hasRegistered(token, false)) return undefined;
+    const resolved: unknown = await container.resolve(token);
+    return resolved as T;
+  };
   // The chain resolves this container's registrations here; a parent's other rule stores are left out.
   const own = new Set<unknown>(container.Registry.getTypes(RuleStore, false) ?? []);
-  const rules = own.size > 0 ? ((await container.resolve(Array.chainOf(RuleStore))) as RuleStore[]).filter((s) => own.has(s.constructor)) : [];
+  const rules = own.size > 0 ? (await container.resolve<RuleStore>(Array.chainOf(RuleStore))).filter((s) => own.has(s.constructor)) : [];
   ruleStoreParts(rules);
   const links = await store(LinkStore);
   // Registered by registerRbacStores, possibly in a parent container.
-  const membership = container.hasRegistered(MembershipStore) ? ((await container.resolve(MembershipStore)) as MembershipStore) : undefined;
+  const membership = container.hasRegistered(MembershipStore) ? await container.resolve<MembershipStore>(MembershipStore) : undefined;
   const options: RbacModelOptions = {
     roles: (await store(RoleStore))!,
     assignments: (await store(AssignmentStore))!,
