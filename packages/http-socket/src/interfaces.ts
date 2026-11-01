@@ -250,6 +250,8 @@ export interface ISocketControllerDescriptor {
   Handlers: Map<string | symbol, ISocketHandlerDescriptor>;
   /** Set by `@SocketController(prefix, { contract })`; checked against the manifest when `system.manifest.mode` is not `off` */
   Contract?: SocketContract<ContractShape>;
+  /** Set by `@SocketController`; tells apart classes of the same name and prefix in the manifest. */
+  SourceFile?: string;
 }
 
 export interface IRegisteredHandler {

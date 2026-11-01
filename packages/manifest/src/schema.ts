@@ -100,6 +100,12 @@ export const manifestSchema: Record<string, any> = {
             "$ref": "#/definitions/QueueMessageEntry"
           }
         },
+        "scanFiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ScanFile"
+          }
+        },
         "schemas": {
           "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"
         },
@@ -167,6 +173,9 @@ export const manifestSchema: Record<string, any> = {
               "fragment"
             ]
           }
+        },
+        "buildEnv": {
+          "type": "string"
         },
         "generatedAt": {
           "type": "string"
@@ -507,6 +516,9 @@ export const manifestSchema: Record<string, any> = {
         "condition": {
           "$ref": "#/definitions/Condition"
         },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -761,6 +773,10 @@ export const manifestSchema: Record<string, any> = {
         "field"
       ]
     },
+    "MountedBy": {
+      "type": "string",
+      "const": "di"
+    },
     "SocketControllerEntry": {
       "type": "object",
       "properties": {
@@ -823,6 +839,12 @@ export const manifestSchema: Record<string, any> = {
               "index"
             ]
           }
+        },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
+        "exported": {
+          "$ref": "#/definitions/NotExported"
         },
         "source": {
           "$ref": "#/definitions/SourceRef"
@@ -902,6 +924,10 @@ export const manifestSchema: Record<string, any> = {
         "policies",
         "source"
       ]
+    },
+    "NotExported": {
+      "type": "boolean",
+      "const": false
     },
     "SocketContractEntry": {
       "type": "object",
@@ -1130,6 +1156,12 @@ export const manifestSchema: Record<string, any> = {
         "file": {
           "type": "string"
         },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
+        "exported": {
+          "$ref": "#/definitions/NotExported"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -1153,6 +1185,12 @@ export const manifestSchema: Record<string, any> = {
         },
         "options": {
           "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"
+        },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
+        "exported": {
+          "$ref": "#/definitions/NotExported"
         },
         "source": {
           "$ref": "#/definitions/SourceRef"
@@ -1218,6 +1256,9 @@ export const manifestSchema: Record<string, any> = {
         "parent": {
           "type": "string"
         },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -1259,6 +1300,31 @@ export const manifestSchema: Record<string, any> = {
         "payload",
         "options",
         "source"
+      ]
+    },
+    "ScanFile": {
+      "type": "object",
+      "properties": {
+        "section": {
+          "$ref": "#/definitions/ManifestSection"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "section",
+        "source"
+      ]
+    },
+    "ManifestSection": {
+      "type": "string",
+      "enum": [
+        "controllers",
+        "socketControllers",
+        "schedules",
+        "commands",
+        "migrations"
       ]
     },
     "Diagnostic": {
@@ -1412,6 +1478,12 @@ export const manifestSchema: Record<string, any> = {
           "type": "array",
           "items": {
             "$ref": "#/definitions/QueueMessageEntry"
+          }
+        },
+        "scanFiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ScanFile"
           }
         },
         "schemas": {

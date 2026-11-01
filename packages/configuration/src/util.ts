@@ -17,6 +17,11 @@ export { merge, mergeArrays, mergeConfig, mergeInto, mapObject, pickString, pick
 declare let jasmine: never;
 
 export function parseArgv(param: string): string | undefined {
+  const inline = process.argv.find((arg) => arg.startsWith(`${param}=`));
+  if (inline !== undefined) {
+    return inline.slice(param.length + 1);
+  }
+
   const index = process.argv.indexOf(param);
 
   if (index === -1 || process.argv.length <= index + 1) {

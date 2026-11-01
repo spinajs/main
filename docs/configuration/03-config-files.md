@@ -96,6 +96,8 @@ export default {
 };
 ```
 
+`defaultMigrationDirs(cwd?)` returns the dirs `FilesystemMigrationSource` of `@spinajs/orm` scans while `system.dirs.migrations` is empty: `migrations` under `src`, `lib`, `dist`, `build` and the working directory.
+
 `mergeConfig(target, source, arrays)` is the merge the sources use (`concat`, or `replace` except for the paths in `COMPOSED_CONFIG_ARRAYS`, which `isComposedConfigArray(path)` checks). `merge(to, from)` and `mergeArrays` are exported too: `merge` deep-merges in place and unions arrays; `mergeArrays` is a `_.mergeWith` customizer that concatenates arrays.
 
 ## Services and extension points

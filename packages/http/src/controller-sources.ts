@@ -1,6 +1,6 @@
 import { AsyncService, Autoinject, ClassInfo, Class, Container, DI, IContainer, Injectable } from '@spinajs/di';
 import { effectiveManifestOf } from '@spinajs/configuration';
-import { ListFromFiles } from '@spinajs/reflection';
+import { ListFromFiles, SCAN_GLOB } from '@spinajs/reflection';
 import { BaseController } from './base-controller.js';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
 import { IControllerDescriptor } from './interfaces.js';
@@ -25,7 +25,7 @@ export abstract class ControllerSource extends AsyncService {
  */
 @Injectable(ControllerSource)
 export class FilesystemControllerSource extends ControllerSource {
-  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.controllers')
+  @ListFromFiles(SCAN_GLOB, 'system.dirs.controllers')
   public Controllers!: Promise<Array<ClassInfo<BaseController>>>;
 
   @Autoinject(Container)

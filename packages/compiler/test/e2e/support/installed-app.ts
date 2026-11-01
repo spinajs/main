@@ -49,6 +49,8 @@ export interface ProbeResult {
   commands: string[];
   socketCommands: string[];
   socketReplies: SocketReply[];
+  /** Only with a manifest: a scan-only boot has no derived validation to prove */
+  validation: Record<string, { status: number; body: unknown }>;
 }
 
 /** Whether the workspace packages were built with their manifest fragments, which the installed app links to. */
@@ -75,11 +77,30 @@ export interface InstalledApp {
 export interface AppExtras {
   /** Extra files of the app, by path relative to its root */
   sources?: Record<string, string>;
+  /** Files copied inside the app before it compiles, by paths relative to its root */
+  copies?: Array<[from: string, to: string]>;
   /** Extra packages the app depends on */
   dependencies?: string[];
   /** Overrides the fixture's tsconfig; false builds the app without decorator metadata */
   emitDecoratorMetadata?: boolean;
+  /** Sources under src/, without extension, emitted again as with `emitDecoratorMetadata: false` */
+  withoutMetadata?: string[];
+  /** Hands the build the app's own dirs, as `spinajs build` does */
+  appDirs?: boolean;
 }
+
+/** One file built as with `emitDecoratorMetadata: false`: its argument types can only come from the manifest. */
+function dropDecoratorMetadata(root: string, file: string): void {
+  const read = ts.readConfigFile(join(root, 'tsconfig.json'), (f) => ts.sys.readFile(f));
+  const { options } = ts.parseJsonConfigFileContent(read.config, ts.sys, root);
+  const { outputText } = ts.transpileModule(readFileSync(join(root, 'src', `${file}.ts`), 'utf8'), { compilerOptions: { ...options, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, emitDecoratorMetadata: false, declaration: false } });
+  writeFileSync(join(root, 'lib', `${file}.js`), outputText);
+}
+
+const writeInto = (root: string, file: string, content: string): void => {
+  mkdirSync(dirname(join(root, file)), { recursive: true });
+  writeFileSync(join(root, file), content);
+};
 
 /** app-basic as a deployment lays it out: its own lib/ and a node_modules holding only the packages it depends on. */
 export async function installApp(tmp: string, extras: AppExtras = {}): Promise<InstalledApp> {
@@ -87,9 +108,12 @@ export async function installApp(tmp: string, extras: AppExtras = {}): Promise<I
   rmSync(tmp, { recursive: true, force: true });
   mkdirSync(root, { recursive: true });
   cpSync(join(APP, 'src'), join(root, 'src'), { recursive: true });
-  const emitDecoratorMetadata = extras.emitDecoratorMetadata ?? true;
-  writeFileSync(join(root, 'tsconfig.json'), readFileSync(join(APP, 'tsconfig.json'), 'utf8').replace('"emitDecoratorMetadata": true', `"emitDecoratorMetadata": ${String(emitDecoratorMetadata)}`));
-  for (const [file, content] of Object.entries(extras.sources ?? {})) writeFileSync(join(root, file), content);
+  const tsconfig = JSON.parse(readFileSync(join(APP, 'tsconfig.json'), 'utf8')) as { compilerOptions: object; include: string[] };
+  const metadata = extras.emitDecoratorMetadata === undefined ? {} : { emitDecoratorMetadata: extras.emitDecoratorMetadata };
+  const compilerOptions = { ...tsconfig.compilerOptions, resolveJsonModule: true, ...metadata };
+  writeFileSync(join(root, 'tsconfig.json'), JSON.stringify({ ...tsconfig, compilerOptions, include: [...tsconfig.include, 'src/**/*.json'] }));
+  for (const [file, content] of Object.entries(extras.sources ?? {})) writeInto(root, file, content);
+  for (const [from, to] of extras.copies ?? []) writeInto(root, to, readFileSync(join(root, from), 'utf8'));
 
   // pkg-basic is another fixture package that is not built here, and only the app's entry point imports it
   const pkg = JSON.parse(readFileSync(join(APP, 'package.json'), 'utf8')) as { dependencies: Record<string, string> };
@@ -100,11 +124,14 @@ export async function installApp(tmp: string, extras: AppExtras = {}): Promise<I
   rmSync(join(root, 'src', 'index.ts'));
 
   compileApp(root);
+  for (const file of extras.withoutMetadata ?? []) dropDecoratorMetadata(root, file);
   mkdirSync(join(root, 'lib', 'config'), { recursive: true });
   writeFileSync(join(root, 'lib', 'config', 'e2e.js'), E2E_CONFIG);
 
   const manifestPath = join(root, 'app.manifest.json');
-  const { manifest } = await buildAppManifest({ tsconfig: join(root, 'tsconfig.json'), appRoot: root, out: manifestPath });
+  const built = (name: string): string[] => [join(root, 'lib', name)];
+  const effectiveDirs = extras.appDirs ? { controllers: built('controllers'), migrations: built('migrations'), schedules: built('schedules'), cli: built('commands'), socketControllers: built('socket') } : undefined;
+  const { manifest } = await buildAppManifest({ tsconfig: join(root, 'tsconfig.json'), appRoot: root, out: manifestPath, effectiveDirs });
   for (const { name } of manifest.packages) {
     const link = join(root, 'node_modules', name);
     mkdirSync(dirname(link), { recursive: true });

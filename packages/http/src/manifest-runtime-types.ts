@@ -5,15 +5,15 @@ import type { Log } from '@spinajs/log';
 import { resolveTypeRef, type ParamEntry } from '@spinajs/manifest';
 import { routeParamSchemaFor } from './decorators.js';
 import type { IRoute, IRouteParameter } from './interfaces.js';
-import { describes, routeEntryOf } from './route-args/manifest-schema.js';
+import { describes, routeEntryOf, type LineageClass } from './route-args/manifest-schema.js';
 
 type Routes = Map<string | symbol, IRoute>;
 
 export interface ManifestRuntimeTypesOptions {
   container: IContainer;
   controller: string;
-  /** The controller's class names, its own first: a route may be inherited. */
-  lineage: readonly string[];
+  /** The controller's class and its bases, its own first: a route may be inherited. */
+  lineage: readonly LineageClass[];
   routes: Routes;
   /** Read only for a route with an untyped argument: a `@BasePath({ config })` controller reads its configuration. */
   mountPath: () => string;

@@ -4,9 +4,10 @@ import { Autoinject, Container, Injectable, type IContainer } from '@spinajs/di'
 import { Configuration, effectiveManifestOf, type EffectiveManifest } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
+import type { LineageClass } from '@spinajs/http';
 import { SocketException } from '@spinajs/http-socket-common';
 import { manifestSchemaKey, manifestValidatorOf, prepareManifestSchemas, sanitizeError, schemaOfClass, type IValidationError } from '@spinajs/validation';
-import { authoritativeSchema, checkSocketContract, loadRuntimeManifest, resolveTypeRef, type Manifest, type ManifestMode, type SocketContractEntry, type SocketControllerEntry, type TypeRef } from '@spinajs/manifest';
+import { authoritativeSchema, checkSocketContract, loadRuntimeManifest, ownEntries, resolveTypeRef, type Manifest, type ManifestMode, type SocketContractEntry, type SocketControllerEntry, type TypeRef } from '@spinajs/manifest';
 import { FromDiArg, PayloadArg } from './args.js';
 import type { IRegisteredHandler, ISocketControllerDescriptor, ISocketHandlerDescriptor, ISocketParameter } from './interfaces.js';
 
@@ -82,12 +83,12 @@ const payloadOf = (entry: SocketControllerEntry | undefined, handler: ISocketHan
   handler.Kind === 'command' ? entry?.commands.find((c) => c.handler === String(handler.Method))?.payload : entry?.events.find((e) => e.name === handler.Name)?.payload;
 
 /** A subclass serves the handlers of its bases, and the manifest lists each on the class that declares it. */
-function withInherited(manifest: Manifest, entry: SocketControllerEntry, lineage: readonly string[]): SocketControllerEntry {
+function withInherited(manifest: Manifest, entry: SocketControllerEntry, lineage: readonly LineageClass[]): SocketControllerEntry {
   const merged = { ...entry, commands: [...entry.commands], events: [...entry.events], diArgs: [...(entry.diArgs ?? [])] };
   const listed = [...manifest.socketControllers, ...(manifest.socketControllerBases ?? [])];
 
-  for (const className of lineage.slice(1)) {
-    const named = listed.filter((c) => c.className === className);
+  for (const { name, file } of lineage.slice(1)) {
+    const named = ownEntries(listed.filter((c) => c.className === name), { file }, manifest);
     if (named.length !== 1) continue;
 
     const [base] = named;
@@ -179,7 +180,7 @@ export class SocketContractEnforcer {
     return { settings, manifest: this.cached.manifest };
   }
 
-  public bind(controllerName: string, descriptor: ISocketControllerDescriptor, commands: IRegisteredHandler[], events: IRegisteredHandler[], lineage: readonly string[] = [controllerName]): void {
+  public bind(controllerName: string, descriptor: ISocketControllerDescriptor, commands: IRegisteredHandler[], events: IRegisteredHandler[], lineage: readonly LineageClass[] = [{ name: controllerName, file: descriptor.SourceFile }]): void {
     const manifest = this.manifest();
     if (!manifest) return;
 
@@ -209,12 +210,12 @@ export class SocketContractEnforcer {
    * what the boot must use from here on; it is `descriptor` itself when nothing was missing. An argument the manifest
    * cannot type fails the boot in `require` and stays untyped, with a logged error, otherwise.
    */
-  public async runtimeTypes(controllerName: string, descriptor: ISocketControllerDescriptor, lineage: readonly string[] = [controllerName]): Promise<ISocketControllerDescriptor> {
+  public async runtimeTypes(controllerName: string, descriptor: ISocketControllerDescriptor, lineage: readonly LineageClass[] = [{ name: controllerName, file: descriptor.SourceFile }]): Promise<ISocketControllerDescriptor> {
     const pending = [...descriptor.Handlers].filter(([, handler]) => untypedOf(handler).length > 0);
     if (pending.length === 0) return descriptor;
 
     const manifest = this.manifest();
-    const named = manifest?.socketControllers.filter((c) => c.className === controllerName && c.prefix === (descriptor.Prefix ?? '')) ?? [];
+    const named = manifest ? this.entriesOf(manifest, controllerName, descriptor) : [];
     const entry = manifest && named.length === 1 ? withInherited(manifest, named[0], lineage) : undefined;
 
     const Handlers = new Map(descriptor.Handlers);
@@ -257,8 +258,8 @@ export class SocketContractEnforcer {
    * A handler no contract validates gets the schema the manifest derived from its `@Payload` type; `PayloadArg` applies
    * it when no explicit schema does. JSON payloads are never coerced. One that cannot compile is a problem like any other.
    */
-  protected bindDerived(manifest: Manifest, controllerName: string, label: string, descriptor: ISocketControllerDescriptor, handlers: IRegisteredHandler[], lineage: readonly string[]): void {
-    const named = manifest.socketControllers.filter((c) => c.className === controllerName && c.prefix === (descriptor.Prefix ?? ''));
+  protected bindDerived(manifest: Manifest, controllerName: string, label: string, descriptor: ISocketControllerDescriptor, handlers: IRegisteredHandler[], lineage: readonly LineageClass[]): void {
+    const named = this.entriesOf(manifest, controllerName, descriptor);
     if (named.length !== 1) return;
 
     const entry = withInherited(manifest, named[0], lineage);
@@ -275,16 +276,21 @@ export class SocketContractEnforcer {
     this.report(label, problems);
   }
 
+  protected entriesOf(manifest: Manifest, controllerName: string, descriptor: ISocketControllerDescriptor): SocketControllerEntry[] {
+    const named = manifest.socketControllers.filter((c) => c.className === controllerName && c.prefix === (descriptor.Prefix ?? ''));
+    return ownEntries(named, { file: descriptor.SourceFile }, manifest);
+  }
+
   /**
-   * A controller is identified by class name plus prefix, the only parts of its manifest entry that exist at runtime.
+   * A controller is identified by class name, prefix and source file, the parts of its manifest entry that exist at runtime.
    * The manifest's binding is authoritative: a contract declared in code that disagrees with it is a problem, and a
    * controller the manifest binds is enforced in `require` even when its code declares no contract.
    */
-  protected resolve(manifest: Manifest, controllerName: string, label: string, descriptor: ISocketControllerDescriptor, lineage: readonly string[]): IResolved {
+  protected resolve(manifest: Manifest, controllerName: string, label: string, descriptor: ISocketControllerDescriptor, lineage: readonly LineageClass[]): IResolved {
     const declared = descriptor.Contract !== undefined;
     const runtimeId = descriptor.Contract?.id;
 
-    const named = manifest.socketControllers.filter((c) => c.className === controllerName && c.prefix === (descriptor.Prefix ?? '')).map((c) => withInherited(manifest, c, lineage));
+    const named = this.entriesOf(manifest, controllerName, descriptor).map((c) => withInherited(manifest, c, lineage));
     const bound = runtimeId === undefined ? [] : named.filter((c) => c.contract === runtimeId);
     const candidates = bound.length > 0 ? bound : named;
 

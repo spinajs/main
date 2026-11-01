@@ -178,7 +178,7 @@ describe('route argument types from the manifest ( no decorator metadata )', fun
       const container = DI.child();
       registerManifestSettings(container, { mode, path: 'app.manifest.json' });
       if (mode !== 'off') registerManifest(container, manifest);
-      return routesWithRuntimeTypes({ container, controller: 'RuntimeTypeController', lineage: ['RuntimeTypeController'], routes: routesOf(WithoutMetadata), mountPath: () => 'runtime-type', log });
+      return routesWithRuntimeTypes({ container, controller: 'RuntimeTypeController', lineage: [{ name: 'RuntimeTypeController' }], routes: routesOf(WithoutMetadata), mountPath: () => 'runtime-type', log });
     };
 
     // A full boot in off mode would read argument names through the TypeScript cache, which needs declaration files.

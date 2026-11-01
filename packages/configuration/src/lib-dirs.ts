@@ -1,5 +1,10 @@
 import { join, normalize, resolve } from 'path';
 
+/** Where migrations are scanned when `system.dirs.migrations` is empty: one dir per build layout a project may have. */
+export function defaultMigrationDirs(cwd: string = process.cwd()): string[] {
+  return ['src', 'lib', 'dist', 'build', '.'].map((d) => resolve(normalize(join(cwd, d, 'migrations'))));
+}
+
 /**
  * Where `sub` of the installed package `pkg` (eg. `@spinajs/authn-token`) builds to, for its config's `system.dirs`:
  * under `node_modules` of WORKSPACE_ROOT_PATH (else the working directory), then one level up for a process that runs

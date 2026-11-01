@@ -2,19 +2,23 @@ import { writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { hashManifest, mergeFragments, readFragment, type Manifest } from '@spinajs/manifest';
 import { analyzePackage } from './analyze-package.js';
+import type { AppDirs } from './extractors/effective-dirs.js';
 import { locateFragments } from './fragments.js';
 
-export interface BuildAppOptions {
+/** `NoAppDirs` from `requireAppDirs` is thrown before anything is written. */
+export interface BuildAppOptions extends Partial<AppDirs> {
   tsconfig: string;
   appRoot: string;
   /** Defaults to `<appRoot>/app.manifest.json`. */
   out?: string;
   schemaDerivation?: boolean;
+  /** `APP_ENV` of the configuration `effectiveDirs` came from. */
+  buildEnv?: string;
 }
 
 export async function buildAppManifest(options: BuildAppOptions): Promise<{ manifest: Manifest; written: string }> {
   const root = resolve(options.appRoot);
-  const app = await analyzePackage({ tsconfig: options.tsconfig, packageRoot: root, schemaDerivation: options.schemaDerivation });
+  const app = await analyzePackage({ tsconfig: options.tsconfig, packageRoot: root, schemaDerivation: options.schemaDerivation, effectiveDirs: options.effectiveDirs, defaultDirs: options.defaultDirs, requireAppDirs: options.requireAppDirs, runAppRoot: options.runAppRoot });
   const locations = await locateFragments(root);
   const fragments = await Promise.all(locations.map((l) => readFragment(l.fragment)));
 
@@ -25,6 +29,7 @@ export async function buildAppManifest(options: BuildAppOptions): Promise<{ mani
       return { name: l.name, version: l.version, entry: l.entry, outDir, fragment: l.fragmentRel, ...(configFiles ? { configFiles } : {}) };
     }),
     generatedAt: new Date().toISOString(),
+    buildEnv: options.buildEnv,
   });
   const manifest: Manifest = { ...merged, hash: hashManifest(merged) };
 
