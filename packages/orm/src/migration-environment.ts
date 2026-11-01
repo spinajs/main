@@ -80,8 +80,8 @@ export function parseMigrationFileEnv(file: string): string | undefined {
     if (segments[1] === 'd' && ['ts', 'mts', 'cts'].includes(segments[2])) {
       return undefined;
     }
-    // `.test` and `.spec` are carve-outs for every source and compiled test
-    // artifacts) - kept in step with the extensions `FilesystemMigrationSource` admits
+    // `.test` and `.spec` are carve-outs for every source and compiled test extension,
+    // kept in step with the extensions `FilesystemMigrationSource` admits
     if (['test', 'spec'].includes(segments[1]) && ['ts', 'mts', 'cts', 'js', 'cjs', 'mjs'].includes(segments[2])) {
       return undefined;
     }

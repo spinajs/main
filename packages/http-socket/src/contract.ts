@@ -186,7 +186,6 @@ export class SocketContractEnforcer {
     return { settings, manifest: this.cached.manifest };
   }
 
-  /** Returns the contract the controller is bound to, if any. */
   public bind(controllerName: string, descriptor: ISocketControllerDescriptor, commands: IRegisteredHandler[], events: IRegisteredHandler[], lineage: readonly LineageClass[] = [{ name: controllerName, file: descriptor.SourceFile }]): SocketContractEntry | undefined {
     const manifest = this.manifest();
     if (!manifest) return undefined;
