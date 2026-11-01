@@ -71,6 +71,12 @@ describe('buildAppManifest', () => {
     const typeRefs = manifest.controllers.filter((c) => c.id.startsWith('app-basic:')).flatMap((c) => c.routes.map((r) => r.returnType));
     expect(typeRefs).to.not.be.empty;
     expect(typeRefs.every((t) => t.schema === undefined)).to.be.true;
+    expect(manifest.schemaDerivation).to.equal(false);
+  });
+
+  it('records nothing about derivation when it is on', async () => {
+    const { manifest } = await buildAppManifest(APP);
+    expect(manifest).to.not.have.property('schemaDerivation');
   });
 
   it('merges the app and its dependency fragments without a schema $id collision', async () => {

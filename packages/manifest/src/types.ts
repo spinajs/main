@@ -200,6 +200,8 @@ export interface Manifest extends Omit<ManifestFragment, 'package'> {
   packages: { name: string; version: string; entry: string; outDir: string; fragment: string; configFiles?: string[] }[];
   /** The `APP_ENV` the build read the app's `system.dirs` under. Omitted by a build without configuration. */
   buildEnv?: string;
+  /** `false` for `spinajs build --no-schemas`: the app's own types then have no schemas, its socket contracts included. */
+  schemaDerivation?: false;
   generatedAt: string;
   hash: string;                        // sha256 of canonical JSON with `hash` and `generatedAt` blanked
 }

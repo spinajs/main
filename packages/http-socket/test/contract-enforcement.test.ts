@@ -619,6 +619,53 @@ describe('socket contract enforcement', function () {
       await expect(registry.build()).to.be.rejectedWith(/contract of ContractSocket is not in the manifest: give it an explicit id with defineContract\('<id>'\) or export it from a package with a manifest fragment/);
     });
 
+    describe('a manifest built with --no-schemas', () => {
+      const bare = (r: { text: string }) => ({ text: r.text });
+      const withoutSchemas = (): Manifest => {
+        const built = manifestOf({ schemas: {} });
+        const strip = (contract: SocketContractEntry): SocketContractEntry => ({
+          ...contract,
+          commands: Object.fromEntries(Object.entries(contract.commands).map(([name, c]) => [name, { payload: bare(c.payload), result: bare(c.result) }])),
+          clientEvents: Object.fromEntries(Object.entries(contract.clientEvents).map(([name, r]) => [name, bare(r)])),
+        });
+        const controllers = built.socketControllers.map((c) => ({ ...c, commands: c.commands.map((h) => ({ ...h, payload: bare(h.payload), result: bare(h.result) })), events: c.events.map((e) => ({ ...e, payload: bare(e.payload) })) }));
+        const manifest = { ...built, schemaDerivation: false as const, socketContracts: built.socketContracts.map(strip), socketControllers: controllers };
+        return { ...manifest, hash: hashManifest(manifest) };
+      };
+
+      it('require: fails build() naming every contract it cannot validate', async () => {
+        writeManifest(withoutSchemas());
+        const registry = await buildWith('require', ContractSocket, OkSocket);
+        await expect(registry.build()).to.be.rejectedWith(/--no-schemas, so the payloads of socket contracts app:CTR_CONTRACT, app:OK_CONTRACT are not validated/);
+      });
+
+      it('prefer: warns once, naming every contract it cannot validate, and the server starts', async () => {
+        writeManifest(withoutSchemas());
+        const registry = await buildWith('prefer', ContractSocket, OkSocket);
+        const warnings = warningsOf();
+        await registry.build();
+        expect(warnings.filter((w) => w.includes('--no-schemas'))).to.deep.equal([warnings.find((w) => w.includes('app:CTR_CONTRACT, app:OK_CONTRACT'))]);
+        expect(registry.command('ok.say')).to.exist;
+      });
+
+      it('off: changes nothing', async () => {
+        writeManifest(withoutSchemas());
+        const registry = await buildWith('off', ContractSocket, OkSocket);
+        const warnings = warningsOf();
+        await registry.build();
+        expect(warnings).to.deep.equal([]);
+      });
+
+      it('require: a contract whose payloads keep their schemas is not named', async () => {
+        const manifest = withoutSchemas();
+        const ok = manifestOf().socketContracts[1];
+        const kept = { ...manifest, schemas: SCHEMAS, socketContracts: [manifest.socketContracts[0], ok] };
+        writeManifest({ ...kept, hash: hashManifest(kept) });
+        const registry = await buildWith('require', ContractSocket, OkSocket);
+        await expect(registry.build()).to.be.rejectedWith(/socket contracts app:CTR_CONTRACT are not validated/);
+      });
+    });
+
     it('a duplicate contract id in the manifest fails build() in require', async () => {
       const manifest = manifestOf();
       writeManifest(manifestOf({ extraContracts: [{ ...manifest.socketContracts[0], source: { ...source, line: 9 } }] }));
