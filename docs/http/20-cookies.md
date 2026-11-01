@@ -54,7 +54,7 @@ The `http.configuration` schema refuses an empty `secret`.
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `FromCookie` | Route argument, DI name `'FromCookie'`, singleton; reads `http.cookie.secret` in its constructor | `FromCookie` | | Subclass and `DI.register(Mine).as(FromCookie)` before the first request. |
-| Cookie parser | An entry of `http.middlewares` | `configuredCookieParser` (not exported) | `cookieParser(secret)` from `cookie-parser` | Replace the `http.middlewares` array; keep a parser built with the same secret. |
+| Cookie parser | An entry of `http.middlewares` | `configuredCookieParser`, exported, one of `defaultMiddlewares()` | `cookieParser(secret)` from `cookie-parser` | Replace the `http.middlewares` array; keep a parser built with the same secret. |
 | Response cookies | `_setCoockies(res, options)`, exported, called by every response class | | | Call it from your own `Response.execute()` to keep the defaults and signing. |
 
 ### `FromCookie`: custom implementation
