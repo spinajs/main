@@ -399,7 +399,7 @@ describe('DefaultAuthzAdmin.execute', function () {
     const own = (admin: Record<string, unknown>) => ({
       authz: {
         admin: { guard: { service: 'FakeGuard', privilegedPermission: 'app:settings.manage' }, backend: 'TestBackend', ...admin },
-        domains: { test: { permissions: PERMISSIONS, cache: { maxEntries: 0 } } },
+        domains: { test: { permissions: PERMISSIONS, cache: { maxEntries: 0 }, models: ['grants'] } },
       },
     });
 

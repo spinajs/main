@@ -2,7 +2,7 @@
 
 The ABAC model of SpinaJS authorization: permit and deny policies that target permissions, types, principals, actors and scopes, and hold under a condition on principal, actor, resource, env and scope attributes. Policies come from config, memory or the database, and change at run time through `AuthzAdmin`.
 
-It does **not** register the model for you: the app builds an `AbacModel` and registers it. The engine, the condition compiler and `AuthzAdmin` live in [`@spinajs/authz`](../authz/README.md); this package adds the model, its stores and its admin handlers.
+Importing the package registers `AbacModel` under `AuthorizationModel`; a domain checks with it once its `models` list names `'AbacModel'`. The engine, the condition compiler and `AuthzAdmin` live in [`@spinajs/authz`](../authz/README.md); this package adds the model, its stores and its admin handlers.
 
 ## Install
 
@@ -24,17 +24,23 @@ npm install @spinajs/authz-abac
 
 ## Quick start
 
+```ts
+authz: { models: ['AbacModel'] }   // root; another domain: authz.domains.<name>.models
+```
+
+`AbacModel` is `@PerChildInstance()`, so DI builds one instance per domain that lists it, over `authz.abac.*`. Its `init` registers its `AbacContributor` in the domain's container ([Models by name](../authz/05-domains.md#models-by-name)). To pass `AbacModelOptions`, build the model by hand, register it as a named factory and list that name instead:
+
 ```ts sample
 import { DI } from '@spinajs/di';
-import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
-import { AbacContributor, AbacModel } from '@spinajs/authz-abac';
+import { AuthorizationModel } from '@spinajs/authz';
+import { AbacModel } from '@spinajs/authz-abac';
 
+// Config: authz: { models: ['AppAbacModel'] }
 // Policies from authz.abac.policies only (authz.abac.stores defaults to ['ConfigPolicyStore']).
-export function wireAbac(): void {
+export function registerAppAbac(): void {
   const abac = new AbacModel();
-  DI.register(() => abac).as(AuthorizationModel);
-  const contributor = new AbacContributor(abac);
-  DI.register(() => contributor).as(AuthzContributor);
+  // init registers the AbacContributor, whoever built the model.
+  DI.register(Object.defineProperty(() => abac, 'name', { value: 'AppAbacModel' })).as(AuthorizationModel);
 }
 ```
 

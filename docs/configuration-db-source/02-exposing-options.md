@@ -8,9 +8,7 @@ Use it for settings an operator changes at runtime: sender addresses, limits, fe
 
 1. `@Config(path, options)` from `@spinajs/configuration` registers `{ path, options }` in DI under the value list `__configuration_property__`. The DI container emits `di.registered.__configuration_property__`.
 2. `DbConfigSourceBotstrapper.bootstrap()` runs with the other bootstrappers. It registers the `configuration_db_source` schema and subscribes to the DI events below, dropping the subscriptions of an earlier `bootstrap()` first. It does no database work. `di.dispose` removes the subscriptions.
-3. **When the `configuration` table is ready**, the bootstrapper sweeps the exposed options into it once. It is ready when either fires first:
-   - `di.resolved.OrmMigrator`: the migrator ran its boot pass, so the bundled migration created the table. A migrator resolved with `MigrateOnStartup: false` (a migration tool) ran no pass and is ignored;
-   - `di.resolved.Orm`, when `DbConfig`'s connection is not a `Migration.OnStartup` connection (`driver.AwaitsStartupMigration` is false) and `driver.schema().tableExists('configuration')` answers `true`: a deployment migrated by `migrate-up` that resolves no migrator.
+3. **When the `configuration` table is ready**, the bootstrapper sweeps the exposed options into it once. It is ready on `di.resolved.Orm` when `driver.schema().tableExists('configuration')` answers `true` on `DbConfig`'s connection. The `Orm` resolves after its `Migration.OnStartup` migrations, so the bundled migration has created the table by then, or `migrate-up` did before the start. A deployment still to be migrated sweeps nothing.
 
    The sweep reads every `__configuration_property__` entry with `expose: true`:
    1. `normalizeFileEntryOptions()` checks each entry; a `type: 'file'` entry without `meta.file.fs` throws. See [File entries](05-file-entries-and-validators.md).
@@ -37,12 +35,9 @@ sequenceDiagram
   participant DB as configuration table
   participant C as Configuration
   D->>DI: register { path, options } as __configuration_property__
-  B->>DI: on(di.registered...), on(di.resolved.Orm), on(di.resolved.OrmMigrator), on(di.dispose)
-  alt OrmMigrator resolved with its boot pass
-    DI-->>B: di.resolved.OrmMigrator
-  else Orm resolved, connection not gated, table exists
-    DI-->>B: di.resolved.Orm
-  end
+  B->>DI: on(di.registered...), on(di.resolved.Orm), on(di.dispose)
+  DI-->>B: di.resolved.Orm (after its Migration.OnStartup migrations)
+  B->>DB: tableExists('configuration')
   B->>DB: INSERT OR IGNORE each exposed option
   B->>DB: UPDATE metadata where it differs
   D->>DI: late registration (after the sweep)
@@ -124,8 +119,8 @@ export async function senderOf(channel: string): Promise<string> {
 
 ## Important behaviour
 
-- **The table gates everything.** Nothing is written until `OrmMigrator` resolved, or the `Orm` resolved on a database whose `configuration` table already exists. On a `Migration.OnStartup` connection an app that resolves only `Orm` never writes rows: model queries there wait for the migrator.
-- **One sweep per `bootstrap()`.** Whichever event comes first sweeps; the later ones do nothing, unless the sweep failed on a table that does not exist.
+- **The table gates everything.** Nothing is written until the `Orm` resolved on a database whose `configuration` table exists.
+- **One sweep per `bootstrap()`.** The first `di.resolved.Orm` that finds the table sweeps; later ones do nothing, unless the sweep failed on a table that does not exist.
 - **Code never overwrites an admin's value.** `InsertOrIgnore` keeps an existing row; the metadata sync touches every column except `Value` and `Exposed`.
 - **The unique index makes it idempotent.** `InsertOrIgnore` relies on `configuration_unique_slug`. A custom table without it gets a duplicate row per restart.
 - **`Default` is overwritten.** A changed `defaultValue` in code updates `Default` on the next start, never `Value`.

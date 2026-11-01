@@ -136,12 +136,13 @@ describe('TelemetryAccessPolicy', function () {
   before(async () => {
     for (const p of TEST_POLICIES) DI.register(p).as(BasePolicy);
     unregisterSource = registerHeaderSource();
-    testHost.registerInRoot(AuthorizationModel, testHost.instance(new StaticModel({ name: 'm1', votes })));
+    testHost.registerInRoot(AuthorizationModel, testHost.named('m1', testHost.instance(new StaticModel({ name: 'm1', votes }))));
     app = await startApp({
       controllers: [AccessRoutes],
       config: {
         'authz.permissions': { 'telemetry:read': {}, 'telemetry:write': {} },
         'authz.combine': { default: { algorithm: 'deny-overrides', models: ['m1'] } },
+        'authz.models': ['m1'],
         'authz.cache': { maxEntries: 0 },
         ...SLOTS,
       },

@@ -7,7 +7,7 @@
 ### Reads
 
 1. `AbacModel.init` refuses a left-over `authz.<model>.connection` key, then builds its stores: the ones passed in `stores`, else those `authz.<model>.stores` names (`storesFromConfig`).
-2. `DbPolicyStore.load()` reads through `PolicyRecord`, and a model loads its policies at domain boot, so resolve the `Orm` (or `OrmMigrator`, which resolves it) before the domain boots. Neither the model nor the store is built by DI, so neither injects it; a read before the `Orm` resolved fails with the `AuthzConfigError` below.
+2. `DbPolicyStore.load()` reads through `PolicyRecord`, and a model loads its policies at domain boot, so resolve the `Orm` before the domain boots. Neither the model nor the store is built by DI, so neither injects it; a read before the `Orm` resolved fails with the `AuthzConfigError` below.
 3. It reads every `PolicyRecord` row, sorts them by id in code-unit order and maps each with `recordToPolicy` (source `'db'`).
 4. `version()` hashes the same rows (SHA-256, first 16 hex characters), so it changes with every write, also one made by another process.
 5. A JSON column that does not parse fails the read with `AuthzConfigError` naming `authz_policy`.
@@ -155,21 +155,22 @@ authz: { abac: { stores: ['ConfigPolicyStore', 'DbPolicyStore'] } }
 
 ### Let admins add deny policies at run time
 
+With `authz.models: ['AbacModel']` and the `authz.abac.stores` config above, the domain's boot builds the model over those stores; `AuthzAdmin` writes still need the writable store registered as `PolicyStore` (`DI.register(DbPolicyStore).as(PolicyStore)`). Built by hand and listed as a named factory, one store instance serves both:
+
 ```ts sample
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
-import { AbacContributor, AbacModel, ConfigPolicyStore, DbPolicyStore, PolicyStore } from '@spinajs/authz-abac';
+import { AuthorizationModel } from '@spinajs/authz';
+import { AbacModel, ConfigPolicyStore, DbPolicyStore, PolicyStore } from '@spinajs/authz-abac';
 
-export async function wireAbacWithDbPolicies(): Promise<void> {
+// Config: authz: { models: ['AppAbacModel'] }
+export async function registerAbacWithDbPolicies(): Promise<void> {
   const configuration = await DI.resolve(Configuration);
   const written = new DbPolicyStore();
   const fromConfig = new ConfigPolicyStore(configuration.get<unknown[]>('authz.abac.policies') ?? []);
   const abac = new AbacModel({ stores: [fromConfig, written] });
 
-  DI.register(() => abac).as(AuthorizationModel);
-  const contributor = new AbacContributor(abac);
-  DI.register(() => contributor).as(AuthzContributor);
+  DI.register(Object.defineProperty(() => abac, 'name', { value: 'AppAbacModel' })).as(AuthorizationModel);
   DI.register(() => written).as(PolicyStore);
 }
 ```

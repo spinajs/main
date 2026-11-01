@@ -86,7 +86,7 @@ describe('ConfigFileUploads', function () {
 
     await DI.resolve(Configuration);
     await DI.resolve(fsService);
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
     await DI.resolve(AuthzService);
     uploads = await DI.resolve(ConfigFileUploads);
   });

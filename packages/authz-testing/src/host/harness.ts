@@ -39,7 +39,7 @@ import type { Facet, World } from '../behaviour/types.js';
 import { instantiateWorld } from '../behaviour/world.js';
 import type { KitWorld } from '../behaviour/world.js';
 import { registerWorldHooks } from './hooks.js';
-import { config, domains, installHost, instance, uninstallHost } from './support.js';
+import { config, domains, installHost, instance, named, uninstallHost } from './support.js';
 
 export interface HostSetup {
   /** The test domain's container. */
@@ -184,7 +184,7 @@ export function hostHarness(opts: HostHarnessOptions = {}): BehaviourHarness {
           delete configured[name];
           return { ...(isRecord(base) ? base : {}), ...derived };
         };
-        const own: Record<string, unknown> = { permissions: permissionsConfig(world), combine: copy(world.combine) };
+        const own: Record<string, unknown> = { permissions: permissionsConfig(world), combine: copy(world.combine), models: kit.models.map((m) => m.name) };
         for (const [key, value] of Object.entries(wc)) {
           if (value === undefined || key === 'domains') continue;
           if (DOMAIN_KEYS.has(key)) own[key] = copy(value);
@@ -195,7 +195,7 @@ export function hostHarness(opts: HostHarnessOptions = {}): BehaviourHarness {
 
         container = ds.create(domain, 'root');
         const c = container;
-        for (const m of kit.models) c.register(instance(m)).as(AuthorizationModel);
+        for (const m of kit.models) c.register(named(m.name, instance(m))).as(AuthorizationModel);
         for (const a of kit.adapters) c.register(instance(a)).as(ResourceAdapter);
         for (const s of kit.scopeResolvers) c.register(instance(s)).as(ScopeResolver);
         for (const r of kit.relations) c.register(instance(r)).as(RelationResolver);
@@ -215,10 +215,12 @@ export function hostHarness(opts: HostHarnessOptions = {}): BehaviourHarness {
           const childCfg: Record<string, unknown> = {};
           if (d.combine) childCfg.combine = copy(d.combine);
           if (d.disable) childCfg.disable = [...d.disable];
+          const domainModels = kit.domainModels.get(name) ?? [];
+          if (domainModels.length > 0) childCfg.models = domainModels.map((m) => m.name);
           scope.set(['authz', 'domains', name], domainConfig(name, childCfg));
           const child = ds.create(name, parent);
           containers.set(name, child);
-          for (const m of kit.domainModels.get(name) ?? []) child.register(instance(m)).as(AuthorizationModel);
+          for (const m of domainModels) child.register(named(m.name, instance(m))).as(AuthorizationModel);
         }
         for (const [name, value] of Object.entries(configured)) scope.set(['authz', 'domains', name], value);
 

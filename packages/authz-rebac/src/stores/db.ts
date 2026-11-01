@@ -107,7 +107,7 @@ function chunks<T>(list: readonly T[]): T[][] {
 /**
  * `TupleStore` over `authz_rebac_tuple` on the ORM connection alias `authz`. `write` runs in its own
  * transaction; `writeIn` joins the transaction of an `AuthzAdmin` command. Built with `new`, not by DI, so it cannot inject
- * the Orm: the app resolves the Orm (or `OrmMigrator`) before the first read.
+ * the Orm: the app resolves the Orm before the first read.
  */
 export class DbTupleStore extends TupleStore {
   readonly name: string = 'db';

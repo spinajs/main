@@ -1,4 +1,4 @@
-import { AuthorizationModel, AuthzConfigError, AuthzContributor, LinkResolver } from '@spinajs/authz';
+import { AuthzConfigError, AuthzContributor, LinkResolver } from '@spinajs/authz';
 import type { Configuration } from '@spinajs/configuration';
 import type { Class, Factory, IContainer } from '@spinajs/di';
 
@@ -6,8 +6,7 @@ import { AssignmentStore, LinkStore, MembershipStore, RoleStore, RuleStore } fro
 import type { RbacExtension } from '../model/evaluate.js';
 import { RbacContributor } from '../model/contributor.js';
 import { RbacLinkResolver } from '../model/links/resolver.js';
-import { RbacModel } from '../model/model.js';
-import type { RbacModelOptions } from '../model/model.js';
+import type { RbacModel, RbacModelOptions } from '../model/model.js';
 import { ruleStoreParts } from '../model/rules/extension.js';
 import { RbacService } from '../model/service.js';
 import type { RbacServiceOptions } from '../model/service.js';
@@ -15,20 +14,14 @@ import { rbacStoreNames } from '../stores/defaults.js';
 import type { RbacStoreKind } from '../stores/defaults.js';
 import { registerRbacStores, storeClass } from '../stores/register.js';
 
+/** What config cannot hold of an RbacModel DI builds; an `RbacOptions` registration gives it. */
 export interface RegisterRbacOptions {
   /** Default: one instance from each factory of DEFAULT_RBAC_EXTENSIONS, built with the store options. */
   readonly extensions?: (options: RbacModelOptions) => readonly RbacExtension[];
   readonly log?: RbacModelOptions['log'];
+  /** Default: the domain's AuthzClock. */
   readonly clock?: RbacModelOptions['clock'];
   readonly service?: Omit<RbacServiceOptions, 'links'>;
-}
-
-export interface RegisteredRbac {
-  readonly model: RbacModel;
-  readonly contributor: RbacContributor;
-  readonly service: RbacService;
-  /** The LinkResolver over `service`, also registered as `LinkResolver`. */
-  readonly linkResolver: RbacLinkResolver;
 }
 
 const instance =
@@ -37,17 +30,14 @@ const instance =
     value;
 
 /**
- * Wires RBAC into `container` (a domain's; the root for the CLI): the stores `authz.rbac.stores`
- * names (registerRbacStores), an RbacModel over them as an AuthorizationModel, its RbacContributor
- * as an AuthzContributor, an RbacService, and an RbacLinkResolver over it as the LinkResolver
- * (authz-http reads the root container's). Roles and assignments: one store each, required. Links: at
- * most one. Rules: at most one in-memory store and one other
- * (`['ConfigRuleStore', 'DbRuleStore']`); none turns rules off.
- * @throws AuthzConfigError, before registering anything, for a store name registerRbacStores
- *   refuses, a missing roles or assignments store, too many stores of a kind, two rule stores of
- *   one sort, or `authz.rbac.rules` with no ConfigRuleStore to read them
+ * Registers in `container` the stores `authz.rbac.stores` names (registerRbacStores) and gives the RbacModel options
+ * over them. Roles and assignments: one store each, required. Links: at most one. Rules: at most one in-memory store
+ * and one other (`['ConfigRuleStore', 'DbRuleStore']`); none turns rules off.
+ * @throws AuthzConfigError, before registering anything, for a store name registerRbacStores refuses, a missing roles
+ *   or assignments store, too many stores of a kind, two rule stores of one sort, or `authz.rbac.rules` with no
+ *   ConfigRuleStore to read them
  */
-export async function registerRbac(container: IContainer, configuration: Pick<Configuration, 'get'>, opts: RegisterRbacOptions = {}): Promise<RegisteredRbac> {
+export async function rbacStoreOptions(container: IContainer, configuration: Pick<Configuration, 'get'>, opts: RegisterRbacOptions = {}): Promise<RbacModelOptions> {
   const count = (kind: RbacStoreKind, min: number, max: number): void => {
     const n = rbacStoreNames(configuration, kind).length;
     if (n > max) throw new AuthzConfigError(`authz.rbac.stores.${kind}: the RBAC model reads ${max === 1 ? 'one store' : `${max} stores at most`}, not ${n}`);
@@ -88,14 +78,14 @@ export async function registerRbac(container: IContainer, configuration: Pick<Co
     ...(opts.log ? { log: opts.log } : {}),
     ...(opts.clock ? { clock: opts.clock } : {}),
   };
-  const model = new RbacModel({ ...options, ...(opts.extensions ? { extensions: opts.extensions(options) } : {}) });
-  const contributor = new RbacContributor(model);
-  const service = new RbacService(model, opts.service);
+  return { ...options, ...(opts.extensions ? { extensions: opts.extensions(options) } : {}) };
+}
 
-  container.register(instance(model)).as(AuthorizationModel);
-  container.register(instance(contributor)).as(AuthzContributor);
-  container.register(instance(service)).as(RbacService);
-  const linkResolver = new RbacLinkResolver(service);
-  container.register(instance(linkResolver)).as(LinkResolver);
-  return { model, contributor, service, linkResolver };
+/** Registers in `container` the RbacContributor, RbacService and RbacLinkResolver (as LinkResolver) of `model`. */
+export function registerRbacServices(container: IContainer, model: RbacModel, service?: Omit<RbacServiceOptions, 'links'>): RbacService {
+  const rbac = new RbacService(model, service);
+  container.register(instance(new RbacContributor(model))).as(AuthzContributor);
+  container.register(instance(rbac)).as(RbacService);
+  container.register(instance(new RbacLinkResolver(rbac))).as(LinkResolver);
+  return rbac;
 }

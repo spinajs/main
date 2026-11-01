@@ -1,6 +1,6 @@
 # Applying migrations
 
-`migrate-up` applies pending migrations and their `data()` seeds through `OrmMigrator.migrate()`, the same pass an application's boot runs. Use it in a deploy step, or to apply a migration on a connection whose `Migration.OnStartup` is off.
+`migrate-up` applies pending migrations and their `data()` seeds through `OrmMigrator.migrate()`, which applies and seeds as an application's `Orm.resolve()` does on startup. Use it in a deploy step, or to apply a migration on a connection whose `Migration.OnStartup` is off.
 
 ```sh
 spinajs migrate-up                                              # everything pending, every connection
@@ -11,9 +11,9 @@ spinajs migrate-up --fake                                       # record as appl
 
 ## How it works
 
-1. `MigrateUpCommand.execute(options)` calls [`resolveCliMigrator()`](06-cli-orm.md). The migrator and its `Orm` resolve without a migration pass.
+1. `MigrateUpCommand.execute(options)` calls [`resolveCliMigrator()`](06-cli-orm.md). The migrator and its `Orm` resolve without applying anything.
 2. It calls `migrator.migrate({ name, fake, connection })`. `force` is left at its default `true`, so connections with `Migration.OnStartup: false` run too.
-3. `OrmMigrator.Runner` plans, orders and applies the migrations; the migrator then re-reads the table info of the models they touched and runs their `data()` hooks (none with `--fake`). See [Migrations: the boot pass](../orm/10-migrations.md#the-boot-pass-diresolveormmigrator). Ordering, batches, locking and transactions are described in [Migrations: a run](../orm/10-migrations.md#a-run-migrationrunnerup). It throws, and the command fails, when:
+3. `OrmMigrator.Runner` plans, orders and applies the migrations; the migrator then re-reads the table info of the models they touched and runs their `data()` hooks (none with `--fake`). See [Migrations: `OrmMigrator`](../orm/10-migrations.md#ormmigrator). Ordering, batches, locking and transactions are described in [Migrations: a run](../orm/10-migrations.md#a-run-migrationrunnerup). It throws, and the command fails, when:
    - `--name` matches no registered migration (`OrmException`, message contains `not registered`);
    - `--connection` matches no configured connection or alias (`OrmException` naming it);
    - the connection holds a [failed](../orm/10-migrations.md#migration-states) migration;
@@ -110,7 +110,7 @@ Keep the subclass out of every `system.dirs.cli` directory: it inherits the `mig
 
 ## Important behaviour
 
-- **The migrator applies nothing on its way in.** Without `resolveCliMigrator()`, a boot pass would run every pending migration on `OnStartup` connections before `--fake` could take effect. See [The CLI migrator](06-cli-orm.md).
+- **The migrator applies nothing on its way in.** Without `resolveCliMigrator()`, the `Orm`'s resolve would apply every pending migration on `OnStartup` connections before `--fake` could take effect. See [The CLI migrator](06-cli-orm.md).
 - **`migrate-up` seeds what it applied.** `data()` runs once every migration of the run is applied; it may resolve services that inject the `Orm`. A run that fails on a migration seeds none of the ones it applied before it, and a later run finds them applied.
 - **An unknown `--name` or `--connection` throws.** An empty, successful-looking run from a typo would read as "already current".
 - **A named migration on an unconfigured connection exits `1`.** The runner only warns and returns `[]` there; the command checks `status()` to tell that apart from "already applied".
@@ -133,10 +133,10 @@ Keep the subclass out of every `system.dirs.cli` directory: it inherits the `mig
 ## Patterns and antipatterns
 
 ```ts
-// Don't: DI.resolve(OrmMigrator) runs the boot pass, so pending migrations on OnStartup connections are
-// applied (and data() seeded) before this line, and the explicit run below applies nothing
-const migrator = await DI.resolve(OrmMigrator);
-await migrator.migrate();
+// Don't: DI.resolve(Orm) applies the startup migrations, so pending migrations on OnStartup connections are
+// applied (and data() seeded) on its way in, and the explicit run below applies nothing
+const orm = await DI.resolve(Orm);
+await orm.Migrator.migrate();
 
 // Do: resolve the CLI migrator, then run exactly the migrations you asked for
 const migrator = await resolveCliMigrator();
@@ -172,4 +172,4 @@ void migrateReporting();
 - [Migrations](../orm/10-migrations.md): what `OrmMigrator.migrate()` and `MigrationRunner.up()` do, the tracking table and the lock.
 - [Rolling back migrations](02-rolling-back-migrations.md): the reverse operation.
 - [Migration status](03-migration-status.md): check the result.
-- [The CLI migrator](06-cli-orm.md): why the command resolves the migrator without its boot pass.
+- [The CLI migrator](06-cli-orm.md): why the command resolves the migrator without its startup migrations.

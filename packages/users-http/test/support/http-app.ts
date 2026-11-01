@@ -12,7 +12,7 @@ import type { Class, Factory } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration, MANIFEST, MANIFEST_SETTINGS, registerManifest, registerManifestSettings } from '@spinajs/configuration';
 import { finishContractTesting, installContractTesting, manifestOfFragments } from '@spinajs/testing';
 import type { ContractTestingHandle } from '@spinajs/testing';
-import { MigrationTransactionMode, OrmMigrator } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
@@ -118,6 +118,8 @@ class UsersHttpAppConfiguration extends FrameworkConfiguration {
         },
       },
       authz: {
+        // The test RBAC model authz-host.ts registers.
+        models: ['UsersHttpTestRbacModel'],
         // AuthzAdmin checks it for every assignment command, the SYSTEM seeds included; no shipped fragment declares it.
         permissions: { 'authz:assignments.manage': {} },
         admin: {
@@ -255,7 +257,7 @@ export async function startUsersHttpApp(opts: UsersHttpAppOptions): Promise<User
   contract.register(DI.RootContainer);
   contract.enable(config);
   await DI.resolve(fsService);
-  await DI.resolve(OrmMigrator);
+  await (await DI.resolve(Orm)).Migrator.ready();
 
   const before = new Set(DI.getRegisteredTypes(BaseController) ?? []);
   for (const c of opts.controllers) DI.register(c).as(BaseController);

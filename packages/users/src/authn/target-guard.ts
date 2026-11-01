@@ -127,7 +127,7 @@ export class AuthzTargetGuard {
 // A child domain's RBAC is its own: falling back to the parent's would judge the target by another model.
 export async function registeredInDomain<T>(domain: AccessDomain, token: Class<T>): Promise<T> {
   if (!domain.container.hasRegistered(token, false)) {
-    throw new AuthzConfigError(`users: the authz domain ${JSON.stringify(domain.name)} (${ACCESS_DOMAIN_KEY}) has no ${token.name}; register RBAC there (registerRbac)`);
+    throw new AuthzConfigError(`users: the authz domain ${JSON.stringify(domain.name)} (${ACCESS_DOMAIN_KEY}) has no ${token.name}; list RbacModel in that domain's authz models (authz.models for root, authz.domains.<name>.models otherwise)`);
   }
   return (await domain.container.resolve(token)) as T;
 }

@@ -8,7 +8,7 @@ The package config adds its compiled `cli` folder to `system.dirs.cli`, so the C
 
 ### `authn:mfa-reset <login>`
 
-1. `MfaReset` injects [`OrmMigrator`](../orm/10-migrations.md) (which boots the ORM and runs its `Migration.OnStartup` boot pass first), `IdentityStore` and `TotpService`. `IdentityStore` is injected with `{ check: true }`: without a registered one the command cannot be resolved.
+1. `MfaReset` injects the `Orm` (which boots the ORM and applies its [`Migration.OnStartup` migrations](../orm/10-migrations.md) first), `IdentityStore` and `TotpService`. `IdentityStore` is injected with `{ check: true }`: without a registered one the command cannot be resolved.
 2. `IdentityStore.findByLogin(login)` finds the account by login or email. An unknown login throws `InvalidArgument` `no account with login <login>` and changes nothing.
 3. `TotpService.adminReset(CLI_ACTOR, identity, cliContext())` removes the enrolment and the recovery codes. `CLI_ACTOR` (`{ type: 'system', id: 'cli' }`) and `cliContext()` (purpose `'request'`, `userAgent` `spinajs-cli`) come from `@spinajs/authn/contracts`. See [Disable and admin reset](05-disable-and-reset.md).
 4. It logs `MFA reset for <login>` or `No MFA enrolment for <login>` on the `authn-totp` logger. It prints no secret.

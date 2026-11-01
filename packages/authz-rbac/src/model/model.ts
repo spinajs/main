@@ -1,7 +1,13 @@
-import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, GLOBAL, engineLog, principalKey, resourceKey, thrownError, unionFieldGlobs } from '@spinajs/authz';
+import { AuthorizationModel, AuthzClock, AuthzConfigError, CORE_FILTER_OPS, GLOBAL, engineLog, principalKey, resourceKey, thrownError, unionFieldGlobs } from '@spinajs/authz';
 import type { DecisionRequest, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ListSupportContext, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, HostLog, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
+import { Configuration } from '@spinajs/configuration';
+import { Injectable, PerChildInstance } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+
 import { AdminRuleStore } from '../admin/ports.js';
+import { RbacOptions } from '../host/options.js';
+import { rbacStoreOptions, registerRbacServices } from '../host/wire.js';
 import type { Assignment, AssignmentStore, AssignmentSubject, LinkStore, MembershipStore, RoleStore, RuleDef, RuleStore, SubjectResolver } from '../contracts.js';
 import { AssignmentCache, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS } from './cache.js';
 import { RBAC_SUMMARY_STEPS, createRbacExtensions, liveAssignments, rbacTables, rbacState, readRbacInput, runRbacPipeline } from './evaluate.js';
@@ -53,13 +59,21 @@ const PROBLEM_TEXT: Readonly<Record<AssignmentProblem, string>> = {
   wrong_scope_type: 'cannot be assigned at $global (scopeTypes)',
 };
 
-/** The RBAC model. Register it per domain, next to its RbacContributor; it carries no `@Injectable`. */
+/**
+ * The RBAC model. Registered under AuthorizationModel as `RbacModel`: a domain whose `authz.models` lists it gets its
+ * own instance, which wires its stores, RbacContributor, RbacService and LinkResolver into that domain's container
+ * in `init`. `new RbacModel(options)` builds one over given stores instead, and wires nothing.
+ */
+@PerChildInstance()
+@Injectable(AuthorizationModel)
 export class RbacModel extends AuthorizationModel {
   readonly name = 'rbac';
-  readonly capabilities: ModelCapabilities;
-  readonly extensions: readonly RbacExtension[];
+  // Set by the constructor when it gets options, else by init.
+  capabilities!: ModelCapabilities;
+  extensions!: readonly RbacExtension[];
 
-  private readonly log: Pick<HostLog, 'warn'>;
+  private opts!: RbacModelOptions;
+  private log!: Pick<HostLog, 'warn'>;
   private loaded?: Loaded;
   private grants?: GrantIndex;
   private readonly warnedRoles = new Set<string>();
@@ -81,8 +95,13 @@ export class RbacModel extends AuthorizationModel {
   private rolesBroken = false;
   private defaultResolver?: RbacSubjectResolver;
 
-  constructor(private readonly opts: RbacModelOptions) {
+  constructor(opts?: RbacModelOptions) {
     super();
+    if (opts) this.configure(opts);
+  }
+
+  private configure(opts: RbacModelOptions): void {
+    this.opts = opts;
     this.log = opts.log ?? engineLog('authz-rbac');
     // The token role rules run on every model and last: a later gather that returns fresh assignments
     // or a fresh request would undo them, and an app that passes `extensions` must not lose them.
@@ -102,6 +121,7 @@ export class RbacModel extends AuthorizationModel {
   }
 
   async init(ctx: ModelInitContext): Promise<void> {
+    if (!this.opts) await this.wire(ctx.container);
     for (const ext of this.extensions) await ext.init?.(ctx);
     if (!this.opts.subjects) this.defaultResolver = new RbacSubjectResolver({ groupPrincipal: groupPrincipalConfig(ctx) });
     const version = await this.opts.roles.version();
@@ -288,7 +308,7 @@ export class RbacModel extends AuthorizationModel {
 
   /** The link store of the options (share links). */
   get linkStore(): LinkStore | undefined {
-    return this.opts.links;
+    return this.opts?.links;
   }
 
   /** The model clock's now (assignment cache TTL). */
@@ -449,7 +469,17 @@ export class RbacModel extends AuthorizationModel {
   }
 
   private clock(): { now(): Date } {
-    return this.opts.clock ?? SYSTEM_CLOCK;
+    return this.opts?.clock ?? SYSTEM_CLOCK;
+  }
+
+  /** Builds the options from the domain's config and DI, then registers the model's services in `container`. */
+  private async wire(container: IContainer): Promise<void> {
+    const configuration = await container.resolve<Configuration>(Configuration);
+    const clock = await container.resolve<AuthzClock>(AuthzClock);
+    const custom = container.hasRegistered(RbacOptions) ? await (await container.resolve<RbacOptions>(RbacOptions)).options(container) : {};
+    const settings = { clock, ...custom };
+    this.configure(await rbacStoreOptions(container, configuration, settings));
+    registerRbacServices(container, this, settings.service);
   }
 
   private state(): Loaded {

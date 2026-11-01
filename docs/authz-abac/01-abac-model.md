@@ -8,8 +8,9 @@ The engine, the combination of votes and the decision are core concepts: see [`@
 
 ### Boot
 
-1. The app registers an `AbacModel` instance as `AuthorizationModel` and an `AbacContributor` over it as `AuthzContributor`, in the domain's container, before the domain's `AuthzService` first resolves. No package does this for you.
+1. `AbacModel` is registered under `AuthorizationModel` with `@PerChildInstance()`, so a domain whose `models` list names `'AbacModel'` gets its own instance. To pass `AbacModelOptions`, the app builds an instance, registers it as a named factory under `AuthorizationModel` and lists that name, before the domain's `AuthzService` first resolves.
 2. The host calls `AbacModel.init(ctx)`:
+   - it registers an `AbacContributor` over itself as `AuthzContributor` in the domain's container, whoever built the model;
    - it fails with `AuthzConfigError` when `authz.<name>.connection` is set ([Database policy store](06-database-policy-store.md#migration));
    - without the `functions` option it takes every `ConditionFunction` registered in root DI (the built-ins when none);
    - without the `stores` option it builds the stores `authz.<name>.stores` names (`storesFromConfig`, [Policy stores](05-policy-stores.md));
@@ -105,8 +106,8 @@ Without `models` an entry routes every model of the domain. A model no entry rou
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| ABAC model | `AuthorizationModel`; an instance the app registers in the domain container | `AbacModel` | `FsAbacModel` of authz-fs, named `fs-abac` | Subclass `AbacModel`, or register a second instance with another `name`. |
-| Boot refs | `AuthzContributor`; an instance the app registers next to the model | `AbacContributor(model)` | `FsAbacContributor` of authz-fs | Subclass `AuthzContributor` and map `model.contribution()`. |
+| ABAC model | `AuthorizationModel`, `@PerChildInstance`: one instance per domain whose `models` lists `'AbacModel'`; or an instance the app registers as a named factory | `AbacModel` | `FsAbacModel` of authz-fs, named `fs-abac` | Subclass `AbacModel`, or register a second instance with another `name`. |
+| Boot refs | `AuthzContributor`; registered by `AbacModel.init` in the domain's container | `AbacContributor(model)` | `FsAbacContributor` of authz-fs | `init` registers it whoever built the model; do not register one by hand. |
 | Condition functions | `ConditionFunction`, read with `Array.chainOf` | built-ins of `@spinajs/authz` | your own | See [Conditions](03-conditions.md#services-and-extension-points). |
 | Policy stores | `PolicyStore`, passed in `stores` | `ConfigPolicyStore` | `MemoryPolicyStore`, `DbPolicyStore`, your own | See [Policy stores](05-policy-stores.md). |
 
@@ -118,10 +119,10 @@ authz-fs subclasses `AbacModel` to make boot errors name the config key a policy
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { AuthorizationModel, AuthzConfigError, AuthzContributor } from '@spinajs/authz';
+import { AuthorizationModel, AuthzConfigError } from '@spinajs/authz';
 import type { ModelInitContext } from '@spinajs/authz';
 import type { Policy } from '@spinajs/authz-abac';
-import { AbacContributor, AbacModel, ConfigPolicyStore } from '@spinajs/authz-abac';
+import { AbacModel, ConfigPolicyStore } from '@spinajs/authz-abac';
 
 // Boot errors point at the file the security team edits.
 export class FilePoliciesModel extends AbacModel {
@@ -139,11 +140,10 @@ export class FilePoliciesModel extends AbacModel {
   }
 }
 
-export function wireFilePolicies(policies: readonly Policy[]): void {
+// Config: authz: { models: ['FilePoliciesModel'] }
+export function registerFilePolicies(policies: readonly Policy[]): void {
   const model = new FilePoliciesModel(policies, 'security/policies.json');
-  DI.register(() => model).as(AuthorizationModel);
-  const contributor = new AbacContributor(model);
-  DI.register(() => contributor).as(AuthzContributor);
+  DI.register(Object.defineProperty(() => model, 'name', { value: 'FilePoliciesModel' })).as(AuthorizationModel);
 }
 ```
 
@@ -161,7 +161,7 @@ export function wireFilePolicies(policies: readonly Policy[]): void {
 
 ## Best practices
 
-- Register the model and its contributor together; without the contributor the boot checks of rules 7 and 10 do not see the policies.
+- Do not register an `AbacContributor` yourself: `init` registers one, and through it the boot checks of rules 7 and 10 see the policies.
 - Give every policy a `reason`; a deny without one reports the generic code `policy`.
 - Use `priority` below 500 for denies the user should see first, such as `mfa_required`.
 - Keep a model over `ConfigPolicyStore` only, without conditions or scopes, when you need `filterNow`.
@@ -169,12 +169,14 @@ export function wireFilePolicies(policies: readonly Policy[]): void {
 ## Patterns and antipatterns
 
 ```ts
-// Don't: two models with one name fail the domain's boot
-DI.register(() => new AbacModel()).as(AuthorizationModel);
-DI.register(() => new AbacModel({ stores: [written] })).as(AuthorizationModel);
+// Don't: two models named 'abac' fail the domain's boot
+DI.register(Object.defineProperty(() => new AbacModel(), 'name', { value: 'ConfigAbacModel' })).as(AuthorizationModel);
+DI.register(Object.defineProperty(() => new AbacModel({ stores: [written] }), 'name', { value: 'WrittenAbacModel' })).as(AuthorizationModel);
+// authz: { models: ['ConfigAbacModel', 'WrittenAbacModel'] }
 
 // Do: one model over every store
-DI.register(() => new AbacModel({ stores: [fromConfig, written] })).as(AuthorizationModel);
+DI.register(Object.defineProperty(() => new AbacModel({ stores: [fromConfig, written] }), 'name', { value: 'AppAbacModel' })).as(AuthorizationModel);
+// authz: { models: ['AppAbacModel'] }
 ```
 
 ## Examples
@@ -183,10 +185,11 @@ DI.register(() => new AbacModel({ stores: [fromConfig, written] })).as(Authoriza
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
-import { AbacContributor, AbacModel, ConfigPolicyStore } from '@spinajs/authz-abac';
+import { AuthorizationModel } from '@spinajs/authz';
+import { AbacModel, ConfigPolicyStore } from '@spinajs/authz-abac';
 
-export function wireMfaRule(): void {
+// Config: authz: { models: ['RbacModel', 'MfaAbacModel'] }
+export function registerMfaRule(): void {
   const abac = new AbacModel({
     stores: [
       new ConfigPolicyStore([
@@ -201,9 +204,7 @@ export function wireMfaRule(): void {
       ]),
     ],
   });
-  DI.register(() => abac).as(AuthorizationModel);
-  const contributor = new AbacContributor(abac);
-  DI.register(() => contributor).as(AuthzContributor);
+  DI.register(Object.defineProperty(() => abac, 'name', { value: 'MfaAbacModel' })).as(AuthorizationModel);
 }
 ```
 

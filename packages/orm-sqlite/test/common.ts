@@ -6,7 +6,7 @@
 /* eslint-disable @typescript-eslint/no-floating-promises */
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Orm, MigrationRunner, MigrationTransactionMode, OrmMigrator } from '@spinajs/orm';
+import { Orm, MigrationRunner, MigrationTransactionMode, resolveMigrationTool } from '@spinajs/orm';
 import _ from 'lodash';
 import { mergeArrays } from './util.js';
 import '@spinajs/log';
@@ -101,5 +101,5 @@ export function db() {
 
 /** The migration runner, from a migrator resolved without its boot pass, so each test applies migrations itself. */
 export async function migrations(): Promise<MigrationRunner> {
-  return (await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])).Runner;
+  return (await resolveMigrationTool()).Runner;
 }

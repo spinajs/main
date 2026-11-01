@@ -16,7 +16,7 @@ A harness turns a fixture's world into a running system, once per case, and hand
 | --- | --- | --- | --- | --- |
 | Harness | `BehaviourHarness` interface, one per `runBehaviour` call | `hostHarness(options)` | an engine harness of your own | Implement `setup`; or pass `register`/`extend` to `hostHarness`. |
 | Lane handles | `LaneHandles` interface, filled per session in `session.lane` | the handles the kit's fixture files declare (`http`, `orm`, `fs`, `queue`, `rbacStore`, …) | | Your harness fills the handles of the facets it declares. A new handle is declared in the kit, by the fixture file that first needs it, augmenting `LaneHandles`. |
-| Kit models in the host | `AuthorizationModel`, `ResourceAdapter`, `ScopeResolver`, `RelationResolver`, `DecisionAudit`, `ChangeBus`, `AuthzClock`, registered as instances in the test domain | `instantiateWorld` objects | | `hostHarness` registers them; your `register` hook adds the lane's own. |
+| Kit models in the host | `AuthorizationModel`, `ResourceAdapter`, `ScopeResolver`, `RelationResolver`, `DecisionAudit`, `ChangeBus`, `AuthzClock`, registered as instances in the test domain; models as named factories, listed in the test domain's `models` | `instantiateWorld` objects | | `hostHarness` registers them; your `register` hook adds the lane's own (`testHost.activate`). |
 
 ## `hostHarness`
 
@@ -38,10 +38,10 @@ A harness turns a fixture's world into a running system, once per case, and hand
 | --- | --- | --- |
 | `permissions` | `kit.permissions` | `authz.domains.<test>.permissions` |
 | `combine` | the engine's routes | `authz.domains.<test>.combine` |
-| `models` (kit specs) | `kit.models`, in order | those instances, registered as `AuthorizationModel` |
+| `models` (kit specs) | `kit.models`, in order | those instances, registered as named factories under `AuthorizationModel` and listed in `authz.domains.<test>.models` |
 | `adapters`, `scopes`, `relations` | `kit.adapters`, `kit.scopeResolvers`, `kit.relations` | registered as `ResourceAdapter`, `ScopeResolver`, `RelationResolver` |
 | `now` | `kit.clock` | `kit.clock`, registered as `AuthzClock` |
-| `domains` | — | `AuthzDomains.create(name, parent)` per entry, with its kit models, `combine` and `disable` |
+| `domains` | — | `AuthzDomains.create(name, parent)` per entry, with its kit models (listed in its `models`), `combine` and `disable` |
 | `rbac`, `abac`, `rebac` | — | your lane's real model named `rbac` / `abac` / `rebac`, loaded in `register` |
 | `scopeAttributes` | — | the kit's `ScopeAttributeStore` and schemas, unless `kitScopeAttributes: false` |
 | `config.engine`, `config.fields`, `config.cache`, `config.audit` | the engine's options | `authz.domains.<test>.*`; without the `cache` facet and without `config.cache`, `cache.maxEntries: 0` |
@@ -90,7 +90,7 @@ Inside `hostHarness`, write config only through `host.setConfig(path, value)`: t
 ## Best practices
 
 - One fresh system per case; create a test domain per case and register your models in it, so the child owns them.
-- Child-only model classes must not carry `@Injectable(AuthorizationModel)`; register them imperatively in the child.
+- Child-only model classes must not carry `@Injectable(AuthorizationModel)`; register them imperatively in the child and list them in its `models` (`testHost.activate` does both).
 - Uncache only the root types your harness causes to be created. Never call `DI.clearCache()`.
 - Load the host from `@spinajs/authz` (the lib), never from authz `src`.
 
@@ -98,10 +98,10 @@ Inside `hostHarness`, write config only through `host.setConfig(path, value)`: t
 
 ```ts
 // Don't: extend runs after the domain booted, so the model is never routed
-hostHarness({ extend: (host) => { host.container.register(testHost.instance(model)).as(AuthorizationModel); return {}; } });
+hostHarness({ extend: (host) => { testHost.activate(host.container, host.domain, model); return {}; } });
 
 // Do
-hostHarness({ register: (host) => { host.container.register(testHost.instance(model)).as(AuthorizationModel); } });
+hostHarness({ register: (host) => { testHost.activate(host.container, host.domain, model); } });
 ```
 
 ## Examples
@@ -109,7 +109,7 @@ hostHarness({ register: (host) => { host.container.register(testHost.instance(mo
 ### An RBAC harness over in-memory stores
 
 ```ts sample
-import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
+import { AuthzContributor } from '@spinajs/authz';
 import { MemoryAssignmentStore, MemoryRoleStore, RbacContributor, RbacModel } from '@spinajs/authz-rbac';
 import { hostHarness, runBehaviour, testHost } from '@spinajs/authz-testing';
 import type { BehaviourHarness } from '@spinajs/authz-testing';
@@ -124,7 +124,9 @@ export const rbacHarness = (): BehaviourHarness =>
         assignments: new MemoryAssignmentStore(rbac.assignments ?? []),
         clock: host.kit.clock, // cache TTLs move with the case's advance steps
       });
-      host.container.register(testHost.instance(model)).as(AuthorizationModel);
+      // Registered as a factory named 'rbac' and listed in the test domain's models.
+      testHost.activate(host.container, host.domain, model);
+      // A model built with new RbacModel(options) wires nothing, so the contributor is registered here.
       host.container.register(testHost.instance(new RbacContributor(model))).as(AuthzContributor);
     },
   });

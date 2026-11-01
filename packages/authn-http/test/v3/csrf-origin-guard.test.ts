@@ -132,7 +132,7 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
 
     const config = await DI.resolve(Configuration);
     await DI.resolve(fsService);
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
     for (const [path, value] of Object.entries(DEFAULTS)) config.set(path, value);
     await startServer();
 

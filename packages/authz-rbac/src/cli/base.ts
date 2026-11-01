@@ -1,15 +1,15 @@
 import { AuthzService, SYSTEM } from '@spinajs/authz';
 import type { AuthzAdmin } from '@spinajs/authz';
 import { AuthzCliBase } from '@spinajs/authz/cli';
-import { OrmMigrator } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 
 // Registers the RBAC write handlers of AuthzAdmin: the CLI loads only the command modules.
 import '../admin/index.js';
 
 /**
  * Resolves AuthzService only when the command runs it, so a failing authz boot becomes a message; tests set `Authz`.
- * A command whose run touches the RBAC DB stores resolves `OrmMigrator` first: their queries need the
- * `Migration.OnStartup` pass an app process runs before serving.
+ * A command whose run touches the RBAC DB stores resolves the `Orm` first, which applies the
+ * `Migration.OnStartup` migrations an app process applies before serving.
  */
 export abstract class AuthzCliCommand extends AuthzCliBase {
   public Authz?: AuthzService;
@@ -22,7 +22,7 @@ export abstract class AuthzCliCommand extends AuthzCliBase {
   protected async authz(): Promise<AuthzService> {
     if (!this.Authz) {
       if (this.touchesDb()) {
-        await this.Container.resolve(OrmMigrator);
+        await ((await this.Container.resolve(Orm)) as Orm).Migrator.ready();
       }
       this.Authz = (await this.Container.resolve(AuthzService)) as AuthzService;
     }

@@ -1,8 +1,7 @@
-import { AuthorizationModel, AuthzContributor, AuthzEventSink, AuthzService, ScopeAttributeStore, WritableScopeAttributeStore } from '@spinajs/authz';
+import { AuthorizationModel, AuthzEventSink, AuthzService, ScopeAttributeStore, WritableScopeAttributeStore } from '@spinajs/authz';
 import type { AuthzAdmin, AuthzEvent, Principal } from '@spinajs/authz';
-import { AbacContributor, AbacModel, ConfigPolicyStore } from '@spinajs/authz-abac';
+import { AbacModel, ConfigPolicyStore } from '@spinajs/authz-abac';
 import { DbScopeAttributeStore } from '@spinajs/authz-orm';
-import { registerRbac } from '@spinajs/authz-rbac';
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 
@@ -102,9 +101,9 @@ async function boot(): Promise<TeamsStack> {
   root.register(testHost.instance(attributes)).as(ScopeAttributeStore);
   root.register(testHost.instance(attributes)).as(WritableScopeAttributeStore);
   const abac = new AbacModel({ stores: [new ConfigPolicyStore(config.get<unknown[]>(['authz', 'abac', 'policies'], []))] });
-  root.register(testHost.instance(abac)).as(AuthorizationModel);
-  root.register(testHost.instance(new AbacContributor(abac))).as(AuthzContributor);
-  await registerRbac(root, config);
+  // AbacModel's init registers its contributor; RbacModel is built by DI and wires its stores and services into root.
+  root.register(testHost.named(abac.name, testHost.instance(abac))).as(AuthorizationModel);
+  config.set(['authz', 'models'], [abac.name, 'RbacModel']);
 
   const authz = (await DI.resolve(AuthzService)) as AuthzService;
   return { ...db, authz, admin: authz.admin(), events, mailer, config };

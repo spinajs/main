@@ -1,3 +1,27 @@
+# Release notes — the controller scan registers what the package entry did
+
+## Security fix
+
+- `@spinajs/users-http`: since #386 the self-lockout and last-holder rules of deactivate, ban and delete live in
+  `AccountDisableHook`, which only the package entry imported. An app that loads users-http through its config
+  fragment's controller scan never registered the hook, and the hook fails open. The last privileged administrator
+  could be deactivated, banned or deleted by a caller with `users:delete` but without `users:update`, and an actor
+  outside `withCredentialAdmin` could disable its own account. The `Security` and `Users` controllers now import
+  the hook module.
+
+## Fixes
+
+Each of these packages registered something only from its entry module, so an app that reaches the package through
+its config fragment's controller scan lost it. The scanned controllers now import the registering module.
+
+| Package | Registration the scan now gets |
+| --- | --- |
+| `@spinajs/scheduler-http` | 409 mapping for `InvalidRunState` and `SchedulePaused`, `ISchedulerRunAccepted` response schema |
+| `@spinajs/configuration-http` | configuration access resource bootstrapper |
+| `@spinajs/authn-http` | webhook audit sink |
+| `@spinajs/authn-oidc` | logout extension and bootstrapper |
+| `@spinajs/telemetry` | bootstrappers, request middleware and perf sink |
+
 # Release notes — http: controller cache parses one file, not a TypeScript program
 
 > Branch `perf/http-controller-cache`. Package: http (read by http-swagger).

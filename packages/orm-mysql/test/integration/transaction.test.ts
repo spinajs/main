@@ -16,7 +16,7 @@
  */
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 // Registers the concrete Log implementation — `Orm` types its logger as the ABSTRACT `Log`
 // from @spinajs/log-common, so without this `Orm.createConnections` dies on
 // `this.Log.trace is not a function`.
@@ -97,8 +97,8 @@ describe('MySQL transaction contract (integration)', function () {
     DI.clearCache();
     DI.register(IntegrationConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
-    await DI.resolve(OrmMigrator);
-    await (await DI.resolve(OrmMigrator)).Runner.up();
+    await (await DI.resolve(Orm)).Migrator.ready();
+    await (await DI.resolve(Orm)).Migrator.Runner.up();
     // model descriptors get their columns from the live schema; without this the
     // insert compiler has no columns to work with
     await db().reloadTableInfo();

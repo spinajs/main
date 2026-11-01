@@ -1,10 +1,10 @@
 import 'mocha';
 import { hostHarness, runBehaviour, testHost } from '@spinajs/authz-testing';
 
-import { AdminGuard, AuthorizationModel, AuthzContributor } from '@spinajs/authz';
+import { AdminGuard, AuthorizationModel } from '@spinajs/authz';
 import type { AuthzService } from '@spinajs/authz';
 
-import { AbacContributor, AbacModel, MemoryPolicyStore, PolicyStore } from '../../src/index.js';
+import { AbacModel, MemoryPolicyStore, PolicyStore } from '../../src/index.js';
 
 class PermissivePolicyGuard extends AdminGuard {
   async check(): Promise<void> {}
@@ -21,8 +21,10 @@ runBehaviour(
         const c = host.container;
         const store = new MemoryPolicyStore((host.world.abac?.policies ?? []).map((p) => ({ ...p, source: 'memory' })));
         const model = new AbacModel({ stores: [store] });
-        c.register(testHost.instance(model)).as(AuthorizationModel);
-        c.register(testHost.instance(new AbacContributor(model))).as(AuthzContributor);
+        // The model's init registers its AbacContributor.
+        c.register(testHost.named(model.name, testHost.instance(model))).as(AuthorizationModel);
+        const listed = testHost.config().get<string[] | undefined>(['authz', 'domains', host.domain, 'models']) ?? [];
+        host.setConfig(['authz', 'domains', host.domain, 'models'], [...listed, model.name]);
         c.register(testHost.instance(store)).as(PolicyStore);
         c.register(PermissivePolicyGuard).as(AdminGuard);
         host.setConfig(['authz', 'admin', 'guard', 'service'], 'PermissivePolicyGuard');

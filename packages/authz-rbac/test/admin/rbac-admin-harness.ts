@@ -1,7 +1,7 @@
 import { hostHarness, testHost } from '@spinajs/authz-testing';
 import type { BehaviourHarness, Facet, HostSetup } from '@spinajs/authz-testing';
 
-import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
+import { AuthzContributor } from '@spinajs/authz';
 import type { AuthzService, Principal } from '@spinajs/authz';
 
 import { ConfigRuleStore, MemoryRoleStore, RbacContributor, RbacModel, RbacService, createRbacExtensions } from '../../src/index.js';
@@ -34,7 +34,7 @@ export function rbacAdminStores(host: Pick<HostSetup, 'container'>): RbacAdminSt
 }
 
 /**
- * adminHarness with L1b's RbacModel in place of TestRbacModel. As registerRbac wires it, the model
+ * adminHarness with L1b's RbacModel in place of TestRbacModel. As RbacModel.init wires it, the model
  * reads two rule stores: `world.rbac.rules` as config rules (ConfigRuleStore, checked at boot) and
  * the admin MemoryRuleStore that rule.put writes, read per path like DB rules. A committed write
  * reaches the model through the change bus (the domain invalidates the model's assignment cache).
@@ -53,7 +53,7 @@ export function rbacAdminHarness(opts: RbacAdminHarnessOptions = {}): BehaviourH
       // The kit clock moves the assignment cache TTL with the case's `advance` steps.
       const options: RbacModelOptions = { roles, assignments: side.assignments, links: side.links, rules: [configRules, side.rules], clock: host.kit.clock };
       const model = new RbacModel({ ...options, extensions: createRbacExtensions(options) });
-      host.container.register(instance(model)).as(AuthorizationModel);
+      testHost.activate(host.container, host.domain, model);
       host.container.register(instance(new RbacContributor(model))).as(AuthzContributor);
       STORES.set(host.container, { ...side, roles, configRules, model });
       opts.register?.(host);

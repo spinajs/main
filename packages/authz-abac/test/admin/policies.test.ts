@@ -2,11 +2,11 @@ import * as chai from 'chai';
 import 'mocha';
 import { userPrincipal } from '@spinajs/authz-testing';
 
-import { AuthorizationModel, AuthzAdminFailure, AuthzConfigError, AuthzWriteHandler, MemoryAuthzAdminBackend, SYSTEM } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzConfigError, AuthzWriteHandler, MemoryAuthzAdminBackend, SYSTEM } from '@spinajs/authz';
 import type { AuthzCommand, AuthzTx } from '@spinajs/authz';
 
 import { AbacModel, AbacPolicyHandler, ConfigPolicyStore, MemoryPolicyStore, PolicyStore } from '../../src/index.js';
-import { F1, G, HOUR, P1, P2, START, TestGuard, abacDomain, del, failure, installHost, instance, ok, policy, put, rejection, resetHost, snapshot, stored, uninstallHost } from './support.js';
+import { F1, G, HOUR, activate, P1, P2, START, TestGuard, abacDomain, del, failure, installHost, instance, ok, policy, put, rejection, resetHost, snapshot, stored, uninstallHost } from './support.js';
 import type { AbacDomain } from './support.js';
 
 const expect = chai.expect;
@@ -307,7 +307,7 @@ describe('ABAC policy commands through AuthzAdmin', function () {
 
     it('validates against every AbacModel of the domain', async () => {
       const other = new AbacModel({ name: 'abac2', stores: [new ConfigPolicyStore([{ ...stored('cfg2'), source: 'config' }])] });
-      d = await abacDomain('test', { register: (c) => c.register(instance(other)).as(AuthorizationModel) });
+      d = await abacDomain('test', { register: (c) => activate(c, 'test', other) });
       expect(failure(await d.admin.execute(SYSTEM, [put(policy('cfg2'))]))).to.deep.equal({ at: 0, code: 'invalid_command', field: 'policy.id' });
       ok(await d.admin.execute(SYSTEM, [put(policy('p1'))]));
     });

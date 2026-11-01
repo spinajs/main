@@ -16,13 +16,6 @@ interface ITouchScope {
   /** A migration's `up()` is running in this async context. */
   inUp?: boolean;
   inBuilder?: boolean;
-  /**
-   * Inside `OrmMigrator`'s boot pass: model queries pass the `Migration.OnStartup` gate it has not opened yet. A timer
-   * or listener started inside the pass inherits this, so it keeps passing the gate even after a failed pass.
-   */
-  migrator?: boolean;
-  /** An `OrmMigrator` with `MigrateOnStartup: false` resolving its Orm: the tables may not exist yet. */
-  tool?: boolean;
 }
 
 const storage = new AsyncLocalStorage<ITouchScope>();
@@ -97,26 +90,6 @@ function watchRawSql(driver: OrmDriver): () => void {
       delete target.executeOnDb;
     }
   };
-}
-
-/** Runs `fn` as `OrmMigrator`'s boot pass: its `up()` and `data()` query models on connections still gated. */
-export function runAsMigrator<R>(fn: () => Promise<R>): Promise<R> {
-  return storage.run({ ...storage.getStore(), migrator: true }, fn);
-}
-
-/** True inside {@link runAsMigrator}. */
-export function inMigratorPass(): boolean {
-  return storage.getStore()?.migrator === true;
-}
-
-/** Runs `fn` as a migration tool's boot: an Orm resolved in it skips the `db.StrictTableCheck` check. */
-export function runAsMigrationTool<R>(fn: () => Promise<R>): Promise<R> {
-  return storage.run({ ...storage.getStore(), tool: true }, fn);
-}
-
-/** True inside {@link runAsMigrationTool}. */
-export function inMigrationTool(): boolean {
-  return storage.getStore()?.tool === true;
 }
 
 /** Marks every table of `driver`'s connection as changed in `touches`. */
