@@ -275,13 +275,14 @@ describe('OrmMigrator', function () {
 
     RECORDS = [];
     EXECUTED = [];
-    onStartup = true;
-    strictSetting = false;
   });
 
   afterEach(async () => {
     sinon.restore();
     await disposeTestApps();
+    // Reset here, not in beforeEach: useTestApp boots the next app, which reads them, before that hook runs.
+    onStartup = true;
+    strictSetting = false;
   });
 
   function createUsersMigration() {
