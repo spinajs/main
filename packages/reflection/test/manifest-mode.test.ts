@@ -230,8 +230,13 @@ describe('ListFromFiles manifest fast path', () => {
     expect(globSync.called).to.equal(true);
   });
 
+  it('require mode without a manifest fails the boot: Configuration preloads the property types the manifest names', async () => {
+    await expect(createTestApp({ config, register: (c) => registerManifestSettings(c, { mode: 'require', path: 'app.manifest.json' }) })).to.be.rejectedWith(ManifestMissing);
+  });
+
   it('require mode without a manifest throws ManifestMissing', async () => {
-    const app = await createTestApp({ config, register: (c) => registerManifestSettings(c, { mode: 'require', path: 'app.manifest.json' }) });
+    const app = await createTestApp({ config });
+    registerManifestSettings(app.container, { mode: 'require', path: 'app.manifest.json' });
     await expect(app.container.resolve(listerOf()).Items).to.be.rejectedWith(ManifestMissing, /commands/);
   });
 

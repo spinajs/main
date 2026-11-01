@@ -351,13 +351,13 @@ describe('StrategyRegistry', function () {
     });
 
     const refused: [string, unknown, string][] = [
-      // Config files concatenate arrays, so the string lands in the shipped empty list as its first entry.
-      ['a string instead of a list', 'LocalPassword', 'authn.strategies.0'],
+      // An app value replaces the shipped list, so the schema checks the string as the list itself.
+      ['a string instead of a list', 'LocalPassword', 'authn.strategies'],
       ['an entry without a service', [{ name: 'local' }], 'authn.strategies.0.service'],
       ['an entry with an empty name', [{ name: '', service: 'LocalPassword' }], 'authn.strategies.0.name'],
       ['a null entry', [null], 'authn.strategies.0'],
       ['the same name with two services', [LOCAL, entry('local', 'PlainBearer')], 'authn.strategies'],
-      // Config files concatenate arrays; the schema keeps one entry per name, identical repeats included.
+      // The schema keeps one entry per name, identical repeats included.
       ['an identical entry listed twice', [LOCAL, { ...LOCAL }], 'authn.strategies'],
     ];
     for (const [what, strategies, path] of refused) {

@@ -166,6 +166,8 @@ describe('route argument types from the manifest ( no decorator metadata )', fun
     rmSync(MANIFEST_DIR, { recursive: true, force: true });
     DI.uncache(MANIFEST.key);
     DI.uncache(MANIFEST_SETTINGS.key);
+    // The fixture's classes stay imported: their untyped properties would fail every later require boot in this process.
+    forgetPendingProperties();
   });
 
   it('the fixture build records no parameter types', () => {
