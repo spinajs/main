@@ -2392,7 +2392,7 @@
   },
   "packages/authz-testing/test/e2e/support/stack.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 3
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 5
@@ -8622,7 +8622,7 @@
   },
   "packages/users/test/support/authz-host.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 7
+      "count": 5
     }
   },
   "packages/users/test/support/child-config.ts": {
