@@ -10,6 +10,7 @@ import { expect } from 'chai';
 import { renderTemplate } from '@spinajs/log';
 
 import { AuthzImpersonationGuard } from '../../src/index.js';
+import { releaseAuthzHost } from '../support/authz-host.js';
 import { useKitConfiguration } from '../support/kit-configuration.js';
 
 const { assignment, combine, extension, role } = fixtureDsl;
@@ -132,6 +133,7 @@ const harness = () =>
   });
 
 describe('impersonation (B26)', () => {
+  before(() => releaseAuthzHost());
   useKitConfiguration();
 
   runBehaviour(['B26.users-impersonation', 'B26.users-impersonation-guard'], harness, {
