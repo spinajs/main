@@ -48,6 +48,7 @@ function entry(u: IMigrationUnit, connection: string, state: Partial<IMigrationS
 /** A custom Migration.Service keeping its state outside the default tracking table: it reports every migration FAILED. */
 class StatusFromElsewhere extends OrmMigrationService {
   public static asked: Array<IMigrationStatusOptions | undefined> = [];
+  public static reportAs: string | undefined;
 
   public async ensureStorage(): Promise<void> {
     throw new Error('the guard must not create storage');
@@ -65,7 +66,7 @@ class StatusFromElsewhere extends OrmMigrationService {
 
   public async status(units: IMigrationUnit[], options?: IMigrationStatusOptions): Promise<IMigrationStatusEntry[]> {
     StatusFromElsewhere.asked.push(options);
-    return units.map((u) => entry(u, this.driver.Options.Name, { failed: true }));
+    return units.map((u) => entry(u, StatusFromElsewhere.reportAs ?? this.driver.Options.Name, { failed: true }));
   }
 }
 
@@ -180,6 +181,7 @@ describe('OrmMigrationGuard', function () {
     trackingTables = {};
     services = {};
     StatusFromElsewhere.asked = [];
+    StatusFromElsewhere.reportAs = undefined;
 
     preRegistered = [...(DI.getRegisteredTypes('__migrations__') ?? [])];
   });
@@ -300,6 +302,19 @@ describe('OrmMigrationGuard', function () {
     expect(err.failed).to.deep.equal([{ name: AUDIT, connection: 'audit' }]);
     expect(err.pending).to.deep.equal([]);
     expect(StatusFromElsewhere.asked).to.deep.equal([{ readOnly: true }]);
+  });
+
+  it('applies the global Check mode to a connection name a custom Migration.Service reports and the Orm does not know', async () => {
+    services = { audit: 'guard-test-status-service' };
+    StatusFromElsewhere.reportAs = 'audit-replica';
+    defineMigrations();
+    await boot();
+    track('main', applied(USERS), applied(ORDERS));
+
+    const err = await checkFailure();
+
+    expect(err).to.be.instanceOf(PendingMigrationsException);
+    expect(err.failed).to.deep.equal([{ name: AUDIT, connection: 'audit-replica' }]);
   });
 
   it('reads the tracking table Migration.Table names', async () => {

@@ -69,7 +69,7 @@ export class OrmMigrationGuard {
         continue;
       }
 
-      const target = this.mode(orm.Connections.get(e.connection)!) === 'warn' ? warning : failing;
+      const target = this.mode(orm.Connections.get(e.connection)) === 'warn' ? warning : failing;
       (e.failed ? target.failed : target.pending).push({ name: e.name, connection: e.connection });
     }
 
@@ -86,8 +86,9 @@ export class OrmMigrationGuard {
     };
   }
 
-  protected mode(driver: OrmDriver): MigrationCheckMode {
-    return driver.Options.Migration?.Check ?? this.Configuration.get<MigrationCheckMode>('db.MigrationCheck', 'fail');
+  // A custom Migration.Service may report a connection name the Orm does not know: it gets the global mode.
+  protected mode(driver: OrmDriver | undefined): MigrationCheckMode {
+    return driver?.Options.Migration?.Check ?? this.Configuration.get<MigrationCheckMode>('db.MigrationCheck', 'fail');
   }
 
   protected logWarned(report: Findings): void {
