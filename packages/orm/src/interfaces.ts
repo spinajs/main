@@ -392,10 +392,11 @@ export interface IDriverOptions {
   };
 
   Migration?: {
-    /**
-     * Should run migration on startup
-     */
+    /** @deprecated Ignored: the application never migrates. Run migrate-up. */
     OnStartup?: boolean;
+
+    /** What the boot guard does with pending or failed migrations on this connection; overrides db.MigrationCheck. Default 'fail'. */
+    Check?: 'fail' | 'warn' | 'off';
 
     /**
      * Migration table name, if not set default is spinajs_migration
