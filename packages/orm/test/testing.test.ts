@@ -259,18 +259,45 @@ describe('the @spinajs/orm/testing lint ban', function () {
   this.timeout(120000);
 
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-  const code = ["import { migrateTestDatabase } from '@spinajs/orm/testing';", '', 'export const helper = migrateTestDatabase;', ''].join('\n');
+  const MESSAGE = 'Test helper: applications migrate with `npx spinajs migrate-up`.';
+  const eslint = new ESLint({ cwd: root });
 
-  async function bans(file: string): Promise<string[]> {
-    const [result] = await new ESLint({ cwd: root }).lintText(code, { filePath: path.join(root, file) });
-    return result.messages.filter((m) => m.ruleId === 'no-restricted-imports').map((m) => m.message);
+  async function bans(file: string, ...lines: string[]): Promise<string[]> {
+    const [result] = await eslint.lintText([...lines, ''].join('\n'), { filePath: path.join(root, file) });
+    return result.messages.filter((m) => m.ruleId === 'no-restricted-imports' || m.ruleId === 'no-restricted-syntax').map((m) => m.message);
   }
 
+  const staticImport = ["import { migrateTestDatabase } from '@spinajs/orm/testing';", 'export const helper = migrateTestDatabase;'];
+
   it('fails an import of the helper from framework code', async () => {
-    expect(await bans('packages/orm-cli/src/orm.ts')).to.deep.equal(["'@spinajs/orm/testing' import is restricted from being used. Test helper: applications migrate with `npx spinajs migrate-up`."]);
+    expect(await bans('packages/orm-cli/src/orm.ts', ...staticImport)).to.deep.equal([`'@spinajs/orm/testing' import is restricted from being used. ${MESSAGE}`]);
+  });
+
+  it('fails a re-export and the deep lib path', async () => {
+    expect(await bans('packages/orm-cli/src/orm.ts', "export * from '@spinajs/orm/testing';")).to.deep.equal([`'@spinajs/orm/testing' import is restricted from being used. ${MESSAGE}`]);
+    expect(await bans('packages/orm-cli/src/orm.ts', "export { migrateTestDatabase } from '@spinajs/orm/lib/mjs/testing/index.js';")).to.deep.equal([
+      `'@spinajs/orm/lib/mjs/testing/index.js' import is restricted from being used by a pattern. ${MESSAGE}`,
+    ]);
+  });
+
+  it('fails a dynamic import, a createRequire() require and a relative path to the orm sources', async () => {
+    expect(await bans('packages/orm-cli/src/orm.ts', "export const helper = () => import('@spinajs/orm/testing');")).to.deep.equal([MESSAGE]);
+    expect(await bans('packages/orm-cli/src/orm.ts', "import { createRequire } from 'node:module';", "export const helper = createRequire(import.meta.url)('@spinajs/orm/lib/cjs/testing/index.js');")).to.deep.equal([MESSAGE]);
+    expect(await bans('packages/orm-cli/src/orm.ts', "export const helper = () => import('../../orm/src/testing/index.js');")).to.deep.equal([MESSAGE]);
+  });
+
+  it('fails a relative import of the helper inside the orm sources, but not inside the helper itself', async () => {
+    expect(await bans('packages/orm/src/orm.ts', "export { migrateTestDatabase } from './testing/index.js';")).to.deep.equal([`'./testing/index.js' import is restricted from being used by a pattern. ${MESSAGE}`]);
+    expect(await bans('packages/orm/src/orm.ts', "export const helper = () => import('./testing/index.js');")).to.deep.equal([MESSAGE]);
+    expect(await bans('packages/orm/src/testing/index.ts', "import { OrmMigrator } from '../migrator.js';", 'export const migrator = OrmMigrator;')).to.deep.equal([]);
   });
 
   it('allows it in a test file', async () => {
-    expect(await bans('packages/orm-cli/test/cli.test.ts')).to.deep.equal([]);
+    expect(await bans('packages/orm-cli/test/cli.test.ts', ...staticImport)).to.deep.equal([]);
+    expect(await bans('packages/orm-cli/test/cli.test.ts', "export const helper = () => import('@spinajs/orm/testing');")).to.deep.equal([]);
+  });
+
+  it('leaves other packages alone', async () => {
+    expect(await bans('packages/orm-cli/src/orm.ts', "export { Orm } from '@spinajs/orm';", "export const helper = () => import('@spinajs/authn-testing');")).to.deep.equal([]);
   });
 });
