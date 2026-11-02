@@ -108,6 +108,11 @@ describe('spinajs build reads the dirs the app runs with', function () {
     expect(output).to.match(/not loaded\s+[1-9]/);
   });
 
+  it('records the APP_ENV it read the dirs under', () => {
+    expect(built().manifest.buildEnv).to.equal('test');
+    expect(built([], { APP_ENV: 'production' }).manifest.buildEnv).to.equal('production');
+  });
+
   it('loads a RunApp layout, through the dir applyAppDirs adds for --app and --apppath', () => {
     expect(flagged(built().manifest.controllers)).to.include('ShopController');
     const { manifest, output } = built(['--app', 'shop', '--apppath', 'lib/apps']);

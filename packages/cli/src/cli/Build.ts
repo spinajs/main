@@ -74,7 +74,7 @@ export class Build extends CliCommand {
     const cwdWarnings = this.cwdWarnings(appRoot);
     let built: Awaited<ReturnType<Compiler['buildAppManifest']>>;
     try {
-      built = await buildAppManifest({ tsconfig, appRoot, out: resolve(options.out), schemaDerivation: options.schemas !== false, ...this.appDirs(options) });
+      built = await buildAppManifest({ tsconfig, appRoot, out: resolve(options.out), schemaDerivation: options.schemas !== false, buildEnv: this.Config?.get<string | undefined>('process.env.APP_ENV', undefined), ...this.appDirs(options) });
     } catch (e) {
       if (!(e instanceof NoAppDirs)) throw e;
       this.write([...cwdWarnings, `error CMP007 - ${e.message}. ${NO_DIRS_FIX}`, ''].join('\n'));

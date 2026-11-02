@@ -5,7 +5,7 @@ import { Autoinject, Container, DI, IContainer, Injectable } from '@spinajs/di';
 import { Configuration, ConfigurationSource, IConfigLike, normalizeEnvironment } from '@spinajs/configuration-common';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { loadRuntimeManifest, type ManifestMode } from '@spinajs/manifest';
-import { MANIFEST, MANIFEST_SETTINGS, projectConfigDirs, registerManifest, registerManifestSettings, type ManifestSettings } from './manifest-runtime.js';
+import { effectiveManifestOf, MANIFEST, MANIFEST_SETTINGS, projectConfigDirs, registerManifest, registerManifestSettings, type ManifestSettings } from './manifest-runtime.js';
 import { findBasePath } from './util.js';
 import { BaseFileSource } from './sources.js';
 
@@ -52,6 +52,7 @@ export class ManifestConfigurationSource extends ConfigurationSource {
 
     const preset = this.presetSettings();
     if (preset) {
+      this.warnOnBuildEnvMismatch(config);
       return { system: { manifest: { ...preset } } };
     }
 
@@ -69,7 +70,20 @@ export class ManifestConfigurationSource extends ConfigurationSource {
       this.Container.uncache(MANIFEST.key);
     }
 
+    this.warnOnBuildEnvMismatch(config);
     return { system: { manifest: { ...settings } } };
+  }
+
+  // A warning in both modes: the dirs may not differ between environments, and an image promoted from staging is legitimate.
+  private warnOnBuildEnvMismatch(config: Configuration): void {
+    const built = effectiveManifestOf(this.Container)?.manifest?.buildEnv;
+    const running = config.get<string | undefined>('process.env.APP_ENV', undefined) ?? this.Env;
+    if (built === undefined || normalizeEnvironment(built) === normalizeEnvironment(running)) return;
+    InternalLogger.warn(
+      { built, running },
+      "Manifest was built under APP_ENV '${built}', running under '${running}': its system.dirs were read for the build environment. Rebuild with 'spinajs build' under the APP_ENV the app runs with",
+      'Configuration',
+    );
   }
 
   // The container's own registry only: the lineage and root also hold values copied there by other apps.
