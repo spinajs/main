@@ -102,7 +102,7 @@ describe('ajv-merge-patch and ajv-keywords are installed on first use', () => {
   it('installs them for a schema registered after the boot', async () => {
     const { child, config } = await boot({ uniquePlugins: { targets: [{ name: 'a' }, { name: 'a' }] } }, PLAIN);
     expect(pluginInstalls()).to.equal(0);
-    expect(() => registerConfigurationSchema(UNIQUE_NAMES as never, child)).to.throw(InvalidConfiguration, /uniquePlugins\.targets/);
+    expect(() => registerConfigurationSchema(UNIQUE_NAMES, child)).to.throw(InvalidConfiguration, /uniquePlugins\.targets/);
     expect(config.get('plainPlugins.port')).to.equal(80);
   });
 });
