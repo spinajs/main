@@ -9,7 +9,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
@@ -134,7 +135,7 @@ class UsersHttpAppConfiguration extends FrameworkConfiguration {
             Driver: 'orm-driver-sqlite',
             Filename: ':memory:',
             Name: 'sqlite',
-            Migration: { Table: 'orm_migrations', OnStartup: true, Transaction: { Mode: MigrationTransactionMode.PerMigration } },
+            Migration: { Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
           },
         ],
       },
@@ -241,7 +242,7 @@ export async function startUsersHttpApp(opts: UsersHttpAppOptions): Promise<User
   }
   await DI.resolve(Configuration);
   await DI.resolve(fsService);
-  await (await DI.resolve(Orm)).Migrator.ready();
+  await migrateTestDatabase();
 
   const before = new Set(DI.getRegisteredTypes(BaseController) ?? []);
   for (const c of opts.controllers) DI.register(c).as(BaseController);
