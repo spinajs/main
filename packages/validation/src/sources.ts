@@ -1,5 +1,6 @@
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log-common';
 import * as fs from 'fs';
 import { createRequire } from 'node:module';
@@ -10,8 +11,17 @@ import { ISchema, ISchemaObject, SchemaSource } from './types.js';
 type Glob = typeof import('glob');
 const load = createRequire(import.meta.url);
 let globModule: Glob | undefined;
-// LoadJSONSchema is sync: it takes the module LoadJSSchema imported, and requires it only when called on its own
-const syncGlob = (): Glob => (globModule ??= load('glob') as Glob);
+// LoadJSONSchema is sync: it takes the module LoadJSSchema imported, and requires it only when called on its own,
+// which a single-file bundle cannot do without node_modules
+const syncGlob = (): Glob => {
+  if (globModule) return globModule;
+  try {
+    return (globModule = load('glob') as Glob);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'MODULE_NOT_FOUND') throw err;
+    throw new InvalidOperation('glob is needed to list the JSON schemas when LoadJSONSchema runs before LoadJSSchema, but cannot be loaded: install glob next to the app (a single-file bundle has no node_modules)', err);
+  }
+};
 
 @Injectable(SchemaSource)
 export class FileSystemSource extends SchemaSource {

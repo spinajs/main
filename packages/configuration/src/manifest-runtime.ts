@@ -279,5 +279,5 @@ export function manifestPackageConfigFiles(manifest: Manifest, pattern: string, 
 
 // A fragment older than `configFiles`: its one config dir is globbed, as without a manifest.
 function builtConfigFiles(configDir: string, pattern: string): string[] {
-  return lazyGlob().sync(`**/${pattern}`, { cwd: configDir }).map((f) => `config/${relative(configDir, join(configDir, f)).split(sep).join('/')}`);
+  return lazyGlob(`list ${configDir}, whose package fragment has no configFiles (rebuild the package)`).sync(`**/${pattern}`, { cwd: configDir }).map((f) => `config/${relative(configDir, join(configDir, f)).split(sep).join('/')}`);
 }

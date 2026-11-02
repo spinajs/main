@@ -32,6 +32,7 @@ The `system.manifest` configuration section (`path`, default `app.manifest.json`
 - `main.mjs` defaults `SPINAJS_MANIFEST_MODE` to `require`; the DI loader refuses a file under the bundle root that it did not bundle.
 - Controller, socket controller, schedule and migration files the manifest lists are inlined into `main.mjs` and handed to the runtime's import by path through the DI module loader (`__module_loader__`), so they are the same module instances as the app's own imports.
 - `typescript` is replaced by a stub that throws on use: manifest mode does not call it.
+- `glob` is not inlined: `off` mode, a package fragment without `configFiles`, glob syntax in a config dir path or a custom file pattern needs `glob` installed next to the bundle, and fails with an error naming that cause otherwise.
 
 ### Package roots
 

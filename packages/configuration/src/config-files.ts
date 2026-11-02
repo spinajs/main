@@ -1,6 +1,7 @@
 import { lstatSync, readdirSync, type Dirent } from 'node:fs';
 import { createRequire } from 'node:module';
 import { posix, win32 } from 'node:path';
+import { InvalidOperation } from '@spinajs/exceptions';
 
 type Glob = typeof import('glob');
 type Minimatch = typeof import('minimatch');
@@ -9,9 +10,20 @@ const load = createRequire(import.meta.url);
 let globModule: Glob | undefined;
 let minimatchModule: Minimatch | undefined;
 
+// A single-file bundle inlines what it imports statically, not these: without node_modules, Node's bare "Cannot find
+// module" would point at the bundle instead of the reason the module is needed.
+function loadFor<T>(name: string, need: string): T {
+  try {
+    return load(name) as T;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'MODULE_NOT_FOUND') throw err;
+    throw new InvalidOperation(`${name} is needed to ${need}, but cannot be loaded: install ${name} next to the app (a single-file bundle has no node_modules)`, err);
+  }
+}
+
 /** Loaded only for a pattern the listing below does not reproduce, so a boot that never needs them never loads them. */
-export const lazyGlob = (): Glob => (globModule ??= load('glob') as Glob);
-const lazyMinimatch = (): Minimatch => (minimatchModule ??= load('minimatch') as Minimatch);
+export const lazyGlob = (need: string): Glob => (globModule ??= loadFor<Glob>('glob', need));
+const lazyMinimatch = (need: string): Minimatch => (minimatchModule ??= loadFor<Minimatch>('minimatch', need));
 
 const WORD = '[\\w-]+';
 const FILE_SOURCE_PATTERN = new RegExp(`^(?:!\\(\\*\\.\\*\\)|\\*\\.(${WORD}(?:\\.${WORD})*))\\.(?:\\{(${WORD}(?:,${WORD})+)\\}|(${WORD}))$`);
@@ -36,7 +48,7 @@ export function fileNameMatcher(pattern: string): ((name: string) => boolean) | 
 export function matchesInAnyDir(path: string, pattern: string): boolean {
   const matches = fileNameMatcher(pattern);
   if (!matches || !/^(?:[^/\\]+\/)*[^/\\]+$/.test(path)) {
-    return lazyMinimatch()(path, `**/${pattern}`);
+    return lazyMinimatch(`match ${path} against ${pattern} (a custom file pattern, or a path that is not plain relative)`)(path, `**/${pattern}`);
   }
   const parts = path.split('/');
   const name = parts.pop() as string;
@@ -100,7 +112,7 @@ export function listConfigFiles(pattern: string): string[] {
   const matches = at > 0 ? fileNameMatcher(pattern.slice(at + 4)) : undefined;
   const dir = pattern.slice(0, at);
   if (!matches || !isLiteralDir(dir)) {
-    return lazyGlob().sync(pattern);
+    return lazyGlob(`list ${pattern} (off mode, glob syntax in a config dir path, or a custom file pattern)`).sync(pattern);
   }
 
   const found: string[] = [];
