@@ -45,7 +45,7 @@ async function externalDb(kind: 'postgres' | 'mysql'): Promise<{ connection: Rec
   }
   const quoted = kind === 'postgres' ? `"${name}"` : `\`${name}\``;
   return {
-    connection: { Driver: `orm-driver-${kind}`, Name: kind, ...server, Database: name, Migration: { Table: 'orm_migrations', OnStartup: false } },
+    connection: { Driver: `orm-driver-${kind}`, Name: kind, ...server, Database: name, Migration: { Table: 'orm_migrations' } },
     async drop() {
       const d = await admin();
       try {
@@ -74,8 +74,8 @@ function ormSuite(kind: DbKind): void {
 
     before(async () => {
       undoLog = installQuietLog();
-      // Not on startup: every migration this process imports would run; the suite runs fs_acl's alone.
-      const sqlite = (name: string) => ({ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: name, Migration: { Table: 'orm_migrations', OnStartup: false } });
+      // By hand, not migrateTestDatabase(): that would run every migration this process imports; the suite runs fs_acl's alone.
+      const sqlite = (name: string) => ({ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: name, Migration: { Table: 'orm_migrations' } });
       let main: Record<string, unknown> = sqlite('sqlite');
       if (kind !== 'sqlite') {
         const external = await externalDb(kind);
