@@ -6,6 +6,7 @@ import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import '@spinajs/log';
 
+import { InvalidOperation } from '@spinajs/exceptions';
 import { DataValidator } from '../src/validator.js';
 import { ISchema, SchemaSource } from '../src/types.js';
 
@@ -114,6 +115,15 @@ describe('DataValidator boot cost', function () {
     expect(() => validator.addSchema({ $id: 'boot.Bad', type: 7 }, 'boot.Bad')).to.throw(/schema is invalid/);
   });
 
+  it('refuses the strict instance before resolve() built the options it needs', () => {
+    class EarlyAccess extends DataValidator {
+      public strictBeforeResolve() {
+        return this.StrictValidator;
+      }
+    }
+    expect(() => new EarlyAccess().strictBeforeResolve()).to.throw(InvalidOperation, /super\.resolve\(\)/);
+  });
+
   it('installs no keyword plugin until a schema uses one', () => {
     const plugin = () => addKeyword.getCalls().filter((c) => ['$merge', 'uniqueItemProperties'].includes((c.args[0] as { keyword?: string })?.keyword ?? '')).length;
     expect(plugin()).to.equal(0);
@@ -123,4 +133,73 @@ describe('DataValidator boot cost', function () {
     expect(validator.tryValidate(schema, [{ id: 1 }, { id: 2 }])[0]).to.equal(true);
     expect(plugin()).to.equal(2);
   });
+});
+
+class LenientConfiguration extends FrameworkConfiguration {
+  protected onLoad() {
+    return {
+      logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] },
+      validation: { allErrors: true, strict: false },
+    };
+  }
+}
+
+type CustomAjv = { removeKeyword(k: string): unknown; addKeyword(def: object): unknown };
+
+// Validates `range` as "equals the first bound", so the test can tell it from the ajv-keywords one.
+class OwnRangeValidator extends DataValidator {
+  protected createAjv(options: object) {
+    const ajv = super.createAjv(options) as CustomAjv;
+    ajv.removeKeyword('range');
+    ajv.addKeyword({ keyword: 'range', type: 'number', schemaType: 'array', validate: (r: number[], v: number) => v === r[0] });
+    return ajv;
+  }
+}
+
+class UniqueIdsValidator extends DataValidator {
+  protected createAjv(options: object) {
+    const ajv = super.createAjv(options) as CustomAjv;
+    ajv.addKeyword({ keyword: 'uniqueIds', macro: () => ({ uniqueItemProperties: ['id'] }) });
+    return ajv;
+  }
+}
+
+// Ajv without strict mode ignores a keyword it does not know, so a plugin keyword missing from an instance would let data through.
+describe('DataValidator subclass keywords without Ajv strict mode', function () {
+  this.timeout(15000);
+
+  const duplicates = [{ id: 1 }, { id: 1 }];
+
+  async function validatorOf(type: typeof DataValidator) {
+    DI.clearCache();
+    DI.register(LenientConfiguration).as(Configuration);
+    DI.register(FixedSource).as(SchemaSource);
+    DI.register(type).as(DataValidator);
+    await DI.resolve(Configuration);
+    return DI.resolve(DataValidator);
+  }
+
+  afterEach(() => {
+    DI.unregister(FixedSource);
+    DI.unregister(OwnRangeValidator);
+    DI.unregister(UniqueIdsValidator);
+    DI.clearCache();
+  });
+
+  for (const prefix of ['app', 'authn']) {
+    it(`keeps a plugin keyword replaced in createAjv and the other plugin keywords (${prefix} id)`, async () => {
+      const validator = await validatorOf(OwnRangeValidator);
+      const ranged = { $id: `${prefix}.Ranged`, type: 'object', properties: { n: { type: 'number', range: [1, 2] } } };
+      expect(validator.tryValidate(ranged, { n: 2 })[0]).to.equal(false);
+      expect(validator.tryValidate(ranged, { n: 1 })[0]).to.equal(true);
+      expect(validator.tryValidate({ $id: `${prefix}.Unique`, type: 'array', uniqueItemProperties: ['id'] }, duplicates)[0]).to.equal(false);
+    });
+
+    it(`enforces a macro keyword of createAjv that expands into an ajv-keywords keyword (${prefix} id)`, async () => {
+      const validator = await validatorOf(UniqueIdsValidator);
+      const schema = { $id: `${prefix}.UniqueIds`, type: 'array', uniqueIds: true };
+      expect(validator.tryValidate(schema, duplicates)[0]).to.equal(false);
+      expect(validator.tryValidate(schema, [{ id: 1 }, { id: 2 }])[0]).to.equal(true);
+    });
+  }
 });

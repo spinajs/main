@@ -14,7 +14,7 @@ The `validation` configuration key holds the options of the Ajv instance inside 
    - `ajv-formats`: `email`, `date`, `date-time`, `uri`, `uuid`, `ipv4` and the other standard formats;
    - `ajv-keywords`: `transform`, `instanceof`, `range`, `uniqueItemProperties` and the other extra keywords.
 
-   `ajv-merge-patch` and `ajv-keywords` are installed, together, when the first schema that names one of their keywords is added or compiled: installing them compiles their meta-schemas, which an app that uses none of them does not need at boot.
+   `ajv-merge-patch` and `ajv-keywords` are installed, together, when the first schema that names one of their keywords is added or compiled: installing them compiles their meta-schemas, which an app that uses none of them does not need at boot. A `createAjv()` override that adds a macro or code keyword or a vocabulary, or defines or removes a plugin keyword, installs them first; see [Customizing the validator](08-customizing-the-validator.md#important-behaviour).
 7. Each schema of a [schema source](05-schema-sources.md) is checked against the JSON Schema meta-schema once; a schema that fails is logged and skipped. `addSchema()` checks the schema it is given as Ajv does.
 
 ## Configuration

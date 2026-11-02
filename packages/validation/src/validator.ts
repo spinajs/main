@@ -137,11 +137,11 @@ export class DataValidator extends AsyncService {
     const AjvConstructor = resolveDefault(Ajv);
     const ajv = new AjvConstructor(options);
 
-    // $merge, $patch and the ajv-keywords keywords
-    addKeywordPluginsOnUse(ajv);
-
     // add common formats validation eg: date time
     resolveDefault(ajvFormats)(ajv);
+
+    // $merge, $patch and the ajv-keywords keywords; after ajv-formats, whose keywords would otherwise install them at once
+    addKeywordPluginsOnUse(ajv);
     /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call */
 
     return ajv;
@@ -179,6 +179,7 @@ export class DataValidator extends AsyncService {
    */
   protected get StrictValidator(): StrictAjv {
     if (!this.StrictAjvInstance) {
+      if (!this.Validator) throw new InvalidOperation('StrictValidator is built from the options resolve() reads; call super.resolve() first');
       const strict = this.createAjv({ ...this.AjvConfig, coerceTypes: false }) as StrictAjv;
       for (const [identifier, schema] of this.Registered) {
         strict.addSchema(schema, identifier, undefined, false);
