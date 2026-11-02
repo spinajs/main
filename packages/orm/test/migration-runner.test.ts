@@ -838,4 +838,44 @@ describe('MigrationRunner', () => {
     expect(st[0].applied).to.be.true;
     expect(st[1].pending).to.be.true;
   });
+
+  it('status({ connection }) reports one connection and refuses a name nothing answers to', async () => {
+    @Migration('sqlite')
+    class MigrationRunnerTest_StatC_2021_08_03_00_00_00 extends OrmMigration {
+      public async up(_c: OrmDriver) {}
+      public async down(_c: OrmDriver) {}
+    }
+
+    @Migration('SampleConnection1')
+    class MigrationRunnerTest_StatD_2021_08_04_00_00_00 extends OrmMigration {
+      public async up(_c: OrmDriver) {}
+      public async down(_c: OrmDriver) {}
+    }
+
+    const sqlite = await makeDriver('sqlite');
+    const sample = await makeSecondDriver('SampleConnection1');
+    stubDb([]);
+
+    const runner = new MigrationRunner(
+      ormLike(
+        [ci(MigrationRunnerTest_StatC_2021_08_03_00_00_00), ci(MigrationRunnerTest_StatD_2021_08_04_00_00_00)],
+        [
+          ['sqlite', sqlite],
+          ['SampleConnection1', sample],
+        ],
+      ),
+    );
+
+    const st = await runner.status({ connection: 'SampleConnection1', readOnly: true });
+
+    expect(st.map((s) => [s.name, s.connection])).to.eql([['MigrationRunnerTest_StatD_2021_08_04_00_00_00', 'SampleConnection1']]);
+
+    try {
+      await runner.status({ connection: 'typo' });
+      expect.fail('a connection typo was reported as an empty status');
+    } catch (e) {
+      expect(e).to.be.instanceOf(OrmException);
+      expect((e as OrmException).message).to.contain('Connection typo is not configured');
+    }
+  });
 });

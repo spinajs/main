@@ -128,7 +128,7 @@ sequenceDiagram
 
 ### Status and resolve
 
-- `MigrationRunner.status()` returns one `IMigrationStatusEntry` per registered migration whose connection is configured, `OnStartup` or not. It never takes the lock.
+- `MigrationRunner.status(options?)` returns one `IMigrationStatusEntry` per registered migration whose connection is configured, `OnStartup` or not. It never takes the lock. `connection` limits the report to one connection and throws for a name nothing answers to. `readOnly: true` issues no DDL: it creates and upgrades no tracking table, reports every unit pending when the table is absent, and reads a legacy row without `FinishedAt` as applied, as the upgrade backfill would. `OrmMigrationService.status(units, { readOnly })` is the per-connection equivalent; a custom service that ignores the option stays valid.
 - `MigrationRunner.resolve(name, action)` forces the recorded state of a failed or interrupted migration without running it. It holds the connection's run lock, so it waits for a run in progress. A run that died does not keep the lock: a session lock ends with its session, and a lock-table row nobody refreshes goes stale after `Lock.StaleAfter`.
 
 ## Writing a migration
