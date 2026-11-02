@@ -210,6 +210,9 @@ graphify-out/
 # docs-packages-end
 # Release upgrade guides ( not a package docs folder )
 !/docs/upgrading/
+# Top-level docs pages
+!/docs/README.md
+!/docs/whats-new-4.0.md
 
 # Stryker mutation runs ( scripts/coverage/minimal-tests.mjs )
 .stryker-tmp/
