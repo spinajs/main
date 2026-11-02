@@ -394,7 +394,8 @@ describe('app-basic boots from its manifest', function () {
 
   it('validates an inherited route body against the type the subclass binds', () => {
     expect(required.validation.articleInvalid.status).to.equal(400);
-    expect(JSON.stringify(required.validation.articleInvalid.body)).to.include('title');
+    const [first] = (required.validation.articleInvalid.body as { errors: Record<string, unknown>[] }).errors;
+    expect(first).to.include({ instancePath: '/title', keyword: 'type' });
     // the unbound base schema rejected every non-empty body, so only a passing valid body proves the bound type
     expect(required.validation.articleValid).to.deep.equal({ status: 200, body: { id: 2, title: 'news' } });
   });

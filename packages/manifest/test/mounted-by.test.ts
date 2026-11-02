@@ -84,6 +84,14 @@ describe('publishedManifest and overridden controllers', () => {
     expect(published.controllers.map((c) => c.className)).to.deep.equal(['AppProfilesController']);
   });
 
+  it('reports a permission change on a published subclass outside the dirs once, as breaking', () => {
+    const at = (access?: string[]): Manifest =>
+      manifestWith({ controllers: [base, { ...sub, mountedBy: 'di', routes: [{ ...sub.routes[0], ...(access ? { access } : {}) }] }], services: [registration()] });
+    const changes = diffManifest(at(), at(['user:read'])).changes.filter((c) => c.section === 'permissions');
+    expect(changes).to.have.length(1);
+    expect(changes[0].breaking).to.equal(true);
+  });
+
   it('keeps out a subclass outside the dirs when the base it replaces is outside them too', () => {
     const published = publishedManifest(manifestWith({ controllers: [{ ...base, mountedBy: 'di' }, { ...sub, mountedBy: 'di' }], services: [registration()] }));
     expect(published.controllers).to.deep.equal([]);

@@ -53,6 +53,8 @@ function servedInBaseSlot(manifest: Manifest, overrides: Override[]): Set<Contro
 /**
  * The manifest as a generated document or a diff describes it. An entry with `mountedBy` serves something only if a
  * registration ran, which nothing static can tell, so it is kept out; the runtime still reads it from the manifest itself.
+ * The exception is a subclass registered over a loaded base: that is a static guess, which assumes the module holding the
+ * registration runs.
  */
 export function publishedManifest(manifest: Manifest): Manifest {
   const overrides = overridesOf(manifest);
