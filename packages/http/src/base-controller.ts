@@ -14,6 +14,7 @@ import { __handle_response__ } from './response.js';
 import { __handle_error__ } from './error.js';
 import { createOnErrorHandler, resolveConfigErrorHandlers } from './errors/on-error.js';
 import { derivedValidatorsOf } from './route-args/manifest-schema.js';
+import { runtimeTypesFromManifest } from './manifest-runtime-types.js';
 import { buildRoutePath, resolveRouteMiddlewares, resolveRoutePolicies, createPolicyGate, createActionHandler, wrapMiddlewareAction, ControllerActionHost } from './route-builder.js';
 
 export abstract class BaseController extends AsyncService implements IController {
@@ -84,6 +85,7 @@ export abstract class BaseController extends AsyncService implements IController
     this._router = Express.Router();
 
     const configErrorHandlers = await resolveConfigErrorHandlers(this._cfg, this._container);
+    await runtimeTypesFromManifest({ container: this._container, controller: this.constructor.name, routes: this.Descriptor.Routes.values(), mountPath: () => this.BasePath, log: this._log });
 
     for (const [, route] of this.Descriptor.Routes) {
       // Fail fast: an unknown route type means the route decorator never set a

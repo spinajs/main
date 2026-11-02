@@ -271,6 +271,17 @@ export interface IToInject<T> {
    * When set, `inject`, `serviceFunc` and `mapFunc` are not used to resolve it.
    */
   resolveFunc?: (data: any, container: IContainer) => unknown;
+
+  /**
+   * The decorator named no type and the build emits no decorator metadata: when the owner is resolved, the container
+   * asks the {@link IPropertyTypeResolver} for the type of `property` and injects what `bind(type)` describes.
+   */
+  pendingType?: { property: string | symbol; bind: (type: Class<unknown>) => IToInject<unknown> };
+}
+
+/** Types of injected properties that a build without decorator metadata does not record ( the manifest has them ). */
+export interface IPropertyTypeResolver {
+  typeOf(owner: Class<unknown>, property: string, container: IContainer): Class<unknown> | Promise<Class<unknown>> | undefined;
 }
 
 export interface IMappableService {

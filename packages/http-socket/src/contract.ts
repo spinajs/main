@@ -6,9 +6,9 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { SocketException } from '@spinajs/http-socket-common';
 import { manifestValidatorOf, schemaOfClass } from '@spinajs/validation';
-import { authoritativeSchema, checkSocketContract, loadRuntimeManifest, type Manifest, type ManifestMode, type SocketContractEntry, type SocketControllerEntry, type TypeRef } from '@spinajs/manifest';
+import { authoritativeSchema, checkSocketContract, loadRuntimeManifest, resolveTypeRef, type Manifest, type ManifestMode, type SocketContractEntry, type SocketControllerEntry, type TypeRef } from '@spinajs/manifest';
 import { PayloadArg } from './args.js';
-import type { IRegisteredHandler, ISocketControllerDescriptor } from './interfaces.js';
+import type { IRegisteredHandler, ISocketControllerDescriptor, ISocketHandlerDescriptor } from './interfaces.js';
 
 const MAX_REPORTED_ERRORS = 10;
 
@@ -151,6 +151,38 @@ export class SocketContractEnforcer {
     }
 
     this.bindDerived(manifest, controllerName, label, descriptor, [...commands, ...events]);
+  }
+
+  /**
+   * A build without decorator metadata leaves the `@Payload` type undefined; the manifest names it ( `TypeRef.ref` ).
+   * Runs before the handlers register, so schemas and hydration see what the metadata would have given. A payload it
+   * cannot type fails the boot in `require` and stays untyped, with a warning, in `prefer`.
+   */
+  public async runtimeTypes(controllerName: string, descriptor: ISocketControllerDescriptor): Promise<void> {
+    const untyped = [...descriptor.Handlers.values()].flatMap((h) => [...h.Parameters.values()].filter((p) => p.Type === PayloadArg && p.RuntimeType === undefined).map((p) => ({ handler: h, param: p })));
+    const manifest = untyped.length > 0 ? this.manifest() : undefined;
+    if (!manifest) return;
+
+    const named = manifest.socketControllers.filter((c) => c.className === controllerName && c.prefix === (descriptor.Prefix ?? ''));
+    const entry = named.length === 1 ? named[0] : undefined;
+    const payloadOf = (handler: ISocketHandlerDescriptor): TypeRef | undefined =>
+      handler.Kind === 'command' ? entry?.commands.find((c) => c.handler === String(handler.Method))?.payload : entry?.events.find((e) => e.name === handler.Name)?.payload;
+
+    for (const { handler, param } of untyped) {
+      const ref = payloadOf(handler)?.ref;
+      try {
+        if (!ref) {
+          throw new Error('the manifest records no runtime type for it, run spinajs build');
+        }
+        param.RuntimeType = await resolveTypeRef(ref, manifest);
+      } catch (error) {
+        const problem = `the @Payload of ${controllerName}::${String(handler.Method)} has no runtime type and the build emits no decorator metadata: ${(error as Error).message}`;
+        if (this.mode() === 'require') {
+          throw new InvalidOperation(problem);
+        }
+        this.Log.warn({ problem }, 'Socket runtime types: ${problem}');
+      }
+    }
   }
 
   /**

@@ -1,5 +1,5 @@
 import type { Diagnostic } from '@spinajs/manifest';
-import type { DoctorRule } from '../index.js';
+import type { DoctorRule } from '../rule.js';
 import type { JsonSchema } from '../../schema/derive.js';
 import { compareCodeUnits } from '../../sort.js';
 

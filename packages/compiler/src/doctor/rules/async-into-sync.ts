@@ -1,6 +1,6 @@
 import type { Diagnostic, Manifest, ServiceEntry } from '@spinajs/manifest';
 import { isUnresolvedTokenKey } from '../../token-key.js';
-import { diagnostic, type DoctorRule } from '../index.js';
+import { diagnostic, type DoctorRule } from '../rule.js';
 
 function asyncProviders(manifest: Manifest): Map<string, ServiceEntry> {
   const out = new Map<string, ServiceEntry>();

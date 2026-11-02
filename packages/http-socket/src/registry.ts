@@ -48,6 +48,8 @@ export class SocketHandlerRegistry {
         continue;
       }
 
+      await this.Contracts.runtimeTypes(type.name, descriptor);
+
       const before = { commands: new Set(this.commands.values()), events: new Set(this.events.values()) };
 
       for (const [, handler] of descriptor.Handlers) {

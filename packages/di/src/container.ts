@@ -13,7 +13,8 @@ import { Binder } from './binder.js';
 import { Registry, ValueMapContents } from './registry.js';
 import { ContainerCache } from './container-cache.js';
 import _ from 'lodash';
-import { RestoreIncomplete, ServiceNotFound } from './exceptions.js';
+import { ResolveException, RestoreIncomplete, ServiceNotFound } from './exceptions.js';
+import { PROPERTY_TYPE_RESOLVER } from './property-type.js';
 
 const MAX_RESTORE_GENERATIONS = 5;
 // restore() gives up on resolutions that keep starting ( a poller, a reconnect loop ) after these. Counts, not a time
@@ -1092,6 +1093,7 @@ export class Container extends EventEmitter implements IContainer {
 
     // Array.ofType(T) and Array.chainOf(T) are different dependencies of one constructor.
     const injectKey = (x: IToInject<unknown>) => (isChainArray(x.inject) ? 'Array.chainOf:' : '') + getTypeName(x.inject);
+    const pendingOwners = new Map<IToInject<unknown>, Class<unknown>>();
 
     function geAllTypes(clz: Record<string, any>): void {
       if (!clz) return;
@@ -1104,6 +1106,9 @@ export class Container extends EventEmitter implements IContainer {
           // autoinject can have multiple fields of same type and its identified by prop key
           // we cannot override injection props in derived class
           if (x.autoinject === true) {
+            if (x.pendingType) {
+              pendingOwners.set(x, clz as Class<unknown>);
+            }
             descriptor.inject.push(x);
           } else if (descriptor.inject.find((i) => !i.autoinject && injectKey(i) === xTypeName) === undefined) {
             descriptor.inject.push(x);
@@ -1125,8 +1130,32 @@ export class Container extends EventEmitter implements IContainer {
     // and add them first
     const constructorInject = descriptor.inject.filter((x) => x.autoinjectKey === '');
     const rest = descriptor.inject.filter((x) => x.autoinjectKey !== '');
-    descriptor.inject = [...constructorInject, ...uniqueBy(rest, (x) => x.autoinjectKey)];
+    descriptor.inject = [...constructorInject, ...uniqueBy(rest, (x) => x.autoinjectKey)].map((x) => (x.pendingType ? this.pendingInjection(x, pendingOwners.get(x)!) : x));
 
     return descriptor;
+  }
+
+  /** A property whose type the build did not record: typed by the registered {@link PROPERTY_TYPE_RESOLVER}, else unresolvable. */
+  private pendingInjection(pending: IToInject<unknown>, owner: Class<unknown>): IToInject<unknown> {
+    const { property, bind } = pending.pendingType!;
+    const type = this.get(PROPERTY_TYPE_RESOLVER)?.typeOf(owner, String(property), this);
+    if (!type) {
+      throw new ResolveException(
+        `cannot inject ${owner.name}.${String(property)}: the decorator names no type and the build emits no decorator metadata; pass the type to the decorator, or boot from a manifest that records it ( spinajs build )`,
+      );
+    }
+    if (!isPromise(type)) {
+      return bind(type);
+    }
+
+    return {
+      autoinject: true,
+      autoinjectKey: pending.autoinjectKey,
+      inject: pending.inject,
+      resolveFunc: async (_data: unknown, container: IContainer) => {
+        const [injected] = await (container as Container).resolveDependencies([bind(await type)]);
+        return (await injected).instance;
+      },
+    };
   }
 }

@@ -32,7 +32,7 @@ describe('extractServices', () => {
     expect(g.ctorInjects).to.deep.equal(['Clock']);
     expect(g.propertyInjects).to.deep.equal([
       { property: 'mailer', token: 'Mailer', optional: false, array: false },
-      { property: 'clock', token: 'Clock', optional: false, array: false, concrete: true },
+      { property: 'clock', token: 'Clock', optional: false, array: false, concrete: true, tokenRef: { package: 'pkg-basic', file: 'src/services.ts', export: 'Clock' } },
       { property: 'optionalMailer', token: 'Mailer', optional: true, array: false },
       { property: 'allMailers', token: 'Mailer', optional: false, array: true },
       { property: 'greeting', token: 'Configuration', optional: false, array: false },

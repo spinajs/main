@@ -1,11 +1,13 @@
 import { isAbstractClass } from './abstract.js';
 import ts from 'typescript';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { SocketCommandEntry, SocketContractEntry, SocketControllerEntry, TypeRef } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
 import { findDecorator, literalValue, type DecoratorInfo } from '../decorators.js';
 import { policyGroupsOf } from './policies.js';
+import { propertyInjectsOf } from './injections.js';
+import { owningPackage } from '../owning-package.js';
 
 type NamedMethod = ts.MethodDeclaration & { name: ts.Identifier };
 
@@ -18,7 +20,10 @@ function socketAccessOf(m: ts.MethodDeclaration, ctx: ExtractorContext): string[
 
 function payloadOf(m: NamedMethod, className: string, ctx: ExtractorContext): TypeRef {
   const p = m.parameters.find((param) => findDecorator(param, 'Payload'));
-  return p ? ctx.typeRef(ctx.checker.getTypeAtLocation(p), p, `${className}_${m.name.text}_Payload`) : { text: 'void' };
+  if (!p) return { text: 'void' };
+  const type = ctx.checker.getTypeAtLocation(p);
+  const ref = ctx.runtimeRef(type, p);
+  return { ...ctx.typeRef(type, p, `${className}_${m.name.text}_Payload`), ...(ref ? { ref } : {}) };
 }
 
 const STREAM_TYPES = new Set(['AsyncIterable', 'AsyncIterableIterator', 'AsyncGenerator']);
@@ -60,23 +65,6 @@ function isDefineContract(init: ts.Expression | undefined): init is ts.CallExpre
 
 function contractIdOf(decl: ts.VariableDeclaration & { name: ts.Identifier }, call: ts.CallExpression, ctx: ExtractorContext): string {
   return (literalValue(call.arguments[0], ctx) as string | undefined) ?? `${ctx.packageName}:${decl.name.text}`;
-}
-
-interface IOwningPackage {
-  name: string;
-  root: string;
-  fragment?: string;
-}
-
-function owningPackage(file: string): IOwningPackage | undefined {
-  for (let dir = dirname(file); ; dir = dirname(dir)) {
-    const path = join(dir, 'package.json');
-    if (existsSync(path)) {
-      const pkg = JSON.parse(readFileSync(path, 'utf8')) as { name?: string; spinajs?: { manifest?: string } };
-      if (pkg.name) return { name: pkg.name, root: dir, fragment: pkg.spinajs?.manifest };
-    }
-    if (dirname(dir) === dir) return undefined;
-  }
 }
 
 /** A contract declared in a dependency is only a `.d.ts` here; its id lives in the dependency's manifest fragment, found by package and export name. */
@@ -128,6 +116,7 @@ function controllerOf(node: ts.ClassDeclaration & { name: ts.Identifier }, sc: D
     else if (ev) events.push({ name: (literalValue(ev.args[0], ctx) as string | undefined) ?? named.name.text, payload: payloadOf(named, node.name.text, ctx) });
   }
   const contract = boundContractOf(sc, ctx);
+  const propertyInjects = propertyInjectsOf(node, ctx);
   return {
     id: `${ctx.packageName}:${node.name.text}`,
     className: node.name.text,
@@ -135,6 +124,7 @@ function controllerOf(node: ts.ClassDeclaration & { name: ts.Identifier }, sc: D
     ...(contract ? { contract } : {}),
     commands,
     events,
+    ...(propertyInjects.length ? { propertyInjects } : {}),
     source: ctx.sourceRef(node),
   };
 }

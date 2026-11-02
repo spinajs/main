@@ -2,10 +2,10 @@ import { existsSync } from 'node:fs';
 import { dirname, join, normalize, relative, resolve, sep } from 'node:path';
 import glob from 'glob';
 import minimatch from 'minimatch';
-import { token } from '@spinajs/di';
+import { PROPERTY_TYPE_RESOLVER, token } from '@spinajs/di';
 import { InternalLogger } from '@spinajs/internal-logger';
-import type { IContainer } from '@spinajs/di';
-import { appRootOf, isPackageSkipped, manifestFileFor, ManifestMissing, MANIFEST_TOKEN, type Manifest, type ManifestMode } from '@spinajs/manifest';
+import type { Class, IContainer, IPropertyTypeResolver } from '@spinajs/di';
+import { appRootOf, isPackageSkipped, manifestFileFor, ManifestMissing, MANIFEST_TOKEN, resolvedTypeRef, resolveTypeRef, type Manifest, type ManifestMode, type RuntimeTypeRef } from '@spinajs/manifest';
 
 /** Typed key of the runtime manifest; same string key as MANIFEST_TOKEN. */
 export const MANIFEST = token<Manifest>(MANIFEST_TOKEN, 'runtime manifest');
@@ -35,7 +35,35 @@ export const MANIFEST_SETTINGS = token<ManifestSettings>(`${MANIFEST_TOKEN}.sett
 
 export function registerManifestSettings(container: IContainer, settings: ManifestSettings): void {
   container.register(settings).asValue(MANIFEST_SETTINGS.key, true);
+  container.register(manifestPropertyTypes).asValue(PROPERTY_TYPE_RESOLVER.key, true);
 }
+
+const PROPERTY_TYPE_REFS = new WeakMap<Manifest, Map<string, RuntimeTypeRef>>();
+
+function propertyTypeRefOf(manifest: Manifest, owner: string, property: string): RuntimeTypeRef | undefined {
+  let refs = PROPERTY_TYPE_REFS.get(manifest);
+  if (!refs) {
+    refs = new Map();
+    for (const entry of [...manifest.services, ...manifest.controllers, ...manifest.socketControllers]) {
+      for (const inject of entry.propertyInjects ?? []) {
+        const key = `${entry.className}.${inject.property}`;
+        if (inject.tokenRef && !refs.has(key)) refs.set(key, inject.tokenRef);
+      }
+    }
+    PROPERTY_TYPE_REFS.set(manifest, refs);
+  }
+  return refs.get(`${owner}.${property}`);
+}
+
+/** Types `@Autoinject()` / `@LazyInject()` properties of a build without decorator metadata from `propertyInjects[].tokenRef`. */
+const manifestPropertyTypes: IPropertyTypeResolver = {
+  typeOf(owner, property, container) {
+    const manifest = effectiveManifestOf(container)?.manifest;
+    const ref = manifest && propertyTypeRefOf(manifest, owner.name, property);
+    if (!manifest || !ref) return undefined;
+    return (resolvedTypeRef(ref, manifest) as Class<unknown> | undefined) ?? (resolveTypeRef(ref, manifest) as Promise<Class<unknown>>);
+  },
+};
 
 /** The effective `system.manifest` of the nearest container in the lineage that decided one. */
 export function manifestSettingsOf(container: IContainer): ManifestSettings | undefined {

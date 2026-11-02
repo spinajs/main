@@ -46,7 +46,7 @@ export function derivedValidatorOf(param: IRouteParameter): DerivedArgCheck | un
 }
 
 /** The runtime knows a controller by class name, handler and mount path; the class name alone may be taken twice. */
-function routeEntryOf(manifest: Manifest, controller: string, route: IRoute, mountPath: string): RouteEntry | undefined {
+export function routeEntryOf(manifest: Manifest, controller: string, route: IRoute, mountPath: string): RouteEntry | undefined {
   const handler = String(route.Method);
   const candidates = manifest.controllers.filter((c) => c.className === controller).flatMap((c) => c.routes.filter((r) => r.handler === handler));
   if (candidates.length <= 1) return candidates[0];

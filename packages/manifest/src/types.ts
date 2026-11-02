@@ -19,12 +19,15 @@ export interface ServiceEntry {
   /** Parallel to `ctorInjects`: the token is a non-abstract class, which the container constructs even without a registration. Omitted when no entry is true. */
   ctorConcrete?: boolean[];
   /** `concrete`: the injected type is a non-abstract class; `check`: injected with `{ check: true }`, which throws when unregistered. */
-  propertyInjects: { property: string; token: string; optional: boolean; array: boolean; lazy?: boolean; concrete?: boolean; check?: boolean }[];
+  propertyInjects: PropertyInject[];
   /** Imperative DI.resolve(X) calls inside methods; `awaited:false` on an async provider is doctor DI003. */
   imperativeResolves?: { token: string; method: string; awaited: boolean; source: SourceRef }[];
   condition?: Condition;
   source: SourceRef;
 }
+
+/** `tokenRef`: the declared property type, recorded when the decorator names no type, for a build without decorator metadata. */
+export interface PropertyInject { property: string; token: string; optional: boolean; array: boolean; lazy?: boolean; concrete?: boolean; check?: boolean; tokenRef?: RuntimeTypeRef }
 
 export interface ValueEntry { token: string; kind: 'value' | 'map'; mapKey?: string; value?: unknown /* literal when known; __http_error_map__: { response: string; status?: number } */; source: SourceRef; condition?: Condition }
 
@@ -33,7 +36,15 @@ export interface TypeRef {
   text: string;
   /** `$id` of the derived schema in `schemas`, when derivation succeeded (C1); absent in B-only builds */
   schema?: string;
+  /** The runtime value `emitDecoratorMetadata` would record for the type; set on route arguments, socket payloads and property injections only. */
+  ref?: RuntimeTypeRef;
 }
+
+/**
+ * Where a runtime type lives. `package: 'global'` (with `file: ''`) names a global constructor such as `Number` or `Date`;
+ * otherwise `file` is package-relative, `src/x.ts` in the package's own source or the built `lib/x.js` of a dependency.
+ */
+export interface RuntimeTypeRef { package: string; file: string; export: string }
 
 /** `none`: injected by the framework or set by the user agent (`FromDi`, `Req`, `Ip`, `UserAgent`, ...), not part of a call. */
 export type WireLocation = 'query' | 'path' | 'body' | 'header' | 'cookie' | 'multipart' | 'none';
@@ -100,12 +111,14 @@ export interface ControllerEntry {
   access?: string[]; allowAnonymous?: boolean;   // class-level @Access / @AllowAnonymous
   public?: string;                   // class-level @Public reason
   routes: RouteEntry[];
+  /** Omitted when the controller injects nothing into properties. */
+  propertyInjects?: PropertyInject[];
   condition?: Condition;
   source: SourceRef;
 }
 
 export interface SocketCommandEntry { name: string; handler: string; payload: TypeRef; result: TypeRef; /** The handler returns an async iterable; `result` describes one item */ stream?: true; options: { idempotent?: boolean; ordered?: 'connection' | 'client'; timeoutMs?: number }; access?: string[]; policies: PolicyRef[][]; source: SourceRef }
-export interface SocketControllerEntry { id: string; className: string; prefix: string; /** `id` of the `socketContracts` entry named by `@SocketController(prefix, { contract })` */ contract?: string; commands: SocketCommandEntry[]; events: { name: string; payload: TypeRef }[]; source: SourceRef }
+export interface SocketControllerEntry { id: string; className: string; prefix: string; /** `id` of the `socketContracts` entry named by `@SocketController(prefix, { contract })` */ contract?: string; commands: SocketCommandEntry[]; events: { name: string; payload: TypeRef }[]; /** Omitted when the controller injects nothing into properties. */ propertyInjects?: PropertyInject[]; source: SourceRef }
 export interface SocketContractCommand { payload: TypeRef; result: TypeRef }
 export interface SocketContractEntry { id: string; /** Name the `defineContract` variable is exported under; lets a dependent package resolve a contract it imports */ exportName?: string; commands: Record<string, SocketContractCommand>; events: Record<string, TypeRef>; clientEvents: Record<string, TypeRef>; source: SourceRef }
 

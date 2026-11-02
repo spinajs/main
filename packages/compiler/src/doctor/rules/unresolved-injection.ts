@@ -1,6 +1,6 @@
 import type { Diagnostic, Manifest } from '@spinajs/manifest';
 import { isUnresolvedTokenKey } from '../../token-key.js';
-import { diagnostic, type DoctorRule } from '../index.js';
+import { diagnostic, type DoctorRule } from '../rule.js';
 
 export function providersOf(manifest: Manifest): Set<string> {
   const out = new Set<string>();
