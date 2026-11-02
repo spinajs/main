@@ -182,9 +182,9 @@ export class TableMigrationLock extends MigrationLock {
   protected async claim(request: IMigrationLockRequest, owner: string, advisory = false): Promise<Date> {
     const start = Date.now();
     const expired = () => Date.now() - start > request.timeout;
-    const abandoned = (holder: { owner: string; since: Date }) => (advisory && holder.owner.endsWith(migrationLockAdvisoryMark(request.key))) || Date.now() - holder.since.getTime() > request.staleAfter;
+    const abandoned = (holder: { owner: string; since: Date; raw: Date | string }) => (advisory && holder.owner.endsWith(migrationLockAdvisoryMark(request.key))) || Date.now() - holder.since.getTime() > request.staleAfter;
     // by owner and timestamp: a row its holder refreshed after the steal is a live one, not the one that resisted it
-    const judged = (holder: { owner: string; since: Date }) => `${holder.owner}@${holder.since.getTime()}`;
+    const judged = (holder: { owner: string; since: Date; raw: Date | string }) => `${holder.owner}@${holder.since.getTime()}`;
     const stolen = new Set<string>();
     let steals = 0;
 
@@ -222,18 +222,20 @@ export class TableMigrationLock extends MigrationLock {
     }
   }
 
-  protected async holder(request: IMigrationLockRequest): Promise<{ owner: string; since: Date } | undefined> {
+  protected async holder(request: IMigrationLockRequest): Promise<{ owner: string; since: Date; raw: Date | string } | undefined> {
     const rows = ((await this.driver.select().from(request.lockTable).where({ Id: 1 })) ?? []) as Array<{ AcquiredAt: Date | string; Owner: string }>;
     const row = rows[0];
 
-    return row ? { owner: row.Owner, since: row.AcquiredAt instanceof Date ? row.AcquiredAt : new Date(row.AcquiredAt) } : undefined;
+    return row ? { owner: row.Owner, since: row.AcquiredAt instanceof Date ? row.AcquiredAt : new Date(row.AcquiredAt), raw: row.AcquiredAt } : undefined;
   }
 
   /**
    * Deletes only the row that was judged, by `Owner` and `AcquiredAt`: another contender may already
-   * have replaced it with its own, or its holder refreshed it after it was read.
+   * have replaced it with its own, or its holder refreshed it after it was read. `AcquiredAt` is bound
+   * as read, because a parsed copy of a value in another text format ( SpinaJS 2.x wrote local time )
+   * would match no row.
    */
-  protected async steal(request: IMigrationLockRequest, holder: { owner: string; since: Date }, advisory = false): Promise<void> {
+  protected async steal(request: IMigrationLockRequest, holder: { owner: string; since: Date; raw: Date | string }, advisory = false): Promise<void> {
     if (advisory && holder.owner.endsWith(migrationLockAdvisoryMark(request.key))) {
       this.Log.warn(
         { connection: this.driver.Options.Name, owner: holder.owner, acquiredAt: holder.since },
@@ -248,13 +250,17 @@ export class TableMigrationLock extends MigrationLock {
     }
 
     // an unreadable timestamp cannot be matched back; only the marked-row branch gets here with one
-    const where = Number.isNaN(holder.since.getTime()) ? { Id: 1, Owner: holder.owner } : { Id: 1, Owner: holder.owner, AcquiredAt: holder.since };
+    const where = Number.isNaN(holder.since.getTime()) ? { Id: 1, Owner: holder.owner } : { Id: 1, Owner: holder.owner, AcquiredAt: holder.raw };
     await this.driver.del().from(request.lockTable).where(where);
   }
 
-  protected timedOut(request: IMigrationLockRequest, holder: { owner: string; since: Date } | undefined, steals: number, err: unknown): OrmException {
+  protected timedOut(request: IMigrationLockRequest, holder: { owner: string; since: Date; raw: Date | string } | undefined, steals: number, err: unknown): OrmException {
     const { timeout, lockTable } = request;
     const name = this.driver.Options.Name;
+
+    if (holder && Number.isNaN(holder.since.getTime())) {
+      return new OrmException(`Could not acquire migration lock on connection ${name} within ${timeout}ms - held by ${holder.owner}, and its AcquiredAt in ${lockTable} ( ${JSON.stringify(holder.raw)} ) is not a date, so it cannot be judged stale - delete the row from ${lockTable} by hand`);
+    }
 
     if (holder && steals > 0) {
       return new OrmException(`Could not acquire migration lock on connection ${name} within ${timeout}ms - held by ${holder.owner} since ${holder.since.toISOString()}, and ${steals} attempt(s) to remove it as stale left it in place - delete the row from ${lockTable} by hand`);

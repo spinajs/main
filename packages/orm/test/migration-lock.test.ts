@@ -29,6 +29,7 @@ import {
 } from '../src/index.js';
 import { DeleteQueryBuilder, InsertQueryBuilder, SelectQueryBuilder, UpdateQueryBuilder } from '../src/builders.js';
 import { OrmDriver } from '../src/driver.js';
+import '@spinajs/log';
 import '../src/bootstrap.js';
 
 chai.use(chaiAsPromised);
