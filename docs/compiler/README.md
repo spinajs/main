@@ -54,6 +54,8 @@ buildAppManifest({ tsconfig, appRoot, out?, schemaDerivation?, effectiveDirs?, d
 3. Reads and validates each fragment, then calls `mergeFragments`. Dependencies come first, the application last, so the application wins where the last registration wins at runtime.
 4. Computes `hash` with `hashManifest` and writes the file. `out` defaults to `<appRoot>/app.manifest.json`.
 
+The written manifest is not checked against the manifest JSON Schema: `spinajs build` does that after the call, and the boot skips the check for a manifest whose hash matches. A script that calls `buildAppManifest` itself should call `validateManifest` (`@spinajs/manifest`) on the result, or boot with `SPINAJS_MANIFEST_VALIDATE=1`.
+
 `manifest.app.outDir` and each `manifest.packages[].outDir` are the compiled output folders (`compilerOptions.outDir` of the respective `tsconfig`, relative to its package root). `packages[].fragment` is relative to `app.root` with forward slashes: `node_modules/<name>/<spinajs.manifest>` when the package is installed under the app, the relative real path when it is found elsewhere. `app.root` itself is absolute but excluded from `hash`, so the hash is the same on every machine and checkout. `generatedAt` is the only other member that differs between two runs on the same sources; it is excluded from `hash`.
 
 ## The fragment contract
