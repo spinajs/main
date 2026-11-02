@@ -245,6 +245,35 @@ describe('orm-cli migration commands against sqlite', function () {
     expect(out.join('\n')).to.not.contain(ORPHAN_MIGRATION);
   });
 
+  it('migrate-status --json prints one JSON document with entries and the pending list', async () => {
+    const lines = await captureStdout(() => new MigrateStatusCommand().execute({ json: true }));
+    const report = JSON.parse(lines.join('\n'));
+
+    expect(report.pending).to.eql([{ name: TEST_MIGRATION, connection: CONNECTION_NAME }]);
+    expect(report.entries[0]).to.include({ name: TEST_MIGRATION, state: 'pending', appliedAt: null });
+    expect(process.exitCode).to.equal(1);
+  });
+
+  it('migrate-status creates no tracking table on a fresh database', async () => {
+    await captureStdout(() => new MigrateStatusCommand().execute({}));
+
+    expect(await connection().schema().tableExists(TRACKING_TABLE)).to.equal(false);
+  });
+
+  it('migrate-status lists the pending migrations in run order', async () => {
+    const lines = await captureStdout(() => new MigrateStatusCommand().execute({}));
+    const at = lines.indexOf('Pending, in the order migrate-up applies them:');
+
+    expect(at).to.be.greaterThan(-1);
+    expect(lines[at + 1]).to.contain(TEST_MIGRATION).and.to.contain(CONNECTION_NAME);
+  });
+
+  it('migrate-status --connection refuses a connection nothing answers to', async () => {
+    const err = await thrownBy(() => new MigrateStatusCommand().execute({ connection: 'typo' }));
+
+    expect((err as Error).message).to.contain('Connection typo is not configured');
+  });
+
   it('migrate-up applies the migration and records it in the tracking table', async () => {
     expect(await markerTableExists(), 'marker table existed before migrate-up ran').to.equal(false);
 
@@ -279,6 +308,14 @@ describe('orm-cli migration commands against sqlite', function () {
     expect(line).to.contain('applied');
     expect(line).to.not.contain('FAILED');
     expect(process.exitCode).to.equal(0);
+  });
+
+  it('migrate-status prints when each applied migration was applied', async () => {
+    const lines = await captureStdout(() => new MigrateStatusCommand().execute({}));
+
+    expect(lines[0]).to.match(/STATE\s+BATCH\s+APPLIED AT\s+CONNECTION\s+MIGRATION/);
+    expect(lines.find((l) => l.includes(TEST_MIGRATION))).to.match(/applied\s+1\s+\d{4}-\d{2}-\d{2}T/);
+    expect(lines.join('\n')).to.not.contain('Pending, in the order');
   });
 
   it("migrate-up --name does not report success when the migration's connection is not configured", async () => {
@@ -553,8 +590,7 @@ describe('orm-cli --connection', function () {
     expect(stateOf(out.find((l) => l.includes(FIRST_MIGRATION))!)).to.equal('applied');
     expect(stateOf(out.find((l) => l.includes(SECOND_MIGRATION))!)).to.equal('pending');
 
-    // the report has no --connection of its own: hiding a connection is exactly how a deploy
-    // gate comes to answer "nothing to see" about the one that is behind
+    // without --connection every configured connection is listed
     expect(text).to.contain(FIRST_CONNECTION);
     expect(text).to.contain(SECOND_CONNECTION);
 
@@ -1001,11 +1037,8 @@ describe('migrate-status against a Migration.OnStartup connection with pending w
 
     expect(await markerTableExists(connection), `${MARKER_TABLE} exists, so up() executed`).to.equal(false);
 
-    const rows = await connection.select().from(TRACKING_TABLE).asRaw<any[]>();
-    expect(
-      rows.find((r) => r.Migration === PENDING_MIGRATION),
-      'a tracking row exists, so the report recorded a migration as applied',
-    ).to.equal(undefined);
+    // status is read-only: with no tracking table there is no row that could record it as applied
+    expect(await connection.schema().tableExists(TRACKING_TABLE), 'the report created the tracking table').to.equal(false);
   });
 
   it('migrate-up still applies it - the suppression is about booting, not about migrating', async () => {
