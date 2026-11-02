@@ -159,7 +159,9 @@ describe('SchedulerService: cancel and retry', () => {
       const racy = await DI.resolve(RacyService);
       racy.beforeNow = () => s.tickOnce();
       const info = await racy.cancel(runId, { triggeredBy: by });
-      expect(info).to.include({ status: 'running', cancelRequested: true });
+      expect(info).to.include({ cancelRequested: true });
+      // The task can answer the abort before cancel() reads the run back; the journal below proves the running step.
+      expect(info.status).to.be.oneOf(['running', 'aborted']);
       await s.idle();
       expect(await getRun(runId)).to.include({ Status: 'aborted', Reason: 'cancelled' });
       const statuses = (await journal(runId)).flatMap((e) => (e.type === 'status' ? [e.status] : []));

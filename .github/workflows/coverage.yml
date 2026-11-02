@@ -44,8 +44,11 @@ jobs:
       - name: build monorepo
         run: npm run build
 
+      # c8 report merges the V8 dumps of every suite, and passes 4 GB now that users and templates-image finish.
       - name: tests with coverage
         run: node scripts/coverage/run.mjs --ci
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
 
       - name: upload report
         if: always()

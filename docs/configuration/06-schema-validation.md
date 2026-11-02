@@ -9,7 +9,7 @@ At boot, in `FrameworkConfiguration.resolve()`:
 1. **`initValidator()`** creates one Ajv 8 instance with `allErrors`, `removeAdditional: true`, `useDefaults: true`, `coerceTypes: true` and `$data: true`, adds `ajv-merge-patch` (`$merge`, `$patch`), `ajv-formats` and `ajv-keywords`, and declares the `$configurationModule` keyword.
 2. **`validate()`** collects the `__configurationSchema__` values of the configuration's container and of every ancestor, nearest first. Schemas that are the same object, or share an `$id`, count once.
 3. For each schema, **`checkModule()`** reads the value at `$configurationModule`:
-   - `undefined`: validates `{}`. When that passes, `{}` with the schema defaults is stored at the path. Otherwise a warning is logged and the path stays unset.
+   - `undefined`: validates `{}`. When that passes, `{}` with the schema defaults is stored at the path, unless no default filled it and another schema over that path refuses an empty section: that schema would judge a section nobody set. When `{}` fails, a warning is logged and the path stays unset.
    - anything else (`null` included): validates a deep copy first. Only when the copy passes is the stored value validated in place, which applies defaults and coercion.
 4. Violations of all schemas are logged and thrown together as `InvalidConfiguration`. The configuration's resolve rejects and DI does not cache it.
 

@@ -45,23 +45,8 @@ import './../src/dto/index.js';
  */
 const SCHEMAS = DI.get<Map<string, object>>('__schemas__');
 
-/**
- * The prometheus endpoint is documented under `/metrics/`, with a trailing
- * slash, while the server mounts it at `/metrics`.
- *
- * PRE-EXISTING, and not a telemetry defect: for a route declared `@Get( '/' )`,
- * `packages/http/src/controllers.ts` builds the express path as `/${BasePath}`
- * while `packages/http-swagger/src/openapi-builder.ts` ( `buildPath` ) builds
- * the document key as `/${basePath}/`. Every controller in the monorepo with a
- * root route is documented that way — http-swagger's own tests assert `/pets/`
- * and `/access/` — so it is the builder's established output, not something this
- * controller can influence.
- *
- * It is cosmetic rather than broken: express is not in strict-routing mode, so
- * the documented URL resolves to the same handler. The `is actually served`
- * test below proves that instead of taking it on trust.
- */
-const METRICS_PATH = '/metrics/';
+/** A route declared `@Get( '/' )` is documented where the server mounts it: `/metrics`, no trailing slash. */
+const METRICS_PATH = '/metrics';
 
 const TELEMETRY_PATHS = [METRICS_PATH, '/telemetry/stats', '/telemetry/timeline', '/telemetry/routes', '/telemetry/perf', '/telemetry/health', '/telemetry/ready'];
 

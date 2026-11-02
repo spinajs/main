@@ -126,8 +126,9 @@ export class StubServer {
   }
 
   private async reply(request: CommandRequest, socket: Socket, ack: (reply: unknown) => void): Promise<void> {
-    const reply = await this.buildReply(request, socket);
+    // Read on arrival: a test may clear the fault as soon as it sees the request.
     const fault = this.ackFault;
+    const reply = await this.buildReply(request, socket);
     if (fault.kind === 'drop') return;
     if (fault.kind === 'delay') await sleep(fault.ms);
     ack(reply);
