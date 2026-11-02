@@ -79,6 +79,11 @@ export default {
 - `grant`/`revoke` at a team or group need `team:roles.manage` there; at any other scope AuthzAdmin's permission for
   that scope type decides (`authz.admin.permissions`, default `authz:assignments.manage`).
 - `teamsOf(principal)`: the principal's teams and groups with the roles held at each (directly or through a set).
+- `teammatesOf(principal, { roles })`: per team of `teamsOf`, archived ones included, the other principals holding
+  one of `roles` (default `['team.member']`) at the team, `{ teamId, members: [{ subject, roles }] }`. Groups and
+  sub-teams holding the role are expanded to their members (closure), each with the role the set holds; expired rows
+  do not count. Like `teamsOf` it reads the principal's own data: no check, so a ceiling that drops the team roles
+  (`members()` is then denied) does not narrow it.
 - Lists (`listTeams`, `listGroups`, `members`, `InvitationService.list`) take `{ limit, offset }` (default 100, at most 500) and return `{ items, total }`; teams and groups use `.accessible('team:read')` / `.accessible('group:read').within(team)`.
 - `InvitationRefused.code` (`INVITATION_REFUSALS`) is stable; map it in HTTP, not the message.
 
