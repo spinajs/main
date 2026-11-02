@@ -22,6 +22,8 @@ The decorators read TypeScript metadata. Set these in `tsconfig.json`:
 }
 ```
 
+`emitDecoratorMetadata` is optional when the app runs with a manifest (`spinajs build`, then `system.manifest.mode` `prefer` or `require`): the compiler records the types the metadata would have held. Keep `experimentalDecorators`. See [Building without decorator metadata](../manifest/README.md#building-without-decorator-metadata).
+
 The package imports `reflect-metadata` itself.
 
 ## Features
