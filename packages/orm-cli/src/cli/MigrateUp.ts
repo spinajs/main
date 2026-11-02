@@ -8,6 +8,8 @@ export interface IMigrateUpCommandOptions {
   name?: string;
   fake?: boolean;
   connection?: string;
+  skipSeed?: boolean;
+  dryRun?: boolean;
 }
 
 /**
@@ -18,13 +20,21 @@ export interface IMigrateUpCommandOptions {
 @Option('-n, --name [name]', false, 'run a single migration, by class name')
 @Option('-c, --connection [connection]', false, 'limit the run to one connection, by name')
 @Option('-f, --fake', false, 'record the migrations as applied without executing them')
+@Option('--skip-seed', false, "apply without running the migrations' data() seeds")
+@Option('--dry-run', false, 'print what would be applied, in order, and apply nothing')
 export class MigrateUpCommand extends CliCommand {
   @Logger('ORM-CLI')
   protected Log: Log;
 
   public async execute(options: IMigrateUpCommandOptions): Promise<void> {
     const migrator = await resolveCliMigrator();
-    const executed = await migrator.migrate({ name: options.name, fake: options.fake, connection: options.connection });
+
+    if (options.dryRun) {
+      await this.printPlan(migrator, options);
+      return;
+    }
+
+    const executed = await migrator.migrate({ name: options.name, fake: options.fake, connection: options.connection, skipSeed: options.skipSeed });
     const orm = await DI.resolve(Orm);
 
     await this.reportRun(migrator, executed, options);
@@ -33,6 +43,20 @@ export class MigrateUpCommand extends CliCommand {
     if (!options.name && !options.connection) {
       await this.checkModelTables(orm, options.fake);
     }
+  }
+
+  /** `--dry-run`: the plan on stdout, like `migrate-status`, and exit code 1 when something would run. */
+  protected async printPlan(migrator: OrmMigrator, options: IMigrateUpCommandOptions): Promise<void> {
+    const plan = await migrator.plan({ name: options.name, connection: options.connection });
+
+    if (plan.length === 0) {
+      console.log('Nothing to apply');
+      return;
+    }
+
+    console.log(`Would apply ${plan.length} migration(s), in this order ( BATCH  CONNECTION  MIGRATION ):`);
+    plan.forEach((e) => console.log(`  ${e.batch}  ${e.connection}  ${e.name}`));
+    process.exitCode = 1;
   }
 
   /** Logs what the run applied; an empty named run goes to `explainEmptyNamedRun()`. */

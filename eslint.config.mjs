@@ -63,4 +63,10 @@ export default defineConfig(
       'max-nested-callbacks': ['error', 3],
     },
   },
+  {
+    files: ['packages/*/src/**/*.ts'],
+    rules: {
+      'no-restricted-imports': ['error', { paths: [{ name: '@spinajs/orm/testing', message: 'Test helper: applications migrate with `npx spinajs migrate-up`.' }] }],
+    },
+  },
 );

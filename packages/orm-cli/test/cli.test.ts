@@ -11,7 +11,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import '@spinajs/log';
 import '@spinajs/orm-sqlite';
-import { IMigrateStatusCommandOptions, MigrateCreateCommand, MigrateDownCommand, MigrateResolveCommand, MigrateStatusCommand, MigrateUpCommand, resolveCliMigrator } from '../src/index.js';
+import { IMigrateStatusCommandOptions, MigrateCreateCommand, MigrateDownCommand, MigrateResolveCommand, MigrateSeedCommand, MigrateStatusCommand, MigrateUpCommand, resolveCliMigrator } from '../src/index.js';
 
 const expect = chai.expect;
 
@@ -1654,5 +1654,138 @@ describe('migrate-status against a legacy tracking table', function () {
     const rows = await db.select().from(TABLE).asRaw<any[]>();
     expect(Object.keys(rows[0]).sort(), 'status added a column to the legacy table').to.eql(['CreatedAt', 'Migration']);
     expect(await db.schema().tableExists('spinajs_migration_lock')).to.equal(false);
+  });
+});
+
+describe('migrate-seed, migrate-up --skip-seed and migrate-up --dry-run', function () {
+  this.timeout(20000);
+
+  const CONNECTION_NAME = 'orm-cli-seed';
+  const TRACKING_TABLE = 'orm_cli_seed_migrations';
+  const MARKER_TABLE = 'orm_cli_seed_marker';
+  const FIRST = 'OrmCliSeedA_2021_10_01_00_00_00';
+  const SECOND = 'OrmCliSeedB_2021_10_02_00_00_00';
+
+  const Conf = class OrmCliSeedConf extends FrameworkConfiguration {
+    public async resolve(): Promise<void> {
+      await super.resolve();
+      applyConnectionConf(this.Config, { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: CONNECTION_NAME, Migration: { Table: TRACKING_TABLE } });
+    }
+  };
+
+  let orm: Orm;
+  let types: any[] = [];
+  let seeds: string[] = [];
+
+  function defineMigrations() {
+    @Migration(CONNECTION_NAME)
+    class OrmCliSeedA_2021_10_01_00_00_00 extends OrmMigration {
+      public async up(connection: OrmDriver): Promise<void> {
+        await connection.schema().createTable(MARKER_TABLE, (table) => {
+          table.int('Id').primaryKey();
+        });
+      }
+
+      public down = noopMigration.down;
+
+      public async data(): Promise<void> {
+        seeds.push(this.constructor.name);
+        const db = (await DI.resolve(Orm)).Connections.get(CONNECTION_NAME)!;
+
+        if ((await db.select().from(MARKER_TABLE).where('Id', 1).asRaw<any[]>()).length === 0) {
+          await db.insert().into(MARKER_TABLE).values({ Id: 1 });
+        }
+      }
+    }
+
+    @Migration(CONNECTION_NAME)
+    class OrmCliSeedB_2021_10_02_00_00_00 extends OrmMigration {
+      public up = noopMigration.up;
+      public down = noopMigration.down;
+
+      public async data(): Promise<void> {
+        seeds.push(this.constructor.name);
+      }
+    }
+
+    types = [OrmCliSeedA_2021_10_01_00_00_00, OrmCliSeedB_2021_10_02_00_00_00];
+  }
+
+  const originalExitCode = process.exitCode;
+
+  before(async () => {
+    DI.clearCache();
+    defineMigrations();
+    DI.register(Conf).as(Configuration);
+    orm = await DI.resolve(Orm);
+  });
+
+  after(async () => {
+    try {
+      if (orm) {
+        await orm.dispose();
+      }
+    } finally {
+      DI.unregister(Conf);
+      types.forEach((t) => DI.unregister(t));
+      DI.clearCache();
+      process.exitCode = originalExitCode;
+    }
+  });
+
+  beforeEach(() => {
+    process.exitCode = 0;
+    seeds = [];
+  });
+
+  function db(): OrmDriver {
+    return orm.Connections.get(CONNECTION_NAME)!;
+  }
+
+  it('migrate-up --dry-run prints the plan, applies nothing and sets exit code 1 when something would run', async () => {
+    const lines = await captureStdout(() => new MigrateUpCommand().execute({ dryRun: true }));
+
+    expect(lines.slice(1)).to.eql([`  1  ${CONNECTION_NAME}  ${FIRST}`, `  1  ${CONNECTION_NAME}  ${SECOND}`]);
+    expect(await db().schema().tableExists(TRACKING_TABLE), 'a dry run creates no tracking table').to.equal(false);
+    expect(await db().schema().tableExists(MARKER_TABLE)).to.equal(false);
+    expect(process.exitCode).to.equal(1);
+  });
+
+  it('migrate-seed --name <pending> exits with the "not applied" error', async () => {
+    const err = await thrownBy(() => new MigrateSeedCommand().execute({ name: SECOND }));
+
+    expect((err as Error).message).to.equal(`Migration ${SECOND} is not applied on any configured connection - nothing to seed`);
+    expect(seeds).to.eql([]);
+  });
+
+  it('migrate-up --skip-seed applies without running data()', async () => {
+    await (await DI.resolve(MigrateUpCommand)).execute({ skipSeed: true });
+
+    expect(await db().schema().tableExists(MARKER_TABLE)).to.equal(true);
+    expect(await db().select().from(MARKER_TABLE).asRaw<any[]>()).to.eql([]);
+    expect(seeds).to.eql([]);
+    expect(process.exitCode).to.equal(0);
+  });
+
+  it('migrate-up --dry-run on a current database prints "Nothing to apply" and exits 0', async () => {
+    const lines = await captureStdout(() => new MigrateUpCommand().execute({ dryRun: true }));
+
+    expect(lines).to.eql(['Nothing to apply']);
+    expect(process.exitCode).to.equal(0);
+  });
+
+  it('migrate-seed runs the data() of the applied migrations and exits 0', async () => {
+    await (await DI.resolve(MigrateSeedCommand)).execute({});
+    await new MigrateSeedCommand().execute({});
+
+    expect(seeds).to.eql([FIRST, SECOND, FIRST, SECOND]);
+    expect(await db().select().from(MARKER_TABLE).asRaw<any[]>(), 'a rerun of an idempotent seed adds nothing').to.eql([{ Id: 1 }]);
+    expect(process.exitCode).to.equal(0);
+  });
+
+  it('migrate-seed --name <applied> runs that one', async () => {
+    await new MigrateSeedCommand().execute({ name: SECOND, connection: CONNECTION_NAME });
+
+    expect(seeds).to.eql([SECOND]);
   });
 });

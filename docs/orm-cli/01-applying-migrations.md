@@ -7,13 +7,16 @@ spinajs migrate-up                                              # everything pen
 spinajs migrate-up --name CreateInvoices_2026_10_01_09_00_00    # exactly one migration
 spinajs migrate-up --connection reporting                       # one connection only
 spinajs migrate-up --fake                                       # record as applied, run nothing
+spinajs migrate-up --skip-seed                                  # apply, run no data() seeds
+spinajs migrate-up --dry-run                                    # print what would be applied, apply nothing
 ```
 
 ## How it works
 
 1. `MigrateUpCommand.execute(options)` calls [`resolveCliMigrator()`](06-cli-orm.md). The migrator and its `Orm` resolve without applying anything.
-2. It calls `migrator.migrate({ name, fake, connection })`. `force` is left at its default `true`, so connections with `Migration.OnStartup: false` run too.
-3. `OrmMigrator.Runner` plans, orders and applies the migrations; the migrator then re-reads the table info of the models they touched and runs their `data()` hooks (none with `--fake`). See [Migrations: `OrmMigrator`](../orm/10-migrations.md#ormmigrator). Ordering, batches, locking and transactions are described in [Migrations: a run](../orm/10-migrations.md#a-run-migrationrunnerup). It throws, and the command fails, when:
+   - With `--dry-run` it calls `MigrateUpCommand.printPlan(migrator, options)` and stops: see [Dry run](#dry-run).
+2. It calls `migrator.migrate({ name, fake, connection, skipSeed })`. `force` is left at its default `true`, so connections with `Migration.OnStartup: false` run too.
+3. `OrmMigrator.Runner` plans, orders and applies the migrations; the migrator then re-reads the table info of the models they touched and runs their `data()` hooks (none with `--fake` or `--skip-seed`). See [Migrations: `OrmMigrator`](../orm/10-migrations.md#ormmigrator). Ordering, batches, locking and transactions are described in [Migrations: a run](../orm/10-migrations.md#a-run-migrationrunnerup). It throws, and the command fails, when:
    - `--name` matches no registered migration (`OrmException`, message contains `not registered`);
    - `--connection` matches no configured connection or alias (`OrmException` naming it);
    - the connection holds a [failed](../orm/10-migrations.md#migration-states) migration;
@@ -60,14 +63,34 @@ sequenceDiagram
 | `-n, --name [name]` | `string` | none | Apply only this migration, by class name (`<Prefix>_yyyy_MM_dd_HH_mm_ss`) |
 | `-c, --connection [connection]` | `string` | none | Apply only on this connection, by name or alias. Other connections are not touched; their tracking tables are not even created |
 | `-f, --fake` | `boolean` | `false` | Write the tracking rows as applied without calling `up()` or `data()` |
+| `--skip-seed` | `boolean` | `false` | Apply without running the `data()` seeds; run them later with [`migrate-seed`](09-seeding.md) |
+| `--dry-run` | `boolean` | `false` | Print what would be applied, in order, and apply nothing. Honours `--name` and `--connection` |
 
-`execute()` takes `IMigrateUpCommandOptions`: `{ name?: string; connection?: string; fake?: boolean }`.
+`execute()` takes `IMigrateUpCommandOptions`: `{ name?: string; connection?: string; fake?: boolean; skipSeed?: boolean; dryRun?: boolean }`.
+
+## Dry run
+
+`--dry-run` prints `OrmMigrator.plan({ name, connection })` on stdout with `console.log`, as `migrate-status` prints its report:
+
+```text
+Would apply 2 migration(s), in this order ( BATCH  CONNECTION  MIGRATION ):
+  3  default  CreateInvoices_2026_10_01_09_00_00
+  3  default  AddInvoiceIndex_2026_10_02_09_00_00
+```
+
+- The batch is the one the run would record: one past the connection's highest applied batch.
+- A `FAILED` migration is listed as well, because the real run stops at it. `migrate-status` says which one is failed.
+- It reads without DDL: no tracking table or lock table is created and no lock is taken. It runs no `up()` and no `data()`.
+- It exits `1` when the plan has entries. It prints `Nothing to apply` and exits `0` when the plan is empty, so it works as "is a migration due?" in a deploy script.
+- It does not run the model table check of a full run.
 
 ## Exit codes
 
 | Result | Exit code |
 | --- | --- |
 | Migrations applied, or nothing pending | `0` |
+| `--dry-run` with nothing to apply | `0` |
+| `--dry-run` with at least one migration to apply | `1` |
 | `--name` given and the migration is already applied | `0` |
 | `--name` given and the migration did not run (connection not configured, excluded by `--connection`, failed or still pending) | `1` |
 | A full run (no `--name`, no `--connection`) leaves a registered model without its table, with `db.StrictTableCheck` on | `1` |
@@ -111,7 +134,7 @@ Keep the subclass out of every `system.dirs.cli` directory: it inherits the `mig
 ## Important behaviour
 
 - **The migrator applies nothing on its way in.** Without `resolveCliMigrator()`, the `Orm`'s resolve would apply every pending migration on `OnStartup` connections before `--fake` could take effect. See [The CLI migrator](06-cli-orm.md).
-- **`migrate-up` seeds what it applied.** `data()` runs once every migration of the run is applied; it may resolve services that inject the `Orm`. A run that fails on a migration seeds none of the ones it applied before it, and a later run finds them applied.
+- **`migrate-up` seeds what it applied.** `data()` runs once every migration of the run is applied, under the run lock; it may resolve services that inject the `Orm`. A run that fails on a migration seeds none of the ones it applied before it, and a later run finds them applied: run [`migrate-seed`](09-seeding.md) for them. `--skip-seed` leaves every seed to `migrate-seed`.
 - **An unknown `--name` or `--connection` throws.** An empty, successful-looking run from a typo would read as "already current".
 - **A named migration on an unconfigured connection exits `1`.** The runner only warns and returns `[]` there; the command checks `status()` to tell that apart from "already applied".
 - **`status()` in step 6 is not narrowed by `--connection`.** A migration on a connection the filter excluded still has an entry, so the command can say which connection it belongs to.

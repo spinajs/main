@@ -8,7 +8,7 @@ import { MIGRATION_FILE_REGEXP } from './symbols.js';
 import { extractMigrationDescriptor, extractModelDescriptor } from './descriptor.js';
 import { OrmException } from './exceptions.js';
 import type { IMigrationLockHandle } from './migration-lock.js';
-import { DefaultMigrationService, IMigrationRunOptions, IMigrationStatusEntry, IMigrationUnit, MigrationResolveAction, OrmMigrationService } from './migration-service.js';
+import { DefaultMigrationService, IMigrationRunOptions, IMigrationStatusEntry, IMigrationStatusOptions, IMigrationUnit, MigrationResolveAction, OrmMigrationService } from './migration-service.js';
 import type { ModelBase } from './model.js';
 import { recordSchemaTouches, SchemaTouches, touchAllTables } from './schema-touches.js';
 
@@ -117,6 +117,14 @@ export interface IMigrationRunnerStatusOptions {
 
   /** Report one connection, by name or alias. A name no connection answers to throws. */
   connection?: string;
+}
+
+/** One migration `up()` would apply, as `pending()` reports it. */
+export interface IMigrationPlanEntry {
+  name: string;
+  connection: string;
+  /** The batch the run would record it in: one past the connection's highest applied batch. */
+  batch: number;
 }
 
 export interface IMigrationDownFacadeOptions extends IMigrationUpOptions {
@@ -264,6 +272,26 @@ export class MigrationRunner {
     return { executed, touched: { models: this.touchedModels(touches) } };
   }
 
+  /**
+   * What `up(name, { connection })` would apply, in the order it would apply it, with the batch each one would get.
+   * Read-only: no tracking table is created, no lock is taken and no migration runs. A FAILED migration is listed
+   * too, as the point where `up()` would stop.
+   */
+  public async pending(name?: string, connection?: string): Promise<IMigrationPlanEntry[]> {
+    const groups = this.plan(name, true, connection);
+    const next = new Map<OrmDriver, number>();
+
+    // every migration of the connection, not only `name`: the batch follows from all of them
+    for (const [driver, units] of this.plan(undefined, true, connection, true)) {
+      const applied = (await (await this.service(driver)).status(units, { readOnly: true })).filter((e) => e.applied);
+      next.set(driver, Math.max(0, ...applied.map((e) => e.batch ?? 0)) + 1);
+    }
+
+    return (await this.stretches(groups, { readOnly: true })).flatMap(([driver, units]) =>
+      units.map((u) => ({ name: u.name, connection: driver.Options.Name, batch: next.get(driver) ?? 1 })),
+    );
+  }
+
   protected touchedModels(touches: SchemaTouches): Array<Class<ModelBase>> {
     if (touches.size === 0) {
       return [];
@@ -292,12 +320,12 @@ export class MigrationRunner {
    * refusal to run over a FAILED row covers every row of the connection, registered or not, and
    * skipping the call would quietly drop that guard for it.
    */
-  protected async stretches(groups: Array<[OrmDriver, IMigrationUnit[]]>): Promise<Array<[OrmDriver, IMigrationUnit[]]>> {
+  protected async stretches(groups: Array<[OrmDriver, IMigrationUnit[]]>, statusOptions?: IMigrationStatusOptions): Promise<Array<[OrmDriver, IMigrationUnit[]]>> {
     const queue: Array<{ driver: OrmDriver; unit: IMigrationUnit }> = [];
     const idle: OrmDriver[] = [];
 
     for (const [driver, units] of groups) {
-      const status = await (await this.service(driver)).status(units);
+      const status = await (await this.service(driver)).status(units, statusOptions);
       const open = new Set(status.filter((s) => s.pending || s.failed).map((s) => s.name));
 
       if (open.size === 0) {
