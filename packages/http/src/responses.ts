@@ -127,7 +127,14 @@ export function xmlResponse(model: any, options?: IResponseOptions, xmlOptions?:
       // Called without a response's `execute`, which loads the builder first: send once it is loaded.
       loadXmlBuilder()
         .then(() => xmlResponse(model, options, xmlOptions)(req, res))
-        .catch((err) => req.next?.(err));
+        .catch((err) => {
+          if (req.next) {
+            req.next(err);
+            return;
+          }
+          // No error handler to hand it to, and a rejection here has no caller: log it, as the other async response failures do.
+          DI.resolve(Log, ['http']).error({ error: err }, 'Cannot send xml response');
+        });
       return;
     }
 
