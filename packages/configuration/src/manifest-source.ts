@@ -1,12 +1,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import glob from 'glob';
 import { Autoinject, Container, DI, IContainer, Injectable } from '@spinajs/di';
 import { Configuration, ConfigurationSource, IConfigLike, normalizeEnvironment } from '@spinajs/configuration-common';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { loadRuntimeManifest, type ManifestMode } from '@spinajs/manifest';
 import { effectiveManifestOf, MANIFEST, MANIFEST_SETTINGS, projectConfigDirs, registerManifest, registerManifestSettings, type ManifestSettings } from './manifest-runtime.js';
 import { findBasePath } from './util.js';
+import { listConfigFiles } from './config-files.js';
 import { BaseFileSource } from './sources.js';
 
 // Settings this source decided itself, to tell them from ones a host or `withManifest` registered beforehand.
@@ -113,7 +113,7 @@ export class ManifestConfigurationSource extends ConfigurationSource {
     const merged: ManifestSection = {};
 
     for (const pattern of ['!(*.*).{cjs,js}', `*.${appEnv}.{cjs,js}`, '!(*.*).json', `*.${appEnv}.json`]) {
-      for (const file of absolute.flatMap((d) => glob.sync(path.join(d, `/**/${pattern}`).replace(/\\/g, '/')))) {
+      for (const file of absolute.flatMap((d) => listConfigFiles(path.join(d, `/**/${pattern}`).replace(/\\/g, '/')))) {
         Object.assign(merged, await manifestSectionOf(file));
       }
     }

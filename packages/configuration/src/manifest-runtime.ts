@@ -1,11 +1,10 @@
 import { existsSync } from 'node:fs';
 import { dirname, join, normalize, relative, resolve, sep } from 'node:path';
-import glob from 'glob';
-import minimatch from 'minimatch';
 import { pendingProperties, PROPERTY_TYPE_RESOLVER, ResolveException, token } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { InternalLogger } from '@spinajs/internal-logger';
 import type { Class, IContainer, IPendingProperty, IPropertyTypeResolver } from '@spinajs/di';
+import { lazyGlob, matchesInAnyDir } from './config-files.js';
 import { appRootOf, isPackageSkipped, manifestFileFor, ManifestMissing, MANIFEST_TOKEN, resolvedTypeRef, resolveTypeRef, type Manifest, type ManifestMode, type PropertyInject } from '@spinajs/manifest';
 
 /** Typed key of the runtime manifest; same string key as MANIFEST_TOKEN. */
@@ -223,8 +222,22 @@ interface ListedConfigFile {
   file: string;
 }
 
-/** Steps from the app root up to the directory whose node_modules holds `name`, as node resolves it. */
-function installLevel(name: string, appRoot: string): number {
+const INSTALL_LEVELS = new WeakMap<Manifest, Map<string, number>>();
+
+/** Steps from the app root up to the directory whose node_modules holds `name`, as node resolves it; once per manifest. */
+function installLevel(manifest: Manifest, name: string, appRoot: string): number {
+  const levels = INSTALL_LEVELS.get(manifest) ?? new Map<string, number>();
+  INSTALL_LEVELS.set(manifest, levels);
+  const key = `${appRoot}\0${name}`;
+  let level = levels.get(key);
+  if (level === undefined) {
+    level = walkToInstall(name, appRoot);
+    levels.set(key, level);
+  }
+  return level;
+}
+
+function walkToInstall(name: string, appRoot: string): number {
   for (let dir = appRoot, level = 0; ; dir = dirname(dir), level++) {
     if (existsSync(join(dir, 'node_modules', name))) return level;
     if (dirname(dir) === dir) return Number.MAX_SAFE_INTEGER;
@@ -246,13 +259,13 @@ export function manifestPackageConfigFiles(manifest: Manifest, pattern: string, 
       InternalLogger.debug({ name: pkg.name }, 'Package ${name} is listed in the manifest but not installed, its config is skipped', 'Configuration');
       continue;
     }
-    const level = installLevel(pkg.name, appRoot);
+    const level = installLevel(manifest, pkg.name, appRoot);
 
     const resolveFile = (file: string) => manifestFileFor({ source: { file: `${pkg.outDir}/${file}`, line: 1, col: 1, package: pkg.name } }, manifest, cwd);
     const files = pkg.configFiles ?? builtConfigFiles(resolveFile('config'), pattern);
 
     for (const file of files) {
-      if (!file.startsWith('config/') || !minimatch(file.slice('config/'.length), `**/${pattern}`)) continue;
+      if (!file.startsWith('config/') || !matchesInAnyDir(file.slice('config/'.length), pattern)) continue;
       const resolved = resolveFile(file);
       if (existsSync(resolved)) {
         listed.push({ level, order: `${pkg.name}/${pkg.outDir}/${file}`, file: resolved });
@@ -266,5 +279,5 @@ export function manifestPackageConfigFiles(manifest: Manifest, pattern: string, 
 
 // A fragment older than `configFiles`: its one config dir is globbed, as without a manifest.
 function builtConfigFiles(configDir: string, pattern: string): string[] {
-  return glob.sync(`**/${pattern}`, { cwd: configDir }).map((f) => `config/${relative(configDir, join(configDir, f)).split(sep).join('/')}`);
+  return lazyGlob().sync(`**/${pattern}`, { cwd: configDir }).map((f) => `config/${relative(configDir, join(configDir, f)).split(sep).join('/')}`);
 }
