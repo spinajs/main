@@ -147,7 +147,7 @@ A CI step that has to tell "breaking" from "failed" checks both the code and the
 
 ## Known limits
 
-- A route that a controller inherits from an abstract base is served at runtime, but the manifest lists it under `controllerBases`, which the diff does not read. Such routes are missing from the diff until a later 4.x release ([Known limits in 4.0](../whats-new-4.0.md#known-limits-in-4-0)).
+- A route that a controller inherits from an abstract base is served at runtime, but the manifest lists it under `controllerBases`, which the diff does not read. Such routes are missing from the diff until a later 4.x release ([Known limits in 4.0](../whats-new-4.0.md#known-limits-in-40)).
 - The diff compares manifests, so it is only as exact as the derived types. A type the build emits as `{}` (`any`, a function) hides every change to it; `spinajs doctor` and the `SCH` diagnostics report those.
 - `buildEnv` is part of the manifest hash. Build both sides under the same `APP_ENV`, or the hashes differ for that reason alone.
 
