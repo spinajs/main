@@ -143,14 +143,14 @@ describe('what a build without decorator metadata needs from the manifest', () =
 
     it('keeps an abstract socket controller as a base: never mounted, its handlers still answer for subclasses', () => {
       expect(fragment.socketControllers.map((c) => c.className)).to.include('ThingsSocket').and.not.include('CrudSocket');
-      expect(fragment.socketControllers.find((c) => c.className === 'ThingsSocket')?.commands).to.deep.equal([]);
+      expect(fragment.socketControllers.find((c) => c.className === 'ThingsSocket')?.commands.map((c) => c.inheritedFrom)).to.deep.equal(['no-metadata:CrudSocket']);
       expect(fragment.socketControllerBases?.map((c) => c.className)).to.deep.equal(['CrudSocket']);
     });
 
-    it('records the commands, events and @FromDI() types of the base', () => {
-      const hello = { package: 'no-metadata', file: 'src/sockets.ts', export: 'Hello' };
-      expect(base()?.commands[0].payload.ref).to.deep.equal(hello);
-      expect(base()?.events[0].payload.ref).to.deep.equal(hello);
+    it('records the commands, events and @FromDI() types of the base, a type parameter as the Object metadata would give', () => {
+      const object = { package: 'global', file: '', export: 'Object' };
+      expect(base()?.commands[0].payload.ref).to.deep.equal(object);
+      expect(base()?.events[0].payload.ref).to.deep.equal(object);
       expect(base()?.diArgs).to.deep.equal([{ handler: 'save', index: 1, ref: db }]);
     });
   });
