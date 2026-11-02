@@ -80,7 +80,7 @@ export const CACHE = token<Cache>('app.cache'); // readable
 export const OTHER = token<Cache>(computeKey()); // CMP005, token:unresolved:...
 ```
 
-In the compiler's `tokens` fixture, an `@Inject(MAILER as never)` argument is read as a token; the `as never` is there because the decorator's signature takes classes and strings.
+In the compiler's `tokens` fixture, an `@Inject(MAILER as never)` argument is read as a token; the `as never` is there because the decorator's signature takes classes and typed arrays. That constructor form is the only decorator that injects a token: `@Autoinject(T)` reads the token object as its options, so inject a token through the constructor, or resolve it with `DI.resolve(T)`.
 
 ## Related
 

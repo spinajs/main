@@ -148,7 +148,7 @@ A CI step that has to tell "breaking" from "failed" checks both the code and the
 ## Known limits
 
 - A route that a controller inherits from an abstract base is served at runtime, but the manifest lists it under `controllerBases`, which the diff does not read. Such routes are missing from the diff until a later 4.x release ([Known limits in 4.0](../whats-new-4.0.md#known-limits-in-40)).
-- The diff compares manifests, so it is only as exact as the derived types. A type the build emits as `{}` (`any`, a function) hides every change to it; `spinajs doctor` and the `SCH` diagnostics report those.
+- The diff compares manifests, so it is only as exact as the derived types. A type the build emits as `{}` (`any`, a function) hides every change to it; the `SCH001` and `SCH002` warnings of `spinajs build` report those.
 - `buildEnv` is part of the manifest hash. Build both sides under the same `APP_ENV`, or the hashes differ for that reason alone.
 
 ## The PR comment workflow
@@ -226,7 +226,7 @@ One pipeline that builds, checks the wiring and fails when committed generated f
 | --- | --- |
 | `spinajs build --fail-on-warning` | The analyzer reports an error, or any warning (`CMP006`, `CMP008`, `CLI001`, ...); `CMP007` always fails it |
 | `spinajs doctor --format github` | A diagnostic of severity `error` exists (`--fail-on warning` includes warnings). The `github` format prints `::error file=...,line=...::...` lines that GitHub shows on the changed files |
-| `git diff --exit-code` | A committed generated file differs from what the current manifest produces |
+| `git diff --exit-code` | A committed generated file differs from what the current manifest produces. A generated file that was never committed is not caught: add `git status --porcelain` on the output paths for that |
 
 Notes on the drift check:
 

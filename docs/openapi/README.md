@@ -133,7 +133,8 @@ Every problem response uses `application/problem+json` and a `$ref` to `ProblemD
 | `@AllowAnonymous` | `x-authz-anonymous: true` and `security: []` |
 | `@Public('reason')` and no `@Access` | `security: []`, no vendor extension. [`@Public`](../http/13-policies.md#publicreason-a-route-that-is-open-on-purpose) is metadata that says the route is open on purpose |
 | `@Access('user:read')` | `x-authz-permission: ['user:read']` and `x-authz-resource: { type: 'user' }` (the part before the first `:`) |
-| `@Public` together with `@Access` or `@Policy` | The guard still runs: the operation keeps its security and `spinajs doctor` warns (`HTTP006`) |
+| `@Public` together with `@Access` | The guard still runs: the operation keeps its `x-authz-*` security and `spinajs doctor` warns (`HTTP006`) |
+| `@Public` with a `@Policy` and no `@Access` | `security: []`: the generator does not read policies, so the document shows the route as open although the guard runs. Doctor warns (`HTTP006`); describe the guard in the route's JSDoc |
 
 The extensions are the ones `@spinajs/authz-http` writes into the runtime document, so the two stay comparable. A route's own `@Access` replaces the controller's; the controller's applies when the route has none.
 

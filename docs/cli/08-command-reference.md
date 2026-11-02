@@ -59,7 +59,7 @@ spinajs doctor [-m, --manifest <path>] [-c, --config] [-f, --format <format>] [-
 | `-f, --format <format>` | `text` | `text`, `json` or `github` (workflow annotations) |
 | `--fail-on <severity>` | `error` | `warning` or `error`: the lowest severity that gives exit code 1 |
 
-Output goes to stdout, one line per diagnostic. A manifest that cannot be read is reported as a diagnostic with code `DOCTOR` and severity `error`, and the exit code is 1. Rules and formats: [spinajs doctor](../compiler/doctor.md).
+Output goes to stdout: one line per diagnostic in the `text` and `github` formats, a single JSON line in `json`. A manifest that cannot be read is reported as a diagnostic with code `DOCTOR` and severity `error`, and the exit code is 1. Rules and formats: [spinajs doctor](../compiler/doctor.md).
 
 ### `upgrade`
 
