@@ -2,6 +2,7 @@ import { DI, Bootstrapper } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { FileInfoService, FsBootsrapper, fsService, getFs } from '@spinajs/fs';
 import { Forbidden, ResourceDuplicated } from '@spinajs/exceptions';
 import type { IUploadedFile } from '@spinajs/http';
@@ -86,7 +87,7 @@ describe('ConfigFileUploads', function () {
 
     await DI.resolve(Configuration);
     await DI.resolve(fsService);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
     await DI.resolve(AuthzService);
     uploads = await DI.resolve(ConfigFileUploads);
   });

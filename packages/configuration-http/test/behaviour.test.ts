@@ -4,6 +4,7 @@ import { hostHarness, runBehaviour } from '@spinajs/authz-testing';
 import { DbConfig, resetSystemPrincipal } from '@spinajs/configuration-db-source';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/log';
 
 import { ConfigurationHttpBootstrapper } from '../src/bootstrap.js';
@@ -30,12 +31,11 @@ runBehaviour(
         host.setConfig(['db'], {
           DefaultConnection: 'sqlite',
           Connections: [
-            { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { OnStartup: true } },
+            { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite' },
           ],
         });
         DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-        const orm = await DI.resolve(Orm);
-        await (await DI.resolve(Orm)).Migrator.ready();
+        const { orm } = await migrateTestDatabase();
 
         await authz(host.domain).runAs(SYSTEM, 'test', async () => {
           for (const r of host.world.lane?.configuration?.rows ?? [])
