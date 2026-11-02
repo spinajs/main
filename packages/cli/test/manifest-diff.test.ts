@@ -43,6 +43,14 @@ describe('manifest:diff', () => {
     expect(process.exitCode).to.equal(undefined);
   });
 
+  it('writes the report to --out and leaves stdout alone', async () => {
+    const cmd = new Captured();
+    const out = join(dir, 'diff.md');
+    await cmd.execute(fixture, head, { format: 'markdown', out });
+    expect(readFileSync(out, 'utf8')).to.include('**BREAKING**');
+    expect(cmd.output).to.equal('');
+  });
+
   it('prints the diff as json', async () => {
     const cmd = new Captured();
     await cmd.execute(fixture, head, { format: 'json' });

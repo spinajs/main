@@ -58,11 +58,14 @@ jobs:
       - name: base fragments with the head compiler
         run: node head/scripts/build-fragments.mjs --packages-dir base/packages
 
-      # The base may predate `spinajs build`; the head CLI builds both manifests.
+      # The base may predate `spinajs build`; the head CLI builds both manifests. It runs from the head app because
+      # the CLI loads the commands of the packages under its working directory: from the base app it would load the
+      # base packages next to its own, and two copies of @spinajs/di in one process.
       - name: manifests
+        working-directory: head/${{ env.APP }}
         run: |
           for side in base head; do
-            (cd "$side/$APP" && node "$GITHUB_WORKSPACE/head/packages/cli/lib/cli.js" build --tsconfig tsconfig.build.json --out "$GITHUB_WORKSPACE/$side.manifest.json")
+            node "$GITHUB_WORKSPACE/head/packages/cli/lib/cli.js" build --tsconfig "$GITHUB_WORKSPACE/$side/$APP/tsconfig.build.json" --out "$GITHUB_WORKSPACE/$side.manifest.json"
           done
 
       # Exit 1 with a non-empty report means breaking changes; any other failure is a real error.
@@ -70,7 +73,7 @@ jobs:
         id: diff
         run: |
           set +e
-          node head/packages/cli/lib/cli.js manifest:diff base.manifest.json head.manifest.json --fail-on breaking > diff.md
+          (cd "head/$APP" && node "$GITHUB_WORKSPACE/head/packages/cli/lib/cli.js" manifest:diff "$GITHUB_WORKSPACE/base.manifest.json" "$GITHUB_WORKSPACE/head.manifest.json" --fail-on breaking --out "$GITHUB_WORKSPACE/diff.md")
           code=$?
           set -e
           if [ "$code" -eq 0 ]; then

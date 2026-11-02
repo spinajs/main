@@ -1,5 +1,5 @@
 import ts from 'typescript';
-import { deriveType, type DeriveContext, type JsonSchema, type TypeHandler } from '../derive.js';
+import type { DeriveContext, JsonSchema, TypeHandler } from '../derive.js';
 
 const isLiteral = (type: ts.Type): boolean => (type.flags & (ts.TypeFlags.StringLiteral | ts.TypeFlags.NumberLiteral | ts.TypeFlags.BooleanLiteral)) !== 0;
 const isIgnored = (type: ts.Type): boolean => (type.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Void)) !== 0;
@@ -43,7 +43,7 @@ export const unionType: TypeHandler = (ctx, type) => {
   if (!type.isUnion()) return undefined;
   const members = type.types.filter((member) => !isIgnored(member));
   if (members.length === 0) return {};
-  if (members.length === 1) return deriveType(ctx, members[0]);
+  if (members.length === 1) return ctx.derive(ctx, members[0]);
 
   if (members.every(isLiteral) && !members.some((member) => member.flags & ts.TypeFlags.BooleanLiteral)) {
     return { enum: members.map((member) => (member as ts.LiteralType).value as string | number) };
@@ -53,13 +53,13 @@ export const unionType: TypeHandler = (ctx, type) => {
   const hasNull = nonNull.length !== members.length;
 
   if (hasNull && nonNull.length === 1) {
-    const inner = deriveType(ctx, nonNull[0]);
+    const inner = ctx.derive(ctx, nonNull[0]);
     if (typeof inner.type === 'string') return { ...inner, type: [inner.type, 'null'] };
     return { anyOf: [inner, { type: 'null' }] };
   }
 
   const discriminator = discriminatorOf(ctx, nonNull);
-  const parts: JsonSchema[] = collapseBooleans(nonNull).map((member) => (member === 'boolean' ? { type: 'boolean' } : deriveType(ctx, member)));
+  const parts: JsonSchema[] = collapseBooleans(nonNull).map((member) => (member === 'boolean' ? { type: 'boolean' } : ctx.derive(ctx, member)));
   if (hasNull) parts.push({ type: 'null' });
 
   if (discriminator) {
@@ -77,5 +77,5 @@ export const unionType: TypeHandler = (ctx, type) => {
 
 export const intersectionType: TypeHandler = (ctx, type) => {
   if (!type.isIntersection()) return undefined;
-  return { allOf: type.types.map((member) => deriveType(ctx, member)) };
+  return { allOf: type.types.map((member) => ctx.derive(ctx, member)) };
 };

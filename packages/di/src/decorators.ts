@@ -2,7 +2,7 @@ import { ResolveType } from './enums.js';
 import { IAutoinjectOptions, IContainer, IInjectDescriptor, IToInject } from './interfaces.js';
 import { ResolveException } from './exceptions.js';
 import { Class } from './types.js';
-import { TypedArray } from './array.js';
+import type { TypedArray } from './array.js';
 import * as DI from './root.js';
 import { getTypeName, isChainArray, isConstructor, isPromise, isTypedArray } from './helpers.js';
 
@@ -171,7 +171,7 @@ export function Autoinject<T>(typeOrOptions?: Class<T> | TypedArray<T> | IAutoin
     const isArray = type?.name === 'Array' || type?.name === 'Map';
     let opt = options;
 
-    if (typeOrOptions instanceof TypedArray) {
+    if (isTypedArray(typeOrOptions)) {
       if (opt?.check || opt?.optional) {
         throw new Error(`@Autoinject: check and optional take a single class, ${String(propertyKey)} is an array or map`);
       }
@@ -301,7 +301,7 @@ export function LazyInject<T>(service?: Class<T> | TypedArray<T> | string, optio
     const isList = declared?.name === 'Array' || declared?.name === 'Map';
 
     // A list with async elements resolves to a promise, so such a property is typed Promise<T[]>.
-    if (service instanceof TypedArray && declared && !isList && declared.name !== 'Promise') {
+    if (isTypedArray(service) && declared && !isList && declared.name !== 'Promise') {
       throw new Error(`@LazyInject(${listName(service)}) needs an array, map or promise property, ${key} is not one`);
     }
     if (isList && !service) {

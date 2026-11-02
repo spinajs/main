@@ -1,9 +1,6 @@
 {
   "authn": 5,
   "authn-http": 6,
-  "authz-http": 2,
-  "authz-http-admin": 2,
-  "authz-testing": 4,
   "templates-image": 2,
   "users": 5
 }

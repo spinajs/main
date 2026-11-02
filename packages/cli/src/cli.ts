@@ -1,14 +1,11 @@
 #!/usr/bin/env node
 import { Bootstrapper, DI } from '@spinajs/di';
-import { Cli, CommanderError } from './index.js';
+import { Cli } from './index.js';
 import { Configuration } from '@spinajs/configuration-common';
-import { resolveCliLog } from './cliLog.js';
-import { Log } from '@spinajs/log-common';
+import { reportFatal, resolveCliLog } from './cliLog.js';
 import './args.js';
 
 async function cli() {
-  let log: Log | undefined;
-
   try {
     // Bootstrappers register the configuration schemas; the Configuration applies them when it boots.
     const bootstrappers = DI.resolve(Array.ofType(Bootstrapper));
@@ -18,7 +15,7 @@ async function cli() {
 
     await DI.resolve(Configuration);
 
-    log = resolveCliLog();
+    const log = resolveCliLog();
 
     log.success('Welcome to spinajs cli...');
 
@@ -34,17 +31,7 @@ async function cli() {
     // process.exit() ignores an already-assigned exitCode unless it is passed in.
     process.exit(process.exitCode ?? 0);
   } catch (err) {
-    // commander errors are already routed through the framework logger via
-    // configureOutput; only log other failures (eg. bootstrap errors) here to
-    // avoid a duplicate line.
-    if (!(err instanceof CommanderError)) {
-      if (log) {
-        log.error((err as Error).message);
-      } else {
-        // no logger before the configuration has loaded
-        console.error(err);
-      }
-    }
+    await reportFatal(err);
     process.exit(-1);
   }
 }

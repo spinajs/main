@@ -13,7 +13,7 @@ function verifyWith(alg: KeyAlgorithm, key: KeyObject, data: Uint8Array, signatu
   }
   try {
     if (alg === 'EdDSA') {
-      // ed25519-dalek's verify_strict refuses a small-order R and OpenSSL does not; canvas C8 refuses it on both sides.
+      // ed25519-dalek's verify_strict refuses a small-order R and not every OpenSSL does; canvas C8 refuses it on both sides.
       return !isSmallOrder(signature.subarray(0, 32)) && verify(null, data, key, signature);
     }
     return verify('sha256', data, { key, dsaEncoding: 'ieee-p1363' }, signature);
