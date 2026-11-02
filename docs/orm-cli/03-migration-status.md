@@ -55,8 +55,8 @@ After the summary, the command prints an explanation and two `migrate-resolve` i
 
 1. `MigrateStatusCommand.execute()` calls [`resolveCliMigrator()`](06-cli-orm.md). Without it, the `Orm`'s resolve would apply pending migrations and the report would always read "all applied".
 2. It calls `migrator.Runner.status({ readOnly: true, connection })`, which returns one `IMigrationStatusEntry` per registered migration whose connection is configured, `Migration.OnStartup` or not. It takes no migration lock.
-3. With no entries, it prints `No migrations are registered for any configured connection.` and returns. Exit code `0`.
-4. It prints the header and one line per entry with `console.log`. The line is `<marker> <state> <batch> <connection> <name>[ drift]`:
+3. With no entries, it prints `No migrations are registered for any configured connection.` and returns; with `--json` it prints `{"entries":[],"pending":[]}` instead. Exit code `0`.
+4. It prints the header and one line per entry with `console.log`. The line is `<marker> <state> <batch> <applied at> <connection> <name>[ drift]`:
    - marker `!!` for a failed entry, `??` for an interrupted one, blank otherwise;
    - state from `MigrateStatusCommand.state(entry)`;
    - batch from the tracking row, `-` when there is no row;
@@ -96,7 +96,7 @@ A checksum mismatch alone does not set exit code `1`.
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `MigrateStatusCommand` | Class token `MigrateStatusCommand`, singleton; also under `'__cli_command__'`. Resolved lazily by `Cli` when `migrate-status` runs | `MigrateStatusCommand` | none shipped | `DI.register(MySub).as(MigrateStatusCommand)`; override `state(entry)` for the STATE column, `explainFailed(failed)` and `explainInterrupted(interrupted)` for the guidance printed below the table. See [Customizing commands](08-customizing-commands.md) |
+| `MigrateStatusCommand` | Class token `MigrateStatusCommand`, singleton; also under `'__cli_command__'`. Resolved lazily by `Cli` when `migrate-status` runs | `MigrateStatusCommand` | none shipped | `DI.register(MySub).as(MigrateStatusCommand)`; override `state(entry)` for the STATE column, `printTable(entries, pending)` for the whole table, `toJson(entry)` for the `--json` entries, `explainFailed(failed)` and `explainInterrupted(interrupted)` for the guidance printed below the table. See [Customizing commands](08-customizing-commands.md) |
 
 ### `MigrateStatusCommand`: point operators at your runbook
 
@@ -119,11 +119,12 @@ export class RunbookMigrateStatusCommand extends MigrateStatusCommand {
 DI.register(RunbookMigrateStatusCommand).as(MigrateStatusCommand);
 ```
 
-The table itself is printed inside `execute()`. For another output format, write a separate command on `resolveCliMigrator()`; see [Customizing commands](08-customizing-commands.md#write-a-new-command-on-the-cli-migrator).
+The table is printed by the protected `printTable()` and each `--json` entry is built by `toJson()`, so a subclass can change either. For a different report altogether, write a separate command on `resolveCliMigrator()`; see [Customizing commands](08-customizing-commands.md#write-a-new-command-on-the-cli-migrator).
 
 ## Important behaviour
 
 - **Output goes to stdout through `console.log`, not the logger.** A log level or target cannot swallow the report, so it can be piped and grepped. The bin's welcome line still goes through the logger.
+- **`--json` keeps stdout clean.** `console.log` and `console.info` are routed to stderr while the report is collected, so a logger target that writes to the console cannot put log lines into the document. Logging that bypasses `console` (a direct `process.stdout.write`) is not covered.
 - **`0` means nothing is pending, not that the database is reachable and configured.** With no connections configured, nothing is registered and the command exits `0`. A gate that must catch a broken config should also check that the report listed migrations.
 - **Every configured connection is reported** unless `--connection` narrows it, including those with `Migration.OnStartup: false`. A gate that must cover the whole database should not pass `--connection`.
 - **The command never creates a table.** On a database without a tracking table every migration reads pending; a legacy table that predates the `FinishedAt` column is read as applied, as the upgrade would backfill it.

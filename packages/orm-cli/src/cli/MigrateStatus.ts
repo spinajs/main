@@ -18,7 +18,8 @@ export interface IMigrateStatusCommandOptions {
 @Option('--json', false, 'print one JSON document instead of the table')
 export class MigrateStatusCommand extends CliCommand {
   public async execute(options: IMigrateStatusCommandOptions = {}): Promise<void> {
-    const entries = await (await resolveCliMigrator()).Runner.status({ readOnly: true, connection: options.connection });
+    // a logger target writing to the console would put log lines into the one document a script parses
+    const entries = options.json ? await this.withConsoleOnStderr(() => this.collect(options)) : await this.collect(options);
     // the runner returns per-connection groups; the pending list is the order migrate-up applies them in
     const pending = entries.filter((e) => e.pending).sort((a, b) => compareMigrationNames(a.name, b.name));
 
@@ -33,6 +34,24 @@ export class MigrateStatusCommand extends CliCommand {
     }
   }
 
+  protected async collect(options: IMigrateStatusCommandOptions): Promise<IMigrationStatusEntry[]> {
+    return (await resolveCliMigrator()).Runner.status({ readOnly: true, connection: options.connection });
+  }
+
+  private async withConsoleOnStderr<T>(fn: () => Promise<T>): Promise<T> {
+    const { log, info } = console;
+
+    console.log = console.error;
+    console.info = console.error;
+
+    try {
+      return await fn();
+    } finally {
+      console.log = log;
+      console.info = info;
+    }
+  }
+
   protected toJson(e: IMigrationStatusEntry) {
     return { name: e.name, connection: e.connection, state: this.state(e), batch: e.batch, appliedAt: e.applied ? this.iso(e.finishedAt) : null, startedAt: this.iso(e.startedAt), checksumMismatch: e.checksumMismatch };
   }
@@ -43,7 +62,7 @@ export class MigrateStatusCommand extends CliCommand {
     }
 
     // a dialect that hands timestamps back as strings would make toISOString() throw out of a report
-    return d instanceof Date ? d.toISOString() : String(d);
+    return d instanceof Date && !Number.isNaN(d.getTime()) ? d.toISOString() : String(d);
   }
 
   protected printTable(entries: IMigrationStatusEntry[], pendingInRunOrder: IMigrationStatusEntry[]): void {
@@ -124,12 +143,7 @@ export class MigrateStatusCommand extends CliCommand {
 
     for (const i of interrupted) {
       console.log('');
-      // `startedAt` is typed Date, but a dialect that hands timestamps back as strings puts one
-      // here - and `new Date(<odd format>).toISOString()` THROWS, out of a report whose entire job
-      // is to be readable when something has gone wrong
-      const started = i.startedAt instanceof Date ? i.startedAt.toISOString() : String(i.startedAt);
-
-      console.log(`  ${i.name} ( ${i.connection} )${i.startedAt ? `, started ${started}` : ''}`);
+      console.log(`  ${i.name} ( ${i.connection} )${i.startedAt ? `, started ${this.iso(i.startedAt)}` : ''}`);
       console.log(`    migrate-resolve --name ${i.name} --applied       # the change IS in the database, do not run it again`);
       console.log(`    migrate-resolve --name ${i.name} --rolled-back   # the change is NOT, run it again on the next migrate-up`);
     }

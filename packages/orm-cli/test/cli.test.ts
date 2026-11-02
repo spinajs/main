@@ -11,7 +11,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import '@spinajs/log';
 import '@spinajs/orm-sqlite';
-import { MigrateCreateCommand, MigrateDownCommand, MigrateResolveCommand, MigrateStatusCommand, MigrateUpCommand, resolveCliMigrator } from '../src/index.js';
+import { IMigrateStatusCommandOptions, MigrateCreateCommand, MigrateDownCommand, MigrateResolveCommand, MigrateStatusCommand, MigrateUpCommand, resolveCliMigrator } from '../src/index.js';
 
 const expect = chai.expect;
 
@@ -89,8 +89,8 @@ async function captureStdout(fn: () => Promise<void>): Promise<string[]> {
 
 /**
  * The STATE column of one `migrate-status` line. The report is `<marker> <state> <batch>
- * <connection> <migration>`, and the marker is blank for everything but a failed row - so the
- * first token of the trimmed line is the state, or `!!` when it is FAILED.
+ * <applied at> <connection> <migration>`, and the marker is blank unless the row is failed (`!!`)
+ * or interrupted (`??`) - so the first token of the trimmed line is the state, or that marker.
  *
  * Worth the parse: connection names and migration names sit on the same line, so asserting that
  * a line *contains* `pending` passes on a connection called `reporting-pending` no matter what
@@ -1421,5 +1421,238 @@ describe('orm-cli migrate-up and db.StrictTableCheck', function () {
     await cmd.execute({});
 
     expect(process.exitCode).to.equal(0);
+  });
+});
+
+const noopMigration = {
+  up: (_c: OrmDriver): Promise<void> => Promise.resolve(),
+  down: (_c: OrmDriver): Promise<void> => Promise.resolve(),
+};
+
+describe('migrate-status pending order across connections', function () {
+  this.timeout(20000);
+
+  const FIRST_CONNECTION = 'orm-cli-order-one';
+  const SECOND_CONNECTION = 'orm-cli-order-two';
+
+  class OrderConf extends FrameworkConfiguration {
+    public async resolve(): Promise<void> {
+      await super.resolve();
+
+      applyConnectionConf(this.Config, { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: FIRST_CONNECTION, Migration: { Table: 'orm_cli_order_one', OnStartup: false } });
+      applyConnectionConf(this.Config, { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: SECOND_CONNECTION, Migration: { Table: 'orm_cli_order_two', OnStartup: false } });
+    }
+  }
+
+  let orm: Orm;
+  let types: any[] = [];
+
+  function defineMigrations() {
+    // the first connection owns the 1st, 3rd and 5th by timestamp, the second the 2nd and 4th;
+    // 'Zeta' sorts after 'Alpha' by name but runs before it
+    @Migration(FIRST_CONNECTION)
+    class OrmCliOrderA_2021_09_01_00_00_00 extends OrmMigration {
+      public up = noopMigration.up;
+      public down = noopMigration.down;
+    }
+
+    @Migration(SECOND_CONNECTION)
+    class OrmCliOrderB_2021_09_02_00_00_00 extends OrmMigration {
+      public up = noopMigration.up;
+      public down = noopMigration.down;
+    }
+
+    @Migration(FIRST_CONNECTION)
+    class OrmCliOrderC_2021_09_03_00_00_00 extends OrmMigration {
+      public up = noopMigration.up;
+      public down = noopMigration.down;
+    }
+
+    @Migration(SECOND_CONNECTION)
+    class Zeta_2021_09_04_00_00_00 extends OrmMigration {
+      public up = noopMigration.up;
+      public down = noopMigration.down;
+    }
+
+    @Migration(FIRST_CONNECTION)
+    class Alpha_2021_09_05_00_00_00 extends OrmMigration {
+      public up = noopMigration.up;
+      public down = noopMigration.down;
+    }
+
+    types = [OrmCliOrderA_2021_09_01_00_00_00, OrmCliOrderB_2021_09_02_00_00_00, OrmCliOrderC_2021_09_03_00_00_00, Zeta_2021_09_04_00_00_00, Alpha_2021_09_05_00_00_00];
+  }
+
+  const originalExitCode = process.exitCode;
+
+  before(async () => {
+    DI.clearCache();
+    defineMigrations();
+    DI.register(OrderConf).as(Configuration);
+    orm = await DI.resolve(Orm);
+  });
+
+  after(async () => {
+    try {
+      if (orm) {
+        await orm.dispose();
+      }
+    } finally {
+      DI.unregister(OrderConf);
+      types.forEach((t) => DI.unregister(t));
+      DI.clearCache();
+      process.exitCode = originalExitCode;
+    }
+  });
+
+  const EXPECTED_ORDER = ['OrmCliOrderA_2021_09_01_00_00_00', 'OrmCliOrderB_2021_09_02_00_00_00', 'OrmCliOrderC_2021_09_03_00_00_00', 'Zeta_2021_09_04_00_00_00', 'Alpha_2021_09_05_00_00_00'];
+
+  it('the table lists pending migrations by timestamp across connections, not grouped by connection or sorted by name', async () => {
+    const lines = await captureStdout(() => new MigrateStatusCommand().execute({}));
+    const at = lines.indexOf('Pending, in the order migrate-up applies them:');
+
+    expect(at).to.be.greaterThan(-1);
+    expect(lines.slice(at + 1).map((l) => l.trim().split(' ')[0])).to.eql(EXPECTED_ORDER);
+  });
+
+  it('--json lists the same pending order', async () => {
+    const lines = await captureStdout(() => new MigrateStatusCommand().execute({ json: true }));
+
+    const report = JSON.parse(lines.join('\n')) as { pending: Array<{ name: string }> };
+
+    expect(report.pending.map((p) => p.name)).to.eql(EXPECTED_ORDER);
+  });
+});
+
+describe('migrate-status --json output', function () {
+  this.timeout(20000);
+
+  const CONNECTION_NAME = 'orm-cli-json-clean';
+  const MIGRATION_NAME = 'OrmCliJsonClean_2021_09_01_00_00_00';
+  const Conf = connectionConf(CONNECTION_NAME, 'orm_cli_json_clean');
+
+  let orm: Orm;
+  let type: any;
+
+  const originalExitCode = process.exitCode;
+
+  before(async () => {
+    DI.clearCache();
+
+    @Migration(CONNECTION_NAME)
+    class OrmCliJsonClean_2021_09_01_00_00_00 extends OrmMigration {
+      public up = noopMigration.up;
+      public down = noopMigration.down;
+    }
+
+    type = OrmCliJsonClean_2021_09_01_00_00_00;
+    DI.register(Conf).as(Configuration);
+    orm = await DI.resolve(Orm);
+  });
+
+  after(async () => {
+    try {
+      if (orm) {
+        await orm.dispose();
+      }
+    } finally {
+      DI.unregister(Conf);
+      DI.unregister(type);
+      DI.clearCache();
+      process.exitCode = originalExitCode;
+    }
+  });
+
+  class NoisyStatusCommand extends MigrateStatusCommand {
+    protected async collect(options: IMigrateStatusCommandOptions) {
+      console.log('log line from a console target');
+      console.info('info line from a console target');
+
+      return super.collect(options);
+    }
+  }
+
+  it('stdout holds only the JSON document when something logs to the console while the report is collected', async () => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const { log, info, error } = console;
+
+    console.log = (...args: unknown[]) => void stdout.push(args.map(String).join(' '));
+    console.info = console.log;
+    console.error = (...args: unknown[]) => void stderr.push(args.map(String).join(' '));
+    try {
+      await new NoisyStatusCommand().execute({ json: true });
+    } finally {
+      console.log = log;
+      console.info = info;
+      console.error = error;
+    }
+    const report = JSON.parse(stdout.join('\n')) as { entries: Array<{ name: string }> };
+
+    expect(report.entries.map((e) => e.name)).to.eql([MIGRATION_NAME]);
+    expect(stderr).to.eql(['log line from a console target', 'info line from a console target']);
+  });
+});
+
+describe('migrate-status against a legacy tracking table', function () {
+  this.timeout(20000);
+
+  const CONNECTION_NAME = 'orm-cli-legacy-table';
+  const TABLE = 'orm_cli_legacy_migrations';
+  const MIGRATION_NAME = 'OrmCliLegacy_2021_09_01_00_00_00';
+  const Conf = connectionConf(CONNECTION_NAME, TABLE);
+
+  let orm: Orm;
+  let type: any;
+
+  const originalExitCode = process.exitCode;
+
+  before(async () => {
+    DI.clearCache();
+
+    @Migration(CONNECTION_NAME)
+    class OrmCliLegacy_2021_09_01_00_00_00 extends OrmMigration {
+      public up = noopMigration.up;
+      public down = noopMigration.down;
+    }
+
+    type = OrmCliLegacy_2021_09_01_00_00_00;
+    DI.register(Conf).as(Configuration);
+    orm = await DI.resolve(Orm);
+  });
+
+  after(async () => {
+    try {
+      if (orm) {
+        await orm.dispose();
+      }
+    } finally {
+      DI.unregister(Conf);
+      DI.unregister(type);
+      DI.clearCache();
+      process.exitCode = originalExitCode;
+    }
+  });
+
+  it('reads a row of the two-column table as applied and leaves the table as it was', async () => {
+    const db = orm.Connections.get(CONNECTION_NAME)!;
+
+    await db.schema().createTable(TABLE, (table) => {
+      table.string('Migration', 255).primaryKey();
+      table.dateTime('CreatedAt');
+    });
+    await db.insert().into(TABLE).values({ Migration: MIGRATION_NAME, CreatedAt: new Date('2021-09-01T00:00:00.000Z') });
+
+    process.exitCode = 0;
+    const lines = await captureStdout(() => new MigrateStatusCommand().execute({ json: true }));
+    const report = JSON.parse(lines.join('\n'));
+
+    expect(report.entries[0]).to.include({ name: MIGRATION_NAME, state: 'applied', batch: 1 });
+    expect(report.pending).to.eql([]);
+    expect(process.exitCode).to.equal(0);
+
+    const rows = await db.select().from(TABLE).asRaw<any[]>();
+    expect(Object.keys(rows[0]).sort(), 'status added a column to the legacy table').to.eql(['CreatedAt', 'Migration']);
+    expect(await db.schema().tableExists('spinajs_migration_lock')).to.equal(false);
   });
 });
