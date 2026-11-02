@@ -4,6 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { OrmDriver } from './driver.js';
 import { OrmException } from './exceptions.js';
+import type { IUpdateResult } from './interfaces.js';
 
 export const MIGRATION_LOCK_POLL_INTERVAL = 500;
 export const MIGRATION_LOCK_TIMEOUT = 30_000;
@@ -15,6 +16,13 @@ export const MIGRATION_LOCK_STALE_AFTER = 600_000;
  * stale branch is free to warn and retry forever.
  */
 export const MIGRATION_LOCK_MAX_STEALS = 3;
+
+/**
+ * Ends the `Owner` of a lock-table row written by a run that also holds the connection's advisory
+ * lock ( `TableMigrationLock.acquireUnderAdvisory()` ). The next advisory holder removes such a row
+ * at once: its writer has lost the advisory lock, so it is dead.
+ */
+export const MIGRATION_LOCK_ADVISORY_SUFFIX = ':advisory';
 
 /** What one connection's migration lock is asked for. */
 export interface IMigrationLockRequest {
@@ -68,9 +76,12 @@ export abstract class MigrationLock {
   public abstract isHeld(request: IMigrationLockRequest): Promise<boolean>;
 }
 
-/** Server-wide lock name for a connection: two apps with different tracking tables never block each other. */
+/**
+ * Server-wide lock name for a connection: two apps with different tracking tables never block each
+ * other, nor do two connections whose `Options.Schema` gives each its own tracking table.
+ */
 export function migrationLockKey(driver: OrmDriver, table: string): string {
-  return `spinajs_migration:${driver.Options.Database ?? ''}:${table}`;
+  return `spinajs_migration:${driver.Options.Database ?? ''}:${(driver.Options.Options as { Schema?: string } | undefined)?.Schema ?? ''}:${table}`;
 }
 
 /** Two int32 halves of sha256(key), the shape of a two-argument advisory lock id. */
@@ -88,15 +99,29 @@ export class TableMigrationLock extends MigrationLock {
   protected Log: Log;
 
   public async acquire(request: IMigrationLockRequest): Promise<IMigrationLockHandle> {
-    const owner = this.lockOwner();
-    const heartbeat = new TableLockHeartbeat(this.driver, this.Log, request, owner, await this.claim(request, owner));
+    return await this.take(request, false);
+  }
+
+  /**
+   * Takes the row for a dialect lock that already holds the advisory lock for `request.key`, so
+   * processes that lock by the row alone ( older releases, `Lock.Mode: 'table'` ) are kept out too.
+   * The row is marked with `MIGRATION_LOCK_ADVISORY_SUFFIX`; a marked row found here is removed at
+   * once, any other row only once older than `staleAfter`. `release()` drops the row only.
+   */
+  public async acquireUnderAdvisory(request: IMigrationLockRequest): Promise<IMigrationLockHandle> {
+    return await this.take(request, true);
+  }
+
+  protected async take(request: IMigrationLockRequest, advisory: boolean): Promise<IMigrationLockHandle> {
+    const owner = advisory ? `${this.lockOwner()}${MIGRATION_LOCK_ADVISORY_SUFFIX}` : this.lockOwner();
+    const heartbeat = new TableLockHeartbeat(this.driver, this.Log, request, owner, await this.claim(request, owner, advisory));
 
     return {
       holder: owner,
       assertHeld: async () => heartbeat.assertFresh(),
       release: async () => {
         await heartbeat.stop();
-        await this.releaseRow(request);
+        await this.releaseRow(request, owner);
       },
     };
   }
@@ -107,6 +132,11 @@ export class TableMigrationLock extends MigrationLock {
    * its lock row behind, so "a row exists" would hide every crash `status()` is meant to surface.
    */
   public async isHeld(request: IMigrationLockRequest): Promise<boolean> {
+    // a read-only status() must not fail on a database that never ran a migration
+    if (!(await this.driver.schema().tableExists(request.lockTable))) {
+      return false;
+    }
+
     const rows = ((await this.driver.select().from(request.lockTable).where({ Id: 1 })) ?? []) as Array<{ AcquiredAt: Date | string }>;
     const holder = rows[0];
 
@@ -140,9 +170,11 @@ export class TableMigrationLock extends MigrationLock {
    * compared to this host's `Date.now()`. On hosts whose clocks disagree the window is off by the
    * skew, which shows up as stealing too early or waiting too long.
    */
-  protected async claim(request: IMigrationLockRequest, owner: string): Promise<Date> {
+  protected async claim(request: IMigrationLockRequest, owner: string, advisory = false): Promise<Date> {
     const start = Date.now();
     const expired = () => Date.now() - start > request.timeout;
+    const abandoned = (holder: { owner: string; since: Date }) => (advisory && holder.owner.endsWith(MIGRATION_LOCK_ADVISORY_SUFFIX)) || Date.now() - holder.since.getTime() > request.staleAfter;
+    const stolen = new Set<string>();
     let steals = 0;
 
     for (;;) {
@@ -158,9 +190,10 @@ export class TableMigrationLock extends MigrationLock {
 
         // capped because a steal is not proof the row is gone: a DELETE can succeed and remove
         // nothing, and the read that follows then finds the same row
-        if (holder && Date.now() - holder.since.getTime() > request.staleAfter && steals < MIGRATION_LOCK_MAX_STEALS) {
+        if (holder && abandoned(holder) && steals < MIGRATION_LOCK_MAX_STEALS) {
           steals++;
-          await this.steal(request, holder);
+          stolen.add(holder.owner);
+          await this.steal(request, holder, advisory);
 
           // straight back to the INSERT: sleeping a poll interval for a lock nobody holds is
           // pure latency. Only a deadline already passed falls through to the throw below
@@ -170,7 +203,7 @@ export class TableMigrationLock extends MigrationLock {
         }
 
         if (expired()) {
-          throw this.timedOut(request, holder, steals, err);
+          throw this.timedOut(request, holder, holder && stolen.has(holder.owner) ? steals : 0, err);
         }
 
         await new Promise((resolve) => setTimeout(resolve, MIGRATION_LOCK_POLL_INTERVAL));
@@ -185,21 +218,35 @@ export class TableMigrationLock extends MigrationLock {
     return row ? { owner: row.Owner, since: row.AcquiredAt instanceof Date ? row.AcquiredAt : new Date(row.AcquiredAt) } : undefined;
   }
 
-  protected async steal(request: IMigrationLockRequest, holder: { owner: string; since: Date }): Promise<void> {
-    // loud, because the alternative reading is a live run that could not refresh its row
-    this.Log.warn(
-      { connection: this.driver.Options.Name, owner: holder.owner, acquiredAt: holder.since, staleAfter: request.staleAfter },
-      'Stealing stale migration lock on connection ${connection}, held by ${owner} since ${acquiredAt} ( older than ${staleAfter}ms ). If that process is still alive, two migration runs are now in flight - raise Migration.Lock.StaleAfter above the longest run.',
-    );
-    await this.driver.del().from(request.lockTable).where({ Id: 1 });
+  /** Deletes only the row that was judged: another contender may already have replaced it with its own. */
+  protected async steal(request: IMigrationLockRequest, holder: { owner: string; since: Date }, advisory = false): Promise<void> {
+    if (advisory && holder.owner.endsWith(MIGRATION_LOCK_ADVISORY_SUFFIX)) {
+      this.Log.warn(
+        { connection: this.driver.Options.Name, owner: holder.owner, acquiredAt: holder.since },
+        'Removing the migration lock row of ${owner} on connection ${connection} ( since ${acquiredAt} ): it was written under the advisory lock this run now holds, so its writer is gone.',
+      );
+    } else {
+      // loud, because the alternative reading is a live run that could not refresh its row
+      this.Log.warn(
+        { connection: this.driver.Options.Name, owner: holder.owner, acquiredAt: holder.since, staleAfter: request.staleAfter },
+        'Stealing stale migration lock on connection ${connection}, held by ${owner} since ${acquiredAt} ( older than ${staleAfter}ms ). If that process is still alive, two migration runs are now in flight - raise Migration.Lock.StaleAfter above the longest run.',
+      );
+    }
+
+    await this.driver.del().from(request.lockTable).where({ Id: 1, Owner: holder.owner });
   }
 
   protected timedOut(request: IMigrationLockRequest, holder: { owner: string; since: Date } | undefined, steals: number, err: unknown): OrmException {
     const { timeout, lockTable } = request;
     const name = this.driver.Options.Name;
 
+    if (holder && steals > 0) {
+      return new OrmException(`Could not acquire migration lock on connection ${name} within ${timeout}ms - held by ${holder.owner} since ${holder.since.toISOString()}, and ${steals} attempt(s) to remove it as stale left it in place - delete the row from ${lockTable} by hand`);
+    }
+
     if (holder) {
-      return new OrmException(`Could not acquire migration lock on connection ${name} within ${timeout}ms - held by ${holder.owner} since ${holder.since.toISOString()}${steals > 0 ? `, and ${steals} attempt(s) to remove it as stale left it in place - delete the row from ${lockTable} by hand` : ''}`);
+      const staleAt = new Date(holder.since.getTime() + request.staleAfter).toISOString();
+      return new OrmException(`Could not acquire migration lock on connection ${name} within ${timeout}ms - held by ${holder.owner} since ${holder.since.toISOString()}. If that process is dead, the row goes stale at ${staleAt} ( Migration.Lock.StaleAfter ) and the next run takes it; to go on sooner, delete it from ${lockTable} by hand`);
     }
 
     // no row to blame, so the insert is failing for its own reasons ( missing table, lost
@@ -207,14 +254,9 @@ export class TableMigrationLock extends MigrationLock {
     return new OrmException(`Could not acquire migration lock on connection ${name} within ${timeout}ms - no lock row is present, the last insert failed with: ${(err as Error).message}`, undefined, undefined, undefined, err);
   }
 
-  /**
-   * Drops the row unconditionally rather than only the row this process wrote. Deleting only
-   * `Owner = ours` leaves the table holding a row nobody clears if the owner string ever changes
-   * underneath a run, and losing a stolen lock is the lesser harm: the thief already assumed this
-   * run was dead.
-   */
-  protected async releaseRow(request: IMigrationLockRequest): Promise<void> {
-    await this.driver.del().from(request.lockTable).where({ Id: 1 });
+  /** Only our own row: after a steal the row belongs to the run that took it over. */
+  protected async releaseRow(request: IMigrationLockRequest, owner: string): Promise<void> {
+    await this.driver.del().from(request.lockTable).where({ Id: 1, Owner: owner });
   }
 }
 
@@ -223,12 +265,13 @@ export class TableMigrationLock extends MigrationLock {
  *
  * A thief takes the row only once it is older than `staleAfter`. So while the last refresh that
  * went through is younger than that, nobody can have taken it, and `assertFresh()` needs no query.
- * A gap longer than `staleAfter` marks the lock lost for good: a refresh succeeding after a steal
- * matches no row (`Owner` is ours, the row is not) and proves nothing.
+ * A gap longer than `staleAfter` marks the lock lost for good, and so does a refresh that matches no
+ * row: the row is no longer ours.
  */
 class TableLockHeartbeat {
   protected confirmedAt: number;
   protected lost = false;
+  protected taken = false;
   protected stopped = false;
   protected timer: NodeJS.Timeout | undefined;
   protected beat: Promise<void> = Promise.resolve();
@@ -246,6 +289,12 @@ class TableLockHeartbeat {
 
   public assertFresh(): void {
     this.judge(Date.now());
+
+    if (this.taken) {
+      throw new MigrationLockLostException(
+        `Migration lock on connection ${this.driver.Options.Name} was lost: its row in ${this.request.lockTable} no longer carries this run's owner ( ${this.owner} ), so another run has taken it. The run stops before its next migration; run it again.`,
+      );
+    }
 
     if (this.lost) {
       throw new MigrationLockLostException(
@@ -269,7 +318,7 @@ class TableLockHeartbeat {
   protected schedule(): void {
     this.timer = setTimeout(() => {
       this.beat = this.refresh().finally(() => {
-        if (!this.stopped) {
+        if (!this.stopped && !this.taken) {
           this.schedule();
         }
       });
@@ -283,7 +332,14 @@ class TableLockHeartbeat {
     const stamp = new Date();
 
     try {
-      await this.driver.update().in(this.request.lockTable).update({ AcquiredAt: stamp }).where({ Id: 1, Owner: this.owner });
+      const result = (await this.driver.update().in(this.request.lockTable).update({ AcquiredAt: stamp }).where({ Id: 1, Owner: this.owner })) as IUpdateResult | undefined;
+
+      // matched rows, not changed ones ( mysql2 sets FOUND_ROWS by default ); a driver reporting no count proves nothing
+      if (result?.RowsAffected === 0) {
+        this.lost = this.taken = true;
+        return;
+      }
+
       this.judge(stamp.getTime());
 
       if (!this.lost) {
