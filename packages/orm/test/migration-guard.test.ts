@@ -4,14 +4,14 @@ import * as chai from 'chai';
 import 'mocha';
 import * as sinon from 'sinon';
 import '@spinajs/log';
-import { IMigrationRecord, IOrmMigrationGuardOptions, MIGRATION_TABLE_NAME, Migration, Orm, OrmDriver, OrmMigration, OrmMigrationGuard, PendingMigrationsException, SelectQueryBuilder, TableExistsQueryBuilder, pendingMigrationsMessage, resolveMigrationTool } from '../src/index.js';
+import { IMigrationRecord, IMigrationStatusEntry, IMigrationStatusOptions, IMigrationUnit, IOrmMigrationGuardOptions, MIGRATION_TABLE_NAME, Migration, Orm, OrmDriver, OrmException, OrmMigration, OrmMigrationGuard, OrmMigrationService, PendingMigrationsException, SelectQueryBuilder, TableExistsQueryBuilder, pendingMigrationsMessage, resolveMigrationTool } from '../src/index.js';
 import { FakeSqliteDriver, logText } from './misc.js';
 
 const expect = chai.expect;
 
 interface IFakeDb {
-  tables: Set<string>;
-  rows: IMigrationRecord[];
+  /** Rows by table name; a table that is absent here does not exist. */
+  tables: Map<string, IMigrationRecord[]>;
 }
 
 /** The fake databases, by connection name. */
@@ -23,6 +23,8 @@ let EXECUTED: Array<{ connection: string; builder: unknown }> = [];
 let migrationCheck: string | undefined;
 let connectionChecks: Record<string, string | undefined> = {};
 let onStartup: string[] = [];
+let trackingTables: Record<string, string> = {};
+let services: Record<string, string> = {};
 
 const now = new Date();
 
@@ -35,8 +37,36 @@ function db(connection: string): IFakeDb {
 }
 
 function track(connection: string, ...rows: IMigrationRecord[]) {
-  db(connection).tables.add(MIGRATION_TABLE_NAME);
-  db(connection).rows.push(...rows);
+  const table = trackingTables[connection] ?? MIGRATION_TABLE_NAME;
+  db(connection).tables.set(table, [...(db(connection).tables.get(table) ?? []), ...rows]);
+}
+
+function entry(u: IMigrationUnit, connection: string, state: Partial<IMigrationStatusEntry>): IMigrationStatusEntry {
+  return { name: u.name, connection, applied: false, failed: false, rolledBack: false, pending: false, interrupted: false, batch: null, startedAt: null, finishedAt: null, checksumMismatch: false, ...state };
+}
+
+/** A custom Migration.Service keeping its state outside the default tracking table: it reports every migration FAILED. */
+class StatusFromElsewhere extends OrmMigrationService {
+  public static asked: Array<IMigrationStatusOptions | undefined> = [];
+
+  public async ensureStorage(): Promise<void> {
+    throw new Error('the guard must not create storage');
+  }
+
+  public async up(): Promise<OrmMigration[]> {
+    return [];
+  }
+
+  public async down(): Promise<OrmMigration[]> {
+    return [];
+  }
+
+  public async resolve(): Promise<void> {}
+
+  public async status(units: IMigrationUnit[], options?: IMigrationStatusOptions): Promise<IMigrationStatusEntry[]> {
+    StatusFromElsewhere.asked.push(options);
+    return units.map((u) => entry(u, this.driver.Options.Name, { failed: true }));
+  }
 }
 
 @NewInstance()
@@ -44,8 +74,8 @@ class GuardTestDriver extends FakeSqliteDriver {
   public async execute(b: any): Promise<any> {
     EXECUTED.push({ connection: this.Options.Name, builder: b });
 
-    if (b instanceof SelectQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
-      return db(this.Options.Name).rows;
+    if (b instanceof SelectQueryBuilder && db(this.Options.Name).tables.has(b.Table)) {
+      return db(this.Options.Name).tables.get(b.Table);
     }
 
     if (b instanceof TableExistsQueryBuilder) {
@@ -66,6 +96,8 @@ class GuardTestConf extends FrameworkConfiguration {
       Migration: {
         ...(connectionChecks[name] ? { Check: connectionChecks[name] } : {}),
         ...(onStartup.includes(name) ? { OnStartup: true } : {}),
+        ...(trackingTables[name] ? { Table: trackingTables[name] } : {}),
+        ...(services[name] ? { Service: services[name] } : {}),
       },
     });
 
@@ -119,7 +151,11 @@ describe('OrmMigrationGuard', function () {
     orm = await DI.resolve(Orm);
   }
 
-  const guardOf = (options?: IOrmMigrationGuardOptions) => DI.resolve(OrmMigrationGuard, [options]);
+  // the guard is a singleton, so a test asking for other options drops the cached one first
+  const guardOf = (options?: IOrmMigrationGuardOptions) => {
+    DI.uncache(OrmMigrationGuard);
+    return DI.resolve(OrmMigrationGuard, [options]);
+  };
 
   async function guardWithWarnSpy() {
     const guard = await guardOf();
@@ -133,13 +169,17 @@ describe('OrmMigrationGuard', function () {
     DI.clearCache();
     DI.register(GuardTestConf).as(Configuration);
     DI.register(GuardTestDriver).as('guard-test-driver');
+    DI.register(StatusFromElsewhere).as('guard-test-status-service');
 
     DBS.clear();
-    ['main', 'audit', 'empty'].forEach((c) => DBS.set(c, { tables: new Set(), rows: [] }));
+    ['main', 'audit', 'empty'].forEach((c) => DBS.set(c, { tables: new Map() }));
     EXECUTED = [];
     migrationCheck = undefined;
     connectionChecks = {};
     onStartup = [];
+    trackingTables = {};
+    services = {};
+    StatusFromElsewhere.asked = [];
 
     preRegistered = [...(DI.getRegisteredTypes('__migrations__') ?? [])];
   });
@@ -153,6 +193,7 @@ describe('OrmMigrationGuard', function () {
 
     DI.unregister(GuardTestConf);
     DI.unregister(GuardTestDriver);
+    DI.unregister(StatusFromElsewhere);
     DI.clearCache();
     sinon.restore();
   });
@@ -222,6 +263,56 @@ describe('OrmMigrationGuard', function () {
     expect(err.message).to.contain(`migrate-resolve --name ${USERS} --applied`);
   });
 
+  it('reads a row with Logs set and no FinishedAt column as FAILED, as migrate-status does', async () => {
+    defineMigrations();
+    await boot();
+    track('main', { Migration: USERS, CreatedAt: now, Logs: 'boom' } as IMigrationRecord, applied(ORDERS));
+    track('audit', applied(AUDIT));
+
+    const err = await checkFailure();
+
+    expect(err).to.be.instanceOf(PendingMigrationsException);
+    expect(err.failed).to.deep.equal([{ name: USERS, connection: 'main' }]);
+    expect(err.pending).to.deep.equal([]);
+  });
+
+  it('lists the pending migrations first and the FAILED ones after them in one message', async () => {
+    defineMigrations();
+    await boot();
+    track('main', { ...applied(USERS), FinishedAt: null, Logs: 'boom' });
+
+    const err = await checkFailure();
+
+    expect(err.message).to.equal(`Database is not migrated: 1 pending migration(s) on connection audit (${AUDIT}); 1 on connection main (${ORDERS}). The application never migrates on its own: run "npx spinajs migrate-up" (add --env <env> when the application runs with one), then start it again. ` + `Migration ${USERS} on connection main FAILED in an earlier run and blocks migrate-up: inspect it with "npx spinajs migrate-status", then record what happened with "npx spinajs migrate-resolve --name ${USERS} --applied" (or --rolled-back).`);
+  });
+
+  it('asks the connection its own Migration.Service, read-only, instead of reading the default tracking table', async () => {
+    services = { audit: 'guard-test-status-service' };
+    defineMigrations();
+    await boot();
+    track('main', applied(USERS), applied(ORDERS));
+    // left over from before the switch to the custom service: it must not decide the verdict
+    track('audit', applied(AUDIT));
+
+    const err = await checkFailure();
+
+    expect(err).to.be.instanceOf(PendingMigrationsException);
+    expect(err.failed).to.deep.equal([{ name: AUDIT, connection: 'audit' }]);
+    expect(err.pending).to.deep.equal([]);
+    expect(StatusFromElsewhere.asked).to.deep.equal([{ readOnly: true }]);
+  });
+
+  it('reads the tracking table Migration.Table names', async () => {
+    trackingTables = { main: 'app_migrations' };
+    defineMigrations();
+    await boot();
+    track('main', applied(USERS), applied(ORDERS));
+    db('main').tables.set(MIGRATION_TABLE_NAME, []);
+    track('audit', applied(AUDIT));
+
+    expect(await (await guardOf()).check(orm)).to.deep.equal({ pending: [], failed: [], warned: [] });
+  });
+
   it('Check: warn logs the same text and does not throw', async () => {
     connectionChecks = { main: 'warn' };
     defineMigrations();
@@ -252,6 +343,25 @@ describe('OrmMigrationGuard', function () {
     ]);
   });
 
+  it('Check: warn reports a FAILED migration and logs it', async () => {
+    connectionChecks = { main: 'warn' };
+    defineMigrations();
+    await boot();
+    track('main', { ...applied(USERS), FinishedAt: null, Logs: 'boom' }, applied(ORDERS));
+    track('audit', applied(AUDIT));
+
+    const { guard, warn } = await guardWithWarnSpy();
+    const report = await guard.check(orm);
+
+    expect(report).to.deep.equal({ pending: [], failed: [{ name: USERS, connection: 'main' }], warned: ['main'] });
+    expect(
+      warn
+        .getCalls()
+        .map(logText)
+        .filter((l) => l.startsWith(`Migration ${USERS}`)),
+    ).to.deep.equal([pendingMigrationsMessage([], [{ name: USERS, connection: 'main' }])]);
+  });
+
   it('Check: off does not read the connection', async () => {
     connectionChecks = { main: 'off' };
     defineMigrations();
@@ -269,9 +379,25 @@ describe('OrmMigrationGuard', function () {
     defineMigrations();
     await boot();
 
-    const err = await checkFailure();
+    const { guard, warn } = await guardWithWarnSpy();
+    const err = await failure(guard.check(orm));
 
     expect(err.pending).to.deep.equal([{ name: AUDIT, connection: 'audit' }]);
+    expect(
+      warn
+        .getCalls()
+        .map(logText)
+        .filter((l) => l.startsWith('Database is not migrated')),
+      'the warn connection is still logged before the fail connection throws',
+    ).to.deep.equal([
+      pendingMigrationsMessage(
+        [
+          { name: USERS, connection: 'main' },
+          { name: ORDERS, connection: 'main' },
+        ],
+        [],
+      ),
+    ]);
 
     track('audit', applied(AUDIT));
 
@@ -306,28 +432,22 @@ describe('OrmMigrationGuard', function () {
     expect(await (await guardOf()).check(orm)).to.deep.equal({ pending: [], failed: [], warned: [] });
   });
 
-  it('warns once per connection that still sets Migration.OnStartup, and never migrates', async () => {
+  it('refuses a config that still sets Migration.OnStartup, naming every such key, whatever the Check mode and before reading anything', async () => {
     onStartup = ['main', 'audit'];
+    migrationCheck = 'off';
     defineMigrations();
     await boot();
     EXECUTED = [];
 
-    const { guard, warn } = await guardWithWarnSpy();
-    const err = await failure(guard.check(orm));
+    const err = await failure((await guardOf()).check(orm));
 
-    const lines = warn
-      .getCalls()
-      .map(logText)
-      .filter((l) => l.includes('OnStartup'));
-
-    expect(lines).to.have.members(['db.Connections[main].Migration.OnStartup is ignored: the application never migrates. Run "npx spinajs migrate-up" as a deploy step and remove the key.', 'db.Connections[audit].Migration.OnStartup is ignored: the application never migrates. Run "npx spinajs migrate-up" as a deploy step and remove the key.']);
-    expect(err.pending).to.have.lengthOf(3);
-    expect(EXECUTED.some((e) => !(e.builder instanceof SelectQueryBuilder || e.builder instanceof TableExistsQueryBuilder))).to.be.false;
+    expect(err).to.be.instanceOf(OrmException).and.not.to.be.instanceOf(PendingMigrationsException);
+    // the alias legacy -> main is not named a second time
+    expect(err.message).to.equal('Migration.OnStartup is no longer supported (set in db.Connections[main].Migration.OnStartup, db.Connections[audit].Migration.OnStartup): the application never migrates. Remove the key and run "npx spinajs migrate-up" as a deploy step.');
+    expect(EXECUTED).to.have.lengthOf(0);
   });
 
   it('an alias and its connection are checked once', async () => {
-    onStartup = ['main'];
-
     @Migration('legacy')
     class ViaAlias_2026_10_04_00_00_00 extends OrmMigration {
       public async up(_c: OrmDriver) {}
@@ -339,17 +459,18 @@ describe('OrmMigrationGuard', function () {
     await boot();
     EXECUTED = [];
 
-    const { guard, warn } = await guardWithWarnSpy();
-    const err = await failure(guard.check(orm));
+    const err = await checkFailure();
 
     expect(err.pending.filter((p) => p.connection === 'main').map((p) => p.name)).to.deep.equal([USERS, ORDERS, 'ViaAlias_2026_10_04_00_00_00']);
-    expect(EXECUTED.filter((e) => e.connection === 'main' && e.builder instanceof TableExistsQueryBuilder)).to.have.lengthOf(1);
-    expect(
-      warn
-        .getCalls()
-        .map(logText)
-        .filter((l) => l.includes('OnStartup')),
-    ).to.have.lengthOf(1);
+    expect(EXECUTED.filter((e) => e.connection === 'main' && e.builder instanceof TableExistsQueryBuilder && e.builder.Table === MIGRATION_TABLE_NAME)).to.have.lengthOf(1);
+  });
+
+  it('is a singleton: the instance a migration tool resolves disabled is the one a later plain resolve gets', async () => {
+    const disabled = await DI.resolve(OrmMigrationGuard, [{ Enabled: false }]);
+    const later = await DI.resolve(OrmMigrationGuard);
+
+    expect(later).to.equal(disabled);
+    expect(later.Enabled).to.be.false;
   });
 
   it('Enabled is false only when the option says so', async () => {

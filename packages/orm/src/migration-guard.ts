@@ -1,11 +1,10 @@
 import { Configuration } from '@spinajs/configuration';
-import { Autoinject, NewInstance } from '@spinajs/di';
+import { Autoinject } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { OrmDriver } from './driver.js';
-import { IPendingMigration, pendingMigrationsMessage, PendingMigrationsException } from './exceptions.js';
-import { IMigrationRunnerHost, MigrationRunner } from './migration-runner.js';
-import { IMigrationRecord, IMigrationUnit, MIGRATION_TABLE_NAME } from './migration-service.js';
-import { MIGRATION_FILE_REGEXP } from './symbols.js';
+import { IPendingMigration, OrmException, pendingMigrationsMessage, PendingMigrationsException } from './exceptions.js';
+import { compareMigrationNames, IMigrationRunnerHost, MigrationRunner } from './migration-runner.js';
+import { IMigrationUnit } from './migration-service.js';
 
 export type MigrationCheckMode = 'fail' | 'warn' | 'off';
 
@@ -23,29 +22,28 @@ export interface IMigrationGuardReport {
 
 type Findings = Pick<IMigrationGuardReport, 'pending' | 'failed'>;
 
-/** Run order inside a connection: the timestamp the name carries, then the name. */
-function runOrder(a: string, b: string): number {
-  const stamp = (n: string) => n.match(MIGRATION_FILE_REGEXP)?.[2] ?? '';
-
-  return stamp(a).localeCompare(stamp(b)) || a.localeCompare(b);
-}
-
 function sortPending(items: IPendingMigration[]): IPendingMigration[] {
-  return [...items].sort((a, b) => a.connection.localeCompare(b.connection) || runOrder(a.name, b.name));
+  return [...items].sort((a, b) => a.connection.localeCompare(b.connection) || compareMigrationNames(a.name, b.name));
 }
 
-/** Reuses the runner's grouping: aliases collapse into one driver, names are validated, other environments are already filtered out. */
-class GuardPlan extends MigrationRunner {
-  public groups(): Array<[OrmDriver, IMigrationUnit[]]> {
-    return this.plan(undefined, true);
+/** Drops the connections the predicate rejects before their service is asked, so an `off` connection is never queried. */
+class MigrationRunnerForChecks extends MigrationRunner {
+  constructor(orm: IMigrationRunnerHost, protected checked: (driver: OrmDriver) => boolean) {
+    super(orm);
+  }
+
+  protected plan(name: string | undefined, force: boolean, connection?: string): Array<[OrmDriver, IMigrationUnit[]]> {
+    return super.plan(name, force, connection).filter(([driver]) => this.checked(driver));
   }
 }
 
 /**
- * Boot check: refuses to start on a database with pending or failed migrations. Reads each
- * connection's tracking table and never creates or changes anything.
+ * Boot check: refuses to start on a database with pending or failed migrations. Asks each
+ * connection's migration service for a read-only status and never creates or changes anything.
+ *
+ * A singleton on purpose: a migration tool resolves it with `{ Enabled: false }` first, and the
+ * Orm resolving it afterwards must get that same disabled instance.
  */
-@NewInstance()
 export class OrmMigrationGuard {
   @Logger('ORM')
   protected Log: Log;
@@ -60,26 +58,19 @@ export class OrmMigrationGuard {
   }
 
   public async check(orm: IMigrationRunnerHost): Promise<IMigrationGuardReport> {
-    this.warnDeprecatedOnStartup(orm);
+    this.rejectOnStartup(orm);
 
     const failing: Findings = { pending: [], failed: [] };
     const warning: Findings = { pending: [], failed: [] };
+    const entries = await new MigrationRunnerForChecks(orm, (d) => this.mode(d) !== 'off').status({ readOnly: true });
 
-    for (const [driver, units] of new GuardPlan(orm).groups()) {
-      const mode = this.mode(driver);
-
-      if (mode === 'off') {
+    for (const e of entries) {
+      if (!e.pending && !e.failed) {
         continue;
       }
 
-      const target = mode === 'warn' ? warning : failing;
-      const found = await this.read(
-        driver,
-        units.map((u) => u.name),
-      );
-
-      target.pending.push(...found.pending);
-      target.failed.push(...found.failed);
+      const target = this.mode(orm.Connections.get(e.connection)!) === 'warn' ? warning : failing;
+      (e.failed ? target.failed : target.pending).push({ name: e.name, connection: e.connection });
     }
 
     this.logWarned(warning);
@@ -99,31 +90,6 @@ export class OrmMigrationGuard {
     return driver.Options.Migration?.Check ?? this.Configuration.get<MigrationCheckMode>('db.MigrationCheck', 'fail');
   }
 
-  /**
-   * Rows that match no registered migration are ignored: after a rolling deploy the database may be
-   * ahead of this release. A column absent from a row ( a table older than the upgrade ) counts as
-   * set, as `backfillLegacyRows()` treats it.
-   */
-  protected async read(driver: OrmDriver, names: string[]): Promise<Findings> {
-    const table = driver.Options.Migration?.Table ?? MIGRATION_TABLE_NAME;
-    const rows = (await driver.schema().tableExists(table)) ? (((await driver.select().from(table)) ?? []) as IMigrationRecord[]) : [];
-    const connection = driver.Options.Name;
-    const result: Findings = { pending: [], failed: [] };
-
-    for (const name of names) {
-      const row = rows.find((r) => r.Migration === name);
-      const finished = row !== undefined && (row.FinishedAt === undefined || !!row.FinishedAt);
-
-      if (finished && !row.RolledBackAt) {
-        continue;
-      }
-
-      (row && !finished && row.Logs ? result.failed : result.pending).push({ name, connection });
-    }
-
-    return result;
-  }
-
   protected logWarned(report: Findings): void {
     for (const connection of new Set([...report.pending, ...report.failed].map((m) => m.connection))) {
       const text = pendingMigrationsMessage(
@@ -135,11 +101,13 @@ export class OrmMigrationGuard {
     }
   }
 
-  protected warnDeprecatedOnStartup(orm: IMigrationRunnerHost): void {
-    for (const [name, driver] of orm.Connections) {
-      if (driver.Options.Name === name && driver.Options.Migration?.OnStartup !== undefined) {
-        this.Log.warn(`db.Connections[${name}].Migration.OnStartup is ignored: the application never migrates. Run "npx spinajs migrate-up" as a deploy step and remove the key.`);
-      }
+  /** Independent of the Check mode: a config still relying on boot migrations must not start silently unmigrated. */
+  protected rejectOnStartup(orm: IMigrationRunnerHost): void {
+    // `Options.Name === name` skips the alias and `default` keys, so each connection is named once
+    const keys = [...orm.Connections].filter(([name, driver]) => driver.Options.Name === name && driver.Options.Migration?.OnStartup !== undefined).map(([name]) => `db.Connections[${name}].Migration.OnStartup`);
+
+    if (keys.length > 0) {
+      throw new OrmException(`Migration.OnStartup is no longer supported (set in ${keys.join(', ')}): the application never migrates. Remove the key and run "npx spinajs migrate-up" as a deploy step.`);
     }
   }
 }
