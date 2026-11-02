@@ -223,8 +223,9 @@ interface ListedConfigFile {
 }
 
 const INSTALL_LEVELS = new WeakMap<Manifest, Map<string, number>>();
+const NOT_INSTALLED = Number.MAX_SAFE_INTEGER;
 
-/** Steps from the app root up to the directory whose node_modules holds `name`, as node resolves it; once per manifest. */
+/** Steps from the app root up to the directory whose node_modules holds `name`, as node resolves it; a found level is kept per manifest. */
 function installLevel(manifest: Manifest, name: string, appRoot: string): number {
   const levels = INSTALL_LEVELS.get(manifest) ?? new Map<string, number>();
   INSTALL_LEVELS.set(manifest, levels);
@@ -232,7 +233,7 @@ function installLevel(manifest: Manifest, name: string, appRoot: string): number
   let level = levels.get(key);
   if (level === undefined) {
     level = walkToInstall(name, appRoot);
-    levels.set(key, level);
+    if (level !== NOT_INSTALLED) levels.set(key, level);
   }
   return level;
 }
@@ -240,7 +241,7 @@ function installLevel(manifest: Manifest, name: string, appRoot: string): number
 function walkToInstall(name: string, appRoot: string): number {
   for (let dir = appRoot, level = 0; ; dir = dirname(dir), level++) {
     if (existsSync(join(dir, 'node_modules', name))) return level;
-    if (dirname(dir) === dir) return Number.MAX_SAFE_INTEGER;
+    if (dirname(dir) === dir) return NOT_INSTALLED;
   }
 }
 
