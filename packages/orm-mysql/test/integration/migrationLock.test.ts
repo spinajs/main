@@ -183,6 +183,15 @@ describe('mysql migration lock (integration)', function () {
     expect(await isHeld()).to.be.false;
   });
 
+  it('after a crash the next run takes over at once: the row the dead run marked does not wait for StaleAfter', async () => {
+    const crashed = await service(driver).acquireRunLock();
+    const [{ id }] = (await admin.executeOnDb('SELECT IS_USED_LOCK(?) AS id', [lockName], QueryContext.Select)) as Array<{ id: number }>;
+    await admin.executeOnDb(`KILL ${Number(id)}`, [], QueryContext.Schema);
+
+    await (await service(other, 2_000).acquireRunLock()).release();
+    await crashed.release();
+  });
+
   it('excludes a process of an earlier release that only takes the lock-table row, both ways', async () => {
     const earlier = other.Container.resolve(TableMigrationLock, [other]);
     const old = await earlier.acquire(request());

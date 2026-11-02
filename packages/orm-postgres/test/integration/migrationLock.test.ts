@@ -147,6 +147,14 @@ describe('postgres migration lock (integration)', function () {
     expect(await isHeld()).to.be.false;
   });
 
+  it('after a crash the next run takes over at once: the row the dead run marked does not wait for StaleAfter', async () => {
+    const crashed = await service(pgdb.driver).acquireRunLock();
+    await adminQuery(`SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype = 'advisory' AND classid = ${pair[0] >>> 0} AND objid = ${pair[1] >>> 0} AND objsubid = 2`);
+
+    await (await service(other, 2_000).acquireRunLock()).release();
+    await crashed.release();
+  });
+
   it('excludes a process of an earlier release that only takes the lock-table row, both ways', async () => {
     const earlier = other.Container.resolve(TableMigrationLock, [other]);
     const old = await earlier.acquire(request());
