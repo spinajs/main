@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +12,7 @@ import { stripFrameworkOptions } from '../src/argv.js';
 const fixtures = fileURLToPath(new URL('../../compiler/test/fixtures/', import.meta.url));
 const appBasic = join(fixtures, 'app-basic/tsconfig.json');
 const reportWarning = join(fixtures, 'report-warning/tsconfig.build.json');
+const minimalManifest = (): Manifest => JSON.parse(readFileSync(fileURLToPath(new URL('../../manifest/test/fixtures/minimal.manifest.json', import.meta.url)), 'utf8')) as Manifest;
 
 class Captured extends Build {
   public output = '';
@@ -30,12 +31,37 @@ class WithDirs extends Captured {
   }
 
   protected override importCompiler(): ReturnType<Build['importCompiler']> {
-    const manifest = { diagnostics: [], services: [], controllers: [], socketControllers: [], schedules: [], commands: [], migrations: [], models: [], schemas: {} };
-    const buildAppManifest = (options: WithDirs['received']) => {
+    const buildAppManifest = (options: WithDirs['received'] & { out: string }) => {
       this.received = options;
-      return Promise.resolve({ manifest, written: 'app.manifest.json' });
+      return Promise.resolve({ manifest: this.built(), written: options.out });
     };
     return Promise.resolve({ buildAppManifest, summarize: () => ({ error: 0, warning: 0, info: 0 }), NoAppDirs: class extends Error {} } as unknown as Awaited<ReturnType<Build['importCompiler']>>);
+  }
+
+  protected built(): Manifest {
+    return minimalManifest();
+  }
+}
+
+/** A compiler that writes a manifest its own schema refuses. */
+class WritesInvalid extends WithDirs {
+  public constructor() {
+    super(undefined);
+  }
+
+  protected override built(): Manifest {
+    return { ...minimalManifest(), app: { ...minimalManifest().app, name: 42 as unknown as string } };
+  }
+
+  protected override importCompiler(): ReturnType<Build['importCompiler']> {
+    return super.importCompiler().then((compiler) => ({
+      ...compiler,
+      buildAppManifest: async (options: Parameters<typeof compiler.buildAppManifest>[0]) => {
+        const built = await compiler.buildAppManifest(options);
+        writeFileSync(built.written, JSON.stringify(built.manifest));
+        return built;
+      },
+    }));
   }
 }
 
@@ -87,6 +113,24 @@ describe('build', function () {
     await cmd.execute({ tsconfig: reportWarning, out: join(dir, 'm.json'), schemas: true, failOnWarning: true });
     expect(process.exitCode).to.equal(1);
     expect(existsSync(join(dir, 'm.json'))).to.equal(true);
+  });
+
+  // The runtime trusts a manifest whose hash matches without checking its schema again, so the build checks it.
+  it('refuses and removes a manifest that fails the manifest schema', async () => {
+    const out = join(dir, 'm.json');
+    const cmd = new WritesInvalid();
+    await cmd.execute({ tsconfig: appBasic, out });
+    expect(cmd.output).to.match(/^error CLI002 - .*\$\.app\.name/m);
+    expect(process.exitCode).to.equal(1);
+    expect(existsSync(out)).to.equal(false);
+  });
+
+  it('keeps a manifest that passes the manifest schema', async () => {
+    const out = join(dir, 'm.json');
+    const cmd = new WithDirs(undefined);
+    await cmd.execute({ tsconfig: appBasic, out });
+    expect(cmd.output).to.not.include('CLI002');
+    expect(process.exitCode).to.equal(undefined);
   });
 
   it('--config-path never reaches a command', () => {

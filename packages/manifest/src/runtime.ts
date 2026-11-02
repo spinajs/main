@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
 import { hashManifest } from './hash.js';
 import { loadsFromManifest } from './mounted.js';
-import { readManifestObject } from './read.js';
+import { assertManifestVersion, readManifestObject } from './read.js';
 import type { Manifest, MountedBy, SourceRef } from './types.js';
 
 /** DI key the runtime manifest is registered under. */
@@ -17,7 +17,11 @@ export interface ManifestRuntimeOptions {
   mode: ManifestMode;
   /** Receives the stale-manifest fallback notice in `prefer` mode; defaults to console.warn. */
   warn?: (message: string) => void;
+  /** Checks the manifest against its JSON Schema even when its hash matches; `SPINAJS_MANIFEST_VALIDATE=1` does the same. */
+  validate?: boolean;
 }
+
+const forcedValidation = (options: ManifestRuntimeOptions): boolean => options.validate === true || /^(1|true)$/i.test(process.env.SPINAJS_MANIFEST_VALIDATE ?? '');
 
 export class ManifestMissing extends Error {
   constructor(message: string) {
@@ -29,6 +33,9 @@ export class ManifestMissing extends Error {
 /**
  * Reads the manifest named by `options.path` (relative paths against `cwd`). `off` never reads,
  * `prefer` tolerates a missing file, `require` throws ManifestMissing.
+ *
+ * A file whose hash matches is what `spinajs build` wrote and checked against the schema, so only an edited or stale one
+ * is checked again, unless `validate` forces it.
  */
 export function loadRuntimeManifest(options: ManifestRuntimeOptions, cwd = process.cwd()): Manifest | undefined {
   if (!MODES.includes(options.mode)) {
@@ -46,8 +53,14 @@ export function loadRuntimeManifest(options: ManifestRuntimeOptions, cwd = proce
     return undefined;
   }
 
-  const manifest = readManifestObject(JSON.parse(readFileSync(file, 'utf8')), file);
-  if (hashManifest(manifest) !== manifest.hash) {
+  const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'));
+  assertManifestVersion(parsed, file);
+  const manifest = parsed as Manifest;
+  const intact = hashManifest(manifest) === manifest.hash;
+  if (!intact || forcedValidation(options)) {
+    readManifestObject(parsed, file);
+  }
+  if (!intact) {
     const message = `${file} is stale or edited: hash mismatch, run spinajs build`;
     if (options.mode === 'require') {
       throw new Error(message);

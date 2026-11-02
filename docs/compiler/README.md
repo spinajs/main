@@ -190,6 +190,7 @@ Every diagnostic has a `code`, a `severity` (`error`, `warning`, `info`), a `mes
 | `CMP007` | error | `spinajs build` only: no configured `system.dirs` entry of any section maps to a source folder of the app. The build exits 1 and writes nothing; see [When no dir applies](../manifest/README.md#the-apps-own-classes). |
 | `CMP008` | warning | A configured `system.dirs` entry inside the app has no source folder behind it, so it maps to nothing. Usually a dir computed from the wrong working directory. |
 | `CLI001` | warning | `spinajs build` only: the working directory is not the `tsconfig` folder, and `system.dirs` was computed from it. |
+| `CLI002` | error | `spinajs build` only: the written manifest fails the manifest JSON Schema. The file is removed and the build exits 1. The boot does not check the schema of a manifest whose hash matches, so such a file must not stay. |
 | `TYP001` | info | `runtime-type-not-exported`: a route argument, socket payload or injected property has a class type that is not exported, so the manifest records no `ref` for it. Without decorator metadata the runtime cannot load it; export the class. |
 | `TYP002` | info | `runtime-type-not-importable`: the class is declared in a package without a manifest fragment (types from `@types/*`), or in an ambient module (`node:async_hooks`). Without decorator metadata the runtime cannot load it; pass the type to the decorator (`@Type(X)`, `@Autoinject(X)`). |
 | `CFG010` | warning | A configuration schema is not a literal with `$id` and `$configurationModule`. |

@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { isPackageSkipped, loadRuntimeManifest, manifestFileFor, ManifestMissing, packageRootOf } from '../src/runtime.js';
 import type { Manifest } from '../src/index.js';
 import { hashManifest } from '../src/hash.js';
+import { ManifestValidationError, ManifestVersionError } from '../src/read.js';
 
 const FIX = resolve(process.cwd(), 'test', 'fixtures', 'runtime');
 
@@ -68,6 +69,51 @@ describe('loadRuntimeManifest integrity', () => {
 
   it('rejects an unknown mode', () => {
     expect(() => loadRuntimeManifest({ path: 'app.manifest.json', mode: 'prefr' as never }, dir)).to.throw(/off, prefer, require/);
+  });
+
+  describe('schema validation', () => {
+    const write = (edit: (m: Record<string, unknown>) => void, rehash: boolean): void => {
+      const m = JSON.parse(readFileSync(join(dir, 'app.manifest.json'), 'utf8')) as Record<string, unknown>;
+      edit(m);
+      if (rehash) m.hash = hashManifest(m as unknown as Manifest);
+      writeFileSync(join(dir, 'app.manifest.json'), JSON.stringify(m));
+    };
+    const schemaBreaking = (m: Record<string, unknown>): void => void ((m.app as Record<string, unknown>).name = 42);
+    const load = (mode: 'prefer' | 'require', validate?: boolean) => loadRuntimeManifest({ path: 'app.manifest.json', mode, ...(validate === undefined ? {} : { validate }) }, dir);
+
+    afterEach(() => delete process.env.SPINAJS_MANIFEST_VALIDATE);
+
+    it('is skipped when the hash matches: the hash proves the file is the build output', () => {
+      write(schemaBreaking, true);
+      expect(load('require')?.app.name).to.equal(42);
+    });
+
+    it('still checks the manifest version when the hash matches', () => {
+      write((m) => (m.manifestVersion = 99), true);
+      expect(() => load('require')).to.throw(ManifestVersionError);
+    });
+
+    it('runs when the hash does not match, in both modes', () => {
+      write(schemaBreaking, false);
+      expect(() => load('require')).to.throw(ManifestValidationError, /\$\.app\.name/);
+      expect(() => load('prefer')).to.throw(ManifestValidationError, /\$\.app\.name/);
+    });
+
+    it('runs on a matching hash when the validate option forces it', () => {
+      write(schemaBreaking, true);
+      expect(() => load('require', true)).to.throw(ManifestValidationError, /\$\.app\.name/);
+    });
+
+    it('runs on a matching hash when SPINAJS_MANIFEST_VALIDATE=1 forces it', () => {
+      write(schemaBreaking, true);
+      process.env.SPINAJS_MANIFEST_VALIDATE = '1';
+      expect(() => load('prefer')).to.throw(ManifestValidationError, /\$\.app\.name/);
+    });
+
+    it('passes a valid manifest that is forced through it', () => {
+      write(() => undefined, true);
+      expect(load('require', true)?.app.name).to.equal('edited');
+    });
   });
 });
 
