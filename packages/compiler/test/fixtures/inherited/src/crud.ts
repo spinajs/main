@@ -1,4 +1,4 @@
-import { BaseController, BasePath, Body, Get, Head, Ok, Param, Policy, Post } from '@spinajs/http';
+import { BaseController, BasePath, Body, Get, Head, Ok, Param, Policy, Post, Put, RequestStream } from '@spinajs/http';
 import { Access } from '@spinajs/authz-http';
 import type { BasePolicy } from '@spinajs/http';
 
@@ -38,3 +38,10 @@ export abstract class BaseCrud<T, C> extends BaseController {
 
 @BasePath('shared')
 export abstract class PathOnlyBase extends BaseController {}
+
+export abstract class UploadBase<T> extends BaseController {
+  @Put(':id')
+  public put(@RequestStream() stream: NodeJS.ReadableStream, @Body() dto: T): Promise<Ok<T>> {
+    return Promise.resolve(new Ok(dto, { StatusCode: stream ? 200 : 400 }));
+  }
+}
