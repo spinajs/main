@@ -92,7 +92,7 @@ Used as `@Body() body: JDoc`, a body with `"name": ""` or `"tags": ["a", "a"]` a
 
 ## Formats and strictness
 
-The derived schemas are compiled by their own Ajv instance with `ajv-formats`, so `@format` accepts `email`, `date`, `date-time`, `time`, `duration`, `uri`, `uri-reference`, `hostname`, `ipv4`, `ipv6`, `uuid`, `regex` and the other formats of [ajv-formats](https://github.com/ajv-validator/ajv-formats). That instance runs with `strict: false`: an unknown format name is ignored and accepts every value, so check the spelling.
+The derived schemas are compiled by their own Ajv instance with `ajv-formats`, so `@format` accepts `email`, `date`, `date-time`, `time`, `duration`, `uri`, `uri-reference`, `hostname`, `ipv4`, `ipv6`, `uuid`, `regex` and the other formats of [ajv-formats](https://github.com/ajv-validator/ajv-formats). That instance runs with `strict: false`: an unknown format name is ignored and accepts every value, so check the spelling. Socket contract payloads are compiled with `strictSchema: true` instead: an unknown format there fails to compile, which fails the boot in `require` and skips that contract with a warning in `prefer`.
 
 Two things differ from a `@Schema` run by `DataValidator`:
 

@@ -68,7 +68,7 @@ Each generator is a `spinajs` command over a pure function of the manifest. The 
 ### Typed client
 
 ```ts
-import { createAppClient } from './generated/client';
+import { createAppClient } from './generated/client.js';
 import { ProblemError } from '@spinajs/client/runtime';
 
 const client = createAppClient({ baseUrl: 'https://api.example.com' });
@@ -155,7 +155,7 @@ The manifest is a snapshot. A class it does not list is not loaded, and a type i
 - installing or upgrading an `@spinajs/*` package (their fragments are merged in);
 - changing `system.dirs`, or building for another `APP_ENV` (the manifest records it as `buildEnv`; a different running `APP_ENV` logs one warning in `prefer` and `require`).
 
-In `require`, a controller that the manifest does not list fails registration, and a listed class missing from its module fails with `ManifestMissing`. Both mean: rebuild.
+In `require`, a controller whose source file the manifest does not list fails registration with `NoControllerMetadata`. In `prefer` and `require`, a class the manifest lists but its module no longer exports fails with `ManifestMissing`. Both mean: rebuild.
 
 ### `off`, `prefer` or `require`
 
@@ -172,7 +172,7 @@ In `require`, a controller that the manifest does not list fails registration, a
 How to pick:
 
 - **`off`** while you adopt the build, or for an app that must keep scanning. Nothing changes at runtime.
-- **`prefer`** in development and during migration. A stale or missing manifest falls back to discovery instead of stopping the server. It never enforces what it could not verify, so it is not a security boundary.
+- **`prefer`** in development and during migration. A missing manifest falls back to discovery instead of stopping the server. A stale one does not: classes it does not list are not loaded, and a listed class its module no longer exports fails with `ManifestMissing`. It never enforces what it could not verify, so it is not a security boundary.
 - **`require`** for production and CI. A stale manifest is an error at boot, not a silent difference between what you tested and what runs. Use it wherever a socket contract or request validation is a correctness or security boundary.
 
 Before you switch on, read [What changes when you switch manifest mode on](manifest/README.md#what-changes-when-you-switch-manifest-mode-on): query values are coerced, derived objects are closed, and undeclared root keys of a whole body are dropped.
