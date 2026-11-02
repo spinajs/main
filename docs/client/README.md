@@ -68,7 +68,7 @@ spinajs generate:client --manifest app.manifest.json --out src/generated/client.
 ```
 
 ```ts
-import { createAppClient } from './generated/client';
+import { createAppClient } from './generated/client.js';
 
 const client = createAppClient({ baseUrl: 'https://api.example.com' });
 const user = await client.users.get(7);
@@ -98,7 +98,7 @@ Generated DTOs are `interface`s (`UserDto`, `CreateUserDto`), because the client
 **(a) A class merged with the DTO interface.** The interface supplies the fields, the class the behaviour:
 
 ```ts
-import type { UserDto } from './generated/client';
+import type { UserDto } from './generated/client.js';
 
 export interface User extends UserDto {}
 export class User {
@@ -115,8 +115,8 @@ export class User {
 **(b) A wrapper around the client.** The app gets models, and every route you did not wrap passes through, because the spread keeps the generated methods:
 
 ```ts
-import { createAppClient } from './generated/client';
-import { User } from './user';
+import { createAppClient } from './generated/client.js';
+import { User } from './user.js';
 
 const raw = createAppClient({ baseUrl: 'https://api.example.com' });
 
