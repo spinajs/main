@@ -26,16 +26,27 @@ function compareUnits(a: IMigrationUnit, b: IMigrationUnit): number {
   return compareMigrationNames(a.name, b.name);
 }
 
-function nameTimestamp(name: string): number {
+function nameTimestamp(name: string): number | null {
   const match = name.match(MIGRATION_FILE_REGEXP);
   const created = match && match.length === 3 ? DateTime.fromFormat(match[2], 'yyyy_MM_dd_HH_mm_ss') : null;
 
-  return created?.isValid ? created.toMillis() : 0;
+  return created?.isValid ? created.toMillis() : null;
 }
 
-/** The order `migrate-up` applies migrations in, from their names alone: a free prefix does not take part. */
+/**
+ * The order `migrate-up` applies migrations in, from their names alone: a free prefix does not take part.
+ * A name without a parsable timestamp sorts after every parsable one, by name; `plan()` refuses such
+ * names, so this only matters to a caller sorting names it did not take from a plan.
+ */
 export function compareMigrationNames(a: string, b: string): number {
-  return nameTimestamp(a) - nameTimestamp(b) || a.localeCompare(b);
+  const ta = nameTimestamp(a);
+  const tb = nameTimestamp(b);
+
+  if (ta === null || tb === null) {
+    return ta === tb ? a.localeCompare(b) : ta === null ? 1 : -1;
+  }
+
+  return ta - tb || a.localeCompare(b);
 }
 
 /**

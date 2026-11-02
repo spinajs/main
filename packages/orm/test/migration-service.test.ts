@@ -849,6 +849,17 @@ describe('DefaultMigrationService down/resolve/status', () => {
     expect(exec.getCalls().filter((c) => c.args[0] instanceof AlterTableQueryBuilder || c.args[0] instanceof UpdateQueryBuilder)).to.have.length(0);
   });
 
+  it('status({ readOnly: true }) keeps an open row with a NULL FinishedAt and no Logs unapplied, not a legacy row', async () => {
+    const driver = await makeDriver();
+    stubDb([row({ Migration: 'MigA_2021_01_01_00_00_00', FinishedAt: null, Logs: null })]);
+
+    const [entry] = await new DefaultMigrationService(driver).status([unit(MigA_2021_01_01_00_00_00)], { readOnly: true });
+
+    expect(entry.applied).to.be.false;
+    expect(entry.pending).to.be.true;
+    expect(entry.interrupted).to.be.true;
+  });
+
   it('status({ readOnly: true }) still reads a NULL-FinishedAt row with Logs as failed', async () => {
     const driver = await makeDriver();
     stubDb([row({ Migration: 'MigA_2021_01_01_00_00_00', FinishedAt: null, Logs: 'boom' })]);
