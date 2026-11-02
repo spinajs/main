@@ -6,6 +6,7 @@ import { FrameworkConfiguration } from '@spinajs/configuration';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { Orm, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { PrincipalMiddleware, PrincipalSource } from '@spinajs/authz-http';
 import { testHost } from '@spinajs/authz-testing';
 
@@ -72,8 +73,8 @@ export async function startApp(opts: { controllers: Class<BaseController>[]; con
   const before = new Set(DI.getRegisteredTypes(BaseController) ?? []);
   for (const c of opts.controllers) DI.register(c).as(BaseController);
 
+  await migrateTestDatabase();
   await DI.resolve(fsService);
-  await (await DI.resolve(Orm)).Migrator.ready();
   await DI.resolve(Controllers);
   const server = await DI.resolve<HttpServer>(HttpServer);
   await server.start();
