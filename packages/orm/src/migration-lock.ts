@@ -174,6 +174,8 @@ export class TableMigrationLock extends MigrationLock {
     const start = Date.now();
     const expired = () => Date.now() - start > request.timeout;
     const abandoned = (holder: { owner: string; since: Date }) => (advisory && holder.owner.endsWith(MIGRATION_LOCK_ADVISORY_SUFFIX)) || Date.now() - holder.since.getTime() > request.staleAfter;
+    // by owner and timestamp: a row its holder refreshed after the steal is a live one, not the one that resisted it
+    const judged = (holder: { owner: string; since: Date }) => `${holder.owner}@${holder.since.getTime()}`;
     const stolen = new Set<string>();
     let steals = 0;
 
@@ -192,7 +194,7 @@ export class TableMigrationLock extends MigrationLock {
         // nothing, and the read that follows then finds the same row
         if (holder && abandoned(holder) && steals < MIGRATION_LOCK_MAX_STEALS) {
           steals++;
-          stolen.add(holder.owner);
+          stolen.add(judged(holder));
           await this.steal(request, holder, advisory);
 
           // straight back to the INSERT: sleeping a poll interval for a lock nobody holds is
@@ -203,7 +205,7 @@ export class TableMigrationLock extends MigrationLock {
         }
 
         if (expired()) {
-          throw this.timedOut(request, holder, holder && stolen.has(holder.owner) ? steals : 0, err);
+          throw this.timedOut(request, holder, holder && stolen.has(judged(holder)) ? steals : 0, err);
         }
 
         await new Promise((resolve) => setTimeout(resolve, MIGRATION_LOCK_POLL_INTERVAL));
@@ -218,7 +220,10 @@ export class TableMigrationLock extends MigrationLock {
     return row ? { owner: row.Owner, since: row.AcquiredAt instanceof Date ? row.AcquiredAt : new Date(row.AcquiredAt) } : undefined;
   }
 
-  /** Deletes only the row that was judged: another contender may already have replaced it with its own. */
+  /**
+   * Deletes only the row that was judged, by `Owner` and `AcquiredAt`: another contender may already
+   * have replaced it with its own, or its holder refreshed it after it was read.
+   */
   protected async steal(request: IMigrationLockRequest, holder: { owner: string; since: Date }, advisory = false): Promise<void> {
     if (advisory && holder.owner.endsWith(MIGRATION_LOCK_ADVISORY_SUFFIX)) {
       this.Log.warn(
@@ -233,7 +238,9 @@ export class TableMigrationLock extends MigrationLock {
       );
     }
 
-    await this.driver.del().from(request.lockTable).where({ Id: 1, Owner: holder.owner });
+    // an unreadable timestamp cannot be matched back; only the marked-row branch gets here with one
+    const where = Number.isNaN(holder.since.getTime()) ? { Id: 1, Owner: holder.owner } : { Id: 1, Owner: holder.owner, AcquiredAt: holder.since };
+    await this.driver.del().from(request.lockTable).where(where);
   }
 
   protected timedOut(request: IMigrationLockRequest, holder: { owner: string; since: Date } | undefined, steals: number, err: unknown): OrmException {
@@ -263,10 +270,11 @@ export class TableMigrationLock extends MigrationLock {
 /**
  * Keeps a held lock row fresh, and judges from the refreshes alone whether it can still be ours.
  *
- * A thief takes the row only once it is older than `staleAfter`. So while the last refresh that
- * went through is younger than that, nobody can have taken it, and `assertFresh()` needs no query.
- * A gap longer than `staleAfter` marks the lock lost for good, and so does a refresh that matches no
- * row: the row is no longer ours.
+ * A thief takes the row only once it is older than `staleAfter`, and deletes it only while it still
+ * carries the `AcquiredAt` it judged. So while the last refresh that went through is younger than
+ * that, nobody can have taken it, and `assertFresh()` needs no query. A refresh that returns more
+ * than `staleAfter` after the previous one marks the lock lost for good, because a thief may have
+ * read the row as stale before it landed; so does a refresh that matches no row.
  */
 class TableLockHeartbeat {
   protected confirmedAt: number;
@@ -340,7 +348,9 @@ class TableLockHeartbeat {
         return;
       }
 
-      this.judge(stamp.getTime());
+      // the time the UPDATE returned, not the stamp: a refresh held back past staleAfter landed after
+      // a thief could already read the row as stale
+      this.judge(Date.now());
 
       if (!this.lost) {
         this.confirmedAt = stamp.getTime();

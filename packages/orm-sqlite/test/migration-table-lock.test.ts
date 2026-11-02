@@ -35,14 +35,17 @@ class TableLockConf extends FrameworkConfiguration {
   }
 }
 
-/** Holds its `acquire()` between reading a dead holder's row and removing it, so another contender gets in between. */
+/** Holds its `acquire()` between reading the row of `gatedOwner` and removing it, so another writer gets in between. */
 class GatedTableLock extends TableMigrationLock {
   public reached: Promise<void>;
   protected arrive!: () => void;
   protected gate: Promise<void>;
   public open!: () => void;
 
-  constructor(driver: OrmDriver) {
+  constructor(
+    driver: OrmDriver,
+    protected gatedOwner = 'dead',
+  ) {
     super(driver);
     this.reached = new Promise((resolve) => (this.arrive = resolve));
     this.gate = new Promise((resolve) => (this.open = resolve));
@@ -51,7 +54,7 @@ class GatedTableLock extends TableMigrationLock {
   protected async holder(request: IMigrationLockRequest) {
     const found = await super.holder(request);
 
-    if (found?.owner === 'dead') {
+    if (found?.owner === this.gatedOwner) {
       this.arrive();
       await this.gate;
     }
@@ -118,6 +121,72 @@ describe('sqlite TableMigrationLock', function () {
 
     await second.assertHeld();
     await second.release();
+  });
+
+  it('a thief does not delete a row refreshed after it read the row as stale', async () => {
+    await writeRow('dead', 60_000);
+
+    const thief = new GatedTableLock(driver);
+    const stealing = settle(thief.acquire(request({ timeout: 700, staleAfter: 5_000 })));
+    await thief.reached;
+
+    await driver.update().in(LOCK_TABLE).update({ AcquiredAt: new Date() }).where({ Id: 1, Owner: 'dead' });
+    thief.open();
+    const { value, error } = await stealing;
+
+    expect(value, 'the refreshed row is live').to.be.undefined;
+    expect((error as Error).message).to.contain('held by dead since ').and.not.contain('attempt(s) to remove it as stale');
+    expect((await row()).Owner).to.eq('dead');
+  });
+
+  it("a holder's refresh landing between a thief's stale read and its DELETE leaves exactly one run holding", async () => {
+    const staleAfter = 3_000;
+    const target = driver as unknown as { executeOnDb: (statement: unknown, ...rest: unknown[]) => Promise<unknown> };
+    const original = target.executeOnDb;
+    let refreshed!: () => void;
+    const refreshCommitted = new Promise<void>((resolve) => (refreshed = resolve));
+    let held = true;
+
+    // the first refresh is stamped on time, at staleAfter / 3, but its UPDATE reaches the database
+    // only after the row already reads as stale, as behind a busy single-connection pool
+    target.executeOnDb = async function (this: unknown, statement: unknown, ...rest: unknown[]) {
+      if (held && typeof statement === 'string' && statement.startsWith('UPDATE') && statement.includes(LOCK_TABLE)) {
+        held = false;
+        await delay(2_500);
+        const result = await original.call(this, statement, ...rest);
+        refreshed();
+        return result;
+      }
+
+      return await original.call(this, statement, ...rest);
+    };
+
+    try {
+      const holder = await new TableMigrationLock(driver).acquire(request({ staleAfter, timeout: 10_000 }));
+      await delay(staleAfter + 100);
+
+      const thief = new GatedTableLock(driver, holder.holder);
+      const stealing = settle(thief.acquire(request({ staleAfter, timeout: 10_000 })));
+      await thief.reached;
+      await refreshCommitted;
+      thief.open();
+      await delay(150);
+
+      expect((await settle(holder.assertHeld())).error, 'a refresh that landed after the row went stale proves nothing').to.be.instanceOf(MigrationLockLostException);
+      expect((await row()).Owner, 'the refreshed row is not deleted').to.eq(holder.holder);
+
+      await holder.release();
+      const { value: taken, error } = await stealing;
+
+      expect(error).to.be.undefined;
+      expect((await row()).Owner).to.eq(taken!.holder);
+      await taken!.assertHeld();
+      expect((await settle(holder.assertHeld())).error).to.be.instanceOf(MigrationLockLostException);
+
+      await taken!.release();
+    } finally {
+      target.executeOnDb = original;
+    }
   });
 
   it('a run that lost its lock does not delete the thief row on release', async () => {

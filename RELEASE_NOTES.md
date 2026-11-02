@@ -14,8 +14,11 @@
 - A run longer than `Migration.Lock.StaleAfter` had its lock-table row stolen, and two runs went on at once. The holder now refreshes
   its row every `StaleAfter / 3`, so only the row of a dead holder goes stale.
 - Two runs that found one dead holder's row at the same time could both take the lock, and a run whose row had been stolen deleted
-  the new holder's row when it finished. A steal now deletes the row only while it still names the dead holder, and a release only
-  the run's own row.
+  the new holder's row when it finished. A steal now deletes the row only while it still names the dead holder and carries the
+  `AcquiredAt` the steal judged, and a release only the run's own row.
+- A holder's refresh that reached the database after its row went stale, but before a thief's DELETE, left both runs passing the
+  lock check. The thief no longer deletes a refreshed row, and a refresh counts by the time its UPDATE returned, so the late
+  holder stops before its next migration.
 - `migrate-resolve` could rewrite a tracking row under a run in progress. It now waits for that run's lock. A run that crashed while
   holding the lock-table row blocks it until the row goes stale (`StaleAfter`, 10 minutes by default), as it blocks `migrate-up`.
   The timeout message names the time the row goes stale and the table to delete it from by hand.
