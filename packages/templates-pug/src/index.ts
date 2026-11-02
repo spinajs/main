@@ -1,11 +1,13 @@
 import { __translate, __translateNumber, __translateL, __translateH } from '@spinajs/intl';
-import * as pug from 'pug';
+import type * as pug from 'pug';
 import _ from 'lodash';
 import * as fs from 'fs';
 import { CompiledTemplateRenderer, ensureParentDir, TemplateRenderer } from '@spinajs/templates';
 
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
+
+let pugModule: Promise<typeof pug> | undefined;
 
 @Injectable(TemplateRenderer)
 export class PugRenderer extends CompiledTemplateRenderer<pug.compileTemplate> {
@@ -25,7 +27,8 @@ export class PugRenderer extends CompiledTemplateRenderer<pug.compileTemplate> {
     // against the local filesystem itself, so remote fs:// sources are
     // materialised to temp storage first.
     const tPath = await this.resolveLocalPath(template);
-    return pug.compileFile(tPath, this.Options);
+    const { compileFile } = await (pugModule ??= import('pug'));
+    return compileFile(tPath, this.Options);
   }
 
   protected buildContext(model: unknown, language: string): Record<string, unknown> {
