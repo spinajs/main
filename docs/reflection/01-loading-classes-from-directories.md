@@ -62,7 +62,7 @@ The scan reads one key, the `configPath` you pass. The framework uses these:
 | `system.dirs.socketControllers` | `string[]` | `[]` | Absolute directory paths | Read by the socket server in `@spinajs/http-socket` |
 | `<your key>` | `string \| string[]` | none | Absolute directory paths | Anything you pass as `configPath` |
 
-Configuration files merge arrays by concatenation, so every package and the app can add a directory to the same key:
+Configuration files concatenate `system.dirs.*` arrays, so every package and the app can add a directory to the same key:
 
 ```ts
 // src/config/import-jobs.ts in your application

@@ -30,7 +30,7 @@
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.build.json",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
-    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "test": "ts-mocha -p tsconfig.json \"test/**/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json --noEmit --composite false --incremental false",
     "coverage": "c8 npm run test"
   },

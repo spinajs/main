@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 
-import { Class, DI, Injectable, Singleton, TypedArray as OwnTypedArray } from '../src/index.js';
+import { Autoinject, Class, DI, Injectable, isTypedArray, LazyInject, Singleton, TypedArray as OwnTypedArray } from '../src/index.js';
 
 // Stands in for the TypedArray of a second @spinajs/di copy loaded in the same process: same shape, another class.
 class TypedArray<R> extends Array<R> {
@@ -45,6 +45,33 @@ describe('a second copy of @spinajs/di in the process', () => {
 
     expect(list.map((s) => s.constructor)).to.deep.equal([FileSource, DbSource]);
     expect(DI.resolve(foreignOfType(Source))).to.deep.equal(list);
+  });
+
+  it('@Autoinject and @LazyInject take a list built by the other copy', () => {
+    class Sink {}
+
+    @Singleton()
+    @Injectable(Sink)
+    class FileSink extends Sink {}
+
+    class Host {
+      @Autoinject(foreignOfType(Sink))
+      public Sinks!: Sink[];
+
+      @LazyInject(foreignOfType(Sink))
+      public Lazy!: Sink[];
+    }
+
+    const host = DI.resolve(Host);
+
+    expect(host.Sinks.map((s) => s.constructor)).to.deep.equal([FileSink]);
+    expect(host.Lazy.map((s) => s.constructor)).to.deep.equal([FileSink]);
+  });
+
+  it('isTypedArray tells a list built by the other copy from a plain array and a class', () => {
+    expect(isTypedArray(foreignOfType(class {}))).to.equal(true);
+    expect(isTypedArray([])).to.equal(false);
+    expect(isTypedArray(class {})).to.equal(false);
   });
 
   it('a second copy does not replace Array.ofType and Array.chainOf once installed', async () => {

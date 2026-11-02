@@ -4,11 +4,12 @@ import { MANIFEST_VERSION, type Diagnostic, type ManifestFragment, type SourceRe
 import { compareCodeUnits } from './sort.js';
 import { createProgramFromTsconfig } from './program.js';
 import { createContext, type Extractor } from './context.js';
+import { extractClassProperties } from './extractors/injections.js';
 import { extractServices, mergeById } from './extractors/services.js';
 import { extractValues } from './extractors/values.js';
 import { extractConfigModules, extractConfigUsages } from './extractors/config.js';
-import { extractControllers } from './extractors/controllers.js';
-import { extractSocketContracts, extractSocketControllers } from './extractors/socket.js';
+import { extractControllerBases, extractControllers } from './extractors/controllers.js';
+import { extractSocketContracts, extractSocketControllerBases, extractSocketControllers } from './extractors/socket.js';
 import { extractModels } from './extractors/models.js';
 import { extractMigrations } from './extractors/migrations.js';
 import { extractSchedules } from './extractors/schedules.js';
@@ -93,9 +94,16 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
         (diagnostic) => ctx.diagnostics.push(diagnostic),
       )
     : undefined;
-  const scanned = <T extends ScannedEntry>(section: DirSection, extractor: Extractor<T>): T[] => run(extractor).filter((e) => !declared || isUnderDeclaredDirs(e.source.file, section, declared));
-  const controllers = scanned('controllers', extractControllers);
-  const socketControllers = scanned('socketControllers', extractSocketControllers);
+  const isListed = (section: DirSection, entry: { source: SourceRef }): boolean => !declared || isUnderDeclaredDirs(entry.source.file, section, declared);
+  const scanned = <T extends ScannedEntry>(section: DirSection, extractor: Extractor<T>): T[] => run(extractor).filter((e) => isListed(section, e));
+  // A package's class outside its declared dirs is only a base; an app's class outside its dirs is flagged by `marked`.
+  const allControllers = run(extractControllers);
+  const controllerBases = sortBySource([...run(extractControllerBases), ...allControllers.filter((c) => !isListed('controllers', c))]);
+  const allSocketControllers = run(extractSocketControllers);
+  const socketControllerBases = sortBySource([...run(extractSocketControllerBases), ...allSocketControllers.filter((c) => !isListed('socketControllers', c))]);
+  const classProperties = run(extractClassProperties);
+  const controllers = allControllers.filter((c) => isListed('controllers', c));
+  const socketControllers = allSocketControllers.filter((c) => isListed('socketControllers', c));
   const migrations = scanned('migrations', extractMigrations);
   const schedules = scanned('schedules', extractSchedules);
   const commands = scanned('commands', extractCommands);
@@ -114,7 +122,10 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
     services: sortBySource(mergeById(files.flatMap((f) => extractServices(ctx, f)))),
     values: run(extractValues),
     controllers: marked('controllers', controllers),
+    ...(controllerBases.length ? { controllerBases } : {}),
+    ...(classProperties.length ? { classProperties } : {}),
     socketControllers: marked('socketControllers', socketControllers),
+    ...(socketControllerBases.length ? { socketControllerBases } : {}),
     socketContracts: run(extractSocketContracts),
     configModules: run(extractConfigModules),
     configUsages: run(extractConfigUsages),

@@ -7,8 +7,8 @@ A configuration source returns part of the configuration tree. Every class regis
 1. **Register.** `@Injectable(ConfigurationSource)` on the class, or `DI.register(MySource).as(ConfigurationSource)`, before the configuration resolves.
 2. **Resolve.** `FrameworkConfiguration.loadSources()` resolves `Array.ofType(ConfigurationSource)` in the configuration's container, passing `[RunApp, CustomConfigPaths, AppBaseDir, Env]` to each constructor, and sorts the instances by `Order`, ascending.
 3. **Load.** `load()` calls `await source.Load(configuration)` on each, in order. `configuration` holds everything merged so far, so a source can read values earlier sources loaded (credentials, a connection name).
-4. **Merge.** A returned object is deep-merged into the tree; arrays are concatenated. A falsy result is skipped.
-5. **Then** `onLoad()`, the `__configuration__` values and the protocols run (see [Configuration service](01-configuration-service.md#how-it-works)).
+4. **Merge.** A returned object is deep-merged into the tree. Its arrays replace those already there, except the composed ones such as `system.dirs.*` (see [Arrays](01-configuration-service.md#arrays)), so a source below `Order` `1` loses a value array to the package default. A falsy result is skipped.
+5. **Then** `onLoad()` and the protocols run (see [Configuration service](01-configuration-service.md#how-it-works)).
 
 An exception thrown by `Load()` rejects the configuration's resolve.
 
@@ -115,18 +115,17 @@ void main();
 
 ### The `__configuration__` value
 
-A module that has config but no files (a bundled build, a plugin) registers an object as a `__configuration__` value. `load()` deep-merges it at the root after `onLoad()`.
+A module that has config but no files (a bundled build, a plugin) registers an object as a `__configuration__` value. It is a package default: `load()` deep-merges it at the root at the head of the package layer, so a package config file adds to its arrays and overrides its scalars, and the app, a source above the file sources and `onLoad()` override it. To override config at runtime, use `set()` or `merge()`.
 
 ```ts sample
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 
 async function main() {
-  // `http` must already be defined by a source, here the config file of @spinajs/http
-  DI.register({ http: { middlewares: ['request-id'] } }).asValue('__configuration__');
+  DI.register({ plugin: { routes: ['/status'] } }).asValue('__configuration__');
 
   const configuration = await DI.resolve(Configuration);
-  console.log(configuration.get<string[]>('http.middlewares'));
+  console.log(configuration.get<string[]>('plugin.routes'));
 }
 
 void main();

@@ -8,6 +8,8 @@ import * as fs from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import _ from 'lodash';
 
+import { mergeConfig } from '@spinajs/configuration';
+
 import { convertLayers, loadLayers, readDbFacts, scanSources } from '../src/index.js';
 import type { ConvertOptions, ConvertResult } from '../src/index.js';
 
@@ -115,9 +117,8 @@ describe('golden conversions', () => {
           const root = f.name.split('-')[0] as 'authz' | 'authn';
           if (!f.name.endsWith('.ts') || (root !== 'authz' && root !== 'authn')) continue;
           // An env file is loaded over the common one, so it is validated as the app sees it, merged.
-          // _.merge joins arrays by index where the loader concatenates them (its mergeArrays is not exported); no golden env file holds an array the common one also sets.
           const common = r.files.find((x) => x.name === `${root}-generated.ts`);
-          const value = _.merge({}, common && common !== f ? read(common.content)[root] : {}, structuredClone(read(f.content)[root]));
+          const value = mergeConfig(common && common !== f ? _.cloneDeep(read(common.content)[root]) : {}, read(f.content)[root], 'replace');
           // The finding leaves privilegedPermission to a person; give it one, as they would.
           if (root === 'authz' && handDone) value.admin.guard.privilegedPermission = 'users:update';
           if (root === 'authz') {
@@ -141,5 +142,54 @@ describe('golden conversions', () => {
       ['CampaignView', 'Campaign'].flatMap((res) => ['create', 'read', 'update', 'delete'].map((v) => ({ permission: `${res}:${v}`, relation: 'partner' }))),
     );
     expect(role.grants).to.include('Client:create');
+  });
+});
+
+// The output is loaded by the 4.x rule, where an env file replaces an array and 2.x joined it with the common one.
+describe('golden env arrays', () => {
+  const dir = `${ROOT}/env-arrays/config`;
+  const expectedDir = join(ROOT, 'env-arrays', 'expected');
+  let r: ConvertResult;
+  const file = (name: string) => read(r.files.find((f) => f.name === name)!.content) as object;
+  const at = (name: string, path: string): unknown => _.get(file(name), path.split('.')) as unknown;
+
+  before(async () => {
+    r = convertLayers(await loadLayers([dir]), { dirs: [dir] });
+  });
+
+  it('writes the expected files', () => {
+    if (UPDATE) {
+      fs.rmSync(expectedDir, { recursive: true, force: true });
+      fs.mkdirSync(expectedDir, { recursive: true });
+      for (const f of r.files) fs.writeFileSync(join(expectedDir, f.name), f.content);
+    }
+    expect(r.files.map((f) => f.name).sort()).to.deep.equal(fs.readdirSync(expectedDir).sort());
+    for (const f of r.files) expect(unix(f.content), f.name).to.equal(unix(fs.readFileSync(join(expectedDir, f.name), 'utf-8')));
+  });
+
+  it('keeps every protected role of the 2.x prod view in the prod file', () => {
+    expect(at('authz-generated.ts', 'authz.impersonation.protectedRoles')).to.deep.equal(['system', 'auditor']);
+    expect(at('authz-generated.prod.ts', 'authz.impersonation.protectedRoles')).to.deep.equal(['system', 'auditor', 'finance']);
+  });
+
+  it('writes the joined list for the generator characters', () => {
+    expect(at('authn-generated.prod.ts', 'authn.local.generator.characters')).to.deep.equal(['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789', '0123', '!?']);
+  });
+
+  it('writes the joined list for an array copied through Writer.data() and for a key set on its own', () => {
+    expect(at('users-generated.prod.ts', 'users.user.reserved')).to.deep.equal(['root', 'ops']);
+    expect(at('authz-generated.prod.ts', 'authz.token.excludedRoles')).to.deep.equal(['agent', 'bot']);
+  });
+
+  it('leaves a composed array as a delta, or the loader would list the common entries twice', () => {
+    const grants = JSON.stringify(at('authz-generated.prod.ts', 'authz.rbac.roles.editor.grants'));
+    expect(grants).to.contain('note:');
+    expect(grants).to.not.contain('doc:');
+    expect(JSON.stringify(at('authz-generated.ts', 'authz.rbac.roles.editor.grants'))).to.contain('doc:');
+  });
+
+  it('gives the loader the value of the 2.x prod view', () => {
+    const loaded = mergeConfig(_.cloneDeep(file('authz-generated.ts')), file('authz-generated.prod.ts'), 'replace');
+    expect(_.get(loaded, ['authz', 'impersonation', 'protectedRoles'])).to.deep.equal(['system', 'auditor', 'finance']);
   });
 });

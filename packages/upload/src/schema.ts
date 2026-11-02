@@ -9,7 +9,7 @@ const PROVIDER = { type: 'string', minLength: 1 };
 
 /**
  * The `upload` module (docs/upload/02-configuration.md); Ajv fills the defaults and refuses a wrong value at boot (configuration/src/configuration.ts:640-650).
- * Every default lives here, not in the shipped config: config files concatenate arrays (configuration/src/util-common.ts:23-27).
+ * Every default lives here, not in the shipped config.
  */
 export const UPLOAD_CONFIGURATION_SCHEMA = {
   $id: 'spinajs/upload.configuration.schema.json',

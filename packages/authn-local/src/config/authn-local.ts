@@ -58,8 +58,7 @@ const authnLocal = {
       legacyHashes: [] as ('bcrypt' | 'pbkdf2')[],
 
       // `rule`, `description` and `generator` ship no value here: the schema
-      // fills the defaults, and a shipped `generator.characters` array would
-      // be concatenated with the schema's by the config merge.
+      // fills the defaults.
       policy: {
         /** Code points; both within 8–128 (A04). Login always uses 8–128. */
         minLength: 8,

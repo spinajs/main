@@ -3,9 +3,9 @@ import type { Diagnostic, SourceRef } from '@spinajs/manifest';
 import { arrayType, tupleType } from './handlers/array.js';
 import { enumType } from './handlers/enum.js';
 import { modelDataType, modelType } from './handlers/model.js';
-import { objectType, setPropertyConstraints } from './handlers/object.js';
+import { objectType } from './handlers/object.js';
 import { primitive } from './handlers/primitive.js';
-import { jsdocConstraints } from './jsdoc.js';
+import { diagnose } from './diagnose.js';
 import { explicitSchema, type ExplicitSchema } from './explicit.js';
 import { aliasName, hoistedId } from './naming.js';
 import { addsNull, nullableAliasOf } from './nullable-alias.js';
@@ -44,32 +44,23 @@ export interface DeriveContext {
   aliasStack: Set<ts.Type>;
   recursiveAliases: Set<ts.Type>;
   depth: number;
+  /** Handlers recurse through this, so they never import this module back. */
+  derive: (ctx: DeriveContext, type: ts.Type) => JsonSchema;
 }
 
 export type TypeHandler = (ctx: DeriveContext, type: ts.Type) => JsonSchema | undefined;
 
-let handlerList: TypeHandler[] | undefined;
-
-/** Built on first use: the handler modules import this one, so a top-level list would hit a TDZ when one of them loads first. Order matters (enum before primitive, model data before intersection, well-known and model before object). */
-export function handlers(): TypeHandler[] {
-  if (!handlerList) setPropertyConstraints(jsdocConstraints);
-  handlerList ??= [enumType, primitive, wellKnown, modelDataType, arrayType, tupleType, unionType, intersectionType, modelType, objectType];
-  return handlerList;
-}
-
-export function diagnose(ctx: DeriveContext, code: 'SCH001' | 'SCH002' | 'SCH004' | 'SCH005' | 'SCH006', severity: Diagnostic['severity'], message: string): void {
-  const owner = ctx.options.foreignOwner?.(ctx.node);
-  ctx.diagnostics.push({ code, severity, message: owner ? `${message} (declared in ${owner})` : message, source: ctx.options.sourceRef?.(ctx.node) });
-}
+/** Order matters: enum before primitive, model data before intersection, well-known and model before object. */
+const HANDLERS: TypeHandler[] = [enumType, primitive, wellKnown, modelDataType, arrayType, tupleType, unionType, intersectionType, modelType, objectType];
 
 export function deriveSchema(checker: ts.TypeChecker, type: ts.Type, node: ts.Node, options: DeriveOptions, registry: Map<string, JsonSchema>): DeriveResult {
-  const ctx: DeriveContext = { checker, node, options, registry, diagnostics: [], seen: new Map(), owners: options.owners ?? new Map(), aliasStack: new Set(), recursiveAliases: new Set(), depth: 0 };
+  const ctx: DeriveContext = { checker, node, options, registry, diagnostics: [], seen: new Map(), owners: options.owners ?? new Map(), aliasStack: new Set(), recursiveAliases: new Set(), depth: 0, derive: deriveType };
   const schema = deriveType(ctx, type);
   const id = typeof schema.$ref === 'string' && registry.has(schema.$ref) ? schema.$ref : undefined;
   return { schema: (id && registry.get(id)) || schema, id, diagnostics: ctx.diagnostics };
 }
 
-export function deriveType(ctx: DeriveContext, type: ts.Type): JsonSchema {
+function deriveType(ctx: DeriveContext, type: ts.Type): JsonSchema {
   if (ctx.depth >= ctx.options.maxDepth) {
     diagnose(ctx, 'SCH002', 'warning', `type ${ctx.checker.typeToString(type)} nests deeper than ${ctx.options.maxDepth}, emitted as {}`);
     return {};
@@ -187,7 +178,7 @@ function unsupported(ctx: DeriveContext, type: ts.Type): JsonSchema {
 }
 
 function deriveBody(ctx: DeriveContext, type: ts.Type): JsonSchema {
-  for (const handler of handlers()) {
+  for (const handler of HANDLERS) {
     const schema = handler(ctx, type);
     if (schema) return schema;
   }

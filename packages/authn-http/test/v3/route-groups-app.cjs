@@ -22,6 +22,7 @@ const loadFile = (path) => load(pathToFileURL(path).href);
 const lib = (pkg, file) => join(WORKSPACE, pkg, 'lib', file);
 
 const USER = { login: 'route-groups@example.test', password: 'Route-Groups-Pass-1' };
+const COOKIE_SECRET = 'route-groups-' + 'Zq8Lw2Rt'.repeat(6);
 const ADMIN_TARGET = '/authn/admin/users/00000000-0000-4000-8000-000000000000';
 
 /**
@@ -131,7 +132,7 @@ async function main() {
         logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] },
         system: { dirs: { controllers: [controllersDir] } },
         fs: { defaultProvider: 'fs-temp', providers: [{ service: 'fsNative', name: 'fs-temp', basePath: join(PKG_ROOT, 'test', 'files') }] },
-        http: { port: 0, cookie: { secret: 'route-groups-' + 'Zq8Lw2Rt'.repeat(6) }, middlewares: [express.json(), cookieParser()], AcceptHeaders: 1 },
+        http: { port: 0, cookie: { secret: COOKIE_SECRET }, middlewares: [express.json(), cookieParser(COOKIE_SECRET)], AcceptHeaders: 1 },
         authn: {
           session: { service: 'MemorySessionStore', allowMemoryStore: true, expiration: { service: 'SlidingCappedExpiration', ttl: 120, maxLifetime: 1440 }, pendingTtlSeconds: 300 },
           strategies: [{ name: 'local', service: 'RouteGroupsPasswordStrategy' }],

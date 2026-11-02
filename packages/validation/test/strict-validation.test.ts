@@ -112,10 +112,15 @@ describe('strict validation for configured schema ids', function () {
       DI.unregister(config as any);
     });
 
-    // The shipped config's prefixes stay: config arrays merge by concatenation.
     it('validates a listed prefix strictly and an unlisted one with coercion', () => {
       expect(validator.tryValidate(loginBody('billing.Invoice'), { login: 1 })[0]).to.eq(false);
       expect(validator.tryValidate(loginBody('app.NotStrictHere'), { login: 1 })[0]).to.eq(true);
+    });
+
+    // A list that replaced the shipped one would put credentials back on type coercion.
+    it('keeps the shipped prefixes strict next to an app list', () => {
+      expect(validator.tryValidate(loginBody('authn.Login'), { login: 1 })[0]).to.eq(false);
+      expect(validator.tryValidate(loginBody('authz.Grant'), { login: 1 })[0]).to.eq(false);
     });
   });
 

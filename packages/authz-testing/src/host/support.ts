@@ -55,7 +55,12 @@ export class TestConfiguration extends Configuration {
   }
 
   public merge(path: string[] | string, value: unknown): void {
+    if (value === null || value === undefined) return;
     const existing = this.get<unknown>(path);
+    if (Array.isArray(existing)) {
+      this.set(path, existing.concat(value));
+      return;
+    }
     this.set(path, isRecord(existing) && isRecord(value) ? { ...existing, ...value } : value);
   }
 

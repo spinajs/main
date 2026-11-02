@@ -108,7 +108,7 @@ The migration's `down()` drops the `configuration` table.
 
 - **First boot loads nothing.** The ORM needs the configuration, so the first `Configuration` load runs before `Orm` resolves. The migration runs when `Orm` resolves, so on an empty database the table is missing and the source logs a warning. Call `Configuration.load()` again after `Orm` resolves to pick the rows up.
 - **The source may open its own connection.** When `Orm` is not resolved yet, `Connect()` creates a driver connection of its own, which `Load()` closes after reading. With SQLite `Filename: ':memory:'` that connection is a different, empty database.
-- **`onLoad()` is too late.** `FrameworkConfiguration` merges `onLoad()` and the `__configuration__` DI values after all sources ran. Put `db.Connections` in a config file or a `StaticConfigurationSource` with a lower `Order`.
+- **`onLoad()` is too late.** `FrameworkConfiguration` merges `onLoad()` after all sources ran. Put `db.Connections` in a config file or a `StaticConfigurationSource` with a lower `Order`.
 - **Partial options are completed.** Schema defaults are applied only after all sources ran, so `Load()` fills them in itself: `{ table: 'app_settings' }` reads from the `default` connection.
 - **Database wins.** The source loads last, and a later source overrides earlier ones for the same key.
 - **`Group` is not a path segment.** A row with `Slug: 'mailer.from'` and `Group: 'mailer'` is read at `mailer.from`, never at `mailer.mailer.from`.

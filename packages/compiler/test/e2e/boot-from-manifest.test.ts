@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import type { Manifest } from '@spinajs/manifest';
 import ts from 'typescript';
@@ -11,6 +11,7 @@ const WORKSPACE = resolve('../..');
 const APP = resolve('test/fixtures/app-basic');
 const TMP = resolve('test/fixtures/.tmp-e2e-boot');
 const INSTALLED = join(TMP, 'app');
+const INSTALLED_NO_METADATA = join(TMP, 'app-no-metadata');
 const PROBE = resolve('test/e2e/support/probe.boot.mjs');
 
 // What an app ships in its own config. `system.dirs` is set for the discovery run only: the manifest run has none.
@@ -47,6 +48,35 @@ export class ${name} extends BaseController {
   @Get()
   public async get(): Promise<Ok<string>> {
     return new Ok('${path}');
+  }
+}
+`;
+
+// A decorator of the app's own: the compiler sees neither `Autoinject` nor the class it names.
+const WRAPPED_CONTROLLER = `
+import { Autoinject, Injectable } from '@spinajs/di';
+import { BaseController, BasePath, Get, Ok } from '@spinajs/http';
+
+@Injectable()
+export class WrappedDep {
+  public readonly name = 'dep';
+}
+
+function InjectDep() {
+  return Autoinject(WrappedDep);
+}
+
+@BasePath('wrapped')
+export class WrappedController extends BaseController {
+  @InjectDep()
+  public dep: WrappedDep;
+
+  @InjectDep()
+  public deps: WrappedDep[];
+
+  @Get()
+  public async get(): Promise<Ok<{ dep: string; deps: number }>> {
+    return new Ok({ dep: this.dep.name, deps: this.deps.length });
   }
 }
 `;
@@ -237,52 +267,53 @@ function dropDecoratorMetadata(root: string, file: string): void {
 }
 
 /** The app as a deployment lays it out: its own lib/ and a node_modules/@spinajs holding only the packages it depends on. */
-async function installApp(): Promise<Manifest> {
-  rmSync(TMP, { recursive: true, force: true });
-  mkdirSync(INSTALLED, { recursive: true });
-  cpSync(join(APP, 'src'), join(INSTALLED, 'src'), { recursive: true });
+async function installApp(installed: string, emitDecoratorMetadata: boolean): Promise<Manifest> {
+  rmSync(installed, { recursive: true, force: true });
+  mkdirSync(installed, { recursive: true });
+  cpSync(join(APP, 'src'), join(installed, 'src'), { recursive: true });
+  writeFileSync(join(installed, 'src', 'controllers', 'wrapped.ts'), WRAPPED_CONTROLLER);
   const tsconfig = JSON.parse(readFileSync(join(APP, 'tsconfig.json'), 'utf8')) as { compilerOptions: object; include: string[] };
-  writeFileSync(join(INSTALLED, 'tsconfig.json'), JSON.stringify({ ...tsconfig, compilerOptions: { ...tsconfig.compilerOptions, resolveJsonModule: true }, include: [...tsconfig.include, 'src/**/*.json'] }));
+  writeFileSync(join(installed, 'tsconfig.json'), JSON.stringify({ ...tsconfig, compilerOptions: { ...tsconfig.compilerOptions, emitDecoratorMetadata, resolveJsonModule: true }, include: [...tsconfig.include, 'src/**/*.json'] }));
 
   // pkg-basic is another fixture package that is not built here, and only the app's entry point imports it
   const pkg = JSON.parse(readFileSync(join(APP, 'package.json'), 'utf8')) as { dependencies: Record<string, string> };
   delete pkg.dependencies['pkg-basic'];
   // `workspaces` makes it a root: the configuration walk does not climb into the repo above it
-  writeFileSync(join(INSTALLED, 'package.json'), JSON.stringify({ ...pkg, workspaces: [] }));
-  rmSync(join(INSTALLED, 'src', 'index.ts'));
+  writeFileSync(join(installed, 'package.json'), JSON.stringify({ ...pkg, workspaces: [] }));
+  rmSync(join(installed, 'src', 'index.ts'));
   for (const [file, source] of Object.entries(OUTSIDE_THE_DIRS)) {
-    mkdirSync(dirname(join(INSTALLED, 'src', file)), { recursive: true });
-    writeFileSync(join(INSTALLED, 'src', file), source);
+    mkdirSync(dirname(join(installed, 'src', file)), { recursive: true });
+    writeFileSync(join(installed, 'src', file), source);
   }
   // Abandoned copies with the same class name, mount path and socket prefix as the live classes.
   for (const [from, to] of [['controllers/HealthController.ts', 'controllers-old/HealthController.ts'], ['controllers/users.ts', 'controllers-old/users.ts'], ['socket/chat.ts', 'socket-old/chat.ts']]) {
-    mkdirSync(dirname(join(INSTALLED, 'src', to)), { recursive: true });
-    cpSync(join(INSTALLED, 'src', from), join(INSTALLED, 'src', to));
+    mkdirSync(dirname(join(installed, 'src', to)), { recursive: true });
+    cpSync(join(installed, 'src', from), join(installed, 'src', to));
   }
 
-  compileApp(INSTALLED);
-  dropDecoratorMetadata(INSTALLED, 'elsewhere/SourcedController');
-  mkdirSync(join(INSTALLED, 'lib', 'config'), { recursive: true });
-  writeFileSync(join(INSTALLED, 'lib', 'config', 'e2e.js'), E2E_CONFIG);
+  compileApp(installed);
+  dropDecoratorMetadata(installed, 'elsewhere/SourcedController');
+  mkdirSync(join(installed, 'lib', 'config'), { recursive: true });
+  writeFileSync(join(installed, 'lib', 'config', 'e2e.js'), E2E_CONFIG);
 
-  const built = (name: string): string[] => [join(INSTALLED, 'lib', name)];
+  const built = (name: string): string[] => [join(installed, 'lib', name)];
   const effectiveDirs = { controllers: built('controllers'), migrations: built('migrations'), schedules: built('schedules'), cli: built('commands'), socketControllers: built('socket') };
-  const { manifest } = await buildAppManifest({ tsconfig: join(INSTALLED, 'tsconfig.json'), appRoot: INSTALLED, out: join(INSTALLED, 'app.manifest.json'), effectiveDirs });
+  const { manifest } = await buildAppManifest({ tsconfig: join(installed, 'tsconfig.json'), appRoot: installed, out: join(installed, 'app.manifest.json'), effectiveDirs });
   for (const { name } of manifest.packages) {
-    const link = join(INSTALLED, 'node_modules', name);
+    const link = join(installed, 'node_modules', name);
     mkdirSync(dirname(link), { recursive: true });
     symlinkSync(realpathSync(join(WORKSPACE, 'node_modules', name)), link, 'junction');
   }
-  writeFileSync(join(INSTALLED, 'probe.mjs'), readFileSync(PROBE));
+  writeFileSync(join(installed, 'probe.mjs'), readFileSync(PROBE));
   return manifest;
 }
 
-function boot(env: NodeJS.ProcessEnv): ProbeResult {
+function boot(env: NodeJS.ProcessEnv, installed = INSTALLED): ProbeResult {
   const run = spawnSync(process.execPath, ['probe.mjs'], {
-    cwd: INSTALLED,
+    cwd: installed,
     encoding: 'utf8',
     timeout: 150_000,
-    env: { ...process.env, APP_ENV: 'test', WORKSPACE_ROOT_PATH: INSTALLED, ...env },
+    env: { ...process.env, APP_ENV: 'test', WORKSPACE_ROOT_PATH: installed, ...env },
   });
   const match = /<<JSON\n([\s\S]*?)\nJSON>>/.exec(run.stdout);
   if (!match) throw new Error(`probe failed (${String(run.status)}):\n${run.stdout}\n${run.stderr}`);
@@ -292,10 +323,13 @@ function boot(env: NodeJS.ProcessEnv): ProbeResult {
   return result;
 }
 
+const view = (r: ProbeResult) => ({ responses: r.responses, controllers: r.controllers, schedules: r.schedules, commands: r.commands, socketCommands: r.socketCommands, migrations: [...r.migrations].sort() });
+
 describe('app-basic boots from its manifest', function () {
   this.timeout(300_000);
 
   let required: ProbeResult;
+  let requiredWithoutMetadata: ProbeResult;
   let discovered: ProbeResult;
   let explainRequired: ProbeResult;
   let explainDiscovered: ProbeResult;
@@ -310,8 +344,11 @@ describe('app-basic boots from its manifest', function () {
       console.log('    skipped: no built @spinajs fragments (lib/manifest.fragment.json), run `npm run build` at the repo root');
       this.skip();
     }
-    manifest = await installApp();
+    rmSync(TMP, { recursive: true, force: true });
+    manifest = await installApp(INSTALLED, true);
+    await installApp(INSTALLED_NO_METADATA, false);
     required = boot({ SPINAJS_MANIFEST_MODE: 'require', SPINAJS_MANIFEST: join(INSTALLED, 'app.manifest.json') });
+    requiredWithoutMetadata = boot({ SPINAJS_MANIFEST_MODE: 'require', SPINAJS_MANIFEST: join(INSTALLED_NO_METADATA, 'app.manifest.json') }, INSTALLED_NO_METADATA);
     discovered = boot({ SPINAJS_MANIFEST_MODE: 'off', E2E_SCAN: '1' });
     preferred = boot({ SPINAJS_MANIFEST_MODE: 'prefer', SPINAJS_MANIFEST: join(INSTALLED, 'app.manifest.json') });
     productionRequired = boot({ SPINAJS_MANIFEST_MODE: 'require', SPINAJS_MANIFEST: join(INSTALLED, 'app.manifest.json'), APP_ENV: 'production' });
@@ -472,7 +509,28 @@ describe('app-basic boots from its manifest', function () {
     expect(discovered.scans.controllerDirScans).to.be.greaterThan(0);
     expect(discovered.scans.migrationDirScans).to.be.greaterThan(0);
     expect(discovered.imports.some((i) => i.specifier === 'glob' && /reflection/.test(i.parent))).to.equal(true);
-    const view = (r: ProbeResult) => ({ responses: r.responses, controllers: r.controllers, schedules: r.schedules, commands: r.commands, socketCommands: r.socketCommands, migrations: [...r.migrations].sort() });
     expect(view(required)).to.deep.equal(view(discovered));
+  });
+
+  describe('built with emitDecoratorMetadata: false', () => {
+    it('really has no decorator metadata in what it boots', () => {
+      const emitted = readdirSync(join(INSTALLED_NO_METADATA, 'lib'), { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.js'));
+      expect(emitted).to.include.members([join('controllers', 'users.js')]);
+      expect(emitted.filter((f) => readFileSync(join(INSTALLED_NO_METADATA, 'lib', f), 'utf8').includes('design:'))).to.deep.equal([]);
+      expect(readFileSync(join(INSTALLED, 'lib', 'controllers', 'users.js'), 'utf8')).to.include('design:paramtypes');
+    });
+
+    it('boots in require mode with zero scans and serves the same app', () => {
+      expect(requiredWithoutMetadata.scans.ancestorWalks).to.equal(0);
+      expect(requiredWithoutMetadata.scans.controllerDirScans).to.equal(0);
+      expect(requiredWithoutMetadata.scans.migrationDirScans).to.equal(0);
+      expect(requiredWithoutMetadata.imports.filter((i) => i.specifier.startsWith('typescript'))).to.deep.equal([]);
+      expect(view(requiredWithoutMetadata)).to.deep.equal(view(required));
+    });
+
+    it("injects through a decorator of the app's own, a list as a list", () => {
+      expect(required.responses.wrapped).to.deep.equal({ status: 200, body: { dep: 'dep', deps: 1 } });
+      expect(requiredWithoutMetadata.responses.wrapped).to.deep.equal(required.responses.wrapped);
+    });
   });
 });

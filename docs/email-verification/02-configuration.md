@@ -4,7 +4,7 @@ All settings live under `emailVerification`. The JSON schema in `schema.ts` hold
 
 Two rules of `@spinajs/configuration` apply here:
 
-- **Arrays are concatenated across config sources.** When two config files both set `lists.sources`, `http.providers` or `verifiers`, the result holds the items of both. Set each of these arrays in one config file only.
+- **An app's array replaces the earlier one.** When two config files of the app both set `lists.sources`, `http.providers` or `verifiers`, the later file's array wins (see [Arrays](../configuration/01-configuration-service.md#arrays)). Set each of these arrays in one config file only.
 - **Unknown keys are dropped without an error.** A misspelled key, such as `lists.refreshSecond`, is removed and its setting takes the default. Only a wrong value fails the boot.
 
 ## Core

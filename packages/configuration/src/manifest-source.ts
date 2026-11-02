@@ -94,9 +94,8 @@ export class ManifestConfigurationSource extends ConfigurationSource {
    * imported without its `onConfigLoad` hook; the file sources import the same module again from the ESM cache.
    */
   protected async projectSection(appEnv: string): Promise<ManifestSection> {
-    const dirs = projectConfigDirs(process.cwd(), this.RunApp, this.appBaseDir, this.CustomConfigPaths);
     const basePath = findBasePath(process.cwd()) ?? process.cwd();
-    const absolute = [...dirs.beforePackages, ...dirs.afterPackages].map((d) => (path.isAbsolute(d) ? d : path.join(basePath, d)));
+    const absolute = projectConfigDirs(process.cwd(), this.RunApp, this.appBaseDir, this.CustomConfigPaths).map((d) => (path.isAbsolute(d) ? d : path.join(basePath, d)));
     const merged: ManifestSection = {};
 
     for (const pattern of ['!(*.*).{cjs,js}', `*.${appEnv}.{cjs,js}`, '!(*.*).json', `*.${appEnv}.json`]) {

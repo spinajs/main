@@ -9,6 +9,7 @@ export * from './problem.js';
 export * from './contract.js';
 export * from './headers.js';
 export * from './cookie.js';
+export { defaultMiddlewares, missingDefaultMiddlewares } from './default-middlewares.js';
 export * from './cidr.js';
 export * from './route-args/index.js';
 export * from './arg-input-filter.js';

@@ -36,7 +36,7 @@ A working login also needs an `IdentityStore` and a `PasswordCredentialStore` (`
 
 ## Quick start
 
-List the strategy in your app config. Config files concatenate arrays, so the package ships no `authn.strategies` entry:
+List the strategy in your app config; the package ships no `authn.strategies` entry:
 
 ```ts
 // config/authn.ts in your app

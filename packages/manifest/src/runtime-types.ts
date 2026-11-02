@@ -66,5 +66,6 @@ export function resolveTypeRef(ref: RuntimeTypeRef, manifest: Manifest, cwd = pr
 
 /** What `resolveTypeRef` already resolved for `ref` with this manifest; `undefined` before that. */
 export function resolvedTypeRef(ref: RuntimeTypeRef, manifest: Manifest): unknown {
+  if (ref.package === 'global') return (globalThis as Record<string, unknown>)[ref.export];
   return RESOLVED.get(manifest)?.settled.get(keyOf(ref));
 }

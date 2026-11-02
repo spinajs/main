@@ -130,7 +130,7 @@ export class BuildInfoBootstrapper extends Bootstrapper {
 
 - `telemetry.auth.token` is read once, by `TelemetryServiceTokenBootstrapper`. A change or a configuration reload needs a restart.
 - The controllers are found by the directory scan, not by the barrel. Without `import '@spinajs/telemetry'`, the endpoints still mount, but no bootstrapper is registered: no default process metrics, no `perf_*` series (`PromMetricSink` is never imported) and no token bridge.
-- Config arrays concatenate when sources merge. An app cannot shorten `telemetry.buckets` or remove `authz.rbac.serviceRoles['service:telemetry']` by setting a shorter array; it only appends.
+- An app's `telemetry.buckets` replaces the shipped list. `authz.rbac.serviceRoles.*` concatenates (see [Arrays](../configuration/01-configuration-service.md#arrays)): an app cannot remove `authz.rbac.serviceRoles['service:telemetry']` by setting a shorter array; it only appends.
 - `TelemetryBootstrapper` publishes each perf sink with `override: true`. A sink resolved directly before it ran is replaced in the cache, so `@Autoinject(InMemoryPerfSink)` gets the instance `Perf` writes to.
 
 ## Best practices

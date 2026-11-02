@@ -86,6 +86,7 @@ try {
     users: await get('/users/list?query=' + encodeURIComponent(JSON.stringify({ page: 1, perPage: 5 }))),
     // mounted by ExplainControllerSource only, and never in production
     explain: await get('/authz/explain'),
+    wrapped: await get('/wrapped/get'),
     // outside the app's dirs: served only if a registration ran
     elsewhere: await get('/elsewhere/get'),
     injectable: await get('/injectable/get'),
