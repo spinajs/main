@@ -397,6 +397,9 @@ export interface IMigrationLockSession {
  * release, which knows only the row, and this one exclude each other during a rolling deploy.
  */
 export abstract class SessionMigrationLock extends MigrationLock {
+  @Logger('ORM')
+  protected Log: Log;
+
   public async acquire(request: IMigrationLockRequest): Promise<IMigrationLockHandle> {
     const deadline = Date.now() + request.timeout;
     const session = await this.openSession(request);
@@ -425,6 +428,9 @@ export abstract class SessionMigrationLock extends MigrationLock {
         } finally {
           try {
             await session.unlock();
+          } catch (err) {
+            // the session is gone, and its lock with it; a lost lock was already reported by assertHeld()
+            this.Log.debug({ error: err, connection: this.driver.Options.Name, lock: session.name }, 'Could not unlock ${lock} on connection ${connection}, closing its session');
           } finally {
             await session.close();
           }
@@ -448,7 +454,7 @@ export abstract class SessionMigrationLock extends MigrationLock {
 
   /** The lock-table row, taken while this run holds the session lock. */
   protected acquireRow(request: IMigrationLockRequest): Promise<IMigrationLockHandle> {
-    return this.tableLock().acquire(request);
+    return this.driver.Container.resolve(TableMigrationLock, [this.driver]).acquireUnderAdvisory(request);
   }
 
   protected tableLock(): MigrationLock {

@@ -298,12 +298,12 @@ this.Container.register(MyMigrationLock).as(MigrationLock);
 | `orm-driver-mssql` | `MsSqlMigrationLock`: `sp_getapplock` with `@LockOwner = 'Session'` | a pool of exactly one connection | `sys.dm_tran_locks` where `resource_type = 'APPLICATION'` |
 
 1. `acquire()` opens the session and polls a non-blocking attempt every `MIGRATION_LOCK_POLL_INTERVAL` until `Lock.Timeout`. Holding the lock takes no pooled connection, so `Pool.Max: 1` still serves the migrations.
-2. It then takes the lock-table row as `TableMigrationLock` does, with its refresh, inside the same `Lock.Timeout`. A process of an earlier 3.x release takes only the row, so during a rolling deploy old and new processes still exclude each other. If the row cannot be taken, the session lock is given back. The row is planned to go in 4.x.
+2. It then takes the lock-table row with `TableMigrationLock.acquireUnderAdvisory()`, with its refresh, inside the same `Lock.Timeout`. A process of an earlier 3.x release takes only the row, so during a rolling deploy old and new processes still exclude each other. If the row cannot be taken, the session lock is given back. The row is planned to go in 4.x.
 3. `assertHeld()` asks the lock's own session whether it still holds the lock. A dead or killed session frees the lock, and the run stops with `MigrationLockLostException` before its next migration. It also checks the row.
 4. `release()` deletes the row, then unlocks and closes the session.
 5. `isHeld()` is true when any session holds the lock or a fresh row exists.
 
-A crashed run leaves its row behind: the session lock is freed at once, but the next run waits for the row to go stale, as with `TableMigrationLock`.
+A crashed run leaves its row behind, marked with the key's advisory mark, and its session lock is freed. The next run that takes the session lock for the same key deletes that row at once, so it does not wait for `StaleAfter`. An unmarked row, from an earlier release or `Lock.Mode: 'table'`, still waits for `StaleAfter`. `release()` after the session died only logs, at debug level, that the unlock failed: the lost lock was already reported by `assertHeld()`.
 
 ## Decorators
 

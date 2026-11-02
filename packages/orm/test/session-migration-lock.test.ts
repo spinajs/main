@@ -42,6 +42,9 @@ class FakeSession implements IMigrationLockSession {
   }
 
   public async unlock() {
+    if (this.dead) {
+      throw new Error('socket closed');
+    }
     this.server.events.push(`unlock:${this.id}`);
     if (this.server.holder === this) {
       this.server.holder = undefined;
@@ -89,6 +92,7 @@ class FakeRowLock extends MigrationLock {
 
 class FakeSessionLock extends SessionMigrationLock {
   public session: FakeSession;
+  public debugs: string[] = [];
 
   constructor(
     protected server: Server,
@@ -106,10 +110,21 @@ class FakeSessionLock extends SessionMigrationLock {
     return this.server.holder !== undefined;
   }
 
+  protected acquireRow(req: IMigrationLockRequest) {
+    return new FakeRowLock(this.server, this.id).acquire(req);
+  }
+
   protected tableLock() {
     return new FakeRowLock(this.server, this.id);
   }
 }
+
+// the base class logs through an @Logger getter on its own prototype; this one shadows it
+Object.defineProperty(FakeSessionLock.prototype, 'Log', {
+  get(this: FakeSessionLock) {
+    return { debug: (_: unknown, message: string) => this.debugs.push(message) };
+  },
+});
 
 describe('SessionMigrationLock', () => {
   it('takes the session lock, then the lock-table row, and releases them in reverse', async () => {
@@ -160,6 +175,19 @@ describe('SessionMigrationLock', () => {
     locker.session.dead = false;
     server.row = 'thief';
     await expect(lock.assertHeld()).to.be.rejectedWith(MigrationLockLostException, 'row lost');
+  });
+
+  it('release() after the session died gives the row back, closes the session and does not reject', async () => {
+    const server = new Server();
+    const locker = new FakeSessionLock(server, 'a');
+    const lock = await locker.acquire(request());
+    locker.session.dead = true;
+
+    await expect(lock.assertHeld()).to.be.rejectedWith(MigrationLockLostException);
+    await lock.release();
+
+    expect(server.events).to.eql(['try:a', 'row:a', 'unrow:a', 'close:a']);
+    expect(locker.debugs).to.have.length(1);
   });
 
   it('isHeld() is true while either the session lock or the row is held', async () => {
