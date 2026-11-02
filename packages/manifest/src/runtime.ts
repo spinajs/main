@@ -58,7 +58,9 @@ export function loadRuntimeManifest(options: ManifestRuntimeOptions, cwd = proce
   assertManifestVersion(parsed, file);
   const manifest = parsed as Manifest;
   const intact = hashManifest(manifest) === manifest.hash;
-  if (!intact || forcedValidation(options)) {
+  // app.root is outside the hash, and appRootOf would quietly fall back to cwd for a non-string one.
+  const rootIsString = typeof (parsed as { app?: { root?: unknown } }).app?.root === 'string';
+  if (!intact || !rootIsString || forcedValidation(options)) {
     readManifestObject(parsed, file);
   }
   if (!intact) {

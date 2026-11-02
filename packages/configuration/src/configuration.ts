@@ -741,8 +741,6 @@ export class FrameworkConfiguration extends Configuration {
       this.Validator = new Ajv(options);
     }
 
-    addKeywordPluginsOnUse(this.Validator);
-
     // add common formats validation eg: date time
     ajvFormats.default(this.Validator);
 
@@ -751,6 +749,9 @@ export class FrameworkConfiguration extends Configuration {
     // we use $configurationModule keyword to identify
     // to match config module with config schema
     this.Validator.addKeyword('$configurationModule');
+
+    // Last: the keywords added above would otherwise install the plugins at once.
+    addKeywordPluginsOnUse(this.Validator);
   }
 
   // A child that registers a schema of its own must not hide the schemas of its ancestors.

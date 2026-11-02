@@ -110,6 +110,11 @@ describe('loadRuntimeManifest integrity', () => {
       expect(() => load('prefer')).to.throw(ManifestValidationError, /\$\.app\.name/);
     });
 
+    it('runs on a matching hash when app.root, which the hash leaves out, is not a string', () => {
+      write((m) => ((m.app as Record<string, unknown>).root = 42), true);
+      expect(() => load('require')).to.throw(ManifestValidationError, /\$\.app\.root/);
+    });
+
     it('passes a valid manifest that is forced through it', () => {
       write(() => undefined, true);
       expect(load('require', true)?.app.name).to.equal('edited');

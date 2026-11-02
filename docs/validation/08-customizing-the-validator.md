@@ -137,7 +137,9 @@ DI.register(MeteredValidator).as(DataValidator);
 
 - **Register before the first resolve.** `DataValidator` is cached on its first resolve; a registration after that is ignored by every holder of the cached instance. In tests, `DI.uncache(DataValidator)` forces a rebuild.
 - **`DataValidator` resolves asynchronously.** Classes that inject it become async to resolve too; `await` them.
-- **Ajv is created inside `resolve()`.** `this.Validator` and `this.StrictValidator` are `undefined` until `super.resolve()` has started; touching them earlier throws.
+- **Ajv is created inside `resolve()`.** `this.Validator` is `undefined` until `super.resolve()` has started; reading `this.StrictValidator` earlier throws `InvalidOperation`.
+- **`StrictValidator` is an accessor.** Read or assign it from a subclass. Do not declare it: a `StrictValidator` property declaration fails to compile (TS2610), and a JavaScript class field of that name hides the accessor, so the schemas `addSchema()` registers never reach it.
+- **Keyword plugins.** `createAjv()` installs `ajv-merge-patch` and `ajv-keywords` when the first schema that names one of their keywords reaches the instance. A `macro` or `code` keyword, a vocabulary, or a plugin keyword name that your `createAjv()` defines or removes installs them first, so replacing a plugin keyword (`removeKeyword('range')`, then `addKeyword(...)`) or a macro that expands into `uniqueItemProperties` works as with an eager install.
 - **Two instances.** A format or keyword added only to `this.Validator` after `super.resolve()` is missing on `StrictValidator`: a strict-id schema that uses it throws `unknown format` / `unknown keyword`. Add them in `createAjv()`.
 - **Options come from config only.** `Options` is a getter over the `validation` key, so a subclass cannot assign it. `$data: true` and `verbose: true` are applied after it and always win.
 - **Custom keyword errors keep their `params`.** `sanitizeError()` drops verbose fields from them, but redacts `params` only for `$data` rules and for its fixed list of value-bearing keywords. Do not put request values into the `params` or `message` of your own keyword errors.

@@ -43,14 +43,10 @@ class WithDirs extends Captured {
   }
 }
 
-/** A compiler that writes a manifest its own schema refuses. */
-class WritesInvalid extends WithDirs {
+/** A compiler that writes the manifest it returns, as the real one does. */
+class Writes extends WithDirs {
   public constructor() {
     super(undefined);
-  }
-
-  protected override built(): Manifest {
-    return { ...minimalManifest(), app: { ...minimalManifest().app, name: 42 as unknown as string } };
   }
 
   protected override importCompiler(): ReturnType<Build['importCompiler']> {
@@ -62,6 +58,13 @@ class WritesInvalid extends WithDirs {
         return built;
       },
     }));
+  }
+}
+
+/** A compiler that writes a manifest its own schema refuses. */
+class WritesInvalid extends Writes {
+  protected override built(): Manifest {
+    return { ...minimalManifest(), app: { ...minimalManifest().app, name: 42 as unknown as string } };
   }
 }
 
@@ -127,10 +130,11 @@ describe('build', function () {
 
   it('keeps a manifest that passes the manifest schema', async () => {
     const out = join(dir, 'm.json');
-    const cmd = new WithDirs(undefined);
+    const cmd = new Writes();
     await cmd.execute({ tsconfig: appBasic, out });
     expect(cmd.output).to.not.include('CLI002');
     expect(process.exitCode).to.equal(undefined);
+    expect(existsSync(out)).to.equal(true);
   });
 
   it('--config-path never reaches a command', () => {
