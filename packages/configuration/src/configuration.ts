@@ -30,7 +30,7 @@ import { ConfigurationViolation, InvalidConfiguration } from './exception.js';
 import { mapObject, mergeConfig, mergeInto, parseArgv, pickObjects, pickString, sameSchema, schemaNameOf } from './util.js';
 import config, { buildEnvironmentFlags } from './config/configuration.js';
 import { isLayeredSource, type ConfigLayers } from './sources.js';
-import { MANIFEST_SETTINGS } from './manifest-runtime.js';
+import { checkPendingProperties, MANIFEST_SETTINGS, preloadPropertyTypes } from './manifest-runtime.js';
 
 import { default as ajvMergePath } from 'ajv-merge-patch';
 import { default as ajvFormats } from 'ajv-formats';
