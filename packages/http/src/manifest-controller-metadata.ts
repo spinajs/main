@@ -48,8 +48,8 @@ export class ManifestControllerMetadata extends ControllerMetadataProvider {
   }
 
   /**
-   * The compiler records every decorated argument; an argument of a route inherited from another class is not on this
-   * entry, and a handler's undecorated one has no entry at all: those keep the name the handler declares.
+   * The compiler records every decorated argument, inherited routes included; a handler's undecorated argument has no
+   * entry: it keeps the name the handler declares.
    */
   public parameters(controller: ClassInfo<BaseController>, method: string): Promise<string[]> {
     const route = this.entry(controller)?.routes.find((r) => r.handler === method);

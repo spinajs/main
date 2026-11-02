@@ -4,6 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { diffManifest, renderMarkdown, routeFullPath } from '../src/index.js';
 import type { Change, ControllerEntry, Manifest, ParamEntry, ParamWire, RouteEntry } from '../src/index.js';
+import { bodyParam, controllerEntry, manifestWith, profilesOverride, routeEntry, withSchema } from './support.js';
 
 const fixture = fileURLToPath(new URL('../../compiler/test/fixtures/app-basic/app.manifest.json', import.meta.url));
 const base = JSON.parse(readFileSync(fixture, 'utf8')) as Manifest;
@@ -406,6 +407,63 @@ describe('diffManifest', () => {
     routeOf(head, 'get', '/health/get').policies = [[{ type: 'AccessPolicy', options: [{ role: 'admin' }] }]];
     const change = find(diffManifest(base, head).changes, 'permissions', 'GET /health/get');
     expect(change?.detail).to.include('{"role":"admin"}').and.not.include('[object Object]');
+  });
+});
+
+describe('diffManifest and inherited routes', () => {
+  const { base: pkg, sub: app, registration } = profilesOverride;
+
+  it('reports a type change of an inherited route on the subclass path', () => {
+    const before = manifestWith({ controllers: [controllerEntry({ className: 'Articles', routes: [routeEntry('post', '/articles/create', { inheritedFrom: 'app:BaseCrud', params: [bodyParam('CreateArticleDto', 'spinajs/app/CreateArticleDto')] })] })], schemas: { 'spinajs/app/CreateArticleDto': { type: 'object', properties: { title: { type: 'string' } }, required: ['title'], additionalProperties: false } } });
+    const after = withSchema(before, 'spinajs/app/CreateArticleDto', { type: 'object', properties: { title: { type: 'string' }, slug: { type: 'string' } }, required: ['title', 'slug'], additionalProperties: false });
+    const change = diffManifest(before, after).changes.find((c) => c.section === 'routes');
+    expect(change).to.deep.include({ kind: 'changed', id: 'POST /articles/create', breaking: true });
+  });
+
+  it('reports a permission a subclass adds to an inherited route', () => {
+    const route = routeEntry('get', '/articles/:id', { inheritedFrom: 'app:BaseCrud' });
+    const before = manifestWith({ controllers: [controllerEntry({ className: 'Articles', routes: [route] })] });
+    const after = manifestWith({ controllers: [controllerEntry({ className: 'Articles', access: ['articles:read'], policies: [[{ type: 'AccessPolicy', options: ['class'] }]], routes: [route] })] });
+    const change = diffManifest(before, after).changes.find((c) => c.section === 'permissions');
+    expect(change?.detail).to.equal('articles:read, policy AccessPolicy(class) now required on GET /articles/:id');
+  });
+
+  it('does not report the overridden copy of a route', () => {
+    const before = manifestWith({ controllers: [pkg, app], services: [registration()] });
+    const changed = { ...pkg, routes: [{ ...pkg.routes[0], returnType: { text: 'ProfileDto' } }] };
+    const after = manifestWith({ controllers: [changed, app], services: [registration()] });
+    expect(diffManifest(before, after).changes).to.deep.equal([]);
+  });
+
+  it('does not report a route of an overridden controller whose subclass serves it under another path', () => {
+    const moved = { ...app, basePath: 'me/profiles', mountPath: 'me/profiles', routes: [{ ...app.routes[0], fullPath: '/me/profiles/:id' }] };
+    const before = manifestWith({ controllers: [pkg, moved], services: [registration()] });
+    const after = manifestWith({ controllers: [{ ...pkg, routes: [{ ...pkg.routes[0], returnType: { text: 'ProfileDto' } }] }, moved], services: [registration()] });
+    expect(diffManifest(before, after).changes).to.deep.equal([]);
+  });
+});
+
+describe('diffManifest across compiler versions', () => {
+  const built = (compilerVersion?: string): Manifest => manifestWith(compilerVersion ? { compilerVersion } : {});
+
+  it('warns when base and head were built by different compilers', () => {
+    expect(diffManifest(built('4.0.0'), built('4.1.0')).warnings).to.deep.equal([
+      "base and head were built by different compilers (@spinajs/compiler 4.0.0 and 4.1.0): a change in what the compiler records, such as inherited routes, shows up as a change. Rebuild the base with the head's compiler to compare like with like.",
+    ]);
+  });
+
+  it('warns when only one of them records its compiler', () => {
+    expect(diffManifest(built(), built('4.1.0')).warnings?.[0]).to.include('(@spinajs/compiler unrecorded and 4.1.0)');
+  });
+
+  it('has no warnings for the same compiler or two manifests that record none', () => {
+    expect(diffManifest(built('4.1.0'), built('4.1.0'))).to.not.have.property('warnings');
+    expect(diffManifest(built(), built())).to.not.have.property('warnings');
+  });
+
+  it('renders the warning under the result line', () => {
+    const md = renderMarkdown(diffManifest(built('4.0.0'), built('4.1.0')));
+    expect(md).to.include('Result: no changes\n\n> **Warning:** base and head were built by different compilers');
   });
 });
 
