@@ -2,7 +2,8 @@ import { RouteArgs, IRouteArgsResult } from './RouteArgs.js';
 import { IRouteParameter, ParameterType, IRouteCall, IRoute, Request } from '../interfaces.js';
 import { Injectable } from '@spinajs/di';
 import { BadRequest } from '@spinajs/exceptions';
-import { XMLParser, XMLValidator, X2jOptions } from 'fast-xml-parser';
+import type { X2jOptions } from 'fast-xml-parser';
+import { loadFastXmlParser } from '../lazy-modules.js';
 
 // The parser's messages quote tag and attribute names from the input.
 const INVALID_XML_MESSAGE = 'request body is not valid XML';
@@ -35,6 +36,7 @@ export class FromXmlRouteArgs extends RouteArgs {
       return { CallData: callData, Args: await this.filterInput(body, param, route) };
     }
 
+    const { XMLParser, XMLValidator } = await loadFastXmlParser();
     if (XMLValidator.validate(body) !== true) {
       throw new BadRequest(INVALID_XML_MESSAGE);
     }
