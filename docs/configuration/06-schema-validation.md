@@ -6,7 +6,7 @@ Every module can register a JSON schema for its config section. The configuratio
 
 At boot, in `FrameworkConfiguration.resolve()`:
 
-1. **`initValidator()`** creates one Ajv 8 instance with `allErrors`, `removeAdditional: true`, `useDefaults: true`, `coerceTypes: true` and `$data: true`, adds `ajv-merge-patch` (`$merge`, `$patch`), `ajv-formats` and `ajv-keywords`, and declares the `$configurationModule` keyword.
+1. **`initValidator()`** creates one Ajv 8 instance with `allErrors`, `removeAdditional: true`, `useDefaults: true`, `coerceTypes: true` and `$data: true`, adds `ajv-formats`, and declares the `$configurationModule` keyword. `ajv-merge-patch` (`$merge`, `$patch`) and `ajv-keywords` are installed when the first schema that names one of their keywords is checked; `addKeywordPluginsOnUse(ajv)` does the same for any Ajv instance.
 2. **`validate()`** collects the `__configurationSchema__` values of the configuration's container and of every ancestor, nearest first. Schemas that are the same object, or share an `$id`, count once.
 3. For each schema, **`checkModule()`** reads the value at `$configurationModule`:
    - `undefined`: validates `{}`. When that passes, `{}` with the schema defaults is stored at the path, unless no default filled it and another schema over that path refuses an empty section: that schema would judge a section nobody set. When `{}` fails, a warning is logged and the path stays unset.
