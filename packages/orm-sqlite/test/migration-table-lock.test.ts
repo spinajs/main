@@ -2,6 +2,7 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { DefaultMigrationService, IMigrationLockHandle, IMigrationLockRequest, MigrationLockLostException, Orm, OrmDriver, TableMigrationLock, migrationLockKey } from '@spinajs/orm';
 import { expect } from 'chai';
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -223,22 +224,27 @@ describe('sqlite TableMigrationLock', function () {
   });
 
   describe('row of an advisory holder', () => {
-    it('acquireUnderAdvisory() marks its row and removes a fresh marked row at once', async () => {
-      await writeRow('other-host:4242:0badf00d:advisory');
+    // the mark is `:advisory:` and the first 8 hex chars of sha256 of the advisory key
+    const mark = (key: string) => `:advisory:${createHash('sha256').update(key).digest('hex').slice(0, 8)}`;
+    const otherKey = () => migrationLockKey(driver, TABLE).replace(/:[^:]*$/, ':spelled_otherwise');
+
+    it('acquireUnderAdvisory() marks its row with its key and removes a fresh row marked with that key at once', async () => {
+      const marked = `other-host:4242:0badf00d${mark(request().key)}`;
+      await writeRow(marked);
 
       const start = Date.now();
       const handle: IMigrationLockHandle = await new TableMigrationLock(driver).acquireUnderAdvisory(request({ timeout: 400 }));
 
       expect(Date.now() - start, 'no poll wait for a marked row').to.be.lessThan(400);
-      expect(handle.holder).to.match(/:advisory$/);
+      expect(handle.holder.endsWith(mark(request().key)), handle.holder).to.be.true;
       expect((await row()).Owner).to.eq(handle.holder);
 
       await handle.release();
       expect(await row()).to.be.undefined;
     });
 
-    it('acquireUnderAdvisory() keeps the StaleAfter rule for rows without the mark', async () => {
-      for (const owner of ['old-host:4242', 'new-host:4242:0badf00d']) {
+    it('acquireUnderAdvisory() keeps the StaleAfter rule for rows without the mark of its key', async () => {
+      for (const owner of ['old-host:4242', 'new-host:4242:0badf00d', 'old-mark:4242:0badf00d:advisory', `other-key:4242:0badf00d${mark(otherKey())}`]) {
         await writeRow(owner);
         const { error } = await settle(new TableMigrationLock(driver).acquireUnderAdvisory(request({ timeout: 100 })));
 
@@ -253,13 +259,26 @@ describe('sqlite TableMigrationLock', function () {
       await handle.release();
     });
 
+    it('a live advisory row of another key on the same table is not removed at once', async () => {
+      // two configs spelling one physical table differently ( Schema unset vs 'public' ) take different advisory locks
+      const live = await new TableMigrationLock(driver).acquireUnderAdvisory(request({ key: otherKey() }));
+
+      const { error } = await settle(new TableMigrationLock(driver).acquireUnderAdvisory(request({ timeout: 300 })));
+
+      expect((error as Error)?.message).to.contain(`held by ${live.holder} since `);
+      expect((await row()).Owner).to.eq(live.holder);
+      await live.assertHeld();
+      await live.release();
+    });
+
     it('acquire() without the advisory lock keeps the StaleAfter rule for a marked row', async () => {
-      await writeRow('other-host:4242:0badf00d:advisory');
+      const marked = `other-host:4242:0badf00d${mark(request().key)}`;
+      await writeRow(marked);
 
       const { error } = await settle(new TableMigrationLock(driver).acquire(request({ timeout: 100 })));
 
-      expect((error as Error)?.message).to.match(/held by other-host:4242:0badf00d:advisory since /);
-      expect((await row()).Owner).to.eq('other-host:4242:0badf00d:advisory');
+      expect((error as Error)?.message).to.contain(`held by ${marked} since `);
+      expect((await row()).Owner).to.eq(marked);
     });
   });
 });

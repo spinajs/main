@@ -18,11 +18,15 @@ export const MIGRATION_LOCK_STALE_AFTER = 600_000;
 export const MIGRATION_LOCK_MAX_STEALS = 3;
 
 /**
- * Ends the `Owner` of a lock-table row written by a run that also holds the connection's advisory
- * lock ( `TableMigrationLock.acquireUnderAdvisory()` ). The next advisory holder removes such a row
- * at once: its writer has lost the advisory lock, so it is dead.
+ * Ends the `Owner` of a lock-table row written under the advisory lock for `key`
+ * ( `TableMigrationLock.acquireUnderAdvisory()` ): `:advisory:` and the first 8 hex chars of
+ * sha256(key). The key is part of the mark because one physical table is reached under different
+ * keys when two configs spell it differently ( `Schema` unset vs `'public'` ), and a row written
+ * under another key's advisory lock may still be live.
  */
-export const MIGRATION_LOCK_ADVISORY_SUFFIX = ':advisory';
+export function migrationLockAdvisoryMark(key: string): string {
+  return `:advisory:${createHash('sha256').update(key).digest('hex').slice(0, 8)}`;
+}
 
 /** What one connection's migration lock is asked for. */
 export interface IMigrationLockRequest {
@@ -105,15 +109,20 @@ export class TableMigrationLock extends MigrationLock {
   /**
    * Takes the row for a dialect lock that already holds the advisory lock for `request.key`, so
    * processes that lock by the row alone ( older releases, `Lock.Mode: 'table'` ) are kept out too.
-   * The row is marked with `MIGRATION_LOCK_ADVISORY_SUFFIX`; a marked row found here is removed at
-   * once, any other row only once older than `staleAfter`. `release()` drops the row only.
+   * The row is marked with `migrationLockAdvisoryMark(request.key)`; a row with that mark is removed
+   * at once, any other row only once older than `staleAfter`. `release()` drops the row only.
+   *
+   * Call it only while holding that advisory lock exclusively for this acquisition, on a session of
+   * its own: advisory locks are re-entrant per session ( postgres, mysql `GET_LOCK`, mssql
+   * `sp_getapplock` with `@LockOwner = 'Session'` ), so a second run on a shared session would
+   * remove the first run's live row.
    */
   public async acquireUnderAdvisory(request: IMigrationLockRequest): Promise<IMigrationLockHandle> {
     return await this.take(request, true);
   }
 
   protected async take(request: IMigrationLockRequest, advisory: boolean): Promise<IMigrationLockHandle> {
-    const owner = advisory ? `${this.lockOwner()}${MIGRATION_LOCK_ADVISORY_SUFFIX}` : this.lockOwner();
+    const owner = advisory ? `${this.lockOwner()}${migrationLockAdvisoryMark(request.key)}` : this.lockOwner();
     const heartbeat = new TableLockHeartbeat(this.driver, this.Log, request, owner, await this.claim(request, owner, advisory));
 
     return {
@@ -173,7 +182,7 @@ export class TableMigrationLock extends MigrationLock {
   protected async claim(request: IMigrationLockRequest, owner: string, advisory = false): Promise<Date> {
     const start = Date.now();
     const expired = () => Date.now() - start > request.timeout;
-    const abandoned = (holder: { owner: string; since: Date }) => (advisory && holder.owner.endsWith(MIGRATION_LOCK_ADVISORY_SUFFIX)) || Date.now() - holder.since.getTime() > request.staleAfter;
+    const abandoned = (holder: { owner: string; since: Date }) => (advisory && holder.owner.endsWith(migrationLockAdvisoryMark(request.key))) || Date.now() - holder.since.getTime() > request.staleAfter;
     // by owner and timestamp: a row its holder refreshed after the steal is a live one, not the one that resisted it
     const judged = (holder: { owner: string; since: Date }) => `${holder.owner}@${holder.since.getTime()}`;
     const stolen = new Set<string>();
@@ -225,7 +234,7 @@ export class TableMigrationLock extends MigrationLock {
    * have replaced it with its own, or its holder refreshed it after it was read.
    */
   protected async steal(request: IMigrationLockRequest, holder: { owner: string; since: Date }, advisory = false): Promise<void> {
-    if (advisory && holder.owner.endsWith(MIGRATION_LOCK_ADVISORY_SUFFIX)) {
+    if (advisory && holder.owner.endsWith(migrationLockAdvisoryMark(request.key))) {
       this.Log.warn(
         { connection: this.driver.Options.Name, owner: holder.owner, acquiredAt: holder.since },
         'Removing the migration lock row of ${owner} on connection ${connection} ( since ${acquiredAt} ): it was written under the advisory lock this run now holds, so its writer is gone.',

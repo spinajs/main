@@ -39,8 +39,9 @@
 - `MigrationLock`, a DI token in each driver's container: `acquire(request)` resolves with an `IMigrationLockHandle` (`holder`,
   `assertHeld()`, `release()`), `isHeld(request)` answers `status()`. `OrmDriver.resolve()` registers `TableMigrationLock`, the
   lock-table row, as the default. A driver with a native lock registers its own class over the token.
-- `TableMigrationLock.acquireUnderAdvisory(request)` and `MIGRATION_LOCK_ADVISORY_SUFFIX`, for a driver lock that holds an advisory
-  lock and takes the lock-table row as well: its row is marked, and the next advisory holder removes a marked row at once.
+- `TableMigrationLock.acquireUnderAdvisory(request)` and `migrationLockAdvisoryMark(key)`, for a driver lock that holds an advisory
+  lock and takes the lock-table row as well: its row is marked with `:advisory:` and 8 hex chars of the key's SHA-256, and the next
+  holder of the same advisory key removes a row with that mark at once. A row marked under another key keeps the `StaleAfter` rule.
 - `db.Connections[].Migration.Lock.Mode: 'auto' | 'table'`. `'table'` forces the lock-table row, for PgBouncer transaction pooling.
 - `OrmMigrationService.acquireRunLock?()`, optional: a service that implements it is locked by the runner for the whole run and gets
   `{ locked: true, lock }` in `IMigrationRunOptions`. A custom service without it keeps locking inside its own calls.
