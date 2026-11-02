@@ -285,6 +285,24 @@ this.Container.register(MyMigrationLock).as(MigrationLock);
 
 `MigrationLock` is constructed with the driver. `acquire(request)` waits up to `request.timeout` and resolves with an `IMigrationLockHandle` (`holder`, `assertHeld()`, `release()`); `isHeld(request)` answers `status()` and never takes the lock. `request.key` is `migrationLockKey(driver, table)`, `spinajs_migration:<Database>:<Table>`; `advisoryKeyPair(key)` turns it into the two int32 halves of its SHA-256. `assertHeld()` must reject with `MigrationLockLostException` on any failure to verify the lock.
 
+### Session locks: postgres, mysql and mssql
+
+`SessionMigrationLock` is the base for a lock the database keeps for a session. The postgres, mysql and mssql drivers register one each:
+
+| Driver | Lock | Session | Inspect |
+|---|---|---|---|
+| `orm-driver-postgres` | `PostgresMigrationLock`: `pg_try_advisory_lock(k1, k2)` with `advisoryKeyPair(key)` | a `pg.Client` outside the pool | `pg_locks` where `locktype = 'advisory'` |
+| `orm-driver-mysql`, `orm-driver-mysql-ssh` | `MySqlMigrationLock`: `GET_LOCK('spinajs_mig_<sha1 of key>', 0)` | a connection outside the pool (through its own SSH channel) | `SELECT IS_USED_LOCK(name)` |
+| `orm-driver-mssql` | `MsSqlMigrationLock`: `sp_getapplock` with `@LockOwner = 'Session'` | a pool of exactly one connection | `sys.dm_tran_locks` where `resource_type = 'APPLICATION'` |
+
+1. `acquire()` opens the session and polls a non-blocking attempt every `MIGRATION_LOCK_POLL_INTERVAL` until `Lock.Timeout`. Holding the lock takes no pooled connection, so `Pool.Max: 1` still serves the migrations.
+2. It then takes the lock-table row as `TableMigrationLock` does, with its refresh, inside the same `Lock.Timeout`. A process of an earlier 3.x release takes only the row, so during a rolling deploy old and new processes still exclude each other. If the row cannot be taken, the session lock is given back. The row is planned to go in 4.x.
+3. `assertHeld()` asks the lock's own session whether it still holds the lock. A dead or killed session frees the lock, and the run stops with `MigrationLockLostException` before its next migration. It also checks the row.
+4. `release()` deletes the row, then unlocks and closes the session.
+5. `isHeld()` is true when any session holds the lock or a fresh row exists.
+
+A crashed run leaves its row behind: the session lock is freed at once, but the next run waits for the row to go stale, as with `TableMigrationLock`.
+
 ## Decorators
 
 | Decorator | Target | Options | Effect |

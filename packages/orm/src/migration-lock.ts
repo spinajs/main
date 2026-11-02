@@ -297,3 +297,125 @@ class TableLockHeartbeat {
     }
   }
 }
+
+/** One dedicated database session that holds a native lock for a `SessionMigrationLock`. */
+export interface IMigrationLockSession {
+  /** The lock as the database names it, for messages: `pg advisory lock (k1, k2)`, `GET_LOCK('name')`. */
+  readonly name: string;
+
+  /** One non-blocking attempt: true when this session now holds the lock. */
+  tryLock(): Promise<boolean>;
+
+  /** Whether this session still holds the lock; rejects when the session is gone. */
+  isLocked(): Promise<boolean>;
+
+  unlock(): Promise<void>;
+
+  close(): Promise<void>;
+}
+
+/**
+ * A lock the database keeps for a dedicated session outside the pool, so holding it costs the
+ * migrations no pooled connection. The session dying frees the lock, which `assertHeld()` reports.
+ *
+ * 3.x only: after the session lock it also takes the lock-table row, so a process of an earlier
+ * release, which knows only the row, and this one exclude each other during a rolling deploy.
+ */
+export abstract class SessionMigrationLock extends MigrationLock {
+  public async acquire(request: IMigrationLockRequest): Promise<IMigrationLockHandle> {
+    const deadline = Date.now() + request.timeout;
+    const session = await this.openSession(request);
+    let row: IMigrationLockHandle;
+
+    try {
+      if (!(await this.poll(deadline, () => session.tryLock()))) {
+        throw new OrmException(`Could not acquire migration lock on connection ${this.driver.Options.Name} within ${request.timeout}ms - another migration run holds ${session.name}`);
+      }
+
+      row = await this.acquireRow({ ...request, timeout: Math.max(0, deadline - Date.now()) });
+    } catch (err) {
+      await this.closeQuietly(session);
+      throw err;
+    }
+
+    return {
+      holder: session.name,
+      assertHeld: async () => {
+        await this.assertLocked(session);
+        await row.assertHeld();
+      },
+      release: async () => {
+        try {
+          await row.release();
+        } finally {
+          try {
+            await session.unlock();
+          } finally {
+            await session.close();
+          }
+        }
+      },
+    };
+  }
+
+  public async isHeld(request: IMigrationLockRequest): Promise<boolean> {
+    return (await this.isLockedByAnySession(request)) || (await this.tableLock().isHeld(request));
+  }
+
+  /**
+   * Opens a new session for every acquisition, the lock not taken yet. Never a shared one: these locks
+   * are re-entrant within a session, so a second run of this process would get the lock again.
+   */
+  protected abstract openSession(request: IMigrationLockRequest): Promise<IMigrationLockSession>;
+
+  /** Asked on the driver's own pool, never taking the lock. */
+  protected abstract isLockedByAnySession(request: IMigrationLockRequest): Promise<boolean>;
+
+  /** The lock-table row, taken while this run holds the session lock. */
+  protected acquireRow(request: IMigrationLockRequest): Promise<IMigrationLockHandle> {
+    return this.tableLock().acquire(request);
+  }
+
+  protected tableLock(): MigrationLock {
+    return this.driver.Container.resolve(TableMigrationLock, [this.driver]);
+  }
+
+  protected async poll(deadline: number, attempt: () => Promise<boolean>): Promise<boolean> {
+    for (;;) {
+      if (await attempt()) {
+        return true;
+      }
+
+      if (Date.now() >= deadline) {
+        return false;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, Math.min(MIGRATION_LOCK_POLL_INTERVAL, deadline - Date.now())));
+    }
+  }
+
+  protected async assertLocked(session: IMigrationLockSession): Promise<void> {
+    let locked: boolean;
+    let failure: unknown;
+
+    try {
+      locked = await session.isLocked();
+    } catch (err) {
+      locked = false;
+      failure = err;
+    }
+
+    if (!locked) {
+      throw new MigrationLockLostException(
+        `Migration lock on connection ${this.driver.Options.Name} was lost: its session no longer holds ${session.name}${failure ? ` ( ${(failure as Error).message} )` : ''}, so another run may have taken it. The run stops before its next migration; run it again.`,
+        failure,
+      );
+    }
+  }
+
+  protected async closeQuietly(session: IMigrationLockSession): Promise<void> {
+    // closing the session frees a lock it took, so a failed unlock changes nothing
+    await session.unlock().catch(() => undefined);
+    await session.close().catch(() => undefined);
+  }
+}
