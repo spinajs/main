@@ -17,6 +17,9 @@ import { classLineage, derivedValidatorsOf } from './route-args/manifest-schema.
 import { routesWithRuntimeTypes } from './manifest-runtime-types.js';
 import { buildRoutePath, resolveRouteMiddlewares, resolveRoutePolicies, createPolicyGate, createActionHandler, wrapMiddlewareAction, ControllerActionHost } from './route-builder.js';
 
+// Own metadata only: an undecorated class would report the file of the base whose descriptor it reads.
+const ownSourceFile = (type: object): string | undefined => (Reflect.getOwnMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, (type as { prototype: object }).prototype) as IControllerDescriptor | undefined)?.SourceFile;
+
 export abstract class BaseController extends AsyncService implements IController {
   /**
    * Array index getter
@@ -96,7 +99,7 @@ export abstract class BaseController extends AsyncService implements IController
 
     const configErrorHandlers = await resolveConfigErrorHandlers(this._cfg, this._container);
     const controller = this.constructor.name;
-    const lineage = classLineage(this.constructor);
+    const lineage = classLineage(this.constructor, ownSourceFile);
     this._routes = await routesWithRuntimeTypes({ container: this._container, controller, lineage, routes: this.Descriptor.Routes, mountPath: () => this.BasePath, log: this._log });
 
     for (const [, route] of this._routes) {

@@ -6,7 +6,9 @@ import { classLineage, IControllerDescriptor, IRoute, resolveRoutePolicies } fro
 import { Log, Logger } from '@spinajs/log';
 import { BaseSocketController } from './controller.js';
 import { SocketContractEnforcer } from './contract.js';
-import { IRegisteredHandler, ISocketControllerDescriptor, ISocketHandlerDescriptor } from './interfaces.js';
+import { IRegisteredHandler, ISocketControllerDescriptor, ISocketHandlerDescriptor, SOCKET_CONTROLLER_DESCRIPTOR } from './interfaces.js';
+
+const ownSourceFile = (type: object): string | undefined => (Reflect.getOwnMetadata(SOCKET_CONTROLLER_DESCRIPTOR, (type as { prototype: object }).prototype) as ISocketControllerDescriptor | undefined)?.SourceFile;
 
 @Injectable()
 export class SocketHandlerRegistry {
@@ -48,7 +50,7 @@ export class SocketHandlerRegistry {
         continue;
       }
 
-      const lineage = classLineage(type);
+      const lineage = classLineage(type, ownSourceFile);
       const descriptor = await this.Contracts.runtimeTypes(type.name, controller.Descriptor, lineage);
 
       const before = { commands: new Set(this.commands.values()), events: new Set(this.events.values()) };

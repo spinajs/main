@@ -6,7 +6,7 @@
 
 1. **Registration.** The bin's `src/args.ts` runs `DI.register(factory).as('__cli_argv_provider__')` when `cli.js` imports it. It is not part of the package entry (`@spinajs/cli`), so a program that imports only `@spinajs/cli` has no provider.
 2. **Resolution.** After building the command tree, `Cli.resolve()` calls `DI.resolve<string[]>('__cli_argv_provider__')`. A factory registration is called on every resolve, and the last registration under the token wins. With no registration, `Cli` uses `process.argv` through the default filter.
-3. **Default filter.** The default factory copies `process.argv` and removes `--app`, `--env`, `--apppath` together with their value (`--env production`), and the single-token forms (`--env=production`).
+3. **Default filter.** The default factory copies `process.argv` and removes `--app`, `--env`, `--apppath`, `--config-path` together with their value (`--env production`), and the single-token forms (`--env=production`).
 4. **Empty check.** When the array has no entries after the first two (`node` and the script), `Cli` prints the program help and returns.
 5. **Parse.** Otherwise `program.parseAsync(argv)` parses it with commander's default `{ from: 'node' }`: the first two entries are skipped.
 

@@ -89,13 +89,14 @@ spinajs build --tsconfig tsconfig.json --out app.manifest.json
 | `-o, --out <path>` | `app.manifest.json` | Manifest to write |
 | `--schemas` / `--no-schemas` | `--schemas` | Derive JSON Schemas from TypeScript types, or skip derivation |
 | `--fail-on-warning` | off | Exit with code 1 when the analyzer reports a warning |
+| `--allow-no-dirs` | off | Build an app whose `system.dirs` name none of its folders. Without it that build fails. With it, nothing loads from the manifest except migrations under the default dirs: classes run only if something registers them |
 
-Diagnostics are printed as `severity CODE file:line message`, followed by a summary of services, controllers, routes, models, schemas and diagnostics by severity. An analyzer error always exits with code 1; a warning does so only with `--fail-on-warning`. The manifest merges the fragments (`lib/manifest.fragment.json`) that the app's `@spinajs/*` dependencies ship. The command needs `@spinajs/compiler`, an optional peer dependency of `@spinajs/cli`; install it to use this command.
+Diagnostics are printed as `severity CODE file:line message`, followed by a summary of services, controllers, routes, models, schemas and diagnostics by severity. An analyzer error always exits with code 1; a warning does so only with `--fail-on-warning`. The command reads `system.dirs` from the booted configuration. An app class that discovery would not load stays in the manifest with `mountedBy`, is not loaded from it, and gets a `CMP006` warning. When no configured dir maps into the app, the command prints `CMP007`, exits with code 1 and writes nothing. It warns with `CLI001` when the working directory is not the `tsconfig` folder. The manifest reflects the config of the build's `APP_ENV`; see [The app's own classes](../manifest/README.md#the-apps-own-classes). The `summary` counts what the manifest loads, plus a `not loaded` row. The manifest merges the fragments (`lib/manifest.fragment.json`) that the app's `@spinajs/*` dependencies ship. The command needs `@spinajs/compiler`, an optional peer dependency of `@spinajs/cli`; install it to use this command.
 
 ## Related packages
 
 - `@spinajs/di`: every command and the `Cli` service are resolved from the DI container.
-- `@spinajs/configuration`: loads `system.dirs.cli`, consumes `--app`, `--env` and `--apppath`, and backs `@Option({ configKey })`.
+- `@spinajs/configuration`: loads `system.dirs.cli`, consumes `--app`, `--env`, `--apppath` and `--config-path`, and backs `@Option({ configKey })`.
 - `@spinajs/reflection`: its `@ListFromFiles` lists the command files.
 - `@spinajs/log`: commander errors and the bin's messages go through the framework logger.
 - `@spinajs/intl`: optional; when its global `__` works, help text is translated.

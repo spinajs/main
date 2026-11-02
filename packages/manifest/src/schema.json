@@ -99,6 +99,12 @@
             "$ref": "#/definitions/QueueMessageEntry"
           }
         },
+        "scanFiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ScanFile"
+          }
+        },
         "schemas": {
           "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"
         },
@@ -506,6 +512,9 @@
         "condition": {
           "$ref": "#/definitions/Condition"
         },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -760,6 +769,10 @@
         "field"
       ]
     },
+    "MountedBy": {
+      "type": "string",
+      "const": "di"
+    },
     "SocketControllerEntry": {
       "type": "object",
       "properties": {
@@ -822,6 +835,12 @@
               "index"
             ]
           }
+        },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
+        "exported": {
+          "$ref": "#/definitions/NotExported"
         },
         "source": {
           "$ref": "#/definitions/SourceRef"
@@ -901,6 +920,10 @@
         "policies",
         "source"
       ]
+    },
+    "NotExported": {
+      "type": "boolean",
+      "const": false
     },
     "SocketContractEntry": {
       "type": "object",
@@ -1129,6 +1152,12 @@
         "file": {
           "type": "string"
         },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
+        "exported": {
+          "$ref": "#/definitions/NotExported"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -1152,6 +1181,12 @@
         },
         "options": {
           "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"
+        },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
+        "exported": {
+          "$ref": "#/definitions/NotExported"
         },
         "source": {
           "$ref": "#/definitions/SourceRef"
@@ -1217,6 +1252,9 @@
         "parent": {
           "type": "string"
         },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -1258,6 +1296,31 @@
         "payload",
         "options",
         "source"
+      ]
+    },
+    "ScanFile": {
+      "type": "object",
+      "properties": {
+        "section": {
+          "$ref": "#/definitions/ManifestSection"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "section",
+        "source"
+      ]
+    },
+    "ManifestSection": {
+      "type": "string",
+      "enum": [
+        "controllers",
+        "socketControllers",
+        "schedules",
+        "commands",
+        "migrations"
       ]
     },
     "Diagnostic": {
@@ -1411,6 +1474,12 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/QueueMessageEntry"
+          }
+        },
+        "scanFiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ScanFile"
           }
         },
         "schemas": {

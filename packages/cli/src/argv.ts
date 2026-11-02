@@ -4,7 +4,7 @@
  * module, so they are stripped before argv is handed to commander
  * (otherwise commander treats them as unknown options).
  */
-const SPINAJS_ARGV_OPTIONS = ['--app', '--env', '--apppath'];
+const SPINAJS_ARGV_OPTIONS = ['--app', '--env', '--apppath', '--config-path'];
 
 export function stripFrameworkOptions(argv: string[]): string[] {
   const result: string[] = [];

@@ -30,7 +30,7 @@ import { ConfigurationViolation, InvalidConfiguration } from './exception.js';
 import { mapObject, mergeConfig, mergeInto, parseArgv, pickObjects, pickString, sameSchema, schemaNameOf } from './util.js';
 import config, { buildEnvironmentFlags } from './config/configuration.js';
 import { isLayeredSource, type ConfigLayers } from './sources.js';
-import { MANIFEST_SETTINGS } from './manifest-runtime.js';
+import { checkPendingProperties, MANIFEST_SETTINGS, preloadPropertyTypes } from './manifest-runtime.js';
 
 import { default as ajvMergePath } from 'ajv-merge-patch';
 import { default as ajvFormats } from 'ajv-formats';
@@ -175,7 +175,8 @@ export class FrameworkConfiguration extends Configuration {
    */
   constructor(options?: ConfigurationOptions) {
     super();
-    this.CustomConfigPaths = options?.cfgCustomPaths ?? [];
+    const customPath = parseArgv('--config-path');
+    this.CustomConfigPaths = options?.cfgCustomPaths ?? (customPath ? [resolve(customPath)] : []);
     this.RunApp = options?.app ?? parseArgv('--app') ?? '';
     this.AppBaseDir = options?.appBaseDir ?? parseArgv('--apppath') ?? join(process.cwd(), '../apps/');
     this.Env = parseArgv('--env') ?? process.env.APP_ENV;

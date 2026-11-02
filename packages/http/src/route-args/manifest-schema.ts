@@ -3,7 +3,7 @@ import { isTypedArray, type IContainer, type TypedArray } from '@spinajs/di';
 import { effectiveManifestOf } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
 import type { Log } from '@spinajs/log';
-import { DECORATED_PARAM_KIND, routeFullPath, servedPath, type Manifest, type ParamEntry, type RouteEntry } from '@spinajs/manifest';
+import { DECORATED_PARAM_KIND, ownEntries, routeFullPath, servedPath, type ControllerEntry, type Manifest, type ParamEntry, type RouteEntry } from '@spinajs/manifest';
 import { manifestValidatorOf, schemaOfClass, type ManifestDataValidator, type ManifestValidationOptions, type ManifestValidator } from '@spinajs/validation';
 import { ParameterType, type IRoute, type IRouteParameter } from '../interfaces.js';
 
@@ -45,30 +45,41 @@ export function derivedValidatorOf(param: IRouteParameter): DerivedArgCheck | un
   return current.getStore()?.get(param);
 }
 
-/** A class and its bases, by name: the manifest lists a route on the class that declares it. */
-export function classLineage(type: unknown): string[] {
-  const names: string[] = [];
+/** A class of a controller's lineage, with the file its own decorators ran in, when they did. */
+export interface LineageClass {
+  name: string;
+  file?: string;
+}
+
+/** A class and its bases, own first: the manifest lists a route on the class that declares it, and a name may be taken twice. */
+export function classLineage(type: unknown, fileOf: (type: object) => string | undefined): LineageClass[] {
+  const lineage: LineageClass[] = [];
   for (let current = type; typeof current === 'function' && current.name; current = Object.getPrototypeOf(current) as unknown) {
-    names.push(current.name);
+    lineage.push({ name: current.name, file: fileOf(current) });
   }
-  return names;
+  return lineage;
 }
 
 /**
- * The runtime knows a controller by class name, handler and mount path; the class name alone may be taken twice. A
- * subclass serves its bases' routes, and a base lists them under its own mount path, so there only the declared path tells them apart.
+ * The runtime knows a controller by class name, source file, handler and mount path; the class name alone may be taken
+ * twice. A subclass serves its bases' routes, and a base lists them under its own mount path, so there only the declared
+ * path tells them apart.
  */
-export function routeEntryOf(manifest: Manifest, lineage: readonly string[], route: IRoute, mountPath: string): RouteEntry | undefined {
+export function routeEntryOf(manifest: Manifest, lineage: readonly LineageClass[], route: IRoute, mountPath: string): RouteEntry | undefined {
   const handler = String(route.Method);
   const listed = [...manifest.controllers, ...(manifest.controllerBases ?? [])];
+  const fullPath = servedPath(routeFullPath(mountPath, route.Path, handler));
 
-  for (const [depth, className] of lineage.entries()) {
-    const candidates = listed.filter((c) => c.className === className).flatMap((c) => c.routes.filter((r) => r.handler === handler));
-    if (candidates.length === 0) continue;
+  for (const [depth, { name, file }] of lineage.entries()) {
+    const served = (r: RouteEntry): boolean => (depth === 0 ? r.fullPath === fullPath : r.path === route.Path);
+    const routesOf = (c: ControllerEntry): RouteEntry[] => c.routes.filter((r) => r.handler === handler);
+    const named = listed.filter((c) => c.className === name && routesOf(c).length > 0);
+    if (named.length === 0) continue;
+
+    const candidates = ownEntries(named, { file, matches: (c) => routesOf(c).some(served) }, manifest).flatMap(routesOf);
     if (candidates.length === 1) return candidates[0];
 
-    const fullPath = servedPath(routeFullPath(mountPath, route.Path, handler));
-    const matching = candidates.filter((r) => (depth === 0 ? r.fullPath === fullPath : r.path === route.Path));
+    const matching = candidates.filter(served);
     return matching.length === 1 ? matching[0] : undefined;
   }
   return undefined;
@@ -124,7 +135,7 @@ function derivedCheckOf(declared: ParamEntry | undefined, param: IRouteParameter
 export interface DerivedValidatorsOptions {
   container: IContainer;
   controller: string;
-  lineage: readonly string[];
+  lineage: readonly LineageClass[];
   route: IRoute;
   mountPath: string;
   log: Log;

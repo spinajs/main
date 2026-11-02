@@ -205,6 +205,14 @@ describe('socket contract enforcement', function () {
     restoreEnv = undefined;
   });
 
+  it('enforces the contract of a controller the manifest flags: the entry stays the binding of a registered class', async () => {
+    writeManifest(manifestOf({ controller: { mountedBy: 'di' } }));
+    const client = await open(await start('require'));
+    expect(resultOf(await command(client, 'ctr.say', { name: 'ada' }))).to.deep.equal({ hello: 'ada' });
+    expect(errorOf(await command(client, 'ctr.say', { age: 'old' })).code).to.equal('invalid_argument');
+    client.close();
+  });
+
   describe('payload validation', () => {
     beforeEach(() => writeManifest(manifestOf()));
 
