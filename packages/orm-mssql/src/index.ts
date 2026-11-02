@@ -1,5 +1,5 @@
 import { MsSqlSqlExpressions } from './expressions.js';
-import { DatetimeValueConverter, DefaultValueBuilder, NowExpression, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, TextWrapper, ServerResponseMapper, DbServerResponse, AlterTableQueryCompiler, AlterColumnQueryCompiler, SqlExpressions } from '@spinajs/orm';
+import { DatetimeValueConverter, DefaultValueBuilder, NowExpression, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, TextWrapper, ServerResponseMapper, DbServerResponse, AlterTableQueryCompiler, AlterColumnQueryCompiler, SqlExpressions, MigrationLock } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable, NewInstance } from '@spinajs/di';
 
@@ -9,10 +9,12 @@ import { IIndexInfo, ITableColumnInfo } from './types.js';
 import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlDefaultValueBuilder, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler, MsSqlCreateDatabaseQueryCompiler, MsSqlDropDatabaseQueryCompiler, MsSqlCreateViewCompiler, MsSqlAlterTableQueryCompiler, MsSqlAlterColumnQueryCompiler } from './compilers.js';
 import { BracketIdentifierQuoter, MsSqlInSetStatement, MsSqlInStatement, MsSqlLiteralQuoter, MsSqlNowExpression, MsSqlStartsWithStatement, MsSqlTextWrapper } from './statements.js';
 import { mapMsSqlError } from './errors.js';
+import { MsSqlMigrationLock } from './migration-lock.js';
 
 export * from './errors.js';
 
 export * from './expressions.js';
+export * from './migration-lock.js';
 
 export interface IMsSqlTransactionContext extends ITransactionContext {
   transaction: mssql.Transaction;
@@ -208,6 +210,23 @@ export class MsSqlOrmDriver extends SqlDriver {
     };
   }
 
+  /** Exactly one connection: a session-owned lock must not move to another session. */
+  protected dedicatedPoolConfig(): mssql.config {
+    const config = this.connectionConfig();
+    return { ...config, pool: { ...config.pool, min: 1, max: 1 } };
+  }
+
+  /** A pool of one connection of this database, outside the driver's own pool. The caller closes it. */
+  public async openDedicatedPool(): Promise<mssql.ConnectionPool> {
+    const pool = new mssql.ConnectionPool(this.dedicatedPoolConfig());
+    pool.on('error', (err: unknown) => {
+      this.Log?.warn({ error: err, connection: this.Options.Name }, 'mssql dedicated pool error for ${connection}');
+    });
+
+    await pool.connect();
+    return pool;
+  }
+
   public async connect(): Promise<OrmDriver> {
     try {
       // A pool of its own: `mssql.connect()` hands every caller the one package-global pool.
@@ -276,6 +295,8 @@ export class MsSqlOrmDriver extends SqlDriver {
     // No native scheduler in this engine, and nothing is simulated in its place.
     this.Container.register(UnsupportedEventQueryCompiler).as(EventQueryCompiler);
     this.Container.register(UnsupportedDropEventQueryCompiler).as(DropEventQueryCompiler);
+
+    this.Container.register(MsSqlMigrationLock).as(MigrationLock);
   }
 
   public async disconnect(): Promise<OrmDriver> {

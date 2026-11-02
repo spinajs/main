@@ -83,6 +83,18 @@ export async function bootstrap(): Promise<Orm> {
 | Bind-parameter limit | `MaxBindings` `65535`; `mysql2` interpolates on the client, so `max_allowed_packet` bounds a statement |
 | `lockTableShared()` | `SELECT COUNT(*) ... FOR UPDATE` |
 
+## Migration lock
+
+The driver registers `MySqlMigrationLock` as the migration run lock ([Locking](../orm/10-migrations.md#locking)).
+
+1. It takes `GET_LOCK('spinajs_mig_<sha1 of the lock key>', 0)`, polled, on a connection of its own from `openDedicatedConnection()`, outside the pool. GET_LOCK names are server-wide and limited to 64 characters, so the key, which names the database, is hashed. `MySqlSSHOrmDriver` opens that connection through its own SSH channel (`dedicatedConnectionOptions()`).
+2. After `GET_LOCK` it also takes the lock-table row, so a process of an earlier 3.x release, which takes only the row, is kept out during a rolling deploy.
+3. Before each migration it checks `IS_USED_LOCK(name) = CONNECTION_ID()` on that connection. If the connection was killed, the run stops with `MigrationLockLostException`.
+4. `release()` runs `RELEASE_LOCK(name)` and ends the connection.
+5. Keep mysql2's default `FOUND_ROWS` flag: do not pass `flags: '-FOUND_ROWS'` in `Options`. The lock-table row's refresh is an UPDATE through the pool that reads 0 affected rows as "another run took the row", and without the flag an UPDATE that changes nothing reports 0.
+
+To see a holder: `SELECT IS_USED_LOCK('spinajs_mig_…')` returns the connection id, which `SHOW PROCESSLIST` lists.
+
 ## Testing
 
 Unit tests need no server:
