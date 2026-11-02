@@ -915,7 +915,6 @@
               "export": "OpenDoc"
             }
           },
-          "payloadIndex": 0,
           "result": {
             "text": "DocOpened",
             "schema": "spinajs/pkg-basic/DocOpened"
@@ -957,7 +956,6 @@
               "export": "OpenDoc"
             }
           },
-          "payloadIndex": 0,
           "result": {
             "text": "void"
           },
@@ -974,7 +972,6 @@
       "events": [
         {
           "name": "created",
-          "handler": "created",
           "payload": {
             "text": "UserCreated",
             "schema": "spinajs/pkg-basic/UserCreated",
@@ -983,12 +980,10 @@
               "file": "src/queue.ts",
               "export": "UserCreated"
             }
-          },
-          "payloadIndex": 0
+          }
         },
         {
           "name": "ping",
-          "handler": "ping",
           "payload": {
             "text": "Ping",
             "schema": "spinajs/pkg-basic/Ping",
@@ -997,8 +992,7 @@
               "file": "src/socket.ts",
               "export": "Ping"
             }
-          },
-          "payloadIndex": 0
+          }
         }
       ],
       "source": {

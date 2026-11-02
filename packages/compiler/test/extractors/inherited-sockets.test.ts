@@ -71,3 +71,18 @@ describe('inherited socket handlers from a dependency fragment', function () {
     expect(feed().events[1].payload).to.deep.equal({ text: 'T' });
   });
 });
+
+describe('a socket controller that inherits nothing', function () {
+  this.timeout(120_000);
+
+  it('records neither payloadIndex nor an event handler', async () => {
+    const fragment = await analyzePackage({ tsconfig: 'test/fixtures/pkg-basic/tsconfig.json', packageRoot: 'test/fixtures/pkg-basic' });
+    const docs = fragment.socketControllers.find((c) => c.className === 'DocsSocket')!;
+    expect(docs.commands.length + docs.events.length).to.be.greaterThan(0);
+    for (const c of docs.commands) expect(c).to.not.have.property('payloadIndex');
+    for (const e of docs.events) {
+      expect(e).to.not.have.property('payloadIndex');
+      expect(e).to.not.have.property('handler');
+    }
+  });
+});
