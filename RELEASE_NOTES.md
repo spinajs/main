@@ -1,6 +1,6 @@
-# Release notes - orm: one migration lock per connection for the whole run
+# Release notes — orm: one migration lock per connection for the whole run
 
-> Branch `v3-om-2-lock`. Package: orm.
+> Package: orm.
 >
 > Docs: `docs/orm/10-migrations.md` ("Locking").
 
@@ -13,31 +13,43 @@
   finished. A second `migrate-up` waits for the first one's seeds.
 - A run longer than `Migration.Lock.StaleAfter` had its lock-table row stolen, and two runs went on at once. The holder now refreshes
   its row every `StaleAfter / 3`, so only the row of a dead holder goes stale.
+- Two runs that found one dead holder's row at the same time could both take the lock, and a run whose row had been stolen deleted
+  the new holder's row when it finished. A steal now deletes the row only while it still names the dead holder, and a release only
+  the run's own row.
 - `migrate-resolve` could rewrite a tracking row under a run in progress. It now waits for that run's lock. A run that crashed while
   holding the lock-table row blocks it until the row goes stale (`StaleAfter`, 10 minutes by default), as it blocks `migrate-up`.
+  The timeout message names the time the row goes stale and the table to delete it from by hand.
+- `migrate({ name })` with a name that is not registered took the locks and created the tracking tables before it refused the name.
+  It now refuses it first, and with a known name it locks only that migration's connection.
 
 ## New behavior
 
-- The lock is checked before each migration. A run that lost it (its lock-table row went unrefreshed for longer than `StaleAfter`)
-  stops with `MigrationLockLostException` before the next migration starts and records no failure for it.
+- The lock is checked before each migration. A run that lost it (its lock-table row went unrefreshed for longer than `StaleAfter`, or
+  a refresh found the row taken by another run) stops with `MigrationLockLostException` before the next migration starts and
+  records no failure for it.
 - The lock row's `Owner` is `<hostname>:<pid>:<nonce>`, so two runs in one process are told apart.
+- Two connections on one database that share `Migration.Table` now block each other for `Lock.Timeout` and fail, because one run
+  holds the first connection's lock while it waits for the second. Give each connection on a database its own `Migration.Table`.
 
 ## New
 
 - `MigrationLock`, a DI token in each driver's container: `acquire(request)` resolves with an `IMigrationLockHandle` (`holder`,
   `assertHeld()`, `release()`), `isHeld(request)` answers `status()`. `OrmDriver.resolve()` registers `TableMigrationLock`, the
   lock-table row, as the default. A driver with a native lock registers its own class over the token.
+- `TableMigrationLock.acquireUnderAdvisory(request)` and `MIGRATION_LOCK_ADVISORY_SUFFIX`, for a driver lock that holds an advisory
+  lock and takes the lock-table row as well: its row is marked, and the next advisory holder removes a marked row at once.
 - `db.Connections[].Migration.Lock.Mode: 'auto' | 'table'`. `'table'` forces the lock-table row, for PgBouncer transaction pooling.
 - `OrmMigrationService.acquireRunLock?()`, optional: a service that implements it is locked by the runner for the whole run and gets
   `{ locked: true, lock }` in `IMigrationRunOptions`. A custom service without it keeps locking inside its own calls.
-- `MigrationRunner.withRunLock(connection, fn)`, `MigrationRunner.assertRunLocksHeld()`, `IMigrationUpOptions.locked`.
-- `migrationLockKey(driver, table)`, `advisoryKeyPair(key)`, `MigrationLockLostException`, `IMigrationLockRequest`.
+- `MigrationRunner.withRunLock(connection, fn, name?)`, `MigrationRunner.assertRunLocksHeld()`, `IMigrationUpOptions.locked`.
+- `migrationLockKey(driver, table)` (`spinajs_migration:<Database>:<Options.Schema>:<Table>`), `advisoryKeyPair(key)`,
+  `MigrationLockLostException`, `IMigrationLockRequest`.
 
 ## Upgrade
 
 - The protected `acquireLock()`, `releaseLock()` and `lockOwner()` of `DefaultMigrationService` moved to `TableMigrationLock`
   (`claim()`, `releaseRow()`, `lockOwner()`). A subclass that overrode them overrides `TableMigrationLock` instead and registers it
-  over `MigrationLock` in its driver.
+  over `MigrationLock` and `TableMigrationLock` in its driver.
 - Nothing else changes: processes of the previous release and of this one use the same lock-table row and exclude each other.
 
 ---
