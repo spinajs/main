@@ -18,11 +18,15 @@ export const MIGRATION_LOCK_STALE_AFTER = 600_000;
 export const MIGRATION_LOCK_MAX_STEALS = 3;
 
 /**
- * Ends the `Owner` of a lock-table row written by a run that also holds the connection's advisory
- * lock ( `TableMigrationLock.acquireUnderAdvisory()` ). The next advisory holder removes such a row
- * at once: its writer has lost the advisory lock, so it is dead.
+ * Ends the `Owner` of a lock-table row written under the advisory lock for `key`
+ * ( `TableMigrationLock.acquireUnderAdvisory()` ): `:advisory:` and the first 8 hex chars of
+ * sha256(key). The key is part of the mark because one physical table is reached under different
+ * keys when two configs spell it differently ( `Schema` unset vs `'public'` ), and a row written
+ * under another key's advisory lock may still be live.
  */
-export const MIGRATION_LOCK_ADVISORY_SUFFIX = ':advisory';
+export function migrationLockAdvisoryMark(key: string): string {
+  return `:advisory:${createHash('sha256').update(key).digest('hex').slice(0, 8)}`;
+}
 
 /** What one connection's migration lock is asked for. */
 export interface IMigrationLockRequest {
@@ -105,15 +109,20 @@ export class TableMigrationLock extends MigrationLock {
   /**
    * Takes the row for a dialect lock that already holds the advisory lock for `request.key`, so
    * processes that lock by the row alone ( older releases, `Lock.Mode: 'table'` ) are kept out too.
-   * The row is marked with `MIGRATION_LOCK_ADVISORY_SUFFIX`; a marked row found here is removed at
-   * once, any other row only once older than `staleAfter`. `release()` drops the row only.
+   * The row is marked with `migrationLockAdvisoryMark(request.key)`; a row with that mark is removed
+   * at once, any other row only once older than `staleAfter`. `release()` drops the row only.
+   *
+   * Call it only while holding that advisory lock exclusively for this acquisition, on a session of
+   * its own: advisory locks are re-entrant per session ( postgres, mysql `GET_LOCK`, mssql
+   * `sp_getapplock` with `@LockOwner = 'Session'` ), so a second run on a shared session would
+   * remove the first run's live row.
    */
   public async acquireUnderAdvisory(request: IMigrationLockRequest): Promise<IMigrationLockHandle> {
     return await this.take(request, true);
   }
 
   protected async take(request: IMigrationLockRequest, advisory: boolean): Promise<IMigrationLockHandle> {
-    const owner = advisory ? `${this.lockOwner()}${MIGRATION_LOCK_ADVISORY_SUFFIX}` : this.lockOwner();
+    const owner = advisory ? `${this.lockOwner()}${migrationLockAdvisoryMark(request.key)}` : this.lockOwner();
     const heartbeat = new TableLockHeartbeat(this.driver, this.Log, request, owner, await this.claim(request, owner, advisory));
 
     return {
@@ -173,7 +182,9 @@ export class TableMigrationLock extends MigrationLock {
   protected async claim(request: IMigrationLockRequest, owner: string, advisory = false): Promise<Date> {
     const start = Date.now();
     const expired = () => Date.now() - start > request.timeout;
-    const abandoned = (holder: { owner: string; since: Date }) => (advisory && holder.owner.endsWith(MIGRATION_LOCK_ADVISORY_SUFFIX)) || Date.now() - holder.since.getTime() > request.staleAfter;
+    const abandoned = (holder: { owner: string; since: Date; raw: Date | string }) => (advisory && holder.owner.endsWith(migrationLockAdvisoryMark(request.key))) || Date.now() - holder.since.getTime() > request.staleAfter;
+    // by owner and timestamp: a row its holder refreshed after the steal is a live one, not the one that resisted it
+    const judged = (holder: { owner: string; since: Date; raw: Date | string }) => `${holder.owner}@${holder.since.getTime()}`;
     const stolen = new Set<string>();
     let steals = 0;
 
@@ -192,7 +203,7 @@ export class TableMigrationLock extends MigrationLock {
         // nothing, and the read that follows then finds the same row
         if (holder && abandoned(holder) && steals < MIGRATION_LOCK_MAX_STEALS) {
           steals++;
-          stolen.add(holder.owner);
+          stolen.add(judged(holder));
           await this.steal(request, holder, advisory);
 
           // straight back to the INSERT: sleeping a poll interval for a lock nobody holds is
@@ -203,7 +214,7 @@ export class TableMigrationLock extends MigrationLock {
         }
 
         if (expired()) {
-          throw this.timedOut(request, holder, holder && stolen.has(holder.owner) ? steals : 0, err);
+          throw this.timedOut(request, holder, holder && stolen.has(judged(holder)) ? steals : 0, err);
         }
 
         await new Promise((resolve) => setTimeout(resolve, MIGRATION_LOCK_POLL_INTERVAL));
@@ -211,16 +222,21 @@ export class TableMigrationLock extends MigrationLock {
     }
   }
 
-  protected async holder(request: IMigrationLockRequest): Promise<{ owner: string; since: Date } | undefined> {
+  protected async holder(request: IMigrationLockRequest): Promise<{ owner: string; since: Date; raw: Date | string } | undefined> {
     const rows = ((await this.driver.select().from(request.lockTable).where({ Id: 1 })) ?? []) as Array<{ AcquiredAt: Date | string; Owner: string }>;
     const row = rows[0];
 
-    return row ? { owner: row.Owner, since: row.AcquiredAt instanceof Date ? row.AcquiredAt : new Date(row.AcquiredAt) } : undefined;
+    return row ? { owner: row.Owner, since: row.AcquiredAt instanceof Date ? row.AcquiredAt : new Date(row.AcquiredAt), raw: row.AcquiredAt } : undefined;
   }
 
-  /** Deletes only the row that was judged: another contender may already have replaced it with its own. */
-  protected async steal(request: IMigrationLockRequest, holder: { owner: string; since: Date }, advisory = false): Promise<void> {
-    if (advisory && holder.owner.endsWith(MIGRATION_LOCK_ADVISORY_SUFFIX)) {
+  /**
+   * Deletes only the row that was judged, by `Owner` and `AcquiredAt`: another contender may already
+   * have replaced it with its own, or its holder refreshed it after it was read. `AcquiredAt` is bound
+   * as read, because a parsed copy of a value in another text format ( SpinaJS 2.x wrote local time )
+   * would match no row.
+   */
+  protected async steal(request: IMigrationLockRequest, holder: { owner: string; since: Date; raw: Date | string }, advisory = false): Promise<void> {
+    if (advisory && holder.owner.endsWith(migrationLockAdvisoryMark(request.key))) {
       this.Log.warn(
         { connection: this.driver.Options.Name, owner: holder.owner, acquiredAt: holder.since },
         'Removing the migration lock row of ${owner} on connection ${connection} ( since ${acquiredAt} ): it was written under the advisory lock this run now holds, so its writer is gone.',
@@ -233,12 +249,18 @@ export class TableMigrationLock extends MigrationLock {
       );
     }
 
-    await this.driver.del().from(request.lockTable).where({ Id: 1, Owner: holder.owner });
+    // an unreadable timestamp cannot be matched back; only the marked-row branch gets here with one
+    const where = Number.isNaN(holder.since.getTime()) ? { Id: 1, Owner: holder.owner } : { Id: 1, Owner: holder.owner, AcquiredAt: holder.raw };
+    await this.driver.del().from(request.lockTable).where(where);
   }
 
-  protected timedOut(request: IMigrationLockRequest, holder: { owner: string; since: Date } | undefined, steals: number, err: unknown): OrmException {
+  protected timedOut(request: IMigrationLockRequest, holder: { owner: string; since: Date; raw: Date | string } | undefined, steals: number, err: unknown): OrmException {
     const { timeout, lockTable } = request;
     const name = this.driver.Options.Name;
+
+    if (holder && Number.isNaN(holder.since.getTime())) {
+      return new OrmException(`Could not acquire migration lock on connection ${name} within ${timeout}ms - held by ${holder.owner}, and its AcquiredAt in ${lockTable} ( ${JSON.stringify(holder.raw)} ) is not a date, so it cannot be judged stale - delete the row from ${lockTable} by hand`);
+    }
 
     if (holder && steals > 0) {
       return new OrmException(`Could not acquire migration lock on connection ${name} within ${timeout}ms - held by ${holder.owner} since ${holder.since.toISOString()}, and ${steals} attempt(s) to remove it as stale left it in place - delete the row from ${lockTable} by hand`);
@@ -263,10 +285,11 @@ export class TableMigrationLock extends MigrationLock {
 /**
  * Keeps a held lock row fresh, and judges from the refreshes alone whether it can still be ours.
  *
- * A thief takes the row only once it is older than `staleAfter`. So while the last refresh that
- * went through is younger than that, nobody can have taken it, and `assertFresh()` needs no query.
- * A gap longer than `staleAfter` marks the lock lost for good, and so does a refresh that matches no
- * row: the row is no longer ours.
+ * A thief takes the row only once it is older than `staleAfter`, and deletes it only while it still
+ * carries the `AcquiredAt` it judged. So while the last refresh that went through is younger than
+ * that, nobody can have taken it, and `assertFresh()` needs no query. A refresh that returns more
+ * than `staleAfter` after the previous one marks the lock lost for good, because a thief may have
+ * read the row as stale before it landed; so does a refresh that matches no row.
  */
 class TableLockHeartbeat {
   protected confirmedAt: number;
@@ -340,7 +363,9 @@ class TableLockHeartbeat {
         return;
       }
 
-      this.judge(stamp.getTime());
+      // the time the UPDATE returned, not the stamp: a refresh held back past staleAfter landed after
+      // a thief could already read the row as stale
+      this.judge(Date.now());
 
       if (!this.lost) {
         this.confirmedAt = stamp.getTime();

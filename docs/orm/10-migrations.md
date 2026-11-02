@@ -299,13 +299,13 @@ One migration run per connection at a time, across processes. `up()`, `down()` a
 `OrmDriver.resolve()` registers `TableMigrationLock` as `MigrationLock`, so every driver has it unless the driver registers its own class over the token. `Lock.Mode: 'table'` forces it even then; use it behind PgBouncer in transaction pooling mode, which does not keep a session. `Lock.Mode: 'table'` resolves the `TableMigrationLock` token, so a subclass of it is registered both `.as(MigrationLock)` and `.as(TableMigrationLock)`.
 
 1. It inserts row `Id = 1` into `<Table>_lock`, with `AcquiredAt` and `Owner` (`<hostname>:<pid>:<nonce>`). The unique `Id` lets the database pick the winner.
-2. When the insert fails and the holder's `AcquiredAt` is older than `Lock.StaleAfter`, it logs a warning, deletes the row where `Owner` is still that holder's and retries at once. Two runs that judge one dead row together cannot both win: the second DELETE matches nothing. One acquisition steals at most `MIGRATION_LOCK_MAX_STEALS` (3) times.
+2. When the insert fails and the holder's `AcquiredAt` is older than `Lock.StaleAfter`, it logs a warning, deletes the row where `Owner` and `AcquiredAt` are still the ones it read and retries at once. Two runs that judge one dead row together cannot both win: the second DELETE matches nothing, and neither does a DELETE of a row its holder refreshed after it was read. One acquisition steals at most `MIGRATION_LOCK_MAX_STEALS` (3) times.
 3. Otherwise it polls every `MIGRATION_LOCK_POLL_INTERVAL` (500 ms) until `Lock.Timeout`, then throws `OrmException` naming the holder and the time its row goes stale. `migrate-resolve` after a crash waits the same way: wait until then, or delete the row from `<Table>_lock` by hand.
 4. While held, it refreshes `AcquiredAt` every `StaleAfter / 3` where `Owner` is its own, so only the row of a holder that stopped refreshing goes stale. A failed refresh is logged.
-5. `assertHeld()` fails once no refresh has gone through for longer than `StaleAfter`, or once a refresh matched no row: another run may have taken the row, or has.
+5. `assertHeld()` fails once no refresh has gone through for longer than `StaleAfter`, or once a refresh matched no row: another run may have taken the row, or has. A refresh counts by the time its UPDATE returned, so one held back past `StaleAfter` still fails the run. A driver that reports no row count, such as mssql with `NOCOUNT ON`, leaves only the `StaleAfter` rule.
 6. `release()` stops the refresh and deletes row `Id = 1` only while `Owner` is its own, so a run that lost the row never deletes the row of the run that took it.
 
-A dialect lock that also takes the row calls `acquireUnderAdvisory(request)` while it holds its advisory lock. The row's `Owner` then ends with `MIGRATION_LOCK_ADVISORY_SUFFIX` (`:advisory`). Such a row found by the next advisory holder is deleted at once, because its writer lost the advisory lock; a row without the suffix keeps the `StaleAfter` rule, and `acquire()` keeps it for every row.
+A dialect lock that also takes the row calls `acquireUnderAdvisory(request)` while it holds its advisory lock. The row's `Owner` then ends with `migrationLockAdvisoryMark(request.key)`: `:advisory:` and the first 8 hex chars of the SHA-256 of the key. A row with the same mark found by the next advisory holder is deleted at once, because its writer lost that advisory lock. Any other row keeps the `StaleAfter` rule: a row without a mark, a row of an earlier release ending in `:advisory`, and a row marked under another key, which two configs spelling one table differently (`Schema` unset and `'public'`) both reach. `acquire()` keeps the rule for every row. Call `acquireUnderAdvisory()` only while holding the advisory lock exclusively for this acquisition, on a session of its own: advisory locks are re-entrant per session.
 
 `StaleAfter` applies to this lock only. Staleness is judged by the client clock, so hosts whose clocks disagree steal early or wait long by the skew. `status()` reports a row as interrupted only once no fresh lock row exists, so with `Lock.Enabled: false` it reports every open row as interrupted.
 
@@ -402,7 +402,7 @@ The name comes from `Migration.Table`. `IMigrationRecord` is the row type.
 | --- | --- | --- |
 | `Id` | `int`, unique, not null | Always `1`; the unique constraint makes the insert the lock. |
 | `AcquiredAt` | `dateTime`, not null | Client time the lock was taken or last refreshed. |
-| `Owner` | `string(255)`, not null | `<hostname>:<pid>:<nonce>` of the holder, with `:advisory` appended when the holder also holds the driver's advisory lock. |
+| `Owner` | `string(255)`, not null | `<hostname>:<pid>:<nonce>` of the holder, with `:advisory:<hash8>` of the advisory key appended when the holder also holds the driver's advisory lock. |
 
 ## Services and extension points
 
