@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { DefaultMigrationService, IMigrationLockHandle, IMigrationLockRequest, MigrationLockLostException, Orm, OrmDriver, TableMigrationLock, migrationLockKey } from '@spinajs/orm';
+import { DefaultMigrationService, IMigrationLockHandle, IMigrationLockRequest, MigrationLockLostException, Orm, QueryContext, OrmDriver, OrmException, TableMigrationLock, migrationLockKey } from '@spinajs/orm';
 import { expect } from 'chai';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
@@ -122,6 +122,43 @@ describe('sqlite TableMigrationLock', function () {
 
     await second.assertHeld();
     await second.release();
+  });
+
+  describe('AcquiredAt text the converter did not write', () => {
+    const pad = (n: number, width = 2) => String(n).padStart(width, '0');
+    // what SpinaJS 2.x wrote: the local wall clock, no zone
+    const local = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+
+    const writeRaw = async (text: string, owner = 'dead') => {
+      await driver.del().from(LOCK_TABLE).where({ Id: 1 });
+      await (driver as SqliteOrmDriver).executeOnDb(`INSERT INTO ${LOCK_TABLE} (Id, AcquiredAt, Owner) VALUES (1, ?, ?)`, [text, owner], QueryContext.Insert);
+    };
+
+    const old = () => new Date(Date.now() - 3_600_000);
+
+    for (const [label, text] of [
+      ['a SpinaJS 2.x local SQL text', () => local(old())],
+      ['ISO without milliseconds', () => old().toISOString().replace(/\.\d{3}Z$/, 'Z')],
+      ['ISO with a +00:00 offset', () => old().toISOString().replace('Z', '+00:00')],
+    ] as const) {
+      it(`removes a stale row whose AcquiredAt is ${label}`, async () => {
+        await writeRaw(text());
+
+        const lock = await new TableMigrationLock(driver).acquire(request({ timeout: 1_500, staleAfter: 5_000 }));
+
+        expect((await row()).Owner).to.eq(lock.holder);
+        await lock.release();
+      });
+    }
+
+    it('names the lock table and the value when AcquiredAt cannot be read', async () => {
+      await writeRaw('garbage');
+
+      const error = await settle(new TableMigrationLock(driver).acquire(request({ timeout: 300, staleAfter: 5_000 }))).then((r) => r.error);
+
+      expect(error).to.be.instanceOf(OrmException);
+      expect((error as Error).message).to.contain(LOCK_TABLE).and.contain('garbage').and.contain('by hand');
+    });
   });
 
   it('a thief does not delete a row refreshed after it read the row as stale', async () => {
