@@ -1,6 +1,6 @@
 import { Autoinject, ClassInfo, Container, IContainer, Injectable, Singleton } from '@spinajs/di';
 import { effectiveManifestOf } from '@spinajs/configuration';
-import { controllerMountPath, type ControllerEntry, type RouteEntry } from '@spinajs/manifest';
+import { controllerMountPath, ownEntries, type ControllerEntry, type RouteEntry } from '@spinajs/manifest';
 import type { BaseController } from './base-controller.js';
 import { ControllerMetadataProvider } from './controller-metadata.js';
 import { parseFnParamNames } from './cache-helpers.js';
@@ -30,7 +30,7 @@ export class ManifestControllerMetadata extends ControllerMetadataProvider {
   @Autoinject(Container)
   protected Container!: IContainer;
 
-  /** Matched like request validation matches routes: by class name, and by mount path when the name is taken twice. */
+  /** Matched like request validation matches routes: by class name, and by file or mount path when the name is taken twice. */
   protected entry(controller: ClassInfo<BaseController>): ControllerEntry | undefined {
     const effective = effectiveManifestOf(this.Container);
     if (!effective?.manifest || effective.settings.mode === 'off') {
@@ -38,13 +38,9 @@ export class ManifestControllerMetadata extends ControllerMetadataProvider {
     }
 
     const candidates = effective.manifest.controllers.filter((c) => c.className === controller.name);
-    if (candidates.length <= 1) {
-      return candidates[0];
-    }
-
     const mountPath = controller.instance?.BasePath;
-    const matching = candidates.filter((c) => (c.mountPath ?? controllerMountPath(c.basePath, c.className)) === mountPath);
-    return matching.length === 1 ? matching[0] : undefined;
+    const own = ownEntries(candidates, { file: controller.file, matches: (c) => (c.mountPath ?? controllerMountPath(c.basePath, c.className)) === mountPath }, effective.manifest);
+    return own.length === 1 ? own[0] : undefined;
   }
 
   public supports(controller: ClassInfo<BaseController>): boolean {
@@ -52,8 +48,8 @@ export class ManifestControllerMetadata extends ControllerMetadataProvider {
   }
 
   /**
-   * The compiler records only the argument decorators it knows; an argument under another one ( orm-http's `@Filter`,
-   * `@CurrentUser`, an app's own `Parameter()` decorator ) has no entry and keeps the name the handler declares.
+   * The compiler records every decorated argument; an argument of a route inherited from another class is not on this
+   * entry, and a handler's undecorated one has no entry at all: those keep the name the handler declares.
    */
   public parameters(controller: ClassInfo<BaseController>, method: string): Promise<string[]> {
     const route = this.entry(controller)?.routes.find((r) => r.handler === method);

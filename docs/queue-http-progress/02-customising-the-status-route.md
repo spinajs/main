@@ -146,7 +146,7 @@ DI.register(BackgroundTasksController).as(JobsController);
 
 ### Unmount the route
 
-Config arrays concatenate, so an app cannot drop the package's directory from `system.dirs.controllers`. Filter `JobsController` out of the list `Controllers` mounts instead.
+`system.dirs.*` arrays concatenate, so an app cannot drop the package's directory from `system.dirs.controllers`. Filter `JobsController` out of the list `Controllers` mounts instead.
 
 ```ts sample
 import { ClassInfo, DI } from '@spinajs/di';

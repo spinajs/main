@@ -55,8 +55,10 @@ describe("@spinajs/internal-logger", () => {
 
     await DI.resolve(Configuration);
 
-    expect(spy.calledOnce).to.be.true;
-    expect((spy.args[0] as any)[0]).to.have.property("Level", LogLevel.Info);
+    // The first resolve of Configuration also flushes its own load entries through the same buffer.
+    const ours = spy.args.map((args: any[]) => args[0] as { Level: LogLevel; Variables: { message?: string } }).filter((entry) => entry.Variables.message === "hello world");
+    expect(ours).to.have.length(1);
+    expect(ours[0]).to.have.property("Level", LogLevel.Info);
   });
 
   it("Shold write log after botstrapped & before configuration", async () => {

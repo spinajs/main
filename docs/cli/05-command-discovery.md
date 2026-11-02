@@ -4,7 +4,7 @@
 
 ## How it works
 
-1. **Config merge.** `@spinajs/configuration` loads every config file and merges arrays by concatenation, so `system.dirs.cli` collects the entries of this package, of every other `@spinajs/*` package and of your app.
+1. **Config merge.** `@spinajs/configuration` loads every config file and concatenates the `system.dirs.*` arrays, so `system.dirs.cli` collects the entries of this package, of every other `@spinajs/*` package and of your app.
 2. **Listing.** `Cli.Commands` is a property decorated `@ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.cli')` from `@spinajs/reflection`. Reading it the first time:
    - drops duplicate directories and skips a missing one with the warning `Directory ... not exists`;
    - globs every `.ts` and `.js` file below each directory, recursively, except `.d.ts`;
@@ -105,7 +105,7 @@ export class PrintCommand extends CliCommand { /* ... */ }
 ```ts sample
 import { join, resolve } from 'path';
 
-// config/cli.ts of the application. Arrays merge by concatenation, so the
+// config/cli.ts of the application. system.dirs arrays concatenate, so the
 // package directories (fs, http, orm-cli, ...) stay in the list.
 const config = {
   system: {

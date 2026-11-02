@@ -39,6 +39,24 @@
             "$ref": "#/definitions/SocketContractEntry"
           }
         },
+        "controllerBases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ControllerEntry"
+          }
+        },
+        "socketControllerBases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SocketControllerEntry"
+          }
+        },
+        "classProperties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ClassPropertiesEntry"
+          }
+        },
         "configModules": {
           "type": "array",
           "items": {
@@ -79,6 +97,12 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/QueueMessageEntry"
+          }
+        },
+        "scanFiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ScanFile"
           }
         },
         "schemas": {
@@ -148,6 +172,9 @@
               "fragment"
             ]
           }
+        },
+        "buildEnv": {
+          "type": "string"
         },
         "generatedAt": {
           "type": "string"
@@ -485,14 +512,11 @@
             "$ref": "#/definitions/RouteEntry"
           }
         },
-        "propertyInjects": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/PropertyInject"
-          }
-        },
         "condition": {
           "$ref": "#/definitions/Condition"
+        },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
         },
         "source": {
           "$ref": "#/definitions/SourceRef"
@@ -696,6 +720,9 @@
         },
         "ref": {
           "$ref": "#/definitions/RuntimeTypeRef"
+        },
+        "refProblem": {
+          "type": "string"
         }
       },
       "required": [
@@ -745,6 +772,10 @@
         "field"
       ]
     },
+    "MountedBy": {
+      "type": "string",
+      "const": "di"
+    },
     "SocketControllerEntry": {
       "type": "object",
       "properties": {
@@ -784,11 +815,35 @@
             ]
           }
         },
-        "propertyInjects": {
+        "diArgs": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/PropertyInject"
+            "type": "object",
+            "properties": {
+              "handler": {
+                "type": "string"
+              },
+              "index": {
+                "type": "number"
+              },
+              "ref": {
+                "$ref": "#/definitions/RuntimeTypeRef"
+              },
+              "refProblem": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "handler",
+              "index"
+            ]
           }
+        },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
+        "exported": {
+          "$ref": "#/definitions/NotExported"
         },
         "source": {
           "$ref": "#/definitions/SourceRef"
@@ -869,6 +924,10 @@
         "source"
       ]
     },
+    "NotExported": {
+      "type": "boolean",
+      "const": false
+    },
     "SocketContractEntry": {
       "type": "object",
       "properties": {
@@ -925,6 +984,32 @@
       "additionalProperties": {
         "$ref": "#/definitions/TypeRef"
       }
+    },
+    "ClassPropertiesEntry": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "className": {
+          "type": "string"
+        },
+        "properties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PropertyInject"
+          }
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "id",
+        "className",
+        "properties",
+        "source"
+      ]
     },
     "ConfigModuleEntry": {
       "type": "object",
@@ -1070,6 +1155,12 @@
         "file": {
           "type": "string"
         },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
+        "exported": {
+          "$ref": "#/definitions/NotExported"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -1093,6 +1184,12 @@
         },
         "options": {
           "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"
+        },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
+        "exported": {
+          "$ref": "#/definitions/NotExported"
         },
         "source": {
           "$ref": "#/definitions/SourceRef"
@@ -1158,6 +1255,9 @@
         "parent": {
           "type": "string"
         },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -1199,6 +1299,31 @@
         "payload",
         "options",
         "source"
+      ]
+    },
+    "ScanFile": {
+      "type": "object",
+      "properties": {
+        "section": {
+          "$ref": "#/definitions/ManifestSection"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "section",
+        "source"
+      ]
+    },
+    "ManifestSection": {
+      "type": "string",
+      "enum": [
+        "controllers",
+        "socketControllers",
+        "schedules",
+        "commands",
+        "migrations"
       ]
     },
     "Diagnostic": {
@@ -1294,6 +1419,24 @@
             "$ref": "#/definitions/SocketContractEntry"
           }
         },
+        "controllerBases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ControllerEntry"
+          }
+        },
+        "socketControllerBases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SocketControllerEntry"
+          }
+        },
+        "classProperties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ClassPropertiesEntry"
+          }
+        },
         "configModules": {
           "type": "array",
           "items": {
@@ -1334,6 +1477,12 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/QueueMessageEntry"
+          }
+        },
+        "scanFiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ScanFile"
           }
         },
         "schemas": {

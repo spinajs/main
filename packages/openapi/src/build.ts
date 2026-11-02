@@ -1,3 +1,4 @@
+import { publishedManifest } from '@spinajs/manifest';
 import type { Manifest } from '@spinajs/manifest';
 import type { OpenAPIV3_1 } from 'openapi-types';
 import { createComponentRegistry } from './components.js';
@@ -35,7 +36,8 @@ function topLevelSecurity(options: OpenApiOptions): OpenAPIV3_1.SecurityRequirem
   return first === undefined ? undefined : [{ [first]: [] }];
 }
 
-export function manifestToOpenApi(manifest: Manifest, options: OpenApiOptions): OpenAPIV3_1.Document {
+export function manifestToOpenApi(fullManifest: Manifest, options: OpenApiOptions): OpenAPIV3_1.Document {
+  const manifest = publishedManifest(fullManifest);
   const errorSchemaId = options.errorSchemaId ?? DEFAULT_ERROR_SCHEMA_ID;
   const registry = createComponentRegistry(schemasWithError(manifest, errorSchemaId, options.errorSchema));
   const paths = buildPaths(manifest, registry, { errorSchemaId, basePath: options.basePath ?? '', routePrefix: options.routePrefix });

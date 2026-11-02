@@ -1,3 +1,4 @@
+import { publishedManifest } from '@spinajs/manifest';
 import type { Manifest } from '@spinajs/manifest';
 import { emitDtoTypes } from './generate/dto-types.js';
 import { controllerBase, controllerKey, routeSignature } from './generate/routes.js';
@@ -14,7 +15,7 @@ export interface GenerateClientOptions {
 
 /** Generates TypeScript source for a typed HTTP client (and socket contracts) from an application manifest. */
 export async function generateClient(options: GenerateClientOptions): Promise<string> {
-  const { manifest } = options;
+  const manifest = publishedManifest(options.manifest);
   const moduleName = options.moduleName ?? '@spinajs/client/runtime';
   const includeSocket = options.includeSocket ?? manifest.socketControllers.length > 0;
   const ctx = new TypeContext(manifest);

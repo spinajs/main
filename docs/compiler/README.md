@@ -18,7 +18,7 @@ npm install --save-dev @spinajs/compiler
 ## `analyzePackage`
 
 ```text
-analyzePackage({ tsconfig, packageRoot, schemaDerivation? }): Promise<ManifestFragment>
+analyzePackage({ tsconfig, packageRoot, schemaDerivation?, effectiveDirs?, defaultDirs?, requireAppDirs? }): Promise<ManifestFragment>
 ```
 
 | Option | Meaning |
@@ -26,6 +26,10 @@ analyzePackage({ tsconfig, packageRoot, schemaDerivation? }): Promise<ManifestFr
 | `tsconfig` | Path to the `tsconfig` that lists the package sources. Files under its `rootDir` (default: the `tsconfig` folder) that are not declaration files are analyzed. |
 | `packageRoot` | Folder with the package's `package.json`. Every `source.file` in the result is relative to it, with forward slashes. |
 | `schemaDerivation` | Accepted for forward compatibility. It has no effect yet: extractors do not derive JSON Schemas from types. |
+| `effectiveDirs` | The app's `system.dirs` by key, as plain data. A controller, socket controller, schedule, command or migration that a scan of them does not bring in gets `mountedBy: 'di'`, and the files such a scan imports that no loaded entry brings in go to `scanFiles`; see [The app's own classes](../manifest/README.md#the-apps-own-classes). Omitted, nothing is marked. The analyzer never evaluates config: `spinajs build` reads these from the booted `Configuration`. |
+| `defaultDirs` | Dirs that apply while a key of `effectiveDirs` is empty. They filter their section but prove nothing about the config. |
+| `runAppRoot` | `<appBaseDir>/<app>`. The runtime adds a dir under it for every key, so `CMP008` skips those. |
+| `requireAppDirs` | Throw `NoAppDirs` before anything is written when the app has a class in one of the five sections and no dir of `effectiveDirs` maps into the app. Otherwise that means the app declares none, and every class is marked. |
 
 The fragment's `package` member comes from `package.json` and the `tsconfig`:
 
@@ -42,10 +46,10 @@ The same sources always give the same fragment. Source files are visited in path
 ## `buildAppManifest`
 
 ```text
-buildAppManifest({ tsconfig, appRoot, out?, schemaDerivation? }): Promise<{ manifest, written }>
+buildAppManifest({ tsconfig, appRoot, out?, schemaDerivation?, effectiveDirs?, defaultDirs?, requireAppDirs? }): Promise<{ manifest, written }>
 ```
 
-1. Analyzes the application with `analyzePackage`.
+1. Analyzes the application with `analyzePackage`, passing `effectiveDirs`, `defaultDirs` and `requireAppDirs` on.
 2. Calls `locateFragments(appRoot)` to find the fragment of every package in the app's installed dependency closure.
 3. Reads and validates each fragment, then calls `mergeFragments`. Dependencies come first, the application last, so the application wins where the last registration wins at runtime.
 4. Computes `hash` with `hashManifest` and writes the file. `out` defaults to `<appRoot>/app.manifest.json`.
@@ -120,7 +124,7 @@ A service, value or controller that is registered conditionally carries a `condi
 
 ### Runtime types
 
-Route arguments, socket `@Payload` types and `@Autoinject()` / `@LazyInject()` properties that name no type carry a `ref`: the value `emitDecoratorMetadata` would record, so an app that boots from a manifest can be built without decorator metadata. Return types, model columns and contract types carry none.
+Every decorated route argument, socket `@Payload` and `@FromDI()` types, and `@Autoinject()` / `@LazyInject()` properties that name no type carry a `ref`: what the runtime reads where `emitDecoratorMetadata` would have recorded a value, so an app that boots from a manifest can be built without decorator metadata. It works on the checked type, not on the annotation, so it differs from the metadata in the cases listed under the table. Return types, model columns and contract types carry none.
 
 | Declared type | `ref` |
 | --- | --- |
@@ -131,9 +135,30 @@ Route arguments, socket `@Payload` types and `@Autoinject()` / `@LazyInject()` p
 | An exported class of a dependency that ships a manifest fragment | `{ package, file: 'lib/x.js', export }` (the JavaScript next to its declaration file) |
 | A function type | the global `Function` |
 | An interface, a type literal, `any`, `unknown`, a union of different types | the global `Object` |
+| The static side of a class (`typeof Foo`) | the global `Object` |
+| A global no runtime provides on Node (`HTMLElement`, `declare global { class X {} }`), a `declare class` | the global `Object` |
 | `null`, `undefined`, `void` | none |
 
-A class without a `ref` is reported as `TYP001` (not exported) or `TYP002` (declared in a package without a manifest fragment, or in an ambient module such as `node:async_hooks`). An enum records `Number` or `String`, as the metadata does, not the enum object. Property injections are recorded on `services`, and also on `controllers` and `socketControllers` (`propertyInjects`, omitted when empty), with the declared type as `tokenRef`.
+Where `ref` and the metadata differ, because the checked type knows more than the annotation:
+
+| Declared | `ref` | Metadata |
+| --- | --- | --- |
+| `import type { Dto }`, then `dto: Dto` | the class, which the runtime imports | `Object` |
+| A parameter with no annotation (`page = 5`) | `Number` | `Object` |
+| An interface with a call signature | `Function` | `Object` |
+| `declare global { class X {} }` that a polyfill provides at runtime | `Object` | `X` |
+| `@Autoinject(Plugin) byName: ByName`, with `type ByName = Map<string, Plugin>` | `array: true` in `classProperties`, the map | `Object`, one instance |
+| `@Autoinject(Plugin) all: Plugins \| null`, with `type Plugins = Plugin[]` | `array: true` in `classProperties`, the list | `Object`, one instance |
+
+A class without a `ref` is reported as `TYP001` (not exported) or `TYP002` (declared in a package without a manifest fragment, or in an ambient module such as `node:async_hooks`). An enum records `Number` or `String`, as the metadata does, not the enum object.
+
+A parameter under a decorator the compiler does not know (`@Filter`, `@CurrentUser`, an app's own `Parameter()`) is recorded with `kind: 'Decorated'` and `wire: { in: 'none', shape: 'whole' }`: it has a type, and generators and request validation skip it. Socket `@FromDI()` types are in `socketControllers[].diArgs`, by handler and index, hooks included.
+
+An abstract controller, or one that `declaredDirsOnly` leaves out, goes to `controllerBases`: nothing mounts it, and the runtime finds the routes a subclass inherits there. `socketControllerBases` does the same for socket controllers, and also holds an undecorated class that declares handlers.
+
+A class without a `ref` records why in `refProblem`, which the runtime puts in its error. For the kinds that never read the type (`@Req`, `@Res`, `@Ip`, `@RequestId`, `@UserAgent`, `@Referer`, `@RawBody`, `@AcceptType`, `@RequestStream`, `@ContentDigest`) it records `Object` instead.
+
+A package built with `emitDecoratorMetadata: false` also gets `classProperties`: one entry per class with a decorated property, whatever the class is, keyed by `id` (`<package>:<class>`). Each `@Autoinject`, `@LazyInject`, `@AutoinjectService`, `@HasMany`, `@HasManyToMany`, `@Virtual` or `@JunctionTable` property has `array`, decided from what the type resolves to, so an alias and `readonly T[]` count, and, when the decorator names no type, the declared type as `tokenRef`. A property under any other decorator, other than the ones that inject by their own arguments (`@Logger`, `@Config`, `@FileSystem`), has `array` alone, because the decorator may wrap `@Autoinject(X)`; a row without `tokenRef` imports nothing. A package built with metadata has none: the runtime imports every `tokenRef` at boot, and such a build would not read them. `services[].propertyInjects` records `tokenRef` too.
 
 ## Schema derivation
 
@@ -161,6 +186,10 @@ Every diagnostic has a `code`, a `severity` (`error`, `warning`, `info`), a `mes
 | `CMP002` | info | A `@response` JSDoc tag could not be parsed. |
 | `CMP003` | info | A registration has a dynamic condition. |
 | `CMP005` | info | A route argument read from one string (query key, url segment, header, cookie, form field) has a type converted by a custom `@Hydrator`, which receives the raw string. Its `wire.shape` is recorded as `value`; the hydrator decides the real format. |
+| `CMP006` | warning | An app's class is not loaded from the manifest: by the rule of its section, a scan of its `effectiveDirs` does not bring it in. Its entry stays, with `mountedBy: 'di'`; it runs only if something registers it. The message names the class, the file and the dirs searched. |
+| `CMP007` | error | `spinajs build` only: no configured `system.dirs` entry of any section maps to a source folder of the app. The build exits 1 and writes nothing; see [When no dir applies](../manifest/README.md#the-apps-own-classes). |
+| `CMP008` | warning | A configured `system.dirs` entry inside the app has no source folder behind it, so it maps to nothing. Usually a dir computed from the wrong working directory. |
+| `CLI001` | warning | `spinajs build` only: the working directory is not the `tsconfig` folder, and `system.dirs` was computed from it. |
 | `TYP001` | info | `runtime-type-not-exported`: a route argument, socket payload or injected property has a class type that is not exported, so the manifest records no `ref` for it. Without decorator metadata the runtime cannot load it; export the class. |
 | `TYP002` | info | `runtime-type-not-importable`: the class is declared in a package without a manifest fragment (types from `@types/*`), or in an ambient module (`node:async_hooks`). Without decorator metadata the runtime cannot load it; pass the type to the decorator (`@Type(X)`, `@Autoinject(X)`). |
 | `CFG010` | warning | A configuration schema is not a literal with `$id` and `$configurationModule`. |

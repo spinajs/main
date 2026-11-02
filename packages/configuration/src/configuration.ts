@@ -27,10 +27,10 @@ import {
 import { Autoinject, Class, Container, IContainer, Injectable } from '@spinajs/di';
 
 import { ConfigurationViolation, InvalidConfiguration } from './exception.js';
-import { mapObject, mergeArrays, parseArgv, pickObjects, pickString, sameSchema, schemaNameOf } from './util.js';
+import { mapObject, mergeConfig, mergeInto, parseArgv, pickObjects, pickString, sameSchema, schemaNameOf } from './util.js';
 import config, { buildEnvironmentFlags } from './config/configuration.js';
-import './sources.js';
-import { MANIFEST_SETTINGS } from './manifest-runtime.js';
+import { isLayeredSource, type ConfigLayers } from './sources.js';
+import { checkPendingProperties, MANIFEST_SETTINGS, preloadPropertyTypes } from './manifest-runtime.js';
 
 import { default as ajvMergePath } from 'ajv-merge-patch';
 import { default as ajvFormats } from 'ajv-formats';
@@ -175,7 +175,8 @@ export class FrameworkConfiguration extends Configuration {
    */
   constructor(options?: ConfigurationOptions) {
     super();
-    this.CustomConfigPaths = options?.cfgCustomPaths ?? [];
+    const customPath = parseArgv('--config-path');
+    this.CustomConfigPaths = options?.cfgCustomPaths ?? (customPath ? [resolve(customPath)] : []);
     this.RunApp = options?.app ?? parseArgv('--app') ?? '';
     this.AppBaseDir = options?.appBaseDir ?? parseArgv('--apppath') ?? join(process.cwd(), '../apps/');
     this.Env = parseArgv('--env') ?? process.env.APP_ENV;
@@ -242,8 +243,8 @@ export class FrameworkConfiguration extends Configuration {
   public merge(path: string[] | string, value: unknown) {
     assertSafePath(path);
     const schemas = this.schemasAt(path);
-    this.checkChange(schemas, path, (root) => _.mergeWith(_.get(root, path), copyForCheck(value), mergeArrays));
-    _.mergeWith(this.get(path), value, mergeArrays);
+    this.checkChange(schemas, path, (root) => mergeInto(_.get(root, path), copyForCheck(value)));
+    mergeInto(this.get(path), value);
     this.applySchemas(schemas);
   }
 
@@ -292,18 +293,21 @@ export class FrameworkConfiguration extends Configuration {
       if (CHECKED.get(this.Container) === this) CHECKED.delete(this.Container);
       throw e;
     }
+
+    await preloadPropertyTypes(this.Container);
+    checkPendingProperties(this.Container);
   }
 
   public async mergeSource(sType: Class<ConfigurationSource>) {
     const source = this.Container.resolve(sType);
     const sCfg = await source.Load(this);
     const schemas = sCfg ? _.uniq(Object.keys(sCfg).flatMap((k) => this.schemasAt([k]))) : [];
-    this.checkChange(schemas, [], (root) => _.mergeWith(root, copyForCheck(sCfg), mergeArrays));
+    this.checkChange(schemas, [], (root) => mergeConfig(root, copyForCheck(sCfg), 'replace'));
 
     this.Sources.push(source);
 
     if (sCfg) {
-      _.mergeWith(this.Config, sCfg, mergeArrays);
+      mergeConfig(this.Config, sCfg, 'replace');
     }
     this.applySchemas(schemas);
   }
@@ -340,30 +344,22 @@ export class FrameworkConfiguration extends Configuration {
     });
 
     // Defaults of this module, which sources may override. The flags follow the APP_ENV that selects the config files.
-    _.mergeWith(this.Config, _.cloneDeep(config), { configuration: buildEnvironmentFlags({ APP_ENV: appEnv }) }, mergeArrays);
+    mergeConfig(this.Config, _.cloneDeep(config), 'concat');
+    mergeConfig(this.Config, { configuration: buildEnvironmentFlags({ APP_ENV: appEnv }) }, 'concat');
 
     InternalLogger.info({ appEnv: this.get<string>('process.env.APP_ENV') }, 'APP_ENV set to ${appEnv}', 'Configuration');
 
-    for (const source of this.Sources) {
-      const rCfg = await source.Load(this);
-
-      if (rCfg) {
-        _.mergeWith(this.Config, rCfg, mergeArrays);
-      }
-    }
-
-    _.mergeWith(this.Config, this.onLoad(), mergeArrays);
-
-
     /**
-     * Merge from DI container
-     * eg. when custom modules have config and dont want to use files
-     * eg. in webpack environment
+     * Package defaults of modules without config files, eg. in a webpack environment.
+     * Merged at the root: merge() writes nothing at a key no source defines.
      */
-    // Merged at the root: merge() writes nothing at a key no source defines.
-    this.Container.resolve(Array.ofType<IConfigLike>(CONFIGURATION_SOURCES.key)).forEach((c: IConfigLike) => {
-      _.mergeWith(this.Config, c, mergeArrays);
-    });
+    const defaults: IConfigLike = {};
+    this.Container.resolve(Array.ofType<IConfigLike>(CONFIGURATION_SOURCES.key)).forEach((c: IConfigLike) => mergeConfig(defaults, c, 'concat'));
+
+    await this.mergeSources(defaults);
+
+    mergeConfig(this.Config, this.onLoad(), 'replace');
+
 
     // Every source, onLoad and DI value may set system.manifest; what was decided before the package configs loaded wins.
     const manifestSettings = this.Container.get(MANIFEST_SETTINGS, false);
@@ -404,6 +400,46 @@ export class FrameworkConfiguration extends Configuration {
       system: { ...(this.Config.system as {}) },
       ...mapObject(_.omit(this.Config, ['system']), proxyFunc),
     });
+  }
+
+  private async mergeSources(defaults: IConfigLike) {
+    let files: ConfigLayers[] = [];
+    let packageDefaults = defaults;
+
+    // Merged over the tree, the package layer would replace defaults already there: they join the first one instead.
+    if (!this.Sources.some(isLayeredSource)) {
+      mergeConfig(this.Config, packageDefaults, 'concat');
+    }
+
+    const mergeFiles = () => {
+      if (files.length === 0) return;
+      this.mergeFileLayers(files, packageDefaults);
+      files = [];
+      packageDefaults = {};
+    };
+
+    for (const source of this.Sources) {
+      if (isLayeredSource(source)) {
+        files.push(await source.LoadLayers(this));
+        continue;
+      }
+
+      mergeFiles();
+
+      const rCfg = await source.Load(this);
+      if (rCfg) {
+        mergeConfig(this.Config, rCfg, 'replace');
+      }
+    }
+
+    mergeFiles();
+  }
+
+  // Packages of every format below the app of every format, so a package JSON cannot drop what a package JS file added.
+  private mergeFileLayers(files: ConfigLayers[], packages: IConfigLike) {
+    files.forEach((f) => mergeConfig(packages, f.packages, 'concat'));
+    mergeConfig(this.Config, packages, 'replace');
+    files.forEach((f) => mergeConfig(this.Config, f.app, 'replace'));
   }
 
   protected async loadProtocolVars() {
@@ -601,7 +637,9 @@ export class FrameworkConfiguration extends Configuration {
       // An unconfigured module still gets its schema defaults, unless the schema needs values from the app.
       const empty = {};
       if (this.Validator.validate(s, empty)) {
-        _.set(this.Config, s.$configurationModule, empty);
+        // A schema over this path that refuses an empty section would judge one nobody set, and its verdict would depend
+        // on which module is checked first.
+        if (!_.isEmpty(empty) || this.ownersAcceptEmpty(s)) _.set(this.Config, s.$configurationModule, empty);
       } else {
         InternalLogger.warn({ module: s.$configurationModule }, 'Cannot validate configuration for module ${module}, configuration is not set', 'Configuration');
       }
@@ -616,6 +654,16 @@ export class FrameworkConfiguration extends Configuration {
     }
 
     return this.failureOf(s);
+  }
+
+  private ownersAcceptEmpty(s: IConfigurationSchema): boolean {
+    const path = _.toPath(s.$configurationModule);
+    return this.schemasOfLineage().every((owner) => {
+      const module = _.toPath(owner.$configurationModule);
+      if (module.length >= path.length || !_.isEqual(module, path.slice(0, module.length))) return true;
+      const value = copyForCheck(_.get(this.Config, module) ?? {}) as object;
+      return this.Validator.validate(owner, _.set(value, path.slice(module.length), {}));
+    });
   }
 
   // The violations of the last failed this.Validator.validate(s, ...) call.

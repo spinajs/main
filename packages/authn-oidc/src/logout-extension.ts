@@ -1,5 +1,6 @@
 import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn-http/register-schema';
 import type { Session } from '@spinajs/authn/contracts';
 import { AuthnLogoutExtension, proxyTrustOf, publicOriginOf } from '@spinajs/authn-http';
 import { isTrustedPeer } from '@spinajs/http';

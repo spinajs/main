@@ -47,7 +47,7 @@ The `system.manifest` configuration section (`path`, default `app.manifest.json`
 
 It registers the result under `MANIFEST_SETTINGS` and the loaded manifest under `MANIFEST` (`MANIFEST_TOKEN`), and the final configuration's `system.manifest` is set to the result, whatever a later source or `onLoad` merged there. The file sources, `ListFromFiles` / `ResolveFromFiles` (`@spinajs/reflection`) and the http and orm sources read `manifestSettingsOf(container)` / `activeManifestOf(container)`; socket contract enforcement (`@spinajs/http-socket`) and `SwaggerService` (`@spinajs/http-swagger`) read `effectiveManifestOf(container)`, which falls back to the `system.manifest` key and the file it names only in an app whose container holds no decision (built without the configuration source); contract testing (`@spinajs/testing`) defaults to the manifest the app container registered; a `system.manifest` key that reaches the configuration any other way switches nothing. An unknown key in the app's `system.manifest` is logged as a warning (the schema then drops it). Only the environment and the app's config files set the switch; a `system.manifest` from another source (a static or remote source, `onLoad`) is replaced by the effective value.
 
-The manifest lists every controller, migration and so on of the app and its listed packages: `system.dirs.*` does not narrow what the manifest sources return. They sort it like a directory scan does (`glob`'s locale-aware order, migrations with the unsuffixed files first), so load order is the same in both modes, although the compiler sorts by code unit to keep hashes stable.
+At runtime `system.dirs.*` does not narrow what the manifest sources return: `spinajs build` decided what the manifest lists (see [The app's own classes](#the-apps-own-classes)). They sort it like a directory scan does (`glob`'s locale-aware order, migrations with the unsuffixed files first), so load order is the same in both modes, although the compiler sorts by code unit to keep hashes stable.
 
 `ListFromFiles` and `ResolveFromFiles` map `configPath` to a manifest section (`MANIFEST_SECTIONS`: `system.dirs.controllers`, `socketControllers`, `schedules`, `cli`, `migrations`), or take it from `options.manifest`. The default mapping applies only without a `typeMatcher`. They read the scanned dirs from the root container's Configuration, and the manifest and its mode from the decorated instance's container lineage.
 
@@ -62,7 +62,7 @@ Check these before you set `prefer` or `require` (`off` changes none of them):
 - **Request arguments are validated against derived schemas.** An argument without an explicit schema (`route.Schema`, the decorator's, the class `@Schema`) is checked against the schema derived from its TypeScript type: wrong types, literal unions and enums, and `NaN` numbers answer 400, and nested objects and single body fields reject undeclared properties. Constraints written only in a removed `@Schema` (`format`, `minLength`, `pattern`) are not derived; keep the `@Schema` or add JSDoc tags. See [Validation from the manifest](../http/04-route-arguments.md#validation-from-the-manifest).
 - **Derived validation has no `$data`.** A class with its own `@Schema` keeps it, so this only reaches a `$data` rule behind a wrapper, such as an argument typed `{ span: Span }` where `Span` uses one: `require` fails the boot and `prefer` leaves that argument unchecked, with a warning. Socket contracts do support `$data`.
 - **Query, path and header values are coerced.** Handlers of `@QueryField()`, `@ParamField()`, `@HeadersField()` and object-typed `@Query()` get the derived types instead of strings: `query.exact === 'true'` turns `false`, because `exact` is now the boolean `true`, `?ids=7` becomes `[7]`, and a repeated scalar (`?page=1&page=2`) answers 400.
-- **Decorator metadata becomes optional.** Argument types (`@Body() dto: Dto`, `@Param() id: number`), socket `@Payload` types and the types of `@Autoinject()` / `@LazyInject()` properties that name none come from the manifest (`TypeRef.ref`, `propertyInjects[].tokenRef`) when the build emits no `design:*` metadata. See [Building without decorator metadata](#building-without-decorator-metadata).
+- **Decorator metadata becomes optional.** Argument types (`@Body() dto: Dto`, `@Param() id: number`), socket `@Payload` and `@FromDI()` types and the types of `@Autoinject()` / `@LazyInject()` properties that name none come from the manifest (`TypeRef.ref`, `diArgs`, `classProperties`) when the build emits no `design:*` metadata. See [Building without decorator metadata](#building-without-decorator-metadata).
 - **Undeclared root keys of a whole body are dropped from the argument.** A DTO built from a whole body (`@Body()` as the only body argument, `@BodyField()`) gets only its declared root keys; read others (`reauthPassword`, a CSRF token) from `req.body`, which stays as sent.
 
 ### Runtime modes
@@ -79,14 +79,98 @@ With a manifest in `require` mode the boot skips: the `node_modules/@spinajs/*` 
 
 `packages/compiler/test/e2e/boot-from-manifest.test.ts` proves this on the `app-basic` fixture: it installs the compiled fixture next to only the `@spinajs` packages it depends on, boots it in `require` mode in a fresh process, and compares what it serves with an `off` boot that scans. Both boots serve the same controllers, schedules, commands, socket commands and migrations; only the order of the migrations differs (discovery lists the app's dir first, the manifest by package).
 
-The manifest holds what discovery finds. The app's own classes are all listed (abstract bases excepted). A dependency's fragment (built with `declaredDirsOnly`, as `scripts/build-fragments.mjs` does) lists a controller, socket controller, schedule, command or migration only when its file is under a `system.dirs.*` dir that the package's own config declares for that section; classes outside them are registered by importing the package (migrations, `AccessPushSocket`) or by an opt-in subpath (`@spinajs/upload/scheduler`), or are not served at all. Abstract classes are never listed.
+The manifest holds what discovery finds. A dependency's fragment (built with `declaredDirsOnly`, as `scripts/build-fragments.mjs` does) lists a controller, socket controller, schedule, command or migration only when its file is under a `system.dirs.*` dir that the package's own config declares for that section; classes outside them are registered by importing the package (migrations, `AccessPushSocket`) or by an opt-in subpath (`@spinajs/upload/scheduler`), or are not served at all. Abstract classes are never listed.
+
+### The app's own classes
+
+`spinajs build` checks the app's controllers, socket controllers, schedules, CLI commands and migrations against the `system.dirs.*` the app runs with. A class discovery never loads is not loaded from the manifest in `prefer` or `require` either. These five are the sections discovery scans; models and queue messages have no `system.dirs` scan and stay as they are.
+
+1. The CLI boots `Configuration` and reads `system.dirs`. That value holds the app's config for this `APP_ENV` and the dirs `--app`, `--apppath` and `--config-path` add. An empty `system.dirs.migrations` falls back to the dirs the orm scans in that case (`defaultMigrationDirs()`).
+2. It hands them to the compiler as data (`buildAppManifest({ effectiveDirs, defaultDirs, requireAppDirs })`); the compiler never evaluates config. Each dir maps back to the sources through the `tsconfig` `outDir` and `rootDir`, so `lib/controllers` becomes `src/controllers`. A dir above the `outDir` or the `rootDir` covers all sources. A dir outside the app, such as a package's, or one with no source folder behind it, maps nothing.
+3. A scan imports every file under a section's dirs, at any depth. Each section then has its own rule for what that brings in, and the build applies it:
+
+| Section | What discovery serves |
+| --- | --- |
+| Controllers, CLI commands | A class a file under the dirs **exports at runtime**, wherever it is declared. A barrel, `export *` and `export const Served = X` count, with the module rules for a name collision: a local export wins over a star, and two stars with different classes export neither. A non-exported class does not count, and neither do the forms that emit nothing: `export type { X }`, `export type *`, `export { type X }`, and `export { X }` of an `import type` |
+| Schedules, socket controllers, migrations | A class in **any file that import loads**: under the dirs, or reached from there by an import that survives compilation. These register themselves as their module is evaluated, so an export is not needed. An import used only as a type is elided, and brings nothing in |
+
+File names count too, as in a scan. Every section but migrations matches `.ts` and `.js` files that are not `.d`, so a `.json` or `.mts` file under a dir is not scanned. A migrations dir matches a name with no dot, or one ending in `.<env>` compared literally with the normalized `APP_ENV`, whatever the rest looks like: `legacy.old.ts`, `helper.util.ts` and `Foo_2026_07_29_10_00_00.test.ts` belong to environments called `old`, `util` and `test`. The environment is known only at boot, so the manifest applies that test there, to entries and scan files alike, and such a file stays out of every other environment. A migration that only a tagged file imports gets `mountedBy`, because it must not load in the others.
+
+| The class | In the manifest | Loaded from the manifest | Reported |
+| --- | --- | --- | --- |
+| Discovery serves it, by the rule of its section | Yes | Yes | No |
+| Anything else | Yes, with `mountedBy: 'di'` | No | `CMP006` warning: class, file, dirs searched |
+
+An entry with `mountedBy` keeps the class's metadata, but nothing imports the class for it. It runs only if something registers it, exactly as in discovery: an import that runs its decorators, `DI.register(X).as(BaseController)` that is really reached, `@Injectable(BaseController)` in a file something imports, your own `ControllerSource`, `Controllers.add()`. The compiler cannot tell whether that happens, so a registered class still gets `CMP006`. When it does run, the runtime finds its entry for parameter names, types without decorator metadata, request validation and socket contracts, and `require` accepts it. Entries that share a class name, such as an abandoned copy of a live controller, are told apart by the class's own file, so a flagged copy does not disturb the live class.
+
+A scan also imports files with no class of their own, and those run: `src/controllers/register.ts` with `DI.register(X).as(BaseController)`, or `src/schedules/index.ts` with `import '../elsewhere/Task.js'`. The manifest lists them in `scanFiles`, per section, and importing a section imports them too, unless the file was not built. Only the app's own `scanFiles` count.
+
+A class in a module that does not export it, in the three sections that register on import, is recorded with `exported: false`. Any other listed class missing from its module means a stale manifest and fails with `ManifestMissing`, in all five sections: rebuild.
+
+The build does not follow `await import()`, because such a call may never run. A class only that loads gets `CMP006`, and it still runs when the call does: the entry keeps its metadata, so only the warning is wrong.
+
+| What reads the manifest | Entries with `mountedBy` |
+| --- | --- |
+| `ManifestControllerSource`, `listFromManifest` (socket controllers, schedules, commands, migrations) | Skipped: this is what keeps the class unloaded |
+| `ManifestControllerMetadata`, the runtime type fill, request validation, socket contracts | Read: a route a registration serves is typed and validated as any other |
+| `spinajs doctor` | Read: a route a registration serves must stay guarded, so its rules report these too |
+| `generate:openapi`, `generate:client`, `generate:asyncapi` | Left out: nothing static can tell that the registration runs. The Swagger UI of `@spinajs/http-swagger` lists what is really mounted, so it shows a class that is served |
+| `manifest:diff` | Left out of routes, migrations and the other contract sections, so a change to such a route is not reported there, and moving a registered class out of the dirs shows as a breaking removal. A change to its permissions is reported, not breaking, and marked as conditional |
+
+**When no dir applies.** What the build does depends on whether the config it read names any folder of the app:
+
+| Case | Result |
+| --- | --- |
+| Some section's configured dirs map into the app | The config was read. A section with no dir is empty: its classes get `mountedBy`, each with `CMP006` |
+| No configured dir of any section maps into the app, and the app has at least one class in the five sections | The build stops with `CMP007`, exit code 1, and writes nothing, naming what it searched. The orm's default migration dirs do not count: they exist without any config. Usual causes: `lib/config` is not compiled, the build runs from another folder, or it lacks the `--app`, `--apppath` or `--config-path` the app runs with |
+| The same, with `--allow-no-dirs` | For an app that really declares no dirs. The build goes on and every class except those under the default migration dirs gets `mountedBy`: nothing loads from the manifest, as nothing loads in discovery |
+| No class in the five sections | Nothing to filter, so the build goes on: a config-only app of framework packages needs no dirs |
+
+**The manifest reflects the config of the build's `APP_ENV`.** A config file of another environment (`*.prod.js`) that adds a dir counts only in a build under that environment. Run `spinajs build` with the `APP_ENV` (or `--env`) and the `--app`, `--apppath` and `--config-path` of the deployment, after compiling: the CLI reads `lib/config`, not `src/config`.
+
+The build records the `APP_ENV` it ran under as `buildEnv` (omitted by a build without configuration). At boot in `prefer` and `require`, a running `APP_ENV` that differs from it logs one warning naming both, with the advice to rebuild; `off` and a manifest without `buildEnv` stay silent. It is only a warning: the dirs may be the same in every environment, and a staging image promoted to production is legitimate. `buildEnv` is part of the manifest hash and `MANIFEST_VERSION` stays 2.
+
+**Run it from the folder the app runs from.** `system.dirs` is usually computed from `process.cwd()`, so the build warns with `CLI001` when that is not the `tsconfig` folder. It is a warning and not a refusal, because an app that runs from its build folder gets the right dirs only from there. A configured dir of the app with no source folder behind it gets `CMP008`, so a partly wrong working directory shows as more than per-class warnings. Paths are compared physically, so a release folder behind a symlink maps either way, and `manifest.app.root` holds the physical path. A manifest carried from one release folder to the next keeps pointing at the old one while that folder exists: set `SPINAJS_MANIFEST_ROOT` in such a layout.
+
+**The CLI sees only what it can read.** `--app`, `--apppath` and `--config-path` stand in for the `app`, `appBaseDir` and `cfgCustomPaths` options. A value an app sets only in code (those options passed to `FrameworkConfiguration`, `configuration.set()`, a `Configuration` subclass) does not reach the build: pass the matching option, or put the value in a config file.
+
+A direct call of `buildAppManifest` without `effectiveDirs` marks nothing.
 
 ### Building without decorator metadata
 
-An app that boots in `prefer` or `require` can compile with `"emitDecoratorMetadata": false` (`experimentalDecorators` stays on). The compiler records what the metadata would have held: `TypeRef.ref` on route arguments and socket payloads, and `tokenRef` on property injections that name no type (see [Runtime types](../compiler/README.md#runtime-types)). At boot:
+An app that boots in `prefer` or `require` can compile with `"emitDecoratorMetadata": false` (`experimentalDecorators` stays on). Set it in the tsconfig `spinajs build` reads: `classProperties` is recorded only then. The compiler records what the metadata would have held (see [Runtime types](../compiler/README.md#runtime-types)). At boot:
 
-- `@spinajs/http` types each argument whose `RuntimeType` is missing before the routes are built, so validation, the scalar schemas and DTO hydration behave as with metadata. `@spinajs/http-socket` does the same for `@Payload` before the handlers register.
-- `@spinajs/di` records an `@Autoinject()` or `@LazyInject()` property without a type as pending. When the owner is resolved, the container asks the property type resolver that `@spinajs/configuration` registers with the manifest decision; the first resolution of such an owner can be asynchronous, because the class file is imported then.
+- `@spinajs/configuration` imports every class `classProperties` names, at the end of `Configuration.resolve()`, so the first resolve of a sync service stays sync. A class that cannot load fails the boot in `require` and is logged in `prefer`. These imports are the one thing a build without metadata does earlier than a build with it: a class file that resolves `Configuration` with a top-level `await` would wait for itself.
+- `@spinajs/http` types each argument whose `RuntimeType` is missing before the routes are built, so validation, the scalar schemas and DTO hydration behave as with metadata. `@spinajs/http-socket` does the same for `@Payload` and `@FromDI()` before the handlers register. Both fill a copy: the class descriptor stays as decorated, several boots in one process do not share what they filled, and the routes a boot serves are `BaseController.Routes`.
+- A route a controller inherits is looked up along its class chain, in `controllers` and then `controllerBases`. Request validation finds it the same way, with metadata too. Socket handlers do the same with `socketControllerBases`, for types, derived payload schemas and contract checks.
+- `@spinajs/di` collects every property decorated without metadata. After `Configuration`, after the controllers load, in `Orm.resolve()` and before socket handlers register, a `require` boot fails listing every one the table lacks, and `prefer` logs a named error for each. That is the signal for a build compiled without metadata from a tsconfig that says otherwise. A class that loads later still fails when its owner is resolved. The list is process-wide, as decorators are, and the table belongs to one manifest: a test process with classes its manifest does not list, or two apps with different manifests in one process, call `forgetPendingProperties(owner?)` from `@spinajs/di` before the boot (see [createTestApp](../testing/01-create-test-app.md#building-without-decorator-metadata)).
+- `@spinajs/di` records an `@Autoinject()` or `@LazyInject()` property as pending. When the owner is resolved, the container asks the property type resolver that `@spinajs/configuration` registers with the manifest decision, for the type and for whether the property is a list: `@Autoinject(X)` on an array or `Map` property injects the list, as with metadata.
 - `resolveTypeRef(ref, manifest)` imports every referenced file through `manifestFileFor` (root containment), memoised per manifest.
 
-In `off` mode nothing is filled: arguments stay untyped, and a property without a type throws `ResolveException` naming the class and the property. In `require` an argument or payload the manifest cannot type fails the boot; in `prefer` it stays untyped with a warning. A type the manifest cannot reference (`TYP001`, `TYP002`), an `@Autoinject(X)` on an array property, and a socket `@FromDI()` argument still need an explicit type.
+What happens when the manifest has no answer:
+
+| Case | `require` | `prefer` | `off`, or no manifest |
+| --- | --- | --- | --- |
+| A route argument, `@Payload` or `@FromDI()` it cannot type, or whose entry describes another argument | fails the boot, with the reason when the compiler recorded one | logs a named error, stays untyped | logs a named error, stays untyped (a `@Payload` is read as a plain object) |
+| An `@Autoinject()` / `@LazyInject()` property the table does not list | fails the boot, listing them | logs a named error at boot; `ResolveException` when the owner is resolved | `ResolveException` when the owner is resolved |
+| An `@Autoinject(X)` / `@LazyInject(X)` property the table does not list | fails the boot, listing them | logs a named error at boot, injects one instance, even for a list | injects one instance, even for a list |
+| A property with a row but no type: a decorator of your own that names no class, a class the manifest cannot name | fails the boot, listing them | logs a named error at boot; `ResolveException` when the owner is resolved | `ResolveException` when the owner is resolved |
+| An `@Autoinject(X)` / `@LazyInject(X)` list resolved before `Configuration` | fails the boot, listing them | logs a named error at boot, keeps the one instance | injects one instance |
+| Two classes of one name, in any packages, that declare the property differently | `ResolveException` | `ResolveException` | |
+
+The runtime knows a class by name alone. Two classes of one name that declare a property alike are fine; rename one otherwise, or pass the type to the decorator.
+
+**Order: `Configuration` comes first.** The manifest is read inside `Configuration.resolve()`, and the property types are ready when it returns. A class with a property that names no type cannot be resolved before that, in any mode: not a `Bootstrapper`, which the entry point resolves first, nor a class your `main` resolves before `Configuration`, nor a `ConfigurationSource`. Such a class throws `ResolveException` saying so. Pass the type to the decorator (`@Autoinject(Dep)`), or resolve `Configuration` first.
+
+A type passed to the decorator works at any time for a single class only. Whether a property is a list comes from the manifest too, so `@Autoinject(Plugin) list: Plugin[]` resolved before `Configuration` gets one instance. The check after `Configuration` then fails a `require` boot, or logs a named error in `prefer`, naming the property. Resolve `Configuration` first, or state the list with `@Autoinject(Array.ofType(Plugin))`.
+
+An argument of a kind that never reads its type (`@Req`, `@Res`, `@Ip`, `@RequestId`, `@UserAgent`, `@Referer`, `@RawBody`, `@AcceptType`, `@RequestStream`, `@ContentDigest`) never fails a boot: an annotation the manifest cannot name records `Object`. Any other argument typed by a class of a package without a manifest fragment, such as luxon's `DateTime` on `@Query()`, fails `require`: name the class with `@Type(DateTime)`.
+
+Models work too. `@HasMany`, `@HasManyToMany`, `@Virtual` and `@JunctionTable` read the class the property declares from `classProperties` when a relation is first built, because a model file loads before the boot. `@AutoinjectService` is typed like `@Autoinject()`. Two things stay different without metadata:
+
+- `@CreatedAt`, `@UpdatedAt`, `@SoftDelete`, `@Archived`, `@DateTime`, `@Bool` and `@Set` use the type only to refuse a wrong one when the class is defined. Without metadata that check does not run: `@Bool() x: string` loads, and gets the boolean converter.
+- A property under a decorator of your own has a row with its list shape and no type, because the compiler knows the decorators by name. A wrapper around `Autoinject(Dep)` works, a list too. A wrapper that names no class fails a `require` boot saying so, and in `prefer` logs a named error and throws `ResolveException` when its owner is resolved or a relation is first built. A relation's wrapper has no type to pass: put `@HasMany` back on the property.
+
+Relations read the root container, as the ORM does elsewhere, so an app in an isolated child container with its own manifest needs `withManifest` to hold it in root.
+
+`packages/compiler/test/e2e/boot-from-manifest.test.ts` boots `app-basic` compiled with `emitDecoratorMetadata: false` in `require`, in a separate process, and compares what it serves with the build that has metadata. `orm-no-metadata.test.ts` does the same for a timestamped model with relations against sqlite.

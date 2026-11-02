@@ -1,3 +1,4 @@
+import { publishedManifest } from '@spinajs/manifest';
 import type { Manifest, SocketCommandEntry, TypeRef } from '@spinajs/manifest';
 
 export interface AsyncApiOptions {
@@ -116,7 +117,8 @@ function addCommand(b: Builder, prefix: string, command: SocketCommandEntry, err
   };
 }
 
-export function manifestToAsyncApi(manifest: Manifest, options: AsyncApiOptions): AsyncApiDocument {
+export function manifestToAsyncApi(fullManifest: Manifest, options: AsyncApiOptions): AsyncApiDocument {
+  const manifest = publishedManifest(fullManifest);
   const b = new Builder(manifest);
   const channels: Record<string, Dict> = {};
   const operations: Record<string, Dict> = {};

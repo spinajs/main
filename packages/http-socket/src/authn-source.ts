@@ -1,6 +1,7 @@
 import { DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
+import '@spinajs/authn/register-schema';
 import { AuthnService, CredentialExtractor } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, SignedRequest } from '@spinajs/authn/contracts';
 import { Unauthenticated, principalKey } from '@spinajs/authz';

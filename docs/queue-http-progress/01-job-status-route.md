@@ -65,7 +65,7 @@ export default {
 };
 ```
 
-Config arrays concatenate across files, so an app config cannot remove this directory. To unmount the route, see [Unmount the route](02-customising-the-status-route.md#unmount-the-route).
+`system.dirs.*` arrays concatenate, so an app config cannot remove this directory. To unmount the route, see [Unmount the route](02-customising-the-status-route.md#unmount-the-route).
 
 Keys of `@spinajs/queue` that change what this route reports:
 

@@ -12,7 +12,7 @@ It does **not** authenticate users or check permissions by itself: it gives you 
 npm install @spinajs/http
 ```
 
-The decorators read TypeScript metadata. Set `experimentalDecorators`, `emitDecoratorMetadata` and `useDefineForClassFields: false` in `tsconfig.json`, as for [`@spinajs/di`](../di/README.md#install). An app that boots from a manifest can drop `emitDecoratorMetadata`: argument types then come from the manifest ([Building without decorator metadata](../manifest/README.md#building-without-decorator-metadata)).
+The decorators read TypeScript metadata. Set `experimentalDecorators`, `emitDecoratorMetadata` and `useDefineForClassFields: false` in `tsconfig.json`, as for [`@spinajs/di`](../di/README.md#install). An app that boots from a manifest can drop `emitDecoratorMetadata`: argument types then come from the manifest ([Building without decorator metadata](../manifest/README.md#building-without-decorator-metadata)). With no manifest to answer, the app logs a named error for each untyped argument at boot.
 
 ## Features
 

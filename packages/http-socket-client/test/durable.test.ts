@@ -213,6 +213,29 @@ describe('DurableQueue', () => {
     expect(Date.now() - started).to.be.at.least(45);
   }).timeout(2_000);
 
+  it('sends a fenced command whose floor timer fires just before Date.now() reaches the floor', async () => {
+    const now = Date.now;
+    let behind = 0;
+    Date.now = () => now() - behind;
+    let fenced = false;
+    server.rawReplies.set('docs.fenced', async (request: CommandRequest) => {
+      if ((request.payload as { n: number }).n === 2 && !fenced) {
+        fenced = true;
+        // past the moment the queue reads the floor, before its timer
+        setTimeout(() => (behind = 30), 20);
+        return { id: request.id, ok: false, error: { code: 'unavailable', message: 'the predecessor has not completed', retryable: true, details: { after: request.after } } };
+      }
+      return { id: request.id, ok: true, result: request.payload };
+    });
+    try {
+      const { queue } = await onlineQueue(server, { reconnect: { minMs: 5_000, maxMs: 5_000, jitter: 0 } });
+
+      expect(await Promise.all([1, 2].map((n) => queue.submit('docs.fenced', { n })))).to.deep.equal([{ n: 1 }, { n: 2 }]);
+    } finally {
+      Date.now = now;
+    }
+  }).timeout(2_000);
+
   it('refuses a payload above maxPayloadBytes, or one that cannot be encoded, before it reaches the store', async () => {
     serveDurable(server, 'docs.submit');
     const { queue, store } = await onlineQueue(server, { durable: { maxPayloadBytes: 100 } });

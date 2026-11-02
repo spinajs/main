@@ -83,6 +83,6 @@ describe('templates-image', function () {
 
   it('should fail when template not exists', async () => {
     const t = await tp();
-    expect(t.renderToFile(dir('templates/template_not_exists.png'), { hello: 'world' }, dir('templates/nope.png'))).to.be.rejected;
+    await expect(t.renderToFile(dir('templates/template_not_exists.png'), { hello: 'world' }, dir('templates/nope.png'))).to.be.rejected;
   });
 });

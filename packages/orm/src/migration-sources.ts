@@ -1,7 +1,8 @@
-import { effectiveManifestOf } from '@spinajs/configuration';
+import { defaultMigrationDirs, effectiveManifestOf } from '@spinajs/configuration';
 import { Configuration, normalizeEnvironment } from '@spinajs/configuration-common';
 import { AsyncService, Autoinject, Class, ClassInfo, Container, DI, IContainer, Injectable } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
+import { migrationScanGlobs } from '@spinajs/manifest';
 import glob from 'glob';
 import _ from 'lodash';
 import * as fs from 'node:fs';
@@ -19,7 +20,7 @@ import { MIGRATIONS } from './tokens.js';
  * itself. One entry per build layout a project might have been compiled to; a migration reachable
  * through more than one resolves to the same class name twice and is deduped by `Orm`.
  */
-export const DEFAULT_MIGRATION_DIRS: string[] = ['src', 'lib', 'dist', 'build', '.'].map((d) => path.resolve(path.normalize(path.join(process.cwd(), d, 'migrations'))));
+export const DEFAULT_MIGRATION_DIRS: string[] = defaultMigrationDirs();
 
 /**
  * `env` ( normalized `process.env.APP_ENV` ) is interpolated straight into a glob pattern in
@@ -98,7 +99,7 @@ export class FilesystemMigrationSource extends MigrationSource {
 
     // `!(*.*)` - a basename with no dot at all, so it also excludes `*.d.ts` for free. `cjs` and
     // `mjs` join `ts`/`js` because an app may author migrations as .mjs or .cjs.
-    const patterns = ['/**/!(*.*).{ts,js,cjs,mjs}', `/**/*.${env}.{ts,js,cjs,mjs}`];
+    const patterns = migrationScanGlobs(env);
 
     const files = _.uniq(dirs)
       .filter((d) => {

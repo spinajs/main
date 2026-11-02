@@ -5,6 +5,9 @@
   "spec": [
     "test/**/*.test.ts"
   ],
+  "file": [
+    "test/support/one-storage.ts"
+  ],
   "ignore": [
     "test/http/**"
   ],

@@ -40,6 +40,24 @@ export const manifestSchema: Record<string, any> = {
             "$ref": "#/definitions/SocketContractEntry"
           }
         },
+        "controllerBases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ControllerEntry"
+          }
+        },
+        "socketControllerBases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SocketControllerEntry"
+          }
+        },
+        "classProperties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ClassPropertiesEntry"
+          }
+        },
         "configModules": {
           "type": "array",
           "items": {
@@ -80,6 +98,12 @@ export const manifestSchema: Record<string, any> = {
           "type": "array",
           "items": {
             "$ref": "#/definitions/QueueMessageEntry"
+          }
+        },
+        "scanFiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ScanFile"
           }
         },
         "schemas": {
@@ -149,6 +173,9 @@ export const manifestSchema: Record<string, any> = {
               "fragment"
             ]
           }
+        },
+        "buildEnv": {
+          "type": "string"
         },
         "generatedAt": {
           "type": "string"
@@ -486,14 +513,11 @@ export const manifestSchema: Record<string, any> = {
             "$ref": "#/definitions/RouteEntry"
           }
         },
-        "propertyInjects": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/PropertyInject"
-          }
-        },
         "condition": {
           "$ref": "#/definitions/Condition"
+        },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
         },
         "source": {
           "$ref": "#/definitions/SourceRef"
@@ -697,6 +721,9 @@ export const manifestSchema: Record<string, any> = {
         },
         "ref": {
           "$ref": "#/definitions/RuntimeTypeRef"
+        },
+        "refProblem": {
+          "type": "string"
         }
       },
       "required": [
@@ -746,6 +773,10 @@ export const manifestSchema: Record<string, any> = {
         "field"
       ]
     },
+    "MountedBy": {
+      "type": "string",
+      "const": "di"
+    },
     "SocketControllerEntry": {
       "type": "object",
       "properties": {
@@ -785,11 +816,35 @@ export const manifestSchema: Record<string, any> = {
             ]
           }
         },
-        "propertyInjects": {
+        "diArgs": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/PropertyInject"
+            "type": "object",
+            "properties": {
+              "handler": {
+                "type": "string"
+              },
+              "index": {
+                "type": "number"
+              },
+              "ref": {
+                "$ref": "#/definitions/RuntimeTypeRef"
+              },
+              "refProblem": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "handler",
+              "index"
+            ]
           }
+        },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
+        "exported": {
+          "$ref": "#/definitions/NotExported"
         },
         "source": {
           "$ref": "#/definitions/SourceRef"
@@ -870,6 +925,10 @@ export const manifestSchema: Record<string, any> = {
         "source"
       ]
     },
+    "NotExported": {
+      "type": "boolean",
+      "const": false
+    },
     "SocketContractEntry": {
       "type": "object",
       "properties": {
@@ -926,6 +985,32 @@ export const manifestSchema: Record<string, any> = {
       "additionalProperties": {
         "$ref": "#/definitions/TypeRef"
       }
+    },
+    "ClassPropertiesEntry": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "className": {
+          "type": "string"
+        },
+        "properties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PropertyInject"
+          }
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "id",
+        "className",
+        "properties",
+        "source"
+      ]
     },
     "ConfigModuleEntry": {
       "type": "object",
@@ -1071,6 +1156,12 @@ export const manifestSchema: Record<string, any> = {
         "file": {
           "type": "string"
         },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
+        "exported": {
+          "$ref": "#/definitions/NotExported"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -1094,6 +1185,12 @@ export const manifestSchema: Record<string, any> = {
         },
         "options": {
           "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"
+        },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
+        "exported": {
+          "$ref": "#/definitions/NotExported"
         },
         "source": {
           "$ref": "#/definitions/SourceRef"
@@ -1159,6 +1256,9 @@ export const manifestSchema: Record<string, any> = {
         "parent": {
           "type": "string"
         },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -1200,6 +1300,31 @@ export const manifestSchema: Record<string, any> = {
         "payload",
         "options",
         "source"
+      ]
+    },
+    "ScanFile": {
+      "type": "object",
+      "properties": {
+        "section": {
+          "$ref": "#/definitions/ManifestSection"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "section",
+        "source"
+      ]
+    },
+    "ManifestSection": {
+      "type": "string",
+      "enum": [
+        "controllers",
+        "socketControllers",
+        "schedules",
+        "commands",
+        "migrations"
       ]
     },
     "Diagnostic": {
@@ -1295,6 +1420,24 @@ export const manifestSchema: Record<string, any> = {
             "$ref": "#/definitions/SocketContractEntry"
           }
         },
+        "controllerBases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ControllerEntry"
+          }
+        },
+        "socketControllerBases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SocketControllerEntry"
+          }
+        },
+        "classProperties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ClassPropertiesEntry"
+          }
+        },
         "configModules": {
           "type": "array",
           "items": {
@@ -1335,6 +1478,12 @@ export const manifestSchema: Record<string, any> = {
           "type": "array",
           "items": {
             "$ref": "#/definitions/QueueMessageEntry"
+          }
+        },
+        "scanFiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ScanFile"
           }
         },
         "schemas": {

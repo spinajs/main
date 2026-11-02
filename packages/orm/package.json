@@ -63,6 +63,7 @@
     "@spinajs/di": "3.0.23",
     "@spinajs/exceptions": "3.0.23",
     "@spinajs/log-common": "3.0.23",
+    "@spinajs/manifest": "3.0.23",
     "@spinajs/reflection": "3.0.23",
     "@spinajs/telemetry-common": "3.0.23",
     "@spinajs/validation": "3.0.23",

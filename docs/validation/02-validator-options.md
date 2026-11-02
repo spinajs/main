@@ -23,7 +23,7 @@ The `validation` configuration key holds the options of the Ajv instance inside 
 | `validation.useDefaults` | `boolean \| string` | `true` | `true`, `false`, `'empty'` | Write the schema's `default` into missing properties; `'empty'` also replaces `null` and `''`. |
 | `validation.coerceTypes` | `boolean \| string` | `true` | `true`, `false`, `'array'` | Convert values to the schema `type` (`'1'` to `1`); `'array'` also wraps scalars into arrays and back. |
 | `validation.messages` | `boolean` | `false` | `true`, `false` | `false`: Ajv builds no `message`; `ValidationFailed` fills one in; see [Validation errors](07-validation-errors.md#messages). |
-| `validation.strict.idPrefixes` | `string[]` | `['authn.', 'authz.']` | | Schemas whose `$id` starts with one of these are validated without type coercion. `[]` turns it off. |
+| `validation.strict.idPrefixes` | `string[]` | `['authn.', 'authz.']` | | Schemas whose `$id` starts with one of these are validated without type coercion. Your list is added to the shipped one (see [Arrays](../configuration/01-configuration-service.md#arrays)). |
 | `validation.strict.ajvStrict` | `boolean \| 'log'` | not set | `true`, `false`, `'log'` | Ajv's own strict mode, when `validation.strict` is the object above. |
 | `validation.strict` | `boolean \| 'log'` | | `true`, `false`, `'log'` | The older form: Ajv's own strict mode. The id prefixes then keep their default. |
 | `validation.<other Ajv option>` | any | not set | any [Ajv option](https://ajv.js.org/options.html) | Passed to the Ajv constructor unchecked: the configuration schema lists only the keys above and does not forbid others. The tests use `discriminator: true`. |
@@ -74,7 +74,8 @@ The package entry also exports the default config object as its `default` export
 export default {
   validation: {
     strict: {
-      idPrefixes: ['authn.', 'authz.', 'billing.'],
+      // added to the shipped 'authn.' and 'authz.'
+      idPrefixes: ['billing.'],
       // Ajv's own strict mode moves here when `strict` is an object
       ajvStrict: true,
     },

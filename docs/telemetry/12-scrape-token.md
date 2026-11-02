@@ -96,7 +96,7 @@ export default {
 - `service:telemetry` is authenticated on every route, not only the telemetry ones. A route that only asks for a signed-in principal lets it through.
 - The Bearer form exists because stock Prometheus and OTel collector scrape configs send only `Authorization: Bearer <token>`. The header value must match exactly, `Bearer ` prefix included.
 - With the token middleware of `@spinajs/authn-http` loaded, a Bearer scrape also costs an access-token lookup and a rejected-token warning. Prefer `x-metrics-token` there.
-- Config arrays concatenate: an app cannot remove `serviceRoles['service:telemetry']` by setting `[]`.
+- `authz.rbac.serviceRoles.*` concatenates: an app cannot remove `serviceRoles['service:telemetry']` by setting `[]`.
 - An app whose `authz.rbac.stores.roles` omits `ConfigRoleStore` must define the `telemetry` role itself. Without RBAC, or another model granting `service:telemetry` the permission, the token gets 403.
 
 ## Best practices

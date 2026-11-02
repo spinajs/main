@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import type { Manifest, ParamEntry, ParamWire, RouteEntry } from '@spinajs/manifest';
+import { DECORATED_PARAM_KIND, type Manifest, type ParamEntry, type ParamWire, type RouteEntry } from '@spinajs/manifest';
 import { generateClient } from '../src/index.js';
 import { appBasicManifest } from './support/fixture.js';
 import { typecheck } from './support/typecheck.js';
@@ -93,7 +93,7 @@ describe('generateClient', () => {
     });
 
     it('leaves out parameters that are not sent', async () => {
-      const injected = extend(manifest, [route('who', 'get', '/items/who', [param(0, 'req', 'ArgAsRequest', { in: 'none', shape: 'whole' }, 'Request'), param(1, 'page', 'FromQuery', query('page'), 'number')], { text: 'void' })], {});
+      const injected = extend(manifest, [route('who', 'get', '/items/who', [param(0, 'req', 'ArgAsRequest', { in: 'none', shape: 'whole' }, 'Request'), param(1, 'page', 'FromQuery', query('page'), 'number'), param(2, 'user', DECORATED_PARAM_KIND, { in: 'none', shape: 'whole' }, 'Principal')], { text: 'void' })], {});
       const out = await generateClient({ manifest: injected });
       expect(out).to.include('who(page: number): Promise<void>;');
       expect(out).to.include("who: { method: 'get', path: '/items/who', args: [{ in: 'query', name: 'page', shape: 'value' }], void: true },");

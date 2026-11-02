@@ -5,7 +5,7 @@ import { AsyncService, Autoinject, ClassInfo, DI } from '@spinajs/di';
 import { Log } from '@spinajs/log-common';
 import { Configuration } from '@spinajs/configuration';
 import { Command, Option, Argument, CommandOptions, InvalidArgumentError } from 'commander';
-import { ListFromFiles } from '@spinajs/reflection';
+import { ListFromFiles, SCAN_GLOB } from '@spinajs/reflection';
 import { createRequire } from 'module';
 import { stripFrameworkOptions } from './argv.js';
 import { resolveCliLog } from './cliLog.js';
@@ -60,7 +60,7 @@ export class Cli extends AsyncService {
    * ones that don't need those services, like cache generation during a docker
    * image build — fail when a dependency is unavailable.
    */
-  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.cli')
+  @ListFromFiles(SCAN_GLOB, 'system.dirs.cli')
   public Commands!: Promise<Array<ClassInfo<CliCommand>>>;
 
   /**

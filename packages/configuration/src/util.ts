@@ -8,7 +8,7 @@ import { InternalLogger } from '@spinajs/internal-logger';
 import type { IConfigLike } from '@spinajs/configuration-common';
 
 // pure helpers live in util-common ( browser-safe ); re-export for compat
-export { merge, mergeArrays, mapObject, pickString, pickObjects } from './util-common.js';
+export { merge, mergeArrays, mergeConfig, mergeInto, mapObject, pickString, pickObjects, type ArrayMerge } from './util-common.js';
 
 /**
  * Hack to inform ts that jasmine var is declared to skip syntax error
@@ -17,6 +17,11 @@ export { merge, mergeArrays, mapObject, pickString, pickObjects } from './util-c
 declare let jasmine: never;
 
 export function parseArgv(param: string): string | undefined {
+  const inline = process.argv.find((arg) => arg.startsWith(`${param}=`));
+  if (inline !== undefined) {
+    return inline.slice(param.length + 1);
+  }
+
   const index = process.argv.indexOf(param);
 
   if (index === -1 || process.argv.length <= index + 1) {
