@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import type * as express from 'express';
 
 import { Xml, xmlResponse } from '../src/index.js';
 import { createTestApp } from '@spinajs/testing';
@@ -11,26 +12,27 @@ interface ISent {
   body?: unknown;
 }
 
-function fakeResponse(sent: ISent, onSend: () => void = () => undefined) {
-  return {
+function fakeResponse(sent: ISent, onSend: () => void = () => undefined): express.Response {
+  const res = {
     status(code: number) {
       sent.status = code;
-      return this;
+      return res;
     },
     setHeader() {},
     set(name: string, value: unknown) {
       if (name === 'Content-Type') sent.contentType = value;
-      return this;
+      return res;
     },
     cookie() {},
     send(body?: unknown) {
       sent.body = body;
       onSend();
     },
-  } as any;
+  };
+  return res as unknown as express.Response;
 }
 
-const req = { headers: {}, accepts: (offered: string[]) => offered[0] } as any;
+const req = { headers: {}, accepts: (offered: string[]) => offered[0] } as unknown as express.Request;
 const XML_BODY = '<user><id>7</id></user>';
 
 describe('xml response', () => {
