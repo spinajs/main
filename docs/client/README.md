@@ -18,6 +18,24 @@ try {
 }
 ```
 
+## Options
+
+`createClient(definition, options)` and the generated `createAppClient(options)` take the same `ClientOptions`:
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `baseUrl` | `string` | required | Prefix of every request. Trailing slashes are removed. `http.controllers.route.prefix` is not added for you: include it here. |
+| `fetch` | `typeof fetch` | `globalThis.fetch`, looked up on every call | Any fetch-compatible function: a test double, `undici`, a wrapper that adds tracing or retries. |
+| `headers` | `() => Record<string, string> \| Promise<Record<string, string>>` | none | Called before every request, so a token can be read fresh. Names are lower-cased; a header argument of the route replaces an option header of the same name. |
+| `credentials` | `RequestCredentials` | not set | Passed to `fetch`. In a browser, `include` sends the cookies the browser holds for the API origin. |
+| `onProblem` | `(problem: ProblemDetails) => void` | none | Called with the problem document of a non-2xx reply, just before `ProblemError` is thrown. For logging or a global 401 handler; it does not swallow the error. |
+
+Every request sends `accept: application/json, application/problem+json`. A 2xx reply is parsed as JSON when its `content-type` contains `json`, else returned as text.
+
+`ProblemError` has `status` (the HTTP status), `problem` (`ProblemDetails`: `type`, `title`, `status`, optional `detail`, `instance`, `code`, `errors`) and a message of the form `404 Not Found: no such user`. `ProblemDetails` is a structural copy of the type in `@spinajs/http`, so a browser bundle does not need the server package.
+
+## Route definitions
+
 A route definition lists how each positional argument travels in `args`, one entry per argument: `{ in, name?, shape, multiple? }`, the manifest's `wire` binding of the route parameter.
 
 | `shape` | Sent as |
@@ -70,3 +88,56 @@ Socket controllers become `defineContract` constants (`chatContract`) from `@spi
 The same generator is available as `generateClient({ manifest, moduleName?, includeSocket? })`, which resolves to the file contents. Output is deterministic for a given manifest. Types the analyzer could not derive (a dependency's model, a partly evaluated `@Schema`) are typed as open objects or `unknown`.
 
 Install `@spinajs/client` next to `@spinajs/cli` to use the command.
+
+## Extending generated types
+
+The generated file is build output: it starts with `Do not edit`, and the next `spinajs generate:client` overwrites it. Put your code in files next to it.
+
+Generated DTOs are `interface`s (`UserDto`, `CreateUserDto`), because the client receives plain JSON: no class, no methods, and a date is the string the server sent. Add behaviour in one of these ways.
+
+**(a) A class merged with the DTO interface.** The interface supplies the fields, the class the behaviour:
+
+```ts
+import type { UserDto } from './generated/client';
+
+export interface User extends UserDto {}
+export class User {
+  static from(dto: UserDto): User {
+    return Object.assign(new User(), dto);
+  }
+
+  get label(): string {
+    return this.name ?? this.email;
+  }
+}
+```
+
+**(b) A wrapper around the client.** The app gets models, and every route you did not wrap passes through, because the spread keeps the generated methods:
+
+```ts
+import { createAppClient } from './generated/client';
+import { User } from './user';
+
+const raw = createAppClient({ baseUrl: 'https://api.example.com' });
+
+export const api = {
+  ...raw,
+  users: {
+    ...raw.users,
+    get: async (id: number) => User.from(await raw.users.get(id)),
+  },
+};
+```
+
+A route added on the server and regenerated shows up on `api.users` with its generated types, until you wrap it.
+
+**(c) Plain functions.** `export const label = (user: UserDto) => user.name ?? user.email;` needs no class and works on what the client returns.
+
+Regenerate in CI and compile, so a server change that breaks a wrapper fails the build instead of production:
+
+```sh
+spinajs build
+spinajs generate:client --out src/generated/client.ts
+git diff --exit-code src/generated/client.ts   # only when the file is committed
+tsc --noEmit
+```
