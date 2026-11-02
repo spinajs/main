@@ -34,7 +34,7 @@ function namesAPluginKeyword(value: unknown, keywords: ReadonlySet<string>, seen
   return Object.entries(value).some(([key, child]) => keywords.has(key) || namesAPluginKeyword(child, keywords, seen));
 }
 
-type Definition = { keyword: string | string[]; macro?: unknown; code?: unknown };
+type Definition = { keyword: string | string[]; macro?: unknown; code?: unknown; validate?: unknown; compile?: unknown };
 
 interface HookedAjv {
   opts: { keywords?: unknown };
@@ -114,10 +114,11 @@ export function addKeywordPluginsOnUse<T extends object>(ajv: T): T {
       if (typeof definition !== 'string' && missing.length < namesOf(definition).length) return addKeyword({ ...definition, keyword: missing });
       return addKeyword(definition, deprecated);
     }
-    // A macro returns a schema and a code keyword can apply one: neither shows in the schemas the scan sees.
+    // A macro or code keyword can expand into a plugin keyword the scan never sees, and any keyword that runs code is
+    // evaluated in registration order: installing first keeps the plugin keywords ahead of it, as an eager install did.
     const body = (typeof definition === 'string' ? deprecated : definition) as Partial<Definition> | undefined;
-    const expands = body?.macro !== undefined || body?.code !== undefined;
-    if (expands || namesOf(definition).some((name) => keywordsOfPlugins().has(name))) install();
+    const runsCode = body?.macro !== undefined || body?.code !== undefined || body?.validate !== undefined || body?.compile !== undefined;
+    if (runsCode || namesOf(definition).some((name) => keywordsOfPlugins().has(name))) install();
     return addKeyword(definition, deprecated);
   };
   target.removeKeyword = (keyword) => {

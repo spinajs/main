@@ -166,6 +166,21 @@ describe('addKeywordPluginsOnUse', () => {
       expect(a.compile({ type: 'array', uniqueIds: true })(duplicates)).to.equal(false);
     });
 
+    it('installs the plugins before a validate keyword, so plugin keywords keep running first', () => {
+      const a = ajv({ strict: false });
+      a.addKeyword({
+        keyword: 'lowercase',
+        type: 'string',
+        modifying: true,
+        validate: (_: unknown, data: unknown, __: unknown, ctx?: { parentData: Record<string, unknown>; parentDataProperty: string }) => {
+          if (ctx && typeof data === 'string') ctx.parentData[ctx.parentDataProperty] = data.toLowerCase();
+          return true;
+        },
+      });
+      const schema = { type: 'object', properties: { name: { type: 'string', lowercase: true, regexp: '/^[a-z]+$/' } } };
+      expect(a.compile(schema)({ name: 'ABC' })).to.equal(false);
+    });
+
     it('installs the plugins before a vocabulary', () => {
       const a = ajv({ strict: false });
       a.addVocabulary([uniqueIds]);
