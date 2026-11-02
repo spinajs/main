@@ -8,9 +8,11 @@ import { hashManifest, type Manifest } from '@spinajs/manifest';
 import { DI, IContainer } from '@spinajs/di';
 import { Configuration, ConfigurationSource, IConfigLike, StaticConfigurationSource } from '@spinajs/configuration-common';
 
+import { InternalLogger } from '@spinajs/internal-logger';
+
 import { FrameworkConfiguration } from '../src/configuration.js';
 import { ManifestConfigurationSource } from '../src/manifest-source.js';
-import { JsFileSource, JsonFileSource } from '../src/sources.js';
+import { ConfigLayers, JsFileSource, JsonFileSource } from '../src/sources.js';
 
 const PARITY = resolve(process.cwd(), 'test', 'fixtures', 'parity-app');
 
@@ -185,6 +187,38 @@ describe('config file layers', () => {
       });
     });
   }
+
+  describe('a file source subclass that overrides Load()', () => {
+    const ignoredLoadWarnings = (warn: sinon.SinonStub) => warn.getCalls().filter((c) => JSON.stringify(c.args).includes('LoadLayers()'));
+
+    it('is warned about at boot, by class name, because the boot calls LoadLayers() instead', async () => {
+      class DecryptingSource extends JsFileSource {
+        public async Load(): Promise<IConfigLike> {
+          return { decrypted: { value: true } };
+        }
+      }
+      const warn = sinon.stub(InternalLogger, 'warn');
+      await boot('off', (c) => c.register(DecryptingSource).as(ConfigurationSource));
+      const warnings = ignoredLoadWarnings(warn);
+      expect(warnings).to.have.length(1);
+      expect(JSON.stringify(warnings[0].args)).to.include('DecryptingSource');
+    });
+
+    it('is not warned about when it overrides LoadLayers() too', async () => {
+      class LayeredDecryptingSource extends JsFileSource {
+        public LoadLayers(config: Configuration): Promise<ConfigLayers> {
+          return super.LoadLayers(config);
+        }
+
+        public async Load(): Promise<IConfigLike> {
+          return {};
+        }
+      }
+      const warn = sinon.stub(InternalLogger, 'warn');
+      await boot('off', (c) => c.register(LayeredDecryptingSource).as(ConfigurationSource));
+      expect(ignoredLoadWarnings(warn)).to.deep.equal([]);
+    });
+  });
 
   it('Load() of a file source gives its own layers merged, for mergeSource()', async () => {
     installPackage('pa', { 'pa.cjs': cjs({ kv: { list: ['pkg'] } }) });

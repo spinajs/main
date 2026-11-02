@@ -4,6 +4,8 @@ declare function ruleOf(kind: string): object;
 const FROZEN = Object.freeze(['a', 'b'] as const);
 const TYPED: readonly string[] = Object.freeze(['c']);
 const PLAIN = ['d'];
+// The authn-oidc claim path: `claimPath.anyOf` is a property read, which the compiler cannot evaluate.
+const claimPath = { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] };
 
 registerConfigurationSchema({
   $id: 'spinajs/readable.configuration.schema.json',
@@ -25,5 +27,7 @@ registerConfigurationSchema({
   properties: {
     some: { anyOf: [{ const: null }, ruleOf('c')] },
     none: { type: 'string', enum: [...Object.keys({ a: 1 })] },
+    claim: { anyOf: [{ const: null }, ...claimPath.anyOf] },
+    kind: { type: 'string', enum: ['a', ...Object.keys({ b: 1 })] },
   },
 });

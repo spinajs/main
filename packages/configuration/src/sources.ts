@@ -236,7 +236,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
     });
   }
 
-  /** Loads the config files matching `extension` into one tree, in order. One pass; `loadLayers()` keeps the layers apart. */
+  /** Loads the config files matching `extension` into one tree, in order. One pass; `loadFileLayers()` keeps the layers apart. */
   protected async load(extension: string, callback: (file: string) => Promise<IConfigLike>): Promise<IConfigLike> {
     const config: IConfigLike = {};
     await this.mergeFiles(extension, callback, () => config);
@@ -244,7 +244,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
   }
 
   /** Loads the config files matching `extensions`, one pass after the other, each into its layer. */
-  protected async loadLayers(extensions: string[], callback: (file: string) => Promise<IConfigLike>): Promise<ConfigLayers> {
+  protected async loadFileLayers(extensions: string[], callback: (file: string) => Promise<IConfigLike>): Promise<ConfigLayers> {
     const layers: ConfigLayers = { packages: {}, app: {} };
     for (const extension of extensions) {
       await this.mergeFiles(extension, callback, (f) => (f.arrays === 'concat' ? layers.packages : layers.app));
@@ -264,7 +264,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
 @Injectable(ConfigurationSource)
 export class JsFileSource extends BaseFileSource implements LayeredConfigurationSource {
   public LoadLayers(config: Configuration): Promise<ConfigLayers> {
-    return this.loadLayers(['!(*.*).{cjs,js}', `*.${this.getEnvironment(config)}.{cjs,js}`], loadJsConfigFile);
+    return this.loadFileLayers(['!(*.*).{cjs,js}', `*.${this.getEnvironment(config)}.{cjs,js}`], loadJsConfigFile);
   }
 
   public async Load(config: Configuration): Promise<IConfigLike> {
@@ -279,7 +279,7 @@ export class JsonFileSource extends BaseFileSource implements LayeredConfigurati
   }
 
   public LoadLayers(config: Configuration): Promise<ConfigLayers> {
-    return this.loadLayers(['!(*.*).json', `*.${this.getEnvironment(config)}.json`], _load);
+    return this.loadFileLayers(['!(*.*).json', `*.${this.getEnvironment(config)}.json`], _load);
 
     function _load(file: string) {
       try {

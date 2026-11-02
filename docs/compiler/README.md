@@ -25,7 +25,7 @@ analyzePackage({ tsconfig, packageRoot, schemaDerivation?, effectiveDirs?, defau
 | --- | --- |
 | `tsconfig` | Path to the `tsconfig` that lists the package sources. Files under its `rootDir` (default: the `tsconfig` folder) that are not declaration files are analyzed. |
 | `packageRoot` | Folder with the package's `package.json`. Every `source.file` in the result is relative to it, with forward slashes. |
-| `schemaDerivation` | Accepted for forward compatibility. It has no effect yet: extractors do not derive JSON Schemas from types. |
+| `schemaDerivation` | `false` records types as text only, with no JSON Schema derived from them, as `spinajs build --no-schemas` does. Default `true`. |
 | `effectiveDirs` | The app's `system.dirs` by key, as plain data. A controller, socket controller, schedule, command or migration that a scan of them does not bring in gets `mountedBy: 'di'`, and the files such a scan imports that no loaded entry brings in go to `scanFiles`; see [The app's own classes](../manifest/README.md#the-apps-own-classes). Omitted, nothing is marked. The analyzer never evaluates config: `spinajs build` reads these from the booted `Configuration`. |
 | `defaultDirs` | Dirs that apply while a key of `effectiveDirs` is empty. They filter their section but prove nothing about the config. |
 | `runAppRoot` | `<appBaseDir>/<app>`. The runtime adds a dir under it for every key, so `CMP008` skips those. |

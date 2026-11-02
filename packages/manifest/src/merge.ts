@@ -7,6 +7,7 @@ export interface MergeMeta {
   packages: Manifest['packages'];
   generatedAt?: string;
   buildEnv?: string;
+  schemaDerivation?: false;
 }
 
 const prefixId = (pkg: string, id: string): string => (id.startsWith(`${pkg}:`) ? id : `${pkg}:${id}`);
@@ -81,6 +82,7 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
     schemas,
     diagnostics,
     ...(meta.buildEnv ? { buildEnv: meta.buildEnv } : {}),
+    ...(meta.schemaDerivation === false ? { schemaDerivation: false as const } : {}),
     generatedAt: meta.generatedAt ?? new Date().toISOString(),
     hash: '',
   };

@@ -17,6 +17,7 @@ import { publint } from 'publint';
 import { formatMessage } from 'publint/utils';
 import { manifestInFiles } from './manifest-field.mjs';
 import { testGlobProblems } from './test-globs.mjs';
+import { typesVersionsGaps } from './types-versions.mjs';
 
 const PACKAGES_DIR = resolve(process.cwd(), 'packages');
 const ARGS = process.argv.slice(2);
@@ -52,6 +53,7 @@ for (const { name, dir, pkg } of packages) {
 
   const { messages } = await publint({ pkgDir: dir, level: 'warning', strict: false });
   for (const m of messages) problems.push(`publint ${m.type}: ${formatMessage(m, pkg) ?? m.code}`);
+  problems.push(...typesVersionsGaps(pkg));
 
   if (pkg.spinajs?.manifest) {
     if (!manifestInFiles(pkg)) problems.push(`spinajs.manifest ${pkg.spinajs.manifest} is not covered by "files"`);

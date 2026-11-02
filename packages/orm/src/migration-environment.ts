@@ -76,13 +76,13 @@ export function parseMigrationFileEnv(file: string): string | undefined {
   // is described by, not where it should run - so they are carved out by name rather than left to
   // the anchor, which provably cannot reject them.
   if (segments.length === 3) {
-    // `.d` is only a carve-out for `.d.ts` (TypeScript declaration files)
-    if (segments[1] === 'd' && segments[2] === 'ts') {
+    // `.d` is only a carve-out for `.d.ts`, `.d.mts` and `.d.cts` (TypeScript declaration files)
+    if (segments[1] === 'd' && ['ts', 'mts', 'cts'].includes(segments[2])) {
       return undefined;
     }
-    // `.test` and `.spec` are carve-outs for `.ts`, `.js`, `.cjs` and `.mjs` (compiled test
-    // artifacts) - kept in step with the extensions `FilesystemMigrationSource` admits
-    if (['test', 'spec'].includes(segments[1]) && ['ts', 'js', 'cjs', 'mjs'].includes(segments[2])) {
+    // `.test` and `.spec` are carve-outs for every source and compiled test extension,
+    // kept in step with the extensions `FilesystemMigrationSource` admits
+    if (['test', 'spec'].includes(segments[1]) && ['ts', 'mts', 'cts', 'js', 'cjs', 'mjs'].includes(segments[2])) {
       return undefined;
     }
   }
