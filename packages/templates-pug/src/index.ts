@@ -6,8 +6,9 @@ import { CompiledTemplateRenderer, ensureParentDir, TemplateRenderer } from '@sp
 
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
+import { lazyImport } from './lazy-import.js';
 
-let pugModule: Promise<typeof pug> | undefined;
+const loadPug = lazyImport(() => import('pug'));
 
 @Injectable(TemplateRenderer)
 export class PugRenderer extends CompiledTemplateRenderer<pug.compileTemplate> {
@@ -27,7 +28,7 @@ export class PugRenderer extends CompiledTemplateRenderer<pug.compileTemplate> {
     // against the local filesystem itself, so remote fs:// sources are
     // materialised to temp storage first.
     const tPath = await this.resolveLocalPath(template);
-    const { compileFile } = await (pugModule ??= import('pug'));
+    const { compileFile } = await loadPug();
     return compileFile(tPath, this.Options);
   }
 

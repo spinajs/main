@@ -11,11 +11,10 @@ import type { Archiver } from 'archiver';
 import { cp, FileHandle } from 'fs/promises';
 import { toArray } from '@spinajs/util';
 import { getFs } from './helpers.js';
+import { lazyImport } from './lazy-import.js';
 
-const importArchiver = () => import('archiver');
-const importUnzipper = () => import('unzipper');
-let archiverModule: ReturnType<typeof importArchiver> | undefined;
-let unzipperModule: ReturnType<typeof importUnzipper> | undefined;
+const loadArchiver = lazyImport(() => import('archiver'));
+const loadUnzipper = lazyImport(() => import('unzipper'));
 
 /**
  * Abstract layer for file operations.
@@ -435,7 +434,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     }
 
     const dst = dstFs.resolvePath(destPath);
-    const { default: unzipper } = await (unzipperModule ??= importUnzipper());
+    const { default: unzipper } = await loadUnzipper();
 
     return new Promise<string>((resolve, reject) => {
       const rStream = createReadStream(srcPath);
@@ -471,7 +470,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
 
     const fs = dstFs;
     const outFile = dstFile;
-    const { default: archiver } = await (archiverModule ??= importArchiver());
+    const { default: archiver } = await loadArchiver();
     const wStream = await fs.writeStream(outFile);
     const archive = archiver('zip');
 
