@@ -11,6 +11,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import _ from 'lodash';
@@ -50,7 +51,7 @@ export class IntegrationConf extends FrameworkConfiguration {
               Driver: 'orm-driver-sqlite',
               Name: 'sqlite',
               Filename: dbFile,
-              Migration: { Table: 'orm_migrations_integration', OnStartup: false },
+              Migration: { Table: 'orm_migrations_integration' },
             },
           ],
         },
@@ -78,8 +79,7 @@ describe('SQLite transaction contract (integration)', function () {
     DI.clearCache();
     DI.register(IntegrationConf).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    await DI.resolve(Orm);
-    await (await DI.resolve(Orm)).Migrator.Runner.up();
+    await migrateTestDatabase();
     // model descriptors get their columns from the live schema; without this the
     // insert compiler has no columns to work with
     await db().reloadTableInfo();
