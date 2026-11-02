@@ -2,12 +2,13 @@ import { CliCommand, IArgument, ICommand, IOption } from './interfaces.js';
 import { META_ARGUMENT, META_COMMAND, META_OPTION } from './decorators.js';
 import { CLI_ARGV_PROVIDER } from './tokens.js';
 import { AsyncService, Autoinject, ClassInfo, DI } from '@spinajs/di';
-import { Logger, Log } from '@spinajs/log-common';
+import { Log } from '@spinajs/log-common';
 import { Configuration } from '@spinajs/configuration';
 import { Command, Option, Argument, CommandOptions, InvalidArgumentError } from 'commander';
 import { ListFromFiles } from '@spinajs/reflection';
 import { createRequire } from 'module';
 import { stripFrameworkOptions } from './argv.js';
+import { resolveCliLog } from './cliLog.js';
 
 export * from './interfaces.js';
 export * from './decorators.js';
@@ -41,8 +42,12 @@ function parseWithChoices(choices: string[], parser: (value: string, previous: a
 }
 
 export class Cli extends AsyncService {
-  @Logger('CLI')
-  protected Log!: Log;
+  private log?: Log;
+
+  /** Outside an application no command loads @spinajs/log, and `@Logger` would resolve the abstract class. */
+  protected get Log(): Log {
+    return (this.log ??= resolveCliLog());
+  }
 
   @Autoinject()
   protected Configuration!: Configuration;
@@ -94,8 +99,14 @@ export class Cli extends AsyncService {
     // framework logger; normal help/version still go to stdout via writeOut.
     const writeErr = (str: string) => {
       const msg = str.trim();
-      if (msg) {
+      if (!msg) {
+        return;
+      }
+      // Without @spinajs/log this is the buffering proxy, and the exit that follows drops what it holds.
+      if (DI.check(Log)) {
         this.Log.error(msg);
+      } else {
+        process.stderr.write(`${msg}\n`);
       }
     };
 
@@ -271,10 +282,18 @@ export class Cli extends AsyncService {
     built.forEach((b) => lazyOnCreation(b.command));
 
     program.exitOverride();
-    program.showHelpAfterError();
 
     // the provider is registered by the bin ( args.ts ), not by the package entry
     const argv = DI.resolve(CLI_ARGV_PROVIDER) ?? stripFrameworkOptions(process.argv);
+
+    // Commander takes an operand of a program without subcommands as an ignored argument, so a `migrate up` run from
+    // the wrong directory would exit 0 having done nothing.
+    const operand = commands?.length ? undefined : argv.slice(2).find((arg) => !arg.startsWith('-'));
+    if (operand) {
+      program.error(`error: no application found in ${process.cwd()}: '${operand}' is not a command here. Run spinajs from the application directory.`);
+    }
+
+    program.showHelpAfterError();
 
     // nothing but `node script` → show help rather than silently doing nothing
     if (argv.slice(2).length === 0) {

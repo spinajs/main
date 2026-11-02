@@ -12,7 +12,7 @@
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "compile": "tsc -b tsconfig.build.json",
     "start": "node lib/main.js",
-    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "test": "ts-mocha -p tsconfig.json \"test/**/*.test.ts\"",
     "coverage": "c8 npm run test",
     "bundle": "npm run compile && node scripts/bundle.mjs"
   },
@@ -28,6 +28,10 @@
     "@spinajs/http-socket-client": "3.0.23",
     "@spinajs/http-socket-common": "3.0.23",
     "@spinajs/log": "3.0.23"
+  },
+  "devDependencies": {
+    "@spinajs/compiler": "3.0.23",
+    "typescript": "~5.9.0"
   },
   "types": "./lib/main.d.ts",
   "spinajs": {

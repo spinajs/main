@@ -292,6 +292,9 @@ export class FrameworkConfiguration extends Configuration {
       if (CHECKED.get(this.Container) === this) CHECKED.delete(this.Container);
       throw e;
     }
+
+    await preloadPropertyTypes(this.Container);
+    checkPendingProperties(this.Container);
   }
 
   public async mergeSource(sType: Class<ConfigurationSource>) {

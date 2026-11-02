@@ -95,7 +95,7 @@ describe("file target tests", function () {
     const target = DI.get(FileTarget)!;
     await drain(target);
 
-    expect(readLog("file")).to.contain("Hello world");
+    expect(readLog("File")).to.contain("Hello world");
   });
 
   it("Should write to different files per logger", async () => {
@@ -108,8 +108,8 @@ describe("file target tests", function () {
     await drain(DI.get(FileTarget)!);
     await wait(200);
 
-    expect(readLog("file")).to.contain("Hello world 1");
-    expect(readLog("file2")).to.contain("Hello world 2");
+    expect(readLog("File")).to.contain("Hello world 1");
+    expect(readLog("File2")).to.contain("Hello world 2");
   });
 
   it("Should format message with variables", async () => {

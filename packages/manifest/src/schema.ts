@@ -40,6 +40,24 @@ export const manifestSchema: Record<string, any> = {
             "$ref": "#/definitions/SocketContractEntry"
           }
         },
+        "controllerBases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ControllerEntry"
+          }
+        },
+        "socketControllerBases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SocketControllerEntry"
+          }
+        },
+        "classProperties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ClassPropertiesEntry"
+          }
+        },
         "configModules": {
           "type": "array",
           "items": {
@@ -218,36 +236,7 @@ export const manifestSchema: Record<string, any> = {
         "propertyInjects": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "property": {
-                "type": "string"
-              },
-              "token": {
-                "type": "string"
-              },
-              "optional": {
-                "type": "boolean"
-              },
-              "array": {
-                "type": "boolean"
-              },
-              "lazy": {
-                "type": "boolean"
-              },
-              "concrete": {
-                "type": "boolean"
-              },
-              "check": {
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "property",
-              "token",
-              "optional",
-              "array"
-            ]
+            "$ref": "#/definitions/PropertyInject"
           }
         },
         "imperativeResolves": {
@@ -303,6 +292,60 @@ export const manifestSchema: Record<string, any> = {
         "per-child",
         "per-instance",
         "per-instance-check"
+      ]
+    },
+    "PropertyInject": {
+      "type": "object",
+      "properties": {
+        "property": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string"
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "array": {
+          "type": "boolean"
+        },
+        "lazy": {
+          "type": "boolean"
+        },
+        "concrete": {
+          "type": "boolean"
+        },
+        "check": {
+          "type": "boolean"
+        },
+        "tokenRef": {
+          "$ref": "#/definitions/RuntimeTypeRef"
+        }
+      },
+      "required": [
+        "property",
+        "token",
+        "optional",
+        "array"
+      ]
+    },
+    "RuntimeTypeRef": {
+      "type": "object",
+      "properties": {
+        "package": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "export": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "package",
+        "file",
+        "export"
       ]
     },
     "SourceRef": {
@@ -663,6 +706,12 @@ export const manifestSchema: Record<string, any> = {
         },
         "schema": {
           "type": "string"
+        },
+        "ref": {
+          "$ref": "#/definitions/RuntimeTypeRef"
+        },
+        "refProblem": {
+          "type": "string"
         }
       },
       "required": [
@@ -748,6 +797,30 @@ export const manifestSchema: Record<string, any> = {
             "required": [
               "name",
               "payload"
+            ]
+          }
+        },
+        "diArgs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "handler": {
+                "type": "string"
+              },
+              "index": {
+                "type": "number"
+              },
+              "ref": {
+                "$ref": "#/definitions/RuntimeTypeRef"
+              },
+              "refProblem": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "handler",
+              "index"
             ]
           }
         },
@@ -886,6 +959,32 @@ export const manifestSchema: Record<string, any> = {
       "additionalProperties": {
         "$ref": "#/definitions/TypeRef"
       }
+    },
+    "ClassPropertiesEntry": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "className": {
+          "type": "string"
+        },
+        "properties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PropertyInject"
+          }
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "id",
+        "className",
+        "properties",
+        "source"
+      ]
     },
     "ConfigModuleEntry": {
       "type": "object",
@@ -1253,6 +1352,24 @@ export const manifestSchema: Record<string, any> = {
           "type": "array",
           "items": {
             "$ref": "#/definitions/SocketContractEntry"
+          }
+        },
+        "controllerBases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ControllerEntry"
+          }
+        },
+        "socketControllerBases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SocketControllerEntry"
+          }
+        },
+        "classProperties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ClassPropertiesEntry"
           }
         },
         "configModules": {

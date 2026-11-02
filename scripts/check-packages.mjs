@@ -16,6 +16,7 @@ import { spawnSync } from 'child_process';
 import { publint } from 'publint';
 import { formatMessage } from 'publint/utils';
 import { manifestInFiles } from './manifest-field.mjs';
+import { testGlobProblems } from './test-globs.mjs';
 
 const PACKAGES_DIR = resolve(process.cwd(), 'packages');
 const ARGS = process.argv.slice(2);
@@ -27,14 +28,24 @@ const ATTW_IGNORE_PER_PACKAGE = {
   electron: ['no-resolution'],
 };
 
-const packages = readdirSync(PACKAGES_DIR)
+const workspaces = readdirSync(PACKAGES_DIR)
   .filter((name) => ONLY.length === 0 || ONLY.includes(name))
   .map((name) => ({ name, dir: join(PACKAGES_DIR, name), file: join(PACKAGES_DIR, name, 'package.json') }))
   .filter(({ file }) => existsSync(file))
-  .map((p) => ({ ...p, pkg: JSON.parse(readFileSync(p.file, 'utf8')) }))
-  .filter(({ pkg }) => pkg.private !== true);
+  .map((p) => ({ ...p, pkg: JSON.parse(readFileSync(p.file, 'utf8')) }));
 
 let failed = 0;
+
+// Private packages publish nothing, but their tests run in the gate.
+for (const { name, dir, pkg } of workspaces) {
+  const problems = testGlobProblems(dir, pkg);
+  if (problems.length > 0) {
+    failed++;
+    console.log(`\n✖ ${pkg.name ?? name}\n  ${problems.join('\n  ')}`);
+  }
+}
+
+const packages = workspaces.filter(({ pkg }) => pkg.private !== true);
 
 for (const { name, dir, pkg } of packages) {
   const problems = [];
@@ -63,5 +74,5 @@ for (const { name, dir, pkg } of packages) {
   }
 }
 
-console.log(`\n${packages.length - failed}/${packages.length} packages clean`);
+console.log(`\n${workspaces.length - failed}/${workspaces.length} packages clean`);
 process.exitCode = failed > 0 ? 1 : 0;

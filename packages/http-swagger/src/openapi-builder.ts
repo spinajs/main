@@ -1,4 +1,4 @@
-import { Autoinject, ClassInfo, NewInstance, TypedArray } from '@spinajs/di';
+import { Autoinject, ClassInfo, NewInstance, isTypedArray, type TypedArray } from '@spinajs/di';
 import { BaseController, IRoute, IRouteParameter, PROBLEM_DETAILS_SCHEMA, ParameterType, RouteType } from '@spinajs/http';
 import { SCHEMA_SYMBOL, SchemaProvider } from '@spinajs/validation';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -297,7 +297,7 @@ export class OpenApiBuilder {
       });
     }
 
-    for (const [methodName, route] of descriptor.Routes) {
+    for (const [methodName, route] of controller.instance!.Routes ?? descriptor.Routes) {
       const methodNameStr = methodName as string;
       const methodDoc = docCache.methods[methodNameStr];
       const fullPath = this.buildPath(basePath, route.Path, route.Method as string);
@@ -1130,7 +1130,7 @@ ${line}` : line;
 
     const runtimeType = param.RuntimeType;
     if (runtimeType) {
-      if (runtimeType instanceof TypedArray) {
+      if (isTypedArray(runtimeType)) {
         const itemType = (runtimeType as TypedArray<any>).Type as any;
         const itemSchema = Reflect.getMetadata(SCHEMA_SYMBOL, itemType) ?? (itemType?.prototype ? Reflect.getMetadata(SCHEMA_SYMBOL, itemType.prototype) : undefined);
         if (itemSchema) {

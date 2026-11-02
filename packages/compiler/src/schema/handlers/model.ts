@@ -1,10 +1,13 @@
 import ts from 'typescript';
 import { declarationFileClass, isModelType, isRelationType, modelMembers, ORM, type ModelMember } from '../../model-members.js';
-import { deriveType, diagnose, type DeriveContext, type JsonSchema, type TypeHandler } from '../derive.js';
+import type { DeriveContext, JsonSchema, TypeHandler } from '../derive.js';
+import { diagnose } from '../diagnose.js';
 import { baseClassOf, declaringPackage, extendsFrameworkClass, isDeclaredIn } from '../framework-members.js';
-import { includesUndefined, propertyConstraints } from './object.js';
+import { jsdocConstraints } from '../jsdoc.js';
 
 const MODEL_DATA = new Set(['ModelData', 'ModelDataWithRelationData', 'ModelDataWithRelationDataSearchable']);
+
+export const includesUndefined = (type: ts.Type): boolean => (type.isUnion() ? type.types : [type]).some((member) => member.flags & ts.TypeFlags.Undefined);
 
 function firstTypeArgument(checker: ts.TypeChecker, type: ts.Type): ts.Type | undefined {
   const isReference = type.flags & ts.TypeFlags.Object && (type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference;
@@ -22,9 +25,9 @@ function relationTarget(checker: ts.TypeChecker, type: ts.Type): ts.Type | undef
 
 /** A `Relation<M>` member is an array of M, a `SingleRelation<M>` one is M; a decorated member typed as the model itself is M too. */
 export function relationSchema(ctx: DeriveContext, type: ts.Type): JsonSchema {
-  if (!isRelationType(ctx.checker, type)) return deriveType(ctx, type);
+  if (!isRelationType(ctx.checker, type)) return ctx.derive(ctx, type);
   const target = relationTarget(ctx.checker, type);
-  const schema = target ? deriveType(ctx, target) : {};
+  const schema = target ? ctx.derive(ctx, target) : {};
   return extendsFrameworkClass(ctx.checker, type, 'Relation', ORM) ? { type: 'array', items: schema } : schema;
 }
 
@@ -33,7 +36,7 @@ function memberSchema(ctx: DeriveContext, member: ModelMember): { schema: JsonSc
   // A relation is dehydrated only when populated, so it is never required.
   if (member.kind === 'relation') return { schema: relationSchema(memberContext, ctx.checker.getNonNullableType(member.type)), required: false };
   return {
-    schema: { ...deriveType(memberContext, member.type), ...propertyConstraints(memberContext, member.symbol, member.declaration) },
+    schema: { ...ctx.derive(memberContext, member.type), ...jsdocConstraints(memberContext, member.symbol, member.declaration) },
     required: !member.optional && !includesUndefined(member.type),
   };
 }
@@ -85,5 +88,5 @@ export const modelDataType: TypeHandler = (ctx, type) => {
   const alias = type.aliasSymbol;
   if (!alias || !MODEL_DATA.has(alias.name) || !isDeclaredIn(alias.declarations?.[0], ORM)) return undefined;
   const model = type.aliasTypeArguments?.[0];
-  return model && isModelType(ctx.checker, model) ? deriveType(ctx, model) : undefined;
+  return model && isModelType(ctx.checker, model) ? ctx.derive(ctx, model) : undefined;
 };

@@ -20,3 +20,4 @@ export * from "./graph.js";
 export * from "./maybe.js";
 export * from "./refreshing-cache.js";
 export * from "./ip.js";
+export * from "./file-url.js";

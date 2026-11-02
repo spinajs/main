@@ -4,7 +4,7 @@ import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BaseP
 import { ArgHydrator } from './route-args/ArgHydrator.js';
 import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas.js';
 import { Options as CsvParseOptions } from 'csv-parse';
-import { toArray } from '@spinajs/util';
+import { filePathOfUrl, toArray } from '@spinajs/util';
 
 import { RequestTypeRouteArgs } from './route-args/RequestFields.js';
 import { ExpectedResponseUnacceptable, InvalidArgument } from '@spinajs/exceptions';
@@ -130,15 +130,8 @@ function captureControllerSourceFile(): string | undefined {
 
     let file = m[1];
     if (file.startsWith('file://')) {
-      // Strip ESM file:// URL scheme. Windows: file:///C:/foo → C:/foo.
       try {
-        file = decodeURIComponent(file.replace(/^file:\/\/\/?/, ''));
-        // Normalize Windows drive letter forms (`/C:/...` → `C:/...`).
-        if (/^[A-Za-z]:/.test(file)) {
-          // already a drive-letter path
-        } else if (file.startsWith('/')) {
-          // POSIX absolute path stays as-is
-        }
+        file = filePathOfUrl(file);
       } catch {
         // fall through with the raw match
       }
@@ -226,6 +219,20 @@ export function Type(type: any) {
   });
 }
 
+/** The framework's default schema of a scalar route argument, `null` for any other runtime type. */
+export function routeParamSchemaFor(runtimeType: unknown): object | null {
+  switch ((runtimeType as { name?: unknown } | undefined)?.name) {
+    case 'Number':
+      return ROUTE_ARG_SCHEMA.Number;
+    case 'String':
+      return ROUTE_ARG_SCHEMA.String;
+    case 'Boolean':
+      return ROUTE_ARG_SCHEMA.Boolean;
+    default:
+      return null;
+  }
+}
+
 export function Parameter(type: ParameterType | string, schema?: any, options?: any) {
   return (_: IControllerDescriptor, route: IRoute, target: any, propertyKey?: string | symbol, index?: number | PropertyDescriptor) => {
 
@@ -237,20 +244,10 @@ export function Parameter(type: ParameterType | string, schema?: any, options?: 
       throw new Error(`@Parameter decorator can be used only on method parameters. Invalid usage on ${propertyKey.toString()} of ${target.constructor.name}`);
     }
 
-    const rType = Reflect.getMetadata('design:paramtypes', target.prototype || target, propertyKey)[index];
-
-    let tSchema = null;
-
-    switch (rType.name) {
-      case 'Number':
-        tSchema = ROUTE_ARG_SCHEMA.Number;
-        break;
-      case 'String':
-        tSchema = ROUTE_ARG_SCHEMA.String;
-        break;
-      case 'Boolean':
-        tSchema = ROUTE_ARG_SCHEMA.Boolean;
-    }
+    // Absent in a build without decorator metadata: the manifest supplies the type before the routes are built.
+    const paramTypes = Reflect.getMetadata('design:paramtypes', target.prototype || target, propertyKey) as unknown[] | undefined;
+    const rType = paramTypes?.[index];
+    const tSchema = routeParamSchemaFor(rType);
 
     if (route.Parameters.has(index)) {
       const p = route.Parameters.get(index);

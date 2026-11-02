@@ -1,7 +1,7 @@
 import type { Diagnostic, Manifest, ServiceEntry } from '@spinajs/manifest';
 import { isUnresolvedTokenKey } from '../../token-key.js';
 import { compareCodeUnits } from '../../sort.js';
-import { diagnostic, type DoctorRule } from '../index.js';
+import { diagnostic, type DoctorRule } from '../rule.js';
 
 export function tarjan(nodes: string[], edges: Map<string, string[]>): string[][] {
   let index = 0;

@@ -1,5 +1,5 @@
 import type { Diagnostic } from '@spinajs/manifest';
-import { diagnostic, type DoctorRule } from '../index.js';
+import { diagnostic, type DoctorRule } from '../rule.js';
 
 export const fragmentStale: DoctorRule = {
   code: 'BLD001',
