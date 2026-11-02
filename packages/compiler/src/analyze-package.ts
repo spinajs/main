@@ -4,11 +4,12 @@ import { MANIFEST_VERSION, type Diagnostic, type ManifestFragment, type SourceRe
 import { compareCodeUnits } from './sort.js';
 import { createProgramFromTsconfig } from './program.js';
 import { createContext, type Extractor } from './context.js';
+import { extractClassProperties } from './extractors/injections.js';
 import { extractServices, mergeById } from './extractors/services.js';
 import { extractValues } from './extractors/values.js';
 import { extractConfigModules, extractConfigUsages } from './extractors/config.js';
-import { extractControllers } from './extractors/controllers.js';
-import { extractSocketContracts, extractSocketControllers } from './extractors/socket.js';
+import { extractControllerBases, extractControllers } from './extractors/controllers.js';
+import { extractSocketContracts, extractSocketControllerBases, extractSocketControllers } from './extractors/socket.js';
 import { extractModels } from './extractors/models.js';
 import { extractMigrations } from './extractors/migrations.js';
 import { extractSchedules } from './extractors/schedules.js';
@@ -77,8 +78,13 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
 
   const run = <T extends { source: SourceRef }>(extractor: Extractor<T>): T[] => sortBySource(files.flatMap((f) => extractor(ctx, f)));
   const declared = options.declaredDirsOnly ? declaredDirsOf(files, root) : undefined;
-  const scanned = <T extends { source: SourceRef }>(section: DirSection, extractor: Extractor<T>): T[] =>
-    run(extractor).filter((e) => !declared || isUnderDeclaredDirs(e.source.file, section, declared));
+  const isListed = (section: DirSection, entry: { source: SourceRef }): boolean => !declared || isUnderDeclaredDirs(entry.source.file, section, declared);
+  const scanned = <T extends { source: SourceRef }>(section: DirSection, extractor: Extractor<T>): T[] => run(extractor).filter((e) => isListed(section, e));
+  const controllers = run(extractControllers);
+  const controllerBases = sortBySource([...run(extractControllerBases), ...controllers.filter((c) => !isListed('controllers', c))]);
+  const socketControllers = run(extractSocketControllers);
+  const socketControllerBases = sortBySource([...run(extractSocketControllerBases), ...socketControllers.filter((c) => !isListed('socketControllers', c))]);
+  const classProperties = run(extractClassProperties);
 
   const fragment: ManifestFragment = {
     manifestVersion: MANIFEST_VERSION,
@@ -91,8 +97,11 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
     },
     services: sortBySource(mergeById(files.flatMap((f) => extractServices(ctx, f)))),
     values: run(extractValues),
-    controllers: scanned('controllers', extractControllers),
-    socketControllers: scanned('socketControllers', extractSocketControllers),
+    controllers: controllers.filter((c) => isListed('controllers', c)),
+    ...(controllerBases.length ? { controllerBases } : {}),
+    ...(classProperties.length ? { classProperties } : {}),
+    socketControllers: socketControllers.filter((c) => isListed('socketControllers', c)),
+    ...(socketControllerBases.length ? { socketControllerBases } : {}),
     socketContracts: run(extractSocketContracts),
     configModules: run(extractConfigModules),
     configUsages: run(extractConfigUsages),

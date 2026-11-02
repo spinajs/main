@@ -274,14 +274,24 @@ export interface IToInject<T> {
 
   /**
    * The decorator named no type and the build emits no decorator metadata: when the owner is resolved, the container
-   * asks the {@link IPropertyTypeResolver} for the type of `property` and injects what `bind(type)` describes.
+   * asks the {@link IPropertyTypeResolver} what `property` declares and injects what `bind(type, isList)` describes.
+   * `explicit` is the class the decorator names: only the metadata could tell whether the property is a list of it.
    */
-  pendingType?: { property: string | symbol; bind: (type: Class<unknown>) => IToInject<unknown> };
+  pendingType?: { property: string | symbol; explicit?: Class<unknown>; bind: (type: Class<unknown>, isList: boolean) => IToInject<unknown> };
 }
 
-/** Types of injected properties that a build without decorator metadata does not record ( the manifest has them ). */
+/** `type` is absent when the build could not record one; `array`: the property is an array or a map. */
+export interface IDeclaredPropertyType {
+  type?: Class<unknown>;
+  array: boolean;
+}
+
+/**
+ * What a build without decorator metadata does not record ( the manifest has it ). Synchronous: a sync service must
+ * stay sync on its first resolve, so whatever answers has its classes loaded during boot.
+ */
 export interface IPropertyTypeResolver {
-  typeOf(owner: Class<unknown>, property: string, container: IContainer): Class<unknown> | Promise<Class<unknown>> | undefined;
+  typeOf(owner: Class<unknown>, property: string, container: IContainer): IDeclaredPropertyType | undefined;
 }
 
 export interface IMappableService {

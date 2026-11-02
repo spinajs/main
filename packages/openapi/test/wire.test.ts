@@ -93,7 +93,7 @@ describe('manifestToOpenApi wire bindings', () => {
   });
 
   it('leaves injected arguments out of the operation', () => {
-    const m = withParams('/users/list', [param(0, 'req', 'ArgAsRequest', { in: 'none', shape: 'whole' }), param(1, 'svc', 'FromDi', { in: 'none', shape: 'whole' })]);
+    const m = withParams('/users/list', [param(0, 'req', 'ArgAsRequest', { in: 'none', shape: 'whole' }), param(1, 'svc', 'FromDi', { in: 'none', shape: 'whole' }), param(2, 'user', 'Decorated', { in: 'none', shape: 'whole' })]);
     const op = operationFor(m, '/users/list', 'get');
     expect(op.parameters).to.deep.equal([]);
     expect(op).to.not.have.property('requestBody');

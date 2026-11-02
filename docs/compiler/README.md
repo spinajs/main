@@ -120,7 +120,7 @@ A service, value or controller that is registered conditionally carries a `condi
 
 ### Runtime types
 
-Route arguments, socket `@Payload` types and `@Autoinject()` / `@LazyInject()` properties that name no type carry a `ref`: the value `emitDecoratorMetadata` would record, so an app that boots from a manifest can be built without decorator metadata. Return types, model columns and contract types carry none.
+Every decorated route argument, socket `@Payload` and `@FromDI()` types, and `@Autoinject()` / `@LazyInject()` properties that name no type carry a `ref`: what the runtime reads where `emitDecoratorMetadata` would have recorded a value, so an app that boots from a manifest can be built without decorator metadata. It works on the checked type, not on the annotation, so it differs from the metadata in the cases listed under the table. Return types, model columns and contract types carry none.
 
 | Declared type | `ref` |
 | --- | --- |
@@ -131,9 +131,30 @@ Route arguments, socket `@Payload` types and `@Autoinject()` / `@LazyInject()` p
 | An exported class of a dependency that ships a manifest fragment | `{ package, file: 'lib/x.js', export }` (the JavaScript next to its declaration file) |
 | A function type | the global `Function` |
 | An interface, a type literal, `any`, `unknown`, a union of different types | the global `Object` |
+| The static side of a class (`typeof Foo`) | the global `Object` |
+| A global no runtime provides on Node (`HTMLElement`, `declare global { class X {} }`), a `declare class` | the global `Object` |
 | `null`, `undefined`, `void` | none |
 
-A class without a `ref` is reported as `TYP001` (not exported) or `TYP002` (declared in a package without a manifest fragment, or in an ambient module such as `node:async_hooks`). An enum records `Number` or `String`, as the metadata does, not the enum object. Property injections are recorded on `services`, and also on `controllers` and `socketControllers` (`propertyInjects`, omitted when empty), with the declared type as `tokenRef`.
+Where `ref` and the metadata differ, because the checked type knows more than the annotation:
+
+| Declared | `ref` | Metadata |
+| --- | --- | --- |
+| `import type { Dto }`, then `dto: Dto` | the class, which the runtime imports | `Object` |
+| A parameter with no annotation (`page = 5`) | `Number` | `Object` |
+| An interface with a call signature | `Function` | `Object` |
+| `declare global { class X {} }` that a polyfill provides at runtime | `Object` | `X` |
+| `@Autoinject(Plugin) byName: ByName`, with `type ByName = Map<string, Plugin>` | `array: true` in `classProperties`, the map | `Object`, one instance |
+| `@Autoinject(Plugin) all: Plugins \| null`, with `type Plugins = Plugin[]` | `array: true` in `classProperties`, the list | `Object`, one instance |
+
+A class without a `ref` is reported as `TYP001` (not exported) or `TYP002` (declared in a package without a manifest fragment, or in an ambient module such as `node:async_hooks`). An enum records `Number` or `String`, as the metadata does, not the enum object.
+
+A parameter under a decorator the compiler does not know (`@Filter`, `@CurrentUser`, an app's own `Parameter()`) is recorded with `kind: 'Decorated'` and `wire: { in: 'none', shape: 'whole' }`: it has a type, and generators and request validation skip it. Socket `@FromDI()` types are in `socketControllers[].diArgs`, by handler and index, hooks included.
+
+An abstract controller, or one that `declaredDirsOnly` leaves out, goes to `controllerBases`: nothing mounts it, and the runtime finds the routes a subclass inherits there. `socketControllerBases` does the same for socket controllers, and also holds an undecorated class that declares handlers.
+
+A class without a `ref` records why in `refProblem`, which the runtime puts in its error. For the kinds that never read the type (`@Req`, `@Res`, `@Ip`, `@RequestId`, `@UserAgent`, `@Referer`, `@RawBody`, `@AcceptType`, `@RequestStream`, `@ContentDigest`) it records `Object` instead.
+
+A package built with `emitDecoratorMetadata: false` also gets `classProperties`: one entry per class with a decorated property, whatever the class is, keyed by `id` (`<package>:<class>`). Each `@Autoinject` or `@LazyInject` property has `array`, decided from what the type resolves to, so an alias and `readonly T[]` count, and, when the decorator names no type, the declared type as `tokenRef`. A property under any other decorator, other than the ones that inject by their own arguments (`@Logger`, `@Config`, `@FileSystem`, `@AutoinjectService`), has `array` alone, because the decorator may wrap `@Autoinject(X)`; a row without `tokenRef` imports nothing. A package built with metadata has none: the runtime imports every `tokenRef` at boot, and such a build would not read them. `services[].propertyInjects` records `tokenRef` too.
 
 ## Schema derivation
 

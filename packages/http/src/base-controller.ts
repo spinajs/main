@@ -7,14 +7,14 @@ import { Logger, Log } from '@spinajs/log';
 import { DataValidator } from '@spinajs/validation';
 import { Configuration } from '@spinajs/configuration';
 import { configuredMountPath, controllerMountPath } from '@spinajs/manifest';
-import { IController, IControllerDescriptor, IActionLocalStoregeContext } from './interfaces.js';
+import { IController, IControllerDescriptor, IActionLocalStoregeContext, IRoute } from './interfaces.js';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
 import { RouteRegistrationException } from './exceptions.js';
 import { __handle_response__ } from './response.js';
 import { __handle_error__ } from './error.js';
 import { createOnErrorHandler, resolveConfigErrorHandlers } from './errors/on-error.js';
-import { derivedValidatorsOf } from './route-args/manifest-schema.js';
-import { runtimeTypesFromManifest } from './manifest-runtime-types.js';
+import { classLineage, derivedValidatorsOf } from './route-args/manifest-schema.js';
+import { routesWithRuntimeTypes } from './manifest-runtime-types.js';
 import { buildRoutePath, resolveRouteMiddlewares, resolveRoutePolicies, createPolicyGate, createActionHandler, wrapMiddlewareAction, ControllerActionHost } from './route-builder.js';
 
 export abstract class BaseController extends AsyncService implements IController {
@@ -24,6 +24,8 @@ export abstract class BaseController extends AsyncService implements IController
   [action: string]: any;
 
   protected _router!: Express.Router;
+
+  private _routes?: Map<string | symbol, IRoute>;
 
   @Autoinject(Container)
   protected _container!: IContainer;
@@ -52,6 +54,14 @@ export abstract class BaseController extends AsyncService implements IController
    */
   public get Descriptor(): IControllerDescriptor {
     return Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, this) as IControllerDescriptor;
+  }
+
+  /**
+   * The routes this instance serves. The descriptor is shared by every boot in the process; in a build without
+   * decorator metadata a route's argument types are filled on a copy held here.
+   */
+  public get Routes(): Map<string | symbol, IRoute> {
+    return this._routes ?? this.Descriptor.Routes;
   }
 
   /**
@@ -85,9 +95,11 @@ export abstract class BaseController extends AsyncService implements IController
     this._router = Express.Router();
 
     const configErrorHandlers = await resolveConfigErrorHandlers(this._cfg, this._container);
-    await runtimeTypesFromManifest({ container: this._container, controller: this.constructor.name, routes: this.Descriptor.Routes.values(), mountPath: () => this.BasePath, log: this._log });
+    const controller = this.constructor.name;
+    const lineage = classLineage(this.constructor);
+    this._routes = await routesWithRuntimeTypes({ container: this._container, controller, lineage, routes: this.Descriptor.Routes, mountPath: () => this.BasePath, log: this._log });
 
-    for (const [, route] of this.Descriptor.Routes) {
+    for (const [, route] of this._routes) {
       // Fail fast: an unknown route type means the route decorator never set a
       // valid express method — mounting the rest of the controller while
       // silently dropping this route would hide the bug.
@@ -104,7 +116,7 @@ export abstract class BaseController extends AsyncService implements IController
       this._log.trace({ httpMethod: route.Type.toUpperCase(), controller: this.constructor.name, method: route.Method, path }, 'Registering route ${httpMethod} ${controller}::${method} at ${path}');
 
       const errorHandlers = [...(route.ErrorHandlers ?? []), ...(this.Descriptor.ErrorHandlers ?? []), ...configErrorHandlers];
-      const derived = derivedValidatorsOf({ container: this._container, controller: this.constructor.name, route, mountPath: this.BasePath, log: this._log });
+      const derived = derivedValidatorsOf({ container: this._container, controller, lineage, route, mountPath: this.BasePath, log: this._log });
 
       const handlers: (Express.RequestHandler | Express.ErrorRequestHandler)[] = [
         createPolicyGate(policies, route, this, this._log),

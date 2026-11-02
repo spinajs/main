@@ -35,3 +35,13 @@ export function ambient(storage: import('node:async_hooks').AsyncLocalStorage<nu
 export function documented(buffer: Buffer, big: bigint, sym: symbol, tuple: [string, number], nothing: null, undef: undefined, callback: () => void): void {
   void [buffer, big, sym, tuple, nothing, undef, callback];
 }
+
+export abstract class AbstractExported {}
+
+export declare class DeclaredOnly {}
+
+declare global {
+  class AmbientGlobal {}
+}
+
+export function notValues(_cls: typeof Exported, _abstract: typeof AbstractExported, _element: HTMLElement, _ambient: AmbientGlobal, _declared: DeclaredOnly, _instance: Exported) {}

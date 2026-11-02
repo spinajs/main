@@ -1,7 +1,8 @@
 import ts from 'typescript';
-import type { Lifetime, PropertyInject, ServiceEntry } from '@spinajs/manifest';
-import type { ExtractorContext } from '../context.js';
+import type { ClassPropertiesEntry, Lifetime, PropertyInject, ServiceEntry } from '@spinajs/manifest';
+import type { Extractor, ExtractorContext } from '../context.js';
 import { decoratorsOf, findDecorator, isArrayOfType, literalValue } from '../decorators.js';
+import { isListType } from '../runtime-ref.js';
 import { injectedName, tokenConstantKey } from './token-constant.js';
 
 type PropertyHandler = (d: { args: readonly ts.Expression[] }, prop: ts.PropertyDeclaration, ctx: ExtractorContext) => PropertyInject;
@@ -84,6 +85,8 @@ function autoinjectSymbol(first: ts.Expression | undefined, explicit: string | u
   return first && ts.isIdentifier(first) ? ctx.checker.getSymbolAtLocation(first) : undefined;
 }
 
+const declaresList = (prop: ts.PropertyDeclaration, ctx: ExtractorContext): boolean => isListType(ctx.checker.getTypeAtLocation(prop), ctx.checker);
+
 /** The class the container injects when the decorator names none: what `design:type` would hold. */
 function declaredTypeRef(prop: ts.PropertyDeclaration, ctx: ExtractorContext): PropertyInject['tokenRef'] {
   return ctx.runtimeRef(ctx.checker.getTypeAtLocation(prop), prop);
@@ -95,7 +98,7 @@ const PROPERTY_DECORATORS: Record<string, PropertyHandler> = {
     const first = d.args[0];
     const explicit = first && (ts.isIdentifier(first) || isArrayOfType(first)) ? injectedName(first, ctx) : undefined;
     const options = optionsOf(first && ts.isObjectLiteralExpression(first) ? first : d.args[1], ctx);
-    const array = declared.array || isArrayOfType(first);
+    const array = declaresList(prop, ctx) || isArrayOfType(first);
     const concrete = !array && isConcreteClass(autoinjectSymbol(first, explicit, prop, ctx), ctx);
     const tokenRef = explicit || array ? undefined : declaredTypeRef(prop, ctx);
     return {
@@ -111,8 +114,9 @@ const PROPERTY_DECORATORS: Record<string, PropertyHandler> = {
   LazyInject: (d, prop, ctx) => {
     const declared = tokenOfTypeNode(prop.type, ctx);
     const explicit = injectedName(d.args[0], ctx);
-    const tokenRef = explicit || declared.array ? undefined : declaredTypeRef(prop, ctx);
-    return { property: propertyName(prop), token: explicit ?? declared.token, optional: false, array: declared.array, lazy: true, ...(tokenRef ? { tokenRef } : {}) };
+    const array = declaresList(prop, ctx);
+    const tokenRef = explicit || array ? undefined : declaredTypeRef(prop, ctx);
+    return { property: propertyName(prop), token: explicit ?? declared.token, optional: false, array, lazy: true, ...(tokenRef ? { tokenRef } : {}) };
   },
   Config: (_d, prop) => ({ property: propertyName(prop), token: 'Configuration', optional: false, array: false }),
   AutoinjectService: (d, prop, ctx) => {
@@ -121,24 +125,57 @@ const PROPERTY_DECORATORS: Record<string, PropertyHandler> = {
       property: propertyName(prop),
       token: injectedName(d.args[1], ctx) ?? declared.token,
       optional: optionsOf(d.args[2], ctx).optional === true,
-      array: declared.array,
+      array: declaresList(prop, ctx),
     };
   },
   Logger: (_d, prop) => ({ property: propertyName(prop), token: 'Log', optional: false, array: false }),
   FileSystem: (_d, prop) => ({ property: propertyName(prop), token: '__file_provider__', optional: false, array: false }),
 };
 
-export function propertyInjectsOf(cls: ts.ClassDeclaration, ctx: ExtractorContext): PropertyInject[] {
+export function propertyInjectsOf(cls: ts.ClassDeclaration, ctx: ExtractorContext, only?: ReadonlySet<string>): PropertyInject[] {
   const out: PropertyInject[] = [];
   for (const member of cls.members) {
     if (!ts.isPropertyDeclaration(member)) continue;
     for (const d of decoratorsOf(member)) {
       const handler = PROPERTY_DECORATORS[d.name];
-      if (handler) out.push(handler(d, member, ctx));
+      if (handler && (!only || only.has(d.name))) out.push(handler(d, member, ctx));
     }
   }
   return out;
 }
+
+// The decorators that read `design:type`; `@Logger`, `@Config` and `@FileSystem` inject by their own arguments.
+const TYPE_READING_DECORATORS = new Set(['Autoinject', 'LazyInject']);
+
+/**
+ * The compiler knows decorators by name, so one of the app's own may wrap `@Autoinject(X)`. Only the list shape is
+ * recorded: a row without `tokenRef` imports nothing, whichever decorator it turns out to be.
+ */
+function otherDecoratedOf(cls: ts.ClassDeclaration, ctx: ExtractorContext): PropertyInject[] {
+  return cls.members.filter(ts.isPropertyDeclaration).flatMap((member) => {
+    const decorators = decoratorsOf(member);
+    if (decorators.length === 0 || decorators.some((d) => PROPERTY_DECORATORS[d.name])) return [];
+    return [{ property: propertyName(member), token: tokenOfTypeNode(member.type, ctx).token, optional: !!member.questionToken, array: declaresList(member, ctx) }];
+  });
+}
+
+/**
+ * A class of any kind can declare these: a policy, a model, a schedule, an abstract base. Nothing reads the table in a
+ * build with decorator metadata, and the runtime imports every `tokenRef` at boot, so such a build has none.
+ */
+export const extractClassProperties: Extractor<ClassPropertiesEntry> = (ctx, file) => {
+  if (ctx.program.getCompilerOptions().emitDecoratorMetadata) return [];
+  const out: ClassPropertiesEntry[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isClassDeclaration(node) && node.name) {
+      const properties = [...propertyInjectsOf(node, ctx, TYPE_READING_DECORATORS), ...otherDecoratedOf(node, ctx)];
+      if (properties.length > 0) out.push({ id: `${ctx.packageName}:${node.name.text}`, className: node.name.text, properties, source: ctx.sourceRef(node) });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return out;
+};
 
 function isContainerResolve(callee: ts.Expression): boolean {
   if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== 'resolve') return false;
