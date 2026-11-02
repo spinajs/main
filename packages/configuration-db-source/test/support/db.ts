@@ -2,6 +2,7 @@ import { DI } from '@spinajs/di';
 import '@spinajs/log';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { Configuration } from '@spinajs/configuration';
 
 import { DbConfig, DbConfigSourceBotstrapper } from '../../src/index.js';
@@ -20,11 +21,12 @@ export interface DbHandle {
 /** An in-memory sqlite `configuration` table behind `DbConfig`, over the already installed test Configuration. */
 export async function bootDb(setConfig: SetConfig, domain = 'root'): Promise<DbHandle> {
   setConfig(['logger'], { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
-  setConfig(['db'], { DefaultConnection: 'sqlite', Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { OnStartup: true } }] });
+  setConfig(['db'], { DefaultConnection: 'sqlite', Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite' }] });
 
   DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-  await (await DI.resolve(Orm)).Migrator.ready();
-  const orm = await DI.resolve(Orm);
+  const { orm } = await migrateTestDatabase();
+  // The bootstrapper syncs exposed options on the Orm's resolve signal, which fired before the table existed.
+  DI.emit('di.resolved.Orm', DI.RootContainer, orm);
   const config = (await DI.resolve(Configuration)) as Configuration;
 
   const bootstrapper = new DbConfigSourceBotstrapper();
