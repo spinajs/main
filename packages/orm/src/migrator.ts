@@ -122,7 +122,7 @@ export class OrmMigrator extends AsyncService {
       }
 
       return executed;
-    });
+    }, options.name);
   }
 
   /**
