@@ -8,6 +8,7 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
@@ -123,7 +124,7 @@ class TeamsHttpTestConfiguration extends FrameworkConfiguration {
             Driver: 'orm-driver-sqlite',
             Filename: ':memory:',
             Name: 'sqlite',
-            Migration: { Table: 'orm_migrations', OnStartup: true, Transaction: { Mode: MigrationTransactionMode.PerMigration } },
+            Migration: { Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
           },
         ],
       },
@@ -161,7 +162,7 @@ export async function startTeamsApp(): Promise<number> {
   root.register(testHost.named(abac.name, testHost.instance(abac))).as(AuthorizationModel);
   config.set(['authz', 'models'], [abac.name, 'RbacModel']);
   await DI.resolve(fsService);
-  await (await DI.resolve(Orm)).Migrator.ready();
+  await migrateTestDatabase();
 
   for (const c of TEAMS_HTTP_CONTROLLERS) DI.register(c as Class<BaseController>).as(BaseController);
   await DI.resolve(Controllers);
