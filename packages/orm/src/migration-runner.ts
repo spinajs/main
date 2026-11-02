@@ -142,13 +142,14 @@ export class MigrationRunner {
   constructor(protected orm: IMigrationRunnerHost) {}
 
   /**
-   * Holds one migration lock per connection that has registered migrations ( or only `connection` )
-   * while `fn` runs, so several runner calls - `up()`, then the seeds - form one run. Locks already
-   * held by an enclosing call are reused.
+   * Holds one migration lock per connection that has registered migrations ( or only `connection`,
+   * or only the one `name` runs on ) while `fn` runs, so several runner calls - `up()`, then the
+   * seeds - form one run. Locks already held by an enclosing call are reused. An unknown `name`
+   * throws before any lock is taken.
    */
-  public async withRunLock<R>(connection: string | undefined, fn: () => Promise<R>): Promise<R> {
+  public async withRunLock<R>(connection: string | undefined, fn: () => Promise<R>, name?: string): Promise<R> {
     return await this.holdRunLocks(
-      this.plan(undefined, true, connection, true).map(([driver]) => driver),
+      this.plan(name, true, connection, true).map(([driver]) => driver),
       fn,
     );
   }

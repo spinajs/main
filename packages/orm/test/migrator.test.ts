@@ -660,6 +660,18 @@ describe('OrmMigrator', function () {
     expect(lockWrites()).to.eql(['take', 'release']);
   });
 
+  it('migrate({ name }) refuses an unknown name before it takes a lock or creates storage', async () => {
+    createUsersMigration();
+    const migrator = await resolveMigrationTool();
+    EXECUTED = [];
+
+    const err = await rejection(migrator.migrate({ name: 'MigratorTestTypo_2021_01_01_00_00_00' }));
+
+    expect((err as Error).message).to.match(/^Migration MigratorTestTypo_2021_01_01_00_00_00 is not registered/);
+
+    expect(EXECUTED.filter((b) => b instanceof TableQueryBuilder || (b instanceof InsertQueryBuilder && b.Table === LOCK_TABLE))).to.eql([]);
+  });
+
   it('a migrator resolved with MigrateOnStartup: false before the Orm makes it apply nothing', async () => {
     const Create = createUsersMigration();
     const up = sinon.spy(Create.prototype, 'up');

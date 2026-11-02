@@ -879,7 +879,7 @@ export class DefaultMigrationService extends OrmMigrationService {
     // read once for the whole report rather than per entry: every row on this connection is
     // judged against the same "is anything running right now?", and asking N times would let the
     // answer change halfway down a single report
-    const running = options?.readOnly && !(await this.driver.schema().tableExists(this.lockTable)) ? false : await this.runInProgress();
+    const running = await this.runInProgress();
 
     return units.map((u) => this.statusEntry(u, records, running));
   }

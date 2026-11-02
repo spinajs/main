@@ -253,6 +253,9 @@ describe('Migration lock', () => {
 
       const first = await new TableMigrationLock(driver).acquire(request());
       await expect(new TableMigrationLock(driver).acquire(request({ timeout: 600 }))).to.be.rejectedWith(/Could not acquire migration lock on connection sqlite within 600ms - held by /);
+      await expect(new TableMigrationLock(driver).acquire(request({ timeout: 100 })), 'a dead holder blocks migrate-resolve too: the message names the way out').to.be.rejectedWith(
+        /the row goes stale at \S+ \( Migration\.Lock\.StaleAfter \) and the next run takes it; to go on sooner, delete it from spinajs_migration_lock by hand/,
+      );
 
       await first.release();
       await (await new TableMigrationLock(driver).acquire(request({ timeout: 600 }))).release();
@@ -318,16 +321,23 @@ describe('Migration lock', () => {
       expect(driver.Container.resolve(MigrationLock, [driver])).to.be.instanceOf(TableMigrationLock);
     });
 
-    it('migrationLockKey names the database and the tracking table; advisoryKeyPair is two stable int32', () => {
+    it('migrationLockKey names the database, the schema and the tracking table; advisoryKeyPair is two stable int32', () => {
       const fake = { Options: { Database: 'shop' } } as OrmDriver;
 
-      expect(migrationLockKey(fake, 'spinajs_migration')).to.eq('spinajs_migration:shop:spinajs_migration');
-      expect(migrationLockKey({ Options: {} } as OrmDriver, 't')).to.eq('spinajs_migration::t');
+      expect(migrationLockKey(fake, 'spinajs_migration')).to.eq('spinajs_migration:shop::spinajs_migration');
+      expect(migrationLockKey({ Options: {} } as OrmDriver, 't')).to.eq('spinajs_migration:::t');
 
       const [k1, k2] = advisoryKeyPair('spinajs_migration:shop:spinajs_migration');
       expect(advisoryKeyPair('spinajs_migration:shop:spinajs_migration')).to.eql([k1, k2]);
       expect(Number.isInteger(k1) && k1 >= -(2 ** 31) && k1 < 2 ** 31).to.be.true;
       expect(Number.isInteger(k2) && k2 >= -(2 ** 31) && k2 < 2 ** 31).to.be.true;
+    });
+
+    it('two connections on one database with different schemas get different keys', () => {
+      const tenant = (Schema: string) => ({ Options: { Database: 'shop', Options: { Schema } } }) as OrmDriver;
+
+      expect(migrationLockKey(tenant('tenant_a'), 'spinajs_migration')).to.eq('spinajs_migration:shop:tenant_a:spinajs_migration');
+      expect(migrationLockKey(tenant('tenant_a'), 'spinajs_migration')).to.not.eq(migrationLockKey(tenant('tenant_b'), 'spinajs_migration'));
     });
 
     it('the service takes the lock the driver registered, with the connection key and settings', async () => {
@@ -338,7 +348,7 @@ describe('Migration lock', () => {
       const handle = await new DefaultMigrationService(driver).acquireRunLock();
 
       expect(handle.holder).to.eq('recording:sqlite');
-      expect(MigrationLockTest_RecordingLock.requests).to.eql([{ key: 'spinajs_migration::spinajs_migration', lockTable: LOCK_TABLE, timeout: 30_000, staleAfter: 600_000 }]);
+      expect(MigrationLockTest_RecordingLock.requests).to.eql([{ key: 'spinajs_migration:::spinajs_migration', lockTable: LOCK_TABLE, timeout: 30_000, staleAfter: 600_000 }]);
     });
 
     it("Lock.Mode 'table' takes the lock-table row even where the driver registered another lock", async () => {
