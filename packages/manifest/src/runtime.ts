@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
+import { existingRealpathOf, realDirectory } from './realpath.js';
 import { hashManifest } from './hash.js';
 import { loadsFromManifest } from './mounted.js';
 import { assertManifestVersion, readManifestObject } from './read.js';
@@ -71,13 +72,42 @@ export function loadRuntimeManifest(options: ManifestRuntimeOptions, cwd = proce
   return manifest;
 }
 
+interface Probes {
+  found: Map<string, string>;
+  realDirs: Map<string, string>;
+}
+
+// Per manifest object, so a reloaded or another manifest starts empty. Only what was found is kept: a package that is
+// missing, or a lookup that throws, is probed again on the next call.
+const PROBES = new WeakMap<Manifest, Probes>();
+
+function probesOf(manifest: Manifest): Probes {
+  let probes = PROBES.get(manifest);
+  if (!probes) {
+    probes = { found: new Map(), realDirs: new Map() };
+    PROBES.set(manifest, probes);
+  }
+  return probes;
+}
+
+function found(manifest: Manifest, key: string, probe: () => string): string {
+  const { found: cache } = probesOf(manifest);
+  let value = cache.get(key);
+  if (value === undefined) {
+    value = probe();
+    cache.set(key, value);
+  }
+  return value;
+}
+
 /** Root of the app itself. SPINAJS_MANIFEST_ROOT re-bases a manifest built elsewhere (bundle, container image). */
 export function appRootOf(manifest: Manifest, cwd: string): string {
   const override = process.env.SPINAJS_MANIFEST_ROOT;
   if (override) {
     return resolve(override);
   }
-  return existsSync(manifest.app.root) ? manifest.app.root : resolve(cwd);
+  const { root } = manifest.app;
+  return found(manifest, `app\0${root}\0${cwd}`, () => (existsSync(root) ? root : resolve(cwd)));
 }
 
 /**
@@ -149,6 +179,10 @@ export function packageRootOf(name: string, manifest: Manifest, cwd: string): st
   }
 
   const appRoot = appRootOf(manifest, cwd);
+  return found(manifest, `package\0${appRoot}\0${process.env.SPINAJS_PACKAGE_ROOTS ?? ''}\0${name}\0${listed.entry}`, () => locatePackageRoot(name, listed.entry, appRoot));
+}
+
+function locatePackageRoot(name: string, entryFile: string, appRoot: string): string {
   const installed = mappedPackageRoot(name, appRoot) ?? installedPackageRoot(appRoot, name);
   if (installed) {
     return installed;
@@ -160,9 +194,9 @@ export function packageRootOf(name: string, manifest: Manifest, cwd: string): st
   } catch {
     // Package without `package.json` in its exports: peel `listed.entry` (e.g. `lib/index.js`) off the resolved main.
     const entry = require.resolve(name);
-    const suffix = `${sep}${listed.entry.split('/').join(sep)}`;
+    const suffix = `${sep}${entryFile.split('/').join(sep)}`;
     if (!entry.endsWith(suffix)) {
-      throw new ManifestMissing(`cannot locate the root of package ${name}: resolved entry ${entry} does not end with ${listed.entry}`);
+      throw new ManifestMissing(`cannot locate the root of package ${name}: resolved entry ${entry} does not end with ${entryFile}`);
     }
     return entry.slice(0, entry.length - suffix.length);
   }
@@ -201,9 +235,8 @@ function directDependenciesOf(appRoot: string): string[] {
   }
 }
 
-const stemOf = (path: string): string => (existsSync(path) ? realpathSync(path) : path).replace(/\.[mc]?[jt]s$/, '');
-
 function isOwnFile(entry: { source: SourceRef }, file: string, manifest: Manifest, cwd: string): boolean {
+  const stemOf = (path: string): string => (existingRealpathOf(path, probesOf(manifest).realDirs) ?? path).replace(/\.[mc]?[jt]s$/, '');
   try {
     const own = stemOf(resolve(file));
     const written = [manifestFileFor(entry, manifest, cwd), join(packageRootOf(entry.source.package, manifest, cwd), entry.source.file)];
@@ -258,8 +291,9 @@ export function manifestFileFor(entry: { source: SourceRef }, manifest: Manifest
   }
 
   const result = resolve(root, outDir, inside.replace(/\.[mc]?ts$/, '.js'));
-  const found = existsSync(result);
-  const rel = relative(found ? realpathSync(root) : resolve(root), found ? realpathSync(result) : result);
+  const { realDirs } = probesOf(manifest);
+  const real = existingRealpathOf(result, realDirs);
+  const rel = real === undefined ? relative(resolve(root), result) : relative(realDirectory(root, realDirs), real);
   if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
     throw escapes('path', result);
   }
