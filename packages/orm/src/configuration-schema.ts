@@ -8,6 +8,7 @@ export const ORM_CONFIGURATION_SCHEMA = {
   properties: {
     // enum, not type: 'boolean': coerceTypes would read null and 0 as false and switch the check off
     StrictTableCheck: { enum: [true, false], default: true },
+    MigrationCheck: { enum: ['fail', 'warn', 'off'], default: 'fail' },
   },
 };
 
