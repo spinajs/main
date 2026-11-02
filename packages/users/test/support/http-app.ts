@@ -59,7 +59,10 @@ const APP_VALUES = {
 
 class UsersHttpSeedConfiguration extends TestConfiguration {
   protected onLoad(): unknown {
-    return _.merge({}, super.onLoad(), APP_VALUES);
+    const values = _.merge({}, super.onLoad(), APP_VALUES) as { authz?: Record<string, unknown> };
+    // This app registers its root model itself (registerRootRbac), and a hostHarness suite its domain's.
+    delete values.authz?.models;
+    return values;
   }
 }
 
@@ -312,7 +315,7 @@ export async function startUsersHttpApp(opts: StartOptions = {}): Promise<UsersH
 
   opts.register?.();
   await DI.resolve(fsService);
-  await DI.resolve(OrmMigrator);
+  await (await DI.resolve(Orm)).Migrator.ready();
 
   const before = new Set(DI.getRegisteredTypes(BaseController) ?? []);
   for (const c of [...authnControllers, AccessController, UsersHttpProbeController] as Class<BaseController>[]) DI.register(c).as(BaseController);
@@ -374,7 +377,7 @@ export function registerRootRbac(): void {
   rootUndo.push(
     testHost.registerInRoot(AssignmentStore, DbAssignmentStore),
     testHost.registerInRoot(AdminAssignmentStore, DbAssignmentStore),
-    testHost.registerInRoot(AuthorizationModel, (c: IContainer) => model(c)),
+    testHost.registerInRoot(AuthorizationModel, testHost.named('UsersRootRbacModel', (c: IContainer) => model(c))),
     testHost.registerInRoot(AuthzContributor, (c: IContainer) => new RbacContributor(model(c))),
     testHost.registerInRoot(RbacService, (c: IContainer) => new RbacService(model(c))),
     () => {
@@ -383,6 +386,9 @@ export function registerRootRbac(): void {
       DI.uncache(DbAssignmentStore);
     },
   );
+  const listed = testHost.config().get<string[] | undefined>(['authz', 'models']);
+  testHost.config().set(['authz', 'models'], [...(listed ?? []), 'UsersRootRbacModel']);
+  rootUndo.push(() => (listed === undefined ? testHost.config().unset(['authz', 'models']) : testHost.config().set(['authz', 'models'], listed)));
 }
 
 /** The root RbacModel of registerRootRbac; undefined until the root domain builds it. */

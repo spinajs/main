@@ -207,7 +207,7 @@ describe('3.0 authn policies and route args', function () {
 
     const config = await DI.resolve(Configuration);
     await DI.resolve(fsService);
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
 
     s = await buildSuite();
     authnInChild = buildAuthnMiddlewareIn(s.child);

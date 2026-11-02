@@ -35,7 +35,7 @@ runBehaviour(
         });
         DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
         const orm = await DI.resolve(Orm);
-        await DI.resolve(OrmMigrator);
+        await (await DI.resolve(Orm)).Migrator.ready();
 
         await authz(host.domain).runAs(SYSTEM, 'test', async () => {
           for (const r of host.world.lane?.configuration?.rows ?? [])

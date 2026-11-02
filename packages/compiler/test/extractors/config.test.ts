@@ -46,12 +46,12 @@ describe('config extractors', () => {
       expect(readable).to.not.have.property('x-explicit');
     });
 
-    it('publishes what it cannot read as partial, with no hole in it', () => {
+    it('publishes what it cannot read as partial, with no hole in it and no alternative narrowed', () => {
       expect(JSON.parse(JSON.stringify(unreadable))).to.deep.equal({
         $id: 'spinajs/unreadable.configuration.schema.json',
         $configurationModule: 'unreadable',
         type: 'object',
-        properties: { some: { anyOf: [{ const: null }] }, none: { type: 'string' } },
+        properties: { some: {}, none: { type: 'string' }, claim: {}, kind: { type: 'string' } },
         'x-explicit': 'partial',
       });
     });

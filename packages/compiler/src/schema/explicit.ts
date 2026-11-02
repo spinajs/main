@@ -19,7 +19,8 @@ export function resolveLiteral(checker: ts.TypeChecker, expression: ts.Expressio
 /**
  * Drops what `literalValue` could not evaluate: `undefined`, which JSON writes as `null` inside an array, where a
  * subschema cannot be null. A literal `null` stays. So does the rest of the array; one left empty goes, because
- * `allOf: []` and `enum: []` are invalid.
+ * `allOf: []` and `enum: []` are invalid. A keyword whose members are alternatives or positions goes whole when one
+ * is lost: the rest would narrow the schema, and without the keyword it is only wider.
  */
 export function withoutUnresolved(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -29,10 +30,14 @@ export function withoutUnresolved(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value;
   return Object.fromEntries(
     Object.entries(value)
-      .map(([key, member]) => [key, withoutUnresolved(member)])
+      .map(([key, member]) => [key, WHOLE_OR_NOTHING.has(key) && losesMember(member) ? undefined : withoutUnresolved(member)])
       .filter(([, member]) => member !== undefined),
   );
 }
+
+const WHOLE_OR_NOTHING: ReadonlySet<string> = new Set(['anyOf', 'oneOf', 'enum', 'type', 'items', 'prefixItems']);
+
+const losesMember = (value: unknown): boolean => Array.isArray(value) && value.some((member) => withoutUnresolved(member) === undefined);
 
 export interface ExplicitSchema {
   schema: JsonSchema;

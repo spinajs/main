@@ -80,17 +80,16 @@ This package writes to the database **only once the `configuration` table is rea
 The bootstrapper does no db work when it runs; it hooks DI's resolve events and
 defers everything until then:
 
-- `DI.once('di.resolved.OrmMigrator', …)`: the migrator ran the bundled migration.
-- `DI.once('di.resolved.Orm', …)`: only when `DbConfig`'s connection is not a
-  `Migration.OnStartup` connection and the table already exists (a database
-  migrated by `migrate-up`, no migrator at boot).
+- `di.resolved.Orm`, when the table exists: the `Orm` resolves after its
+  `Migration.OnStartup` migrations, which include the bundled one, and a
+  database migrated by `migrate-up` has it already.
 
-Whichever fires first **(1)** inserts every exposed `@Config` option into the
+The first such event **(1)** inserts every exposed `@Config` option into the
 table (InsertOrIgnore) and **(2)** starts the watch timer. `@Config` properties
 registered after that are persisted/loaded live by a
 `di.registered.__configuration_property__` handler; before it, the sweep handles them.
 
-**Implication:** resolve `OrmMigrator` (or, on a pre-migrated database, the `Orm`)
+**Implication:** resolve the `Orm`
 somewhere in your app for exposed options to be written and watched. Reading existing
 rows is independent of this — it happens during `Configuration.load()` via the
 source, which uses the resolved ORM connection when one is available.

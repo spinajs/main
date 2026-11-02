@@ -16,7 +16,7 @@ import { Bootstrapper, DI, IContainer, Injectable } from '@spinajs/di';
 import '@spinajs/log';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Config, Configuration, ConfigurationSource, FrameworkConfiguration, IConfigLike } from '@spinajs/configuration';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrator, resolveMigrationTool } from '@spinajs/orm';
 
 import { ConfigFileValidator, DbConfig, DbConfigSourceBotstrapper, DbConfigValueConverter } from './../src/index.js';
 import './migration/test_config_data_2022_02_08_01_13_00.js';
@@ -100,7 +100,7 @@ class SampleTemplateValidator extends ConfigFileValidator {
 
 /** The boot an app makes: the migrator resolves the Orm it injects, then migrates. */
 async function db() {
-  await DI.resolve(OrmMigrator);
+  await (await DI.resolve(Orm)).Migrator.ready();
   return await DI.resolve(Orm);
 }
 
@@ -443,7 +443,7 @@ describe('exposed options on a database migrated before the boot', function () {
     DI.uncache(OrmMigrator);
     DI.uncache(Orm);
     DI.uncache(Configuration);
-    await (await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])).migrate();
+    await (await resolveMigrationTool()).migrate();
     const cli = await DI.resolve(Orm);
     const before = (await cli.Connections.get('sqlite')!.select().from('configuration').where('Slug', 'pre-migrated')) as any[];
     await cli.dispose();

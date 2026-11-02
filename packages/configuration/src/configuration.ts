@@ -71,6 +71,20 @@ function withLazyVars<T extends object>(obj: T): T {
   return proxy;
 }
 
+const ownerOf = (source: object, member: string): object | undefined => {
+  for (let proto: object | null = source; proto; proto = Object.getPrototypeOf(proto) as object | null) {
+    if (Object.hasOwn(proto, member)) return proto;
+  }
+  return undefined;
+};
+
+// A 3.x subclass of a file source that changes what it loads by overriding Load() alone, for example to decrypt values.
+const overridesLoadOnly = (source: object): boolean => {
+  const load = ownerOf(source, 'Load');
+  const layers = ownerOf(source, 'LoadLayers');
+  return load !== undefined && layers !== undefined && load !== layers && Object.prototype.isPrototypeOf.call(layers, load);
+};
+
 // A copy that validates as the stored value does: behind a copied lazy-var proxy only the vars the schema reads load,
 // and a class instance (a ConfigVar, one with #private fields a copy would lack) is kept by reference.
 function copyForCheck(value: unknown): unknown {
@@ -420,6 +434,13 @@ export class FrameworkConfiguration extends Configuration {
 
     for (const source of this.Sources) {
       if (isLayeredSource(source)) {
+        if (overridesLoadOnly(source)) {
+          InternalLogger.warn(
+            { source: source.constructor.name },
+            'Configuration source ${source} overrides Load(), which the boot does not call for a file source: it loads LoadLayers(). Override LoadLayers() instead',
+            'Configuration',
+          );
+        }
         files.push(await source.LoadLayers(this));
         continue;
       }

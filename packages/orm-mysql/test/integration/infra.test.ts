@@ -12,7 +12,7 @@
  */
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { ConnectionState, Orm, ORM_METRIC_ACQUIRE_SECONDS, ORM_METRIC_POOL_SIZE, QueryContext, OrmMigrator } from '@spinajs/orm';
+import { ConnectionState, Orm, ORM_METRIC_ACQUIRE_SECONDS, ORM_METRIC_POOL_SIZE, QueryContext } from '@spinajs/orm';
 import { Metrics } from '@spinajs/telemetry-common';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -138,8 +138,8 @@ describe('MySQL integration - orm-infra', function () {
     DI.register(InfraConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
 
-    await DI.resolve(OrmMigrator);
-    await (await DI.resolve(OrmMigrator)).Runner.up();
+    await (await DI.resolve(Orm)).Migrator.ready();
+    await (await DI.resolve(Orm)).Migrator.Runner.up();
     // Model descriptors get their columns from the live schema; without this the insert
     // compiler has no columns to work with.
     await db().reloadTableInfo();

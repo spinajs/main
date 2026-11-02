@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Class, DI } from '@spinajs/di';
-import { AlterTableQueryBuilder, Connection, extractModelDescriptor, Migration, Model, ModelBase, OrmDriver, OrmMigration, OrmMigrator, Primary } from '@spinajs/orm';
+import { AlterTableQueryBuilder, Connection, extractModelDescriptor, Migration, Model, ModelBase, OrmDriver, OrmMigration, OrmMigrator, Primary, resolveMigrationTool } from '@spinajs/orm';
 import { expect } from 'chai';
 import _ from 'lodash';
 import 'mocha';
@@ -98,7 +98,7 @@ describe('sqlite OrmMigrator table info re-read', function () {
 
   /** Applies the create migration, then the rest: the second pass re-reads what the first one read. */
   async function migrateInTwoPasses(): Promise<OrmMigrator> {
-    const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+    const migrator = await resolveMigrationTool();
     await migrator.migrate({ name: schema.create.name });
     await migrator.migrate();
     return migrator;
@@ -142,7 +142,7 @@ describe('sqlite OrmMigrator table info re-read', function () {
   it('drops the column a migration dropped from the model', async () => {
     alter = alterMigration('mti_posts', (t) => t.dropColumn('Title'));
 
-    const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+    const migrator = await resolveMigrationTool();
     await migrator.migrate({ name: schema.create.name });
     expect(names(schema.Post)).to.include('Title');
 
@@ -166,7 +166,7 @@ describe('sqlite OrmMigrator table info re-read', function () {
       t.string('Flag').modify();
     });
 
-    const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+    const migrator = await resolveMigrationTool();
     await migrator.migrate({ name: schema.create.name });
     expect(columns(schema.Post).find((c) => c.Name === 'Flag')!.Converter?.constructor.name).to.match(/BooleanValueConverter$/);
 
@@ -190,7 +190,7 @@ describe('sqlite OrmMigrator table info re-read', function () {
       t.string('Extra');
     });
 
-    const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+    const migrator = await resolveMigrationTool();
     await migrator.migrate({ name: schema.create.name });
     const tableInfo = sinon.spy(SqliteOrmDriver.prototype, 'tableInfo');
 

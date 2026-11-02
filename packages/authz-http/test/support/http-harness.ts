@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 
 import { DI } from '@spinajs/di';
 import type { Class, Constructor } from '@spinajs/di';
-import { AuthorizationModel } from '@spinajs/authz';
 import type { Principal, ResourceRef } from '@spinajs/authz';
 import { BaseController, BasePath, BasePolicy, Body, Controllers, Del, Get, Ok, Patch, Policy, Post, Put, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
@@ -208,7 +207,7 @@ export function httpHarness(opts: HttpHarnessOptions = {}): BehaviourHarness {
       // Models of other lanes (the RBAC model of links and summaries) stand in as empty static models.
       const kitNames = new Set(host.kit.models.map((m) => m.name));
       const combined = new Set([world.combine.default, ...Object.values(world.combine.types ?? {})].flatMap((route) => route.models ?? []));
-      for (const name of combined) if (!kitNames.has(name)) host.container.register(testHost.instance(new StaticModel({ name }))).as(AuthorizationModel);
+      for (const name of combined) if (!kitNames.has(name)) testHost.activate(host.container, domain, new StaticModel({ name }));
 
       const prefix = `c${++caseNo}`;
       const routes = caseController(prefix, world, domain);

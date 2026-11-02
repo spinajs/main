@@ -26,6 +26,9 @@
       "schemas": [
         "lib/schema.d.ts"
       ],
+      "register-schema": [
+        "lib/register-schema.d.ts"
+      ],
       "socket": [
         "lib/socket/index.d.ts"
       ]

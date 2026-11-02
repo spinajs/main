@@ -67,7 +67,7 @@ async function dropTables(): Promise<void> {
     for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
       await b.bootstrap();
     }
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
   });
 
   afterEach(async () => {

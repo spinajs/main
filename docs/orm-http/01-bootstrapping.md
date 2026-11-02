@@ -17,7 +17,7 @@ Then, during application start:
 
 1. The application resolves `Array.ofType(Bootstrapper)` and calls `bootstrap()` on each one.
 2. `OrmHttpBootstrapper.bootstrap()` subscribes once to the DI event `di.resolved.Orm`. It does nothing else.
-3. The application resolves `Orm`, directly or through [`OrmMigrator`](../orm/10-migrations.md), which resolves it first. DI emits `di.resolved.Orm` with the instance.
+3. The application resolves `Orm`. DI emits `di.resolved.Orm` with the instance.
 4. The listener walks `orm.Models` and sets `custom:arg_hydrator` metadata to `{ hydrator: DbModelHydrator }` on every model class that has no hydrator yet.
 5. The listener copies every key of `MODEL_STATIC_MIXINS` onto every model class, bound to that class: `filter()`, `filterColumns()`, `filterSchema()`.
 
@@ -97,7 +97,7 @@ export class AuditHydratorBootstrapper extends Bootstrapper {
 
 ## Best practices
 
-- Run all bootstrappers before the first `DI.resolve(Orm)` or `DI.resolve(OrmMigrator)`. The `Bootstrapper` loop below is the order the package expects.
+- Run all bootstrappers before the first `DI.resolve(Orm)`. The `Bootstrapper` loop below is the order the package expects.
 - Pass the column list to `.filter(filters, op, columns)` when the builder may belong to a model the ORM did not load. It then does not depend on the bootstrapper.
 
 ## Patterns and antipatterns

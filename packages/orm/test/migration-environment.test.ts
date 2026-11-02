@@ -15,6 +15,7 @@ describe('parseMigrationFileEnv', () => {
 
   it('returns the tag of a suffixed file', () => {
     expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.local.ts'))).to.equal('local');
+    expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.local.mts'))).to.equal('local');
   });
 
   it('normalizes the tag', () => {
@@ -61,11 +62,14 @@ describe('parseMigrationFileEnv', () => {
     expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.spec.mjs'))).to.equal(undefined);
     expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.test.mjs'))).to.equal(undefined);
     expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.spec.cjs'))).to.equal(undefined);
+    expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.test.mts'))).to.equal(undefined);
+    expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.spec.cts'))).to.equal(undefined);
   });
 
-  it('treats .d.ts as unsuffixed but reads .d.js as environment d', () => {
-    // `.d.ts` is a TypeScript declaration file convention, carved out for `.ts` only
+  it('treats .d.ts and .d.mts as unsuffixed but reads .d.js as environment d', () => {
+    // `.d.ts`, `.d.mts` and `.d.cts` are TypeScript declaration files
     expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.d.ts'))).to.equal(undefined);
+    expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.d.mts'))).to.equal(undefined);
     // `.d.js` is not a declaration-file convention (no such convention exists for `.js`),
     // so 'd' is a legitimate environment name
     expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.d.js'))).to.equal('d');

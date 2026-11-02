@@ -4,7 +4,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { MsSqlOrmDriver } from './../src/index.js';
 import { mergeArrays } from './util.js';
-import { InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm, OrmException, QueryContext, OrmMigrator } from '@spinajs/orm';
+import { InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm, OrmException, QueryContext, resolveMigrationTool } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
 // Registers the logging implementation the framework's `@Logger` decorator resolves. Without
 // it every `this.Log.*` call is a TypeError — Orm.createConnections died on `Log.trace` before
@@ -98,14 +98,14 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
   });
 
   it('Should migrate', async () => {
-    await (await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])).Runner.up();
+    await (await resolveMigrationTool()).Runner.up();
 
     await db().Connections.get('mssql')!.select().from('user_test');
     await expect(db().Connections.get('mssql')!.select().from('notexisted')).to.be.rejected;
   });
 
   it('Should check if table exists', async () => {
-    await (await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])).Runner.up();
+    await (await resolveMigrationTool()).Runner.up();
 
     const exists = await db().Connections.get('mssql')!.schema().tableExists('user_test');
     const notExists = await db().Connections.get('mssql')!.schema().tableExists('user2');
@@ -115,7 +115,7 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
   });
 
   it('should insert query', async () => {
-    await (await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])).Runner.up();
+    await (await resolveMigrationTool()).Runner.up();
     const iResult = await db().Connections.get('mssql')!.insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
@@ -151,7 +151,7 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
   });
 
   it('should delete', async () => {
-    await (await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])).Runner.up();
+    await (await resolveMigrationTool()).Runner.up();
     await db().Connections.get('mssql')!.insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
@@ -165,7 +165,7 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
   });
 
   it('should update', async () => {
-    await (await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])).Runner.up();
+    await (await resolveMigrationTool()).Runner.up();
     const iResult = await db().Connections.get('mssql')!.insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
@@ -195,7 +195,7 @@ describe('mssql model functions', () => {
     DI.register(MsSqlOrmDriver).as('orm-driver-mssql');
     await DI.resolve(Orm);
 
-    await (await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])).Runner.up();
+    await (await resolveMigrationTool()).Runner.up();
     await db().reloadTableInfo();
   });
 
@@ -226,7 +226,7 @@ describe('MsSql queries', () => {
     await DI.resolve(Orm);
 
     await db().Connections.get('mssql')!.truncate('user_test');
-    await (await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])).Runner.up();
+    await (await resolveMigrationTool()).Runner.up();
     await db().reloadTableInfo();
   });
 
@@ -309,7 +309,7 @@ describe('MsSql views', () => {
     await DI.resolve(Orm);
 
     await db().Connections.get('mssql')!.truncate('user_test');
-    await (await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])).Runner.up();
+    await (await resolveMigrationTool()).Runner.up();
     await db().reloadTableInfo();
   });
 

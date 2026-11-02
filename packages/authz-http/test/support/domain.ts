@@ -23,10 +23,10 @@ export async function createDomain(name: string, opts: { permissions: Record<str
   const container = domains.create(name, 'root');
   const model = new StaticModel({ name: 'm1', ...(opts.model ?? {}) });
   const audit = new RecordingAudit();
-  container.register(testHost.instance(model)).as(AuthorizationModel);
+  testHost.activate(container, name, model);
   container.register(testHost.instance(audit)).as(DecisionAudit);
   for (const a of opts.adapters ?? []) container.register(testHost.instance(a)).as(ResourceAdapter);
-  if (opts.extraModel) container.register(testHost.instance(opts.extraModel)).as(AuthorizationModel);
+  if (opts.extraModel) testHost.activate(container, name, opts.extraModel);
 
   try {
     const authz = await domains.service(name);

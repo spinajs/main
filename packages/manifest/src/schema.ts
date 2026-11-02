@@ -177,6 +177,10 @@ export const manifestSchema: Record<string, any> = {
         "buildEnv": {
           "type": "string"
         },
+        "schemaDerivation": {
+          "type": "boolean",
+          "const": false
+        },
         "generatedAt": {
           "type": "string"
         },

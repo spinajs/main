@@ -301,7 +301,7 @@ async function bootTokenDb(): Promise<void> {
     DefaultConnection: DB_CONNECTION,
     Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: DB_CONNECTION, Migration: { Table: 'orm_migrations', OnStartup: true } }],
   });
-  await DI.resolve(OrmMigrator);
+  await (await DI.resolve(Orm)).Migrator.ready();
   await tokenDb()
     .schema()
     .createTable('users', (table) => {

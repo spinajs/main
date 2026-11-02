@@ -174,7 +174,7 @@ authn: {
 | Token algorithm | `AccessTokenGenerationProvider`, by the class name in `authn.token.generation.service`; `@AutoinjectService` property `Generator` | `SecureRandomTokenProvider` | none | See [Token generation](07-token-generation.md). |
 | Action hooks | `Hooks` (`@spinajs/hooks`); `@Autoinject` property `Hooks` | `DefaultHooks` | none | Register an `ActionHook` for the `authn.token.*` actions; see [Action hooks](10-action-hooks.md). A service built with `new` and no injection runs no hook. |
 | Audit | `AuthnAudit` (`@spinajs/authn/audit`); `@Autoinject` property `Audit`, delivering to every `AuthnEventSink` | none in this package | `@spinajs/authn-orm`'s `DbAuthnAuditSink`, the authn log sink | Register a sink with `@Injectable(AuthnEventSink)`. |
-| ORM | `Orm`; `@Autoinject` property `Orm` | `@spinajs/orm` | none | Resolving the service resolves the `Orm`, so a CLI run that builds only this service can query `rbac_access_tokens`. A migration's `data()` can use the service: `OrmMigrator` runs it against an `Orm` that has already resolved. |
+| ORM | `Orm`; `@Autoinject` property `Orm` | `@spinajs/orm` | none | Resolving the service resolves the `Orm`, so a CLI run that builds only this service can query `rbac_access_tokens`. A migration's `data()` can use the service: it runs once the `Orm` has resolved. `up()` cannot. |
 
 `DbTokenService` also has three methods outside the contract that shipped code finds by duck typing: `touch` (used by `TokenStrategy`), `revokeById` (used by `authn:token-delete`) and `deleteExpired` (used by `authn:token-delete-expired`). A replacement that drops them loses the last-use stamp and those two commands.
 

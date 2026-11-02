@@ -4,6 +4,7 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { MAX_NAME_LENGTH, NAME_PATTERN } from '@spinajs/http-socket-common';
 import { classLineage, IControllerDescriptor, IRoute, resolveRoutePolicies } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
+import type { SocketContractEntry } from '@spinajs/manifest';
 import { BaseSocketController } from './controller.js';
 import { SocketContractEnforcer } from './contract.js';
 import { IRegisteredHandler, ISocketControllerDescriptor, ISocketHandlerDescriptor, SOCKET_CONTROLLER_DESCRIPTOR } from './interfaces.js';
@@ -41,6 +42,7 @@ export class SocketHandlerRegistry {
 
     checkPendingProperties(this.Container);
     const types = [...new Set(DI.getRegisteredTypes(BaseSocketController) ?? [])] as Array<Class<BaseSocketController>>;
+    const bound: SocketContractEntry[] = [];
 
     for (const type of types) {
       const controller = (await DI.resolve(type)) as BaseSocketController;
@@ -59,14 +61,17 @@ export class SocketHandlerRegistry {
         await this.add(type.name, controller, descriptor, handler);
       }
 
-      this.Contracts.bind(
+      const contract = this.Contracts.bind(
         type.name,
         descriptor,
         [...this.commands.values()].filter((h) => !before.commands.has(h)),
         [...this.events.values()].filter((h) => !before.events.has(h)),
         lineage,
       );
+      if (contract) bound.push(contract);
     }
+
+    this.Contracts.reportUnvalidated(bound);
   }
 
   public command(name: string): IRegisteredHandler | undefined {

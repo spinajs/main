@@ -20,28 +20,48 @@ class UsersTestRbac {
 }
 
 let registered = false;
+let modelRegistered = false;
+
+const modelOf = (c: IContainer): RbacModel => (c.resolve(UsersTestRbac) as UsersTestRbac).model;
+// Named, so the test configuration's authz.models can list it.
+const UsersTestRbacModel = (c: IContainer): RbacModel => modelOf(c);
+const contributor = (c: IContainer): RbacContributor => new RbacContributor(modelOf(c));
+const service = (c: IContainer): RbacService => new RbacService(modelOf(c));
 
 /**
  * A real root authz host over the users test database: roles from `authz.rbac.roles` of the test
  * configuration, assignments in `authz_assignment` (authz-rbac's migrations run with the users ones),
  * `AuthzAdmin` on `DbAuthzAdminBackend` with `DefaultAdminGuard`, an `RbacService` over the model (as
- * `registerRbac` gives); and the test `PasswordService` that
+ * an RbacModel built by DI gives); and the test `PasswordService` that
  * `create()` needs. Registered once per process; the
  * suites' `DI.clearCache()` makes the next resolve boot a fresh root service on the fresh database.
  */
 export function registerAuthzHost(): void {
-  if (registered) {
-    return;
+  if (!registered) {
+    registered = true;
+    DI.register(ConfigRoleStore).as(RoleStore);
+    DI.register(DbAssignmentStore).as(AssignmentStore);
+    DI.register(DbAssignmentStore).as(AdminAssignmentStore);
+    DI.register(TestPasswordService).as(PasswordService);
   }
-  registered = true;
+  if (!modelRegistered) {
+    modelRegistered = true;
+    DI.register(UsersTestRbacModel).as(AuthorizationModel);
+    DI.register(contributor).as(AuthzContributor);
+    DI.register(service).as(RbacService);
+  }
+}
 
-  DI.register(ConfigRoleStore).as(RoleStore);
-  DI.register(DbAssignmentStore).as(AssignmentStore);
-  DI.register(DbAssignmentStore).as(AdminAssignmentStore);
-  DI.register((c: IContainer) => (c.resolve(UsersTestRbac) as UsersTestRbac).model).as(AuthorizationModel);
-  DI.register((c: IContainer) => new RbacContributor((c.resolve(UsersTestRbac) as UsersTestRbac).model)).as(AuthzContributor);
-  DI.register((c: IContainer) => new RbacService((c.resolve(UsersTestRbac) as UsersTestRbac).model)).as(RbacService);
-  DI.register(TestPasswordService).as(PasswordService);
+/**
+ * Removes the root model, contributor and service of registerAuthzHost(), for a suite whose root lists no model: the
+ * contributor of a model no domain activated fails that root's boot. The next registerAuthzHost() adds them again.
+ */
+export function releaseAuthzHost(): void {
+  if (!modelRegistered) return;
+  modelRegistered = false;
+  DI.unregister(AuthorizationModel, UsersTestRbacModel);
+  DI.unregister(AuthzContributor, contributor);
+  DI.unregister(RbacService, service);
 }
 
 export async function rootAuthz(): Promise<AuthzService> {

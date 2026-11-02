@@ -2,7 +2,7 @@
 // converters, relations and the junction row, all the way to a query, then prints what came back.
 const { Bootstrapper, DI } = await import('@spinajs/di');
 const { Configuration } = await import('@spinajs/configuration');
-const { Orm, OrmMigrator } = await import('@spinajs/orm');
+const { Orm } = await import('@spinajs/orm');
 await import('@spinajs/orm-sqlite');
 await import('@spinajs/log');
 // Built next to the installed copy of this probe, so it does not resolve from here.
@@ -14,8 +14,7 @@ const result = {};
 try {
   for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
   await DI.resolve(Configuration);
-  await DI.resolve(Orm);
-  await DI.resolve(OrmMigrator);
+  await (await DI.resolve(Orm)).Migrator.ready();
 
   const owner = new Owner({ Name: 'Ada', Active: true, Roles: ['admin', 'dev'] });
   owner.SeenAt = owner.CreatedAt;

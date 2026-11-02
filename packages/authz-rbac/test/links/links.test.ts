@@ -8,7 +8,7 @@ import type { IContainer } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
 
-import { ConfigRoleStore, ConfigRuleStore, LINK_INVALID, LinkStore, MemoryAdminAssignmentStore, MemoryLinkStore, MemoryRoleStore, RbacContributor, RbacLinkResolver, RbacModel, RbacService, RoleStore, RuleStore, RulesExtension, DbRuleStore, linkCompanion, registerRbac } from '../../src/index.js';
+import { ConfigRoleStore, ConfigRuleStore, LINK_INVALID, LinkStore, MemoryAdminAssignmentStore, MemoryLinkStore, MemoryRoleStore, RbacContributor, RbacLinkResolver, RbacModel, RbacService, RoleStore, RuleStore, RulesExtension, DbRuleStore, linkCompanion } from '../../src/index.js';
 import type { RoleDef } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -146,8 +146,14 @@ describe('authz-rbac share links', () => {
     }
   });
 
-  describe('registerRbac', () => {
+  describe('RbacModel built by DI', () => {
     let container: IContainer;
+    /** What a domain's boot does for a listed RbacModel: DI builds it in `c`, and its init wires `c`. */
+    const wired = async (c: IContainer): Promise<RbacModel> => {
+      const model = await c.resolve<RbacModel>(RbacModel);
+      await model.init(fakeModelInitContext({ model: 'rbac', container: c, permissions: registry() }));
+      return model;
+    };
     const config = (stores?: Record<string, string[]>) => {
       const cfg = new testHost.TestConfiguration();
       if (stores) cfg.set(['authz', 'rbac', 'stores'], stores);
@@ -163,18 +169,26 @@ describe('authz-rbac share links', () => {
       await container.dispose();
     });
 
-    it('wires the default store config: the stores, the model, its contributor, RbacService and the LinkResolver', async () => {
-      const { model, contributor, service, linkResolver } = await registerRbac(container, config());
+    it('wires the default store config: the stores, its contributor, RbacService and the LinkResolver', async () => {
+      config();
+      const model = await wired(container);
       expect(await container.resolve(RoleStore)).to.be.instanceOf(ConfigRoleStore);
       expect(await container.resolve(RuleStore)).to.be.instanceOf(ConfigRuleStore);
       expect(container.hasRegistered(LinkStore)).to.equal(true);
-      expect(await container.resolve(AuthorizationModel)).to.equal(model);
-      expect(contributor).to.be.instanceOf(RbacContributor);
-      expect(await container.resolve(AuthzContributor)).to.equal(contributor);
-      expect(await container.resolve(RbacService)).to.equal(service);
+      expect(await container.resolve(AuthzContributor)).to.be.instanceOf(RbacContributor);
+      const service = await container.resolve<RbacService>(RbacService);
+      expect(service.model).to.equal(model);
       expect(model.linkStore).to.equal(await container.resolve(LinkStore));
-      expect(linkResolver).to.be.instanceOf(RbacLinkResolver);
-      expect(await container.resolve(LinkResolver)).to.equal(linkResolver);
+      expect(await container.resolve(LinkResolver)).to.be.instanceOf(RbacLinkResolver);
+    });
+
+    it('gives each container its own instance', async () => {
+      const other = DI.child();
+      try {
+        expect(await container.resolve(RbacModel)).to.not.equal(await other.resolve(RbacModel));
+      } finally {
+        await other.dispose();
+      }
     });
 
     it('returns a LinkResolver bound to its RbacService, whatever container it ran on', async () => {
@@ -185,7 +199,8 @@ describe('authz-rbac share links', () => {
     });
 
     it('takes the rule stores of design §8.5: ConfigRuleStore and DbRuleStore, both on every check', async () => {
-      const { model } = await registerRbac(container, config({ roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: ['ConfigRuleStore', 'DbRuleStore'], links: ['DbLinkStore'] }));
+      config({ roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: ['ConfigRuleStore', 'DbRuleStore'], links: ['DbLinkStore'] });
+      const model = await wired(container);
       const rules = model.extensions.find((e) => e instanceof RulesExtension) as RulesExtension;
       expect([rules.config, rules.db]).to.satisfy(([c, d]: unknown[]) => c instanceof ConfigRuleStore && d instanceof DbRuleStore);
     });
@@ -195,7 +210,7 @@ describe('authz-rbac share links', () => {
       cfg.set(['authz', 'rbac', 'rules'], [{ id: 'c', kind: 'cap', ladder: 'project', maxRole: 'viewer' }]);
       let thrown: unknown;
       try {
-        await registerRbac(container, cfg);
+        await wired(container);
       } catch (e) {
         thrown = e;
       }
@@ -207,7 +222,8 @@ describe('authz-rbac share links', () => {
       container.register(OtherConfigRuleStore).asSelf();
       let thrown: unknown;
       try {
-        await registerRbac(container, config({ roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: ['ConfigRuleStore', 'OtherConfigRuleStore'] }));
+        config({ roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: ['ConfigRuleStore', 'OtherConfigRuleStore'] });
+        await wired(container);
       } catch (e) {
         thrown = e;
       }
@@ -215,17 +231,17 @@ describe('authz-rbac share links', () => {
       for (const token of ['AuthorizationModel', 'RoleStore', 'RuleStore', 'AssignmentStore']) expect(container.hasRegistered(token, false), token).to.equal(false);
     });
 
-    it('a child domain under a parent that ran registerRbac reads its own rule stores only', async () => {
+    it('a child domain under a parent wired with RBAC reads its own rule stores only', async () => {
       container.register(OtherConfigRuleStore).asSelf();
-      const parentConfig = config({ roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: ['OtherConfigRuleStore'] });
-      await registerRbac(container, parentConfig);
+      config({ roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: ['OtherConfigRuleStore'] });
+      await wired(container);
       const child = container.child();
       try {
         const cfg = new testHost.TestConfiguration();
         cfg.set(['authz', 'rbac', 'stores'], { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: ['ConfigRuleStore', 'DbRuleStore'] });
         cfg.set(['authz', 'rbac', 'rules'], [{ id: 'child-cap', kind: 'cap', ladder: 'project', maxRole: 'viewer' }]);
         child.register(testHost.instance(cfg)).as(Configuration);
-        const { model } = await registerRbac(child, cfg);
+        const model = await wired(child);
         const rules = model.extensions.find((e) => e instanceof RulesExtension) as RulesExtension;
         expect(rules.config).to.be.instanceOf(ConfigRuleStore).and.not.instanceOf(OtherConfigRuleStore);
         expect(rules.db).to.be.instanceOf(DbRuleStore);
@@ -236,7 +252,8 @@ describe('authz-rbac share links', () => {
     });
 
     it('turns rules and links off with empty lists', async () => {
-      const { model } = await registerRbac(container, config({ roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: [], links: [] }));
+      config({ roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: [], links: [] });
+      const model = await wired(container);
       expect(model.linkStore).to.equal(undefined);
       expect(container.hasRegistered(RuleStore, false)).to.equal(false);
     });
@@ -246,7 +263,8 @@ describe('authz-rbac share links', () => {
       for (const stores of refused) {
         let thrown: unknown;
         try {
-          await registerRbac(container, config(stores));
+          config(stores);
+          await wired(container);
         } catch (e) {
           thrown = e;
         }
