@@ -130,15 +130,18 @@ export class OrmMigrator extends AsyncService {
    * and reports the failures together. What `migrate-seed` runs: seeds run again, so they must be safe to rerun.
    */
   public async seed(options: IOrmSeedOptions = {}): Promise<OrmMigration[]> {
-    if (options.name && !this.Orm.Migrations.some((m) => m.name === options.name)) {
-      throw new OrmException(`Migration ${options.name} is not registered - check the name for typos`);
+    const appliedEntries = async () => (await this.Runner.status({ connection: options.connection, readOnly: true })).filter((e) => e.applied && (!options.name || e.name === options.name));
+
+    // taking the run lock sets up the tracking table, so a database with nothing to seed is left as it is
+    if ((await appliedEntries()).length === 0) {
+      return this.nothingToSeed(options);
     }
 
     return await this.Runner.withRunLock(options.connection, async () => {
-      const applied = (await this.Runner.status({ connection: options.connection })).filter((e) => e.applied && (!options.name || e.name === options.name));
+      const applied = await appliedEntries();
 
       if (options.name && applied.length === 0) {
-        throw new OrmException(`Migration ${options.name} is not applied on any configured connection - nothing to seed`);
+        return this.nothingToSeed(options);
       }
 
       const instances: OrmMigration[] = [];
@@ -151,7 +154,20 @@ export class OrmMigrator extends AsyncService {
       await this.Runner.assertRunLocksHeld();
       await this.runDataPhase(instances);
       return instances;
-    });
+    }, options.name);
+  }
+
+  /** `[]`, or the reason a `name` has nothing to seed. */
+  protected nothingToSeed(options: IOrmSeedOptions): OrmMigration[] {
+    if (!options.name) {
+      return [];
+    }
+
+    if (!this.Orm.Migrations.some((m) => m.name === options.name)) {
+      throw new OrmException(`Migration ${options.name} is not registered - check the name for typos`);
+    }
+
+    throw new OrmException(`Migration ${options.name} is not applied on ${options.connection ? `connection ${options.connection}` : 'any configured connection'} - nothing to seed`);
   }
 
   /** What `migrate()` with the same `name` and `connection` would apply, in order, with the batch each would get; applies nothing. */

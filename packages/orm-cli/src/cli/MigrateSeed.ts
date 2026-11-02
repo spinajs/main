@@ -17,6 +17,12 @@ export class MigrateSeedCommand extends CliCommand {
 
   public async execute(options: IMigrateSeedCommandOptions = {}): Promise<void> {
     const seeded = await (await resolveCliMigrator()).seed({ name: options.name, connection: options.connection });
+
+    if (seeded.length === 0) {
+      this.Log.info({ connection: options.connection }, options.connection ? 'Nothing is applied on connection ${connection} - nothing to seed' : 'Nothing is applied - nothing to seed');
+      return;
+    }
+
     this.Log.success({ count: seeded.length, migrations: seeded.map((m) => m.constructor.name) }, 'Seeded ${count} migration(s): ${migrations}');
   }
 }

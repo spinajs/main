@@ -78,10 +78,16 @@ Would apply 2 migration(s), in this order ( BATCH  CONNECTION  MIGRATION ):
   3  default  AddInvoiceIndex_2026_10_02_09_00_00
 ```
 
-- The batch is the one the run would record: one past the connection's highest applied batch.
-- A `FAILED` migration is listed as well, because the real run stops at it. `migrate-status` says which one is failed.
+- The batch is the one the run would record: one past the connection's highest applied batch. It counts registered migrations only: an applied row whose class is gone, in a higher batch, makes the printed batch lower than the recorded one.
+- A `FAILED` migration on a connection the run would touch is printed in its own block, whatever `--name` is, because the real run refuses that connection. The run throws at the connection's first migration, so nothing from that point on, on any connection, is listed under `Would apply`. Clear it with [`migrate-resolve`](04-resolving-failed-migrations.md):
+
+```text
+Blocked by 1 FAILED migration(s), the run stops at the first one ( BATCH  CONNECTION  MIGRATION ):
+  3  default  CreateInvoices_2026_10_01_09_00_00  FAILED - blocks default, run migrate-resolve
+```
+
 - It reads without DDL: no tracking table or lock table is created and no lock is taken. It runs no `up()` and no `data()`.
-- It exits `1` when the plan has entries. It prints `Nothing to apply` and exits `0` when the plan is empty, so it works as "is a migration due?" in a deploy script.
+- It exits `1` when the plan has entries, failed ones included. It prints `Nothing to apply` and exits `0` when the plan is empty, so it works as "is a migration due?" in a deploy script.
 - It does not run the model table check of a full run.
 
 ## Exit codes
@@ -90,7 +96,7 @@ Would apply 2 migration(s), in this order ( BATCH  CONNECTION  MIGRATION ):
 | --- | --- |
 | Migrations applied, or nothing pending | `0` |
 | `--dry-run` with nothing to apply | `0` |
-| `--dry-run` with at least one migration to apply | `1` |
+| `--dry-run` with at least one migration to apply, or a FAILED one blocking the run | `1` |
 | `--name` given and the migration is already applied | `0` |
 | `--name` given and the migration did not run (connection not configured, excluded by `--connection`, failed or still pending) | `1` |
 | A full run (no `--name`, no `--connection`) leaves a registered model without its table, with `db.StrictTableCheck` on | `1` |

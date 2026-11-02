@@ -45,17 +45,27 @@ export class MigrateUpCommand extends CliCommand {
     }
   }
 
-  /** `--dry-run`: the plan on stdout, like `migrate-status`, and exit code 1 when something would run. */
+  /** `--dry-run`: the plan on stdout, like `migrate-status`, and exit code 1 when something would run or is blocked. */
   protected async printPlan(migrator: OrmMigrator, options: IMigrateUpCommandOptions): Promise<void> {
     const plan = await migrator.plan({ name: options.name, connection: options.connection });
+    const applying = plan.filter((e) => !e.failed);
+    const failed = plan.filter((e) => e.failed);
 
     if (plan.length === 0) {
       console.log('Nothing to apply');
       return;
     }
 
-    console.log(`Would apply ${plan.length} migration(s), in this order ( BATCH  CONNECTION  MIGRATION ):`);
-    plan.forEach((e) => console.log(`  ${e.batch}  ${e.connection}  ${e.name}`));
+    if (applying.length > 0) {
+      console.log(`Would apply ${applying.length} migration(s), in this order ( BATCH  CONNECTION  MIGRATION ):`);
+      applying.forEach((e) => console.log(`  ${e.batch}  ${e.connection}  ${e.name}`));
+    }
+
+    if (failed.length > 0) {
+      console.log(`Blocked by ${failed.length} FAILED migration(s), the run stops at the first one ( BATCH  CONNECTION  MIGRATION ):`);
+      failed.forEach((e) => console.log(`  ${e.batch}  ${e.connection}  ${e.name}  FAILED - blocks ${e.connection}, run migrate-resolve`));
+    }
+
     process.exitCode = 1;
   }
 

@@ -119,12 +119,14 @@ export interface IMigrationRunnerStatusOptions {
   connection?: string;
 }
 
-/** One migration `up()` would apply, as `pending()` reports it. */
+/** One migration `up()` would apply, or a FAILED one that stops it, as `pending()` reports it. */
 export interface IMigrationPlanEntry {
   name: string;
   connection: string;
-  /** The batch the run would record it in: one past the connection's highest applied batch. */
+  /** The batch the run would record it in: one past the connection's highest applied batch, a failed entry included. */
   batch: number;
+  /** Recorded as FAILED: `up()` refuses its connection until `migrate-resolve` clears it, and the run stops there. */
+  failed?: true;
 }
 
 export interface IMigrationDownFacadeOptions extends IMigrationUpOptions {
@@ -274,23 +276,40 @@ export class MigrationRunner {
   }
 
   /**
-   * What `up(name, { connection })` would apply, in the order it would apply it, with the batch each one would get.
-   * Read-only: no tracking table is created, no lock is taken and no migration runs. A FAILED migration is listed
-   * too, as the point where `up()` would stop.
+   * What `up(name, { connection })` would apply, in the order it would apply it, with the batch each one would get,
+   * followed by the FAILED migrations ( `failed: true` ) of the connections it would run on. `up()` throws at the
+   * first stretch of such a connection, so nothing from there on is listed as applied, on any connection.
+   * Read-only: no tracking table is created, no lock is taken and no migration runs.
    */
   public async pending(name?: string, connection?: string): Promise<IMigrationPlanEntry[]> {
     const groups = this.plan(name, true, connection);
+    const planned = new Set(groups.map(([driver]) => driver));
     const next = new Map<OrmDriver, number>();
+    const failed: IMigrationPlanEntry[] = [];
 
-    // every migration of the connection, not only `name`: the batch follows from all of them
+    // every migration of the connection, not only `name`: the batch, and the failed rows that block `name`, follow from all of them
     for (const [driver, units] of this.plan(undefined, true, connection, true)) {
-      const applied = (await (await this.service(driver)).status(units, { readOnly: true })).filter((e) => e.applied);
-      next.set(driver, Math.max(0, ...applied.map((e) => e.batch ?? 0)) + 1);
+      const status = await (await this.service(driver)).status(units, { readOnly: true });
+      const batch = Math.max(0, ...status.filter((e) => e.applied).map((e) => e.batch ?? 0)) + 1;
+      next.set(driver, batch);
+
+      if (planned.has(driver)) {
+        failed.push(...status.filter((e) => e.failed).map((e): IMigrationPlanEntry => ({ name: e.name, connection: driver.Options.Name, batch, failed: true })));
+      }
     }
 
-    return (await this.stretches(groups, { readOnly: true })).flatMap(([driver, units]) =>
-      units.map((u) => ({ name: u.name, connection: driver.Options.Name, batch: next.get(driver) ?? 1 })),
-    );
+    const blocked = new Set(failed.map((e) => e.connection));
+    const entries: IMigrationPlanEntry[] = [];
+
+    for (const [driver, units] of await this.stretches(groups, { readOnly: true })) {
+      if (blocked.has(driver.Options.Name)) {
+        break;
+      }
+
+      entries.push(...units.map((u) => ({ name: u.name, connection: driver.Options.Name, batch: next.get(driver) ?? 1 })));
+    }
+
+    return [...entries, ...failed.sort((a, b) => compareMigrationNames(a.name, b.name))];
   }
 
   protected touchedModels(touches: SchemaTouches): Array<Class<ModelBase>> {

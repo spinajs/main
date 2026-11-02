@@ -1657,6 +1657,7 @@ describe('migrate-status against a legacy tracking table', function () {
   });
 });
 
+// These tests run in order on one in-memory database: fresh, then applied without seeds, then seeded.
 describe('migrate-seed, migrate-up --skip-seed and migrate-up --dry-run', function () {
   this.timeout(20000);
 
@@ -1747,8 +1748,23 @@ describe('migrate-seed, migrate-up --skip-seed and migrate-up --dry-run', functi
 
     expect(lines.slice(1)).to.eql([`  1  ${CONNECTION_NAME}  ${FIRST}`, `  1  ${CONNECTION_NAME}  ${SECOND}`]);
     expect(await db().schema().tableExists(TRACKING_TABLE), 'a dry run creates no tracking table').to.equal(false);
+    expect(await db().schema().tableExists(`${TRACKING_TABLE}_lock`), 'a dry run creates no lock table').to.equal(false);
     expect(await db().schema().tableExists(MARKER_TABLE)).to.equal(false);
     expect(process.exitCode).to.equal(1);
+  });
+
+  it('migrate-seed on a fresh database says nothing is applied and creates no tracking table', async () => {
+    const cmd = new MigrateSeedCommand();
+    const logged: string[] = [];
+    const record = (_vars: unknown, message: string) => logged.push(message);
+    Object.defineProperty(cmd, 'Log', { value: { info: record, success: record } });
+
+    await cmd.execute({});
+
+    expect(logged).to.eql(['Nothing is applied - nothing to seed']);
+    expect(await db().schema().tableExists(TRACKING_TABLE)).to.equal(false);
+    expect(await db().schema().tableExists(`${TRACKING_TABLE}_lock`)).to.equal(false);
+    expect(process.exitCode).to.equal(0);
   });
 
   it('migrate-seed --name <pending> exits with the "not applied" error', async () => {
@@ -1787,5 +1803,89 @@ describe('migrate-seed, migrate-up --skip-seed and migrate-up --dry-run', functi
     await new MigrateSeedCommand().execute({ name: SECOND, connection: CONNECTION_NAME });
 
     expect(seeds).to.eql([SECOND]);
+  });
+});
+
+describe('migrate-up --dry-run against a FAILED migration', function () {
+  this.timeout(20000);
+
+  const CONNECTION_NAME = 'orm-cli-dry-failed';
+  const BOOM = 'OrmCliDryBoom_2021_11_01_00_00_00';
+  const NEXT = 'OrmCliDryNext_2021_11_02_00_00_00';
+
+  const Conf = class OrmCliDryFailedConf extends FrameworkConfiguration {
+    public async resolve(): Promise<void> {
+      await super.resolve();
+      applyConnectionConf(this.Config, { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: CONNECTION_NAME, Migration: { Table: 'orm_cli_dry_failed_migrations' } });
+    }
+  };
+
+  let orm: Orm;
+  let types: any[] = [];
+
+  function defineMigrations() {
+    @Migration(CONNECTION_NAME)
+    class OrmCliDryBoom_2021_11_01_00_00_00 extends OrmMigration {
+      public up(_connection: OrmDriver): Promise<void> {
+        return Promise.reject(new Error('orm-cli dry-run fixture failed on purpose'));
+      }
+
+      public down = noopMigration.down;
+    }
+
+    @Migration(CONNECTION_NAME)
+    class OrmCliDryNext_2021_11_02_00_00_00 extends OrmMigration {
+      public up = noopMigration.up;
+      public down = noopMigration.down;
+    }
+
+    types = [OrmCliDryBoom_2021_11_01_00_00_00, OrmCliDryNext_2021_11_02_00_00_00];
+  }
+
+  const originalExitCode = process.exitCode;
+  const blockedPlan = ['Blocked by 1 FAILED migration(s), the run stops at the first one ( BATCH  CONNECTION  MIGRATION ):', `  1  ${CONNECTION_NAME}  ${BOOM}  FAILED - blocks ${CONNECTION_NAME}, run migrate-resolve`];
+
+  before(async () => {
+    DI.clearCache();
+    defineMigrations();
+    DI.register(Conf).as(Configuration);
+    orm = await DI.resolve(Orm);
+
+    const err = await thrownBy(() => new MigrateUpCommand().execute({}));
+    expect((err as Error).message, 'the fixture leaves a FAILED row').to.contain(BOOM);
+  });
+
+  after(async () => {
+    try {
+      if (orm) {
+        await orm.dispose();
+      }
+    } finally {
+      DI.unregister(Conf);
+      types.forEach((t) => DI.unregister(t));
+      DI.clearCache();
+      process.exitCode = originalExitCode;
+    }
+  });
+
+  beforeEach(() => {
+    process.exitCode = 0;
+  });
+
+  it('prints the FAILED migration as blocking its connection, and nothing after it as applied', async () => {
+    const lines = await captureStdout(() => new MigrateUpCommand().execute({ dryRun: true }));
+
+    expect(lines).to.eql(blockedPlan);
+    expect(process.exitCode).to.equal(1);
+  });
+
+  it('--name of a pending migration on that connection prints the same block, as the real run refuses it', async () => {
+    const lines = await captureStdout(() => new MigrateUpCommand().execute({ dryRun: true, name: NEXT }));
+
+    expect(lines).to.eql(blockedPlan);
+    expect(process.exitCode).to.equal(1);
+
+    const err = await thrownBy(() => new MigrateUpCommand().execute({ name: NEXT }));
+    expect((err as Error).message).to.contain(`Migration ${BOOM} on connection ${CONNECTION_NAME} failed previously and blocks migration runs`);
   });
 });
