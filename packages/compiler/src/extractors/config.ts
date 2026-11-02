@@ -3,7 +3,8 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ConfigModuleEntry, ConfigUsageEntry } from '@spinajs/manifest';
 import type { Extractor } from '../context.js';
-import { decoratorsOf, literalValue } from '../decorators.js';
+import { decoratorsOf } from '../decorators.js';
+import { resolveLiteral, withoutUnresolved } from '../schema/explicit.js';
 import { registerChainOf } from './register-chain.js';
 import { tokenKey } from './injections.js';
 import { SCHEMA_REGISTRARS } from './values.js';
@@ -12,12 +13,14 @@ import { isConfigurationReceiver } from './config-receiver.js';
 export const extractConfigModules: Extractor<ConfigModuleEntry> = (ctx, file) => {
   const out: ConfigModuleEntry[] = [];
   const record = (schemaExpr: ts.Expression | undefined, node: ts.Node): void => {
-    const schema = literalValue(schemaExpr, ctx) as { $id?: string; $configurationModule?: string } | undefined;
+    const { value, unresolved } = schemaExpr ? resolveLiteral(ctx.checker, schemaExpr) : { value: undefined, unresolved: [] };
+    const schema = value as { $id?: string; $configurationModule?: string } | undefined;
     if (!schema?.$id || !schema.$configurationModule) {
       ctx.warn('CFG010', 'configuration schema is not a literal with $id and $configurationModule', node);
       return;
     }
-    ctx.schemas[schema.$id] = schema;
+    for (const part of unresolved) ctx.info('CMP001', `non-literal configuration schema member: ${part.getText()}`, part);
+    ctx.schemas[schema.$id] = unresolved.length > 0 ? { ...(withoutUnresolved(schema) as object), 'x-explicit': 'partial' } : schema;
     const defaults = `src/config/${schema.$configurationModule}.ts`;
     out.push({
       module: schema.$configurationModule,

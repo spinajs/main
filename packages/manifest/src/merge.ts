@@ -11,17 +11,12 @@ export interface MergeMeta {
 
 const prefixId = (pkg: string, id: string): string => (id.startsWith(`${pkg}:`) ? id : `${pkg}:${id}`);
 
-/** Dependencies come first so that, with "last wins" at runtime, the app overrides its packages. */
-export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], meta: MergeMeta): Manifest {
-  const fragments = [...deps, app];
+/** The schemas of every fragment, and their diagnostics plus what only the merge can see: collisions and overrides. */
+function schemasAndDiagnostics(fragments: ManifestFragment[]): { schemas: Record<string, unknown>; diagnostics: Diagnostic[] } {
   const diagnostics: Diagnostic[] = [];
   const schemas: Record<string, unknown> = {};
   const schemaOwner = new Map<string, string>();
   const registrations = new Map<string, { pkg: string; id: string }>();
-
-  const withIds = <T extends { id: string }>(pkg: string, items: T[]): T[] => items.map((i) => ({ ...i, id: prefixId(pkg, i.id) }));
-  const collect = <T extends { id: string }>(pick: (f: ManifestFragment) => T[]): T[] => fragments.flatMap((f) => withIds(f.package.name, pick(f)));
-  const plain = <T>(pick: (f: ManifestFragment) => T[]): T[] => fragments.flatMap(pick);
 
   for (const f of fragments) {
     const pkg = f.package.name;
@@ -46,6 +41,17 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
       }
     }
   }
+  return { schemas, diagnostics };
+}
+
+/** Dependencies come first so that, with "last wins" at runtime, the app overrides its packages. */
+export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], meta: MergeMeta): Manifest {
+  const fragments = [...deps, app];
+  const { schemas, diagnostics } = schemasAndDiagnostics(fragments);
+
+  const withIds = <T extends { id: string }>(pkg: string, items: T[]): T[] => items.map((i) => ({ ...i, id: prefixId(pkg, i.id) }));
+  const collect = <T extends { id: string }>(pick: (f: ManifestFragment) => T[]): T[] => fragments.flatMap((f) => withIds(f.package.name, pick(f)));
+  const plain = <T>(pick: (f: ManifestFragment) => T[]): T[] => fragments.flatMap(pick);
 
   const controllerBases = collect((f) => f.controllerBases ?? []);
   const socketControllerBases = collect((f) => f.socketControllerBases ?? []);
@@ -59,7 +65,8 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
     values: plain((f) => f.values),
     controllers: collect((f) => f.controllers),
     socketControllers: collect((f) => f.socketControllers),
-    socketContracts: collect((f) => f.socketContracts),
+    // The id is global: the runtime and each controller entry bind the literal of `defineContract('<id>')`.
+    socketContracts: plain((f) => f.socketContracts),
     ...(controllerBases.length ? { controllerBases } : {}),
     ...(socketControllerBases.length ? { socketControllerBases } : {}),
     ...(classProperties.length ? { classProperties } : {}),
