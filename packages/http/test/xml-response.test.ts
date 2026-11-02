@@ -97,7 +97,7 @@ describe('xml response', () => {
     }
 
     expect(logged).to.have.length(1);
-    expect((logged[0]![0] as { error: Error }).error.message).to.equal('EMFILE');
+    expect((logged[0][0] as { error: Error }).error.message).to.equal('EMFILE');
   });
 
   it('retries the builder load after a failed one', async () => {
