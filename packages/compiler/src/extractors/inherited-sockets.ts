@@ -68,3 +68,13 @@ export function withInheritedHandlers(entries: SocketControllerEntry[], ctx: Ext
   };
   return entries.map(effective);
 }
+
+/** Only an ancestor's `handler` and `payloadIndex` are read back; a controller that inherits nothing is written as before, so its manifest keeps its hash. */
+export function withoutRetypingHints(entry: SocketControllerEntry): SocketControllerEntry {
+  if (entry.bases) return entry;
+  return {
+    ...entry,
+    commands: entry.commands.map(({ payloadIndex: _payloadIndex, ...c }) => c),
+    events: entry.events.map(({ handler: _handler, payloadIndex: _payloadIndex, ...e }) => e),
+  };
+}

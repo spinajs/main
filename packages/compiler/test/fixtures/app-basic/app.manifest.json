@@ -311,7 +311,6 @@
               "export": "Object"
             }
           },
-          "payloadIndex": 0,
           "result": {
             "text": "{ id: string; }",
             "schema": "spinajs/app-basic/ChatSocketController_send_Result"
@@ -339,7 +338,6 @@
               "export": "Object"
             }
           },
-          "payloadIndex": 0,
           "result": {
             "text": "ChatMessage",
             "schema": "spinajs/app-basic/ChatMessage"
@@ -358,7 +356,6 @@
       "events": [
         {
           "name": "message",
-          "handler": "onMessage",
           "payload": {
             "text": "ChatMessage",
             "schema": "spinajs/app-basic/ChatMessage",
@@ -367,8 +364,7 @@
               "file": "",
               "export": "Object"
             }
-          },
-          "payloadIndex": 0
+          }
         }
       ],
       "source": {
@@ -679,6 +675,6 @@
     }
   },
   "diagnostics": [],
-  "generatedAt": "2026-11-02T16:25:34.364Z",
-  "hash": "a65a0026b71f1bcb6d628965775034c3864756fad434db9d993dc1747b014399"
+  "generatedAt": "2026-10-30T23:11:12.754Z",
+  "hash": "e8c022b23448e14475f69d3729820cfbaea3f5b1db9cb43d4a0d1c760eae2f21"
 }

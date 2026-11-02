@@ -10,7 +10,7 @@ import { extractValues } from './extractors/values.js';
 import { extractConfigModules, extractConfigUsages } from './extractors/config.js';
 import { extractControllerBases, extractControllers } from './extractors/controllers.js';
 import { withInheritedRoutes } from './extractors/inherited-routes.js';
-import { withInheritedHandlers } from './extractors/inherited-sockets.js';
+import { withInheritedHandlers, withoutRetypingHints } from './extractors/inherited-sockets.js';
 import { dependencyBases } from './dependency-bases.js';
 import { extractSocketContracts, extractSocketControllerBases, extractSocketControllers } from './extractors/socket.js';
 import { extractModels } from './extractors/models.js';
@@ -107,7 +107,7 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   const controllerBases = sortBySource([...effective.slice(ownControllers.length), ...allControllers.filter((c) => !isListed('controllers', c))]);
   const ownSockets = run(extractSocketControllers);
   const effectiveSockets = withInheritedHandlers([...ownSockets, ...run(extractSocketControllerBases)], ctx, external);
-  const allSocketControllers = effectiveSockets.slice(0, ownSockets.length);
+  const allSocketControllers = effectiveSockets.slice(0, ownSockets.length).map(withoutRetypingHints);
   const socketControllerBases = sortBySource([...effectiveSockets.slice(ownSockets.length), ...allSocketControllers.filter((c) => !isListed('socketControllers', c))]);
   const classProperties = run(extractClassProperties);
   const controllers = allControllers.filter((c) => isListed('controllers', c));
