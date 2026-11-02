@@ -74,19 +74,20 @@ sequenceDiagram
    - With a `connection` option, it resolves the name to a driver (aliases included) and throws `OrmException` when no connection answers to it.
    - With `force: false`, it skips connections whose `Migration.OnStartup` is off, warning once per connection.
    - It groups units by driver, so two names aliased to one connection run once.
-2. `MigrationRunner.stretches()` asks each connection's service for `status()`, keeps pending and failed units, sorts them globally by `(timestamp, name)`, and cuts them into runs of consecutive same-connection migrations. A connection with nothing pending still gets an empty run at the end, so its failed-row guard still applies.
-3. For each run, `MigrationRunner` resolves the connection's `OrmMigrationService` (the `Migration.Service` token, or `DefaultMigrationService`) and calls `service.up(units, { fake, continueBatch })`. Returning to a connection continues the batch it opened earlier in the same call.
-4. `DefaultMigrationService.up()`:
+2. The runner takes the run lock of every connection in the plan, in connection-name order, and holds it until the call ends (see [Locking](#locking)).
+3. `MigrationRunner.stretches()` asks each connection's service for `status()`, keeps pending and failed units, sorts them globally by `(timestamp, name)`, and cuts them into runs of consecutive same-connection migrations. A connection with nothing pending still gets an empty run at the end, so its failed-row guard still applies.
+4. For each run, `MigrationRunner` resolves the connection's `OrmMigrationService` (the `Migration.Service` token, or `DefaultMigrationService`), checks the run lock and calls `service.up(units, { fake, continueBatch, locked, lock })`. Returning to a connection continues the batch it opened earlier in the same call.
+5. `DefaultMigrationService.up()`:
    1. `ensureStorage()` creates or upgrades the tracking table and the lock table.
-   2. `withLock()` takes the connection's migration lock (see [Locking](#locking)).
+   2. With `locked`, it takes no lock of its own; otherwise `withLock()` takes the connection's lock for this call.
    3. It reads the tracking rows and throws `OrmException` when any row is in the failed state.
    4. It filters out applied units and warns about [interrupted](#migration-states) ones it is about to re-run.
    5. It resolves every pending migration from the connection's container with the driver as constructor argument.
    6. It picks the batch: one past the highest applied batch, or the same batch with `continueBatch`.
    7. With `fake`, it records every pending migration as applied without calling `up()` and returns.
-   8. Otherwise, per migration and inside the [transaction mode](#transaction-modes): it opens the row (`StartedAt`), warns on a checksum mismatch, calls `migration.up(driver)`, then closes the row with `FinishedAt`, `Batch` and `Checksum`.
-5. On failure, the service waits for the transaction to unwind, writes the error message and stack into the row's `Logs`, and throws `OrmException('Migration <name> failed on connection <connection>: ...')` with the original error as `inner`. Later migrations do not run. The lock is released in either case.
-6. `up()` resolves with `IMigrationUpResult`: `executed`, the `OrmMigration` instances it applied, and `touched.models` (see [Touched models](#touched-models)).
+   8. Otherwise, per migration and inside the [transaction mode](#transaction-modes): it checks the lock (`lock.assertHeld()`), opens the row (`StartedAt`), warns on a checksum mismatch, calls `migration.up(driver)`, then closes the row with `FinishedAt`, `Batch` and `Checksum`.
+6. On failure, the service waits for the transaction to unwind, writes the error message and stack into the row's `Logs`, and throws `OrmException('Migration <name> failed on connection <connection>: ...')` with the original error as `inner`. Later migrations do not run. A lost lock throws `MigrationLockLostException` before the next migration starts and writes no `Logs`. The lock is released in either case.
+7. `up()` resolves with `IMigrationUpResult`: `executed`, the `OrmMigration` instances it applied, and `touched.models` (see [Touched models](#touched-models)).
 
 ```mermaid
 sequenceDiagram
@@ -97,25 +98,28 @@ sequenceDiagram
   participant T as spinajs_migration
   participant M as OrmMigration
   C->>R: up(name?, options?)
-  R->>R: plan() + stretches()
-  R->>S: up(units, { fake, continueBatch })
+  R->>R: plan()
+  R->>S: acquireRunLock()
   S->>T: ensureStorage()
-  S->>L: INSERT Id=1 (wait, steal if stale)
+  S->>L: INSERT Id=1 (wait, steal if stale), refresh every StaleAfter / 3
+  R->>R: stretches()
+  R->>S: up(units, { fake, continueBatch, locked, lock })
   S->>T: read rows, refuse if a row failed
   loop each pending migration
+    S->>S: lock.assertHeld()
     S->>T: open row (StartedAt)
     S->>M: up(driver)
     S->>T: close row (FinishedAt, Batch, Checksum)
   end
-  S->>L: DELETE Id=1
   S-->>R: applied migrations
+  R->>L: DELETE Id=1 (lock.release())
   R-->>C: { executed, touched }
 ```
 
 ### Rollback, `MigrationRunner.down()`
 
 1. `plan()` runs as for `up()`. There is no global reordering: each connection rolls back in turn.
-2. `DefaultMigrationService.down()` ensures storage and takes the lock.
+2. The runner holds the run lock of each connection in the plan; `DefaultMigrationService.down()` ensures storage and checks the lock before each migration.
 3. Failed rows do not block a rollback. The service warns that they stay blocking afterwards.
 4. It targets the last batch, or every applied migration with `all: true`.
 5. Applied rows without a registered class are warned about as orphans and stay applied.
@@ -125,7 +129,7 @@ sequenceDiagram
 ### Status and resolve
 
 - `MigrationRunner.status()` returns one `IMigrationStatusEntry` per registered migration whose connection is configured, `OnStartup` or not. It never takes the lock.
-- `MigrationRunner.resolve(name, action)` forces the recorded state of a failed or interrupted migration without running it. It never takes the lock, because the run that died may still hold it.
+- `MigrationRunner.resolve(name, action)` forces the recorded state of a failed or interrupted migration without running it. It holds the connection's run lock, so it waits for a run in progress. A run that died does not keep the lock: a session lock ends with its session, and a lock-table row nobody refreshes goes stale after `Lock.StaleAfter`.
 
 ## Writing a migration
 
@@ -186,7 +190,7 @@ In each directory it matches `**/!(*.*).{ts,js,cjs,mjs}` (no environment tag) an
 | `Runner` | The `MigrationRunner` over the `Orm`'s migrations and connections. Assigned in `boot()`. |
 | `boot(orm: Orm)` | Called by `Orm.resolve()`: binds the migrator to `orm` and applies the pending `Migration.OnStartup` migrations, see [above](#migrating-on-startup-diresolveorm). Their `data()` runs on `di.resolved.Orm`. |
 | `ready()` | `Promise<void>` that settles after the `data()` seeds of `boot()`, or rejects with their aggregated failure. With `MigrateOnStartup: false` it resolves at once. |
-| `migrate(options?: IOrmMigrateOptions)` | `IMigrationUpOptions` plus `name`. Applies (`force` defaults to `true`), re-reads the touched models, runs `data()` (not with `fake`). Resolves with the applied migrations. |
+| `migrate(options?: IOrmMigrateOptions)` | `IMigrationUpOptions` plus `name`. Under one run lock per connection: applies (`force` defaults to `true`), re-reads the touched models, runs `data()` (not with `fake`). Resolves with the applied migrations. |
 
 `Orm.Migrator` is the migrator the `Orm` booted. `OrmMigrator` is a DI singleton: the options apply only to the resolve that constructs it, and resolving it migrates nothing. The next `Orm.resolve()` (after `DI.uncache(Orm)`) boots the cached migrator again against the new `Orm`.
 
@@ -202,12 +206,15 @@ In each directory it matches `**/!(*.*).{ts,js,cjs,mjs}` (no environment tag) an
 | `down(name?, options?: IMigrationDownFacadeOptions)` | `force` (default `true`), `fake`, `connection`, `all` | `Promise<OrmMigration[]>`: the migrations rolled back. |
 | `status()` | none | `Promise<IMigrationStatusEntry[]>` |
 | `resolve(name, action: MigrationResolveAction)` | `'applied'` or `'rolled-back'` | `Promise<void>` |
+| `withRunLock(connection, fn)` | connection name, or `undefined` for all | Holds the run lock of every connection with registered migrations (or only `connection`) while `fn` runs, and resolves with its result. Locks an enclosing call already holds are reused. |
+| `assertRunLocksHeld()` | none | Rejects with `MigrationLockLostException` when a lock of the enclosing `withRunLock()` was lost. |
 
 | Option | Meaning |
 | --- | --- |
 | `force` | `true` ignores `Migration.OnStartup`. Only `OrmMigrator.boot()` passes `false`. |
 | `fake` | Record the outcome without calling `up()` / `down()`. |
 | `connection` | Limit the run to one connection, by name or alias. |
+| `locked` | The caller holds `withRunLock()`; the call takes no lock of its own. |
 | `all` | `down()` only: roll back every batch instead of the last one. |
 
 `@spinajs/orm-cli` exposes the same operations as `migrate-up` (`OrmMigrator.migrate()`), `migrate-down`, `migrate-status`, `migrate-resolve` and `migrate-create`. It boots through `resolveMigrationTool()`, so booting the CLI applies nothing on its own.
@@ -247,14 +254,36 @@ In every mode, a migration with `transaction = false` runs without a transaction
 
 ## Locking
 
-One migration run per connection at a time, across processes:
+One migration run per connection at a time, across processes. `up()`, `down()` and `resolve()` of `MigrationRunner` each hold the run lock of every connection in their plan for the whole call. `OrmMigrator.migrate()` (`migrate-up`) holds it across the migrations and their `data()` seeds, so a second run waits for the seeds too. `status()` never takes it.
 
-1. `acquireLock()` inserts row `Id = 1` into `<Table>_lock`, with `AcquiredAt` and `Owner` (`<hostname>:<pid>`). The unique `Id` lets the database pick the winner.
-2. When the insert fails and the holder's `AcquiredAt` is older than `Lock.StaleAfter`, the service logs a warning, deletes the row and retries at once. One acquisition steals at most `MIGRATION_LOCK_MAX_STEALS` (3) times.
+1. The runner takes the locks before it reads anything, in connection-name order (code-unit order), so two runs cannot deadlock each other, and releases them in reverse. A failed release is logged, not thrown.
+2. Each lock comes from `service.acquireRunLock()`. `DefaultMigrationService` runs `ensureStorage()`, then takes the `MigrationLock` registered in the driver's container. The runner passes `{ locked: true, lock }` to the service, which then takes no lock of its own.
+3. The lock is checked before each migration: the runner checks it before each stretch, `DefaultMigrationService` before each migration, and `migrate()` before the seeds. A lost lock throws `MigrationLockLostException`, the run stops, and no failure is recorded, because the next migration never started.
+4. A custom `OrmMigrationService` without `acquireRunLock()` gets no run lock and no `locked` option, and keeps locking inside its own calls. One that implements it should honour `locked` and call `lock.assertHeld()` before each migration.
+5. `Lock.Enabled: false` takes no lock at all.
+
+### The lock-table row, `TableMigrationLock`
+
+`OrmDriver.resolve()` registers `TableMigrationLock` as `MigrationLock`, so every driver has it unless the driver registers its own class over the token. `Lock.Mode: 'table'` forces it even then; use it behind PgBouncer in transaction pooling mode, which does not keep a session.
+
+1. It inserts row `Id = 1` into `<Table>_lock`, with `AcquiredAt` and `Owner` (`<hostname>:<pid>:<nonce>`). The unique `Id` lets the database pick the winner.
+2. When the insert fails and the holder's `AcquiredAt` is older than `Lock.StaleAfter`, it logs a warning, deletes the row and retries at once. One acquisition steals at most `MIGRATION_LOCK_MAX_STEALS` (3) times.
 3. Otherwise it polls every `MIGRATION_LOCK_POLL_INTERVAL` (500 ms) until `Lock.Timeout`, then throws `OrmException` naming the holder.
-4. `releaseLock()` deletes row `Id = 1` in a `finally`. A failed release is logged, not thrown, and the row goes stale.
+4. While held, it refreshes `AcquiredAt` every `StaleAfter / 3`, so only the row of a holder that stopped refreshing goes stale. A failed refresh is logged.
+5. `assertHeld()` fails once no refresh has gone through for longer than `StaleAfter`: from then on another run may have taken the row.
+6. `release()` stops the refresh and deletes row `Id = 1`.
 
-Staleness is judged by the client clock, so hosts whose clocks disagree steal early or wait long by the skew. `status()` and `resolve()` never take the lock. With `Lock.Enabled: false`, runs are not guarded and `status()` reports every open row as interrupted.
+`StaleAfter` applies to this lock only. Staleness is judged by the client clock, so hosts whose clocks disagree steal early or wait long by the skew. `status()` reports a row as interrupted only once no fresh lock row exists, so with `Lock.Enabled: false` it reports every open row as interrupted.
+
+### A driver's own lock
+
+A driver registers its lock in its `resolve()`, after `super.resolve()`, over the `MigrationLock` token:
+
+```ts
+this.Container.register(MyMigrationLock).as(MigrationLock);
+```
+
+`MigrationLock` is constructed with the driver. `acquire(request)` waits up to `request.timeout` and resolves with an `IMigrationLockHandle` (`holder`, `assertHeld()`, `release()`); `isHeld(request)` answers `status()` and never takes the lock. `request.key` is `migrationLockKey(driver, table)`, `spinajs_migration:<Database>:<Table>`; `advisoryKeyPair(key)` turns it into the two int32 halves of its SHA-256. `assertHeld()` must reject with `MigrationLockLostException` on any failure to verify the lock.
 
 ## Decorators
 
@@ -277,7 +306,8 @@ Staleness is judged by the client clock, so hosts whose clocks disagree steal ea
 | `db.Connections[].Migration.Transaction.Mode` | `MigrationTransactionMode` | `None` | `None`, `PerMigration`, `PerRun` | See [Transaction modes](#transaction-modes). |
 | `db.Connections[].Migration.Lock.Enabled` | `boolean` | `true` | `true`, `false` | Guard runs with the lock table. |
 | `db.Connections[].Migration.Lock.Timeout` | `number` (ms) | `30000` | positive integer | How long to wait for the lock before throwing. |
-| `db.Connections[].Migration.Lock.StaleAfter` | `number` (ms) | `600000` | positive integer | Age after which a held lock counts as abandoned and is stolen. |
+| `db.Connections[].Migration.Lock.StaleAfter` | `number` (ms) | `600000` | positive integer | Lock-table row only: age after which a row counts as abandoned and is stolen. The holder refreshes it every `StaleAfter / 3`. |
+| `db.Connections[].Migration.Lock.Mode` | `'auto' \| 'table'` | `'auto'` | `'auto'`, `'table'` | `'auto'` takes the driver's `MigrationLock`; `'table'` forces the lock-table row, for PgBouncer transaction pooling. |
 | `system.dirs.migrations` | `string[]` | `[]` (fallback directories) | directory paths | Directories `FilesystemMigrationSource` scans. A non-empty value replaces the fallbacks. |
 | `process.env.APP_ENV` | `string` | unset (`prod`) | `[A-Za-z0-9_-]+` | Environment the process runs as; selects tagged migrations. |
 
@@ -337,14 +367,15 @@ The name comes from `Migration.Table`. `IMigrationRecord` is the row type.
 | Column | Type | Meaning |
 | --- | --- | --- |
 | `Id` | `int`, unique, not null | Always `1`; the unique constraint makes the insert the lock. |
-| `AcquiredAt` | `dateTime`, not null | Client time the lock was taken. |
-| `Owner` | `string(255)`, not null | `<hostname>:<pid>` of the holder. |
+| `AcquiredAt` | `dateTime`, not null | Client time the lock was taken or last refreshed. |
+| `Owner` | `string(255)`, not null | `<hostname>:<pid>:<nonce>` of the holder. |
 
 ## Services and extension points
 
 | Service | Role | Default implementation | How to override |
 | --- | --- | --- | --- |
 | `OrmMigrationService` | Per-connection storage, locking, run, rollback, status and resolve. Contract: `ensureStorage()`, `up()`, `down()`, `status()`, `resolve()`. | `DefaultMigrationService` | Register a subclass under a string token and set `Migration.Service` to it. |
+| `MigrationLock` | One connection's migration run lock: `acquire()`, `isHeld()`. | `TableMigrationLock`, registered by `OrmDriver.resolve()` | Register a subclass over `MigrationLock` in the driver's `resolve()`, see [A driver's own lock](#a-drivers-own-lock). |
 | `MigrationSource` | Discovers migration classes; never constructs or runs them. | `FilesystemMigrationSource` and `DiRegistryMigrationSource`, both active | Add a source with `@Injectable(MigrationSource)`; every registered source is merged. |
 | `OrmMigrator` | Startup migrations (`boot()`), `migrate()`, data phase; owns `Runner`. | `OrmMigrator` | Not overridden. Resolve it with `IOrmMigratorOptions`. |
 | `MigrationRunner` | Cross-connection planning and ordering; `OrmMigrator.Runner`. | `MigrationRunner` | Not resolved through DI. Construct one over any `IMigrationRunnerHost` (`Migrations`, `Connections`, optional `Models` for the touched report) for tooling or tests. |
@@ -394,7 +425,7 @@ DI.register(MaintenanceWindowMigrationService).as('maintenance-window-migrations
 
 - Scaffold migrations with `migrate-create`, which stamps the class name with the current time, and never rename an applied migration: the name is the row key.
 - Write `data()` so that running it twice is harmless, for example with `InsertBehaviour.InsertOrIgnore`.
-- Set `Lock.StaleAfter` above your longest migration run. A live run that outlasts it gets its lock stolen, and two runs proceed at once.
+- Keep `Lock.StaleAfter` well above the longest stretch a run may go without reaching the database, such as a long synchronous step: the lock-table row is refreshed every `StaleAfter / 3`, and a run that cannot refresh it for `StaleAfter` loses it.
 - Resolve the `Orm` before serving; when requests need the startup seeds, await `orm.Migrator.ready()` as well.
 - Boot processes that inspect or operate on migrations, such as deploy gates, with `resolveMigrationTool()`.
 - Use `PerMigration` or `PerRun` on engines with transactional DDL, and mark the statements that cannot run in a transaction with `transaction = false`.

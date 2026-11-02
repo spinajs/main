@@ -1,3 +1,47 @@
+# Release notes - orm: one migration lock per connection for the whole run
+
+> Branch `v3-om-2-lock`. Package: orm.
+>
+> Docs: `docs/orm/10-migrations.md` ("Locking").
+
+## Fixes
+
+- `MigrationRunner.up()` handed each stretch of consecutive same-connection migrations to the service, and the service took and
+  released the connection's lock around each stretch. Another run could get in between two stretches, and the `data()` seeds of
+  `OrmMigrator.migrate()` (`migrate-up`) ran with no lock at all. `up()`, `down()` and `resolve()` of the runner now hold one lock per
+  connection for the whole call, taken in connection-name order before anything is read, and `migrate()` holds it until the seeds
+  finished. A second `migrate-up` waits for the first one's seeds.
+- A run longer than `Migration.Lock.StaleAfter` had its lock-table row stolen, and two runs went on at once. The holder now refreshes
+  its row every `StaleAfter / 3`, so only the row of a dead holder goes stale.
+- `migrate-resolve` could rewrite a tracking row under a run in progress. It now waits for that run's lock. A run that crashed while
+  holding the lock-table row blocks it until the row goes stale (`StaleAfter`, 10 minutes by default), as it blocks `migrate-up`.
+
+## New behavior
+
+- The lock is checked before each migration. A run that lost it (its lock-table row went unrefreshed for longer than `StaleAfter`)
+  stops with `MigrationLockLostException` before the next migration starts and records no failure for it.
+- The lock row's `Owner` is `<hostname>:<pid>:<nonce>`, so two runs in one process are told apart.
+
+## New
+
+- `MigrationLock`, a DI token in each driver's container: `acquire(request)` resolves with an `IMigrationLockHandle` (`holder`,
+  `assertHeld()`, `release()`), `isHeld(request)` answers `status()`. `OrmDriver.resolve()` registers `TableMigrationLock`, the
+  lock-table row, as the default. A driver with a native lock registers its own class over the token.
+- `db.Connections[].Migration.Lock.Mode: 'auto' | 'table'`. `'table'` forces the lock-table row, for PgBouncer transaction pooling.
+- `OrmMigrationService.acquireRunLock?()`, optional: a service that implements it is locked by the runner for the whole run and gets
+  `{ locked: true, lock }` in `IMigrationRunOptions`. A custom service without it keeps locking inside its own calls.
+- `MigrationRunner.withRunLock(connection, fn)`, `MigrationRunner.assertRunLocksHeld()`, `IMigrationUpOptions.locked`.
+- `migrationLockKey(driver, table)`, `advisoryKeyPair(key)`, `MigrationLockLostException`, `IMigrationLockRequest`.
+
+## Upgrade
+
+- The protected `acquireLock()`, `releaseLock()` and `lockOwner()` of `DefaultMigrationService` moved to `TableMigrationLock`
+  (`claim()`, `releaseRow()`, `lockOwner()`). A subclass that overrode them overrides `TableMigrationLock` instead and registers it
+  over `MigrationLock` in its driver.
+- Nothing else changes: processes of the previous release and of this one use the same lock-table row and exclude each other.
+
+---
+
 # Release notes — the controller scan registers what the package entry did
 
 ## Security fix

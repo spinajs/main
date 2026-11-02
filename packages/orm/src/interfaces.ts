@@ -433,9 +433,16 @@ export interface IDriverOptions {
       Timeout?: number;
 
       /**
-       * Ms after which a held lock counts as stale and is stolen. Default 600_000.
+       * Ms after which a lock-table row counts as stale and is stolen. Default 600_000. The holder
+       * refreshes its row every StaleAfter / 3, so only a dead holder goes stale. Table lock only.
        */
       StaleAfter?: number;
+
+      /**
+       * 'table' forces the lock-table row even where the driver offers an advisory lock: PgBouncer
+       * transaction pooling does not keep a session. Default 'auto', the driver's `MigrationLock`.
+       */
+      Mode?: 'auto' | 'table';
     };
   };
 

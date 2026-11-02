@@ -11,10 +11,12 @@ import {
   BooleanValueConverter,
   ColumnAlterationType,
   Connection,
+  DeleteQueryBuilder,
   DropTableQueryBuilder,
   extractModelDescriptor,
   IColumnDescriptor,
   IMigrationRecord,
+  InsertQueryBuilder,
   MIGRATION_TABLE_NAME,
   Migration,
   MigrationTransactionMode,
@@ -640,6 +642,22 @@ describe('OrmMigrator', function () {
 
     expect(err).to.be.instanceOf(OrmException);
     expect((err as Error).message).to.equal('Missing tables (db.StrictTableCheck): model MigratorTestOther: table mig_other on connection migrator. Create them (run their migrations) or set db.StrictTableCheck to false');
+  });
+
+  it('migrate() holds the connection lock once, from before the migrations until after data()', async () => {
+    const Create = createUsersMigration();
+    const lockWrites = () => EXECUTED.filter((b) => (b instanceof InsertQueryBuilder || b instanceof DeleteQueryBuilder) && b.Table === LOCK_TABLE).map((b) => (b instanceof InsertQueryBuilder ? 'take' : 'release'));
+    let duringSeed: string[] = [];
+    sinon.stub(Create.prototype, 'data').callsFake(async () => {
+      duringSeed = lockWrites();
+    });
+
+    const migrator = await resolveMigrationTool();
+    await migrator.migrate();
+
+    // only the connection with a registered migration is locked: the other one is never touched
+    expect(duringSeed, 'the seeds run under the lock').to.eql(['take']);
+    expect(lockWrites()).to.eql(['take', 'release']);
   });
 
   it('a migrator resolved with MigrateOnStartup: false before the Orm makes it apply nothing', async () => {

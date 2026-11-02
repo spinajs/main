@@ -1,12 +1,14 @@
 import { Class, ClassInfo } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { DateTime } from 'luxon';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { OrmDriver } from './driver.js';
 import { OrmMigration } from './interfaces.js';
 import { MIGRATION_FILE_REGEXP } from './symbols.js';
 import { extractMigrationDescriptor, extractModelDescriptor } from './descriptor.js';
 import { OrmException } from './exceptions.js';
-import { DefaultMigrationService, IMigrationStatusEntry, IMigrationUnit, MigrationResolveAction, OrmMigrationService } from './migration-service.js';
+import type { IMigrationLockHandle } from './migration-lock.js';
+import { DefaultMigrationService, IMigrationRunOptions, IMigrationStatusEntry, IMigrationUnit, MigrationResolveAction, OrmMigrationService } from './migration-service.js';
 import type { ModelBase } from './model.js';
 import { recordSchemaTouches, SchemaTouches, touchAllTables } from './schema-touches.js';
 
@@ -24,6 +26,11 @@ export { MIGRATION_FILE_REGEXP } from './symbols.js';
  */
 function compareUnits(a: IMigrationUnit, b: IMigrationUnit): number {
   return a.created < b.created ? -1 : a.created > b.created ? 1 : a.name.localeCompare(b.name);
+}
+
+/** Code-unit order rather than `localeCompare`: two hosts with different locales must agree on it, or two runs can deadlock. */
+function compareDriverNames(a: OrmDriver, b: OrmDriver): number {
+  return a.Options.Name < b.Options.Name ? -1 : a.Options.Name > b.Options.Name ? 1 : 0;
 }
 
 /**
@@ -76,6 +83,9 @@ export interface IMigrationUpOptions {
    * connection it points at select the same run. A name no connection answers to throws.
    */
   connection?: string;
+
+  /** Set by a caller already holding `withRunLock()`; the run then takes no lock of its own. */
+  locked?: boolean;
 }
 
 export interface IMigrationDownFacadeOptions extends IMigrationUpOptions {
@@ -95,7 +105,87 @@ export class MigrationRunner {
   @Logger('ORM')
   protected Log: Log;
 
+  /** The run locks held by the enclosing `withRunLock()`, per driver. */
+  protected RunLocks = new AsyncLocalStorage<Map<OrmDriver, IMigrationLockHandle>>();
+
   constructor(protected orm: IMigrationRunnerHost) {}
+
+  /**
+   * Holds one migration lock per connection that has registered migrations ( or only `connection` )
+   * while `fn` runs, so several runner calls - `up()`, then the seeds - form one run. Locks already
+   * held by an enclosing call are reused.
+   */
+  public async withRunLock<R>(connection: string | undefined, fn: () => Promise<R>): Promise<R> {
+    return await this.holdRunLocks(
+      this.plan(undefined, true, connection, true).map(([driver]) => driver),
+      fn,
+    );
+  }
+
+  /** Rejects with `MigrationLockLostException` when a lock of the enclosing `withRunLock()` was lost. */
+  public async assertRunLocksHeld(): Promise<void> {
+    for (const lock of this.RunLocks.getStore()?.values() ?? []) {
+      await lock.assertHeld();
+    }
+  }
+
+  /**
+   * Takes the locks in driver-name order, so two runs cannot deadlock each other, and releases them
+   * in reverse. A service without `acquireRunLock()` is skipped: it locks inside its own calls.
+   */
+  protected async holdRunLocks<R>(drivers: OrmDriver[], fn: () => Promise<R>): Promise<R> {
+    const held = new Map(this.RunLocks.getStore());
+    const taken: Array<[OrmDriver, IMigrationLockHandle]> = [];
+
+    try {
+      for (const driver of [...new Set(drivers)].filter((d) => !held.has(d)).sort(compareDriverNames)) {
+        const service = await this.service(driver);
+
+        if (service.acquireRunLock && driver.Options.Migration?.Lock?.Enabled !== false) {
+          const lock = await service.acquireRunLock();
+          taken.push([driver, lock]);
+          held.set(driver, lock);
+        }
+      }
+
+      return await this.RunLocks.run(held, fn);
+    } finally {
+      for (const [driver, lock] of taken.reverse()) {
+        await this.releaseQuietly(driver, lock);
+      }
+    }
+  }
+
+  /**
+   * A failed release is logged, never thrown: a throw out of `finally` would replace the error the
+   * run died with, and its likeliest cause is the same dead connection.
+   */
+  protected async releaseQuietly(driver: OrmDriver, lock: IMigrationLockHandle): Promise<void> {
+    try {
+      await lock.release();
+    } catch (err) {
+      this.Log.error(
+        { error: err, connection: driver.Options.Name, holder: lock.holder },
+        'Could not release the migration lock on connection ${connection} held as ${holder}. A lock-table row blocks further runs until it goes stale ( Migration.Lock.StaleAfter ) or is deleted by hand; a session lock ends with its session.',
+      );
+    }
+  }
+
+  /** What a service is told about the run lock held for `driver`, checked first; nothing when none is held. */
+  protected async runLockOptions(driver: OrmDriver): Promise<Pick<IMigrationRunOptions, 'locked' | 'lock'>> {
+    const lock = this.RunLocks.getStore()?.get(driver);
+
+    if (!lock) {
+      return {};
+    }
+
+    await lock.assertHeld();
+    return { locked: true, lock };
+  }
+
+  protected async locking<R>(groups: Array<[OrmDriver, IMigrationUnit[]]>, options: IMigrationUpOptions | undefined, fn: () => Promise<R>): Promise<R> {
+    return options?.locked ? await fn() : await this.holdRunLocks(groups.map(([driver]) => driver), fn);
+  }
 
   /**
    * Applies every pending migration on every configured connection, or only `name` when one is
@@ -112,16 +202,24 @@ export class MigrationRunner {
    * A `name` that matches nothing in the registry throws rather than returning `[]`: an empty
    * result from a typo is indistinguishable from "already up to date", so the CLI would exit 0
    * reporting "0 migrations applied" and the operator would believe the schema is current.
+   *
+   * The whole call holds one lock per connection ( `withRunLock()` ), taken before anything is read.
    */
   public async up(name?: string, options?: IMigrationUpOptions): Promise<IMigrationUpResult> {
+    const groups = this.plan(name, options?.force ?? true, options?.connection);
+    return await this.locking(groups, options, () => this.applyUp(groups, options));
+  }
+
+  protected async applyUp(groups: Array<[OrmDriver, IMigrationUnit[]]>, options?: IMigrationUpOptions): Promise<IMigrationUpResult> {
     const executed: OrmMigration[] = [];
     const opened = new Set<OrmDriver>();
     const touches: SchemaTouches = new Map();
     const drivers = new Set(this.orm.Connections.values());
 
-    for (const [driver, units] of await this.stretches(this.plan(name, options?.force ?? true, options?.connection))) {
+    for (const [driver, units] of await this.stretches(groups)) {
       const service = await this.service(driver);
-      const ran = await recordSchemaTouches(touches, () => service.up(units, { fake: options?.fake, continueBatch: opened.has(driver) }), drivers);
+      const lock = await this.runLockOptions(driver);
+      const ran = await recordSchemaTouches(touches, () => service.up(units, { fake: options?.fake, continueBatch: opened.has(driver), ...lock }), drivers);
 
       // only the built-in service runs up() where SQL sent straight to the driver is noticed
       if (ran.length > 0 && !options?.fake && !(service instanceof DefaultMigrationService)) {
@@ -210,14 +308,18 @@ export class MigrationRunner {
    * service contract, so it is deliberately not done inside this facade.
    */
   public async down(name?: string, options?: IMigrationDownFacadeOptions): Promise<OrmMigration[]> {
-    const executed: OrmMigration[] = [];
+    const groups = this.plan(name, options?.force ?? true, options?.connection);
 
-    for (const [driver, units] of this.plan(name, options?.force ?? true, options?.connection)) {
-      const service = await this.service(driver);
-      executed.push(...(await service.down(units, { fake: options?.fake, all: options?.all })));
-    }
+    return await this.locking(groups, options, async () => {
+      const executed: OrmMigration[] = [];
 
-    return executed;
+      for (const [driver, units] of groups) {
+        const service = await this.service(driver);
+        executed.push(...(await service.down(units, { fake: options?.fake, all: options?.all, ...(await this.runLockOptions(driver)) })));
+      }
+
+      return executed;
+    });
   }
 
   public async status(): Promise<IMigrationStatusEntry[]> {
@@ -238,13 +340,15 @@ export class MigrationRunner {
    * run that died halfway. The unit is handed down as well: the service cannot fingerprint a
    * migration it was only given the name of, and a resolution without it leaves `Checksum` NULL
    * forever, so drift is never detectable for that row again.
+   *
+   * It holds the connection's run lock, so it cannot rewrite a row under a run in progress.
    */
   public async resolve(name: string, action: MigrationResolveAction): Promise<void> {
     for (const [driver, units] of this.plan(name, true)) {
       const unit = units.find((u) => u.name === name);
 
       if (unit) {
-        return await (await this.service(driver)).resolve(name, action, unit);
+        return await this.holdRunLocks([driver], async () => await (await this.service(driver)).resolve(name, action, unit));
       }
     }
 
@@ -274,8 +378,12 @@ export class MigrationRunner {
    * `name` narrows the set to one migration, and is the single place all three public entry
    * points get their "that name is not registered" refusal from. `connection` narrows it to one
    * connection - the two compose, and a `name` on a connection the filter excludes runs nothing.
+   *
+   * `quiet` drops the skip warnings, for a caller that plans the same run a second time.
    */
-  protected plan(name: string | undefined, force: boolean, connection?: string): Array<[OrmDriver, IMigrationUnit[]]> {
+  protected plan(name: string | undefined, force: boolean, connection?: string, quiet = false): Array<[OrmDriver, IMigrationUnit[]]> {
+    const log = quiet ? undefined : this.Log;
+
     // `ClassInfo.name` is the migration's identity everywhere else in the system - it is what the
     // filter below matches, what becomes `IMigrationUnit.name`, and what lands in the `Migration`
     // column the service compares its rows against. So `m.name` ( never `m.type.name`, which
@@ -338,14 +446,14 @@ export class MigrationRunner {
       // configuration, or switched off for startup, is a normal state - taking the whole boot
       // down over it would be worse than running what can be run
       if (!md?.Connection) {
-        this.Log.warn({ migration: u.name }, "Migration ${migration} has no connection assigned ( missing @Migration('connection') decorator ) and is skipped");
+        log?.warn({ migration: u.name }, "Migration ${migration} has no connection assigned ( missing @Migration('connection') decorator ) and is skipped");
         continue;
       }
 
       const driver = this.orm.Connections.get(md.Connection);
 
       if (!driver) {
-        this.Log.warn({ connection: md.Connection, migration: u.name }, 'Connection ${connection} not exists for migration ${migration} - migration is skipped');
+        log?.warn({ connection: md.Connection, migration: u.name }, 'Connection ${connection} not exists for migration ${migration} - migration is skipped');
         continue;
       }
 
@@ -361,7 +469,7 @@ export class MigrationRunner {
         // repeating it per migration turns a boot log into noise nobody reads
         if (!gated.has(driver)) {
           gated.add(driver);
-          this.Log.warn({ connection: md.Connection }, 'Migration for connection ${connection} is disabled on startup, please check conf file for db.[connection].Migration.OnStartup property');
+          log?.warn({ connection: md.Connection }, 'Migration for connection ${connection} is disabled on startup, please check conf file for db.[connection].Migration.OnStartup property');
         }
 
         continue;
