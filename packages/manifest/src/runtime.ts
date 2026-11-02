@@ -1,7 +1,7 @@
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
-import { existingRealpathOf, realDirectory } from './realpath.js';
+import { existingRealpathOf } from './realpath.js';
 import { hashManifest } from './hash.js';
 import { loadsFromManifest } from './mounted.js';
 import { assertManifestVersion, readManifestObject } from './read.js';
@@ -266,6 +266,28 @@ export function ownEntries<T extends { mountedBy?: MountedBy; source: SourceRef 
   return loaded.length > 0 ? loaded : matching;
 }
 
+const leavesRoot = (rel: string): boolean => rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+
+/**
+ * True when `path` lies below `root` and every part from `root` down to it exists and is not a link: its real path is
+ * then the root's real path plus the same parts, so it cannot leave the root. Checked on every call, never cached: a
+ * part resolved once can be swapped for a link later.
+ */
+function isPlainlyUnder(root: string, path: string): boolean {
+  const rel = relative(root, path);
+  if (rel === '' || leavesRoot(rel)) return false;
+  let at = root;
+  for (const part of rel.split(sep)) {
+    at = join(at, part);
+    try {
+      if (lstatSync(at).isSymbolicLink()) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * Built file of a manifest entry: `src/x/y.ts` of package P becomes `<root of P>/<outDir>/x/y.js`.
  * A source already under `<outDir>/` (hand-written test manifests) keeps its directory.
@@ -293,10 +315,11 @@ export function manifestFileFor(entry: { source: SourceRef }, manifest: Manifest
   }
 
   const result = resolve(root, outDir, inside.replace(/\.[mc]?ts$/, '.js'));
-  const { realDirs } = probesOf(manifest);
-  const real = existingRealpathOf(result, realDirs);
-  const rel = real === undefined ? relative(resolve(root), result) : relative(realDirectory(root, realDirs), real);
-  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+  if (isPlainlyUnder(root, result)) {
+    return result;
+  }
+  const found = existsSync(result);
+  if (leavesRoot(relative(found ? realpathSync(root) : resolve(root), found ? realpathSync(result) : result))) {
     throw escapes('path', result);
   }
   return result;

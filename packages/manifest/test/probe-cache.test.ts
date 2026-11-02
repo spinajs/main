@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -72,12 +72,14 @@ describe('manifest runtime probes', () => {
     expect(calls.existsSync.filter((p) => p === app)).to.have.length(1);
   });
 
-  it('takes the real path of a root and of a directory once, not of every file', () => {
+  it('takes no real path of a file, and lstats only the parts below the root', () => {
     for (const [pkg, dir] of [['app', 'controllers'], ['@spinajs/dep', 'cli']]) {
       const calls = fsCalls(() => resolveAll(pkg, dir));
+      const root = packageRootOf(pkg, manifest, app);
       expect(calls.realpathSync.filter((p) => p.endsWith('.js')), pkg).to.deep.equal([]);
       expect(calls.realpathSync.length, pkg).to.be.at.most(3);
-      expect(calls.lstatSync.length + calls.existsSync.length + calls.statSync.length, pkg).to.be.at.most(files.length + 3);
+      expect(calls.lstatSync, pkg).to.deep.equal(files.flatMap((f) => [join(root, 'lib'), join(root, 'lib', dir), join(root, 'lib', dir, `${f}.js`)]));
+      expect(calls.existsSync.length + calls.statSync.length, pkg).to.be.at.most(3);
     }
   });
 
@@ -163,6 +165,17 @@ describe('manifest runtime probes', () => {
       symlinkSync(join(outside, 'evil.js'), join(app, 'lib', 'controllers', 'evil.js'), 'junction');
       expect(() => manifestFileFor(entryOf('src/controllers/evil.ts', 'app'), manifest, app)).to.throw(ManifestMissing, /leaves the root/);
     });
+
+    for (const dir of ['lib', join('lib', 'controllers')]) {
+      it(`refuses a file once ${dir} was resolved and then swapped for a link out of the root`, () => {
+        mkdirSync(join(outside, 'controllers'));
+        writeFileSync(join(outside, 'C0.js'), '');
+        writeFileSync(join(outside, 'controllers', 'C0.js'), '');
+        renameSync(join(app, dir), join(app, `${dir}-old`));
+        symlinkSync(outside, join(app, dir), 'junction');
+        expect(() => manifestFileFor(entryOf('src/controllers/C0.ts', 'app'), manifest, app)).to.throw(ManifestMissing, /leaves the root/);
+      });
+    }
 
     it('accepts a missing file and still refuses `..`', () => {
       expect(manifestFileFor(entryOf('src/controllers/missing.ts', 'app'), manifest, app)).to.equal(join(app, 'lib', 'controllers', 'missing.js'));
