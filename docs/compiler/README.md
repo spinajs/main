@@ -162,7 +162,7 @@ A package built with `emitDecoratorMetadata: false` also gets `classProperties`:
 
 ## Schema derivation
 
-With `schemaDerivation` on (the default), every route parameter and response, socket payload and result, queue message and model column gets a JSON Schema (draft-07) derived from its TypeScript type. Named classes, interfaces and enums are hoisted under `spinajs/<package>/<Name>` and referenced by `$ref`; anonymous types are inlined. These rules decide what is derived and how:
+With `schemaDerivation` on (the default), every route parameter and response, socket payload and result, queue message and model column gets a JSON Schema (draft-07) derived from its TypeScript type. Named classes, interfaces and enums are hoisted under `spinajs/<package>/<Name>` and referenced by `$ref`; anonymous types are inlined. JSDoc tags on a property add constraints to its schema; see [DTO constraints with JSDoc tags](../validation/09-dto-constraints-jsdoc.md). These rules decide what is derived and how:
 
 | Type | Schema |
 | --- | --- |

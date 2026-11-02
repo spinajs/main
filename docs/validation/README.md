@@ -24,6 +24,7 @@ Importing the package registers everything it ships: `DataValidator`, `FileSyste
 | [Schema providers](06-schema-providers.md) | `SchemaProvider` and `DtoSchemaProvider`: type name to JSON schema, for OpenAPI and other tooling |
 | [Validation errors](07-validation-errors.md) | `ValidationFailed`, its helpers, and `sanitizeError()`, which keeps request values out of every error |
 | [Customizing the validator](08-customizing-the-validator.md) | Replace or subclass `DataValidator`: custom Ajv formats and keywords, extra behaviour around `validate()` |
+| [DTO constraints with JSDoc tags](09-dto-constraints-jsdoc.md) | `@minLength`, `@format`, `@pattern` and the other tags that add limits to the schema derived from a DTO type (manifest `prefer` / `require`) |
 
 ## Extension points at a glance
 
