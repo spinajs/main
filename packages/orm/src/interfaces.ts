@@ -392,7 +392,7 @@ export interface IDriverOptions {
   };
 
   Migration?: {
-    /** @deprecated Ignored: the application never migrates. Run migrate-up. */
+    /** @deprecated Being removed: once the boot guard is wired, a connection that still sets it fails the boot. Run migrate-up as a deploy step. */
     OnStartup?: boolean;
 
     /** What the boot guard does with pending or failed migrations on this connection; overrides db.MigrationCheck. Default 'fail'. */
