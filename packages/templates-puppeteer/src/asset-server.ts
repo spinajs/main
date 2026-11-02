@@ -35,7 +35,7 @@ export class LocalAssetServer {
     const range = this.portRange();
     const hasRange = !!range && range.length > 0;
     const maxAttempts = hasRange ? MAX_PORT_ATTEMPTS : 1;
-    // config arrays merge by concatenation, so an app's range is appended after the shipped one
+    // Package configs concatenate among themselves, and two of them ship templates.pdf.static.portRange.
     const [min, max] = hasRange ? range!.slice(-2) : [];
     let lastErr: any;
 

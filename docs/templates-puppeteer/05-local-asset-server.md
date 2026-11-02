@@ -21,7 +21,7 @@ After 10 failed attempts `serve()` logs an error and throws the last `EADDRINUSE
 | --- | --- | --- | --- | --- |
 | `<key>.static.portRange` | `number[]` | `[3000, 4000]` for `templates.pdf` and `templates.image` | `[min, max]`, both inclusive; unset or `[]` for an OS port | Port range for the server; only the last two elements are read |
 
-`<key>` is the renderer's config path. Package configs merge before yours and arrays concatenate, so a `portRange` in your config files is appended after the shipped one; the server reads the last two elements, so yours wins. You can also set it at runtime:
+`<key>` is the renderer's config path. A `portRange` in your config files replaces the shipped one; package configs concatenate among themselves, so the server reads the last two elements. You can also set it at runtime:
 
 ```ts sample
 import { DI } from '@spinajs/di';

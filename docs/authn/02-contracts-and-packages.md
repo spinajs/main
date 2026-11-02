@@ -98,7 +98,7 @@ A machine-only service still needs an `IdentityStore`, a `PrincipalFactory` and 
 
 - Strategies and MFA steps are found by class name among the registrations of `AuthenticationStrategy` and `MfaStep`, in the container and its ancestors. Registered but unlisted ones never run.
 - The core checks strategies, steps and throttles by shape, not by `instanceof`: an implementation built against another copy of the contracts (the CJS and the ESM build) still passes.
-- Packages ship no `authn.strategies` and no `authn.mfa.steps` entry. Config arrays concatenate across files, so an entry a package listed could not be removed by the app.
+- Packages ship no `authn.strategies` and no `authn.mfa.steps` entry: a config file loads whether or not its package is imported. The app lists them.
 
 ## Related
 

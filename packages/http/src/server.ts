@@ -14,6 +14,7 @@ import fs from 'fs';
 
 import { ServerMiddleware, IHttpServerConfiguration, LifecycleState, Request } from './interfaces.js';
 import { createBodyLimitMiddleware } from './body-limits.js';
+import { missingDefaultMiddlewares } from './default-middlewares.js';
 import './transformers/index.js';
 import './middlewares/ResponseTime.js';
 import './middlewares/RequestId.js';
@@ -108,6 +109,17 @@ export class HttpServer extends AsyncService {
     super();
   }
 
+  // An app's list replaces the shipped one, which drops security headers and body parsing without an error.
+  private warnLostDefaults() {
+    const missing = missingDefaultMiddlewares(this.HttpConfig.middlewares ?? []);
+    if (missing.length === 0) return;
+
+    this.Log.warn(
+      { missing: missing.join(', ') },
+      'http.middlewares does not hold the shipped ${missing}. To keep the defaults use [...defaultMiddlewares(), yours] from @spinajs/http. Ignore this if your own handlers, such as your own helmet(), do that work.',
+    );
+  }
+
   public async resolve(): Promise<void> {
 
     await super.resolve();
@@ -136,6 +148,7 @@ export class HttpServer extends AsyncService {
       this.Log.info({ middleware: m.constructor.name }, 'Using server middleware::before() - ${middleware}');
       this.use(m);
     });
+    this.warnLostDefaults();
 
     // CORS is now provided by CorsMiddleware (registered as ServerMiddleware,
     // applied through the standard `Middlewares.before()` loop below).

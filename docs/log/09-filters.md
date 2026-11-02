@@ -103,7 +103,7 @@ logger: {
 }
 ```
 
-This is the configuration `@spinajs/authn-http` ships for its `CsrfOriginGuard` refusal lines. Config files concatenate arrays, so it joins your own `logger.filters`. Filters only drop entries, so a filter of your own on the same entries can tighten the limit but not loosen it.
+This is the configuration `@spinajs/authn-http` ships for its `CsrfOriginGuard` refusal lines. `logger.filters` concatenates, so it joins your own filters. Filters only drop entries, so a filter of your own on the same entries can tighten the limit but not loosen it.
 
 ### Where the state lives
 

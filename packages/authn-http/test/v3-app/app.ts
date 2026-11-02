@@ -63,7 +63,7 @@ export class V3AppConfiguration extends FrameworkConfiguration {
       http: {
         port: 0,
         cookie: { secret: COOKIE_SECRET },
-        middlewares: [express.json({ limit: '5mb' }), express.urlencoded({ extended: true }), cookieParser()],
+        middlewares: [express.json({ limit: '5mb' }), express.urlencoded({ extended: true }), cookieParser(COOKIE_SECRET)],
         AcceptHeaders: 1,
       },
       authn: {

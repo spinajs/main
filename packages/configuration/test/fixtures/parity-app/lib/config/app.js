@@ -1,1 +1,1 @@
-export default { alpha: { value: 'app-override' }, app: { common: true }, system: { dirs: { cli: ['app-cli'] } } };
+export default { alpha: { value: 'app-override', transports: ['websocket'] }, app: { common: true, list: ['app-common'] }, system: { dirs: { cli: ['app-cli'] } } };

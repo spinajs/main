@@ -1,4 +1,5 @@
 
+import { isComposedConfigArray } from '@spinajs/configuration';
 import _ from 'lodash';
 
 import { analyze } from './analyze.js';
@@ -133,8 +134,7 @@ function sharedGrantKeys(common: Plain, env: Plain, name: string, f: Findings): 
 /**
  * 2.x logged in through @spinajs/rbac's SimpleDbAuthProvider unless rbac.auth.service said otherwise, and no
  * 3.0 package lists a strategy, so the first layer with rbac keys gets the local strategy when its view leaves
- * rbac.auth out. An env file cannot take it back (arrays concatenate), so an env that names another provider
- * is left for a person.
+ * rbac.auth out. An env file replaces that list, so an env that names another provider is left for a person to check.
  */
 function defaultStrategy(layers: ConfigLayers, outputs: LayerOutput[]): void {
   const LOCAL = [{ name: 'local', service: 'LocalPasswordStrategy' }];
@@ -155,10 +155,23 @@ function defaultStrategy(layers: ConfigLayers, outputs: LayerOutput[]): void {
     if (mine !== base) {
       o.findings.manual(
         'env-array',
-        `2.x logged in with '${mine}' in env '${o.name}' and with '${base}' in common. authn.strategies concatenates across config files, so an env file cannot replace the common strategy; split authn.strategies by hand, or the env keeps both logins.`,
+        `2.x logged in with '${mine}' in env '${o.name}' and with '${base}' in common. An authn.strategies list in an env file replaces the common one; check that the env file lists every login that env needs.`,
         'rbac.auth.service',
       );
     }
+  }
+}
+
+/**
+ * 2.x joined an env array with the common one and the 4.x loader lets the env file replace it, so the env file holds the
+ * joined list. Composed arrays stay a delta, the loader still joins those; a scalar 2.x key replaced its common value.
+ */
+function joinEnvArrays(env: Plain, common: Plain, path: readonly string[]): void {
+  for (const [key, value] of Object.entries(env)) {
+    const at = [...path, key];
+    const base = common[key];
+    if (isPlain(value) && isPlain(base)) joinEnvArrays(value, base, at);
+    else if (Array.isArray(value) && Array.isArray(base) && !isComposedConfigArray(at) && !SCALAR_TO_ARRAY_KEYS.includes(at.join('.'))) env[key] = _.uniqWith([...base, ...value], (a, b) => _.isEqual(a, b));
   }
 }
 
@@ -181,6 +194,7 @@ export function convertLayers(layers: ConfigLayers, opts: Omit<ConvertOptions, '
 
   const common = outputs[0];
   defaultStrategy(layers, outputs);
+  for (const o of outputs.slice(1)) for (const root of ROOTS) joinEnvArrays(o.out[root], common.out[root], []);
   for (const o of outputs.slice(1)) {
     for (const k of SCALAR_TO_ARRAY_KEYS) {
       const p = k.split('.');
@@ -188,13 +202,13 @@ export function convertLayers(layers: ConfigLayers, opts: Omit<ConvertOptions, '
       const mine = getPath(root, p);
       const base = getPath(common.out[p[0] as Root], p);
       if (base !== undefined && o.out.cleared.includes(k)) {
-        o.findings.manual('env-array', `Env '${o.name}' turns off what ${k} holds in common; config files concatenate arrays, so the env file cannot empty it. Split the key by hand.`, k);
+        o.findings.manual('env-array', `Env '${o.name}' turns off what ${k} holds in common; the env file does not set it, so the env keeps the common value. Set ${k} to [] in the env file by hand.`, k);
       }
       if (mine === undefined || base === undefined) continue;
       if (!_.isEqual(mine, base)) {
-        o.findings.manual('env-array', `${k} differs in common and in env '${o.name}'; config files concatenate arrays, so the env file cannot replace the common value. Split the key by hand.`, k);
+        o.findings.manual('env-array', `${k} differs in common and in env '${o.name}'; the env file replaces the common value. Check that it holds everything that env needs.`, k);
       }
-      // Equal to common it adds nothing; written twice it would be listed twice.
+      // Equal to common it adds nothing.
       for (let n = p.length; n > 0; n--) {
         const parent = getPath(root, p.slice(0, n - 1)) as Plain;
         if (n === p.length || Object.keys(parent[p[n - 1]] as Plain).length === 0) delete parent[p[n - 1]];
