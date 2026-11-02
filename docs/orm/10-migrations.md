@@ -264,10 +264,11 @@ beforeEach(async () => {
 
 1. refuses with `OrmException` (`... is a test helper and refuses to run ...`) when `NODE_ENV` is `production` or `APP_ENV` is `prod` or `production`. It reads the raw variables, because an unset `APP_ENV` counts as production elsewhere and every test process has one;
 2. resolves the `Orm` through `resolveMigrationTool(container)`, so the resolve applies nothing;
-3. calls `migrator.migrate()`, with seeds unless `options.seed` is `false`;
-4. with `db.StrictTableCheck` on, calls `orm.reloadTableInfo({ strict: true })`, so a model without a table fails the helper as it would fail a boot.
+3. refuses with `OrmException` (`migrateTestDatabase() must run before anything resolves the Orm or OrmMigrator in this container ...`) when the resolved migrator migrates on startup or is not the one `orm.Migrator` booted with: something resolved the `Orm` or `OrmMigrator` in that container first, or only `OrmMigrator` was uncached since the last call;
+4. calls `migrator.migrate()`, with seeds unless `options.seed` is `false`;
+5. with `db.StrictTableCheck` on, calls `orm.reloadTableInfo({ strict: true })`, so a model without a table fails the helper as it would fail a boot.
 
-It resolves with `{ orm, migrator, executed }`. The database is then migrated and seeded, so a boot check that runs later (`OrmMigrationGuard`) finds nothing pending. Call it before anything resolves the `Orm` in that container: a migrator resolved earlier keeps its own options.
+It resolves with `{ orm, migrator, executed }`. The database is then migrated and seeded, so a boot check that runs later (`OrmMigrationGuard`) finds nothing pending. A second call on the same cached container returns `executed: []`. To migrate again from scratch, uncache `Orm` and `OrmMigrator` together, or call `DI.clearCache()`.
 
 The package's lint configuration bans the import of `@spinajs/orm/testing` in `packages/*/src/**` (`no-restricted-imports`), so framework code never ships it. Applications migrate with `npx spinajs migrate-up` as a deploy step.
 

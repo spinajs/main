@@ -17,7 +17,8 @@ export interface IMigratedTestDatabase {
 
 /**
  * Explicitly migrates and seeds a test database, then checks the model tables as a strict boot would; an application
- * runs `npx spinajs migrate-up` instead. Call it before anything else resolves the Orm in `container`.
+ * runs `npx spinajs migrate-up` instead. Call it before anything else resolves the Orm or `OrmMigrator` in `container`,
+ * or it throws.
  */
 export async function migrateTestDatabase(container: IContainer = DI.RootContainer, options: IMigrateTestDatabaseOptions = {}): Promise<IMigratedTestDatabase> {
   // the raw variables: normalizeEnvironment() reads an unset APP_ENV as prod, which every test process has
@@ -28,8 +29,12 @@ export async function migrateTestDatabase(container: IContainer = DI.RootContain
   const migrator = await resolveMigrationTool(container);
   const orm = await container.resolve(Orm);
 
-  // an Orm resolved before this call migrated on its own startup, and seeds after its resolve
-  await migrator.ready();
+  // a cached OrmMigrator keeps the options it was first resolved with, and a cached Orm the migrator it booted with
+  if (migrator.MigrateOnStartup || orm.Migrator !== migrator) {
+    throw new OrmException(
+      'migrateTestDatabase() must run before anything resolves the Orm or OrmMigrator in this container, and a re-run needs Orm and OrmMigrator uncached together ( or DI.clearCache() ): the Orm here was booted by an OrmMigrator that migrates on startup, or by another OrmMigrator than the one this call resolved',
+    );
+  }
 
   const executed = await migrator.migrate({ skipSeed: options.seed === false });
 
