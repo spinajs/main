@@ -1,6 +1,6 @@
 # Release notes — orm: one migration lock per connection for the whole run
 
-> Package: orm.
+> Packages: orm, orm-postgres, orm-mysql, orm-mssql.
 >
 > Docs: `docs/orm/10-migrations.md` ("Locking").
 
@@ -33,6 +33,10 @@
 - The lock row's `Owner` is `<hostname>:<pid>:<nonce>`, so two runs in one process are told apart.
 - Two connections on one database that share `Migration.Table` now block each other for `Lock.Timeout` and fail, because one run
   holds the first connection's lock while it waits for the second. Give each connection on a database its own `Migration.Table`.
+- `@spinajs/orm-postgres`, `@spinajs/orm-mysql` and `@spinajs/orm-mssql` lock a migration run with the database's own session
+  lock (`pg_try_advisory_lock`, `GET_LOCK`, a session-owned `sp_getapplock`) and take the lock-table row as well. A migrating
+  process opens one extra database connection per connection for the run, outside the pool. A run that crashed no longer
+  blocks the next one for `StaleAfter`: its session lock is freed and its marked row is removed at once.
 
 ## New
 
