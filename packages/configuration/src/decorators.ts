@@ -1,7 +1,7 @@
 import _ from 'lodash';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { ConfigPath, ConfigPaths, Configuration, IConfigEntryOptions, CONFIGURATION_PROPERTY } from '@spinajs/configuration-common';
-import { AddDependencyForProperty, Class, Container, DI, IContainer, IInjectDescriptor, IMappableService, isFactory, isPromise, ServiceNotFound } from '@spinajs/di';
+import { AddDependencyForProperty, Class, Container, DI, IContainer, IInjectDescriptor, IMappableService, IToInject, isFactory, isPromise, notePendingProperty, ServiceNotFound } from '@spinajs/di';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { InternalLogger } from '@spinajs/internal-logger';
 
@@ -354,11 +354,11 @@ export function AutoinjectNamedService<T>(path: string, type: Class<T>, options?
  */
 export function AutoinjectService(path: string, type?: Class<unknown>, options?: { optional?: boolean }) {
   return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol) => {
-    const t = type ?? (Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>);
-    descriptor.inject.push({
+    const declared = type ?? (Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown> | undefined);
+    const injection = (inject: Class<unknown>): IToInject<unknown> => ({
       autoinject: true,
       autoinjectKey: propertyKey,
-      inject: t,
+      inject,
       data: path,
       mapFunc: (x: IMappableService) => {
         return x.ServiceName || x.constructor.name;
@@ -406,5 +406,8 @@ export function AutoinjectService(path: string, type?: Class<unknown>, options?:
         };
       },
     });
+
+    if (!declared) notePendingProperty(target.constructor as Class<unknown>, String(propertyKey));
+    descriptor.inject.push(declared ? injection(declared) : { ...injection(Object), pendingType: { property: propertyKey, bind: injection } });
   });
 }

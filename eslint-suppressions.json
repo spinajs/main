@@ -6520,13 +6520,10 @@
   },
   "packages/orm/src/decorators.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 34
+      "count": 31
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 25
-    },
-    "prefer-const": {
-      "count": 3
     },
     "prettier/prettier": {
       "count": 1

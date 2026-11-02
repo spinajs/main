@@ -101,6 +101,14 @@ describe('what a build without decorator metadata needs from the manifest', () =
       expect(array('one')).to.equal(false);
     });
 
+    it('records no type for a list under @AutoinjectService, written either way', () => {
+      const { properties } = entry('ConfiguredByType')!;
+      const row = (name: string) => properties.find((p) => p.property === name);
+      expect(row('alias')).to.include({ array: true }).and.not.have.property('tokenRef');
+      expect(row('list')).to.include({ array: true }).and.not.have.property('tokenRef');
+      expect(row('one')?.tokenRef).to.deep.equal({ package: 'no-metadata', file: 'src/services.ts', export: 'Plugin' });
+    });
+
     it('records whether an explicitly typed property is a list', () => {
       expect(property('one')).to.include({ array: false }).and.not.have.property('tokenRef');
       expect(property('list')).to.include({ array: true }).and.not.have.property('tokenRef');
@@ -138,6 +146,33 @@ describe('what a build without decorator metadata needs from the manifest', () =
       expect(base()?.commands[0].payload.ref).to.deep.equal(hello);
       expect(base()?.events[0].payload.ref).to.deep.equal(hello);
       expect(base()?.diArgs).to.deep.equal([{ handler: 'save', index: 1, ref: db }]);
+    });
+  });
+
+  describe('what model and configuration decorators read', () => {
+    const relation = { package: '@spinajs/orm', file: 'lib/relation-objects.js', export: 'Relation' };
+    const owner = () => fragment.classProperties?.find((c) => c.className === 'Owner')?.properties;
+    const ref = (name: string) => owner()?.find((p) => p.property === name)?.tokenRef;
+
+    it('records the class a relation property declares', () => {
+      expect(ref('Pets')).to.deep.equal(relation);
+      expect(ref('Linked')).to.deep.equal(relation);
+      expect(ref('Names')).to.deep.equal({ package: 'no-metadata', file: 'src/models.ts', export: 'PetNames' });
+    });
+
+    it('records the model of @JunctionTable', () => {
+      expect(ref('Junction')).to.deep.equal({ package: 'no-metadata', file: 'src/models.ts', export: 'Link' });
+    });
+
+    it('gives a column nothing to import', () => {
+      expect(owner()?.filter((p) => p.property === 'Id')).to.have.length(1);
+      expect(ref('Id')).to.equal(undefined);
+    });
+
+    it('records the declared type of @AutoinjectService unless the decorator names one', () => {
+      const holder = fragment.classProperties?.find((c) => c.className === 'Holder')?.properties;
+      expect(holder?.find((p) => p.property === 'db')?.tokenRef).to.deep.equal(db);
+      expect(holder?.find((p) => p.property === 'named')).to.not.have.property('tokenRef');
     });
   });
 

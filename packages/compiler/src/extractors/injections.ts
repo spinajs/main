@@ -121,11 +121,15 @@ const PROPERTY_DECORATORS: Record<string, PropertyHandler> = {
   Config: (_d, prop) => ({ property: propertyName(prop), token: 'Configuration', optional: false, array: false }),
   AutoinjectService: (d, prop, ctx) => {
     const declared = tokenOfTypeNode(prop.type, ctx);
+    const explicit = injectedName(d.args[1], ctx);
+    const array = declaresList(prop, ctx);
+    const tokenRef = explicit || array ? undefined : declaredTypeRef(prop, ctx);
     return {
       property: propertyName(prop),
-      token: injectedName(d.args[1], ctx) ?? declared.token,
+      token: explicit ?? declared.token,
       optional: optionsOf(d.args[2], ctx).optional === true,
-      array: declaresList(prop, ctx),
+      array,
+      ...(tokenRef ? { tokenRef } : {}),
     };
   },
   Logger: (_d, prop) => ({ property: propertyName(prop), token: 'Log', optional: false, array: false }),
@@ -145,7 +149,17 @@ export function propertyInjectsOf(cls: ts.ClassDeclaration, ctx: ExtractorContex
 }
 
 // The decorators that read `design:type`; `@Logger`, `@Config` and `@FileSystem` inject by their own arguments.
-const TYPE_READING_DECORATORS = new Set(['Autoinject', 'LazyInject']);
+const TYPE_READING_DECORATORS = new Set(['Autoinject', 'LazyInject', 'AutoinjectService']);
+// Model decorators that need the class the property declares. They inject nothing, so they stay out of `propertyInjects`.
+const MODEL_TYPE_DECORATORS = new Set(['HasMany', 'HasManyToMany', 'Virtual', 'JunctionTable']);
+
+function modelTypesOf(cls: ts.ClassDeclaration, ctx: ExtractorContext): PropertyInject[] {
+  return cls.members.filter(ts.isPropertyDeclaration).flatMap((member) => {
+    if (!decoratorsOf(member).some((d) => MODEL_TYPE_DECORATORS.has(d.name))) return [];
+    const tokenRef = declaredTypeRef(member, ctx);
+    return [{ property: propertyName(member), token: tokenOfTypeNode(member.type, ctx).token, optional: false, array: false, ...(tokenRef ? { tokenRef } : {}) }];
+  });
+}
 
 /**
  * The compiler knows decorators by name, so one of the app's own may wrap `@Autoinject(X)`. Only the list shape is
@@ -154,7 +168,7 @@ const TYPE_READING_DECORATORS = new Set(['Autoinject', 'LazyInject']);
 function otherDecoratedOf(cls: ts.ClassDeclaration, ctx: ExtractorContext): PropertyInject[] {
   return cls.members.filter(ts.isPropertyDeclaration).flatMap((member) => {
     const decorators = decoratorsOf(member);
-    if (decorators.length === 0 || decorators.some((d) => PROPERTY_DECORATORS[d.name])) return [];
+    if (decorators.length === 0 || decorators.some((d) => PROPERTY_DECORATORS[d.name] || MODEL_TYPE_DECORATORS.has(d.name))) return [];
     return [{ property: propertyName(member), token: tokenOfTypeNode(member.type, ctx).token, optional: !!member.questionToken, array: declaresList(member, ctx) }];
   });
 }
@@ -168,7 +182,7 @@ export const extractClassProperties: Extractor<ClassPropertiesEntry> = (ctx, fil
   const out: ClassPropertiesEntry[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isClassDeclaration(node) && node.name) {
-      const properties = [...propertyInjectsOf(node, ctx, TYPE_READING_DECORATORS), ...otherDecoratedOf(node, ctx)];
+      const properties = [...propertyInjectsOf(node, ctx, TYPE_READING_DECORATORS), ...modelTypesOf(node, ctx), ...otherDecoratedOf(node, ctx)];
       if (properties.length > 0) out.push({ id: `${ctx.packageName}:${node.name.text}`, className: node.name.text, properties, source: ctx.sourceRef(node) });
     }
     ts.forEachChild(node, visit);
