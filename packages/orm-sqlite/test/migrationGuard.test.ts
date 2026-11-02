@@ -109,4 +109,21 @@ describe('OrmMigrationGuard on a real sqlite tracking table', function () {
 
     expect(await guard.check(orm)).to.deep.equal({ pending: [], failed: [], warned: [] });
   });
+
+  // a NULL FinishedAt must hydrate as null, not undefined, or the legacy-row rule reads a never finished row as applied
+  it('reports a FAILED row as failed and a never finished one as pending', async () => {
+    const migrator = await resolveMigrationTool();
+    const orm = await DI.resolve(Orm);
+    const guard = await DI.resolve(OrmMigrationGuard);
+
+    await migrator.migrate();
+    await orm.Connections.get(MAIN)!.update().in(MIGRATION_TABLE_NAME).update({ FinishedAt: null }).where('Migration', FIRST);
+    await orm.Connections.get(MAIN)!.update().in(MIGRATION_TABLE_NAME).update({ FinishedAt: null, Logs: 'boom' }).where('Migration', SECOND);
+
+    const err = (await guard.check(orm).catch((e: unknown) => e)) as PendingMigrationsException;
+
+    expect(err).to.be.instanceOf(PendingMigrationsException);
+    expect(err.failed).to.deep.equal([{ name: SECOND, connection: MAIN }]);
+    expect(err.pending).to.deep.equal([{ name: FIRST, connection: MAIN }]);
+  });
 });
