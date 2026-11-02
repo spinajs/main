@@ -820,6 +820,44 @@ describe('DefaultMigrationService down/resolve/status', () => {
     expect(st.every((s) => s.interrupted === false)).to.be.true;
   });
 
+  it('status({ readOnly: true }) creates no tracking table and reports every unit pending when the table is absent', async () => {
+    const driver = await makeDriver();
+    // an empty result for every probe = every table absent
+    const exec = sinon.stub(FakeSqliteDriver.prototype, 'execute').resolves([]);
+    const svc = new DefaultMigrationService(driver);
+
+    const st = await svc.status([unit(MigA_2021_01_01_00_00_00)], { readOnly: true });
+
+    expect(st.map((e) => [e.name, e.pending])).to.eql([['MigA_2021_01_01_00_00_00', true]]);
+    expect(
+      exec.getCalls().filter((c) => c.args[0] instanceof TableQueryBuilder || c.args[0] instanceof AlterTableQueryBuilder || c.args[0] instanceof InsertQueryBuilder || c.args[0] instanceof UpdateQueryBuilder),
+      'a read-only status must not write',
+    ).to.have.length(0);
+    expect(exec.getCalls().filter((c) => c.args[0] instanceof SelectQueryBuilder)).to.have.length(0);
+  });
+
+  it('status({ readOnly: true }) reads a legacy row without FinishedAt as applied, as the upgrade backfill would', async () => {
+    const driver = await makeDriver();
+    // the two columns a legacy table has: the others are not even keys on the hydrated row
+    const exec = stubDb([{ Migration: 'MigA_2021_01_01_00_00_00', CreatedAt: now } as IMigrationRecord]);
+    const svc = new DefaultMigrationService(driver);
+
+    const [entry] = await svc.status([unit(MigA_2021_01_01_00_00_00)], { readOnly: true });
+
+    expect(entry.applied).to.be.true;
+    expect(entry.batch).to.equal(1);
+    expect(exec.getCalls().filter((c) => c.args[0] instanceof AlterTableQueryBuilder || c.args[0] instanceof UpdateQueryBuilder)).to.have.length(0);
+  });
+
+  it('status({ readOnly: true }) still reads a NULL-FinishedAt row with Logs as failed', async () => {
+    const driver = await makeDriver();
+    stubDb([row({ Migration: 'MigA_2021_01_01_00_00_00', FinishedAt: null, Logs: 'boom' })]);
+
+    const [entry] = await new DefaultMigrationService(driver).status([unit(MigA_2021_01_01_00_00_00)], { readOnly: true });
+
+    expect(entry.failed).to.be.true;
+  });
+
   it('status() reports a row a killed run left open as interrupted, not merely pending', async () => {
     const driver = await makeDriver();
     // exactly what upsertStart writes and nothing else ever closed: StartedAt set, no FinishedAt,
