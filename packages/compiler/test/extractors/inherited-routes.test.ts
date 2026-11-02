@@ -89,6 +89,14 @@ describe('inherited routes', function () {
     expect(fragment.diagnostics.filter((d) => d.code === 'SCH001' && d.severity === 'warning')).to.deep.equal([]);
   });
 
+  it('derives nothing for a decorated argument that never reads its type, as the declaration site', () => {
+    const put = entry('UploadsController').routes.find((r) => r.handler === 'put')!;
+    const stream = put.params.find((p) => p.name === 'stream')!;
+    expect(stream.runtimeType.schema).to.equal(undefined);
+    expect(put.params.find((p) => p.name === 'dto')!.runtimeType.schema).to.equal('spinajs/inherited/CreateTagDto');
+    expect(Object.keys(fragment.schemas).filter((id) => /ReadableStream|UploadsController_put_stream/.test(id))).to.deep.equal([]);
+  });
+
   it('keeps the abstract base entry declaration-site and free of inheritance fields', () => {
     expect(entry('BaseCrud')).to.not.have.property('bases');
     expect(entry('BaseCrud').routes.every((r) => r.inheritedFrom === undefined)).to.equal(true);

@@ -1,7 +1,7 @@
 import ts from 'typescript';
-import { inheritController, type ControllerEntry, type RouteEntry, type SocketControllerEntry, type TypeRef } from '@spinajs/manifest';
+import { DECORATED_PARAM_KIND, inheritController, type ControllerEntry, type RouteEntry, type SocketControllerEntry, type TypeRef } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
-import { declarationOf, routeOverridesOf } from './controllers.js';
+import { declarationOf, routeOverridesOf, UNDERIVED_KINDS } from './controllers.js';
 import { methodTypeOf, nearestAncestor, type Ancestor } from './lineage.js';
 
 export interface ExternalBases {
@@ -13,8 +13,7 @@ export const NO_EXTERNAL_BASES: ExternalBases = { controller: () => undefined, s
 
 type NamedClass = ts.ClassDeclaration & { name: ts.Identifier };
 
-// Kinds whose type the framework injects or that carry binary data: `paramOf` derives nothing for them either.
-const TYPE_KEPT_KINDS = new Set(['FromFile', 'ArgAsRequest', 'ArgAsResponse', 'FromDi']);
+const TYPE_KEPT_KINDS = new Set([...UNDERIVED_KINDS, DECORATED_PARAM_KIND]);
 
 const contractOf = (fields: TypeRef, ref: TypeRef): TypeRef => {
   const { schema: _replaced, ...rest } = ref;

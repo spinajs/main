@@ -27,7 +27,7 @@ const BUILTIN_SCHEMAS: Record<string, unknown> = {
   Uuid: { type: 'string', minLength: 36, maxLength: 36, pattern: '^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$' },
 };
 // Values the framework injects (or binary uploads): their types are not wire input, so nothing is derived from them.
-const UNDERIVED_KINDS = new Set(['FromFile', 'ArgAsRequest', 'ArgAsResponse', 'FromDi']);
+export const UNDERIVED_KINDS = new Set(['FromFile', 'ArgAsRequest', 'ArgAsResponse', 'FromDi']);
 // Decorators whose first argument is neither the schema nor the options but still shapes the wire (header key, key location).
 const WIRE_FIRST_ARG = new Set(['Header', 'PKey', 'Uuid']);
 // `@PKey(type?)` / `@Uuid(type?)` register under the ParameterType given as their first argument.

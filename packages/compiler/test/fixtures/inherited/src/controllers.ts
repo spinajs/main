@@ -1,6 +1,6 @@
 import { BasePath, Get, Ok, Policy } from '@spinajs/http';
 import { Access } from '@spinajs/authz-http';
-import { BaseCrud, PathOnlyBase, TenantPolicy, type ArticleDto, type CreateArticleDto, type CreateTagDto, type TagDto } from './crud.js';
+import { BaseCrud, PathOnlyBase, TenantPolicy, UploadBase, type ArticleDto, type CreateArticleDto, type CreateTagDto, type TagDto } from './crud.js';
 
 @BasePath('articles')
 export class ArticlesController extends BaseCrud<ArticleDto, CreateArticleDto> {
@@ -28,3 +28,6 @@ export class SharedController extends PathOnlyBase {
 }
 
 export class PlainChild extends ArticlesController {}
+
+@BasePath('uploads')
+export class UploadsController extends UploadBase<CreateTagDto> {}
