@@ -6,7 +6,7 @@
 
 ### Wiring
 
-1. The app builds a `RebacModel` and registers it as `AuthorizationModel` in the domain's container, with its store registered as `TupleStore` when admin commands should write to it.
+1. The app builds a `RebacModel`, registers it as a named factory under `AuthorizationModel` in the domain's container and lists that name in the domain's `models` ([Models by name](../authz/05-domains.md#models-by-name)), with its store registered as `TupleStore` when admin commands should write to it.
 2. The host calls `init(ctx)`:
    1. The limits: `limit` option, else `authz.<name>.limit`, else `maxDepth: 8`, `maxCalls: 10000`. Each must be a positive integer (`AuthzConfigError`).
    2. The namespaces and the permission map: the `namespaces` and `permissions` options, else `authz.<name>.namespaces` and `authz.<name>.permissions`. They compile into a `NamespaceSchema`; any problem fails the boot ([Namespaces](02-namespaces.md#boot-checks)).

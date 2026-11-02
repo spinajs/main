@@ -4,7 +4,7 @@ Rules narrow what assignments give, per scope: `restrict` cuts inherited access 
 
 ## How it works
 
-1. `registerRbac` passes the rule stores `authz.rbac.stores.rules` names to the model: at most one in-memory store (`ConfigRuleStore`) and one other (`DbRuleStore`).
+1. `rbacStoreOptions` (which `RbacModel.init` runs) passes the rule stores `authz.rbac.stores.rules` names to the model: at most one in-memory store (`ConfigRuleStore`) and one other (`DbRuleStore`).
 2. At boot, `RulesExtension.compile()` compiles every config rule against the role graph and the permission registry; a rule naming an unknown ladder, role or permission, or a condition that does not compile, fails boot. It contributes the rules' permission and scope refs to the boot checks.
 3. Per check, `RulesExtension.gather()` reads the rules on the path: `ConfigRuleStore.rulesOn(path, now)` in memory and `DbRuleStore.forPath(path, now)` from `authz_rule`. It decides each rule's request-level parts (`when`, `subjects` except `rank`, `resource`, refs).
 4. Step `restrict` drops assignments made strictly above a `restrict` rule's scope, unless their subject is in `allow` or the role was implied with `bypass: ['restrict']`.

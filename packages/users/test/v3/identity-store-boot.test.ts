@@ -70,7 +70,7 @@ describe('a cli command that resolves only the IdentityStore', function () {
 
   async function migrate(): Promise<void> {
     expect(DI.get(Orm), 'the store booted the Orm').to.not.be.undefined;
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
   }
 
   it('brings the Orm up through it, so the login lookup does not run against bare models', async () => {

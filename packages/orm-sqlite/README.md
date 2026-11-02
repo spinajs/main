@@ -13,12 +13,12 @@ npm install @spinajs/orm @spinajs/orm-sqlite
 
 ```ts
 import { DI } from '@spinajs/di';
-import { OrmMigrator } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
 DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-// Migration.OnStartup (below): OrmMigrator resolves the Orm, then applies the migrations
-await DI.resolve(OrmMigrator);
+// Migration.OnStartup (below): the Orm applies the migrations as it resolves
+await DI.resolve(Orm);
 ```
 
 ```ts

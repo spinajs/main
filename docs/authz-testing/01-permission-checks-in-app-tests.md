@@ -6,7 +6,7 @@ Test code that calls `authz().can()`, `assert()` or `check()` against the real e
 
 1. `testHost.installHost()` registers `TestConfiguration` as the DI `Configuration` in the root container and resolves it. It holds an in-memory object: no file, no env source, no schema validation.
 2. You write the `authz.*` keys the host reads: `authz.permissions`, `authz.combine`, and `authz.cache` when you want it off.
-3. `testHost.registerInRoot(AuthorizationModel, testHost.instance(model))` registers a kit model under the name that `authz.combine` routes. `FakeRbacModel` is named `rbac` by default; a `StaticModel` takes `name`.
+3. `testHost.activate(DI.RootContainer, 'root', model)` registers a kit model under `AuthorizationModel` as a factory named after `model.name` (through `registerInRoot`) and appends that name to `authz.models`. `authz.combine` routes the same name. `FakeRbacModel` is named `rbac` by default; a `StaticModel` takes `name`.
 4. `(await testHost.domains()).service('root')` boots the root `AuthzService` with that model, as at app boot. An unregistered permission then throws `UnknownPermission`.
 5. Checks run through the engine: combining, the L1/L2 caches, the decision audit and the reason codes are the real ones.
 6. `testHost.resetHost()` between tests disposes the domains, the root service and the root registrations, and empties the config. `testHost.uninstallHost()` in the last hook also removes `TestConfiguration`.
@@ -18,6 +18,7 @@ The host reads the same keys as an app ([authz config](../authz/04-host-boot-and
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `authz.permissions` | object | none | permission name → `PermissionDef` options (`{}` is enough) | Permissions the checks may name. |
+| `authz.models` | string[] | none | registered model names | The models root activates; `testHost.activate` appends to it. |
 | `authz.combine.default` | object | none | `{ algorithm, models }` | Routes every type to the listed model names. |
 | `authz.cache.maxEntries` | number | `10000` | `0` turns L2 off | Set `0` when a test changes votes without a model version change. |
 
@@ -28,7 +29,7 @@ The host reads the same keys as an app ([authz config](../authz/04-host-boot-and
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Test configuration | `Configuration`, registered in root by `installHost()` | `TestConfiguration` | `configurationOf(values)` for schema tests ([Test host](05-test-host-and-di.md)) | `testHost.config()` returns the instance; set keys before the root service boots. |
-| Model under the check | `AuthorizationModel`, registered in root by `registerInRoot` | none | `StaticModel`, `FakeRbacModel`, `FakeTupleModel`, a real `RbacModel` | Register before `service('root')`; after a change call `testHost.resetRoot()`. |
+| Model under the check | `AuthorizationModel`, registered in root and listed in `authz.models` by `testHost.activate` | none | `StaticModel`, `FakeRbacModel`, `FakeTupleModel`, a real `RbacModel` | Register before `service('root')`; after a change call `testHost.resetRoot()`. |
 | Decision audit | `DecisionAudit` | `LogDecisionAudit` (logs every deny) | `RecordingAudit` | `testHost.registerInRoot(DecisionAudit, testHost.instance(new RecordingAudit()))`. |
 
 ## Granting permissions
@@ -80,7 +81,7 @@ model.respond({}).bump();
 ### Allow invoice approval only for approvers
 
 ```ts sample
-import { AuthorizationModel } from '@spinajs/authz';
+import { DI } from '@spinajs/di';
 import { FakeRbacModel, testHost, userPrincipal } from '@spinajs/authz-testing';
 
 const alice = userPrincipal('alice');
@@ -94,7 +95,7 @@ export async function approvalRules(): Promise<void> {
     config.set(['authz', 'combine'], { default: { algorithm: 'deny-overrides', models: ['rbac'] } });
 
     const rbac = new FakeRbacModel({ roles: { approver: ['invoice:*'] }, assignments: [{ subject: alice, role: 'approver' }] });
-    testHost.registerInRoot(AuthorizationModel, testHost.instance(rbac));
+    testHost.activate(DI.RootContainer, 'root', rbac);
 
     const authz = await (await testHost.domains()).service('root');
     console.log(await authz.can(alice, 'invoice:approve', invoice)); // true
@@ -113,7 +114,8 @@ export async function approvalRules(): Promise<void> {
 ### Assert that a denial is audited
 
 ```ts sample
-import { AccessDenied, AuthorizationModel, DecisionAudit } from '@spinajs/authz';
+import { DI } from '@spinajs/di';
+import { AccessDenied, DecisionAudit } from '@spinajs/authz';
 import { RecordingAudit, StaticModel, testHost, userPrincipal } from '@spinajs/authz-testing';
 
 export async function deniedPayoutIsAudited(): Promise<void> {
@@ -123,7 +125,7 @@ export async function deniedPayoutIsAudited(): Promise<void> {
     config.set(['authz', 'combine'], { default: { algorithm: 'deny-overrides', models: ['payouts'] } });
 
     const audit = new RecordingAudit();
-    testHost.registerInRoot(AuthorizationModel, testHost.instance(new StaticModel({ name: 'payouts', votes: {} })));
+    testHost.activate(DI.RootContainer, 'root', new StaticModel({ name: 'payouts', votes: {} }));
     testHost.registerInRoot(DecisionAudit, testHost.instance(audit));
 
     const authz = await (await testHost.domains()).service('root');

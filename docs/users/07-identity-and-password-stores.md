@@ -202,7 +202,7 @@ DI.register(LeaveAwareStatusSource).as(AccountStatusSource);
 - `set()` with `expected` compares byte for byte with the connection's `SqlExpressions.equalsExactly()`: `CAST(? AS BINARY)` on MySQL, `COLLATE Latin1_General_BIN2` plus a length check on SQL Server (their default collations ignore case, and SQL Server also trailing spaces), plain `=` on SQLite and PostgreSQL. A driver without `SqlExpressions` throws `NotSupported`. See [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions).
 - A driver error in `set()` becomes `UnexpectedServerError` naming only the error class: the driver message carries the hash.
 - A password past `authn.local.expiration.maxAgeDays` still logs in until the expiration job writes `'!expired'`; `UserAccountStatusSource` counts it in service until then.
-- The stores and `UserAddressVerifier` inject the `Orm` (`@Autoinject(Orm)`), so resolving one boots the ORM, also in a CLI process that resolves only its command. A migration's `data()` can seed users through them: `OrmMigrator` runs it after the `Orm` resolved. A store built with `new` and a `driver` needs no `Orm`.
+- The stores and `UserAddressVerifier` inject the `Orm` (`@Autoinject(Orm)`), so resolving one boots the ORM, also in a CLI process that resolves only its command. A migration's `data()` can seed users through them: it runs after the `Orm` resolved. `up()` cannot. A store built with `new` and a `driver` needs no `Orm`.
 
 ## Best practices
 

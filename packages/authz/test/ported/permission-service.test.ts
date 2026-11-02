@@ -5,9 +5,9 @@ import { DI } from '@spinajs/di';
 import { Forbidden } from '@spinajs/exceptions';
 import { StaticModel, userPrincipal } from '@spinajs/authz-testing';
 
-import { AccessDenied, AuthorizationModel, TRUE, UNATTENDED } from '@spinajs/authz';
+import { AccessDenied, TRUE, UNATTENDED } from '@spinajs/authz';
 import type { Decision, Principal, ResourceFilter, ResourceRef } from '@spinajs/authz';
-import { installHost, instance, registerInRoot, resetHost, rootService, setConfig, uninstallHost } from '../host/support.js';
+import { activateInRoot, installHost, resetHost, rootService, setConfig, uninstallHost } from '../host/support.js';
 
 const expect = chai.expect;
 
@@ -49,17 +49,14 @@ describe('authz principal resolution and assert (ported PermissionService)', fun
   beforeEach(async () => {
     await resetHost();
     setConfig('authz.permissions', { 'doc:create': {}, 'doc:update': {}, 'doc:read': {}, 'doc:delete': {} });
-    registerInRoot(
-      AuthorizationModel,
-      instance(
-        new StaticModel({
-          name: 'roles',
-          votes: (req) => {
-            const grant = ROLES[req.principal.id]?.[req.permission];
-            return grant ? { permitWhen: grant } : {};
-          },
-        }),
-      ),
+    activateInRoot(
+      new StaticModel({
+        name: 'roles',
+        votes: (req) => {
+          const grant = ROLES[req.principal.id]?.[req.permission];
+          return grant ? { permitWhen: grant } : {};
+        },
+      }),
     );
   });
 

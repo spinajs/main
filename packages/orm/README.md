@@ -38,7 +38,8 @@ const recent = await User.where('Email', 'like', '%@example.com').take(10);
 
 Connections are declared under the `db` key of `@spinajs/configuration`. Resolving `Orm` opens
 them, reflects each table's columns onto its model, and installs the static methods used above.
-It runs no migration: resolve `OrmMigrator` for that, which also resolves the `Orm`.
+It first applies the pending migrations of the connections with `Migration.OnStartup`; their
+`data()` seeds run once it is resolved (`orm.Migrator.ready()` settles after them).
 
 ## Documentation
 

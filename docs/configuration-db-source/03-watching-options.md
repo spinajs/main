@@ -40,7 +40,7 @@ DI.register({ value: 30_000 }).asValue('__config_watch_interval__');
 - **One query per tick.** All watched slugs are read with a single `WHERE Slug IN (...)` query.
 - **Hidden rows are not polled into the config.** A watched row with `Exposed` = `0` is skipped until the flag is set again.
 - **No schema validation.** A polled value is set as-is; configuration schemas are not re-checked.
-- **One configuration is updated.** The poll writes into the `Configuration` of the container that resolved `OrmMigrator` (or `Orm`, on a pre-migrated database).
+- **One configuration is updated.** The poll writes into the `Configuration` of the container that resolved the `Orm`.
 - **Changes are eventually visible.** A change shows up after at most one interval plus the query time.
 
 ## Best practices

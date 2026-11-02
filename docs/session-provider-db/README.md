@@ -25,7 +25,7 @@ Add one ORM driver, for example `@spinajs/orm-mysql`.
 ```ts sample
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { OrmMigrator } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 import '@spinajs/orm-mysql';
 import { DbSessionStore } from '@spinajs/session-provider-db';
 import _ from 'lodash';
@@ -64,8 +64,8 @@ export class AppConfiguration extends FrameworkConfiguration {
 
 /** Number of devices a customer is signed in on, for the support panel. */
 export async function activeDeviceCount(userUuid: string): Promise<number> {
-  // resolves the Orm and applies the Migration.OnStartup migrations
-  await DI.resolve(OrmMigrator);
+  // resolves the Orm, which applies the Migration.OnStartup migrations
+  await DI.resolve(Orm);
   const store = await DI.resolve(DbSessionStore);
   const sessions = await store.listBySubject({ type: 'user', id: userUuid });
   return sessions.length;

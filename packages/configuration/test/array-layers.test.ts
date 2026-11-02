@@ -130,6 +130,15 @@ describe('config file layers', () => {
         expect(config.get<string[]>('system.dirs.cli').slice(0, 4)).to.deep.equal(['pkg-cli', 'pkg-env-cli', 'app-cli', 'app-env-cli']);
       });
 
+      it('authz.models is a value: the app env file decides which models are active, and a package adds none', async () => {
+        packages(installPackage('pa', { 'pa.cjs': cjs({ authz: { models: ['PluginModel'], domains: { fs: { models: ['PluginModel'] } } } }) }));
+        write(join(app, 'lib', 'config', 'app.cjs'), cjs({ authz: { models: ['RbacModel', 'AbacModel'] } }));
+        write(join(app, 'lib', 'config', 'app.test.cjs'), cjs({ authz: { models: ['RbacModel'], domains: { fs: { models: ['AbacModel'] } } } }));
+        const config = await boot(mode);
+        expect(config.get('authz.models')).to.deep.equal(['RbacModel']);
+        expect(config.get('authz.domains.fs.models')).to.deep.equal(['AbacModel']);
+      });
+
       it('a __configuration__ value joins the package layer: a package file adds to it and the app stays above it', async () => {
         packages(installPackage('pa', { 'pa.cjs': cjs({ kv: { joined: ['pkg'], replaced: ['pkg'] }, system: { dirs: { cli: ['pkg-cli'] } } }) }));
         write(join(app, 'lib', 'config', 'app.cjs'), cjs({ kv: { replaced: ['app'], value: 'app' } }));

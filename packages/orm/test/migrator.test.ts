@@ -29,6 +29,7 @@ import {
   OrmMigrator,
   ormConnection,
   Primary,
+  resolveMigrationTool,
   SelectQueryBuilder,
   TableExistsQueryBuilder,
   TableQueryBuilder,
@@ -274,13 +275,14 @@ describe('OrmMigrator', function () {
 
     RECORDS = [];
     EXECUTED = [];
-    onStartup = true;
-    strictSetting = false;
   });
 
   afterEach(async () => {
     sinon.restore();
     await disposeTestApps();
+    // Reset here, not in beforeEach: useTestApp boots the next app, which reads them, before that hook runs.
+    onStartup = true;
+    strictSetting = false;
   });
 
   function createUsersMigration() {
@@ -318,10 +320,10 @@ describe('OrmMigrator', function () {
   it('(i) a column a migration dropped leaves the model', async () => {
     alterMigration('mig_posts', (t) => t.dropColumn('Title'));
 
-    await DI.resolve(Orm);
+    const migrator = await resolveMigrationTool();
     expect(columnNames(models.MigratorTestPost)).to.include('Title');
 
-    await DI.resolve(OrmMigrator);
+    await migrator.migrate();
 
     expect(columnNames(models.MigratorTestPost)).to.eql(['Id']);
   });
@@ -331,7 +333,7 @@ describe('OrmMigrator', function () {
       t.string('Title').rename('Headline');
     });
 
-    await DI.resolve(OrmMigrator);
+    await DI.resolve(Orm);
 
     expect(columnNames(models.MigratorTestPost)).to.eql(['Id', 'Headline']);
   });
@@ -342,55 +344,26 @@ describe('OrmMigrator', function () {
       t.string('Active').modify();
     });
 
-    await DI.resolve(Orm);
+    const migrator = await resolveMigrationTool();
     const before = extractModelDescriptor(models.MigratorTestUser)!.Columns.find((c) => c.Name === 'Active')!;
     expect(before.Converter).to.be.instanceOf(BooleanValueConverter);
 
-    await DI.resolve(OrmMigrator);
+    await migrator.migrate();
 
     const after = extractModelDescriptor(models.MigratorTestUser)!.Columns.find((c) => c.Name === 'Active')!;
     expect(after.NativeType).to.equal('STRING');
     expect(after.Converter).to.not.be.instanceOf(BooleanValueConverter);
   });
 
-  it('(a) resolving the Orm on an empty schema creates no table and applies nothing', async () => {
-    const Create = createUsersMigration();
-    const up = sinon.spy(Create.prototype, 'up');
-
-    await DI.resolve(Orm);
-
-    expect(up.called, 'a migration ran inside the Orm resolve').to.be.false;
-    expect(TABLES.has('mig_users')).to.be.false;
-    expect(
-      EXECUTED.some((b) => b instanceof SelectQueryBuilder && b.Table === MIGRATION_TABLE_NAME),
-      'the Orm resolve read the tracking table',
-    ).to.be.false;
-    expect(EXECUTED.some((b) => b instanceof TableQueryBuilder)).to.be.false;
-  });
-
-  it('(b) resolving the migrator applies the pending migrations; the created tables model has columns and converters', async () => {
-    const Create = createUsersMigration();
-    const up = sinon.spy(Create.prototype, 'up');
-
-    const migrator = await DI.resolve(OrmMigrator);
-
-    expect(up.calledOnce).to.be.true;
-    expect(migrator.Runner, 'the runner is what migrate:up and the status commands use').to.not.be.undefined;
-
-    const columns = extractModelDescriptor(models.MigratorTestUser)!.Columns;
-    expect(columns.map((c) => c.Name)).to.include.members(['Id', 'Email', 'Active']);
-    expect(columns.find((c) => c.Name === 'Active')!.Converter).to.be.instanceOf(BooleanValueConverter);
-  });
-
   it('(c) re-reads the table info of the touched models only, and leaves the others intact', async () => {
     createUsersMigration();
 
-    await DI.resolve(Orm);
+    const migrator = await resolveMigrationTool();
     const otherColumns = extractModelDescriptor(models.MigratorTestOther)!.Columns;
     expect(otherColumns.map((c) => c.Name), 'read by the Orm resolve').to.include('Note');
 
     const tableInfo = sinon.spy(MigratorTestDriver.prototype, 'tableInfo');
-    await DI.resolve(OrmMigrator);
+    await migrator.migrate();
 
     expect(modelTableReads(tableInfo)).to.eql(['mig_users']);
     expect(extractModelDescriptor(models.MigratorTestOther)!.Columns.map((c) => c.Name)).to.include('Note');
@@ -409,9 +382,9 @@ describe('OrmMigrator', function () {
 
     void MigratorTestRaw_2026_10_21_00_00_00;
 
-    await DI.resolve(Orm);
+    const migrator = await resolveMigrationTool();
     const tableInfo = sinon.spy(MigratorTestDriver.prototype, 'tableInfo');
-    await DI.resolve(OrmMigrator);
+    await migrator.migrate();
 
     expect(modelTableReads(tableInfo).sort()).to.eql(['mig_other', 'mig_posts', 'mig_users']);
   });
@@ -428,9 +401,9 @@ describe('OrmMigrator', function () {
 
     void MigratorTestDirect_2026_10_21_00_00_00;
 
-    await DI.resolve(Orm);
+    const migrator = await resolveMigrationTool();
     const tableInfo = sinon.spy(MigratorTestDriver.prototype, 'tableInfo');
-    await DI.resolve(OrmMigrator);
+    await migrator.migrate();
 
     expect(modelTableReads(tableInfo).sort()).to.eql(['mig_other', 'mig_posts', 'mig_users']);
     expect(Object.prototype.hasOwnProperty.call((await DI.resolve(Orm)).Connections.get(CONNECTION), 'executeOnDb'), 'the raw-SQL detector must not outlive the migration').to.be.false;
@@ -452,7 +425,7 @@ describe('OrmMigrator', function () {
 
     void MigratorTestTwin_2026_10_21_00_00_00;
 
-    await DI.resolve(OrmMigrator);
+    await DI.resolve(Orm);
 
     expect(columnNames(models.MigratorTestUser)).to.include('Email');
   });
@@ -470,239 +443,12 @@ describe('OrmMigrator', function () {
 
     void MigratorTestDirectOther_2026_10_21_00_00_00;
 
-    await DI.resolve(Orm);
+    const migrator = await resolveMigrationTool();
     const tableInfo = sinon.spy(MigratorTestDriver.prototype, 'tableInfo');
-    await DI.resolve(OrmMigrator);
+    await migrator.migrate();
 
     expect(modelTableReads(tableInfo)).to.include('mig_b');
     expect(columnNames(models.MigratorTestB)).to.include('Extra');
-  });
-
-  it('the strict check asks the driver again about a table the Orm resolve found missing', async () => {
-    strictSetting = true;
-    await reboot();
-    TABLES.set('mig_users', [column('Id', 'INT', { PrimaryKey: true })]);
-    TABLES.delete('mig_other');
-
-    await DI.resolve(Orm);
-    TABLES.set('mig_other', [column('Id', 'INT', { PrimaryKey: true }), column('Note', 'VARCHAR')]);
-
-    await DI.resolve(OrmMigrator);
-
-    expect(columnNames(models.MigratorTestOther)).to.include('Note');
-  });
-
-  it("(d) a migration's data() resolving a service that injects the Orm and querying a model completes", async () => {
-    let listed: unknown[] | undefined;
-
-    @Migration(CONNECTION)
-    class MigratorTestSeed_2026_10_21_00_00_00 extends OrmMigration {
-      public async up(connection: OrmDriver) {
-        await connection.schema().createTable('mig_users', (t) => {
-          t.int('Id').primaryKey();
-          t.boolean('Active');
-        });
-      }
-
-      public async down() {}
-
-      public async data() {
-        const store = await DI.resolve(MigratorTestUserStore);
-        listed = await store.list();
-      }
-    }
-
-    void MigratorTestSeed_2026_10_21_00_00_00;
-
-    await within(3000, Promise.resolve(DI.resolve(OrmMigrator)));
-
-    expect(listed).to.eql([]);
-  });
-
-  it("(e) a migration's up() queries a model on its gated connection", async () => {
-    let listed: unknown[] | undefined;
-
-    @Migration(CONNECTION)
-    class MigratorTestUpQueries_2026_10_21_00_00_00 extends OrmMigration {
-      public async up() {
-        listed = await models.MigratorTestPost.all();
-      }
-
-      public async down() {}
-    }
-
-    void MigratorTestUpQueries_2026_10_21_00_00_00;
-
-    await DI.resolve(OrmMigrator);
-
-    expect(listed).to.eql([]);
-  });
-
-  it("(e) a migration's up() resolving a service that injects the Orm does not hang", async () => {
-    let store: MigratorTestUserStore | undefined;
-
-    @Migration(CONNECTION)
-    class MigratorTestUpResolves_2026_10_21_00_00_00 extends OrmMigration {
-      public async up() {
-        store = await DI.resolve(MigratorTestUserStore);
-      }
-
-      public async down() {}
-    }
-
-    void MigratorTestUpResolves_2026_10_21_00_00_00;
-
-    await within(3000, Promise.resolve(DI.resolve(OrmMigrator)));
-
-    expect(store).to.be.instanceOf(MigratorTestUserStore);
-  });
-
-  it('(f) a migration that throws rejects the migrator; the data() of the ones applied before it does not run', async () => {
-    const Create = createUsersMigration();
-    const seeded = sinon.stub(Create.prototype, 'data').resolves();
-    const boom = new Error('boom');
-
-    @Migration(CONNECTION)
-    class MigratorTestThrows_2026_10_22_00_00_00 extends OrmMigration {
-      public async up() {
-        throw boom;
-      }
-
-      public async down() {}
-    }
-
-    void MigratorTestThrows_2026_10_22_00_00_00;
-
-    const err = await rejection(Promise.resolve(DI.resolve(OrmMigrator)));
-
-    expect(err).to.be.instanceOf(OrmException);
-    expect((err as Error).message).to.contain('MigratorTestThrows_2026_10_22_00_00_00').and.to.contain('boom');
-    expect((err as OrmException).inner).to.equal(boom);
-    expect(seeded.called, 'runDataPhase runs only after the whole pass succeeded').to.be.false;
-  });
-
-  it('(f) every data() hook runs and the failures are reported together', async () => {
-    const Create = createUsersMigration();
-    sinon.stub(Create.prototype, 'data').rejects(new Error('seed 1 failed'));
-
-    @Migration(CONNECTION)
-    class MigratorTestSecondSeed_2026_10_22_00_00_00 extends OrmMigration {
-      public async up() {}
-      public async down() {}
-    }
-
-    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- the test is about a seed rejecting with a non-Error
-    const second = sinon.stub(MigratorTestSecondSeed_2026_10_22_00_00_00.prototype, 'data').callsFake(() => Promise.reject('bare string'));
-
-    const err = await rejection(Promise.resolve(DI.resolve(OrmMigrator)));
-
-    expect(err).to.be.instanceOf(OrmException);
-    expect((err as Error).message).to.contain('seed 1 failed').and.to.contain('bare string').and.not.to.contain('undefined');
-    expect(second.calledOnce).to.be.true;
-  });
-
-  it('(g) a model query on an OnStartup connection throws until the migrator resolved', async () => {
-    await DI.resolve(Orm);
-
-    expect(() => models.MigratorTestPost.all()).to.throw(OrmException, 'connection migrator migrates on startup; resolve OrmMigrator before using it');
-
-    await DI.resolve(OrmMigrator);
-
-    expect(await models.MigratorTestPost.all()).to.eql([]);
-  });
-
-  it('(g) a model query outside the migrator is refused while its pass runs', async () => {
-    let started!: () => void;
-    let release!: () => void;
-    const running = new Promise<void>((resolve) => (started = resolve));
-    const held = new Promise<void>((resolve) => (release = resolve));
-
-    @Migration(CONNECTION)
-    class MigratorTestHeld_2026_10_21_00_00_00 extends OrmMigration {
-      public async up() {
-        started();
-        await held;
-      }
-
-      public async down() {}
-    }
-
-    void MigratorTestHeld_2026_10_21_00_00_00;
-
-    const resolving = Promise.resolve(DI.resolve(OrmMigrator));
-    await within(3000, running);
-
-    expect(() => models.MigratorTestPost.all()).to.throw(OrmException, 'connection migrator migrates on startup; resolve OrmMigrator before using it');
-
-    release();
-    await resolving;
-
-    expect(await models.MigratorTestPost.all()).to.eql([]);
-  });
-
-  it('(g) the gate stays closed when the migrator pass fails', async () => {
-    @Migration(CONNECTION)
-    class MigratorTestFails_2026_10_21_00_00_00 extends OrmMigration {
-      public async up() {
-        throw new Error('boom');
-      }
-
-      public async down() {}
-    }
-
-    void MigratorTestFails_2026_10_21_00_00_00;
-
-    expect(await rejection(Promise.resolve(DI.resolve(OrmMigrator)))).to.be.instanceOf(OrmException);
-
-    expect(() => models.MigratorTestPost.all()).to.throw(OrmException, 'connection migrator migrates on startup; resolve OrmMigrator before using it');
-  });
-
-  it('(g) after only the Orm was uncached, the migrator resolved next opens the new Orm', async () => {
-    const first = await DI.resolve(OrmMigrator);
-    DI.uncache(Orm);
-
-    const orm = await DI.resolve(Orm);
-    const second = await DI.resolve(OrmMigrator);
-
-    expect(second).to.not.equal(first);
-    expect(orm.Connections.get(CONNECTION)!.AwaitsStartupMigration).to.equal(false);
-    expect(await models.MigratorTestPost.all()).to.eql([]);
-  });
-
-  it('(g) a connection with OnStartup off is not gated', async () => {
-    onStartup = false;
-    await reboot();
-
-    await DI.resolve(Orm);
-
-    expect(await models.MigratorTestPost.all()).to.eql([]);
-  });
-
-  it('(h) on an already migrated database the migrator applies nothing and reads no table info', async () => {
-    const Create = createUsersMigration();
-    const up = sinon.spy(Create.prototype, 'up');
-    TABLES.set('mig_users', [column('Id', 'INT', { PrimaryKey: true })]);
-    RECORDS = [applied(Create.name)];
-
-    await DI.resolve(Orm);
-    const tableInfo = sinon.spy(MigratorTestDriver.prototype, 'tableInfo');
-    await DI.resolve(OrmMigrator);
-
-    expect(up.called).to.be.false;
-    expect(modelTableReads(tableInfo)).to.eql([]);
-  });
-
-  it('the Orm resolve is lenient about missing tables; the migrator fails with db.StrictTableCheck on', async () => {
-    strictSetting = true;
-    await reboot();
-    TABLES.delete('mig_other');
-    createUsersMigration();
-
-    await DI.resolve(Orm);
-    const err = await rejection(Promise.resolve(DI.resolve(OrmMigrator)));
-
-    expect(err).to.be.instanceOf(OrmException);
-    expect((err as Error).message).to.equal('Missing tables (db.StrictTableCheck): model MigratorTestOther: table mig_other on connection migrator. Create them (run their migrations) or set db.StrictTableCheck to false');
   });
 
   it('the Orm resolve fails with db.StrictTableCheck on when a connection without Migration.OnStartup misses a table', async () => {
@@ -724,17 +470,17 @@ describe('OrmMigrator', function () {
     await reboot();
     TABLES.delete('mig_other');
 
-    const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+    const migrator = await resolveMigrationTool();
 
     expect(migrator.Runner).to.not.be.undefined;
   });
 
-  it('MigrateOnStartup: false resolves without a pass and opens the gate; migrate() applies and seeds', async () => {
+  it('MigrateOnStartup: false applies nothing on the way in; migrate() applies and seeds', async () => {
     const Create = createUsersMigration();
     const up = sinon.spy(Create.prototype, 'up');
     const seeded = sinon.stub(Create.prototype, 'data').resolves();
 
-    const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+    const migrator = await resolveMigrationTool();
 
     expect(up.called).to.be.false;
     expect(await models.MigratorTestPost.all()).to.eql([]);
@@ -752,11 +498,178 @@ describe('OrmMigrator', function () {
     const up = sinon.spy(Create.prototype, 'up');
     const seeded = sinon.stub(Create.prototype, 'data').resolves();
 
-    const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+    const migrator = await resolveMigrationTool();
     const executed = await migrator.migrate({ fake: true });
 
     expect(executed).to.have.length(1);
     expect(up.called).to.be.false;
     expect(seeded.called, 'a faked migration never ran up(), so its seed has nothing to seed into').to.be.false;
+  });
+
+  it('resolving the Orm applies the pending migrations before it reads table info', async () => {
+    const Create = createUsersMigration();
+    const up = sinon.spy(Create.prototype, 'up');
+
+    const orm = await DI.resolve(Orm);
+
+    expect(up.calledOnce).to.be.true;
+    expect(columnNames(models.MigratorTestUser)).to.include.members(['Id', 'Email', 'Active']);
+    expect(extractModelDescriptor(models.MigratorTestUser)!.Columns.find((c) => c.Name === 'Active')!.Converter).to.be.instanceOf(BooleanValueConverter);
+    expect(orm.Migrator).to.equal(DI.get(OrmMigrator));
+    expect(orm.Migrator.Runner).to.not.be.undefined;
+  });
+
+  it('resolving the Orm applies nothing on a connection with Migration.OnStartup off', async () => {
+    onStartup = false;
+    await reboot();
+    const Create = createUsersMigration();
+    const up = sinon.spy(Create.prototype, 'up');
+
+    await DI.resolve(Orm);
+
+    expect(up.called).to.be.false;
+    expect(TABLES.has('mig_users')).to.be.false;
+  });
+
+  it('data() runs once the Orm is cached, and ready() settles after it', async () => {
+    let cachedInSeed: unknown;
+    const Create = createUsersMigration();
+    const seeded = sinon.stub(Create.prototype, 'data').callsFake(async () => {
+      cachedInSeed = DI.get(Orm);
+    });
+
+    const orm = await DI.resolve(Orm);
+    await orm.Migrator.ready();
+
+    expect(seeded.calledOnce).to.be.true;
+    expect(cachedInSeed).to.equal(orm);
+  });
+
+  it("a migration's data() resolving a service that injects the Orm and querying a model completes", async () => {
+    let listed: unknown[] | undefined;
+
+    @Migration(CONNECTION)
+    class MigratorTestSeed_2026_10_21_00_00_00 extends OrmMigration {
+      public async up(connection: OrmDriver) {
+        await connection.schema().createTable('mig_users', (t) => {
+          t.int('Id').primaryKey();
+          t.boolean('Active');
+        });
+      }
+
+      public async down() {}
+
+      public async data() {
+        const store = await DI.resolve(MigratorTestUserStore);
+        listed = await store.list();
+      }
+    }
+
+    void MigratorTestSeed_2026_10_21_00_00_00;
+
+    const orm = await within(3000, Promise.resolve(DI.resolve(Orm)));
+    await within(3000, orm.Migrator.ready());
+
+    expect(listed).to.eql([]);
+  });
+
+  it('a migration that throws rejects the Orm resolve, caches no Orm, closes its connections and seeds nothing', async () => {
+    const Create = createUsersMigration();
+    const seeded = sinon.stub(Create.prototype, 'data').resolves();
+    const boom = new Error('boom');
+
+    @Migration(CONNECTION)
+    class MigratorTestThrows_2026_10_22_00_00_00 extends OrmMigration {
+      public async up() {
+        throw boom;
+      }
+
+      public async down() {}
+    }
+
+    void MigratorTestThrows_2026_10_22_00_00_00;
+
+    const disconnect = sinon.spy(MigratorTestDriver.prototype, 'disconnect');
+    const err = await rejection(Promise.resolve(DI.resolve(Orm)));
+
+    expect(err).to.be.instanceOf(OrmException);
+    expect((err as Error).message).to.contain('MigratorTestThrows_2026_10_22_00_00_00').and.to.contain('boom');
+    expect((err as OrmException).inner).to.equal(boom);
+    expect(DI.get(Orm)).to.be.undefined;
+    expect(disconnect.called).to.be.true;
+    expect(seeded.called).to.be.false;
+  });
+
+  it('every data() hook runs; the failures reject ready() together and leave the Orm resolved', async () => {
+    const Create = createUsersMigration();
+    sinon.stub(Create.prototype, 'data').rejects(new Error('seed 1 failed'));
+
+    @Migration(CONNECTION)
+    class MigratorTestSecondSeed_2026_10_22_00_00_00 extends OrmMigration {
+      public async up() {}
+      public async down() {}
+    }
+
+    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- the test is about a seed rejecting with a non-Error
+    const second = sinon.stub(MigratorTestSecondSeed_2026_10_22_00_00_00.prototype, 'data').callsFake(() => Promise.reject('bare string'));
+
+    const orm = await DI.resolve(Orm);
+    const err = await rejection(orm.Migrator.ready());
+
+    expect(err).to.be.instanceOf(OrmException);
+    expect((err as Error).message).to.contain('seed 1 failed').and.to.contain('bare string').and.not.to.contain('undefined');
+    expect(second.calledOnce).to.be.true;
+    expect(DI.get(Orm)).to.equal(orm);
+  });
+
+  it('(h) on an already migrated database the boot applies nothing and reads each model once', async () => {
+    const Create = createUsersMigration();
+    const up = sinon.spy(Create.prototype, 'up');
+    TABLES.set('mig_users', [column('Id', 'INT', { PrimaryKey: true })]);
+    RECORDS = [applied(Create.name)];
+
+    const tableInfo = sinon.spy(MigratorTestDriver.prototype, 'tableInfo');
+    await DI.resolve(Orm);
+
+    expect(up.called).to.be.false;
+    expect(modelTableReads(tableInfo).sort()).to.eql(['mig_b', 'mig_other', 'mig_posts', 'mig_users']);
+  });
+
+  it('with db.StrictTableCheck on, the Orm resolve fails on a table still missing after its migrations', async () => {
+    strictSetting = true;
+    await reboot();
+    TABLES.delete('mig_other');
+    createUsersMigration();
+
+    const err = await rejection(Promise.resolve(DI.resolve(Orm)));
+
+    expect(err).to.be.instanceOf(OrmException);
+    expect((err as Error).message).to.equal('Missing tables (db.StrictTableCheck): model MigratorTestOther: table mig_other on connection migrator. Create them (run their migrations) or set db.StrictTableCheck to false');
+  });
+
+  it('a migrator resolved with MigrateOnStartup: false before the Orm makes it apply nothing', async () => {
+    const Create = createUsersMigration();
+    const up = sinon.spy(Create.prototype, 'up');
+
+    const migrator = await resolveMigrationTool();
+
+    expect(up.called).to.be.false;
+    expect((await DI.resolve(Orm)).Migrator).to.equal(migrator);
+  });
+
+  it('the next Orm, after only the Orm was uncached, reuses the cached migrator bound to itself', async () => {
+    const first = await DI.resolve(Orm);
+    DI.uncache(Orm);
+    const second = await DI.resolve(Orm);
+
+    expect(second).to.not.equal(first);
+    expect(second.Migrator).to.equal(first.Migrator);
+    expect((second.Migrator.Runner as unknown as { orm: Orm }).orm).to.equal(second);
+  });
+
+  it('resolving the Orm and the migrator together does not hang', async () => {
+    const [orm, migrator] = await within(3000, Promise.all([DI.resolve(Orm), DI.resolve(OrmMigrator)]));
+
+    expect(orm.Migrator).to.equal(migrator);
   });
 });

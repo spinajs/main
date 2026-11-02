@@ -155,7 +155,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       dbContainer.register(SqliteOrmDriver).as('orm-driver-sqlite');
       dbContainer.register(PostgresOrmDriver).as('orm-driver-postgres');
       orm = await dbContainer.resolve(Orm);
-      await dbContainer.resolve(OrmMigrator);
+      await (await dbContainer.resolve(Orm)).Migrator.ready();
 
       idp = await FakeIdp.create(FAKE_ISSUER, ['RS256']);
       identities = new FakeIdentityStore();

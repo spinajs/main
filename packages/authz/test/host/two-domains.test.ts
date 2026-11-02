@@ -6,7 +6,7 @@ import { StaticModel, fixtureDsl, userPrincipal } from '@spinajs/authz-testing';
 
 import { authz, AuthorizationModel, AuthzConfigError, ChangeBus, DecisionAudit, ResourceAdapter } from '@spinajs/authz';
 import type { AuthzService } from '@spinajs/authz';
-import { domains, installHost, instance, resetHost, rootService, setConfig, uninstallHost } from './support.js';
+import { activateIn, domains, installHost, resetHost, rootService, setConfig, uninstallHost } from './support.js';
 
 const expect = chai.expect;
 
@@ -54,12 +54,12 @@ describe('two domains (host acceptance)', function () {
 
     const m1 = silent('m1');
     setConfig(['authz', 'domains', 'parent'], { permissions: PERMISSIONS, combine: EVERY_MODEL });
-    ds.create('parent').register(instance(m1)).as(AuthorizationModel);
+    activateIn(ds.create('parent'), 'parent', m1);
     const parent = await ds.service('parent');
     expect((await parent.check(READ)).reason?.code).to.equal('no_access');
 
     const m2 = permits('m2');
-    ds.create('child', 'parent').register(instance(m2)).as(AuthorizationModel);
+    activateIn(ds.create('child', 'parent'), 'child', m2);
     const child = await ds.service('child');
 
     expect(names(child)).to.deep.equal(['m1', 'm2']);
@@ -79,7 +79,7 @@ describe('two domains (host acceptance)', function () {
     const mine = permits('m1');
     setConfig(['authz', 'domains', 'a'], { permissions: PERMISSIONS, combine: route('m1') });
     setConfig(['authz', 'domains', 'b'], { permissions: PERMISSIONS, combine: route() });
-    ds.create('a').register(instance(mine)).as(AuthorizationModel);
+    activateIn(ds.create('a'), 'a', mine);
     ds.create('b');
     const a = await ds.service('a');
     const b = await ds.service('b');
@@ -105,7 +105,7 @@ describe('two domains (host acceptance)', function () {
     const model = permits('fake');
     setConfig(['authz', 'domains', 't1'], { permissions: PERMISSIONS, combine: route('fake') });
     const t1 = ds.create('t1');
-    t1.register(instance(model)).as(AuthorizationModel);
+    activateIn(t1, 't1', model);
     expect(t1.Registry.getTypes(tokens[0], false), 'the name lookup sees registrations').to.have.lengthOf(1);
     const svc = await ds.service('t1');
     expect((await svc.check(READ)).allowed).to.equal(true);

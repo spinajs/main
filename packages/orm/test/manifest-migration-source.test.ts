@@ -1,4 +1,4 @@
-import { Class, ClassInfo, DI } from '@spinajs/di';
+import { Class, ClassInfo, DI, forgetPendingProperties, ResolveException } from '@spinajs/di';
 import { ManifestMissing } from '@spinajs/manifest';
 import type { Manifest, ManifestMode } from '@spinajs/manifest';
 import { createTestApp, sourceRef, testManifest, withManifest } from '@spinajs/testing';
@@ -6,11 +6,11 @@ import type { TestApp } from '@spinajs/testing';
 import { expect } from 'chai';
 import glob from 'glob';
 import 'mocha';
-import { basename, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import sinon from 'sinon';
-import { FilesystemMigrationSource, ManifestMigrationSource, OrmMigration } from '../src/index.js';
-import { ConnectionConf, ormApp } from './misc.js';
+import { FilesystemMigrationSource, ManifestMigrationSource, Orm, OrmMigration } from '../src/index.js';
+import { ConnectionConf, ormApp, registerMigrationFakes, stubDb } from './misc.js';
 import '@spinajs/log';
 
 // Its own directory, so what the other migration tests import never changes what these cases see.
@@ -18,12 +18,17 @@ const FIXTURES = resolve(process.cwd(), 'test', 'mocks', 'migration-manifest');
 
 class ManifestSourceConf extends ConnectionConf {
   public static Env = 'prod';
+  public static OnStartup = false;
 
   public async resolve(): Promise<void> {
     await super.resolve();
 
     this.set('system.dirs.migrations', [FIXTURES]);
     this.set('process.env.APP_ENV', ManifestSourceConf.Env);
+    if (ManifestSourceConf.OnStartup) {
+      const connections = this.get<Array<{ Name: string; Migration?: object }>>('db.Connections');
+      this.set('db.Connections', connections.map((c) => (c.Name === 'sqlite' ? { ...c, Migration: { ...c.Migration, OnStartup: true } } : c)));
+    }
   }
 }
 
@@ -56,6 +61,7 @@ describe('ManifestMigrationSource', function () {
       ormApp({
         configuration: ManifestSourceConf,
         register: (c) => {
+          registerMigrationFakes(c);
           c.register({
             load: async (file: string) => {
               imported.push(basename(file).replace(/.[mc]?[jt]s$/, ''));
@@ -78,6 +84,7 @@ describe('ManifestMigrationSource', function () {
     app = undefined;
     imported.length = 0;
     ManifestSourceConf.Env = 'prod';
+    ManifestSourceConf.OnStartup = false;
   });
 
   it('lists the manifest migrations and does not glob in require mode', async () => {
@@ -157,6 +164,44 @@ describe('ManifestMigrationSource', function () {
     });
     const booted = await boot('require', 'prod', m);
     expect(await (await booted.resolve(ManifestMigrationSource)).getMigrations()).to.deep.equal([]);
+  });
+
+  it('applies a migration the manifest lists when the Orm resolves, and seeds it once the Orm is cached', async () => {
+    ManifestSourceConf.OnStartup = true;
+    stubDb([]);
+    const file = 'test/mocks/migration-manifest-seeded/Seeded_2026_08_01_11_00_00.ts';
+    const seeded = { id: 'test-app:Seeded_2026_08_01_11_00_00', className: 'Seeded_2026_08_01_11_00_00', connection: 'sqlite', file: basename(file), source: sourceRef(file) };
+
+    const booted = await boot('require', 'prod', testManifest({ root: process.cwd(), migrations: [seeded] }));
+    const orm = await booted.resolve(Orm);
+    await orm.Migrator.ready();
+
+    const { SEEDED_RUNS } = (await import(pathToFileURL(join(process.cwd(), file)).href)) as { SEEDED_RUNS: string[] };
+    expect(imported).to.include('Seeded_2026_08_01_11_00_00');
+    expect(SEEDED_RUNS).to.deep.equal(['up', 'data, Orm cached']);
+    expect(await (await booted.resolve(FilesystemMigrationSource)).getMigrations()).to.deep.equal([]);
+  });
+
+  it('fails the Orm resolve before any migration runs when a migration has a property nothing can type', async () => {
+    ManifestSourceConf.OnStartup = true;
+    stubDb([]);
+    const file = 'test/mocks/migration-manifest-untyped/Untyped_2026_08_01_12_00_00.ts';
+    const untyped = { id: 'test-app:Untyped_2026_08_01_12_00_00', className: 'Untyped_2026_08_01_12_00_00', connection: 'sqlite', file: basename(file), source: sourceRef(file) };
+    const booted = await boot('require', 'prod', testManifest({ root: process.cwd(), migrations: [untyped] }));
+
+    try {
+      const error = await booted.resolve(Orm).then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+
+      expect(error).to.be.instanceOf(ResolveException);
+      expect((error as Error).message).to.include('Untyped_2026_08_01_12_00_00.service');
+      const { UNTYPED_RUNS } = (await import(pathToFileURL(join(process.cwd(), file)).href)) as { UNTYPED_RUNS: string[] };
+      expect(UNTYPED_RUNS).to.deep.equal([]);
+    } finally {
+      forgetPendingProperties();
+    }
   });
 
   it('fails when a listed class is not exported by its file', async () => {

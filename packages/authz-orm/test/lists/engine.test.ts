@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { AccessDenied, AuthorizationModel, SYSTEM, runWithPrincipal } from '@spinajs/authz';
+import { AccessDenied, SYSTEM, runWithPrincipal } from '@spinajs/authz';
 import type { ListPlanRequest, ListSupport, ModelListPlan, PermissionDef, Principal, ResourceType } from '@spinajs/authz';
 import { StaticModel, testHost } from '@spinajs/authz-testing';
 import type { IContainer } from '@spinajs/di';
@@ -59,7 +59,7 @@ describe('lists through the engine', function () {
     const ds = await testHost.domains();
     await ds.service('root');
     const container: IContainer = ds.create('lists', 'root');
-    container.register(testHost.instance(new ListModel({ name: 'm1', votes: {} }))).as(AuthorizationModel);
+    testHost.activate(container, 'lists', new ListModel({ name: 'm1', votes: {} }));
     undo.push(() => container.dispose());
     await ds.service('lists');
   }

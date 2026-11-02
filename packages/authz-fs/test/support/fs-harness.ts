@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import type { S3Client } from '@aws-sdk/client-s3';
-import { AuthorizationModel, AuthzContributor, SYSTEM, runWithPrincipal } from '@spinajs/authz';
+import { AuthzContributor, SYSTEM, runWithPrincipal } from '@spinajs/authz';
 import { MemoryAssignmentStore, MemoryRoleStore, RbacContributor, RbacModel, RbacService } from '@spinajs/authz-rbac';
 import { hostHarness, testHost } from '@spinajs/authz-testing';
 import type { BehaviourHarness, FsArg, FsHandle, FsProviderSpec, HostSetup } from '@spinajs/authz-testing';
@@ -335,8 +335,8 @@ export function fsHarness(opts: FsHarnessOptions = {}): BehaviourHarness {
 function registerRbac(host: HostSetup): void {
   const rbac = host.world.rbac ?? {};
   const model = new RbacModel({ roles: new MemoryRoleStore(rbac.roles ?? [], rbac.ladders ?? []), assignments: new MemoryAssignmentStore(rbac.assignments ?? []), clock: host.kit.clock });
-  host.container.register(testHost.instance(model)).as(AuthorizationModel);
+  testHost.activate(host.container, host.domain, model);
   host.container.register(testHost.instance(new RbacContributor(model))).as(AuthzContributor);
-  // FsAclRelation asks the domain's RbacService for the subject keys, as registerRbac wires it.
+  // FsAclRelation asks the domain's RbacService for the subject keys, as an RbacModel built by DI wires it.
   host.container.register(testHost.instance(new RbacService(model))).as(RbacService);
 }

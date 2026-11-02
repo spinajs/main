@@ -6,7 +6,7 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { QueueService, QueueClient, IQueueMessage, QueueMessage, JobModel, QueueMessageType } from '@spinajs/queue';
 import '@spinajs/orm-sqlite';
-import { MigrationTransactionMode, OrmMigrator } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 
 import { EmailService, EmailSender, EmailConnectionOptions, IEmail, EmailSend } from '../src/index.js';
 
@@ -154,7 +154,7 @@ describe('email deferred ( hermetic - no SMTP, no broker )', function () {
     DI.register(EmailDeferredConf).as(Configuration);
 
     await DI.resolve(Configuration);
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
   });
 
   afterEach(async () => {
