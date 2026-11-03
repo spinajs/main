@@ -258,7 +258,7 @@ export class SqlWhereStatement extends WhereStatement {
 
   public build(): IQueryStatementResult {
     const isNullableQuery = this._operator === SqlOperator.NOT_NULL || this._operator === SqlOperator.NULL;
-    const literal = this._value instanceof LikeLiteral ? this._value : null;
+    const literal = LikeLiteral.is(this._value) ? this._value : null;
     const binding = isNullableQuery ? '' : literal ? ` ? ESCAPE '${LIKE_ESCAPE_CHARACTER}'` : ' ?';
     const value = literal ? literal.pattern(this.escapeLike(literal.Text)) : this._value;
     let column = this._column;

@@ -197,7 +197,7 @@ export abstract class WhereStatement extends QueryStatement {
     this._model = builder.Model;
     this._builder = builder;
 
-    if (value instanceof LikeLiteral && String(operator).toLowerCase() !== String(SqlOperator.LIKE)) {
+    if (LikeLiteral.is(value) && String(operator).toLowerCase() !== String(SqlOperator.LIKE)) {
       throw new InvalidArgument(`a LikeLiteral is an operand of the like operator only, got ${operator}`);
     }
 
@@ -537,6 +537,8 @@ export function escapeLikeValue(value: string): string {
 
 export type LikeMatch = 'contains' | 'startsWith' | 'endsWith';
 
+const LIKE_LITERAL = Symbol.for('@spinajs/orm:LikeLiteral');
+
 /**
  * A `like` operand taken literally: `where('Name', 'like', LikeLiteral.contains(text))`. No character of the text is a
  * wildcard, and each dialect escapes its own. Unlike `whereStartsWith()`, the dialect's LIKE still decides whether case
@@ -550,6 +552,11 @@ export class LikeLiteral {
     if (typeof Text !== 'string') {
       throw new InvalidArgument(`LikeLiteral takes a string, got ${Text === null ? 'null' : typeof Text}`);
     }
+  }
+
+  /** `instanceof` fails for a literal from a second loaded copy of the ORM (cjs next to mjs); the registry symbol does not. */
+  public static is(value: unknown): value is LikeLiteral {
+    return (value as Record<symbol, unknown> | null | undefined)?.[LIKE_LITERAL] === true;
   }
 
   public static contains(text: string): LikeLiteral {
@@ -576,6 +583,7 @@ export class LikeLiteral {
     }
   }
 }
+Object.defineProperty(LikeLiteral.prototype, LIKE_LITERAL, { value: true });
 
 @NewInstance()
 export abstract class ColumnStatement extends QueryStatement {

@@ -5,7 +5,7 @@ import '@spinajs/log';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { ICompilerOutput, LikeLiteral, Orm, SelectQueryBuilder } from '@spinajs/orm';
+import { ICompilerOutput, LikeLiteral, Orm, SelectQueryBuilder, Wrapper } from '@spinajs/orm';
 
 import { ConnectionConf, FakeSqliteDriver } from './fixture.js';
 
@@ -57,6 +57,13 @@ describe('LikeLiteral where operand', function () {
     const result = compiled(sqb().where('Name', 'like', LikeLiteral.contains('_')).clone());
 
     expect(result.expression).to.contain("`Name` LIKE ? ESCAPE '~'");
+    expect(result.bindings).to.deep.eq(['%~_%']);
+  });
+
+  it('escapes the text against a wrapped column', () => {
+    const result = compiled(sqb().where(Wrapper.Text('Name'), 'like', LikeLiteral.contains('_')));
+
+    expect(result.expression).to.contain("CAST(`Name` AS TEXT) LIKE ? ESCAPE '~'");
     expect(result.bindings).to.deep.eq(['%~_%']);
   });
 
