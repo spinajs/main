@@ -5,7 +5,9 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
-import { Orm } from '@spinajs/orm';
+// the entry first: its subpath import is circular when loaded before it
+import '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService } from '@spinajs/queue';
 import { EmailSend } from '@spinajs/email';
@@ -62,7 +64,7 @@ describe('create(user, roles?)', function () {
     }
 
     await DI.resolve(Configuration, [null, null, [dir('./config')]]);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
   });
 
   afterEach(() => {

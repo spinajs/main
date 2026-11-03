@@ -4,7 +4,9 @@ import * as chai from 'chai';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { Configuration } from '@spinajs/configuration';
-import { Orm } from '@spinajs/orm';
+// the entry first: its subpath import is circular when loaded before it
+import '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService } from '@spinajs/queue';
 import { GLOBAL, RelationResolver, SYSTEM } from '@spinajs/authz';
@@ -109,7 +111,7 @@ describe('self relation', function () {
       }
 
       await DI.resolve(Configuration, [null, null, [dir('./config')]]);
-      await (await DI.resolve(Orm)).Migrator.ready();
+      await migrateTestDatabase();
     });
 
     afterEach(() => {

@@ -13,6 +13,7 @@ import { Configuration } from '@spinajs/configuration';
 import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
 import { Orm, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { AuthorizationModel, AuthzAdmin, AuthzContributor, AuthzService, GLOBAL, SYSTEM } from '@spinajs/authz';
@@ -316,7 +317,7 @@ export async function startUsersHttpApp(opts: StartOptions = {}): Promise<UsersH
 
   opts.register?.();
   await DI.resolve(fsService);
-  await (await DI.resolve(Orm)).Migrator.ready();
+  await migrateTestDatabase();
 
   const before = new Set(DI.getRegisteredTypes(BaseController) ?? []);
   for (const c of [...authnControllers, AccessController, UsersHttpProbeController] as Class<BaseController>[]) DI.register(c).as(BaseController);
