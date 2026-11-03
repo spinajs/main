@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,6 +53,45 @@ describe('the cli entry point', function () {
       expect(result.stderr).to.include('--no-such-option');
       expect(result.stderr).to.include('Usage: spinajs');
       noStack(result.stderr);
+    });
+  });
+
+  describe('compile cache', () => {
+    const withTmp = (tmp: string, extra: NodeJS.ProcessEnv = {}) => {
+      const env: NodeJS.ProcessEnv = { ...process.env, TMPDIR: tmp, TMP: tmp, TEMP: tmp, ...extra };
+      delete env.NODE_COMPILE_CACHE;
+      return spawnSync(process.execPath, [entry, '--version'], { cwd, encoding: 'utf8', env });
+    };
+    const cacheFiles = (tmp: string) => (existsSync(join(tmp, 'node-compile-cache')) ? readdirSync(join(tmp, 'node-compile-cache'), { recursive: true }).length : 0);
+
+    beforeEach(() => {
+      cwd = mkdtempSync(join(tmpdir(), 'spinajs-cli-cache-'));
+    });
+
+    it('keeps the compiled modules in the temp dir for the next start', () => {
+      const tmp = join(cwd, 'tmp');
+      mkdirSync(tmp);
+      const result = withTmp(tmp);
+      expect(result.status, result.stderr).to.equal(0);
+      expect(cacheFiles(tmp)).to.be.greaterThan(1);
+    });
+
+    it('keeps none with NODE_DISABLE_COMPILE_CACHE=1', () => {
+      const tmp = join(cwd, 'tmp');
+      mkdirSync(tmp);
+      const result = withTmp(tmp, { NODE_DISABLE_COMPILE_CACHE: '1' });
+      expect(result.status, result.stderr).to.equal(0);
+      expect(cacheFiles(tmp)).to.equal(0);
+    });
+
+    it('starts as usual when the cache dir cannot be created', () => {
+      const tmp = join(cwd, 'not-a-dir');
+      writeFileSync(tmp, '');
+      const result = withTmp(tmp);
+      const reference = run('--version');
+      expect(result.status, result.stderr).to.equal(0);
+      expect(result.stdout).to.equal(reference.stdout);
+      expect(result.stderr).to.equal(reference.stderr);
     });
   });
 

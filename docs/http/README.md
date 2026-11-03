@@ -106,6 +106,26 @@ void main();
 
 Controllers in the directories listed in `system.dirs.controllers` are found and mounted on their own; `UsersController` above is a controller declared next to the entry for brevity.
 
+### Compile cache
+
+Node can keep the compiled code of every module it loads on disk and reuse it on the next start, which saves part of the module loading of a boot. It caches only what it compiles after the cache is turned on, so start the app through a launcher that turns it on and then imports the entry, and await the boot in the entry (`await main();`) instead of `void main();`:
+
+```ts
+// start.ts: run with `node lib/start.js`
+import module from 'node:module';
+
+module.enableCompileCache?.();
+await import('./main.js');
+module.flushCompileCache?.();
+```
+
+- The cache lives in `NODE_COMPILE_CACHE` when it is set, else in `<os temp dir>/node-compile-cache`. Node keys it by file content and Node version, so a changed file is compiled again.
+- `NODE_DISABLE_COMPILE_CACHE=1` turns it off. A cache dir that cannot be created or written, as in a read-only container without a writable temp dir, leaves it off without a message; the app starts as usual.
+- Node writes the cache when the process exits, which a server stopped by a signal never does. `flushCompileCache()` after the import writes it once the app listens.
+- `enableCompileCache` needs Node 22.1 and `flushCompileCache` Node 22.10, hence the `?.`.
+
+The `spinajs` bin and the single-file bundle of `@spinajs/http-socket-example` start this way.
+
 ## Related packages
 
 - [`@spinajs/di`](../di/README.md): every service on these pages is registered, resolved and replaced here.
