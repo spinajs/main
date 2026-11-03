@@ -7,8 +7,8 @@
 1. `DataValidator` is decorated `@Singleton()` and extends `AsyncService`. It is not registered under another token: consumers resolve the class itself (`@Autoinject() Validator: DataValidator`, `DI.resolve(DataValidator)`).
 2. `DI.register(MyValidator).as(DataValidator)` adds a registration under the `DataValidator` key. A resolve of `DataValidator` builds the last class registered there, once, and caches it.
 3. The container sets the `@Config('validation')`, `@Autoinject(SchemaSource)`, `@Logger('validation')` and `@Autoinject()` properties, then awaits `resolve()`.
-4. `super.resolve()` builds two Ajv instances with `createAjv()`: the protected `Validator`, and `StrictValidator` with `coerceTypes: false` for [strict schema ids](02-validator-options.md#strict-schema-ids). Then it loads the [schema sources](05-schema-sources.md) into both.
-5. Add formats and keywords by overriding `createAjv()`: both instances get them, before any source schema is loaded.
+4. `super.resolve()` builds the protected `Validator` with `createAjv()` and loads the [schema sources](05-schema-sources.md) into it. `StrictValidator`, with `coerceTypes: false` for [strict schema ids](02-validator-options.md#strict-schema-ids), is built with `createAjv()` on first access and gets every schema added before.
+5. Add formats and keywords by overriding `createAjv()`: both instances get them, before any schema is added.
 
 ## Services and extension points
 
@@ -22,8 +22,8 @@
 | --- | --- | --- |
 | `resolve()` | public | Startup. Call `super.resolve()` first when you override it. |
 | `Validator` | protected, `any` | The Ajv 8 instance: `addFormat()`, `addKeyword()`, `addVocabulary()`, `addMetaSchema()`. |
-| `StrictValidator` | protected | The second Ajv 8 instance, with `coerceTypes: false`, for [strict schema ids](02-validator-options.md#strict-schema-ids). Add every format and keyword to it too. |
-| `createAjv(options)` | protected | Builds one Ajv instance with the three plugins; `resolve()` calls it for both instances. Override it to add a format or keyword to both at once. |
+| `StrictValidator` | protected | The second Ajv 8 instance, with `coerceTypes: false`, for [strict schema ids](02-validator-options.md#strict-schema-ids). A getter that builds it on first access. Add every format and keyword to it too, preferably in `createAjv()`, so an app that never validates a strict id never builds it. |
+| `createAjv(options)` | protected | Builds one Ajv instance with the three plugins; `resolve()` calls it for `Validator`, the first access of `StrictValidator` for that one. Override it to add a format or keyword to both at once. |
 | `isStrict(schemaOrId)` | public | Whether a schema object or registered id is validated on `StrictValidator`. |
 | `Options` | public, read-only | The `validation` config object. `@Config` defines it as a getter: assigning to it throws `TypeError`. Change Ajv options in the config. |
 | `Sources` | protected | The `SchemaSource` list, before `super.resolve()` loads it. |
@@ -137,7 +137,9 @@ DI.register(MeteredValidator).as(DataValidator);
 
 - **Register before the first resolve.** `DataValidator` is cached on its first resolve; a registration after that is ignored by every holder of the cached instance. In tests, `DI.uncache(DataValidator)` forces a rebuild.
 - **`DataValidator` resolves asynchronously.** Classes that inject it become async to resolve too; `await` them.
-- **Ajv is created inside `resolve()`.** `this.Validator` and `this.StrictValidator` are `undefined` until `super.resolve()` has started; touching them earlier throws.
+- **Ajv is created inside `resolve()`.** `this.Validator` is `undefined` until `super.resolve()` has started; reading `this.StrictValidator` earlier throws `InvalidOperation`.
+- **`StrictValidator` is an accessor.** Read or assign it from a subclass. Do not declare it: a `StrictValidator` property declaration fails to compile (TS2610), and a JavaScript class field of that name hides the accessor, so the schemas `addSchema()` registers never reach it.
+- **Keyword plugins.** `createAjv()` installs `ajv-merge-patch` and `ajv-keywords` when the first schema that names one of their keywords reaches the instance. A `macro` or `code` keyword, a vocabulary, or a plugin keyword name that your `createAjv()` defines or removes installs them first, so replacing a plugin keyword (`removeKeyword('range')`, then `addKeyword(...)`) or a macro that expands into `uniqueItemProperties` works as with an eager install.
 - **Two instances.** A format or keyword added only to `this.Validator` after `super.resolve()` is missing on `StrictValidator`: a strict-id schema that uses it throws `unknown format` / `unknown keyword`. Add them in `createAjv()`.
 - **Options come from config only.** `Options` is a getter over the `validation` key, so a subclass cannot assign it. `$data: true` and `verbose: true` are applied after it and always win.
 - **Custom keyword errors keep their `params`.** `sanitizeError()` drops verbose fields from them, but redacts `params` only for `$data` rules and for its fixed list of value-bearing keywords. Do not put request values into the `params` or `message` of your own keyword errors.
