@@ -51,6 +51,7 @@ export interface ProbeResult {
   socketReplies: SocketReply[];
   /** Only with a manifest: a scan-only boot has no derived validation to prove */
   validation: Record<string, { status: number; body: unknown }>;
+  booted: { mode: string; hash: string | null; compilerVersion?: string };
 }
 
 /** Whether the workspace packages were built with their manifest fragments, which the installed app links to. */
