@@ -61,7 +61,7 @@ sequenceDiagram
 | `eq` | `= ?` | defined |
 | `neq` | `!= ?` | defined |
 | `gt` / `gte` / `lt` / `lte` | `> ?` / `>= ?` / `< ?` / `<= ?` | defined |
-| `like` | `LIKE '%value%' ESCAPE '~'`: values containing it | non-empty string; `null` / `undefined` skip the check |
+| `like` | `LIKE '%value%' ESCAPE '~'`: values containing it | non-empty string; `null` / `undefined` skip the check and are searched as the text `"null"` / `"undefined"` |
 | `b-like` | `LIKE '%value' ESCAPE '~'`: values **ending** with it | as `like` |
 | `e-like` | `LIKE 'value%' ESCAPE '~'`: values **beginning** with it | as `like` |
 | `regexp` | `REGEXP ?` | as `like` |
@@ -73,7 +73,7 @@ sequenceDiagram
 
 A failed value check throws `InvalidArgument` (`400`).
 
-The value of `like`, `b-like` and `e-like` is matched literally: `%`, `_`, `~` (and `[` on MSSQL) in it match only themselves. A client searching for `%` gets the rows containing a `%`, not every row. Case sensitivity stays the database's: SQLite, MySQL with a `_ci` collation and MSSQL with a `CI` collation ignore case, PostgreSQL does not.
+The value of `like`, `b-like` and `e-like` is matched literally: `%` and `_` (and `[` on MSSQL) in it match only themselves, and on MySQL and PostgreSQL a backslash is no longer an escape. A client searching for `%` gets the rows containing a `%`, not every row. Case sensitivity stays the database's: SQLite, MySQL with a `_ci` collation and MSSQL with a `CI` collation ignore case, PostgreSQL does not.
 
 The names `b-like` and `e-like` read backwards: `b-like` is "ends with", `e-like` is "begins with". Existing clients depend on that meaning, so it stays.
 

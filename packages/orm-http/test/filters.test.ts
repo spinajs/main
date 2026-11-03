@@ -20,7 +20,7 @@ import { expect } from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { Orm, ModelBase, Model, Connection, Primary, SelectQueryBuilder, BelongsTo, SingleRelation, ICompilerOutput, ISelectQueryBuilder } from '@spinajs/orm';
+import { Orm, ModelBase, Model, Connection, Primary, SelectQueryBuilder, BelongsTo, SingleRelation, ICompilerOutput, ISelectQueryBuilder, LikeLiteral } from '@spinajs/orm';
 import { InvalidArgument } from '@spinajs/exceptions';
 
 // Registers the `orm-driver-sqlite` driver in DI.
@@ -338,6 +338,13 @@ describe('orm-http filter translation vs the per-statement connector (I1/B2)', (
     const out = compiledFilter([f('Author.Name', 'like', '_')], FilterableLogicalOperators.And);
 
     expect(out.expression).to.match(/`Name` LIKE \? ESCAPE '~'/);
+    expect(out.bindings).to.deep.equal(['%~_%']);
+  });
+
+  it('puts a LikeLiteral on an aggregate column into HAVING, escaped', () => {
+    const out = q().where('Total', 'like', LikeLiteral.contains('_')).toDB();
+
+    expect(out.expression).to.contain("HAVING `Total` LIKE ? ESCAPE '~'");
     expect(out.bindings).to.deep.equal(['%~_%']);
   });
 

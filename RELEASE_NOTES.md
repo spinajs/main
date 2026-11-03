@@ -4,8 +4,13 @@
 
 - `@spinajs/orm-http`: the `like`, `b-like` and `e-like` filter operators put the client's value into the `LIKE`
   pattern unescaped. A client sending `%` as the value matched every row, `_` matched any one character, and on
-  MySQL and PostgreSQL a backslash escaped the next character. The value is now matched literally: `%`, `_`, `~`
-  (and `[` on MSSQL) match only themselves, and the condition carries `ESCAPE '~'`. Case sensitivity is unchanged.
+  MySQL and PostgreSQL a backslash escaped the next character. The value is now matched literally: `%`, `_` (and `[`
+  on MSSQL) match only themselves, a backslash is no longer an escape, and the condition carries `ESCAPE '~'`. Case
+  sensitivity is unchanged.
+- Clients that sent `%` or `_` in a like value on purpose, to get wildcard matching, no longer get it.
+- **Not fixed by upgrading:** a `query` function of your own, on `@Filterable(..., query)` or `IColumnFilter.query`,
+  that builds the pattern from the client's value (`` `%${value}%` ``) stays vulnerable until it passes
+  `LikeLiteral.contains(value)` (or `startsWith` / `endsWith`) instead. See `docs/orm-http/07-custom-filter-columns.md`.
 - `@spinajs/users-http`: the `user:niceName` filter of the admin user listing had the same flaw in its own query and
   is fixed the same way.
 
@@ -20,6 +25,14 @@
 
 - `b-like` matches values **ending** with the filter value and `e-like` values **beginning** with it, the reverse of
   what the names suggest. Clients rely on this, so the meaning stays; it is now documented and pinned by tests.
+- A `like`, `b-like` or `e-like` filter with a `null` or `undefined` value searches for the text `"null"` /
+  `"undefined"`, as before.
+
+## Known
+
+- The `regexp` filter operator binds the client's value as a regular expression, unchanged in this release: a
+  pattern such as `.*` matches every row, and PostgreSQL applies no time limit to a regular expression. Offer
+  `regexp` only on columns where that is acceptable.
 
 # Release notes — the controller scan registers what the package entry did
 
