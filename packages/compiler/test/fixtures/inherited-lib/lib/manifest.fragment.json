@@ -70,6 +70,40 @@
     }
   ],
   "socketControllers": [],
+  "socketControllerBases": [
+    {
+      "id": "inherited-lib:FeedSocket",
+      "className": "FeedSocket",
+      "prefix": "",
+      "commands": [
+        {
+          "name": "feed.publish",
+          "handler": "publish",
+          "payload": { "text": "T" },
+          "payloadIndex": 0,
+          "result": { "text": "T" },
+          "options": {},
+          "policies": [],
+          "source": { "file": "src/sockets.ts", "line": 6, "col": 3, "package": "inherited-lib" }
+        },
+        {
+          "name": "feed.follow",
+          "handler": "follow",
+          "payload": { "text": "void" },
+          "result": { "text": "T" },
+          "stream": true,
+          "options": {},
+          "policies": [],
+          "source": { "file": "src/sockets.ts", "line": 9, "col": 3, "package": "inherited-lib" }
+        }
+      ],
+      "events": [
+        { "name": "feed.changed", "handler": "changed", "payload": { "text": "T" }, "payloadIndex": 0 },
+        { "name": "feed.renamed", "payload": { "text": "T" } }
+      ],
+      "source": { "file": "src/sockets.ts", "line": 4, "col": 1, "package": "inherited-lib" }
+    }
+  ],
   "socketContracts": [],
   "configModules": [],
   "configUsages": [],

@@ -15,7 +15,8 @@ type NamedClass = ts.ClassDeclaration & { name: ts.Identifier };
 
 const TYPE_KEPT_KINDS = new Set([...UNDERIVED_KINDS, DECORATED_PARAM_KIND]);
 
-const contractOf = (fields: TypeRef, ref: TypeRef): TypeRef => {
+/** `ref` with the contract types (`text`, `schema`) of `fields`; the runtime half of `ref` is kept. */
+export const contractOf = (fields: TypeRef, ref: TypeRef): TypeRef => {
   const { schema: _replaced, ...rest } = ref;
   return { ...rest, text: fields.text, ...(fields.schema ? { schema: fields.schema } : {}) };
 };
