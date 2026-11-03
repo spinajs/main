@@ -190,9 +190,9 @@ In each directory it matches `**/!(*.*).{ts,js,cjs,mjs}` (no environment tag) an
 | `Runner` | The `MigrationRunner` over the `Orm`'s migrations and connections. Assigned in `boot()`. |
 | `boot(orm: Orm)` | Called by `Orm.resolve()`: binds the migrator to `orm` and applies the pending `Migration.OnStartup` migrations, see [above](#migrating-on-startup-diresolveorm). Their `data()` runs on `di.resolved.Orm`. |
 | `ready()` | `Promise<void>` that settles after the `data()` seeds of `boot()`, or rejects with their aggregated failure. With `MigrateOnStartup: false` it resolves at once. |
-| `migrate(options?: IOrmMigrateOptions)` | `IMigrationUpOptions` plus `name` and `skipSeed`. Under one run lock per connection: applies (`force` defaults to `true`), re-reads the touched models, runs `data()` (not with `fake` or `skipSeed`). Resolves with the applied migrations. |
-| `seed(options?: IOrmSeedOptions)` | `name`, `connection`. Under the run lock: runs `data()` of every applied migration (or only `name`, or only one connection's) in `(timestamp, name)` order; every hook runs and the failures are reported in one `OrmException`. A `name` that is registered but not applied throws `Migration <name> is not applied on any configured connection - nothing to seed`. Resolves with the seeded migrations. What `migrate-seed` runs. |
-| `plan(options?: { name?, connection? })` | `Promise<IMigrationPlanEntry[]>`: what `migrate()` with the same options would apply, in order, as `{ name, connection, batch }`. Read-only: no tracking table is created, no lock taken, nothing applied. What `migrate-up --dry-run` prints. |
+| `migrate(options?: IOrmMigrateOptions)` | `IMigrationUpOptions` plus `name` and `skipSeed`. Under one run lock per connection: applies (`force` defaults to `true`), re-reads the touched models, runs `data()` (not with `fake` or `skipSeed`). Resolves with the applied migrations. With `name`, it locks only that migration's connection, and an unknown name throws before any lock is taken or storage created. |
+| `seed(options?: IOrmSeedOptions)` | `name`, `connection`. Under the run lock (with `name`, only of the connection it runs on): runs `data()` of every applied migration (or only `name`, or only one connection's) in `(timestamp, name)` order; every hook runs and the failures are reported in one `OrmException`. It reads the tracking table without DDL, and with nothing applied it takes no lock, so a fresh database gets no table. A `name` that is registered but not applied throws `Migration <name> is not applied on any configured connection - nothing to seed` (`on connection <connection>` with `connection`). Resolves with the seeded migrations. What `migrate-seed` runs. |
+| `plan(options?: { name?, connection? })` | `Promise<IMigrationPlanEntry[]>`: what `migrate()` with the same options would apply, in order, as `{ name, connection, batch }`, then the FAILED migrations that stop it, with `failed: true`. Read-only: no tracking table is created, no lock taken, nothing applied. What `migrate-up --dry-run` prints. |
 
 `Orm.Migrator` is the migrator the `Orm` booted. `OrmMigrator` is a DI singleton: the options apply only to the resolve that constructs it, and resolving it migrates nothing. The next `Orm.resolve()` (after `DI.uncache(Orm)`) boots the cached migrator again against the new `Orm`.
 
@@ -207,9 +207,9 @@ In each directory it matches `**/!(*.*).{ts,js,cjs,mjs}` (no environment tag) an
 | `up(name?, options?: IMigrationUpOptions)` | `force` (default `true`), `fake`, `connection` | `Promise<IMigrationUpResult>`: `executed` and `touched.models`. Runs no `data()` and reads no table info; use `OrmMigrator.migrate()` for that. |
 | `down(name?, options?: IMigrationDownFacadeOptions)` | `force` (default `true`), `fake`, `connection`, `all` | `Promise<OrmMigration[]>`: the migrations rolled back. |
 | `status()` | none | `Promise<IMigrationStatusEntry[]>` |
-| `pending(name?, connection?)` | as `up()` | `Promise<IMigrationPlanEntry[]>`: what `up()` would apply, in run order; `batch` is one past the connection's highest applied batch. A failed migration is listed too, as the point where `up()` stops. Read-only. |
+| `pending(name?, connection?)` | as `up()` | `Promise<IMigrationPlanEntry[]>`: what `up()` would apply, in run order; `batch` is one past the connection's highest applied batch. The FAILED migrations of every connection the run would touch follow, with `failed: true`, whatever `name` is: `up()` throws at the first stretch of such a connection, so nothing from there on, on any connection, is listed as applied. `batch` counts registered migrations only, so an applied row whose class is gone, in a higher batch, makes it lower than the one the run records. Read-only. |
 | `resolve(name, action: MigrationResolveAction)` | `'applied'` or `'rolled-back'` | `Promise<void>` |
-| `withRunLock(connection, fn)` | connection name, or `undefined` for all | Holds the run lock of every connection with registered migrations (or only `connection`) while `fn` runs, and resolves with its result. Locks an enclosing call already holds are reused. |
+| `withRunLock(connection, fn, name?)` | connection name, or `undefined` for all; migration name | Holds the run lock of every connection with registered migrations (or only `connection`, or only the connection `name` runs on) while `fn` runs, and resolves with its result. Locks an enclosing call already holds are reused. An unknown `name` throws before any lock is taken. |
 | `assertRunLocksHeld()` | none | Rejects with `MigrationLockLostException` when a lock of the enclosing `withRunLock()` was lost. |
 
 | Option | Meaning |
@@ -264,12 +264,13 @@ beforeEach(async () => {
 
 1. refuses with `OrmException` (`... is a test helper and refuses to run ...`) when `NODE_ENV` is `production` or `APP_ENV` is `prod` or `production`. It reads the raw variables, because an unset `APP_ENV` counts as production elsewhere and every test process has one;
 2. resolves the `Orm` through `resolveMigrationTool(container)`, so the resolve applies nothing;
-3. calls `migrator.migrate()`, with seeds unless `options.seed` is `false`;
-4. with `db.StrictTableCheck` on, calls `orm.reloadTableInfo({ strict: true })`, so a model without a table fails the helper as it would fail a boot.
+3. refuses with `OrmException` (`migrateTestDatabase() must run before anything resolves the Orm or OrmMigrator in this container ...`) when the resolved migrator migrates on startup or is not the one `orm.Migrator` booted with: something resolved the `Orm` or `OrmMigrator` in that container first, or only `OrmMigrator` was uncached since the last call;
+4. calls `migrator.migrate()`, with seeds unless `options.seed` is `false`;
+5. with `db.StrictTableCheck` on, calls `orm.reloadTableInfo({ strict: true })`, so a model without a table fails the helper as it would fail a boot.
 
-It resolves with `{ orm, migrator, executed }`. The database is then migrated and seeded, so a boot check that runs later (`OrmMigrationGuard`) finds nothing pending. Call it before anything resolves the `Orm` in that container: a migrator resolved earlier keeps its own options.
+It resolves with `{ orm, migrator, executed }`. The database is then migrated and seeded, so a boot check that runs later (`OrmMigrationGuard`) finds nothing pending. A second call on the same cached container returns `executed: []`. To migrate again from scratch, uncache `Orm` and `OrmMigrator` together, or call `DI.clearCache()`.
 
-The package's lint configuration bans the import of `@spinajs/orm/testing` in `packages/*/src/**` (`no-restricted-imports`), so framework code never ships it. Applications migrate with `npx spinajs migrate-up` as a deploy step.
+The package's lint configuration bans `@spinajs/orm/testing` in `packages/*/src/**`, so framework code never ships it: static imports and re-exports, the deep `@spinajs/orm/lib/<format>/testing` path, a relative path to `orm/src/testing` (`./testing` inside `packages/orm/src`), and a dynamic `import()`, `require()` or `createRequire()(...)` call given one of those names as a string literal (`no-restricted-imports`, `no-restricted-syntax`). A module name computed at runtime escapes the rule; the helper's production refusal (step 1) is the runtime backstop. Applications migrate with `npx spinajs migrate-up` as a deploy step.
 
 ## Transaction modes
 
@@ -295,14 +296,16 @@ One migration run per connection at a time, across processes. `up()`, `down()` a
 
 ### The lock-table row, `TableMigrationLock`
 
-`OrmDriver.resolve()` registers `TableMigrationLock` as `MigrationLock`, so every driver has it unless the driver registers its own class over the token. `Lock.Mode: 'table'` forces it even then; use it behind PgBouncer in transaction pooling mode, which does not keep a session.
+`OrmDriver.resolve()` registers `TableMigrationLock` as `MigrationLock`, so every driver has it unless the driver registers its own class over the token. `Lock.Mode: 'table'` forces it even then; use it behind PgBouncer in transaction pooling mode, which does not keep a session. `Lock.Mode: 'table'` resolves the `TableMigrationLock` token, so a subclass of it is registered both `.as(MigrationLock)` and `.as(TableMigrationLock)`.
 
 1. It inserts row `Id = 1` into `<Table>_lock`, with `AcquiredAt` and `Owner` (`<hostname>:<pid>:<nonce>`). The unique `Id` lets the database pick the winner.
-2. When the insert fails and the holder's `AcquiredAt` is older than `Lock.StaleAfter`, it logs a warning, deletes the row and retries at once. One acquisition steals at most `MIGRATION_LOCK_MAX_STEALS` (3) times.
-3. Otherwise it polls every `MIGRATION_LOCK_POLL_INTERVAL` (500 ms) until `Lock.Timeout`, then throws `OrmException` naming the holder.
-4. While held, it refreshes `AcquiredAt` every `StaleAfter / 3`, so only the row of a holder that stopped refreshing goes stale. A failed refresh is logged.
-5. `assertHeld()` fails once no refresh has gone through for longer than `StaleAfter`: from then on another run may have taken the row.
-6. `release()` stops the refresh and deletes row `Id = 1`.
+2. When the insert fails and the holder's `AcquiredAt` is older than `Lock.StaleAfter`, it logs a warning, deletes the row where `Owner` and `AcquiredAt` are still the ones it read and retries at once. Two runs that judge one dead row together cannot both win: the second DELETE matches nothing, and neither does a DELETE of a row its holder refreshed after it was read. One acquisition steals at most `MIGRATION_LOCK_MAX_STEALS` (3) times.
+3. Otherwise it polls every `MIGRATION_LOCK_POLL_INTERVAL` (500 ms) until `Lock.Timeout`, then throws `OrmException` naming the holder and the time its row goes stale. `migrate-resolve` after a crash waits the same way: wait until then, or delete the row from `<Table>_lock` by hand.
+4. While held, it refreshes `AcquiredAt` every `StaleAfter / 3` where `Owner` is its own, so only the row of a holder that stopped refreshing goes stale. A failed refresh is logged.
+5. `assertHeld()` fails once no refresh has gone through for longer than `StaleAfter`, or once a refresh matched no row: another run may have taken the row, or has. A refresh counts by the time its UPDATE returned, so one held back past `StaleAfter` still fails the run. A driver that reports no row count, such as mssql with `NOCOUNT ON`, leaves only the `StaleAfter` rule.
+6. `release()` stops the refresh and deletes row `Id = 1` only while `Owner` is its own, so a run that lost the row never deletes the row of the run that took it.
+
+A dialect lock that also takes the row calls `acquireUnderAdvisory(request)` while it holds its advisory lock. The row's `Owner` then ends with `migrationLockAdvisoryMark(request.key)`: `:advisory:` and the first 8 hex chars of the SHA-256 of the key. A row with the same mark found by the next advisory holder is deleted at once, because its writer lost that advisory lock. Any other row keeps the `StaleAfter` rule: a row without a mark, a row of an earlier release ending in `:advisory`, and a row marked under another key, which two configs spelling one table differently (`Schema` unset and `'public'`) both reach. `acquire()` keeps the rule for every row. Call `acquireUnderAdvisory()` only while holding the advisory lock exclusively for this acquisition, on a session of its own: advisory locks are re-entrant per session.
 
 `StaleAfter` applies to this lock only. Staleness is judged by the client clock, so hosts whose clocks disagree steal early or wait long by the skew. `status()` reports a row as interrupted only once no fresh lock row exists, so with `Lock.Enabled: false` it reports every open row as interrupted.
 
@@ -314,7 +317,7 @@ A driver registers its lock in its `resolve()`, after `super.resolve()`, over th
 this.Container.register(MyMigrationLock).as(MigrationLock);
 ```
 
-`MigrationLock` is constructed with the driver. `acquire(request)` waits up to `request.timeout` and resolves with an `IMigrationLockHandle` (`holder`, `assertHeld()`, `release()`); `isHeld(request)` answers `status()` and never takes the lock. `request.key` is `migrationLockKey(driver, table)`, `spinajs_migration:<Database>:<Table>`; `advisoryKeyPair(key)` turns it into the two int32 halves of its SHA-256. `assertHeld()` must reject with `MigrationLockLostException` on any failure to verify the lock.
+`MigrationLock` is constructed with the driver. `acquire(request)` waits up to `request.timeout` and resolves with an `IMigrationLockHandle` (`holder`, `assertHeld()`, `release()`); `isHeld(request)` answers `status()` and never takes the lock. `request.key` is `migrationLockKey(driver, table)`, `spinajs_migration:<Database>:<Options.Schema>:<Table>`; `advisoryKeyPair(key)` turns it into the two int32 halves of its SHA-256. `assertHeld()` must reject with `MigrationLockLostException` on any failure to verify the lock.
 
 ## Decorators
 
@@ -399,7 +402,7 @@ The name comes from `Migration.Table`. `IMigrationRecord` is the row type.
 | --- | --- | --- |
 | `Id` | `int`, unique, not null | Always `1`; the unique constraint makes the insert the lock. |
 | `AcquiredAt` | `dateTime`, not null | Client time the lock was taken or last refreshed. |
-| `Owner` | `string(255)`, not null | `<hostname>:<pid>:<nonce>` of the holder. |
+| `Owner` | `string(255)`, not null | `<hostname>:<pid>:<nonce>` of the holder, with `:advisory:<hash8>` of the advisory key appended when the holder also holds the driver's advisory lock. |
 
 ## Services and extension points
 
@@ -451,12 +454,14 @@ DI.register(MaintenanceWindowMigrationService).as('maintenance-window-migrations
 - `down(name)` passes a one-element unit list to the service, which warns that the other applied migrations of that batch are orphans. The warning is wrong in this case; the rollback itself is correct.
 - `resolve('applied')` through `MigrationRunner` stores the checksum. Calling the service's `resolve()` without the `unit` argument leaves `Checksum` null, so drift is never reported for that row.
 - A migration naming a connection that is not configured is skipped with a warning, not an error.
+- Two connections on one database that share `Migration.Table` share one lock row. A run over both takes the first connection's lock and then waits for itself on the second until `Lock.Timeout`, and fails. Give each connection on a database its own `Migration.Table`.
 
 ## Best practices
 
 - Scaffold migrations with `migrate-create`, which stamps the class name with the current time, and never rename an applied migration: the name is the row key.
 - Write `data()` so that running it twice is harmless, for example with `InsertBehaviour.InsertOrIgnore`.
 - Keep `Lock.StaleAfter` well above the longest stretch a run may go without reaching the database, such as a long synchronous step: the lock-table row is refreshed every `StaleAfter / 3`, and a run that cannot refresh it for `StaleAfter` loses it.
+- With `Pool.Max: 1` and the lock-table row (sqlite, or `Lock.Mode: 'table'`), the refresh can wait behind an open `PerRun` or `PerMigration` transaction. Keep `Lock.StaleAfter` above the longest such transaction, or the run stops before its next migration.
 - Resolve the `Orm` before serving; when requests need the startup seeds, await `orm.Migrator.ready()` as well.
 - Boot processes that inspect or operate on migrations, such as deploy gates, with `resolveMigrationTool()`.
 - Use `PerMigration` or `PerRun` on engines with transactional DDL, and mark the statements that cannot run in a transaction with `transaction = false`.
