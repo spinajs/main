@@ -11,6 +11,7 @@ import { BracketIdentifierQuoter, MsSqlInSetStatement, MsSqlInStatement, MsSqlLi
 import { mapMsSqlError } from './errors.js';
 
 export * from './errors.js';
+export { MsSqlStartsWithStatement, MsSqlWhereStatement } from './statements.js';
 
 export * from './expressions.js';
 

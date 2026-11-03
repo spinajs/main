@@ -114,6 +114,8 @@ The portable form escapes `~`, `%` and `_` with `escapeLikeValue()` and `LIKE_ES
 | `SqlStartsWithStatement.pattern()` | The escaped prefix | `escapeLikeValue(prefix)` (`~`, `%`, `_`) | Override to escape more wildcards, as MSSQL escapes `[` |
 | `SqlWhereStatement.escapeLike(text)` | The escaped text of a `LikeLiteral` | `escapeLikeValue(text)` (`~`, `%`, `_`) | Override to escape more wildcards, as `MsSqlWhereStatement` escapes `[` |
 
+`SqlWhereStatement.clone()` builds the copy with `new this.constructor(column, operator, value, builder)`, so a subclass keeps its class through a clone only if its constructor takes those four arguments, in that order. A subclass with a different constructor overrides `clone()` too. On MSSQL, extend `MsSqlWhereStatement` (exported by `@spinajs/orm-mssql`), not `SqlWhereStatement`: the latter does not escape `[`, which T-SQL's `LIKE` reads as a character class.
+
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
 import { DateWrapper } from '@spinajs/orm';

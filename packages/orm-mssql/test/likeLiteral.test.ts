@@ -65,12 +65,25 @@ describe('mssql LikeLiteral against the server', function () {
   this.timeout(30000);
 
   let driver: MsSqlOrmDriver;
+  let connected = false;
 
-  before(async () => {
+  before(async function () {
     driver = await DI.child().resolve(MsSqlOrmDriver, [
       { Name: 'mssql-like-live', Driver: 'orm-driver-mssql', Host: 'localhost', User: 'sa', Password: 'yourStrong(!)Password', Database: 'test', Options: { TrustServerCertificate: true, Schema: 'dbo' } } as any,
     ]);
-    await driver.connect();
+
+    try {
+      await driver.connect();
+      connected = true;
+    } catch (err) {
+      if (process.env.ORM_TEST_REQUIRE_MSSQL === '1') {
+        throw err;
+      }
+
+      console.warn(`      MSSQL at localhost is unreachable, suite skipped (set ORM_TEST_REQUIRE_MSSQL=1 to fail instead): ${(err as Error).message}`);
+      this.skip();
+    }
+
     await driver.executeOnDb('DROP TABLE IF EXISTS like_literal_t', [], QueryContext.Schema);
     await driver.executeOnDb('CREATE TABLE like_literal_t (Id INT PRIMARY KEY, Name NVARCHAR(64) NULL)', [], QueryContext.Schema);
     await driver
@@ -80,7 +93,10 @@ describe('mssql LikeLiteral against the server', function () {
   });
 
   after(async () => {
-    await driver?.executeOnDb('DROP TABLE IF EXISTS like_literal_t', [], QueryContext.Schema);
+    if (!connected) {
+      return;
+    }
+    await driver.executeOnDb('DROP TABLE IF EXISTS like_literal_t', [], QueryContext.Schema);
     await driver?.disconnect();
   });
 
