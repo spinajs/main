@@ -13,7 +13,7 @@ const run = promisify(execFile);
  * Configuration on a SQLite file and runs `body` against it. With `migrate`, a migrate-up run in a container of its
  * own creates the authz tables first, as a deploy step does before the cli runs.
  */
-async function freshProcess(body: string, migrate = true): Promise<unknown> {
+async function freshProcess(body: string, migrate = true, authz?: Record<string, unknown>): Promise<unknown> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'spinajs-authz-cli-'));
   const script = [
     "import { DI } from '@spinajs/di';",
@@ -22,12 +22,13 @@ async function freshProcess(body: string, migrate = true): Promise<unknown> {
     "import { Orm } from '@spinajs/orm';",
     "import { migrateTestDatabase } from '@spinajs/orm/testing';",
     "import { SqliteOrmDriver } from '@spinajs/orm-sqlite';",
-    "import { AUTHZ_CONFIGURATION_SCHEMA, GLOBAL, SYSTEM } from '@spinajs/authz';",
-    "import { DbAssignmentStore, DbAuthzAdminBackend, VersionRecord, recordDriver } from '@spinajs/authz-rbac';",
+    "import { AUTHZ_CONFIGURATION_SCHEMA, AuthzService, GLOBAL, SYSTEM } from '@spinajs/authz';",
+    "import { AssignCommand, DbAssignmentStore, DbAuthzAdminBackend, ExplainCommand, VersionRecord, recordDriver } from '@spinajs/authz-rbac';",
     'class Config extends FrameworkConfiguration {',
     '  async resolve() {',
     '    await super.resolve();',
     "    this.Config.db = { DefaultConnection: 'cli', Connections: [{ Name: 'cli', Driver: 'orm-driver-sqlite', Filename: process.env.AUTHZ_CLI_DB }], Aliases: { authz: 'default' } };",
+    ...(authz ? [`    this.Config.authz = ${JSON.stringify(authz)};`] : []),
     '  }',
     '}',
     "DI.register(AUTHZ_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');",
@@ -102,5 +103,71 @@ describe('authz-rbac DB stores and DbAuthzAdminBackend in a process that has not
       ].join('\n'),
     );
     expect(result).to.deep.eq({ orm: true, recalled: null });
+  });
+});
+
+/** RBAC on the DB assignment store, with the permissions AuthzAdmin checks for an assignment. */
+const DB_AUTHZ = {
+  permissions: { 'doc:read': {}, 'authz:assignments.manage': {}, 'users:update': {} },
+  models: ['RbacModel'],
+  admin: { backend: 'DbAuthzAdminBackend', guard: { service: 'DefaultAdminGuard', privilegedPermission: 'users:update' } },
+  rbac: { roles: { viewer: { grants: ['doc:read'] } }, stores: { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: [], links: [], membership: [] } },
+};
+
+/** Runs the cli commands in `body` and keeps what they print; the log lines (colored) are left out. */
+const cliRun = (body: string[]): string =>
+  [
+    'const lines = [];',
+    'const log = console.log;',
+    'const error = console.error;',
+    "console.log = (...a) => lines.push(a.join(' '));",
+    "console.error = (...a) => lines.push('error: ' + a.join(' '));",
+    'try {',
+    ...body,
+    '} finally {',
+    '  console.log = log;',
+    '  console.error = error;',
+    '}',
+    "result.out = lines.filter((l) => !l.includes('\\u001b['));",
+    'result.exitCode = process.exitCode ?? null;',
+    'result.orm = DI.get(Orm) !== undefined;',
+  ].join('\n');
+
+describe('authz-rbac AuthzService and the authz cli in a process that has not resolved the Orm', function () {
+  this.timeout(120_000);
+
+  it('resolving AuthzService over the DB stores resolves the Orm, and the stores it boots write and read', async () => {
+    const result = await freshProcess(
+      [
+        'const authz = await DI.resolve(AuthzService);',
+        'result.orm = DI.get(Orm) !== undefined;',
+        "await authz.runAs(SYSTEM, 'test', () => authz.admin().assign(SYSTEM, { subject: { type: 'user', id: 'alice' }, role: 'viewer', scope: GLOBAL }));",
+        "const principal = { type: 'user', id: 'alice', authenticated: true, source: 'test', attributes: {} };",
+        "result.allowed = (await authz.explain({ principal, permission: 'doc:read', resource: GLOBAL })).allowed;",
+      ].join('\n'),
+      true,
+      DB_AUTHZ,
+    );
+    expect(result).to.deep.eq({ orm: true, allowed: true });
+  });
+
+  it('resolving AuthzService over the DB stores on a database migrate-up never ran on refuses with PendingMigrationsException as the cause', async () => {
+    const result = await freshProcess('try { await DI.resolve(AuthzService); } catch (e) { result.cause = e.cause?.constructor.name; throw e; }', false, DB_AUTHZ);
+    expect(result).to.have.property('cause', 'PendingMigrationsException');
+    expect((result as { error: string }).error).to.match(/^AuthzConfigError: .*npx spinajs migrate-up/);
+  });
+
+  it('authz:assign and authz:explain resolve only AuthzService; the DB stores it boots bring the Orm up', async () => {
+    const result = (await freshProcess(cliRun(["await (await DI.resolve(AssignCommand)).execute('user:alice', 'viewer', {});", "await (await DI.resolve(ExplainCommand)).execute('user:alice', 'doc:read', undefined, {});"]), true, DB_AUTHZ)) as { out: string[]; exitCode: number | null; orm: boolean };
+    expect(result.out[0]).to.match(/^[0-9a-f-]{36}$/);
+    expect(result.out[1]).to.eq('ALLOWED: user:alice doc:read on $global');
+    expect(result).to.include({ exitCode: null, orm: true });
+  });
+
+  it('authz:explain on a database migrate-up never ran on prints the refusal, naming migrate-up, and exits 1', async () => {
+    const result = (await freshProcess(cliRun(["await (await DI.resolve(ExplainCommand)).execute('user:alice', 'doc:read', undefined, {});"]), false, DB_AUTHZ)) as { out: string[]; exitCode: number | null };
+    expect(result.out).to.have.length(1);
+    expect(result.out[0]).to.match(/^error: Authz domain "root": model "rbac" failed to init: Database is not migrated: .*npx spinajs migrate-up/);
+    expect(result.exitCode).to.eq(1);
   });
 });

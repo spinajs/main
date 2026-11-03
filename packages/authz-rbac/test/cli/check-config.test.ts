@@ -110,7 +110,7 @@ describe('authz:check-config', () => {
     }
 
     /** A container where AuthzService resolves to the recording fake and the Orm cannot resolve. */
-    function noDatabase(stores?: Record<string, string[]>) {
+    function noDatabase() {
       const f = fakeAuthz();
       const container = DI.child();
       container.register(NoDatabaseOrm).as(Orm);
@@ -119,7 +119,7 @@ describe('authz:check-config', () => {
       const { cmd } = command(GOOD);
       delete cmd.Authz;
       cmd.Container = container;
-      cmd.Configuration = new ObjectConfiguration(stores ? { authz: { rbac: { stores } } } : {});
+      cmd.Configuration = new ObjectConfiguration({});
       return cmd;
     }
 
@@ -128,13 +128,6 @@ describe('authz:check-config', () => {
 
       expect(io.err).to.deep.equal([]);
       expect(io.out).to.deep.equal(['OK: 2 role(s), 1 ladder(s)']);
-    });
-
-    it('resolves the Orm first when the rules come from the database', async () => {
-      await noDatabase({ rules: ['DbRuleStore'] }).execute({});
-
-      expect(io.err).to.deep.equal(['no database configured']);
-      expect(io.exitCode()).to.equal(1);
     });
   });
 
