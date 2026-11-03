@@ -3,7 +3,7 @@ import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
-import { MigrationTransactionMode, Orm, OrmDriver, QueryContext } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm, OrmDriver, QueryContext, resolveMigrationTool } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/orm-mysql';
 // registers the log targets ( incl. BlackHoleTarget ) referenced by the logger config below;
@@ -124,17 +124,15 @@ suite('queue migrations against MySQL (dialect regression: Status default across
     DI.register(MysqlQueueConf).as(Configuration);
 
     await DI.resolve(Configuration);
-    // a dirty previous run may leave tables behind: they are dropped and migrated again below
-    const migrated = await migrateTestDatabase();
-    orm = migrated.orm;
+    // start from a clean slate even if a previous run crashed mid-migration; the Orm is built without migrating
+    await resolveMigrationTool();
+    orm = await DI.resolve(Orm);
     cn = orm.Connections.get('queue') as OrmDriver;
-
-    // start from a clean slate even if a previous run crashed mid-migration
     await dropQueueTables(cn);
 
     // the actual exercise: every queue migration ( incl. the MySQL-only MODIFY / ENUM branches )
     // must apply without a dialect error. This line alone catches the enum / MODIFY regressions.
-    await migrated.migrator.migrate();
+    await migrateTestDatabase();
   });
 
   after(async () => {

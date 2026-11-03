@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { MigrationTransactionMode } from '@spinajs/orm';
+import { MigrationTransactionMode, resolveMigrationTool } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/orm-sqlite';
 import '@spinajs/log';
@@ -12,6 +12,8 @@ export interface TestEnvOptions {
   now?: string;
   scheduler?: Record<string, unknown>;
   extra?: Record<string, unknown>;
+  /** Runs once the Orm exists, before anything is migrated. */
+  beforeMigrate?: () => Promise<void>;
 }
 
 let current: TestEnvOptions = {};
@@ -61,6 +63,10 @@ export async function bootTestEnv(options: TestEnvOptions = {}): Promise<{ clock
   DI.register(() => clock.dbSource).as(DbTimeSource);
   DI.register(SchedulerTestConf).as(Configuration);
   await DI.resolve(Configuration);
+  if (options.beforeMigrate) {
+    await resolveMigrationTool();
+    await options.beforeMigrate();
+  }
   await migrateTestDatabase();
   return { clock };
 }
