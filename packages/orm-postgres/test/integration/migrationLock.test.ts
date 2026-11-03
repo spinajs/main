@@ -3,12 +3,14 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import pg from 'pg';
 import { DI } from '@spinajs/di';
-import { advisoryKeyPair, DefaultMigrationService, IMigrationLockRequest, Migration, MIGRATION_TABLE_NAME, MigrationLock, MigrationLockLostException, migrationLockKey, MigrationRunner, OrmMigration, QueryContext, TableMigrationLock } from '@spinajs/orm';
+import { advisoryKeyPair, DefaultMigrationService, IMigrationLockRequest, Migration, MIGRATION_LOCK_ADVISORY_HEARTBEAT, MIGRATION_TABLE_NAME, MigrationLock, MigrationLockLostException, migrationLockAdvisoryMark, migrationLockKey, MigrationRunner, OrmMigration, QueryContext, TableMigrationLock } from '@spinajs/orm';
 import { PostgresMigrationLock, PostgresOrmDriver } from '../../src/index.js';
 import { adminQuery, bootPostgres, PG_SERVER, PgTestDb, requirePostgres } from './support.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('postgres migration lock (integration)', function () {
   this.timeout(60000);
@@ -147,12 +149,64 @@ describe('postgres migration lock (integration)', function () {
     expect(await isHeld()).to.be.false;
   });
 
-  it('after a crash the next run takes over at once: the row the dead run marked does not wait for StaleAfter', async () => {
-    const crashed = await service(pgdb.driver).acquireRunLock();
+  it('the lock session outlives the server idle timeout ( idle_session_timeout )', async () => {
+    await adminQuery(`ALTER DATABASE "${pgdb.name}" SET idle_session_timeout = '2s'`);
+
+    try {
+      const lock = await service(pgdb.driver).acquireRunLock();
+
+      try {
+        await delay(4_000);
+        await lock.assertHeld();
+        await expect(service(other, 700).acquireRunLock()).to.be.rejectedWith(/another migration run holds pg advisory lock/);
+      } finally {
+        await lock.release();
+      }
+    } finally {
+      await adminQuery(`ALTER DATABASE "${pgdb.name}" RESET idle_session_timeout`);
+    }
+  });
+
+  it('names the lock session for operators ( application_name )', async () => {
+    const lock = await service(pgdb.driver).acquireRunLock();
+
+    const rows = await pgdb.driver.executeOnDb(
+      `SELECT a.application_name AS name FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid WHERE l.locktype = 'advisory' AND l.objsubid = 2 AND l.classid = ${pair[0] >>> 0} AND l.objid = ${pair[1] >>> 0}`,
+      [],
+      QueryContext.Select,
+    );
+    await lock.release();
+
+    expect(rows).to.eql([{ name: 'spinajs-migration-lock:pg' }]);
+  });
+
+  it('a run whose lock session died but which still refreshes its row keeps the next run out until it releases', async () => {
+    const live = await service(pgdb.driver).acquireRunLock();
     await adminQuery(`SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype = 'advisory' AND classid = ${pair[0] >>> 0} AND objid = ${pair[1] >>> 0} AND objsubid = 2`);
 
+    try {
+      await expect(service(other, 2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT + 2_000).acquireRunLock()).to.be.rejectedWith(/held by .* but is still refreshing its row/);
+      await expect(live.assertHeld()).to.be.rejectedWith(MigrationLockLostException);
+    } finally {
+      await live.release();
+    }
+
     await (await service(other, 2_000).acquireRunLock()).release();
-    await crashed.release();
+  });
+
+  it('after a crash the next run takes over the row the dead run marked once it goes two heartbeats unrefreshed, not after StaleAfter', async () => {
+    await pgdb.driver
+      .insert()
+      .into(`${MIGRATION_TABLE_NAME}_lock`)
+      .values({ Id: 1, AcquiredAt: new Date(), Owner: `dead-host:1:0badf00d${migrationLockAdvisoryMark(request().key)}` });
+
+    const start = Date.now();
+    const lock = await service(other, 30_000).acquireRunLock();
+    const took = Date.now() - start;
+    await lock.release();
+
+    expect(took).to.be.at.least(2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT);
+    expect(took).to.be.lessThan(2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT + 2_000);
   });
 
   it('excludes a process of an earlier release that only takes the lock-table row, both ways', async () => {

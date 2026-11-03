@@ -13,7 +13,17 @@ export class MySqlMigrationLock extends SessionMigrationLock {
 
   protected async openSession(request: IMigrationLockRequest): Promise<IMigrationLockSession> {
     const name = mySqlLockName(request.key);
-    const connection = await this.driver.openDedicatedConnection();
+    const connection = await this.driver.openDedicatedConnection(this.sessionLabel());
+
+    try {
+      // wait_timeout would end the session while a long migration runs on the pool. The largest value every platform
+      // accepts: Windows caps it at 2147483 s, and a strict sql_mode rejects a larger one instead of clamping it
+      await connection.query('SET SESSION wait_timeout = 2147483');
+    } catch (err) {
+      connection.destroy();
+      throw err;
+    }
+
     const scalar = async (sql: string) => {
       const [rows] = await connection.query(sql, [name]);
       return (rows as Array<{ v: unknown }>)[0].v;

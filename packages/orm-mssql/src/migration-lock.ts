@@ -16,7 +16,8 @@ export class MsSqlMigrationLock extends SessionMigrationLock {
 
   protected async openSession(request: IMigrationLockRequest): Promise<IMigrationLockSession> {
     const resource = msSqlLockResource(request.key);
-    const pool = await this.driver.openDedicatedPool();
+    // SQL Server has no idle session limit to turn off
+    const pool = await this.driver.openDedicatedPool(this.sessionLabel());
     const scalar = async (sql: string) => ((await pool.request().input('res', resource).query(sql)).recordset?.[0] as { v?: unknown } | undefined)?.v;
 
     return {

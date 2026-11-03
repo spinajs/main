@@ -211,14 +211,18 @@ export class MsSqlOrmDriver extends SqlDriver {
   }
 
   /** Exactly one connection: a session-owned lock must not move to another session. */
-  protected dedicatedPoolConfig(): mssql.config {
+  protected dedicatedPoolConfig(appName?: string): mssql.config {
     const config = this.connectionConfig();
-    return { ...config, pool: { ...config.pool, min: 1, max: 1 } };
+    return { ...config, ...(appName ? { options: { ...config.options, appName } } : {}), pool: { ...config.pool, min: 1, max: 1 } };
   }
 
-  /** A pool of one connection of this database, outside the driver's own pool. The caller closes it. */
-  public async openDedicatedPool(): Promise<mssql.ConnectionPool> {
-    const pool = new mssql.ConnectionPool(this.dedicatedPoolConfig());
+  /**
+   * A pool of one connection of this database, outside the driver's own pool. The caller closes it.
+   *
+   * @param appName - its application name, `program_name` in `sys.dm_exec_sessions`
+   */
+  public async openDedicatedPool(appName?: string): Promise<mssql.ConnectionPool> {
+    const pool = new mssql.ConnectionPool(this.dedicatedPoolConfig(appName));
     pool.on('error', (err: unknown) => {
       this.Log?.warn({ error: err, connection: this.Options.Name }, 'mssql dedicated pool error for ${connection}');
     });

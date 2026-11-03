@@ -364,9 +364,14 @@ export class MySqlOrmDriver extends SqlDriver {
     };
   }
 
-  /** A connection of this database outside the pool, so a pool reconnect leaves it alone. The caller ends it. */
-  public async openDedicatedConnection(): Promise<PromiseConnection> {
-    const connection = mysql.createConnection(this.dedicatedConnectionOptions());
+  /**
+   * A connection of this database outside the pool, so a pool reconnect leaves it alone. The caller ends it.
+   *
+   * @param programName - its `program_name` connection attribute, shown in `performance_schema.session_connect_attrs`
+   */
+  public async openDedicatedConnection(programName?: string): Promise<PromiseConnection> {
+    const options = this.dedicatedConnectionOptions();
+    const connection = mysql.createConnection(programName ? { ...options, connectAttributes: { ...options.connectAttributes, program_name: programName } } : options);
     // unhandled, a fatal 'error' while the connection is idle kills the process; its holder learns of it on the next query
     connection.on('error', (err) => {
       this.Log?.warn({ error: err, connection: this.Options.Name }, 'mysql dedicated connection error for ${connection}');

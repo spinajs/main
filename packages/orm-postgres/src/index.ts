@@ -437,9 +437,13 @@ export class PostgresOrmDriver extends SqlDriver {
     }
   }
 
-  /** A client of this connection outside the pool, so a pool reconnect leaves it alone. The caller ends it. */
-  public async openDedicatedClient(): Promise<pg.Client> {
-    const client = new pg.Client(this.poolConfig());
+  /**
+   * A client of this connection outside the pool, so a pool reconnect leaves it alone. The caller ends it.
+   *
+   * @param applicationName - its `application_name`, shown in `pg_stat_activity`
+   */
+  public async openDedicatedClient(applicationName?: string): Promise<pg.Client> {
+    const client = new pg.Client({ ...this.poolConfig(), ...(applicationName ? { application_name: applicationName } : {}) });
     // unhandled, an 'error' from an idle client's dying socket kills the process; its holder learns of it on the next query
     client.on('error', (err) => {
       this.Log?.warn({ error: err, connection: this.Options.Name }, 'postgres dedicated client error for ${connection}');

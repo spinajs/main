@@ -6,7 +6,7 @@
  *   npx ts-mocha -p tsconfig.json test/integration/migrationLock.test.ts
  */
 import { DI } from '@spinajs/di';
-import { DefaultMigrationService, IMigrationLockRequest, Migration, MIGRATION_TABLE_NAME, MigrationLock, MigrationLockLostException, migrationLockKey, MigrationRunner, OrmMigration, QueryContext, TableMigrationLock } from '@spinajs/orm';
+import { DefaultMigrationService, IMigrationLockRequest, Migration, MIGRATION_LOCK_ADVISORY_HEARTBEAT, MIGRATION_TABLE_NAME, MigrationLock, MigrationLockLostException, migrationLockAdvisoryMark, migrationLockKey, MigrationRunner, OrmMigration, QueryContext, TableMigrationLock } from '@spinajs/orm';
 import '@spinajs/log';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -18,6 +18,8 @@ import { MySqlMigrationLock, mySqlLockName, MySqlOrmDriver } from '../../src/ind
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const SERVER = {
   Host: process.env.ORM_TEST_MYSQL_HOST ?? '127.0.0.1',
@@ -132,8 +134,8 @@ describe('mysql migration lock (integration)', function () {
     await lock.release();
   });
 
-  // the lock-table refresh reads 0 affected rows as "taken by another run": mysql2 must report matched rows, not changed ones
-  it('the pool reports matched rows ( FOUND_ROWS ), so an unchanged refresh still counts as ours', async () => {
+  // pins mysql2's default; the lock does not depend on it, since its refresh always writes a new AcquiredAt
+  it('the pool reports matched rows ( FOUND_ROWS, the mysql2 default ), not changed ones', async () => {
     const lock = await service(driver).acquireRunLock();
 
     const result = (await driver.executeOnDb(`UPDATE \`${MIGRATION_TABLE_NAME}_lock\` SET Owner = Owner WHERE Id = 1`, [], QueryContext.Update)) as { RowsAffected: number };
@@ -183,13 +185,62 @@ describe('mysql migration lock (integration)', function () {
     expect(await isHeld()).to.be.false;
   });
 
-  it('after a crash the next run takes over at once: the row the dead run marked does not wait for StaleAfter', async () => {
-    const crashed = await service(driver).acquireRunLock();
+  it('the lock connection outlives the server idle timeout ( wait_timeout )', async () => {
+    const [{ v: before }] = (await admin.executeOnDb('SELECT @@GLOBAL.wait_timeout AS v', [], QueryContext.Select)) as Array<{ v: number }>;
+    await admin.executeOnDb('SET GLOBAL wait_timeout = 2', [], QueryContext.Schema);
+
+    try {
+      const lock = await service(driver).acquireRunLock();
+
+      try {
+        await delay(4_000);
+        await lock.assertHeld();
+        await expect(service(other, 700).acquireRunLock()).to.be.rejectedWith(/another migration run holds GET_LOCK/);
+      } finally {
+        await lock.release();
+      }
+    } finally {
+      await admin.executeOnDb(`SET GLOBAL wait_timeout = ${Number(before)}`, [], QueryContext.Schema);
+    }
+  });
+
+  it('names the lock connection for operators ( program_name connection attribute )', async () => {
+    const lock = await service(driver).acquireRunLock();
+
+    const rows = await admin.executeOnDb(`SELECT ATTR_VALUE AS name FROM performance_schema.session_connect_attrs WHERE PROCESSLIST_ID = IS_USED_LOCK(?) AND ATTR_NAME = 'program_name'`, [lockName], QueryContext.Select);
+    await lock.release();
+
+    expect(rows).to.eql([{ name: 'spinajs-migration-lock:mysql-lock' }]);
+  });
+
+  it('a run whose lock connection died but which still refreshes its row keeps the next run out until it releases', async () => {
+    const live = await service(driver).acquireRunLock();
     const [{ id }] = (await admin.executeOnDb('SELECT IS_USED_LOCK(?) AS id', [lockName], QueryContext.Select)) as Array<{ id: number }>;
     await admin.executeOnDb(`KILL ${Number(id)}`, [], QueryContext.Schema);
 
+    try {
+      await expect(service(other, 2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT + 2_000).acquireRunLock()).to.be.rejectedWith(/held by .* but is still refreshing its row/);
+      await expect(live.assertHeld()).to.be.rejectedWith(MigrationLockLostException);
+    } finally {
+      await live.release();
+    }
+
     await (await service(other, 2_000).acquireRunLock()).release();
-    await crashed.release();
+  });
+
+  it('after a crash the next run takes over the row the dead run marked once it goes two heartbeats unrefreshed, not after StaleAfter', async () => {
+    await driver
+      .insert()
+      .into(`${MIGRATION_TABLE_NAME}_lock`)
+      .values({ Id: 1, AcquiredAt: new Date(), Owner: `dead-host:1:0badf00d${migrationLockAdvisoryMark(request().key)}` });
+
+    const start = Date.now();
+    const lock = await service(other, 30_000).acquireRunLock();
+    const took = Date.now() - start;
+    await lock.release();
+
+    expect(took).to.be.at.least(2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT);
+    expect(took).to.be.lessThan(2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT + 2_000);
   });
 
   it('excludes a process of an earlier release that only takes the lock-table row, both ways', async () => {

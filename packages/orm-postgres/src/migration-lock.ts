@@ -13,7 +13,18 @@ export class PostgresMigrationLock extends SessionMigrationLock {
 
   protected async openSession(request: IMigrationLockRequest): Promise<IMigrationLockSession> {
     const [k1, k2] = advisoryKeyPair(request.key);
-    const client = await this.driver.openDedicatedClient();
+    const client = await this.driver.openDedicatedClient(this.sessionLabel());
+
+    try {
+      // idle_session_timeout ( 14+ ) would end the session while a long migration runs on the pool
+      const { rows } = await client.query<{ v: number }>(`SELECT current_setting('server_version_num')::int AS v`);
+      if (rows[0].v >= 140000) {
+        await client.query('SET idle_session_timeout = 0');
+      }
+    } catch (err) {
+      await client.end().catch(() => undefined);
+      throw err;
+    }
 
     return {
       name: `pg advisory lock (${k1}, ${k2})`,

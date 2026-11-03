@@ -4,7 +4,7 @@
  * the root docker-compose.yml, as mssql.test.ts does.
  */
 import { DI } from '@spinajs/di';
-import { DefaultMigrationService, IMigrationLockRequest, Migration, MIGRATION_TABLE_NAME, MigrationLock, MigrationLockLostException, migrationLockKey, MigrationRunner, OrmMigration, QueryContext, TableMigrationLock } from '@spinajs/orm';
+import { DefaultMigrationService, IMigrationLockRequest, Migration, MIGRATION_LOCK_ADVISORY_HEARTBEAT, MIGRATION_TABLE_NAME, MigrationLock, MigrationLockLostException, migrationLockAdvisoryMark, migrationLockKey, MigrationRunner, OrmMigration, QueryContext, TableMigrationLock } from '@spinajs/orm';
 import '@spinajs/log';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -16,6 +16,8 @@ import { MsSqlMigrationLock, msSqlLockResource, MsSqlOrmDriver } from '../src/in
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const SERVER = {
   Host: process.env.ORM_TEST_MSSQL_HOST ?? 'localhost',
@@ -179,14 +181,64 @@ describe('mssql migration lock (integration)', function () {
     expect(await isHeld()).to.be.false;
   });
 
-  it('after a crash the next run takes over at once: the row the dead run marked does not wait for StaleAfter', async () => {
-    const crashed = await service(driver).acquireRunLock();
+  // SQL Server ends no idle session, but a proxy or gateway in front of it may
+  it('keeps the lock session busy while held', async () => {
+    const lock = await driver.Container.resolve(MigrationLock, [driver]).acquire({ ...request(), staleAfter: 3_000 });
+    const lastRequest = async () => {
+      const [{ spid }] = await holders();
+      const [{ at }] = (await admin.executeOnDb(`SELECT last_request_end_time AS at FROM sys.dm_exec_sessions WHERE session_id = ?`, [spid], QueryContext.Select)) as Array<{ at: Date }>;
+      return new Date(at).getTime();
+    };
+
+    try {
+      const first = await lastRequest();
+      await delay(2_500);
+      expect(await lastRequest()).to.be.greaterThan(first);
+      await lock.assertHeld();
+    } finally {
+      await lock.release();
+    }
+  });
+
+  it('names the lock session for operators ( program_name )', async () => {
+    const lock = await service(driver).acquireRunLock();
+
+    const [{ spid }] = await holders();
+    const rows = await admin.executeOnDb(`SELECT program_name AS name FROM sys.dm_exec_sessions WHERE session_id = ?`, [spid], QueryContext.Select);
+    await lock.release();
+
+    expect(rows).to.eql([{ name: 'spinajs-migration-lock:mssql-lock' }]);
+  });
+
+  it('a run whose lock session died but which still refreshes its row keeps the next run out until it releases', async () => {
+    const live = await service(driver).acquireRunLock();
     for (const { spid } of await holders()) {
       await admin.executeOnDb(`KILL ${Number(spid)}`, [], QueryContext.Schema);
     }
 
+    try {
+      await expect(service(other, 2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT + 2_000).acquireRunLock()).to.be.rejectedWith(/held by .* but is still refreshing its row/);
+      await expect(live.assertHeld()).to.be.rejectedWith(MigrationLockLostException);
+    } finally {
+      await live.release();
+    }
+
     await (await service(other, 2_000).acquireRunLock()).release();
-    await crashed.release();
+  });
+
+  it('after a crash the next run takes over the row the dead run marked once it goes two heartbeats unrefreshed, not after StaleAfter', async () => {
+    await driver
+      .insert()
+      .into(`${MIGRATION_TABLE_NAME}_lock`)
+      .values({ Id: 1, AcquiredAt: new Date(), Owner: `dead-host:1:0badf00d${migrationLockAdvisoryMark(request().key)}` });
+
+    const start = Date.now();
+    const lock = await service(other, 30_000).acquireRunLock();
+    const took = Date.now() - start;
+    await lock.release();
+
+    expect(took).to.be.at.least(2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT);
+    expect(took).to.be.lessThan(2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT + 2_000);
   });
 
   it('excludes a process of an earlier release that only takes the lock-table row, both ways', async () => {
