@@ -1,6 +1,7 @@
 import { BasePath, BaseController, Get, Query, Ok } from '@spinajs/http';
-import { Autoinject } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
+import { Autoinject, Container } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+import { bootedManifestOf, Config } from '@spinajs/configuration';
 import { BadRequest } from '@spinajs/exceptions';
 
 import { TelemetryStore } from './../store.js';
@@ -43,6 +44,9 @@ export class TelemetryController extends BaseController {
 
   @Config('telemetry.health.version')
   protected Version: string;
+
+  @Autoinject(Container)
+  protected Container: IContainer;
 
   /**
    * Lifetime request statistics plus the rolling timeline.
@@ -171,6 +175,8 @@ export class TelemetryController extends BaseController {
 
       // omitted rather than reported as null when `telemetry.health.version` is unset
       ...(this.Version ? { version: this.Version } : {}),
+
+      manifest: bootedManifestOf(this.Container),
     });
   }
 
