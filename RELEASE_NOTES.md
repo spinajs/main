@@ -31,6 +31,13 @@
 - The CLI commands of `@spinajs/authn-keys`, `authn-local`, `authn-orm`, `authn-token`, `authn-totp`, `authz-orm`, `authz-rbac`,
   `scheduler`, `upload` and `users` boot the `Orm` as an application does: they refuse to run on an unmigrated database.
   Run `migrate-up` first.
+- Those commands no longer resolve or inject the `Orm` themselves where a service they use queries the database: that service
+  injects it (`UploadStore` and `DefaultSchedulerService` now do, as the DB stores of authn-orm, authn-keys, authn-token, users
+  and authz-rbac already did). An app's own `TokenService`, `KeyStore`, `IdentityStore` or `MfaStore` that queries models
+  injects the `Orm` too (`@Autoinject(Orm)`), or the command finds its models unbound. `AuthzCliCommand.touchesDb()`
+  (`@spinajs/authz-rbac`) is removed and an override is never called: a command over memory or config-backed stores resolves no
+  `Orm`, one over a DB store gets it from that store. An `authz:*` command on an unmigrated database prints the error of the authz
+  boot, `Authz domain "root": model "rbac" failed to init: Database is not migrated: ...`.
 - `@spinajs/configuration-db-source`: an `Orm` booted with `Migration.Check` `'warn'` or `'off'` before the `configuration`
   table exists, and a migration tool's `Orm`, sync no exposed options. Restart the application after `migrate-up`.
 - Two connections on one database that share `Migration.Table` now block each other: a run holds the first connection's lock
