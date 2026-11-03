@@ -169,7 +169,7 @@ export class StrictMigrationsMySqlDriver extends MySqlOrmDriver {
 ## Best practices
 
 - Set `Database` on every MySQL connection; reflection, `tableExists()` and the migration table depend on it.
-- Apply migrations before the app serves (`migrate-up` in the deploy step, or `Migration.OnStartup`, applied when the `Orm` resolves): models then reflect the migrated columns. The `Orm` reads the tables after its startup migrations, and `migrate-up` re-reads the ones its migrations touched.
+- Apply migrations before the app serves ([`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) in the deploy step): models then reflect the migrated columns. The app refuses to boot while a migration is pending, and `migrate-up` re-reads the tables its migrations touched.
 - Declare `@Bool()`, `@DateTime()` and similar converters on columns whose `DATA_TYPE` does not say their JS type.
 
 ## Patterns and antipatterns

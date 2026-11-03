@@ -49,7 +49,6 @@ export class AppConfiguration extends FrameworkConfiguration {
             Password: process.env.DB_PASSWORD ?? '',
             Database: 'shop',
             Pool: { Min: 2, Max: 20 },
-            Migration: { OnStartup: true },
           },
         ],
       },
@@ -58,7 +57,7 @@ export class AppConfiguration extends FrameworkConfiguration {
 }
 
 export async function bootstrap(): Promise<Orm> {
-  // importing @spinajs/orm-mysql registered 'orm-driver-mysql'; the Orm applies the OnStartup migrations
+  // importing @spinajs/orm-mysql registered 'orm-driver-mysql'; resolving fails on pending migrations, so run `npx spinajs migrate-up` first
   return await DI.resolve(Orm);
 }
 ```

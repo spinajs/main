@@ -54,7 +54,6 @@ export class AppConfiguration extends FrameworkConfiguration {
             User: 'app',
             Password: 'secret',
             Database: 'shop',
-            Migration: { OnStartup: true },
           },
         ],
       },
@@ -64,7 +63,7 @@ export class AppConfiguration extends FrameworkConfiguration {
 
 /** Number of devices a customer is signed in on, for the support panel. */
 export async function activeDeviceCount(userUuid: string): Promise<number> {
-  // resolves the Orm, which applies the Migration.OnStartup migrations
+  // resolves the Orm, which fails on pending migrations: run `npx spinajs migrate-up` first
   await DI.resolve(Orm);
   const store = await DI.resolve(DbSessionStore);
   const sessions = await store.listBySubject({ type: 'user', id: userUuid });

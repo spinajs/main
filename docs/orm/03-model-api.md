@@ -5,7 +5,7 @@
 ## How it works
 
 1. `@Model()` registers the class under `__models__` (see [Models](02-models.md)).
-2. `Orm.resolve()` loads table info, wires relations, then calls `applyModelMixins()`, which binds every function of `MODEL_STATIC_MIXINS` onto each registered model class. The `Migration.OnStartup` migrations run before that; their `data()` seeds run once the `Orm` is resolved.
+2. `Orm.resolve()` loads table info, wires relations, then calls `applyModelMixins()`, which binds every function of `MODEL_STATIC_MIXINS` onto each registered model class. `Orm.resolve()` applies no migration; `migrate-up` runs the migrations' `up()` and `data()` over an `Orm` that has already resolved.
 3. A static call such as `Invoice.getOrFail(5)` runs the mixin. It calls `createQuery()`, which resolves the model's connection (`OrmConnection`), builds the builder in the connection's container, binds the model's query scopes and adds the default soft-delete and archive filters.
 4. The mixin adds its conditions (`wherePk()`, ordering) and awaits the builder. The driver executes the SQL.
 5. The builder creates a model per row through `__orm_model_factory__`, calls `hydrate()` and `takeSnapshot()` (see [Converters and hydration](04-converters-and-hydration.md)).
@@ -169,7 +169,7 @@ its connections and `OrmConnectionMissing` (with `connection`) when no connectio
 
 ## Important behaviour
 
-- Static methods exist only after `Orm.resolve()` reaches `applyModelMixins()`. The startup migrations' `up()` runs before that and cannot use them; their `data()` runs after and can. See [Migrations](10-migrations.md).
+- Static methods exist only after `Orm.resolve()` reaches `applyModelMixins()`. A migration's `data()` uses them: it runs after the models its run touched were re-read. See [Migrations](10-migrations.md).
 - A service that queries models injects the `Orm` (`@Autoinject(Orm)`); resolving the service then resolves the `Orm` first.
 - Construct a model after `Orm` has resolved. `hydrate()` resolves the connection's container and throws `model <Name> have invalid connection ...` when it cannot.
 - `get()`, `first()`, `last()`, `newest()` and `oldest()` resolve `undefined` when nothing matches, although their return type is the model.
