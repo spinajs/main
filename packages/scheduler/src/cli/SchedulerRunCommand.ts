@@ -1,5 +1,6 @@
 import { Argument, Command, Option } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
 import {
   isTerminalStatus,
   RunConflict,
@@ -71,7 +72,7 @@ export class SchedulerRunCommand extends SchedulerCommand {
    * retry another replica claims. A run still queued is blocked, and the blocking run is named.
    */
   protected async assertTakenElsewhere(runId: string): Promise<void> {
-    const run = await RunModel.where('Id', runId).first();
+    const run = await this.runRow(runId);
     if (!run || run.Status !== 'queued') return;
     const blocking = await RunModel.where('Schedule', run.Schedule)
       .where('Status', 'running')
@@ -85,6 +86,12 @@ export class SchedulerRunCommand extends SchedulerCommand {
       `run ${runId} could not be claimed in this process: ${holder}; it stays queued for a server replica`,
       blocking?.Id ?? null,
     );
+  }
+
+  /** The command reads RunModel itself, so it resolves the Orm that binds it rather than relying on `service()` having run. */
+  protected async runRow(runId: string): Promise<RunModel | undefined> {
+    await DI.resolve(Orm);
+    return RunModel.where('Id', runId).first();
   }
 
   /** The loop is never started here, so only the runs this command claims execute in the CLI process. */
@@ -139,7 +146,7 @@ export class SchedulerRunCommand extends SchedulerCommand {
     const tick = this.config().tick;
     while (!signal.aborted) {
       await scheduler.idle();
-      const run = await RunModel.where('Id', runId).first();
+      const run = await this.runRow(runId);
       if (!run || isTerminalStatus(run.Status) || signal.aborted) break;
       if (run.Status !== 'retrying') {
         await timers.sleep(tick, signal);
