@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
-import type { Manifest } from '@spinajs/manifest';
+import { hashManifest, type Manifest } from '@spinajs/manifest';
 import { hasBuiltFragments, installApp, type InstalledApp, type ProbeResult } from './support/installed-app.js';
 
 const TMP = resolve('test/fixtures/.tmp-e2e-boot');
@@ -268,6 +268,12 @@ describe('app-basic boots from its manifest', function () {
     expect(required.schedules).to.include('basic-task');
     expect(required.commands).to.include('BasicCommand');
     expect(required.socketCommands).to.include.members(['chat.send', 'chat.history']);
+  });
+
+  it('records the hash of the manifest it booted from, the one hashManifest gives, and null in off mode', () => {
+    expect(required.booted).to.deep.equal({ mode: 'require', hash: hashManifest(manifest) });
+    expect(preferred.booted).to.deep.equal({ mode: 'prefer', hash: hashManifest(manifest) });
+    expect(discovered.booted).to.deep.equal({ mode: 'off', hash: null });
   });
 
   it('does not mount the explain route, which only its own source serves', () => {

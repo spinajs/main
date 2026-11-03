@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import ts from 'typescript';
+import type { BootedManifest } from '@spinajs/configuration';
 import type { Manifest } from '@spinajs/manifest';
 import { buildAppManifest } from '../../../src/index.js';
 
@@ -51,6 +52,7 @@ export interface ProbeResult {
   socketReplies: SocketReply[];
   /** Only with a manifest: a scan-only boot has no derived validation to prove */
   validation: Record<string, { status: number; body: unknown }>;
+  booted: BootedManifest;
 }
 
 /** Whether the workspace packages were built with their manifest fragments, which the installed app links to. */

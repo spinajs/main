@@ -15,7 +15,7 @@ import { InternalLogger } from '@spinajs/internal-logger';
 import { BaseFileSource, JsFileSource } from '../src/sources.js';
 import { FrameworkConfiguration } from '../src/configuration.js';
 import { ManifestConfigurationSource } from '../src/manifest-source.js';
-import { effectiveManifestOf, manifestOf, manifestSettingsOf, registerManifestSettings } from '../src/manifest-runtime.js';
+import { bootedManifestOf, effectiveManifestOf, manifestOf, manifestSettingsOf, registerManifestSettings } from '../src/manifest-runtime.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -244,6 +244,70 @@ describe('ManifestConfigurationSource', () => {
     it('is silent in off mode', async () => {
       await bootWith('development', 'off', 'production');
       expect(buildEnvWarnings()).to.have.length(0);
+    });
+  });
+
+  describe('the manifest the app booted from', () => {
+    const manifestAppHash = () => hashManifest(JSON.parse(readFileSync(join(FIX, 'app.manifest.json'), 'utf8')) as Manifest);
+
+    let app: string;
+
+    const bootFrom = async (manifest: Manifest, mode: string) => {
+      write(join(app, 'app.manifest.json'), manifest);
+      cwd.returns(app);
+      return start({ SPINAJS_MANIFEST_MODE: mode, APP_ENV: 'test' });
+    };
+
+    const fixture = (): Manifest => {
+      const manifest = JSON.parse(JSON.stringify(readFixtureManifest())) as Manifest;
+      manifest.packages = [];
+      manifest.hash = hashManifest(manifest);
+      return manifest;
+    };
+
+    beforeEach(() => {
+      app = realpathSync(mkdtempSync(join(tmpdir(), 'spinajs-booted-')));
+      write(join(app, 'package.json'), { name: 'app', version: '0.0.0', type: 'module' });
+    });
+
+    afterEach(() => rmSync(app, { recursive: true, force: true }));
+
+    for (const mode of ['prefer', 'require'] as const) {
+      it(`holds the hash hashManifest gives the loaded file in ${mode} mode, in a child container too`, async () => {
+        const { container } = await start({ SPINAJS_MANIFEST_MODE: mode, APP_ENV: 'test' });
+        expect(bootedManifestOf(container)).to.deep.equal({ mode, hash: manifestAppHash() });
+        expect(bootedManifestOf(container.child())).to.deep.equal({ mode, hash: manifestAppHash() });
+      });
+    }
+
+    it('holds null in off mode, although a manifest file is there', async () => {
+      const { container } = await start({ SPINAJS_MANIFEST_MODE: 'off', APP_ENV: 'test' });
+      expect(bootedManifestOf(container)).to.deep.equal({ mode: 'off', hash: null });
+    });
+
+    it('holds null in prefer mode without a manifest file', async () => {
+      cwd.returns(resolve(FIX, 'empty'));
+      const { container } = await start({ SPINAJS_MANIFEST_MODE: 'prefer', APP_ENV: 'test' });
+      expect(bootedManifestOf(container)).to.deep.equal({ mode: 'prefer', hash: null });
+    });
+
+    it('holds null in prefer mode for a stale manifest, which the boot falls back from', async () => {
+      const warn = sinon.stub(console, 'warn');
+      const { container } = await bootFrom({ ...fixture(), hash: 'f'.repeat(64) }, 'prefer');
+      expect(warn.calledWithMatch(/hash mismatch/)).to.equal(true);
+      expect(bootedManifestOf(container)).to.deep.equal({ mode: 'prefer', hash: null });
+    });
+
+    it('reports neither the compiler version the manifest records nor a hash it changes', async () => {
+      const manifest = { ...fixture(), compilerVersion: '4.0.0-test' };
+      const { container } = await bootFrom(manifest, 'require');
+      expect(bootedManifestOf(container)).to.deep.equal({ mode: 'require', hash: fixture().hash });
+    });
+
+    it('holds off and null where nothing decided the manifest', () => {
+      const undecided = new Container();
+      open.push(undecided);
+      expect(bootedManifestOf(undecided)).to.deep.equal({ mode: 'off', hash: null });
     });
   });
 
