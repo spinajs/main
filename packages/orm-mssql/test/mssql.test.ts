@@ -41,6 +41,7 @@ export class ConnectionConf extends FrameworkConfiguration {
         db: {
           // The tables come from Runner.up() after the boot.
           StrictTableCheck: false,
+          MigrationCheck: 'off',
           Connections: [
             {
               Driver: 'orm-driver-mssql',

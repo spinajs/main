@@ -5,12 +5,14 @@
 /* eslint-disable prettier/prettier */
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { MIGRATION_TABLE_NAME, Migration, Orm, OrmDriver, OrmMigration, OrmMigrator, QueryContext } from '@spinajs/orm';
+import { MIGRATION_TABLE_NAME, Migration, Orm, OrmDriver, OrmMigration, OrmMigrator, PendingMigrationsException, QueryContext, resolveMigrationTool } from '@spinajs/orm';
 import * as chai from 'chai';
 import { existsSync, unlinkSync } from 'fs';
 import _ from 'lodash';
 import 'mocha';
 import '@spinajs/log';
+// SqliteOrmDriver is only a type here, and that import is elided: the driver registers on load
+import './../src/index.js';
 import { SqliteOrmDriver } from './../src/index.js';
 import { dir, mergeArrays } from './util.js';
 
@@ -22,9 +24,10 @@ const expect = chai.expect;
  *
  * The scenario is an existing deployment: a `spinajs_migration` table in the shape the ORM
  * used to create - `Migration` + `CreatedAt` and nothing else - already carrying a row for a
- * migration that ran years ago. Booting the current ORM against it has to add the six columns
- * the new service needs, backfill them from `CreatedAt`, and still read that old row as
- * APPLIED so its migration is not executed a second time over a schema that already has it.
+ * migration that ran years ago. An application's boot reads that row as APPLIED without changing
+ * the table; `migrate-up` then has to add the six columns the new service needs, backfill them
+ * from `CreatedAt`, and still read the old row as APPLIED so its migration is not executed a
+ * second time over a schema that already has it.
  *
  * `:memory:` cannot express this: every sqlite handle gets its own private database, so the
  * table crafted before boot would be invisible to the connection the Orm opens. Hence the
@@ -82,14 +85,8 @@ class UpgradeConnectionConf extends FrameworkConfiguration {
               // one handle, so nothing is left holding the file when it is deleted below
               Pool: { Max: 1 },
 
-              Migration: {
-                // the upgrade has to happen on BOOT, with nobody calling migrate() by
-                // hand - so the connection has to be one the boot run does not skip
-                OnStartup: true,
-
-                // deliberately no `Table`: this exercises the default MIGRATION_TABLE_NAME
-                // path, which is the name a real legacy deployment would be carrying
-              },
+              // deliberately no `Migration.Table`: this exercises the default MIGRATION_TABLE_NAME
+              // path, which is the name a real legacy deployment would be carrying
             },
           ],
         },
@@ -134,6 +131,11 @@ describe('Sqlite migration tracking table upgrade', function () {
 
   /** Whether the lock table existed before the Orm booted. */
   let preBootLockTableExists = true;
+
+  /** What an application's boot on the legacy table threw, and the table as that boot left it. */
+  let appBootError: unknown;
+  let afterAppBootColumns: string[] = [];
+  let afterAppBootLockTableExists = true;
 
   let legacyMigrationType: any;
   let freshMigrationType: any;
@@ -187,24 +189,37 @@ describe('Sqlite migration tracking table upgrade', function () {
    * migration service has touched the file. Raw on purpose: the point is a table this codebase
    * did not create, so going through the current schema builder would be assuming the answer.
    */
-  async function craftLegacyDatabase() {
+  async function onRawHandle<T>(fn: (driver: SqliteOrmDriver) => Promise<T>): Promise<T> {
     const driver = await DI.resolve<SqliteOrmDriver>('orm-driver-sqlite', [{ Driver: 'orm-driver-sqlite', Name: 'legacy-prep', Filename: DB_FILE, Pool: { Max: 1 } }]);
 
     await driver.connect();
 
     try {
-      await driver.executeOnDb(`CREATE TABLE \`${MIGRATION_TABLE_NAME}\` (\`Migration\` TEXT NOT NULL UNIQUE, \`CreatedAt\` TEXT NOT NULL)`, [] as any, QueryContext.Schema);
-      await driver.executeOnDb(`INSERT INTO \`${MIGRATION_TABLE_NAME}\` (\`Migration\`, \`CreatedAt\`) VALUES (?, ?)`, [LEGACY_MIGRATION, LEGACY_CREATED_AT] as any, QueryContext.Insert);
-
-      // PRAGMA rather than driver.tableInfo(): tableInfo() reads the value-converter map that
-      // only an Orm boot registers, and this snapshot is taken before any Orm exists
-      preBootColumns = ((await driver.executeOnDb(`PRAGMA table_info(${MIGRATION_TABLE_NAME});`, [] as any, QueryContext.Select)) as any[]).map((c) => c.name as string);
-
-      const lockRows = (await driver.executeOnDb(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, [LOCK_TABLE_NAME] as any, QueryContext.Select)) as any[];
-      preBootLockTableExists = lockRows.length > 0;
+      return await fn(driver);
     } finally {
       await driver.disconnect();
     }
+  }
+
+  /**
+   * PRAGMA rather than driver.tableInfo(): tableInfo() reads the value-converter map that only an
+   * Orm boot registers, and these snapshots are taken outside any Orm.
+   */
+  async function snapshot(): Promise<{ columns: string[]; lockTableExists: boolean }> {
+    return await onRawHandle(async (driver) => {
+      const columns = ((await driver.executeOnDb(`PRAGMA table_info(${MIGRATION_TABLE_NAME});`, [] as any, QueryContext.Select)) as any[]).map((c) => c.name as string);
+      const lockRows = (await driver.executeOnDb(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, [LOCK_TABLE_NAME] as any, QueryContext.Select)) as any[];
+      return { columns, lockTableExists: lockRows.length > 0 };
+    });
+  }
+
+  async function craftLegacyDatabase() {
+    await onRawHandle(async (driver) => {
+      await driver.executeOnDb(`CREATE TABLE \`${MIGRATION_TABLE_NAME}\` (\`Migration\` TEXT NOT NULL UNIQUE, \`CreatedAt\` TEXT NOT NULL)`, [] as any, QueryContext.Schema);
+      await driver.executeOnDb(`INSERT INTO \`${MIGRATION_TABLE_NAME}\` (\`Migration\`, \`CreatedAt\`) VALUES (?, ?)`, [LEGACY_MIGRATION, LEGACY_CREATED_AT] as any, QueryContext.Insert);
+    });
+
+    ({ columns: preBootColumns, lockTableExists: preBootLockTableExists } = await snapshot());
   }
 
   before(async () => {
@@ -221,9 +236,19 @@ describe('Sqlite migration tracking table upgrade', function () {
 
     DI.register(UpgradeConnectionConf).as(Configuration);
 
-    // the whole subject of this suite: booting, and nothing else
-    orm = (await DI.resolve(Orm))!;
-    migrator = (await DI.resolve(Orm)).Migrator;
+    // a deploy that boots the application before migrate-up: its own container, as its own process
+    appBootError = await DI.child()
+      .resolve(Orm)
+      .then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+    ({ columns: afterAppBootColumns, lockTableExists: afterAppBootLockTableExists } = await snapshot());
+
+    // the subject of the rest of the suite: migrate-up, and nothing else
+    migrator = await resolveMigrationTool();
+    orm = migrator.Orm;
+    await migrator.migrate();
   });
 
   after(async () => {
@@ -268,10 +293,19 @@ describe('Sqlite migration tracking table upgrade', function () {
     expect(preBootLockTableExists, 'lock table existed before boot').to.be.false;
   });
 
-  it('adds every new tracking column on boot and keeps the legacy ones', async () => {
+  it("an application's boot reads the legacy row as applied, names only the unrecorded migration and changes nothing", () => {
+    expect(appBootError).to.be.instanceOf(PendingMigrationsException);
+    expect((appBootError as PendingMigrationsException).pending).to.deep.equal([{ name: FRESH_MIGRATION, connection: CONNECTION_NAME }]);
+    expect((appBootError as PendingMigrationsException).failed).to.deep.equal([]);
+
+    expect(afterAppBootColumns, 'the boot check upgraded the tracking table').to.have.members(LEGACY_COLUMNS);
+    expect(afterAppBootLockTableExists, 'the boot check created the lock table').to.be.false;
+  });
+
+  it('adds every new tracking column on migrate-up and keeps the legacy ones', async () => {
     const cols = await connection().tableInfo(MIGRATION_TABLE_NAME, connection().Options.Database);
 
-    expect(cols, 'tracking table is gone after boot').to.be.not.null;
+    expect(cols, 'tracking table is gone after migrate-up').to.be.not.null;
 
     const names = cols.map((c) => c.Name);
 
@@ -315,7 +349,7 @@ describe('Sqlite migration tracking table upgrade', function () {
   });
 
   it('still runs the migration the legacy table never recorded', async () => {
-    // without this the test above would also pass on a boot that ran nothing at all
+    // without this the test above would also pass on a run that ran nothing at all
     expect(freshUpRuns).to.eq(1);
 
     const exists = await connection().schema().tableExists(FRESH_MARKER_TABLE);
@@ -360,27 +394,34 @@ describe('Sqlite migration tracking table upgrade', function () {
   // MUST RUN LAST - order-terminal. It disposes `orm`, clears the container cache and reassigns
   // `orm` to a second boot, so every test above it observes the FIRST boot and would see this
   // one's state instead if mocha reached it earlier. Add new cases above this, never below.
-  it('leaves the upgraded table alone on a second boot', async () => {
-    // ensureStorage() runs on every boot, and the alter branch is guarded by a column probe -
-    // a probe that missed would re-add columns and fail on the second run. Every boot against an
-    // ALREADY EXISTING tracking table takes that path, and only a second boot can reach it.
+  it('leaves the upgraded table alone on a second migrate-up, and the application boots on it', async () => {
+    // ensureStorage() runs on every run, and the alter branch is guarded by a column probe -
+    // a probe that missed would re-add columns and fail on the second run. Every run against an
+    // ALREADY EXISTING tracking table takes that path, and only a second run can reach it.
     //
-    // This is the boot that used to crash: `DI.clearCache()` empties the value-converter map, and
+    // This is the run that used to crash: `DI.clearCache()` empties the value-converter map, and
     // `SqliteOrmDriver.tableInfo` reads it from `ensureStorage()`. `Orm.resolve()` registers
-    // the converters before the migrator's pass, so the map is there by the time this runs.
+    // the converters before anything reads a tracking table, so the map is there by the time this runs.
     await orm.dispose();
     DI.clearCache();
 
-    orm = (await DI.resolve(Orm))!;
-    migrator = (await DI.resolve(Orm)).Migrator;
+    migrator = await resolveMigrationTool();
+    orm = migrator.Orm;
+    expect(await migrator.migrate()).to.deep.equal([]);
 
     const rows = await trackingRows();
     const legacy = rows.find((r) => r.Migration === LEGACY_MIGRATION);
 
     expect(rows.length).to.eq(2);
-    expect(legacy, `row ${LEGACY_MIGRATION} did not survive the second boot`).to.be.not.undefined;
+    expect(legacy, `row ${LEGACY_MIGRATION} did not survive the second run`).to.be.not.undefined;
     expect(legacy.FinishedAt).to.eq(LEGACY_CREATED_AT);
     expect(legacyUpRuns).to.eq(0);
     expect(freshUpRuns).to.eq(1);
+
+    // a fresh process: the boot check passes on the upgraded table
+    await orm.dispose();
+    DI.clearCache();
+    orm = await DI.resolve(Orm);
+    expect(orm.Connections.get(CONNECTION_NAME)).to.not.equal(undefined);
   });
 });

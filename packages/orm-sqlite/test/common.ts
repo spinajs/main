@@ -33,6 +33,7 @@ export class ConnectionConf2 extends FrameworkConfiguration {
         db: {
           // In-memory database: the tables come from migrations().up() or test DDL after the Orm boots.
           StrictTableCheck: false,
+          MigrationCheck: 'off',
           Migration: {
             Startup: false,
           },
@@ -78,6 +79,7 @@ export class ConnectionConf extends FrameworkConfiguration {
         db: {
           // In-memory database: the tables come from migrations().up() or test DDL after the Orm boots.
           StrictTableCheck: false,
+          MigrationCheck: 'off',
           Connections: [
             {
               Driver: 'orm-driver-sqlite',
