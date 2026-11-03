@@ -8,10 +8,10 @@
 
 ## Breaking changes
 
-- `Orm.resolve()` no longer applies migrations or runs `data()` seeds. It checks every connection's tracking table and fails
-  with `PendingMigrationsException` while a migration is pending or failed. The message names the migrations, their
-  connections and `npx spinajs migrate-up` (and `migrate-status` / `migrate-resolve` for a FAILED one). The connections it
-  opened are closed and no `Orm` is cached.
+- `Orm.resolve()` no longer applies migrations or runs `data()` seeds. It asks each connection's `Migration.Service` for its
+  status (`status()` with `readOnly`) and fails with `PendingMigrationsException` while a migration is pending or failed. The
+  message names the migrations, their connections and `npx spinajs migrate-up` (and `migrate-status` / `migrate-resolve` for a
+  FAILED one). The connections it opened are closed and no `Orm` is cached.
 - `Migration.OnStartup` is removed, from `IDriverOptions` too: a TypeScript configuration typed with it no longer compiles,
   and a configuration that still sets it, with any value, fails the boot with an `OrmException` naming each key and
   `npx spinajs migrate-up`. A migration tool's boot does not read the key, so `migrate-up` still runs on a 3.0 configuration.
@@ -33,8 +33,9 @@
   Run `migrate-up` first.
 - `@spinajs/configuration-db-source`: an `Orm` booted with `Migration.Check` `'warn'` or `'off'` before the `configuration`
   table exists, and a migration tool's `Orm`, sync no exposed options. Restart the application after `migrate-up`.
-- `migrateTestDatabase()` refuses when the `OrmMigrationGuard` cached in its container is enabled (the `Orm` or the guard was
-  resolved before it), with a message naming the remedy. A rerun after only `OrmMigrator` was uncached now works.
+- Two connections on one database that share `Migration.Table` now block each other: a run holds the first connection's lock
+  while it waits for the second, so `migrate-up` waits `Lock.Timeout` (30 s by default) and fails. In 3.0.x such a pair
+  migrated.
 - `MigrationRunner.plan()` (protected) lost its `force` flag: `plan(name, connection?, quiet?)`.
 - `migrate-status` creates and upgrades no tracking table any more; on a database without one, every migration reads pending.
 - The protected `acquireLock()`, `releaseLock()` and `lockOwner()` of `DefaultMigrationService` moved to `TableMigrationLock`
@@ -66,6 +67,15 @@
    checked.
 8. A custom `Migration.Service` written before 3.1 ignores `status()`'s `readOnly` option, which the boot check passes, and may
    create or upgrade its own storage at every application boot. Make its `status()` honour `readOnly`.
+9. Replace `DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])` (and a bare `DI.resolve(OrmMigrator)`) with
+   `await resolveMigrationTool()`, or `await resolveCliMigrator()` in an `@spinajs/orm-cli` host. The old call now fails with an
+   `OrmException` naming `resolveMigrationTool()`.
+10. Two connections on one database that share `Migration.Table`: give each its own `Migration.Table` before upgrading.
+11. A database whose schema exists but has no tracking rows (tables created by SQL scripts, or a 3.0.x app that never ran
+    migrations) fails the boot with every migration pending, and a plain `migrate-up` would try to create its tables again.
+    Check that the schema matches the migrations, then run `npx spinajs migrate-up --fake` once: it records every pending
+    migration as applied without running `up()` or `data()` (`--connection` / `--name` narrow it). Or set
+    `Migration.Check: 'off'` for that connection.
 
 ## Fixes
 
@@ -96,8 +106,6 @@
   a refresh found the row taken by another run) stops with `MigrationLockLostException` before the next migration starts and
   records no failure for it.
 - The lock row's `Owner` is `<hostname>:<pid>:<nonce>`, so two runs in one process are told apart.
-- Two connections on one database that share `Migration.Table` now block each other for `Lock.Timeout` and fail, because one run
-  holds the first connection's lock while it waits for the second. Give each connection on a database its own `Migration.Table`.
 - `@spinajs/orm-postgres`, `@spinajs/orm-mysql` and `@spinajs/orm-mssql` lock a migration run with the database's own session
   lock (`pg_try_advisory_lock`, `GET_LOCK`, a session-owned `sp_getapplock`) and take the lock-table row as well. A migrating
   process opens one extra database connection per connection for the run, outside the pool, named
@@ -120,7 +128,9 @@
 - `db.MigrationCheck: 'fail' | 'warn' | 'off'` (default `'fail'`) and its per-connection override
   `db.Connections[].Migration.Check`. `'warn'` logs one warning per connection and boots; `'off'` does not read the connection.
 - `@spinajs/orm/testing`: `migrateTestDatabase(container?, { seed? })` resolves `{ orm, migrator, executed }`, refuses to run
-  with `NODE_ENV` or `APP_ENV` production, and checks the model tables as a strict boot would.
+  with `NODE_ENV` or `APP_ENV` production, and checks the model tables as a strict boot would. It refuses when the
+  `OrmMigrationGuard` cached in its container is enabled (the `Orm` or the guard was resolved before it), with a message naming
+  the remedy.
 - `OrmMigrator.seed({ name?, connection? })` and `OrmMigrator.plan({ name?, connection? })`, `IOrmMigrateOptions.skipSeed`,
   `MigrationRunner.pending(name?, connection?)` (`IMigrationPlanEntry`, with `failed: true` for the blocking ones),
   `MigrationRunner.status({ readOnly?, connection? })`, `OrmMigrationService.status(units, { readOnly })`
@@ -138,7 +148,8 @@
   `MySqlOrmDriver.openDedicatedConnection(programName?)` and `MsSqlOrmDriver.openDedicatedPool(appName?)` open a connection outside
   the pool. `MIGRATION_LOCK_SESSION_KEEPALIVE` (30 s) caps how long a lock session goes without a query.
 - `db.Connections[].Migration.Lock.Mode: 'auto' | 'table'`. `'table'` forces the lock-table row, for PgBouncer transaction pooling
-  and mysql multi-primary clusters.
+  and mysql multi-primary clusters. Any other value fails the run before it takes the lock, with an `OrmException` naming the
+  key and the allowed values.
 - `OrmMigrationService.acquireRunLock?()`, optional: a service that implements it is locked by the runner for the whole run and gets
   `{ locked: true, lock }` in `IMigrationRunOptions`. A custom service without it keeps locking inside its own calls.
 - `MigrationRunner.withRunLock(connection, fn, name?)`, `MigrationRunner.assertRunLocksHeld()`, `IMigrationUpOptions.locked`.
@@ -965,7 +976,7 @@ Removed and changed exports:
 ## Dependencies
 
 - `@spinajs/authn` depends on `ajv`; `@spinajs/authz-http` and `@spinajs/authn-oidc` on `@spinajs/validation`.
-# Release notes � users: email domain refusal
+# Release notes — users: email domain refusal
 
 > Docs: `docs/users/19-email-domains.md`.
 
