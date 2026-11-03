@@ -40,7 +40,8 @@
   `program_name`). Its idle limit is turned off (mysql `wait_timeout`, postgres 14+ `idle_session_timeout`) and it is queried every
   `min(StaleAfter / 3, 30 s)` while held, so a long migration does not lose it to an idle timeout; a failed query stops the run
   before its next migration. A crashed process no longer blocks the next run for `StaleAfter`: its session lock is freed, and its
-  marked row is removed once the next run has seen it go two heartbeats (10 s) unrefreshed. A host that disappears without closing
+  marked row is removed once the next run has seen it go two heartbeats (10 s) unrefreshed, also when that run's `Lock.Timeout` is
+  shorter: it waits up to 10.5 s past the timeout for that row. A host that disappears without closing
   its connections keeps its session lock until the server's TCP keepalive gives up on the connection.
 
 ## New
@@ -51,7 +52,7 @@
 - `TableMigrationLock.acquireUnderAdvisory(request)` and `migrationLockAdvisoryMark(key)`, for a driver lock that holds an advisory
   lock and takes the lock-table row as well: its row is marked with `:advisory:` and 8 hex chars of the key's SHA-256 and refreshed
   every `MIGRATION_LOCK_ADVISORY_HEARTBEAT` (5 s), and the next holder of the same advisory key removes a row with that mark once it
-  has seen it go two heartbeats unrefreshed. A row marked under another key keeps the `StaleAfter` rule.
+  has seen it go two heartbeats unrefreshed, whatever its age. A row marked under another key keeps the `StaleAfter` rule.
 - `SessionMigrationLock` and `IMigrationLockSession`, the base for a lock held by a dedicated database session, and the driver
   locks built on it: `PostgresMigrationLock`, `MySqlMigrationLock` (`mySqlLockName(key)`) and `MsSqlMigrationLock`
   (`msSqlLockResource(key)`). `PostgresOrmDriver.openDedicatedClient(applicationName?)`,
