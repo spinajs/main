@@ -209,6 +209,23 @@ describe('postgres migration lock (integration)', function () {
     expect(took).to.be.lessThan(2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT + 2_000);
   });
 
+  it('after a crash a run whose Lock.Timeout is shorter than two heartbeats still takes over the dead run row, past its timeout', async () => {
+    const dead = `dead-host:2:0badf00d${migrationLockAdvisoryMark(request().key)}`;
+    await pgdb.driver.insert().into(`${MIGRATION_TABLE_NAME}_lock`).values({ Id: 1, AcquiredAt: new Date(), Owner: dead });
+
+    try {
+      const start = Date.now();
+      const lock = await service(other, 5_000).acquireRunLock();
+      const took = Date.now() - start;
+      await lock.release();
+
+      expect(took).to.be.at.least(2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT);
+      expect(took).to.be.lessThan(2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT + 2_000);
+    } finally {
+      await pgdb.driver.del().from(`${MIGRATION_TABLE_NAME}_lock`).where({ Id: 1, Owner: dead });
+    }
+  });
+
   it('excludes a process of an earlier release that only takes the lock-table row, both ways', async () => {
     const earlier = other.Container.resolve(TableMigrationLock, [other]);
     const old = await earlier.acquire(request());
