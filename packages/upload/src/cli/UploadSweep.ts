@@ -7,15 +7,9 @@ import { UploadSweeper } from '../sweeper.js';
 /** For setups that schedule with cron. Prints `<count> <name>` per counter; exit code 1 when an item failed. */
 @Command('upload:sweep', 'Runs the upload sweeper once: expiry, stale claims, retention, leftover objects, owed final events')
 export class UploadSweep extends CliCommand {
-  /** The cli resolves only the command; resolving the Orm applies the `Migration.OnStartup` migrations. */
+  /** Injecting the Orm boots it for exactly the command being run; the boot fails while a migration is pending (run migrate-up first). */
   @Autoinject(Orm)
   protected Orm: Orm;
-
-  /** Waits for the Orm's `data()` seeds too: an app process serves only after them. */
-  public async resolve(): Promise<void> {
-    await super.resolve();
-    await this.Orm.Migrator.ready();
-  }
 
   @Autoinject(UploadSweeper)
   protected Sweeper: UploadSweeper;

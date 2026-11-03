@@ -1,4 +1,4 @@
-import { Builder, IColumnDescriptor, ISupportedFeature, ITransactionContext, ITransactionOptions, Orm, OrmDriver, OrmMigrator, QueryContext } from '@spinajs/orm';
+import { Builder, IColumnDescriptor, ISupportedFeature, ITransactionContext, ITransactionOptions, Orm, OrmDriver, OrmMigrationGuard, QueryContext } from '@spinajs/orm';
 import { Injectable } from '@spinajs/di';
 
 export class RendererOrmDriverBridge extends OrmDriver {
@@ -51,10 +51,9 @@ export class RendererOrmDriverBridge extends OrmDriver {
 
 @Injectable(Orm)
 export class ElectronRendererOrm extends Orm {
-  // The main process applies the migrations; the bridge runs no query builders, so the renderer's Orm picks up a
-  // migrator that applies nothing.
+  // The main process is checked; the bridge runs no query builders and cannot read the tracking table.
   public async resolve(): Promise<void> {
-    await this.Container.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+    await this.Container.resolve(OrmMigrationGuard, [{ Enabled: false }]);
     await super.resolve();
   }
 }
