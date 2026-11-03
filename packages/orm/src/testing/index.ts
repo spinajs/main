@@ -1,3 +1,5 @@
+// the package entry first: its module graph only initialises without a TDZ when it is the load root
+import '../index.js';
 import { DI, IContainer } from '@spinajs/di';
 import { OrmException } from '../exceptions.js';
 import { OrmMigration } from '../interfaces.js';
