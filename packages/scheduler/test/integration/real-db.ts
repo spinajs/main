@@ -54,7 +54,7 @@ const sqlite = (name: string) => ({
   Driver: 'orm-driver-sqlite',
   Filename: ':memory:',
   Name: name,
-  Migration: { OnStartup: true, Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
+  Migration: { Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
 });
 
 function db(target: RealDbTarget, migrate: boolean) {
@@ -62,7 +62,6 @@ function db(target: RealDbTarget, migrate: boolean) {
     ...target.connection,
     Name: 'it',
     Migration: {
-      OnStartup: migrate,
       Table: 'scheduler_it_migrations',
       Transaction: { Mode: MigrationTransactionMode.PerMigration },
     },
