@@ -295,6 +295,29 @@ describe('sqlite TableMigrationLock', function () {
       await live.release();
     }).timeout(30_000);
 
+    it('acquireUnderAdvisory() does not take a refreshed marked row when the wall clock steps forward while it watches', async () => {
+      const live = await new TableMigrationLock(driver).acquireUnderAdvisory(request());
+      const realNow = Date.now;
+      let step = 0;
+      Date.now = () => realNow() + step;
+
+      try {
+        const acquiring = settle(new TableMigrationLock(driver).acquireUnderAdvisory(request({ timeout: 2_000 })));
+        await delay(1_500);
+        step = 2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT + 1_000;
+        const { error } = await acquiring;
+
+        expect((error as Error)?.message).to.contain(`held by ${live.holder}, last refreshed at `).and.contain('still refreshing its row');
+        expect(Number(/waited (\d+)ms/.exec((error as Error).message)?.[1]), 'the wait past the timeout is reported').to.be.greaterThan(2_000);
+        expect((await row()).Owner).to.eq(live.holder);
+      } finally {
+        Date.now = realNow;
+      }
+
+      await live.assertHeld();
+      await live.release();
+    }).timeout(30_000);
+
     it('acquireUnderAdvisory() takes over a crashed run marked row in one call even with a timeout shorter than two heartbeats', async () => {
       const marked = `other-host:4242:0badf00d${mark(request().key)}`;
       await writeRow(marked);
@@ -344,7 +367,9 @@ describe('sqlite TableMigrationLock', function () {
       const { error } = await acquiring;
 
       expect((error as Error)?.message).to.contain(`held by second-host:4242:0badf00d${mark(key)}, last refreshed at `);
-      expect((error as Error)?.message).to.match(/watched its row for only \d+ms without seeing it refreshed/);
+      expect((error as Error)?.message).to.match(/watched for only \d+ms without seeing its row refreshed/);
+      expect(Number(/waited (\d+)ms/.exec((error as Error).message)?.[1]), 'the wait it really made').to.be.at.least(2_000);
+      expect(Number(/watched for only (\d+)ms/.exec((error as Error).message)?.[1]), 'the first row, not the replacement').to.be.at.least(1_900);
       expect((error as Error)?.message).not.to.contain('still refreshing');
     }).timeout(30_000);
 
