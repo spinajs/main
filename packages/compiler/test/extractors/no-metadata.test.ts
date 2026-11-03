@@ -59,6 +59,12 @@ describe('what a build without decorator metadata needs from the manifest', () =
       expect(fragment.controllerBases?.[0].routes[0].params[0].runtimeType.ref).to.deep.equal({ package: 'global', file: '', export: 'Number' });
     });
 
+    it('lists the inherited route on the subclass first, as the runtime serves it', () => {
+      const users = fragment.controllers.find((c) => c.className === 'UsersController')!;
+      expect(users.routes.map((r) => r.handler)).to.deep.equal(['get', 'me', 'upload', 'since']);
+      expect(users.routes[0]).to.deep.include({ fullPath: '/users/:id', inheritedFrom: 'no-metadata:CrudController' });
+    });
+
     it('keeps a controller outside the declared dirs as a base', async () => {
       const dirs = await analyzePackage({ tsconfig: 'test/fixtures/dirs-pkg/tsconfig.json', packageRoot: 'test/fixtures/dirs-pkg', declaredDirsOnly: true });
       expect(dirs.controllers.map((c) => c.className)).to.deep.equal(['RealController']);
