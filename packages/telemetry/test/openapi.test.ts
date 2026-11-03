@@ -145,7 +145,7 @@ describe('telemetry openapi document', function () {
     expect(manifest?.required).to.have.members(['mode', 'hash']);
     expect(manifest?.properties.mode.enum).to.deep.equal(['off', 'prefer', 'require']);
     expect(manifest?.properties.hash).to.include({ type: 'string', nullable: true });
-    expect(manifest?.properties.compilerVersion.type).to.eq('string');
+    expect(Object.keys(manifest?.properties ?? {})).to.have.members(['mode', 'hash']);
   });
 
   it('documents the buckets query parameter', () => {

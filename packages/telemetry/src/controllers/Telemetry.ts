@@ -1,6 +1,5 @@
 import { BasePath, BaseController, Get, Query, Ok } from '@spinajs/http';
-import { Autoinject, Container } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
+import { Autoinject, Container, type IContainer } from '@spinajs/di';
 import { bootedManifestOf, Config } from '@spinajs/configuration';
 import { BadRequest } from '@spinajs/exceptions';
 

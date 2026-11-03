@@ -14,7 +14,6 @@ const HealthResponseSchema = {
       properties: {
         mode: { type: 'string', enum: ['off', 'prefer', 'require'], description: 'Effective system.manifest.mode' },
         hash: { type: 'string', nullable: true, description: 'The manifest hash, as in app.manifest.json and spinajs manifest:diff; null when the app booted without a manifest' },
-        compilerVersion: { type: 'string', description: 'The compiler that wrote the manifest, outside the hash; omitted when the manifest records none' },
       },
     },
   },
