@@ -1,6 +1,6 @@
 import { expect } from 'chai';
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, chownSync, existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { compileCacheDir, type CompileCacheHost } from '../src/compile-cache.js';
 
@@ -9,7 +9,9 @@ describe('compileCacheDir', () => {
   const home = () => join(work, 'home');
 
   beforeEach(() => {
-    work = mkdtempSync(join(tmpdir(), 'spinajs-compile-cache-'));
+    // Every dir above a cache dir must belong to root or this user and be closed to group and others. The home dir is;
+    // os.tmpdir(), the shared /tmp on Linux, is not, and neither is a checkout made under umask 002.
+    work = realpathSync(mkdtempSync(join(homedir(), '.spinajs-compile-cache-test-')));
     mkdirSync(home(), { mode: 0o700 });
   });
 
@@ -96,6 +98,53 @@ describe('compileCacheDir', () => {
       it('leaves the cache off when its dirs belong to another user', () => {
         mkdirSync(join(cacheRoot(), 'spinajs', 'compile-cache'), { recursive: true, mode: 0o700 });
         expect(compileCacheDir(host(xdg(), uid + 1))).to.equal(undefined);
+      });
+
+      it('leaves the cache off, and creates nothing, below a group-writable dir', () => {
+        const shared = join(work, 'shared');
+        mkdirSync(shared);
+        chmodSync(shared, 0o775);
+        expect(compileCacheDir(host({ XDG_CACHE_HOME: join(shared, 'cache') }))).to.equal(undefined);
+        expect(existsSync(join(shared, 'cache'))).to.equal(false);
+      });
+
+      it('leaves the cache off, and creates nothing, below a shared sticky dir such as /tmp', () => {
+        const shared = join(work, 'tmp');
+        mkdirSync(shared);
+        chmodSync(shared, 0o1777);
+        expect(compileCacheDir(host({ XDG_CACHE_HOME: join(shared, 'cache') }))).to.equal(undefined);
+        expect(existsSync(join(shared, 'cache'))).to.equal(false);
+      });
+
+      /**
+       * A dir of another user, and the uid to run the check as. Root hands the dir to another uid; any other user runs
+       * the check as a uid that is neither its own nor root, so that its own dirs are another user's.
+       */
+      const theirs = () => {
+        const dir = join(work, 'theirs');
+        mkdirSync(dir, { mode: 0o755 });
+        if (uid !== 0) return { dir, as: uid + 1 };
+        chownSync(dir, 4242, 4242);
+        return { dir, as: uid };
+      };
+
+      it('leaves the cache off, and creates nothing, below a dir another user owns', () => {
+        const { dir, as } = theirs();
+        expect(compileCacheDir(host({ XDG_CACHE_HOME: join(dir, 'cache') }, as))).to.equal(undefined);
+        expect(existsSync(join(dir, 'cache'))).to.equal(false);
+      });
+
+      it('leaves the cache off when a link above the cache root leads into a dir another user owns', () => {
+        const { dir, as } = theirs();
+        symlinkSync(dir, join(work, 'link'));
+        expect(compileCacheDir(host({ XDG_CACHE_HOME: join(work, 'link', 'cache') }, as))).to.equal(undefined);
+        expect(existsSync(join(dir, 'cache'))).to.equal(false);
+      });
+
+      it('resolves a link above the cache root and names the real dir, so a later swap of the link changes nothing', () => {
+        mkdirSync(join(work, 'real'), { mode: 0o700 });
+        symlinkSync(join(work, 'real'), join(work, 'link'));
+        expect(compileCacheDir(host({ XDG_CACHE_HOME: join(work, 'link', 'cache') }))).to.equal(join(realpathSync(join(work, 'real')), 'cache', 'spinajs', 'compile-cache'));
       });
 
       it('leaves the cache off when the cache dir is a link', () => {

@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -40,6 +40,7 @@ describe('the esbuild bundle', function () {
   this.timeout(120_000);
 
   let work: string;
+  let caches: string;
   let child: ChildProcessWithoutNullStreams | undefined;
 
   before(() => {
@@ -48,6 +49,8 @@ describe('the esbuild bundle', function () {
     // a copy outside the repository: no node_modules in any ancestor directory
     work = mkdtempSync(join(tmpdir(), 'spinajs-bundle-'));
     cpSync(join(PACKAGE, 'dist', 'bundle'), work, { recursive: true });
+    // the cache root is not below os.tmpdir(): on Linux that is the shared /tmp, where no cache dir is accepted
+    caches = mkdtempSync(join(homedir(), '.spinajs-bundle-compile-cache-test-'));
   });
 
   afterEach(() => {
@@ -55,12 +58,15 @@ describe('the esbuild bundle', function () {
     child = undefined;
   });
 
-  after(() => rmSync(work, { recursive: true, force: true }));
+  after(() => {
+    rmSync(work, { recursive: true, force: true });
+    rmSync(caches, { recursive: true, force: true });
+  });
 
   it('boots from the manifest in require mode from a directory with no node_modules at all and answers /health', async () => {
     expect(existsSync(join(work, 'node_modules')), 'the bundle ships no node_modules').to.equal(false);
     const tmp = join(work, 'tmp');
-    const cacheRoot = join(work, 'cache');
+    const cacheRoot = join(caches, 'cache');
     mkdirSync(tmp);
     // the per-user cache root: XDG_CACHE_HOME on POSIX, LOCALAPPDATA on Windows
     const env: NodeJS.ProcessEnv = { ...process.env, SPINAJS_MANIFEST_MODE: 'require', PORT: '0', TMPDIR: tmp, TMP: tmp, TEMP: tmp, XDG_CACHE_HOME: cacheRoot, LOCALAPPDATA: cacheRoot };

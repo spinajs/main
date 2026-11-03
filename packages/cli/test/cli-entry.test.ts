@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -57,7 +57,8 @@ describe('the cli entry point', function () {
   });
 
   describe('compile cache', () => {
-    const cacheRoot = () => join(cwd, 'cache');
+    let caches: string;
+    const cacheRoot = () => join(caches, 'cache');
     const cacheDir = () => join(cacheRoot(), 'spinajs', 'compile-cache');
     // XDG_CACHE_HOME is the per-user cache root on POSIX, LOCALAPPDATA on Windows; the temp dir must stay unused.
     const start = (extra: NodeJS.ProcessEnv = {}) => {
@@ -78,6 +79,12 @@ describe('the cli entry point', function () {
 
     beforeEach(() => {
       cwd = mkdtempSync(join(tmpdir(), 'spinajs-cli-cache-'));
+      // not below os.tmpdir(): on Linux that is the shared /tmp, where no cache dir is accepted (see compileCacheDir)
+      caches = mkdtempSync(join(homedir(), '.spinajs-cli-compile-cache-test-'));
+    });
+
+    afterEach(() => {
+      rmSync(caches, { recursive: true, force: true });
     });
 
     it('keeps the compiled modules in the per-user cache dir, not in the shared temp dir', () => {
@@ -90,7 +97,8 @@ describe('the cli entry point', function () {
     it('keeps none with NODE_DISABLE_COMPILE_CACHE=1', () => {
       const result = start({ NODE_DISABLE_COMPILE_CACHE: '1' });
       expect(result.status, result.stderr).to.equal(0);
-      expect(filesIn(cwd)).to.equal(1);
+      expect(existsSync(cacheRoot())).to.equal(false);
+      expect(filesIn(join(cwd, 'tmp'))).to.equal(0);
     });
 
     it('starts as usual when the cache dir cannot be created', () => {
