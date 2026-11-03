@@ -1,0 +1,8 @@
+{
+  "runs": 30,
+  "reruns": 1,
+  "targets": [
+    { "name": "framework floor", "controllers": 1, "routes": 5, "mode": "require", "maxMedianMs": 450 },
+    { "name": "B10", "controllers": 200, "routes": 5, "mode": "require", "maxMedianMs": 900 }
+  ]
+}

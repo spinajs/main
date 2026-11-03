@@ -97,18 +97,18 @@ jobs:
       - name: tests of the repository scripts
         run: npm run test:scripts
 
-      # Manifest mode off vs require; medians go to the step summary. No gate yet.
-      - name: cold-start benchmark
-        continue-on-error: true
-        timeout-minutes: 15
-        run: node scripts/bench/cold-start.mjs --controllers 200 --routes 5 --out bench.json
+      # Fails when a median time-to-listening exceeds its limit in scripts/bench/cold-start-targets.json; a target over
+      # its limit is measured once more before it fails. Medians and the runner's `node -e 0` go to the step summary.
+      - name: cold-start gate
+        timeout-minutes: 30
+        run: node scripts/bench/cold-start-gate.mjs --out-dir bench
 
-      - name: upload bench.json
+      - name: upload cold-start results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: bench
-          path: bench.json
+          path: bench/*.json
           if-no-files-found: warn
 
   # Every package suite must pass before a release. Suites that are red on master are tracked in
