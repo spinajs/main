@@ -106,6 +106,19 @@ describe('authz cli under authz.models', function () {
       expect(ormResolves).to.equal(0);
     });
 
+    it('authz:check-config on the config-backed role store never resolves the Orm', async () => {
+      const config = memoryStores();
+
+      const cmd = new CheckConfigCommand();
+      cmd.Container = DI.RootContainer;
+      cmd.Configuration = config;
+      await cmd.execute({});
+
+      expect(io.err).to.deep.equal([]);
+      expect(outLines()).to.deep.equal(['OK: 1 role(s), 0 ladder(s)']);
+      expect(ormResolves).to.equal(0);
+    });
+
     it('authz:explain on memory stores never resolves the Orm', async () => {
       memoryStores();
 
