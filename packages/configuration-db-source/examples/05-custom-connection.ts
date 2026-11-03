@@ -19,6 +19,9 @@
  * also need `expose` / `watch`, keep the default `configuration` table on the
  * default connection.
  *
+ * Apply the custom migration with `npx spinajs migrate-up` before running: the ORM refuses to
+ * resolve while it is pending.
+ *
  * Run:
  *   node lib/mjs/examples/05-custom-connection.js
  */
@@ -49,7 +52,6 @@ export class AppConfig extends FrameworkConfiguration {
             Driver: 'orm-driver-sqlite',
             Name: 'config-db',
             Filename: './config.sqlite',
-            Migration: { OnStartup: true },
           },
         ],
       },

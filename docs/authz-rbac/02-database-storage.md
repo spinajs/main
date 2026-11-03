@@ -192,6 +192,8 @@ Index `authz_admin_idempotency_expires` on `expires_at`.
 | `AuthzRbac_2026_10_01_00_00_00` | `authz` | Creates the six RBAC tables above. |
 | `AuthzAdminIdempotency_2026_10_02_00_01_00` | `authz` | Creates `authz_admin_idempotency`. |
 
+Apply them with [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations); the app and the CLI commands refuse to boot while they are pending.
+
 The migrations create tables only. None reads, copies or alters a 2.x table: 3.0 starts from an empty database, and roles are granted as assignments (`AuthzAdmin.assign`, or `authz:assign` from the [CLI](13-cli-commands.md)). See [the migration guide, section 7](../authz/migration-guide.md#7-data-migration).
 
 ## Services and extension points
@@ -238,7 +240,7 @@ export class ExpiringAssignmentStore extends DbAssignmentStore {
 
 - **One connection per table set.** A write whose `AuthzTx` runs on another connection than the record is refused, so data never lands where reads do not look.
 - **Lazy ORM.** The records exist only after the `Orm` boots. Import `@spinajs/authz-rbac` before the `Orm` resolves, so it binds the records.
-- **Post-boot migrations.** A migration that creates the authz tables after the ORM booted (a test, or `Migration.OnStartup: false` with a later in-process run) needs `db.StrictTableCheck: false` and then `orm.reloadTableInfo({ strict: true })` before the stores read.
+- **Post-boot migrations.** A migration that creates the authz tables after the ORM booted (a test that migrates by hand, with `db.MigrationCheck: 'off'`) needs `db.StrictTableCheck: false` and then `orm.reloadTableInfo({ strict: true })` before the stores read.
 - **Two clocks.** Store reads judge expiry by `AuthzClock`; `.accessible()` lists judge it by the database's now ([List filter term](01-list-filter-term.md)).
 - **Version bumps.** One admin batch bumps `authz_version` once per write, in one transaction. Do not rely on the count.
 - **Same grant twice.** Granting the same subject, role and scope again updates tags, expiry and grantor of the row and keeps its id, `created_at` and `source`.
@@ -293,7 +295,7 @@ export default {
 ### Create the tables in a test after the ORM booted
 
 ```ts
-// test config: db.StrictTableCheck: false, Migration.OnStartup: false
+// test config: db.StrictTableCheck: false, db.MigrationCheck: 'off'
 const orm = await DI.resolve(Orm);
 // ... run the authz-rbac migrations on the authz connection ...
 await orm.reloadTableInfo({ strict: true });   // binds the records to the new tables before a store reads

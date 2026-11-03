@@ -66,7 +66,6 @@ db: {
       Driver: 'orm-driver-sqlite',
       Filename: './data/queue.sqlite',
       Name: 'queue-db',
-      Migration: { OnStartup: true },
     },
   ],
 },
@@ -243,7 +242,7 @@ export class SendInvoiceEmail extends QueueJob {
 }
 
 export async function startInvoiceMailer(): Promise<void> {
-  // applies the queue-db Migration.OnStartup migrations
+  // fails on pending migrations: run `npx spinajs migrate-up` first
   await DI.resolve(Orm);
   const queue = await DI.resolve(QueueService);
 

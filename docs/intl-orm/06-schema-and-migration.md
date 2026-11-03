@@ -6,7 +6,7 @@ The package stores model translations in `intl_resources` and phrase translation
 
 1. Importing `@spinajs/intl-orm` evaluates `@Migration('default')` on `IntlOrm_2022_06_28_01_13_00`, which registers it in DI. `DiRegistryMigrationSource` of `@spinajs/orm` finds it with no directory scan.
 2. The models `IntlResource` (`@Model('intl_resources')`) and `IntlTranslation` (`@Model('intl_translations')`) are bound to `@Connection('default')`, the connection named by `db.DefaultConnection`.
-3. `Orm.resolve()` discovers the migration and, when the connection has `Migration.OnStartup` set, applies it with the other pending migrations. Otherwise it runs on `OrmMigrator.migrate()` and `migrate-up`. See [Migrations](../orm/10-migrations.md).
+3. `Orm.resolve()` discovers the migration but never applies it: it fails while the migration is pending. Apply it with [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) or `OrmMigrator.migrate()`. See [Migrations](../orm/10-migrations.md).
 4. `up()` creates both tables and their unique indexes. `down()` drops both tables.
 
 ## Configuration
@@ -14,13 +14,13 @@ The package stores model translations in `intl_resources` and phrase translation
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `db.DefaultConnection` | `string` | none | a configured connection name | The connection behind `'default'`: where both tables are created and queried. |
-| `db.Connections[].Migration.OnStartup` | `boolean` | `false` | `true`, `false` | Applies the migration when the `Orm` resolves. See [Migrations](../orm/10-migrations.md#configuration). |
+| `db.MigrationCheck` | `string` | `fail` | `fail`, `warn`, `off` | What `Orm.resolve()` does with pending or failed migrations; `Migration.Check` overrides it per connection. See [Migrations](../orm/10-migrations.md#configuration). |
 
 ```ts
 db: {
   DefaultConnection: 'main',
   Connections: [
-    { Name: 'main', Driver: 'orm-driver-sqlite', Filename: './data/app.sqlite', Migration: { OnStartup: true } },
+    { Name: 'main', Driver: 'orm-driver-sqlite', Filename: './data/app.sqlite' },
   ],
 }
 ```
@@ -138,6 +138,6 @@ export class SeedProductNamesEn_2026_10_17_10_00_00 extends OrmMigration {
 
 ## Related
 
-- [Migrations](../orm/10-migrations.md): discovery, ordering, `data()` and `OnStartup`.
+- [Migrations](../orm/10-migrations.md): discovery, ordering, `data()` and deploying with `migrate-up`.
 - [Schema builder](../orm/09-schema-builder.md): `createTable()`, `alterTable()` and indexes.
 - [Connections](../orm/01-connections.md): `db.DefaultConnection` and the `default` alias.

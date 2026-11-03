@@ -12,7 +12,7 @@ The store holds two things: the cached verdicts of the cacheable verifiers, and 
 Rules of thumb:
 
 - More than one process, or any use of the CLI: use a shared store.
-- The ORM store suits apps that already migrate a database at startup.
+- The ORM store suits apps that already run `migrate-up` in their deploy.
 - Lists reach every process through `listVersion`. `block` and `allow` edits need no cache invalidation because the `list` verifier is never cached. `block-mx` entries act through the cached `dns` verdict, so a new entry reaches an already checked domain only after `dns.ttl.positive` (24 h by default), and a removed one stops refusing after up to `dns.ttl.negative` (1 h by default). The same goes for domains checked before the first sync.
 
 Importing a store package registers it. Import it from a config module, so that the `spinajs` CLI process registers it too ([why](05-cli.md#the-store-package-in-the-cli-process)), and set the class name:

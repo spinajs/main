@@ -151,7 +151,7 @@ import '@spinajs/orm-sqlite';
 import '@spinajs/session-provider-db';
 import _ from 'lodash';
 
-/** Integration tests: sessions in their own in-memory SQLite database. */
+/** Integration tests: sessions in their own in-memory SQLite database. Migrate it with `migrateTestDatabase()` from `@spinajs/orm/testing` before anything resolves the `Orm`. */
 export class SessionTestConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
     await super.resolve();
@@ -167,8 +167,8 @@ export class SessionTestConfiguration extends FrameworkConfiguration {
       db: {
         DefaultConnection: 'app',
         Connections: [
-          { Name: 'app', Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: { OnStartup: true } },
-          { Name: 'session-provider-connection', Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: { OnStartup: true } },
+          { Name: 'app', Driver: 'orm-driver-sqlite', Filename: ':memory:' },
+          { Name: 'session-provider-connection', Driver: 'orm-driver-sqlite', Filename: ':memory:' },
         ],
       },
     });

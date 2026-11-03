@@ -51,7 +51,6 @@ export class AppConfiguration extends FrameworkConfiguration {
             Database: 'shop',
             Options: { Schema: 'public' },
             Pool: { Min: 2, Max: 20 },
-            Migration: { OnStartup: true },
           },
         ],
       },
@@ -60,7 +59,7 @@ export class AppConfiguration extends FrameworkConfiguration {
 }
 
 export async function countOpenOrders(): Promise<number> {
-  // applies the Migration.OnStartup migrations on the first resolve
+  // fails on pending migrations: run `npx spinajs migrate-up` first
   const orm = await DI.resolve(Orm);
   const driver = orm.Connections.get('main')!;
 
