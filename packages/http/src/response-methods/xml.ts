@@ -1,6 +1,7 @@
 import * as express from 'express';
 import { HTTP_STATUS_CODE, IResponseOptions, Response, ResponseFunction } from '../interfaces.js';
 import { xmlResponse } from '../responses.js';
+import { loadXmlBuilder } from '../lazy-modules.js';
 
 /**
  * Returns an HTTP 200 response with an XML body, bypassing Accept-header
@@ -18,6 +19,7 @@ export class Xml<T = any> extends Response<T> {
 
   public async execute(_req: express.Request, _res: express.Response): Promise<ResponseFunction | void> {
     const data = await this.prepareResponse();
+    await loadXmlBuilder();
     return xmlResponse(data, { ...this.options, StatusCode: this.options?.StatusCode ?? this._errorCode }, this.xmlOptions);
   }
 }
