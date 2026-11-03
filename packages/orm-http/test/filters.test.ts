@@ -20,7 +20,7 @@ import { expect } from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { Orm, ModelBase, Model, Connection, Primary, SelectQueryBuilder, BelongsTo, SingleRelation } from '@spinajs/orm';
+import { Orm, ModelBase, Model, Connection, Primary, SelectQueryBuilder, BelongsTo, SingleRelation, ICompilerOutput, ISelectQueryBuilder } from '@spinajs/orm';
 import { InvalidArgument } from '@spinajs/exceptions';
 
 // Registers the `orm-driver-sqlite` driver in DI.
@@ -40,7 +40,7 @@ class FilterRegressionAuthor extends ModelBase {
   @Primary()
   public Id: number;
 
-  @Filterable(['eq'])
+  @Filterable(['eq', 'like'])
   public Name: string;
 }
 
@@ -103,6 +103,10 @@ export class FilterTestConfiguration extends FrameworkConfiguration {
 
 function q(): SelectQueryBuilder<any> {
   return FilterRegressionModel.query() as unknown as SelectQueryBuilder<any>;
+}
+
+function compiledFilter(filters: IFilter[], op: FilterableLogicalOperators): ICompilerOutput {
+  return (FilterRegressionModel.query() as ISelectQueryBuilder<unknown>).filter(filters, op).toDB() as ICompilerOutput;
 }
 
 function f(Column: string, Operator: any, Value?: any): IFilter {
@@ -321,6 +325,20 @@ describe('orm-http filter translation vs the per-statement connector (I1/B2)', (
 
     expect(out.expression).to.match(/`Age` = \? OR \(\s*`Role` LIKE \?\s*\)/);
     expect(out.bindings).to.deep.equal([18, '%adm%']);
+  });
+
+  it('escapes the LIKE wildcards of a like value and declares the escape character', () => {
+    const out = compiledFilter([f('Age', 'like', '5%_~'), f('Age', 'like', '%')], FilterableLogicalOperators.Or);
+
+    expect(out.expression).to.contain("( `Age` LIKE ? ESCAPE '~' OR `Age` LIKE ? ESCAPE '~' )");
+    expect(out.bindings).to.deep.equal(['%5~%~_~~%', '%~%%']);
+  });
+
+  it('escapes the like value of a column copied from a related model', () => {
+    const out = compiledFilter([f('Author.Name', 'like', '_')], FilterableLogicalOperators.And);
+
+    expect(out.expression).to.match(/`Name` LIKE \? ESCAPE '~'/);
+    expect(out.bindings).to.deep.equal(['%~_%']);
   });
 
   it('filters by a column copied from a related model', () => {

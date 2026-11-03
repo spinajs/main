@@ -16,6 +16,7 @@ import './../src/route-arg.js';
 import { FilterableLogicalOperators } from './../src/index.js';
 // dto-relation e2e fixtures: tables + seed rows for the CampaignController routes
 import './migrations/DtoRelation_2026_07_23_00_00_00.js';
+import './migrations/LikeRow_2026_11_03_00_00_00.js';
 import { Campaign } from './models/Campaign.js';
 
 
@@ -138,6 +139,49 @@ describe('Http orm tests', function () {
       expect(spy.args[0][0].filters[0].Column).to.eq('Text');
       expect(spy.args[0][0].filters[0].Operator).to.eq('eq');
       expect(spy.args[0][0].filters[0].Value).to.eq('bar');
+    });
+
+    describe('like operators match the filter value literally', function () {
+      const likeRows = async (Operator: string, Value: string) => {
+        const res = await req()
+          .get('filter/likeRows')
+          .query({ filter: JSON.stringify({ op: 'and', filters: [{ Column: 'Name', Operator, Value }] }) })
+          .set('Accept', 'application/json');
+        expect(res.status).to.eq(200);
+        return res.body as string[];
+      };
+
+      const CASES: [string, string, string[]][] = [
+        ['like', '%', ['100%', '50% off']],
+        ['like', '_', ['a_b']],
+        ['like', 'a_b', ['a_b']],
+        ['like', '0%', ['100%', '50% off']],
+        ['like', '\\', ['back\\slash']],
+        ['like', '~', ['tilde~x']],
+        ['b-like', '%', ['100%']],
+        ['b-like', '_b', ['a_b']],
+        ['e-like', '%', []],
+        ['e-like', 'a_', ['a_b']],
+        ['e-like', 'back\\', ['back\\slash']],
+      ];
+
+      for (const [operator, value, expected] of CASES) {
+        it(`${operator} ${JSON.stringify(value)}`, async () => {
+          expect(await likeRows(operator, value)).to.deep.eq(expected);
+        });
+      }
+
+      it('like keeps the case-insensitive LIKE of the dialect', async () => {
+        expect(await likeRows('like', 'plain')).to.deep.eq(['Plain']);
+      });
+
+      // The names are inverted and clients rely on it; a rename waits for a major version.
+      it('b-like matches the end of the value and e-like its beginning', async () => {
+        expect(await likeRows('b-like', 'off')).to.deep.eq(['50% off']);
+        expect(await likeRows('b-like', 'back')).to.deep.eq([]);
+        expect(await likeRows('e-like', 'back')).to.deep.eq(['back\\slash', 'backxslash']);
+        expect(await likeRows('e-like', 'off')).to.deep.eq([]);
+      });
     });
 
     it('Should validate filter schema', async () => {

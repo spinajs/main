@@ -37,7 +37,7 @@ A filter column can carry its own SQL: `IColumnFilter.query` receives the client
 The function runs per request, so it can read the value, translate the operator and build any condition the query builder supports.
 
 ```ts sample
-import { Connection, Model, ModelBase, Primary, SqlOperator, WhereFunction } from '@spinajs/orm';
+import { Connection, LikeLiteral, Model, ModelBase, Primary, SqlOperator, WhereFunction } from '@spinajs/orm';
 import { Filterable, FilterableOperators } from '@spinajs/orm-http';
 
 @Connection('default')
@@ -54,7 +54,8 @@ export class Person extends ModelBase<Person> {
   @Filterable(['eq', 'like'], (operator: FilterableOperators, value: any): WhereFunction<unknown> => {
     // `operator` is the client's vocabulary ('eq', 'like'), not SQL: translate it.
     const sqlOperator = operator === 'like' ? SqlOperator.LIKE : SqlOperator.EQ;
-    const sqlValue = operator === 'like' ? `%${value}%` : value;
+    // LikeLiteral: a `%` or `_` the client sends matches only itself.
+    const sqlValue = operator === 'like' ? LikeLiteral.contains(String(value)) : value;
 
     return function () {
       this.where(function () {
@@ -70,6 +71,7 @@ export class Person extends ModelBase<Person> {
 
 - The operator passed to `query` is a `FilterableOperators` value (`eq`, `like`, `b-like`...). Passing it straight to `where()` fails for `eq`, `neq`, `b-like`, `e-like` and the others that are not SQL.
 - No value check runs for a custom column. Validate `value` yourself and throw `InvalidArgument` for a `400`.
+- No escaping runs either. A `like` built as `` `%${value}%` `` lets the client's `%` and `_` act as wildcards: a value of `%` matches every row. Pass `LikeLiteral.contains(value)` (or `startsWith` / `endsWith`) as the operand instead, as the built-in operators do.
 - The function's conditions form one bracketed condition, joined to the other entries at the same level by that level's `op`, like a built-in column.
 - Wrap several conditions in one `this.where(function () { ... })` so an `orWhere` inside does not leak into the surrounding group.
 - `filterColumns()` returns `query` with each column, so a column set built from it keeps the custom SQL.
@@ -90,6 +92,14 @@ query: (operator, value) => function () { this.where('Value', operator, value); 
 query: (operator, value) => function () {
   this.where('Value', operator === 'neq' ? SqlOperator.NOT : SqlOperator.EQ, value);
 }
+```
+
+```ts
+// Don't: the client's `%` and `_` are wildcards, so a value of `%` matches every row
+query: (_operator, value) => function () { this.where('Value', SqlOperator.LIKE, `%${value}%`); }
+
+// Do: match the value literally
+query: (_operator, value) => function () { this.where('Value', SqlOperator.LIKE, LikeLiteral.contains(String(value))); }
 ```
 
 ## Examples
@@ -165,7 +175,7 @@ export class TaggedArticleController extends BaseController {
 ### OR a custom SQL column with a plain one
 
 ```ts sample
-import { Connection, Model, ModelBase, Primary, SqlOperator } from '@spinajs/orm';
+import { Connection, LikeLiteral, Model, ModelBase, Primary, SqlOperator } from '@spinajs/orm';
 import { Filterable, FilterableLogicalOperators } from '@spinajs/orm-http';
 
 @Connection('default')
@@ -183,7 +193,7 @@ export class Person extends ModelBase<Person> {
 
   @Filterable(['like'], (_operator, value) => function () {
     this.where(function () {
-      this.where('FirstName', SqlOperator.LIKE, `%${value}%`).orWhere('LastName', SqlOperator.LIKE, `%${value}%`);
+      this.where('FirstName', SqlOperator.LIKE, LikeLiteral.contains(String(value))).orWhere('LastName', SqlOperator.LIKE, LikeLiteral.contains(String(value)));
     });
   })
   public FullName: string;
