@@ -150,13 +150,11 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
   });
 
   it('Should migrate', async () => {
-
     await db().Connections.get('mysql')!.select().from('user_test');
     await expect(db().Connections.get('mysql')!.select().from('notexisted')).to.be.rejected;
   });
 
   it('Should check if table exists', async () => {
-
     const exists = await db().Connections.get('mysql')!.schema().tableExists('user_test');
     const notExists = await db().Connections.get('mysql')!.schema().tableExists('user2');
 
