@@ -26,13 +26,13 @@ Step 3 is skipped with `--skip-seed` (`migrate({ skipSeed: true })`) and with `-
 
 `MigrateSeedCommand.execute({ name, connection })` calls `OrmMigrator.seed({ name, connection })`:
 
-1. With `--name`, a name no migration is registered under throws `Migration <name> is not registered - check the name for typos`.
-2. It takes the run lock of every connection with registered migrations, or only of `--connection`.
-3. It reads `Runner.status()` and keeps the applied migrations, or only `--name`. A `--name` that is registered but not applied throws `Migration <name> is not applied on any configured connection - nothing to seed`.
+1. It reads `Runner.status({ connection, readOnly: true })`, without DDL, and keeps the applied migrations, or only `--name`.
+2. When none is left, it stops without taking a lock. With `--name`, a name no migration is registered under throws `Migration <name> is not registered - check the name for typos`, and a registered one throws `Migration <name> is not applied on any configured connection - nothing to seed` (`on connection <connection>` with `--connection`). Without `--name`, it logs `Nothing is applied - nothing to seed` at `info` level and exits `0`.
+3. It takes the run lock of every connection with registered migrations, or only of `--connection`, or only of the connection `--name` runs on, and reads the status again.
 4. It resolves each migration from its connection's container and runs its `data()`, in `(timestamp, name)` order. Every hook runs; the failures are reported together, as in `migrate-up`.
 5. It logs `Seeded <n> migration(s): <names>` at `success` level through the `ORM-CLI` logger and releases the locks.
 
-`migrate-seed` never applies a migration and never changes the tracking table. A pending migration is not seeded.
+`migrate-seed` never applies a migration and writes no tracking row. On a database with nothing applied it creates no table; otherwise taking the run lock brings the tracking table to the current format, as every run does. A pending migration is not seeded.
 
 ## Options
 

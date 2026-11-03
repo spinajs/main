@@ -7,7 +7,7 @@ import 'mocha';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import '@spinajs/log';
-import { Connection, extractModelDescriptor, IColumnDescriptor, IMigrationRecord, InsertQueryBuilder, MIGRATION_TABLE_NAME, Migration, MigrationTransactionMode, Model, ModelBase, Orm, OrmDriver, OrmMigration, Primary, SelectQueryBuilder, TableExistsQueryBuilder, TableQueryBuilder, UpdateQueryBuilder } from '../src/index.js';
+import { Connection, extractModelDescriptor, IColumnDescriptor, IMigrationRecord, InsertQueryBuilder, MIGRATION_TABLE_NAME, Migration, MigrationTransactionMode, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, OrmMigrator, Primary, SelectQueryBuilder, TableExistsQueryBuilder, TableQueryBuilder, UpdateQueryBuilder } from '../src/index.js';
 import { migrateTestDatabase } from '../src/testing/index.js';
 import { FakeSqliteDriver } from './misc.js';
 
@@ -15,6 +15,9 @@ chai.use(chaiAsPromised);
 const expect = chai.expect;
 
 const CONNECTION = 'testing-helper';
+
+const CALL_ORDER =
+  'migrateTestDatabase() must run before anything resolves the Orm or OrmMigrator in this container, and a re-run needs Orm and OrmMigrator uncached together ( or DI.clearCache() ): the Orm here was booted by an OrmMigrator that migrates on startup, or by another OrmMigrator than the one this call resolved';
 
 const TABLES = new Map<string, string[]>();
 let RECORDS: IMigrationRecord[] = [];
@@ -88,6 +91,16 @@ class TestingHelperConf extends FrameworkConfiguration {
       },
     };
   }
+}
+
+async function rejection(p: Promise<unknown>): Promise<unknown> {
+  try {
+    await p;
+  } catch (err) {
+    return err;
+  }
+
+  return undefined;
 }
 
 function restoreEnv(key: 'NODE_ENV' | 'APP_ENV', value: string | undefined): void {
@@ -186,6 +199,49 @@ describe('@spinajs/orm/testing migrateTestDatabase()', function () {
     }
   });
 
+  it('migrateTestDatabase() refuses an Orm resolved before it, naming the call-order rule', async () => {
+    // the early Orm's strict boot check passes only when the table is already there
+    TABLES.set('testing_helper_items', ['Id']);
+    await container.resolve(Orm);
+
+    const err = await rejection(migrateTestDatabase(container));
+
+    expect(err).to.be.instanceOf(OrmException);
+    expect((err as Error).message).to.equal(CALL_ORDER);
+  });
+
+  it('migrateTestDatabase() refuses an OrmMigrator resolved before it with its default options', async () => {
+    TABLES.set('testing_helper_items', ['Id']);
+    await container.resolve(OrmMigrator);
+
+    const err = await rejection(migrateTestDatabase(container));
+
+    expect(err).to.be.instanceOf(OrmException);
+    expect((err as Error).message).to.equal(CALL_ORDER);
+  });
+
+  it('migrateTestDatabase() refuses a re-run after only OrmMigrator was uncached', async () => {
+    await migrateTestDatabase(container);
+    container.uncache(OrmMigrator);
+
+    const err = await rejection(migrateTestDatabase(container));
+
+    expect(err).to.be.instanceOf(OrmException);
+    expect((err as Error).message).to.equal(CALL_ORDER);
+  });
+
+  it('migrateTestDatabase() runs again once Orm and OrmMigrator were uncached together', async () => {
+    const first = await migrateTestDatabase(container);
+    container.uncache(Orm);
+    container.uncache(OrmMigrator);
+
+    const second = await migrateTestDatabase(container);
+
+    expect(second.orm).to.not.equal(first.orm);
+    expect(second.orm.Migrator).to.equal(second.migrator);
+    expect(second.executed).to.deep.equal([]);
+  });
+
   it('migrateTestDatabase() refuses when APP_ENV or NODE_ENV is explicitly production', async () => {
     process.env.NODE_ENV = 'production';
     await expect(migrateTestDatabase(container)).to.be.rejectedWith(/test helper/);
@@ -203,18 +259,45 @@ describe('the @spinajs/orm/testing lint ban', function () {
   this.timeout(120000);
 
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-  const code = ["import { migrateTestDatabase } from '@spinajs/orm/testing';", '', 'export const helper = migrateTestDatabase;', ''].join('\n');
+  const MESSAGE = 'Test helper: applications migrate with `npx spinajs migrate-up`.';
+  const eslint = new ESLint({ cwd: root });
 
-  async function bans(file: string): Promise<string[]> {
-    const [result] = await new ESLint({ cwd: root }).lintText(code, { filePath: path.join(root, file) });
-    return result.messages.filter((m) => m.ruleId === 'no-restricted-imports').map((m) => m.message);
+  async function bans(file: string, ...lines: string[]): Promise<string[]> {
+    const [result] = await eslint.lintText([...lines, ''].join('\n'), { filePath: path.join(root, file) });
+    return result.messages.filter((m) => m.ruleId === 'no-restricted-imports' || m.ruleId === 'no-restricted-syntax').map((m) => m.message);
   }
 
+  const staticImport = ["import { migrateTestDatabase } from '@spinajs/orm/testing';", 'export const helper = migrateTestDatabase;'];
+
   it('fails an import of the helper from framework code', async () => {
-    expect(await bans('packages/orm-cli/src/orm.ts')).to.deep.equal(["'@spinajs/orm/testing' import is restricted from being used. Test helper: applications migrate with `npx spinajs migrate-up`."]);
+    expect(await bans('packages/orm-cli/src/orm.ts', ...staticImport)).to.deep.equal([`'@spinajs/orm/testing' import is restricted from being used. ${MESSAGE}`]);
+  });
+
+  it('fails a re-export and the deep lib path', async () => {
+    expect(await bans('packages/orm-cli/src/orm.ts', "export * from '@spinajs/orm/testing';")).to.deep.equal([`'@spinajs/orm/testing' import is restricted from being used. ${MESSAGE}`]);
+    expect(await bans('packages/orm-cli/src/orm.ts', "export { migrateTestDatabase } from '@spinajs/orm/lib/mjs/testing/index.js';")).to.deep.equal([
+      `'@spinajs/orm/lib/mjs/testing/index.js' import is restricted from being used by a pattern. ${MESSAGE}`,
+    ]);
+  });
+
+  it('fails a dynamic import, a createRequire() require and a relative path to the orm sources', async () => {
+    expect(await bans('packages/orm-cli/src/orm.ts', "export const helper = () => import('@spinajs/orm/testing');")).to.deep.equal([MESSAGE]);
+    expect(await bans('packages/orm-cli/src/orm.ts', "import { createRequire } from 'node:module';", "export const helper = createRequire(import.meta.url)('@spinajs/orm/lib/cjs/testing/index.js');")).to.deep.equal([MESSAGE]);
+    expect(await bans('packages/orm-cli/src/orm.ts', "export const helper = () => import('../../orm/src/testing/index.js');")).to.deep.equal([MESSAGE]);
+  });
+
+  it('fails a relative import of the helper inside the orm sources, but not inside the helper itself', async () => {
+    expect(await bans('packages/orm/src/orm.ts', "export { migrateTestDatabase } from './testing/index.js';")).to.deep.equal([`'./testing/index.js' import is restricted from being used by a pattern. ${MESSAGE}`]);
+    expect(await bans('packages/orm/src/orm.ts', "export const helper = () => import('./testing/index.js');")).to.deep.equal([MESSAGE]);
+    expect(await bans('packages/orm/src/testing/index.ts', "import { OrmMigrator } from '../migrator.js';", 'export const migrator = OrmMigrator;')).to.deep.equal([]);
   });
 
   it('allows it in a test file', async () => {
-    expect(await bans('packages/orm-cli/test/cli.test.ts')).to.deep.equal([]);
+    expect(await bans('packages/orm-cli/test/cli.test.ts', ...staticImport)).to.deep.equal([]);
+    expect(await bans('packages/orm-cli/test/cli.test.ts', "export const helper = () => import('@spinajs/orm/testing');")).to.deep.equal([]);
+  });
+
+  it('leaves other packages alone', async () => {
+    expect(await bans('packages/orm-cli/src/orm.ts', "export { Orm } from '@spinajs/orm';", "export const helper = () => import('@spinajs/authn-testing');")).to.deep.equal([]);
   });
 });
