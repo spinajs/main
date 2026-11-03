@@ -13,9 +13,9 @@ One folder per package under `docs/`. Each package page lists its features and l
 
 | Package | What it covers |
 | --- | --- |
-| [`@spinajs/cli`](cli/README.md) | The `spinajs` bin, commands, `build`, generators |
+| [`@spinajs/cli`](cli/README.md) | The `spinajs` bin, commands, `build`, generators; [every command and option](cli/08-command-reference.md) |
 | [`@spinajs/compiler`](compiler/README.md) | The analyzer that writes the manifest; [spinajs doctor](compiler/doctor.md) |
-| [`@spinajs/manifest`](manifest/README.md) | Manifest types and runtime, modes, bundles |
+| [`@spinajs/manifest`](manifest/README.md) | Manifest types and runtime, modes, bundles; [manifest diff and CI](manifest/diff-and-ci.md); [deploying](manifest/deploying.md) |
 | [`@spinajs/client`](client/README.md) | Generated typed HTTP client |
 | [`@spinajs/openapi`](openapi/README.md) | OpenAPI 3.1 from the manifest |
 | [`@spinajs/asyncapi`](asyncapi/README.md) | AsyncAPI 3.0 from the manifest |

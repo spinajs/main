@@ -135,7 +135,7 @@ export async function describeAddress() {
 
 ## Standard Schema
 
-`@Schema` also accepts a [Standard Schema](https://standardschema.dev) v1 object, such as `z.object(...)` from zod. `@spinajs/validation` does not depend on any schema library: it detects the `~standard` member and calls `~standard.validate(data)`.
+`@Schema` also accepts a [Standard Schema](https://standardschema.dev) v1 object, such as `z.object(...)` from zod 4, `v.object(...)` from valibot, or an ArkType type. `@spinajs/validation` does not depend on any schema library: it detects the `~standard` member and calls `~standard.validate(data)`.
 
 ```ts
 import { z } from 'zod';
@@ -152,7 +152,41 @@ export class CreateUserDto {
 - Issue messages that contain any string or number of the validated input (a library echoing `received hunter2`) are replaced by `Invalid value`, so the errors and the problem+json body never repeat the offending value. Other messages and the `instancePath` are kept.
 - Validate only: the output of the schema (transforms, defaults, coercion such as `z.coerce.number()`, stripped keys) is not applied to the handler argument yet; the handler receives the raw input. Applying it is a planned follow-up.
 - The class is not added to the `'__schemas__'` map, so `getRegisteredSchema` returns `undefined` for it.
-- For the manifest and OpenAPI, the compiler never runs the schema. For zod 4 export a literal JSON Schema next to the class: `export const CreateUserDtoJsonSchema = { ... }`. Otherwise it reports `SCH004` and publishes the schema derived from the class, marked `x-explicit: 'partial'`. See the [compiler diagnostics](../compiler/README.md).
+- For the manifest and OpenAPI, the compiler never runs the schema. For zod 4 export a literal JSON Schema next to the class, as in the example below. Otherwise it reports `SCH004` and publishes the schema derived from the class, marked `x-explicit: 'partial'`. See the [compiler diagnostics](../compiler/README.md).
+
+### zod 4 with a JSON Schema for the manifest
+
+The compiler reads a literal named `<ClassName>JsonSchema`, exported from the module that declares the class, when the `@Schema` argument comes from zod 4 or later (including the `zod/v4` subpath of zod 3.25):
+
+```ts
+import { z } from 'zod';
+import { Schema } from '@spinajs/validation';
+
+@Schema(z.strictObject({ name: z.string() }))
+export class CreateUserDto {
+  public name: string;
+}
+
+// Read by `spinajs build`; it must be a literal, not a call such as `z.toJSONSchema(...)`.
+export const CreateUserDtoJsonSchema = {
+  type: 'object',
+  properties: { name: { type: 'string' } },
+  required: ['name'],
+  additionalProperties: false,
+};
+```
+
+The manifest then holds that schema for `CreateUserDto`, and the schema derived from the class is kept next to it as `x-derived`. These cases are covered by the compiler's tests (`packages/compiler/test/schema/explicit.test.ts`):
+
+| `@Schema` argument | Result |
+| --- | --- |
+| zod 4 and an exported literal `<Class>JsonSchema` | The literal is the schema; no diagnostic |
+| zod 4 and no such export | `SCH004`; the derived schema, marked `x-explicit: 'partial'`, which is documentation only |
+| `<Class>JsonSchema` is not a literal (a call) | `SCH006`; the derived schema, marked partial |
+| zod 3, including the default import of zod 3.25 | `SCH004`, even when a JSON Schema is exported |
+| Any other library (valibot, ArkType, a hand-written Standard Schema) | `SCH004` naming the vendor; the derived schema, marked partial |
+
+At runtime every Standard Schema library goes through the same `~standard.validate` call; only the manifest side differs. A schema marked `x-explicit: 'partial'` is not enforced for socket contracts ([Server-enforced contracts](../http-socket/02-controllers.md#server-enforced-contracts)).
 
 ## Related
 

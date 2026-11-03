@@ -194,6 +194,7 @@ A pipeline that builds, checks the wiring and fails when committed generated fil
 - `spinajs build` exits 1 on an analyzer error, and with `--fail-on-warning` on a warning too. Run it with the `APP_ENV` and paths of the deployment.
 - `spinajs doctor` exits 1 on an error; `--fail-on warning` makes warnings fail too.
 - The client generator is deterministic for a given manifest, so a committed `src/generated/client.ts` can be diffed. The manifest itself is a build product: rebuild it in CI.
+- [Manifest diff and CI](manifest/diff-and-ci.md) covers `manifest:diff`, the PR comment workflow and a longer recipe; [Deploying a manifest-built app](manifest/deploying.md) covers the image build, the environment variables and the one-file bundle.
 ## Known limits in 4.0
 
 - **Inherited routes on abstract bases.** A route that a controller inherits from an abstract base class is served at runtime, but the manifest lists such a base under `controllerBases`, and `generate:openapi`, `generate:client` and `manifest:diff` read the `controllers` list only. Those routes are missing from the OpenAPI document, the generated client and the diff until a later 4.x release.
@@ -208,7 +209,8 @@ A pipeline that builds, checks the wiring and fails when committed generated fil
 | Breaking changes, codemod | [Upgrading to 4.0](upgrading/4.0.md) |
 | Manifest, modes, runtime | [`@spinajs/manifest`](manifest/README.md) |
 | Analyzer, diagnostics | [`@spinajs/compiler`](compiler/README.md), [spinajs doctor](compiler/doctor.md) |
-| CLI commands | [`@spinajs/cli`](cli/README.md) |
+| CLI commands | [`@spinajs/cli`](cli/README.md), [command reference](cli/08-command-reference.md) |
+| Manifest diff, CI, deploying | [Manifest diff and CI](manifest/diff-and-ci.md), [Deploying](manifest/deploying.md) |
 | Route arguments and validation | [Route arguments](http/04-route-arguments.md), [DTO constraints](validation/09-dto-constraints-jsdoc.md), [`@spinajs/validation`](validation/README.md) |
 | Errors | [Error handling](http/11-error-handling.md) |
 | Client | [`@spinajs/client`](client/README.md) |

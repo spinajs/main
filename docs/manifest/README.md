@@ -1,6 +1,6 @@
 # @spinajs/manifest
 
-Versioned types, JSON Schema and helpers for the application manifest (`manifestVersion: 2`; version 1 fragments, whose `fullPath` and parameter `kind` values mean something else, are refused). See the package README for the reader, hash and merge helpers.
+Versioned types, JSON Schema and helpers for the application manifest (`manifestVersion: 2`; version 1 fragments, whose `fullPath` and parameter `kind` values mean something else, are refused). See the package README for the reader, hash and merge helpers. To compare two manifests and gate a pull request, read [Manifest diff and CI](diff-and-ci.md); to ship an app that runs from one, read [Deploying a manifest-built app](deploying.md).
 
 ## Runtime
 
