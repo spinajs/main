@@ -6,7 +6,7 @@ Six `spinajs` CLI commands manage and inspect RBAC data: assign and revoke roles
 
 1. The package config adds `lib/<cjs|mjs>/cli/commands` of `@spinajs/authz-rbac` to `system.dirs.cli`, so the CLI finds the commands once the package is installed.
 2. A command parses its arguments first. A bad command line prints one line and sets the exit code to 1, without booting authz.
-3. The command resolves `AuthzService` (the boot validation runs) and runs its body as `SYSTEM` with the reason `cli` (`authz().runAs`). `AuthzAdmin` writes skip the admin guard as `SYSTEM` and are audited with the reason `cli`. The command never resolves the `Orm` itself: the DB stores (`DbAssignmentStore`, `DbRuleStore`, `DbLinkStore`, `DbMembershipStore`) and `DbAuthzAdminBackend` inject it, so the boot brings the ORM up only when the configuration names one of them. The ORM boot fails while a migration is pending or failed (the message names [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations)); run it first. With the memory and config-backed stores, `authz:check-config` and the other commands run without a database.
+3. The command resolves `AuthzService` (the boot validation runs) and runs its body as `SYSTEM` with the reason `cli` (`authz().runAs`). `AuthzAdmin` writes skip the admin guard as `SYSTEM` and are audited with the reason `cli`. The command never resolves the `Orm` itself: the components that read the database bring it up with the boot. The RBAC DB stores (`DbAssignmentStore`, `DbRuleStore`, `DbLinkStore`, `DbMembershipStore`), `DbAuthzAdminBackend`, `DbDecisionAudit` and a DI-built `DbScopeAttributeStore` (authz-orm) inject it; `RebacModel` and `AbacModel` resolve it when their store is `DbTupleStore` or `DbPolicyStore`. So the ORM comes up when the configuration names or defaults to one of them: `authz.rbac.stores` defaults to the DB stores for assignments, links and membership. A store of your own that queries models injects the `Orm` too (`@Autoinject(Orm)`). The ORM boot fails while a migration is pending or failed (the message names [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations)); run it first. With memory and config-backed stores only, `authz:check-config` and the other commands run without a database.
 4. Any error becomes one line: an `AuthzAdminFailure` prints `<message> (<code>, <field>)`. The exit code is 1.
 
 The commands read the stores and `RbacService` from the root container. With `authz.models: ['RbacModel']` in the config, the root boot in step 3 registers them, so the CLI process needs no wiring code. An app that builds the model by hand must run that wiring in the CLI process too.
@@ -42,7 +42,7 @@ Subjects `system:*` and `unattended:*` are refused: those principals cannot hold
 
 ## Writing your own command
 
-Extend `AuthzCliCommand` (exported by `@spinajs/authz-rbac`) to get the same boot: `authz()`, `admin()` and `asSystem()`.
+Extend `AuthzCliCommand` (exported by `@spinajs/authz-rbac`) to get the same boot: `authz()`, `admin()` and `asSystem()`. `authz()` resolves only `AuthzService`: a command whose own body queries models resolves the `Orm` itself (`await this.Container.resolve(Orm)` inside `command()`, so a failed boot is its message).
 
 | Member | Kind | Default | Override to |
 | --- | --- | --- | --- |
