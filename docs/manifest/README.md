@@ -26,11 +26,11 @@ The `system.manifest` configuration section (`path`, default `app.manifest.json`
 
 `packages/http-socket-example` shows an esbuild bundle that boots in `require` mode from a directory with no `node_modules` at all (`npm run bundle`, output in `dist/bundle`):
 
-- `main.mjs` holds the app and every dependency. It sets `SPINAJS_MANIFEST_ROOT` and `SPINAJS_MANIFEST` to its own directory, so the manifest built from the source tree still verifies.
-- `package-roots.json` maps each listed package to a directory under the bundle (`packages/<name>`); `main.mjs` points `SPINAJS_PACKAGE_ROOTS` at it. See "Package roots" below.
-- Package config files are separate small bundles at `packages/<pkg>/<outDir>/config/`, because the configuration source imports them by path. They are standalone module copies, not part of `main.mjs`: safe while they are plain data, but a config file that imports stateful modules would get its own instance of them.
-- `main.mjs` defaults `SPINAJS_MANIFEST_MODE` to `require`; the DI loader refuses a file under the bundle root that it did not bundle.
-- Controller, socket controller, schedule and migration files the manifest lists are inlined into `main.mjs` and handed to the runtime's import by path through the DI module loader (`__module_loader__`), so they are the same module instances as the app's own imports.
+- `app.mjs` holds the app and every dependency. It sets `SPINAJS_MANIFEST_ROOT` and `SPINAJS_MANIFEST` to its own directory, so the manifest built from the source tree still verifies. `main.mjs` is the launcher: it turns on Node's compile cache and imports `app.mjs` (see [Compile cache](../http/README.md#compile-cache)).
+- `package-roots.json` maps each listed package to a directory under the bundle (`packages/<name>`); `app.mjs` points `SPINAJS_PACKAGE_ROOTS` at it. See "Package roots" below.
+- Package config files are separate small bundles at `packages/<pkg>/<outDir>/config/`, because the configuration source imports them by path. They are standalone module copies, not part of `app.mjs`: safe while they are plain data, but a config file that imports stateful modules would get its own instance of them.
+- `app.mjs` defaults `SPINAJS_MANIFEST_MODE` to `require`; the DI loader refuses a file under the bundle root that it did not bundle.
+- Controller, socket controller, schedule and migration files the manifest lists are inlined into `app.mjs` and handed to the runtime's import by path through the DI module loader (`__module_loader__`), so they are the same module instances as the app's own imports.
 - `typescript` is replaced by a stub that throws on use: manifest mode does not call it.
 - `glob` is not inlined: `off` mode, a package fragment without `configFiles`, glob syntax in a config dir path or a custom file pattern needs `glob` installed next to the bundle, and fails with an error naming that cause otherwise.
 

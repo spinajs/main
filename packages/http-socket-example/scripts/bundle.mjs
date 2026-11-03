@@ -1,10 +1,11 @@
 // Single-file esbuild bundle of the example that boots from app.manifest.json ( system.manifest.mode = 'require' ).
 // Output in dist/bundle:
-//   main.mjs                                  the app with every dependency inlined
+//   main.mjs                                  turns on the compile cache, then loads app.mjs
+//   app.mjs                                   the app with every dependency inlined
 //   app.manifest.json                         built from lib/ by the compiler
 //   package-roots.json                        package name -> directory, read through SPINAJS_PACKAGE_ROOTS
 //   packages/<pkg>/<outDir>/config/*.js       package config files; the configuration source imports them by path
-// Controller, socket controller, schedule and migration files the manifest lists are inlined into main.mjs and served
+// Controller, socket controller, schedule and migration files the manifest lists are inlined into app.mjs and served
 // to the runtime's import-by-path through the DI module loader, so they stay the same module instances as the app's.
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
@@ -41,6 +42,15 @@ const typescriptStub = {
   },
 };
 
+// Node caches only what it compiles after enableCompileCache(), so the launcher must not hold the app. The cache is
+// written once the app listens: a server stopped by a signal never reaches the write at exit.
+const LAUNCHER = `import module from 'node:module';
+
+module.enableCompileCache?.();
+await import('./app.mjs');
+module.flushCompileCache?.();
+`;
+
 const entryOf = (pkg, outDir, file) => ({ source: { package: pkg, file: `${outDir}/${file}`, line: 1, col: 1 } });
 
 async function main() {
@@ -70,7 +80,7 @@ async function main() {
   }
   writeFileSync(join(OUT, 'package.json'), JSON.stringify({ name: manifest.app.name, version: manifest.app.version, type: 'module' }));
 
-  // Package configs are separate module copies beside the bundle, not part of main.mjs: safe only while they are plain
+  // Package configs are separate module copies beside the bundle, not part of app.mjs: safe only while they are plain
   // data. A config file that imports stateful modules would get its own instance of them.
   await build({ ...COMMON, entryPoints: configEntries, outdir: OUT, outExtension: { '.js': '.js' } });
 
@@ -111,7 +121,8 @@ DI.register({
 await startBundle();
 `;
 
-  await build({ ...COMMON, stdin: { contents, resolveDir: PACKAGE, sourcefile: 'bundle-entry.js' }, outfile: join(OUT, 'main.mjs'), plugins: [typescriptStub] });
+  await build({ ...COMMON, stdin: { contents, resolveDir: PACKAGE, sourcefile: 'bundle-entry.js' }, outfile: join(OUT, 'app.mjs'), plugins: [typescriptStub] });
+  writeFileSync(join(OUT, 'main.mjs'), LAUNCHER);
   console.log(`bundle written to ${OUT}`);
 }
 

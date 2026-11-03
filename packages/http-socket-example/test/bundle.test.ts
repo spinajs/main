@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,6 +30,12 @@ function listen(child: ChildProcessWithoutNullStreams): Promise<string> {
   });
 }
 
+async function cacheEntries(dir: string): Promise<number> {
+  const count = () => (existsSync(dir) ? readdirSync(dir, { recursive: true }).length : 0);
+  for (let waited = 0; waited < 5000 && count() <= 1; waited += 50) await new Promise((done) => setTimeout(done, 50));
+  return count();
+}
+
 describe('single-file bundle', function () {
   this.timeout(120_000);
 
@@ -53,26 +59,29 @@ describe('single-file bundle', function () {
 
   it('boots from the manifest in require mode from a directory with no node_modules at all and answers /health', async () => {
     expect(existsSync(join(work, 'node_modules')), 'the bundle ships no node_modules').to.equal(false);
+    const tmp = join(work, 'tmp');
+    mkdirSync(tmp);
+    const env: NodeJS.ProcessEnv = { ...process.env, SPINAJS_MANIFEST_MODE: 'require', PORT: '0', TMPDIR: tmp, TMP: tmp, TEMP: tmp };
+    delete env.NODE_COMPILE_CACHE;
     const started = Date.now();
-    child = spawn(process.execPath, [join(work, 'main.mjs')], {
-      cwd: work,
-      env: { ...process.env, SPINAJS_MANIFEST_MODE: 'require', PORT: '0' },
-    });
+    child = spawn(process.execPath, [join(work, 'main.mjs')], { cwd: work, env });
     const url = await listen(child);
     const bootMs = Date.now() - started;
+    // written once the app listens, so a server stopped by a signal still leaves it for the next start
+    expect(await cacheEntries(join(tmp, 'node-compile-cache')), 'compile cache entries').to.be.greaterThan(1);
 
     const res = await fetch(`${url}/health`);
     expect(res.status).to.equal(200);
     expect(await res.json()).to.deep.equal({ status: 'ok' });
 
-    const sizeKb = Math.round(statSync(join(work, 'main.mjs')).size / 1024);
-    console.log(`bundle: main.mjs ${sizeKb} KiB, ${readdirSync(work).length} entries, boot ${bootMs} ms`);
+    const sizeKb = Math.round(statSync(join(work, 'app.mjs')).size / 1024);
+    console.log(`bundle: app.mjs ${sizeKb} KiB, ${readdirSync(work).length} entries, boot ${bootMs} ms`);
   });
 
   it('fails closed in require mode when the manifest is missing', async () => {
     const empty = mkdtempSync(join(tmpdir(), 'spinajs-bundle-empty-'));
     try {
-      cpSync(join(work, 'main.mjs'), join(empty, 'main.mjs'));
+      for (const file of ['main.mjs', 'app.mjs']) cpSync(join(work, file), join(empty, file));
       child = spawn(process.execPath, [join(empty, 'main.mjs')], { cwd: empty, env: { ...process.env, PORT: '0' } });
       await listen(child).then(
         () => expect.fail('the bundle booted without a manifest'),
