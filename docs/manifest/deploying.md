@@ -2,7 +2,7 @@
 
 An app built with `spinajs build` boots from `app.manifest.json` instead of scanning directories. This page is the recipe for shipping it: what the image build does and in which order, which environment variables the runtime reads, how to bundle the app into one file, and what to do when a deploy fails.
 
-It assumes you know what the manifest is and what `off`, `prefer` and `require` mean; see [What is new in 4.x](../whats-new-4.0.md#from-build-to-a-running-app) and [Runtime modes](README.md#runtime-modes). It does **not** cover process management, health checks or the database, only the manifest.
+It assumes you know what the manifest is and what `off`, `prefer` and `require` mean; see [What is new in 4.x](../whats-new-4.0.md#from-build-to-a-running-app) and [Runtime modes](README.md#runtime-modes). It does **not** cover process management, readiness checks or the database, only the manifest.
 
 ## Build the image
 
@@ -64,6 +64,26 @@ The runtime verifies the manifest's hash and refuses a listed file that leaves t
 `SPINAJS_MANIFEST_MODE` and `SPINAJS_MANIFEST` are read once per configuration load, before any package config file loads; the order of precedence is environment, then the app's own config files, then the defaults ([One switch](README.md#one-switch)).
 
 `SPINAJS_MANIFEST_ROOT` matters for a manifest that was built in one folder and runs in another: a container image where the build stage ran in `/build` and the runtime stage runs in `/app`, a release folder that is swapped by a symlink, or a bundle. Setting it to the deployed app directory is always safe.
+
+## Check what runs
+
+The manifest hash ties a running app to the pull request that was reviewed. The same value shows up in each of these places:
+
+| Where | What it shows |
+| --- | --- |
+| `spinajs build` | The `hash` row at the end of its summary: the full hash of the manifest it wrote |
+| `app.manifest.json` | The `hash` field |
+| `spinajs manifest:diff` | In Markdown, the first 12 characters of both hashes (`` `<base>` -> `<head>` ``); in `--format json`, the full `base` and `head` |
+| `GET /telemetry/health` (`@spinajs/telemetry`) | `manifest.hash` and `manifest.mode`: the manifest the running app booted from ([Health and readiness](../telemetry/08-health-and-readiness.md#the-manifest-the-app-booted-from)) |
+| The boot log | `Manifest <path> loaded ( <mode>, <first 12 characters> )`, at info level |
+
+To check a deployed app against its pull request:
+
+1. Take the head hash from the pull request's manifest diff, or the `hash` row of the CI build that made the image.
+2. Read the running one: `curl -s https://<host>/telemetry/health | jq -r .manifest.hash`.
+3. Compare. The diff's 12 characters are the start of the full hash. A different hash means the app runs a manifest from another build. `null` means it booted without a manifest: `off`, or `prefer` with a missing or stale file, which `prefer` falls back from. Run production in `require`, where neither can happen.
+
+The hash leaves out `app.root`, `generatedAt` and `compilerVersion`, so building in another folder or at another time gives the same hash. It covers `buildEnv`, so the build that the pull request diffs and the build of the image must run under the same `APP_ENV`, or the hashes differ for that reason alone. Use the same compiler version too: the compiler decides the content, although its version is outside the hash. The hash names the manifest, not the compiled code: a `lib/` from another build that still exports every listed class boots with it.
 
 ## One-file bundle
 

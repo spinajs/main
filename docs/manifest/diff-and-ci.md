@@ -65,6 +65,8 @@ The verdict line is one of `no changes`, `non-breaking (<n> changes)` or `**BREA
 
 `--format json` prints `{ "base": "<hash>", "head": "<hash>", "changes": [...], "breaking": <boolean> }` with two-space indentation. A change is `{ "section", "kind", "id", "breaking", "detail"? }`; `kind` is `added`, `removed` or `changed`.
 
+The hashes are each manifest's `hash` field, the value `hashManifest` computes and `spinajs build` prints. Once the pull request is deployed, `GET /telemetry/health` reports the hash of the manifest the app booted from in `manifest.hash`: it starts with the 12 characters after `->`, or equals `head` in JSON, when production runs what was reviewed. See [Check what runs](deploying.md#check-what-runs).
+
 ## What is breaking
 
 A change is breaking when a client written against the base can fail against the head. The direction matters: a request is what the client sends, a response is what it reads.

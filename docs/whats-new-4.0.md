@@ -19,6 +19,9 @@ spinajs build        # writes app.manifest.json and prints diagnostics and a sum
 
 With a manifest in effect, the boot reads the lists instead of scanning directories and parsing `.d.ts` files, and does not load `typescript`. The compiler never runs your code. See [`@spinajs/compiler`](compiler/README.md), [`spinajs build`](cli/README.md#build) and [`@spinajs/manifest`](manifest/README.md).
 
+- **Inherited routes.** A controller's entry lists the routes and socket handlers it inherits from its base classes, in its own package or a dependency, at the subclass's path and with the types the subclass binds, so `BaseCrud<ArticleDto>` validates `ArticleDto` and the generators, doctor and `manifest:diff` see those routes. See [What is extracted](compiler/README.md#what-is-extracted).
+- **What runs is what was reviewed.** `GET /telemetry/health` reports the hash of the manifest the app booted from, the hash `spinajs build` prints and `manifest:diff` shows in the pull request. See [Check what runs](manifest/deploying.md#check-what-runs).
+
 ### Doctor
 
 `spinajs doctor` reads the manifest and reports wiring mistakes that would otherwise be a 500 at runtime: an injected token nothing registers (`DI001`), a dependency cycle (`DI002`), two routes with the same path (`HTTP001`), a route with no `@Access`, `@Policy`, `@AllowAnonymous` or `@Public` (`HTTP002`), a socket handler that disagrees with its contract (`SOCK001-003`).
