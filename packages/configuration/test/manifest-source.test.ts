@@ -298,10 +298,10 @@ describe('ManifestConfigurationSource', () => {
       expect(bootedManifestOf(container)).to.deep.equal({ mode: 'prefer', hash: null });
     });
 
-    it('reports the compiler version the manifest records, which its hash leaves out', async () => {
+    it('reports neither the compiler version the manifest records nor a hash it changes', async () => {
       const manifest = { ...fixture(), compilerVersion: '4.0.0-test' };
       const { container } = await bootFrom(manifest, 'require');
-      expect(bootedManifestOf(container)).to.deep.equal({ mode: 'require', hash: hashManifest(manifest), compilerVersion: '4.0.0-test' });
+      expect(bootedManifestOf(container)).to.deep.equal({ mode: 'require', hash: fixture().hash });
     });
 
     it('holds off and null where nothing decided the manifest', () => {

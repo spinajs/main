@@ -190,18 +190,15 @@ export interface BootedManifest {
   mode: ManifestMode;
   /** The manifest's `hash`, as `hashManifest` and `spinajs manifest:diff` give it; `null` when the app booted without one. */
   hash: string | null;
-  compilerVersion?: string;
 }
 
 /**
- * Read from what the boot registered: `loadRuntimeManifest` returns only a manifest whose `hash` matches its content, so
- * the hash is not computed again. Unlike `effectiveManifestOf` it never throws, so a liveness probe cannot fail on it.
+ * Read from what the boot registered, so the hash is not computed again. When `ManifestConfigurationSource` loaded the
+ * file, `loadRuntimeManifest` checked that the hash matches its content; a manifest a host or `withManifest` registered
+ * is reported as registered, unchecked. Unlike `effectiveManifestOf` it never throws, so a liveness probe cannot fail on it.
  */
 export function bootedManifestOf(container: IContainer): BootedManifest {
-  const mode = manifestSettingsOf(container)?.mode ?? 'off';
-  const manifest = mode === 'off' ? undefined : manifestOf(container);
-  if (!manifest) return { mode, hash: null };
-  return { mode, hash: manifest.hash, ...(manifest.compilerVersion ? { compilerVersion: manifest.compilerVersion } : {}) };
+  return { mode: manifestSettingsOf(container)?.mode ?? 'off', hash: activeManifestOf(container)?.hash ?? null };
 }
 
 /** The manifest to read from instead of scanning: registered, and the effective mode is not `off`. */
