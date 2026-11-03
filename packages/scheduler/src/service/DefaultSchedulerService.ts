@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { Autoinject, DI, Injectable, Singleton } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
+import { Orm } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
 import { DataValidator } from '@spinajs/validation';
 import {
@@ -107,6 +108,10 @@ const intOr = (v: number | undefined, fallback: number) =>
 export class DefaultSchedulerService extends SchedulerService {
   @Logger('SCHEDULER')
   protected Log: Log;
+
+  /** Never read: injecting it resolves the Orm, which binds the models, before `resolve()` syncs the definitions. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
 
   @Autoinject(ScheduleRegistry)
   protected Registry: ScheduleRegistry;
