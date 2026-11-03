@@ -28,7 +28,7 @@ Every abstract token extends `QueryStatement`, which implements `TableAlias`, `B
 
 | Token | `@spinajs/orm-sql` class | Created by | SQL | Clone |
 | --- | --- | --- | --- | --- |
-| `WhereStatement` | `SqlWhereStatement` | `where(column, [op,] value)`, `whereNull`, `whereNotNull` | `` `alias`.`col` <OP> ? `` | rebinds `_builder`; a `RawQuery` value is inlined with its bindings instead of a `?` |
+| `WhereStatement` | `SqlWhereStatement`; `MsSqlWhereStatement` in its driver | `where(column, [op,] value)`, `whereNull`, `whereNotNull` | `` `alias`.`col` <OP> ? ``; a `LikeLiteral` value is `` `col` LIKE ? ESCAPE '~' ``, bound its pattern with `escapeLike(text)` applied | rebinds `_builder`; a `RawQuery` value is inlined with its bindings instead of a `?`; `clone()` keeps the subclass |
 | `WhereQueryStatement` | `SqlWhereQueryStatement` | `where(function () { ... })`, `whereNot(function () { ... })` | `( <nested where> )`, `NOT ( <nested where> )`; an empty negated group is `1 = 0` | clones the nested `WhereBuilder` onto the parent, keeps the negation |
 | `LazyQueryStatement` | `SqlLazyQueryStatement` | `where(Lazy)`, correlated `EXISTS` | the callback's statements, built at compile time | rebinds `context` |
 | `RawQueryStatement` | `SqlRawStatement` | `where(RawQuery)`, `where(true)`, `where(false)` | the query verbatim; `where(true)` is `1 = 1` and `where(false)` is `1 = 0` | no builder |
@@ -112,6 +112,7 @@ The portable form escapes `~`, `%` and `_` with `escapeLikeValue()` and `LIKE_ES
 | `TextWrapper` | Column expression for `Wrapper.Text()` | `SqlTextWrapper` (`CAST(... AS TEXT)`) | Subclass, override `textType()` (as `MySqlTextWrapper` returns `CHAR`), register `.as(TextWrapper)` |
 | `SqlInStatement` hooks | Bind a long value list as one parameter | `listThreshold` `1000`, `listExpression()` returns `null` (expanded `IN (?, ...)`), `listBinding()` returns JSON text | Subclass, override `listExpression(column)` to return the one-parameter predicate and `listBinding(values)` for its value; lower `listThreshold` when the engine's limit is lower. `valueConverter()` is the per-value conversion `build()` applies. |
 | `SqlStartsWithStatement.pattern()` | The escaped prefix | `escapeLikeValue(prefix)` (`~`, `%`, `_`) | Override to escape more wildcards, as MSSQL escapes `[` |
+| `SqlWhereStatement.escapeLike(text)` | The escaped text of a `LikeLiteral` | `escapeLikeValue(text)` (`~`, `%`, `_`) | Override to escape more wildcards, as `MsSqlWhereStatement` escapes `[` |
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';

@@ -1,4 +1,4 @@
-import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, TextWrapper, Wrap, ColumnCompareStatement, ColumnConditionStatement, IWhereBuilder, OuterColumn, outerBuilder, qualifierOf, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER, IJoinStatementOptions, OrmDriver } from '@spinajs/orm';
+import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, TextWrapper, Wrap, ColumnCompareStatement, ColumnConditionStatement, IWhereBuilder, OuterColumn, outerBuilder, qualifierOf, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, LikeLiteral, SET_DELIMITER, IJoinStatementOptions, OrmDriver } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers.js';
 import { Autoinject, NewInstance } from '@spinajs/di';
@@ -246,16 +246,23 @@ export class SqlWhereStatement extends WhereStatement {
    */
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_builder?: T): SqlWhereStatement {
     return _carryQuoter(
-      new SqlWhereStatement(this._column, this._operator, this._value, (_builder ?? this._builder) as WhereBuilder<unknown>),
+      new (this.constructor as new (column: string | Wrap, operator: SqlOperator, value: any, builder: WhereBuilder<unknown>) => SqlWhereStatement)(this._column, this._operator, this._value, (_builder ?? this._builder) as WhereBuilder<unknown>),
       this,
     );
   }
 
+  /** The text of a {@link LikeLiteral} with every wildcard of this dialect's LIKE escaped. */
+  protected escapeLike(text: string): string {
+    return escapeLikeValue(text);
+  }
+
   public build(): IQueryStatementResult {
     const isNullableQuery = this._operator === SqlOperator.NOT_NULL || this._operator === SqlOperator.NULL;
-    const binding = isNullableQuery ? '' : ' ?';
+    const literal = this._value instanceof LikeLiteral ? this._value : null;
+    const binding = isNullableQuery ? '' : literal ? ` ? ESCAPE '${LIKE_ESCAPE_CHARACTER}'` : ' ?';
+    const value = literal ? literal.pattern(this.escapeLike(literal.Text)) : this._value;
     let column = this._column;
-    let val = this._value;
+    let val = value;
     if (this._model) {
       const desc = extractModelDescriptor(this._model);
       const rel = desc!.Relations.get(column as string);
@@ -292,13 +299,13 @@ export class SqlWhereStatement extends WhereStatement {
           converter = this._container.resolve<ValueConverter>(dsc.Converters.get(this._column as string)!.Class);
         } else {
           const converters = this._container.get<Map<string, any>>('__orm_db_value_converters__');
-          if (converters && this._value && converters.has(this._value.constructor.name)) {
-            converter = this._container.resolve<ValueConverter>(converters.get(this._value.constructor.name));
+          if (converters && value && converters.has(value.constructor.name)) {
+            converter = this._container.resolve<ValueConverter>(converters.get(value.constructor.name));
             val = converter.toDB(val, null as any, null as any, null);
           }
         }
 
-        val = converter ? converter.toDB(this._value, null as any, (dsc ? dsc.Columns.find((x) => x.Name === this._column) : null) as any, null) : this._value;
+        val = converter ? converter.toDB(value, null as any, (dsc ? dsc.Columns.find((x) => x.Name === this._column) : null) as any, null) : value;
       }
     }
 

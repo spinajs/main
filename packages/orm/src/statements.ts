@@ -197,6 +197,10 @@ export abstract class WhereStatement extends QueryStatement {
     this._model = builder.Model;
     this._builder = builder;
 
+    if (value instanceof LikeLiteral && String(operator).toLowerCase() !== String(SqlOperator.LIKE)) {
+      throw new InvalidArgument(`a LikeLiteral is an operand of the like operator only, got ${operator}`);
+    }
+
     if (this._model) {
       const desc = extractModelDescriptor(this._model);
       const columnName = typeof column === 'string' ? column : null;
@@ -530,6 +534,49 @@ export const LIKE_ESCAPE_CHARACTER = '~';
 export function escapeLikeValue(value: string): string {
   return value.replace(new RegExp(`[${LIKE_ESCAPE_CHARACTER}%_]`, 'g'), (c) => `${LIKE_ESCAPE_CHARACTER}${c}`);
 }
+
+export type LikeMatch = 'contains' | 'startsWith' | 'endsWith';
+
+/**
+ * A `like` operand taken literally: `where('Name', 'like', LikeLiteral.contains(text))`. No character of the text is a
+ * wildcard, and each dialect escapes its own. Unlike `whereStartsWith()`, the dialect's LIKE still decides whether case
+ * variants match. A plain string operand stays a raw pattern.
+ */
+export class LikeLiteral {
+  constructor(
+    public readonly Text: string,
+    public readonly Match: LikeMatch = 'contains',
+  ) {
+    if (typeof Text !== 'string') {
+      throw new InvalidArgument(`LikeLiteral takes a string, got ${Text === null ? 'null' : typeof Text}`);
+    }
+  }
+
+  public static contains(text: string): LikeLiteral {
+    return new LikeLiteral(text, 'contains');
+  }
+
+  public static startsWith(text: string): LikeLiteral {
+    return new LikeLiteral(text, 'startsWith');
+  }
+
+  public static endsWith(text: string): LikeLiteral {
+    return new LikeLiteral(text, 'endsWith');
+  }
+
+  /** The pattern to bind, given the text with the dialect's wildcards escaped. */
+  public pattern(escaped: string): string {
+    switch (this.Match) {
+      case 'startsWith':
+        return `${escaped}%`;
+      case 'endsWith':
+        return `%${escaped}`;
+      default:
+        return `%${escaped}%`;
+    }
+  }
+}
+
 @NewInstance()
 export abstract class ColumnStatement extends QueryStatement {
   protected _column: string | RawQuery;

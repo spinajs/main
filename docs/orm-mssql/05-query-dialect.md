@@ -28,6 +28,7 @@ SELECT ... FROM [shop].[dbo].[orders] as [#orders#] WHERE ... = @p0 ORDER BY [Pa
 | `whereNotInSet('Roles', ['admin', 'editor'])` | `MsSqlInSetStatement` | `(NOT (...) AND NOT (...))` |
 | `whereInSet('Roles', [])` / negated | `MsSqlInSetStatement` | `(1 = 0)` / `(1 = 1)` |
 | `whereStartsWith('Path', 'docs[1]/')` | `MsSqlStartsWithStatement` | `[Path] LIKE ? ESCAPE '~'`, bound `'docs~[1]/%'`; `[` is escaped as well, since T-SQL `LIKE` reads it as a character class; whether case variants match follows the column's collation |
+| `where('Name', 'like', LikeLiteral.contains('docs[1]'))` | `MsSqlWhereStatement` | `[Name] LIKE ? ESCAPE '~'`, bound `'%docs~[1]%'`; `[` is escaped as for `whereStartsWith()` |
 | `whereIn('Id', [1, 2])` | `MsSqlInStatement` | `[Id] IN (?,?)` |
 | `whereIn('Id', list)` with more than 200 strings or numbers | `MsSqlInStatement` | `[Id] IN (SELECT [value] FROM OPENJSON(?))`, bound `JSON.stringify(list)`; `whereNotIn()` writes `NOT IN` |
 | `whereIn('Id', [])` / `whereNotIn('Id', [])` | shared `SqlInStatement` | `1 = 0` / `1 = 1` |
