@@ -230,6 +230,18 @@ describe('the authz cli over ReBAC and ABAC DB stores in a process that has not 
     expect(result.audit).to.include.members(['explain', 'runAs']);
   });
 
+  it('a ReBAC-only domain on DbTupleStore, with the log audit, boots the Orm and explains from the tuple', async () => {
+    const authz = { permissions: { 'doc:read': {} }, models: ['AppRebacModel'], rebac: REBAC_ABAC_AUTHZ.rebac };
+    const setup: ProcessSetup = {
+      imports: ["import { AuthorizationModel } from '@spinajs/authz';", "import { DbTupleStore, RebacModel } from '@spinajs/authz-rebac';"],
+      register: REBAC_ABAC_SETUP.register!.filter((line) => !line.includes('DbDecisionAudit')),
+      seed: REBAC_ABAC_SETUP.seed,
+    };
+    const result = (await freshProcess(cliRun(["await (await DI.resolve(ExplainCommand)).execute('user:alice', 'doc:read', 'doc:d1', {});"]), true, authz, setup)) as { out: string[]; exitCode: number | null; orm: boolean };
+    expect(result.out[0]).to.eq('ALLOWED: user:alice doc:read on doc:d1');
+    expect(result).to.include({ exitCode: null, orm: true });
+  });
+
   it('an ABAC-only domain on DbPolicyStore boots the Orm and explains', async () => {
     const authz = { permissions: { 'doc:read': {} }, models: ['AbacModel'], abac: { stores: ['DbPolicyStore'] } };
     const result = (await freshProcess(cliRun(["await (await DI.resolve(ExplainCommand)).execute('user:alice', 'doc:read', 'doc:d1', {});"]), true, authz, { imports: ["import '@spinajs/authz-abac';"] })) as { out: string[]; exitCode: number | null; orm: boolean };
