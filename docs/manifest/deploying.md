@@ -19,7 +19,7 @@ The manifest describes the compiled app, and it records the configuration the bu
    The `--app`, `--apppath` and `--config-path` values are the ones the app starts with, and `APP_ENV` (or `--env`) is the environment it runs in. A config file of another environment that adds a `system.dirs` entry counts only when the build ran under that environment ([The app's own classes](README.md#the-apps-own-classes)).
 3. **Optionally run `spinajs doctor`** on the manifest: `spinajs doctor --format github` in CI, plain `spinajs doctor` in a Dockerfile.
 4. **Optionally pre-build the controller cache** if the image also runs with `system.manifest.mode` `off`: `spinajs http:controllers:cache`. With a manifest in effect the cache is not read for parameter names ([Controller cache and CLI](../http/21-controller-cache-and-cli.md)).
-5. **Ship** `lib/`, `app.manifest.json`, `package.json` and a production `node_modules`. In `require` mode the runtime does not load `typescript` or the compiler. It still imports `glob`, which `@spinajs/configuration`, `@spinajs/orm`, `@spinajs/validation` and `@spinajs/intl` depend on.
+5. **Ship** `lib/`, `app.manifest.json`, `package.json` and a production `node_modules`. In `require` mode the runtime loads neither `typescript` nor the compiler, and `glob` only for a translation or schema dir that exists, a package fragment without `configFiles` or a config dir with glob syntax in its path ([Runtime](README.md#runtime)). Keep `glob` installed: the packages still depend on it.
 6. **Start the app with the manifest on:** `SPINAJS_MANIFEST_MODE=require`, or `system.manifest.mode` in a config file of the app.
 
 A Dockerfile that follows these steps (an illustration of the order, not a tested image):
@@ -57,6 +57,8 @@ The runtime verifies the manifest's hash and refuses a listed file that leaves t
 | `SPINAJS_MANIFEST_ROOT` | `@spinajs/manifest` runtime | Directory the app runs from when `app.root` (the build machine's path, recorded in the manifest) does not exist on this machine. Wins over `app.root` even when that exists. Without either, the working directory is used |
 | `SPINAJS_PACKAGE_ROOTS` | `@spinajs/manifest` runtime | Path of a JSON file mapping a package name to a directory relative to the app root, for an app that ships without `node_modules`. Without it nothing changes. A mapped directory outside the app root is refused |
 | `WORKSPACE_ROOT_PATH` | `@spinajs/configuration` and the packages' config files | Root under which `node_modules/@spinajs/<pkg>/lib` is looked up. When it is unset the configuration detects the hoisting root and sets it. With a manifest in `require` mode the package config files come from the manifest, and setting this variable skips the detection too |
+| `SPINAJS_MANIFEST_VALIDATE` | `@spinajs/manifest` runtime | `1` or `true` checks the manifest against its JSON Schema at every boot. Without it only a manifest whose hash does not match is checked, because `spinajs build` checked the file it wrote |
+| `NODE_COMPILE_CACHE`, `NODE_DISABLE_COMPILE_CACHE` | Node, through the launchers of the `spinajs` bin and the bundle | The dir of Node's compile cache, or `1` to turn it off. An image keeps the saving only when it has a filled cache dir: set `NODE_COMPILE_CACHE` and start the app once while building the image ([Compile cache](../http/README.md#compile-cache)) |
 | `APP_ENV` | `@spinajs/configuration` | The environment: which `*.<env>` config files and migrations apply. `spinajs build` records the value it ran under as `buildEnv`; a different running value logs one warning |
 
 `SPINAJS_MANIFEST_MODE` and `SPINAJS_MANIFEST` are read once per configuration load, before any package config file loads; the order of precedence is environment, then the app's own config files, then the defaults ([One switch](README.md#one-switch)).
@@ -65,17 +67,18 @@ The runtime verifies the manifest's hash and refuses a listed file that leaves t
 
 ## One-file bundle
 
-An app can run without `node_modules` at all. The reference is `packages/http-socket-example`: `npm run bundle` writes `dist/bundle`, and `node main.mjs` there boots in `require` mode. The script is `packages/http-socket-example/scripts/bundle.mjs`; [Single-file bundle](../http-socket-example/11-bundle.md) lists the output files and [Single-file bundle](README.md#single-file-bundle) explains each part.
+An app can run without `node_modules` at all. The reference is `packages/http-socket-example`: `npm run bundle` writes `dist/bundle`, and `node main.mjs` there boots in `require` mode. The script is `packages/http-socket-example/scripts/bundle.mjs`; [Bundle](../http-socket-example/11-bundle.md) lists the output files and [Bundle](README.md#bundle) explains each part.
 
 The recipe, in the order the script does it:
 
 1. **Compile** the app.
 2. **Build the manifest** with the compiler API (`buildAppManifest({ tsconfig, appRoot, out, schemaDerivation: true })`) into the bundle directory.
 3. **Map the packages.** Write `package-roots.json`: `{ "<package name>": "packages/<package name>" }` for every entry of `manifest.packages`, and create those directories.
-4. **Bundle the config files.** Each package's `configFiles` (relative to its `outDir`) are built with esbuild as standalone modules at `packages/<pkg>/<outDir>/config/<file>`. The configuration source imports them by path, so they cannot live inside `main.mjs`. They are separate copies: keep them plain data.
-5. **Bundle the entry.** One esbuild call with the app, the controllers, socket controllers, schedules and migrations the manifest lists, and every dependency. Commands are left out: they are CLI-only and would pull the compiler in.
+4. **Bundle the config files.** Each package's `configFiles` (relative to its `outDir`) are built with esbuild as standalone modules at `packages/<pkg>/<outDir>/config/<file>`. The configuration source imports them by path, so they cannot live inside `app.mjs`. They are separate copies: keep them plain data.
+5. **Bundle the entry** into `app.mjs`. One esbuild call with the app, the controllers, socket controllers, schedules and migrations the manifest lists, and every dependency. Commands are left out: they are CLI-only and would pull the compiler in.
 6. **Register a module loader.** A value `__module_loader__` with `load(file)` returns the inlined module for a listed file, so the runtime's import-by-path gets the same module instance as the app's own imports. It throws for a file under the bundle root that was neither inlined nor bundled as a config.
 7. **Set the environment** at the top of the entry, with `??=` so the host can override: `SPINAJS_MANIFEST_ROOT` (the bundle directory), `SPINAJS_MANIFEST` (`app.manifest.json` beside it), `SPINAJS_PACKAGE_ROOTS` (`package-roots.json` beside it) and `SPINAJS_MANIFEST_MODE=require`.
+8. **Write the launcher** `main.mjs`: it turns on Node's compile cache with `@spinajs/util/compile-cache`, imports `app.mjs` and writes the cache once the app listens.
 
 esbuild options the script sets, each for a reason:
 
@@ -86,7 +89,7 @@ esbuild options the script sets, each for a reason:
 | `banner` with `createRequire` | Dependencies that call `require` keep working in an ESM bundle |
 | A plugin that replaces `typescript` with a stub that throws on use | `@spinajs/http` and `@spinajs/reflection` import it for runtime type discovery, which a manifest makes unnecessary; it is 9 MB. The stub's message tells you to run with `system.manifest.mode=require` |
 
-Run the result with `node main.mjs`. The reference app takes `PORT`, default a free one, and answers `GET /health` with `{"status":"ok"}`.
+Run the result with `node main.mjs`, and deploy `main.mjs` together with `app.mjs`. The reference app takes `PORT`, default a free one, and answers `GET /health` with `{"status":"ok"}`.
 
 ## Troubleshooting
 
@@ -96,6 +99,7 @@ Run the result with `node main.mjs`. The reference app takes `PORT`, default a f
 | `error CMP007 - no system.dirs entry maps to a source folder of this app. Searched ...`, exit 1, no manifest written | The build read a configuration with no dir that maps to the app. Usual causes: `lib/config` is not compiled, the build runs from another folder, or `--app`, `--apppath`, `--config-path` or `--env` differ from the ones the app runs with | Compile first, run from the app's folder with the app's options. Use `--allow-no-dirs` only for an app that really declares no dirs: then nothing loads from the manifest |
 | `warning CMP008 - system.dirs.<key> entry <dir> has no source folder behind it` | A configured dir inside the app maps to no source folder, often a dir computed from the wrong working directory | Run the build from the folder the app runs from |
 | `warning CLI001 - the working directory ... is not the app root ...` | The working directory of `spinajs build` is not the `tsconfig` folder, and `system.dirs` was computed from it | Run it from the folder the app runs from |
+| `error CLI002 - the manifest fails its JSON Schema and was not kept: ...`, exit 1, no manifest written | `spinajs build` checks the manifest it wrote, because the boot skips that check for a manifest whose hash matches | Report it: the compiler wrote a manifest its own schema refuses |
 | `ManifestMissing: system.manifest.mode is 'require' but <file> does not exist; run 'spinajs build' first` | `require` and no manifest at that path | Copy the manifest into the image, or set `SPINAJS_MANIFEST` to its real path |
 | `ManifestMissing: <file> does not export class <Class> listed in manifest section <section> ...` | The manifest lists a class the deployed file does not have: the manifest and `lib/` come from different builds | Rebuild the manifest after compiling, in the same stage |
 | `ManifestMissing: package <name> is a dependency of <app> and listed in the manifest, but is not installed` | The runtime cannot find a package's root: `node_modules` was left out, or `SPINAJS_PACKAGE_ROOTS` does not map it | Install the dependency, or add it to the package roots file |
@@ -111,4 +115,4 @@ Run the result with `node main.mjs`. The reference app takes `PORT`, default a f
 - [Command reference](../cli/08-command-reference.md#build): every `build` option.
 - [spinajs doctor](../compiler/doctor.md): the checks to run before shipping.
 - [Manifest diff and CI](diff-and-ci.md): a pipeline that builds, checks and diffs.
-- [Single-file bundle](../http-socket-example/11-bundle.md): the reference app's output.
+- [Bundle](../http-socket-example/11-bundle.md): the reference app's output.
