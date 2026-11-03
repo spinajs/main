@@ -309,6 +309,97 @@ describe('Orm boot guard: the Orm checks the migrations and never applies them',
     expect(migrator.Orm).to.equal(tool.get(Orm));
   });
 
+  it('a boot failed by the guard caches neither the Orm nor its guard: resolveMigrationTool() in that container then migrates, and the next boot passes', async () => {
+    createTrackingTables();
+
+    const boot = await rejection(Promise.resolve(app.resolve(Orm)));
+    expect(boot).to.be.instanceOf(PendingMigrationsException);
+    expect(app.get(OrmMigrationGuard, false)).to.be.undefined;
+
+    const migrator = await resolveMigrationTool(app);
+    await migrator.migrate();
+
+    expect(app.get(Orm)).to.equal(migrator.Orm);
+    expect(TABLES.has('boot_guard_users')).to.be.true;
+
+    const next = DI.child();
+    await next.resolve(Orm);
+    expect(next.get(OrmMigrationGuard, false)?.Enabled).to.be.true;
+  });
+
+  it('a boot failed by db.StrictTableCheck caches no guard either', async () => {
+    createTrackingTables();
+    await migrateTestDatabase(tool);
+
+    @Connection(CONNECTION)
+    @Model('boot_guard_without_migration')
+    class BootGuardOrphan extends ModelBase {
+      @Primary()
+      public Id: number;
+    }
+
+    try {
+      expect(await rejection(Promise.resolve(app.resolve(Orm)))).to.be.instanceOf(OrmException);
+      expect(app.get(OrmMigrationGuard, false)).to.be.undefined;
+    } finally {
+      DI.unregister(BootGuardOrphan);
+    }
+  });
+
+  it('resolveMigrationTool() refuses a container whose Orm was booted as an application', async () => {
+    createTrackingTables();
+    await migrateTestDatabase(tool);
+    await app.resolve(Orm);
+
+    const err = await rejection(resolveMigrationTool(app));
+
+    expect(err).to.be.instanceOf(OrmException);
+    expect(err).to.not.be.instanceOf(PendingMigrationsException);
+    expect((err as Error).message).to.equal('resolveMigrationTool() needs the boot guard disabled, but the guard in this container is enabled: the Orm here was ( or will be ) booted as an application. Resolve the migration tool before anything resolves the Orm or OrmMigrationGuard in this container, or uncache Orm, OrmMigrator and OrmMigrationGuard together first');
+  });
+
+  it('resolveMigrationTool() in a child refuses the application Orm it would inherit from the parent', async () => {
+    createTrackingTables();
+    await migrateTestDatabase(tool);
+    await DI.resolve(Orm);
+
+    const err = await rejection(resolveMigrationTool(DI.child()));
+
+    expect(err).to.be.instanceOf(OrmException);
+    expect((err as Error).message).to.contain('booted as an application in a parent container');
+  });
+
+  it('resolveMigrationTool() in a child explains a pending-migrations failure of an Orm registered in the parent', async () => {
+    class BootGuardAppOrm extends Orm {}
+    DI.register(BootGuardAppOrm).as(Orm);
+
+    try {
+      const err = await rejection(resolveMigrationTool(DI.child()));
+
+      expect(err).to.be.instanceOf(OrmException);
+      expect(err).to.not.be.instanceOf(PendingMigrationsException);
+      expect((err as Error).message).to.contain('resolve the migration tool in the container that registers the Orm');
+      expect((err as OrmException).inner).to.be.instanceOf(PendingMigrationsException);
+    } finally {
+      DI.unregister(BootGuardAppOrm);
+    }
+  });
+
+  it('db.MigrationCheck off boots over a pending migration without reading the tracking table', async () => {
+    migrationCheck = 'off';
+    createTrackingTables();
+    TABLES.set('boot_guard_users', ['Id', 'Email']);
+    const up = sinon.spy(types.BootGuardCreateUsers_2026_01_01_00_00_00.prototype, 'up');
+    const execute = sinon.spy(BootGuardDriver.prototype, 'execute');
+
+    const orm = await app.resolve(Orm);
+
+    expect(app.get(Orm)).to.equal(orm);
+    expect(up.called).to.be.false;
+    expect(RECORDS).to.deep.equal([]);
+    expect(execute.getCalls().some((c) => c.args[0] instanceof SelectQueryBuilder && c.args[0].Table === MIGRATION_TABLE_NAME)).to.be.false;
+  });
+
   it("migrate() rejects with the migration's error and records it FAILED; the next Orm resolve rejects naming the FAILED migration", async () => {
     createTrackingTables();
     const boom = new Error('boom');

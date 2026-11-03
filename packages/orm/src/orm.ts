@@ -7,7 +7,7 @@ import { IColumnDescriptor, IDriverOptions, IModelDescriptor, OrmMigration } fro
 import { ModelBase, MODEL_STATIC_MIXINS, updateModelDescriptor } from './model.js';
 import { OrmDriver } from './driver.js';
 import { InvalidOperation } from '@spinajs/exceptions';
-import { OrmException } from './exceptions.js';
+import { OrmException, PendingMigrationsException } from './exceptions.js';
 import { DateTime } from 'luxon';
 import { extractModelDescriptor, extractOwnMigrationDescriptor } from './descriptor.js';
 import { buildModelJsonSchema } from './schema.js';
@@ -255,8 +255,7 @@ export class Orm extends AsyncService {
         // before the table read, so an unmigrated database is named by its migrations, not its missing tables
         await this.MigrationGuard.check(this);
       } catch (err) {
-        // a rejected resolve caches no Orm, so nobody else could close the connections it opened
-        await this.dispose().catch(() => undefined);
+        await this.abandonBoot();
         throw err;
       }
     }
@@ -265,7 +264,7 @@ export class Orm extends AsyncService {
 
     // a migration tool boots before the tables it is about to create exist
     if (missing.length > 0 && this.StrictTableCheck && this.MigrationGuard.Enabled) {
-      await this.dispose().catch(() => undefined);
+      await this.abandonBoot();
       throw new OrmException(missingTablesMessage(missing));
     }
 
@@ -273,6 +272,15 @@ export class Orm extends AsyncService {
 
     this.wireRelations();
     this.applyModelMixins();
+  }
+
+  /**
+   * A rejected resolve caches no Orm, so nobody else could close the connections it opened; the enabled guard goes
+   * too, or a migration tool resolved next in this container would get it back and refuse to start.
+   */
+  protected async abandonBoot(): Promise<void> {
+    this.Container.uncache(OrmMigrationGuard);
+    await this.dispose().catch(() => undefined);
   }
 
   protected registerDefaultConverters() {
@@ -521,12 +529,32 @@ export class Orm extends AsyncService {
 
 /**
  * A migration tool's boot ( `@spinajs/orm-cli`, tests, desktop apps ): the Orm without the boot guard or the
- * `db.StrictTableCheck` check, and the migrator over it. Call it before anything else resolves the Orm in `container`:
- * an Orm resolved earlier already ran the guard.
+ * `db.StrictTableCheck` check, and the migrator over it. Call it before anything else resolves the Orm in `container`,
+ * and in the container that registers the Orm when an application registers its own: an Orm booted as an application
+ * is refused. A boot that failed leaves nothing cached, so the tool can run after it.
  */
 export async function resolveMigrationTool(container: IContainer = DI.RootContainer): Promise<OrmMigrator> {
-  await container.resolve(OrmMigrationGuard, [{ Enabled: false }]);
-  const orm = await container.resolve(Orm);
+  // a cached guard keeps the options it was first resolved with
+  if ((await container.resolve(OrmMigrationGuard, [{ Enabled: false }])).Enabled) {
+    throw new OrmException('resolveMigrationTool() needs the boot guard disabled, but the guard in this container is enabled: the Orm here was ( or will be ) booted as an application. Resolve the migration tool before anything resolves the Orm or OrmMigrationGuard in this container, or uncache Orm, OrmMigrator and OrmMigrationGuard together first');
+  }
+
+  let orm: Orm;
+  try {
+    orm = await container.resolve(Orm);
+  } catch (err) {
+    // the guard here is disabled, so the one that threw is in the parent that registers the Orm and builds it
+    if (err instanceof PendingMigrationsException) {
+      throw new OrmException('resolveMigrationTool(): the Orm is built in a parent container that registers it, and its boot guard there is enabled: resolve the migration tool in the container that registers the Orm', undefined, undefined, undefined, err);
+    }
+
+    throw err;
+  }
+
+  if (bootedInParent(container, orm)) {
+    throw new OrmException('resolveMigrationTool(): the Orm this container sees was booted as an application in a parent container: resolve the migration tool in that container before anything resolves the Orm there, or in a container that resolves its own Orm');
+  }
+
   const migrator = await container.resolve(OrmMigrator, [orm]);
 
   // a singleton keeps the Orm it was first built with, which an Orm uncached alone leaves behind
@@ -535,4 +563,18 @@ export async function resolveMigrationTool(container: IContainer = DI.RootContai
   }
 
   return migrator;
+}
+
+function bootedInParent(container: IContainer, orm: Orm): boolean {
+  if (container.isCached(orm)) {
+    return false;
+  }
+
+  for (let c = container.Parent; c; c = c.Parent) {
+    if (c.isCached(orm)) {
+      return c.get(OrmMigrationGuard, false)?.Enabled === true;
+    }
+  }
+
+  return false;
 }
