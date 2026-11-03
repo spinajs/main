@@ -21,7 +21,7 @@ The package ships a config file that appends its command directory to `system.di
 | [Migration status](03-migration-status.md) | `migrate-status`: one line per migration per connection on stdout; exits `1` while anything is pending or failed, so it works as a deploy gate |
 | [Resolving failed migrations](04-resolving-failed-migrations.md) | `migrate-resolve`: records whether a failed or interrupted migration reached the database, which unblocks the connection |
 | [Scaffolding migrations](05-scaffolding-migrations.md) | `migrate-create`: writes a timestamped migration class file, optionally tagged for one environment |
-| [The CLI migrator](06-cli-orm.md) | `resolveCliMigrator()`: the `OrmMigrator` every command runs against, with its boot pass switched off |
+| [The CLI migrator](06-cli-orm.md) | `resolveCliMigrator()`: the `OrmMigrator` every command runs against, with its startup migrations switched off |
 | [Command discovery](07-command-discovery.md) | The `system.dirs.cli` config fragment, how `Cli` finds the commands, and running them without the bin |
 | [Customizing commands](08-customizing-commands.md) | Replace or extend a shipped command through DI, override its protected hooks, or build your own command on the exported pieces |
 

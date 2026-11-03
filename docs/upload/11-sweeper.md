@@ -53,7 +53,7 @@ Without the scheduler, run the command from cron:
 npx spinajs upload:sweep
 ```
 
-It prints one `<count> <name>` line per `SweepResult` field and exits with code `1` when `errors > 0`. The package adds its command folder to `system.dirs.cli`. The command first runs the connection's `Migration.OnStartup` pass, as an app boot does.
+It prints one `<count> <name>` line per `SweepResult` field and exits with code `1` when `errors > 0`. The package adds its command folder to `system.dirs.cli`. The command first resolves the `Orm`, which applies the connection's `Migration.OnStartup` migrations, as an app boot does.
 
 `npx spinajs` is its own process: it loads your config files but not your app's entry module. Define the fs providers, the database connection and the queue routes in config files, and import provider packages such as `@spinajs/fs-s3` from a config module, so the command sees the same storage as the app.
 

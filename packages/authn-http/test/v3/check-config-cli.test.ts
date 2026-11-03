@@ -163,8 +163,8 @@ const CLI_PROCESS = `
   await DI.resolve(Configuration);
   if (process.env.N8A_CHECK_CONFIG_CONFIRMED_STEP) {
     const { DbMfaStore } = await import('@spinajs/authn-orm');
-    const { OrmMigrator } = await import('@spinajs/orm');
-    await DI.resolve(OrmMigrator);
+    const { Orm } = await import('@spinajs/orm');
+    await (await DI.resolve(Orm)).Migrator.ready();
     const store = await DI.resolve(DbMfaStore);
     const carol = { type: 'user', id: 'carol' };
     await store.putPending(carol, process.env.N8A_CHECK_CONFIG_CONFIRMED_STEP, 'v1.AAAA.BBBB.CCCC', 'kid-cli');

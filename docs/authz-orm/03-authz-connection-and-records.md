@@ -9,7 +9,7 @@ authz-orm keeps the ancestor table and the scope attribute tables on the ORM con
 3. At every domain boot, `AuthzOrmContributor` runs `checkResourceConnections(orm)`. It fails with `AuthzConfigError` when no connection answers to `authz`, or when an `@AccessResource` model uses another connection. The list filter joins the resource table with `authz_assignment` and `authz_resource_ancestor`, so they must share one database.
 4. On a write of an `@AccessResource` model, `AncestorMiddleware` checks that the statement's connection is the one `AncestorRecord` lives on, before it touches a row. It then reads and writes `authz_resource_ancestor` through `AncestorRecord` in the statement's transaction.
 5. `authz:ancestors-verify` and `authz:ancestors-rebuild` take the connection of the type's first registered model, which must be the record's; a type without a model uses the record's connection.
-6. `DbScopeAttributeStore` is built with `new`, not by DI, so it does not inject the `Orm`: resolve the `Orm` (or `OrmMigrator`) before its first read. A write runs only inside the `AuthzAdmin` transaction on the `authz` connection.
+6. `DbScopeAttributeStore` is built with `new`, not by DI, so it does not inject the `Orm`: resolve the `Orm` before its first read. A write runs only inside the `AuthzAdmin` transaction on the `authz` connection.
 
 ## Configuration
 

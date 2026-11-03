@@ -40,7 +40,7 @@ export async function bootSqlite(name: string): Promise<SqliteDb> {
   container.register(OrmMigrator).asSelf();
   await container.resolve(Configuration);
   const orm = await container.resolve(Orm);
-  await container.resolve(OrmMigrator);
+  await (await container.resolve(Orm)).Migrator.ready();
   return { container, driver: orm.Connections.get('default')!, dispose: () => orm.dispose() };
 }
 

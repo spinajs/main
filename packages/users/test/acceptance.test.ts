@@ -5,7 +5,7 @@ import * as sinon from 'sinon';
 import _ from 'lodash';
 import { DefaultQueueService } from '@spinajs/queue';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { AuthorizationModel, AuthzAdminBackend, AuthzContributor, AuthzEventSink, GLOBAL, MemoryAuthzAdminBackend, SYSTEM } from '@spinajs/authz';
+import { AuthzAdminBackend, AuthzContributor, AuthzEventSink, GLOBAL, MemoryAuthzAdminBackend, SYSTEM } from '@spinajs/authz';
 import type { AuthzEvent, AuthzService } from '@spinajs/authz';
 import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore, AssignmentStore, ConfigRoleStore, LinkStore, MemoryAdminAssignmentStore, MemoryLinkStore, MemoryRuleStore, RbacContributor, RbacModel, RoleStore, RuleStore } from '@spinajs/authz-rbac';
 import type { LadderDef, RoleDef } from '@spinajs/authz-rbac';
@@ -89,7 +89,7 @@ function usersRbacHarness(admin: boolean): BehaviourHarness {
       c.register(instance(links)).as(AdminLinkStore);
       c.register(instance(rules)).as(RuleStore);
       c.register(instance(rules)).as(AdminRuleStore);
-      c.register(instance(model)).as(AuthorizationModel);
+      testHost.activate(c, host.domain, model);
       c.register(instance(new RbacContributor(model))).as(AuthzContributor);
 
       if (admin) {

@@ -30,6 +30,7 @@ export async function buildAppManifest(options: BuildAppOptions): Promise<{ mani
     }),
     generatedAt: new Date().toISOString(),
     buildEnv: options.buildEnv,
+    schemaDerivation: options.schemaDerivation === false ? false : undefined,
   });
   const manifest: Manifest = { ...merged, hash: hashManifest(merged) };
 

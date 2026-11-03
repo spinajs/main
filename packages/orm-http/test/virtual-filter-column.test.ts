@@ -14,11 +14,11 @@ import {
   ModelBase,
   OrmDriver,
   OrmMigration,
-  OrmMigrator,
   Primary,
   Relation,
   SingleRelation,
   extractModelDescriptor,
+  Orm,
 } from '@spinajs/orm';
 import '@spinajs/log';
 
@@ -147,7 +147,7 @@ describe('@Filterable on a property with no column (virtual filter column)', fun
     for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
       await b.bootstrap();
     }
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
 
     // orm-http's bootstrapper installs these on every loaded model in a full app boot.
     for (const model of [VItem, VTag, VOwner]) {

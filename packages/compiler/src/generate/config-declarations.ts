@@ -73,13 +73,16 @@ function inlineRefs(node: unknown, base: JsonSchema, manifest: Manifest, seen: s
 }
 
 async function typeOf(schema: JsonSchema, root: JsonSchema, manifest: Manifest): Promise<string> {
+  // A partial schema may lack properties its unreadable members add, so closing its objects would refuse valid keys.
+  const partial = root['x-explicit'] === 'partial';
   // $id and $schema would make the compiler resolve them as external references.
   const { $id: _id, $schema: _schema, $configurationModule: _module, ...rest } = schema;
   const input = stripTitles(inlineRefs(rest, root, manifest, [])) as JsonSchema;
+  if (Object.keys(input).length === 0) return 'unknown';
   const code = (
     await compile({ ...input, title: 'T' }, 'T', {
       bannerComment: '',
-      additionalProperties: false,
+      additionalProperties: partial,
       declareExternallyReferenced: false,
       style: { singleQuote: true },
     })

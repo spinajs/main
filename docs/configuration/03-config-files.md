@@ -8,10 +8,10 @@
    1. sets `process.env.WORKSPACE_ROOT_PATH` to the nearest ancestor of the working directory whose `node_modules/@spinajs` is not empty, up to the workspace root, when the variable is unset;
    2. builds `CommonDirs`, the search list below;
    3. sets `BasePath` to the nearest ancestor of the working directory that has a `node_modules` folder, or the working directory itself.
-2. **`LoadLayers(configuration)`** reads the environment with `getEnvironment(configuration)` (see [Environments](02-environments.md)), then calls `loadLayers()` with two passes:
+2. **`LoadLayers(configuration)`** reads the environment with `getEnvironment(configuration)` (see [Environments](02-environments.md)), then calls `loadFileLayers()` with two passes:
    1. common files: `**/!(*.*).{cjs,js}` or `**/!(*.*).json`, file names with no dot before the extension;
    2. environment files: `**/*.<env>.{cjs,js}` or `**/*.<env>.json`.
-3. **`loadLayers(extensions, callback)`** resolves relative directories against `BasePath`, globs each directory recursively, removes duplicate paths, runs `callback` on each file in parallel and deep-merges the results in directory order. A module's `default` export is used when present. `configFiles()` tags each file: a package config file goes to the `packages` layer and concatenates its arrays, any other file goes to the `app` layer and replaces them (see [Arrays](01-configuration-service.md#arrays)).
+3. **`loadFileLayers(extensions, callback)`** resolves relative directories against `BasePath`, globs each directory recursively, removes duplicate paths, runs `callback` on each file in parallel and deep-merges the results in directory order. A module's `default` export is used when present. `configFiles()` tags each file: a package config file goes to the `packages` layer and concatenates its arrays, any other file goes to the `app` layer and replaces them (see [Arrays](01-configuration-service.md#arrays)).
 4. **Per file.** `JsFileSource` imports the module with `DI.__spinajs_require__()`, calls its `onConfigLoad(cfg)` when it exports one and uses the returned object. `JsonFileSource` reads and parses the file. Both add `__file__: [path]` to every top-level object.
 5. The configuration joins the `packages` layers of the file sources next to each other, whatever the format, merges that over the tree, then merges each `app` layer on top. `Load(configuration)` gives one source's layers merged, for `mergeSource()`.
 
@@ -116,9 +116,9 @@ Subclass `BaseFileSource` to load a format the framework does not read: YAML, TO
 | Member | Kind | Use |
 | --- | --- | --- |
 | `Load(configuration)` | abstract, from `ConfigurationSource` | Call `this.load()` for the common and the environment pattern, merge the two. |
-| `LoadLayers(configuration)` | optional | Return `this.loadLayers([common, env], callback)` to join the file sources' layers, so the package files of your format stay below the app. A source without it merges as a plain source, in `Order`. |
+| `LoadLayers(configuration)` | optional | Return `this.loadFileLayers([common, env], callback)` to join the file sources' layers, so the package files of your format stay below the app. A source without it merges as a plain source, in `Order`. |
 | `load(extension, callback)` | protected | Globs `extension` under every search directory into one tree; `callback(file)` returns a promise of the parsed object. |
-| `loadLayers(extensions, callback)` | protected | The same for several passes, keeping the `packages` and `app` layers apart. |
+| `loadFileLayers(extensions, callback)` | protected | The same for several passes, keeping the `packages` and `app` layers apart. |
 | `getEnvironment(configuration)` | protected | Returns the normalized environment name. |
 | `Order` | getter, `1` | Override to load before or after the other sources. |
 | `CommonDirs`, `BasePath` | protected fields | Read or extend the search list in your constructor, or override the `CommonDirs` getter. Without a manifest, a directory that is a package config dir counts as a package, any other as the app. |

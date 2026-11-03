@@ -65,3 +65,19 @@ describe('configuration schemas in the built fragments', () => {
     expect(at(rbac, 'properties', 'rules', 'items')).to.not.have.property('allOf');
   });
 });
+
+describe('authorization models in the built fragments', () => {
+  before(function () {
+    if (!hasBuiltFragments()) this.skip();
+  });
+
+  // An import of the package registers its model in every manifest mode, so no manifest source is needed; the fragment
+  // records it under the name authz.models takes, which a static check can read.
+  it('list each model under AuthorizationModel by the class name an authz.models list names it by', () => {
+    for (const [pkg, name] of [['authz-rbac', 'RbacModel'], ['authz-abac', 'AbacModel']]) {
+      const models = (fragmentOf(pkg)?.services ?? []).filter((s) => s.registeredAs.includes('AuthorizationModel'));
+      expect(models.map((s) => s.className), pkg).to.deep.equal([name]);
+      expect(models[0].lifetime, pkg).to.equal('per-child');
+    }
+  });
+});

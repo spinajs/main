@@ -16,7 +16,7 @@
 
 A row becomes a frozen `KeyRecord`: `jwk` is parsed from JSON, `scope` from JSON with its `expiresAt` back to a `Date`, `created_by` from `<type>:<id>`, and every datetime to a `Date`.
 
-`OrmKeyStore` injects `Orm`. The CLI resolves only the command it runs, so the `authn:key-*` commands extend `KeyCliCommand`, which injects [`OrmMigrator`](../orm/10-migrations.md): resolving a command boots the ORM, binds the `AuthnKey` model and runs the `OrmMigrator` boot pass (the `Migration.OnStartup` migrations), as an app process does.
+`OrmKeyStore` injects `Orm`. The CLI resolves only the command it runs, so the `authn:key-*` commands extend `KeyCliCommand`, which injects the `Orm`: resolving a command boots the ORM, binds the `AuthnKey` model and applies the [`Migration.OnStartup` migrations](../orm/10-migrations.md), as an app process does.
 
 `MemoryKeyStore` keeps the same contract in a `Map`. It stores frozen copies, so a caller cannot change a stored record.
 
@@ -93,7 +93,7 @@ DI.register(MemoryKeyStore).as(KeyStore);
 
 ## Best practices
 
-- Run the migration with the rest of your ORM migrations (`Migration.OnStartup` with `OrmMigrator` resolved at boot, or [`@spinajs/orm-cli`](../orm-cli/README.md)). The model and the migration use the `default` connection, which `db.DefaultConnection` provides.
+- Run the migration with the rest of your ORM migrations (`Migration.OnStartup`, applied when the `Orm` resolves, or [`@spinajs/orm-cli`](../orm-cli/README.md)). The model and the migration use the `default` connection, which `db.DefaultConnection` provides.
 - Keep `authn_key` on the same database for every app instance. A revocation must reach every verifier.
 
 ## Patterns and antipatterns

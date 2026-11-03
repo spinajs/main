@@ -8,7 +8,7 @@ Use it for any app that keeps assignments, links or stored rules in a database. 
 
 ### Reads
 
-1. `registerRbac(container, configuration)` calls `registerRbacStores`, which registers the classes `authz.rbac.stores.*` names under their ports (`AssignmentStore`, `MembershipStore`, `RuleStore`, `LinkStore`) and, for the DB stores, under the `AuthzAdmin` ports (`AdminAssignmentStore`, `AdminMembershipStore`, `AdminRuleStore`, `AdminLinkStore`).
+1. `RbacModel.init` (through `rbacStoreOptions`) calls `registerRbacStores`, which registers the classes `authz.rbac.stores.*` names under their ports (`AssignmentStore`, `MembershipStore`, `RuleStore`, `LinkStore`) and, for the DB stores, under the `AuthzAdmin` ports (`AdminAssignmentStore`, `AdminMembershipStore`, `AdminRuleStore`, `AdminLinkStore`).
 2. Every DB store injects the `Orm` (`@Autoinject(Orm)`), so resolving a store from the domain's container resolves the `Orm` and binds the records, also in a CLI process that boots only its command.
 3. The store queries its record (`AssignmentRecord.query()...`). The record is bound to `authz`, so the query runs on the connection `db.Aliases.authz` names.
 4. A read of live rows keeps `expires_at IS NULL OR expires_at > ?`, with the `AuthzClock` instant of the store's container bound as the parameter.

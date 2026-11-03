@@ -20,7 +20,7 @@ After the summary, the command prints an explanation and two `migrate-resolve` i
 
 ## How it works
 
-1. `MigrateStatusCommand.execute()` calls [`resolveCliMigrator()`](06-cli-orm.md). Without it, the boot pass would apply pending migrations and the report would always read "all applied".
+1. `MigrateStatusCommand.execute()` calls [`resolveCliMigrator()`](06-cli-orm.md). Without it, the `Orm`'s resolve would apply pending migrations and the report would always read "all applied".
 2. It calls `migrator.Runner.status()`, which returns one `IMigrationStatusEntry` per registered migration whose connection is configured, `Migration.OnStartup` or not. It takes no migration lock.
 3. With no entries, it prints `No migrations are registered for any configured connection.` and returns. Exit code `0`.
 4. It prints the header and one line per entry with `console.log`. The line is `<marker> <state> <batch> <connection> <name>[ drift]`:

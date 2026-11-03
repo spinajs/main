@@ -23,7 +23,7 @@ A concurrent registration of the same address makes one account: the loser gets 
 
 ## Important behaviour
 
-- The factory builds the registrar with `new`, so it does not inject the `Orm`: its lookup needs an `Orm` the app resolved before serving (`OrmMigrator` at boot does).
+- The factory builds the registrar with `new`, so it does not inject the `Orm`: its lookup needs an `Orm` the app resolved before serving.
 - Combine it with `authn.login.requireVerifiedAddress: true` to keep an account from signing in before its address is verified.
 - `UserLifecycleMailHook` sends the `users.email.created` and `users.email.activated` lifecycle mails after `create()` and `activate()`. Set their `enabled` to `false` if the verification mail is the only one you want.
 - How `POST /auth/register` answers a refused `users.create` or `users.activate`: see [Action hooks](04-action-hooks.md#important-behaviour).

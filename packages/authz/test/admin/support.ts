@@ -4,11 +4,12 @@ import { ManualClock, RecordingAudit, RecordingChangeBus, StaticModel, testHost 
 
 import { ActionHook, ActionRefused } from '@spinajs/hooks';
 import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
-import { AdminGuard, AuthorizationModel, AuthzAdminBackend, AuthzAdminFailure, AuthzClock, AuthzEventSink, AuthzWriteHandler, ChangeBus, DecisionAudit, MemoryAuthzAdminBackend, TRUE, adminContainer, memoryTx, principalKey } from '@spinajs/authz';
+import { AdminGuard, AuthzAdminBackend, AuthzAdminFailure, AuthzClock, AuthzEventSink, AuthzWriteHandler, ChangeBus, DecisionAudit, MemoryAuthzAdminBackend, TRUE, adminContainer, memoryTx, principalKey } from '@spinajs/authz';
 import type { AdminContext, AuthzAdmin, AuthzCommand, AuthzEvent, AuthzService, AuthzTx, Permission, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
 
 // The RBAC and ABAC command kinds the fakes handle.
 import './model-commands.js';
+import { activateIn } from '../host/support.js';
 
 type Path = string | readonly string[];
 
@@ -242,7 +243,7 @@ export async function adminDomain(name = 'test', opts: AdminDomainOptions = {}):
   const clock = new ManualClock(START);
   const sink = new RecordingSink();
   const model = grantsModel();
-  c.register(instance(model)).as(AuthorizationModel);
+  activateIn(c, name, model);
   c.register(instance(bus)).as(ChangeBus);
   c.register(instance(audit)).as(DecisionAudit);
   c.register(instance(clock)).as(AuthzClock);

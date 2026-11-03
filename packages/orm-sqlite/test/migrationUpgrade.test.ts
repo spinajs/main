@@ -223,7 +223,7 @@ describe('Sqlite migration tracking table upgrade', function () {
 
     // the whole subject of this suite: booting, and nothing else
     orm = (await DI.resolve(Orm))!;
-    migrator = await DI.resolve(OrmMigrator);
+    migrator = (await DI.resolve(Orm)).Migrator;
   });
 
   after(async () => {
@@ -372,7 +372,7 @@ describe('Sqlite migration tracking table upgrade', function () {
     DI.clearCache();
 
     orm = (await DI.resolve(Orm))!;
-    migrator = await DI.resolve(OrmMigrator);
+    migrator = (await DI.resolve(Orm)).Migrator;
 
     const rows = await trackingRows();
     const legacy = rows.find((r) => r.Migration === LEGACY_MIGRATION);

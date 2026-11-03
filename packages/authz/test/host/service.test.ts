@@ -7,7 +7,7 @@ import type { ModelCall, StaticModelOptions } from '@spinajs/authz-testing';
 
 import { DefaultAuthzAdmin, DefaultAuthzService, AuthzContributor, authz, requestScope, AuthorizationModel, AuthzAdmin, AuthzConfigError, ChangeBus, DecisionAudit, DecisionCache, LruDecisionCache, ResourceAdapter, SYSTEM, TRUE, UNATTENDED, UnknownPermission } from '@spinajs/authz';
 import type { AuthzChange, AuthzService, DomainConfig, ModelInitContext, ResourceRef, LruDecisionCacheOptions, DefaultAuthzDomains } from '@spinajs/authz';
-import { domains, installHost, instance, registerConfiguration, registerInRoot, resetHost, resetRoot, rootService, setConfig, uninstallHost, violationPaths } from './support.js';
+import { activateIn, activateInRoot, domains, installHost, instance, named, registerConfiguration, registerInRoot, resetHost, resetRoot, rootService, setConfig, uninstallHost, violationPaths } from './support.js';
 
 const expect = chai.expect;
 
@@ -142,10 +142,10 @@ describe('DefaultAuthzService', function () {
   describe('models across domains', () => {
     it('a child adds a model; root keeps only its own', async () => {
       const rootModel = silent('r');
-      registerInRoot(AuthorizationModel, instance(rootModel));
+      activateInRoot(rootModel);
       const d = await domains();
       const fsModel = allowing('fsm');
-      d.create('fs').register(instance(fsModel)).as(AuthorizationModel);
+      activateIn(d.create('fs'), 'fs', fsModel);
 
       const fs = await d.service('fs');
       const root = await rootService();
@@ -162,10 +162,10 @@ describe('DefaultAuthzService', function () {
 
     it('a child model overrides an ancestor model of the same name', async () => {
       const rootM = silent('m');
-      registerInRoot(AuthorizationModel, instance(rootM));
+      activateInRoot(rootM);
       const d = await domains();
       const childM = allowing('m');
-      d.create('ov').register(instance(childM)).as(AuthorizationModel);
+      activateIn(d.create('ov'), 'ov', childM);
 
       const ov = await d.service('ov');
       expect(ov.models()).to.have.length(1);
@@ -177,8 +177,10 @@ describe('DefaultAuthzService', function () {
     it('two models of one name in the same level fail boot (rule 2) naming the domain', async () => {
       const d = await domains();
       const c = d.create('dup');
-      c.register(instance(silent('x'))).as(AuthorizationModel);
-      c.register(instance(allowing('x'))).as(AuthorizationModel);
+      // Two registrations with their own names whose models share one model name.
+      c.register(named('X1', instance(silent('x')))).as(AuthorizationModel);
+      c.register(named('X2', instance(allowing('x')))).as(AuthorizationModel);
+      setConfig(['authz', 'domains', 'dup', 'models'], ['X1', 'X2']);
       const err = await rejection(d.service('dup'));
       expect(err).to.be.instanceOf(AuthzConfigError);
       expect(err.message)
@@ -189,13 +191,13 @@ describe('DefaultAuthzService', function () {
     it('disable drops an ancestor model, cumulatively; the own model of a disabled name stays', async () => {
       const a = silent('a');
       const b = silent('b');
-      registerInRoot(AuthorizationModel, instance(a));
-      registerInRoot(AuthorizationModel, instance(b));
+      activateInRoot(a);
+      activateInRoot(b);
       setConfig(['authz', 'domains', 'c1'], { disable: ['a'] });
       setConfig(['authz', 'domains', 'c2'], { parent: 'c1', disable: ['b'] });
       const d = await domains();
       const ownA = allowing('a');
-      d.create('c1').register(instance(ownA)).as(AuthorizationModel);
+      activateIn(d.create('c1'), 'c1', ownA);
       d.create('c2');
 
       const c1 = await d.service('c1');
@@ -205,14 +207,14 @@ describe('DefaultAuthzService', function () {
       expect((await rootService()).models()).to.deep.equal([a, b]);
     });
 
-    it('warns when disable names a model no ancestor registers', async () => {
+    it('warns when disable names a model no ancestor activates', async () => {
       const a = silent('a');
-      registerInRoot(AuthorizationModel, instance(a));
+      activateInRoot(a);
       setConfig(['authz', 'domains', 'c1'], { disable: ['aa'] });
       const d = await domains();
       d.create('c1');
       expect((await d.service('c1')).models()).to.deep.equal([a]);
-      expect(TestLog.messages('warn').some((w) => w.includes('disable lists aa, which no ancestor domain registers'))).to.equal(true);
+      expect(TestLog.messages('warn').some((w) => w.includes('disable lists aa, which no ancestor domain activates'))).to.equal(true);
     });
 
     it('inits a model listed by root and child once; its init permissions are checkable in the child', async () => {
@@ -223,9 +225,9 @@ describe('DefaultAuthzService', function () {
         }
       }
       const m = new Registering({ name: 'reg', votes: { '*': { permitWhen: TRUE } } });
-      registerInRoot(AuthorizationModel, instance(m));
+      activateInRoot(m);
       const d = await domains();
-      d.create('kid').register(instance(m)).as(AuthorizationModel);
+      activateIn(d.create('kid'), 'kid', m);
 
       const kid = await d.service('kid');
       expect(kid.models()).to.deep.equal([m]);
@@ -243,9 +245,7 @@ describe('DefaultAuthzService', function () {
       }
       setConfig(['authz', 'rd', 'opts'], { level: 3 });
       const d = await domains();
-      d.create('rd-domain')
-        .register(instance(new Reading({ name: 'rd' })))
-        .as(AuthorizationModel);
+      activateIn(d.create('rd-domain'), 'rd-domain', new Reading({ name: 'rd' }));
       await d.service('rd-domain');
       expect(seen).to.deep.equal([3, 'dflt']);
     });
@@ -259,7 +259,7 @@ describe('DefaultAuthzService', function () {
       }
       const d = await domains();
       const own = d.create('ct-domain');
-      own.register(instance(new Seeing({ name: 'ct' }))).as(AuthorizationModel);
+      activateIn(own, 'ct-domain', new Seeing({ name: 'ct' }));
       await d.service('ct-domain');
       expect(seen).to.equal(own);
     });
@@ -299,7 +299,7 @@ describe('DefaultAuthzService', function () {
       }
       const m = new Throwing({ name: 'thr', votes: { '*': { permitWhen: TRUE } } });
       const d = await domains();
-      d.create('thr-domain').register(instance(m)).as(AuthorizationModel);
+      activateIn(d.create('thr-domain'), 'thr-domain', m);
       const err = await rejection(d.service('thr-domain'));
       expect(err).to.be.instanceOf(AuthzConfigError);
       expect(err.message).to.contain('"thr-domain"').and.contain('"thr"');
@@ -337,8 +337,8 @@ describe('DefaultAuthzService', function () {
       const d = await domains();
       const ma = allowing('ma');
       const mb = allowing('mb');
-      d.create('ca').register(instance(ma)).as(AuthorizationModel);
-      d.create('cb').register(instance(mb)).as(AuthorizationModel);
+      activateIn(d.create('ca'), 'ca', ma);
+      activateIn(d.create('cb'), 'cb', mb);
       const ca = await d.service('ca');
       const cb = await d.service('cb');
 
@@ -374,7 +374,7 @@ describe('DefaultAuthzService', function () {
       const m = allowing('jm');
       const d = await domains();
       const c = d.create('job');
-      c.register(instance(m)).as(AuthorizationModel);
+      activateIn(c, 'job', m);
       c.register(instance(audit)).as(DecisionAudit);
       c.register(() => new MissingCache()).as(DecisionCache);
       const svc = await d.service('job');
@@ -462,7 +462,7 @@ describe('DefaultAuthzService', function () {
     it('routes changes by domain', async () => {
       const d = await domains();
       const fsModel = silent('fsm');
-      d.create('fs').register(instance(fsModel)).as(AuthorizationModel);
+      activateIn(d.create('fs'), 'fs', fsModel);
       setConfig(['authz', 'domains', 'fs.sub'], { parent: 'fs' });
       d.create('fs.sub');
       d.create('other');
@@ -500,13 +500,13 @@ describe('DefaultAuthzService', function () {
         }
       }
       const rm = new Ordered({ name: 'rm' });
-      registerInRoot(AuthorizationModel, instance(rm));
+      activateInRoot(rm);
       const mp = new Ordered({ name: 'mp' });
       const mc = new Ordered({ name: 'mc' });
       setConfig(['authz', 'domains', 'p.c'], { parent: 'p' });
       const d = await domains();
-      d.create('p').register(instance(mp)).as(AuthorizationModel);
-      d.create('p.c').register(instance(mc)).as(AuthorizationModel);
+      activateIn(d.create('p'), 'p', mp);
+      activateIn(d.create('p.c'), 'p.c', mc);
       const p = await d.service('p');
       const pc = await d.service('p.c');
       expect(authz('p')).to.equal(p);
@@ -552,7 +552,7 @@ describe('DefaultAuthzService', function () {
       setConfig('authz.permissions', { 'doc:read': { list: true }, 'doc:write': {} });
       // Boot rule 12 refuses a list permission routed to a model that cannot plan it.
       const m = Object.assign(silent('lister'), { listSupport: () => true as const, listPlan: () => Promise.reject(new Error('listPlan must not run at boot')) });
-      registerInRoot(AuthorizationModel, instance(m));
+      activateInRoot(m);
       await rootService();
       const registry = (m.calls[0].args[0] as ModelInitContext).permissions;
       expect(registry.get('doc:read')?.list).to.equal(true);
@@ -563,16 +563,12 @@ describe('DefaultAuthzService', function () {
       setConfig(['authz', 'domains', 'slow'], { engine: { modelTimeoutMs: 20 } });
       setConfig(['authz', 'domains', 'nol2'], { cache: { ttlSeconds: 0 }, permissions: { 'job:run': {} } });
       const d = await domains();
-      d.create('slow')
-        .register(instance(allowing('late', { delayMs: 150 })))
-        .as(AuthorizationModel);
-      d.create('patient')
-        .register(instance(allowing('late2', { delayMs: 150 })))
-        .as(AuthorizationModel);
+      activateIn(d.create('slow'), 'slow', allowing('late', { delayMs: 150 }));
+      activateIn(d.create('patient'), 'patient', allowing('late2', { delayMs: 150 }));
       const nol2Model = allowing('n');
       const l2Model = allowing('l');
-      d.create('nol2').register(instance(nol2Model)).as(AuthorizationModel);
-      d.create('l2').register(instance(l2Model)).as(AuthorizationModel);
+      activateIn(d.create('nol2'), 'nol2', nol2Model);
+      activateIn(d.create('l2'), 'l2', l2Model);
 
       expect(await (await d.service('slow')).can(alice, 'doc:read', doc1)).to.equal(false);
       expect(await (await d.service('patient')).can(alice, 'doc:read', doc1)).to.equal(true);
@@ -611,8 +607,9 @@ describe('DefaultAuthzService', function () {
       }
       const d = await domains();
       const c = d.create('rdown-domain');
-      registerConfiguration(c, { authz: { rdown: { opts: { level: 4 } } } });
-      c.register(instance(new Reading({ name: 'rdown' }))).as(AuthorizationModel);
+      // The domain's own Configuration holds its models list too.
+      registerConfiguration(c, { authz: { rdown: { opts: { level: 4 } }, domains: { 'rdown-domain': { models: ['rdown'] } } } });
+      c.register(named('rdown', instance(new Reading({ name: 'rdown' })))).as(AuthorizationModel);
       await d.service('rdown-domain');
       expect(seen).to.deep.equal([4, 'dflt']);
     });
@@ -628,7 +625,7 @@ describe('DefaultAuthzService', function () {
     it('assert, checkMany, filter, filterNow, explain, summary, covers, preload delegate to the engine', async () => {
       const d = await domains();
       const m = allowing('all');
-      d.create('api').register(instance(m)).as(AuthorizationModel);
+      activateIn(d.create('api'), 'api', m);
       const svc = await d.service('api');
       const bob = userPrincipal('bob');
 
@@ -652,9 +649,7 @@ describe('DefaultAuthzService', function () {
 
     it('an explicit undefined principal meets the engine gate, never current()', async () => {
       const d = await domains();
-      d.create('gate')
-        .register(instance(allowing('g')))
-        .as(AuthorizationModel);
+      activateIn(d.create('gate'), 'gate', allowing('g'));
       const svc = await d.service('gate');
       await svc.runAs(SYSTEM, 'job', async () => {
         const explicit = await svc.check({ principal: undefined, permission: 'doc:read', resource: doc1 } as never);
@@ -682,7 +677,7 @@ describe('DefaultAuthzService', function () {
       const bus = new CountingBus();
       const d = await domains();
       const c = d.create('mid');
-      c.register(instance(m)).as(AuthorizationModel);
+      activateIn(c, 'mid', m);
       c.register(instance(bus)).as(ChangeBus);
 
       const pending = d.service('mid');
@@ -705,7 +700,7 @@ describe('DefaultAuthzService', function () {
       const bus = new CountingBus();
       const d = await domains();
       const c = d.create('late');
-      c.register(instance(m)).as(AuthorizationModel);
+      activateIn(c, 'late', m);
       c.register(instance(bus)).as(ChangeBus);
 
       await patched(
@@ -737,7 +732,7 @@ describe('DefaultAuthzService', function () {
       const bus = new CountingBus();
       const d = await domains();
       const c = d.create('self');
-      c.register(instance(m)).as(AuthorizationModel);
+      activateIn(c, 'self', m);
       c.register(instance(bus)).as(ChangeBus);
 
       let booting: AuthzService | undefined;
@@ -788,7 +783,7 @@ describe('DefaultAuthzService', function () {
       );
       const d = await domains();
       const c = d.create('buf');
-      c.register(instance(m)).as(AuthorizationModel);
+      activateIn(c, 'buf', m);
       c.register(instance(bus)).as(ChangeBus);
       await d.service('buf');
       expect(m.invalidations).to.deep.equal([['subject:user:alice', 'subject:user:bob']]);
@@ -835,7 +830,7 @@ describe('DefaultAuthzService', function () {
       const bus = new CountingBus();
       const d = await domains();
       const c = d.create('fail');
-      c.register(instance(m)).as(AuthorizationModel);
+      activateIn(c, 'fail', m);
       c.register(instance(bus)).as(ChangeBus);
       expect(await rejection(d.service('fail'))).to.be.instanceOf(AuthzConfigError);
       expect(bus.subscribers.size).to.equal(0);
@@ -849,7 +844,7 @@ describe('DefaultAuthzService', function () {
       const m = allowing('nc');
       const d = await domains();
       const c = d.create('nocache');
-      c.register(instance(m)).as(AuthorizationModel);
+      activateIn(c, 'nocache', m);
       c.register((_c: unknown, opts?: LruDecisionCacheOptions) => {
         made++;
         return new LruDecisionCache(opts ?? {});

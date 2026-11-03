@@ -73,7 +73,8 @@ async function startPeer(host: HostSetup, connection: string): Promise<RunningPe
 
   const domains = await testHost.domains();
   const container = domains.create(name, 'root');
-  for (const m of kit.models) container.register(testHost.instance(m)).as(AuthorizationModel);
+  // The copied domain config already lists the kit models by name.
+  for (const m of kit.models) container.register(testHost.named(m.name, testHost.instance(m))).as(AuthorizationModel);
   for (const a of kit.adapters) container.register(testHost.instance(a)).as(ResourceAdapter);
   for (const r of kit.scopeResolvers) container.register(testHost.instance(r)).as(ScopeResolver);
   for (const r of kit.relations) container.register(testHost.instance(r)).as(RelationResolver);
@@ -146,7 +147,7 @@ export function queueHarness(): BehaviourHarness {
       }
 
       const orm = await DI.resolve(Orm);
-      await DI.resolve(OrmMigrator);
+      await (await DI.resolve(Orm)).Migrator.ready();
       const queue = await DI.resolve(QueueService);
       for (const cls of jobs.values()) await queue.consume(cls as never);
       const client = queue.get(connection) as unknown as MemoryQueueClient;

@@ -8,9 +8,11 @@ import { hashManifest, type Manifest } from '@spinajs/manifest';
 import { DI, IContainer } from '@spinajs/di';
 import { Configuration, ConfigurationSource, IConfigLike, StaticConfigurationSource } from '@spinajs/configuration-common';
 
+import { InternalLogger } from '@spinajs/internal-logger';
+
 import { FrameworkConfiguration } from '../src/configuration.js';
 import { ManifestConfigurationSource } from '../src/manifest-source.js';
-import { JsFileSource, JsonFileSource } from '../src/sources.js';
+import { ConfigLayers, JsFileSource, JsonFileSource } from '../src/sources.js';
 
 const PARITY = resolve(process.cwd(), 'test', 'fixtures', 'parity-app');
 
@@ -130,6 +132,15 @@ describe('config file layers', () => {
         expect(config.get<string[]>('system.dirs.cli').slice(0, 4)).to.deep.equal(['pkg-cli', 'pkg-env-cli', 'app-cli', 'app-env-cli']);
       });
 
+      it('authz.models is a value: the app env file decides which models are active, and a package adds none', async () => {
+        packages(installPackage('pa', { 'pa.cjs': cjs({ authz: { models: ['PluginModel'], domains: { fs: { models: ['PluginModel'] } } } }) }));
+        write(join(app, 'lib', 'config', 'app.cjs'), cjs({ authz: { models: ['RbacModel', 'AbacModel'] } }));
+        write(join(app, 'lib', 'config', 'app.test.cjs'), cjs({ authz: { models: ['RbacModel'], domains: { fs: { models: ['AbacModel'] } } } }));
+        const config = await boot(mode);
+        expect(config.get('authz.models')).to.deep.equal(['RbacModel']);
+        expect(config.get('authz.domains.fs.models')).to.deep.equal(['AbacModel']);
+      });
+
       it('a __configuration__ value joins the package layer: a package file adds to it and the app stays above it', async () => {
         packages(installPackage('pa', { 'pa.cjs': cjs({ kv: { joined: ['pkg'], replaced: ['pkg'] }, system: { dirs: { cli: ['pkg-cli'] } } }) }));
         write(join(app, 'lib', 'config', 'app.cjs'), cjs({ kv: { replaced: ['app'], value: 'app' } }));
@@ -176,6 +187,38 @@ describe('config file layers', () => {
       });
     });
   }
+
+  describe('a file source subclass that overrides Load()', () => {
+    const ignoredLoadWarnings = (warn: sinon.SinonStub) => warn.getCalls().filter((c) => JSON.stringify(c.args).includes('LoadLayers()'));
+
+    it('is warned about at boot, by class name, because the boot calls LoadLayers() instead', async () => {
+      class DecryptingSource extends JsFileSource {
+        public async Load(): Promise<IConfigLike> {
+          return { decrypted: { value: true } };
+        }
+      }
+      const warn = sinon.stub(InternalLogger, 'warn');
+      await boot('off', (c) => c.register(DecryptingSource).as(ConfigurationSource));
+      const warnings = ignoredLoadWarnings(warn);
+      expect(warnings).to.have.length(1);
+      expect(JSON.stringify(warnings[0].args)).to.include('DecryptingSource');
+    });
+
+    it('is not warned about when it overrides LoadLayers() too', async () => {
+      class LayeredDecryptingSource extends JsFileSource {
+        public LoadLayers(config: Configuration): Promise<ConfigLayers> {
+          return super.LoadLayers(config);
+        }
+
+        public async Load(): Promise<IConfigLike> {
+          return {};
+        }
+      }
+      const warn = sinon.stub(InternalLogger, 'warn');
+      await boot('off', (c) => c.register(LayeredDecryptingSource).as(ConfigurationSource));
+      expect(ignoredLoadWarnings(warn)).to.deep.equal([]);
+    });
+  });
 
   it('Load() of a file source gives its own layers merged, for mergeSource()', async () => {
     installPackage('pa', { 'pa.cjs': cjs({ kv: { list: ['pkg'] } }) });

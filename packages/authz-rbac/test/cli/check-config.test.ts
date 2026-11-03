@@ -9,7 +9,7 @@ import type { Class } from '@spinajs/di';
 import { expect } from 'chai';
 import _ from 'lodash';
 import 'mocha';
-import { OrmMigrator } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 
 import { CheckConfigCommand } from '../../src/cli/index.js';
 import { RoleStore } from '../../src/contracts.js';
@@ -102,18 +102,18 @@ describe('authz:check-config', () => {
   });
 
   describe('without a database', () => {
-    /** Stands in for the migrator of a process with no database: resolving it fails. */
-    class NoDatabaseMigrator extends AsyncService {
+    /** Stands in for the Orm of a process with no database: resolving it fails. */
+    class NoDatabaseOrm extends AsyncService {
       public async resolve(): Promise<void> {
         throw new Error('no database configured');
       }
     }
 
-    /** A container where AuthzService resolves to the recording fake and OrmMigrator cannot resolve. */
+    /** A container where AuthzService resolves to the recording fake and the Orm cannot resolve. */
     function noDatabase(stores?: Record<string, string[]>) {
       const f = fakeAuthz();
       const container = DI.child();
-      container.register(NoDatabaseMigrator).as(OrmMigrator);
+      container.register(NoDatabaseOrm).as(Orm);
       container.register(() => f.service).as(AuthzService);
 
       const { cmd } = command(GOOD);
@@ -123,14 +123,14 @@ describe('authz:check-config', () => {
       return cmd;
     }
 
-    it('validates a config-only role store without resolving OrmMigrator', async () => {
+    it('validates a config-only role store without resolving the Orm', async () => {
       await noDatabase().execute({});
 
       expect(io.err).to.deep.equal([]);
       expect(io.out).to.deep.equal(['OK: 2 role(s), 1 ladder(s)']);
     });
 
-    it('resolves OrmMigrator first when the rules come from the database', async () => {
+    it('resolves the Orm first when the rules come from the database', async () => {
       await noDatabase({ rules: ['DbRuleStore'] }).execute({});
 
       expect(io.err).to.deep.equal(['no database configured']);

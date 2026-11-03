@@ -127,6 +127,12 @@ function validatorOf(manifest: Manifest, ref: TypeRef): Validator | undefined {
   };
 }
 
+const NO_PAYLOAD = new Set(['void', 'undefined']);
+
+/** A payload the build typed but derived no schema for, which `--no-schemas` does to every type of the app. */
+const lacksSchema = (contract: SocketContractEntry): boolean =>
+  [...Object.values(contract.commands).map((c) => c.payload), ...Object.values(contract.clientEvents)].some((ref) => ref.schema === undefined && !NO_PAYLOAD.has(ref.text));
+
 interface IResolved {
   entry?: SocketControllerEntry;
   contract?: SocketContractEntry;
@@ -180,9 +186,9 @@ export class SocketContractEnforcer {
     return { settings, manifest: this.cached.manifest };
   }
 
-  public bind(controllerName: string, descriptor: ISocketControllerDescriptor, commands: IRegisteredHandler[], events: IRegisteredHandler[], lineage: readonly LineageClass[] = [{ name: controllerName, file: descriptor.SourceFile }]): void {
+  public bind(controllerName: string, descriptor: ISocketControllerDescriptor, commands: IRegisteredHandler[], events: IRegisteredHandler[], lineage: readonly LineageClass[] = [{ name: controllerName, file: descriptor.SourceFile }]): SocketContractEntry | undefined {
     const manifest = this.manifest();
-    if (!manifest) return;
+    if (!manifest) return undefined;
 
     const label = descriptor.Prefix ? `${controllerName} (prefix '${descriptor.Prefix}')` : controllerName;
     const { entry, contract, problems } = this.resolve(manifest, controllerName, label, descriptor, lineage);
@@ -201,6 +207,25 @@ export class SocketContractEnforcer {
     }
 
     this.bindDerived(manifest, controllerName, label, descriptor, [...commands, ...events], lineage);
+    return contract;
+  }
+
+  /**
+   * Called once the boot bound every controller. A manifest built with `--no-schemas` leaves the payloads of the app's
+   * contracts unvalidated: `require` fails the boot, `prefer` warns.
+   */
+  public reportUnvalidated(bound: Iterable<SocketContractEntry>): void {
+    const manifest = this.manifest();
+    if (manifest?.schemaDerivation !== false) return;
+
+    const contracts = [...new Set([...bound].filter(lacksSchema).map((c) => c.id))].sort();
+    if (contracts.length === 0) return;
+
+    const problem = `the manifest was built with --no-schemas, so the payloads of socket contracts ${contracts.join(', ')} are not validated: rebuild without --no-schemas`;
+    if (this.mode() === 'require') {
+      throw new InvalidOperation(`Socket contracts cannot be enforced: ${problem}`);
+    }
+    this.Log.warn({ contracts, problem }, 'Socket contracts are not enforced: ${problem}');
   }
 
   /**

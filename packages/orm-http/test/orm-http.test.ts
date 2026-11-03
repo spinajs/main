@@ -1,7 +1,7 @@
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { OrmMigrator } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 import { TestConfiguration, req } from './common.js';
 import { Simple } from './controllers/Simple.js';
 import { Controllers, HttpServer } from '@spinajs/http';
@@ -72,7 +72,7 @@ describe('Http orm tests', function () {
     await DI.resolve(Configuration);
     await DI.resolve(fsService);
     await DI.resolve(Controllers);
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
     const server = await DI.resolve(HttpServer);
 
     server.start();

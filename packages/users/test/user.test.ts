@@ -5,7 +5,7 @@ import { User, UserMetadata } from '../src/index.js';
 import { expect } from 'chai';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { OrmMigrator } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 import { join, normalize, resolve } from 'path';
 import { TestConfiguration } from './common.test.js';
 import { DateTime } from 'luxon';
@@ -35,7 +35,7 @@ describe('User model tests', function () {
     }
 
     await DI.resolve(Configuration, [null, null, [dir('./config')]]);
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
   });
 
   afterEach(() => {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import 'mocha';
 
-import { AuthorizationModel, AuthzContributor, GLOBAL } from '@spinajs/authz';
+import { AuthzContributor, GLOBAL } from '@spinajs/authz';
 import type { AuthzService, Principal } from '@spinajs/authz';
 import { AssignmentStore, ConfigRoleStore, MemoryAdminAssignmentStore, RbacContributor, RbacModel, RbacService, RoleStore } from '@spinajs/authz-rbac';
 import { Configuration } from '@spinajs/configuration';
@@ -34,7 +34,7 @@ function rbacHostHarness(): BehaviourHarness {
       const model = new RbacModel({ roles, assignments, clock: host.kit.clock });
       c.register(instance(roles)).as(RoleStore);
       c.register(instance(assignments)).as(AssignmentStore);
-      c.register(instance(model)).as(AuthorizationModel);
+      testHost.activate(c, host.domain, model);
       c.register(instance(new RbacContributor(model))).as(AuthzContributor);
       c.register(instance(new RbacService(model))).as(RbacService);
     },

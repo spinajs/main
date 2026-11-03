@@ -71,16 +71,14 @@ describe('configuration-http api', function () {
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     unregisterSource = registerHeaderSource();
 
+    const model = new ListStaticModel({ name: 'config-votes', votes, capabilities: { fields: true }, lists: { 'configuration:read': listPlan } });
     await startApp({
       controllers: [ConfigurationController],
-      config: testConfig(),
+      config: { ...testConfig(), 'authz.models': [model.name] },
       // the db-source one installs a watch timer that would keep the event loop alive
       skip: ['DbConfigSourceBotstrapper'],
     });
-    unregisterModel = testHost.registerInRoot(
-      AuthorizationModel,
-      testHost.instance(new ListStaticModel({ name: 'config-votes', votes, capabilities: { fields: true }, lists: { 'configuration:read': listPlan } })),
-    );
+    unregisterModel = testHost.registerInRoot(AuthorizationModel, testHost.named(model.name, testHost.instance(model)));
     // the ORM guard asks the booted root service
     await DI.resolve(AuthzService);
   });
@@ -97,7 +95,7 @@ describe('configuration-http api', function () {
   });
 
   beforeEach(async () => {
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
     await authz().runAs(SYSTEM, 'test', async () => {
       await DbConfig.truncate();
       await seed();
@@ -487,13 +485,11 @@ describe('configuration-http ORM guard', function () {
   before(async () => {
     DI.setESMModuleSupport();
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    await startApp({ controllers: [], config: testConfig(), skip: ['DbConfigSourceBotstrapper'] });
-    unregisterModel = testHost.registerInRoot(
-      AuthorizationModel,
-      testHost.instance(new ListStaticModel({ name: 'config-votes', votes, capabilities: { fields: true }, lists: { 'configuration:read': listPlan } })),
-    );
+    const model = new ListStaticModel({ name: 'config-votes', votes, capabilities: { fields: true }, lists: { 'configuration:read': listPlan } });
+    await startApp({ controllers: [], config: { ...testConfig(), 'authz.models': [model.name] }, skip: ['DbConfigSourceBotstrapper'] });
+    unregisterModel = testHost.registerInRoot(AuthorizationModel, testHost.named(model.name, testHost.instance(model)));
     await DI.resolve(AuthzService);
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
   });
 
   after(async () => {

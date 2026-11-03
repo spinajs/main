@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
-import { AUTHZ_CONNECTION, AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, compareDenyReasons, FALSE, GLOBAL, TRUE, and, or, registeredFunctions, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
+import { AUTHZ_CONNECTION, AuthorizationModel, AuthzConfigError, AuthzContributor, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, compareDenyReasons, FALSE, GLOBAL, TRUE, and, or, registeredFunctions, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
 import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionRequest, DenyReason, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import { Injectable, PerChildInstance } from '@spinajs/di';
 import type { Policy } from '../contracts.js';
 
 import { PolicyStore } from '../contracts.js';
@@ -8,6 +9,7 @@ import { notListFilterable, rowDependence } from './list.js';
 import { PolicyIndex, loadPolicy, scopeFilter, targets, targetsPrincipal } from './policies.js';
 import type { LoadedPolicy } from './policies.js';
 import { ABAC_DEFAULT_STORES, ABAC_STORE_NAMES } from './schema.js';
+import { AbacContributor } from './contributor.js';
 import { ConfigPolicyStore } from './stores/config.js';
 import { DbPolicyStore } from './stores/db.js';
 
@@ -41,7 +43,11 @@ interface Entry {
  * resource type, principal type (the principal or a companion), actor type and scope, with core
  * conditions (§5.9). `permitWhen` is the OR of the permit policies that apply, `denyWhen` the OR
  * of the deny policies, one `denies` entry each with its reason and priority (default 500).
+ * Registered under AuthorizationModel as `AbacModel`: a domain whose `authz.models` lists it gets its own instance.
+ * Its init registers its AbacContributor in the domain's container, whoever built it.
  */
+@PerChildInstance()
+@Injectable(AuthorizationModel)
 export class AbacModel extends AuthorizationModel {
   readonly name: string;
   private parser: DefaultConditionCompiler;
@@ -86,6 +92,7 @@ export class AbacModel extends AuthorizationModel {
 
   async init(ctx: ModelInitContext): Promise<void> {
     refuseConnectionKey(this.name, ctx);
+    ctx.container.register(() => new AbacContributor(this)).as(AuthzContributor);
     this.registry = ctx.permissions;
     if (!this.functions) this.parser = new DefaultConditionCompiler(await registeredFunctions(ctx.container));
     this.stores ??= storesFromConfig(this.name, ctx);

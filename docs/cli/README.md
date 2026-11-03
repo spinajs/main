@@ -87,7 +87,7 @@ spinajs build --tsconfig tsconfig.json --out app.manifest.json
 | --- | --- | --- |
 | `--tsconfig <path>` | `tsconfig.json` | Application `tsconfig`; its folder is the application root and must hold the `package.json` |
 | `-o, --out <path>` | `app.manifest.json` | Manifest to write |
-| `--schemas` / `--no-schemas` | `--schemas` | Derive JSON Schemas from TypeScript types, or skip derivation |
+| `--schemas` / `--no-schemas` | `--schemas` | Derive JSON Schemas from TypeScript types, or skip derivation. Without schemas the app's socket contracts are not validated: a `require` boot fails and `prefer` warns |
 | `--fail-on-warning` | off | Exit with code 1 when the analyzer reports a warning |
 | `--allow-no-dirs` | off | Build an app whose `system.dirs` name none of its folders. Without it that build fails. With it, nothing loads from the manifest except migrations under the default dirs: classes run only if something registers them |
 

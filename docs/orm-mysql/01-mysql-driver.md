@@ -260,13 +260,12 @@ export class AuditedMySqlDriver extends MySqlOrmDriver {}
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 import '@spinajs/orm-mysql';
 
 export async function bootstrap(): Promise<Orm> {
   // importing @spinajs/orm-mysql registered 'orm-driver-mysql' and 'orm-driver-mysql-ssh'
-  // the shop connection migrates on startup: OrmMigrator resolves the Orm, then applies its migrations
-  await DI.resolve(OrmMigrator);
+  // the shop connection migrates on startup: the Orm applies its migrations before it reads the tables
   return await DI.resolve(Orm);
 }
 ```

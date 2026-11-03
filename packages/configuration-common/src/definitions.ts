@@ -141,7 +141,7 @@ export interface IConfigEntryOptions {
   required?: boolean;
 }
 
-/** Plain config objects merged over the loaded configuration; resolve as `Array.ofType(CONFIGURATION_SOURCES.key)`. */
+/** Plain config objects that are package defaults: they lead the package layer, below the app's files and `onLoad()`; resolve as `Array.ofType(CONFIGURATION_SOURCES.key)`. */
 export const CONFIGURATION_SOURCES = token<IConfigLike>('__configuration__');
 
 /** JSON schemas of the configuration, one value per module. */

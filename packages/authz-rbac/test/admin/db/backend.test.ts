@@ -5,10 +5,11 @@ import { DI } from '@spinajs/di';
 import { Orm, OrmDriver, OrmMigrator } from '@spinajs/orm';
 import type { ITransactionOptions } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AdminGuard, AuthorizationModel, AuthzAdminBackend, AuthzAdminFailure, AuthzConfigError, AuthzContributor, MemoryScopeAttributeStore, ScopeAttributeStore, WritableScopeAttributeStore } from '@spinajs/authz';
+import { AdminGuard, AuthzAdminBackend, AuthzAdminFailure, AuthzConfigError, AuthzContributor, MemoryScopeAttributeStore, ScopeAttributeStore, WritableScopeAttributeStore } from '@spinajs/authz';
 import type { AuthzCommand, Principal, RememberedBatch } from '@spinajs/authz';
 import { DbScopeAttributeStore } from '@spinajs/authz-orm';
-import { AbacContributor, AbacModel, DbPolicyStore, PolicyStore } from '@spinajs/authz-abac';
+import { AbacModel, DbPolicyStore, PolicyStore } from '@spinajs/authz-abac';
+import { testHost } from '@spinajs/authz-testing';
 
 import { AuthzAdminIdempotency_2026_10_02_00_01_00, DbAuthzAdminBackend, VersionRecord } from '../../../src/index.js';
 import { P1, P2, config, failure, installHost, instance, ok, rbacDomain, rejection, resetHost, uninstallHost } from '../support.js';
@@ -72,7 +73,7 @@ describe('DbAuthzAdminBackend on SQLite', function () {
     config().set('logger', { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
     config().set('db', DB);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
     orm = (await DI.resolve(Orm)) as Orm;
     db = orm.Connections.get('default')!;
     // The authz-rbac migration creates authz_version when it runs at boot; create it only when it did not.
@@ -392,8 +393,8 @@ describe('DbAuthzAdminBackend on SQLite', function () {
           c.register(instance(attributes)).as(ScopeAttributeStore);
           c.register(instance(attributes)).as(WritableScopeAttributeStore);
           c.register(instance(policies)).as(PolicyStore);
-          c.register(instance(model)).as(AuthorizationModel);
-          c.register(instance(new AbacContributor(model))).as(AuthzContributor);
+          // The model's init registers its AbacContributor.
+          testHost.activate(c, dom, model);
           c.register(instance({ contribute: () => ({ scopeAttributeSchemas: [SCHEMA] }) })).as(AuthzContributor);
         },
       });

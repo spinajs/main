@@ -75,7 +75,7 @@ describe('ClientIp (A05, SR-03)', function () {
 
     await DI.resolve(Configuration);
     await DI.resolve(fsService);
-    await DI.resolve(OrmMigrator);
+    await (await DI.resolve(Orm)).Migrator.ready();
     await startServer();
 
     socketAddress = await clientIp();

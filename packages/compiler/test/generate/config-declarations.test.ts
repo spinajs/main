@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { generateConfigDeclarations, generateConfigTypes, leafPaths } from '../../src/index.js';
+import { createContext, createProgramFromTsconfig, extractConfigModules, generateConfigDeclarations, generateConfigTypes, leafPaths } from '../../src/index.js';
 import type { Manifest } from '@spinajs/manifest';
 
 const manifestPath = fileURLToPath(new URL('../fixtures/app-basic/app.manifest.json', import.meta.url));
@@ -63,6 +63,33 @@ describe('generateConfigDeclarations', () => {
     const { source } = await generateConfigTypes(m);
     expect(source).to.include(`'mod.o': { a?: string };`);
     expect(source).to.include(`'mod.o.a': string;`);
+  });
+
+  it('types an alternative it could not fully read as unknown, not as the members it read', async () => {
+    const unit = createProgramFromTsconfig('test/fixtures/unit/tsconfig.json');
+    const ctx = createContext(unit, 'unit', 'test/fixtures/unit');
+    const modules = extractConfigModules(ctx, unit.sourceFiles.find((f) => f.fileName.endsWith('config-literals.ts'))!);
+    const { source } = await generateConfigTypes(withSchemas(ctx.schemas, modules));
+    expect(source).to.include(`'unreadable.claim': unknown;`);
+    expect(source).to.include(`'unreadable.some': unknown;`);
+    expect(source).to.include(`'unreadable.kind': string;`);
+  });
+
+  it('leaves the objects of a partial schema open, since a member it could not read may add keys', async () => {
+    const object = { type: 'object', properties: { subject: { type: 'string' } } };
+    const m = withSchemas(
+      {
+        partial: { type: 'object', 'x-explicit': 'partial', properties: { claims: object } },
+        whole: { type: 'object', properties: { claims: object } },
+      },
+      [
+        { module: 'partial', schemaId: 'partial' },
+        { module: 'whole', schemaId: 'whole' },
+      ],
+    );
+    const { source } = await generateConfigTypes(m);
+    expect(source).to.include(`'partial.claims': { subject?: string; [k: string]: unknown };`);
+    expect(source).to.include(`'whole.claims': { subject?: string };`);
   });
 
   it('warns about requested modules that match nothing', async () => {

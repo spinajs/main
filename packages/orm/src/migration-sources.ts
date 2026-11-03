@@ -97,8 +97,8 @@ export class FilesystemMigrationSource extends MigrationSource {
       throw new OrmException(`APP_ENV '${env}' is not a plain identifier ( letters, digits, '_' or '-' only ) and cannot be used to build the migration discovery glob safely - refusing to scan rather than silently matching the wrong files.`);
     }
 
-    // `!(*.*)` - a basename with no dot at all, so it also excludes `*.d.ts` for free. `cjs` and
-    // `mjs` join `ts`/`js` because an app may author migrations as .mjs or .cjs.
+    // `!(*.*)` - a basename with no dot at all, so it also excludes `*.d.ts` for free. `mts`, `cts`,
+    // `cjs` and `mjs` join `ts`/`js` because an app may author migrations in any of them.
     const patterns = migrationScanGlobs(env);
 
     const files = _.uniq(dirs)

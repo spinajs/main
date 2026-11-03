@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { AuthorizationModel, AuthzContributor, AuthzService, GLOBAL, ResourceAdapter } from '@spinajs/authz';
+import { AuthzContributor, AuthzService, GLOBAL, ResourceAdapter } from '@spinajs/authz';
 import type { Principal, ResourceRef } from '@spinajs/authz';
 import type { Assignment } from '../../src/contracts.js';
 import { FakeAdapter, testHost, userPrincipal } from '@spinajs/authz-testing';
@@ -36,7 +36,7 @@ describe('User.can* as authz().check', function () {
     await resetHost();
     testHost.config().set(['authz', 'permissions'], Object.fromEntries(PERMISSIONS.map(({ name, types }) => [name, { types }])));
     const model = new RbacModel({ roles: new MemoryRoleStore(ROLES), assignments: new MemoryAssignmentStore([assignment('a1', 'editor1', 'editor'), assignment('a2', 'viewer1', 'viewer')]) });
-    registerInRoot(AuthorizationModel, instance(model));
+    testHost.activate(DI.RootContainer, 'root', model);
     registerInRoot(AuthzContributor, instance(new RbacContributor(model)));
     registerInRoot(ResourceAdapter, instance(new FakeAdapter({ types: ['Article'], rows: { Article: [] }, relations: [{ type: 'Article', relation: 'owner', column: 'owner' }] })));
   });

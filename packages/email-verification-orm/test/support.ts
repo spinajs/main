@@ -56,7 +56,7 @@ export async function bootStore(connection = DEFAULT_CONNECTION): Promise<OrmEma
   (await DI.resolve(Configuration)).set('emailVerification.orm.connection', connection);
   connectionName = connection;
   const orm = await DI.resolve(Orm);
-  await DI.resolve(OrmMigrator);
+  await (await DI.resolve(Orm)).Migrator.ready();
   const store = await DI.resolve(OrmEmailVerificationStore);
   current = { orm, store };
   return store;

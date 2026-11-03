@@ -53,7 +53,7 @@ export function usersHttpHarness(controllers: readonly Class<BaseController>[]):
       if (http?.routes || http?.env || http?.config) throw new Error('users-http harness: lane.http serves the users-http controllers and identities only');
 
       const kit = instantiateWorld(world);
-      const undo = kit.models.map((m) => testHost.registerInRoot(AuthorizationModel as unknown as Class<AuthorizationModel>, testHost.instance(m)));
+      const undo = kit.models.map((m) => testHost.registerInRoot(AuthorizationModel as unknown as Class<AuthorizationModel>, testHost.named(m.name, testHost.instance(m))));
       const dispose = async () => {
         try {
           await stopUsersHttpApp();
@@ -64,7 +64,7 @@ export function usersHttpHarness(controllers: readonly Class<BaseController>[]):
       };
 
       try {
-        const config: Record<string, unknown> = { 'authz.combine': structuredClone(world.combine) };
+        const config: Record<string, unknown> = { 'authz.combine': structuredClone(world.combine), 'authz.models': [...kit.models.map((m) => m.name), 'UsersHttpTestRbacModel'] };
         for (const [key, value] of Object.entries(world.config ?? {})) if (value !== undefined) config[`authz.${key}`] = structuredClone(value);
         if (world.config?.cache === undefined) config['authz.cache.maxEntries'] = 0;
         const app = await startUsersHttpApp({ controllers, config, permissions: permissionsOf(world), unlistShipped: true });

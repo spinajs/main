@@ -23,7 +23,7 @@ export async function bootDb(setConfig: SetConfig, domain = 'root'): Promise<DbH
   setConfig(['db'], { DefaultConnection: 'sqlite', Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { OnStartup: true } }] });
 
   DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-  await DI.resolve(OrmMigrator);
+  await (await DI.resolve(Orm)).Migrator.ready();
   const orm = await DI.resolve(Orm);
   const config = (await DI.resolve(Configuration)) as Configuration;
 

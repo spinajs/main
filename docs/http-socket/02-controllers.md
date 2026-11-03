@@ -231,6 +231,7 @@ one (SOCK006). An error of such a rule names the rule and the pointer, never the
 | handler missing or incompatible, controller not in the manifest, runtime and manifest contract ids differ, contract absent or declared twice, schema cannot compile (for example an unresolved `$ref`, a schema Ajv refuses, or a keyword the validator lacks), payload schema absent from the manifest | boot fails with an error naming the controller and contract | warning; a contract that cannot compile is skipped, every other contract still enforces |
 | the manifest binds a contract but the code declares none | the manifest contract is enforced, with a warning | not enforced, warning (fail-open) |
 | no manifest file | boot fails | nothing is checked or enforced (fail-open) |
+| the manifest was built with `spinajs build --no-schemas`, so the app's contracts have no payload schemas | boot fails with an error naming the contracts | one warning per boot naming the contracts; their payloads are not validated (fail-open) |
 
 `prefer` never stops the server and never enforces what it could not verify, so use `require` where the contract is a security or correctness boundary.
 The manifest binding is authoritative: a stale manifest is a `require` boot error, not a silent fallback.

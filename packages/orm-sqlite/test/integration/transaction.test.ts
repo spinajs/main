@@ -10,7 +10,7 @@
  */
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import _ from 'lodash';
@@ -79,7 +79,7 @@ describe('SQLite transaction contract (integration)', function () {
     DI.register(IntegrationConf).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     await DI.resolve(Orm);
-    await (await DI.resolve(OrmMigrator)).Runner.up();
+    await (await DI.resolve(Orm)).Migrator.Runner.up();
     // model descriptors get their columns from the live schema; without this the
     // insert compiler has no columns to work with
     await db().reloadTableInfo();
