@@ -104,8 +104,18 @@ async function db() {
   const { orm } = await migrateTestDatabase();
   // The bootstrapper syncs exposed options on the Orm's resolve signal, which fired before the table existed.
   DI.emit('di.resolved.Orm', DI.RootContainer, orm);
-  await wait(100);
+  await exposedRowsSynced();
   return orm;
+}
+
+/** The sync the Orm signal starts is fire-and-forget, so its effect is the only thing to wait on. */
+async function exposedRowsSynced() {
+  const slugs = ['test', 'test-watch', 'test-number', 'test-watch-num'];
+  const deadline = Date.now() + 5000;
+  while ((await Promise.all(slugs.map((s) => DbConfig.where('Slug', s).first()))).some((r) => !r)) {
+    if (Date.now() > deadline) throw new Error('exposed options were not synced to the configuration table');
+    await wait(20);
+  }
 }
 
 async function cfg() {
