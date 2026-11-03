@@ -197,7 +197,6 @@ A pipeline that builds, checks the wiring and fails when committed generated fil
 - [Manifest diff and CI](manifest/diff-and-ci.md) covers `manifest:diff`, the PR comment workflow and a longer recipe; [Deploying a manifest-built app](manifest/deploying.md) covers the image build, the environment variables and the one-file bundle.
 ## Known limits in 4.0
 
-- **Inherited routes on abstract bases.** A route that a controller inherits from an abstract base class is served at runtime, but the manifest lists such a base under `controllerBases`, and `generate:openapi`, `generate:client` and `manifest:diff` read the `controllers` list only. Those routes are missing from the OpenAPI document, the generated client and the diff until a later 4.x release.
 - **Derived validation reads types, not runtime code.** A model from a dependency package derives to an open object, and a nested class whose `@Schema` the compiler cannot evaluate accepts anything. See [Validation from the manifest](http/04-route-arguments.md#validation-from-the-manifest).
 - **`await import()` is not followed.** A class only such a call loads gets a `CMP006` warning, although it still runs.
 - **Cold start.** This page makes no promise about boot time.

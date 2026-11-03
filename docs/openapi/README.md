@@ -36,7 +36,7 @@ A route served only by a registration (a manifest entry with `mountedBy`) is lef
 
 ### Sample output
 
-The `app-basic` fixture of the compiler tests has a `HealthController` and a `UsersController`. Its document, with title `app-basic`, version `1.0.0` and server `http://localhost:4557`, is committed as `packages/openapi/test/__snapshots__/app-basic.openapi.json`; the test fails when the output differs. An excerpt, with the snapshot's indented JSON folded to fewer lines:
+The `app-basic` fixture of the compiler tests has a `HealthController`, a `UsersController` and an `ArticlesController` whose routes come from its base class. Its document, with title `app-basic`, version `1.0.0` and server `http://localhost:4557`, is committed as `packages/openapi/test/__snapshots__/app-basic.openapi.json`; the test fails when the output differs. An excerpt, with the snapshot's indented JSON folded to fewer lines:
 
 ```json
 {
@@ -44,10 +44,10 @@ The `app-basic` fixture of the compiler tests has a `HealthController` and a `Us
   "info": {
     "title": "app-basic",
     "version": "1.0.0",
-    "x-spinajs-manifest-hash": "e8c022b23448e14475f69d3729820cfbaea3f5b1db9cb43d4a0d1c760eae2f21"
+    "x-spinajs-manifest-hash": "47f7521612321fc90ebb904d6c0db1aaf014b826ecb98bfdf0121c9bc87f8d29"
   },
   "servers": [{ "url": "http://localhost:4557" }],
-  "tags": [{ "name": "Health" }, { "name": "Users" }],
+  "tags": [{ "name": "Articles" }, { "name": "Health" }, { "name": "Users" }],
   "paths": {
     "/health/get": {
       "get": {
@@ -170,7 +170,6 @@ The CLI passes no security schemes: call the function to add them.
 
 ## Known limits
 
-- A route inherited from an abstract base controller is served but not in the document, because the manifest lists such a base under `controllerBases` ([Known limits in 4.0](../whats-new-4.0.md#known-limits-in-40)).
 - The document is as precise as the derived types. [JSDoc constraint tags](../validation/09-dto-constraints-jsdoc.md) on DTO properties carry `format`, `minLength` and the like into the schemas.
 
 ## Related
