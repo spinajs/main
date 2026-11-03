@@ -271,9 +271,8 @@ describe('app-basic boots from its manifest', function () {
   });
 
   it('records the hash of the manifest it booted from, the one hashManifest gives, and null in off mode', () => {
-    expect(required.booted).to.deep.include({ mode: 'require', hash: hashManifest(manifest) });
-    expect(preferred.booted).to.deep.include({ mode: 'prefer', hash: hashManifest(manifest) });
-    expect(required.booted.compilerVersion).to.equal(manifest.compilerVersion);
+    expect(required.booted).to.deep.equal({ mode: 'require', hash: hashManifest(manifest) });
+    expect(preferred.booted).to.deep.equal({ mode: 'prefer', hash: hashManifest(manifest) });
     expect(discovered.booted).to.deep.equal({ mode: 'off', hash: null });
   });
 
