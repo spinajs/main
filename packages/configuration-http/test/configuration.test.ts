@@ -1,6 +1,7 @@
 import { DI } from '@spinajs/di';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { AccessDenied, AuthorizationModel, AuthzService, SYSTEM, authz, runWithPrincipal } from '@spinajs/authz';
 import type { DecisionRequest, ModelListPlan, Principal } from '@spinajs/authz';
 import { ACCESS_DESCRIPTOR, accessDescriptorOf } from '@spinajs/authz-http';
@@ -97,7 +98,7 @@ describe('configuration-http api', function () {
   });
 
   beforeEach(async () => {
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
     await authz().runAs(SYSTEM, 'test', async () => {
       await DbConfig.truncate();
       await seed();
@@ -493,7 +494,7 @@ describe('configuration-http ORM guard', function () {
       testHost.instance(new ListStaticModel({ name: 'config-votes', votes, capabilities: { fields: true }, lists: { 'configuration:read': listPlan } })),
     );
     await DI.resolve(AuthzService);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
   });
 
   after(async () => {

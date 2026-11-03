@@ -3,7 +3,7 @@ import { Configuration } from '@spinajs/configuration';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { Orm } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { DefaultQueueService } from '@spinajs/queue';
 import { IdentityRegistrar } from '@spinajs/authn/contracts';
 import type { AuthnContext } from '@spinajs/authn/contracts';
@@ -41,7 +41,7 @@ async function boot(registration?: { enabled?: boolean; activate?: boolean }): P
   if (registration) {
     config.set('users.registration', registration);
   }
-  await (await DI.resolve(Orm)).Migrator.ready();
+  await migrateTestDatabase();
 }
 
 const rowsWithEmail = async (email: string) => (await User.query().withDeleted().where('Email', email)).length;

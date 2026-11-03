@@ -17,6 +17,7 @@ import '@spinajs/log';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Config, Configuration, ConfigurationSource, FrameworkConfiguration, IConfigLike } from '@spinajs/configuration';
 import { Orm, OrmMigrator, resolveMigrationTool } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 
 import { ConfigFileValidator, DbConfig, DbConfigSourceBotstrapper, DbConfigValueConverter } from './../src/index.js';
 import './migration/test_config_data_2022_02_08_01_13_00.js';
@@ -55,9 +56,6 @@ const TEST_CONFIG = {
         Driver: 'orm-driver-sqlite',
         Filename: ':memory:',
         Name: 'sqlite',
-        Migration: {
-          OnStartup: true,
-        },
       },
     ],
   },
@@ -98,10 +96,26 @@ class SampleTemplateValidator extends ConfigFileValidator {
   }
 }
 
-/** The boot an app makes: the migrator resolves the Orm it injects, then migrates. */
+/** Migrates the test database the way a deploy does before the app boots. */
 async function db() {
-  await (await DI.resolve(Orm)).Migrator.ready();
-  return await DI.resolve(Orm);
+  const cached = DI.get(Orm) as Orm | undefined;
+  if (cached) return cached;
+
+  const { orm } = await migrateTestDatabase();
+  // The bootstrapper syncs exposed options on the Orm's resolve signal, which fired before the table existed.
+  DI.emit('di.resolved.Orm', DI.RootContainer, orm);
+  await exposedRowsSynced();
+  return orm;
+}
+
+/** The sync the Orm signal starts is fire-and-forget, so its effect is the only thing to wait on. */
+async function exposedRowsSynced() {
+  const slugs = ['test', 'test-watch', 'test-number', 'test-watch-num'];
+  const deadline = Date.now() + 5000;
+  while ((await Promise.all(slugs.map((s) => DbConfig.where('Slug', s).first()))).some((r) => !r)) {
+    if (Date.now() > deadline) throw new Error('exposed options were not synced to the configuration table');
+    await wait(20);
+  }
 }
 
 async function cfg() {
@@ -408,14 +422,13 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
 describe('exposed options on a database migrated before the boot', function () {
   this.timeout(20000);
 
-  const connection = TEST_CONFIG.db.Connections[0] as { Filename: string; Migration: { OnStartup: boolean } };
-  const original = { Filename: connection.Filename, OnStartup: connection.Migration.OnStartup };
+  const connection = TEST_CONFIG.db.Connections[0] as { Filename: string };
+  const original = { Filename: connection.Filename };
   let scratch = '';
 
   before(() => {
     scratch = fs.mkdtempSync(join(os.tmpdir(), 'spinajs-cfg-db-source-'));
     connection.Filename = join(scratch, 'configuration.sqlite');
-    connection.Migration.OnStartup = false;
 
     DI.register(ConnectionConf).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
@@ -426,7 +439,6 @@ describe('exposed options on a database migrated before the boot', function () {
     await DI.dispose();
 
     connection.Filename = original.Filename;
-    connection.Migration.OnStartup = original.OnStartup;
 
     try {
       fs.rmSync(scratch, { recursive: true, force: true });

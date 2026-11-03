@@ -3,6 +3,7 @@ import 'mocha';
 import '@spinajs/log';
 import { DI } from '@spinajs/di';
 import { Orm, OrmDriver, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import type { ITransactionOptions } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AdminGuard, AuthzAdminBackend, AuthzAdminFailure, AuthzConfigError, AuthzContributor, MemoryScopeAttributeStore, ScopeAttributeStore, WritableScopeAttributeStore } from '@spinajs/authz';
@@ -27,7 +28,7 @@ const DB = {
   DefaultConnection: 'sqlite',
   Aliases: { authz: 'default' },
   Connections: [
-    { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { Table: 'orm_migrations', OnStartup: true } },
+    { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { Table: 'orm_migrations' } },
     { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'other' },
   ],
 };
@@ -73,8 +74,7 @@ describe('DbAuthzAdminBackend on SQLite', function () {
     config().set('logger', { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
     config().set('db', DB);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    await (await DI.resolve(Orm)).Migrator.ready();
-    orm = (await DI.resolve(Orm)) as Orm;
+    ({ orm } = await migrateTestDatabase());
     db = orm.Connections.get('default')!;
     // The authz-rbac migration creates authz_version when it runs at boot; create it only when it did not.
     if (!(await db.schema().tableExists(VERSION))) {

@@ -3,6 +3,7 @@ import '@spinajs/log';
 import '@spinajs/orm-mysql';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Orm, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import type { IDriverOptions, OrmDriver } from '@spinajs/orm';
 
 import '../src/index.js';
@@ -22,7 +23,7 @@ const CONNECTION: IDriverOptions = {
   User: process.env.SPINAJS_TEST_MYSQL_USER ?? 'root',
   Password: process.env.SPINAJS_TEST_MYSQL_PASSWORD ?? '',
   Database: process.env.SPINAJS_TEST_MYSQL_DB ?? 'test',
-  Migration: { OnStartup: true, Table: 'configuration_db_source_migrations' },
+  Migration: { Table: 'configuration_db_source_migrations' },
 };
 
 class MysqlConfiguration extends FrameworkConfiguration {
@@ -67,7 +68,9 @@ async function dropTables(): Promise<void> {
     for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
       await b.bootstrap();
     }
-    await (await DI.resolve(Orm)).Migrator.ready();
+    const { orm } = await migrateTestDatabase();
+    // The bootstrapper syncs exposed options on the Orm's resolve signal, which fired before the table existed.
+    DI.emit('di.resolved.Orm', DI.RootContainer, orm);
   });
 
   afterEach(async () => {

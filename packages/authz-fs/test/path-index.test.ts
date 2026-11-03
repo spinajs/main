@@ -13,7 +13,7 @@ import { installQuietLog } from './support/log.js';
 
 const expect = chai.expect;
 
-const sqlite = (name: string) => ({ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: name, Migration: { Table: 'orm_migrations', OnStartup: false } });
+const sqlite = (name: string) => ({ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: name, Migration: { Table: 'orm_migrations' } });
 
 const rows = (driver: OrmDriver, sql: string): Promise<Record<string, unknown>[]> => (driver as unknown as { executeOnDb(sql: string, bindings: unknown[], context: QueryContext): Promise<Record<string, unknown>[]> }).executeOnDb(sql, [], QueryContext.Select);
 

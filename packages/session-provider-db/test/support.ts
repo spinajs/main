@@ -1,6 +1,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Orm, OrmDriver, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import { AbsoluteExpiration, DefaultSessionIssuer, SessionExpirationProvider, SessionProvider, SlidingCappedExpiration, SlidingExpiration } from '@spinajs/authn-session';
@@ -25,8 +26,8 @@ export class DbSessionTestConfiguration extends FrameworkConfiguration {
       db: {
         DefaultConnection: 'sqlite',
         Connections: [
-          { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'session-provider-connection', Migration: { OnStartup: true } },
-          { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { OnStartup: true } },
+          { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'session-provider-connection' },
+          { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite' },
         ],
       },
       logger: {
@@ -71,8 +72,7 @@ export async function bootStore(session: Record<string, unknown> = {}): Promise<
 
   sessionOverrides = session;
   await DI.resolve(Configuration);
-  const orm = await DI.resolve(Orm);
-  await (await DI.resolve(Orm)).Migrator.ready();
+  const { orm } = await migrateTestDatabase();
   const store = await DI.resolve(DbSessionStore);
   current = { orm, store };
   return store;
