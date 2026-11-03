@@ -7,8 +7,7 @@ import type { ResourceFilter, Vote } from '../../src/index.js';
 
 const expect = chai.expect;
 
-const FIELDS = ['a', 'b', 'c', 'd', 'e', 'f'] as const;
-type Field = (typeof FIELDS)[number];
+type Field = 'a' | 'b' | 'c' | 'd' | 'e' | 'f';
 
 const cmp = (field: Field): ResourceFilter => ({ op: 'cmp', field, cmp: 'eq', value: true });
 const vote = (permitWhen: ResourceFilter, denyWhen: ResourceFilter, extra: Partial<Vote> = {}): Vote => ({ model: 'm', permitWhen, denyWhen, cacheable: true, ...extra });
