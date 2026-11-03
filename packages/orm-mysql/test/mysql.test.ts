@@ -4,6 +4,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 
 import { ICompilerOutput, InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm, QueryContext, RawQuery } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 // Registers the concrete Log implementation. `Orm` types its logger as the ABSTRACT `Log`
 // from @spinajs/log-common, so without this nothing satisfies it and `Orm.createConnections`
 // dies on `this.Log.trace is not a function`. orm-sqlite's suites already do this.
@@ -23,7 +24,7 @@ const expect = chai.expect;
 chai.use(chaiAsPromised);
 export const TEST_MIGRATION_TABLE_NAME = 'orm_migrations';
 
-// Each hook boots a fresh Orm and runs OrmMigrator's pass against the server; that takes 1-2 s, mocha's default
+// Each hook boots a fresh Orm and migrates the server; that takes 1-2 s, mocha's default
 // budget. A hook cut off mid-pass leaves the migration lock row behind, and every later hook then waits out its timeout.
 const BOOT_TIMEOUT_MS = 15000;
 
@@ -67,7 +68,6 @@ export class ConnectionConf extends FrameworkConfiguration {
             Port: PORT,
             Migration: {
               Table: TEST_MIGRATION_TABLE_NAME,
-              OnStartup: true,
               Transaction: {
                 Mode: MigrationTransactionMode.PerMigration,
               },
@@ -83,7 +83,6 @@ export class ConnectionConf extends FrameworkConfiguration {
             Port: PORT,
             Migration: {
               Table: TEST_MIGRATION_TABLE_NAME,
-              OnStartup: true,
               Transaction: {
                 Mode: MigrationTransactionMode.PerMigration,
               },
@@ -105,7 +104,7 @@ describe('Mysql connection test', () => {
     DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
     await db().Connections.get('mysql')!.truncate('user_test');
 
     
@@ -134,7 +133,7 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
     DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
     
     await db().Connections.get('mysql')!.truncate('user_test');
   });
@@ -151,15 +150,11 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
   });
 
   it('Should migrate', async () => {
-    await (await DI.resolve(Orm)).Migrator.Runner.up();
-
     await db().Connections.get('mysql')!.select().from('user_test');
     await expect(db().Connections.get('mysql')!.select().from('notexisted')).to.be.rejected;
   });
 
   it('Should check if table exists', async () => {
-    await (await DI.resolve(Orm)).Migrator.Runner.up();
-
     const exists = await db().Connections.get('mysql')!.schema().tableExists('user_test');
     const notExists = await db().Connections.get('mysql')!.schema().tableExists('user2');
 
@@ -168,7 +163,6 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
   });
 
   it('should insert query', async () => {
-    await (await DI.resolve(Orm)).Migrator.Runner.up();
     const iResult = await db().Connections.get('mysql')!.insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
@@ -198,7 +192,6 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
   });
 
   it('should update', async () => {
-    await (await DI.resolve(Orm)).Migrator.Runner.up();
     const iResult = await db().Connections.get('mysql')!.insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
@@ -227,7 +220,7 @@ describe('mysql model functions', () => {
     DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
    
     await db().Connections.get('mysql')!.truncate('user_test');
 
@@ -325,7 +318,7 @@ describe('MySql queries', () => {
 
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
     await db().Connections.get('mysql')!.truncate('user_test');
  
   });
@@ -416,7 +409,7 @@ describe('MySql transactions', () => {
 
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
     await db().Connections.get('mysql')!.truncate('user_test');
  
   });
@@ -567,7 +560,7 @@ describe('MySql cross-schema whereExists', () => {
 
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
     await db().Connections.get('mysql')!.truncate('user_test');
 
     
@@ -650,7 +643,7 @@ describe('MySql views and events', () => {
 
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
     await db().Connections.get('mysql')!.truncate('user_test');
   });
 

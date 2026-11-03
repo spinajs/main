@@ -54,33 +54,33 @@ const sqlite = (name: string) => ({
   Driver: 'orm-driver-sqlite',
   Filename: ':memory:',
   Name: name,
-  Migration: { OnStartup: true, Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
+  Migration: { Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
 });
 
-function db(target: RealDbTarget, migrate: boolean) {
+function db(target: RealDbTarget) {
   const it = {
     ...target.connection,
     Name: 'it',
     Migration: {
-      OnStartup: migrate,
       Table: 'scheduler_it_migrations',
       Transaction: { Mode: MigrationTransactionMode.PerMigration },
     },
   };
-  // While cleaning up, the models stay on SQLite: MySQL refuses to describe a model whose table is missing.
-  return migrate
-    ? { DefaultConnection: 'it', Connections: [it, sqlite('queue')] }
-    : { DefaultConnection: 'sqlite', Connections: [it, sqlite('sqlite'), sqlite('queue')] };
+  return { DefaultConnection: 'it', Connections: [it, sqlite('queue')] };
 }
 
-/** Drops the scheduler tables, then boots again so the migration recreates them. */
+/** Drops the scheduler tables a previous run may have left, then boots so the migration recreates them. */
 export async function bootRealDb(target: RealDbTarget, scheduler: Record<string, unknown> = {}): Promise<void> {
-  await bootTestEnv({ extra: { db: db(target, false) }, scheduler });
-  const driver = (await DI.resolve(Orm)).Connections.get('it') as unknown as {
-    executeOnDb(sql: string, p: unknown[], c: QueryContext): Promise<unknown>;
-  };
-  for (const t of TABLES) await driver.executeOnDb(`DROP TABLE IF EXISTS ${t}`, [], QueryContext.Schema);
-  await bootTestEnv({ extra: { db: db(target, true) }, scheduler });
+  await bootTestEnv({
+    extra: { db: db(target) },
+    scheduler,
+    beforeMigrate: async () => {
+      const driver = (await DI.resolve(Orm)).Connections.get('it') as unknown as {
+        executeOnDb(sql: string, p: unknown[], c: QueryContext): Promise<unknown>;
+      };
+      for (const t of TABLES) await driver.executeOnDb(`DROP TABLE IF EXISTS ${t}`, [], QueryContext.Schema);
+    },
+  });
 }
 
 export type RawDriver = OrmDriver & { executeOnDb(sql: string, p: unknown[], c: QueryContext): Promise<unknown> };
