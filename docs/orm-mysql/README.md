@@ -87,13 +87,14 @@ export async function bootstrap(): Promise<Orm> {
 
 The driver registers `MySqlMigrationLock` as the migration run lock ([Locking](../orm/10-migrations.md#locking)).
 
-1. It takes `GET_LOCK('spinajs_mig_<sha1 of the lock key>', 0)`, polled, on a connection of its own from `openDedicatedConnection()`, outside the pool. GET_LOCK names are server-wide and limited to 64 characters, so the key, which names the database, is hashed. `MySqlSSHOrmDriver` opens that connection through its own SSH channel (`dedicatedConnectionOptions()`).
+1. It takes `GET_LOCK('spinajs_mig_<sha1 of the lock key>', 0)`, polled, on a connection of its own from `openDedicatedConnection()`, outside the pool, with the connection attribute `program_name` set to `spinajs-migration-lock:<Name>` and `wait_timeout` raised to 2147483 s (about 24 days, the largest value every platform accepts), so a long migration does not idle it out. While held it is queried every `min(StaleAfter / 3, 30 s)`. GET_LOCK names are server-wide and limited to 64 characters, so the key, which names the database, is hashed. `MySqlSSHOrmDriver` opens that connection through its own SSH channel (`dedicatedConnectionOptions()`).
 2. After `GET_LOCK` it also takes the lock-table row, so a process of an earlier 3.x release, which takes only the row, is kept out during a rolling deploy.
 3. Before each migration it checks `IS_USED_LOCK(name) = CONNECTION_ID()` on that connection. If the connection was killed, the run stops with `MigrationLockLostException`.
 4. `release()` runs `RELEASE_LOCK(name)` and ends the connection.
-5. Keep mysql2's default `FOUND_ROWS` flag: do not pass `flags: '-FOUND_ROWS'` in `Options`. The lock-table row's refresh is an UPDATE through the pool that reads 0 affected rows as "another run took the row", and without the flag an UPDATE that changes nothing reports 0.
+5. mysql2's `FOUND_ROWS` flag does not matter to the lock. The lock-table row's refresh reads 0 affected rows as "another run took the row", but it always writes a new `AcquiredAt`, so it reports 1 with or without the flag.
+6. `GET_LOCK` is local to one server. On a multi-primary cluster (Galera / Percona XtraDB Cluster, Group Replication in multi-primary mode) it does not keep out a run on another node: set `Migration.Lock.Mode: 'table'` there, before upgrading to a release with this lock.
 
-To see a holder: `SELECT IS_USED_LOCK('spinajs_mig_…')` returns the connection id, which `SHOW PROCESSLIST` lists.
+To see a holder: `SELECT IS_USED_LOCK('spinajs_mig_…')` returns the connection id, which `SHOW PROCESSLIST` lists. `SELECT PROCESSLIST_ID, ATTR_VALUE FROM performance_schema.session_connect_attrs WHERE ATTR_NAME = 'program_name' AND ATTR_VALUE LIKE 'spinajs-migration-lock:%'` lists every lock connection.
 
 ## Testing
 

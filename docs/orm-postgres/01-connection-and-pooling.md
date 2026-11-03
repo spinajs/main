@@ -166,15 +166,17 @@ The same holds for `23502`, `23503` and `23514`: match `ConstraintViolation` and
 
 The driver registers `PostgresMigrationLock` as the migration run lock ([Locking](../orm/10-migrations.md#locking)).
 
-1. It takes `pg_try_advisory_lock(k1, k2)`, polled, where `(k1, k2)` is `advisoryKeyPair(migrationLockKey(driver, table))`. It runs on a `pg.Client` of its own from `openDedicatedClient()`, outside the pool, with the pool's settings and `search_path`.
+1. It takes `pg_try_advisory_lock(k1, k2)`, polled, where `(k1, k2)` is `advisoryKeyPair(migrationLockKey(driver, table))`. It runs on a `pg.Client` of its own from `openDedicatedClient()`, outside the pool, with the pool's settings and `search_path`, `application_name` `spinajs-migration-lock:<Name>`, and on postgres 14+ `idle_session_timeout = 0`, so a long migration does not idle it out. While held it is queried every `min(StaleAfter / 3, 30 s)`.
 2. After the advisory lock it also takes the lock-table row, so a process of an earlier 3.x release, which takes only the row, is kept out during a rolling deploy.
 3. Before each migration it checks `pg_locks` on that client. If the backend was terminated, the run stops with `MigrationLockLostException`.
-4. Advisory locks belong to a session. PgBouncer in transaction pooling mode does not keep one, so set `Migration.Lock.Mode: 'table'` there.
+4. Advisory locks belong to a session. PgBouncer in transaction pooling mode does not keep one, so set `Migration.Lock.Mode: 'table'` there, before upgrading to a release with this lock: under `'auto'` the lock lands on one server connection, its checks run on others, and the run fails with `MigrationLockLostException` while the lock stays on that pooled server connection.
 
 To see a holder:
 
 ```sql
-SELECT pid, classid::int AS k1, objid::int AS k2, granted FROM pg_locks WHERE locktype = 'advisory' AND objsubid = 2;
+SELECT l.pid, a.application_name, l.classid::int AS k1, l.objid::int AS k2, l.granted
+FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+WHERE l.locktype = 'advisory' AND l.objsubid = 2;
 ```
 
 ## Important behaviour
