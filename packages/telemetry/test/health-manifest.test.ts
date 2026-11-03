@@ -15,7 +15,19 @@ const APP_BASIC = join(process.cwd(), '..', 'compiler', 'test', 'fixtures', 'app
 
 let app: TestApp;
 
-const health = () => app.request().get('/telemetry/health').set('Accept', 'application/json');
+interface HealthBody {
+  status: string;
+  pid: number;
+  node: string;
+  version?: string;
+  manifest: unknown;
+}
+
+const health = async () => {
+  const res = await app.request().get('/telemetry/health').set('Accept', 'application/json');
+  expect(res).to.have.status(200);
+  return res.body as HealthBody;
+};
 
 describe('GET /telemetry/health reports the manifest the app booted from', function () {
   this.timeout(15000);
@@ -29,10 +41,7 @@ describe('GET /telemetry/health reports the manifest the app booted from', funct
   });
 
   it('reports mode off and a null hash for an app that booted without a manifest', async () => {
-    const res = await health();
-
-    expect(res).to.have.status(200);
-    expect(res.body.manifest).to.deep.equal({ mode: 'off', hash: null });
+    expect((await health()).manifest).to.deep.equal({ mode: 'off', hash: null });
   });
 
   describe('with the app-basic manifest', () => {
@@ -52,19 +61,16 @@ describe('GET /telemetry/health reports the manifest the app booted from', funct
     });
 
     it('reports the hash hashManifest gives the fixture, and the mode', async () => {
-      const res = await health();
-
-      expect(res).to.have.status(200);
-      expect(res.body.manifest).to.deep.equal({ mode: 'prefer', hash: hashManifest(manifest) });
+      expect((await health()).manifest).to.deep.equal({ mode: 'prefer', hash: hashManifest(manifest) });
     });
 
     it('keeps the fields it reported before', async () => {
-      const res = await health();
+      const body = await health();
 
-      expect(res.body.status).to.eq('up');
-      expect(res.body.pid).to.eq(process.pid);
-      expect(res.body.node).to.eq(process.version);
-      expect(res.body.version).to.eq('9.9.9');
+      expect(body.status).to.eq('up');
+      expect(body.pid).to.eq(process.pid);
+      expect(body.node).to.eq(process.version);
+      expect(body.version).to.eq('9.9.9');
     });
   });
 });
