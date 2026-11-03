@@ -132,6 +132,23 @@ export class NtlmMsSqlDriver extends MsSqlOrmDriver {
 
 Then set `Driver: 'orm-driver-mssql-ntlm'` and `Options: { Domain: 'CORP' }` on the connection.
 
+## Migration lock
+
+The driver registers `MsSqlMigrationLock` as the migration run lock ([Locking](../orm/10-migrations.md#locking)).
+
+1. It runs `sp_getapplock` with `@LockMode = 'Exclusive'`, `@LockOwner = 'Session'` and `@LockTimeout = 0`, polled. The resource is the lock key, or a digest of it when longer than 255 characters. It runs on a pool of exactly one connection from `openDedicatedPool()`, so the session that owns the lock is the one every check runs on. The connection's application name is `spinajs-migration-lock:<Name>` (`program_name` in `sys.dm_exec_sessions`). SQL Server ends no idle session; to keep a proxy or gateway in front of it from doing so, the lock session is queried every `min(StaleAfter / 3, 30 s)` while held.
+2. After the app lock it also takes the lock-table row, so a process of an earlier 3.x release, which takes only the row, is kept out during a rolling deploy.
+3. Before each migration it checks `APPLOCK_MODE('public', resource, 'Session')` on that pool. If the session was killed, the pool's new connection holds nothing and the run stops with `MigrationLockLostException`.
+4. `release()` runs `sp_releaseapplock` and closes the pool. `status()` asks `APPLOCK_TEST` on the driver's pool.
+
+To see a holder (needs `VIEW SERVER STATE`):
+
+```sql
+SELECT l.request_session_id, s.program_name, l.resource_description
+FROM sys.dm_tran_locks l JOIN sys.dm_exec_sessions s ON s.session_id = l.request_session_id
+WHERE l.resource_type = 'APPLICATION';
+```
+
 ## Important behaviour
 
 - **One pool per connection.** `connect()` opens a new `ConnectionPool`, and `disconnect()` closes only that connection's pool. Calling `connect()` again without `disconnect()` leaves the previous pool open.

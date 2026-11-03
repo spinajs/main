@@ -127,7 +127,10 @@ describe('Mysql connection test', () => {
   });
 });
 
-describe('Mysql driver migration, updates, deletions & inserts', () => {
+describe('Mysql driver migration, updates, deletions & inserts', function () {
+  // four tests run a migration pass of their own, with the budget the boot hooks get
+  this.timeout(BOOT_TIMEOUT_MS);
+
   beforeEach(async function () {
     this.timeout(BOOT_TIMEOUT_MS);
     DI.clearCache();

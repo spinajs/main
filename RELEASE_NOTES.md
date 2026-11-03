@@ -1,6 +1,6 @@
 # Release notes — orm: one migration lock per connection for the whole run
 
-> Package: orm.
+> Packages: orm, orm-postgres, orm-mysql, orm-mssql.
 >
 > Docs: `docs/orm/10-migrations.md` ("Locking").
 
@@ -33,6 +33,16 @@
 - The lock row's `Owner` is `<hostname>:<pid>:<nonce>`, so two runs in one process are told apart.
 - Two connections on one database that share `Migration.Table` now block each other for `Lock.Timeout` and fail, because one run
   holds the first connection's lock while it waits for the second. Give each connection on a database its own `Migration.Table`.
+- `@spinajs/orm-postgres`, `@spinajs/orm-mysql` and `@spinajs/orm-mssql` lock a migration run with the database's own session
+  lock (`pg_try_advisory_lock`, `GET_LOCK`, a session-owned `sp_getapplock`) and take the lock-table row as well. A migrating
+  process opens one extra database connection per connection for the run, outside the pool, named
+  `spinajs-migration-lock:<connection>` (postgres `application_name`, mysql `program_name` connection attribute, mssql
+  `program_name`). Its idle limit is turned off (mysql `wait_timeout`, postgres 14+ `idle_session_timeout`) and it is queried every
+  `min(StaleAfter / 3, 30 s)` while held, so a long migration does not lose it to an idle timeout; a failed query stops the run
+  before its next migration. A crashed process no longer blocks the next run for `StaleAfter`: its session lock is freed, and its
+  marked row is removed once the next run has seen it go two heartbeats (10 s) unrefreshed, also when that run's `Lock.Timeout` is
+  shorter: it waits up to 10.5 s past the timeout for that row. A host that disappears without closing
+  its connections keeps its session lock until the server's TCP keepalive gives up on the connection.
 
 ## New
 
@@ -40,9 +50,16 @@
   `assertHeld()`, `release()`), `isHeld(request)` answers `status()`. `OrmDriver.resolve()` registers `TableMigrationLock`, the
   lock-table row, as the default. A driver with a native lock registers its own class over the token.
 - `TableMigrationLock.acquireUnderAdvisory(request)` and `migrationLockAdvisoryMark(key)`, for a driver lock that holds an advisory
-  lock and takes the lock-table row as well: its row is marked with `:advisory:` and 8 hex chars of the key's SHA-256, and the next
-  holder of the same advisory key removes a row with that mark at once. A row marked under another key keeps the `StaleAfter` rule.
-- `db.Connections[].Migration.Lock.Mode: 'auto' | 'table'`. `'table'` forces the lock-table row, for PgBouncer transaction pooling.
+  lock and takes the lock-table row as well: its row is marked with `:advisory:` and 8 hex chars of the key's SHA-256 and refreshed
+  every `MIGRATION_LOCK_ADVISORY_HEARTBEAT` (5 s), and the next holder of the same advisory key removes a row with that mark once it
+  has seen it go two heartbeats unrefreshed, whatever its age. A row marked under another key keeps the `StaleAfter` rule.
+- `SessionMigrationLock` and `IMigrationLockSession`, the base for a lock held by a dedicated database session, and the driver
+  locks built on it: `PostgresMigrationLock`, `MySqlMigrationLock` (`mySqlLockName(key)`) and `MsSqlMigrationLock`
+  (`msSqlLockResource(key)`). `PostgresOrmDriver.openDedicatedClient(applicationName?)`,
+  `MySqlOrmDriver.openDedicatedConnection(programName?)` and `MsSqlOrmDriver.openDedicatedPool(appName?)` open a connection outside
+  the pool. `MIGRATION_LOCK_SESSION_KEEPALIVE` (30 s) caps how long a lock session goes without a query.
+- `db.Connections[].Migration.Lock.Mode: 'auto' | 'table'`. `'table'` forces the lock-table row, for PgBouncer transaction pooling
+  and mysql multi-primary clusters.
 - `OrmMigrationService.acquireRunLock?()`, optional: a service that implements it is locked by the runner for the whole run and gets
   `{ locked: true, lock }` in `IMigrationRunOptions`. A custom service without it keeps locking inside its own calls.
 - `MigrationRunner.withRunLock(connection, fn, name?)`, `MigrationRunner.assertRunLocksHeld()`, `IMigrationUpOptions.locked`.
@@ -54,7 +71,13 @@
 - The protected `acquireLock()`, `releaseLock()` and `lockOwner()` of `DefaultMigrationService` moved to `TableMigrationLock`
   (`claim()`, `releaseRow()`, `lockOwner()`). A subclass that overrode them overrides `TableMigrationLock` instead and registers it
   over `MigrationLock` and `TableMigrationLock` in its driver.
-- Nothing else changes: processes of the previous release and of this one use the same lock-table row and exclude each other.
+- postgres behind PgBouncer in transaction pooling, or any pooler that does not pin a session: set `Migration.Lock.Mode: 'table'`
+  before upgrading `@spinajs/orm-postgres`. Under `'auto'` the advisory lock lands on one server connection while its checks run on
+  others, so the run fails with `MigrationLockLostException`, and the lock stays on that pooled server connection, blocking later runs.
+- mysql multi-primary clusters (Galera / Percona XtraDB Cluster, Group Replication in multi-primary mode): set
+  `Migration.Lock.Mode: 'table'` before upgrading `@spinajs/orm-mysql`. `GET_LOCK` is local to one node, so it does not keep out a
+  run on another node.
+- Otherwise processes of the previous release and of this one exclude each other: the new driver locks take the lock-table row too.
 
 ---
 
