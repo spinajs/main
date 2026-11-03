@@ -586,17 +586,9 @@ export class SqliteOrmDriver extends SqlDriver {
   }
 
   public async tableInfo(name: string, _schema?: string): Promise<IColumnDescriptor[]> {
-    // An absent converter map is a normal state here, not a bug to assert away. The map lives in
-    // the container CACHE and is put there by `Orm.registerDefaultConverters()`, which runs AFTER
-    // the boot migration pass - and the migration service calls `tableInfo` from `ensureStorage()`
-    // to find out which tracking columns an EXISTING table is missing. So the first `tableInfo` of
-    // a boot against an already-migrated database arrives before any converter exists, and the `!`
-    // that used to stand here turned that into `Cannot read properties of undefined (reading
-    // 'get')` - a crash on every restart, invisible on the first boot because a table that had to
-    // be created skips the probe entirely.
-    //
-    // Falling back to an empty map degrades exactly as an unrecognised column type already does:
-    // `DefaultValue` keeps the raw `dflt_value` sqlite reported.
+    // The map is cached by `Orm.registerDefaultConverters()`; a driver used without a booted Orm ( a bare
+    // MigrationRunner's `ensureStorage()` probe, a driver resolved on its own ) has none. An empty map degrades as an
+    // unrecognised column type does: `DefaultValue` keeps the raw `dflt_value`.
     const converters = this.Container.get<Map<string, any>>('__orm_db_value_converters__') ?? new Map<string, any>();
 
     const quoted = (identifier: string) => `"${identifier.replace(/"/g, '""')}"`;
