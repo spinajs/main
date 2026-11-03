@@ -32,7 +32,7 @@ db: {
       Driver: 'orm-driver-sqlite',
       Filename: ':memory:',
       Name: 'orm-event-transport',
-      Migration: { Table: 'orm_migrations', OnStartup: true },
+      Migration: { Table: 'orm_migrations' },
     },
   ],
 },
