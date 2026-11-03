@@ -36,7 +36,7 @@ async function cacheEntries(dir: string): Promise<number> {
   return count();
 }
 
-describe('single-file bundle', function () {
+describe('the esbuild bundle', function () {
   this.timeout(120_000);
 
   let work: string;
@@ -60,15 +60,19 @@ describe('single-file bundle', function () {
   it('boots from the manifest in require mode from a directory with no node_modules at all and answers /health', async () => {
     expect(existsSync(join(work, 'node_modules')), 'the bundle ships no node_modules').to.equal(false);
     const tmp = join(work, 'tmp');
+    const cacheRoot = join(work, 'cache');
     mkdirSync(tmp);
-    const env: NodeJS.ProcessEnv = { ...process.env, SPINAJS_MANIFEST_MODE: 'require', PORT: '0', TMPDIR: tmp, TMP: tmp, TEMP: tmp };
+    // the per-user cache root: XDG_CACHE_HOME on POSIX, LOCALAPPDATA on Windows
+    const env: NodeJS.ProcessEnv = { ...process.env, SPINAJS_MANIFEST_MODE: 'require', PORT: '0', TMPDIR: tmp, TMP: tmp, TEMP: tmp, XDG_CACHE_HOME: cacheRoot, LOCALAPPDATA: cacheRoot };
     delete env.NODE_COMPILE_CACHE;
+    delete env.NODE_DISABLE_COMPILE_CACHE;
     const started = Date.now();
     child = spawn(process.execPath, [join(work, 'main.mjs')], { cwd: work, env });
     const url = await listen(child);
     const bootMs = Date.now() - started;
     // written once the app listens, so a server stopped by a signal still leaves it for the next start
-    expect(await cacheEntries(join(tmp, 'node-compile-cache')), 'compile cache entries').to.be.greaterThan(1);
+    expect(await cacheEntries(join(cacheRoot, 'spinajs', 'compile-cache')), 'compile cache entries').to.be.greaterThan(1);
+    expect(readdirSync(tmp), 'the shared temp dir').to.deep.equal([]);
 
     const res = await fetch(`${url}/health`);
     expect(res.status).to.equal(200);

@@ -53,6 +53,7 @@
     "@spinajs/log-common": "3.0.23",
     "@spinajs/manifest": "3.0.23",
     "@spinajs/reflection": "3.0.23",
+    "@spinajs/util": "3.0.23",
     "commander": "10.0.0",
     "reflect-metadata": "^0.1.13"
   },

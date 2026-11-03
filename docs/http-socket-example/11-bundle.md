@@ -1,10 +1,10 @@
-# Single-file bundle
+# Bundle
 
 `npm run bundle` (in `packages/http-socket-example`) compiles the package and writes `dist/bundle`:
 
 | File | Content |
 | --- | --- |
-| `main.mjs` | The launcher: turns on Node's compile cache, imports `app.mjs` and writes the cache once the app listens (see [Compile cache](../http/README.md#compile-cache)). |
+| `main.mjs` | The launcher: turns on Node's compile cache in a per-user dir, imports `app.mjs` and writes the cache once the app listens (see [Compile cache](../http/README.md#compile-cache)). Deploy it together with `app.mjs`. |
 | `app.mjs` | The app with every dependency inlined; starts the notes server, `GET /health` answers `{"status":"ok"}`. |
 | `app.manifest.json` | The manifest built from `lib/`. |
 | `package-roots.json` | Package name to directory, read through `SPINAJS_PACKAGE_ROOTS`. |

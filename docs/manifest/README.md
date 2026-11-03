@@ -22,7 +22,7 @@ A manifest built on one machine and run on another (container image, bundle) kee
 
 The `system.manifest` configuration section (`path`, default `app.manifest.json`; `mode`, default `off`) selects the file and the mode; it is defined by `SYSTEM_CONFIGURATION_SCHEMA` in `@spinajs/configuration`.
 
-### Single-file bundle
+### Bundle
 
 `packages/http-socket-example` shows an esbuild bundle that boots in `require` mode from a directory with no `node_modules` at all (`npm run bundle`, output in `dist/bundle`):
 

@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -57,42 +57,65 @@ describe('the cli entry point', function () {
   });
 
   describe('compile cache', () => {
-    const withTmp = (tmp: string, extra: NodeJS.ProcessEnv = {}) => {
-      const env: NodeJS.ProcessEnv = { ...process.env, TMPDIR: tmp, TMP: tmp, TEMP: tmp, ...extra };
-      delete env.NODE_COMPILE_CACHE;
+    const cacheRoot = () => join(cwd, 'cache');
+    const cacheDir = () => join(cacheRoot(), 'spinajs', 'compile-cache');
+    // XDG_CACHE_HOME is the per-user cache root on POSIX, LOCALAPPDATA on Windows; the temp dir must stay unused.
+    const start = (extra: NodeJS.ProcessEnv = {}) => {
+      const tmp = join(cwd, 'tmp');
+      mkdirSync(tmp, { recursive: true });
+      const env: NodeJS.ProcessEnv = { ...process.env, TMPDIR: tmp, TMP: tmp, TEMP: tmp, XDG_CACHE_HOME: cacheRoot(), LOCALAPPDATA: cacheRoot(), ...extra };
+      if (!('NODE_COMPILE_CACHE' in extra)) delete env.NODE_COMPILE_CACHE;
+      if (!('NODE_DISABLE_COMPILE_CACHE' in extra)) delete env.NODE_DISABLE_COMPILE_CACHE;
       return spawnSync(process.execPath, [entry, '--version'], { cwd, encoding: 'utf8', env });
     };
-    const cacheFiles = (tmp: string) => (existsSync(join(tmp, 'node-compile-cache')) ? readdirSync(join(tmp, 'node-compile-cache'), { recursive: true }).length : 0);
+    const filesIn = (dir: string) => (existsSync(dir) ? readdirSync(dir, { recursive: true }).length : 0);
+    const startsAsUsual = (result: ReturnType<typeof start>) => {
+      const reference = start({ NODE_DISABLE_COMPILE_CACHE: '1' });
+      expect(result.status, result.stderr).to.equal(0);
+      expect(result.stdout).to.equal(reference.stdout);
+      expect(result.stderr).to.equal(reference.stderr);
+    };
 
     beforeEach(() => {
       cwd = mkdtempSync(join(tmpdir(), 'spinajs-cli-cache-'));
     });
 
-    it('keeps the compiled modules in the temp dir for the next start', () => {
-      const tmp = join(cwd, 'tmp');
-      mkdirSync(tmp);
-      const result = withTmp(tmp);
+    it('keeps the compiled modules in the per-user cache dir, not in the shared temp dir', () => {
+      const result = start();
       expect(result.status, result.stderr).to.equal(0);
-      expect(cacheFiles(tmp)).to.be.greaterThan(1);
+      expect(filesIn(cacheDir())).to.be.greaterThan(1);
+      expect(filesIn(join(cwd, 'tmp'))).to.equal(0);
     });
 
     it('keeps none with NODE_DISABLE_COMPILE_CACHE=1', () => {
-      const tmp = join(cwd, 'tmp');
-      mkdirSync(tmp);
-      const result = withTmp(tmp, { NODE_DISABLE_COMPILE_CACHE: '1' });
+      const result = start({ NODE_DISABLE_COMPILE_CACHE: '1' });
       expect(result.status, result.stderr).to.equal(0);
-      expect(cacheFiles(tmp)).to.equal(0);
+      expect(filesIn(cwd)).to.equal(1);
     });
 
     it('starts as usual when the cache dir cannot be created', () => {
-      const tmp = join(cwd, 'not-a-dir');
-      writeFileSync(tmp, '');
-      const result = withTmp(tmp);
-      const reference = run('--version');
-      expect(result.status, result.stderr).to.equal(0);
-      expect(result.stdout).to.equal(reference.stdout);
-      expect(result.stderr).to.equal(reference.stderr);
+      writeFileSync(cacheRoot(), '');
+      startsAsUsual(start());
     });
+
+    // Permission bits and owners: Windows keeps the per-user dir private through ACLs instead.
+    if (process.platform !== 'win32') {
+      it('leaves the cache off, and starts as usual, when other users can write to the cache dir', () => {
+        mkdirSync(cacheDir(), { recursive: true, mode: 0o700 });
+        chmodSync(cacheDir(), 0o777);
+        startsAsUsual(start());
+        expect(filesIn(cacheDir())).to.equal(0);
+        expect(filesIn(join(cwd, 'tmp'))).to.equal(0);
+      });
+
+      it('leaves the cache off when a dir above it is group-writable', () => {
+        mkdirSync(join(cacheRoot(), 'spinajs'), { recursive: true, mode: 0o700 });
+        chmodSync(join(cacheRoot(), 'spinajs'), 0o775);
+        startsAsUsual(start());
+        expect(filesIn(join(cacheRoot(), 'spinajs'))).to.equal(0);
+        expect(filesIn(join(cwd, 'tmp'))).to.equal(0);
+      });
+    }
   });
 
   describe('in an application with no @spinajs/log loaded', () => {

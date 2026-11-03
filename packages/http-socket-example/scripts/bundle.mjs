@@ -1,6 +1,6 @@
-// Single-file esbuild bundle of the example that boots from app.manifest.json ( system.manifest.mode = 'require' ).
+// esbuild bundle of the example that boots from app.manifest.json ( system.manifest.mode = 'require' ).
 // Output in dist/bundle:
-//   main.mjs                                  turns on the compile cache, then loads app.mjs
+//   main.mjs                                  turns on the compile cache in a per-user dir, then loads app.mjs
 //   app.mjs                                   the app with every dependency inlined
 //   app.manifest.json                         built from lib/ by the compiler
 //   package-roots.json                        package name -> directory, read through SPINAJS_PACKAGE_ROOTS
@@ -44,11 +44,11 @@ const typescriptStub = {
 
 // Node caches only what it compiles after enableCompileCache(), so the launcher must not hold the app. The cache is
 // written once the app listens: a server stopped by a signal never reaches the write at exit.
-const LAUNCHER = `import module from 'node:module';
+const LAUNCHER = `import { enableCompileCache, flushCompileCache } from '@spinajs/util/compile-cache';
 
-module.enableCompileCache?.();
+enableCompileCache();
 await import('./app.mjs');
-module.flushCompileCache?.();
+flushCompileCache();
 `;
 
 const entryOf = (pkg, outDir, file) => ({ source: { package: pkg, file: `${outDir}/${file}`, line: 1, col: 1 } });
@@ -122,7 +122,7 @@ await startBundle();
 `;
 
   await build({ ...COMMON, stdin: { contents, resolveDir: PACKAGE, sourcefile: 'bundle-entry.js' }, outfile: join(OUT, 'app.mjs'), plugins: [typescriptStub] });
-  writeFileSync(join(OUT, 'main.mjs'), LAUNCHER);
+  await build({ ...COMMON, banner: undefined, stdin: { contents: LAUNCHER, resolveDir: PACKAGE, sourcefile: 'launcher.js' }, external: ['./app.mjs'], outfile: join(OUT, 'main.mjs') });
   console.log(`bundle written to ${OUT}`);
 }
 
