@@ -26,15 +26,17 @@ function sortPending(items: IPendingMigration[]): IPendingMigration[] {
   return [...items].sort((a, b) => a.connection.localeCompare(b.connection) || compareMigrationNames(a.name, b.name));
 }
 
-/** Drops the connections the predicate rejects before their service is asked, so an `off` connection is never queried. */
-class MigrationRunnerForChecks extends MigrationRunner {
-  constructor(orm: IMigrationRunnerHost, protected checked: (driver: OrmDriver) => boolean) {
-    super(orm);
-  }
-
-  protected plan(name: string | undefined, connection?: string, quiet = false): Array<[OrmDriver, IMigrationUnit[]]> {
-    return super.plan(name, connection, quiet).filter(([driver]) => this.checked(driver));
-  }
+/**
+ * A runner that drops the connections the predicate rejects before their service is asked, so an `off`
+ * connection is never queried. Built on call, not at module level: `migration-runner` reaches this module
+ * through `orm`, so a module-level `extends MigrationRunner` would read it before it is initialised.
+ */
+function checkingRunner(orm: IMigrationRunnerHost, checked: (driver: OrmDriver) => boolean): MigrationRunner {
+  return new (class extends MigrationRunner {
+    protected plan(name: string | undefined, connection?: string, quiet = false): Array<[OrmDriver, IMigrationUnit[]]> {
+      return super.plan(name, connection, quiet).filter(([driver]) => checked(driver));
+    }
+  })(orm);
 }
 
 /**
@@ -64,7 +66,7 @@ export class OrmMigrationGuard {
 
     const failing: Findings = { pending: [], failed: [] };
     const warning: Findings = { pending: [], failed: [] };
-    const entries = await new MigrationRunnerForChecks(orm, (d) => this.mode(d) !== 'off').status({ readOnly: true });
+    const entries = await checkingRunner(orm, (d) => this.mode(d) !== 'off').status({ readOnly: true });
 
     for (const e of entries) {
       if (!e.pending && !e.failed) {
