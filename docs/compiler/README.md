@@ -162,7 +162,7 @@ A package built with `emitDecoratorMetadata: false` also gets `classProperties`:
 
 ## Schema derivation
 
-With `schemaDerivation` on (the default), every route parameter and response, socket payload and result, queue message and model column gets a JSON Schema (draft-07) derived from its TypeScript type. Named classes, interfaces and enums are hoisted under `spinajs/<package>/<Name>` and referenced by `$ref`; anonymous types are inlined. These rules decide what is derived and how:
+With `schemaDerivation` on (the default), every route parameter and response, socket payload and result, queue message and model column gets a JSON Schema (draft-07) derived from its TypeScript type. Named classes, interfaces and enums are hoisted under `spinajs/<package>/<Name>` and referenced by `$ref`; anonymous types are inlined. JSDoc tags on a property add constraints to its schema; see [DTO constraints with JSDoc tags](../validation/09-dto-constraints-jsdoc.md). These rules decide what is derived and how:
 
 | Type | Schema |
 | --- | --- |
@@ -185,7 +185,8 @@ Every diagnostic has a `code`, a `severity` (`error`, `warning`, `info`), a `mes
 | `CMP001` | info | A decorator argument is not a literal, so the value is `undefined` in the manifest. |
 | `CMP002` | info | A `@response` JSDoc tag could not be parsed. |
 | `CMP003` | info | A registration has a dynamic condition. |
-| `CMP005` | info | A route argument read from one string (query key, url segment, header, cookie, form field) has a type converted by a custom `@Hydrator`, which receives the raw string. Its `wire.shape` is recorded as `value`; the hydrator decides the real format. |
+| `CMP004` | info | The HTTP status of a class that handles exceptions could not be determined. |
+| `CMP005` | info / warning | A route argument read from one string (query key, url segment, header, cookie, form field) has a type converted by a custom `@Hydrator`, which receives the raw string. Its `wire.shape` is recorded as `value`; the hydrator decides the real format. As a warning: the key of a `token<T>(key)` constant cannot be read, and the manifest records `token:unresolved:<module>#<export>` instead ([Typed tokens](../di/16-typed-tokens.md#what-the-compiler-and-doctor-do-with-tokens)). |
 | `CMP006` | warning | An app's class is not loaded from the manifest: by the rule of its section, a scan of its `effectiveDirs` does not bring it in. Its entry stays, with `mountedBy: 'di'`; it runs only if something registers it. The message names the class, the file and the dirs searched. |
 | `CMP007` | error | `spinajs build` only: no configured `system.dirs` entry of any section maps to a source folder of the app. The build exits 1 and writes nothing; see [When no dir applies](../manifest/README.md#the-apps-own-classes). |
 | `CMP008` | warning | A configured `system.dirs` entry inside the app has no source folder behind it, so it maps to nothing. Usually a dir computed from the wrong working directory. |
@@ -214,7 +215,7 @@ The triage of `users-http`, `teams-http` and `authz-http-admin` left these diagn
 | `SCH001` warning | `@spinajs/orm` `MetadataModel.Value` (`orm/src/metadata.ts`), reached through `users-http` `FilterableUserMetadata` | The `Value` accessor is typed `any`. | Type it `unknown` in `@spinajs/orm`. Out of scope for the triage: the type change reaches every metadata consumer. |
 | `SCH001` info | `users-http` (5) and `authz-http-admin` (4) | Opaque by design: `unknown` values (`UserProfile.AdditionalData`, `CreateUserDto.Metadata`, link `attributes`) and models read from `@spinajs/users` declaration files (`User`, `UserMetadataBase`, `FilterableUserMetadata`). | None needed. |
 
-`runDoctor` runs consistency rules over a manifest and is exported from the same package. The route rules (`HTTP001`, `HTTP003`, `HTTP004`, `HTTP005`) are listed in [doctor](doctor.md).
+`runDoctor` runs consistency rules over a manifest and is exported from the same package. Its rules are `DI001` to `DI003`, `HTTP001` to `HTTP006` (duplicate, unguarded, shadowed and ambiguous routes, and `@Public` markers), `CFG001` to `CFG003`, `BLD001`, `ORM001`, `SCH003` and `SOCK001` to `SOCK006`; `spinajs doctor` adds `DOCTOR` when it cannot read the manifest. Each is listed with its severity in [doctor](doctor.md#rules).
 
 ## TypeScript version
 

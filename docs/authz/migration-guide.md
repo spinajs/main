@@ -181,8 +181,8 @@ password bounds outside 8-128, `session.hashIds: false` and an `mfa.steps[].name
 
 **Core keys as built (N1).** `@spinajs/authn` ships defaults for `strategies`, `mfa.policy`,
 `throttle`, `freshAuth`, `linking`, `impersonation`, `audit` and `config`. They equal the schema and
-code defaults. The package lists **no strategy and no MFA step**, because config files concatenate
-arrays: you list each strategy once, in one file. Every registered `AuthnEventSink` gets the audit
+code defaults. The package lists **no strategy and no MFA step**, because a configured array replaces
+the default in 4.0: you list each strategy once, in one file. Every registered `AuthnEventSink` gets the audit
 events; `authn.audit` has no sink list.
 `authn.throttle.service` has no default. Left out, the only registered throttle runs, or the only one
 besides `MemoryAuthnThrottle`. `@spinajs/authn` registers `MemoryAuthnThrottle`; importing

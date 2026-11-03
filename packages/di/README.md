@@ -8,7 +8,7 @@ The full, current documentation is in [`docs/di`](../../docs/di/README.md):
 - [Injection decorators](../../docs/di/03-injection-decorators.md) and [lifetimes](../../docs/di/04-lifetimes.md)
 - [Child containers](../../docs/di/05-child-containers.md), [multiple implementations](../../docs/di/06-multiple-implementations.md) and [named services](../../docs/di/07-named-services.md)
 - [Factories](../../docs/di/08-factories.md), [values and value maps](../../docs/di/09-values-and-value-maps.md) and the [service lifecycle](../../docs/di/10-service-lifecycle.md)
-- [Custom injection decorators](../../docs/di/11-custom-injection-decorators.md), [container events](../../docs/di/12-container-events.md), [module loading](../../docs/di/13-module-loading.md), [descriptor inheritance](../../docs/di/14-descriptor-inheritance.md) and [utilities](../../docs/di/15-utilities-and-types.md)
+- [Custom injection decorators](../../docs/di/11-custom-injection-decorators.md), [container events](../../docs/di/12-container-events.md), [module loading](../../docs/di/13-module-loading.md), [descriptor inheritance](../../docs/di/14-descriptor-inheritance.md), [utilities](../../docs/di/15-utilities-and-types.md) and [typed tokens](../../docs/di/16-typed-tokens.md)
 
 The sections below predate those pages; where they disagree, the pages in `docs/di` are correct (eg. import from `@spinajs/di`, not `@spinajs/core`).
 
@@ -67,7 +67,7 @@ class UserController{
 
 > SpinaJS heavily depends on decorators. To use it you must enable `"experimentalDecorators" : true"` setting to the `compilerOptions` section of `tsconfig.json`
 
-Also with typescript having information about types it is possible to skip explicit type declaration and constructor initialization. We can tell DI container to automatically inject dependencies based on variable type. It uses Typescript experimental feature that allows to extract variable type by transpiler. To use it you must set `"emitDecoratorMetadata": true"` in `compilerOptions` setion of your `tsconfig.json`. He's the example:
+Also with typescript having information about types it is possible to skip explicit type declaration and constructor initialization. We can tell DI container to automatically inject dependencies based on variable type. It uses Typescript experimental feature that allows to extract variable type by transpiler. To use it you must set `"emitDecoratorMetadata": true"` in `compilerOptions` setion of your `tsconfig.json`, or build the app with a manifest, which records the types and makes the flag optional (see [Building without decorator metadata](../../docs/manifest/README.md#building-without-decorator-metadata)). He's the example:
 
 ```typescript
 
