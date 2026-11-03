@@ -1,9 +1,9 @@
-name: queue migrations (mysql)
+name: mysql (queue migrations, orm-mysql integration)
 
-# First CI in this repo. Purpose: actually execute the queue migrations' MySQL-specific
-# branches ( esp. Queue_2026_07_02 / Queue_2026_07_17 restating the Status default across
-# MySQL's destructive MODIFY COLUMN, and the ENUM widening ) against a real mysql:8.0 -
-# these paths never run on the sqlite test suites and were previously verified by inspection only.
+# Runs, against real mysql 8.0 and 5.7 servers, what the sqlite suites cannot reach:
+# - the queue migrations' MySQL-specific branches ( esp. Queue_2026_07_02 / Queue_2026_07_17 restating
+#   the Status default across MySQL's destructive MODIFY COLUMN, and the ENUM widening );
+# - orm-mysql's integration suites, the migration lock among them.
 
 on:
   push:
@@ -27,6 +27,7 @@ jobs:
   # useful even for changes that don't touch MySQL behaviour.
   sqlite:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -57,6 +58,7 @@ jobs:
 
   mysql:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     strategy:
       fail-fast: false
@@ -95,6 +97,7 @@ jobs:
       # ( which pulls in @spinajs/orm-sql ). Passing both mjs projects to `tsc -b` builds the
       # union of their reference graphs - everything the test needs, and nothing more.
       - name: build queue + orm-mysql + deps (mjs)
+        id: build
         run: npx tsc -b packages/queue/tsconfig.mjs.json packages/orm-mysql/tsconfig.mjs.json
 
       - name: run mysql migration suite
@@ -108,12 +111,16 @@ jobs:
         run: npx ts-mocha -p tsconfig.json test/migrations.mysql.test.ts
 
       # orm-mysql's live suites connect to `test` and `test-2` ( scripts/docker/mysql-init ); the service creates one database only
+      # this and the next step run after a failed queue suite too, so one failure does not hide the other's result
       - name: create the orm-mysql databases
+        id: databases
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           docker exec ${{ job.services.mysql.id }} mysql -uroot -proot -e 'CREATE DATABASE IF NOT EXISTS `test`; CREATE DATABASE IF NOT EXISTS `test-2`;'
 
       # 5.7 runs the migration lock suite only: infra.test.ts asserts innodb_autoinc_lock_mode 2, the 8.0 default ( 5.7 defaults to 1 )
       - name: orm-mysql integration suite
+        if: ${{ !cancelled() && steps.databases.outcome == 'success' }}
         working-directory: packages/orm-mysql
         env:
           ORM_TEST_MYSQL_PORT: 3306
