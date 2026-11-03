@@ -5,7 +5,7 @@ Three `spinajs` commands manage API tokens from a terminal or a scheduler: creat
 ## How it works
 
 1. The package config adds its `lib/<mjs|cjs>/cli` directory to `system.dirs.cli`, under `node_modules/@spinajs/authn-token` of `WORKSPACE_ROOT_PATH` (or the working directory) and one directory up. The `spinajs` bin finds the commands there; see [Command discovery](../cli/05-command-discovery.md).
-2. Every command extends `CliCommand`, through the internal base `TokenCliCommand`, and injects `TokenService` with `@Autoinject`. The CLI resolves only the command it runs; `TokenCliCommand` injects the `Orm`, so resolving the command boots the ORM, whichever `TokenService` is registered. The boot fails while a migration is pending or failed: run [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) first. `DbTokenService` and `UsersTableTokenOwnerResolver` inject the `Orm` too.
+2. Every command extends `CliCommand` and injects `TokenService` with `@Autoinject`. The CLI resolves only the command it runs; `DbTokenService` and `UsersTableTokenOwnerResolver` inject the `Orm`, so resolving the command boots the ORM. A `TokenService` of your own that queries models injects the `Orm` too. The boot fails while a migration is pending or failed: run [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) first.
 3. `authn:token-create` calls the service with `ctx = { now: new Date(), purpose: 'request' }`; `authn:token-delete` with `cliContext()` from `@spinajs/authn/contracts`, which adds `userAgent: 'spinajs-cli'`.
 4. A failure sets `process.exitCode = 1` and logs an error on the `authn-token` logger; the commands never throw out of `execute`.
 

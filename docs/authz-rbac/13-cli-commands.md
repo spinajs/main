@@ -6,7 +6,7 @@ Six `spinajs` CLI commands manage and inspect RBAC data: assign and revoke roles
 
 1. The package config adds `lib/<cjs|mjs>/cli/commands` of `@spinajs/authz-rbac` to `system.dirs.cli`, so the CLI finds the commands once the package is installed.
 2. A command parses its arguments first. A bad command line prints one line and sets the exit code to 1, without booting authz.
-3. A command that touches the RBAC DB stores (`authz:assign`, `authz:revoke`, `authz:explain`, the membership commands) resolves the `Orm` first, which boots the ORM; the boot fails while a migration is pending or failed, so run [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) first. `authz:check-config` resolves it only when `authz.rbac.stores.roles` or `authz.rbac.stores.rules` names a store other than `ConfigRoleStore` / `ConfigRuleStore`, or the app registers its own `RoleStore`: with the config-backed stores it validates without a database. Then it resolves `AuthzService` (the boot validation runs), and runs its body as `SYSTEM` with the reason `cli` (`authz().runAs`). `AuthzAdmin` writes skip the admin guard as `SYSTEM` and are audited with the reason `cli`.
+3. The command resolves `AuthzService` (the boot validation runs) and runs its body as `SYSTEM` with the reason `cli` (`authz().runAs`). `AuthzAdmin` writes skip the admin guard as `SYSTEM` and are audited with the reason `cli`. The command never resolves the `Orm` itself: the components that read the database bring it up with the boot. The RBAC DB stores (`DbAssignmentStore`, `DbRuleStore`, `DbLinkStore`, `DbMembershipStore`), `DbAuthzAdminBackend`, `DbDecisionAudit` and a DI-built `DbScopeAttributeStore` (authz-orm) inject it; `RebacModel` and `AbacModel` resolve it when their store is `DbTupleStore` or `DbPolicyStore`. So the ORM comes up when the configuration names or defaults to one of them: `authz.rbac.stores` defaults to the DB stores for assignments, links and membership. A store of your own that queries models injects the `Orm` too (`@Autoinject(Orm)`). The ORM boot fails while a migration is pending or failed (the message names [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations)); run it first. With memory and config-backed stores only, `authz:check-config` and the other commands run without a database.
 4. Any error becomes one line: an `AuthzAdminFailure` prints `<message> (<code>, <field>)`. The exit code is 1.
 
 The commands read the stores and `RbacService` from the root container. With `authz.models: ['RbacModel']` in the config, the root boot in step 3 registers them, so the CLI process needs no wiring code. An app that builds the model by hand must run that wiring in the CLI process too.
@@ -42,24 +42,19 @@ Subjects `system:*` and `unattended:*` are refused: those principals cannot hold
 
 ## Writing your own command
 
-Extend `AuthzCliCommand` (exported by `@spinajs/authz-rbac`) to get the same boot: `authz()`, `admin()` and `asSystem()`.
+Extend `AuthzCliCommand` (exported by `@spinajs/authz-rbac`) to get the same boot: `authz()`, `admin()` and `asSystem()`. `authz()` resolves only `AuthzService`: a command whose own body queries models resolves the `Orm` itself (`await this.Container.resolve(Orm)` inside `command()`, so a failed boot is its message).
 
 | Member | Kind | Default | Override to |
 | --- | --- | --- | --- |
-| `touchesDb()` | protected method | `true` | Return `false` when the command reads no RBAC DB store: `authz()` then skips the `Orm` and the command runs without a database. |
-| `authz()` | protected method | resolves the `Orm` when `touchesDb()` is `true`, then `AuthzService`, once | Not meant to be overridden. |
+| `authz()` | protected method | resolves `AuthzService`, once | Not meant to be overridden. |
 
 ```ts sample
 import { Command } from '@spinajs/cli';
 import { AuthzCliCommand } from '@spinajs/authz-rbac';
 
-/** Prints whether authz boots with the configured role and rule stores; needs no database. */
+/** Prints whether authz boots with the configured stores; needs a database only when one of them is a DB store. */
 @Command('authz:boot-check', 'Boots the authz service and reports success')
 export class BootCheckCommand extends AuthzCliCommand {
-  protected touchesDb(): boolean {
-    return false;
-  }
-
   public async execute(): Promise<void> {
     await this.command(
       () => ({}),

@@ -1,14 +1,13 @@
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { Command } from '@spinajs/cli';
+import { CliCommand, Command } from '@spinajs/cli';
 
 import { PasswordExpirationJob } from '../expiration.js';
-import { LocalCliCommand } from './LocalCliCommand.js';
 
 /** For a scheduler (cron, task scheduler): authn-local runs no timer of its own (D16). */
 @Command('authn:password-expire', 'Expires passwords older than authn.local.expiration.maxAgeDays')
-export class ExpirePasswords extends LocalCliCommand {
+export class ExpirePasswords extends CliCommand {
   @Logger('authn-local')
   protected Log: Log;
 

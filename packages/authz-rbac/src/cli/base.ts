@@ -1,28 +1,16 @@
 import { AuthzService, SYSTEM } from '@spinajs/authz';
 import type { AuthzAdmin } from '@spinajs/authz';
 import { AuthzCliBase } from '@spinajs/authz/cli';
-import { Orm } from '@spinajs/orm';
 
 // Registers the RBAC write handlers of AuthzAdmin: the CLI loads only the command modules.
 import '../admin/index.js';
 
-/**
- * Resolves AuthzService only when the command runs it, so a failing authz boot becomes a message; tests set `Authz`.
- * A command whose run touches the RBAC DB stores resolves the Orm first, which boots the models the DB stores query.
- */
+/** Resolves AuthzService only when the command runs it, so a failing authz boot becomes a message; tests set `Authz`. */
 export abstract class AuthzCliCommand extends AuthzCliBase {
   public Authz?: AuthzService;
 
-  /** Whether this command reads or writes the DB stores. The assignments, membership and admin backend are DB-backed. */
-  protected touchesDb(): boolean {
-    return true;
-  }
-
   protected async authz(): Promise<AuthzService> {
     if (!this.Authz) {
-      if (this.touchesDb()) {
-        await this.Container.resolve(Orm);
-      }
       this.Authz = (await this.Container.resolve(AuthzService)) as AuthzService;
     }
     return this.Authz;

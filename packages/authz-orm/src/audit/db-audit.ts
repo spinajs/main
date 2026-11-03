@@ -1,6 +1,7 @@
 import { DecisionAudit, SYSTEM, engineLog, resourceKey, runWithPrincipal, thrownError } from '@spinajs/authz';
 import type { AuthzLog } from '@spinajs/authz';
-import { Singleton } from '@spinajs/di';
+import { Autoinject, Singleton } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 import { AUDIT_TABLE, AuthzAuditEntry } from './model.js';
@@ -23,6 +24,10 @@ const optional = (v: unknown, max: number): string | null => (v === undefined ||
  */
 @Singleton()
 export class DbDecisionAudit extends DecisionAudit {
+  /** Never read: injecting it resolves the Orm, which binds `AuthzAuditEntry`, before the first record. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   private log: Pick<AuthzLog, 'error' | 'warn'> | undefined;
 
   /** `log` is for tests; DI constructs the class without arguments. */

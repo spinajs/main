@@ -31,6 +31,26 @@
 - The CLI commands of `@spinajs/authn-keys`, `authn-local`, `authn-orm`, `authn-token`, `authn-totp`, `authz-orm`, `authz-rbac`,
   `scheduler`, `upload` and `users` boot the `Orm` as an application does: they refuse to run on an unmigrated database.
   Run `migrate-up` first.
+- Those commands no longer resolve or inject the `Orm` for the services they use: the component that queries the database brings
+  it up. `UploadStore`, `DefaultSchedulerService`, `DbDecisionAudit` and `DbScopeAttributeStore` now inject it, as the DB stores
+  of authn-orm, authn-keys, authn-token, users and authz-rbac already did; `RebacModel` and `AbacModel` resolve it from the
+  domain's container when their store is `DbTupleStore` or `DbPolicyStore`, which are built with `new`. Register
+  `DbScopeAttributeStore` by class (under both tokens) to get the injection; one built with `new` still needs the `Orm` resolved
+  first. Where a command queries models in its own body (users `rbac:*`, authz-orm `authz:*`, `scheduler:run`), it injects or
+  resolves the `Orm` itself.
+  - authn-local: `authn:password` and `authn:password-expire` resolve their services only when they run, so `--help` works on
+    an unmigrated database; the refusal comes from running the command. The internal bases `LocalCliCommand`,
+    `KeyCliCommand` and `TokenCliCommand` are removed: the commands extend `CliCommand`.
+  - An app's own `TokenService`, `KeyStore`, `IdentityStore`, `MfaStore`, `PasswordAgeSource` or `PasswordCredentialStore` that
+    queries models injects the `Orm` (`@Autoinject(Orm)`), or the command finds its models unbound. So does an app's RBAC store:
+    a `RoleStore` the app registers, a store named in `authz.rbac.stores`, or one built in `RbacOptions`
+    (`authz:check-config` used to resolve the `Orm` for any app `RoleStore`).
+  - `AuthzCliCommand.touchesDb()` (`@spinajs/authz-rbac`) is removed. A subclass override without the `override` keyword is
+    never called; one declared `protected override touchesDb()` no longer compiles (TS4113): delete it. An `AuthzCliCommand`
+    subclass whose body queries models and relied on the default `touchesDb() === true` resolves the `Orm` itself
+    (`await this.Container.resolve(Orm)` inside `command()`).
+  - A command over memory or config-backed stores resolves no `Orm`. On an unmigrated database an `authz:*` command prints the
+    error of the authz boot, `Authz domain "root": model "rbac" failed to init: Database is not migrated: ...`.
 - `@spinajs/configuration-db-source`: an `Orm` booted with `Migration.Check` `'warn'` or `'off'` before the `configuration`
   table exists, and a migration tool's `Orm`, sync no exposed options. Restart the application after `migrate-up`.
 - Two connections on one database that share `Migration.Table` now block each other: a run holds the first connection's lock

@@ -1,15 +1,14 @@
-import { AuthzConfigError, AuthzService } from '@spinajs/authz';
+import { AuthzConfigError } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import { META_OPTION } from '@spinajs/cli';
 import type { IOption } from '@spinajs/cli';
 import { Configuration } from '@spinajs/configuration';
 import type { ConfigurationSource, IConfigLike } from '@spinajs/configuration';
-import { AsyncService, DI } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { expect } from 'chai';
 import _ from 'lodash';
 import 'mocha';
-import { Orm } from '@spinajs/orm';
 
 import { CheckConfigCommand } from '../../src/cli/index.js';
 import { RoleStore } from '../../src/contracts.js';
@@ -99,43 +98,6 @@ describe('authz:check-config', () => {
     await cmd.execute({});
     expect(io.err).to.deep.equal(['Authz domain "root": permission doc:x is not declared']);
     expect(io.exitCode()).to.equal(1);
-  });
-
-  describe('without a database', () => {
-    /** Stands in for the Orm of a process with no database: resolving it fails. */
-    class NoDatabaseOrm extends AsyncService {
-      public async resolve(): Promise<void> {
-        throw new Error('no database configured');
-      }
-    }
-
-    /** A container where AuthzService resolves to the recording fake and the Orm cannot resolve. */
-    function noDatabase(stores?: Record<string, string[]>) {
-      const f = fakeAuthz();
-      const container = DI.child();
-      container.register(NoDatabaseOrm).as(Orm);
-      container.register(() => f.service).as(AuthzService);
-
-      const { cmd } = command(GOOD);
-      delete cmd.Authz;
-      cmd.Container = container;
-      cmd.Configuration = new ObjectConfiguration(stores ? { authz: { rbac: { stores } } } : {});
-      return cmd;
-    }
-
-    it('validates a config-only role store without resolving the Orm', async () => {
-      await noDatabase().execute({});
-
-      expect(io.err).to.deep.equal([]);
-      expect(io.out).to.deep.equal(['OK: 2 role(s), 1 ladder(s)']);
-    });
-
-    it('resolves the Orm first when the rules come from the database', async () => {
-      await noDatabase({ rules: ['DbRuleStore'] }).execute({});
-
-      expect(io.err).to.deep.equal(['no database configured']);
-      expect(io.exitCode()).to.equal(1);
-    });
   });
 
   describe('role stores from DI', () => {

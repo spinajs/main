@@ -14,9 +14,12 @@ import '@spinajs/orm-sqlite';
 import '@spinajs/log';
 
 const dir = (rel: string) => fileURLToPath(new URL(rel, import.meta.url));
+// CLI_CHILD_DB_DIR: one database file per connection there, migrated by a run of its own (CLI_CHILD_MIGRATE=0: not at
+// all) before the command, as a deploy step runs migrate-up; the command then starts with no Orm resolved, as the cli does.
+const dbDir = process.env.CLI_CHILD_DB_DIR;
 const sqlite = (name: string) => ({
   Driver: 'orm-driver-sqlite',
-  Filename: ':memory:',
+  Filename: dbDir ? join(dbDir, `${name}.sqlite`) : ':memory:',
   Name: name,
   Migration: { Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
 });
@@ -46,7 +49,12 @@ async function main() {
   const { Cli } = await import('@spinajs/cli');
   // the models and migrations the commands bring in must be registered before the Orm is built
   for (const file of readdirSync(cliDir)) await import(pathToFileURL(join(cliDir, file)).href);
-  await migrateTestDatabase();
+  if (!dbDir) {
+    await migrateTestDatabase();
+  } else if (process.env.CLI_CHILD_MIGRATE !== '0') {
+    const { orm } = await migrateTestDatabase(DI.child());
+    await orm.dispose();
+  }
   await DI.resolve(Cli);
 }
 
