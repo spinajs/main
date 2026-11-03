@@ -9,7 +9,8 @@ import { extractServices, mergeById } from './extractors/services.js';
 import { extractValues } from './extractors/values.js';
 import { extractConfigModules, extractConfigUsages } from './extractors/config.js';
 import { extractControllerBases, extractControllers } from './extractors/controllers.js';
-import { NO_EXTERNAL_BASES, withInheritedRoutes } from './extractors/inherited-routes.js';
+import { withInheritedRoutes } from './extractors/inherited-routes.js';
+import { dependencyBases } from './dependency-bases.js';
 import { extractSocketContracts, extractSocketControllerBases, extractSocketControllers } from './extractors/socket.js';
 import { extractModels } from './extractors/models.js';
 import { extractMigrations } from './extractors/migrations.js';
@@ -99,7 +100,7 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   const scanned = <T extends ScannedEntry>(section: DirSection, extractor: Extractor<T>): T[] => run(extractor).filter((e) => isListed(section, e));
   // A package's class outside its declared dirs is only a base; an app's class outside its dirs is flagged by `marked`.
   const ownControllers = run(extractControllers);
-  const effective = withInheritedRoutes([...ownControllers, ...run(extractControllerBases)], ctx, NO_EXTERNAL_BASES);
+  const effective = withInheritedRoutes([...ownControllers, ...run(extractControllerBases)], ctx, dependencyBases(ctx));
   const allControllers = effective.slice(0, ownControllers.length);
   const controllerBases = sortBySource([...effective.slice(ownControllers.length), ...allControllers.filter((c) => !isListed('controllers', c))]);
   const allSocketControllers = run(extractSocketControllers);

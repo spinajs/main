@@ -102,3 +102,52 @@ describe('inherited routes', function () {
     expect(entry('BaseCrud').routes.every((r) => r.inheritedFrom === undefined)).to.equal(true);
   });
 });
+
+describe('inherited routes from a dependency fragment', function () {
+  this.timeout(120_000);
+  let fragment: ManifestFragment;
+  const files = () => fragment.controllers.find((c) => c.className === 'FilesController')!;
+
+  before(async () => {
+    fragment = await analyzePackage({ tsconfig: 'test/fixtures/inherited-app/tsconfig.json', packageRoot: 'test/fixtures/inherited-app' });
+  });
+
+  it('takes routes and guards from the dependency fragment, mounted under the subclass path', () => {
+    expect(files().routes.map((r) => `${r.method} ${r.fullPath} <${r.inheritedFrom}`)).to.deep.equal(['get /files/:id <inherited-lib:StoreController', 'delete /files/:id <inherited-lib:StoreController']);
+    expect(files().access).to.deep.equal(['store:use']);
+    expect(files().bases).to.deep.equal(['inherited-lib:StoreController']);
+  });
+
+  it('types the inherited response with what the subclass binds, read through the declaration file', () => {
+    expect(files().routes[0].returnType).to.deep.include({ text: 'FileDto' });
+    expect(files().routes[0].returnType.schema).to.be.a('string');
+    expect(files().routes[1].returnType).to.deep.equal({ text: 'null' });
+  });
+
+  it('keeps the fragment parameter facts', () => {
+    expect(files().routes[0].params[0]).to.deep.include({ kind: 'FromParams', wire: { in: 'path', name: 'id', shape: 'value' } });
+  });
+
+  it('walks through a dependency class without an entry and inherits nothing from it', () => {
+    const loose = fragment.controllers.find((c) => c.className === 'LooseController')!;
+    expect(loose.routes).to.deep.equal([]);
+    expect(loose).to.not.have.property('bases');
+  });
+
+  it('reports nothing for framework classes up the chain, whose packages ship fragments', () => {
+    expect(fragment.diagnostics.filter((d) => d.code === 'CMP009')).to.deep.equal([]);
+  });
+});
+
+describe('inherited routes from a dependency without a fragment', function () {
+  this.timeout(120_000);
+
+  it('reports the base as CMP009 info, once, naming the class and the package', async () => {
+    const fragment = await analyzePackage({ tsconfig: 'test/fixtures/inherited-nofragment/app/tsconfig.json', packageRoot: 'test/fixtures/inherited-nofragment/app' });
+    const reported = fragment.diagnostics.filter((d) => d.code === 'CMP009');
+    expect(reported).to.have.length(1);
+    expect(reported[0]).to.deep.include({ code: 'CMP009', severity: 'info' });
+    expect(reported[0].message).to.contain('StoreController').and.contain('inherited-lib');
+    expect(fragment.controllers.find((c) => c.className === 'FilesController')!.routes).to.deep.equal([]);
+  });
+});
