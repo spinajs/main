@@ -466,6 +466,11 @@ export class DefaultMigrationService extends OrmMigrationService {
   protected lockOptions() {
     const cfg = this.driver.Options.Migration?.Lock;
 
+    // a typo would otherwise take the driver lock, which fails open behind a pooler that needs 'table'
+    if (cfg?.Mode !== undefined && cfg.Mode !== 'auto' && cfg.Mode !== 'table') {
+      throw new OrmException(`Migration.Lock.Mode of connection ${this.driver.Options.Name} is '${String(cfg.Mode)}'; allowed values: 'auto', 'table'`);
+    }
+
     return {
       enabled: cfg?.Enabled ?? true,
       timeout: cfg?.Timeout ?? MIGRATION_LOCK_TIMEOUT,

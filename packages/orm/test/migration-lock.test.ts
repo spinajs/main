@@ -21,6 +21,7 @@ import {
   MigrationLockLostException,
   MigrationResolveAction,
   MigrationRunner,
+  OrmException,
   OrmMigration,
   OrmMigrationService,
   TableMigrationLock,
@@ -363,6 +364,16 @@ describe('Migration lock', () => {
 
       expect(MigrationLockTest_RecordingLock.calls).to.eql([]);
       expect(exec.getCalls().filter((c) => c.args[0] instanceof InsertQueryBuilder && c.args[0].Table === LOCK_TABLE)).to.have.length(1);
+    });
+
+    it('an unknown Lock.Mode is refused naming the key and the allowed values, before any lock is taken', async () => {
+      const driver = await makeDriver();
+      driver.Container.register(MigrationLockTest_RecordingLock).as(MigrationLock);
+      driver.Options.Migration = { ...driver.Options.Migration, Lock: { Mode: 'Table' as 'table' } };
+      stubDb([]);
+
+      await expect(new DefaultMigrationService(driver).acquireRunLock()).to.be.rejectedWith(OrmException, "Migration.Lock.Mode of connection sqlite is 'Table'; allowed values: 'auto', 'table'");
+      expect(MigrationLockTest_RecordingLock.calls).to.eql([]);
     });
 
     it("status() asks the driver's lock whether a run is in progress", async () => {
