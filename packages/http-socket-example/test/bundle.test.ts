@@ -32,7 +32,7 @@ function listen(child: ChildProcessWithoutNullStreams): Promise<string> {
 
 async function cacheEntries(dir: string): Promise<number> {
   const count = () => (existsSync(dir) ? readdirSync(dir, { recursive: true }).length : 0);
-  for (let waited = 0; waited < 5000 && count() <= 1; waited += 50) await new Promise((done) => setTimeout(done, 50));
+  for (let waited = 0; waited < 5000 && count() <= 1; waited += 50) await new Promise((resolve) => setTimeout(resolve, 50));
   return count();
 }
 
