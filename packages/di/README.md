@@ -67,7 +67,7 @@ class UserController{
 
 > SpinaJS heavily depends on decorators. To use it you must enable `"experimentalDecorators" : true"` setting to the `compilerOptions` section of `tsconfig.json`
 
-Also with typescript having information about types it is possible to skip explicit type declaration and constructor initialization. We can tell DI container to automatically inject dependencies based on variable type. It uses Typescript experimental feature that allows to extract variable type by transpiler. To use it you must set `"emitDecoratorMetadata": true"` in `compilerOptions` setion of your `tsconfig.json`. He's the example:
+Also with typescript having information about types it is possible to skip explicit type declaration and constructor initialization. We can tell DI container to automatically inject dependencies based on variable type. It uses Typescript experimental feature that allows to extract variable type by transpiler. To use it you must set `"emitDecoratorMetadata": true"` in `compilerOptions` setion of your `tsconfig.json`, or build the app with a manifest, which records the types and makes the flag optional (see [Building without decorator metadata](../../docs/manifest/README.md#building-without-decorator-metadata)). He's the example:
 
 ```typescript
 

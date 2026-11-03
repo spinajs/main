@@ -23,7 +23,7 @@
 | --- | --- | --- | --- | --- |
 | A value under a string key | The string; stays until `uncache`, `clearRegistry` or `clear`; `clearCache` and `dispose` keep it | Whatever the package stores | Your object | `DI.register(obj).asValue('key', true)` replaces every earlier value; without `true` it adds one |
 | A value map, eg. `'__file_provider_instance__'` (`@spinajs/fs`), `'__http_error_map__'` (`@spinajs/http`), `'__orm_db_value_converters__'` (`@spinajs/orm`) | The string; one stored `Map` | Entries the package adds | Your entry | `container.register(obj).asMapValue('key', 'hashKey')` adds or replaces one entry |
-| `'__module_loader__'` and `'__esmMode__'` | String values read by `DI.__spinajs_require__` | none / `{ mjs: true }` after `DI.setESMModuleSupport()` | Your `IModuleLoader` | See [Module loading](13-module-loading.md) |
+| `'__module_loader__'` and `'__esmMode__'` | String values read by `DI.__spinajs_require__` | none / `{ mjs: true }` after `DI.setESMModuleSupport()`, a deprecated no-op since 4.0 that is removed in 5.0 | Your `IModuleLoader` | See [Module loading](13-module-loading.md) |
 
 ### Adding an entry to a value map
 

@@ -105,7 +105,7 @@ void main();
 - A second `startNotesServer` first calls `close()` on the server still running, because `DI.clearCache()` alone would forget the old `SocketServer` without disposing it.
 - The server listens on `127.0.0.1` only. It is **not** reachable from other hosts.
 - Every call adds another `NotesConfiguration` registration under `Configuration`. The last one wins, so this is harmless.
-- `close()` calls `http.Server.closeAllConnections()`, which needs Node 18.2 or later, which is why `package.json` declares `"node": ">=18.2"`.
+- `close()` calls `http.Server.closeAllConnections()`, which needs Node 18.2 or later; the framework itself needs Node 22, which is why `package.json` declares `"node": ">=22.0.0"`.
 - `path` comes from configuration: pass `socket: { path: '/notes' }` and the result's `path` follows.
 
 ## Best practices
@@ -153,5 +153,5 @@ void openedBy('bob-token').then((name) => console.log(name));
 ## Related
 
 - [`@spinajs/http-socket`](../http-socket/README.md): `SocketServer`, its resolve steps and graceful shutdown.
-- [`@spinajs/di`](../di/README.md): `clearCache`, `setESMModuleSupport` and "last registration wins".
+- [`@spinajs/di`](../di/README.md): `clearCache` and "last registration wins".
 - [Configuration source](03-configuration-source.md) and [HTTP host](04-http-host.md): the two services this function installs.
