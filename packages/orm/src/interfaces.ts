@@ -428,7 +428,8 @@ export interface IDriverOptions {
       /**
        * Ms to wait for the lock before failing. Default 30_000. A session lock ( postgres, mysql,
        * mssql ) that finds a crashed run's lock-table row unrefreshed waits for it up to 10.5 s past
-       * this, so a shorter value still takes that row over.
+       * this, so a shorter value still takes that row over. Against a live holder that still refreshes
+       * its row it fails at that holder's next refresh, up to 5 s past this.
        */
       Timeout?: number;
 

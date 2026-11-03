@@ -41,7 +41,8 @@
   `min(StaleAfter / 3, 30 s)` while held, so a long migration does not lose it to an idle timeout; a failed query stops the run
   before its next migration. A crashed process no longer blocks the next run for `StaleAfter`: its session lock is freed, and its
   marked row is removed once the next run has seen it go two heartbeats (10 s) unrefreshed, also when that run's `Lock.Timeout` is
-  shorter: it waits up to 10.5 s past the timeout for that row. A host that disappears without closing
+  shorter: it waits up to 10.5 s past the timeout for that row, and against a live holder that still refreshes its row it
+  fails at that holder's next refresh, up to 5 s past the timeout. A host that disappears without closing
   its connections keeps its session lock until the server's TCP keepalive gives up on the connection.
 
 ## New
@@ -899,7 +900,7 @@ Removed and changed exports:
 ## Dependencies
 
 - `@spinajs/authn` depends on `ajv`; `@spinajs/authz-http` and `@spinajs/authn-oidc` on `@spinajs/validation`.
-# Release notes — users: email domain refusal
+# Release notes ï¿½ users: email domain refusal
 
 > Docs: `docs/users/19-email-domains.md`.
 
