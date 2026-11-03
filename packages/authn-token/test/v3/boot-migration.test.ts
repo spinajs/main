@@ -78,6 +78,8 @@ describe('the TokenService in a migration seed', function () {
     }
     Migration('default')(SeedTokenAtBoot_2099_01_01_00_00_00);
     seed = SeedTokenAtBoot_2099_01_01_00_00_00;
+
+    await within(migrateTestDatabase(), SEED_TIMEOUT_MS, 'migrate-up and its seeds');
   });
 
   after(async () => {
@@ -91,10 +93,7 @@ describe('the TokenService in a migration seed', function () {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  // MUST RUN FIRST: the next test boots the application on the database this one migrates.
-  it('migrate-up runs the seed, which creates a token for a user row through the TokenService', async () => {
-    await within(migrateTestDatabase(), SEED_TIMEOUT_MS, 'migrate-up and its seeds');
-
+  it('migrate-up runs the seed, which creates a token for a user row through the TokenService', () => {
     expect(seeds).to.equal(1);
     expect(created?.ok, 'the seed created its token').to.equal(true);
   });
