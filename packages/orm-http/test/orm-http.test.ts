@@ -70,9 +70,9 @@ describe('Http orm tests', function () {
     // getters read the Configuration singleton, which otherwise does not exist
     // yet when this file runs standalone (mirrors http-swagger's harness).
     await DI.resolve(Configuration);
+    await migrateTestDatabase();
     await DI.resolve(fsService);
     await DI.resolve(Controllers);
-    await migrateTestDatabase();
     const server = await DI.resolve(HttpServer);
 
     server.start();
