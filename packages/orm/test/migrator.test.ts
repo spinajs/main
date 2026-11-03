@@ -641,6 +641,22 @@ describe('OrmMigrator', function () {
     expect(first.Orm).to.equal(DI.get(Orm));
   });
 
+  for (const [label, options] of [
+    ['with the 3.0.x options', [{ MigrateOnStartup: false }]],
+    ['with no Orm', undefined],
+  ] as const) {
+    it(`DI.resolve(OrmMigrator) ${label} refuses at once, names resolveMigrationTool() and caches nothing`, async () => {
+      const err = await rejection(Promise.resolve().then(() => DI.resolve(OrmMigrator, options as unknown[] | undefined)));
+
+      expect(err).to.be.instanceOf(OrmException);
+      expect((err as Error).message).to.contain('resolveMigrationTool()');
+      expect(DI.get(OrmMigrator)).to.not.be.ok;
+
+      const migrator = await resolveMigrationTool();
+      expect(migrator.Orm).to.equal(DI.get(Orm));
+    });
+  }
+
   describe('seed() and plan()', () => {
     let seeded: string[];
     let migrator: OrmMigrator;

@@ -31,6 +31,13 @@ export class OrmMigrator extends AsyncService {
 
   constructor(public readonly Orm: Orm) {
     super();
+
+    // 3.0.x tools resolved it as DI.resolve(OrmMigrator, [options]), which still compiles; Orm is a type-only import
+    // here because of the orm.ts cycle, so the shape is checked instead of instanceof
+    if (!(Orm?.Connections instanceof Map)) {
+      throw new OrmException('OrmMigrator is constructed over an Orm, and DI.resolve(OrmMigrator) does not pass one: call resolveMigrationTool() ( resolveCliMigrator() in an @spinajs/orm-cli host ), or new OrmMigrator(orm) over an Orm that is already booted');
+    }
+
     this.Runner = new MigrationRunner(Orm);
   }
 
