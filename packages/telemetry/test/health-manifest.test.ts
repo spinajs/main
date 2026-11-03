@@ -50,6 +50,7 @@ describe('GET /telemetry/health reports the manifest the app booted from', funct
     // Registered after the boot, as ManifestConfigurationSource would have: before it, http would mount app-basic's controllers.
     before(() => {
       expect(DI.RootContainer.Registry.hasValue(MANIFEST.key), 'no manifest registered before').to.equal(false);
+      expect(DI.RootContainer.Registry.hasValue(MANIFEST_SETTINGS.key), 'no manifest decision registered before').to.equal(false);
       manifest = JSON.parse(readFileSync(APP_BASIC, 'utf8')) as Manifest;
       registerManifest(DI.RootContainer, manifest);
       DI.RootContainer.register({ mode: 'prefer', path: APP_BASIC }).asValue(MANIFEST_SETTINGS.key, true);
