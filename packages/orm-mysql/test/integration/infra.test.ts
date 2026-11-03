@@ -13,6 +13,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { ConnectionState, Orm, ORM_METRIC_ACQUIRE_SECONDS, ORM_METRIC_POOL_SIZE, QueryContext } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { Metrics } from '@spinajs/telemetry-common';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -70,13 +71,12 @@ class InfraConf extends FrameworkConfiguration {
               Database: DATABASE,
               Pool: { Max: 2, IdleTimeout: 5000, AcquireTimeout: 5000 },
               Resilience: { HealthCheckInterval: 500, MaxRetries: 20, RetryDelay: 250, MaxRetryDelay: 2000 },
-              // OnStartup MUST be true - see the note in transaction.test.ts.
               // Same ledger as the transaction suite on purpose. `@Migration` registers into DI
               // at import time, so once mocha has loaded both integration files EVERY suite's
               // migrator runs EVERY migration. Two ledgers would mean each migration is
               // recorded in one of them and re-run from the other, failing on "table already
               // exists". One database, one ledger.
-              Migration: { Table: 'orm_migrations_integration', OnStartup: true },
+              Migration: { Table: 'orm_migrations_integration' },
             },
           ],
         },
@@ -138,8 +138,7 @@ describe('MySQL integration - orm-infra', function () {
     DI.register(InfraConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
 
-    await (await DI.resolve(Orm)).Migrator.ready();
-    await (await DI.resolve(Orm)).Migrator.Runner.up();
+    await migrateTestDatabase();
     // Model descriptors get their columns from the live schema; without this the insert
     // compiler has no columns to work with.
     await db().reloadTableInfo();
