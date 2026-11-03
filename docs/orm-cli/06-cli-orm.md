@@ -62,7 +62,7 @@ See [Customizing commands](08-customizing-commands.md#write-a-new-command-on-the
 
 ## Important behaviour
 
-- **An `Orm` resolved earlier wins.** In a process that already resolved the `Orm` in the root container, `resolveMigrationTool()` gets the guard and the `Orm` that boot cached: the commands run over the application's `Orm`, which passed (or skipped) its own check.
+- **An application `Orm` resolved earlier is refused.** In a process whose root container already booted the `Orm` as an application, `resolveMigrationTool()` finds the enabled guard that boot cached and throws `OrmException` (`resolveMigrationTool() needs the boot guard disabled ...`). An application boot that failed caches neither the `Orm` nor the guard, so the commands still run after it.
 - **Only the migration commands boot in tool mode.** The CLI commands of other packages that open the database (`@spinajs/authn-keys`, `authn-local`, `authn-orm`, `authn-token`, `authn-totp`, `authz-orm`, `authz-rbac`, `scheduler`, `upload`, `users`) inject the `Orm` and boot it as an application does, so they refuse to run on a database with pending migrations. Run `migrate-up` first.
 - **`migrate-up` seeds.** It runs `OrmMigrator.migrate()`, which calls `data()` of every migration it applied. `--fake` and `--skip-seed` seed nothing.
 - **Everything else still resolves.** Connections are opened, so a configuration or network error still fails the command. `migrate-create` is the only command that resolves nothing.

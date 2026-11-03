@@ -62,7 +62,9 @@ So the commands resolve the migrator through `resolveCliMigrator()`, which calls
 the `Orm`, then `OrmMigrator` over it. Everything else about resolving happens — connections,
 models, value converters, table info — only the check is skipped, and nothing is applied on the
 way in. Tool mode does not read `Migration.OnStartup` either, so `migrate-up` still runs on a
-configuration written for 3.0; the application's boot then names the key to remove.
+configuration written for 3.0; the application's boot then names the key to remove. A host process
+whose application `Orm` already booted is refused with an `OrmException`; one whose boot failed
+cached nothing, so the commands run.
 
 The Orm reads the models' tables without the `db.StrictTableCheck` error, so the commands work on a
 fresh database. A full `migrate-up` (no `--name`, no `--connection`) applies the check after its run and

@@ -45,7 +45,27 @@ export async function migrateOnLaunch(): Promise<void> {
 }
 ```
 
-The `Orm` that call cached is the one the rest of the process gets from `DI.resolve(Orm)`: it was booted without the check.
+The `Orm` that call cached is the one the rest of the process gets from `DI.resolve(Orm)`: it was booted without the check, so the strict table check runs explicitly after `migrate()`. An app that boots first and migrates only when the boot fails works the same way: the failed boot caches nothing, so `resolveMigrationTool()` runs right after it.
+
+```ts sample
+import { DI } from '@spinajs/di';
+import { Orm, PendingMigrationsException, resolveMigrationTool } from '@spinajs/orm';
+
+export async function bootOrMigrate(): Promise<Orm> {
+  try {
+    return await DI.resolve(Orm);
+  } catch (err) {
+    if (!(err instanceof PendingMigrationsException)) {
+      throw err;
+    }
+
+    const migrator = await resolveMigrationTool();
+    await migrator.migrate();
+    await migrator.Orm.reloadTableInfo({ strict: true });
+    return migrator.Orm;
+  }
+}
+```
 
 ### Boot check, `DI.resolve(Orm)`
 
@@ -241,12 +261,12 @@ The `Orm` never resolves `OrmMigrator`, and resolving it migrates nothing. It is
 
 `resolveMigrationTool(container = DI.RootContainer): Promise<OrmMigrator>` is how a migration tool boots (`@spinajs/orm-cli`, `migrateTestDatabase()`, a desktop main process):
 
-1. It resolves `OrmMigrationGuard` with `[{ Enabled: false }]` in `container`.
+1. It resolves `OrmMigrationGuard` with `[{ Enabled: false }]` in `container`. When the guard cached there is enabled (something resolved the `Orm` or the guard first, so the `Orm` there was or will be booted as an application), it throws `OrmException`: `resolveMigrationTool() needs the boot guard disabled, but the guard in this container is enabled ...`.
 2. It resolves the `Orm`, which picks up that disabled guard: no boot check and no `db.StrictTableCheck` check, so it boots on a database with pending or failed migrations and before their tables exist.
-3. It resolves `OrmMigrator` with `[orm]` and returns it.
-4. When the cached `OrmMigrator` runs over another `Orm` (the `Orm` was uncached alone), it throws `OrmException`: `The cached OrmMigrator runs over an Orm that is no longer cached: uncache Orm and OrmMigrator together ( or DI.clearCache() ) before resolving the migration tool again`.
+3. When that `Orm` comes from a parent container that booted it as an application (an `Orm` cached there, or registered there and built there with the parent's guard), it throws `OrmException` naming the container to use instead.
+4. It resolves `OrmMigrator` with `[orm]` and returns it. When the cached `OrmMigrator` runs over another `Orm` (the `Orm` was uncached alone), it throws `OrmException`: `The cached OrmMigrator runs over an Orm that is no longer cached: uncache Orm and OrmMigrator together ( or DI.clearCache() ) before resolving the migration tool again`.
 
-Call it before anything else resolves the `Orm` in `container`. In a process whose `Orm` was already resolved, step 1 gets the guard cached then and step 2 the `Orm` that boot produced: the tool runs over the application's `Orm`. A tool's boot does not read `Migration.OnStartup`, so `migrate-up` runs on a configuration still written for 3.0; the application's boot then names the key.
+Call it before anything else resolves the `Orm` in `container`, and in the container that registers the `Orm` when the application registers its own subclass. An application boot that failed (a pending migration, or a missing table under `db.StrictTableCheck`) caches neither the `Orm` nor its guard, so the tool can run right after it in the same process. A tool's boot does not read `Migration.OnStartup`, so `migrate-up` runs on a configuration still written for 3.0; the application's boot then names the key.
 
 ### `MigrationRunner`
 
@@ -821,7 +841,7 @@ export async function rollbackLastDeploy(connection: string): Promise<string[]> 
 4. Postgres behind PgBouncer in transaction pooling (or any pooler that does not pin a session) and mysql multi-primary clusters: set `Migration.Lock.Mode: 'table'` before upgrading the driver package (see [Session locks](#session-locks-postgres-mysql-and-mssql)).
 5. For local development, set `db.MigrationCheck: 'warn'` to boot over pending migrations with a warning, or keep `'fail'` and run `migrate-up` after pulling.
 6. Tests: replace `OnStartup: true` + `DI.resolve(Orm)` + `Migrator.ready()` with `await migrateTestDatabase(container)` from `@spinajs/orm/testing` ([Tests](#tests)).
-7. Desktop and Electron main processes that must migrate themselves call `await (await resolveMigrationTool()).migrate()` before resolving anything else ([Deploying migrations](#deploying-migrations)).
+7. Desktop and Electron main processes that must migrate themselves call `await (await resolveMigrationTool()).migrate()` before resolving anything else, then `await migrator.Orm.reloadTableInfo({ strict: true })` for the table check the tool's boot skipped ([Deploying migrations](#deploying-migrations)).
 8. A custom `Migration.Service` must honour the `readOnly` option of `status()`; see [Configuration](#configuration).
 
 ```ts
