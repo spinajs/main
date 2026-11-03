@@ -16,11 +16,11 @@ import { Bootstrapper, DI, IContainer, Injectable } from '@spinajs/di';
 import '@spinajs/log';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Config, Configuration, ConfigurationSource, FrameworkConfiguration, IConfigLike } from '@spinajs/configuration';
-import { Orm, OrmMigrator, resolveMigrationTool } from '@spinajs/orm';
-import { migrateTestDatabase } from '@spinajs/orm/testing';
+import { Orm, OrmMigrationGuard, OrmMigrator, resolveMigrationTool } from '@spinajs/orm';
 
 import { ConfigFileValidator, DbConfig, DbConfigSourceBotstrapper, DbConfigValueConverter } from './../src/index.js';
 import './migration/test_config_data_2022_02_08_01_13_00.js';
+import { migrateAndSignal } from './support/db.js';
 import { typedRowCases } from './support/typed-rows.js';
 
 const expect = chai.expect;
@@ -101,9 +101,7 @@ async function db() {
   const cached = DI.get(Orm) as Orm | undefined;
   if (cached) return cached;
 
-  const { orm } = await migrateTestDatabase();
-  // The bootstrapper syncs exposed options on the Orm's resolve signal, which fired before the table existed.
-  DI.emit('di.resolved.Orm', DI.RootContainer, orm);
+  const orm = await migrateAndSignal();
   await exposedRowsSynced();
   return orm;
 }
@@ -204,6 +202,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
     orm.dispose();
 
     DI.uncache(OrmMigrator);
+    DI.uncache(OrmMigrationGuard);
     DI.uncache(Orm);
     DI.uncache(Configuration);
   });
@@ -453,6 +452,7 @@ describe('exposed options on a database migrated before the boot', function () {
 
     // migrate-up, in a process of its own
     DI.uncache(OrmMigrator);
+    DI.uncache(OrmMigrationGuard);
     DI.uncache(Orm);
     DI.uncache(Configuration);
     await (await resolveMigrationTool()).migrate();
@@ -460,6 +460,7 @@ describe('exposed options on a database migrated before the boot', function () {
     const before = (await cli.Connections.get('sqlite')!.select().from('configuration').where('Slug', 'pre-migrated')) as any[];
     await cli.dispose();
     DI.uncache(OrmMigrator);
+    DI.uncache(OrmMigrationGuard);
     DI.uncache(Orm);
     DI.uncache(Configuration);
 

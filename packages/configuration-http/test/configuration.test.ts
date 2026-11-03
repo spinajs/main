@@ -1,6 +1,6 @@
 import { DI } from '@spinajs/di';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { AccessDenied, AuthorizationModel, AuthzService, SYSTEM, authz, runWithPrincipal } from '@spinajs/authz';
 import type { DecisionRequest, ModelListPlan, Principal } from '@spinajs/authz';
@@ -91,6 +91,7 @@ describe('configuration-http api', function () {
     orm?.dispose();
     DI.uncache(Orm);
     DI.uncache(OrmMigrator);
+    DI.uncache(OrmMigrationGuard);
     unregisterModel?.();
     await stopApp();
     unregisterSource();
@@ -501,6 +502,7 @@ describe('configuration-http ORM guard', function () {
     DI.get(Orm)?.dispose();
     DI.uncache(Orm);
     DI.uncache(OrmMigrator);
+    DI.uncache(OrmMigrationGuard);
     unregisterModel?.();
     await stopApp();
     resetSystemPrincipal();

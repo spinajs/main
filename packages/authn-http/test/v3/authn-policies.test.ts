@@ -10,7 +10,7 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { BaseController, BasePolicy, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import type { IController, IRoute, IRouteParameter, Request } from '@spinajs/http';
@@ -241,6 +241,7 @@ describe('3.0 authn policies and route args', function () {
     DI.uncache(Configuration);
     DI.uncache(Orm);
     DI.uncache(OrmMigrator);
+    DI.uncache(OrmMigrationGuard);
   });
 
   describe('exports', () => {

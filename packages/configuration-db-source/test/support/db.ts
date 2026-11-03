@@ -1,7 +1,7 @@
 import { DI } from '@spinajs/di';
 import '@spinajs/log';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { Configuration } from '@spinajs/configuration';
 
@@ -18,15 +18,23 @@ export interface DbHandle {
   dispose(): Promise<void>;
 }
 
+/**
+ * `migrateTestDatabase()`, then the Orm's resolve signal again: the tool Orm resolved before the `configuration` table
+ * existed, so the bootstrapper's sweep skipped it, as it skips an application booted with Migration.Check 'warn' or 'off'.
+ */
+export async function migrateAndSignal(): Promise<Orm> {
+  const { orm } = await migrateTestDatabase();
+  DI.emit('di.resolved.Orm', DI.RootContainer, orm);
+  return orm;
+}
+
 /** An in-memory sqlite `configuration` table behind `DbConfig`, over the already installed test Configuration. */
 export async function bootDb(setConfig: SetConfig, domain = 'root'): Promise<DbHandle> {
   setConfig(['logger'], { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
   setConfig(['db'], { DefaultConnection: 'sqlite', Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite' }] });
 
   DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-  const { orm } = await migrateTestDatabase();
-  // The bootstrapper syncs exposed options on the Orm's resolve signal, which fired before the table existed.
-  DI.emit('di.resolved.Orm', DI.RootContainer, orm);
+  const orm = await migrateAndSignal();
   const config = (await DI.resolve(Configuration)) as Configuration;
 
   const bootstrapper = new DbConfigSourceBotstrapper();
@@ -45,6 +53,7 @@ export async function bootDb(setConfig: SetConfig, domain = 'root'): Promise<DbH
     async dispose() {
       orm.dispose();
       DI.uncache(OrmMigrator);
+      DI.uncache(OrmMigrationGuard);
       DI.uncache(Orm);
       DI.uncache('orm-driver-sqlite');
       DI.unregister(SqliteOrmDriver);

@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Bootstrapper, DI } from '@spinajs/di';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import type { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
@@ -41,7 +41,7 @@ class BenchAuthnConfiguration extends FrameworkConfiguration {
 }
 
 /** Everything the authn scenarios register in the global DI, to uncache between scenarios. */
-const OWNED: unknown[] = [Configuration, BenchAuthnConfiguration, Orm, OrmMigrator, SqliteOrmDriver, 'orm-driver-sqlite'];
+const OWNED: unknown[] = [Configuration, BenchAuthnConfiguration, Orm, OrmMigrator, OrmMigrationGuard, SqliteOrmDriver, 'orm-driver-sqlite'];
 
 export interface AuthnBoot {
   /** Resolves a class in the booted container. */

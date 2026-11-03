@@ -82,7 +82,8 @@ export async function bootFakeOrm(dialect: keyof typeof FAKE_DIALECTS): Promise<
     public async resolve(): Promise<void> {
       await super.resolve();
       const config = this.Config;
-      config.db = { ...(config.db as object), DefaultConnection: connection.Name, Connections: [connection] };
+      // the recording driver keeps no tracking table: the boot must not ask it about the migrations this process registers
+      config.db = { ...(config.db as object), DefaultConnection: connection.Name, MigrationCheck: 'off', Connections: [connection] };
     }
   }
 

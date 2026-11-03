@@ -4,7 +4,7 @@ import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 
 import { randomBytes } from 'node:crypto';
 import { DI } from '@spinajs/di';
-import { Connection, Model, ModelBase, Orm, Primary, QueryContext } from '@spinajs/orm';
+import { Connection, Model, ModelBase, Orm, OrmMigrationGuard, Primary, QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { AUTHZ_CONNECTION } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
@@ -103,8 +103,9 @@ export class TestDb {
     if (database !== undefined) connections.push({ Driver: 'orm-driver-postgres', Name: 'postgres', ...POSTGRES, Database: database, Options: { Schema: database } });
     const before = { logger: cfg.get<unknown>('logger'), db: cfg.get<unknown>('db') };
     cfg.set('logger', { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
-    // Suites create and drop the authz tables per test, after the boot (createAncestorTable, createScopeAttributeTables, define).
-    cfg.set('db', { DefaultConnection: 'sqlite', Connections: connections, Aliases: { authz: 'default' }, StrictTableCheck: false });
+    // Suites create and drop the authz tables per test, after the boot (createAncestorTable, createScopeAttributeTables,
+    // define), so the boot checks neither the tables nor the migrations that would create them.
+    cfg.set('db', { DefaultConnection: 'sqlite', Connections: connections, Aliases: { authz: 'default' }, StrictTableCheck: false, MigrationCheck: 'off' });
 
     const restoreConfig = () => {
       for (const [k, v] of Object.entries(before)) {
@@ -124,6 +125,7 @@ export class TestDb {
     } catch (e) {
       if (orm) {
         DI.RootContainer.uncache(Orm);
+        DI.RootContainer.uncache(OrmMigrationGuard);
         await orm.dispose().catch(() => undefined);
       }
       restoreConfig();
@@ -218,6 +220,7 @@ export class TestDb {
     try {
       await this.clear();
       DI.RootContainer.uncache(Orm);
+      DI.RootContainer.uncache(OrmMigrationGuard);
       await this.orm.dispose();
     } finally {
       this.restoreConfig();

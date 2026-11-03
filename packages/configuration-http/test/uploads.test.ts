@@ -1,7 +1,7 @@
 import { DI, Bootstrapper } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { FileInfoService, FsBootsrapper, fsService, getFs } from '@spinajs/fs';
 import { Forbidden, ResourceDuplicated } from '@spinajs/exceptions';
@@ -97,6 +97,7 @@ describe('ConfigFileUploads', function () {
     orm?.dispose();
     DI.uncache(Orm);
     DI.uncache(OrmMigrator);
+    DI.uncache(OrmMigrationGuard);
     resetSystemPrincipal();
     for (const d of [FILES_DIR, UPLOAD_DIR]) {
       rmSync(d, { recursive: true, force: true });

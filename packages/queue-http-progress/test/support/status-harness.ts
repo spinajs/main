@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/orm-sqlite';
 import '@spinajs/authz-queue/jobs';
@@ -142,6 +142,7 @@ export function statusHarness(opts: { rbac?: boolean } = {}): BehaviourHarness {
           await orm.dispose();
           DI.uncache(Orm);
           DI.uncache(OrmMigrator);
+          DI.uncache(OrmMigrationGuard);
         },
       } as Partial<HarnessSession>;
     },

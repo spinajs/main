@@ -2,11 +2,11 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import '@spinajs/log';
 import '@spinajs/orm-mysql';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { Orm, OrmMigrator } from '@spinajs/orm';
-import { migrateTestDatabase } from '@spinajs/orm/testing';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import type { IDriverOptions, OrmDriver } from '@spinajs/orm';
 
 import '../src/index.js';
+import { migrateAndSignal } from './support/db.js';
 import { typedRowCases } from './support/typed-rows.js';
 
 /**
@@ -60,6 +60,7 @@ async function dropTables(): Promise<void> {
 
   beforeEach(async () => {
     DI.uncache(OrmMigrator);
+    DI.uncache(OrmMigrationGuard);
     DI.uncache(Orm);
     DI.uncache(Configuration);
     await DI.resolve(Configuration);
@@ -68,14 +69,13 @@ async function dropTables(): Promise<void> {
     for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
       await b.bootstrap();
     }
-    const { orm } = await migrateTestDatabase();
-    // The bootstrapper syncs exposed options on the Orm's resolve signal, which fired before the table existed.
-    DI.emit('di.resolved.Orm', DI.RootContainer, orm);
+    await migrateAndSignal();
   });
 
   afterEach(async () => {
     await DI.get(Orm)?.dispose();
     DI.uncache(OrmMigrator);
+    DI.uncache(OrmMigrationGuard);
     DI.uncache(Orm);
     DI.uncache(Configuration);
   });

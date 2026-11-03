@@ -22,7 +22,7 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
-import { Orm, OrmDriver, QueryContext, modelDriver, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmDriver, QueryContext, modelDriver, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
@@ -233,6 +233,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       // The app resolved an Orm in the root too; the models write on the latest one, so the next suite needs its own.
       DI.uncache(Orm);
       DI.uncache(OrmMigrator);
+      DI.uncache(OrmMigrationGuard);
       if (database) {
         const admin = await pgAdmin();
         try {

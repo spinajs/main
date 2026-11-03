@@ -5,7 +5,7 @@ import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
 import { QueueJob, Job, jobOptions, QueueService, JobModel, QueueClient, QueueMessageHook, QueueTrackingHook, IQueueMessage, QueueMessage } from './../src/index.js';
 import '@spinajs/orm-sqlite';
-import { MigrationTransactionMode, Orm, OrmMigrator } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 
 chai.use(chaiAsPromised);
@@ -128,6 +128,7 @@ function uncacheOwn() {
   DI.uncache(Configuration);
   DI.uncache(Orm);
   DI.uncache(OrmMigrator);
+  DI.uncache(OrmMigrationGuard);
   DI.uncache(QueueService);
   DI.uncache(QueueClient);
   DI.uncache(HookTestQueueClient);

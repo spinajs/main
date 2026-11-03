@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 import '@spinajs/log';
 import { DI } from '@spinajs/di';
-import { Orm, OrmDriver, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmDriver, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import type { ITransactionOptions } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
@@ -89,6 +89,7 @@ describe('DbAuthzAdminBackend on SQLite', function () {
   after(async () => {
     for (const c of new Set(orm?.Connections.values() ?? [])) await c.disconnect();
     DI.uncache(OrmMigrator);
+    DI.uncache(OrmMigrationGuard);
     DI.uncache(Orm);
     DI.unregister(SqliteOrmDriver);
     await uninstallHost();

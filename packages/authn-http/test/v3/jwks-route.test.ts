@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { BaseController, Controllers, HttpServer } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
@@ -91,6 +91,7 @@ describe('GET /.well-known/jwks.json', function () {
     DI.uncache(Configuration);
     DI.uncache(Orm);
     DI.uncache(OrmMigrator);
+    DI.uncache(OrmMigrationGuard);
   });
 
   describe('without a JwsSigner', () => {
