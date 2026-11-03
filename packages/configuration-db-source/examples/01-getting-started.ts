@@ -11,7 +11,7 @@
  * file) already produced under `db.Connections`, so those must be available
  * before the db source runs.
  *
- * Run (after building the workspace):
+ * Run (after building the workspace and applying the migration with `npx spinajs migrate-up`):
  *   node lib/mjs/examples/01-getting-started.js
  */
 import { Bootstrapper, DI } from '@spinajs/di';
@@ -38,8 +38,6 @@ const AppConfigSource = StaticConfigurationSource(
           Driver: 'orm-driver-sqlite',
           Name: 'sqlite',
           Filename: './db.sqlite',
-          // create the `configuration` table on startup
-          Migration: { OnStartup: true },
         },
       ],
     },
@@ -60,7 +58,7 @@ async function main() {
     // loading the configuration runs every source, including the db source
   const cfg = await DI.resolve(Configuration);
 
-  // resolving the ORM runs the migration that creates the `configuration` table
+  // the Orm refuses to resolve until `npx spinajs migrate-up` has created the `configuration` table
   await DI.resolve(Orm);
 
   // any row in the `configuration` table is now readable by its Slug

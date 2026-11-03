@@ -60,7 +60,6 @@ export default {
         Driver: 'orm-driver-sqlite',
         Name: 'sqlite',
         Filename: './app.sqlite',
-        Migration: { OnStartup: true },
       },
     ],
   },
@@ -118,7 +117,7 @@ The migration's `down()` drops the `configuration` table.
 ## Best practices
 
 - Keep the configuration table on the `default` connection unless you only need read-only loading. `expose` and `watch` always write through `DbConfig` on `default`.
-- Turn on `Migration: { OnStartup: true }` on the `default` connection, so resolving the `Orm` at boot runs the bundled migration that creates the table; or run `migrate-up` before the app starts.
+- Run [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) before the app starts: the bundled migration creates the table, and the `Orm` refuses to resolve while it is pending.
 - Read exposed values through `@Config` or `Configuration.get()`, not through `DbConfig` queries: the configuration already holds the converted value.
 
 ## Patterns and antipatterns
@@ -155,7 +154,7 @@ DI.register(
         DefaultConnection: 'app',
         Connections: [
           { Driver: 'orm-driver-sqlite', Name: 'app', Filename: './app.sqlite' },
-          { Driver: 'orm-driver-sqlite', Name: 'config-db', Filename: './config.sqlite', Migration: { OnStartup: true } },
+          { Driver: 'orm-driver-sqlite', Name: 'config-db', Filename: './config.sqlite' },
         ],
       },
     },
@@ -217,4 +216,4 @@ After the next `Configuration.load()`, `Configuration.get('support.email')` retu
 - [Exposing options](02-exposing-options.md): how rows get created from `@Config` declarations.
 - [Entry types and the value converter](04-entry-types-and-converter.md): how `Value` text becomes a typed value.
 - [`@spinajs/configuration`](../configuration/README.md): source ordering and `StaticConfigurationSource`.
-- [ORM migrations](../orm/10-migrations.md): `Migration.OnStartup` and how `@Migration` classes run.
+- [ORM migrations](../orm/10-migrations.md): how `@Migration` classes run and how `migrate-up` applies them.
