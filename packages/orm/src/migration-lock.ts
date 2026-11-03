@@ -2,6 +2,7 @@ import { NewInstance } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { createHash, randomBytes } from 'node:crypto';
 import { hostname } from 'node:os';
+import { performance } from 'node:perf_hooks';
 import type { OrmDriver } from './driver.js';
 import { OrmException } from './exceptions.js';
 import type { IUpdateResult } from './interfaces.js';
@@ -99,7 +100,7 @@ function lockRowVersion(holder: LockRow): string {
 export abstract class MigrationLock {
   constructor(protected driver: OrmDriver) {}
 
-  /** Waits up to `request.timeout`, then throws `OrmException`. */
+  /** Waits up to `request.timeout` ( a session lock's marked row: see `TableMigrationLock.acquireUnderAdvisory()` ), then throws `OrmException`. */
   public abstract acquire(request: IMigrationLockRequest): Promise<IMigrationLockHandle>;
 
   /** Whether any run holds the lock now. Never takes it: `status()` asks while a run may be going. */
@@ -218,8 +219,10 @@ export class TableMigrationLock extends MigrationLock {
    * would read a refreshed row as stale.
    */
   protected async claim(request: IMigrationLockRequest, owner: string, advisory = false): Promise<Date> {
-    const start = Date.now();
-    const expired = () => Date.now() - start > request.timeout;
+    // the wait is timed monotonically: a step of the wall clock must not shorten it into taking over a live holder's row
+    const start = performance.now();
+    const waited = () => Math.round(performance.now() - start);
+    const expired = () => waited() > request.timeout;
     const stale = (holder: LockRow | undefined) => !!holder && Date.now() - holder.since.getTime() > request.staleAfter;
     const watch = new MarkedRowWatch((holder) => advisory && holder.owner.endsWith(migrationLockAdvisoryMark(request.key)));
     const stolen = new Set<string>();
@@ -249,14 +252,14 @@ export class TableMigrationLock extends MigrationLock {
 
           // straight back to the INSERT: sleeping a poll interval for a lock nobody holds is
           // pure latency. Only a deadline already passed falls through to the throw below, unless
-          // this is the row waited for past it
-          if (!expired() || watching?.inOvertime()) {
+          // the row removed is a marked one: its wait is the one that may run past the deadline
+          if (!expired() || watching) {
             continue;
           }
         }
 
         if (expired() && !watching?.waitPastDeadline()) {
-          throw this.timedOut(request, holder, stealsOf(holder), err, watching);
+          throw this.timedOut(request, holder, stealsOf(holder), err, waited(), watching);
         }
 
         await new Promise((resolve) => setTimeout(resolve, MIGRATION_LOCK_POLL_INTERVAL));
@@ -297,38 +300,40 @@ export class TableMigrationLock extends MigrationLock {
   }
 
   /** `watched`: how long this call has seen a row marked with its own key unchanged, and whether its owner was seen refreshing it. */
-  protected timedOut(request: IMigrationLockRequest, holder: { owner: string; since: Date; raw: Date | string } | undefined, steals: number, err: unknown, watched?: { since: number; refreshed: boolean }): OrmException {
-    const { timeout, lockTable } = request;
+  protected timedOut(request: IMigrationLockRequest, holder: { owner: string; since: Date; raw: Date | string } | undefined, steals: number, err: unknown, waited: number, watched?: { watchedFor: () => number; refreshed: boolean }): OrmException {
+    const { lockTable } = request;
+    // a marked row is watched past the timeout, so the wait can exceed it by more than a poll
+    const budget = waited > request.timeout + 2 * MIGRATION_LOCK_POLL_INTERVAL ? `${request.timeout}ms ( waited ${waited}ms )` : `${request.timeout}ms`;
     const name = this.driver.Options.Name;
 
     if (holder && Number.isNaN(holder.since.getTime())) {
-      return new OrmException(`Could not acquire migration lock on connection ${name} within ${timeout}ms - held by ${holder.owner}, and its AcquiredAt in ${lockTable} ( ${JSON.stringify(holder.raw)} ) is not a date, so it cannot be judged stale - delete the row from ${lockTable} by hand`);
+      return new OrmException(`Could not acquire migration lock on connection ${name} within ${budget} - held by ${holder.owner}, and its AcquiredAt in ${lockTable} ( ${JSON.stringify(holder.raw)} ) is not a date, so it cannot be judged stale - delete the row from ${lockTable} by hand`);
     }
 
     if (holder && steals > 0) {
-      return new OrmException(`Could not acquire migration lock on connection ${name} within ${timeout}ms - held by ${holder.owner} since ${holder.since.toISOString()}, and ${steals} attempt(s) to remove it as stale left it in place - delete the row from ${lockTable} by hand`);
+      return new OrmException(`Could not acquire migration lock on connection ${name} within ${budget} - held by ${holder.owner} since ${holder.since.toISOString()}, and ${steals} attempt(s) to remove it as stale left it in place - delete the row from ${lockTable} by hand`);
     }
 
     if (holder && watched?.refreshed) {
       return new OrmException(
-        `Could not acquire migration lock on connection ${name} within ${timeout}ms - held by ${holder.owner}, last refreshed at ${holder.since.toISOString()}: that run lost the advisory lock this run now holds but is still refreshing its row, so it may still be migrating. It stops before its next migration; the row is taken over once it goes ${2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT}ms unrefreshed`,
+        `Could not acquire migration lock on connection ${name} within ${budget} - held by ${holder.owner}, last refreshed at ${holder.since.toISOString()}: that run lost the advisory lock this run now holds but is still refreshing its row, so it may still be migrating. It stops before its next migration; the row is taken over once it goes ${2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT}ms unrefreshed`,
       );
     }
 
     if (holder && watched) {
       return new OrmException(
-        `Could not acquire migration lock on connection ${name} within ${timeout}ms - held by ${holder.owner}, last refreshed at ${holder.since.toISOString()}: that run lost the advisory lock this run now holds, and this run watched its row for only ${Date.now() - watched.since}ms without seeing it refreshed, too short to tell a crashed run from a live one. The next run takes the row over once it goes ${2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT}ms unrefreshed`,
+        `Could not acquire migration lock on connection ${name} within ${budget} - held by ${holder.owner}, last refreshed at ${holder.since.toISOString()}: that run lost the advisory lock this run now holds, and this run watched for only ${watched.watchedFor()}ms without seeing its row refreshed, and the row of a different run replaced it after Lock.Timeout, too short to tell a crashed run from a live one. The next run takes the row over once it goes ${2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT}ms unrefreshed`,
       );
     }
 
     if (holder) {
       const staleAt = new Date(holder.since.getTime() + request.staleAfter).toISOString();
-      return new OrmException(`Could not acquire migration lock on connection ${name} within ${timeout}ms - held by ${holder.owner} since ${holder.since.toISOString()}. If that process is dead, the row goes stale at ${staleAt} ( Migration.Lock.StaleAfter ) and the next run takes it; to go on sooner, delete it from ${lockTable} by hand`);
+      return new OrmException(`Could not acquire migration lock on connection ${name} within ${budget} - held by ${holder.owner} since ${holder.since.toISOString()}. If that process is dead, the row goes stale at ${staleAt} ( Migration.Lock.StaleAfter ) and the next run takes it; to go on sooner, delete it from ${lockTable} by hand`);
     }
 
     // no row to blame, so the insert is failing for its own reasons ( missing table, lost
     // connection ). Carrying that message is the only thing that makes this diagnosable
-    return new OrmException(`Could not acquire migration lock on connection ${name} within ${timeout}ms - no lock row is present, the last insert failed with: ${(err as Error).message}`, undefined, undefined, undefined, err);
+    return new OrmException(`Could not acquire migration lock on connection ${name} within ${budget} - no lock row is present, the last insert failed with: ${(err as Error).message}`, undefined, undefined, undefined, err);
   }
 
   /** Only our own row: after a steal the row belongs to the run that took it over. */
@@ -344,6 +349,7 @@ export class TableMigrationLock extends MigrationLock {
 class MarkedRowWatch {
   public since = 0;
   public refreshed = false;
+  protected first: number | undefined;
   protected row: string | undefined;
   protected owner: string | undefined;
   protected overtime: string | undefined;
@@ -360,14 +366,20 @@ class MarkedRowWatch {
       this.refreshed = holder.owner === this.owner;
       this.row = lockRowVersion(holder);
       this.owner = holder.owner;
-      this.since = Date.now();
+      this.since = performance.now();
+      this.first ??= this.since;
     }
 
     return this;
   }
 
   public quiet(): boolean {
-    return Date.now() - this.since >= 2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT;
+    return performance.now() - this.since >= 2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT;
+  }
+
+  /** How long since this call first saw a row marked with its key, whichever row it was since. */
+  public watchedFor(): number {
+    return Math.round(performance.now() - (this.first ?? performance.now()));
   }
 
   /**
@@ -377,7 +389,7 @@ class MarkedRowWatch {
    */
   public waitPastDeadline(): boolean {
     this.overtime ??= this.row;
-    return this.inOvertime() && Date.now() - this.since < 2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT + MIGRATION_LOCK_POLL_INTERVAL;
+    return this.inOvertime() && performance.now() - this.since < 2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT + MIGRATION_LOCK_POLL_INTERVAL;
   }
 
   public inOvertime(): boolean {
