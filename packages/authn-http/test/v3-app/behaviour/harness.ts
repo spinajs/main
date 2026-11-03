@@ -4,6 +4,7 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Orm, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import type { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { ServerMiddleware } from '@spinajs/http';
@@ -299,9 +300,9 @@ async function bootTokenDb(): Promise<void> {
   const c = config();
   c.set('db', {
     DefaultConnection: DB_CONNECTION,
-    Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: DB_CONNECTION, Migration: { Table: 'orm_migrations', OnStartup: true } }],
+    Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: DB_CONNECTION, Migration: { Table: 'orm_migrations' } }],
   });
-  await (await DI.resolve(Orm)).Migrator.ready();
+  await migrateTestDatabase();
   await tokenDb()
     .schema()
     .createTable('users', (table) => {
