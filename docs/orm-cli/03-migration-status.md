@@ -53,8 +53,8 @@ After the summary, the command prints an explanation and two `migrate-resolve` i
 
 ## How it works
 
-1. `MigrateStatusCommand.execute()` calls [`resolveCliMigrator()`](06-cli-orm.md). Without it, the `Orm`'s resolve would apply pending migrations and the report would always read "all applied".
-2. It calls `migrator.Runner.status({ readOnly: true, connection })`, which returns one `IMigrationStatusEntry` per registered migration whose connection is configured, `Migration.OnStartup` or not. It takes no migration lock.
+1. `MigrateStatusCommand.execute()` calls [`resolveCliMigrator()`](06-cli-orm.md), which boots the `Orm` without the application's boot check. An ordinary `DI.resolve(Orm)` would reject with `PendingMigrationsException` on the very state this command reports.
+2. It calls `migrator.Runner.status({ readOnly: true, connection })`, which returns one `IMigrationStatusEntry` per registered migration whose connection is configured, whatever the connection's `Migration.Check` mode. It takes no migration lock.
 3. With no entries, it prints `No migrations are registered for any configured connection.` and returns; with `--json` it prints `{"entries":[],"pending":[]}` instead. Exit code `0`.
 4. It prints the header and one line per entry with `console.log`. The line is `<marker> <state> <batch> <applied at> <connection> <name>[ drift]`:
    - marker `!!` for a failed entry, `??` for an interrupted one, blank otherwise;
@@ -126,7 +126,8 @@ The table is printed by the protected `printTable()` and each `--json` entry is 
 - **Output goes to stdout through `console.log`, not the logger.** A log level or target cannot swallow the report, so it can be piped and grepped. The bin's welcome line still goes through the logger.
 - **`--json` keeps stdout clean.** `console.log` and `console.info` are routed to stderr while the report is collected, so a logger target that writes to the console cannot put log lines into the document. Logging that bypasses `console` (a direct `process.stdout.write`) is not covered.
 - **`0` means nothing is pending, not that the database is reachable and configured.** With no connections configured, nothing is registered and the command exits `0`. A gate that must catch a broken config should also check that the report listed migrations.
-- **Every configured connection is reported** unless `--connection` narrows it, including those with `Migration.OnStartup: false`. A gate that must cover the whole database should not pass `--connection`.
+- **Every configured connection is reported** unless `--connection` narrows it, including those whose `Migration.Check` is `'warn'` or `'off'`. A gate that must cover the whole database should not pass `--connection`.
+- **It answers what the application's boot check answers.** Both read the tracking tables read-only; the boot check refuses where this command exits `1` (on `'fail'` connections). Interrupted migrations count as pending for both.
 - **The command never creates a table.** On a database without a tracking table every migration reads pending; a legacy table that predates the `FinishedAt` column is read as applied, as the upgrade would backfill it.
 - **Migrations for another environment are not listed.** The ORM drops them at discovery; see [Migrations: environments](../orm/10-migrations.md#environments).
 - **Migrations on unconfigured connections are not listed.** `migrate-up --name` reports those separately.

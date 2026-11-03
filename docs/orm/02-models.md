@@ -13,7 +13,7 @@ table itself when it starts.
    the parent's (see [Descriptor inheritance](#descriptor-inheritance)).
 3. `@Model(tableName)` sets `TableName` and registers the class in DI under `__models__`.
 4. `Orm.resolve()` calls `registerModel()` for every `__models__` class, then reads the table info of
-   every model as below, once its `Migration.OnStartup` migrations are applied. `OrmMigrator.migrate()` calls `Orm.reloadTableInfo()` again, for the models its migrations touched only.
+   every model as below, once the [boot check](10-migrations.md#boot-check-diresolveorm) passed. `OrmMigrator.migrate()` calls `Orm.reloadTableInfo()` again, for the models its migrations touched only.
 5. Each read handles every registered model, or only those in `options.models`:
    - looks up the connection named by `descriptor.Connection`; when none exists it logs a warning
      and skips the model, which then has no `Driver` and no table columns;
