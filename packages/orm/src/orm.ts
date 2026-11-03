@@ -16,6 +16,7 @@ import { MIGRATION_FILE_REGEXP } from './migration-runner.js';
 import { MIGRATION_DI_SOURCE, mergeMigrationEnv, resolveMigrationEnv } from './migration-environment.js';
 import { MigrationSource } from './migration-sources.js';
 import { OrmMigrator } from './migrator.js';
+import { OrmMigrationGuard } from './migration-guard.js';
 
 /**
  * Used to exclude sensitive data to others. eg. removed password field from cfg
@@ -68,8 +69,8 @@ export class Orm extends AsyncService {
 
   public Connections: Map<string, OrmDriver> = new Map<string, OrmDriver>();
 
-  /** Applied the `Migration.OnStartup` migrations of this Orm; `Migrator.ready()` settles after their seeds. */
-  public Migrator: OrmMigrator;
+  /** The boot check this Orm ran, or skipped when a migration tool resolved it disabled. */
+  protected MigrationGuard: OrmMigrationGuard;
 
   /** What the last read of each model's table found missing, for a strict check over models a pass did not read. */
   protected MissingTables = new Map<Class<ModelBase>, IMissingModelTable>();
@@ -91,8 +92,8 @@ export class Orm extends AsyncService {
   /**
    * Reads the columns of the registered models' tables into their descriptors; call it after creating tables on a
    * resolved Orm. A model whose table is missing keeps only its decorator columns and is logged, or, with `strict`,
-   * fails the call. With `db.StrictTableCheck` on, `Orm.resolve()` fails on a missing table after it applied the
-   * `Migration.OnStartup` migrations.
+   * fails the call. With `db.StrictTableCheck` on, `Orm.resolve()` fails on a missing table after the boot guard
+   * passed.
    */
   public async reloadTableInfo(options: IReloadTableInfoOptions = {}): Promise<void> {
     const missing = await this.readTableInfo(options.models);
@@ -246,22 +247,24 @@ export class Orm extends AsyncService {
     // A driver's tableInfo() may read the '__orm_db_value_converters__' map this registers.
     this.registerDefaultConverters();
 
-    // A migration tool resolves its migrator ( MigrateOnStartup: false ) first, and the Orm picks that one up.
-    this.Migrator = await this.Container.resolve(OrmMigrator);
+    // A migration tool resolves the guard disabled first, and the Orm picks that one up.
+    this.MigrationGuard = await this.Container.resolve(OrmMigrationGuard);
 
-    try {
-      // before the table read, so it reads the migrated schema
-      await this.Migrator.boot(this);
-    } catch (err) {
-      // a rejected resolve caches no Orm, so nobody else could close the connections it opened
-      await this.dispose().catch(() => undefined);
-      throw err;
+    if (this.MigrationGuard.Enabled) {
+      try {
+        // before the table read, so an unmigrated database is named by its migrations, not its missing tables
+        await this.MigrationGuard.check(this);
+      } catch (err) {
+        // a rejected resolve caches no Orm, so nobody else could close the connections it opened
+        await this.dispose().catch(() => undefined);
+        throw err;
+      }
     }
 
     const missing = await this.readTableInfo();
 
     // a migration tool boots before the tables it is about to create exist
-    if (missing.length > 0 && this.StrictTableCheck && this.Migrator.MigrateOnStartup) {
+    if (missing.length > 0 && this.StrictTableCheck && this.MigrationGuard.Enabled) {
       await this.dispose().catch(() => undefined);
       throw new OrmException(missingTablesMessage(missing));
     }
@@ -517,11 +520,19 @@ export class Orm extends AsyncService {
 }
 
 /**
- * A migration tool's boot ( `@spinajs/orm-cli`, deploy gates ): the migrator without its startup migrations, then the
- * Orm, which picks that migrator up, applies nothing and skips its `db.StrictTableCheck` check.
+ * A migration tool's boot ( `@spinajs/orm-cli`, tests, desktop apps ): the Orm without the boot guard or the
+ * `db.StrictTableCheck` check, and the migrator over it. Call it before anything else resolves the Orm in `container`:
+ * an Orm resolved earlier already ran the guard.
  */
 export async function resolveMigrationTool(container: IContainer = DI.RootContainer): Promise<OrmMigrator> {
-  const migrator = await container.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
-  await container.resolve(Orm);
+  await container.resolve(OrmMigrationGuard, [{ Enabled: false }]);
+  const orm = await container.resolve(Orm);
+  const migrator = await container.resolve(OrmMigrator, [orm]);
+
+  // a singleton keeps the Orm it was first built with, which an Orm uncached alone leaves behind
+  if (migrator.Orm !== orm) {
+    throw new OrmException('The cached OrmMigrator runs over an Orm that is no longer cached: uncache Orm and OrmMigrator together ( or DI.clearCache() ) before resolving the migration tool again');
+  }
+
   return migrator;
 }

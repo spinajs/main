@@ -482,8 +482,7 @@ describe('MigrationRunner', () => {
     expect(up.called, 'an unorderable set must not be half-run').to.be.false;
   });
 
-  it('skips connections gated by OnStartup when force=false', async () => {
-    // ConnectionConf sqlite has OnStartup: false
+  it('a connection that still sets Migration.OnStartup off is migrated like any other, and the key is not read', async () => {
     @Migration('sqlite')
     class MigrationRunnerTest_Gate_2021_01_01_00_00_00 extends OrmMigration {
       public async up(_c: OrmDriver) {}
@@ -497,27 +496,20 @@ describe('MigrationRunner', () => {
     }
 
     const driver = await makeDriver();
+    // a 3.0 config: the key is gone from the type, and only the Orm's boot guard refuses it
+    (driver.Options as { Migration?: unknown }).Migration = { OnStartup: false };
     const up = sinon.spy(MigrationRunnerTest_Gate_2021_01_01_00_00_00.prototype, 'up');
     const up2 = sinon.spy(MigrationRunnerTest_Gate_2021_01_02_00_00_00.prototype, 'up');
     stubDb([]);
 
-    const orm = ormLike([ci(MigrationRunnerTest_Gate_2021_01_01_00_00_00), ci(MigrationRunnerTest_Gate_2021_01_02_00_00_00)], [['sqlite', driver]]);
-    const gated = new MigrationRunner(orm);
-    const warn = sinon.spy((gated as any).Log, 'warn');
+    const runner = new MigrationRunner(ormLike([ci(MigrationRunnerTest_Gate_2021_01_01_00_00_00), ci(MigrationRunnerTest_Gate_2021_01_02_00_00_00)], [['sqlite', driver]]));
+    const warn = sinon.spy((runner as any).Log, 'warn');
 
-    await gated.up(undefined, { force: false });
-    expect(up.called).to.be.false;
-    expect(up2.called).to.be.false;
+    await runner.up();
 
-    // the gate is a property of the connection, not of the migration - repeating it once per
-    // migration turns a boot log into noise nobody reads
-    const gatedWarnings = warn.getCalls().filter((c) => logText(c).includes('OnStartup'));
-    expect(gatedWarnings, 'one warning per gated connection').to.have.length(1);
-    expect(logText(gatedWarnings[0])).to.contain('sqlite');
-
-    await new MigrationRunner(orm).up(); // force defaults true
     expect(up.calledOnce).to.be.true;
     expect(up2.calledOnce).to.be.true;
+    expect(warn.getCalls().filter((c) => logText(c).includes('OnStartup'))).to.have.length(0);
   });
 
   it('falls back to DefaultMigrationService when Service token absent', async () => {

@@ -3,6 +3,7 @@ import '../index.js';
 import { DI, IContainer } from '@spinajs/di';
 import { OrmException } from '../exceptions.js';
 import { OrmMigration } from '../interfaces.js';
+import { OrmMigrationGuard } from '../migration-guard.js';
 import { OrmMigrator } from '../migrator.js';
 import { Orm, resolveMigrationTool } from '../orm.js';
 
@@ -19,8 +20,8 @@ export interface IMigratedTestDatabase {
 
 /**
  * Explicitly migrates and seeds a test database, then checks the model tables as a strict boot would; an application
- * runs `npx spinajs migrate-up` instead. Call it before anything else resolves the Orm or `OrmMigrator` in `container`,
- * or it throws.
+ * runs `npx spinajs migrate-up` instead. Call it before anything else resolves the Orm or `OrmMigrationGuard` in
+ * `container`, or it throws.
  */
 export async function migrateTestDatabase(container: IContainer = DI.RootContainer, options: IMigrateTestDatabaseOptions = {}): Promise<IMigratedTestDatabase> {
   // the raw variables: normalizeEnvironment() reads an unset APP_ENV as prod, which every test process has
@@ -28,15 +29,15 @@ export async function migrateTestDatabase(container: IContainer = DI.RootContain
     throw new OrmException('migrateTestDatabase() is a test helper and refuses to run with NODE_ENV or APP_ENV production: run "npx spinajs migrate-up" as a deploy step');
   }
 
-  const migrator = await resolveMigrationTool(container);
-  const orm = await container.resolve(Orm);
-
-  // a cached OrmMigrator keeps the options it was first resolved with, and a cached Orm the migrator it booted with
-  if (migrator.MigrateOnStartup || orm.Migrator !== migrator) {
+  // a cached guard keeps the options it was first resolved with: an enabled one booted ( or will boot ) the Orm as an app
+  if ((await container.resolve(OrmMigrationGuard, [{ Enabled: false }])).Enabled) {
     throw new OrmException(
-      'migrateTestDatabase() must run before anything resolves the Orm or OrmMigrator in this container, and a re-run needs Orm and OrmMigrator uncached together ( or DI.clearCache() ): the Orm here was booted by an OrmMigrator that migrates on startup, or by another OrmMigrator than the one this call resolved',
+      'migrateTestDatabase() must run before anything resolves the Orm or OrmMigrationGuard in this container ( or after Orm, OrmMigrator and OrmMigrationGuard were uncached together, or DI.clearCache() ): the boot guard here is enabled, so the Orm was booted as an application boots it',
     );
   }
+
+  const migrator = await resolveMigrationTool(container);
+  const orm = migrator.Orm;
 
   const executed = await migrator.migrate({ skipSeed: options.seed === false });
 

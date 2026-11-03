@@ -44,7 +44,8 @@ class PipelineConf extends ConnectionConf {
 async function resolveOrm(): Promise<Orm> {
   DI.clearCache();
   DI.setESMModuleSupport();
-  return await DI.resolve(Orm);
+  // the tool's Orm: both migrations are pending here, which an application's boot guard refuses
+  return (await resolveMigrationTool()).Orm;
 }
 
 describe('Orm migration pipeline - a real .local.ts file on disk, end to end', () => {

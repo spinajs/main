@@ -7,7 +7,7 @@ import 'mocha';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import '@spinajs/log';
-import { Connection, extractModelDescriptor, IColumnDescriptor, IMigrationRecord, InsertQueryBuilder, MIGRATION_TABLE_NAME, Migration, MigrationTransactionMode, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, OrmMigrator, Primary, SelectQueryBuilder, TableExistsQueryBuilder, TableQueryBuilder, UpdateQueryBuilder } from '../src/index.js';
+import { Connection, extractModelDescriptor, IColumnDescriptor, IMigrationRecord, InsertQueryBuilder, MIGRATION_TABLE_NAME, Migration, MigrationTransactionMode, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, OrmMigrationGuard, OrmMigrator, Primary, SelectQueryBuilder, TableExistsQueryBuilder, TableQueryBuilder, UpdateQueryBuilder } from '../src/index.js';
 import { migrateTestDatabase } from '../src/testing/index.js';
 import { FakeSqliteDriver } from './misc.js';
 
@@ -17,7 +17,7 @@ const expect = chai.expect;
 const CONNECTION = 'testing-helper';
 
 const CALL_ORDER =
-  'migrateTestDatabase() must run before anything resolves the Orm or OrmMigrator in this container, and a re-run needs Orm and OrmMigrator uncached together ( or DI.clearCache() ): the Orm here was booted by an OrmMigrator that migrates on startup, or by another OrmMigrator than the one this call resolved';
+  'migrateTestDatabase() must run before anything resolves the Orm or OrmMigrationGuard in this container ( or after Orm, OrmMigrator and OrmMigrationGuard were uncached together, or DI.clearCache() ): the boot guard here is enabled, so the Orm was booted as an application boots it';
 
 const TABLES = new Map<string, string[]>();
 let RECORDS: IMigrationRecord[] = [];
@@ -200,8 +200,9 @@ describe('@spinajs/orm/testing migrateTestDatabase()', function () {
   });
 
   it('migrateTestDatabase() refuses an Orm resolved before it, naming the call-order rule', async () => {
-    // the early Orm's strict boot check passes only when the table is already there
+    // a database migrated earlier, so the application's boot check passes
     TABLES.set('testing_helper_items', ['Id']);
+    RECORDS.push({ Migration: 'A_2026_01_01_00_00_00', CreatedAt: new Date(), StartedAt: new Date(), FinishedAt: new Date(), RolledBackAt: null, Logs: null, Checksum: null, Batch: 1 });
     await container.resolve(Orm);
 
     const err = await rejection(migrateTestDatabase(container));
@@ -210,24 +211,32 @@ describe('@spinajs/orm/testing migrateTestDatabase()', function () {
     expect((err as Error).message).to.equal(CALL_ORDER);
   });
 
-  it('migrateTestDatabase() refuses an OrmMigrator resolved before it with its default options', async () => {
-    TABLES.set('testing_helper_items', ['Id']);
-    await container.resolve(OrmMigrator);
+  it('migrateTestDatabase() refuses an OrmMigrationGuard resolved before it with its default options', async () => {
+    await container.resolve(OrmMigrationGuard);
 
     const err = await rejection(migrateTestDatabase(container));
 
     expect(err).to.be.instanceOf(OrmException);
     expect((err as Error).message).to.equal(CALL_ORDER);
+    expect(TABLES.has('testing_helper_items'), 'it refuses before it migrates').to.be.false;
   });
 
-  it('migrateTestDatabase() refuses a re-run after only OrmMigrator was uncached', async () => {
+  it('migrateTestDatabase() refuses a re-run after only the Orm was uncached', async () => {
     await migrateTestDatabase(container);
+    container.uncache(Orm);
+
+    await expect(migrateTestDatabase(container)).to.be.rejectedWith(OrmException, 'The cached OrmMigrator runs over an Orm that is no longer cached');
+  });
+
+  it('migrateTestDatabase() runs again after only OrmMigrator was uncached, over the cached Orm', async () => {
+    const first = await migrateTestDatabase(container);
     container.uncache(OrmMigrator);
 
-    const err = await rejection(migrateTestDatabase(container));
+    const second = await migrateTestDatabase(container);
 
-    expect(err).to.be.instanceOf(OrmException);
-    expect((err as Error).message).to.equal(CALL_ORDER);
+    expect(second.orm).to.equal(first.orm);
+    expect(second.migrator).to.not.equal(first.migrator);
+    expect(second.executed).to.deep.equal([]);
   });
 
   it('migrateTestDatabase() runs again once Orm and OrmMigrator were uncached together', async () => {
@@ -238,7 +247,7 @@ describe('@spinajs/orm/testing migrateTestDatabase()', function () {
     const second = await migrateTestDatabase(container);
 
     expect(second.orm).to.not.equal(first.orm);
-    expect(second.orm.Migrator).to.equal(second.migrator);
+    expect(second.migrator.Orm).to.equal(second.orm);
     expect(second.executed).to.deep.equal([]);
   });
 

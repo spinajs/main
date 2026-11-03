@@ -1,5 +1,5 @@
 import { Configuration } from '@spinajs/configuration';
-import { Autoinject } from '@spinajs/di';
+import { Autoinject, PerChildInstance } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { OrmDriver } from './driver.js';
 import { IPendingMigration, OrmException, pendingMigrationsMessage, PendingMigrationsException } from './exceptions.js';
@@ -32,8 +32,8 @@ class MigrationRunnerForChecks extends MigrationRunner {
     super(orm);
   }
 
-  protected plan(name: string | undefined, force: boolean, connection?: string): Array<[OrmDriver, IMigrationUnit[]]> {
-    return super.plan(name, force, connection).filter(([driver]) => this.checked(driver));
+  protected plan(name: string | undefined, connection?: string, quiet = false): Array<[OrmDriver, IMigrationUnit[]]> {
+    return super.plan(name, connection, quiet).filter(([driver]) => this.checked(driver));
   }
 }
 
@@ -41,9 +41,11 @@ class MigrationRunnerForChecks extends MigrationRunner {
  * Boot check: refuses to start on a database with pending or failed migrations. Asks each
  * connection's migration service for a read-only status and never creates or changes anything.
  *
- * A singleton on purpose: a migration tool resolves it with `{ Enabled: false }` first, and the
- * Orm resolving it afterwards must get that same disabled instance.
+ * One per container on purpose: a migration tool resolves it with `{ Enabled: false }` first, and
+ * the Orm resolving it afterwards in that container must get that same disabled instance - but a
+ * tool in a child container must not get the enabled one an application's boot left in the parent.
  */
+@PerChildInstance()
 export class OrmMigrationGuard {
   @Logger('ORM')
   protected Log: Log;
@@ -104,8 +106,9 @@ export class OrmMigrationGuard {
 
   /** Independent of the Check mode: a config still relying on boot migrations must not start silently unmigrated. */
   protected rejectOnStartup(orm: IMigrationRunnerHost): void {
-    // `Options.Name === name` skips the alias and `default` keys, so each connection is named once
-    const keys = [...orm.Connections].filter(([name, driver]) => driver.Options.Name === name && driver.Options.Migration?.OnStartup !== undefined).map(([name]) => `db.Connections[${name}].Migration.OnStartup`);
+    // `Options.Name === name` skips the alias and `default` keys, so each connection is named once;
+    // the key is no longer typed, so a config written for 3.0 is read as a plain object
+    const keys = [...orm.Connections].filter(([name, driver]) => driver.Options.Name === name && (driver.Options.Migration as { OnStartup?: unknown } | undefined)?.OnStartup !== undefined).map(([name]) => `db.Connections[${name}].Migration.OnStartup`);
 
     if (keys.length > 0) {
       throw new OrmException(`Migration.OnStartup is no longer supported (set in ${keys.join(', ')}): the application never migrates. Remove the key and run "npx spinajs migrate-up" as a deploy step.`);
