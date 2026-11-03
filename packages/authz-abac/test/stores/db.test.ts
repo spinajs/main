@@ -155,7 +155,7 @@ for (const kind of DB_KINDS) {
       reg.freeze();
       await write((tx) => store.put(input(policies[0]), alice, tx, NOW));
       const model = new AbacModel({ stores: [store] });
-      await model.init(fakeModelInitContext({ permissions: reg }));
+      await model.init(fakeModelInitContext({ permissions: reg, container: db.container }));
       expect(model.capabilities.sync).to.equal('never');
       const ctx = fakeEvaluationContext({ now: NOW, permissions: reg, conditions: new DefaultConditionCompiler() });
       const req = { principal: alice, permission: 'file:read', resource: { type: 'file' }, env: { now: NOW } };

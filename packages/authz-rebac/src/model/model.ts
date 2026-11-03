@@ -1,5 +1,6 @@
 import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, FALSE, NativeFilter, TRUE, UnknownPermission } from '@spinajs/authz';
 import type { DecisionRequest, EvaluationContext, FilterOp, ListPlanRequest, ListSupport, ModelCapabilities, ModelInitContext, ModelListPlan, PermissionDef, PermissionRegistry, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import { Orm } from '@spinajs/orm';
 
 import type { NamespaceConfig, PermissionMap, RebacLimits, Tuple } from '../contracts.js';
 import { TupleStore } from '../contracts.js';
@@ -88,6 +89,8 @@ export class RebacModel extends AuthorizationModel {
     this.registry = ctx.permissions;
     this.permissionsChecked = false;
     this.tuples = this.opts.store ?? (ctx.container.hasRegistered(TupleStore) ? await ctx.container.resolve(TupleStore) : storeFromConfig(this.name, ctx));
+    // DbTupleStore is built with `new`, so it cannot inject the Orm that binds its records.
+    if (this.tuples instanceof DbTupleStore) await ctx.container.resolve(Orm);
     this.unsubscribe?.();
     this.unsubscribe = this.tuples instanceof MemoryTupleStore ? this.tuples.onWrite(() => this.generation++) : undefined;
     this.unbindSchema?.();

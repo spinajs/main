@@ -39,7 +39,7 @@ for (const kind of DB_KINDS) {
       reg.register([{ name: 'file:read', types: ['file', 'project'] }], 'test');
       reg.freeze();
       model = new AbacModel({ stores: [store] });
-      await model.init(fakeModelInitContext({ permissions: reg }));
+      await model.init(fakeModelInitContext({ permissions: reg, container: db.container }));
     });
 
     after(async () => {

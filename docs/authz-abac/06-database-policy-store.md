@@ -7,7 +7,7 @@
 ### Reads
 
 1. `AbacModel.init` refuses a left-over `authz.<model>.connection` key, then builds its stores: the ones passed in `stores`, else those `authz.<model>.stores` names (`storesFromConfig`).
-2. `DbPolicyStore.load()` reads through `PolicyRecord`, and a model loads its policies at domain boot, so resolve the `Orm` before the domain boots. Neither the model nor the store is built by DI, so neither injects it; a read before the `Orm` resolved fails with the `AuthzConfigError` below.
+2. `DbPolicyStore.load()` reads through `PolicyRecord`, and a model loads its policies at domain boot. The store is built with `new`, not by DI, so it cannot inject the `Orm`: `AbacModel.init` resolves the `Orm` from the domain's container when one of its stores is a `DbPolicyStore`, so the CLI and the app get it with the boot. That boot fails while a migration is pending. Code that reads a `DbPolicyStore` outside the model before the `Orm` resolved fails with the `AuthzConfigError` below.
 3. It reads every `PolicyRecord` row, sorts them by id in code-unit order and maps each with `recordToPolicy` (source `'db'`).
 4. `version()` hashes the same rows (SHA-256, first 16 hex characters), so it changes with every write, also one made by another process.
 5. A JSON column that does not parse fails the read with `AuthzConfigError` naming `authz_policy`.

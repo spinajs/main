@@ -8,12 +8,19 @@ import 'mocha';
 
 const run = promisify(execFile);
 
+/** Script lines: `imports` and `register` come before the Configuration resolves, `seed` runs on the migrate-up run's Orm. */
+interface ProcessSetup {
+  readonly imports?: readonly string[];
+  readonly register?: readonly string[];
+  readonly seed?: readonly string[];
+}
+
 /**
  * A process that never resolved an Orm, as the cli is: imports the built package (`npm run compile` first), registers a
  * Configuration on a SQLite file and runs `body` against it. With `migrate`, a migrate-up run in a container of its
  * own creates the authz tables first, as a deploy step does before the cli runs.
  */
-async function freshProcess(body: string, migrate = true, authz?: Record<string, unknown>): Promise<unknown> {
+async function freshProcess(body: string, migrate = true, authz?: Record<string, unknown>, setup: ProcessSetup = {}): Promise<unknown> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'spinajs-authz-cli-'));
   const script = [
     "import { DI } from '@spinajs/di';",
@@ -24,18 +31,20 @@ async function freshProcess(body: string, migrate = true, authz?: Record<string,
     "import { SqliteOrmDriver } from '@spinajs/orm-sqlite';",
     "import { AUTHZ_CONFIGURATION_SCHEMA, AuthzService, GLOBAL, SYSTEM } from '@spinajs/authz';",
     "import { AssignCommand, DbAssignmentStore, DbAuthzAdminBackend, ExplainCommand, VersionRecord, recordDriver } from '@spinajs/authz-rbac';",
+    ...(setup.imports ?? []),
     'class Config extends FrameworkConfiguration {',
     '  async resolve() {',
     '    await super.resolve();',
-    "    this.Config.db = { DefaultConnection: 'cli', Connections: [{ Name: 'cli', Driver: 'orm-driver-sqlite', Filename: process.env.AUTHZ_CLI_DB }], Aliases: { authz: 'default' } };",
+    "    this.Config.db = { DefaultConnection: 'cli', Connections: [{ Name: 'cli', Driver: 'orm-driver-sqlite', Filename: process.env.AUTHZ_CLI_DB }], Aliases: { authz: 'default', 'authz-audit': 'default' } };",
     ...(authz ? [`    this.Config.authz = ${JSON.stringify(authz)};`] : []),
     '  }',
     '}',
     "DI.register(AUTHZ_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');",
     'DI.register(Config).as(Configuration);',
     "DI.register(SqliteOrmDriver).as('orm-driver-sqlite');",
+    ...(setup.register ?? []),
     'await DI.resolve(Configuration);',
-    ...(migrate ? ['const { orm: tool } = await migrateTestDatabase(DI.child());', 'await tool.dispose();'] : []),
+    ...(migrate ? ['const { orm: tool } = await migrateTestDatabase(DI.child());', ...(setup.seed ?? []), 'await tool.dispose();'] : []),
     'const result = {};',
     'try {',
     body,
@@ -169,5 +178,62 @@ describe('authz-rbac AuthzService and the authz cli in a process that has not re
     expect(result.out).to.have.length(1);
     expect(result.out[0]).to.match(/^error: Authz domain "root": model "rbac" failed to init: Database is not migrated: .*npx spinajs migrate-up/);
     expect(result.exitCode).to.eq(1);
+  });
+});
+
+/** ReBAC on its DB tuple store and ABAC on its DB policy store, no RBAC model, and DbDecisionAudit as the audit. */
+const REBAC_ABAC_AUTHZ = {
+  permissions: { 'doc:read': {} },
+  models: ['AppRebacModel', 'AbacModel'],
+  rebac: { store: 'DbTupleStore', permissions: { 'doc:read': 'doc#view' }, namespaces: { doc: { relations: { viewer: ['user'] }, permissions: { view: { union: ['viewer'] } } } } },
+  abac: { stores: ['DbPolicyStore'] },
+};
+
+const REBAC_ABAC_SETUP: ProcessSetup = {
+  imports: ["import { AuthorizationModel, DecisionAudit } from '@spinajs/authz';", "import { DbTupleStore, RebacModel } from '@spinajs/authz-rebac';", "import '@spinajs/authz-abac';", "import { AuthzAuditEntry, DbDecisionAudit } from '@spinajs/authz-orm/audit';"],
+  register: ['const rebac = new RebacModel();', "DI.register(Object.defineProperty(() => rebac, 'name', { value: 'AppRebacModel' })).as(AuthorizationModel);", 'DI.register(DbDecisionAudit).as(DecisionAudit);'],
+  seed: ["await new DbTupleStore().write([{ object: { type: 'doc', id: 'd1' }, relation: 'viewer', subject: { type: 'user', id: 'alice' } }], [], SYSTEM);"],
+};
+
+describe('the authz cli over ReBAC and ABAC DB stores in a process that has not resolved the Orm', function () {
+  this.timeout(120_000);
+
+  it('authz:explain reads the tuple and the policies through the Orm the models boot, and the audit rows are written', async () => {
+    const body = cliRun([
+      "await (await DI.resolve(ExplainCommand)).execute('user:alice', 'doc:read', 'doc:d1', {});",
+      // DbDecisionAudit.record is fire and forget.
+      'for (let i = 0; i < 100 && (await AuthzAuditEntry.all()).length < 2; i++) await new Promise((r) => setTimeout(r, 20));',
+      'result.audit = (await AuthzAuditEntry.all()).map((e) => e.kind).sort();',
+    ]);
+    const result = (await freshProcess(body, true, REBAC_ABAC_AUTHZ, REBAC_ABAC_SETUP)) as { out: string[]; exitCode: number | null; orm: boolean; audit: string[]; error?: string };
+    expect(result.error).to.eq(undefined);
+    expect(result.out[0]).to.eq('ALLOWED: user:alice doc:read on doc:d1');
+    expect(result).to.include({ exitCode: null, orm: true });
+    expect(result.audit).to.include.members(['explain', 'runAs']);
+  });
+
+  it('with memory RBAC stores only, DbDecisionAudit boots the Orm and writes the audit rows of authz:explain', async () => {
+    const authz = { permissions: { 'doc:read': {} }, models: ['RbacModel'], rbac: { roles: { viewer: { grants: ['doc:read'] } }, stores: { assignments: ['MemoryAdminAssignmentStore'], links: [], membership: [] } } };
+    const setup: ProcessSetup = {
+      imports: ["import { DecisionAudit } from '@spinajs/authz';", "import { MemoryAdminAssignmentStore } from '@spinajs/authz-rbac';", "import { AuthzAuditEntry, DbDecisionAudit } from '@spinajs/authz-orm/audit';"],
+      register: ['DI.register(MemoryAdminAssignmentStore).asSelf();', 'DI.register(DbDecisionAudit).as(DecisionAudit);'],
+    };
+    const body = cliRun([
+      "await (await DI.resolve(ExplainCommand)).execute('user:alice', 'doc:read', undefined, {});",
+      'for (let i = 0; i < 100 && (await AuthzAuditEntry.all()).length < 2; i++) await new Promise((r) => setTimeout(r, 20));',
+      'result.audit = (await AuthzAuditEntry.all()).map((e) => e.kind).sort();',
+    ]);
+    const result = (await freshProcess(body, true, authz, setup)) as { out: string[]; orm: boolean; audit: string[]; error?: string };
+    expect(result.error).to.eq(undefined);
+    expect(result.out[0]).to.eq('DENIED: user:alice doc:read on $global');
+    expect(result.orm).to.eq(true);
+    expect(result.audit).to.include.members(['explain', 'runAs']);
+  });
+
+  it('an ABAC-only domain on DbPolicyStore boots the Orm and explains', async () => {
+    const authz = { permissions: { 'doc:read': {} }, models: ['AbacModel'], abac: { stores: ['DbPolicyStore'] } };
+    const result = (await freshProcess(cliRun(["await (await DI.resolve(ExplainCommand)).execute('user:alice', 'doc:read', 'doc:d1', {});"]), true, authz, { imports: ["import '@spinajs/authz-abac';"] })) as { out: string[]; exitCode: number | null; orm: boolean };
+    expect(result.out[0]).to.eq('DENIED: user:alice doc:read on doc:d1');
+    expect(result).to.include({ exitCode: null, orm: true });
   });
 });

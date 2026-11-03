@@ -8,7 +8,7 @@ It lives in the entry point `@spinajs/authz-orm/audit`. Importing it does **not*
 
 1. Importing `@spinajs/authz-orm/audit` registers the `AuthzAuditEntry` model and the migration `AuthzAudit_2026_10_01_00_00_00`, both on the connection named `authz-audit` (`AUDIT_CONNECTION`).
 2. The app registers `DbDecisionAudit` as a `DecisionAudit` and names it in `authz.audit.service`. The authz host then hands it every audit record of the domain.
-3. `record(entry)` builds an `AuthzAuditEntry` and inserts it as `SYSTEM`, so app scoping and the runtime guard never touch the audit's own write.
+3. `DbDecisionAudit` injects the `Orm`, so the domain boot that picks it boots the ORM and binds `AuthzAuditEntry`, also in a CLI process. `record(entry)` builds an `AuthzAuditEntry` and inserts it as `SYSTEM`, so app scoping and the runtime guard never touch the audit's own write.
 4. Each value is cut to its column width before the insert. `trace` holds the record's trace as JSON; for an `admin` record without a trace it holds the command (secrets already removed by `AuthzAdmin`).
 5. A failed write is logged on the `authz-audit` log (`writing a <kind> entry to authz_audit failed, the entry is dropped`) and the record is dropped. `record()` never rejects, so auditing never fails a check.
 

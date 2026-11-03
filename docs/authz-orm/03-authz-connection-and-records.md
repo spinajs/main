@@ -9,7 +9,7 @@ authz-orm keeps the ancestor table and the scope attribute tables on the ORM con
 3. At every domain boot, `AuthzOrmContributor` runs `checkResourceConnections(orm)`. It fails with `AuthzConfigError` when no connection answers to `authz`, or when an `@AccessResource` model uses another connection. The list filter joins the resource table with `authz_assignment` and `authz_resource_ancestor`, so they must share one database.
 4. On a write of an `@AccessResource` model, `AncestorMiddleware` checks that the statement's connection is the one `AncestorRecord` lives on, before it touches a row. It then reads and writes `authz_resource_ancestor` through `AncestorRecord` in the statement's transaction.
 5. `authz:ancestors-verify` and `authz:ancestors-rebuild` take the connection of the type's first registered model, which must be the record's; a type without a model uses the record's connection.
-6. `DbScopeAttributeStore` is built with `new`, not by DI, so it does not inject the `Orm`: resolve the `Orm` before its first read. A write runs only inside the `AuthzAdmin` transaction on the `authz` connection.
+6. `DbScopeAttributeStore` injects the `Orm` when DI builds it: register the class, and resolving the store boots the ORM. A store built with `new` gets no `Orm`: resolve it before its first read. A write runs only inside the `AuthzAdmin` transaction on the `authz` connection.
 
 ## Configuration
 
@@ -71,7 +71,7 @@ Same migration, record `ScopeAttributeVersionRecord`. One row (`id` 1), seeded b
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `DbScopeAttributeStore` | Not registered. Register one instance under `ScopeAttributeStore` and `WritableScopeAttributeStore`. | | `MemoryScopeAttributeStore` (`@spinajs/authz`) | `new DbScopeAttributeStore()` takes no arguments; register your own `WritableScopeAttributeStore` instead. |
+| `DbScopeAttributeStore` | Not registered. Register the class under `ScopeAttributeStore` and `WritableScopeAttributeStore`; both resolve one instance. | | `MemoryScopeAttributeStore` (`@spinajs/authz`) | The constructor takes no arguments; register your own `WritableScopeAttributeStore` instead. |
 | `AncestorRecord`, `ScopeAttributeRecord`, `ScopeAttributeVersionRecord` | ORM models on `@Connection('authz')`, registered when the package is imported | | | Not meant to be replaced. Write through the ancestor middleware and `AuthzAdmin`, never through the records. |
 | `readAncestors(refs)` | exported function | | | Reads the rows of each ref as resource, keyed by `resourceKey`, nearest first. One statement per resource type. |
 | `checkResourceConnections(orm)` | exported function, run by `AuthzOrmContributor` | | | Call it in a test to assert the connection rule. |
@@ -83,9 +83,9 @@ import { ScopeAttributeStore, WritableScopeAttributeStore } from '@spinajs/authz
 import { DbScopeAttributeStore } from '@spinajs/authz-orm';
 import { DI } from '@spinajs/di';
 
-const scopeAttributes = new DbScopeAttributeStore();
-DI.register(() => scopeAttributes).as(ScopeAttributeStore);
-DI.register(() => scopeAttributes).as(WritableScopeAttributeStore);
+// DI builds the store, so it injects the Orm; both tokens resolve the one instance.
+DI.register(DbScopeAttributeStore).as(ScopeAttributeStore);
+DI.register(DbScopeAttributeStore).as(WritableScopeAttributeStore);
 ```
 
 Writes need `authz.admin.backend: 'DbAuthzAdminBackend'`, whose batch transaction runs on the `authz` connection.
@@ -93,7 +93,7 @@ Writes need `authz.admin.backend: 'DbAuthzAdminBackend'`, whose batch transactio
 ## Important behaviour
 
 - **One connection for resources and authz tables.** A resource write, `authz:ancestors-verify` or `authz:ancestors-rebuild` on another connection fails before it touches a row: `… runs on connection "X", but authz_resource_ancestor is on connection "Y" (db.Aliases.authz)`.
-- **The Orm must be resolved.** A record used before the `Orm` resolved fails with `AuthzConfigError` (`the Orm is not resolved yet; resolve it (await DI.resolve(Orm)) before the authz tables are used`). A missing alias fails with `no ORM connection answers to "authz"; set db.Aliases.authz`. `DbScopeAttributeStore` follows the same rule.
+- **The Orm must be resolved.** A record used before the `Orm` resolved fails with `AuthzConfigError` (`the Orm is not resolved yet; resolve it (await DI.resolve(Orm)) before the authz tables are used`). A missing alias fails with `no ORM connection answers to "authz"; set db.Aliases.authz`. `DbScopeAttributeStore` follows the same rule when it is built with `new`.
 - **No hand-made chunks.** `readAncestors`, the ancestor writes, `readParents`, `findRows` and the scope attribute writes run one statement per type or class. The ORM splits long inserts and binds long `whereIn` lists ([`@spinajs/orm-sql` statements](../orm-sql/03-statements.md)).
 - **An id no row can hold stays out of the query.** Before it loads resource rows by id, authz-orm asks the ORM's `lookupValue()` whether the key column's type can hold the text id (a non-numeric id on an integer column, integer text beyond the column's range, a non-UUID on a UUID column). Such an id is a miss, never a bound value. The key column is found in any case (`findColumn()`).
 - **A bad scope attribute row names its path.** Reads take `path` and `value_json` raw and parse each row. Text that is not JSON throws `AuthzConfigError` (`authz_scope_attribute row "<path>": value_json holds …, not JSON`) with the `SyntaxError` as cause; JSON that is not a scalar throws `… not a scalar`.

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { AUTHZ_CONNECTION, AuthorizationModel, AuthzConfigError, AuthzContributor, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, compareDenyReasons, FALSE, GLOBAL, TRUE, and, or, registeredFunctions, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
 import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionRequest, DenyReason, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 import { Injectable, PerChildInstance } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
 import type { Policy } from '../contracts.js';
 
 import { PolicyStore } from '../contracts.js';
@@ -96,6 +97,8 @@ export class AbacModel extends AuthorizationModel {
     this.registry = ctx.permissions;
     if (!this.functions) this.parser = new DefaultConditionCompiler(await registeredFunctions(ctx.container));
     this.stores ??= storesFromConfig(this.name, ctx);
+    // DbPolicyStore is built with `new`, so it cannot inject the Orm that binds its records.
+    if (this.stores.some((s) => s instanceof DbPolicyStore)) await ctx.container.resolve(Orm);
     // The registry is complete only after every model's init, so the index waits for the first applies().
     await this.load(false);
   }
