@@ -1,4 +1,4 @@
-import { Configuration } from '@spinajs/configuration';
+import { Configuration } from '@spinajs/configuration-common';
 import { Autoinject, PerChildInstance } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { OrmDriver } from './driver.js';
