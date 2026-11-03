@@ -110,6 +110,8 @@ export interface RouteEntry {
   allowAnonymous?: boolean;
   public?: string;                   // @Public reason (http)
   doc?: { summary?: string; description?: string; tags?: string[]; deprecated?: boolean; responses?: { status: number; description?: string; type?: TypeRef }[] };
+  /** Id of the controller entry that declared the route, when the controller inherits it. */
+  inheritedFrom?: string;
   source: SourceRef;
 }
 
@@ -145,13 +147,17 @@ export interface ControllerEntry {
   access?: string[]; allowAnonymous?: boolean;   // class-level @Access / @AllowAnonymous
   public?: string;                   // class-level @Public reason
   routes: RouteEntry[];
+  /** Ids of the ancestor entries whose routes and guards are merged into this one, nearest first. */
+  bases?: string[];
   condition?: Condition;
   mountedBy?: MountedBy;
   source: SourceRef;
 }
 
-export interface SocketCommandEntry { name: string; handler: string; payload: TypeRef; result: TypeRef; /** The handler returns an async iterable; `result` describes one item */ stream?: true; options: { idempotent?: boolean; ordered?: 'connection' | 'client'; timeoutMs?: number }; access?: string[]; policies: PolicyRef[][]; source: SourceRef }
-export interface SocketControllerEntry { id: string; className: string; prefix: string; /** `id` of the `socketContracts` entry named by `@SocketController(prefix, { contract })` */ contract?: string; commands: SocketCommandEntry[]; events: { name: string; payload: TypeRef }[]; /** The declared type of every `@FromDI()` parameter, hooks included; omitted when there is none. */ diArgs?: { handler: string; index: number; ref?: RuntimeTypeRef; refProblem?: string }[]; mountedBy?: MountedBy; exported?: NotExported; source: SourceRef }
+export interface SocketCommandEntry { name: string; handler: string; payload: TypeRef; result: TypeRef; /** The handler returns an async iterable; `result` describes one item */ stream?: true; options: { idempotent?: boolean; ordered?: 'connection' | 'client'; timeoutMs?: number }; access?: string[]; policies: PolicyRef[][]; /** Index of the `@Payload` argument, which a subclass re-types through generics */ payloadIndex?: number; inheritedFrom?: string; source: SourceRef }
+/** `handler`: the method that handles the event; absent in fragments older than the field. */
+export interface SocketEventEntry { name: string; handler?: string; payload: TypeRef; payloadIndex?: number; inheritedFrom?: string }
+export interface SocketControllerEntry { id: string; className: string; prefix: string; /** `id` of the `socketContracts` entry named by `@SocketController(prefix, { contract })` */ contract?: string; commands: SocketCommandEntry[]; events: SocketEventEntry[]; /** The declared type of every `@FromDI()` parameter, hooks included; omitted when there is none. */ diArgs?: { handler: string; index: number; ref?: RuntimeTypeRef; refProblem?: string }[]; /** Ids of the ancestor entries whose handlers are merged into this one, nearest first. */ bases?: string[]; mountedBy?: MountedBy; exported?: NotExported; source: SourceRef }
 export interface SocketContractCommand { payload: TypeRef; result: TypeRef }
 export interface SocketContractEntry { id: string; /** Name the `defineContract` variable is exported under; lets a dependent package resolve a contract it imports */ exportName?: string; commands: Record<string, SocketContractCommand>; events: Record<string, TypeRef>; clientEvents: Record<string, TypeRef>; source: SourceRef }
 
@@ -202,6 +208,8 @@ export interface Manifest extends Omit<ManifestFragment, 'package'> {
   buildEnv?: string;
   /** `false` for `spinajs build --no-schemas`: the app's own types then have no schemas, its socket contracts included. */
   schemaDerivation?: false;
+  /** Version of `@spinajs/compiler` that built the manifest; `manifest:diff` warns when base and head differ. Absent in manifests older than the field. */
+  compilerVersion?: string;
   generatedAt: string;
   hash: string;                        // sha256 of canonical JSON with `hash` and `generatedAt` blanked
 }

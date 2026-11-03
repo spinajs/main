@@ -181,6 +181,9 @@ export const manifestSchema: Record<string, any> = {
           "type": "boolean",
           "const": false
         },
+        "compilerVersion": {
+          "type": "string"
+        },
         "generatedAt": {
           "type": "string"
         },
@@ -517,6 +520,12 @@ export const manifestSchema: Record<string, any> = {
             "$ref": "#/definitions/RouteEntry"
           }
         },
+        "bases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "condition": {
           "$ref": "#/definitions/Condition"
         },
@@ -664,6 +673,9 @@ export const manifestSchema: Record<string, any> = {
             }
           }
         },
+        "inheritedFrom": {
+          "type": "string"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -805,19 +817,7 @@ export const manifestSchema: Record<string, any> = {
         "events": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "payload": {
-                "$ref": "#/definitions/TypeRef"
-              }
-            },
-            "required": [
-              "name",
-              "payload"
-            ]
+            "$ref": "#/definitions/SocketEventEntry"
           }
         },
         "diArgs": {
@@ -842,6 +842,12 @@ export const manifestSchema: Record<string, any> = {
               "handler",
               "index"
             ]
+          }
+        },
+        "bases": {
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         },
         "mountedBy": {
@@ -915,6 +921,12 @@ export const manifestSchema: Record<string, any> = {
             }
           }
         },
+        "payloadIndex": {
+          "type": "number"
+        },
+        "inheritedFrom": {
+          "type": "string"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -927,6 +939,30 @@ export const manifestSchema: Record<string, any> = {
         "options",
         "policies",
         "source"
+      ]
+    },
+    "SocketEventEntry": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "handler": {
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/definitions/TypeRef"
+        },
+        "payloadIndex": {
+          "type": "number"
+        },
+        "inheritedFrom": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "payload"
       ]
     },
     "NotExported": {
