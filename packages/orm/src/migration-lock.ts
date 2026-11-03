@@ -18,6 +18,13 @@ export const MIGRATION_LOCK_STALE_AFTER = 600_000;
 export const MIGRATION_LOCK_MAX_STEALS = 3;
 
 /**
+ * How often a lock-table row written under an advisory lock is refreshed ( at most; `staleAfter / 3`
+ * when shorter ). Another holder of that advisory lock takes such a row over once it has seen it go
+ * two of these unrefreshed, which is how long the next run waits after a crash.
+ */
+export const MIGRATION_LOCK_ADVISORY_HEARTBEAT = 5_000;
+
+/**
  * Ends the `Owner` of a lock-table row written under the advisory lock for `key`
  * ( `TableMigrationLock.acquireUnderAdvisory()` ): `:advisory:` and the first 8 hex chars of
  * sha256(key). The key is part of the mark because one physical table is reached under different
@@ -109,8 +116,9 @@ export class TableMigrationLock extends MigrationLock {
   /**
    * Takes the row for a dialect lock that already holds the advisory lock for `request.key`, so
    * processes that lock by the row alone ( older releases, `Lock.Mode: 'table'` ) are kept out too.
-   * The row is marked with `migrationLockAdvisoryMark(request.key)`; a row with that mark is removed
-   * at once, any other row only once older than `staleAfter`. `release()` drops the row only.
+   * The row is marked with `migrationLockAdvisoryMark(request.key)` and refreshed every
+   * `MIGRATION_LOCK_ADVISORY_HEARTBEAT`. A row with that mark is removed once this call has seen it go
+   * two heartbeats unrefreshed, any other row only once older than `staleAfter`. `release()` drops the row only.
    *
    * Call it only while holding that advisory lock exclusively for this acquisition, on a session of
    * its own: advisory locks are re-entrant per session ( postgres, mysql `GET_LOCK`, mssql
@@ -123,7 +131,8 @@ export class TableMigrationLock extends MigrationLock {
 
   protected async take(request: IMigrationLockRequest, advisory: boolean): Promise<IMigrationLockHandle> {
     const owner = advisory ? `${this.lockOwner()}${migrationLockAdvisoryMark(request.key)}` : this.lockOwner();
-    const heartbeat = new TableLockHeartbeat(this.driver, this.Log, request, owner, await this.claim(request, owner, advisory));
+    const every = Math.max(1, Math.floor(request.staleAfter / 3));
+    const heartbeat = new TableLockHeartbeat(this.driver, this.Log, request, owner, await this.claim(request, owner, advisory), advisory ? Math.min(every, MIGRATION_LOCK_ADVISORY_HEARTBEAT) : every);
 
     return {
       holder: owner,
@@ -178,13 +187,25 @@ export class TableMigrationLock extends MigrationLock {
    * Staleness is judged against the *client* clock: `AcquiredAt` is written as `new Date()` and
    * compared to this host's `Date.now()`. On hosts whose clocks disagree the window is off by the
    * skew, which shows up as stealing too early or waiting too long.
+   *
+   * A row marked under the advisory lock this call holds is different: its writer lost that lock, by
+   * crashing or by the server ending its session while it may still be migrating. Only the first
+   * stops refreshing, so the row is taken over once it has stayed unchanged for two advisory
+   * heartbeats, timed here rather than by `AcquiredAt`, which no clock skew can shorten.
    */
   protected async claim(request: IMigrationLockRequest, owner: string, advisory = false): Promise<Date> {
     const start = Date.now();
     const expired = () => Date.now() - start > request.timeout;
-    const abandoned = (holder: { owner: string; since: Date; raw: Date | string }) => (advisory && holder.owner.endsWith(migrationLockAdvisoryMark(request.key))) || Date.now() - holder.since.getTime() > request.staleAfter;
     // by owner and timestamp: a row its holder refreshed after the steal is a live one, not the one that resisted it
     const judged = (holder: { owner: string; since: Date; raw: Date | string }) => `${holder.owner}@${holder.since.getTime()}`;
+    let watched: { row: string; since: number } | undefined;
+    const quiet = (holder: { owner: string; since: Date; raw: Date | string }) => {
+      if (watched?.row !== judged(holder)) {
+        watched = { row: judged(holder), since: Date.now() };
+      }
+      return Date.now() - watched.since >= 2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT;
+    };
+    const abandoned = (holder: { owner: string; since: Date; raw: Date | string }) => (advisory && holder.owner.endsWith(migrationLockAdvisoryMark(request.key)) && quiet(holder)) || Date.now() - holder.since.getTime() > request.staleAfter;
     const stolen = new Set<string>();
     let steals = 0;
 
@@ -214,7 +235,7 @@ export class TableMigrationLock extends MigrationLock {
         }
 
         if (expired()) {
-          throw this.timedOut(request, holder, holder && stolen.has(judged(holder)) ? steals : 0, err);
+          throw this.timedOut(request, holder, holder && stolen.has(judged(holder)) ? steals : 0, err, advisory);
         }
 
         await new Promise((resolve) => setTimeout(resolve, MIGRATION_LOCK_POLL_INTERVAL));
@@ -239,7 +260,7 @@ export class TableMigrationLock extends MigrationLock {
     if (advisory && holder.owner.endsWith(migrationLockAdvisoryMark(request.key))) {
       this.Log.warn(
         { connection: this.driver.Options.Name, owner: holder.owner, acquiredAt: holder.since },
-        'Removing the migration lock row of ${owner} on connection ${connection} ( since ${acquiredAt} ): it was written under the advisory lock this run now holds, so its writer is gone.',
+        'Removing the migration lock row of ${owner} on connection ${connection} ( last refreshed at ${acquiredAt} ): it was written under the advisory lock this run now holds and has stopped being refreshed, so its writer is gone.',
       );
     } else {
       // loud, because the alternative reading is a live run that could not refresh its row
@@ -254,7 +275,7 @@ export class TableMigrationLock extends MigrationLock {
     await this.driver.del().from(request.lockTable).where(where);
   }
 
-  protected timedOut(request: IMigrationLockRequest, holder: { owner: string; since: Date; raw: Date | string } | undefined, steals: number, err: unknown): OrmException {
+  protected timedOut(request: IMigrationLockRequest, holder: { owner: string; since: Date; raw: Date | string } | undefined, steals: number, err: unknown, advisory = false): OrmException {
     const { timeout, lockTable } = request;
     const name = this.driver.Options.Name;
 
@@ -264,6 +285,12 @@ export class TableMigrationLock extends MigrationLock {
 
     if (holder && steals > 0) {
       return new OrmException(`Could not acquire migration lock on connection ${name} within ${timeout}ms - held by ${holder.owner} since ${holder.since.toISOString()}, and ${steals} attempt(s) to remove it as stale left it in place - delete the row from ${lockTable} by hand`);
+    }
+
+    if (holder && advisory && holder.owner.endsWith(migrationLockAdvisoryMark(request.key))) {
+      return new OrmException(
+        `Could not acquire migration lock on connection ${name} within ${timeout}ms - held by ${holder.owner}, last refreshed at ${holder.since.toISOString()}: that run lost the advisory lock this run now holds but is still refreshing its row, so it may still be migrating. It stops before its next migration; the row is taken over once it goes ${2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT}ms unrefreshed`,
+      );
     }
 
     if (holder) {
@@ -305,6 +332,7 @@ class TableLockHeartbeat {
     protected request: IMigrationLockRequest,
     protected owner: string,
     acquiredAt: Date,
+    protected every: number,
   ) {
     this.confirmedAt = acquiredAt.getTime();
     this.schedule();
@@ -345,7 +373,7 @@ class TableLockHeartbeat {
           this.schedule();
         }
       });
-    }, Math.max(1, Math.floor(this.request.staleAfter / 3)));
+    }, this.every);
 
     // a run in progress keeps the process alive through its own I/O; the refresh must not
     this.timer.unref();
