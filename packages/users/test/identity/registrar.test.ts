@@ -3,8 +3,6 @@ import { Configuration } from '@spinajs/configuration';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { InvalidArgument } from '@spinajs/exceptions';
-// the entry first: its subpath import is circular when loaded before it
-import '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { DefaultQueueService } from '@spinajs/queue';
 import { IdentityRegistrar } from '@spinajs/authn/contracts';
