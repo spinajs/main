@@ -38,6 +38,8 @@ spinajs doctor --manifest dist/app.manifest.json
 | SOCK005 | error | two `defineContract` declarations share one contract id |
 | SOCK006 | warning | a `$data` pointer in a contract payload schema names no property, or an optional one: Ajv then skips the rule without an error |
 
+The HTTP rules read the routes a controller inherits from its entry, as the runtime serves them. A report on an inherited route names the base (`AppUploads.create (inherited from @spinajs/upload:UploadController)`) and points at the subclass, the code the app can change. A subclass of a guard-less base, such as `UploadController`, fails HTTP002 unless the subclass has `@Access`, `@Policy`, `@AllowAnonymous` or `@Public`. HTTP001 skips a controller a subclass replaces with an unconditional `DI.register(Sub).as(Base)`, as the runtime mounts only the subclass.
+
 ### DI002 details
 
 The rule reports one diagnostic per strongly connected component of the injection graph, and the message

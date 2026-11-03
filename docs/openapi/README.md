@@ -4,6 +4,8 @@
 
 It documents what the build recorded. For the live document of a running server, with the Swagger UI, see [`@spinajs/http-swagger`](../http-swagger/README.md).
 
+Routes a controller inherits are documented on the controller, under its path, with the types it binds (`ArticlesController extends BaseCrud<ArticleDto>` documents `GET /articles/{id}` returning `ArticleDto`, as `Articles_get`). A controller replaced with an unconditional `DI.register(Sub).as(Base)` is left out, because the runtime mounts only the subclass. A registration inside `bootstrap()`, a function, a loop or a `try` is conditional: both controllers stay, so on a path both serve generation fails with `duplicate operation` and `spinajs doctor` reports HTTP001. Register an override at module top level.
+
 ## Install
 
 ```sh

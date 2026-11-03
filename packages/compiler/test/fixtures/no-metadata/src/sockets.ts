@@ -3,20 +3,20 @@ import { Db } from './services.js';
 
 export class Hello {}
 
-export abstract class CrudSocket extends BaseSocketController {
+export abstract class CrudSocket<T> extends BaseSocketController {
   @Command('save')
-  public save(@Payload() item: Hello, @FromDI() db: Db) {
-    return [item, db];
+  public save(@Payload() item: T, @FromDI() db: Db): Promise<T> {
+    return Promise.resolve(item);
   }
 
   @OnEvent('touched')
-  public touched(@Payload() item: Hello) {
+  public touched(@Payload() item: T) {
     return item;
   }
 }
 
 @SocketController('things')
-export class ThingsSocket extends CrudSocket {}
+export class ThingsSocket extends CrudSocket<Hello> {}
 
 @SocketController('docs')
 export class DocsSocket extends BaseSocketController {

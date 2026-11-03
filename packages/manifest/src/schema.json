@@ -180,6 +180,9 @@
           "type": "boolean",
           "const": false
         },
+        "compilerVersion": {
+          "type": "string"
+        },
         "generatedAt": {
           "type": "string"
         },
@@ -516,6 +519,12 @@
             "$ref": "#/definitions/RouteEntry"
           }
         },
+        "bases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "condition": {
           "$ref": "#/definitions/Condition"
         },
@@ -663,6 +672,9 @@
             }
           }
         },
+        "inheritedFrom": {
+          "type": "string"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -804,19 +816,7 @@
         "events": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "payload": {
-                "$ref": "#/definitions/TypeRef"
-              }
-            },
-            "required": [
-              "name",
-              "payload"
-            ]
+            "$ref": "#/definitions/SocketEventEntry"
           }
         },
         "diArgs": {
@@ -841,6 +841,12 @@
               "handler",
               "index"
             ]
+          }
+        },
+        "bases": {
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         },
         "mountedBy": {
@@ -914,6 +920,12 @@
             }
           }
         },
+        "payloadIndex": {
+          "type": "number"
+        },
+        "inheritedFrom": {
+          "type": "string"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -926,6 +938,30 @@
         "options",
         "policies",
         "source"
+      ]
+    },
+    "SocketEventEntry": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "handler": {
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/definitions/TypeRef"
+        },
+        "payloadIndex": {
+          "type": "number"
+        },
+        "inheritedFrom": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "payload"
       ]
     },
     "NotExported": {

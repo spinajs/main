@@ -7,7 +7,7 @@ import { Log, Logger } from '@spinajs/log';
 import type { LineageClass } from '@spinajs/http';
 import { SocketException } from '@spinajs/http-socket-common';
 import { manifestSchemaKey, manifestValidatorOf, prepareManifestSchemas, sanitizeError, schemaOfClass, type IValidationError } from '@spinajs/validation';
-import { authoritativeSchema, checkSocketContract, loadRuntimeManifest, ownEntries, resolveTypeRef, type Manifest, type ManifestMode, type SocketContractEntry, type SocketControllerEntry, type TypeRef } from '@spinajs/manifest';
+import { authoritativeSchema, checkSocketContract, inheritSocketHandlers, loadRuntimeManifest, ownEntries, resolveTypeRef, type Manifest, type ManifestMode, type SocketContractEntry, type SocketControllerEntry, type TypeRef } from '@spinajs/manifest';
 import { FromDiArg, PayloadArg } from './args.js';
 import type { IRegisteredHandler, ISocketControllerDescriptor, ISocketHandlerDescriptor, ISocketParameter } from './interfaces.js';
 
@@ -84,20 +84,12 @@ const payloadOf = (entry: SocketControllerEntry | undefined, handler: ISocketHan
 
 /** A subclass serves the handlers of its bases, and the manifest lists each on the class that declares it. */
 function withInherited(manifest: Manifest, entry: SocketControllerEntry, lineage: readonly LineageClass[]): SocketControllerEntry {
-  const merged = { ...entry, commands: [...entry.commands], events: [...entry.events], diArgs: [...(entry.diArgs ?? [])] };
   const listed = [...manifest.socketControllers, ...(manifest.socketControllerBases ?? [])];
-
-  for (const { name, file } of lineage.slice(1)) {
+  const bases = lineage.slice(1).flatMap(({ name, file }) => {
     const named = ownEntries(listed.filter((c) => c.className === name), { file }, manifest);
-    if (named.length !== 1) continue;
-
-    const [base] = named;
-    merged.commands.push(...base.commands.filter((c) => !merged.commands.some((own) => own.handler === c.handler)));
-    merged.events.push(...base.events.filter((e) => !merged.events.some((own) => own.name === e.name)));
-    merged.diArgs.push(...(base.diArgs ?? []).filter((a) => !merged.diArgs.some((own) => own.handler === a.handler)));
-    merged.contract ??= base.contract;
-  }
-  return merged;
+    return named.length === 1 ? named : [];
+  });
+  return inheritSocketHandlers(entry, bases);
 }
 
 /** The command's `schema`, the `@Payload(schema)` or the DTO's `@Schema` wins in `PayloadArg`; the derived schema is then not compiled. */

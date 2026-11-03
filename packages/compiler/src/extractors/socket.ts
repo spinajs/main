@@ -9,6 +9,7 @@ import { policyGroupsOf } from './policies.js';
 import { owningPackage } from '../owning-package.js';
 
 type NamedMethod = ts.MethodDeclaration & { name: ts.Identifier };
+type NamedClass = ts.ClassDeclaration & { name: ts.Identifier };
 
 function socketAccessOf(m: ts.MethodDeclaration, ctx: ExtractorContext): string[] | undefined {
   const d = findDecorator(m, 'SocketAccess');
@@ -17,16 +18,16 @@ function socketAccessOf(m: ts.MethodDeclaration, ctx: ExtractorContext): string[
   return Array.isArray(v) ? v.map(String) : [String(v)];
 }
 
-function payloadOf(m: NamedMethod, className: string, ctx: ExtractorContext): TypeRef {
+function payloadOf(m: NamedMethod, className: string, ctx: ExtractorContext): { payload: TypeRef; payloadIndex?: number } {
   const p = m.parameters.find((param) => findDecorator(param, 'Payload'));
-  if (!p) return { text: 'void' };
+  if (!p) return { payload: { text: 'void' } };
   const type = ctx.checker.getTypeAtLocation(p);
-  return { ...ctx.typeRef(type, p, `${className}_${m.name.text}_Payload`), ...ctx.runtimeTypeFields(type, p) };
+  return { payload: { ...ctx.typeRef(type, p, `${className}_${m.name.text}_Payload`), ...ctx.runtimeTypeFields(type, p) }, payloadIndex: m.parameters.indexOf(p) };
 }
 
 const STREAM_TYPES = new Set(['AsyncIterable', 'AsyncIterableIterator', 'AsyncGenerator']);
 
-function streamItemOf(type: ts.Type, ctx: ExtractorContext): ts.Type | undefined {
+export function streamItemOf(type: ts.Type, ctx: ExtractorContext): ts.Type | undefined {
   const isReference = type.flags & ts.TypeFlags.Object && (type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference;
   if (!isReference || !STREAM_TYPES.has(type.getSymbol()?.name ?? '')) return undefined;
   return ctx.checker.getTypeArguments(type as ts.TypeReference)[0];
@@ -48,7 +49,7 @@ function commandOf(m: NamedMethod, className: string, cmd: DecoratorInfo, ctx: E
   return {
     name: (literalValue(cmd.args[0], ctx) as string | undefined) ?? m.name.text,
     handler: m.name.text,
-    payload: payloadOf(m, className, ctx),
+    ...payloadOf(m, className, ctx),
     ...resultOf(m, className, ctx),
     options: (literalValue(cmd.args[1], ctx) as SocketCommandEntry['options'] | undefined) ?? {},
     ...(access ? { access } : {}),
@@ -108,7 +109,7 @@ function diArgsOf(node: ts.ClassDeclaration, ctx: ExtractorContext): NonNullable
   );
 }
 
-function controllerOf(node: ts.ClassDeclaration & { name: ts.Identifier }, sc: DecoratorInfo | undefined, ctx: ExtractorContext): SocketControllerEntry {
+function controllerOf(node: NamedClass, sc: DecoratorInfo | undefined, ctx: ExtractorContext): SocketControllerEntry {
   const commands: SocketCommandEntry[] = [];
   const events: SocketControllerEntry['events'] = [];
   for (const m of node.members) {
@@ -117,7 +118,7 @@ function controllerOf(node: ts.ClassDeclaration & { name: ts.Identifier }, sc: D
     const cmd = findDecorator(m, 'Command');
     const ev = findDecorator(m, 'OnEvent');
     if (cmd) commands.push(commandOf(named, node.name.text, cmd, ctx));
-    else if (ev) events.push({ name: (literalValue(ev.args[0], ctx) as string | undefined) ?? named.name.text, payload: payloadOf(named, node.name.text, ctx) });
+    else if (ev) events.push({ name: (literalValue(ev.args[0], ctx) as string | undefined) ?? named.name.text, handler: named.name.text, ...payloadOf(named, node.name.text, ctx) });
   }
   const contract = sc && boundContractOf(sc, ctx);
   const diArgs = diArgsOf(node, ctx);
@@ -133,12 +134,21 @@ function controllerOf(node: ts.ClassDeclaration & { name: ts.Identifier }, sc: D
   };
 }
 
+const declarations = new WeakMap<SocketControllerEntry, NamedClass>();
+
+/** The class an entry of this run was extracted from; entries read from a fragment have none. */
+export const socketDeclarationOf = (entry: SocketControllerEntry): NamedClass | undefined => declarations.get(entry);
+
 function socketControllersIn(file: ts.SourceFile, ctx: ExtractorContext, wanted: (node: ts.ClassDeclaration, sc: DecoratorInfo | undefined) => boolean): SocketControllerEntry[] {
   const out: SocketControllerEntry[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isClassDeclaration(node) && node.name) {
       const sc = findDecorator(node, 'SocketController');
-      if (wanted(node, sc)) out.push(controllerOf(node as ts.ClassDeclaration & { name: ts.Identifier }, sc, ctx));
+      if (wanted(node, sc)) {
+        const entry = controllerOf(node as NamedClass, sc, ctx);
+        declarations.set(entry, node as NamedClass);
+        out.push(entry);
+      }
     }
     ts.forEachChild(node, visit);
   };
