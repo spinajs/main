@@ -24,6 +24,9 @@ export const MIGRATION_LOCK_MAX_STEALS = 3;
  */
 export const MIGRATION_LOCK_ADVISORY_HEARTBEAT = 5_000;
 
+/** The longest a lock session goes without a query while held, so no server or proxy idle limit ends it. */
+export const MIGRATION_LOCK_SESSION_KEEPALIVE = 30_000;
+
 /**
  * Ends the `Owner` of a lock-table row written under the advisory lock for `key`
  * ( `TableMigrationLock.acquireUnderAdvisory()` ): `:advisory:` and the first 8 hex chars of
@@ -426,6 +429,9 @@ export interface IMigrationLockSession {
 /**
  * A lock the database keeps for a dedicated session outside the pool, so holding it costs the
  * migrations no pooled connection. The session dying frees the lock, which `assertHeld()` reports.
+ * While held, the session is asked every `min(staleAfter / 3, MIGRATION_LOCK_SESSION_KEEPALIVE)`
+ * whether it still holds the lock: that keeps it from idling out during a long migration, and a
+ * failed answer marks the lock lost for good.
  *
  * 3.x only: after the session lock it also takes the lock-table row, so a process of an earlier
  * release, which knows only the row, and this one exclude each other during a rolling deploy.
@@ -444,19 +450,33 @@ export abstract class SessionMigrationLock extends MigrationLock {
         throw new OrmException(`Could not acquire migration lock on connection ${this.driver.Options.Name} within ${request.timeout}ms - another migration run holds ${session.name}`);
       }
 
-      row = await this.acquireRow({ ...request, timeout: Math.max(0, deadline - Date.now()) });
+      // a session lock won at the deadline still gets one try at the row, or a dead run's row it removes is named as the holder
+      row = await this.acquireRow({ ...request, timeout: Math.max(MIGRATION_LOCK_POLL_INTERVAL, deadline - Date.now()) });
     } catch (err) {
       await this.closeQuietly(session);
       throw err;
     }
 
+    const keepAlive = new SessionKeepAlive(session, Math.max(1, Math.min(Math.floor(request.staleAfter / 3), MIGRATION_LOCK_SESSION_KEEPALIVE)), (failure) => {
+      this.Log.warn(
+        { error: failure, connection: this.driver.Options.Name, lock: session.name },
+        'Migration lock on connection ${connection} was lost: its session no longer holds ${lock}. The run stops before its next migration.',
+      );
+    });
+
     return {
       holder: session.name,
       assertHeld: async () => {
+        if (keepAlive.lost) {
+          throw this.lostException(session, keepAlive.lost.failure);
+        }
+
         await this.assertLocked(session);
         await row.assertHeld();
       },
       release: async () => {
+        await keepAlive.stop();
+
         try {
           await row.release();
         } finally {
@@ -480,6 +500,7 @@ export abstract class SessionMigrationLock extends MigrationLock {
   /**
    * Opens a new session for every acquisition, the lock not taken yet. Never a shared one: these locks
    * are re-entrant within a session, so a second run of this process would get the lock again.
+   * Where the server allows it, the session's idle limit is turned off.
    */
   protected abstract openSession(request: IMigrationLockRequest): Promise<IMigrationLockSession>;
 
@@ -489,6 +510,11 @@ export abstract class SessionMigrationLock extends MigrationLock {
   /** The lock-table row, taken while this run holds the session lock. */
   protected acquireRow(request: IMigrationLockRequest): Promise<IMigrationLockHandle> {
     return this.driver.Container.resolve(TableMigrationLock, [this.driver]).acquireUnderAdvisory(request);
+  }
+
+  /** What a lock session is called on the server ( application or program name ), so operators can tell it from the pool. */
+  protected sessionLabel(): string {
+    return `spinajs-migration-lock:${this.driver.Options.Name}`;
   }
 
   protected tableLock(): MigrationLock {
@@ -521,16 +547,69 @@ export abstract class SessionMigrationLock extends MigrationLock {
     }
 
     if (!locked) {
-      throw new MigrationLockLostException(
-        `Migration lock on connection ${this.driver.Options.Name} was lost: its session no longer holds ${session.name}${failure ? ` ( ${(failure as Error).message} )` : ''}, so another run may have taken it. The run stops before its next migration; run it again.`,
-        failure,
-      );
+      throw this.lostException(session, failure);
     }
+  }
+
+  protected lostException(session: IMigrationLockSession, failure: unknown): MigrationLockLostException {
+    return new MigrationLockLostException(
+      `Migration lock on connection ${this.driver.Options.Name} was lost: its session no longer holds ${session.name}${failure ? ` ( ${(failure as Error).message} )` : ''}, so another run may have taken it. The run stops before its next migration; run it again.`,
+      failure,
+    );
   }
 
   protected async closeQuietly(session: IMigrationLockSession): Promise<void> {
     // closing the session frees a lock it took, so a failed unlock changes nothing
     await session.unlock().catch(() => undefined);
     await session.close().catch(() => undefined);
+  }
+}
+
+/** Asks a held lock's session, on an unref'd timer, whether it still holds the lock; the first failed answer is kept. */
+class SessionKeepAlive {
+  public lost: { failure: unknown } | undefined;
+  protected stopped = false;
+  protected timer: NodeJS.Timeout | undefined;
+  protected beat: Promise<void> = Promise.resolve();
+
+  constructor(
+    protected session: IMigrationLockSession,
+    protected every: number,
+    protected onLost: (failure: unknown) => void,
+  ) {
+    this.schedule();
+  }
+
+  public async stop(): Promise<void> {
+    this.stopped = true;
+    clearTimeout(this.timer);
+    await this.beat;
+  }
+
+  protected schedule(): void {
+    this.timer = setTimeout(() => {
+      this.beat = this.check().finally(() => {
+        if (!this.stopped && !this.lost) {
+          this.schedule();
+        }
+      });
+    }, this.every);
+    this.timer.unref();
+  }
+
+  protected async check(): Promise<void> {
+    let failure: unknown;
+    let locked = false;
+
+    try {
+      locked = await this.session.isLocked();
+    } catch (err) {
+      failure = err;
+    }
+
+    if (!locked && !this.stopped) {
+      this.lost = { failure };
+      this.onLost(failure);
+    }
   }
 }

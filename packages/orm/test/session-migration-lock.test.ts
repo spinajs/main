@@ -1,11 +1,13 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { IMigrationLockHandle, IMigrationLockRequest, IMigrationLockSession, MigrationLock, MigrationLockLostException, OrmException, SessionMigrationLock } from '../src/index.js';
+import { IMigrationLockHandle, IMigrationLockRequest, IMigrationLockSession, MIGRATION_LOCK_POLL_INTERVAL, MigrationLock, MigrationLockLostException, OrmException, SessionMigrationLock } from '../src/index.js';
 import { OrmDriver } from '../src/driver.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const request = (over: Partial<IMigrationLockRequest> = {}): IMigrationLockRequest => ({ key: 'k', lockTable: 'spinajs_migration_lock', timeout: 2_000, staleAfter: 600_000, ...over });
 
@@ -19,6 +21,9 @@ class Server {
 class FakeSession implements IMigrationLockSession {
   public readonly name = 'fake lock (k)';
   public dead = false;
+  public asked = 0;
+  /** `tryLock()` answers false this many times first. */
+  public busyTries = 0;
 
   constructor(
     protected server: Server,
@@ -27,6 +32,9 @@ class FakeSession implements IMigrationLockSession {
 
   public async tryLock() {
     this.server.events.push(`try:${this.id}`);
+    if (this.busyTries-- > 0) {
+      return false;
+    }
     if (this.server.holder && this.server.holder !== this) {
       return false;
     }
@@ -35,6 +43,7 @@ class FakeSession implements IMigrationLockSession {
   }
 
   public async isLocked() {
+    this.asked++;
     if (this.dead) {
       throw new Error('socket closed');
     }
@@ -93,6 +102,9 @@ class FakeRowLock extends MigrationLock {
 class FakeSessionLock extends SessionMigrationLock {
   public session: FakeSession;
   public debugs: string[] = [];
+  public warnings: string[] = [];
+  public rowRequests: IMigrationLockRequest[] = [];
+  public busyTries = 0;
 
   constructor(
     protected server: Server,
@@ -103,6 +115,7 @@ class FakeSessionLock extends SessionMigrationLock {
 
   protected async openSession() {
     this.session = new FakeSession(this.server, this.id);
+    this.session.busyTries = this.busyTries;
     return this.session;
   }
 
@@ -111,6 +124,7 @@ class FakeSessionLock extends SessionMigrationLock {
   }
 
   protected acquireRow(req: IMigrationLockRequest) {
+    this.rowRequests.push(req);
     return new FakeRowLock(this.server, this.id).acquire(req);
   }
 
@@ -122,7 +136,7 @@ class FakeSessionLock extends SessionMigrationLock {
 // the base class logs through an @Logger getter on its own prototype; this one shadows it
 Object.defineProperty(FakeSessionLock.prototype, 'Log', {
   get(this: FakeSessionLock) {
-    return { debug: (_: unknown, message: string) => this.debugs.push(message) };
+    return { debug: (_: unknown, message: string) => this.debugs.push(message), warn: (_: unknown, message: string) => this.warnings.push(message) };
   },
 });
 
@@ -200,5 +214,41 @@ describe('SessionMigrationLock', () => {
     server.row = undefined;
     server.holder = new FakeSession(server, 'a');
     expect(await locker.isHeld(request())).to.be.true;
+  });
+
+  it('keeps the session busy while held: asks it every StaleAfter / 3, and stops at release', async () => {
+    const locker = new FakeSessionLock(new Server(), 'a');
+    const lock = await locker.acquire(request({ staleAfter: 300 }));
+
+    await delay(450);
+    expect(locker.session.asked, 'keep-alive queries while held').to.be.at.least(3);
+
+    await lock.release();
+    const asked = locker.session.asked;
+    await delay(300);
+    expect(locker.session.asked, 'none after release').to.eq(asked);
+  });
+
+  it('a keep-alive that finds the session gone marks the lock lost for good', async () => {
+    const locker = new FakeSessionLock(new Server(), 'a');
+    const lock = await locker.acquire(request({ staleAfter: 300 }));
+
+    locker.session.dead = true;
+    await delay(250);
+    // the session answers again, but whatever it holds now, the lock was gone in between
+    locker.session.dead = false;
+
+    await expect(lock.assertHeld()).to.be.rejectedWith(MigrationLockLostException, /no longer holds fake lock \(k\) \( socket closed \)/);
+    expect(locker.warnings).to.have.length(1);
+    await lock.release();
+  });
+
+  it('gives the row at least one poll interval when the session lock is won at the deadline', async () => {
+    const locker = new FakeSessionLock(new Server(), 'a');
+    locker.busyTries = 1;
+
+    await (await locker.acquire(request({ timeout: 100 }))).release();
+
+    expect(locker.rowRequests[0].timeout).to.be.at.least(MIGRATION_LOCK_POLL_INTERVAL);
   });
 });
