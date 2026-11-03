@@ -295,6 +295,59 @@ describe('sqlite TableMigrationLock', function () {
       await live.release();
     }).timeout(30_000);
 
+    it('acquireUnderAdvisory() takes over a crashed run marked row in one call even with a timeout shorter than two heartbeats', async () => {
+      const marked = `other-host:4242:0badf00d${mark(request().key)}`;
+      await writeRow(marked);
+
+      const start = Date.now();
+      const handle = await new TableMigrationLock(driver).acquireUnderAdvisory(request({ timeout: 2_000 }));
+      const took = Date.now() - start;
+
+      expect(took, 'waits two heartbeats').to.be.at.least(2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT);
+      expect(took, 'then takes it over').to.be.lessThan(2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT + 2_000);
+      expect((await row()).Owner).to.eq(handle.holder);
+      await handle.release();
+    }).timeout(30_000);
+
+    it('acquireUnderAdvisory() judges a marked row of its key by the quiet rule alone, not by its age', async () => {
+      // an hour old, as written by a host whose clock runs that far behind
+      await writeRow(`other-host:4242:0badf00d${mark(request().key)}`, 3_600_000);
+
+      const start = Date.now();
+      const handle = await new TableMigrationLock(driver).acquireUnderAdvisory(request({ timeout: 20_000 }));
+
+      expect(Date.now() - start, 'not at once').to.be.at.least(2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT);
+      await handle.release();
+    }).timeout(30_000);
+
+    it('acquireUnderAdvisory() with a StaleAfter below the heartbeat leaves a marked row of its key alone while it is refreshed, and gives up within its timeout and the quiet window', async () => {
+      const live = await new TableMigrationLock(driver).acquireUnderAdvisory(request());
+
+      const start = Date.now();
+      const { error } = await settle(new TableMigrationLock(driver).acquireUnderAdvisory(request({ timeout: 5_000, staleAfter: 3_000 })));
+      const took = Date.now() - start;
+
+      expect((error as Error)?.message).to.contain(`held by ${live.holder}, last refreshed at `).and.contain('still refreshing its row');
+      expect(took).to.be.lessThan(5_000 + 2 * MIGRATION_LOCK_ADVISORY_HEARTBEAT + 500 + 1_000);
+      expect((await row()).Owner).to.eq(live.holder);
+      await live.assertHeld();
+      await live.release();
+    }).timeout(30_000);
+
+    it('acquireUnderAdvisory() says a marked row was not watched long enough, not that it is still refreshed, when another one replaces it past the timeout', async () => {
+      const key = request().key;
+      await writeRow(`first-host:4242:0badf00d${mark(key)}`);
+
+      const acquiring = settle(new TableMigrationLock(driver).acquireUnderAdvisory(request({ timeout: 1_000 })));
+      await delay(2_000);
+      await driver.update().in(LOCK_TABLE).update({ Owner: `second-host:4242:0badf00d${mark(key)}`, AcquiredAt: new Date() }).where({ Id: 1 });
+      const { error } = await acquiring;
+
+      expect((error as Error)?.message).to.contain(`held by second-host:4242:0badf00d${mark(key)}, last refreshed at `);
+      expect((error as Error)?.message).to.match(/watched its row for only \d+ms without seeing it refreshed/);
+      expect((error as Error)?.message).not.to.contain('still refreshing');
+    }).timeout(30_000);
+
     it('acquireUnderAdvisory() keeps the StaleAfter rule for rows without the mark of its key', async () => {
       for (const owner of ['old-host:4242', 'new-host:4242:0badf00d', 'old-mark:4242:0badf00d:advisory', `other-key:4242:0badf00d${mark(otherKey())}`]) {
         await writeRow(owner);
