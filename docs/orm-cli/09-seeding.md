@@ -32,7 +32,7 @@ Step 3 is skipped with `--skip-seed` (`migrate({ skipSeed: true })`) and with `-
 4. It resolves each migration from its connection's container and runs its `data()`, in `(timestamp, name)` order. Every hook runs; the failures are reported together, as in `migrate-up`.
 5. It logs `Seeded <n> migration(s): <names>` at `success` level through the `ORM-CLI` logger and releases the locks.
 
-`migrate-seed` never applies a migration and writes no tracking row. On a database with nothing applied it creates no table; otherwise taking the run lock brings the tracking table to the current format, as every run does. A pending migration is not seeded.
+`migrate-seed` never applies a migration and writes no tracking row. When no connection in scope has anything applied, it creates no table; otherwise taking the run lock creates or brings to the current format the tracking and lock tables of each connection it locks, as every run does, also of one with nothing applied. A pending migration is not seeded.
 
 ## Options
 

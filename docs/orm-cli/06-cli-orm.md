@@ -119,7 +119,7 @@ void checkDrift();
 `IOrmMigratorOptions` and `MigrateOnStartup` are removed, and so is `OrmMigrator.boot()`: the `Orm` never migrates, and `resolveMigrationTool()` now boots it with the boot guard disabled. `resolveCliMigrator()` is unchanged for callers.
 
 ```ts
-// Before (3.0.x)
+// Before (3.0.x); in 3.1.0 this throws an OrmException naming resolveMigrationTool()
 const tool = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
 
 // After

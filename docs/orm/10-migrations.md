@@ -254,7 +254,7 @@ In each directory it matches `**/!(*.*).{ts,js,cjs,mjs}` (no environment tag) an
 | `Orm` | Read-only: the `Orm` the migrator runs over. |
 | `Runner` | The `MigrationRunner` over the `Orm`'s migrations and connections. |
 | `migrate(options?: IOrmMigrateOptions)` | `IMigrationUpOptions` plus `name` and `skipSeed`. Under one run lock per connection: applies, re-reads the touched models, runs `data()` (not with `fake` or `skipSeed`). Resolves with the applied migrations. With `name`, it locks only that migration's connection, and an unknown name throws before any lock is taken or storage created. |
-| `seed(options?: IOrmSeedOptions)` | `name`, `connection`. Under the run lock (with `name`, only of the connection it runs on): runs `data()` of every applied migration (or only `name`, or only one connection's) in `(timestamp, name)` order; every hook runs and the failures are reported in one `OrmException`. It reads the tracking table without DDL, and with nothing applied it takes no lock, so a fresh database gets no table. A `name` that is registered but not applied throws `Migration <name> is not applied on any configured connection - nothing to seed` (`on connection <connection>` with `connection`). Resolves with the seeded migrations. What `migrate-seed` runs. |
+| `seed(options?: IOrmSeedOptions)` | `name`, `connection`. Under the run lock (with `name`, only of the connection it runs on): runs `data()` of every applied migration (or only `name`, or only one connection's) in `(timestamp, name)` order; every hook runs and the failures are reported in one `OrmException`. It reads the tracking table without DDL. When no connection in scope has anything applied, it takes no lock and creates no table; otherwise taking the run locks creates any missing tracking and lock table of each connection it locks, also of one with nothing applied. A `name` that is registered but not applied throws `Migration <name> is not applied on any configured connection - nothing to seed` (`on connection <connection>` with `connection`). Resolves with the seeded migrations. What `migrate-seed` runs. |
 | `plan(options?: { name?, connection? })` | `Promise<IMigrationPlanEntry[]>`: what `migrate()` with the same options would apply, in order, as `{ name, connection, batch }`, then the FAILED migrations that stop it, with `failed: true`. Read-only: no tracking table is created, no lock taken, nothing applied. What `migrate-up --dry-run` prints. |
 
 The `Orm` never resolves `OrmMigrator`, and resolving it migrates nothing. It is a DI singleton, so it keeps the `Orm` it was first constructed over.
@@ -451,7 +451,7 @@ Use `Lock.Mode: 'table'` where a session lock does not exclude: postgres behind 
 | `db.Connections[].Migration.Lock.Enabled` | `boolean` | `true` | `true`, `false` | Guard runs with the lock table. |
 | `db.Connections[].Migration.Lock.Timeout` | `number` (ms) | `30000` | positive integer | How long to wait for the lock before throwing. A session lock that finds a lock-table row of its own key unrefreshed waits for it up to 10.5 s past this, so a shorter value still takes the row over of a crashed run; against a live holder that still refreshes it, the run fails at that holder's next refresh, up to about 5 s past this. |
 | `db.Connections[].Migration.Lock.StaleAfter` | `number` (ms) | `600000` | positive integer | Age after which a lock-table row counts as abandoned and is stolen. The holder refreshes it every `StaleAfter / 3`. This applies to unmarked rows (an earlier release, `Lock.Mode: 'table'`) and to rows marked under another key; a row a session lock wrote under this run's own key is taken over by the next holder of that lock once it goes 10 s unrefreshed instead, whatever its age. A session lock also takes its intervals from it: the row refresh every `min(StaleAfter / 3, 5 s)` and the session keep-alive every `min(StaleAfter / 3, 30 s)`. |
-| `db.Connections[].Migration.Lock.Mode` | `'auto' \| 'table'` | `'auto'` | `'auto'`, `'table'` | `'auto'` takes the driver's `MigrationLock`; `'table'` forces the lock-table row, for PgBouncer transaction pooling and mysql multi-primary clusters. |
+| `db.Connections[].Migration.Lock.Mode` | `'auto' \| 'table'` | `'auto'` | `'auto'`, `'table'` | `'auto'` takes the driver's `MigrationLock`; `'table'` forces the lock-table row, for PgBouncer transaction pooling and mysql multi-primary clusters. Any other value fails the run with an `OrmException`. |
 | `system.dirs.migrations` | `string[]` | `[]` (fallback directories) | directory paths | Directories `FilesystemMigrationSource` scans. A non-empty value replaces the fallbacks. |
 | `process.env.APP_ENV` | `string` | unset (`prod`) | `[A-Za-z0-9_-]+` | Environment the process runs as; selects tagged migrations. |
 
@@ -843,6 +843,9 @@ export async function rollbackLastDeploy(connection: string): Promise<string[]> 
 6. Tests: replace `OnStartup: true` + `DI.resolve(Orm)` + `Migrator.ready()` with `await migrateTestDatabase(container)` from `@spinajs/orm/testing` ([Tests](#tests)).
 7. Desktop and Electron main processes that must migrate themselves call `await (await resolveMigrationTool()).migrate()` before resolving anything else, then `await migrator.Orm.reloadTableInfo({ strict: true })` for the table check the tool's boot skipped ([Deploying migrations](#deploying-migrations)).
 8. A custom `Migration.Service` must honour the `readOnly` option of `status()`; see [Configuration](#configuration).
+9. Replace `DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])` (and a bare `DI.resolve(OrmMigrator)`) with `await resolveMigrationTool()`, or `await resolveCliMigrator()` in an `@spinajs/orm-cli` host. The old call now fails with an `OrmException` naming `resolveMigrationTool()`.
+10. Two connections on one database that share `Migration.Table` now block each other for `Lock.Timeout` and fail: give each its own `Migration.Table`.
+11. A database whose schema exists without tracking rows (tables created by SQL scripts, or an application that never ran migrations) fails the boot with every migration pending. Check that the schema matches the migrations, then run `npx spinajs migrate-up --fake` once: it records every pending migration as applied without running `up()` or `data()`. Or set `Migration.Check: 'off'` for that connection.
 
 ```ts
 // Before (3.0.x)
@@ -856,7 +859,7 @@ db: { Connections: [{ Name: 'main', Driver: 'orm-driver-mysql' }] }
 const orm = await DI.resolve(Orm); // PendingMigrationsException unless migrate-up ran
 
 // After, a tool
-const migrator = await resolveMigrationTool(); // was DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])
+const migrator = await resolveMigrationTool(); // 3.0.x: DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]), which now throws
 await migrator.migrate();
 ```
 
