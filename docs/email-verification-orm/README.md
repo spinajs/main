@@ -35,7 +35,7 @@ export default {
 };
 ```
 
-Importing the package registers the store and its migration; a config module is loaded by the app and by the `spinajs` CLI alike ([why that matters](../email-verification/05-cli.md#the-store-package-in-the-cli-process)). The migration runs on that connection, so with its `Migration.OnStartup: true` the tables are created at boot.
+Importing the package registers the store and its migration; a config module is loaded by the app and by the `spinajs` CLI alike ([why that matters](../email-verification/05-cli.md#the-store-package-in-the-cli-process)). The migration runs on that connection: apply it with [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations); the app refuses to boot until it is applied.
 
 Do not add a connection for the store by merging a `db.Connections` array into the app's config: arrays from config files are concatenated, and `_.merge` in a `FrameworkConfiguration` subclass merges them index by index, which overwrites the app's first connection. If the store needs its own database, define that connection next to the others, in the same config file.
 
