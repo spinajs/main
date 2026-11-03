@@ -21,6 +21,11 @@
   `[{ Enabled: false }]`, then the `Orm`, then `OrmMigrator` with `[orm]`. It must run before anything resolves the `Orm` in its
   container, and it now refuses a cached `OrmMigrator` left over an `Orm` that was uncached alone (`OrmException`, it used to
   run over the stale `Orm`).
+- `resolveMigrationTool()` refuses an `Orm` booted as an application: an enabled `OrmMigrationGuard` cached in its container,
+  or an `Orm` registered and built in a parent container (`OrmException` naming the container to use). A boot that fails its
+  check caches nothing, so the tool runs right after it. A test harness that booted the application `Orm` with
+  `Migration.Check: 'off'` and then took the tool's runner builds `new MigrationRunner(orm)` instead; an application that
+  boots first (with `'warn'`) and migrates in-process calls `new OrmMigrator(orm).migrate()`.
 - `OrmMigrationGuard` is one instance per DI container (`@PerChildInstance()`), so a migration tool in a `DI.child()` gets
   its own disabled guard. Test harnesses that uncache `Orm` and `OrmMigrator` uncache `OrmMigrationGuard` with them.
 - The CLI commands of `@spinajs/authn-keys`, `authn-local`, `authn-orm`, `authn-token`, `authn-totp`, `authz-orm`, `authz-rbac`,

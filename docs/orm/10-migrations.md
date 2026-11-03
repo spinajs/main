@@ -45,7 +45,7 @@ export async function migrateOnLaunch(): Promise<void> {
 }
 ```
 
-The `Orm` that call cached is the one the rest of the process gets from `DI.resolve(Orm)`: it was booted without the check, so the strict table check runs explicitly after `migrate()`. An app that boots first and migrates only when the boot fails works the same way: the failed boot caches nothing, so `resolveMigrationTool()` runs right after it.
+The `Orm` that call cached is the one the rest of the process gets from `DI.resolve(Orm)`: it was booted without the check, so the strict table check runs explicitly after `migrate()`. An app that boots first and migrates only when the boot fails works the same way: the failed boot caches nothing, so `resolveMigrationTool()` runs right after it. Over an `Orm` that did boot, the tool refuses; such an app (booted with `'warn'`) migrates with `new OrmMigrator(orm).migrate()`.
 
 ```ts sample
 import { DI } from '@spinajs/di';
