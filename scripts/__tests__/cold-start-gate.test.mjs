@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { baselineCandidate, finalVerdicts, hasCiNumbers, readBaseline, readTargets, regressionCheckOf, summaryOf, verdictOf } from '../bench/cold-start-gate.mjs';
-import { updateBaseline } from '../bench/update-cold-start-baseline.mjs';
+import { parseArgs as parseUpdateArgs, runRefusal, updateBaseline } from '../bench/update-cold-start-baseline.mjs';
 import { parseArgs } from '../bench/cold-start.mjs';
 
 const floor = { name: 'framework floor', controllers: 1, routes: 5, mode: 'require', maxMedianMs: 450 };
@@ -103,6 +103,29 @@ test('the summary says why the regression check did not run', () => {
   assert.match(summary, /\| framework floor \| warm \| 800 ms \(min 750\) \| 450 ms, over \(not enforced\) \| - \| - \| pass \|/);
 });
 
+test('the summary never shows pass on a target that failed, even when no single cache failed every attempt', () => {
+  const baseline = ciBaseline.targets['framework floor'];
+  const warmOnly = verdictOf(floor, resultOf(700, 700), { ...reportOnly, baseline });
+  const coldOnly = verdictOf(floor, resultOf(600, 820), { ...reportOnly, baseline });
+  const [verdict] = finalVerdicts([[warmOnly, coldOnly]]);
+  assert.equal(verdict.pass, false);
+  const rows = summaryOf([verdict], { runs: 30, ...reportOnly, regression: { baseline: ciBaseline } })
+    .split('\n')
+    .filter((line) => line.startsWith('| framework floor'));
+  assert.equal(rows.length, 2);
+  for (const row of rows) assert.doesNotMatch(row, /\| pass \|$/);
+  assert.match(rows[0], /\| \*\*failed\*\*: first run regressed, rerun ok \|$/);
+  assert.match(rows[1], /\| \*\*failed\*\*: first run ok, rerun regressed \|$/);
+});
+
+test('a target missing from the baseline is reported as having none', () => {
+  const b10 = { ...floor, name: 'B10' };
+  const [verdict] = finalVerdicts([[verdictOf(b10, resultOf(800), reportOnly)]]);
+  const summary = summaryOf([verdict], { runs: 30, ...reportOnly, regression: { baseline: ciBaseline } });
+  assert.match(summary, /\| B10 \| warm \| 800 ms \(min 750\) \| 450 ms, over \(not enforced\) \| no baseline \| - \| pass \|/);
+  assert.match(summary, /No baseline for B10, so its regression was not checked/);
+});
+
 test('a run writes a baseline candidate that records where it was measured', () => {
   const [verdict] = finalVerdicts([[verdictOf(floor, resultOf(612.3, 701.9), reportOnly)]]);
   const candidate = baselineCandidate([verdict], { GITHUB_ACTIONS: 'true', GITHUB_SERVER_URL: 'https://github.com', GITHUB_REPOSITORY: 'spinajs/main', GITHUB_RUN_ID: '42', GITHUB_SHA: 'abc', GITHUB_REF_NAME: 'master' }, new Date('2026-11-03T00:00:00Z'));
@@ -158,4 +181,26 @@ test('the bench takes the modes and the compile cache states', () => {
   assert.deepEqual(parseArgs([]).caches, ['warm']);
   assert.throws(() => parseArgs(['--modes', 'prefer']), /--modes takes a list of off, require/);
   assert.throws(() => parseArgs(['--caches', 'hot']), /--caches takes a list of warm, cold, off/);
+});
+
+test('the baseline update measures on the current branch, else v4, and takes numeric run ids only', () => {
+  assert.deepEqual(parseUpdateArgs(['--latest'], { currentBranch: 'v4-p-4' }), { latest: true, branch: 'v4-p-4' });
+  assert.deepEqual(parseUpdateArgs(['--latest'], { currentBranch: undefined }), { latest: true, branch: 'v4' });
+  assert.deepEqual(parseUpdateArgs(['--latest', '--branch', 'v4'], { currentBranch: 'feature' }), { latest: true, branch: 'v4' });
+  assert.deepEqual(parseUpdateArgs(['--run', '123456'], { currentBranch: 'v4' }), { run: '123456' });
+  assert.deepEqual(parseUpdateArgs(['candidate.json'], { currentBranch: 'v4' }), { file: 'candidate.json' });
+  for (const argv of [['--run', '--help'], ['--run', '12a'], ['--run'], ['--latest', '--branch'], []]) assert.throws(() => parseUpdateArgs(argv, { currentBranch: 'v4' }), /usage/);
+});
+
+test('the baseline is taken only from a push or workflow_dispatch run of the cold-start workflow of this repository', () => {
+  const repo = { full_name: 'spinajs/main' };
+  const run = { path: '.github/workflows/cold-start.yml', event: 'workflow_dispatch', head_branch: 'v4', repository: repo, head_repository: repo };
+  assert.equal(runRefusal(run), undefined);
+  assert.equal(runRefusal({ ...run, event: 'push' }), undefined);
+  assert.match(runRefusal({ ...run, event: 'pull_request', head_repository: { full_name: 'someone/fork' } }), /pull_request/);
+  assert.match(runRefusal({ ...run, event: 'pull_request' }), /pull_request/);
+  assert.match(runRefusal({ ...run, event: 'pull_request_target' }), /pull_request_target/);
+  assert.match(runRefusal({ ...run, head_repository: { full_name: 'someone/fork' } }), /someone\/fork/);
+  assert.match(runRefusal({ ...run, head_repository: null }), /fork/);
+  assert.match(runRefusal({ ...run, path: '.github/workflows/build.yml' }), /build\.yml/);
 });

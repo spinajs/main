@@ -82,17 +82,27 @@ export function finalVerdicts(attempts) {
 }
 
 const describeEnvironment = (e) => `${e.cpu}, ${e.cores} cores`;
+const attemptName = (i) => (i === 0 ? 'first run' : i === 1 ? 'rerun' : `rerun ${i}`);
+const outcomeOf = (attempt, cache) => (attempt.regression?.[cache].over ? 'regressed' : cache === 'warm' && attempt.limit.enforced && attempt.limit.over ? 'over limit' : 'ok');
+
+/** A row of a failed target never reads "pass": the target fails when every attempt fails, by either cache state. */
+function resultOf(v, cache) {
+  if (v.pass) return 'pass';
+  const outcomes = v.attempts.map((a) => outcomeOf(a, cache));
+  if (outcomes.every((o) => o === 'ok')) return `**failed**: by the ${CACHES.find((c) => c !== cache)} compile cache`;
+  if (outcomes.every((o) => o === outcomes[0])) return `**${outcomes[0]}**`;
+  return `**failed**: ${outcomes.map((o, i) => `${attemptName(i)} ${o}`).join(', ')}`;
+}
 
 export function summaryOf(verdicts, { runs, enforceLimits, maxRegression, regression }) {
   const timing = (cache) => (v) => v.attempts.map((a) => `${a[cache].medianMs} ms (min ${a[cache].minMs})`).join(', rerun ');
+  const unchecked = regression.baseline ? verdicts.filter((v) => !regression.baseline.targets[v.name]).map((v) => v.name) : [];
   const row = (v, cache) => {
     const last = v.attempts.at(-1);
     const limit = cache === 'warm' ? `${v.limit.maxMedianMs} ms${v.limit.over ? `, over${v.limit.enforced ? '' : ' (not enforced)'}` : ''}` : '-';
     const check = last.regression?.[cache];
-    const regressed = v.attempts.every((a) => a.regression?.[cache].over);
-    const failed = regressed || (cache === 'warm' && v.limit.enforced && v.attempts.every((a) => a.limit.over));
-    const result = regressed ? '**regressed**' : failed ? '**over limit**' : 'pass';
-    return `| ${v.name} | ${cache} | ${timing(cache)(v)} | ${limit} | ${check ? `${check.baselineMs} ms` : '-'} | ${check ? percent(check.change) : '-'} | ${result} |`;
+    const baseline = check ? `${check.baselineMs} ms` : unchecked.includes(v.name) ? 'no baseline' : '-';
+    return `| ${v.name} | ${cache} | ${timing(cache)(v)} | ${limit} | ${baseline} | ${check ? percent(check.change) : '-'} | ${resultOf(v, cache)} |`;
   };
   const environments = verdicts.flatMap((v) => v.attempts.map((a, i) => `- ${v.name}, ${i ? `rerun ${i}` : 'first run'}: ${describeEnvironment(a.environment)}, \`node -e 0\` ${a.environment.nodeStartupMs} ms, calibration ${a.environment.calibrationMs} ms`));
   const first = verdicts[0]?.environment;
@@ -109,6 +119,7 @@ export function summaryOf(verdicts, { runs, enforceLimits, maxRegression, regres
     ...verdicts.flatMap((v) => CACHES.map((cache) => row(v, cache))),
     '',
     regression.skipped ? `Regression check skipped: ${regression.skipped}.` : `Baseline: ${describeEnvironment(measuredOn)}, calibration ${measuredOn.calibrationMs} ms, measured ${measuredOn.date ?? '(no date)'} in ${measuredOn.runUrl ?? '(no run link)'}.`,
+    ...unchecked.map((name) => `No baseline for ${name}, so its regression was not checked: measure a new baseline (scripts/bench/README.md, "The baseline").`),
     '',
     'Runner per attempt (calibration: median of a fixed CPU-bound JS workload, to tell a slower machine from a slower framework):',
     ...environments,

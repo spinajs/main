@@ -3,12 +3,13 @@ name: cold-start
 # Cold-start numbers of the 4.x targets ( scripts/bench/README.md, "The CI gate" ). Report-only while the targets are
 # not met: the 4.x limits are printed, not enforced, and the job fails only when a target is more than maxRegression
 # slower than the committed baseline. It is a workflow of its own so that the release job of build.yml never waits
-# for it. A workflow_dispatch run on master measures a new baseline: its `cold-start` artifact holds
-# cold-start-baseline.candidate.json, which scripts/bench/update-cold-start-baseline.mjs copies into place.
+# for it. A push to the branch whose baseline you update (v4 for 4.x), or a workflow_dispatch run on it once this file
+# is on the default branch, measures a new baseline: its `cold-start` artifact holds cold-start-baseline.candidate.json,
+# which scripts/bench/update-cold-start-baseline.mjs, run on that branch, copies into place.
 
 on:
   push:
-    branches: [master]
+    branches: [master, v4]
   pull_request:
   workflow_dispatch:
 
@@ -20,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
 
     concurrency:
-      group: cold-start-${{ github.ref }}
+      group: cold-start-${{ github.event_name }}-${{ github.ref }}
       cancel-in-progress: true
 
     steps:

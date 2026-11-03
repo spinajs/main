@@ -32,7 +32,7 @@ The generated app, the child processes and the temp directory are removed on suc
 
 ## The CI gate
 
-The `cold-start` workflow (`.github/workflows/cold-start.yml`) runs `cold-start-gate.mjs` on every pull request, on every push to master and on `workflow_dispatch`. It is a workflow of its own, so the release job of `build.yml` never waits for it.
+The `cold-start` workflow (`.github/workflows/cold-start.yml`) runs `cold-start-gate.mjs` on every pull request, on every push to master and to `v4`, and on `workflow_dispatch`. It is a workflow of its own, so the release job of `build.yml` never waits for it.
 
 **The gate is report-only until the 4.x targets are met.** It prints the numbers and fails only when a target regresses against the baseline. A slow run against the 4.x limits does not block a merge or a release.
 
@@ -57,11 +57,11 @@ Per target, the warm and the cold median of one gate run on a GitHub runner (`wa
 - While the file holds no CI numbers (`"measuredOn": null`, as committed now), the check is skipped and the step summary says so.
 - Outside CI the check is skipped too, because a GitHub runner's numbers say nothing about another machine. `--baseline <file>` compares this machine with that file on purpose.
 
-To measure a new baseline (first time, or after a change that moves the numbers on purpose):
+To measure a new baseline (first time, or after a change that moves the numbers on purpose), work on the branch whose baseline you update: `v4` for 4.x, which does not reach master for a long time.
 
-1. Start the workflow on master: Actions > cold-start > Run workflow (or `gh workflow run cold-start.yml --ref master`).
-2. When it is done, run `node scripts/bench/update-cold-start-baseline.mjs --latest` (or `--run <run id>`, or a downloaded `cold-start-baseline.candidate.json`). It downloads the run's `cold-start` artifact with `gh`, refuses a candidate not measured on CI, and writes `cold-start-baseline.json`.
-3. Commit the file in a pull request.
+1. Get a run of the workflow on that branch. Every push to `v4` (a merged pull request) runs it. `workflow_dispatch` (Actions > cold-start > Run workflow, or `gh workflow run cold-start.yml --ref v4`) works only once `cold-start.yml` is on the default branch, master: GitHub starts a dispatch only for a workflow it finds there.
+2. When it is done, run `node scripts/bench/update-cold-start-baseline.mjs --latest` in a checkout of that branch. It takes the newest successful `push` or `workflow_dispatch` run on the current branch (`--branch <name>` picks another; on a detached HEAD it is `v4`), downloads its `cold-start` artifact with `gh`, refuses a candidate not measured on CI, and writes `cold-start-baseline.json`. `--run <run id>` takes that run instead, and only when it is a `workflow_dispatch` or `push` run of `cold-start.yml` on this repository's own code: a pull request run, from a fork above all, runs gate code its author controls. A downloaded `cold-start-baseline.candidate.json` can be passed as a file. A run after a change that slows a target on purpose fails its regression check, so `--latest` skips it: pass its id with `--run`.
+3. Commit the file in a pull request into that branch.
 
 ### What a run reports
 
@@ -70,7 +70,9 @@ Per target, the gate measures `runs` boots with a warm and with a cold compile c
 - the warm median with `maxMedianMs` (reported; enforced only with `enforceLimits`);
 - the warm and the cold median with the baseline (`maxRegression`).
 
-Before each attempt it records the runner: CPU model, cores, the `node -e 0` median of 30 starts and a calibration time (the median of a fixed CPU-bound JS workload). The step summary shows every attempt, the limit, the baseline and the change, and the runner of each attempt next to the baseline's, which tells a slower runner from a slower framework. GitHub runners land on different CPU generations, so compare the calibration times before reading a regression as the framework's.
+A row reads `pass` only when its target passed. A row of a failed target names what each attempt did with that compile cache, for example `**failed**: first run regressed, rerun ok` when the rerun failed by the other cache instead.
+
+Before each attempt it records the runner: CPU model, cores, the `node -e 0` median of 30 starts and a calibration time (the median of a fixed CPU-bound JS workload). The step summary shows every attempt, the limit, the baseline and the change, and the runner of each attempt next to the baseline's, which tells a slower runner from a slower framework. GitHub runners land on different CPU generations, so compare the calibration times before reading a regression as the framework's. The calibration itself is noisy: on one machine it moved by about 40% between two targets measured two minutes apart, so it tells a much slower machine from a slower framework, not 10% from 15%. A target that is missing from the baseline (renamed or new) shows "no baseline" and goes unchecked until the next baseline.
 
 Each attempt's samples, with the runner details, are written to `--out-dir` (`bench-<target>.json`, `bench-<target>-rerun1.json`), together with `cold-start-baseline.candidate.json`, and uploaded as the `cold-start` artifact. When the gate cannot run (for example the bench app does not build), the error goes to the step summary and the job fails.
 
