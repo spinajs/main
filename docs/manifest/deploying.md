@@ -79,11 +79,11 @@ The manifest hash ties a running app to the pull request that was reviewed. The 
 
 To check a deployed app against its pull request:
 
-1. Take the head hash from the pull request's manifest diff, or the `hash` row of the CI build that made the image.
+1. Take the hash from the `hash` row of the CI build that made the image. That build is the authoritative source. The pull request's manifest diff is a preview: on `pull_request`, `actions/checkout` builds the merge of the head into the base as it was then (`refs/pull/<n>/merge`), so its head hash matches the image only if the base did not move before the merge.
 2. Read the running one: `curl -s https://<host>/telemetry/health | jq -r .manifest.hash`.
-3. Compare. The diff's 12 characters are the start of the full hash. A different hash means the app runs a manifest from another build. `null` means it booted without a manifest: `off`, or `prefer` with a missing or stale file, which `prefer` falls back from. Run production in `require`, where neither can happen.
+3. Compare. The diff's 12 characters are the start of the full hash. A hash that differs from the image build's means the app runs a manifest from another build; one that differs only from the pull request's diff may come from a base that moved. `null` means it booted without a manifest: `off`, or `prefer` with a missing or stale file, which `prefer` falls back from. Run production in `require`, where neither can happen.
 
-The hash leaves out `app.root`, `generatedAt` and `compilerVersion`, so building in another folder or at another time gives the same hash. It covers `buildEnv`, so the build that the pull request diffs and the build of the image must run under the same `APP_ENV`, or the hashes differ for that reason alone. Use the same compiler version too: the compiler decides the content, although its version is outside the hash. The hash names the manifest, not the compiled code: a `lib/` from another build that still exports every listed class boots with it.
+The hash leaves out `app.root`, `generatedAt` and `compilerVersion`, so building in another folder or at another time gives the same hash. It covers `buildEnv` and the dirs the build read, so the build that the pull request diffs and the build of the image must run under the same `APP_ENV` and with the same `--app`, `--apppath` and `--config-path`, from the folder the app runs from, or the hashes differ for that reason alone. Use the same compiler version too: the compiler decides the content, although its version is outside the hash. The hash names the manifest, not the compiled code: a `lib/` from another build that still exports every listed class boots with it.
 
 ## One-file bundle
 

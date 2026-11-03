@@ -6,7 +6,7 @@
 
 ### Liveness
 
-1. `TelemetryController.getHealth()` reads `process.uptime()`, `process.pid` and `process.version`.
+1. `TelemetryController.getHealth()` reads `process.uptime()`, `process.pid` and `process.version`, and `bootedManifestOf(container)` for the manifest the app booted from.
 2. It returns `{ status: 'up', startedAt, uptimeMs, pid, node, manifest }`, plus `version` when `telemetry.health.version` is set.
 3. It runs no check, so a slow dependency can never make it slow.
 
@@ -22,9 +22,8 @@
 | --- | --- |
 | `mode` | The effective `system.manifest.mode`: `off`, `prefer` or `require`. `off` when nothing decided one |
 | `hash` | The `hash` of the loaded manifest: the value in `app.manifest.json`, `hashManifest(manifest)`, the `hash` row of `spinajs build` and `head` of `spinajs manifest:diff`. `null` when the app booted without a manifest: `off`, or `prefer` with no file or a stale one |
-| `compilerVersion` | The compiler that wrote the manifest. The hash leaves it out. Omitted when the manifest records none |
 
-The controller reads it with `bootedManifestOf(container)` from `@spinajs/configuration`, from what `ManifestConfigurationSource` registered at boot. The boot checked the hash when it loaded the file, so nothing is hashed per request. The field is public like the rest of the probe: a hash of the manifest reveals none of its content, and every route it describes is served by the app anyway. How to compare it with a pull request: [Check what runs](../manifest/deploying.md#check-what-runs).
+The controller reads it with `bootedManifestOf(container)` from `@spinajs/configuration`, from what the boot registered, so nothing is hashed per request. When `ManifestConfigurationSource` loaded the file it checked that the hash matches the content; a manifest a host or `withManifest` registered is reported as registered, unchecked. The field is public like the rest of the probe: a hash of the manifest reveals none of its content, and every route it describes is served by the app anyway. How to compare it with a pull request: [Check what runs](../manifest/deploying.md#check-what-runs).
 
 ### Readiness
 

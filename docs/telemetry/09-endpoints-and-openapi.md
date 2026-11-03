@@ -19,7 +19,7 @@ Two controllers serve the telemetry HTTP API: `MetricsController` at `/metrics` 
 | `GET /telemetry/timeline?buckets=N` | `timeline` | 200 | 400, 401, 403 | `TimelineResponse`: `{ bucketMs, length, buckets: [{ key, from, to, stats }] }`, ascending by key |
 | `GET /telemetry/routes` | `routes` | 200 | 401, 403 | `RoutesResponse`: `{ truncated, routes: [{ method, route, stats }] }` |
 | `GET /telemetry/perf` | `perf` | 200 | 401, 403 | `PerfResponse`: `{ truncated, spans, events }` |
-| `GET /telemetry/health` | `health` | 200 | none by default | `HealthResponse`: `{ status: 'up', startedAt, uptimeMs, pid, node, version?, manifest: { mode, hash, compilerVersion? } }` |
+| `GET /telemetry/health` | `health` | 200 | none by default | `HealthResponse`: `{ status: 'up', startedAt, uptimeMs, pid, node, version?, manifest: { mode, hash } }` |
 | `GET /telemetry/ready` | `ready` | 200 | 503 | `ReadyResponse`: `{ status, checks: [{ name, status, durationMs, message?, data? }] }` |
 
 - 401: no principal; with the defaults, no valid scrape token in `x-metrics-token` or `Authorization: Bearer`.
