@@ -1,3 +1,26 @@
+# Release notes — orm-http: like filter values match literally
+
+## Security fix
+
+- `@spinajs/orm-http`: the `like`, `b-like` and `e-like` filter operators put the client's value into the `LIKE`
+  pattern unescaped. A client sending `%` as the value matched every row, `_` matched any one character, and on
+  MySQL and PostgreSQL a backslash escaped the next character. The value is now matched literally: `%`, `_`, `~`
+  (and `[` on MSSQL) match only themselves, and the condition carries `ESCAPE '~'`. Case sensitivity is unchanged.
+- `@spinajs/users-http`: the `user:niceName` filter of the admin user listing had the same flaw in its own query and
+  is fixed the same way.
+
+## Fixes
+
+- `@spinajs/orm`: `LikeLiteral.contains(text)`, `LikeLiteral.startsWith(text)` and `LikeLiteral.endsWith(text)` are a
+  `like` operand matched literally: `where('Name', 'like', LikeLiteral.contains(term))`. Each dialect escapes its own
+  wildcards (`MsSqlWhereStatement` in `@spinajs/orm-mssql` adds `[`). A plain string operand of `like` is still a raw
+  pattern. Use it in a custom `@Filterable` / `IColumnFilter` `query` that builds a `LIKE` from the client's value.
+
+## Unchanged on purpose
+
+- `b-like` matches values **ending** with the filter value and `e-like` values **beginning** with it, the reverse of
+  what the names suggest. Clients rely on this, so the meaning stays; it is now documented and pinned by tests.
+
 # Release notes — the controller scan registers what the package entry did
 
 ## Security fix
