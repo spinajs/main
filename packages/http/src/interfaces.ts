@@ -1,7 +1,9 @@
 import * as express from 'express';
-import { Constructor, AsyncService, Class, isPromise } from '@spinajs/di';
+import { Constructor, AsyncService, Class, DI, isPromise } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
 import { fs, IFileInfo } from '@spinajs/fs';
-import formidable from 'formidable';
+import type formidable from 'formidable';
+import { loadXmlBuilder } from './lazy-modules.js';
 import { CookieOptions } from 'express';
 import { IPerfScope } from '@spinajs/log';
 import type { ProxyTrust } from './middlewares/RealIp.js';
@@ -917,6 +919,10 @@ export abstract class Response<T = any> {
   public async execute(_req: express.Request, _res: express.Response, _next?: express.NextFunction): Promise<ResponseFunction | void> {
     const response = await this.prepareResponse();
     const { httpResponse } = await import('./responses.js');
+    // the negotiated response function builds XML synchronously
+    if (((DI.get(Configuration)?.get<number>('http.AcceptHeaders') ?? 0) & HttpAcceptHeaders.XML) !== 0) {
+      await loadXmlBuilder();
+    }
     return await httpResponse(response, this._template, {
       ...this.options,
       // Honor an explicit caller-supplied StatusCode; fall back to the

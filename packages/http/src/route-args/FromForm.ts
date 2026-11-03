@@ -1,10 +1,10 @@
 import { IRouteArgsResult, RouteArgs } from './RouteArgs.js';
 import { IRouteParameter, ParameterType, IRouteCall, Request, IRoute, IUploadOptions, FormFileUploader, IUploadedFile, FileUploadMiddleware, UploadFileMiddlewareDescriptor } from '../interfaces.js';
 import * as express from 'express';
-import formidable, { Fields, Files, IncomingForm } from 'formidable';
+import type formidable from 'formidable';
+import type { Fields, Files } from 'formidable';
 import { Config, Configuration } from '@spinajs/configuration';
 import { Autoinject, DI, Injectable, NewInstance, isTypedArray, type TypedArray } from '@spinajs/di';
-import { parse } from 'csv';
 import { fs, fsNative, getFs } from '@spinajs/fs';
 import { createReadStream, promises } from 'fs';
 import _ from 'lodash';
@@ -17,6 +17,7 @@ import { BadRequest, Exception, IOFail } from '@spinajs/exceptions';
 import { FileSystem } from "@spinajs/fs";
 import { ImmediateFileUploader } from '../uploaders/ImmediateFileUploader.js';
 import qs from 'qs';
+import { loadCsv, loadFormidable } from '../lazy-modules.js';
 interface FormData {
   Fields: Fields;
   Files: Files;
@@ -42,7 +43,8 @@ export interface FormOptions {
   type?: string;
 }
 
-export const parseForm = (req: express.Request, options: any) => {
+export const parseForm = async (req: express.Request, options: any) => {
+  const { IncomingForm } = await loadFormidable();
   const form = new IncomingForm(options);
   // formidable lists files as each finishes storing, so a small file can overtake the one sent before it.
   const sent = new Map<unknown, number>();
@@ -445,6 +447,7 @@ export class FromCSV extends FromFormBase {
   protected async parseCsv(param: IRouteParameter<ICsvOptions>, path: string) {
     const data: any[] = [];
     const { Schema, DeleteFile, ...csvOptions } = param.Options ?? {};
+    const { parse } = await loadCsv();
 
     return new Promise((res, rej) => {
       createReadStream(path)

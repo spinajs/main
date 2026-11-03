@@ -3,7 +3,7 @@ import { HTTP_ERROR_MAP } from './tokens.js';
 import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IOnErrorDescriptor, IUploadOptions, UuidVersion, IFormOptions, HttpAcceptHeaders, IController } from './interfaces.js';
 import { ArgHydrator } from './route-args/ArgHydrator.js';
 import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas.js';
-import { Options as CsvParseOptions } from 'csv-parse';
+import type { Options as CsvParseOptions } from 'csv-parse';
 import { filePathOfUrl, toArray } from '@spinajs/util';
 
 import { RequestTypeRouteArgs } from './route-args/RequestFields.js';

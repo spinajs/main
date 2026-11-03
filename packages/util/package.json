@@ -11,6 +11,10 @@
     "./crypto": {
       "types": "./lib/crypto/index.d.ts",
       "import": "./lib/crypto/index.js"
+    },
+    "./compile-cache": {
+      "types": "./lib/compile-cache.d.ts",
+      "import": "./lib/compile-cache.js"
     }
   },
   "type": "module",

@@ -9,7 +9,7 @@ Versioned types, JSON Schema and helpers for the application manifest (`manifest
 | Export | Purpose |
 | --- | --- |
 | `MANIFEST_TOKEN` | `'__manifest__'`, the DI key the loaded manifest is registered under. |
-| `loadRuntimeManifest({ path, mode }, cwd?)` | Reads and validates the manifest. `off` never reads; `prefer` returns `undefined` when the file is missing; `require` throws `ManifestMissing`. Relative paths resolve against `cwd`. |
+| `loadRuntimeManifest({ path, mode, validate? }, cwd?)` | Reads the manifest and checks its version and hash. `off` never reads; `prefer` returns `undefined` when the file is missing; `require` throws `ManifestMissing`. Relative paths resolve against `cwd`. A file whose hash matches is not checked against the JSON Schema again: `spinajs build` checks the file it wrote and removes one that fails, and the hash proves it is unchanged. `buildAppManifest` called directly does not check it; `app.root`, which the hash leaves out, is checked whenever it is not a string. An edited or stale file is checked first, so a broken one still throws `ManifestValidationError`. `validate: true`, or `SPINAJS_MANIFEST_VALIDATE=1`, checks every file. |
 | `manifestFileFor(entry, manifest, cwd)` | Built `.js` file of an entry: `src/x/y.ts` of package P becomes `<root of P>/<outDir>/x/y.js`. |
 | `packageRootOf(name, manifest, cwd)` | Install root (real path) of a package listed in `manifest.packages`: `node_modules/<name>` of the nearest ancestor of the app root that has it, as node resolves it, also for an ESM-only package whose `exports` hide `package.json`; Node resolution is the fallback. |
 | `appRootOf(manifest, cwd)` | App root: `SPINAJS_MANIFEST_ROOT` if set (even when `app.root` exists), else `app.root` when it exists on this machine, else `cwd`. |
@@ -22,16 +22,17 @@ A manifest built on one machine and run on another (container image, bundle) kee
 
 The `system.manifest` configuration section (`path`, default `app.manifest.json`; `mode`, default `off`) selects the file and the mode; it is defined by `SYSTEM_CONFIGURATION_SCHEMA` in `@spinajs/configuration`.
 
-### Single-file bundle
+### Bundle
 
 `packages/http-socket-example` shows an esbuild bundle that boots in `require` mode from a directory with no `node_modules` at all (`npm run bundle`, output in `dist/bundle`):
 
-- `main.mjs` holds the app and every dependency. It sets `SPINAJS_MANIFEST_ROOT` and `SPINAJS_MANIFEST` to its own directory, so the manifest built from the source tree still verifies.
-- `package-roots.json` maps each listed package to a directory under the bundle (`packages/<name>`); `main.mjs` points `SPINAJS_PACKAGE_ROOTS` at it. See "Package roots" below.
-- Package config files are separate small bundles at `packages/<pkg>/<outDir>/config/`, because the configuration source imports them by path. They are standalone module copies, not part of `main.mjs`: safe while they are plain data, but a config file that imports stateful modules would get its own instance of them.
-- `main.mjs` defaults `SPINAJS_MANIFEST_MODE` to `require`; the DI loader refuses a file under the bundle root that it did not bundle.
-- Controller, socket controller, schedule and migration files the manifest lists are inlined into `main.mjs` and handed to the runtime's import by path through the DI module loader (`__module_loader__`), so they are the same module instances as the app's own imports.
+- `app.mjs` holds the app and every dependency. It sets `SPINAJS_MANIFEST_ROOT` and `SPINAJS_MANIFEST` to its own directory, so the manifest built from the source tree still verifies. `main.mjs` is the launcher: it turns on Node's compile cache and imports `app.mjs` (see [Compile cache](../http/README.md#compile-cache)).
+- `package-roots.json` maps each listed package to a directory under the bundle (`packages/<name>`); `app.mjs` points `SPINAJS_PACKAGE_ROOTS` at it. See "Package roots" below.
+- Package config files are separate small bundles at `packages/<pkg>/<outDir>/config/`, because the configuration source imports them by path. They are standalone module copies, not part of `app.mjs`: safe while they are plain data, but a config file that imports stateful modules would get its own instance of them.
+- `app.mjs` defaults `SPINAJS_MANIFEST_MODE` to `require`; the DI loader refuses a file under the bundle root that it did not bundle.
+- Controller, socket controller, schedule and migration files the manifest lists are inlined into `app.mjs` and handed to the runtime's import by path through the DI module loader (`__module_loader__`), so they are the same module instances as the app's own imports.
 - `typescript` is replaced by a stub that throws on use: manifest mode does not call it.
+- `glob` is not inlined: `off` mode, a package fragment without `configFiles`, glob syntax in a config dir path or a custom file pattern needs `glob` installed next to the bundle, and fails with an error naming that cause otherwise.
 
 ### Package roots
 
@@ -75,7 +76,7 @@ Check these before you set `prefer` or `require` (`off` changes none of them):
 
 Environment overrides: `SPINAJS_MANIFEST_MODE` and `SPINAJS_MANIFEST` (the file) beat the app's config; `SPINAJS_MANIFEST_ROOT` names the deployed app directory when `app.root` does not exist on the machine that runs it.
 
-With a manifest in `require` mode the boot skips: the `node_modules/@spinajs/*` config walk (package config files come from `packages[].configFiles`; set `WORKSPACE_ROOT_PATH` to skip the hoisting-root detection too), the controller, migration, schedule, socket controller and CLI command directory scans, the `.d.ts` parsing of the controller cache, and the `typescript` load. `glob` is still imported by `@spinajs/configuration`, `@spinajs/orm`, `@spinajs/validation` and `@spinajs/intl`, and the app's own `config/` dirs are still globbed.
+With a manifest in `require` mode the boot skips: the `node_modules/@spinajs/*` config walk (package config files come from `packages[].configFiles`; set `WORKSPACE_ROOT_PATH` to skip the hoisting-root detection too), the controller, migration, schedule, socket controller and CLI command directory scans, the `.d.ts` parsing of the controller cache, the `typescript` load, and `glob` and `minimatch`: the app's own `config/` dirs are listed with one `readdir` per directory, in the order `glob` gives, and `glob` loads only for a translation or schema dir that exists, a package fragment without `configFiles`, or a config dir whose path has glob syntax in it. Each package root is located once per loaded manifest. A manifest entry's file costs one `lstat` per path part below its package root, on every call: only when a part is a link or missing are the real paths of the root and the file taken, so a directory swapped for a link after an earlier lookup is still refused.
 
 `packages/compiler/test/e2e/boot-from-manifest.test.ts` proves this on the `app-basic` fixture: it installs the compiled fixture next to only the `@spinajs` packages it depends on, boots it in `require` mode in a fresh process, and compares what it serves with an `off` boot that scans. Both boots serve the same controllers, schedules, commands, socket commands and migrations; only the order of the migrations differs (discovery lists the app's dir first, the manifest by package).
 
