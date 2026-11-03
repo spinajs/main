@@ -1,0 +1,50 @@
+name: cold-start
+
+# Cold-start numbers of the 4.x targets ( scripts/bench/README.md, "The CI gate" ). Report-only while the targets are
+# not met: the 4.x limits are printed, not enforced, and the job fails only when a target is more than maxRegression
+# slower than the committed baseline. It is a workflow of its own so that the release job of build.yml never waits
+# for it. A workflow_dispatch run on master measures a new baseline: its `cold-start` artifact holds
+# cold-start-baseline.candidate.json, which scripts/bench/update-cold-start-baseline.mjs copies into place.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cold-start:
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: cold-start-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      - name: build monorepo
+        run: npm run build
+
+      - name: cold-start gate
+        timeout-minutes: 40
+        run: node scripts/bench/cold-start-gate.mjs --out-dir bench
+
+      - name: upload cold-start results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cold-start
+          path: bench/*.json
+          if-no-files-found: warn

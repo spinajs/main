@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Cold-start benchmark: time from spawning the app process to HttpServer listening, manifest mode `off` vs `require`.
-// Usage: node scripts/bench/cold-start.mjs [--controllers 200] [--routes 5] [--runs 5] [--modes off,require] [--no-compile-cache] [--out bench.json] [--keep]
+// Usage: node scripts/bench/cold-start.mjs [--controllers 200] [--routes 5] [--runs 5] [--modes off,require] [--caches warm,cold,off] [--no-compile-cache] [--out bench.json] [--keep]
 import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const MODES = ['off', 'require'];
+// warm: the compile cache a previous start wrote; cold: an empty one, as on a first start; off: NODE_DISABLE_COMPILE_CACHE=1
+const CACHES = ['warm', 'cold', 'off'];
 const LISTEN_TIMEOUT_MS = 120_000;
 
 function fail(message) {
@@ -20,20 +22,21 @@ function positiveInt(name, value) {
   return n;
 }
 
-function modesOf(value) {
-  const modes = String(value ?? '').split(',').filter(Boolean);
-  if (modes.length === 0 || modes.some((mode) => !MODES.includes(mode))) fail(`--modes takes a list of ${MODES.join(', ')}`);
-  return modes;
+function listOf(name, value, allowed) {
+  const items = String(value ?? '').split(',').filter(Boolean);
+  if (items.length === 0 || items.some((item) => !allowed.includes(item))) fail(`${name} takes a list of ${allowed.join(', ')}`);
+  return items;
 }
 
 export function parseArgs(argv) {
-  const options = { controllers: 200, routes: 5, runs: 5, modes: MODES, compileCache: true, out: 'bench.json', keep: false };
+  const options = { controllers: 200, routes: 5, runs: 5, modes: MODES, caches: ['warm'], out: 'bench.json', keep: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--keep') options.keep = true;
-    else if (arg === '--no-compile-cache') options.compileCache = false;
+    else if (arg === '--no-compile-cache') options.caches = ['off'];
     else if (arg === '--controllers' || arg === '--routes' || arg === '--runs') options[arg.slice(2)] = positiveInt(arg, argv[++i]);
-    else if (arg === '--modes') options.modes = modesOf(argv[++i]);
+    else if (arg === '--modes') options.modes = listOf(arg, argv[++i], MODES);
+    else if (arg === '--caches') options.caches = listOf(arg, argv[++i], CACHES);
     else if (arg === '--out') options.out = argv[++i] ?? fail('--out needs a path');
     else fail(`unknown argument ${arg}`);
   }
@@ -109,11 +112,11 @@ console.log('LISTENING ' + JSON.stringify({ port: server.Server.address().port, 
 `;
 
 // The documented launcher ( docs/http/README.md, "Compile cache" ).
-const BOOT_SOURCE = `import module from 'node:module';
+const BOOT_SOURCE = `import { enableCompileCache, flushCompileCache } from '@spinajs/util/compile-cache';
 
-module.enableCompileCache?.();
+enableCompileCache();
 await import('./app.mjs');
-module.flushCompileCache?.();
+flushCompileCache();
 `;
 
 function generateApp(dir, { controllers, routes }) {
@@ -198,11 +201,29 @@ function assertMode(line, mode) {
   if (mode === 'require' && !line.hasManifest) fail('app booted in require mode without a manifest');
 }
 
-async function bootOnce(dir, mode, { controllers, routes, compileCache }) {
+// The bench keeps the compile cache in the app dir (NODE_COMPILE_CACHE), out of the user's own cache dir.
+function cacheEnvOf(dir, cache, env) {
+  delete env.NODE_COMPILE_CACHE;
+  delete env.NODE_DISABLE_COMPILE_CACHE;
+  if (cache === 'off') {
+    env.NODE_DISABLE_COMPILE_CACHE = '1';
+    return () => {};
+  }
+  if (cache === 'warm') {
+    env.NODE_COMPILE_CACHE = join(dir, '.compile-cache', 'warm');
+    return () => {};
+  }
+  mkdirSync(join(dir, '.compile-cache'), { recursive: true });
+  const empty = mkdtempSync(join(dir, '.compile-cache', 'cold-'));
+  env.NODE_COMPILE_CACHE = empty;
+  return () => rmSync(empty, { recursive: true, force: true, maxRetries: 3 });
+}
+
+async function bootOnce(dir, mode, cache, { controllers, routes }) {
   const env = { ...process.env, SPINAJS_MANIFEST_MODE: mode };
   if (mode === 'off') delete env.SPINAJS_MANIFEST;
   else env.SPINAJS_MANIFEST = join(dir, 'app.manifest.json');
-  if (!compileCache) env.NODE_DISABLE_COMPILE_CACHE = '1';
+  const dropCache = cacheEnvOf(dir, cache, env);
 
   const started = performance.now();
   const child = spawn(process.execPath, ['boot.mjs'], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -225,6 +246,7 @@ async function bootOnce(dir, mode, { controllers, routes, compileCache }) {
     child.kill('SIGKILL');
     children.delete(child);
     await closed;
+    dropCache();
   }
 }
 
@@ -237,36 +259,37 @@ export function median(values) {
 const round = (n) => Math.round(n * 10) / 10;
 
 async function measure(dir, options) {
-  const samples = Object.fromEntries(options.modes.map((mode) => [mode, []]));
-  // One discarded boot per mode warms the OS file cache and the compile cache; measured runs alternate modes so drift hits both.
-  for (const mode of options.modes) await bootOnce(dir, mode, options);
+  const conditions = options.modes.flatMap((mode) => options.caches.map((cache) => ({ mode, cache, samples: [] })));
+  // One discarded boot per condition warms the OS file cache and fills the warm compile cache; measured runs alternate
+  // the conditions so drift hits all of them.
+  for (const { mode, cache } of conditions) await bootOnce(dir, mode, cache, options);
   for (let i = 0; i < options.runs; i++) {
-    for (const mode of options.modes) {
-      const sample = await bootOnce(dir, mode, options);
-      samples[mode].push(sample);
-      console.log(`run ${i + 1}/${options.runs} ${mode.padEnd(7)} ${round(sample.ms)} ms (in-process ${sample.inProcessMs} ms)`);
+    for (const condition of conditions) {
+      const sample = await bootOnce(dir, condition.mode, condition.cache, options);
+      condition.samples.push(sample);
+      console.log(`run ${i + 1}/${options.runs} ${condition.mode.padEnd(7)} ${condition.cache.padEnd(4)} ${round(sample.ms)} ms (in-process ${sample.inProcessMs} ms)`);
     }
   }
-  return Object.fromEntries(
-    options.modes.map((mode) => {
-      const ms = samples[mode].map((s) => s.ms);
-      return [mode, { medianMs: round(median(ms)), minMs: round(Math.min(...ms)), samplesMs: ms.map(round), inProcessSamplesMs: samples[mode].map((s) => s.inProcessMs) }];
-    }),
-  );
+  const modes = {};
+  for (const { mode, cache, samples } of conditions) {
+    const ms = samples.map((s) => s.ms);
+    (modes[mode] ??= {})[cache] = { medianMs: round(median(ms)), minMs: round(Math.min(...ms)), samplesMs: ms.map(round), inProcessSamplesMs: samples.map((s) => s.inProcessMs) };
+  }
+  return modes;
 }
 
 function summaryOf(result) {
   return [
-    `### Cold start (${result.controllers} controllers x ${result.routes} routes, ${result.runs} runs, compile cache ${result.compileCache ? 'on' : 'off'})`,
+    `### Cold start (${result.controllers} controllers x ${result.routes} routes, ${result.runs} runs)`,
     '',
-    '| manifest mode | median time-to-listening | min |',
-    '| --- | --- | --- |',
-    ...Object.entries(result.modes).map(([mode, m]) => `| ${mode} | ${m.medianMs} ms | ${m.minMs} ms |`),
+    '| manifest mode | compile cache | median time-to-listening | min |',
+    '| --- | --- | --- | --- |',
+    ...Object.entries(result.modes).flatMap(([mode, caches]) => Object.entries(caches).map(([cache, m]) => `| ${mode} | ${cache} | ${m.medianMs} ms | ${m.minMs} ms |`)),
     '',
   ].join('\n');
 }
 
-/** Generates, builds and measures one app; resolves with the result also written to `options.out`. */
+/** Generates, builds and measures one app; resolves with the result, `options.context` included, also written to `options.out`. */
 export async function coldStart(options) {
   // Inside the repo, so the app resolves the workspace packages through the root node_modules.
   const cache = join(repoRoot, 'node_modules/.cache');
@@ -288,10 +311,10 @@ export async function coldStart(options) {
     console.log(`built (tsc + spinajs build) in ${buildApp(dir)} ms, ${installApp(dir)} packages linked`);
     const modes = await measure(dir, options);
     const result = {
+      ...options.context,
       controllers: options.controllers,
       routes: options.routes,
       runs: options.runs,
-      compileCache: options.compileCache,
       node: process.version,
       platform: `${process.platform}-${process.arch}`,
       generatedAt: new Date().toISOString(),
