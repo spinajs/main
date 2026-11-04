@@ -14,6 +14,8 @@ export async function startSockets(revalidateMs: number): Promise<void> {
     throw new Error('http.socket is not configured: build packages/http-socket, whose lib/config holds its defaults');
   }
   cfg.set(['http', 'socket', 'auth', 'revalidateMs'], revalidateMs);
+  // the probes' `who` commands answer any caller; the policies under test sit on the other commands
+  cfg.set(['http', 'socket', 'access', 'default'], 'allow');
   await DI.resolve(SocketServer);
 }
 

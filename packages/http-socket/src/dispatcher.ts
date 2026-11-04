@@ -408,6 +408,7 @@ export class SocketDispatcher extends AsyncService {
 
     // built after ensure(): a revalidation may have adopted a renewed principal
     const ctx: ISocketCallContext = { kind: 'event', connection, handler, payload, signal: connection.signal, storage: this.callStorage(connection, name) };
+    this.Gate.assertGuarded(ctx);
     await this.Als.run(ctx.storage, () => this.Gate.check(ctx));
     await this.call(ctx, handler);
   }

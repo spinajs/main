@@ -2,6 +2,8 @@
 
 Socket commands and events are guarded the way http routes are. `@SocketPolicy` runs the same `BasePolicy` classes through http's own policy gate. `@SocketAccess` checks authz-v3 permissions, as authz-http's `@Access` does, and can filter the payload's writable fields and the result's readable fields.
 
+**A command or event without a policy is denied.** When neither the handler nor its class has an enabled group, `SocketPolicyGate.assertGuarded()` refuses it under `http.socket.access.default: 'deny'` (the default) with `AccessDenied`, reason `no_policy`, answered `forbidden`: a command in `LookupStage`, before idempotency, ordering and the arguments; an event before its policies, so it is dropped. `'allow'` runs such handlers as before 4.0, for an app still adding policies; it is removed in 5.0. `SocketHandlerRegistry.build()` warns about every command and event with no `@SocketPolicy` or `@SocketAccess` on it or its class, and `unguarded()` lists them.
+
 ## How it works
 
 1. `@SocketPolicy`, `@SocketPolicyGroup` and `@SocketAccess` add policy groups to the controller or to one handler.
