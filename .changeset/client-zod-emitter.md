@@ -1,0 +1,7 @@
+---
+"@spinajs/client": minor
+---
+
+`generateClientFiles({ manifest, zod: true })` now also writes `client.zod.ts`, and `emitZod(model, options)` prints it from a `ClientModel`. The file holds one zod schema per schema `client.ts` declares, named `<Name>Schema` and checked with `satisfies z.ZodType<Name>` against the generated interface, plus `routeSchemas` for the arguments the server validates (a whole body root accepts and drops undeclared keys, a whole query root keeps them, as the server does). Formats and length limits use `@spinajs/client/formats`, so the schemas answer as the server's Ajv does. `zod: { mini: true }` prints for `zod/mini`. A keyword the emitter cannot reproduce is dropped, so the schema is never stricter than the server, and reported as a diagnostic on the file (`ZOD001` schema not visible or refused by Ajv, `ZOD002` unknown format, `ZOD003` unmapped keyword); `unsupported: 'error'` marks them as errors. `GeneratedFile` gains an optional `diagnostics` member. Without `zod`, `client.ts` is unchanged.
+
+The generated code type-checks and validates the same from zod 4.1.0, the floor of the optional `zod` peer range. It uses `z.strictObject`, `z.looseObject`, getters for recursion, `z.lazy`, multi-value `z.literal`, `z.discriminatedUnion`, `z.custom` and `zod/mini`'s `z.catchall`, all present since 4.0.0. It does not use `z.xor`, which first shipped in 4.2.0. On 4.0.x a required key whose schema accepts anything may be missing, so 4.0 is below the supported range.
