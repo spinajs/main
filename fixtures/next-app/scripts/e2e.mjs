@@ -27,7 +27,9 @@ function run(args, env) {
 }
 
 function start(args, options) {
-  const child = spawn(process.execPath, args, { ...options, env: { ...process.env, ...options.env }, stdio: ['ignore', 'pipe', 'inherit'] });
+  // Its own process group outside Windows, so stopAll reaches any process it starts.
+  const detached = process.platform !== 'win32';
+  const child = spawn(process.execPath, args, { ...options, detached, env: { ...process.env, ...options.env }, stdio: ['ignore', 'pipe', 'inherit'] });
   children.push(child);
   return child;
 }
@@ -65,7 +67,7 @@ function stopAll() {
     if (child.exitCode !== null) continue;
     // `next start` may run the server in a child process of its own.
     if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
-    else child.kill('SIGTERM');
+    else process.kill(-child.pid, 'SIGTERM');
   }
 }
 
@@ -133,8 +135,13 @@ async function main() {
   });
 }
 
+let failure;
 try {
   await main();
+} catch (error) {
+  failure = error;
 } finally {
   stopAll();
 }
+if (failure) console.error(failure);
+process.exit(failure ? 1 : 0);
