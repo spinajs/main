@@ -3,6 +3,7 @@ import { createClient, type ClientDefinition, type ClientOptions } from './http.
 import { decodePlan, define, encodePlan, own, type ConversionPlan, type ConversionPlans, type PlanContext } from './plan.js';
 
 export interface ModelEntry<T> {
+  /** Gets the decoded value: only its declared properties when the plan is a closed object, every own key when open. */
   decode(value: Record<string, unknown>): T;
   encode?(model: T): Record<string, unknown>;
 }
@@ -22,12 +23,17 @@ export interface ModelClientOptions extends ClientOptions {
 
 const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
-/** Copies the decoded keys onto `new cls()`; `Object.assign` would run the `__proto__` setter for a JSON `"__proto__"` key. */
+const shadowsMember = (instance: object, key: string): boolean => key in instance && !Object.prototype.hasOwnProperty.call(instance, key);
+
+/**
+ * Copies the decoded keys onto `new cls()`, skipping any key that would shadow a getter, method or `Object.prototype`
+ * member. `Object.assign` would also run the `__proto__` setter for a JSON `"__proto__"` key.
+ */
 export function fromClass<T extends object>(cls: new () => T): ModelEntry<T> {
   return {
     decode(value) {
       const instance = new cls();
-      for (const key of Object.keys(value)) if (!UNSAFE_KEYS.has(key)) define(instance, key, value[key]);
+      for (const key of Object.keys(value)) if (!UNSAFE_KEYS.has(key) && !shadowsMember(instance, key)) define(instance, key, value[key]);
       return instance;
     },
   };

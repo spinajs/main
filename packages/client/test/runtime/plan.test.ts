@@ -55,6 +55,36 @@ describe('conversion plans', () => {
       expect(seen).to.have.length(1);
     });
 
+    it('hands a model only the declared keys of a closed plan', () => {
+      const plans: ConversionPlans = { User: { kind: 'object', closed: true, props: { id: null, at } } };
+      const seen: Record<string, unknown>[] = [];
+      const models = { User: { decode: (value: Record<string, unknown>) => (seen.push(value), value) } };
+      decodePlan({ kind: 'ref', name: 'User' }, { id: 1, at: ISO, label: 'forged', toString: 's' }, context(plans, models));
+      expect(Object.keys(seen[0])).to.deep.equal(['id', 'at']);
+    });
+
+    it('hands a model every own key of an open plan', () => {
+      const plans: ConversionPlans = { Bag: { kind: 'object', closed: false, props: { at } } };
+      const seen: Record<string, unknown>[] = [];
+      const models = { Bag: { decode: (value: Record<string, unknown>) => (seen.push(value), value) } };
+      decodePlan({ kind: 'ref', name: 'Bag' }, { at: ISO, extra: 1 }, context(plans, models));
+      expect(Object.keys(seen[0])).to.deep.equal(['at', 'extra']);
+    });
+
+    it('selects a member by a numeric discriminator tag', () => {
+      const plans: ConversionPlans = { Circle: { kind: 'object', closed: true, props: { kind: null, born: at } }, Square: { kind: 'object', closed: true, props: { kind: null, born: null } } };
+      const union: ConversionPlan = { kind: 'union', discriminator: { property: 'kind', mapping: { '1': 'Circle', '2': 'Square' } }, members: [{ kind: 'ref', name: 'Circle' }, { kind: 'ref', name: 'Square' }] };
+      const models = { Circle: { decode: (value: Record<string, unknown>) => ({ circle: value }) } };
+      const out = decodePlan(union, { kind: 1, born: ISO }, context(plans, models)) as { circle: { born: unknown } };
+      expect(out.circle.born).to.be.instanceOf(Date);
+    });
+
+    it('converts nothing for a union with a member that needs no conversion', () => {
+      const union: ConversionPlan = { kind: 'union', members: [at, null] };
+      expect(decodePlan(union, 123, context())).to.equal(123);
+      expect(decodePlan(union, ISO, context())).to.equal(ISO);
+    });
+
     it('passes null through a ref without calling the model', () => {
       const models = { Article: { decode: () => expect.fail('decode must not run for null') } };
       expect(decodePlan({ kind: 'ref', name: 'Article' }, null, context({}, models))).to.equal(null);
@@ -175,6 +205,22 @@ describe('conversion plans', () => {
 
     it('keeps every own key of an open object', () => {
       expect(encodePlan({ kind: 'object', closed: false, props: { at } }, { at: new Date(ISO), extra: 1 }, context())).to.deep.equal({ at: ISO, extra: 1 });
+    });
+
+    it('keeps a declared getter of an open object', () => {
+      class Article {
+        title = 't';
+        get slug(): string {
+          return 'slug-t';
+        }
+      }
+      expect(encodePlan({ kind: 'object', closed: false, props: { title: null, slug: null } }, new Article(), context())).to.deep.equal({ title: 't', slug: 'slug-t' });
+    });
+
+    it('projects the member a numeric discriminator tag picks', () => {
+      const plans: ConversionPlans = { Circle: { kind: 'object', closed: true, props: { kind: null, born: at } }, Square: { kind: 'object', closed: true, props: { kind: null, born: null } } };
+      const union: ConversionPlan = { kind: 'union', discriminator: { property: 'kind', mapping: { '1': 'Circle', '2': 'Square' } }, members: [{ kind: 'ref', name: 'Circle' }, { kind: 'ref', name: 'Square' }] };
+      expect(encodePlan(union, { kind: 1, born: new Date(ISO), cache: 1 }, context(plans))).to.deep.equal({ kind: 1, born: ISO });
     });
 
     it('projects a nested closed object inside an array and a record', () => {

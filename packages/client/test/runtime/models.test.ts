@@ -20,6 +20,9 @@ class User {
   get label(): string {
     return `#${this.id} ${this.name}`;
   }
+  greet(): string {
+    return `hi ${this.name}`;
+  }
 }
 
 class Article {
@@ -60,6 +63,16 @@ describe('fromClass', () => {
     expect(Object.prototype.hasOwnProperty.call(user, 'prototype')).to.equal(false);
   });
 
+  it('never lets a reply key shadow a getter, a method or an Object.prototype member', () => {
+    const wire = JSON.parse('{"id":1,"name":"a","label":"forged","greet":"x","toString":"s","valueOf":1}') as Record<string, unknown>;
+    const user = fromClass(User).decode(wire);
+    expect(user.label).to.equal('#1 a');
+    expect(user.greet()).to.equal('hi a');
+    expect(user.toString).to.equal(Object.prototype.toString);
+    expect(user.valueOf).to.equal(Object.prototype.valueOf);
+    expect(Object.keys(user).sort()).to.deep.equal(['id', 'name', 'role']);
+  });
+
   it('does not run a setter or fail on a getter of the class', () => {
     class Guarded {
       written = false;
@@ -72,7 +85,7 @@ describe('fromClass', () => {
     }
     const value = fromClass(Guarded).decode({ secret: 's', fixed: 2 });
     expect(value.written).to.equal(false);
-    expect(value.fixed).to.equal(2);
+    expect(value.fixed).to.equal(1);
   });
 });
 
@@ -131,6 +144,14 @@ describe('createModelClient', () => {
     expect(article.isFresh).to.equal(true);
     expect(article.author).to.be.instanceOf(User);
     expect(article.author?.label).to.equal('#7 Ann');
+  });
+
+  it('drops undeclared reply fields before the model sees them', async () => {
+    const { fetch } = server({ ...wireArticle, isFresh: false, author: { ...wireArticle.author, label: 'forged', greet: 'x' } });
+    const article = await api({ fetch, formats: { 'date-time': dateCodec }, models: { ArticleDto: fromClass(Article), UserDto: fromClass(User) } }).articles.read(1);
+    expect(article.isFresh).to.equal(true);
+    expect(article.author?.label).to.equal('#7 Ann');
+    expect(article.author?.greet()).to.equal('hi Ann');
   });
 
   it('decodes every item of an array reply', async () => {
