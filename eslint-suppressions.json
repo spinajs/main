@@ -2561,14 +2561,8 @@
     }
   },
   "packages/authz/src/engine/authorizer.ts": {
-    "@typescript-eslint/no-base-to-string": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
     "complexity": {
-      "count": 2
+      "count": 1
     },
     "promise/always-return": {
       "count": 1
