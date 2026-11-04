@@ -218,7 +218,7 @@ export class ZodBuilder {
   private conjunction(parts: ZodNode[], scope: Scope): ZodNode {
     if (parts.length === 0) return UNKNOWN;
     const closed = parts.find((p) => p.kind === 'object' && p.mode === 'strict');
-    if (parts.length > 1 && !closed && this.rewrites(parts, scope)) return this.sequential(parts, scope);
+    if (parts.length > 1 && !closed && this.rewrites(parts)) return this.sequential(parts, scope);
     if (!closed || parts.length === 1 || scope.deferred) return parts.reduce((a, b) => call('intersection', { node: a }, { node: b }));
     const checks = parts
       .filter((p) => p !== closed)
@@ -230,7 +230,7 @@ export class ZodBuilder {
   }
 
   // A part that rewrites the value (`transform`) and another that passes it through give outputs zod cannot merge.
-  private rewrites(parts: ZodNode[], _scope: Scope): boolean {
+  private rewrites(parts: ZodNode[]): boolean {
     return parts.some((p) => nodesIn(p).some((n) => n.before?.length));
   }
 
@@ -556,9 +556,14 @@ export class ZodBuilder {
     const restAt = child(scope.at, Array.isArray(schema.items) ? 'additionalItems' : 'items');
     const rest = restSchema === false || shape.restUses === 0 ? undefined : this.slot(restSchema, shape.restUses, { ...scope, at: restAt });
     const node = this.lengths(items, rest, shape, max);
-    const checks = [...(node.checks ?? []), ...arrayChecks(schema, this.host(scope))];
-    const unique = schema.uniqueItems === true ? [this.uniqueItems()] : [];
-    return { ...node, ...(checks.length ? { checks } : {}), ...(unique.length ? { inputChecks: [...(node.inputChecks ?? []), ...unique] } : {}) };
+    return this.arrayKeywords(node, schema, scope);
+  }
+
+  private arrayKeywords(node: ZodNode, schema: Json, scope: Scope): ZodNode {
+    const unique = schema.uniqueItems === true ? this.uniqueItems(schema, scope) : undefined;
+    const checks = [...(node.checks ?? []), ...arrayChecks(schema, this.host(scope)), ...(unique && !unique.asSent ? [unique.check] : [])];
+    const input = unique?.asSent ? [...(node.inputChecks ?? []), unique.check] : node.inputChecks;
+    return { ...node, ...(checks.length ? { checks } : {}), ...(input?.length ? { inputChecks: input } : {}) };
   }
 
   // A slot printed in several tuples is declared once, outside any getter, as the hoisted const is read at module load.
@@ -586,9 +591,28 @@ export class ZodBuilder {
     return { ...call('tuple', { list: leading }, { node: rest }), checks };
   }
 
-  // The items as sent: a parsed object item has lost an own `__proto__` key, which Ajv compares.
-  private uniqueItems(): Check {
-    return { kind: 'refine', fn: `(a) => !Array.isArray(a) || ${this.format('ajvUniqueItems')}(a)`, message: 'must NOT have duplicate items' };
+  /**
+   * A loose object item parses without an own `__proto__` key, which Ajv compares, so such items are compared as sent.
+   * Other items are compared parsed, which keeps the array's input type.
+   */
+  private uniqueItems(schema: Json, scope: Scope): { check: Check; asSent: boolean } {
+    const slots = Array.isArray(schema.items) ? [...(schema.items as unknown[]), schema.additionalItems] : [schema.items];
+    const asSent = slots.some((slot) => this.mayBeLooseObject(slot, scope.at.schema));
+    const fn = asSent ? `(a) => !Array.isArray(a) || ${this.format('ajvUniqueItems')}(a)` : this.format('ajvUniqueItems');
+    return { check: { kind: 'refine', fn, message: 'must NOT have duplicate items' }, asSent };
+  }
+
+  // Unless the schema says otherwise: a typed non-object, a closed object, or a $ref to one.
+  private mayBeLooseObject(schema: unknown, owner: string, depth = 0): boolean {
+    if (schema === false) return false;
+    if (!isJson(schema) || depth > 8 || has(schema, ['anyOf', 'oneOf', 'allOf', 'not', 'if', 'enum', 'const'])) return true;
+    if (typeof schema.$ref === 'string') {
+      const entry = this.graph.get(this.graph.resolve(schema.$ref, owner) ?? '');
+      if (!entry || this.mayBeLooseObject(entry.schema, entry.owner, depth + 1)) return true;
+    }
+    const types: unknown[] = typeof schema.type === 'string' ? [schema.type] : Array.isArray(schema.type) ? schema.type : [];
+    if (types.length === 0) return typeof schema.$ref !== 'string';
+    return types.includes('object') && (schema.additionalProperties !== false || isJson(schema.patternProperties));
   }
 
   private object(schema: Json, scope: Scope): ZodNode {

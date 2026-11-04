@@ -133,6 +133,14 @@ const ROWS: Record<string, Row> = {
     accepts: [[JSON.parse('{"__proto__":1}'), {}], [{ a: 1 }, { a: 2 }]],
     rejects: [[{ a: 1 }, { a: 1 }]],
   },
+  UniqueStrings: {
+    title: 'uniqueItems on items that cannot be a loose object checks the parsed array, so the input stays typed',
+    schema: { type: 'array', items: { type: 'string' }, uniqueItems: true },
+    emits: ["z.array(z.string()).refine(ajvUniqueItems, 'must NOT have duplicate items')"],
+    mini: ["z.array(z.string()).check(z.refine(ajvUniqueItems, 'must NOT have duplicate items'))"],
+    accepts: [['a', 'b']],
+    rejects: [['a', 'a']],
+  },
   AppKeyword: {
     title: 'a keyword the server does not know, such as one an app adds to its Ajv, is dropped with ZOD003',
     schema: { type: 'string', isUnique: 'users.email', $async: true, title: 'x', deprecated: true, $comment: 'c' },

@@ -77,7 +77,7 @@ export const SignUpDtoSchema = /*#__PURE__*/ z.strictObject({
   name: z.string().refine(minCodePoints(2), 'must NOT have fewer than 2 characters').refine(maxCodePoints(64), 'must NOT have more than 64 characters').describe('Shown to other users.'),
   handle: z.string().regex(new RegExp('^[a-z]+$', 'u')).optional(),
   age: z.number().gte(18).lt(130),
-  tags: z.unknown().refine((a) => !Array.isArray(a) || ajvUniqueItems(a), 'must NOT have duplicate items').pipe(z.array(z.string())),
+  tags: z.array(z.string()).refine(ajvUniqueItems, 'must NOT have duplicate items'),
   born: z.string().refine(isDateTime, 'must match format "date-time"').optional(),
   nickname: z.string().nullable(),
   role: z.enum(['admin', 'user']),
