@@ -228,6 +228,26 @@ export interface ScheduleEntry { name: string; className: string; options: Recor
 export interface CliCommandEntry { name: string; className: string; description?: string; options: { flags: string; description?: string }[]; arguments: { name: string; description?: string }[]; parent?: string; mountedBy?: MountedBy; source: SourceRef }
 export interface QueueMessageEntry { className: string; kind: 'job' | 'event'; payload: TypeRef; options: Record<string, unknown>; source: SourceRef }
 
+/** A column of a row type: `ts` is the TypeScript type text without `null`/`undefined`. */
+export interface SqlRowColumn { name: string; ts: string; nullable: boolean }
+
+/**
+ * One `sql` template of `@spinajs/orm`. `text` has one `?` per interpolation. `dynamic`: it interpolates a fragment or
+ * `sql.raw`, so the text is not the statement. `declaredColumns`: the properties of `R` in `sql<R>`. `lists`: indexes of
+ * interpolations bound to an array, each of which expands to several values.
+ */
+export interface ModelSqlQuery {
+  id: string;
+  text: string;
+  placeholders: number;
+  dynamic: boolean;
+  declaredRow?: TypeRef;
+  declaredColumns?: SqlRowColumn[];
+  lists?: number[];
+  connection?: string;
+  source: SourceRef;
+}
+
 export interface Diagnostic { code: string; severity: 'error' | 'warning' | 'info'; message: string; source?: SourceRef }
 
 export interface ManifestFragment {
@@ -249,6 +269,8 @@ export interface ManifestFragment {
   models: ModelEntry[]; migrations: MigrationEntry[]; schedules: ScheduleEntry[]; commands: CliCommandEntry[]; queueMessages: QueueMessageEntry[];
   /** Omitted when there are none; only an app built with its dirs has any. */
   scanFiles?: ScanFile[];
+  /** Omitted when the package has no `sql` template. */
+  sqlQueries?: ModelSqlQuery[];
   schemas: Record<string, unknown>;   // $id → JSON Schema
   diagnostics: Diagnostic[];
 }

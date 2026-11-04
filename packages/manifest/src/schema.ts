@@ -106,6 +106,12 @@ export const manifestSchema: Record<string, any> = {
             "$ref": "#/definitions/ScanFile"
           }
         },
+        "sqlQueries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ModelSqlQuery"
+          }
+        },
         "schemas": {
           "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"
         },
@@ -1524,6 +1530,70 @@ export const manifestSchema: Record<string, any> = {
         "migrations"
       ]
     },
+    "ModelSqlQuery": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "placeholders": {
+          "type": "number"
+        },
+        "dynamic": {
+          "type": "boolean"
+        },
+        "declaredRow": {
+          "$ref": "#/definitions/TypeRef"
+        },
+        "declaredColumns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SqlRowColumn"
+          }
+        },
+        "lists": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "connection": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "placeholders",
+        "dynamic",
+        "source"
+      ]
+    },
+    "SqlRowColumn": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "ts": {
+          "type": "string"
+        },
+        "nullable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "ts",
+        "nullable"
+      ]
+    },
     "Diagnostic": {
       "type": "object",
       "properties": {
@@ -1681,6 +1751,12 @@ export const manifestSchema: Record<string, any> = {
           "type": "array",
           "items": {
             "$ref": "#/definitions/ScanFile"
+          }
+        },
+        "sqlQueries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ModelSqlQuery"
           }
         },
         "schemas": {
