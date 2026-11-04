@@ -1,0 +1,5 @@
+---
+"@spinajs/workflow": minor
+---
+
+`ctx.sleep()` / `ctx.sleepUntil()` park an instance until a wake time computed once on the database clock, so a crash never restarts a sleep. `ctx.now()`, `ctx.uuid()` and `ctx.random()` return the same values on every replay; a marker whose journal row cannot be written abandons the activation instead of letting a replay compute another value. `WorkflowService.signal()` buffers named events per instance (optionally deduplicated by `dedupKey`; names, dedup keys, principals and payloads the columns cannot hold are refused with `InvalidArgument`) and `ctx.waitForEvent()` consumes them oldest first, with an optional timeout. Woken sleeps and consumed or timed-out waits replay in their recorded order alongside steps. A wait that declares a `permission` asks the `SignalAuthorizer` at consumption time; the default `DenyAllSignalAuthorizer` rejects every such signal until an authorizer package is installed.

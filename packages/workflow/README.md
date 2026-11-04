@@ -9,7 +9,9 @@ top after every wake-up or crash and continues where it stopped. See `docs/workf
 Each step row records how many results the workflow had received when the step was called (`Meta.after`) and the
 order its result was committed in (`Meta.order`). A replay hands recorded results back in that order, one per
 event-loop turn, each only once the calls that preceded it have been made again. Concurrent branches (`Promise.all`,
-`Promise.race`) then continue in their original interleaving. The contract:
+`Promise.race`) then continue in their original interleaving. A sleep that woke and a wait that consumed an event or
+timed out are results like a step's; `ctx.now()`, `ctx.uuid()` and `ctx.random()` return synchronously and are not.
+The contract:
 
 - A step name used in several concurrent branches (`ctx.step('save', ...)` inside `items.map(...)`) is replay-safe
   only if the code between those steps awaits workflow operations alone. If it awaits anything else (a file read, an

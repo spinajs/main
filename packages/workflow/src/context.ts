@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { DI } from '@spinajs/di';
 import { computeBackoff, isRetryable, parseDuration, type Clock, type DbClock, type FaultInjector, type FaultPointName, type NormalizedRetry, type RetryPolicyOptions } from '@spinajs/durable';
 import { InvalidArgument, InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import type { Log } from '@spinajs/log-common';
@@ -14,6 +15,7 @@ import { WorkflowEventModel } from './models/WorkflowEventModel.js';
 import { normalizeRetry, unitHash } from './policy.js';
 import type { WorkflowInstanceModel } from './models/WorkflowInstanceModel.js';
 import type { RegisteredWorkflow } from './registry.js';
+import { SignalAuthorizer } from './signals.js';
 import type { InstanceStore, StepWrite } from './store.js';
 import type { WorkflowConfig } from './workflow-config.js';
 
@@ -479,7 +481,7 @@ export class ActivationContext implements WorkflowContext {
       await this.record(op, { status: 'pending', attempt: 1, startedAt, meta });
       await this.fault('workflow.after-journal', op.key);
     }
-    const event = await this.consume<T>(op, startedAt);
+    const event = await this.consume<T>(op, meta, startedAt);
     const timeoutAt = meta.timeoutAt ?? null;
     if (event === undefined && timeoutAt !== null && clock.now() >= timeoutAt) await this.record(op, { status: 'succeeded', attempt: 1, startedAt, finished: true });
     else if (event === undefined) {
@@ -490,15 +492,36 @@ export class ActivationContext implements WorkflowContext {
     return event;
   }
 
-  /** Oldest pending event first; the conditional consume under the fence lets only one activation take an event. */
-  protected async consume<T>(op: Op, startedAt: number): Promise<WorkflowEvent<T> | undefined> {
+  /**
+   * Oldest pending event first; the conditional consume under the fence lets only one activation take an event. A
+   * permissioned wait asks the SignalAuthorizer at consumption time and rejects what it denies (D7).
+   */
+  protected async consume<T>(op: Op, meta: StepMeta, startedAt: number): Promise<WorkflowEvent<T> | undefined> {
     const pending = await WorkflowEventModel.where({ InstanceId: this.instanceId, Name: op.name, State: 'pending' }).onPrimary().orderBy('Id');
     for (const e of pending) {
+      if (meta.permission !== undefined && !(await this.authorized(e, meta.permission, meta.resource))) {
+        await this.rejectEvent(e.Id);
+        continue;
+      }
       const event: WorkflowEvent<T> = { name: e.Name, payload: e.Payload as T, receivedAt: Number(e.ReceivedAt), ...(e.Principal ? { principal: e.Principal } : {}) };
       const take = async (): Promise<boolean> => (await WorkflowEventModel.update({ State: 'consumed', ConsumedByKey: op.key }).where({ Id: e.Id, State: 'pending' })).RowsAffected === 1;
       if (await this.record(op, { status: 'succeeded', attempt: 1, startedAt, result: { value: event }, finished: true }, take)) return event;
     }
     return undefined;
+  }
+
+  protected async authorized(e: WorkflowEventModel, permission: string, resource: Record<string, unknown> | undefined): Promise<boolean> {
+    const authorizer = await DI.resolve(SignalAuthorizer);
+    return authorizer.authorize(e.Principal ?? undefined, permission, resource, { instanceId: this.instanceId, workflow: this.workflow, event: e.Name });
+  }
+
+  /** Fenced and conditional on 'pending', like a consume. */
+  protected rejectEvent(eventId: number | string): Promise<unknown> {
+    const { store, clock, epoch } = this.init;
+    const reject = async (): Promise<unknown> => await WorkflowEventModel.update({ State: 'rejected' }).where({ Id: eventId, State: 'pending' });
+    return this.enqueueWrite(() => this.guarded(() => store.fenced(this.instanceId, epoch, clock.now(), reject))).catch((err: unknown) => {
+      throw this.journalWriteFailed(err);
+    });
   }
 
   /** A blocking operation's journal row, queued behind earlier writes; a failed write is not the operation's failure. */
