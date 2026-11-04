@@ -1,5 +1,6 @@
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
+import { NonRetryableError } from '@spinajs/durable';
 import { Workflow, WorkflowDefinition, WorkflowService, type WorkflowContext } from '../../src/index.js';
 import { engine } from '../support/engine.js';
 import { disposeTestEnv } from '../support/env.js';
@@ -31,6 +32,20 @@ export class ItRace extends WorkflowDefinition<null, unknown> {
 export class ItNear extends WorkflowDefinition<null, unknown> {
   public async run(ctx: WorkflowContext<null>): Promise<unknown> {
     return (await Promise.race([ctx.waitForEvent('a$'), ctx.waitForEvent('ab')]))?.name;
+  }
+}
+
+const bank = { down: true };
+
+@Workflow('it-saga')
+export class ItSaga extends WorkflowDefinition<null, string> {
+  public async run(ctx: WorkflowContext<null>): Promise<string> {
+    await ctx.step('charge', () => 'ch-1', {
+      retry: { attempts: 2, backoff: 'fixed', delay: '5s' },
+      compensate: () => (bank.down ? Promise.reject(new Error('bank down')) : Promise.resolve()),
+    });
+    await ctx.step('ship', () => Promise.reject(new NonRetryableError('no courier')));
+    return 'shipped';
   }
 }
 
@@ -107,6 +122,30 @@ for (const target of REAL_DB_TARGETS) {
       await service.signal('near', 'ab', 2);
       await r1.tick();
       expect(pick(await instance('near'), 'Status', 'Result')).to.deep.equal({ Status: 'completed', Result: 'ab' });
+    });
+
+    it('a compensation backs off as compensating, resumes from the due scan, and retry() finishes the pass', async () => {
+      bank.down = true;
+      const { clock } = await bootRealDb(target);
+      const service = await DI.resolve(WorkflowService);
+      await service.start('it-saga', null, { id: 's' });
+      const r1 = await engine();
+      await r1.tick();
+      expect(pick(await instance('s'), 'Status', 'WakeAt')).to.deep.equal({ Status: 'compensating', WakeAt: T0 + 5_000 });
+      clock.set(T0 + 5_000);
+      await r1.tick();
+      expect(pick(await instance('s'), 'Status', 'Reason')).to.deep.equal({ Status: 'failed', Reason: 'compensation-failed' });
+      bank.down = false;
+      await service.retry('s');
+      await r1.tick();
+      const done = await instance('s');
+      expect(pick(done, 'Status', 'Reason')).to.deep.equal({ Status: 'compensated', Reason: 'error' });
+      expect(done.Error?.message).to.equal('no courier');
+      expect((await stepsOf('s')).map((r) => [r.Key, r.Seq, r.Status])).to.deep.equal([
+        ['step:charge#1', 1, 'succeeded'],
+        ['step:ship#1', 2, 'failed'],
+        ['compensate:charge#1', 1_000_000, 'succeeded'],
+      ]);
     });
 
     it('retry() resets the failed step rows in one transaction', async () => {
