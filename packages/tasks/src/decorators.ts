@@ -5,6 +5,7 @@ import {
   defineSchedule,
   isCrashError,
   registerTaskMethod,
+  RunAbortedError,
   ScheduleOverlap,
   SchedulerService,
   taskMethodSchedule,
@@ -113,8 +114,8 @@ async function emitOutcome(decl: TaskDeclaration, failure: { error: unknown } | 
 }
 
 interface TaskCall {
-  /** Set when the method itself threw, so only its error becomes `{ error: true }`. */
-  methodThrew: boolean;
+  /** How the method itself ended, so only its own error becomes `{ error: true }`. */
+  settled?: { ok: true; value: unknown } | { ok: false; error: unknown };
 }
 
 /** The method with the 3.x bookkeeping around it; throws the method's error after the bookkeeping. */
@@ -137,10 +138,11 @@ async function executeTask(
   const start = DateTime.now();
   try {
     taskResult = await decl.method.apply(thisArg, args);
+    call.settled = { ok: true, value: taskResult };
   } catch (err) {
     // a dead process emits and records nothing
     if (isCrashError(err)) throw err;
-    call.methodThrew = true;
+    call.settled = { ok: false, error: err };
     failure = { error: err };
     log.error({ error: err, taskName: decl.name }, 'Cannot execute task ${taskName}');
     taskResult = { error: true, message: errorMessage(err) };
@@ -179,7 +181,7 @@ export async function runTask(
   const log = DI.resolve(LOG, ['TASKS']);
   log.info({ taskName: decl.name }, 'Executing task ${taskName} ...');
 
-  const call: TaskCall = { methodThrew: false };
+  const call: TaskCall = {};
   try {
     if (!opts.lock) {
       return await executeTask(decl, thisArg, args, log, call);
@@ -189,17 +191,30 @@ export async function runTask(
       triggeredBy: `task:${decl.name}`,
     });
   } catch (err) {
-    if (err instanceof ScheduleOverlap) {
-      log.warn({ taskName: decl.name }, 'Task ${taskName} is already running, skipped');
-      return undefined;
-    }
-    if (call.methodThrew && !isCrashError(err)) {
-      if (opts.rethrow) throw err;
-      return { error: true, message: errorMessage(err) };
-    }
-    if (!isCrashError(err)) log.error({ error: err, taskName: decl.name }, 'Cannot start task ${taskName}');
-    throw err;
+    return endOfFailedCall(decl, call, err, opts, log);
   }
+}
+
+function endOfFailedCall(decl: TaskDeclaration, call: TaskCall, err: unknown, opts: RunTaskOptions, log: Log): unknown {
+  if (err instanceof ScheduleOverlap) {
+    log.warn({ taskName: decl.name }, 'Task ${taskName} is already running, skipped');
+    return undefined;
+  }
+  if (isCrashError(err)) throw err;
+  const settled = call.settled;
+  // the method ran, but the run could not be recorded as its end (lease lost): 3.x only warned on a lost mutex
+  if (settled && err instanceof RunAbortedError && err.reason === 'lease-lost') {
+    log.warn({ taskName: decl.name }, 'Task ${taskName} lost its run lease, its end is not recorded');
+    return settled.ok ? settled.value : methodFailure(settled.error, opts);
+  }
+  if (settled && !settled.ok && err === settled.error) return methodFailure(err, opts);
+  log.error({ error: err, taskName: decl.name }, 'Cannot start task ${taskName}');
+  throw err;
+}
+
+function methodFailure(err: unknown, opts: RunTaskOptions): unknown {
+  if (opts.rethrow) throw err;
+  return { error: true, message: errorMessage(err) };
 }
 
 /**
@@ -233,7 +248,7 @@ export function Task(taskName: string, description: string, opts?: Partial<TaskO
     declarations.set(_name, [...(declarations.get(_name) ?? []), decl]);
 
     const adapter = taskMethodSchedule(decl, runTask);
-    registerTaskMethod(_name, adapter);
+    registerTaskMethod(_name, adapter, { stacking: _opts.taskStacking });
     // a second @Task with the same name runs under the first one's schedule
     if (first) {
       defineSchedule(adapter, _name, { manual: true, overlap: _opts.taskStacking ? 'queue' : 'skip' });

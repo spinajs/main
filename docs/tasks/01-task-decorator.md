@@ -67,7 +67,7 @@ The options type is exported as `TaskOptions`, the defaults as `DEFAULT_TASK_OPT
 
 Every `@Task()` method is recorded as a `TaskDeclaration` when its class is defined: `name`, `description`, the merged `options`, the declaring class as `target` (the constructor itself for a static method), `isStatic`, `propertyKey` and the undecorated `method`. `getTaskDeclarations(name?)` returns the declarations of one task name, or all of them. Each declaration is also registered with the scheduler (`registerTaskMethod`), so a `scheduler.schedules` entry can name it in `task`.
 
-`runTask(declaration, thisArg, args, { lock, rethrow })` runs a declaration with the same bookkeeping as the decorated method. `lock: false` runs the body without a scheduler run, for a caller that already is inside one (the scheduler executing the task's schedule does this). `rethrow: true` rejects with the method's error (or `ScheduleOverlap`) after the history row is written, instead of resolving with `{ error: true, message }` or `undefined`.
+`runTask(declaration, thisArg, args, { lock, rethrow })` runs a declaration with the same bookkeeping as the decorated method. `lock: false` runs the body without a scheduler run, for a caller that already is inside one (the scheduler executing the task's schedule does this). `rethrow: true` rejects with the method's error after the history row is written, instead of resolving with `{ error: true, message }`.
 
 ## Configuration
 
@@ -144,10 +144,10 @@ export async function startReportTasks(): Promise<ReportTasks> {
 
 - **Errors of the method are not rethrown.** A failed run resolves with `{ error: true, message }`. Check the result if the caller must react.
 - **A run that cannot start rejects.** When the scheduler cannot write the run (no scheduler tables, a database outage), the call logs `Cannot start task` and rejects, as a 3.x start failure did. An error carrying `crash: true` is rethrown with nothing emitted or recorded.
-- **A call costs more statements than in 3.x.** With `tasks.legacyHistory` on, a call issues about 15 SQL statements (lease, run row, attempt, journal, finish, release, plus the legacy rows) where 3.x issued about 5.
+- **A call costs more statements than in 3.x.** With `tasks.legacyHistory` on, a call issues about 20 SQL statements (clock, lease, run row, attempt, journal, finish, release, finalizers, plus the legacy rows) where 3.x issued about 5.
 - **A skipped run resolves with `undefined`.** When another run holds the lease of a non-stacking task, nothing marks the call as skipped except the `warn` log line; no run row is written.
 - **A failed event emit does not change the run.** When `TaskSuccess.emit()` or `TaskFailed.emit()` throws (a queue outage), the error is logged and the call resolves with the run's result as usual: a run whose side effects already happened must not look like a failure a caller would retry.
-- **A run killed mid-way is reaped by the scheduler.** When the process dies during the method, the run's lease expires `scheduler.leaseTtl` after the last heartbeat and a scheduler loop ends the run. The legacy `__tasks.State` stays `'running'` and no history row is written; see [Task locking](02-task-locking.md#important-behaviour).
+- **A run killed mid-way frees the task when its lease expires.** When the process dies during the method, nothing more is written: with no scheduler loop the run row stays `running`, and the task is callable again `scheduler.leaseTtl` after the last heartbeat. The legacy `__tasks.State` stays `'running'` and no history row is written; see [Task locking](02-task-locking.md#important-behaviour).
 - **`Description` is written once.** Changing the text in `@Task()` does not update an existing row.
 - **The name is trimmed everywhere.** The schedule name, the database row, the event `TaskName` and the log fields all use the trimmed `taskName`.
 - **The return value is stored as JSON.** `__task_history.Result` is a `@Json()` column, so return a JSON-serializable value.

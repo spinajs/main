@@ -13,6 +13,7 @@ import {
   Clock,
   DbTimeSource,
   FakeClock,
+  LeaseStore,
   RunModel,
   Scheduler,
   ScheduleRegistry,
@@ -185,6 +186,18 @@ describe('@Task shim over the scheduler', function () {
 
     await expect(new TestTask().execute(1)).to.be.rejectedWith('scheduler tables missing');
     expect(failed.called).to.eq(false);
+  });
+
+  it('returns the value of a method that ran when the run then loses its lease', async () => {
+    sinon.stub(LeaseStore.prototype, 'finishRun').resolves(false);
+
+    expect(await new TestTaskValue().execute()).to.deep.eq({ sent: 3 });
+  });
+
+  it('reports a failure to finish the run after the method threw as a start failure', async () => {
+    sinon.stub(LeaseStore.prototype, 'finishRun').rejects(new Error('db gone'));
+
+    await expect(new TestTaskFailing().execute()).to.be.rejectedWith('db gone');
   });
 
   it('writes, emits and records nothing after a crash, and rethrows it', async () => {
