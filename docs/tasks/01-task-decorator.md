@@ -1,52 +1,49 @@
 # Task decorator
 
-`@Task(name, description, opts)` turns a method into a tracked task. Each call is logged, marked as running in the `__tasks` table, optionally guarded by a mutex, and reported as a `TaskSuccess` or `TaskFailed` event. Use it on methods that run periodically or on demand and that you want to see in the database and on the queue.
+`@Task(name, description, opts)` turns a method into a tracked task. Each call is a `manual` run of a `@spinajs/scheduler` schedule named after the task: it is recorded in `__scheduler_run`, guarded by the schedule lease, logged, and reported as a `TaskSuccess` or `TaskFailed` event. While `tasks.legacyHistory` is `true` (the 4.x default) it is also recorded in `__tasks` and `__task_history`. Use it on methods that run periodically or on demand and that you want to see in the database and on the queue.
 
-`@Task()` does **not** schedule the method. Call it from a timer, a queue job, a CLI command or an HTTP action.
+> **Deprecated.** `@spinajs/tasks` is a shim over `@spinajs/scheduler` and is removed in 5.0. New code uses `@Schedule` classes, and `SchedulerService.runInline()` for work the app starts itself; see [Inline runs](../scheduler/README.md#inline-runs).
+
+The decorator does not put the method on a timer. Call it yourself, or name the task in a `scheduler.schedules` entry (`task: '<name>'`) to give it a cron or an interval.
 
 ## How it works
 
 At class definition, `Task(taskName, description, opts)`:
 
 1. Trims `taskName` and `description` with `_check_arg(_trim(), _non_empty())`. An empty value throws `InvalidArgument` while the class is being defined.
-2. Merges `opts` over `DEFAULT_TASK_OPTIONS`.
-3. Records a `TaskDeclaration` for the method (see [Task declarations](#task-declarations)).
+2. Merges `opts` over `DEFAULT_TASK_OPTIONS` and records a `TaskDeclaration` (see [Task declarations](#task-declarations)).
+3. Registers a schedule with `defineSchedule(adapter, taskName, { manual: true, overlap })`, where `overlap` is `'queue'` for `taskStacking: true` and `'skip'` otherwise. A second `@Task` with the same name reuses the first one's schedule.
 4. Replaces `descriptor.value` with a wrapper that calls `runTask(declaration, this, args, { lock: true, rethrow: false })`.
 
 On every call of the decorated method, `runTask()`:
 
-1. Resolves a logger with `DI.resolve('__log__', ['TASKS'])` and logs `Executing task ...` at `info`.
-2. Calls `__task.getOrCreate(null, { Name, Description, State: 'stopped' })`. It finds the row by its unique `Name` column, or inserts it. An existing row keeps its stored `Description`. When the insert fails because another process inserted the same `Name` first, it reads that row instead.
-3. When `taskStacking` is `false`, the default, takes the task lock: it skips the run when the task is already running in this process, calls `mutex_acquire({ Name: 'task-<name>', ttl: lockTtl })` from `@spinajs/threading`, and starts a heartbeat that renews the lock. When the lock is held elsewhere, it logs a warning and returns `undefined` without running the method. See [Task locking](02-task-locking.md).
-4. Sets `State = 'running'` and `LastRunAt = DateTime.now()` and saves the row with `task.update()`. When that save fails, it releases the lock before rethrowing.
-5. Calls the original method with the same `this` and arguments.
-6. When the method throws, logs at `error` and sets the result to `{ error: true, message }`, where `message` is the error's `message`, or the thrown value as a string.
-7. Emits `TaskSuccess` with `TaskName` (the trimmed name) and logs at `success`, or emits `TaskFailed` with `TaskName` and `Reason: message`. See [Task events](03-task-events.md). An emit that throws is logged as `Cannot emit ...` and does not change the result.
-8. In a `finally` block, releases the lock taken in step 3 (stops the heartbeat, then `mutex_release()`), sets `State = 'stopped'` and inserts a `__task_history` row with `TaskId`, `Result` and `Duration` in milliseconds. Errors in this step are logged as `Cannot finalize task` and swallowed.
-9. Returns the method's result, or the `{ error, message }` object from step 6.
-
-An error in steps 2 to 4 is logged as `Cannot start task` and rethrown to the caller. That covers a missing `default` connection and a missing `Mutex` registration.
+1. Logs `Executing task ...` at `info` through the `TASKS` logger.
+2. Resolves `SchedulerService` and calls `runInline(taskName, body, { triggeredBy: 'task:<name>' })`. That inserts a `__scheduler_run` row already claimed by this process (trigger `manual`), takes the schedule lease unless the schedule is `overlap: 'queue'`, and keeps the lease alive with the run heartbeat while the body runs. A call made while another run holds the lease of an `overlap: 'skip'` schedule is refused with `ScheduleOverlap`: the wrapper logs a warning and resolves with `undefined`.
+3. In the body, with `tasks.legacyHistory` on: finds or inserts the `__tasks` row and sets `State = 'running'` and `LastRunAt`.
+4. Calls the original method with the same `this` and arguments, inside the run context, so `currentRunContext()` returns the run.
+5. Emits `TaskSuccess`, or `TaskFailed` with `Reason: message`. An emit that throws is logged and does not change the result.
+6. With `tasks.legacyHistory` on: sets `State = 'stopped'` and inserts a `__task_history` row with `TaskId`, `Result` and `Duration`. Errors here are logged as `Cannot finalize task` and swallowed.
+7. The run ends `succeeded` with the method's value as `Result`, or `failed` with the error. Inline runs are never retried automatically.
+8. The wrapper resolves with the method's value, or with `{ error: true, message }` when it threw.
 
 ```mermaid
 sequenceDiagram
   participant Caller
   participant Wrapper as @Task wrapper
-  participant DB as __tasks / __task_history
-  participant Mutex
+  participant Scheduler as SchedulerService.runInline
   participant Method as original method
   participant Queue as QueueService
   Caller->>Wrapper: sendReminders()
-  Wrapper->>DB: __task.getOrCreate(Name)
-  Wrapper->>Mutex: mutex_acquire('task-<name>', ttl) (taskStacking: false)
-  Mutex-->>Wrapper: Locked
-  Wrapper->>Mutex: mutex_renew() every lockTtl / 3 while the method runs
-  Wrapper->>DB: State = running, LastRunAt = now
+  Wrapper->>Scheduler: runInline(taskName, body)
+  Scheduler->>Scheduler: take schedule lease, insert running manual run, start heartbeat
+  Scheduler->>Wrapper: run body
   Wrapper->>Method: apply(this, args)
   Method-->>Wrapper: result or error
   Wrapper->>Queue: TaskSuccess.emit() or TaskFailed.emit()
-  Wrapper->>Mutex: mutex_release()
-  Wrapper->>DB: State = stopped, insert history row
-  Wrapper-->>Caller: result or { error, message }
+  Wrapper-->>Scheduler: body result or error
+  Scheduler->>Scheduler: finish run, release lease
+  Scheduler-->>Wrapper: result or error
+  Wrapper-->>Caller: result, { error, message } or undefined (skipped)
 ```
 
 ## Decorators
@@ -59,8 +56,8 @@ sequenceDiagram
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `taskStacking` | `boolean` | `false` | `false`: take the `task-<name>` mutex before the run and skip the run when it is held. `true`: no mutex; runs can overlap. |
-| `lockTtl` | `number` | `60000` | Lifetime of the task mutex in ms, renewed every `lockTtl / 3` while the task runs. `0`: the lock never expires. See [Task locking](02-task-locking.md#configuration). |
+| `taskStacking` | `boolean` | `false` | `false`: the schedule is `overlap: 'skip'`; a call while another run holds the schedule lease is skipped. `true`: `overlap: 'queue'`; inline calls run side by side. See [Task locking](02-task-locking.md). |
+| `lockTtl` | `number` | `60000` | Deprecated and ignored. The schedule lease lives `scheduler.leaseTtl`. |
 
 The options type is exported as `TaskOptions`, the defaults as `DEFAULT_TASK_OPTIONS`.
 
@@ -68,19 +65,20 @@ The options type is exported as `TaskOptions`, the defaults as `DEFAULT_TASK_OPT
 
 ### Task declarations
 
-Every `@Task()` method is recorded as a `TaskDeclaration` when its class is defined: `name`, `description`, the merged `options`, the declaring class as `target` (the constructor itself for a static method), `isStatic`, `propertyKey` and the undecorated `method`. `getTaskDeclarations(name?)` returns the declarations of one task name, or all of them; `@spinajs/scheduler` uses them to schedule tasks by name.
+Every `@Task()` method is recorded as a `TaskDeclaration` when its class is defined: `name`, `description`, the merged `options`, the declaring class as `target` (the constructor itself for a static method), `isStatic`, `propertyKey` and the undecorated `method`. `getTaskDeclarations(name?)` returns the declarations of one task name, or all of them. Each declaration is also registered with the scheduler (`registerTaskMethod`), so a `scheduler.schedules` entry can name it in `task`.
 
-`runTask(declaration, thisArg, args, { lock, rethrow })` runs a declaration with the same bookkeeping as the decorated method. `lock: false` skips the task mutex, its heartbeat and the in-process guard, for a caller that holds a lock of its own. `rethrow: true` rejects with the method's error after the history row is written, instead of resolving with `{ error: true, message }`.
+`runTask(declaration, thisArg, args, { lock, rethrow })` runs a declaration with the same bookkeeping as the decorated method. `lock: false` runs the body without a scheduler run, for a caller that already is inside one (the scheduler executing the task's schedule does this). `rethrow: true` rejects with the method's error (or `ScheduleOverlap`) after the history row is written, instead of resolving with `{ error: true, message }` or `undefined`.
 
 ## Configuration
 
-`@Task()` reads no config key. The package ships `config/tasks.js`, which `@spinajs/configuration` merges into the app config at startup:
+The package ships `config/tasks.js`, which `@spinajs/configuration` merges into the app config at startup:
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
+| `tasks.legacyHistory` | `boolean` | `true` | `true`, `false` | `true`: also write `__tasks` and `__task_history`. `false`: the run history is `__scheduler_run` only. 5.0 removes the tables and the key. |
 | `queue.routing.TaskFailed`, `queue.routing.TaskSuccess`, `queue.connections` | | `task-empty-queue` | | Where the task events go. See [Task events](03-task-events.md#configuration). |
 
-The tables live on the `default` connection, which is `db.DefaultConnection`. See [Task tables and migration](04-task-tables-and-migration.md).
+The scheduler's own settings (`scheduler.leaseTtl`, `scheduler.schedules`) apply to task runs as to any schedule. The tables live on the `default` connection, which is `db.DefaultConnection`. See [Task tables and migration](04-task-tables-and-migration.md).
 
 ## Services and extension points
 
@@ -88,7 +86,7 @@ The wrapper resolves every service from the root container on each call, so a re
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Lock backend | `Mutex` from `@spinajs/threading`, resolved by `mutex_acquire()` / `mutex_release()`; singleton | none registered | `OrmMutex` (`@spinajs/orm-threading`), your own `Mutex` | `DI.register(MyMutex).as(Mutex)` before the first task call. See [Task locking](02-task-locking.md). |
+| Run host | `SchedulerService` from `@spinajs/scheduler`; singleton | `DefaultSchedulerService` | none | Its `runInline()` executes every call. See [Task locking](02-task-locking.md). |
 | Logger | `__log__` factory, resolved with the name `TASKS` on every call | the `@spinajs/log` logger | any logger registered as `__log__` | Route or silence it with a `logger.rules` entry for `TASKS`; replace the factory as in [Replacing the logger](../log/17-replacing-the-logger.md). |
 | Event sink | `QueueService`, resolved by `TaskSuccess.emit()` / `TaskFailed.emit()` | `DefaultQueueService` | your `QueueService` | Route the events with `queue.routing`. See [Task events](03-task-events.md). |
 | Task state | `__task`, `__task_history` models on `default` | shipped models | none | Read or extend the tables. See [Task tables and migration](04-task-tables-and-migration.md). |
@@ -101,8 +99,6 @@ The wrapper resolves every service from the root container on each call, so a re
 ```ts sample
 import { AsyncService, Autoinject, DI, Singleton } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { Mutex } from '@spinajs/threading';
-import { OrmMutex } from '@spinajs/orm-threading';
 import { Task } from '@spinajs/tasks';
 
 @Singleton()
@@ -139,8 +135,6 @@ export class ReportTasks extends AsyncService {
   }
 }
 
-DI.register(OrmMutex).as(Mutex);
-
 export async function startReportTasks(): Promise<ReportTasks> {
   return DI.resolve(ReportTasks);
 }
@@ -148,23 +142,24 @@ export async function startReportTasks(): Promise<ReportTasks> {
 
 ## Important behaviour
 
-- **Errors of the method are not rethrown.** A failed run resolves with `{ error: true, message }`; it never rejects. Check the result if the caller must react.
-- **A skipped run resolves with `undefined`.** When the mutex is held, nothing marks the call as skipped except the `warn` log line.
+- **Errors of the method are not rethrown.** A failed run resolves with `{ error: true, message }`. Check the result if the caller must react.
+- **A run that cannot start rejects.** When the scheduler cannot write the run (no scheduler tables, a database outage), the call logs `Cannot start task` and rejects, as a 3.x start failure did. An error carrying `crash: true` is rethrown with nothing emitted or recorded.
+- **A call costs more statements than in 3.x.** With `tasks.legacyHistory` on, a call issues about 15 SQL statements (lease, run row, attempt, journal, finish, release, plus the legacy rows) where 3.x issued about 5.
+- **A skipped run resolves with `undefined`.** When another run holds the lease of a non-stacking task, nothing marks the call as skipped except the `warn` log line; no run row is written.
 - **A failed event emit does not change the run.** When `TaskSuccess.emit()` or `TaskFailed.emit()` throws (a queue outage), the error is logged and the call resolves with the run's result as usual: a run whose side effects already happened must not look like a failure a caller would retry.
-- **A run killed mid-way is not cleaned up.** When the process dies during the method, `State` stays `'running'` and no history row is written. The lock expires `lockTtl` after the last heartbeat; see [Task locking](02-task-locking.md#important-behaviour).
+- **A run killed mid-way is reaped by the scheduler.** When the process dies during the method, the run's lease expires `scheduler.leaseTtl` after the last heartbeat and a scheduler loop ends the run. The legacy `__tasks.State` stays `'running'` and no history row is written; see [Task locking](02-task-locking.md#important-behaviour).
 - **`Description` is written once.** Changing the text in `@Task()` does not update an existing row.
-- **The name is trimmed everywhere.** The database row, the mutex name, the event `TaskName` and the log fields all use the trimmed `taskName`.
+- **The name is trimmed everywhere.** The schedule name, the database row, the event `TaskName` and the log fields all use the trimmed `taskName`.
 - **The return value is stored as JSON.** `__task_history.Result` is a `@Json()` column, so return a JSON-serializable value.
 - The exported constant `TASK_COMMAND` (`'task:command'`) is not used by the package.
 
 ## Best practices
 
 - Pass `opts` with an explicit `taskStacking`, so the locking choice is visible at the decorator.
-- Set `lockTtl` for tasks whose runs may pause the event loop for long stretches, so the heartbeat cannot fall behind.
-- Keep `taskName` short, stable and unique across the app: it is the `__tasks` key and the mutex name.
+- Keep `taskName` short, stable and unique across the app: it is the schedule name and the `__tasks` key.
 - Return a small summary object (`{ sent: 12 }`), not the full data set: it is what the history stores.
 - Catch errors you can handle inside the method and return them in the result; the wrapper turns every other error into `{ error: true }`.
-- Call tasks through `void task()` or `.catch()` in timers: setup errors (no `Orm`, no `Mutex`) reject the call.
+- Call tasks through `void task()` or `.catch()` in timers: setup errors (no `Orm`, no scheduler tables) reject the call.
 
 ## Patterns and antipatterns
 
@@ -234,7 +229,7 @@ module.exports = {
 
 ## Related
 
-- [Task locking](02-task-locking.md): what `taskStacking: false` and `lockTtl` do, and which `Mutex` to register.
+- [Task locking](02-task-locking.md): how `taskStacking` maps to the schedule's `overlap` and lease.
 - [Task events](03-task-events.md): `TaskSuccess` and `TaskFailed`.
 - [Task tables and migration](04-task-tables-and-migration.md): the rows step 2, 4 and 8 write.
 - [Configuration and rules](../log/02-configuration-and-rules.md): routing the `TASKS` logger.

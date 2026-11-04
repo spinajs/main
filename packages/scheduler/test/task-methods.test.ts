@@ -3,16 +3,19 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import sinon from 'sinon';
 import { DI } from '@spinajs/di';
-import { Mutex } from '@spinajs/threading';
-import { Task, __task, __task_history } from '@spinajs/tasks';
 import {
   currentRunContext,
   FakeClock,
+  findTaskMethods,
   loadTaskMethodLookup,
+  registerTaskMethod,
   RunStepModel,
+  RunTaskFn,
   Scheduler,
   ScheduleRegistry,
   ScheduleValidationError,
+  taskMethodSchedule,
+  TaskMethodDeclaration,
 } from '../src/index.js';
 import { bootTestEnv } from './support/env.js';
 import { getRun, journal, queuedRun } from './support/fixtures.js';
@@ -31,7 +34,6 @@ export class DigestJobs {
     constructedIn = currentRunContext();
   }
 
-  @Task('send-digest', 'Sends the daily digest')
   public async sendDigest() {
     calls++;
     seenParams = currentRunContext()?.params;
@@ -42,7 +44,6 @@ export class DigestJobs {
 }
 
 export class ReportJobs {
-  @Task('send-report-static', 'Sends the report from a static method')
   public static async sendReport() {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     staticThis = this;
@@ -50,6 +51,29 @@ export class ReportJobs {
     return { rows: 2 };
   }
 }
+
+/** What the `@spinajs/tasks` shim registers for a `@Task` method, without the package. */
+interface FakeTaskDecl extends TaskMethodDeclaration {
+  method: (...args: unknown[]) => Promise<unknown>;
+}
+const runTask = sinon.spy(((decl, self, args) => decl.method.apply(self, args)) as RunTaskFn<FakeTaskDecl>);
+const declare = (decl: FakeTaskDecl) => registerTaskMethod(decl.name, taskMethodSchedule(decl, runTask));
+declare({
+  name: 'send-digest',
+  target: DigestJobs,
+  isStatic: false,
+  method(this: DigestJobs) {
+    return this.sendDigest();
+  },
+});
+declare({
+  name: 'send-report-static',
+  target: ReportJobs,
+  isStatic: true,
+  method(this: typeof ReportJobs) {
+    return this.sendReport();
+  },
+});
 
 describe('scheduling @Task methods', () => {
   let clock: FakeClock;
@@ -67,6 +91,7 @@ describe('scheduling @Task methods', () => {
   }
 
   beforeEach(() => {
+    runTask.resetHistory();
     calls = 0;
     failFirst = false;
     seenParams = undefined;
@@ -119,29 +144,13 @@ describe('scheduling @Task methods', () => {
     expect(currentRunContext()).to.eq(undefined);
   });
 
-  it('still writes the legacy __task_history row', async () => {
+  it('runs the method through the registered runTask without the task lock and rethrowing', async () => {
     await runDigest();
-    const task = await __task.where('Name', 'send-digest').first();
-    expect(task.State).to.eq('stopped');
-    const history = await __task_history.where('TaskId', task.Id);
-    expect(history).to.have.length(1);
-    expect(history[0].Result).to.deep.eq({ sent: 3 });
+    expect(runTask.calledOnce).to.eq(true);
+    expect(runTask.firstCall.args[3]).to.deep.eq({ lock: false, rethrow: true });
   });
 
-  it('does not take the @Task mutex: the scheduler lease is the only lock', async () => {
-    const mutex = {
-      acquire: sinon.stub().rejects(new Error('the task mutex must not be taken')),
-      release: sinon.stub().rejects(new Error('the task mutex must not be released')),
-      renew: sinon.stub().resolves(false),
-    };
-    const { run } = await runDigest({ before: () => DI.register(() => mutex).as(Mutex) });
-    expect((await getRun(run.Id)).Status).to.eq('succeeded');
-    expect(mutex.acquire.called).to.eq(false);
-    expect(mutex.release.called).to.eq(false);
-    expect(mutex.renew.called).to.eq(false);
-  });
-
-  it('reports a failing method to retries and writes history for every attempt', async () => {
+  it('reports a failing method to retries', async () => {
     failFirst = true;
     const { scheduler, run } = await runDigest({
       entry: { retry: { attempts: 2, delay: '1s' } },
@@ -155,29 +164,19 @@ describe('scheduling @Task methods', () => {
     await scheduler.idle();
 
     expect(await getRun(run.Id)).to.include({ Status: 'succeeded', Attempt: 2 });
-    const results = (await __task_history.all()).map((h): unknown => h.Result);
-    expect(results[0]).to.include({ error: true });
-    expect(results[1]).to.deep.eq({ sent: 3 });
+    expect(runTask.callCount).to.eq(2);
   });
 });
 
-describe('loadTaskMethodLookup', () => {
-  const failing = (message: string, code?: string) => () =>
-    Promise.reject(Object.assign(new Error(message), code ? { code } : {}));
+describe('task method registry', () => {
+  class Adapter {}
 
-  it('finds no @Task methods when @spinajs/tasks is not installed (ESM and CJS errors)', async () => {
-    const esm = failing("Cannot find package '@spinajs/tasks' imported from /app/scheduler.js", 'ERR_MODULE_NOT_FOUND');
-    const cjs = failing("Cannot find module '@spinajs/tasks'\nRequire stack:\n- /app/scheduler.js", 'MODULE_NOT_FOUND');
-    expect((await loadTaskMethodLookup(esm))('send-digest')).to.deep.eq([]);
-    expect((await loadTaskMethodLookup(cjs))('send-digest')).to.deep.eq([]);
-  });
-
-  it('rethrows any other failure to load @spinajs/tasks', async () => {
-    await expect(loadTaskMethodLookup(failing('broken module'))).to.be.rejectedWith('broken module');
-    const missingInside = failing(
-      "Cannot find package 'luxon' imported from /app/node_modules/@spinajs/tasks/lib/decorators.js",
-      'ERR_MODULE_NOT_FOUND',
-    );
-    await expect(loadTaskMethodLookup(missingInside)).to.be.rejectedWith(/luxon/);
+  it('finds every adapter registered under a task name until it is unregistered', async () => {
+    const a = Adapter as never;
+    const undo = registerTaskMethod('registry-probe', a);
+    expect(findTaskMethods('registry-probe')).to.deep.eq([a]);
+    expect((await loadTaskMethodLookup())('registry-probe')).to.deep.eq([a]);
+    undo();
+    expect(findTaskMethods('registry-probe')).to.deep.eq([]);
   });
 });
