@@ -89,6 +89,8 @@ const swrApp = [
   '  exact<Equal<typeof feed.data, { items: UserDto[]; next: string | null }[] | undefined>>();',
   '  exact<Equal<typeof list.error, AppClientError | undefined>>();',
   '  void list.setSize(list.size + 1);',
+  '  // @ts-expect-error each page key is computed from the page before it',
+  '  useUsersListInfinite({ query: {} }, { parallel: true });',
   '  // @ts-expect-error the page parameter comes from the hook',
   '  useUsersListInfinite({ query: { page: 2 } });',
   "  // @ts-expect-error the cursor comes from the hook",

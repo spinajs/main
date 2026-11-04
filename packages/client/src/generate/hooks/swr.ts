@@ -32,6 +32,12 @@ const HELPERS = [
   '};',
 ];
 
+const INFINITE_CONFIG = [
+  '',
+  '/** SWR infinite options of an infinite hook. Without `parallel`: each page key is computed from the page before it. */',
+  "export type InfiniteConfig<Data> = Omit<SWRInfiniteConfiguration<Data, AppClientError>, 'parallel'>;",
+];
+
 const PAGES: Record<InfiniteHook['kind'], string[]> = {
   offset: [
     '',
@@ -48,6 +54,9 @@ const PAGES: Record<InfiniteHook['kind'], string[]> = {
     '    return [...key, first + index];',
     '  };',
     '};',
+    '',
+    '// An empty reply (an optional page left out) is an empty page, which ends the page keys.',
+    'const emptyOffset = <T>(page: T): T => page ?? ({ items: [], total: 0 } as unknown as T);',
   ],
   cursor: [
     '',
@@ -59,6 +68,9 @@ const PAGES: Record<InfiniteHook['kind'], string[]> = {
     '    if (index === 0) return [...key, null];',
     '    return previous && previous.next !== null ? [...key, previous.next] : null;',
     '  };',
+    '',
+    '// An empty reply (an optional page left out) is an empty page, which ends the page keys.',
+    'const emptyCursor = <T>(page: T): T => page ?? ({ items: [], next: null } as unknown as T);',
   ],
 };
 
@@ -73,7 +85,7 @@ const REVALIDATE = [
   '  const infinite = [...swr.cache.keys()].filter((key) => heads.some((head) => key.startsWith(head)));',
   '  await Promise.all([swr.mutate(matches), ...infinite.map((key) => swr.mutate(key))]);',
   '}',
-]
+];
 
 // `null` is SWR's conditional fetch, so it has to stay assignable next to the `{}` default of an optional variables object.
 function varsParameter(hook: Pick<HookRoute, 'varsType' | 'varsOptional'>): string {
@@ -94,13 +106,13 @@ function queryHook(hook: HookRoute): string[] {
 function infiniteHook(hook: HookRoute, infinite: InfiniteHook): string[] {
   const { returns, controllerKey } = hook.route;
   const key = `vars && appKeys.${controllerKey}.${infinite.keyName}(vars)`;
-  const pages = infinite.kind === 'offset' ? `offsetPages(${key}, ${infinite.firstPage})` : `cursorPages(${key})`;
+  const [pages, empty] = infinite.kind === 'offset' ? [`offsetPages(${key}, ${infinite.firstPage})`, 'emptyOffset'] : [`cursorPages(${key})`, 'emptyCursor'];
   return [
-    `export function ${infinite.hookName}(${varsParameter(infinite)}, config?: SWRInfiniteConfiguration<${returns}, AppClientError>): SWRInfiniteResponse<${returns}, AppClientError> {`,
+    `export function ${infinite.hookName}(${varsParameter(infinite)}, config?: InfiniteConfig<${returns}>): SWRInfiniteResponse<${returns}, AppClientError> {`,
     '  const client = useAppClient();',
     `  const getKey = ${pages};`,
     // The key holds the variables (index 4) and the page parameter (index 5), so the fetcher reads both from it.
-    `  return useSWRInfinite<${returns}, AppClientError, typeof getKey>(getKey, (key) => ${infinite.call('key[4]', 'key[5]')}, config);`,
+    `  return useSWRInfinite<${returns}, AppClientError, typeof getKey>(getKey, (key) => ${infinite.call('key[4]', 'key[5]')}.then(${empty}), { ...config, parallel: false });`,
     '}',
   ];
 }
@@ -146,6 +158,7 @@ export function emitSwr(model: ClientModel, hooks: HookRoute[], options: SwrOpti
     ...manifestHashCheck(model),
     '',
     ...HELPERS,
+    ...(kinds.length > 0 ? INFINITE_CONFIG : []),
     ...kinds.flatMap((kind) => PAGES[kind]),
     ...(infinite.length > 0 && mutations ? REVALIDATE : []),
     ...hooks.flatMap((h) => {

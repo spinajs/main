@@ -219,6 +219,12 @@ describe('infinite hooks against a booted paged-app', function () {
           expect(requests).to.deep.equal({ '/users/feed': 3 });
         });
 
+        it('ends at an empty reply, which an optional page may send, as an empty page', async () => {
+          const done = await readAll(await mount(() => loaded.hooks.useUsersSparseInfinite() as Infinite));
+          expect(ids(done.data?.pages)).to.deep.equal([[1, 2], []]);
+          expect(requests).to.deep.equal({ '/users/sparse': 2 });
+        });
+
         it('refetches every page of the infinite query and the plain query of the mutated controller, and nothing of another', async () => {
           const result = await mount(() => ({
             list: loaded.hooks.useUsersList({ query: {} }) as { data?: Page },
@@ -276,6 +282,18 @@ describe('infinite hooks against a booted paged-app', function () {
           const done = await grow(await mount(() => snap(loaded.hooks.useUsersFeedInfinite({}, CONFIG) as SwrInfinite)), 4);
           expect(ids(done.data)).to.deep.equal([[1, 2], [3, 4], [5]]);
           expect(pagesAsked()).to.deep.equal(['/users/feed', '/users/feed?cursor=2', '/users/feed?cursor=4']);
+        });
+
+        it('ends at an empty reply, which an optional page may send, as an empty page', async () => {
+          const done = await grow(await mount(() => snap(loaded.hooks.useUsersSparseInfinite({}, CONFIG) as SwrInfinite)), 3);
+          expect(ids(done.data)).to.deep.equal([[1, 2], []]);
+          expect(pagesAsked()).to.deep.equal(['/users/sparse?page=1', '/users/sparse?page=2']);
+        });
+
+        it('pages in order and stops at total when the app asks for parallel pages', async () => {
+          const done = await grow(await mount(() => snap(loaded.hooks.useUsersListInfinite({ query: {} }, { ...CONFIG, parallel: true }) as SwrInfinite)), 4);
+          expect(ids(done.data)).to.deep.equal([[1, 2], [3, 4], [5]]);
+          expect(pagesAsked()).to.deep.equal([1, 2, 3].map((page) => list(`{"page":${page}}`)));
         });
 
         it('sends nothing for null variables', async () => {

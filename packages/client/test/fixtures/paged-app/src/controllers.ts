@@ -1,4 +1,4 @@
-import { BaseController, BasePath, Body, Get, Ok, Post, Query, QueryField } from '@spinajs/http';
+import { BaseController, BasePath, Body, Get, NoContent, Ok, Post, Query, QueryField } from '@spinajs/http';
 import type { CursorPage, CursorQuery, Page, PageQuery } from '@spinajs/http';
 
 export interface UserDto { id: number; name: string }
@@ -49,6 +49,15 @@ export class UsersController extends BaseController {
   @Get()
   public async feed(@Query() cursor?: string, @Query() pageSize?: number): Promise<Ok<CursorPage<UserDto>>> {
     return new Ok(after(users, cursor, pageSize, (u) => String(u.id)));
+  }
+
+  /**
+   * Past the first page it sends an empty reply, although `total` says there is more: what a route typed as an optional
+   * page sends. The handler still has to return a response, hence the cast.
+   */
+  @Get()
+  public async sparse(@Query() page?: number): Promise<Ok<Page<UserDto>>> {
+    return (page ?? 1) === 1 ? new Ok(slice(users, 0, undefined)) : (new NoContent<void>(null) as unknown as Ok<Page<UserDto>>);
   }
 
   /** A page with no page parameter: no infinite hook. */
