@@ -8,7 +8,9 @@
   accepted `'-Infinity'` from a query string, a form field or a JSON body, for every `@Schema`-validated input.
   Ajv's `strictNumbers` did not help: it is on by default and checks the value before coercion. `DataValidator` now
   fails a non-finite number with a `type` error at the field wherever the schema type allows `number` or `integer`,
-  after coercion. Finite values, `1e300` included, and the coercion itself are unchanged.
+  after coercion, and with the number rule itself where a schema has a bound but no `type` (a JSON `1e400`).
+  Finite values, `1e300` included, and the coercion itself are unchanged. Not covered: a value that an `if`, a
+  failing `anyOf`/`oneOf` branch or a `not` coerced stays coerced when the schema as a whole passes.
 
 ## Fixes
 
@@ -16,10 +18,15 @@
   `const` and `enum` with an object value, `uniqueItems` over objects and `uniqueItemProperties` throw
   `TypeError: a.valueOf is not a function`. `DataValidator.validate()` passed it on, so any client could make a route
   answer 500. These keywords now compare a plain object by its own keys: the value fails or passes the rule like any
-  other, and the route answers 400 naming the field. `uniqueItems` over strings also finds a repeated `"__proto__"`.
+  other, and the route answers 400 naming the field.
+- Apart from the two fixes, verdicts, errors and error order stay Ajv's (each replaced keyword keeps its rule
+  position), with three exceptions: `uniqueItems` over strings finds a repeated `"__proto__"`; two `{"constructor":{}}` values now compare
+  equal (Ajv compared the `constructor` values by identity) under `const`, `enum` and `uniqueItems`; a value nested
+  more than 100 000 levels deep throws a `RangeError` where Ajv overflowed the stack at about 9 000.
 - Both fixes reach every `DataValidator` consumer: `@spinajs/http` route arguments, `@spinajs/http-socket` payloads,
   `@spinajs/configuration-http` values and uploads, `@spinajs/scheduler` params. A subclass that overrides
-  `createAjv()` keeps them only when it starts from `super.createAjv()`. The separate Ajv of `@spinajs/configuration`
+  `createAjv()` keeps them only when it starts from `super.createAjv()`; `createAjv()` throws at boot when the
+  installed Ajv no longer has the rule shape the fix relies on. The separate Ajv of `@spinajs/configuration`
   (config files, env, the DB source) is not changed.
 
 > Docs: `docs/validation/01-validating-data.md`, `docs/validation/02-validator-options.md`,

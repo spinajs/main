@@ -63,7 +63,7 @@ The package entry also exports the default config object as its `default` export
 - **The options are read once.** `DataValidator` is a singleton built at its first resolve. A config change after that has no effect until the process restarts.
 - **`verbose: false` in your config is ignored.** `DataValidator` forces it on; the errors you receive are still reduced, see [`sanitizeError()`](07-validation-errors.md#sanitizeerror).
 - **Ajv runs in strict mode by default.** An unknown keyword (`strict mode: unknown keyword: "sku"`) or format (`unknown format "sku" ignored in schema`) makes compilation throw. Register the keyword or format instead; see [Customizing the validator](08-customizing-the-validator.md). `validation.strict: false` (or `validation.strict.ajvStrict: false` next to `idPrefixes`) silences both, and an unknown format then accepts every value.
-- **Configuration has its own Ajv.** `@spinajs/configuration` validates config files with a separate instance; formats or keywords you add to `DataValidator` do not reach it, and neither do the finite-number check and the throw-safe comparison of `DataValidator`.
+- **Configuration has its own Ajv.** `@spinajs/configuration` validates config files with a separate instance; formats or keywords you add to `DataValidator` do not reach it, and neither do the finite-number checks and the throw-safe comparison of `DataValidator`.
 - **`strictNumbers` does not stop coerced infinities.** It is on by default and checks the value before coercion only. `DataValidator` adds its own check after coercion: a value coerced to `Infinity` or `-Infinity` fails `type`; see [Validating data](01-validating-data.md#important-behaviour).
 
 ### Strict schema ids
