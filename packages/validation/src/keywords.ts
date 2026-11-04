@@ -202,16 +202,28 @@ export function findNonFinite(data: unknown, all: boolean): string[] {
   });
 }
 
-// At most MAX_PATH_LENGTH characters: a segment that would pass it is cut, with the rest, before it is escaped.
+// At most MAX_PATH_LENGTH characters. The segment that would pass it is cut to fit, so the path still names the
+// field; it is sliced before escaping, so a huge key costs no more than the limit.
 function joinPath(segments: (string | number)[], elided: boolean): string {
   let path = '';
   for (const segment of segments) {
     const raw = typeof segment === 'number' ? String(segment) : segment.slice(0, MAX_PATH_LENGTH);
     const part = `/${pointer(raw)}`;
-    if (path.length + part.length > MAX_PATH_LENGTH) return path + ELIDED;
+    if (path.length + part.length > MAX_PATH_LENGTH) return `${path}/${escapedPrefix(raw, MAX_PATH_LENGTH - path.length - 1 - ELIDED.length)}${ELIDED}`;
     path += part;
   }
   return elided ? path + ELIDED : path;
+}
+
+// The escaped start of `raw` that fits `budget` characters, never ending inside a `~0` / `~1` escape.
+function escapedPrefix(raw: string, budget: number): string {
+  let escaped = '';
+  for (const char of raw) {
+    const next = char === '~' ? '~0' : char === '/' ? '~1' : char;
+    if (escaped.length + next.length > budget) break;
+    escaped += next;
+  }
+  return escaped;
 }
 
 const useEqual = (cxt: KeywordCxt): Name => cxt.gen.scopeValue('func', { ref: jsonEqual });

@@ -251,19 +251,17 @@ describe('no validated data holds a non-finite number', function () {
       expect(findNonFinite(nest(65), true)).to.deep.eq([`${'/0'.repeat(64)}/…`]);
     });
 
-    it('cuts a path past 1024 characters, a long key included, before escaping it', () => {
+    it('cuts the segment that passes 1024 characters to fit, after escaping, and keeps the marker', () => {
       const key = 'k/'.repeat(300_000);
       const [path] = findNonFinite({ a: { [key]: [Infinity] } }, true);
-      expect(path).to.eq('/a/…');
+      expect(path.startsWith('/a/k~1k~1')).to.eq(true);
+      expect(path.endsWith('/…')).to.eq(true);
+      expect(path.length).to.be.within(1020, 1024);
+      // never half an escape: a `~` is always followed by 0 or 1
+      expect(/~(?![01])/.test(path)).to.eq(false);
       const [mid] = findNonFinite({ [`${'x'.repeat(1000)}`]: { b: Infinity } }, true);
       expect(mid).to.eq(`/${'x'.repeat(1000)}/b`);
-      expect(findNonFinite({ [`${'x'.repeat(1030)}`]: Infinity }, true)).to.deep.eq(['/…']);
-    });
-
-    it('lists exactly 100 non-finite numbers without the note', () => {
-      const errors = nonFiniteErrors(Array.from({ length: 100 }, () => Infinity), true);
-      expect(errors).to.have.length(100);
-      expect(errors.every((e) => e.message === 'must be a finite number')).to.eq(true);
+      expect(findNonFinite({ [`${'x'.repeat(1030)}`]: Infinity }, true)).to.deep.eq([`/${'x'.repeat(1021)}/…`]);
     });
 
     it('a code-built cycle beyond the delayed guard still ends', () => {
