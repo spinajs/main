@@ -210,6 +210,8 @@ const files = await generateClientFiles({ manifest, next: true, hooks: ['react-q
 
 `next: true` writes `client.next.ts`, and with it `client.server.ts` and `client.keys.ts`, so it needs neither `server` nor `hooks`. The file is server-safe: no `'use client'`, no React. It calls `revalidateTag` and `updateTag` from `next/cache` and imports no Next type: the `next` fetch option is typed structurally. `@spinajs/client` lists `next >=16.0.0` as an optional peer. Next 16 made the second argument of `revalidateTag` required, so the helpers do not type-check against Next 15.
 
+**Build with `next build --webpack`.** The generated files import each other as `./client.js`, and Next 16's default bundler, Turbopack, cannot resolve that to `client.ts`. Until a generator option for the import extension lands, use webpack with the `extensionAlias` setting in [Bundling](#bundling) below.
+
 | Export | What it does |
 | --- | --- |
 | `createNextServerAppClient(options)` | `createServerAppClient` on Next's cache. Takes the server client's options plus `revalidate`. A GET without user credentials is tagged and cached; a call with credentials is sent uncached. |
@@ -268,7 +270,7 @@ export async function createUser(form: FormData): Promise<void> {
   - If every visitor's calls carry the same service token, opt in with `createServerAppClient({ ..., init: nextCacheInit({ revalidate }) })`.
 - **`'max'` is stale-while-revalidate.** After `revalidateController('users')`, the next request still gets the old reply while Next refetches in the background, and the request after it gets the new one. For read-your-writes in the action itself, call `updateController('users')`, or pass `{ expire: 0 }` as the profile.
 - **Server Actions and the CSRF guard.** The action above runs with the visitor's cookie, so the API's guard checks its `Origin` (see [Mutations from route handlers](#mutations-from-route-handlers)). Next compares the action's `Origin` with its own host before the action runs, so forwarding `origin` passes on a checked value. List the frontend's origin in `http.csrf.allowedOrigins`.
-- **Bundling.** The generated files import each other as `./client.js`, the specifier that Node's ESM resolution needs. Next 16.4 maps it to `client.ts` only in its webpack build, with `experimental.extensionAlias`. Turbopack, the default bundler of Next 16, ignores that option, so build with `next build --webpack` and this `next.config.mjs`:
+- **Bundling.** The generated files import each other as `./client.js`, the specifier that Node's ESM resolution needs. Next 16.4 maps it to `client.ts` only in its webpack build, with `experimental.extensionAlias`. Turbopack ignores that option, so build with `next build --webpack` until an import-extension option lands, and use this `next.config.mjs`:
 
   ```js
   export default { experimental: { extensionAlias: { '.js': ['.ts', '.tsx', '.js'] } } };
