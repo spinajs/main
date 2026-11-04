@@ -1,4 +1,5 @@
 import type { Manifest, Diagnostic, SourceRef } from '@spinajs/manifest';
+import type { SqlDialect } from '../sql/dialects.js';
 
 export interface DoctorRule {
   code: string;
@@ -12,6 +13,8 @@ export interface DoctorContext {
   fileExists(p: string): boolean;
   fragmentMtime(pkg: string): number | undefined;
   libMtime(pkg: string): number | undefined;
+  /** `package.json#spinajs.orm.dialects` of the app (D6). */
+  sqlDialects?: Readonly<Record<string, SqlDialect>>;
 }
 
 export function diagnostic(code: string, severity: Diagnostic['severity'], message: string, source?: SourceRef): Diagnostic {
