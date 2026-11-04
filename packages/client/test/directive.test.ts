@@ -55,6 +55,13 @@ describe("'use client' placement", () => {
     }
   });
 
+  it('keeps the query libraries out of every server-safe file except client.queries.ts', () => {
+    for (const file of files.filter((f) => f.environment === 'server-safe' && f.path !== 'client.queries.ts')) {
+      const libraries = moduleSpecifiers(parse(file)).filter((s) => s.startsWith('@tanstack/') || s === 'swr' || s.startsWith('swr/'));
+      expect(libraries, file.path).to.deep.equal([]);
+    }
+  });
+
   it("keeps every server-safe file free of 'use client', of react and of imports from client files", () => {
     const clientModules = new Set(files.filter((f) => f.environment === 'client').map((f) => `./${f.path.replace(/\.ts$/, '.js')}`));
     for (const file of files.filter((f) => f.environment === 'server-safe')) {

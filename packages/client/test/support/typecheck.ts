@@ -7,9 +7,13 @@ import { fileURLToPath } from 'node:url';
 
 export interface TypecheckOptions {
   noUnusedLocals?: boolean;
+  /** Major of the React types `react` resolves to; the peer range covers both. Default 19. */
+  react?: 18 | 19;
 }
 
-const reactTypes = join(dirname(createRequire(import.meta.url).resolve('@types/react/package.json')), 'index.d.ts');
+const require = createRequire(import.meta.url);
+const REACT_TYPES = { 18: '@types/react-18', 19: '@types/react' } as const;
+const reactTypes = (major: 18 | 19) => join(dirname(require.resolve(`${REACT_TYPES[major]}/package.json`)), 'index.d.ts');
 
 /** Type-checks generated client source against the runtime sources; returns the diagnostics as strings. */
 export function typecheck(source: string): string[] {
@@ -41,7 +45,7 @@ export function typecheckFiles(files: Record<string, string>, options: Typecheck
       paths: {
         '@spinajs/client/runtime': ['src/runtime/index.ts'],
         '@spinajs/http-socket-common': ['../http-socket-common/src/index.ts'],
-        react: [reactTypes],
+        react: [reactTypes(options.react ?? 19)],
       },
     });
     return ts.getPreEmitDiagnostics(program).map((d) => `${d.file ? `${d.file.fileName.slice(dir.length + 1)}: ` : ''}${ts.flattenDiagnosticMessageText(d.messageText, '\n')}`);
