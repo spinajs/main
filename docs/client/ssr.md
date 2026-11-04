@@ -1,10 +1,11 @@
 # Server rendering and prefetching
 
-A server that renders the page (a Next.js Server Component, a Remix or React Router loader, an Express handler calling `renderToString`) can call the API itself, put the answer into the page, and let the browser start with the data instead of fetching it again. `@spinajs/client` covers three parts of that:
+A server that renders the page (a Next.js Server Component, a Remix or React Router loader, an Express handler calling `renderToString`) can call the API itself, put the answer into the page, and let the browser start with the data instead of fetching it again. `@spinajs/client` covers four parts of that:
 
 - `client.server.ts`, a per-request client that forwards the browser's credentials to the API;
 - prefetching with React Query: `appQueries`, `prefetchQuery`, `dehydrate` and `HydrationBoundary`;
-- prefetching with SWR: a `fallback` keyed with `unstable_serialize`.
+- prefetching with SWR: a `fallback` keyed with `unstable_serialize`;
+- `client.next.ts`, Next.js cache tags on GET calls and the helpers that revalidate them after a mutation.
 
 ## The server client
 
@@ -23,7 +24,7 @@ const client = createServerAppClient({ baseUrl: process.env.API_URL!, incoming: 
 const user = await client.users.get(7);
 ```
 
-> **Never let a shared cache store a page rendered with forwarded credentials.** The HTML and the dehydrated state hold one visitor's data. A CDN or caching proxy that stores them serves user A's page to user B. Send `cache-control: private, no-store` with every response rendered through `createServerAppClient`, or a `Vary` that names every forwarded header and that each cache in front of the app honours. Next.js marks dynamic routes `private, no-store` itself. Loaders, Express handlers and plain Node servers do not. The same holds for Next's `fetch` cache: never give a call made with forwarded credentials a `revalidate` or cache tags, because those entries are shared between visitors.
+> **Never let a shared cache store a page rendered with forwarded credentials.** The HTML and the dehydrated state hold one visitor's data. A CDN or caching proxy that stores them serves user A's page to user B. Send `cache-control: private, no-store` with every response rendered through `createServerAppClient`, or a `Vary` that names every forwarded header and that each cache in front of the app honours. Next.js marks dynamic routes `private, no-store` itself. Loaders, Express handlers and plain Node servers do not. The same holds for Next's `fetch` cache, which lives on the server and is shared by every visitor: a call made with forwarded credentials gets no `revalidate` and no cache tags. `createNextServerAppClient` enforces that ([Next.js cache tags and revalidation](#nextjs-cache-tags-and-revalidation)).
 
 `createServerAppClient(options)` returns the same `AppClient` as `createAppClient`. It takes every `ClientOptions` member except `credentials`, plus:
 
@@ -200,6 +201,95 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
 - `unstable_serialize` can be imported in a Server Component from SWR 2.2.0, but `SWRConfig` only from **2.3.0**. With SWR 2.2.x, put `SWRConfig` in a small `'use client'` component that takes `fallback` as a prop.
 - **On the server, never call SWR's `preload` or the global `mutate` with the server client.** SWR's default cache and its `preload` store live at module scope, so on a server they are shared by every request in the process, and one visitor's data would reach the next. `fallback` is safe, because SWR never writes it into that cache.
 - A `useSWRInfinite` hook reads its fallback under the key that `unstable_serialize` from `swr/infinite` builds, not the one from `swr`.
+
+## Next.js cache tags and revalidation
+
+```ts
+const files = await generateClientFiles({ manifest, next: true, hooks: ['react-query'] });
+```
+
+`next: true` writes `client.next.ts`, and with it `client.server.ts` and `client.keys.ts`, so it needs neither `server` nor `hooks`. The file is server-safe: no `'use client'`, no React. It calls `revalidateTag` and `updateTag` from `next/cache` and imports no Next type: the `next` fetch option is typed structurally. `@spinajs/client` lists `next >=16.0.0` as an optional peer. Next 16 made the second argument of `revalidateTag` required, so the helpers do not type-check against Next 15.
+
+| Export | What it does |
+| --- | --- |
+| `createNextServerAppClient(options)` | `createServerAppClient` on Next's cache. Takes the server client's options plus `revalidate`. A GET without user credentials is tagged and cached; a call with credentials is sent uncached. |
+| `nextCacheInit({ revalidate? })` | The `init` behind it: tags each GET query route, nothing else. It cannot see the request's headers, so use it only on a client that never sends user credentials. |
+| `revalidateController(name, profile = 'max')` | `revalidateTag('<prefix>:<controller>', profile)`: every cached GET of the controller. |
+| `revalidateRoute(controller, route, profile = 'max')` | `revalidateTag('<prefix>:<controller>:<handler>', profile)`: one GET route, under every set of arguments. |
+| `updateController(name)` | `updateTag('<prefix>:<controller>')`, in a Server Action only: expires the tag, so the render that follows the action reads fresh data. |
+
+```tsx
+// app/users/page.tsx: a Server Component
+import { dehydrate, HydrationBoundary, QueryClient } from '@tanstack/react-query';
+import { headers } from 'next/headers';
+import { createNextServerAppClient } from '@/generated/client.next';
+import { appQueries } from '@/generated/client.queries';
+import { createUser } from './actions';
+import { UsersList } from './users-list';
+
+export default async function Page() {
+  const client = createNextServerAppClient({ baseUrl: process.env.API_URL!, incoming: await headers(), revalidate: 3600 });
+  const queryClient = new QueryClient();
+  await queryClient.prefetchQuery(appQueries.users.list(client, { query: {} }));
+  return (
+    <>
+      <HydrationBoundary state={dehydrate(queryClient)}>
+        <UsersList />
+      </HydrationBoundary>
+      <form action={createUser}>
+        <input name="email" type="email" />
+        <button type="submit">Add</button>
+      </form>
+    </>
+  );
+}
+```
+
+```ts
+// app/users/actions.ts
+'use server';
+import { headers } from 'next/headers';
+import { DEFAULT_FORWARDED_HEADERS } from '@spinajs/client/runtime';
+import { revalidateController } from '@/generated/client.next';
+import { createServerAppClient } from '@/generated/client.server';
+
+export async function createUser(form: FormData): Promise<void> {
+  const client = createServerAppClient({ baseUrl: process.env.API_URL!, incoming: await headers(), forward: [...DEFAULT_FORWARDED_HEADERS, 'origin'] });
+  await client.users.create({ email: String(form.get('email')) });
+  revalidateController('users');
+}
+```
+
+- **Tags.** A GET query route gets two tags, `<prefix>:<controller>` and `<prefix>:<controller>:<handler>`: the `appTags` of `client.keys.ts`. The prefix is `keyPrefix`, `spinajs` by default. Tags never carry arguments. Next limits their length and number, and a tag per argument set could not be revalidated as a whole. POST, PUT, PATCH, DELETE, HEAD and file routes get no tag and no `revalidate`.
+- **`revalidate`** is the number of seconds Next keeps a tagged reply, or `false` to keep it until a tag is revalidated. Next 16 caches no `fetch` by default, so tags alone change nothing until the call opts in: `revalidate`, `cache: 'force-cache'`, or the segment's `fetchCache`.
+- **Credentials are never cached.** `createNextServerAppClient` checks each request just before `fetch`. A request with a `cookie` or `authorization` header, forwarded or added through `headers`, goes out with `cache: 'no-store'` and without tags or `revalidate`.
+  - Next 16 keys its cache by the request headers too, so a visitor with another cookie misses such an entry. The entry would still hold one visitor's data in a cache that every server instance shares, for as long as `revalidate` says.
+  - A page that renders both public and personal data uses one client for each.
+  - If every visitor's calls carry the same service token, opt in with `createServerAppClient({ ..., init: nextCacheInit({ revalidate }) })`.
+- **`'max'` is stale-while-revalidate.** After `revalidateController('users')`, the next request still gets the old reply while Next refetches in the background, and the request after it gets the new one. For read-your-writes in the action itself, call `updateController('users')`, or pass `{ expire: 0 }` as the profile.
+- **Server Actions and the CSRF guard.** The action above runs with the visitor's cookie, so the API's guard checks its `Origin` (see [Mutations from route handlers](#mutations-from-route-handlers)). Next compares the action's `Origin` with its own host before the action runs, so forwarding `origin` passes on a checked value. List the frontend's origin in `http.csrf.allowedOrigins`.
+- **Bundling.** The generated files import each other as `./client.js`, the specifier that Node's ESM resolution needs. Next 16.4 maps it to `client.ts` only in its webpack build, with `experimental.extensionAlias`. Turbopack, the default bundler of Next 16, ignores that option, so build with `next build --webpack` and this `next.config.mjs`:
+
+  ```js
+  export default { experimental: { extensionAlias: { '.js': ['.ts', '.tsx', '.js'] } } };
+  ```
+
+### The App Router fixture
+
+`fixtures/next-app/` is a Next.js 16 app that runs the code above against app-basic. It sits outside the workspaces, with its own `package.json` and lockfile, so the root `npm ci` never installs Next. Its `e2e` script generates the client from app-basic's manifest, boots app-basic with a request counter, builds and starts the app, and checks with `fetch` that:
+
+- the page renders the fixture user, fetched on the server;
+- a second render is served from Next's cache, so the counter does not move;
+- a request with a cookie is fetched every time and leaves the cached entry alone;
+- the Server Action creates a user through the CSRF guard, and after `revalidateController('users')` the page refetches once and shows the new user.
+
+The layout, a Server Component, imports `AppClientProvider`, so a `client.react.ts` without `'use client'` fails `next build`. CI runs the fixture in the `next-fixture` workflow. To run it locally, after `npm ci` and `npm run build` at the repository root:
+
+```sh
+cd fixtures/next-app
+npm ci
+npm run e2e
+```
 
 ## ckit
 
