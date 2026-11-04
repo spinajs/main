@@ -1,6 +1,8 @@
 import { AuthzConfigError, isPermission } from '@spinajs/authz';
 import type { Permission, ResourceRef } from '@spinajs/authz';
-import { DeleteQueryBuilder, SelectQueryBuilder, UpdateQueryBuilder } from '@spinajs/orm';
+import { Injectable } from '@spinajs/di';
+import { DeleteQueryExtension, SelectQueryExtension, UpdateQueryExtension } from '@spinajs/orm';
+import type { QueryBuilder, QueryExtension } from '@spinajs/orm';
 
 import { marksOf, setMarks } from '../marker.js';
 import { entryOf } from '../registry.js';
@@ -127,18 +129,39 @@ function withAccess(this: object, permissions: readonly Permission[], opts?: Wit
   return this;
 }
 
-for (const proto of [SelectQueryBuilder.prototype, UpdateQueryBuilder.prototype, DeleteQueryBuilder.prototype] as unknown as Record<string, unknown>[]) {
-  proto.accessible = accessible;
-  proto.unscoped = unscoped;
-  proto.within = within;
-}
-(SelectQueryBuilder.prototype as unknown as Record<string, unknown>).withAccess = withAccess;
+// One methods object for the three builders; the extension bases are per builder.
+const authzMethods: QueryExtension['methods'] = { accessible, unscoped, within };
 
-// A clone is the same query: it keeps what the caller declared (clone() runs no middleware, builders.ts:1299).
-const clone = SelectQueryBuilder.prototype.clone;
-SelectQueryBuilder.prototype.clone = function (this: SelectQueryBuilder) {
-  const copy = clone.call(this);
-  const marks = marksOf(this);
-  if (marks !== undefined) setMarks(copy, marks);
-  return copy;
-} as typeof clone;
+/** `.accessible()`, `.unscoped()` and `.within()` on select builders; marks follow a clone. */
+@Injectable(SelectQueryExtension)
+export class AuthzSelectExtension extends SelectQueryExtension {
+  public readonly name = 'authz-orm';
+  public readonly methods = authzMethods;
+
+  // A clone is the same query: it keeps what the caller declared (clone() runs no middleware).
+  public onClone(source: QueryBuilder, clone: QueryBuilder): void {
+    const marks = marksOf(source);
+    if (marks !== undefined) setMarks(clone, marks);
+  }
+}
+
+/** `.accessible()`, `.unscoped()` and `.within()` on update builders. */
+@Injectable(UpdateQueryExtension)
+export class AuthzUpdateExtension extends UpdateQueryExtension {
+  public readonly name = 'authz-orm';
+  public readonly methods = authzMethods;
+}
+
+/** `.accessible()`, `.unscoped()` and `.within()` on delete builders. */
+@Injectable(DeleteQueryExtension)
+export class AuthzDeleteExtension extends DeleteQueryExtension {
+  public readonly name = 'authz-orm';
+  public readonly methods = authzMethods;
+}
+
+/** `.withAccess()`, select builders only. */
+@Injectable(SelectQueryExtension)
+export class AuthzAccessFieldsExtension extends SelectQueryExtension {
+  public readonly name = 'authz-orm:withAccess';
+  public readonly methods: QueryExtension['methods'] = { withAccess };
+}
