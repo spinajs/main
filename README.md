@@ -19,6 +19,12 @@ cd packages/orm && npm test
 > After changing `packages/orm/src`, rebuild it (`npm run build` in that package)
 > before running a dependent package's suite, or the dependent will keep testing the old code.
 
+## Documentation
+
+- [What is new in 4.x](docs/whats-new-4.0.md): the manifest build, validation from types, generators, the typed client, and the path from `npm run build` to a deployed app.
+- [Upgrading to 4.0](docs/upgrading/4.0.md): breaking changes and the codemod.
+- [Documentation index](docs/README.md): every package, grouped by area.
+
 ## Static analysis
 
 Run after `npm run build`: typed lint and the package checks read the built `lib/`.

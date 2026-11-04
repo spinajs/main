@@ -11,7 +11,7 @@ The converter reads the app's compiled config dirs the way the configuration loa
    - Dot files and files with the env suffix `production` or `development` are skipped and listed as `file-skipped` warnings: the loader reads those envs as `prod` and `dev`, so it never loads such a file.
 3. A `BaseFileSource` subclass from `@spinajs/configuration` loads each layer, with the given dirs as its only dirs. 2.x package defaults are **not** read.
 4. Each JS file is imported, and its `onConfigLoad(cfg)` hook runs when it exports one. A file that fails to load is refused; the converter never goes on with `{}`.
-5. The view of an env is built in the loader order: common JS, env JS, common JSON, env JSON. `mergeLayers()` merges them with lodash `mergeWith`: objects merge, scalars override, arrays concatenate.
+5. The view of an env is built in the loader order: common JS, env JS, common JSON, env JSON. `mergeLayers()` is the converter's own merge of these views, with lodash `mergeWith`: objects merge, scalars override, arrays concatenate. This is not the 4.x loader's behaviour, where your own files replace arrays; see [Arrays across layers](#arrays-across-layers).
 6. A key set by an env JS file and by a common JSON file is refused: the loader lets the JSON win, which separate output files cannot express.
 7. The files run again in child processes under other `NODE_ENV` values (see [Computed values](#computed-values)).
 8. The result is a `ConfigLayers` object: `common`, `envs` (env suffix to merged layer), `view(env)`, plus the skipped files, computed values, env readers and probe errors.

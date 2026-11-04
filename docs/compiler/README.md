@@ -54,6 +54,8 @@ buildAppManifest({ tsconfig, appRoot, out?, schemaDerivation?, effectiveDirs?, d
 3. Reads and validates each fragment, then calls `mergeFragments`. Dependencies come first, the application last, so the application wins where the last registration wins at runtime.
 4. Computes `hash` with `hashManifest` and writes the file. `out` defaults to `<appRoot>/app.manifest.json`.
 
+The written manifest is not checked against the manifest JSON Schema: `spinajs build` does that after the call, and the boot skips the check for a manifest whose hash matches. A script that calls `buildAppManifest` itself should call `validateManifest` (`@spinajs/manifest`) on the result, or boot with `SPINAJS_MANIFEST_VALIDATE=1`.
+
 `manifest.app.outDir` and each `manifest.packages[].outDir` are the compiled output folders (`compilerOptions.outDir` of the respective `tsconfig`, relative to its package root). `packages[].fragment` is relative to `app.root` with forward slashes: `node_modules/<name>/<spinajs.manifest>` when the package is installed under the app, the relative real path when it is found elsewhere. `app.root` itself is absolute but excluded from `hash`, so the hash is the same on every machine and checkout. `generatedAt` is the only other member that differs between two runs on the same sources; it is excluded from `hash`.
 
 ## The fragment contract
@@ -168,7 +170,7 @@ A package built with `emitDecoratorMetadata: false` also gets `classProperties`:
 
 ## Schema derivation
 
-With `schemaDerivation` on (the default), every route parameter and response, socket payload and result, queue message and model column gets a JSON Schema (draft-07) derived from its TypeScript type. Named classes, interfaces and enums are hoisted under `spinajs/<package>/<Name>` and referenced by `$ref`; anonymous types are inlined. These rules decide what is derived and how:
+With `schemaDerivation` on (the default), every route parameter and response, socket payload and result, queue message and model column gets a JSON Schema (draft-07) derived from its TypeScript type. Named classes, interfaces and enums are hoisted under `spinajs/<package>/<Name>` and referenced by `$ref`; anonymous types are inlined. JSDoc tags on a property add constraints to its schema; see [DTO constraints with JSDoc tags](../validation/09-dto-constraints-jsdoc.md). These rules decide what is derived and how:
 
 | Type | Schema |
 | --- | --- |
@@ -191,12 +193,14 @@ Every diagnostic has a `code`, a `severity` (`error`, `warning`, `info`), a `mes
 | `CMP001` | info | A decorator argument is not a literal, so the value is `undefined` in the manifest. |
 | `CMP002` | info | A `@response` JSDoc tag could not be parsed. |
 | `CMP003` | info | A registration has a dynamic condition. |
-| `CMP005` | info | A route argument read from one string (query key, url segment, header, cookie, form field) has a type converted by a custom `@Hydrator`, which receives the raw string. Its `wire.shape` is recorded as `value`; the hydrator decides the real format. |
+| `CMP004` | info | The HTTP status of a class that handles exceptions could not be determined. |
+| `CMP005` | info / warning | A route argument read from one string (query key, url segment, header, cookie, form field) has a type converted by a custom `@Hydrator`, which receives the raw string. Its `wire.shape` is recorded as `value`; the hydrator decides the real format. As a warning: the key of a `token<T>(key)` constant cannot be read, and the manifest records `token:unresolved:<module>#<export>` instead ([Typed tokens](../di/16-typed-tokens.md#what-the-compiler-and-doctor-do-with-tokens)). |
 | `CMP006` | warning | An app's class is not loaded from the manifest: by the rule of its section, a scan of its `effectiveDirs` does not bring it in. Its entry stays, with `mountedBy: 'di'`; it runs only if something registers it. The message names the class, the file and the dirs searched. |
 | `CMP007` | error | `spinajs build` only: no configured `system.dirs` entry of any section maps to a source folder of the app. The build exits 1 and writes nothing; see [When no dir applies](../manifest/README.md#the-apps-own-classes). |
 | `CMP008` | warning | A configured `system.dirs` entry inside the app has no source folder behind it, so it maps to nothing. Usually a dir computed from the wrong working directory. |
 | `CMP009` | info | A controller or socket controller extends a class from a package that ships no readable manifest fragment, so whatever routes or handlers that class declares are not in the manifest. |
 | `CLI001` | warning | `spinajs build` only: the working directory is not the `tsconfig` folder, and `system.dirs` was computed from it. |
+| `CLI002` | error | `spinajs build` only: the written manifest fails the manifest JSON Schema. The file is removed and the build exits 1. The boot does not check the schema of a manifest whose hash matches, so such a file must not stay. |
 | `TYP001` | info | `runtime-type-not-exported`: a route argument, socket payload or injected property has a class type that is not exported, so the manifest records no `ref` for it. Without decorator metadata the runtime cannot load it; export the class. |
 | `TYP002` | info | `runtime-type-not-importable`: the class is declared in a package without a manifest fragment (types from `@types/*`), or in an ambient module (`node:async_hooks`). Without decorator metadata the runtime cannot load it; pass the type to the decorator (`@Type(X)`, `@Autoinject(X)`). |
 | `CFG010` | warning | A configuration schema is not a literal with `$id` and `$configurationModule`. |
@@ -221,7 +225,7 @@ The triage of `users-http`, `teams-http` and `authz-http-admin` left these diagn
 | `SCH001` warning | `@spinajs/orm` `MetadataModel.Value` (`orm/src/metadata.ts`), reached through `users-http` `FilterableUserMetadata` | The `Value` accessor is typed `any`. | Type it `unknown` in `@spinajs/orm`. Out of scope for the triage: the type change reaches every metadata consumer. |
 | `SCH001` info | `users-http` (5) and `authz-http-admin` (4) | Opaque by design: `unknown` values (`UserProfile.AdditionalData`, `CreateUserDto.Metadata`, link `attributes`) and models read from `@spinajs/users` declaration files (`User`, `UserMetadataBase`, `FilterableUserMetadata`). | None needed. |
 
-`runDoctor` runs consistency rules over a manifest and is exported from the same package. The route rules (`HTTP001`, `HTTP003`, `HTTP004`, `HTTP005`) are listed in [doctor](doctor.md).
+`runDoctor` runs consistency rules over a manifest and is exported from the same package. Its rules are `DI001` to `DI003`, `HTTP001` to `HTTP006` (duplicate, unguarded, shadowed and ambiguous routes, and `@Public` markers), `CFG001` to `CFG003`, `BLD001`, `ORM001`, `SCH003` and `SOCK001` to `SOCK006`; `spinajs doctor` adds `DOCTOR` when it cannot read the manifest. Each is listed with its severity in [doctor](doctor.md#rules).
 
 ## TypeScript version
 

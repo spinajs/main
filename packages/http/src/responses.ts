@@ -16,7 +16,7 @@ import { getFs } from '@spinajs/fs';
 // is mapped back to the ServerError response by __handle_error__ anyway.
 import { UnexpectedServerError } from '@spinajs/exceptions';
 import * as cs from 'cookie-signature';
-import { XMLBuilder } from 'fast-xml-parser';
+import { loadedFastXmlParser, loadXmlBuilder } from './lazy-modules.js';
 import { FIELD_NAME_PATTERN, strictHeader } from './headers.js';
 import { isProblem, PROBLEM_CONTENT_TYPE } from './problem.js';
 
@@ -121,7 +121,23 @@ export function textResponse(model: any, options?: IResponseOptions) {
  * @param xmlOptions - fast-xml-parser XMLBuilder options
  */
 export function xmlResponse(model: any, options?: IResponseOptions, xmlOptions?: any) {
-  return (_req: express.Request, res: express.Response) => {
+  return (req: express.Request, res: express.Response) => {
+    const xml = loadedFastXmlParser();
+    if (!xml) {
+      // Called without a response's `execute`, which loads the builder first: send once it is loaded.
+      loadXmlBuilder()
+        .then(() => xmlResponse(model, options, xmlOptions)(req, res))
+        .catch((err) => {
+          if (req.next) {
+            req.next(err);
+            return;
+          }
+          // No error handler to hand it to, and a rejection here has no caller: log it, as the other async response failures do.
+          DI.resolve(Log, ['http']).error({ error: err }, 'Cannot send xml response');
+        });
+      return;
+    }
+
     res.status(options?.StatusCode ? options.StatusCode : HTTP_STATUS_CODE.OK);
 
     _setCoockies(res, options);
@@ -129,7 +145,7 @@ export function xmlResponse(model: any, options?: IResponseOptions, xmlOptions?:
 
     res.set('Content-Type', 'application/xml');
 
-    const builder = new XMLBuilder({ ignoreAttributes: false, ...xmlOptions });
+    const builder = new xml.XMLBuilder({ ignoreAttributes: false, ...xmlOptions });
     const payload = model !== null && typeof model === 'object' && !Array.isArray(model) ? model : { response: model };
     res.send(builder.build(payload));
   };

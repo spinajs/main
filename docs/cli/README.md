@@ -25,6 +25,7 @@ The package ships the `spinajs` bin (`lib/cli.js`).
 | [Command discovery](05-command-discovery.md) | `system.dirs.cli`: how command files are found, and how a package ships its own commands |
 | [Argv provider](06-argv-provider.md) | The `__cli_argv_provider__` factory that hands argv to the parser; replace it for tests and custom entry points |
 | [`Cli` service](07-cli-service.md) | The service that builds the command tree and runs it; subclass it, translate help text, run it from your own entry point |
+| [Command reference](08-command-reference.md) | Every command the `spinajs` bin ships (`build`, `doctor`, `upgrade`, `manifest:diff`, the generators, `configuration:dump`) with its options and exit codes, and the commands of `@spinajs/http` and `@spinajs/orm-cli` |
 
 ## Quick start
 
@@ -91,7 +92,9 @@ spinajs build --tsconfig tsconfig.json --out app.manifest.json
 | `--fail-on-warning` | off | Exit with code 1 when the analyzer reports a warning |
 | `--allow-no-dirs` | off | Build an app whose `system.dirs` name none of its folders. Without it that build fails. With it, nothing loads from the manifest except migrations under the default dirs: classes run only if something registers them |
 
-Diagnostics are printed as `severity CODE file:line message`, followed by a summary of services, controllers, routes, models, schemas and diagnostics by severity. An analyzer error always exits with code 1; a warning does so only with `--fail-on-warning`. The command reads `system.dirs` from the booted configuration. An app class that discovery would not load stays in the manifest with `mountedBy`, is not loaded from it, and gets a `CMP006` warning. When no configured dir maps into the app, the command prints `CMP007`, exits with code 1 and writes nothing. It warns with `CLI001` when the working directory is not the `tsconfig` folder. The manifest reflects the config of the build's `APP_ENV`; see [The app's own classes](../manifest/README.md#the-apps-own-classes). The `summary` counts what the manifest loads, plus a `not loaded` row. The manifest merges the fragments (`lib/manifest.fragment.json`) that the app's `@spinajs/*` dependencies ship. The command needs `@spinajs/compiler`, an optional peer dependency of `@spinajs/cli`; install it to use this command.
+Diagnostics are printed as `severity CODE file:line message`, followed by a summary of services, controllers, routes, models, schemas and diagnostics by severity. An analyzer error always exits with code 1; a warning does so only with `--fail-on-warning`. The command reads `system.dirs` from the booted configuration. An app class that discovery would not load stays in the manifest with `mountedBy`, is not loaded from it, and gets a `CMP006` warning. When no configured dir maps into the app, the command prints `CMP007`, exits with code 1 and writes nothing. It warns with `CLI001` when the working directory is not the `tsconfig` folder. It checks the written manifest against the manifest JSON Schema, which the boot skips for a manifest whose hash matches: a manifest that fails is removed, with `CLI002` and exit code 1. The manifest reflects the config of the build's `APP_ENV`; see [The app's own classes](../manifest/README.md#the-apps-own-classes). The `summary` counts what the manifest loads, plus a `not loaded` row. The manifest merges the fragments (`lib/manifest.fragment.json`) that the app's `@spinajs/*` dependencies ship. The command needs `@spinajs/compiler`, an optional peer dependency of `@spinajs/cli`; install it to use this command.
+
+See [Manifest diff and CI](../manifest/diff-and-ci.md) for `manifest:diff` and a CI recipe, and [Deploying a manifest-built app](../manifest/deploying.md) for the image build.
 
 ## Related packages
 

@@ -17,6 +17,7 @@ Full documentation lives in [docs/cli](../../docs/cli/README.md):
 - [Command discovery](../../docs/cli/05-command-discovery.md)
 - [Argv provider](../../docs/cli/06-argv-provider.md)
 - [`Cli` service](../../docs/cli/07-cli-service.md)
+- [Command reference](../../docs/cli/08-command-reference.md)
 
 ## Installation
 
@@ -196,6 +197,7 @@ The following framework options are consumed by `@spinajs/configuration`
 | `--app <name>` | select the running app |
 | `--env <name>` | select the environment |
 | `--apppath <path>` | override the app base directory |
+| `--config-path <path>` | add one config folder |
 
 ## Framework integration
 
@@ -205,7 +207,7 @@ The wrapper wires commander into the rest of SpinaJS:
   through `@spinajs/log` (`Log.error`); `--help`/`--version` still print to
   stdout. Unknown commands/options get "did you mean" suggestions.
 - **Configuration** — options can fall back to a config value via `configKey`,
-  and framework options (`--app`/`--env`/`--apppath`) are consumed by
+  and framework options (`--app`/`--env`/`--apppath`/`--config-path`) are consumed by
   `@spinajs/configuration` and stripped before parsing.
 - **Internationalization** — when `@spinajs/intl` is present and configured,
   command/option/argument descriptions are translated through its global `__`.
@@ -216,4 +218,14 @@ The wrapper wires commander into the rest of SpinaJS:
 
 | Command | Description |
 | --- | --- |
+| `build` | Analyzes the app and writes `app.manifest.json` (needs `@spinajs/compiler`) |
+| `doctor` | Checks the manifest for wiring, routing and configuration problems (needs `@spinajs/compiler`) |
+| `upgrade --to 4 [--dry-run]` | Applies the 4.0 codemods (needs `@spinajs/codemods`) |
+| `manifest:diff <base> <head>` | Compares two manifests and classifies breaking changes |
+| `generate:openapi` | Writes an OpenAPI 3.1 document from a manifest (needs `@spinajs/openapi`) |
+| `generate:asyncapi` | Writes an AsyncAPI 3.0 document from a manifest (needs `@spinajs/asyncapi`) |
+| `generate:client` | Writes a typed HTTP client from a manifest (needs `@spinajs/client`) |
+| `generate:config-types` | Writes the typed `ConfigPaths` declarations (needs `@spinajs/compiler`) |
 | `configuration:dump [-p, --path <path>]` | Dumps the resolved configuration (optionally a sub-path) |
+
+Options of every command are in the [command reference](../../docs/cli/08-command-reference.md). `@spinajs/orm-cli` adds the `migrate-*` commands and `@spinajs/http` adds `http:controllers:cache`.

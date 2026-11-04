@@ -7,11 +7,14 @@ import { Injectable, PerInstanceCheck } from '@spinajs/di';
 import { fs, IFsLocalOptions, IFsUploadOptions, IStat, IWriteStreamOptions, IZipResult } from './interfaces.js';
 import { basename, dirname, isAbsolute, join, parse, relative, resolve as pathResolve } from 'path';
 import { Log, Logger } from '@spinajs/log-common';
-import archiver from 'archiver';
-import unzipper from 'unzipper';
+import type { Archiver } from 'archiver';
 import { cp, FileHandle } from 'fs/promises';
 import { toArray } from '@spinajs/util';
 import { getFs } from './helpers.js';
+import { lazyImport } from './lazy-import.js';
+
+const loadArchiver = lazyImport(() => import('archiver'));
+const loadUnzipper = lazyImport(() => import('unzipper'));
 
 /**
  * Abstract layer for file operations.
@@ -431,6 +434,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     }
 
     const dst = dstFs.resolvePath(destPath);
+    const { default: unzipper } = await loadUnzipper();
 
     return new Promise<string>((resolve, reject) => {
       const rStream = createReadStream(srcPath);
@@ -466,6 +470,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
 
     const fs = dstFs;
     const outFile = dstFile;
+    const { default: archiver } = await loadArchiver();
     const wStream = await fs.writeStream(outFile);
     const archive = archiver('zip');
 
@@ -555,7 +560,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
    * Adds every source to the archive - a plain-path directory is added
    * recursively, everything else as a single file stored under its entry name.
    */
-  protected async addZipEntries(archive: ReturnType<typeof archiver>, paths: (string | string[])[]): Promise<void> {
+  protected async addZipEntries(archive: Archiver, paths: (string | string[])[]): Promise<void> {
     for (const p of paths) {
       if (!Array.isArray(p) && (await this.isDir(p))) {
         archive.directory(this.resolvePath(p), false);
