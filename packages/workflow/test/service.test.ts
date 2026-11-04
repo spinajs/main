@@ -10,6 +10,7 @@ import { bootTestEnv, disposeTestEnv } from './support/env.js';
 import { instance, pick, rejects, seedInstance, seedStep, stepsOf, T0 } from './support/rows.js';
 
 const fixable = { broken: true, attempts: [] as number[] };
+const handled = { cBroken: true, aRuns: 0 };
 
 @Workflow('svc-wait')
 export class SvcWait extends WorkflowDefinition<null, void> {
@@ -49,6 +50,26 @@ export class SvcFixable extends WorkflowDefinition<null, string> {
   }
 }
 
+/** `a` fails for good and the workflow handles it; `c` fails until the test repairs it. */
+@Workflow('svc-handled')
+export class SvcHandled extends WorkflowDefinition<null, string> {
+  public async run(ctx: WorkflowContext<null>): Promise<string> {
+    let x: string;
+    try {
+      x = await ctx.step('a', () => {
+        handled.aRuns++;
+        throw new NonRetryableError('a always fails');
+      });
+    } catch {
+      x = await ctx.step('fb', () => 'FB');
+    }
+    return ctx.step('c', () => {
+      if (handled.cBroken) throw new NonRetryableError('c broken');
+      return `${x}-c`;
+    });
+  }
+}
+
 @Workflow('svc-a')
 export class SvcA extends WorkflowDefinition<null, string> {
   public run(): Promise<string> {
@@ -78,6 +99,8 @@ describe('WorkflowService: cancel, retry, list, health', () => {
   beforeEach(async () => {
     fixable.broken = true;
     fixable.attempts = [];
+    handled.cBroken = true;
+    handled.aRuns = 0;
     ({ clock } = await bootTestEnv());
     service = await DI.resolve(WorkflowService);
   });
@@ -148,6 +171,37 @@ describe('WorkflowService: cancel, retry, list, health', () => {
     ]);
   });
 
+  it('retry() leaves a failure the workflow handled as recorded and reruns only the one that failed the run', async () => {
+    const { id } = await service.start('svc-handled', null);
+    const r1 = await engine();
+    await r1.tick();
+    expect(pick(await instance(id), 'Status', 'Reason')).to.deep.equal({ Status: 'failed', Reason: 'error' });
+    handled.cBroken = false;
+    await service.retry(id);
+    expect((await stepsOf(id)).map((s) => pick(s, 'Key', 'Status'))).to.deep.equal([
+      { Key: 'step:a#1', Status: 'failed' },
+      { Key: 'step:fb#1', Status: 'succeeded' },
+      { Key: 'step:c#1', Status: 'retrying' },
+    ]);
+    await r1.tick();
+    expect(pick(await instance(id), 'Status', 'Result')).to.deep.equal({ Status: 'completed', Result: 'FB-c' });
+    expect(handled.aRuns).to.equal(1);
+  });
+
+  it('retry() clears a cancel request the failed run left behind', async () => {
+    await seedInstance('fc', { Workflow: 'svc-a', Status: 'failed', Reason: 'error', CancelRequested: true });
+    await service.retry('fc');
+    expect(pick(await instance('fc'), 'Status', 'CancelRequested')).to.deep.equal({ Status: 'running', CancelRequested: false });
+  });
+
+  it('retry() refuses an instance that failed on its deadline', async () => {
+    await seedInstance('ft', { Workflow: 'svc-a', Status: 'failed', Reason: 'timeout' });
+    const err = await rejects(service.retry('ft'));
+    expect(err).to.be.instanceOf(InvalidOperation);
+    expect(err.message).to.equal("workflow instance 'ft' passed its deadline; a retry would fail it again at once");
+    expect((await instance('ft')).Status).to.equal('failed');
+  });
+
   it('retry() refuses an instance that has not failed', async () => {
     const { id } = await service.start('svc-a', null);
     const err = await rejects(service.retry(id));
@@ -165,6 +219,7 @@ describe('WorkflowService: cancel, retry, list, health', () => {
     expect(await ids({ workflow: 'svc-a', status: ['failed'] })).to.deep.equal(['l4']);
     expect(await ids({ limit: 2 })).to.deep.equal(['l0', 'l1']);
     expect(await ids({ limit: 2, after: 'l1' })).to.deep.equal(['l2', 'l3']);
+    expect(await ids({ limit: Number.NaN })).to.deep.equal(['l0', 'l1', 'l2', 'l3', 'l4']);
     expect((await service.list({ workflow: 'svc-b' }))[0]).to.deep.include({ id: 'l0', workflow: 'svc-b', status: 'running' });
   });
 
@@ -182,14 +237,23 @@ describe('WorkflowService: cancel, retry, list, health', () => {
     });
   });
 
-  it('the engine warns about missing versions on every tick', async () => {
+  it('the engine warns about each missing version once per leaseTtl', async () => {
     // concurrency 1: no clamp warning on SQLite, so only the version warnings are captured
-    await bootTestEnv({ workflow: { concurrency: 1 } });
+    ({ clock } = await bootTestEnv({ workflow: { concurrency: 1 } }));
     VersionWarningsEngine.warnings = [];
     await seedInstance('gone', { Workflow: 'svc-gone', Version: 1 });
     const r1 = await DI.resolve(VersionWarningsEngine, [{ replicaId: 'r1' }]);
     await r1.tick();
+    clock.set(T0 + 59_999);
     await r1.tick();
-    expect(VersionWarningsEngine.warnings).to.deep.equal(Array(2).fill("workflow 'svc-gone' version 1 is not registered; 1 unfinished instance(s) stay untouched"));
+    expect(VersionWarningsEngine.warnings).to.have.length(1);
+    await seedInstance('gone-2', { Workflow: 'svc-gone', Version: 2 });
+    clock.set(T0 + 60_000);
+    await r1.tick();
+    expect(VersionWarningsEngine.warnings).to.deep.equal([
+      "workflow 'svc-gone' version 1 is not registered; 1 unfinished instance(s) stay untouched",
+      "workflow 'svc-gone' version 1 is not registered; 1 unfinished instance(s) stay untouched",
+      "workflow 'svc-gone' version 2 is not registered; 1 unfinished instance(s) stay untouched",
+    ]);
   });
 });

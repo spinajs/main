@@ -54,6 +54,16 @@ export class WkDeadline extends WorkflowDefinition<null, void> {
   }
 }
 
+@Workflow('wk-overrun', { timeout: '1h' })
+export class WkOverrun extends WorkflowDefinition<null, string> {
+  public run(ctx: WorkflowContext<null>): Promise<string> {
+    return ctx.step('work', () => {
+      started.resolve();
+      return gate.promise;
+    });
+  }
+}
+
 @Workflow('wk-crash')
 export class WkCrash extends WorkflowDefinition<null, void> {
   public run(): Promise<void> {
@@ -134,6 +144,31 @@ describe('WorkflowWorker, shutdown and deadlines', () => {
     gate.resolve('late');
     await clock.advance(2_000);
     await tick;
+  });
+
+  it('stop() is shared by every caller: a worker dispose and an engine dispose wait the grace once', async () => {
+    await boot();
+    const r1 = await engine();
+    expect(r1.stop()).to.equal(r1.stop());
+    await r1.dispose();
+  });
+
+  it('a step still running at the deadline is aborted and the instance fails with Reason timeout, not completed', async () => {
+    // a lease longer than the deadline: no heartbeat renewal comes due while the fake clock jumps
+    await boot({ leaseTtl: 4 * 3_600_000 });
+    const { id } = await service.start('wk-overrun', null);
+    const r1 = await engine();
+    const tick = r1.tick();
+    await started.promise;
+    await clock.advance(3_600_000);
+    gate.resolve('late');
+    await clock.advance(2_000);
+    await clock.advance(2_000);
+    await tick;
+    const row = await instance(id);
+    expect(pick(row, 'Status', 'Reason', 'ClaimedBy')).to.deep.equal({ Status: 'failed', Reason: 'timeout', ClaimedBy: null });
+    expect(row.Error?.name).to.equal('WorkflowTimeout');
+    expect(clock.pendingTimers).to.equal(0);
   });
 
   it('an instance past its timeout fails with Reason timeout; parks never sleep past the deadline', async () => {

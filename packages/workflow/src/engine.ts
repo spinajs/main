@@ -106,6 +106,9 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
   /** Set by a crash during the current tick: no further claims. */
   protected crashed = false;
   protected stopping = false;
+  protected stopped?: Promise<void>;
+  /** When each missing `workflow#version` was last reported. */
+  protected warnedAt = new Map<string, number>();
 
   constructor(public readonly Options: WorkflowEngineOptions = {}) {
     super();
@@ -144,7 +147,7 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
   public async tick(): Promise<void> {
     if (this.stopping) return;
     const now = await this.Clock.sync();
-    await this.warnMissingVersions();
+    await this.warnMissingVersions(now);
     const defs = this.Registry.all();
     const free = this.config.concurrency - this.active.size;
     if (free <= 0 || defs.length === 0) return;
@@ -155,6 +158,8 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
       if (this.active.has(row.Id)) continue;
       const claim = await this.store.lease.claim(this.store.target(row.Id), this.replicaId, this.config.leaseTtl, now, { Status: row.Status, WakeAt: row.WakeAt });
       if (!claim) continue;
+      // a dead replica releases nothing: the lease expires on its own
+      if (this.crashed) break;
       // stop() ran while this claim was in flight and would not wait for an activation launched after it
       if (this.stopping) {
         await this.store.release(row.Id, claim.epoch);
@@ -167,7 +172,11 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
   }
 
   /** Aborts every activation as `shutdown` and waits for them at most `workflow.shutdownGrace`; later ticks do nothing. */
-  public async stop(): Promise<void> {
+  public stop(): Promise<void> {
+    return (this.stopped ??= this.shutdown());
+  }
+
+  protected async shutdown(): Promise<void> {
     this.stopping = true;
     const running = [...this.active.values()];
     for (const a of running) a.abort('shutdown');
@@ -181,9 +190,13 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
     await this.stop();
   }
 
-  /** D5: an instance of an unregistered version stays untouched, so it is reported on every tick. */
-  protected async warnMissingVersions(): Promise<void> {
+  /** D5: an instance of an unregistered version stays untouched, so it is reported again once per `leaseTtl`. */
+  protected async warnMissingVersions(now: number): Promise<void> {
     for (const m of await missingVersions(this.Registry)) {
+      const key = `${m.workflow}#${m.version}`;
+      const last = this.warnedAt.get(key);
+      if (last !== undefined && now - last < this.config.leaseTtl) continue;
+      this.warnedAt.set(key, now);
       this.warn(`workflow '${m.workflow}' version ${m.version} is not registered; ${m.instances} unfinished instance(s) stay untouched`);
     }
   }
@@ -285,15 +298,30 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
     );
     heartbeat.start();
     let outcome: Outcome = { kind: 'aborted' };
+    let disarm = (): void => undefined;
     try {
       if (row.CancelRequested) abort('cancelled');
       else if (deadline !== null && this.Clock.now() >= deadline) ctx.expire();
-      else outcome = await this.execute(ctx, definition, signal);
+      else {
+        disarm = this.expireAt(ctx, deadline, abort);
+        outcome = await this.execute(ctx, definition, signal);
+      }
     } finally {
+      disarm();
       await heartbeat.stop(this.config.shutdownGrace);
     }
     await this.finish(row, ctx, journal, outcome, signal);
     if (ctx.crashError !== undefined) throw ctx.crashError as Error;
+  }
+
+  /** A step still running at the deadline must not let the instance end `completed`. */
+  protected expireAt(ctx: ActivationContext, deadline: number | null, abort: (reason: AbortReason) => void): () => void {
+    if (deadline === null) return () => undefined;
+    const handle = this.Timers.setTimeout(() => {
+      ctx.expire();
+      abort('timeout');
+    }, deadline - this.Clock.now());
+    return () => this.Timers.clearTimeout(handle);
   }
 
   protected async execute(ctx: ActivationContext, definition: RegisteredWorkflow, signal: AbortSignal): Promise<Outcome> {

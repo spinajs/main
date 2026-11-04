@@ -68,6 +68,17 @@ const MAX_ID = 128;
 const MAX_REASON = 64;
 const CANCELLABLE: WorkflowStatus[] = ['running', 'sleeping', 'waiting'];
 const MAX_PAGE = 500;
+const DEFAULT_PAGE = 50;
+const RETRIED_KINDS = new Set(['step', 'emit']);
+
+/**
+ * Failed step and emit rows that no later recorded call saw. A failure the workflow caught and handled was delivered
+ * before a recorded call was made (`Meta.after >= order`); it stays failed and replays as the recorded rejection.
+ */
+function unobservedFailures(rows: WorkflowStepModel[]): WorkflowStepModel[] {
+  const seen = rows.reduce((max, r) => (r.Kind === 'compensate' ? max : Math.max(max, r.Meta?.after ?? -1)), -1);
+  return rows.filter((r) => r.Status === 'failed' && RETRIED_KINDS.has(r.Kind) && !(r.Meta?.order !== undefined && seen >= r.Meta.order));
+}
 
 function inputColumn(input: unknown): string | null {
   if (input === null || input === undefined) return null;
@@ -137,7 +148,7 @@ export class DefaultWorkflowService extends WorkflowService {
   /** WakeAt = now makes a parked instance due at once; a compensating or finished instance is left alone. */
   public async cancel(instanceId: string, reason = 'cancelled'): Promise<void> {
     const now = await this.now();
-    // cut by code point: a split surrogate pair is not valid utf8mb4
+    // varchar(64) counts code points; cutting UTF-16 units could leave a lone surrogate, which has no UTF-8 encoding
     const stored = Array.from(reason).slice(0, MAX_REASON).join('');
     const r = await WorkflowInstanceModel.update({ CancelRequested: true, Reason: stored, WakeAt: now, UpdatedAt: now })
       .where('Id', instanceId)
@@ -150,13 +161,13 @@ export class DefaultWorkflowService extends WorkflowService {
     const row = await WorkflowInstanceModel.where('Id', instanceId).onPrimary().first();
     if (!row) throw new WorkflowNotFound(instanceId);
     if (row.Status !== 'failed') throw new InvalidOperation(`workflow instance '${instanceId}' is ${row.Status}; only a failed instance can be retried`);
+    if (row.Reason === 'timeout') throw new InvalidOperation(`workflow instance '${instanceId}' passed its deadline; a retry would fail it again at once`);
     const now = await this.now();
     const driver = await workflowDriver();
     await driver.transaction(async () => {
-      const r = await WorkflowInstanceModel.update({ Status: 'running', Reason: null, Error: null, WakeAt: null, WaitingFor: null, FinishedAt: null, UpdatedAt: now }).where({ Id: instanceId, Status: 'failed' });
+      const r = await WorkflowInstanceModel.update({ Status: 'running', Reason: null, Error: null, WakeAt: null, WaitingFor: null, CancelRequested: false, FinishedAt: null, UpdatedAt: now }).where({ Id: instanceId, Status: 'failed' });
       if (r.RowsAffected !== 1) throw new InvalidOperation(`workflow instance '${instanceId}' changed while it was being retried`);
-      const failed = await WorkflowStepModel.where({ InstanceId: instanceId, Status: 'failed' }).whereIn('Kind', ['step', 'emit']);
-      for (const step of failed) {
+      for (const step of unobservedFailures(await WorkflowStepModel.where('InstanceId', instanceId))) {
         // a fresh attempt budget and no stale backoff; Meta.after keeps the journal causal for the replay
         const after = step.Meta?.after;
         await WorkflowStepModel.update({ Status: 'retrying', Attempt: 0, Meta: after === undefined ? null : { after } }).where('Id', step.Id);
@@ -169,7 +180,8 @@ export class DefaultWorkflowService extends WorkflowService {
     if (filter.workflow !== undefined) query.where('Workflow', filter.workflow);
     if (filter.status?.length) query.whereIn('Status', filter.status);
     if (filter.after !== undefined) query.where('Id', '>', filter.after);
-    const rows = await query.orderBy('Id').take(Math.min(Math.max(Math.floor(filter.limit ?? 50), 1), MAX_PAGE));
+    const limit = Number.isFinite(filter.limit) ? Math.floor(filter.limit!) : DEFAULT_PAGE;
+    const rows = await query.orderBy('Id').take(Math.min(Math.max(limit, 1), MAX_PAGE));
     return rows.map(toView);
   }
 

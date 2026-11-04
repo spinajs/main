@@ -22,17 +22,22 @@ export class WorkflowWorker extends AsyncService {
   public Engine: WorkflowEngine;
   protected handle?: TimerHandle;
   protected ticking?: Promise<void>;
+  protected grace = 0;
 
   public async resolve(): Promise<void> {
     const config = resolveWorkflowConfig(this.RawConfig);
+    this.grace = config.shutdownGrace;
     this.Engine = await DI.resolve(WorkflowEngine);
     if (config.enabled) this.handle = this.Timers.setInterval(() => this.beat(), config.tick);
     await super.resolve();
   }
 
+  /** Waits for the tick in flight too, at most the grace: none of its writes or releases may land after the ORM is gone. */
   public async dispose(): Promise<void> {
     this.stopLoop();
-    await this.Engine?.stop();
+    const ac = new AbortController();
+    await Promise.race([Promise.allSettled([this.Engine?.stop(), this.ticking]), this.Timers.sleep(this.grace, ac.signal)]);
+    ac.abort();
   }
 
   protected beat(): void {
@@ -45,9 +50,13 @@ export class WorkflowWorker extends AsyncService {
   }
 
   protected tickFailed(err: unknown): void {
-    this.Log.error(err as Error, 'workflow tick failed');
     // crash contract: the replica is dead, so it claims nothing more; its leases expire on their own
-    if (isCrash(err)) this.stopLoop();
+    if (!isCrash(err)) {
+      this.Log.error(err as Error, 'workflow tick failed');
+      return;
+    }
+    this.stopLoop();
+    this.Log.error(err as Error, 'workflow tick crashed; the replica is dead and its worker loop stopped');
   }
 
   protected stopLoop(): void {
