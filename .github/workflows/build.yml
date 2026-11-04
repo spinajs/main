@@ -87,6 +87,10 @@ jobs:
       - name: dependency rules
         run: npm run deps
 
+      # Ratchet: the orm entries of the dependency-cruiser baseline reached 0 in O2 and may not come back.
+      - name: orm import cycles
+        run: node scripts/check-orm-cycles.mjs
+
       # Unused / unlisted dependencies; warnings only until the existing ones are cleaned up.
       - name: knip
         run: npm run knip
