@@ -82,9 +82,15 @@ const META: [keys: string[], valid: (value: unknown) => boolean, rule: string][]
   [['examples'], Array.isArray, 'an array'],
 ];
 
+const DUNDER_MAPS = ['properties', 'patternProperties', 'definitions', '$defs', 'dependencies'];
+
 function ownRefusal(schema: Json, root: boolean): string | undefined {
   // Below the root Ajv reads `$schema` as an unknown keyword.
   if (root && typeof schema.$schema === 'string' && !DRAFT_07.test(schema.$schema)) return `$schema '${schema.$schema}' is not draft-07`;
+  // The server cannot validate a key named `__proto__`: it refuses a property or required name of that name, and
+  // the stock 4.x preparer turns one in any map of schemas into the map's prototype.
+  if (DUNDER_MAPS.some((k) => isJson(schema[k]) && Object.hasOwn(schema[k], '__proto__'))) return "a key named '__proto__' cannot be validated";
+  if (Array.isArray(schema.required) && schema.required.includes('__proto__')) return "a required property named '__proto__' cannot be validated";
   for (const [keys, valid, rule] of META) {
     const key = keys.find((k) => k in schema && !valid(schema[k]));
     if (key !== undefined) return `'${key}' must be ${rule}`;

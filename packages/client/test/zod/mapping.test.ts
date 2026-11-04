@@ -92,6 +92,9 @@ const ROWS: Record<string, Row> = {
   DuplicateType: { title: 'type must list distinct JSON types', schema: { type: ['string', 'string'] }, emits: ['z.custom<DuplicateType>()'], accepts: [1], diagnostics: ['ZOD001 '] },
   NotASchema: { title: 'a subschema must be an object or a boolean', schema: object({ a: { type: 'array', items: 5 } }), emits: ['z.custom<NotASchema>()'], accepts: [{ a: 1 }], diagnostics: ['ZOD001 '] },
   NestedDraft04: { title: 'a nested $schema is ignored, as Ajv ignores it below the root', schema: object({ s: { $schema: 'http://json-schema.org/draft-04/schema#', type: 'string' } }), emits: ['s: z.string().optional()'], accepts: [{ s: 'x' }], rejects: [{ s: 1 }, { n: 1 }] },
+  DunderProperty: { title: 'a property named __proto__ cannot be validated, so the server refuses the schema', schema: JSON.parse('{"type":"object","properties":{"__proto__":{"type":"string"}},"additionalProperties":false}'), emits: ['z.custom<DunderProperty>()'], accepts: [1, { a: 1 }], diagnostics: ['ZOD001 '] },
+  DunderRequired: { title: 'so does a required __proto__', schema: { type: 'object', required: ['__proto__'] }, emits: ['z.custom<DunderRequired>()'], accepts: [1], diagnostics: ['ZOD001 '] },
+  DunderPattern: { title: 'and a __proto__ key in any map of schemas', schema: JSON.parse('{"type":"object","patternProperties":{"__proto__":{"type":"string"}}}'), emits: ['z.custom<DunderPattern>()'], accepts: [1], diagnostics: ['ZOD001 '] },
   Draft2020: { title: 'a $schema Ajv refuses is z.unknown() with ZOD001', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'string' }, emits: ['z.custom<Draft2020>()'], accepts: [1], diagnostics: ['ZOD001 '] },
 };
 
