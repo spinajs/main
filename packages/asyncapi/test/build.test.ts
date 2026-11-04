@@ -4,7 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { DiagnosticSeverity, Parser } from '@asyncapi/parser';
 import { WIRE_EVENTS } from '@spinajs/http-socket-common';
-import type { Manifest } from '@spinajs/manifest';
+import type { Manifest, SocketControllerEntry } from '@spinajs/manifest';
 import { manifestToAsyncApi } from '../src/index.js';
 import type { AsyncApiDocument } from '../src/index.js';
 import { appBasicManifest } from './support/fixture.js';
@@ -75,6 +75,24 @@ describe('manifestToAsyncApi', () => {
 
   it('is byte-stable across runs', () => {
     expect(JSON.stringify(manifestToAsyncApi(manifest, options))).to.equal(JSON.stringify(doc));
+  });
+
+  it('documents a command a socket controller inherits, with the payload it binds', () => {
+    const copy = structuredClone(manifest);
+    const source = { file: 'src/socket/things.ts', line: 3, col: 1, package: 'app-basic' };
+    const things: SocketControllerEntry = {
+      id: 'app-basic:ThingsSocket',
+      className: 'ThingsSocket',
+      prefix: 'things',
+      bases: ['app-basic:CrudSocket'],
+      commands: [{ name: 'save', handler: 'save', payload: { text: 'ChatMessage', schema: 'spinajs/app-basic/ChatMessage' }, payloadIndex: 0, result: { text: 'void' }, options: {}, policies: [], inheritedFrom: 'app-basic:CrudSocket', source }],
+      events: [],
+      source,
+    };
+    copy.socketControllers.push(things);
+    const out = manifestToAsyncApi(copy, options);
+    expect(out.channels['socket/things/save']).to.deep.include({ address: 'socket/things/save' });
+    expect(out.components.messages['things.save.request']).to.deep.equal({ name: 'things.save.request', payload: { $ref: '#/components/schemas/ChatMessage' } });
   });
 
   it('stream frames match the socket wire protocol', () => {

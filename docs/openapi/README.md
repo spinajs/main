@@ -2,7 +2,9 @@
 
 `manifestToOpenApi(manifest, options)` turns an `app.manifest.json` produced by `spinajs build` into an OpenAPI 3.1 document. It is a pure function: no DI, no filesystem, deterministic output. Response schemas come from the manifest's derived schemas, so every route with a declared return type has an exact `200` schema. Error responses use `application/problem+json`.
 
-It documents what the build recorded. For the live document of a running server, with the Swagger UI, see [`@spinajs/http-swagger`](../http-swagger/README.md).
+Routes a controller inherits are documented on the controller, under its path, with the types it binds (`ArticlesController extends BaseCrud<ArticleDto>` documents `GET /articles/{id}` returning `ArticleDto`, as `Articles_get`). A controller replaced with an unconditional `DI.register(Sub).as(Base)` is left out, because the runtime mounts only the subclass.
+
+Options: `title`, `version`, `servers`, `securitySchemes` (the first scheme becomes the document-wide `security`; `security` overrides it; anonymous operations keep `security: []`), `basePath`, `routePrefix`, `errorSchema`/`errorSchemaId` (default: the built-in RFC 9457 `ProblemDetails`).
 
 ## Install
 
