@@ -130,7 +130,7 @@ The build does not follow `await import()`, because such a call may never run. A
 
 The build records the `APP_ENV` it ran under as `buildEnv` (omitted by a build without configuration). At boot in `prefer` and `require`, a running `APP_ENV` that differs from it logs one warning naming both, with the advice to rebuild; `off` and a manifest without `buildEnv` stay silent. It is only a warning: the dirs may be the same in every environment, and a staging image promoted to production is legitimate. `buildEnv` is part of the manifest hash and `MANIFEST_VERSION` stays 2.
 
-The build records the `@spinajs/compiler` version that produced it as `compilerVersion`, which the hash leaves out like `generatedAt`, so upgrading the compiler alone does not change the hash.
+The build records the `@spinajs/compiler` version that produced it as `compilerVersion`, which the hash leaves out like `generatedAt`, so upgrading the compiler alone does not change the hash. `manifest:diff` warns when base and head record different versions (see [Diffing two manifests](#diffing-two-manifests)).
 
 A build with `--no-schemas` records `schemaDerivation: false`. Its socket contracts then have no payload schemas, so a boot in `require` fails naming them and `prefer` logs one warning; see [the contract table](../http-socket/02-controllers.md). `off` and a manifest without the field stay silent.
 
@@ -139,6 +139,12 @@ A build with `--no-schemas` records `schemaDerivation: false`. Its socket contra
 **The CLI sees only what it can read.** `--app`, `--apppath` and `--config-path` stand in for the `app`, `appBaseDir` and `cfgCustomPaths` options. A value an app sets only in code (those options passed to `FrameworkConfiguration`, `configuration.set()`, a `Configuration` subclass) does not reach the build: pass the matching option, or put the value in a config file.
 
 A direct call of `buildAppManifest` without `effectiveDirs` marks nothing.
+
+### Diffing two manifests
+
+`manifest:diff` (`diffManifest`) matches routes by `METHOD fullPath`. A route a controller inherits is an ordinary route of that controller, so a change in its base, such as a field the body type the subclass binds now requires, shows on the subclass's path, and a class `@Access` a subclass adds shows on each inherited route. A controller a subclass replaces with an unconditional `DI.register(Sub).as(Base)` is left out, as the runtime mounts only the subclass; a conditional registration keeps both.
+
+The first diff after upgrading to a compiler that records inherited routes shows them as added, and the routes of a subclass without its own `@BasePath`, recorded before under its class name, as removed and added under the inherited path. When base and head record different `compilerVersion` values, or only one records it, the report carries a warning: under the result line in Markdown, in `warnings` in JSON. Rebuild the base manifest with the new compiler to compare like with like.
 
 ### Building without decorator metadata
 
