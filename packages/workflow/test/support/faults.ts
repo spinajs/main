@@ -1,5 +1,7 @@
 import { FaultInjector, type FaultPointName } from '@spinajs/durable';
 
+const keyOf = (detail?: Record<string, unknown>): string => (typeof detail?.key === 'string' ? detail.key : '');
+
 /** `crash: true` is the engine's contract for "this replica is dead". */
 export class TestCrash extends Error {
   public readonly crash = true;
@@ -26,14 +28,14 @@ export class TestFaults extends FaultInjector {
   public static crashOnce(point: FaultPointName, keyPrefix = ''): void {
     let fired = false;
     TestFaults.rule = (p, detail) => {
-      if (fired || p !== point || !String(detail?.key ?? '').startsWith(keyPrefix)) return false;
+      if (fired || p !== point || !keyOf(detail).startsWith(keyPrefix)) return false;
       fired = true;
       return true;
     };
   }
 
   public point(name: FaultPointName, detail?: Record<string, unknown>): void {
-    TestFaults.hits.push(`${name} ${String(detail?.key ?? '')}`.trim());
+    TestFaults.hits.push(`${name} ${keyOf(detail)}`.trim());
     const failure = TestFaults.failure?.(name, detail);
     if (failure) throw failure;
     if (TestFaults.rule?.(name, detail)) throw new TestCrash(name);

@@ -166,14 +166,9 @@ export class ActivationContext implements WorkflowContext {
     await this.writes;
   }
 
-  protected begin<T>(kind: StepKind, name: string, run: (op: Op) => Promise<T>): Promise<T> {
-    let op: Op;
-    try {
-      op = this.next(kind, name);
-    } catch (err) {
-      return Promise.reject(err);
-    }
-    return this.track(run(op));
+  /** `next()` runs synchronously at the call, so parallel operations take their keys in call order. */
+  protected async begin<T>(kind: StepKind, name: string, run: (op: Op) => Promise<T>): Promise<T> {
+    return this.track(run(this.next(kind, name)));
   }
 
   protected next(kind: StepKind, name: string): Op {
@@ -199,7 +194,8 @@ export class ActivationContext implements WorkflowContext {
     if (this.crashed) throw new WorkflowAborted('crashed');
     if (this.journalFailed) throw new WorkflowAborted('journal-failed');
     const i = this.interruption;
-    if (i?.kind === 'park') throw new WorkflowSuspended();
+    // typed unknown: WorkflowSuspended is deliberately not an Error (see its class)
+    if (i?.kind === 'park') throw new WorkflowSuspended() as unknown;
     if (i) throw i.error;
     if (this.signal.aborted) throw new WorkflowAborted(this.abortReason());
   }
@@ -213,10 +209,10 @@ export class ActivationContext implements WorkflowContext {
 
   protected track<T>(p: Promise<T>): Promise<T> {
     this.inflight.add(p);
-    const done = (): void => {
+    const untrack = (): void => {
       this.inflight.delete(p);
     };
-    p.then(done, done);
+    void p.then(untrack, untrack);
     return p;
   }
 
