@@ -19,10 +19,25 @@ export const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
 
 export const IDEMPOTENT_REPLAYED_HEADER = 'Idempotent-Replayed';
 
-const KEY = /^[\x21-\x7e]{1,255}$/;
+// Visible ASCII without ',' and ';', which would start a list member or a parameter of the structured field.
+const TOKEN_KEY = /^(?:(?![,;])[\x21-\x7e]){1,255}$/;
+
+// RFC 8941 sf-string, the form draft-ietf-httpapi-idempotency-key-header defines; nothing may follow it, so no parameters.
+const QUOTED_KEY = /^"((?:[\x20\x21\x23-\x5b\x5d-\x7e]|\\["\\])*)"$/;
+
+function givenOptions(options: unknown): IdempotentOptions {
+  if (options === null || typeof options !== 'object' || Array.isArray(options)) {
+    throw new InvalidArgument(`@Idempotent options must be an object, got ${JSON.stringify(options)}`);
+  }
+  const unknown = Object.keys(options).filter((name) => !Object.hasOwn(DEFAULT_IDEMPOTENT_OPTIONS, name));
+  if (unknown.length > 0) {
+    throw new InvalidArgument(`@Idempotent has no option ${unknown.join(', ')}`);
+  }
+  return Object.fromEntries(Object.entries(options).filter(([, value]) => value !== undefined)) as IdempotentOptions;
+}
 
 export function resolveIdempotentOptions(options: IdempotentOptions = {}): ResolvedIdempotentOptions {
-  const given = Object.fromEntries(Object.entries(options).filter(([, value]) => value !== undefined)) as IdempotentOptions;
+  const given = givenOptions(options);
   const resolved: ResolvedIdempotentOptions = { ...DEFAULT_IDEMPOTENT_OPTIONS, ...given };
 
   if (typeof resolved.required !== 'boolean') {
@@ -40,7 +55,19 @@ export function resolveIdempotentOptions(options: IdempotentOptions = {}): Resol
   return Object.freeze(resolved);
 }
 
-/** The key, or undefined when the header is missing, repeated (Node joins the copies with ', '), or not 1 to 255 visible ASCII characters. */
+/**
+ * The key, or undefined when the header is missing, repeated (Node joins the copies with ', ') or malformed. A key is
+ * 1 to 255 characters: a quoted string ('"k 1"', printable ASCII with `\"` and `\\` escapes) or bare visible ASCII
+ * without ',' and ';'. '"k-1"' and 'k-1' are the same key.
+ */
 export function parseIdempotencyKey(header: string | string[] | undefined): string | undefined {
-  return typeof header === 'string' && KEY.test(header) ? header : undefined;
+  if (typeof header !== 'string') {
+    return undefined;
+  }
+  if (!header.startsWith('"')) {
+    return TOKEN_KEY.test(header) ? header : undefined;
+  }
+  const quoted = QUOTED_KEY.exec(header);
+  const key = quoted?.[1].replace(/\\(["\\])/g, '$1');
+  return key !== undefined && key.length >= 1 && key.length <= 255 ? key : undefined;
 }
