@@ -35,10 +35,11 @@ describe('generateClientFiles', () => {
   const companions: [Partial<GenerateClientFilesOptions>, string[]][] = [
     [{ zod: true }, ['client.ts']],
     [{ zod: { mini: true } }, ['client.ts']],
-    [{ hooks: ['react-query'] }, ['client.ts', 'client.keys.ts', 'client.react.ts']],
-    [{ hooks: ['swr'] }, ['client.ts', 'client.keys.ts', 'client.react.ts']],
-    [{ hooks: ['react-query'], socketHooks: true }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.socket.ts']],
-    [{ hooks: ['swr'], socketHooks: true }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.socket.ts', 'client.socket-swr.ts']],
+    [{ hooks: ['react-query'] }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.queries.ts', 'client.react-query.ts']],
+    [{ hooks: ['swr'] }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.swr.ts']],
+    [{ hooks: ['react-query', 'swr'] }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.queries.ts', 'client.react-query.ts', 'client.swr.ts']],
+    [{ hooks: ['react-query'], socketHooks: true }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.queries.ts', 'client.react-query.ts', 'client.socket.ts']],
+    [{ hooks: ['swr'], socketHooks: true }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.swr.ts', 'client.socket.ts', 'client.socket-swr.ts']],
   ];
   for (const [companion, paths] of companions) {
     it(`exports manifestHash from client.ts when a companion is requested (${JSON.stringify(companion)})`, async () => {
@@ -63,8 +64,8 @@ describe('generateClientFiles', () => {
 
   it('lists every generator target with whether its emitter has landed', () => {
     expect(GENERATOR_TARGETS).to.deep.equal({
-      'react-query': { available: false },
-      swr: { available: false },
+      'react-query': { available: true },
+      swr: { available: true },
       zod: { available: false },
       models: { available: false },
       'socket-hooks': { available: true },

@@ -57,8 +57,7 @@
   "peerDependencies": {
     "@spinajs/http-socket-client": "3.0.23",
     "@tanstack/react-query": "^5.0.0",
-    "react": "^18.0.0 || ^19.0.0",
-    "swr": "^2.1.0",
+    "swr": "^2.2.0",
     "zod": "^4.1.0"
   },
   "peerDependenciesMeta": {
@@ -90,13 +89,19 @@
     "@spinajs/http-socket-common": "3.0.23",
     "@spinajs/intl": "3.0.23",
     "@spinajs/testing": "3.0.23",
+    "@tanstack/react-query": "5.104.5",
+    "@tanstack/react-query-5.0": "npm:@tanstack/react-query@5.0.0",
+    "@types/jsdom": "^30.0.0",
     "@types/react": "^19.3.0",
     "@types/react-18": "npm:@types/react@^18.3.31",
-    "@types/react-test-renderer": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "chai-as-promised": "^7.1.1",
-    "react": "^19.3.1",
-    "react-test-renderer": "^19.3.1",
+    "esbuild": "^0.28.1",
+    "jsdom": "^29.1.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "swr": "^2.5.1",
+    "swr-floor": "npm:swr@2.2.0",
     "typescript": "~5.9.0"
   },
   "spinajs": {

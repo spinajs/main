@@ -35,6 +35,12 @@ async function hookFiles(manifest: Manifest, options: Partial<GenerateClientFile
   return Object.fromEntries(files.map((f) => [f.path, f.contents]));
 }
 
+// The files every hooks target writes; each library adds its own after them.
+function shared(files: Record<string, string>, basename = 'client'): Record<string, string> {
+  const paths = [`${basename}.ts`, `${basename}.keys.ts`, `${basename}.react.ts`];
+  return Object.fromEntries(Object.entries(files).filter(([path]) => paths.includes(path)));
+}
+
 const snapshot = (name: string) => fileURLToPath(new URL(`./__snapshots__/${name}`, import.meta.url));
 
 function matchSnapshot(name: string, contents: string): void {
@@ -53,7 +59,7 @@ describe('hooks shared module', () => {
 
   // Named after the 4.0 snapshot, so the snapshots' imports of `./app-basic.client.js` resolve for the linter.
   it('matches the committed snapshots of client.keys.ts and client.react.ts', async () => {
-    expect(Object.keys(files)).to.deep.equal(['client.ts', 'client.keys.ts', 'client.react.ts']);
+    expect(Object.keys(shared(files))).to.deep.equal(['client.ts', 'client.keys.ts', 'client.react.ts']);
     const named = await hookFiles(manifest, { basename: 'app-basic.client' });
     matchSnapshot('app-basic.client.keys.ts', named['app-basic.client.keys.ts']);
     matchSnapshot('app-basic.client.react.ts', named['app-basic.client.react.ts']);
@@ -61,13 +67,13 @@ describe('hooks shared module', () => {
 
   it('writes the shared files once, the same for React Query, SWR and both', async () => {
     for (const hooks of [['swr'], ['react-query', 'swr'], ['swr', 'react-query']] as GenerateClientFilesOptions['hooks'][]) {
-      expect(await hookFiles(manifest, { hooks })).to.deep.equal(files);
+      expect(shared(await hookFiles(manifest, { hooks }))).to.deep.equal(shared(files));
     }
   });
 
   it('names the client module after basename and imports the runtime from moduleName', async () => {
     const custom = await hookFiles(manifest, { basename: 'api', moduleName: './runtime.js' });
-    expect(Object.keys(custom)).to.deep.equal(['api.ts', 'api.keys.ts', 'api.react.ts']);
+    expect(Object.keys(shared(custom, 'api'))).to.deep.equal(['api.ts', 'api.keys.ts', 'api.react.ts']);
     expect(custom['api.keys.ts']).to.include("import type { ProblemError } from './runtime.js';");
     expect(custom['api.keys.ts']).to.include("from './api.js';");
     expect(custom['api.react.ts']).to.include("from './api.js';");

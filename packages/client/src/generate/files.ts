@@ -2,6 +2,9 @@ import { emitClient, type GenerateClientOptions } from '../generate.js';
 import { emitKeys } from './hooks/keys.js';
 import { emitReactContext } from './hooks/react.js';
 import { emitSocketHooks, emitSwrSocketHooks } from './hooks/socket.js';
+import { emitSwr } from './hooks/swr.js';
+import { emitQueries, emitReactQuery } from './hooks/react-query.js';
+import { hookRoutes, type HookRoute } from './hooks/shared.js';
 import { buildClientModel, type ClientModel } from './model.js';
 
 export interface GeneratedFile {
@@ -38,14 +41,15 @@ export type GeneratorTarget = HooksTarget | 'zod' | 'models' | 'socket-hooks';
 
 /** Whether each target's emitter has landed; the CLI refuses a requested target that is not available. */
 export const GENERATOR_TARGETS: Readonly<Record<GeneratorTarget, { readonly available: boolean }>> = {
-  'react-query': { available: false },
-  swr: { available: false },
+  'react-query': { available: true },
+  swr: { available: true },
   zod: { available: false },
   models: { available: false },
   'socket-hooks': { available: true },
 };
 
-type EmitOptions = GenerateClientFilesOptions & { basename: string };
+// `hookRoutes` is built once, so every hooks file prints the same routes.
+type EmitOptions = GenerateClientFilesOptions & { basename: string; hookRoutes: HookRoute[] };
 
 type Emitter = (model: ClientModel, options: EmitOptions) => Promise<GeneratedFile[]>;
 
@@ -58,6 +62,14 @@ const hooksShared: Emitter = (model, options) =>
     { path: `${options.basename}.react.ts`, environment: 'client', contents: emitReactContext(model, options) },
   ]);
 
+const swrFile: Emitter = (model, options) => Promise.resolve([{ path: `${options.basename}.swr.ts`, environment: 'client', contents: emitSwr(model, options.hookRoutes, options) }]);
+
+const reactQuery: Emitter = (model, options) =>
+  Promise.resolve([
+    { path: `${options.basename}.queries.ts`, environment: 'server-safe', contents: emitQueries(model, options.hookRoutes, options) },
+    { path: `${options.basename}.react-query.ts`, environment: 'client', contents: emitReactQuery(model, options.hookRoutes, options) },
+  ]);
+
 // Their own files, not the hooks files: both libraries share the event and stream hooks, which an app using both would otherwise get twice.
 const socketHooksFiles: Emitter = (model, options) =>
   Promise.resolve([
@@ -66,7 +78,7 @@ const socketHooksFiles: Emitter = (model, options) =>
   ]);
 
 // The targets that write their own files; `models` adds to client.ts.
-const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': noFiles, swr: noFiles, zod: noFiles, 'socket-hooks': socketHooksFiles };
+const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': reactQuery, swr: swrFile, zod: noFiles, 'socket-hooks': socketHooksFiles };
 
 export function requestedTargets(options: GenerateClientFilesOptions): GeneratorTarget[] {
   const requested: Record<GeneratorTarget, boolean> = {
@@ -104,7 +116,8 @@ export async function generateClientFiles(options: GenerateClientFilesOptions): 
   const emitters = [...(options.hooks?.length ? [hooksShared] : []), ...targets.flatMap((t) => COMPANIONS[t] ?? [])];
   const client = await emitClient(model, { moduleName: options.moduleName, manifestHash: emitters.length > 0 });
   const files: GeneratedFile[] = [{ path: `${basename}.ts`, environment: 'server-safe', contents: client }];
-  for (const emit of emitters) files.push(...(await emit(model, { ...options, basename })));
+  const routes = options.hooks?.length ? hookRoutes(model, options) : [];
+  for (const emit of emitters) files.push(...(await emit(model, { ...options, basename, hookRoutes: routes })));
   assertUniquePaths(files);
   return files;
 }

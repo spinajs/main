@@ -98,3 +98,8 @@ export function hookRoutes(model: ClientModel, options: HookOptions = {}): HookR
 export function varsParameter(hook: HookRoute): string {
   return hook.varsOptional ? `vars: ${hook.varsType} = {}` : `vars: ${hook.varsType}`;
 }
+
+/** The named types the hooks' variables and replies mention, plus `extra`: what a hooks file must import from the client module. Sorted. */
+export function typeNames(hooks: HookRoute[], extra: string[] = []): string[] {
+  return [...new Set([...hooks.flatMap((h) => [...h.route.args.flatMap((a) => a.typeNames), ...h.route.returnTypeNames]), ...extra])].sort();
+}
