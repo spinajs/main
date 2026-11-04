@@ -1,11 +1,16 @@
-import { Ajv } from 'ajv';
-import addFormats from 'ajv-formats';
+import type { Ajv } from 'ajv';
+import type { Manifest } from '@spinajs/manifest';
+import { ManifestValidator } from '@spinajs/validation';
 
-const withFormats = addFormats as unknown as (ajv: Ajv) => Ajv;
+/** Exposes the Ajv instance the server validates route arguments with, so a change of its options reaches these tests. */
+class ServerValidator extends ManifestValidator {
+  public instance(coerce: boolean): Ajv {
+    return this.ajv(coerce);
+  }
+}
 
-/** The options `ManifestValidator.ajv()` in `@spinajs/validation` builds its two instances with. */
 export function serverAjv(coerce: boolean): Ajv {
-  return withFormats(new Ajv({ strict: false, strictNumbers: true, allErrors: true, messages: false, coerceTypes: coerce ? 'array' : false }));
+  return new ServerValidator({ schemas: {} } as unknown as Manifest).instance(coerce);
 }
 
 export function describeInput(value: unknown): string {
