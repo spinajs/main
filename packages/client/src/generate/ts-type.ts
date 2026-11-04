@@ -48,6 +48,7 @@ export class TypeContext {
   private readonly referenced = new Set<string>();
   private readonly names = new Map<string, string>();
   private sealed = false;
+  private verbatim = false;
 
   constructor(public readonly manifest: Manifest) {
     const bySegment = new Map<string, string[]>();
@@ -78,6 +79,13 @@ export class TypeContext {
     this.sealed = true;
   }
 
+  /** A view that also prints `tsType` nodes verbatim; it shares this context's names, schema set and seal. */
+  public withTsTypes(): TypeContext {
+    const view = Object.create(this) as TypeContext;
+    view.verbatim = true;
+    return view;
+  }
+
   public reference(id: string): string {
     if (!this.schemaOf(id)) return 'unknown';
     if (this.sealed && !this.referenced.has(id)) throw new Error(`generateClient: schema '${id}' is outside the client model; buildClientModel must resolve it`);
@@ -94,6 +102,7 @@ export class TypeContext {
 
   public expression(schema: unknown): string {
     if (!isSchema(schema)) return 'unknown';
+    if (this.verbatim && typeof schema.tsType === 'string') return schema.tsType;
     if (typeof schema.$ref === 'string') return this.reference(schema.$ref);
     if ('const' in schema) return literal(schema.const);
     if (Array.isArray(schema.enum)) return unique(list(schema.enum).map(literal)).join(' | ') || 'never';
