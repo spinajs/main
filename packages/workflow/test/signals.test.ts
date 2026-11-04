@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Workflow, WorkflowDefinition, WorkflowNotFound, WorkflowService, type WorkflowContext, type WorkflowEngine } from '../src/index.js';
+import { activation } from './support/activation.js';
 import { engine } from './support/engine.js';
 import { bootTestEnv, disposeTestEnv } from './support/env.js';
 import type { FakeClock } from '@spinajs/durable/testing';
@@ -141,6 +142,16 @@ describe('signals and waitForEvent', () => {
       expect(await rejects(service.signal(id, name, 1)), JSON.stringify(name)).to.be.instanceOf(InvalidArgument);
     }
     expect(await eventsOf(id)).to.have.length(0);
+  });
+
+  it("refuses '#' and '*' in signal and wait names", async () => {
+    const { id } = await service.start('sg-approve', null);
+    for (const name of ['a#b', '*']) expect(await rejects(service.signal(id, name, 1)), name).to.be.instanceOf(InvalidArgument);
+    await seedInstance('names');
+    const h = await activation('names');
+    for (const name of ['a#b', '*']) expect(await rejects(h.ctx.waitForEvent(name)), name).to.be.instanceOf(InvalidArgument);
+    await h.release();
+    expect(await stepsOf('names')).to.have.length(0);
   });
 
   it('refuses a dedupKey over 128 characters or with edge whitespace', async () => {

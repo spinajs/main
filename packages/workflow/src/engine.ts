@@ -334,15 +334,15 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
     // a synchronous throw from run() is a rejected run like any other
     const work = new Promise<unknown>((resolve) => resolve(workflow.run(ctx)));
     ctx.observe(work);
-    const outcome = await this.settle(work, signal);
+    const outcome = await this.settle(work, signal, ctx.suspended);
     if (outcome.kind === 'error' && isCrash(outcome.error)) ctx.crash(outcome.error);
     if (signal.aborted) await this.bounded(ctx.drain());
     else await ctx.drain();
     return outcome;
   }
 
-  /** After an abort, `run()` gets `shutdownGrace` to settle. */
-  protected async settle(work: Promise<unknown>, signal: AbortSignal): Promise<Outcome> {
+  /** After an abort or a park, `run()` gets `shutdownGrace` to settle: one awaiting a promise that never settles cannot hold the lease. */
+  protected async settle(work: Promise<unknown>, signal: AbortSignal, parked: Promise<void>): Promise<Outcome> {
     const guarded = work.then(
       (value): Outcome => ({ kind: 'ok', value }),
       (error): Outcome => ({ kind: 'error', error }),
@@ -351,7 +351,7 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
       if (signal.aborted) return resolve('aborted');
       signal.addEventListener('abort', () => resolve('aborted'), { once: true });
     });
-    const first = await Promise.race([guarded, aborted]);
+    const first = await Promise.race([guarded, aborted, parked.then(() => 'aborted' as const)]);
     if (first !== 'aborted') return first;
     const ac = new AbortController();
     const late = await Promise.race([guarded, this.Timers.sleep(this.config.shutdownGrace, ac.signal).then(() => null)]);

@@ -8,7 +8,7 @@ import { v5 as uuidv5 } from 'uuid';
 import type { SerializedError, StepKind, StepMeta, StepStatus, WaitForEventOptions, WorkflowContext, WorkflowEvent, WorkflowStepOptions } from './contract.js';
 import { isCrash, LeaseLostError, NonDeterminismError, serializeError, WorkflowAborted, WorkflowFailure, WorkflowNestingError, WorkflowStepFailed, WorkflowStepResultTooLarge, WorkflowSuspended, WorkflowTimeout, type AbortReason } from './errors.js';
 import { nextMacrotask, ReplayGate } from './gate.js';
-import { identifierProblem } from './identifier.js';
+import { eventNameProblem, identifierProblem } from './identifier.js';
 import type { Journal, StepRow } from './journal.js';
 import { safeStringify } from './json.js';
 import { WorkflowEventModel } from './models/WorkflowEventModel.js';
@@ -93,6 +93,7 @@ function waitMeta(name: string, opts: WaitForEventOptions, startedAt: number): S
 }
 
 /**
+ * @internal
  * Parallel operations parked at once: the instance wakes at the earliest wake time or on a signal for any of its
  * waits (`'*'` when they wait for different names), and replays the others.
  */
@@ -130,7 +131,13 @@ export class ActivationContext implements WorkflowContext {
   protected parked: ((err: unknown) => void)[] = [];
   protected pendingPark: Park | null = null;
   protected parkCheck = false;
-  protected runDone = false;
+  /** `run()` settled or the activation is draining: its outcome stands, nothing parks, journals or interrupts any more. */
+  protected closed = false;
+  protected parkDecided!: () => void;
+  /** Resolves once the activation parks. */
+  public readonly suspended = new Promise<void>((resolve) => {
+    this.parkDecided = resolve;
+  });
   protected readonly gate: ReplayGate;
   /** Journal writes of non-transactional operations, in call order: a marker never commits after a later step. */
   protected writes: Promise<unknown> = Promise.resolve();
@@ -192,6 +199,8 @@ export class ActivationContext implements WorkflowContext {
   }
 
   public waitForEvent<T = unknown>(name: string, opts: WaitForEventOptions = {}): Promise<WorkflowEvent<T> | undefined> {
+    const problem = eventNameProblem(name);
+    if (problem) return Promise.reject(new InvalidArgument(`waitForEvent name ${problem}`));
     return this.begin('wait', name, (op) => this.runWait<T>(op, opts));
   }
 
@@ -228,18 +237,22 @@ export class ActivationContext implements WorkflowContext {
     throw error;
   }
 
-  /** The engine hands over `run()`: once it settled, its outcome stands and no park is decided. */
+  /** The engine hands over `run()`: once it settled, its outcome stands; no park (lazy or retry) overrides it. */
   public observe(run: Promise<unknown>): void {
     const settled = (): void => {
-      this.runDone = true;
+      this.closed = true;
     };
     void run.then(settled, settled);
   }
 
   /** Waits for every operation still in flight, e.g. the sibling of a suspended `Promise.all`; parked ones are abandoned. */
   public async drain(): Promise<void> {
-    this.abandonParked();
-    while (this.inflight.size > 0) await Promise.allSettled([...this.inflight]);
+    this.closed = true;
+    while (this.inflight.size > 0) {
+      // an operation may reach park() only now; park() rejects it at once once the activation is closed
+      this.abandonParked();
+      await Promise.allSettled([...this.inflight]);
+    }
     await this.writes;
   }
 
@@ -271,6 +284,8 @@ export class ActivationContext implements WorkflowContext {
   protected assertLive(): void {
     if (this.crashed) throw new WorkflowAborted('crashed');
     if (this.journalFailed) throw new WorkflowAborted('journal-failed');
+    // a race's loser that catches its abandonment cannot journal more work into a run that has ended
+    if (this.closed) throw new WorkflowSuspended() as unknown;
     const i = this.interruption;
     // typed unknown: WorkflowSuspended is deliberately not an Error (see its class)
     if (i?.kind === 'park') throw new WorkflowSuspended() as unknown;
@@ -280,6 +295,7 @@ export class ActivationContext implements WorkflowContext {
   }
 
   protected interrupt(requested: Interruption): void {
+    if (this.closed) return;
     const next: Interruption = requested.kind === 'park' && this.pendingPark ? { kind: 'park', park: mergePark(this.pendingPark, requested.park) } : requested;
     const cur = this.interruption;
     if (!cur) this.interruption = next;
@@ -287,6 +303,7 @@ export class ActivationContext implements WorkflowContext {
     else if (PRIORITY[next.kind] > PRIORITY[cur.kind]) this.interruption = next;
     const now = this.interruption;
     if (now) this.gate.abort(now.kind === 'park' ? new WorkflowSuspended() : now.error);
+    if (now?.kind === 'park') this.parkDecided();
     this.abandonParked();
   }
 
@@ -301,7 +318,8 @@ export class ActivationContext implements WorkflowContext {
   }
 
   /** Records the park and leaves the operation pending: a sibling may still finish `run()` or need more work first. */
-  protected park(p: Park): Promise<never> {
+  protected async park(p: Park): Promise<never> {
+    if (this.closed || this.interruption) throw new WorkflowSuspended() as unknown;
     this.pendingPark = this.pendingPark ? mergePark(this.pendingPark, p) : p;
     return new Promise<never>((_resolve, reject) => {
       this.parked.push(reject);
@@ -311,8 +329,9 @@ export class ActivationContext implements WorkflowContext {
 
   /**
    * Parks once `run()` has not settled and every operation in flight is parked, after the write queue drained and a
-   * macrotask passed without a new durable call. A park is never a correctness decision: whatever it cuts off (a
-   * non-durable await, a branch that had not reached its next call) replays in the next activation.
+   * macrotask passed without a new durable call. A park never changes a result: whatever it cuts off (a non-durable
+   * await, a branch that had not reached its next call) replays in the next activation, which can be as late as the
+   * park's wake-up.
    */
   protected checkPark(): void {
     if (this.parkCheck) return;
@@ -325,7 +344,7 @@ export class ActivationContext implements WorkflowContext {
     await this.writes;
     await new Promise<void>((resolve) => nextMacrotask(resolve));
     this.parkCheck = false;
-    if (this.runDone || this.interruption || this.parked.length === 0) return;
+    if (this.closed || this.interruption || this.parked.length === 0) return;
     if (this.seq !== seq) this.checkPark();
     else if (this.inflight.size === this.parked.length && this.pendingPark) this.interrupt({ kind: 'park', park: this.pendingPark });
   }
@@ -389,13 +408,8 @@ export class ActivationContext implements WorkflowContext {
       throw new WorkflowStepFailed(op.name, rec.Error ?? { name: 'Error', message: 'step failed' });
     }
     const wakeAt = rec?.Status === 'retrying' ? rec.Meta?.wakeAt : undefined;
-    if (wakeAt !== undefined && this.init.clock.now() < wakeAt) {
-      // A parallel step woke the instance early and this one waits out its own backoff. Parking a macrotask later lets
-      // siblings called in the same turn (a Promise.all, a .then chain) take their keys and run.
-      await new Promise<void>((resolve) => nextMacrotask(resolve));
-      this.interrupt({ kind: 'park', park: { status: 'running', wakeAt, waitingFor: null } });
-      throw new WorkflowSuspended() as unknown;
-    }
+    // a parallel step woke the instance early and this one waits out its own backoff
+    if (wakeAt !== undefined && this.init.clock.now() < wakeAt) return this.park({ status: 'running', wakeAt, waitingFor: null });
     return this.runLive(op, fn, opts, rec, retry);
   }
 
@@ -489,8 +503,7 @@ export class ActivationContext implements WorkflowContext {
       await this.gate.live(op.order);
       return new WorkflowStepFailed(op.name, error, err);
     }
-    this.interrupt({ kind: 'park', park: { status: 'running', wakeAt, waitingFor: null } });
-    return new WorkflowSuspended();
+    return this.park({ status: 'running', wakeAt, waitingFor: null });
   }
 
   /** The wake time is computed once, on the database clock; every replay reads it back from the row. */

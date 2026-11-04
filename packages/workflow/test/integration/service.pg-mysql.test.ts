@@ -27,6 +27,13 @@ export class ItRace extends WorkflowDefinition<null, unknown> {
   }
 }
 
+@Workflow('it-near')
+export class ItNear extends WorkflowDefinition<null, unknown> {
+  public async run(ctx: WorkflowContext<null>): Promise<unknown> {
+    return (await Promise.race([ctx.waitForEvent('a$'), ctx.waitForEvent('ab')]))?.name;
+  }
+}
+
 for (const target of REAL_DB_TARGETS) {
   (target.enabled ? describe : describe.skip)(`workflow service (${target.name})`, function () {
     this.timeout(60_000);
@@ -85,6 +92,21 @@ for (const target of REAL_DB_TARGETS) {
       await r1.tick();
       expect(pick(await instance('flip'), 'Status', 'Result')).to.deep.equal({ Status: 'completed', Result: 'reject' });
       expect(pick(await instance('scan'), 'Status', 'Result')).to.deep.equal({ Status: 'completed', Result: 'approve' });
+    });
+
+    it("the * key range excludes names that only start with the signalled one ('a$', 'ab' for 'a')", async () => {
+      const service = await DI.resolve(WorkflowService);
+      await service.start('it-near', null, { id: 'near' });
+      const r1 = await engine();
+      await r1.tick();
+      await service.signal('near', 'a', 1);
+      expect(pick(await instance('near'), 'Status', 'WaitingFor')).to.deep.equal({ Status: 'waiting', WaitingFor: '*' });
+      const attempt = (await instance('near')).Attempt;
+      await r1.tick();
+      expect((await instance('near')).Attempt).to.equal(attempt);
+      await service.signal('near', 'ab', 2);
+      await r1.tick();
+      expect(pick(await instance('near'), 'Status', 'Result')).to.deep.equal({ Status: 'completed', Result: 'ab' });
     });
 
     it('retry() resets the failed step rows in one transaction', async () => {

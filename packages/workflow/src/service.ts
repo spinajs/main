@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { isTerminal, type StartOptions, type WorkflowInstanceView, type WorkflowStatus } from './contract.js';
 import { WorkflowIdConflict, WorkflowNotFound, WorkflowStartConflict } from './errors.js';
 import { missingVersions } from './health.js';
-import { identifierProblem } from './identifier.js';
+import { eventNameProblem, identifierProblem } from './identifier.js';
 import { safeStringify } from './json.js';
 import { WorkflowEventModel } from './models/WorkflowEventModel.js';
 import { WorkflowInstanceModel } from './models/WorkflowInstanceModel.js';
@@ -92,7 +92,7 @@ function jsonText(value: unknown, what: string): string | null {
 }
 
 function checkSignal(name: string, opts: SignalOptions): void {
-  const problem = identifierProblem(name, MAX_SIGNAL_NAME);
+  const problem = identifierProblem(name, MAX_SIGNAL_NAME) ?? eventNameProblem(name);
   if (problem) throw new InvalidArgument(`signal name ${problem}`);
   const dedup = opts.dedupKey === undefined ? undefined : identifierProblem(opts.dedupKey, MAX_DEDUP_KEY);
   if (dedup) throw new InvalidArgument(`signal dedupKey ${dedup}`);
