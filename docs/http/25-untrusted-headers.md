@@ -51,6 +51,7 @@ Status: **Fixed** names the change; **Safe** cites the code that makes it so; **
 | http | `src/bot/service.ts:90` | `x-bot-token` (`http.bot.header`) | The token sent to the verifier. | Size; a repeat. | Safe: a string of 1 to 2048 characters (`BOT_TOKEN_MAX_LENGTH`), else `missing`. **Kept**: a repeat is one joined token the provider refuses ([decision 5](#decisions)). |
 | http | `src/bot/service.ts:99` | `x-bot-verifier` (`http.bot.verifierHeader`) | Picks the fallback verifier. | The client choosing a verifier. | Safe: compared exactly with the configured verifier and fallback; any other value fails the check. |
 | http | `src/bot/service.ts:69`, `src/bot/service.ts:70` | `Host`, by `req.hostname` | Verifier input. | A spoofed `Host`. | Safe: the framework never sets express's `trust proxy`, so `req.hostname` is `Host` and `req.ip` the socket address; the shipped verifiers check the hostname the provider answers. |
+| http | `src/idempotency/gate.ts:159`, `src/idempotency/options.ts:63` | `Idempotency-Key` | The key an `@Idempotent` route claims and replays under ([Idempotency-Key](26-idempotency.md)). | Size; a repeat; one key in two spellings; another caller's reply. | Safe: `parseIdempotencyKey()` takes one bare token or one quoted string of 1 to 255 characters, both anchored with single quantifiers, and the gate claims the unquoted key it returns; a repeat (`a, b`) is malformed (400). The stored key is a hash that also covers the route and the principal. |
 
 ### Authentication and authorization
 

@@ -45,6 +45,7 @@ The decorators read TypeScript metadata. Set `experimentalDecorators`, `emitDeco
 | [Bot checks](23-bot-check.md) | `@BotCheck`, `BotVerifier`, `BotCheckService`, `http.bot`: captcha or score checks on chosen routes; adapters in [`@spinajs/http-bot`](../http-bot/README.md) |
 | [Raw request bodies and digests](24-raw-body-and-digests.md) | `@RequestStream()`, `@ContentDigest()`, `parseContentDigest()`: the raw body as a capped stream, RFC 9530 digests, the 413 and 415 answers |
 | [Untrusted request headers](25-untrusted-headers.md) | Every request header the framework reads, its risk and how it is parsed; what Node's parser refuses first; open questions |
+| [Idempotency-Key](26-idempotency.md) | `@Idempotent()`: a retried request replays the stored JSON reply; 409 while in flight, 422 for a reused key, the ORM store's app-entry import |
 
 ## Quick start
 

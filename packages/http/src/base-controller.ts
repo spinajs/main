@@ -16,6 +16,7 @@ import { createOnErrorHandler, resolveConfigErrorHandlers } from './errors/on-er
 import { classLineage, derivedValidatorsOf } from './route-args/manifest-schema.js';
 import { routesWithRuntimeTypes } from './manifest-runtime-types.js';
 import { buildRoutePath, resolveRouteMiddlewares, resolveRoutePolicies, createPolicyGate, createActionHandler, wrapMiddlewareAction, ControllerActionHost } from './route-builder.js';
+import { createRouteIdempotencyGate, recordIdempotentRouteError } from './idempotency/gate.js';
 
 // Own metadata only: an undecorated class would report the file of the base whose descriptor it reads.
 const ownSourceFile = (type: object): string | undefined => (Reflect.getOwnMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, (type as { prototype: object }).prototype) as IControllerDescriptor | undefined)?.SourceFile;
@@ -121,11 +122,15 @@ export abstract class BaseController extends AsyncService implements IController
       const errorHandlers = [...(route.ErrorHandlers ?? []), ...(this.Descriptor.ErrorHandlers ?? []), ...configErrorHandlers];
       const derived = derivedValidatorsOf({ container: this._container, controller, lineage, route, mountPath: this.BasePath, log: this._log });
 
+      const idempotency = await createRouteIdempotencyGate(route, path, this._container, this._log);
+
       const handlers: (Express.RequestHandler | Express.ErrorRequestHandler)[] = [
         createPolicyGate(policies, route, this, this._log),
+        ...(idempotency ? [idempotency] : []),
         ...enabledMiddlewares.map((m) => wrapMiddlewareAction(m, m.onBefore.bind(m), route, this, 'middleware')),
         createActionHandler(this as ControllerActionHost, route, enabledMiddlewares, this._actionLocalStorage, derived),
         ...enabledMiddlewares.map((m) => wrapMiddlewareAction(m, m.onAfter.bind(m), route, this, 'after')),
+        ...(idempotency ? [recordIdempotentRouteError] : []),
         createOnErrorHandler(errorHandlers, route, this, this._container, this._log),
         __handle_response__(this._container, { controller: this.constructor.name, handler: String(route.Method) }),
         __handle_error__(this._container),
