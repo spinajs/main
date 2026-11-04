@@ -1,6 +1,12 @@
 import { expect } from 'chai';
-import { derive, ref } from './harness.js';
+import { derive, fixture, ref } from './harness.js';
 import type { JsonSchema } from '../../src/schema/derive.js';
+
+// Building the fixture program takes seconds; a `--no-config` run keeps mocha's 2 s default timeout for each test.
+before(function () {
+  this.timeout(60_000);
+  fixture();
+});
 
 type Row = { name: string; schema: JsonSchema; id?: string; codes?: string[] };
 
@@ -79,7 +85,8 @@ export const ROWS: Row[] = [
   { name: 'XVoid', schema: {} },
 ];
 
-describe('deriveSchema', () => {
+describe('deriveSchema', function () {
+  this.timeout(60_000);
   for (const row of ROWS) {
     it(`derives ${row.name}`, () => {
       const result = derive(row.name);
