@@ -7,6 +7,10 @@
     ".": {
       "types": "./lib/index.d.ts",
       "import": "./lib/index.js"
+    },
+    "./sql": {
+      "types": "./lib/sql/index.d.ts",
+      "import": "./lib/sql/index.js"
     }
   },
   "type": "module",
