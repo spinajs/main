@@ -20,7 +20,7 @@ interface Users {
   name(): Promise<string>;
 }
 
-const fetchOf = (make: () => Response): typeof fetch => (() => Promise.resolve(make())) as typeof fetch;
+const fetchOf = (make: () => Response): typeof fetch => (() => Promise.resolve(make()));
 
 describe('ClientOptions.parseReply', () => {
   it('does nothing without the option', async () => {

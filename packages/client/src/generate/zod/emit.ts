@@ -145,10 +145,7 @@ class ZodFile {
     const state = { annotated: false };
     const node = this.root(entry, state, builder);
     const name = builder === this.builder ? entry.name : replyName(entry.name);
-    if (builder === this.builder) {
-      this.declared.set(entry.key, { entry, node, annotated: state.annotated });
-      if (node.kind === 'object' && node.mode === 'strict' && !node.checks?.length && !node.nullable && !state.annotated) this.builder.plainObjects.add(entry.key);
-    }
+    if (builder === this.builder) this.remember(entry, node, state.annotated);
     const code = this.pure(this.printer.print(node));
     if (entry.typeName) this.types.add(entry.typeName);
     this.usesZod ||= state.annotated || entry.typeName !== undefined || !IDENTIFIER.test(code);
@@ -156,6 +153,11 @@ class ZodFile {
     const hoisted = this.hoisted(builder);
     if (state.annotated) return `${hoisted}export const ${name}: ${type} = ${code};`;
     return `${hoisted}export const ${name} = ${code}${entry.typeName ? ` satisfies ${type}` : ''};`;
+  }
+
+  private remember(entry: NamedSchema, node: ZodNode, annotated: boolean): void {
+    this.declared.set(entry.key, { entry, node, annotated });
+    if (node.kind === 'object' && node.mode === 'strict' && !node.checks?.length && !node.nullable && !annotated) this.builder.plainObjects.add(entry.key);
   }
 
   // client.ts declares an interface for every named root, also for one that accepts anything.

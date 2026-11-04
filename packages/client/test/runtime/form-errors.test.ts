@@ -78,7 +78,7 @@ describe('applyProblem', () => {
   it('maps the body a real client call receives for a failed validation', async () => {
     const client = createClient<{ users: { create(body: unknown): Promise<unknown> } }>(
       { users: { create: { method: 'post', path: '/users', body: 'json' } } },
-      { baseUrl: 'http://h', fetch: (() => Promise.resolve(Response.json(validationBody, { status: 400 }))) as typeof fetch },
+      { baseUrl: 'http://h', fetch: (() => Promise.resolve(Response.json(validationBody, { status: 400 }))) },
     );
     const error: unknown = await client.users.create({}).catch((e: unknown) => e);
     const { calls, setError } = collector();
@@ -90,7 +90,7 @@ describe('applyProblem', () => {
     const body = { type: 'about:blank', title: 'Bad Request', status: 400, errors: [{ instancePath: '/x', keyword: 'type', message: 'must be string' }], parameter: [{ instancePath: '/y', keyword: 'type' }] };
     const client = createClient<{ users: { create(body: unknown): Promise<unknown> } }>(
       { users: { create: { method: 'post', path: '/users', body: 'json' } } },
-      { baseUrl: 'http://h', fetch: (() => Promise.resolve(Response.json(body, { status: 400, headers: { 'content-type': 'application/problem+json' } }))) as typeof fetch },
+      { baseUrl: 'http://h', fetch: (() => Promise.resolve(Response.json(body, { status: 400, headers: { 'content-type': 'application/problem+json' } }))) },
     );
     const error: unknown = await client.users.create({}).catch((e: unknown) => e);
     const { calls, setError } = collector();
