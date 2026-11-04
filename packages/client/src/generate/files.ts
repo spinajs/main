@@ -9,6 +9,8 @@ export interface GeneratedFile {
 
 export interface ZodOptions {
   mini?: boolean;
+  /** Lenient reply schemas next to the strict request schemas. */
+  replies?: boolean;
   unsupported?: 'warn' | 'error';
 }
 
@@ -20,13 +22,19 @@ export interface GenerateClientFilesOptions extends GenerateClientOptions {
   models?: boolean;
   socketHooks?: boolean;
   keyPrefix?: string;
+  /** `client.server.ts`; implied by `next`. */
+  server?: boolean;
+  next?: boolean;
+  mocks?: boolean;
+  /** Adds `client.msw.ts`; needs `mocks`. */
+  msw?: boolean;
 }
 
 type HooksTarget = NonNullable<GenerateClientFilesOptions['hooks']>[number];
 
 const HOOKS_TARGETS = ['react-query', 'swr'] as const satisfies readonly HooksTarget[];
 
-export type GeneratorTarget = HooksTarget | 'zod' | 'models' | 'socket-hooks';
+export type GeneratorTarget = HooksTarget | 'zod' | 'models' | 'socket-hooks' | 'server' | 'next' | 'mocks' | 'msw';
 
 /** Whether each target's emitter has landed; the CLI refuses a requested target that is not available. */
 export const GENERATOR_TARGETS: Readonly<Record<GeneratorTarget, { readonly available: boolean }>> = {
@@ -35,6 +43,10 @@ export const GENERATOR_TARGETS: Readonly<Record<GeneratorTarget, { readonly avai
   zod: { available: false },
   models: { available: false },
   'socket-hooks': { available: false },
+  server: { available: false },
+  next: { available: false },
+  mocks: { available: false },
+  msw: { available: false },
 };
 
 type Emitter = (model: ClientModel, options: GenerateClientFilesOptions & { basename: string }) => Promise<GeneratedFile[]>;
@@ -45,7 +57,16 @@ const noFiles: Emitter = () => Promise.resolve([]);
 const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': noFiles, swr: noFiles, zod: noFiles };
 
 export function requestedTargets(options: GenerateClientFilesOptions): GeneratorTarget[] {
-  return [...(options.hooks ?? []), ...(options.zod ? (['zod'] as const) : []), ...(options.models ? (['models'] as const) : []), ...(options.socketHooks ? (['socket-hooks'] as const) : [])];
+  const flags: [boolean | undefined, GeneratorTarget][] = [
+    [options.zod !== undefined && options.zod !== false, 'zod'],
+    [options.models, 'models'],
+    [options.socketHooks, 'socket-hooks'],
+    [options.server || options.next, 'server'],
+    [options.next, 'next'],
+    [options.mocks, 'mocks'],
+    [options.msw, 'msw'],
+  ];
+  return [...(options.hooks ?? []), ...flags.flatMap(([on, target]) => (on ? [target] : []))];
 }
 
 function checkOptions(options: GenerateClientFilesOptions): void {
@@ -54,6 +75,7 @@ function checkOptions(options: GenerateClientFilesOptions): void {
   if (unknown !== undefined) throw new Error(`generateClientFiles: unknown hooks target '${unknown}'; use ${HOOKS_TARGETS.join(' or ')}`);
   const twice = hooks.find((h, i) => hooks.indexOf(h) !== i);
   if (twice !== undefined) throw new Error(`generateClientFiles: hooks target '${twice}' is listed twice`);
+  if (options.msw && !options.mocks) throw new Error('generateClientFiles: msw needs mocks, because the handlers are generated from the mocks');
   if (options.socketHooks && hooks.length === 0) throw new Error('generateClientFiles: socketHooks needs hooks, because socket hooks are added to the hooks files');
 }
 
