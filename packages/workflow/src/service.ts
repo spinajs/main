@@ -1,13 +1,15 @@
 import { Autoinject, DI, Injectable, Singleton, type Constructor } from '@spinajs/di';
-import { DbClock } from '@spinajs/durable';
+import { DbClock, quoteFor, sqlDialect, type RawSqlDriver } from '@spinajs/durable';
 import { InvalidArgument, NotSupported } from '@spinajs/exceptions';
+import { UniqueViolation } from '@spinajs/orm';
 import { v4 as uuidv4 } from 'uuid';
 import type { StartOptions, WorkflowInstanceView, WorkflowStatus } from './contract.js';
-import { WorkflowIdConflict } from './errors.js';
-import { jsonColumn } from './models/converters.js';
+import { WorkflowIdConflict, WorkflowStartConflict } from './errors.js';
+import { identifierProblem } from './identifier.js';
+import { safeStringify } from './json.js';
 import { WorkflowInstanceModel } from './models/WorkflowInstanceModel.js';
 import { WorkflowRegistry, type WorkflowDefinition } from './registry.js';
-import { workflowDriver } from './sql.js';
+import { selectRows, workflowDriver } from './sql.js';
 
 export interface SignalOptions {
   principal?: string;
@@ -62,6 +64,13 @@ export function toView(r: WorkflowInstanceModel): WorkflowInstanceView {
 
 const MAX_ID = 128;
 
+function inputColumn(input: unknown): string | null {
+  if (input === null || input === undefined) return null;
+  const text = safeStringify(input);
+  if (text === undefined) throw new InvalidArgument('workflow input must be representable as JSON');
+  return text;
+}
+
 @Singleton()
 @Injectable(WorkflowService)
 export class DefaultWorkflowService extends WorkflowService {
@@ -73,7 +82,9 @@ export class DefaultWorkflowService extends WorkflowService {
   public async start<TInput>(workflow: string | Constructor<WorkflowDefinition<TInput>>, input: TInput, opts: StartOptions = {}): Promise<{ id: string; created: boolean }> {
     const def = (await this.registry()).resolveForStart(workflow, opts.version);
     const id = opts.id ?? uuidv4();
-    if (id.length === 0 || id.length > MAX_ID) throw new InvalidArgument(`workflow instance id must be 1..${MAX_ID} characters`);
+    const problem = identifierProblem(id, MAX_ID);
+    if (problem) throw new InvalidArgument(`workflow instance id ${problem}`);
+    const inputText = inputColumn(input);
     const now = await this.now();
     const driver = await workflowDriver();
     try {
@@ -85,7 +96,7 @@ export class DefaultWorkflowService extends WorkflowService {
           Version: def.version,
           Status: 'running',
           Reason: null,
-          Input: jsonColumn(input),
+          Input: inputText,
           Result: null,
           Error: null,
           WakeAt: null,
@@ -102,15 +113,15 @@ export class DefaultWorkflowService extends WorkflowService {
       );
       return { id, created: true };
     } catch (err) {
-      const existing = await WorkflowInstanceModel.where('Id', id).onPrimary().first();
-      if (!existing) throw err;
-      if (existing.Workflow !== def.name) throw new WorkflowIdConflict(id, existing.Workflow, def.name);
+      const existing = await this.existingWorkflow(driver, id);
+      if (existing === undefined) throw err instanceof UniqueViolation ? new WorkflowStartConflict(id) : err;
+      if (existing !== def.name) throw new WorkflowIdConflict(id, existing, def.name);
       return { id, created: false };
     }
   }
 
   public async get(instanceId: string): Promise<WorkflowInstanceView | undefined> {
-    const row = await WorkflowInstanceModel.where('Id', instanceId).first();
+    const row = await WorkflowInstanceModel.where('Id', instanceId).onPrimary().first();
     return row ? toView(row) : undefined;
   }
 
@@ -134,6 +145,19 @@ export class DefaultWorkflowService extends WorkflowService {
     return Promise.reject(new NotSupported('WorkflowService.health()'));
   }
 
+  /**
+   * Inside a transaction the snapshot can predate a concurrent start that committed this id. A locking read sees
+   * the latest committed row on InnoDB and on Postgres READ COMMITTED; Postgres REPEATABLE READ still cannot.
+   */
+  protected async existingWorkflow(driver: RawSqlDriver, id: string): Promise<string | undefined> {
+    if (driver.CurrentTransaction === undefined) return (await WorkflowInstanceModel.where('Id', id).onPrimary().first())?.Workflow;
+    const dialect = sqlDialect(driver.Options.Driver, 'locking read', 'workflow');
+    const q = quoteFor(dialect);
+    const lock = dialect === 'sqlite' ? '' : dialect === 'mysql' ? ' LOCK IN SHARE MODE' : ' FOR SHARE';
+    const rows = await selectRows<{ Workflow: string }>(driver, `SELECT ${q('Workflow')} FROM ${q('__workflow')} WHERE ${q('Id')} = ?${lock}`, [id]);
+    return rows[0]?.Workflow;
+  }
+
   /** Resolved per call: an async registry injected into this sync service could arrive as a promise (doctor DI003). */
   protected registry(): Promise<WorkflowRegistry> {
     return Promise.resolve(DI.resolve(WorkflowRegistry));
@@ -141,7 +165,10 @@ export class DefaultWorkflowService extends WorkflowService {
 
   /** Database time; the engine's tick re-syncs the same singleton clock. */
   protected async now(): Promise<number> {
-    await (this.synced ??= this.Clock.sync());
+    await (this.synced ??= this.Clock.sync().catch((e: unknown) => {
+      this.synced = undefined;
+      throw e;
+    }));
     return this.Clock.now();
   }
 }

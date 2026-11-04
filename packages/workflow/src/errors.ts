@@ -19,6 +19,14 @@ export class WorkflowIdConflict extends Error {
   }
 }
 
+/** A start inside a transaction whose snapshot cannot see the instance a concurrent start committed under the same id. */
+export class WorkflowStartConflict extends Error {
+  constructor(public readonly instanceId: string) {
+    super(`workflow instance '${instanceId}' was started concurrently and this transaction's snapshot cannot see it; retry the start in a new transaction or outside one`);
+    this.name = 'WorkflowStartConflict';
+  }
+}
+
 export class DuplicateWorkflowDefinition extends Error {
   constructor(name: string, version: number, first: string, second: string) {
     super(`workflow '${name}' version ${version} is declared by ${first} and ${second}`);

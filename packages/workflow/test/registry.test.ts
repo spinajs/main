@@ -71,6 +71,19 @@ describe('WorkflowRegistry', () => {
     }
   });
 
+  it('refuses names with edge whitespace, control characters or unpaired surrogates', async () => {
+    for (const name of ['', ' reg', 'reg ', 'reg\n', 'r\u0000g', 'r\u007Fg', 'r\uD800g', 'x'.repeat(129)]) {
+      defineWorkflow(Clash, name);
+      try {
+        const err = await rejects(registry());
+        expect(err, JSON.stringify(name)).to.be.instanceOf(InvalidArgument);
+        expect(err.message, JSON.stringify(name)).to.match(/^workflow name must /);
+      } finally {
+        undefineWorkflow(name);
+      }
+    }
+  });
+
   it('refuses a version that is not a positive integer', async () => {
     defineWorkflow(Clash, 'reg-bad', { version: 0 });
     try {

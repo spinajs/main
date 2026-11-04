@@ -4,6 +4,7 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import { ListFromFiles, SCAN_GLOB } from '@spinajs/reflection';
 import type { WorkflowContext, WorkflowOptions } from './contract.js';
 import { DuplicateWorkflowDefinition, WorkflowNotRegistered } from './errors.js';
+import { identifierProblem } from './identifier.js';
 
 export abstract class WorkflowDefinition<TInput = unknown, TResult = unknown> {
   public abstract run(ctx: WorkflowContext<TInput>): Promise<TResult>;
@@ -40,9 +41,8 @@ export function Workflow(name: string, options?: WorkflowOptions): ClassDecorato
 }
 
 function normalize(d: WorkflowDeclaration): RegisteredWorkflow {
-  if (d.name.length === 0 || d.name.length > MAX_NAME) {
-    throw new InvalidArgument(`workflow name must be 1..${MAX_NAME} characters, got '${d.name.slice(0, 40)}'`);
-  }
+  const problem = identifierProblem(d.name, MAX_NAME);
+  if (problem) throw new InvalidArgument(`workflow name ${problem}, got ${JSON.stringify(d.name.slice(0, 40))}`);
   const version = d.options.version ?? 1;
   if (!Number.isInteger(version) || version < 1) {
     throw new InvalidArgument(`workflow '${d.name}': version must be an integer >= 1, got ${version}`);
