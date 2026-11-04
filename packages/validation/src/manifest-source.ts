@@ -39,6 +39,22 @@ function opened(schema: Json): Json {
  * - the compiler derives `A & B` as an `allOf` of two closed objects, which no input satisfies. Each closed member is
  *   opened and the intersection closed over the union of their property names; with an open member it stays open.
  */
+const PROTO = '__proto__';
+
+/**
+ * A schema that declares a property named `__proto__`, in `properties` or `required`. Ajv skips that name: an open
+ * object accepts any `__proto__` value and `required: ['__proto__']` passes without the key, so the rule would hold
+ * nowhere. The schema is refused instead.
+ */
+export class UnenforceableSchema extends Error {
+  constructor(public readonly schemaId: string, message: string) {
+    super(message);
+  }
+}
+
+const declaresProto = (schema: Json): boolean =>
+  (isObject(schema.properties) && Object.hasOwn(schema.properties, PROTO)) || (Array.isArray(schema.required) && schema.required.includes(PROTO));
+
 class ManifestSchemaPreparer {
   protected prepared = new Map<string, Json>();
   protected inProgress = new Set<string>();
@@ -50,8 +66,17 @@ class ManifestSchemaPreparer {
     if (!result) {
       const raw = this.schemas[id];
       this.inProgress.add(id);
-      result = isPartial(raw) ? {} : (this.prepare(raw) as Json);
-      this.inProgress.delete(id);
+      try {
+        result = isPartial(raw) ? {} : (this.prepare(raw) as Json);
+      } catch (error) {
+        if (!(error instanceof UnenforceableSchema) || error.schemaId === id) throw error;
+        throw new UnenforceableSchema(id, `schema ${id} references ${error.schemaId}, which declares a property named ${PROTO} that cannot be validated`);
+      } finally {
+        this.inProgress.delete(id);
+      }
+      if (!isPartial(raw) && containsProto(raw)) {
+        throw new UnenforceableSchema(id, `schema ${id} declares a property named ${PROTO}, which cannot be validated: Ajv skips that name`);
+      }
       this.prepared.set(id, result);
     }
     return result;
@@ -107,10 +132,29 @@ class ManifestSchemaPreparer {
   }
 }
 
-/** Every manifest schema, ready for Ajv, under its {@link manifestSchemaKey}. */
-export function prepareManifestSchemas(manifest: Manifest): ISchemaObject[] {
+/** Whether `schema`, or a subschema of it, declares a property named `__proto__`. */
+function containsProto(value: unknown, named = false): boolean {
+  if (Array.isArray(value)) return value.some((item) => containsProto(item));
+  if (!isObject(value)) return false;
+  if (!named && declaresProto(value)) return true;
+  return Object.entries(value).some(([key, child]) => (named || !key.startsWith('x-')) && containsProto(child, !named && NAMED_SCHEMAS.has(key)));
+}
+
+/**
+ * Every manifest schema, ready for Ajv, under its {@link manifestSchemaKey}. An {@link UnenforceableSchema} is left
+ * out, and its message put in `unenforceable` under its id.
+ */
+export function prepareManifestSchemas(manifest: Manifest, unenforceable?: Map<string, string>): ISchemaObject[] {
   const preparer = new ManifestSchemaPreparer(manifest.schemas);
-  return Object.keys(manifest.schemas).map((id) => ({ ...preparer.schema(id), $id: manifestSchemaKey(id) }));
+  return Object.keys(manifest.schemas).flatMap((id) => {
+    try {
+      return [{ ...preparer.schema(id), $id: manifestSchemaKey(id) }];
+    } catch (error) {
+      if (!(error instanceof UnenforceableSchema)) throw error;
+      unenforceable?.set(id, error.message);
+      return [];
+    }
+  });
 }
 
 export interface ManifestValidationOptions {
@@ -139,8 +183,11 @@ export class ManifestValidator {
   /** Keys of the schemas Ajv refused; each Ajv instance refuses the same ones. */
   protected refused = new Set<string>();
 
+  /** The ids of the manifest schemas left out as {@link UnenforceableSchema}, with the reason. */
+  protected unenforceable = new Map<string, string>();
+
   constructor(protected manifest: Manifest) {
-    this.schemas = new Map(prepareManifestSchemas(manifest).map((schema) => [schema.$id, schema]));
+    this.schemas = new Map(prepareManifestSchemas(manifest, this.unenforceable).map((schema) => [schema.$id, schema]));
   }
 
   /** @throws Error when `id` is not in the manifest or its schema cannot be compiled */
@@ -168,6 +215,10 @@ export class ManifestValidator {
 
   protected compile(id: string, options: ManifestValidationOptions): ManifestDataValidator {
     const schema = this.schemas.get(manifestSchemaKey(id));
+    const unenforceable = this.unenforceable.get(id);
+    if (unenforceable !== undefined) {
+      throw new Error(unenforceable);
+    }
     if (!schema) {
       throw new Error(`schema ${id} is not in the manifest`);
     }
@@ -205,6 +256,9 @@ export class ManifestValidator {
       return invalidSchema(id);
     }
     const target = typeof missingSchema === 'string' ? missingSchema : missingRef;
+    if (this.unenforceable.has(manifestId(target))) {
+      return new Error(`schema ${id} references ${manifestId(target)}, which declares a property named ${PROTO} that cannot be validated`);
+    }
     return new Error(
       this.refused.has(target) ? `schema ${id} references ${manifestId(target)}, which is not a valid JSON Schema` : `schema ${id} has an unresolved $ref ${manifestId(missingRef)}`,
     );

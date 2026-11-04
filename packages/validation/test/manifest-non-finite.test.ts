@@ -19,6 +19,11 @@ const SCHEMAS: Record<string, object> = {
 };
 // An object literal's `__proto__` sets the prototype; JSON.parse makes it an own property, as a manifest file does.
 SCHEMAS['app/Proto'] = JSON.parse('{"type":"object","properties":{"__proto__":{"type":"string"},"name":{"type":"string"}},"required":["name"],"additionalProperties":false}') as object;
+SCHEMAS['app/ProtoOpen'] = JSON.parse('{"type":"object","properties":{"nested":{"type":"object","properties":{"__proto__":{"type":"string","maxLength":3}}}}}') as object;
+SCHEMAS['app/ProtoRequired'] = { type: 'object', properties: { name: { type: 'string' } }, required: ['__proto__'] };
+SCHEMAS['app/ProtoHolder'] = P({ inner: { $ref: 'app/Proto' } });
+SCHEMAS['app/ProtoBoth'] = { allOf: [{ $ref: 'app/Proto' }, { type: 'object', properties: { b: { type: 'string' } }, additionalProperties: false }] };
+SCHEMAS['app/DefsNamedProto'] = JSON.parse('{"type":"object","properties":{"v":{"$ref":"#/definitions/__proto__"}},"definitions":{"__proto__":{"type":"string"}}}') as object;
 
 const errorOf = (fn: () => void): ValidationFailed => {
   try {
@@ -77,18 +82,35 @@ describe('ManifestValidator: non-finite numbers and comparisons', function () {
     expect(fields(errorOf(() => body('app/Strings')({ tags: ['__proto__', '__proto__'] })))).to.deep.eq([['/tags', 'uniqueItems']]);
   });
 
-  describe('a schema with a property named __proto__', () => {
-    it('keeps the property through preparation', () => {
-      const prepared = prepareManifestSchemas(manifestOf(SCHEMAS)).find((s) => s.$id === manifestSchemaKey('app/Proto'))!;
-      const properties = prepared.properties as Record<string, unknown>;
-      expect(Object.getPrototypeOf(properties)).to.eq(Object.prototype);
-      expect(Object.keys(properties)).to.deep.eq(['__proto__', 'name']);
+  describe('a schema that declares a property named __proto__', () => {
+    // Ajv skips that name: an open object would take any __proto__ value, and required: ['__proto__'] passes without it.
+    for (const [id, where] of [
+      ['app/Proto', 'in properties'],
+      ['app/ProtoOpen', 'in the properties of a nested object'],
+      ['app/ProtoRequired', 'in required'],
+    ] as const) {
+      it(`is refused ${where}, naming the schema`, () => {
+        expect(() => body(id)).to.throw(Error, `schema ${id} declares a property named __proto__, which cannot be validated`);
+        expect(() => query(id)).to.throw(Error, /declares a property named __proto__/);
+      });
+    }
+
+    it('is left out of the prepared schemas, with the reason', () => {
+      const unenforceable = new Map<string, string>();
+      const ids = prepareManifestSchemas(manifestOf(SCHEMAS), unenforceable).map((s) => s.$id);
+      expect([...unenforceable.keys()].sort()).to.deep.eq(['app/Proto', 'app/ProtoBoth', 'app/ProtoOpen', 'app/ProtoRequired']);
+      expect(ids).to.not.include(manifestSchemaKey('app/Proto'));
+      expect(ids).to.include(manifestSchemaKey('app/Search'));
     });
 
-    it('compiles, and Ajv reports a __proto__ key of the data as unknown, as it skips that name in properties', () => {
-      expect(() => body('app/Proto')({ name: 'a' })).to.not.throw();
-      const err = errorOf(() => body('app/Proto')(JSON.parse('{"name":"a","__proto__":"x"}') as object));
-      expect(err.parameter.map((e) => [e.keyword, e.params])).to.deep.eq([['additionalProperties', { additionalProperty: '__proto__' }]]);
+    it('refuses a schema that references one, by $ref or in an intersection', () => {
+      expect(() => body('app/ProtoHolder')).to.throw(Error, 'schema app/ProtoHolder references app/Proto, which declares a property named __proto__ that cannot be validated');
+      expect(() => body('app/ProtoBoth')).to.throw(Error, 'schema app/ProtoBoth references app/Proto, which declares a property named __proto__ that cannot be validated');
+    });
+
+    it('keeps a definition named __proto__, which is a name and not a property', () => {
+      expect(() => body('app/DefsNamedProto')({ v: 'a' })).to.not.throw();
+      expect(fields(errorOf(() => body('app/DefsNamedProto')({ v: 1 })))).to.deep.eq([['/v', 'type']]);
     });
   });
 });

@@ -19,6 +19,8 @@ interface IContractAjv {
   ajv: Ajv;
   /** Keys of the schemas Ajv refused */
   refused: Set<string>;
+  /** Ids of the schemas left out as unenforceable ( a `__proto__` property ), with the reason */
+  unenforceable: Map<string, string>;
 }
 
 const INSTANCES = new WeakMap<Manifest, IContractAjv>();
@@ -48,10 +50,11 @@ function contractAjvOf(manifest: Manifest): IContractAjv {
     addSafeKeywords(ajv);
     ajv.addKeyword('$configurationModule');
     const refused = new Set<string>();
-    for (const schema of prepareManifestSchemas(manifest)) {
+    const unenforceable = new Map<string, string>();
+    for (const schema of prepareManifestSchemas(manifest, unenforceable)) {
       if (!addIfValid(ajv, schema)) refused.add(schema.$id);
     }
-    instance = { ajv, refused };
+    instance = { ajv, refused, unenforceable };
     INSTANCES.set(manifest, instance);
   }
   return instance;
@@ -71,6 +74,8 @@ function compileFailure(manifest: Manifest, error: unknown): string {
   const { missingRef, missingSchema, message } = (error ?? {}) as { missingRef?: unknown; missingSchema?: unknown; message?: unknown };
   if (typeof missingRef === 'string') {
     const target = typeof missingSchema === 'string' ? missingSchema : missingRef;
+    const unenforceable = contractAjvOf(manifest).unenforceable.get(relativeId(target));
+    if (unenforceable !== undefined) return unenforceable;
     return contractAjvOf(manifest).refused.has(target) ? `${relativeId(target)} is not a valid JSON Schema` : `unresolved $ref ${relativeId(missingRef)}`;
   }
   return typeof message === 'string' && /^(strict mode: |unknown format )/.test(message) ? message : 'the schema is not valid';
@@ -106,6 +111,8 @@ function validatorOf(manifest: Manifest, ref: TypeRef): Validator | undefined {
 
   const id = authoritativeSchema(manifest, ref);
   if (id === undefined) return undefined;
+  const unenforceable = contractAjvOf(manifest).unenforceable.get(id);
+  if (unenforceable !== undefined) throw new UnusableSchema(unenforceable);
 
   const validate: ValidateFunction | undefined = contractAjvOf(manifest).ajv.getSchema(manifestSchemaKey(id));
   if (!validate) {
