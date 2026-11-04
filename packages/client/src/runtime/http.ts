@@ -97,9 +97,7 @@ async function toProblem(response: Response, contentType: string): Promise<Probl
     const value = textMember(body, key);
     if (value !== undefined) problem[key] = value;
   }
-  // A failed validation answers with the exception's own fields: the Ajv errors are in `parameter`.
   if (body.errors !== undefined) problem.errors = body.errors;
-  else if (Array.isArray(body.parameter)) problem.errors = body.parameter;
   return problem;
 }
 

@@ -1,42 +1,86 @@
 import type { ProblemDetails } from './errors.js';
 
-export interface FieldError {
+/** One Ajv error of a validation problem, as the form sees it. */
+export interface FieldIssue {
   keyword: string;
-  message?: string;
+  params: Record<string, unknown>;
 }
 
-/** The part of react-hook-form's `setError` that `applyProblem` uses. */
-export type SetFieldError = (name: string, error: { type: string; message?: string }) => void;
+export interface FieldError {
+  keyword: string;
+  message: string;
+}
+
+/** Returns the text for an error, or `undefined` to keep the default English one. */
+export type MessageMapper = (issue: FieldIssue) => string | undefined;
+
+export interface ProblemOptions {
+  /** Localised or app-specific texts; the server sends only the keyword and its params. */
+  messages?: MessageMapper;
+}
+
+/** The part of react-hook-form's `setError` that `applyProblem` uses; `N` is the form's field-name type. */
+export type SetFieldError<N extends string = string> = (name: N, error: { type: string; message?: string }) => void;
 
 const unescape = (segment: string): string => segment.replace(/~1/g, '/').replace(/~0/g, '~');
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
-/** Ajv names a missing or extra property in `params`, and the instance path points at its parent. */
-function propertyOf(item: Record<string, unknown>): string | undefined {
-  const params = item.params;
-  if (!isRecord(params)) return undefined;
-  const name = item.keyword === 'required' ? params.missingProperty : item.keyword === 'additionalProperties' ? params.additionalProperty : undefined;
-  return typeof name === 'string' ? name : undefined;
+const list = (values: unknown): string => (Array.isArray(values) ? values.map(String).join(', ') : '');
+
+const article = (type: string): string => (type === 'null' ? type : /^[aeiou]/.test(type) ? `an ${type}` : `a ${type}`);
+
+const DEFAULT_MESSAGES: Record<string, (params: Record<string, unknown>) => string> = {
+  required: () => 'is required',
+  type: ({ type }) => `must be ${(Array.isArray(type) ? type.map(String) : [String(type)]).map(article).join(' or ')}`,
+  minLength: ({ limit }) => `must be at least ${String(limit)} characters`,
+  maxLength: ({ limit }) => `must be at most ${String(limit)} characters`,
+  minimum: ({ limit }) => `must be at least ${String(limit)}`,
+  maximum: ({ limit }) => `must be at most ${String(limit)}`,
+  exclusiveMinimum: ({ limit }) => `must be greater than ${String(limit)}`,
+  exclusiveMaximum: ({ limit }) => `must be less than ${String(limit)}`,
+  multipleOf: ({ multipleOf }) => `must be a multiple of ${String(multipleOf)}`,
+  minItems: ({ limit }) => `must have at least ${String(limit)} items`,
+  maxItems: ({ limit }) => `must have at most ${String(limit)} items`,
+  uniqueItems: () => 'must not contain duplicates',
+  pattern: () => 'has an invalid format',
+  format: ({ format }) => `must be a valid ${String(format)}`,
+  enum: ({ allowedValues }) => `must be one of: ${list(allowedValues)}`,
+  const: () => 'has an invalid value',
+  additionalProperties: () => 'is not allowed',
+};
+
+function messageOf(issue: FieldIssue, options: ProblemOptions | undefined): string {
+  return options?.messages?.(issue) ?? DEFAULT_MESSAGES[issue.keyword]?.(issue.params) ?? 'is invalid';
 }
 
-function fieldName(item: Record<string, unknown>): string | undefined {
+/**
+ * Where an error belongs. A missing property is named by `params.missingProperty` under the parent's path. An
+ * `additionalProperties` error goes to the parent: the form has no input for the extra property.
+ */
+function fieldName(item: Record<string, unknown>, params: Record<string, unknown>): string | undefined {
   if (typeof item.instancePath !== 'string') return undefined;
   const segments = item.instancePath.split('/').slice(1).map(unescape);
-  const property = propertyOf(item);
-  if (property !== undefined) segments.push(property);
+  if (item.keyword === 'required' && typeof params.missingProperty === 'string') segments.push(params.missingProperty);
+  // Each argument is validated on its own: `name` is the key it has on the wire, absent for a whole body, query, ...
+  if (typeof item.name === 'string') segments.unshift(item.name);
   return segments.length > 0 ? segments.join('.') : 'root';
 }
 
-/** The Ajv errors of a validation problem per form field: `/address/city` is `address.city`, and an error on the whole body is `root`. */
-export function problemFieldErrors(problem: ProblemDetails): Record<string, FieldError[]> {
+/**
+ * The Ajv errors of a validation problem per form field: `/address/city` is `address.city` and an error on the whole body is
+ * `root`. A property name that contains `.` cannot be told from a path, and a property called `root` shares the whole-body
+ * bucket.
+ */
+export function problemFieldErrors(problem: ProblemDetails, options?: ProblemOptions): Record<string, FieldError[]> {
   const fields: Record<string, FieldError[]> = {};
   if (!Array.isArray(problem.errors)) return fields;
   for (const item of problem.errors as unknown[]) {
     if (!isRecord(item) || typeof item.keyword !== 'string') continue;
-    const name = fieldName(item);
+    const params = isRecord(item.params) ? item.params : {};
+    const name = fieldName(item, params);
     if (name === undefined) continue;
-    (fields[name] ??= []).push({ keyword: item.keyword, ...(typeof item.message === 'string' ? { message: item.message } : {}) });
+    (fields[name] ??= []).push({ keyword: item.keyword, message: messageOf({ keyword: item.keyword, params }, options) });
   }
   return fields;
 }
@@ -47,11 +91,14 @@ function problemOf(error: unknown): ProblemDetails | undefined {
   return isRecord(problem) ? (problem as unknown as ProblemDetails) : undefined;
 }
 
-/** Sets the first error of each field named by a validation problem on a form; false when `error` carries none. */
-export function applyProblem(error: unknown, setError: SetFieldError): boolean {
+/**
+ * Sets the first error of each field named by a validation problem on a form; false when `error` carries none. `N` lets a
+ * typed react-hook-form `setError` through: the names are built from the server's paths, which the type cannot know.
+ */
+export function applyProblem<N extends string>(error: unknown, setError: SetFieldError<N>, options?: ProblemOptions): boolean {
   const problem = problemOf(error);
   if (!problem) return false;
-  const fields = Object.entries(problemFieldErrors(problem));
-  for (const [name, [first]] of fields) setError(name, { type: first.keyword, ...(first.message !== undefined ? { message: first.message } : {}) });
+  const fields = Object.entries(problemFieldErrors(problem, options));
+  for (const [name, [first]] of fields) setError(name as N, { type: first.keyword, message: first.message });
   return fields.length > 0;
 }
