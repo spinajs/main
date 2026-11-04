@@ -41,5 +41,6 @@ describe('SimRandom', () => {
     expect(() => r.int(0)).to.throw(RangeError);
     expect(() => r.int(2.5)).to.throw(RangeError);
     expect(() => r.pick([])).to.throw(RangeError);
+    expect(() => SimRandom.fromState([0, 0, 0, 0])).to.throw(RangeError);
   });
 });

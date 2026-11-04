@@ -23,7 +23,7 @@
     "pretest": "npm run compile",
     "test": "ts-mocha -p tsconfig.json \"test/**/*.test.ts\"",
     "coverage": "c8 npm run test",
-    "format": "prettier --write \"src/**/*.ts\" \"suites/**/*.ts\"",
+    "format": "prettier --write \"src/**/*.ts\"",
     "lint": "cd ../.. && npm run lint -- packages/simulation"
   },
   "files": [
@@ -47,6 +47,9 @@
   "dependencies": {
     "@spinajs/di": "3.0.23",
     "@spinajs/durable": "3.0.23"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.1"
   },
   "spinajs": {
     "manifest": "lib/manifest.fragment.json"

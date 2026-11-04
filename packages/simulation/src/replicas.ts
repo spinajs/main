@@ -56,6 +56,7 @@ export class SimReplicas {
 
   public restart(replica: string): SimContext {
     const e = this.entry(replica);
+    if (!e.crashed) this.crash({ replica, incarnation: e.incarnation });
     e.incarnation++;
     e.crashed = false;
     e.deferredPark = null;
@@ -63,6 +64,7 @@ export class SimReplicas {
   }
 
   public freeze(replica: string, until: number): void {
+    if (!Number.isFinite(until)) throw new RangeError(`SimReplicas: cannot freeze ${replica} until ${until}`);
     const e = this.entry(replica);
     e.frozenUntil = Math.max(e.frozenUntil ?? until, until);
     this.clock.freeze(replica);

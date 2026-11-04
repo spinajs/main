@@ -26,6 +26,14 @@ describe('SimReplicas', () => {
     expect(replicas.isDead(second)).to.equal(false);
   });
 
+  it('drops the timers of a live incarnation when it restarts', () => {
+    const fired: string[] = [];
+    runInContext(replicas.context('r1'), () => clock.setTimeout(() => fired.push('old'), 5));
+    replicas.restart('r1');
+    clock.advance(10);
+    expect(fired).to.deep.equal([]);
+  });
+
   it('parks until the freeze ends and reports the replica as due then', async () => {
     const ctx = replicas.context('r1');
     let resumed = false;

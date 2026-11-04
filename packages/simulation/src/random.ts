@@ -26,6 +26,7 @@ export class SimRandom {
   }
 
   public static fromState(state: readonly [number, number, number, number]): SimRandom {
+    if (state.every((w) => w >>> 0 === 0)) throw new RangeError('SimRandom.fromState: the all-zero state is a fixed point');
     const random = new SimRandom(0);
     random.s.set(state);
     return random;
