@@ -28,17 +28,17 @@ interface FoundPage {
 
 const inDefaultLib = (symbol: ts.Symbol): boolean => symbol.declarations?.[0]?.getSourceFile().hasNoDefaultLib === true;
 
-/**
- * Nominal on purpose: the type literal the type was instantiated from must be the body of `Page` or `CursorPage` in
- * `@spinajs/http`, so a structurally equal type declared elsewhere is not a page. An app alias (`type UserPage =
- * Page<UserDto>`) renames `aliasSymbol` but keeps that declaration, which is why the alias name is not read.
- */
 function itemOf(checker: ts.TypeChecker, type: ts.Type, node: ts.Node): ts.Type | undefined {
   const items = checker.getPropertyOfType(type, 'items');
   const itemsType = items && checker.getTypeOfSymbolAtLocation(items, node);
   return itemsType && checker.isArrayType(itemsType) ? checker.getTypeArguments(itemsType as ts.TypeReference)[0] : undefined;
 }
 
+/**
+ * Nominal on purpose: the type literal the type was instantiated from must be the body of `Page` or `CursorPage` in
+ * `@spinajs/http`, so a structurally equal type declared elsewhere is not a page. An app alias (`type UserPage =
+ * Page<UserDto>`) renames `aliasSymbol` but keeps that declaration, which is why the alias name is not read.
+ */
 function declaredPage(checker: ts.TypeChecker, type: ts.Type, node: ts.Node): FoundPage | undefined {
   const declaration = type.getSymbol()?.declarations?.[0];
   if (!declaration || !ts.isTypeLiteralNode(declaration) || !ts.isTypeAliasDeclaration(declaration.parent) || !isDeclaredIn(declaration, HTTP)) return undefined;
@@ -64,7 +64,7 @@ function inheritedPage(checker: ts.TypeChecker, type: ts.Type, node: ts.Node, de
   return undefined;
 }
 
-/** A page, also under `Readonly<…>`, intersected with more fields, or as the base of an interface. */
+/** A page, also under `Readonly<â€¦>`, intersected with more fields, or as the base of an interface. */
 function pageIn(checker: ts.TypeChecker, type: ts.Type, node: ts.Node, depth = 0): FoundPage | undefined {
   if (depth > 4) return undefined;
   const readonlyOf = type.aliasSymbol?.name === 'Readonly' && inDefaultLib(type.aliasSymbol) ? type.aliasTypeArguments?.[0] : undefined;
