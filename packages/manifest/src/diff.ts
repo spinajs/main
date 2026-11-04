@@ -1,6 +1,7 @@
 import { loadsFromManifest, publishedManifest } from './mounted.js';
 import { canonicalize } from './hash.js';
 import { compareSchemaRefs } from './schema-compare.js';
+import { comparePagination } from './pagination-diff.js';
 import type { Finding } from './schema-compare.js';
 import type { ControllerEntry, Manifest, ParamEntry, PolicyRef, RouteEntry, TypeRef } from './types.js';
 
@@ -81,7 +82,7 @@ function compareParams(b: RouteEntry, h: RouteEntry, base: Manifest, head: Manif
 }
 
 function compareRoute(b: RouteEntry, h: RouteEntry, base: Manifest, head: Manifest): Finding[] {
-  return [...compareParams(b, h, base, head), ...compareTypes(b.returnType, h.returnType, 'response', 'response', base, head)];
+  return [...compareParams(b, h, base, head), ...compareTypes(b.returnType, h.returnType, 'response', 'response', base, head), ...comparePagination(b, h)];
 }
 
 interface RouteRef { route: RouteEntry; controller: ControllerEntry }
