@@ -53,7 +53,7 @@ interface Library {
   conditional(vars: object, enabled: boolean): [unknown, object?];
 }
 
-type Problem = Error & { status: number; problem: { title?: string } };
+type Problem = Error & { status: number; problem: { title?: string; errors?: unknown } };
 
 type ProblemErrorClass = new (...args: never[]) => Problem;
 
@@ -72,6 +72,8 @@ function readInRender<T extends object>(module: T): T {
 }
 
 const run = (mutation: MutationResult) => (vars: unknown) => (mutation.mutateAsync ?? mutation.trigger)!(vars);
+
+const appBasicRoot = fileURLToPath(new URL('../../compiler/test/fixtures/app-basic', import.meta.url));
 
 const wireApp = fileURLToPath(new URL('./fixtures/wire-app', import.meta.url));
 
@@ -94,12 +96,13 @@ async function loadGenerated(manifest: Manifest, sharedReact?: string): Promise<
 describe('generated hooks against a booted app', function () {
   this.timeout(60000);
 
-  let app: TestApp;
   let dom: Dom;
   let appBasic: ModuleDir;
   let wire: ModuleDir;
   let ProblemError: ProblemErrorClass;
-  let withClients: (children: ReactNode) => ReactElement;
+  let clientFor: (baseUrl: string) => object;
+  let AppClientProvider: ComponentType<{ client: unknown; children?: ReactNode }>;
+  let client: object;
   const requests: string[] = [];
   /** The requests whose reply has arrived. */
   const answered: string[] = [];
@@ -107,8 +110,6 @@ describe('generated hooks against a booted app', function () {
   const roots: Root[] = [];
 
   before(async () => {
-    let baseUrl: string;
-    ({ app, baseUrl } = await startApp([HealthController, UsersController, WireController]));
     appBasic = await loadGenerated(await appBasicManifest());
     wire = await loadGenerated(await wireOnlyManifest(), pathToFileURL(appBasic.path('client.react.js')).href);
     // After the generator, whose schema tooling takes a browser path under a `window`, and before SWR loads, which
@@ -128,8 +129,8 @@ describe('generated hooks against a booted app', function () {
       import(import.meta.resolve('@spinajs/client/runtime')) as Promise<{ ProblemError: ProblemErrorClass }>,
     ]);
     ProblemError = runtime.ProblemError;
-    const client = Object.assign(createAppClient({ baseUrl, fetch: logged }) as object, createWireClient({ baseUrl, fetch: logged }) as object);
-    withClients = (children) => createElement(react.AppClientProvider, { client }, children);
+    AppClientProvider = react.AppClientProvider;
+    clientFor = (baseUrl) => Object.assign(createAppClient({ baseUrl, fetch: logged }) as object, createWireClient({ baseUrl, fetch: logged }) as object);
 
     const rq = (await import(import.meta.resolve('@tanstack/react-query'))) as {
       QueryClient: new (config: object) => unknown;
@@ -164,7 +165,6 @@ describe('generated hooks against a booted app', function () {
     appBasic?.remove();
     wire?.remove();
     dom?.restore();
-    await app?.dispose();
   });
 
   const reset = () => {
@@ -186,158 +186,200 @@ describe('generated hooks against a booted app', function () {
       probe();
       return null;
     };
-    const render = () => root.render(withClients(providers.reduceRight<ReactNode>((children, wrap) => wrap(children), createElement(Probe))));
+    const render = () => root.render(createElement(AppClientProvider, { client }, providers.reduceRight<ReactNode>((children, wrap) => wrap(children), createElement(Probe))));
     render();
     return render;
   }
 
   const count = (request: string) => requests.filter((r) => r === request).length;
 
-  for (const name of ['React Query', 'SWR']) {
-    describe(name, () => {
-      let library: Library;
-      before(() => (library = libraries.find((l) => l.name === name)!));
+  describe('on the app-basic and wire-app controllers', () => {
+    let app: TestApp | undefined;
 
-      it('loads a query from the server', async () => {
-        let user: QueryResult = {};
-        mount(() => (user = library.hooks.useUsersGet({ id: 1 })), [library.provider()]);
-        await waitFor(() => user.data !== undefined, 'the user');
-        expect(user.data).to.deep.equal({ id: 1, email: 'ada@example.com', name: 'Ada' });
-        expect(requests).to.deep.equal(['GET /users/1']);
+    before(async () => {
+      const started = await startApp([HealthController, UsersController, WireController]);
+      app = started.app;
+      client = clientFor(started.baseUrl);
+    });
+
+    after(() => app?.dispose());
+
+    for (const name of ['React Query', 'SWR']) {
+      describe(name, () => {
+        let library: Library;
+        before(() => (library = libraries.find((l) => l.name === name)!));
+
+        it('loads a query from the server', async () => {
+          let user: QueryResult = {};
+          mount(() => (user = library.hooks.useUsersGet({ id: 1 })), [library.provider()]);
+          await waitFor(() => user.data !== undefined, 'the user');
+          expect(user.data).to.deep.equal({ id: 1, email: 'ada@example.com', name: 'Ada' });
+          expect(requests).to.deep.equal(['GET /users/1']);
+        });
+
+        it('refetches every query of the controller once after a mutation, and no query of another controller', async () => {
+          const seen: Record<string, QueryResult> = {};
+          let create: MutationResult = {};
+          mount(() => {
+            seen.list = library.hooks.useUsersList({ query: {} });
+            seen.user = library.hooks.useUsersGet({ id: 1 });
+            seen.health = library.hooks.useHealthGet();
+            create = library.hooks.useUsersCreate();
+          }, [library.provider()]);
+          await waitFor(() => Object.keys(seen).length === 3 && Object.values(seen).every((q) => q.data !== undefined), 'the first fetches');
+          const before = (seen.list.data as unknown[]).length;
+          reset();
+
+          const email = `${name.replace(' ', '-').toLowerCase()}@example.com`;
+          const created = (await run(create)({ body: { email } })) as { id: number };
+          expect(created).to.include({ email });
+          // The mutation settles only after the refetch, so every reply has already arrived.
+          expect([...answered].sort()).to.deep.equal(['GET /users/1', 'GET /users/list', 'POST /users/create']);
+          await waitFor(() => (seen.list.data as unknown[]).length === before + 1, 'the refetched list');
+          expect(seen.list.data).to.deep.include({ id: created.id, email });
+          await quiet(() => requests);
+          expect([count('GET /users/list'), count('GET /users/1'), count('GET /health/get')]).to.deep.equal([1, 1, 0]);
+        });
+
+        it('refetches nothing with invalidate: false', async () => {
+          let list: QueryResult = {};
+          let create: MutationResult = {};
+          mount(() => {
+            list = library.hooks.useUsersList({ query: {} });
+            create = library.hooks.useUsersCreate({ invalidate: false });
+          }, [library.provider()]);
+          await waitFor(() => list.data !== undefined, 'the list');
+          const before = list.data;
+          reset();
+          await run(create)({ body: { email: `quiet-${name.replace(' ', '-').toLowerCase()}@example.com` } });
+          await quiet(() => requests);
+          expect(requests).to.deep.equal(['POST /users/create']);
+          expect(list.data).to.equal(before);
+        });
+
+        it('sends no request while the query is disabled, and fetches once it is enabled', async () => {
+          let enabled = false;
+          let user: QueryResult = {};
+          const render = mount(() => (user = library.hooks.useUsersGet(...library.conditional({ id: 1 }, enabled))), [library.provider()]);
+          await quiet(() => requests);
+          expect(requests).to.deep.equal([]);
+          expect([user.data, user.error ?? null]).to.deep.equal([undefined, null]);
+          enabled = true;
+          render();
+          await waitFor(() => user.data !== undefined, 'the user');
+          expect(requests).to.deep.equal(['GET /users/1']);
+        });
+
+        it('surfaces a 404 as a ProblemError on error', async () => {
+          let user: QueryResult = {};
+          mount(() => (user = library.hooks.useUsersGet({ id: 404 })), [library.provider()]);
+          await waitFor(() => user.error != null, 'the error');
+          expect(user.error).to.be.instanceOf(ProblemError);
+          expect((user.error as Problem).status).to.equal(404);
+          expect(user.data).to.equal(undefined);
+          expect(requests).to.deep.equal(['GET /users/404']);
+        });
+
+        it('surfaces a 400 from the server validation as a ProblemError on the query error', async () => {
+          let user: QueryResult = {};
+          mount(() => (user = library.hooks.useUsersGet({ id: 'abc' })), [library.provider()]);
+          await waitFor(() => user.error != null, 'the error');
+          expect(user.error).to.be.instanceOf(ProblemError);
+          expect((user.error as Problem).status).to.equal(400);
+          expect((user.error as Problem).problem.title).to.equal('Validation Failed');
+          expect(requests).to.deep.equal(['GET /users/abc']);
+        });
+
+        it('rejects a mutation with a 400 as a ProblemError, sets its error, and refetches nothing', async () => {
+          let user: QueryResult = {};
+          let avatar: MutationResult = {};
+          mount(() => {
+            user = library.hooks.useUsersGet({ id: 1 });
+            avatar = library.hooks.useUsersAvatar();
+          }, [library.provider()]);
+          await waitFor(() => user.data !== undefined, 'the user');
+          reset();
+          const rejected = await run(avatar)({ id: 'abc', file: new File(['png'], 'me.png') }).catch((e: unknown) => e);
+          expect(rejected).to.be.instanceOf(ProblemError);
+          expect((rejected as Problem).status).to.equal(400);
+          await waitFor(() => avatar.error != null, 'the mutation error');
+          expect(avatar.error).to.equal(rejected);
+          await quiet(() => requests);
+          expect(requests).to.deep.equal(['POST /users/abc/avatar']);
+        });
+
+        it('resolves a query whose reply is a 204 to null, without an error', async () => {
+          let optional: QueryResult = {};
+          mount(() => (optional = library.wire.useWireOptional()), [library.provider()]);
+          await waitFor(() => requests.length > 0 && optional.isLoading === false, 'the reply');
+          expect(requests).to.deep.equal(['GET /wire/optional']);
+          expect(optional.error ?? null).to.equal(null);
+          expect(optional.data).to.equal(null);
+        });
+
+        it('resolves a mutation whose reply is a 204, and refetches its controller', async () => {
+          let user: QueryResult = {};
+          let avatar: MutationResult = {};
+          mount(() => {
+            user = library.hooks.useUsersGet({ id: 1 });
+            avatar = library.hooks.useUsersAvatar();
+          }, [library.provider()]);
+          await waitFor(() => user.data !== undefined, 'the user');
+          reset();
+          expect(await run(avatar)({ id: 1, file: new File(['png'], 'me.png', { type: 'image/png' }) })).to.equal(undefined);
+          expect([...requests].sort()).to.deep.equal(['GET /users/1', 'POST /users/1/avatar']);
+        });
       });
+    }
 
-      it('refetches every query of the controller once after a mutation, and no query of another controller', async () => {
+    describe('both libraries', () => {
+      it('runs both libraries in one tree, on one client provider, each refetching only its own cache', async () => {
+        const [reactQuery, swr] = libraries;
         const seen: Record<string, QueryResult> = {};
         let create: MutationResult = {};
         mount(() => {
-          seen.list = library.hooks.useUsersList({ query: {} });
-          seen.user = library.hooks.useUsersGet({ id: 1 });
-          seen.health = library.hooks.useHealthGet();
-          create = library.hooks.useUsersCreate();
-        }, [library.provider()]);
-        await waitFor(() => Object.keys(seen).length === 3 && Object.values(seen).every((q) => q.data !== undefined), 'the first fetches');
-        const before = (seen.list.data as unknown[]).length;
+          seen.rq = reactQuery.hooks.useUsersGet({ id: 1 });
+          seen.swr = swr.hooks.useUsersGet({ id: 1 });
+          create = reactQuery.hooks.useUsersCreate();
+        }, [reactQuery.provider(), swr.provider()]);
+        await waitFor(() => seen.rq?.data !== undefined && seen.swr?.data !== undefined, 'both users');
+        expect(seen.rq.data).to.deep.equal(seen.swr.data);
+        expect(requests).to.deep.equal(['GET /users/1', 'GET /users/1']);
         reset();
-
-        const email = `${name.replace(' ', '-').toLowerCase()}@example.com`;
-        const created = (await run(create)({ body: { email } })) as { id: number };
-        expect(created).to.include({ email });
-        // The mutation settles only after the refetch, so every reply has already arrived.
-        expect([...answered].sort()).to.deep.equal(['GET /users/1', 'GET /users/list', 'POST /users/create']);
-        await waitFor(() => (seen.list.data as unknown[]).length === before + 1, 'the refetched list');
-        expect(seen.list.data).to.deep.include({ id: created.id, email });
+        await run(create)({ body: { email: 'both@example.com' } });
         await quiet(() => requests);
-        expect([count('GET /users/list'), count('GET /users/1'), count('GET /health/get')]).to.deep.equal([1, 1, 0]);
+        expect(requests).to.deep.equal(['POST /users/create', 'GET /users/1']);
       });
+    });
+  });
 
-      it('refetches nothing with invalidate: false', async () => {
-        let list: QueryResult = {};
+  describe('on a server that validates bodies with the manifest', () => {
+    let app: TestApp | undefined;
+
+    before(async () => {
+      const manifest = await appBasicManifest();
+      // The fixture's controllers run from src under ts-node, not from the compiled lib the manifest names.
+      const started = await startApp([HealthController, UsersController], { ...manifest, app: { ...manifest.app, root: appBasicRoot, outDir: 'src' } });
+      app = started.app;
+      client = clientFor(started.baseUrl);
+    });
+
+    after(() => app?.dispose());
+
+    for (const name of ['React Query', 'SWR']) {
+      it(`${name}: rejects an invalid body with a 400 ProblemError listing the errors, on the mutation error`, async () => {
+        const library = libraries.find((l) => l.name === name)!;
         let create: MutationResult = {};
-        mount(() => {
-          list = library.hooks.useUsersList({ query: {} });
-          create = library.hooks.useUsersCreate({ invalidate: false });
-        }, [library.provider()]);
-        await waitFor(() => list.data !== undefined, 'the list');
-        const before = list.data;
-        reset();
-        await run(create)({ body: { email: `quiet-${name.replace(' ', '-').toLowerCase()}@example.com` } });
-        await quiet(() => requests);
-        expect(requests).to.deep.equal(['POST /users/create']);
-        expect(list.data).to.equal(before);
-      });
-
-      it('sends no request while the query is disabled, and fetches once it is enabled', async () => {
-        let enabled = false;
-        let user: QueryResult = {};
-        const render = mount(() => (user = library.hooks.useUsersGet(...library.conditional({ id: 1 }, enabled))), [library.provider()]);
-        await quiet(() => requests);
-        expect(requests).to.deep.equal([]);
-        expect([user.data, user.error ?? null]).to.deep.equal([undefined, null]);
-        enabled = true;
-        render();
-        await waitFor(() => user.data !== undefined, 'the user');
-        expect(requests).to.deep.equal(['GET /users/1']);
-      });
-
-      it('surfaces a 404 as a ProblemError on error', async () => {
-        let user: QueryResult = {};
-        mount(() => (user = library.hooks.useUsersGet({ id: 404 })), [library.provider()]);
-        await waitFor(() => user.error != null, 'the error');
-        expect(user.error).to.be.instanceOf(ProblemError);
-        expect((user.error as Problem).status).to.equal(404);
-        expect(user.data).to.equal(undefined);
-        expect(requests).to.deep.equal(['GET /users/404']);
-      });
-
-      it('surfaces a 400 from the server validation as a ProblemError on the query error', async () => {
-        let user: QueryResult = {};
-        mount(() => (user = library.hooks.useUsersGet({ id: 'abc' })), [library.provider()]);
-        await waitFor(() => user.error != null, 'the error');
-        expect(user.error).to.be.instanceOf(ProblemError);
-        expect((user.error as Problem).status).to.equal(400);
-        expect((user.error as Problem).problem.title).to.equal('Validation Failed');
-        expect(requests).to.deep.equal(['GET /users/abc']);
-      });
-
-      it('rejects a mutation with a 400 as a ProblemError, sets its error, and refetches nothing', async () => {
-        let user: QueryResult = {};
-        let avatar: MutationResult = {};
-        mount(() => {
-          user = library.hooks.useUsersGet({ id: 1 });
-          avatar = library.hooks.useUsersAvatar();
-        }, [library.provider()]);
-        await waitFor(() => user.data !== undefined, 'the user');
-        reset();
-        const rejected = await run(avatar)({ id: 'abc', file: new File(['png'], 'me.png') }).catch((e: unknown) => e);
+        mount(() => (create = library.hooks.useUsersCreate()), [library.provider()]);
+        await waitFor(() => (create.mutateAsync ?? create.trigger) !== undefined, 'the mutation hook');
+        const rejected = await run(create)({ body: { name: 'no email' } }).catch((e: unknown) => e);
         expect(rejected).to.be.instanceOf(ProblemError);
         expect((rejected as Problem).status).to.equal(400);
-        await waitFor(() => avatar.error != null, 'the mutation error');
-        expect(avatar.error).to.equal(rejected);
-        await quiet(() => requests);
-        expect(requests).to.deep.equal(['POST /users/abc/avatar']);
+        expect((rejected as Problem).problem.errors).to.deep.equal([{ instancePath: '', schemaPath: '#/required', keyword: 'required', params: { missingProperty: 'email' } }]);
+        await waitFor(() => create.error != null, 'the mutation error');
+        expect(create.error).to.equal(rejected);
+        expect(requests).to.deep.equal(['POST /users/create']);
       });
-
-      it('resolves a query whose reply is a 204 to null, without an error', async () => {
-        let optional: QueryResult = {};
-        mount(() => (optional = library.wire.useWireOptional()), [library.provider()]);
-        await waitFor(() => requests.length > 0 && optional.isLoading === false, 'the reply');
-        expect(requests).to.deep.equal(['GET /wire/optional']);
-        expect(optional.error ?? null).to.equal(null);
-        expect(optional.data).to.equal(null);
-      });
-
-      it('resolves a mutation whose reply is a 204, and refetches its controller', async () => {
-        let user: QueryResult = {};
-        let avatar: MutationResult = {};
-        mount(() => {
-          user = library.hooks.useUsersGet({ id: 1 });
-          avatar = library.hooks.useUsersAvatar();
-        }, [library.provider()]);
-        await waitFor(() => user.data !== undefined, 'the user');
-        reset();
-        expect(await run(avatar)({ id: 1, file: new File(['png'], 'me.png', { type: 'image/png' }) })).to.equal(undefined);
-        expect([...requests].sort()).to.deep.equal(['GET /users/1', 'POST /users/1/avatar']);
-      });
-    });
-  }
-
-  describe('both libraries', () => {
-    it('runs both libraries in one tree, on one client provider, each refetching only its own cache', async () => {
-      const [reactQuery, swr] = libraries;
-      const seen: Record<string, QueryResult> = {};
-      let create: MutationResult = {};
-      mount(() => {
-        seen.rq = reactQuery.hooks.useUsersGet({ id: 1 });
-        seen.swr = swr.hooks.useUsersGet({ id: 1 });
-        create = reactQuery.hooks.useUsersCreate();
-      }, [reactQuery.provider(), swr.provider()]);
-      await waitFor(() => seen.rq?.data !== undefined && seen.swr?.data !== undefined, 'both users');
-      expect(seen.rq.data).to.deep.equal(seen.swr.data);
-      expect(requests).to.deep.equal(['GET /users/1', 'GET /users/1']);
-      reset();
-      await run(create)({ body: { email: 'both@example.com' } });
-      await quiet(() => requests);
-      expect(requests).to.deep.equal(['POST /users/create', 'GET /users/1']);
-    });
+    }
   });
 });

@@ -1,11 +1,13 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { AccessPolicy, PrincipalMiddleware } from '@spinajs/authz-http';
 import { FrameworkConfiguration } from '@spinajs/configuration';
-import { DI } from '@spinajs/di';
 import { fsService } from '@spinajs/fs';
 import { BaseController, BasePolicy, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { Intl } from '@spinajs/intl';
+import { hashManifest, type Manifest } from '@spinajs/manifest';
 import { createTestApp, type TestApp } from '@spinajs/testing';
 import shipped from '../../../http/lib/config/http.js';
 
@@ -41,20 +43,42 @@ export interface StartedApp {
   baseUrl: string;
 }
 
-/** Boots a real HTTP server on a free port, serving the given controllers with access allowed. */
-export async function startApp(controllers: (typeof BaseController)[]): Promise<StartedApp> {
-  const app = await createTestApp({
-    configuration: E2eConfiguration,
-    register: (c) => {
-      c.unregister(ServerMiddleware, PrincipalMiddleware);
-      for (const controller of controllers) c.register(controller).as(BaseController);
-      c.register(AllowAccess).as(AccessPolicy);
-    },
-    resolve: [fsService, Intl, Controllers],
-    bootTimeout: 50000,
-  });
-  const server = await app.resolve(HttpServer);
-  await server.start();
-  const { port } = DI.get(HttpServer)!.Server.address() as AddressInfo;
-  return { app, baseUrl: `http://127.0.0.1:${port}` };
+const MANIFEST_ENV = ['SPINAJS_MANIFEST', 'SPINAJS_MANIFEST_MODE'] as const;
+
+/**
+ * Boots a real HTTP server on a free port, serving the given controllers with access allowed. With a manifest, the
+ * app's configuration source loads it from `SPINAJS_MANIFEST` in `require` mode, as in production, so the server
+ * validates request bodies against its derived schemas.
+ */
+export async function startApp(controllers: (typeof BaseController)[], manifest?: Manifest): Promise<StartedApp> {
+  const saved = MANIFEST_ENV.map((name) => [name, process.env[name]] as const);
+  const dir = manifest && mkdtempSync(join(tmpdir(), 'client-e2e-manifest-'));
+  if (manifest && dir) {
+    const file = join(dir, 'app.manifest.json');
+    writeFileSync(file, JSON.stringify({ ...manifest, hash: hashManifest(manifest) }));
+    process.env.SPINAJS_MANIFEST = file;
+    process.env.SPINAJS_MANIFEST_MODE = 'require';
+  }
+  try {
+    const app = await createTestApp({
+      configuration: E2eConfiguration,
+      register: (c) => {
+        c.unregister(ServerMiddleware, PrincipalMiddleware);
+        for (const controller of controllers) c.register(controller).as(BaseController);
+        c.register(AllowAccess).as(AccessPolicy);
+      },
+      resolve: [fsService, Intl, Controllers],
+      bootTimeout: 50000,
+    });
+    const server = await app.resolve(HttpServer);
+    await server.start();
+    const { port } = server.Server.address() as AddressInfo;
+    return { app, baseUrl: `http://127.0.0.1:${port}` };
+  } finally {
+    for (const [name, value] of saved) {
+      if (value === undefined) Reflect.deleteProperty(process.env, name);
+      else process.env[name] = value;
+    }
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  }
 }
