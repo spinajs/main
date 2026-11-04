@@ -1,6 +1,7 @@
 import { JoinMethod, Op } from './enums.js';
 /* eslint-disable prettier/prettier */
-import { QueryBuilder, RawQuery } from './builders.js';
+import type { QueryBuilder } from './builders/base.js';
+import type { RawQuery } from './builders/raw.js';
 import { SortOrder, WhereBoolean } from './enums.js';
 import { IQueryStatement, OuterColumn, Wrap } from './statements.js';
 import { ModelData, ModelDataWithRelationData, ModelDataWithRelationDataSearchable, PartialArray, PickRelations, Unbox, WhereFunction } from './types.js';

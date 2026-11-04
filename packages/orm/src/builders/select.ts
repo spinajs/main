@@ -7,7 +7,8 @@ import { ColumnMethodStatement, ColumnStatement, IQueryStatement, WhereStatement
 import { WhereFunction } from '../types.js';
 import type { OrmDriver } from '../driver.js';
 import { ModelBase } from '../model.js';
-import { BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation, QueryRelation, VirtualRelation } from '../relations.js';
+import type { IOrmRelation } from '../relations.js';
+import { relationOf } from '../relation-registry.js';
 import { isNullOrWhitespace } from '@spinajs/util';
 import { extractModelDescriptor } from '../descriptor.js';
 import { IRelationSort } from './internal.js';
@@ -270,25 +271,21 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       }
 
       if (rDescriptor.Recursive) {
-        relInstance = this._container.resolve<BelongsToRecursiveRelation>(BelongsToRecursiveRelation, [this, rDescriptor, this._owner]);
+        relInstance = this._container.resolve<IOrmRelation>(relationOf('recursive'), [this, rDescriptor, this._owner]);
       } else {
         switch (rDescriptor.Type) {
           case RelationType.One:
             // if parent relation is one to many we dont set parent relation
             // couse its new query to not mess with column aliases and hydrator
-            relInstance = this._container.resolve<BelongsToRelation>(BelongsToRelation, [this, rDescriptor, this._owner instanceof OneToManyRelation ? null : this._owner]);
+            relInstance = this._container.resolve<IOrmRelation>(relationOf(RelationType.One), [this, rDescriptor, this._owner instanceof relationOf(RelationType.Many) ? null : this._owner]);
             break;
           case RelationType.Query:
-            relInstance = this._container.resolve<QueryRelation>(QueryRelation, [this, rDescriptor, this._owner]);
-            break;
           case RelationType.Virtual:
-            relInstance = this._container.resolve<VirtualRelation>(VirtualRelation, [this, rDescriptor, this._owner]);
-            break;
           case RelationType.Many:
-            relInstance = this._container.resolve<OneToManyRelation>(OneToManyRelation, [this, rDescriptor, this._owner]);
+            relInstance = this._container.resolve<IOrmRelation>(relationOf(rDescriptor.Type), [this, rDescriptor, this._owner]);
             break;
           case RelationType.ManyToMany:
-            relInstance = this._container.resolve<ManyToManyRelation>(ManyToManyRelation, [this, rDescriptor, null]);
+            relInstance = this._container.resolve<IOrmRelation>(relationOf(RelationType.ManyToMany), [this, rDescriptor, null]);
             break;
         }
       }

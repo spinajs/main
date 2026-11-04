@@ -1,6 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { ForwardRefFunction, RelationType } from './interfaces.js';
-import { ModelBase } from './model.js';
+import type { ModelBase } from './model.js';
+import { isModel } from './model-registry.js';
 import { Injectable, isConstructor } from '@spinajs/di';
 import { OneToManyRelationList, SingleRelation } from './relation-objects.js';
 
@@ -44,7 +45,7 @@ export class DbPropertyHydrator extends ModelHydrator {
         // already-resolved model instance (eg. from a DTO @Relation field).
         // When a model instance arrives, translate it to its primary key value
         // so the FK column stores the id, not the object.
-        if (incoming instanceof ModelBase) {
+        if (isModel(incoming)) {
           (target as any)[k] = incoming.PrimaryKeyValue;
         } else {
           (target as any)[k] = column?.Converter ? column.Converter.fromDB(incoming, values, descriptor.Converters.get(column.Name)?.Options) : incoming;
@@ -130,7 +131,7 @@ export class OneToOneRelationHydrator extends ModelHydrator {
         // Accept an already-resolved model instance passed under the relation
         // name: attach it directly and translate its PK into the FK column,
         // instead of trying to re-hydrate it from a plain data object.
-        if (values[key] instanceof ModelBase) {
+        if (isModel(values[key])) {
           entity[key] = new SingleRelation(target, val.TargetModel, val, values[key]);
           (target as any)[val.ForeignKey] = values[key].PrimaryKeyValue;
           continue;

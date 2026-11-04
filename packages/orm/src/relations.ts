@@ -12,6 +12,7 @@ import type { OrmDriver } from './driver.js';
 import _ from 'lodash';
 import { JoinMethod } from './enums.js';
 import { extractModelDescriptor } from './descriptor.js';
+import { registerRelation } from './relation-registry.js';
 
 
 /**
@@ -425,3 +426,10 @@ export class ManyToManyRelation extends NativeOrmRelation {
     this._compiled = true;
   }
 }
+
+registerRelation('recursive', BelongsToRecursiveRelation);
+registerRelation(RelationType.One, BelongsToRelation);
+registerRelation(RelationType.Many, OneToManyRelation);
+registerRelation(RelationType.ManyToMany, ManyToManyRelation);
+registerRelation(RelationType.Query, QueryRelation);
+registerRelation(RelationType.Virtual, VirtualRelation);

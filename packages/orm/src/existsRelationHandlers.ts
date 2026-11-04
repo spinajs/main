@@ -2,8 +2,8 @@
 import { Injectable } from '@spinajs/di';
 import { Lazy } from '@spinajs/util';
 import { IRelationDescriptor, IModelStatic, ISelectQueryBuilder, RelationType } from './interfaces.js';
-import { RawQuery } from './builders.js';
-import type { WhereBuilder } from './builders.js';
+import { RawQuery } from './builders/raw.js';
+import type { WhereBuilder } from './builders/where.js';
 import { WhereFunction } from './types.js';
 import { IdentifierQuoter, quoterOf } from './quoting.js';
 

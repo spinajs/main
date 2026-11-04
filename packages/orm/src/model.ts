@@ -16,6 +16,7 @@ import { Relation, SingleRelation } from './relation-objects.js';
 import { baselineValue, createSnapshot, IModelChange, IModelSnapshot, snapshotEquals, snapshotValue } from './snapshot.js';
 import { UnitOfWork } from './unit-of-work.js';
 import { quoterOf } from './quoting.js';
+import { registerModelBase } from './model-registry.js';
 
 import { DI, isConstructor, IContainer, Constructor, isClass, getInheritedDescriptor } from '@spinajs/di';
 
@@ -1060,6 +1061,8 @@ export class ModelBase<M = unknown> implements IModelBase {
     return createQuery(this.constructor, InsertQueryBuilder);
   }
 }
+
+registerModelBase(ModelBase);
 
 
 /**

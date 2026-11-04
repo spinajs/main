@@ -12,7 +12,8 @@ import { Lazy } from '@spinajs/util';
 import { ExistsRelationHandler } from '../existsRelationHandlers.js';
 import { RawQuery } from './raw.js';
 import { QueryBuilder } from './base.js';
-import { SelectQueryBuilder } from './select.js';
+import type { SelectQueryBuilder } from './select.js';
+import { isSelectQuery } from './internal.js';
 
 function isWhereOperator(val: any) {
   return _.isString(val) && Object.values(SqlOperator).includes((val as any).toLowerCase());
@@ -308,7 +309,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereIn(column: string | Wrap, val: any[] | ISelectQueryBuilder): this {
-    if (val instanceof SelectQueryBuilder) {
+    if (isSelectQuery(val)) {
       if (column instanceof Wrap) {
         throw new InvalidArgument('whereIn(): a wrapped column takes a list of values, not a sub-query');
       }
@@ -332,7 +333,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereNotIn(column: string | Wrap, val: any[] | ISelectQueryBuilder): this {
-    if (val instanceof SelectQueryBuilder) {
+    if (isSelectQuery(val)) {
       if (column instanceof Wrap) {
         throw new InvalidArgument('whereNotIn(): a wrapped column takes a list of values, not a sub-query');
       }
