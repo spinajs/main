@@ -221,7 +221,7 @@ export class ManifestValidator {
   protected add(ajv: Ajv, schema: ISchemaObject): void {
     try {
       if (ajv.validateSchema(schema) === true) {
-        ajv.addSchema(schema);
+        ajv.addSchema(schema, undefined, undefined, false);
         return;
       }
     } catch {
