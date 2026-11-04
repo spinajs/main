@@ -161,7 +161,7 @@ export interface DerivedValidatorsOptions {
 /**
  * Compiles the derived schema of every argument of `route` that the manifest describes, once, when the controller
  * registers its routes. Nothing without an effective manifest ( `off`, or `prefer` without one ). A schema that cannot
- * compile fails the boot in `require` and leaves that argument unchecked, with a warning, in `prefer`. Arguments whose
+ * compile fails the boot in `require` and leaves that argument unchecked, with an error log, in `prefer`. Arguments whose
  * index, kind or name disagree with the manifest ( a stale build ) are not checked.
  */
 export function derivedValidatorsOf({ container, controller, lineage, route, mountPath, log }: DerivedValidatorsOptions): DerivedArgValidators | undefined {
@@ -186,7 +186,8 @@ export function derivedValidatorsOf({ container, controller, lineage, route, mou
       if (effective.settings.mode === 'require') {
         throw new InvalidOperation(problem);
       }
-      log.warn({ problem }, 'Manifest request validation: ${problem}');
+      // An error, not a warning: the argument is now served unchecked.
+      log.error({ problem }, 'Manifest request validation: ${problem}');
     }
   }
   return validators;

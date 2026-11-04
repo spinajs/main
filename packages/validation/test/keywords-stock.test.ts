@@ -289,8 +289,9 @@ describe('addSafeKeywords against stock Ajv', function () {
     for (const coerce of [true, false]) {
       it(`coerce ${coerce}: differs from stock Ajv only on non-finite input and the allowlist`, () => {
         // ManifestValidator.ajv()'s instance, without addSafeKeywords
-        const stock = new AjvCtor({ strict: false, strictNumbers: true, allErrors: true, messages: false, coerceTypes: coerce ? 'array' : false, logger: silent });
+        const stock = new AjvCtor({ strict: false, strictNumbers: true, allErrors: true, messages: false, $data: true, verbose: true, coerceTypes: coerce ? 'array' : false, logger: silent });
         resolveDefault<(ajv: TestAjv) => unknown>(ajvFormats)(stock);
+        addKeywordPluginsOnUse(stock);
         const prepared = new Map(prepareManifestSchemas(manifest).map((schema) => [schema.$id, schema]));
         for (const schema of prepared.values()) {
           try {

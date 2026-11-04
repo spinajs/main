@@ -30,6 +30,23 @@ async function trapManifest(): Promise<Manifest> {
   const create = schemaOf('CreateItem').properties as Json;
   create.tags = { type: 'array', uniqueItems: true };
   create.meta = { const: { a: 1 } };
+  // The published body of an explicit `@Schema` class nested in the derived CreateItem, with keywords only plugins know.
+  const explicitId = 'spinajs/manifest-validation-fixture/Explicit';
+  manifest.schemas[explicitId] = {
+    $id: explicitId,
+    type: 'object',
+    properties: {
+      min: { type: 'integer' },
+      max: { type: 'integer', minimum: { $data: '1/min' } },
+      level: { type: 'number', range: [1, 3] },
+      code: { type: 'string', regexp: '/^a+$/' },
+    },
+    prohibited: ['admin'],
+  };
+  const mergedId = `${explicitId}Merged`;
+  manifest.schemas[mergedId] = { $id: mergedId, $merge: { source: { type: 'object', properties: { a: { type: 'string' } } }, with: { required: ['a'] } } };
+  create.explicit = { $ref: explicitId };
+  create.merged = { $ref: mergedId };
   const search = schemaOf('SearchQuery').properties as Json;
   search.page = { ...(search.page as Json), minimum: 1, maximum: 100 };
   return manifest;
@@ -101,6 +118,25 @@ describe('request validation from the manifest: non-finite numbers and compariso
       expect(fields(res)).to.deep.eq([[field, keyword]]);
     });
   }
+
+  for (const [rule, extra, field] of [
+    ['prohibited', { explicit: { admin: true } }, '/explicit'],
+    ['regexp', { explicit: { code: 'b' } }, '/explicit/code'],
+    ['range', { explicit: { level: 5 } }, '/explicit/level'],
+    ['a $data limit', { explicit: { min: 5, max: 4 } }, '/explicit/max'],
+    ['$merge', { merged: {} }, '/merged'],
+  ] as const) {
+    it(`enforces ${rule} of an explicit schema nested in the derived body`, async () => {
+      const res = await post({ name: 'a', count: 1, ...extra });
+      expect(res.status, res.text).to.eq(400);
+      expect(fields(res).map(([path]) => path)).to.include(field);
+    });
+  }
+
+  it('accepts the nested explicit schema when its rules hold', async () => {
+    const res = await post({ name: 'a', count: 1, explicit: { min: 1, max: 4, level: 2, code: 'aa' }, merged: { a: 'x' } });
+    expect(res.status, res.text).to.eq(200);
+  });
 
   it('create accepts distinct items and an equal const', async () => {
     const res = await post({ name: 'a', count: 1, tags: [{ a: 1 }, { valueOf: 1 }], meta: { a: 1 } });

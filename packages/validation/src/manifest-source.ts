@@ -1,7 +1,7 @@
 import { Ajv, type ValidateFunction } from 'ajv';
 import addFormats from 'ajv-formats';
 import { Autoinject, Container, Injectable, type IContainer } from '@spinajs/di';
-import { effectiveManifestOf } from '@spinajs/configuration';
+import { addKeywordPluginsOnUse, effectiveManifestOf } from '@spinajs/configuration';
 import type { Manifest } from '@spinajs/manifest';
 import { ValidationFailed, type IValidationError } from './exceptions/index.js';
 import { SchemaSource, type ISchema, type ISchemaObject } from './types.js';
@@ -267,10 +267,15 @@ export class ManifestValidator {
   protected ajv(coerce: boolean): Ajv {
     let ajv = this.instances.get(coerce);
     if (!ajv) {
-      // No defaults or removal: the data is checked, never rewritten, apart from coercion of string inputs.
-      // strictNumbers: a query `?n=abc` converted to NaN is not a number.
-      ajv = withFormats(new Ajv({ strict: false, strictNumbers: true, allErrors: true, messages: false, coerceTypes: coerce ? 'array' : false }));
-      addSafeKeywords(ajv);
+      // No defaults or removal: the data is checked, never rewritten, apart from coercion of string inputs and
+      // ajv-keywords' `transform`. strictNumbers: a query `?n=abc` converted to NaN is not a number.
+      // `$data` and the keyword plugins as in DataValidator: the closure of a derived argument holds the published body
+      // of an explicit `@Schema` class, whose `prohibited`, `range` or `$merge` would otherwise be skipped, and whose
+      // `$data` limit would make Ajv refuse the whole argument. `verbose` lets `sanitizeError` find a `$data` rule.
+      ajv = withFormats(new Ajv({ strict: false, strictNumbers: true, allErrors: true, messages: false, $data: true, verbose: true, coerceTypes: coerce ? 'array' : false }));
+      // Before the plugin hook, as in DataValidator.createAjv(): a code keyword added after it installs every plugin.
+      addSafeKeywords(ajv, { uniqueItemProperties: true });
+      addKeywordPluginsOnUse(ajv);
       for (const schema of this.schemas.values()) {
         this.add(ajv, schema);
       }
