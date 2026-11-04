@@ -9,7 +9,7 @@ const at: ConversionPlan = { kind: 'format', format: 'date-time' };
 const centsCodec: Codec<number> = { decode: (wire) => Math.round(Number(wire) * 100), encode: (cents) => (cents / 100).toFixed(2) };
 
 function context(plans: ConversionPlans = {}, models: Record<string, ModelEntry<unknown>> = {}): PlanContext {
-  return { plans, formats: { 'date-time': dateCodec, decimal: centsCodec as Codec<unknown> }, models };
+  return { plans, formats: { 'date-time': dateCodec, decimal: centsCodec }, models };
 }
 
 describe('conversion plans', () => {
