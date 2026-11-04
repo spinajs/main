@@ -156,6 +156,12 @@ describe('signals and waitForEvent', () => {
     expect(await service.signal(id, 'approved', 1, { principal: 'p'.repeat(200) })).to.deep.equal({ accepted: true });
   });
 
+  it('stores an empty principal as none', async () => {
+    const { id } = await service.start('sg-approve', null);
+    await service.signal(id, 'approved', 1, { principal: '' });
+    expect((await eventsOf(id))[0].Principal).to.equal(null);
+  });
+
   it('refuses a payload JSON cannot represent', async () => {
     const { id } = await service.start('sg-approve', null);
     expect(await rejects(service.signal(id, 'approved', { n: 1n }))).to.be.instanceOf(InvalidArgument);

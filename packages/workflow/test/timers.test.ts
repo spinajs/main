@@ -1,14 +1,16 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { FaultInjector } from '@spinajs/durable';
 import { v5 as uuidv5 } from 'uuid';
 import { unitHash, Workflow, WORKFLOW_NAMESPACE, WorkflowDefinition, WorkflowService, type WorkflowContext } from '../src/index.js';
+import { activation } from './support/activation.js';
 import { engine } from './support/engine.js';
 import { bootTestEnv, disposeTestEnv } from './support/env.js';
 import type { FakeClock } from '@spinajs/durable/testing';
 import { TestCrash, TestFaults } from './support/faults.js';
-import { instance, pick, rejects, stepsOf, T0 } from './support/rows.js';
+import { instance, pick, rejects, seedInstance, stepsOf, T0 } from './support/rows.js';
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
@@ -122,6 +124,14 @@ describe('durable timers and markers', () => {
     await (await engine()).tick();
     expect(pick(await instance(id), 'Status', 'Error', 'ClaimedBy')).to.deep.equal({ Status: 'running', Error: null, ClaimedBy: null });
     expect(await stepsOf(id)).to.have.length(0);
+  });
+
+  it('refuses a duration or an instant it cannot schedule, before anything is journaled', async () => {
+    await seedInstance('bad');
+    const h = await activation('bad');
+    for (const p of [h.ctx.sleep('abc'), h.ctx.sleep(-1), h.ctx.sleepUntil(new Date(NaN))]) expect(await rejects(p)).to.be.instanceOf(InvalidArgument);
+    await h.release();
+    expect(await stepsOf('bad')).to.have.length(0);
   });
 
   it('sleepUntil an instant that has passed completes at once and is journaled', async () => {

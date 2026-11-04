@@ -25,7 +25,8 @@ export interface StallTimer {
 }
 
 /**
- * Replays recorded step results in the order the original run delivered them (`Meta.order`), gated on causality.
+ * Replays recorded results (steps, woken sleeps, finished waits, emits) in the order the original run delivered them
+ * (`Meta.order`), gated on causality.
  * Every call records `Meta.after`, the number of results delivered before it; the r-th recorded result is released
  * only once every recorded call with `after < r` has been made again, and at most one result is released per
  * macrotask, as each one arrived from its own I/O the first time. Live results that complete while recorded ones are

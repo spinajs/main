@@ -158,12 +158,14 @@ export class DefaultWorkflowService extends WorkflowService {
   public async signal(instanceId: string, name: string, payload: unknown, opts: SignalOptions = {}): Promise<{ accepted: boolean }> {
     checkSignal(name, opts);
     const payloadText = jsonText(payload, 'signal payload');
-    const row = await WorkflowInstanceModel.where('Id', instanceId).onPrimary().first();
-    if (!row) throw new WorkflowNotFound(instanceId);
-    if (isTerminal(row.Status)) return { accepted: false };
+    // an empty principal is no principal: the authorizer sees `undefined` either way
+    const principal = opts.principal === undefined || opts.principal === '' ? null : opts.principal;
     const now = await this.now();
     const driver = await workflowDriver();
     return driver.transaction(async () => {
+      const status = await this.lockedStatus(driver, instanceId);
+      if (status === undefined) throw new WorkflowNotFound(instanceId);
+      if (isTerminal(status)) return { accepted: false };
       try {
         // a savepoint: on Postgres a failed INSERT would abort the whole transaction
         await driver.transaction(() =>
@@ -171,7 +173,7 @@ export class DefaultWorkflowService extends WorkflowService {
             InstanceId: instanceId,
             Name: name,
             Payload: payloadText,
-            Principal: opts.principal ?? null,
+            Principal: principal,
             DedupKey: opts.dedupKey ?? null,
             State: 'pending',
             ConsumedByKey: null,
@@ -229,6 +231,15 @@ export class DefaultWorkflowService extends WorkflowService {
 
   public async health(): Promise<{ missingVersions: MissingVersion[] }> {
     return { missingVersions: await missingVersions(await this.registry()) };
+  }
+
+  /** Locked until the signal commits, so it is ordered against the activation's fenced status write. */
+  protected async lockedStatus(driver: RawSqlDriver, id: string): Promise<WorkflowStatus | undefined> {
+    const dialect = sqlDialect(driver.Options.Driver, 'locking read', 'workflow');
+    const q = quoteFor(dialect);
+    const lock = dialect === 'sqlite' ? '' : ' FOR UPDATE';
+    const rows = await selectRows<{ Status: WorkflowStatus }>(driver, `SELECT ${q('Status')} FROM ${q('__workflow')} WHERE ${q('Id')} = ?${lock}`, [id]);
+    return rows[0]?.Status;
   }
 
   /**

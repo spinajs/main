@@ -282,8 +282,8 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
       deadline,
       onLeaseLost: () => abort('lease-lost'),
       onCrash: () => this.crashAll(),
-      onJournalFailed: (err) => {
-        this.Log.error(err as Error, `workflow instance ${instanceId}: a journal row could not be written; the activation is abandoned and replays later`);
+      onJournalFailed: (err, what) => {
+        this.Log.error(err as Error, `workflow instance ${instanceId}: ${what ?? 'a journal row could not be written'}; the activation is abandoned and replays later`);
         abort('journal-failed');
       },
       timers: this.Timers,

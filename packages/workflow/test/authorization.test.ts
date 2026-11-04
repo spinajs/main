@@ -1,11 +1,13 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { DenyAllSignalAuthorizer, SignalAuthorizer, Workflow, WorkflowDefinition, WorkflowService, type WorkflowContext, type WorkflowEngine } from '../src/index.js';
+import { activation } from './support/activation.js';
 import { TestSignalAuthorizer } from './support/authorizer.js';
 import { engine } from './support/engine.js';
 import { bootTestEnv, disposeTestEnv } from './support/env.js';
-import { eventsOf, instance, pick, stepsOf } from './support/rows.js';
+import { eventsOf, instance, pick, rejects, seedEvent, seedInstance, stepsOf, T0 } from './support/rows.js';
 
 @Workflow('au-approval')
 export class AuApproval extends WorkflowDefinition<number, { by: string | null; note: string | null }> {
@@ -19,6 +21,14 @@ export class AuApproval extends WorkflowDefinition<number, { by: string | null; 
 export class AuPlain extends WorkflowDefinition<null, string | null> {
   public async run(ctx: WorkflowContext<null>): Promise<string | null> {
     const e = await ctx.waitForEvent<string>('note');
+    return e?.payload ?? null;
+  }
+}
+
+@Workflow('au-dated')
+export class AuDated extends WorkflowDefinition<null, string | null> {
+  public async run(ctx: WorkflowContext<null>): Promise<string | null> {
+    const e = await ctx.waitForEvent<string>('approved', { permission: 'p', resource: { at: new Date(T0), skip: undefined } });
     return e?.payload ?? null;
   }
 }
@@ -77,6 +87,48 @@ describe('permissioned signals (D7)', () => {
     await r1.tick();
     expect((await instance(id)).Result).to.deep.equal({ by: 'boss', note: 'later' });
     expect(TestSignalAuthorizer.calls.map((c) => c.slice(1, 3))).to.deep.equal([['orders:approve', { order: 7 }]]);
+  });
+
+  it('a failing authorizer decides nothing: the event stays pending, the instance waiting, and a healthy one consumes it later', async () => {
+    const { id } = await service.start('au-approval', 7);
+    await r1.tick();
+    TestSignalAuthorizer.decide = () => {
+      throw new Error('authz backend down');
+    };
+    await seedEvent(id, 'approved', { Payload: 'go', Principal: 'boss' });
+    await r1.tick();
+    expect(pick(await instance(id), 'Status', 'WaitingFor', 'Error', 'ClaimedBy')).to.deep.equal({ Status: 'waiting', WaitingFor: 'approved', Error: null, ClaimedBy: null });
+    expect((await eventsOf(id)).map((e) => e.State)).to.deep.equal(['pending']);
+    TestSignalAuthorizer.decide = (principal) => principal === 'boss';
+    await r1.tick();
+    expect((await instance(id)).Result).to.deep.equal({ by: 'boss', note: 'go' });
+  });
+
+  it('only true allows', async () => {
+    TestSignalAuthorizer.decide = () => 'yes' as unknown as boolean;
+    const { id } = await service.start('au-approval', 7);
+    await service.signal(id, 'approved', 'go', { principal: 'boss' });
+    await r1.tick();
+    expect((await eventsOf(id)).map((e) => e.State)).to.deep.equal(['rejected']);
+  });
+
+  it('the authorizer gets the JSON form of the resource on the first run as on a replay', async () => {
+    TestSignalAuthorizer.decide = () => false;
+    const { id } = await service.start('au-dated', null);
+    await service.signal(id, 'approved', 'a');
+    await r1.tick();
+    await service.signal(id, 'approved', 'b');
+    await r1.tick();
+    expect(TestSignalAuthorizer.calls.map((c) => c[2])).to.deep.equal([{ at: new Date(T0).toISOString() }, { at: new Date(T0).toISOString() }]);
+  });
+
+  it('refuses a resource JSON cannot represent and an empty permission, before anything is journaled', async () => {
+    await seedInstance('bad');
+    const h = await activation('bad');
+    expect(await rejects(h.ctx.waitForEvent('a', { permission: 'p', resource: { n: 1n } }))).to.be.instanceOf(InvalidArgument);
+    expect(await rejects(h.ctx.waitForEvent('b', { permission: '' }))).to.be.instanceOf(InvalidArgument);
+    await h.release();
+    expect(await stepsOf('bad')).to.have.length(0);
   });
 
   it('a wait without a permission never asks the authorizer', async () => {

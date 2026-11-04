@@ -16,8 +16,12 @@ The contract:
 - A step name used in several concurrent branches (`ctx.step('save', ...)` inside `items.map(...)`) is replay-safe
   only if the code between those steps awaits workflow operations alone. If it awaits anything else (a file read, an
   HTTP call, a timer), per-item step names (`save:${id}`) are required.
-- With per-item step names, awaiting non-durable work between steps is safe: every recorded result belongs to
-  exactly one call.
+- With per-item step names, awaiting non-durable work between steps is safe for the steps: every recorded result
+  belongs to exactly one call. It is not safe for markers: `ctx.now()`, `ctx.uuid()` and `ctx.random()` are keyed by
+  call order alone, so in concurrent branches call them before any non-durable await, or take the value from a
+  per-item step (``ctx.step(`id:${k}`, () => randomUUID())``).
+- `Promise.race` over `ctx.sleep()` or `ctx.waitForEvent()` is not supported yet: the first operation that parks
+  suspends the whole run. For a wait with a deadline use `ctx.waitForEvent(name, { timeout })`.
 - Sequential code is not affected.
 - A replay fails with `NonDeterminismError` when it can see the code changed: a new step where the journal recorded
   another one, or a repeated step name called at another position or after another number of results. A recorded

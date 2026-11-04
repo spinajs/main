@@ -45,7 +45,7 @@ export interface ActivationInit {
   /** A crash reached the activation: as far as the instance is concerned, this replica is dead. */
   onCrash: (err: unknown) => void;
   /** A journal row failed to commit for a reason other than a lost lease or a crash: nothing of this activation may commit after it. */
-  onJournalFailed: (err: unknown) => void;
+  onJournalFailed: (err: unknown, what?: string) => void;
   /** Arms the coarse fallback that fails a replay waiting for a recorded call that never comes; none without it. */
   timers?: Clock;
 }
@@ -80,11 +80,15 @@ const stepScope = new AsyncLocalStorage<string>();
 /** The uuid v5 namespace of `ctx.uuid()`; changing it changes every id a replay derives. */
 export const WORKFLOW_NAMESPACE = '6f1c2a7e-3b9d-4e84-9a0c-2d4e8b7f1a63';
 
+/** The resource is kept in its JSON form: the first run hands the authorizer what every replay reads back. */
 function waitMeta(name: string, opts: WaitForEventOptions, startedAt: number): StepMeta {
+  if (opts.permission !== undefined && (typeof opts.permission !== 'string' || opts.permission.length === 0)) throw new InvalidArgument(`waitForEvent('${name}') permission must be a non-empty string`);
+  const resource = opts.resource === undefined ? undefined : safeStringify(opts.resource);
+  if (opts.resource !== undefined && resource === undefined) throw new InvalidArgument(`waitForEvent('${name}') resource must be representable as JSON`);
   return {
     timeoutAt: opts.timeout === undefined ? null : startedAt + parseDuration(opts.timeout, `waitForEvent('${name}') timeout`),
     ...(opts.permission !== undefined ? { permission: opts.permission } : {}),
-    ...(opts.resource !== undefined ? { resource: opts.resource } : {}),
+    ...(resource !== undefined ? { resource: JSON.parse(resource) as Record<string, unknown> } : {}),
   };
 }
 
@@ -295,18 +299,18 @@ export class ActivationContext implements WorkflowContext {
   }
 
   /** A journal write that failed leaves a hole a replay would fill differently (D3): no later write of this activation may commit. */
-  protected abandonJournal(err: unknown): void {
+  protected abandonJournal(err: unknown, what?: string): void {
     if (this.journalFailed) return;
     this.journalFailed = true;
     this.gate.abort(new WorkflowAborted('journal-failed'));
-    this.init.onJournalFailed(err);
+    this.init.onJournalFailed(err, what);
   }
 
   /** Amendment 20: a journal row that failed for any reason but a crash or a lost lease abandons the activation. */
-  protected journalWriteFailed(err: unknown): unknown {
+  protected journalWriteFailed(err: unknown, what?: string): unknown {
     if (isCrash(err)) this.crash(err);
     if (isCrash(err) || err instanceof WorkflowAborted) return err;
-    this.abandonJournal(err);
+    this.abandonJournal(err, what);
     return new WorkflowAborted('journal-failed');
   }
 
@@ -493,7 +497,7 @@ export class ActivationContext implements WorkflowContext {
   }
 
   /**
-   * Oldest pending event first; the conditional consume under the fence lets only one activation take an event. A
+   * Oldest pending event first (insert order); the conditional consume under the fence lets only one activation take an event. A
    * permissioned wait asks the SignalAuthorizer at consumption time and rejects what it denies (D7).
    */
   protected async consume<T>(op: Op, meta: StepMeta, startedAt: number): Promise<WorkflowEvent<T> | undefined> {
@@ -510,9 +514,14 @@ export class ActivationContext implements WorkflowContext {
     return undefined;
   }
 
+  /** An authorizer that fails decides nothing: the event stays pending and a later activation asks again. Only `true` allows. */
   protected async authorized(e: WorkflowEventModel, permission: string, resource: Record<string, unknown> | undefined): Promise<boolean> {
-    const authorizer = await DI.resolve(SignalAuthorizer);
-    return authorizer.authorize(e.Principal ?? undefined, permission, resource, { instanceId: this.instanceId, workflow: this.workflow, event: e.Name });
+    try {
+      const authorizer = await DI.resolve(SignalAuthorizer);
+      return (await authorizer.authorize(e.Principal ?? undefined, permission, resource, { instanceId: this.instanceId, workflow: this.workflow, event: e.Name })) === true;
+    } catch (err) {
+      throw this.journalWriteFailed(err, `the signal authorizer failed for event '${e.Name}'`);
+    }
   }
 
   /** Fenced and conditional on 'pending', like a consume. */
