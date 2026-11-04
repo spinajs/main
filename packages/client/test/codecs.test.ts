@@ -52,10 +52,23 @@ describe('luxonDateCodec', () => {
     expect(codec.encode(value)).to.equal('2026-05-01');
   });
 
-  it('rejects text that is not a date', () => {
+  it('rejects text that is not a date, and date-time text that would lose its time', () => {
     expect(() => codec.decode('2026-13-45')).to.throw(TypeError);
+    expect(() => codec.decode('2026-05-01T23:30:00+05:00')).to.throw(TypeError);
+  });
+
+  it('rejects an invalid DateTime on encode', () => {
+    expect(() => codec.encode(DateTime.invalid('test'))).to.throw(TypeError);
   });
 });
+
+function makeSpecial<D>(Ctor: new (value: string) => D, text: string): D | undefined {
+  try {
+    return new Ctor(text);
+  } catch {
+    return undefined; // big.js cannot hold NaN or Infinity
+  }
+}
 
 function describeDecimal<D extends { toFixed(): string; eq(other: D): boolean }>(name: string, Ctor: new (value: string) => D): void {
   describe(`decimalCodec with ${name}`, () => {
@@ -82,6 +95,20 @@ function describeDecimal<D extends { toFixed(): string; eq(other: D): boolean }>
       expect(() => codec.decode(1.5)).to.throw(TypeError);
     });
 
+    it('refuses NaN, Infinity and hex text on decode, and a NaN or Infinity value on encode', () => {
+      for (const text of ['NaN', 'Infinity', '-Infinity', '0x1f', ' 12 ', '']) expect(() => codec.decode(text), text).to.throw(TypeError);
+      for (const text of ['NaN', 'Infinity']) {
+        const value = makeSpecial(Ctor, text);
+        if (value) expect(() => codec.encode(value)).to.throw(TypeError);
+      }
+    });
+
+    it('encodes a value of a cloned constructor or another copy of the library', () => {
+      const other = { constructor: function Other() {}, toFixed: () => '1000000000000000000000' };
+      expect(codec.encode(other as unknown as D)).to.equal('1000000000000000000000');
+      expect(codec.encode(5 as unknown as D)).to.equal(5);
+    });
+
     it('leaves a value that is not of the library type to the server', () => {
       expect(codec.encode('12.5' as unknown as D)).to.equal('12.5');
     });
@@ -102,6 +129,10 @@ describe('bigintCodec', () => {
   it('rejects text that is not an integer', () => {
     expect(() => bigintCodec.decode('1.5')).to.throw(TypeError);
     expect(() => bigintCodec.decode(5)).to.throw(TypeError);
+  });
+
+  it('sends a value that is not a bigint to the server as it is', () => {
+    expect(bigintCodec.encode(5 as unknown as bigint)).to.equal(5);
   });
 });
 
