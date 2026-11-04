@@ -7,6 +7,9 @@ import { isJson, type Json } from './refs.js';
  */
 export type Resolved = { schema: unknown } | { error: string };
 
+// Own keys only: reading `__proto__` off a plain object would merge into, or walk, Object.prototype.
+const own = (value: object, key: string): unknown => (Object.hasOwn(value, key) ? (value as Record<string, unknown>)[key] : undefined);
+
 const clone = (value: unknown): unknown => (value === undefined ? undefined : (JSON.parse(JSON.stringify(value)) as unknown));
 
 /** RFC 7396, in place for objects, as json-merge-patch's `apply`. */
@@ -15,7 +18,7 @@ function mergePatch(target: unknown, patch: unknown): unknown {
   const result: Json = isJson(target) ? target : {};
   for (const [key, value] of Object.entries(patch)) {
     if (value === null) delete result[key];
-    else Object.defineProperty(result, key, { value: mergePatch(result[key], value), enumerable: true, writable: true, configurable: true });
+    else Object.defineProperty(result, key, { value: mergePatch(own(result, key), value), enumerable: true, writable: true, configurable: true });
   }
   return result;
 }
@@ -28,7 +31,7 @@ function locate(document: unknown, pointer: string): { parent: unknown; key: str
   let parent = document;
   for (const segment of segments.slice(0, -1)) {
     if (!isJson(parent) && !Array.isArray(parent)) throw new Error(`'${pointer}' does not exist`);
-    parent = (parent as Record<string, unknown>)[segment];
+    parent = own(parent, segment);
   }
   if (!isJson(parent) && !Array.isArray(parent)) throw new Error(`'${pointer}' does not exist`);
   return { parent, key: segments[segments.length - 1] };
