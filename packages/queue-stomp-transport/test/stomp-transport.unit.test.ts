@@ -571,6 +571,59 @@ describe('stomp queue transport - unit', function () {
     });
   });
 
+  describe('message ids and headers', () => {
+    it('publishes MessageId as x-spinajs-message-id and Headers as STOMP headers, never as message-id', async () => {
+      const c = await connected();
+      await c.emit(qMessage({ MessageId: 'm-1', Headers: { traceparent: 't-1', 'x-app': 'a' } }));
+
+      const h: Record<string, string> = c.fake.published[0].headers;
+      expect(h['x-spinajs-message-id']).to.eq('m-1');
+      expect(h['message-id']).to.eq(undefined);
+      expect(h.traceparent).to.eq('t-1');
+      expect(h['x-app']).to.eq('a');
+    });
+
+    it('does not let a Headers entry replace a transport header', async () => {
+      const c = await connected();
+      await c.emit(jobMessage({ Persistent: true, MessageId: 'm-1', Headers: { persistent: 'false', 'x-spinajs-message-id': 'other', destination: '/queue/elsewhere', 'message-id': 'x' } }));
+
+      const h: Record<string, string> = c.fake.published[0].headers;
+      expect(h.persistent).to.eq('true');
+      expect(h.destination).to.eq(undefined);
+      expect(h['message-id']).to.eq(undefined);
+      expect(h['x-spinajs-message-id']).to.eq('m-1');
+    });
+
+    it('fills MessageId and the standard headers from the frame, ignoring the broker-owned message-id', async () => {
+      const c = await connected();
+      const received: IQueueMessage[] = [];
+      await c.subscribe('/queue/ids', async (m) => void received.push(m));
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/ids')!;
+      sub.callback(brokerMessage({ ...jobMessage(), Headers: { 'x-app': 'a' } }, { 'message-id': 'ID:broker-1', 'x-spinajs-message-id': 'm-2', 'x-retry-count': '1', destination: '/queue/ids' }));
+      await tick();
+
+      expect(received[0].MessageId).to.eq('m-2');
+      expect(received[0].Headers).to.deep.eq({ 'x-app': 'a', 'x-spinajs-message-id': 'm-2', 'x-retry-count': '1' });
+    });
+
+    it('keeps x-spinajs-message-id on the retry republish and the dead letter', async () => {
+      const c = await connected({ defaultQueueDeadLetterChannel: '/queue/dlq' });
+      await c.subscribe('/queue/fail', sinon.stub().rejects(new Error('boom')));
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/fail')!;
+
+      sub.callback(brokerMessage(jobMessage({ RetryCount: 1, MessageId: 'm-3' } as any)));
+      await tick();
+      sub.callback(brokerMessage(jobMessage({ RetryCount: 1, MessageId: 'm-3' } as any), { 'x-retry-count': '1' }));
+      await tick();
+
+      const retry = c.fake.published.find((p) => p.destination === '/queue/fail')!;
+      const dead = c.fake.published.find((p) => p.destination === '/queue/dlq')!;
+      expect(retry.headers['x-spinajs-message-id']).to.eq('m-3');
+      expect(dead.headers['x-spinajs-message-id']).to.eq('m-3');
+    });
+  });
+
   describe('message handling / ack', () => {
     it('acks a message after the handler succeeds', async () => {
       const c = await connected();

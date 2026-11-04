@@ -1,5 +1,5 @@
 import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
-import { IQueueMessage, IQueueJob, IQueueConnectionOptions, QueueClient, QueueMessage, QueueMessageType } from '@spinajs/queue';
+import { IQueueMessage, IQueueJob, IQueueConnectionOptions, QueueClient, QueueHeaders, QueueMessage, QueueMessageType, readQueueHeaders } from '@spinajs/queue';
 import amqp, { Channel, ChannelModel, ConfirmChannel, ConsumeMessage, Options } from 'amqplib';
 import _ from 'lodash';
 import { Constructor, Injectable, PerInstanceCheck } from '@spinajs/di';
@@ -14,7 +14,7 @@ import { BackoffType, ResiliencePipeline, ResiliencePipelineBuilder } from '@spi
 const DEFAULT_TOPIC_PREFIX = '/topic/';
 
 /** Header carrying the retry attempt count across redeliveries. */
-const RETRY_COUNT_HEADER = 'x-retry-count';
+const RETRY_COUNT_HEADER = QueueHeaders.RetryCount;
 
 /** Connection tuning keys that amqplib reads only from the connect target, never from socket options. */
 const CONNECT_TUNING_OPTIONS = ['heartbeat', 'frameMax', 'locale'];
@@ -471,7 +471,7 @@ export class AmqpQueueClient extends QueueClient {
 
         let qMessage: IQueueMessage;
         try {
-          qMessage = JSON.parse(msg.content.toString()) as IQueueMessage;
+          qMessage = this.fromDelivery(JSON.parse(msg.content.toString()) as IQueueMessage, msg);
         } catch (err) {
           this.Log.error({ error: err, channel: c }, 'Cannot parse incoming message on channel ${channel}, dead-lettering it');
           this.deadLetterRaw(msg, this.Options.defaultQueueDeadLetterChannel, c, (err as Error)?.message ?? String(err), undefined, ch);
@@ -488,6 +488,16 @@ export class AmqpQueueClient extends QueueClient {
 
     descriptor.consumerTag = consumerTag;
     this.Log.success({ channel: c, durable: !!descriptor.durable }, 'Channel ${channel}, durable: ${durable} subscribed and ready to receive messages !');
+  }
+
+  /** The body wins for MessageId; the broker's standard headers win over the body's, since retries and dead letters rewrite them. */
+  protected fromDelivery(message: IQueueMessage, msg: ConsumeMessage): IQueueMessage {
+    const headers = msg.properties.headers as Record<string, unknown> | undefined;
+    const messageId = message.MessageId ?? (msg.properties.messageId as string | undefined) ?? (headers?.[QueueHeaders.MessageId] as string | undefined);
+    const standard = readQueueHeaders(headers);
+    if (messageId !== undefined) message.MessageId = messageId;
+    if (message.Headers || Object.keys(standard).length > 0) message.Headers = { ...message.Headers, ...standard };
+    return message;
   }
 
   /**
@@ -534,6 +544,7 @@ export class AmqpQueueClient extends QueueClient {
     await this.publishWithConfirm('', retryQueue, msg.content, {
       persistent: true,
       contentType: 'application/json',
+      messageId: msg.properties.messageId as string | undefined,
       priority: msg.properties.priority,
       headers: { ...msg.properties.headers, [RETRY_COUNT_HEADER]: nextAttempt },
     });
@@ -562,7 +573,8 @@ export class AmqpQueueClient extends QueueClient {
         this.publishWithConfirm('', dlq, msg.content, {
           persistent: true,
           contentType: 'application/json',
-          headers: { ...msg.properties.headers, 'x-error': reason, ...(attempt !== undefined ? { [RETRY_COUNT_HEADER]: attempt } : {}) },
+          messageId: msg.properties.messageId as string | undefined,
+          headers: { ...msg.properties.headers, [QueueHeaders.Error]: reason, ...(attempt !== undefined ? { [RETRY_COUNT_HEADER]: attempt } : {}) },
         }),
       )
       .then(() => {
@@ -627,6 +639,14 @@ export class AmqpQueueClient extends QueueClient {
 
     if ((message as IQueueJob).JobId) {
       publishOptions.correlationId = (message as IQueueJob).JobId;
+    }
+
+    if (message.MessageId) {
+      publishOptions.messageId = message.MessageId;
+    }
+
+    if (message.Headers || message.MessageId) {
+      publishOptions.headers = { ...message.Headers, ...(message.MessageId ? { [QueueHeaders.MessageId]: message.MessageId } : {}) };
     }
 
     if (message.Priority) {
