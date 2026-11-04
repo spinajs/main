@@ -21,7 +21,8 @@ type SlotType<S, Wire> = [S] extends [Codec<infer T> | undefined] ? (undefined e
 /**
  * The app type of every format slot for the given codecs: the codec's type, else the wire string. A slot that may be
  * unset (an optional key, or a variable typed `FormatCodecs`) is typed as either; pass `formats` as a literal to get
- * the codec's type alone.
+ * the codec's type alone. A generic `F extends FormatCodecs` inferred from an omitted `formats` falls back to
+ * `FormatCodecs` and types every slot `unknown`, so a signature taking optional `formats` must default `F` to `{}`.
  */
 export type FormatTypes<C extends FormatCodecs> = {
   [K in keyof PlainFormats]: K extends keyof C ? SlotType<C[K], PlainFormats[K]> : PlainFormats[K];

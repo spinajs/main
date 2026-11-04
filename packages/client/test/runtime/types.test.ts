@@ -2,26 +2,52 @@ import 'mocha';
 import { expect } from 'chai';
 import { typecheck } from '../support/typecheck.js';
 
-const header = `import { dateCodec, type FormatCodecs, type FormatTypes, type ObjectPlanOf } from '@spinajs/client/runtime';\n`;
+const header = [
+  `import { dateCodec, fromClass, type FormatCodecs, type FormatTypes, type ModelEntry, type ObjectPlanOf } from '@spinajs/client/runtime';`,
+  `type Eq<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;`,
+  '',
+].join('\n');
 
 describe('runtime model types', function () {
   this.timeout(120_000);
 
   it('types a codec slot passed as a literal as the codec value', () => {
-    const source = `${header}const date: FormatTypes<{ 'date-time': typeof dateCodec }>['date-time'] = new Date();\nconst text: FormatTypes<{ 'date-time': typeof dateCodec }>['date'] = '2026-05-01';\nexport { date, text };\n`;
+    const source = `${header}const date: Eq<FormatTypes<{ 'date-time': typeof dateCodec }>['date-time'], Date> = true;\nconst text: Eq<FormatTypes<{ 'date-time': typeof dateCodec }>['date'], string> = true;\nexport { date, text };\n`;
     expect(typecheck(source)).to.deep.equal([]);
   });
 
-  it('does not claim the wire type for a slot of a widened FormatCodecs variable', () => {
-    const source = `${header}const formats: FormatCodecs = { 'date-time': dateCodec };\nconst value: FormatTypes<typeof formats>['date-time'] = new Date();\nexport { value };\n`;
+  it('types every slot of no codecs as wire text', () => {
+    const source = `${header}const date: Eq<FormatTypes<{}>['date-time'], string> = true;\nexport { date };\n`;
+    expect(typecheck(source)).to.deep.equal([]);
+  });
+
+  it('types a slot of a widened FormatCodecs variable as exactly unknown', () => {
+    const source = `${header}const formats: FormatCodecs = { 'date-time': dateCodec };\nconst value: Eq<FormatTypes<typeof formats>['date-time'], unknown> = true;\nexport { value };\n`;
     expect(typecheck(source)).to.deep.equal([]);
   });
 
   it('types an optional codec slot as the codec value or the wire text', () => {
-    const source = `${header}type F = FormatTypes<{ 'date-time'?: typeof dateCodec }>;\nconst a: F['date-time'] = new Date();\nconst b: F['date-time'] = 'x';\nconst c: F['date-time'] = 1;\nexport { a, b, c };\n`;
-    const errors = typecheck(source);
-    expect(errors).to.have.length(1);
-    expect(errors[0]).to.match(/'number' is not assignable/);
+    const source = `${header}const slot: Eq<FormatTypes<{ 'date-time'?: typeof dateCodec }>['date-time'], Date | string> = true;\nexport { slot };\n`;
+    expect(typecheck(source)).to.deep.equal([]);
+  });
+
+  // The shape FG-18 emits: without the `= {}` default, an omitted `formats` infers F as FormatCodecs and every slot is unknown.
+  it('keeps wire text for a models-only call of an overload whose codec parameter defaults to {}', () => {
+    const source = [
+      header,
+      `declare function make<const F extends FormatCodecs = {}, const M extends Record<string, ModelEntry<unknown>> = {}>(options: { formats?: F; models?: M }): FormatTypes<F>;`,
+      `declare function makeWithoutDefault<const F extends FormatCodecs, const M extends Record<string, ModelEntry<unknown>> = {}>(options: { formats?: F; models?: M }): FormatTypes<F>;`,
+      `class User { id = 0 }`,
+      `const modelsOnly = make({ models: { UserDto: fromClass(User) } });`,
+      `const withCodec = make({ formats: { 'date-time': dateCodec }, models: { UserDto: fromClass(User) } });`,
+      `const withoutDefault = makeWithoutDefault({ models: { UserDto: fromClass(User) } });`,
+      `const a: Eq<(typeof modelsOnly)['date-time'], string> = true;`,
+      `const b: Eq<(typeof withCodec)['date-time'], Date> = true;`,
+      `const c: Eq<(typeof withoutDefault)['date-time'], unknown> = true;`,
+      `export { a, b, c };`,
+      '',
+    ].join('\n');
+    expect(typecheck(source)).to.deep.equal([]);
   });
 
   it('ObjectPlanOf rejects a plan that leaves out a declared property', () => {
