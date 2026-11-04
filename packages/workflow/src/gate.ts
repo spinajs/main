@@ -26,7 +26,8 @@ export class ReplayGate {
   protected driving = false;
 
   constructor(rows: StepRow[], protected readonly live: () => Promise<unknown>[]) {
-    const ordered = rows.filter((r) => (r.Status === 'succeeded' || r.Status === 'failed') && typeof r.Meta?.order === 'number');
+    // Only steps wait here: markers are synchronous and compensations replay outside run(), so holding them would stall the cursor.
+    const ordered = rows.filter((r) => r.Kind === 'step' && (r.Status === 'succeeded' || r.Status === 'failed') && typeof r.Meta?.order === 'number');
     this.order = ordered.sort((a, b) => (a.Meta?.order ?? 0) - (b.Meta?.order ?? 0)).map((r) => r.Key);
     this.held = new Set(this.order);
   }
