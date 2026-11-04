@@ -81,6 +81,11 @@ describe('route pagination', function () {
       expect(shapes('referenced').pagination).to.deep.include({ param: { arg: 'query', path: ['page'] }, firstPage: 0 });
     });
 
+    it('marks an optional page, whose undefined member is not a second answer', () => {
+      expect(shapes('optional').pagination).to.deep.equal({ kind: 'offset', item: USER, param: { arg: 'page', path: [] }, firstPage: 1 });
+      expect(shapes('optional').returnType.schema).to.equal('spinajs/paged-app/Page_UserDto');
+    });
+
     it('does not mark a union reply, and warns with HTTP007 at the route instead of staying silent', () => {
       expect(shapes('maybe')).to.not.have.property('pagination');
       const warnings = fragment.diagnostics.filter((d) => d.code === 'HTTP007');

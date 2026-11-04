@@ -41,6 +41,11 @@ export class ShapesController {
   }
 
   @Get()
+  public optional(@Query() page?: number): Promise<Page<UserDto> | undefined> {
+    return Promise.resolve(page === 0 ? undefined : { items: [], total: 0 });
+  }
+
+  @Get()
   public maybe(@Query() page?: number): Promise<Ok<Page<UserDto>> | NotFound> {
     return Promise.resolve(page === 0 ? new NotFound({}) : new Ok({ items: [], total: 0 }));
   }

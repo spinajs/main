@@ -73,6 +73,17 @@ function pageIn(checker: ts.TypeChecker, type: ts.Type, node: ts.Node, depth = 0
   return declaredPage(checker, type, node) ?? inheritedPage(checker, type, node, depth);
 }
 
+/**
+ * `Page<T> | undefined` is one answer that may be empty, not a union of answers; `null` is a JSON reply of its own
+ * and stays. `Ok<Page<T>> | undefined` stays a union: the reply schema is not derived through a wrapper in a union.
+ */
+function definedPayload(checker: ts.TypeChecker, returnType: ts.Type): ts.Type {
+  const payload = unwrapTransparent(checker, returnType);
+  if (!payload.isUnion()) return payload;
+  const defined = payload.types.filter((member) => (member.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Void)) === 0);
+  return defined.length === 1 && unwrapTransparent(checker, defined[0]) === defined[0] ? defined[0] : payload;
+}
+
 // One reply schema cannot describe several answers, so a union is not unwrapped (`wrapperName`) and not marked either.
 const isUnionWithPage = (checker: ts.TypeChecker, payload: ts.Type, node: ts.Node): boolean =>
   payload.isUnion() && payload.types.some((member) => !!pageIn(checker, unwrapTransparent(checker, member), node));
@@ -135,7 +146,7 @@ export interface PagedRoute {
 
 /** `RouteEntry.pagination` for a route returning the `@spinajs/http` `Page<T>` or `CursorPage<T>`. */
 export function paginationOf(returnType: ts.Type, params: readonly TypedParam[], node: ts.Node, route: PagedRoute, ctx: ExtractorContext): RoutePagination | undefined {
-  const payload = unwrapTransparent(ctx.checker, returnType);
+  const payload = definedPayload(ctx.checker, returnType);
   const page = pageIn(ctx.checker, payload, node);
   if (!page) {
     if (isUnionWithPage(ctx.checker, payload, node)) {
