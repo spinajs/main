@@ -35,28 +35,27 @@ export interface Resolved {
 
 type RunGate = Extract<Gate, { readonly kind: 'run' }>;
 
-/** The check pipeline (design §10.1). A top-level access check records its reads for the taps, when there are any. */
+/**
+ * The check pipeline (design §10.1); every step below runs in this order. A top-level access check records its reads
+ * for the taps when there are any, and hands them its decision when it is final.
+ */
 export function* pipeline(engine: Engine, input: CheckInput, run: Run, resolved?: Resolved): Pipeline<Checked> {
-  if (engine.taps.length === 0 || run.depth > 0 || run.quiet === true) return yield* check(engine, input, run, resolved);
-  const reads = new ReadRecorder();
-  const started = performance.now();
-  const checked = yield* check(engine, input, { ...run, reads }, resolved);
-  tap(engine, input, run.instant, checked, reads, performance.now() - started);
-  return checked;
-}
-
-/** Every step below runs in this order. */
-function* check(engine: Engine, input: CheckInput, run: Run, resolved?: Resolved): Pipeline<Checked> {
-  const head = yield* prepare(engine, input, run, resolved);
+  const reads = engine.taps.length === 0 || run.depth > 0 || run.quiet === true ? undefined : new ReadRecorder();
+  const head = yield* prepare(engine, input, reads ? { ...run, reads } : run, resolved);
   const gate = principalGate(input.principal);
-  if (gate.kind !== 'run') return gateExit(engine, head, gate);
+  if (gate.kind !== 'run') return settled(engine, input, head, reads, gateExit(engine, head, gate));
   const admitted = yield* admit(engine, head, input, gate);
-  if ('decision' in admitted) return admitted;
+  if ('decision' in admitted) return settled(engine, input, head, reads, admitted);
   const voted = yield* vote(engine, admitted, input);
   const combination = yield* combineVotes(engine, voted, input);
   const fields = yield* fieldsStep(engine, voted, combination);
   const reason = yield* reasonStep(engine, voted, combination, fields);
-  return conclude(engine, voted, combination, fields, reason);
+  return settled(engine, input, head, reads, conclude(engine, voted, combination, fields, reason));
+}
+
+function settled(engine: Engine, input: CheckInput, head: Head, reads: ReadRecorder | undefined, checked: Checked): Checked {
+  if (reads) tap(engine, input, head.run.instant, checked, reads, performance.now() - head.base.started);
+  return checked;
 }
 
 // Engine-owned data goes in as is (frozen with the trace), so a deep residual is never cut.

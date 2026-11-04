@@ -1,11 +1,14 @@
 import type { Decision, DecisionRequest } from './decision.js';
 import type { ResourceRef } from './principal.js';
 
-/** What one decision read: its nested checks and intersect delegates included. */
+/** What one decision read: its nested checks and intersect delegates included. A tap gets it built on first access. */
 export interface DecisionReadSet {
-  /** The env keys read, by the models or by the engine binding `env.*` refs, with their values. */
+  /** The env the decision was made with: the caller's keys, which the models may read, without `now` (the decision's instant). */
   env: Record<string, unknown>;
-  /** `path` is empty for a whole node a model loaded through ctx.attributes. */
+  /**
+   * The scope nodes a model (ctx.attributes) or the engine (`scope.*` refs) loaded, whole (`path` empty). The principal's
+   * and actor's attributes are not listed: a decision log hashes their full state.
+   */
   attributes: Array<{ ref: ResourceRef | 'principal' | 'actor'; path: string; value: unknown }>;
   /** Relation resolvers looked up by a model (ctx.relation) or by the subject evaluation (`model: 'core'`). */
   relations: Array<{ model: string; object: ResourceRef; relation: string; version?: string }>;
@@ -19,5 +22,8 @@ export interface DecisionReadSet {
  * recorded only while at least one tap is registered. A tap that throws or rejects is logged and ignored.
  */
 export abstract class DecisionTap {
+  /** When given and false for every tap, the engine builds nothing for the decision and calls no `onDecision`. */
+  public wants?(decision: Decision): boolean;
+
   public abstract onDecision(req: DecisionRequest, decision: Decision, reads: DecisionReadSet, meta: { cached: boolean; durationMs: number }): void;
 }
