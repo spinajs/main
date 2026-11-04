@@ -6433,60 +6433,144 @@
       "count": 1
     }
   },
-  "packages/orm/src/builders.ts": {
+  "packages/orm/src/builders/base.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 2
+    }
+  },
+  "packages/orm/src/builders/create-query.ts": {
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 5
+    },
+    "complexity": {
+      "count": 1
+    }
+  },
+  "packages/orm/src/builders/delete.ts": {
     "@typescript-eslint/ban-ts-comment": {
       "count": 1
     },
     "@typescript-eslint/no-empty-object-type": {
-      "count": 10
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-declaration-merging": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/orm/src/builders/insert.ts": {
+    "@typescript-eslint/no-empty-object-type": {
+      "count": 3
+    },
+    "@typescript-eslint/no-this-alias": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-declaration-merging": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/unbound-method": {
+      "count": 1
+    }
+  },
+  "packages/orm/src/builders/join.ts": {
+    "@typescript-eslint/restrict-template-expressions": {
+      "count": 2
+    },
+    "complexity": {
+      "count": 1
+    }
+  },
+  "packages/orm/src/builders/limit.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 4
+    }
+  },
+  "packages/orm/src/builders/order-by.ts": {
+    "@typescript-eslint/no-unsafe-enum-comparison": {
+      "count": 2
+    }
+  },
+  "packages/orm/src/builders/raw.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "packages/orm/src/builders/schema/schema.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "packages/orm/src/builders/schema/table.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 2
+    }
+  },
+  "packages/orm/src/builders/select.ts": {
+    "@typescript-eslint/no-empty-object-type": {
+      "count": 2
     },
     "@typescript-eslint/no-misused-promises": {
       "count": 1
     },
-    "@typescript-eslint/no-redundant-type-constituents": {
-      "count": 1
-    },
-    "@typescript-eslint/no-this-alias": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 5
-    },
     "@typescript-eslint/no-unsafe-declaration-merging": {
-      "count": 5
-    },
-    "@typescript-eslint/no-unsafe-enum-comparison": {
-      "count": 5
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 20
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 8
-    },
-    "@typescript-eslint/no-unused-vars": {
       "count": 2
-    },
-    "@typescript-eslint/restrict-template-expressions": {
-      "count": 2
-    },
-    "@typescript-eslint/unbound-method": {
-      "count": 1
-    },
-    "complexity": {
-      "count": 3
     },
     "no-constant-binary-expression": {
       "count": 1
     },
-    "prefer-rest-params": {
-      "count": 2
-    },
-    "prettier/prettier": {
-      "count": 1
-    },
     "valid-typeof": {
       "count": 1
+    }
+  },
+  "packages/orm/src/builders/update.ts": {
+    "@typescript-eslint/no-empty-object-type": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-declaration-merging": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/orm/src/builders/where.ts": {
+    "@typescript-eslint/no-redundant-type-constituents": {
+      "count": 1
+    },
+    "@typescript-eslint/no-this-alias": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-enum-comparison": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 7
+    },
+    "complexity": {
+      "count": 1
+    },
+    "prefer-rest-params": {
+      "count": 2
     }
   },
   "packages/orm/src/converters.ts": {
