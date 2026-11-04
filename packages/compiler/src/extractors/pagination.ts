@@ -142,6 +142,8 @@ const located = (found: FoundParam): PaginationParam => ({ arg: found.arg, path:
 export interface PagedRoute {
   owner: string;
   handler: string;
+  /** An abstract base is never mounted: each subclass that serves the route reports it instead. */
+  abstract?: boolean;
 }
 
 /** `RouteEntry.pagination` for a route returning the `@spinajs/http` `Page<T>` or `CursorPage<T>`. */
@@ -149,7 +151,7 @@ export function paginationOf(returnType: ts.Type, params: readonly TypedParam[],
   const payload = definedPayload(ctx.checker, returnType);
   const page = pageIn(ctx.checker, payload, node);
   if (!page) {
-    if (isUnionWithPage(ctx.checker, payload, node)) {
+    if (!route.abstract && isUnionWithPage(ctx.checker, payload, node)) {
       const message = `${route.owner}.${route.handler} returns a page inside a union, which is not marked as paginated: the generated client gets no infinite query for it. Return the page type itself, and the other answers by throwing.`;
       ctx.warn('HTTP007', message, node);
     }

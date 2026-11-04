@@ -88,13 +88,18 @@ describe('route pagination', function () {
 
     it('does not mark a union reply, and warns with HTTP007 at the route instead of staying silent', () => {
       expect(shapes('maybe')).to.not.have.property('pagination');
-      const warnings = fragment.diagnostics.filter((d) => d.code === 'HTTP007');
+      const warnings = fragment.diagnostics.filter((d) => d.code === 'HTTP007' && d.message.startsWith('ShapesController'));
       expect(warnings.map((d) => [d.severity, d.message, d.source?.file])).to.deep.equal([
         ['warning', 'ShapesController.maybe returns a page inside a union, which is not marked as paginated: the generated client gets no infinite query for it. Return the page type itself, and the other answers by throwing.', 'src/shapes.ts'],
       ]);
       const doctor = pageWithoutParam.run(fixture({ controllers: fragment.controllers, diagnostics: fragment.diagnostics }), doctorCtx);
       expect(doctor.filter((d) => d.message.startsWith('ShapesController.maybe'))).to.have.length(1);
     });
+  });
+
+  it('warns about a union page on an abstract base once per subclass that serves it, not on the base itself', () => {
+    const warnings = fragment.diagnostics.filter((d) => d.code === 'HTTP007' && !d.message.startsWith('ShapesController'));
+    expect(warnings.map((d) => d.message.split(' ')[0])).to.deep.equal(['ArticlesController.maybe']);
   });
 
   it('records the item a subclass binds on a route inherited from a generic base', () => {

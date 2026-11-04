@@ -125,7 +125,8 @@ function routeOf(m: ts.MethodDeclaration, mountPath: string, className: string, 
   const reason = publicOf(m, ctx);
   const fullPath = servedPath(routeFullPath(mountPath, path, handler));
   const params = paramsOf(m, fullPath, `${className}.${handler}`, ctx);
-  const pagination = sig && declaredPaginationOf(m, sig, params, { owner: className, handler }, ctx);
+  const abstract = ts.isClassDeclaration(m.parent) && isAbstractClass(m.parent);
+  const pagination = sig && declaredPaginationOf(m, sig, params, { owner: className, handler, abstract }, ctx);
   return {
     method: ROUTE_METHODS[dec.name], path, handler, fullPath, params,
     returnType, ...(pagination ? { pagination } : {}), policies: policyGroupsOf(m, ctx, 'route'), middlewares: middlewaresOf(m, ctx),
