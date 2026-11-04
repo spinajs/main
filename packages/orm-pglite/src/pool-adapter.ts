@@ -112,6 +112,7 @@ export class PglitePool {
   private busy = false;
   private ended = false;
   private readonly waiting: Waiter[] = [];
+  private searchPath: string | undefined;
 
   public constructor(
     private readonly db: PGlite,
@@ -127,7 +128,24 @@ export class PglitePool {
     return this.waiting.length;
   }
 
-  public connect(): Promise<PglitePoolClient> {
+  /** One lease of the session. With `searchPath` ( a quoted identifier ), the session runs in it before the lease is handed out. */
+  public async connect(searchPath?: string): Promise<PglitePoolClient> {
+    const client = await this.lease();
+    if (searchPath === undefined || searchPath === this.searchPath) {
+      return client;
+    }
+
+    try {
+      await this.db.exec(`SET search_path TO ${searchPath}`);
+      this.searchPath = searchPath;
+      return client;
+    } catch (err) {
+      client.release();
+      throw err;
+    }
+  }
+
+  private lease(): Promise<PglitePoolClient> {
     if (this.ended) {
       return Promise.reject(new Error(ENDED));
     }
@@ -163,7 +181,7 @@ export class PglitePool {
 
   /** Taken under a lease, so it never captures half of a transaction. */
   public async dumpDataDir(): Promise<Blob> {
-    const client = await this.connect();
+    const client = await this.lease();
     try {
       return await this.db.dumpDataDir('none');
     } finally {
@@ -195,5 +213,48 @@ export class PglitePool {
     } else {
       this.busy = false;
     }
+  }
+}
+
+/** One connection's handle on a shared pool: its leases run in its own search path, and end() lets go instead of closing. */
+export class PglitePoolView {
+  private ended = false;
+
+  public constructor(
+    private readonly pool: PglitePool,
+    private readonly searchPath: string,
+    private readonly onEnd: () => void,
+  ) {}
+
+  public get totalCount(): number {
+    return this.pool.totalCount;
+  }
+
+  public get idleCount(): number {
+    return this.pool.idleCount;
+  }
+
+  public get waitingCount(): number {
+    return this.pool.waitingCount;
+  }
+
+  public connect(): Promise<PglitePoolClient> {
+    return this.ended ? Promise.reject(new Error(ENDED)) : this.pool.connect(this.searchPath);
+  }
+
+  public on(): this {
+    return this;
+  }
+
+  public dumpDataDir(): Promise<Blob> {
+    return this.pool.dumpDataDir();
+  }
+
+  public end(): Promise<void> {
+    if (!this.ended) {
+      this.ended = true;
+      this.onEnd();
+    }
+    return Promise.resolve();
   }
 }

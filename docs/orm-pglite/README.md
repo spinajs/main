@@ -54,3 +54,16 @@ ORM_TEST_POSTGRES_DRIVER=pglite npm run test:integration
 
 Suites that need a server (a second session, an admin session, a container restart) are listed with their reason in
 `packages/orm-postgres/test/integration/pglite-mode.ts` and are skipped in this mode.
+
+## One instance, many schemas
+
+```ts
+{ Driver: 'orm-driver-pglite', Name: 'default', Options: { Shared: 'tests', Schema: 'run_1' } }
+```
+
+Connections with the same `Options.Shared` share one PGlite instance per process, created by the first of them;
+each runs in its own `Schema` (created when missing, default `public`). The instance has one session, so the pool
+hands it to one connection at a time, and sets that connection's `search_path` before every lease whose previous
+holder ran in another schema. A transaction keeps the session from `BEGIN` to `COMMIT`: other connections on the
+instance wait for it, up to `Pool.AcquireTimeout`. An instance no connection holds closes after a second, so it does
+not keep the process alive. `execOnSharedPglite(name, sql)` runs a statement on an open instance (to drop a schema).
