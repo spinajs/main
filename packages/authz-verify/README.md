@@ -7,4 +7,6 @@ Verification of a `PolicyIR` from `@spinajs/authz-ir` (Bet 6 lane V). A developm
 - `permissionMatrix(ir)`: holder × permission → `always | conditional | never`, plus the opaque parts each permission depends on.
 - `implies(ir, a, b)`, `onlyVia(ir, permission, holders)`: exact verdicts on the monotone fragment (regular-language inclusion and emptiness); every `violated` verdict carries a counterexample confirmed by the reference evaluator, and non-monotone permissions answer `unknown`.
 - `bounded(ir, query, { k })`: the bounded engine over `k` objects per type, through the optional peer `z3-solver` ^5 (install it in development and CI only; without it bounded verdicts report `AZV090`). Every model is re-run through the reference evaluator before it counts as a counterexample.
+- Caveats in the bounded engine: numeric, string, boolean and timestamp comparisons over the request context; pattern operators, IP addresses and condition functions are uninterpreted and reported as opaque.
+- `minimize(ir, scenario, expected)`: delta debugging against the evaluator; `renderScenario(ir, name, counterexample)`: the counterexample as an `.authz.yaml` scenario.
 - `outcome(ir, scenario, permissions)`: re-runs a scenario through the reference `IREvaluator`.

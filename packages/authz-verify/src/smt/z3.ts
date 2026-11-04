@@ -1,13 +1,14 @@
-import { Unsupported } from './encode.js';
-import type { Formula } from './encode.js';
-import type { SatSolver } from './solve.js';
+import type { Arith, Bool, Context } from 'z3-solver';
 
-import type { Bool, Context } from 'z3-solver';
+import { Unsupported } from './formula.js';
+import type { Formula, Term } from './formula.js';
+import type { SatSolver } from './solve.js';
 
 type Z3Module = typeof import('z3-solver');
 type Z3Api = Awaited<ReturnType<Z3Module['init']>>;
 type Z3Context = Context<'main'>;
 type BoolExpr = Bool<'main'>;
+type ArithExpr = Arith<'main'>;
 
 interface Loaded {
   readonly z3: Z3Module;
@@ -31,20 +32,46 @@ async function load(): Promise<Loaded | undefined> {
   return { z3, api, ctx: api.Context('main') };
 }
 
-function translate(ctx: Z3Context, f: Formula, vars: Map<string, BoolExpr>): BoolExpr {
-  if (typeof f === 'boolean') return ctx.Bool.val(f);
-  if ('var' in f) {
-    let v = vars.get(f.var);
+class Translator {
+  readonly bools = new Map<string, BoolExpr>();
+  readonly numbers = new Map<string, ArithExpr>();
+
+  constructor(private readonly ctx: Z3Context) {}
+
+  formula(f: Formula): BoolExpr {
+    const ctx = this.ctx;
+    if (typeof f === 'boolean') return ctx.Bool.val(f);
+    if ('var' in f) return this.bool(f.var);
+    if ('not' in f) return ctx.Not(this.formula(f.not));
+    if ('and' in f) return ctx.And(...f.and.map((x) => this.formula(x)));
+    if ('or' in f) return ctx.Or(...f.or.map((x) => this.formula(x)));
+    const real = isReal(f.a) || isReal(f.b);
+    const [a, b] = [this.term(f.a, real), this.term(f.b, real)];
+    return f.cmp === 'eq' ? a.eq(b) : f.cmp === 'lt' ? a.lt(b) : a.le(b);
+  }
+
+  private bool(name: string): BoolExpr {
+    let v = this.bools.get(name);
     if (v === undefined) {
-      v = ctx.Bool.const(f.var);
-      vars.set(f.var, v);
+      v = this.ctx.Bool.const(name);
+      this.bools.set(name, v);
     }
     return v;
   }
-  if ('not' in f) return ctx.Not(translate(ctx, f.not, vars));
-  if ('and' in f) return ctx.And(...f.and.map((x) => translate(ctx, x, vars)));
-  return ctx.Or(...f.or.map((x) => translate(ctx, x, vars)));
+
+  private term(t: Term, real: boolean): ArithExpr {
+    const ctx = this.ctx;
+    if (typeof t === 'number') return real || !Number.isInteger(t) ? ctx.Real.val(t) : ctx.Int.val(t);
+    let v = this.numbers.get(t.num);
+    if (v === undefined) {
+      v = t.real === true ? ctx.Real.const(t.num) : ctx.Int.const(t.num);
+      this.numbers.set(t.num, v);
+    }
+    return real && t.real !== true ? ctx.ToReal(v) : v;
+  }
 }
+
+const isReal = (t: Term): boolean => (typeof t === 'number' ? !Number.isInteger(t) : t.real === true);
 
 /** A `SatSolver` over the official Z3 WebAssembly build, or `undefined` when `z3-solver` is not installed. */
 export async function z3Solver(): Promise<SatSolver | undefined> {
@@ -55,14 +82,21 @@ export async function z3Solver(): Promise<SatSolver | undefined> {
   return {
     async solve(defs, formulas) {
       const solver = new ctx.Solver();
-      const vars = new Map<string, BoolExpr>();
-      for (const [name, f] of defs) solver.add(translate(ctx, { var: name }, vars).eq(translate(ctx, f, vars)));
-      for (const f of formulas) solver.add(translate(ctx, f, vars));
+      const t = new Translator(ctx);
+      for (const [name, f] of defs) solver.add(t.formula({ var: name }).eq(t.formula(f)));
+      for (const f of formulas) solver.add(t.formula(f));
       const answer = await solver.check();
       if (answer === 'unknown') throw new Unsupported(`z3 answered unknown: ${solver.reasonUnknown()}`);
       if (answer === 'unsat') return undefined;
       const model = solver.model();
-      return new Set([...vars].filter(([, v]) => ctx.isTrue(model.eval(v, true))).map(([name]) => name));
+      const holds = new Set([...t.bools].filter(([, v]) => ctx.isTrue(model.eval(v, true))).map(([name]) => name));
+      const values = new Map<string, number>();
+      for (const [name, v] of t.numbers) {
+        const value = model.eval(v, true);
+        if (ctx.isIntVal(value)) values.set(name, Number(value.value()));
+        else if (ctx.isRealVal(value)) values.set(name, value.asNumber());
+      }
+      return { holds, values };
     },
   };
 }

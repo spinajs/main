@@ -13,7 +13,8 @@ function truth(f: Formula, defs: ReadonlyMap<string, Formula>, holds: ReadonlySe
   if ('var' in f) return defs.has(f.var) ? truth(defs.get(f.var)!, defs, holds) : holds.has(f.var);
   if ('not' in f) return !truth(f.not, defs, holds);
   if ('and' in f) return f.and.every((x) => truth(x, defs, holds));
-  return f.or.some((x) => truth(x, defs, holds));
+  if ('or' in f) return f.or.some((x) => truth(x, defs, holds));
+  throw new TypeError('these fixtures have no caveats');
 }
 
 /** Deterministic PRNG (mulberry32), so a failure reproduces. */
@@ -80,9 +81,15 @@ describe('bounded encoding', () => {
     await agree(ir, user, ['folder:read'], 40, 3);
   });
 
-  it('refuses caveats and opaque rewrites', () => {
-    const [user] = universes(docsIR(), 2, 'doc').filter((u) => u.principal.type === 'user');
-    expect(() => new Encoder(docsIR(), user, { maxDepth: 8 }).check('doc:update')).to.throw(Unsupported);
+  it('refuses opaque rewrites and encodes caveated tuples with their caveat', () => {
+    const ir = docsIR();
+    ir.types.doc.permissions.edit = { union: [{ opaque: 'model:legacy' }, { computed: 'editor' }] };
+    const [user] = universes(ir, 2, 'doc').filter((u) => u.principal.type === 'user');
+    expect(() => new Encoder(ir, user, { maxDepth: 8 }).check('doc:update')).to.throw(Unsupported);
+    const encoder = new Encoder(docsIR(), user, { maxDepth: 8 });
+    encoder.check('doc:update');
+    expect([...encoder.tuples.keys()]).to.include('t:doc:d1#editor@user:u1[office_hours]');
+    expect([...encoder.caveats.params]).to.deep.equal([['c:env.hour', 'int']]);
   });
 
   it('fixes the tuples a query rules out to false', () => {

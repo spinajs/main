@@ -62,20 +62,23 @@ describe('bounded engine', function () {
   });
 
   it('answers unknown on parts it does not encode', async () => {
-    const v = await run(invoicesIR(), implies('invoice:update', 'invoice:read'));
+    const ir = foldersIR();
+    ir.types.folder.permissions.browse = { union: [{ opaque: 'model:legacy' }, { computed: 'viewer' }] };
+    const v = await run(ir, implies('folder:browse', 'folder:read'));
     expect(v.result).to.equal('unknown');
-    expect(v.message).to.match(/caveat/);
+    expect(v.message).to.match(/opaque/);
   });
 
   it('blocks a model the evaluator rejects and asks again', async () => {
-    let calls = 0;
+    let lies = 0;
+    // Lies once, in the universe whose principal is user:u1, where a real counterexample exists.
     const liar: SatSolver = {
-      solve: (defs, formulas) => (++calls === 1 ? Promise.resolve(new Set<string>()) : z3!.solve(defs, formulas)),
+      solve: (defs, formulas) => (lies === 0 && JSON.stringify([...defs.values()]).includes('@user:u1') && ++lies ? Promise.resolve({ holds: new Set<string>(), values: new Map<string, number>() }) : z3!.solve(defs, formulas)),
     };
     const v = await run(invoicesIR(), implies('invoice:read', 'invoice:approve'), { solver: () => Promise.resolve(liar) });
     expect(v.result).to.equal('violated');
-    expect(calls).to.be.greaterThan(1);
-    calls = 0;
+    expect(lies).to.equal(1);
+    lies = 0;
     expect((await run(invoicesIR(), implies('invoice:read', 'invoice:approve'), { solver: () => Promise.resolve(liar), attempts: 1 })).result).to.equal('unknown');
   });
 });
