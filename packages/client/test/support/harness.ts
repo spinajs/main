@@ -1,6 +1,12 @@
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { BasePolicy } from '@spinajs/http';
+import { AccessPolicy, PrincipalMiddleware } from '@spinajs/authz-http';
 import { FrameworkConfiguration } from '@spinajs/configuration';
+import { DI } from '@spinajs/di';
+import { fsService } from '@spinajs/fs';
+import { BaseController, BasePolicy, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
+import { Intl } from '@spinajs/intl';
+import { createTestApp, type TestApp } from '@spinajs/testing';
 import shipped from '../../../http/lib/config/http.js';
 
 // The fixture guards two routes with @Access; authorization is not what this suite checks. Importing the fixture
@@ -28,4 +34,27 @@ export class E2eConfiguration extends FrameworkConfiguration {
       http: { port: 0, middlewares: shipped.http.middlewares, AcceptHeaders: 1 | 2 },
     };
   }
+}
+
+export interface StartedApp {
+  app: TestApp;
+  baseUrl: string;
+}
+
+/** Boots a real HTTP server on a free port, serving the given controllers with access allowed. */
+export async function startApp(controllers: (typeof BaseController)[]): Promise<StartedApp> {
+  const app = await createTestApp({
+    configuration: E2eConfiguration,
+    register: (c) => {
+      c.unregister(ServerMiddleware, PrincipalMiddleware);
+      for (const controller of controllers) c.register(controller).as(BaseController);
+      c.register(AllowAccess).as(AccessPolicy);
+    },
+    resolve: [fsService, Intl, Controllers],
+    bootTimeout: 50000,
+  });
+  const server = await app.resolve(HttpServer);
+  await server.start();
+  const { port } = DI.get(HttpServer)!.Server.address() as AddressInfo;
+  return { app, baseUrl: `http://127.0.0.1:${port}` };
 }
