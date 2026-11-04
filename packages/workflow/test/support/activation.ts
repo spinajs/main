@@ -1,5 +1,5 @@
 import { DI } from '@spinajs/di';
-import { DbClock, FaultInjector, RowLease } from '@spinajs/durable';
+import { Clock, DbClock, FaultInjector, RowLease } from '@spinajs/durable';
 import type { Log } from '@spinajs/log-common';
 import { ActivationContext, InstanceStore, Journal, resolveWorkflowConfig, workflowDriver, WorkflowDefinition, WorkflowInstanceModel, type ActivationInit, type RegisteredWorkflow } from '../../src/index.js';
 
@@ -45,6 +45,7 @@ export async function activation(instanceId: string, over: Partial<ActivationIni
     onLeaseLost: () => abort.abort('lease-lost'),
     onCrash: () => abort.abort('crashed'),
     onJournalFailed: () => abort.abort('journal-failed'),
+    timers: await DI.resolve(Clock),
     ...over,
   });
   return {

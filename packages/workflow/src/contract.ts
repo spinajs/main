@@ -30,6 +30,8 @@ export interface StepMeta {
   permission?: string;
   resource?: Record<string, unknown>;
   compensate?: boolean;
+  /** Results delivered to run() before this operation was called, in its activation. */
+  after?: number;
   /** Delivery position among the instance's results; a replay hands them back in this order. */
   order?: number;
 }

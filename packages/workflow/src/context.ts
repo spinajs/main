@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { DbClock, FaultInjector, FaultPointName } from '@spinajs/durable';
+import type { Clock, DbClock, FaultInjector, FaultPointName } from '@spinajs/durable';
 import { InvalidArgument, NotSupported } from '@spinajs/exceptions';
 import type { Log } from '@spinajs/log-common';
 import type { QueueEvent, QueueJob } from '@spinajs/queue';
@@ -39,6 +39,8 @@ export interface ActivationInit {
   onCrash: () => void;
   /** A journal row failed to commit for a reason other than a lost lease or a crash: nothing of this activation may commit after it. */
   onJournalFailed: (err: unknown) => void;
+  /** Arms the coarse fallback that fails a replay waiting for a recorded call that never comes; none without it. */
+  timers?: Clock;
 }
 
 export interface Op {
@@ -46,6 +48,8 @@ export interface Op {
   name: string;
   key: string;
   seq: number;
+  /** Results delivered to run() before this call. */
+  after: number;
 }
 
 type StepFn<T> = (s: { signal: AbortSignal; attempt: number }) => Promise<T> | T;
@@ -90,8 +94,6 @@ export class ActivationContext implements WorkflowContext {
   protected seq = 0;
   protected occurrences = new Map<string, number>();
   protected inflight = new Set<Promise<unknown>>();
-  /** Operations that execute in this activation, as opposed to recorded ones the gate holds back. */
-  protected liveOps = new Set<Promise<unknown>>();
   protected readonly gate: ReplayGate;
   /** Journal writes of non-transactional operations, in call order: a marker never commits after a later step. */
   protected writes: Promise<unknown> = Promise.resolve();
@@ -103,7 +105,7 @@ export class ActivationContext implements WorkflowContext {
     this.version = i.Version;
     this.input = i.Input ?? null;
     this.signal = init.signal;
-    this.gate = new ReplayGate(init.journal.rows(), () => [...this.liveOps]);
+    this.gate = new ReplayGate(init.journal.rows(), init.journal.causal, init.timers && { timers: init.timers, ms: init.config.leaseTtl });
     this.log = init.log.child('WORKFLOW', { instanceId: i.Id, workflow: i.Workflow, version: i.Version });
   }
 
@@ -169,13 +171,14 @@ export class ActivationContext implements WorkflowContext {
     const base = `${kind}:${name}`;
     const occurrence = (this.occurrences.get(base) ?? 0) + 1;
     this.occurrences.set(base, occurrence);
-    const op: Op = { kind, name, key: `${base}#${occurrence}`, seq: ++this.seq };
+    const op: Op = { kind, name, key: `${base}#${occurrence}`, seq: ++this.seq, after: this.gate.delivered };
     try {
-      this.init.journal.check(op.seq, op.key);
+      this.init.journal.check(op.seq, op.key, op.after);
     } catch (err) {
       this.interrupt({ kind: 'nondeterminism', error: err as NonDeterminismError });
       throw err;
     }
+    this.gate.call(op.key);
     return op;
   }
 
@@ -255,13 +258,7 @@ export class ActivationContext implements WorkflowContext {
       if (rec.Status === 'succeeded') return journal.value(op.key) as T;
       throw new WorkflowStepFailed(op.name, rec.Error ?? { name: 'Error', message: 'step failed' });
     }
-    const live = this.runLive(op, fn, opts, rec);
-    this.liveOps.add(live);
-    const untrack = (): void => {
-      this.liveOps.delete(live);
-    };
-    void live.then(untrack, untrack);
-    return live;
+    return this.runLive(op, fn, opts, rec);
   }
 
   /** Waits for the gate; a divergence it detects is non-determinism unless the activation already ended. */
@@ -286,6 +283,7 @@ export class ActivationContext implements WorkflowContext {
       throw await this.stepFailed(op, err, attempt, startedAt, opts);
     }
     await this.fault('workflow.after-journal', op.key);
+    this.gate.delivered++;
     return value;
   }
 
@@ -336,6 +334,7 @@ export class ActivationContext implements WorkflowContext {
     } catch (writeErr) {
       return this.journalWriteFailed(writeErr);
     }
+    this.gate.delivered++;
     return new WorkflowStepFailed(op.name, error, err);
   }
 
@@ -373,11 +372,14 @@ export class ActivationContext implements WorkflowContext {
     if (this.journalFailed) throw new WorkflowAborted('journal-failed');
     await this.fault('workflow.before-journal', op.key);
     const { store, journal, clock, epoch } = this.init;
-    // Writes are queued in completion order, so this is the order the results reach run()
-    const save = s.status === 'succeeded' || s.status === 'failed' ? { ...s, meta: { ...s.meta, order: journal.nextOrder() } } : s;
+    const final = s.status === 'succeeded' || s.status === 'failed';
     const row = await this.guarded(() => {
       const now = clock.now();
-      return store.fenced(this.instanceId, epoch, now, () => store.saveStep(journal.get(op.key), this.stepWrite(op, save, now)));
+      return store.fenced(this.instanceId, epoch, now, () => {
+        // Taken under the row lock the fence UPDATE holds until commit, so the order is the commit order and the order results reach run().
+        const meta = final ? { ...s.meta, after: op.after, order: journal.nextOrder() } : s.meta;
+        return store.saveStep(journal.get(op.key), this.stepWrite(op, { ...s, meta }, now));
+      });
     });
     journal.record(row);
     return row;

@@ -1,13 +1,16 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { FaultInjector, NonRetryableError } from '@spinajs/durable';
+import { readFile } from 'node:fs/promises';
+import sinon from 'sinon';
+import { Clock, FaultInjector, NonRetryableError } from '@spinajs/durable';
+import type { FakeClock } from '@spinajs/durable/testing';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { NonDeterminismError, resolveWorkflowConfig, type ActivationContext, WorkflowAborted, WorkflowFailure, WorkflowStepFailed } from '../src/index.js';
 import { activation } from './support/activation.js';
 import { bootTestEnv, disposeTestEnv } from './support/env.js';
 import { TestCrash, TestFaults } from './support/faults.js';
-import { eventsOf, instance, pick, rejects, seedEvent, seedInstance, seedStep, stepsOf, T0, takeOver } from './support/rows.js';
+import { eventsOf, expireLease, instance, pick, rejects, seedEvent, seedInstance, seedStep, stepsOf, T0, takeOver } from './support/rows.js';
 
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -99,54 +102,139 @@ describe('ActivationContext: steps and replay', () => {
     expect([replayed, calls]).to.deep.equal([undefined, 0]);
   });
 
-  it('concurrent branches replay in call order without a false non-determinism', async () => {
-    const branch = (ctx: ActivationContext, first: string, second: string, ms: number) => ctx.step(first, () => pause(ms)).then(() => ctx.step(second, () => second));
-    const first = await activation('c1');
-    await Promise.all([branch(first.ctx, 'a', 'c', 50), branch(first.ctx, 'b', 'd', 0)]);
+  /** Runs `code` live, then as a replay of what it journaled. */
+  const twice = async <T>(code: (ctx: ActivationContext) => Promise<T>, id = 'c1') => {
+    const first = await activation(id);
+    const live = await code(first.ctx);
     await first.release();
-    expect((await stepsOf('c1')).map((s) => `${s.Seq}:${s.Key}`)).to.deep.equal(['1:step:a#1', '2:step:b#1', '3:step:d#1', '4:step:c#1']);
-    const replay = await activation('c1');
-    expect(await Promise.all([branch(replay.ctx, 'a', 'c', 50), branch(replay.ctx, 'b', 'd', 0)])).to.deep.equal(['c', 'd']);
-    expect(replay.journal.unvisited()).to.deep.equal([]);
+    const replay = await activation(id);
+    const replayed = await code(replay.ctx);
+    const unvisited = replay.journal.unvisited();
     await replay.release();
+    return { live, replayed, unvisited };
+  };
+
+  it('concurrent branches with different names replay at their recorded positions', async () => {
+    const branch = (ctx: ActivationContext, first: string, second: string, ms: number) => ctx.step(first, () => pause(ms)).then(() => ctx.step(second, () => second));
+    const r = await twice((ctx) => Promise.all([branch(ctx, 'a', 'c', 50), branch(ctx, 'b', 'd', 0)]));
+    expect((await stepsOf('c1')).map((s) => `${s.Seq}:${s.Key}`)).to.deep.equal(['1:step:a#1', '2:step:b#1', '3:step:d#1', '4:step:c#1']);
+    expect([r.replayed, r.unvisited]).to.deep.equal([['c', 'd'], []]);
   });
 
   it('same-name branches keep their own results on replay, whatever their timing', async () => {
     const branch = (ctx: ActivationContext, id: string, ms: number) => ctx.step('fetch', () => pause(ms).then(() => id)).then(() => ctx.step('save', () => `saved ${id}`));
-    const run = (ctx: ActivationContext) => Promise.all([branch(ctx, 'x', 50), branch(ctx, 'y', 0)]);
-    const first = await activation('c1');
-    expect(await run(first.ctx)).to.deep.equal(['saved x', 'saved y']);
-    await first.release();
-    const replay = await activation('c1');
-    expect(await run(replay.ctx)).to.deep.equal(['saved x', 'saved y']);
-    await replay.release();
+    const r = await twice((ctx) => Promise.all([branch(ctx, 'x', 50), branch(ctx, 'y', 0)]));
+    expect([r.live, r.replayed]).to.deep.equal([
+      ['saved x', 'saved y'],
+      ['saved x', 'saved y'],
+    ]);
+  });
+
+  it('three same-name branches of three steps keep their own results', async () => {
+    const branch = async (ctx: ActivationContext, id: string, delays: number[]) => {
+      const out: string[] = [];
+      for (const [name, ms] of [
+        ['fetch', delays[0]],
+        ['check', delays[1]],
+        ['save', delays[2]],
+      ] as const)
+        out.push(await ctx.step(name, () => pause(ms).then(() => `${name} ${id}`)));
+      return out;
+    };
+    const r = await twice((ctx) => Promise.all([branch(ctx, 'x', [30, 0, 10]), branch(ctx, 'y', [0, 25, 0]), branch(ctx, 'z', [12, 3, 20])]));
+    expect([r.replayed, r.unvisited]).to.deep.equal([r.live, []]);
   });
 
   it('same-name branches of different lengths replay in their original interleaving', async () => {
-    const run = (ctx: ActivationContext) =>
+    const r = await twice((ctx) =>
       Promise.all([
         ctx.step('a', () => pause(50)).then(() => ctx.step('save', () => 'a')),
         ctx
           .step('b', () => 0)
           .then(() => ctx.step('c', () => 0))
           .then(() => ctx.step('save', () => 'b')),
-      ]);
-    const first = await activation('c1');
-    expect(await run(first.ctx)).to.deep.equal(['a', 'b']);
-    await first.release();
-    const replay = await activation('c1');
-    expect([await run(replay.ctx), replay.journal.unvisited()]).to.deep.equal([['a', 'b'], []]);
-    await replay.release();
+      ]),
+    );
+    expect([r.replayed, r.unvisited]).to.deep.equal([['a', 'b'], []]);
   });
 
-  it('a recorded result the code no longer asks for fails the replay with NonDeterminismError instead of hanging', async () => {
+  const hops: Record<string, () => Promise<unknown>> = {
+    'one setImmediate': () => new Promise((resolve) => setImmediate(resolve)),
+    'two setImmediate': () => new Promise((resolve) => setImmediate(() => setImmediate(resolve))),
+    'a setTimeout(0)': () => pause(0),
+    'an awaited file read': () => readFile('package.json'),
+  };
+  for (const [label, hop] of Object.entries(hops)) {
+    it(`same-name branches keep their own results with ${label} between steps`, async () => {
+      const branch = async (ctx: ActivationContext, id: string, ms: number) => {
+        const fetched = await ctx.step('fetch', () => pause(ms).then(() => `fetch ${id}`));
+        if (id === 'x') await hop();
+        return [fetched, await ctx.step('save', () => `save ${id}`)];
+      };
+      for (let n = 0; n < 5; n++) {
+        await seedInstance(`h${n}`);
+        const r = await twice((ctx) => Promise.all([branch(ctx, 'x', 0), branch(ctx, 'y', 1)]), `h${n}`);
+        expect(r.replayed).to.deep.equal([
+          ['fetch x', 'save x'],
+          ['fetch y', 'save y'],
+        ]);
+      }
+    });
+  }
+
+  it('recorded results do not wait for a live step that runs alongside them', async () => {
+    TestFaults.crashOnce('workflow.after-step-fn', 'step:long');
+    const first = await activation('c1');
+    await Promise.allSettled([first.ctx.step('long', () => pause(100)), first.ctx.step('a', () => pause(50).then(() => 'a')), first.ctx.step('b', () => 'b')]);
+    await first.ctx.drain();
+    await expireLease('c1');
+    TestFaults.reset();
+    const replay = await activation('c1');
+    const settled: string[] = [];
+    const live = replay.ctx.step('long', () => pause(300)).then(() => settled.push('live'));
+    const recorded = Promise.all([replay.ctx.step('a', () => 'A'), replay.ctx.step('b', () => 'B')]).then((v) => settled.push(v.join()));
+    await Promise.all([live, recorded]);
+    await replay.release();
+    expect(settled).to.deep.equal(['a,b', 'live']);
+  });
+
+  it('a step inserted into sequential code is non-deterministic before its body runs', async () => {
+    const first = await activation('c1');
+    await first.ctx.step('a', () => 'a');
+    await first.ctx.step('b', () => 'b');
+    await first.release();
+    const replay = await activation('c1');
+    let ran = 0;
+    await replay.ctx.step('a', () => 'a');
+    const err = await rejects(replay.ctx.step('inserted', () => ++ran));
+    await replay.release();
+    expect([err.message, ran, replay.ctx.interruption?.kind]).to.deep.equal(["the journal recorded 'step:b#1' at position 2, this run asked for 'step:inserted#1'", 0, 'nondeterminism']);
+  });
+
+  it('a replay waiting for a recorded step the code no longer calls fails when the stall timer fires', async () => {
+    const first = await activation('c1');
+    await Promise.all([first.ctx.step('x1', () => 1).then(() => first.ctx.step('x2', () => 2)), first.ctx.step('y1', () => pause(30))]);
+    await first.release();
+    const replay = await activation('c1');
+    const pending = rejects(Promise.all([replay.ctx.step('x1', () => 1), replay.ctx.step('y1', () => 0)]));
+    await ((await DI.resolve(Clock)) as FakeClock).advance(60_000);
+    const err = await pending;
+    await replay.release();
+    expect([err.message, replay.ctx.interruption?.kind]).to.deep.equal(["the replay is waiting for 'step:x2#1', which the journal recorded and this run has not asked for", 'nondeterminism']);
+  });
+
+  it('replays under sinon.useFakeTimers() without waiting on a timer', async () => {
     const first = await activation('c1');
     await first.ctx.step('a', () => 1);
     await first.ctx.step('b', () => 2);
     await first.release();
     const replay = await activation('c1');
-    const err = await rejects(replay.ctx.step('b', () => 2));
-    expect([err.message, replay.ctx.interruption?.kind]).to.deep.equal(["the journal delivered 'step:a#1' before 'step:b#1', this run never asked for it", 'nondeterminism']);
+    const timers = sinon.useFakeTimers();
+    try {
+      expect([await replay.ctx.step('a', () => 0), await replay.ctx.step('b', () => 0)]).to.deep.equal([1, 2]);
+    } finally {
+      timers.restore();
+    }
     await replay.release();
   });
 
