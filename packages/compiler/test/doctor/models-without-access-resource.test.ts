@@ -5,12 +5,12 @@ import { createProgramFromTsconfig, createContext, extractControllers } from '..
 import { fixture, controller, route, src } from './fixture.js';
 
 const ctx = { cwd: '/fixture', fileExists: () => true, fragmentMtime: () => undefined, libMtime: () => undefined };
-const invoice = { id: 'app:Invoice', className: 'Invoice', tableName: 'invoices', columns: [], relations: [], accessResource: false, source: src('src/invoice.ts') };
+const invoice = { id: 'app:Invoice', className: 'Invoice', tableName: 'invoices', columns: [], relations: [], source: src('src/invoice.ts') };
 
 describe('ORM001 models-without-access-resource', () => {
   it('reports FromDbModel params whose model is not an access resource', () => {
     const m = fixture({
-      models: [invoice, { ...invoice, id: 'app:User', className: 'User', tableName: 'users', accessResource: true, source: src('src/user.ts') }],
+      models: [invoice, { ...invoice, id: 'app:User', className: 'User', tableName: 'users', accessResource: 'user', source: src('src/user.ts') }],
       controllers: [controller({ className: 'Invoices', routes: [
         route({ handler: 'get', params: [{ index: 0, name: 'invoice', kind: 'FromDbModel', runtimeType: { text: 'Invoice' }, required: true }], source: src('src/invoices.ts', 20) }),
         route({ handler: 'owner', params: [{ index: 0, name: 'user', kind: 'FromDbModel', runtimeType: { text: 'User' }, required: true }] }),

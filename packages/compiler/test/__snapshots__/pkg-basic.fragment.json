@@ -1178,7 +1178,6 @@
         }
       ],
       "relations": [],
-      "accessResource": false,
       "source": {
         "file": "src/model.ts",
         "line": 4,
@@ -1202,7 +1201,6 @@
         }
       ],
       "relations": [],
-      "accessResource": false,
       "source": {
         "file": "src/model.ts",
         "line": 5,
@@ -1275,7 +1273,7 @@
           "target": "Tag"
         }
       ],
-      "accessResource": true,
+      "accessResource": "post",
       "source": {
         "file": "src/model.ts",
         "line": 7,

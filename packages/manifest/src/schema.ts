@@ -106,6 +106,9 @@ export const manifestSchema: Record<string, any> = {
             "$ref": "#/definitions/ScanFile"
           }
         },
+        "authz": {
+          "$ref": "#/definitions/AuthzSection"
+        },
         "schemas": {
           "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"
         },
@@ -808,6 +811,21 @@ export const manifestSchema: Record<string, any> = {
         "contract": {
           "type": "string"
         },
+        "access": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "policies": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/PolicyRef"
+            }
+          }
+        },
         "commands": {
           "type": "array",
           "items": {
@@ -955,6 +973,21 @@ export const manifestSchema: Record<string, any> = {
         },
         "payloadIndex": {
           "type": "number"
+        },
+        "access": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "policies": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/PolicyRef"
+            }
+          }
         },
         "inheritedFrom": {
           "type": "string"
@@ -1159,7 +1192,7 @@ export const manifestSchema: Record<string, any> = {
           }
         },
         "accessResource": {
-          "type": "boolean"
+          "type": "string"
         },
         "source": {
           "$ref": "#/definitions/SourceRef"
@@ -1171,7 +1204,6 @@ export const manifestSchema: Record<string, any> = {
         "tableName",
         "columns",
         "relations",
-        "accessResource",
         "source"
       ]
     },
@@ -1367,6 +1399,189 @@ export const manifestSchema: Record<string, any> = {
         "migrations"
       ]
     },
+    "AuthzSection": {
+      "type": "object",
+      "properties": {
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "relations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "parent",
+                        "owner",
+                        "self",
+                        "relation"
+                      ]
+                    },
+                    "column": {
+                      "type": "string"
+                    },
+                    "target": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "kind",
+                    "column"
+                  ]
+                }
+              },
+              "rls": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "string",
+                    "const": "partial"
+                  }
+                ]
+              },
+              "source": {
+                "$ref": "#/definitions/SourceRef"
+              }
+            },
+            "required": [
+              "type",
+              "model",
+              "relations",
+              "source"
+            ]
+          }
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "declaredIn": {
+                "type": "string",
+                "enum": [
+                  "config",
+                  "adapter",
+                  "model"
+                ]
+              },
+              "list": {
+                "type": "boolean"
+              },
+              "fields": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "declaredIn"
+            ]
+          }
+        },
+        "entryPoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "route",
+                  "socket-command",
+                  "socket-event",
+                  "queue-handler",
+                  "schedule",
+                  "cli"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "access": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/PolicyRef"
+                  }
+                }
+              },
+              "system": {
+                "type": "string"
+              },
+              "source": {
+                "$ref": "#/definitions/SourceRef"
+              }
+            },
+            "required": [
+              "kind",
+              "id",
+              "access",
+              "source"
+            ]
+          }
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Diagnostic"
+          }
+        },
+        "ignores": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "source": {
+                "$ref": "#/definitions/SourceRef"
+              }
+            },
+            "required": [
+              "code",
+              "reason",
+              "source"
+            ]
+          }
+        },
+        "ir": {
+          "type": "string"
+        },
+        "policyHash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "resources",
+        "permissions",
+        "entryPoints",
+        "findings",
+        "ignores"
+      ]
+    },
     "Diagnostic": {
       "type": "object",
       "properties": {
@@ -1525,6 +1740,9 @@ export const manifestSchema: Record<string, any> = {
           "items": {
             "$ref": "#/definitions/ScanFile"
           }
+        },
+        "authz": {
+          "$ref": "#/definitions/AuthzSection"
         },
         "schemas": {
           "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"

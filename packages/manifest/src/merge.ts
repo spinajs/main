@@ -1,6 +1,6 @@
 import { canonicalize, hashManifest } from './hash.js';
 import { MANIFEST_VERSION } from './types.js';
-import type { Diagnostic, Manifest, ManifestFragment } from './types.js';
+import type { AuthzSection, Diagnostic, Manifest, ManifestFragment, ModelEntry } from './types.js';
 
 export interface MergeMeta {
   app: Manifest['app'];
@@ -46,6 +46,24 @@ function schemasAndDiagnostics(fragments: ManifestFragment[]): { schemas: Record
   return { schemas, diagnostics };
 }
 
+function mergeAuthz(fragments: ManifestFragment[]): AuthzSection | undefined {
+  const sections = fragments.flatMap((f) => (f.authz ? [f.authz] : []));
+  if (sections.length === 0) return undefined;
+  return {
+    resources: sections.flatMap((s) => s.resources),
+    permissions: sections.flatMap((s) => s.permissions),
+    entryPoints: sections.flatMap((s) => s.entryPoints),
+    findings: sections.flatMap((s) => s.findings),
+    ignores: sections.flatMap((s) => s.ignores),
+  };
+}
+
+/** `registerAccessResource(DbConfig, ...)` in one package makes a model of another an access resource. */
+function withRegisteredTypes(models: ModelEntry[], authz: AuthzSection | undefined): ModelEntry[] {
+  const types = new Map(authz?.resources.map((r) => [r.model, r.type]));
+  return models.map((m) => (m.accessResource === undefined && types.has(m.id) ? { ...m, accessResource: types.get(m.id) } : m));
+}
+
 /** Dependencies come first so that, with "last wins" at runtime, the app overrides its packages. */
 export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], meta: MergeMeta): Manifest {
   const fragments = [...deps, app];
@@ -58,6 +76,7 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
   const controllerBases = collect((f) => f.controllerBases ?? []);
   const socketControllerBases = collect((f) => f.socketControllerBases ?? []);
   const classProperties = collect((f) => f.classProperties ?? []);
+  const authz = mergeAuthz(fragments);
 
   const manifest: Manifest = {
     manifestVersion: MANIFEST_VERSION,
@@ -74,12 +93,13 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
     ...(classProperties.length ? { classProperties } : {}),
     configModules: plain((f) => f.configModules),
     configUsages: plain((f) => f.configUsages),
-    models: collect((f) => f.models),
+    models: withRegisteredTypes(collect((f) => f.models), authz),
     migrations: collect((f) => f.migrations),
     schedules: plain((f) => f.schedules),
     commands: plain((f) => f.commands),
     ...(app.scanFiles?.length ? { scanFiles: app.scanFiles } : {}),
     queueMessages: plain((f) => f.queueMessages),
+    ...(authz ? { authz } : {}),
     schemas,
     diagnostics,
     ...(meta.buildEnv ? { buildEnv: meta.buildEnv } : {}),
