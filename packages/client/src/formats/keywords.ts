@@ -58,7 +58,11 @@ function objectsEqual(a: object, b: object): boolean {
   return keys.every((key) => ajvEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]));
 }
 
-/** Deep equality as Ajv decides `const`, `enum` and `uniqueItems`: 0 equals -0, NaN equals NaN, key order is ignored. */
+/**
+ * Deep equality as Ajv decides `const`, `enum` and `uniqueItems`: 0 equals -0, NaN equals NaN, key order is ignored.
+ * Pass the data first: like Ajv, it throws a TypeError when the first object has an own `valueOf` or `toString` key
+ * that is not a function.
+ */
 export function ajvEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a && b && typeof a === 'object' && typeof b === 'object') return objectsEqual(a, b);

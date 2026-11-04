@@ -6,7 +6,16 @@ import { describeInput, serverAjv } from './server-ajv.js';
 
 const LENGTH_CORPUS = ['', 'a', 'ab', 'é', 'é', '😀', '😀😀', '\ud83d', '\ude00', '\ude00\ud83d', 'a\ud83d', '👨‍👩‍👧', '🇵🇱', 'x😀y'];
 
-const JSON_CORPUS: unknown[] = [null, true, false, 0, -0, 1, 1.5, '', '0', 'a', [], [0], [-0], [1, 2], [2, 1], {}, { a: 1 }, { a: 1, b: 2 }, { b: 2, a: 1 }, { a: [1, { b: null }] }, { a: undefined }, [[]], [{}], { '': 0 }];
+const JSON_CORPUS: unknown[] = [null, true, false, 0, -0, 1, 1.5, '', '0', 'a', [], [0], [-0], [1, 2], [2, 1], {}, { a: 1 }, { a: 1, b: 2 }, { b: 2, a: 1 }, { a: [1, { b: null }] }, { a: undefined }, [[]], [{}], { '': 0 }, { valueOf: 1 }, { toString: false }];
+
+/** A verdict, or 'throws': fast-deep-equal, and so Ajv, throws on data with an own non-function valueOf or toString. */
+function outcome(run: () => boolean): boolean | 'throws' {
+  try {
+    return run();
+  } catch {
+    return 'throws';
+  }
+}
 
 function json(): fc.Arbitrary<unknown> {
   return fc.oneof(fc.constantFrom(...JSON_CORPUS), fc.jsonValue({ maxDepth: 3 }));
@@ -60,15 +69,23 @@ describe('@spinajs/client/formats: keyword helpers', () => {
       const asEnum = ajv.compile({ enum: [expected, '\u0000sentinel'] });
       for (const input of JSON_CORPUS) {
         const label = `${describeInput(expected)} vs ${describeInput(input)}`;
-        expect(ajvEqual(expected, input), label).to.equal(asConst(input));
-        expect(ajvEqual(expected, input), label).to.equal(asEnum(input));
+        const ours = outcome(() => ajvEqual(input, expected));
+        expect(ours, label).to.equal(outcome(() => asConst(input)));
+        expect(ours, label).to.equal(outcome(() => asEnum(input)));
       }
     }
     fc.assert(
-      fc.property(json(), json(), (expected, input) => ajvEqual(expected, input) === ajv.compile({ const: expected })(input)),
+      fc.property(json(), json(), (expected, input) => outcome(() => ajvEqual(input, expected)) === outcome(() => ajv.compile({ const: expected })(input))),
       { numRuns: 500 },
     );
-    fc.assert(fc.property(json(), (value) => ajvEqual(value, structuredClone(value))));
+    fc.assert(fc.property(json(), (value) => outcome(() => ajvEqual(value, structuredClone(value))) !== false));
+  });
+
+  it('ajvEqual throws where Ajv throws: on data with an own valueOf or toString key', () => {
+    expect(() => ajv.compile({ const: { a: 1 } })({ valueOf: 1 })).to.throw(TypeError);
+    expect(() => ajvEqual({ valueOf: 1 }, { a: 1 })).to.throw(TypeError);
+    expect(() => ajvEqual({ toString: false }, { a: 1 })).to.throw(TypeError);
+    expect(ajvEqual({ a: 1 }, { valueOf: 1 })).to.be.false;
   });
 
   it('ajvEqual treats 0 and -0 as equal and ignores key order', () => {
@@ -86,7 +103,7 @@ describe('@spinajs/client/formats: keyword helpers', () => {
 
   describe('ajvUniqueItems', () => {
     const ITEM_TYPES: (JsonType[] | undefined)[] = [undefined, ['string'], ['number'], ['integer'], ['boolean'], ['null'], ['string', 'null'], ['number', 'string'], ['integer', 'boolean', 'null'], ['object'], ['array'], ['string', 'object']];
-    const ARRAYS: unknown[][] = [[], [1], [1, 1], [1, '1'], ['1', '1'], [0, -0], [null, 'null'], [null, null], [true, 'true'], [true, true], [{ a: 1 }, { a: 1 }], [[1], [1]], [{ a: 1 }, { a: 2 }], ['__proto__', '__proto__'], ['constructor', 'constructor'], ['toString', 'toString'], [1.5, 1.5], ['a', 'b', 'a']];
+    const ARRAYS: unknown[][] = [[], [1], [1, 1], [1, '1'], ['1', '1'], [0, -0], [null, 'null'], [null, null], [true, 'true'], [true, true], [{ a: 1 }, { a: 1 }], [[1], [1]], [{ a: 1 }, { a: 2 }], ['__proto__', '__proto__'], ['constructor', 'constructor'], ['toString', 'toString'], [1.5, 1.5], ['a', 'b', 'a'], [{ a: 1 }, { valueOf: 1 }], [{ valueOf: 1 }, { a: 1 }]];
     const items = fc.oneof(fc.constantFrom(...ARRAYS), fc.array(fc.oneof(fc.constantFrom(null, true, false, 0, 1, '', 'a', '1', '__proto__'), fc.integer({ min: -2, max: 2 }), fc.jsonValue({ maxDepth: 1 })), { maxLength: 6 }));
 
     for (const itemTypes of ITEM_TYPES) {
@@ -95,7 +112,7 @@ describe('@spinajs/client/formats: keyword helpers', () => {
         const typed = ajv.compile({ type: 'array', ...itemSchema });
         const unique = ajv.compile({ type: 'array', ...itemSchema, uniqueItems: true });
         // Ajv skips items of the wrong type in its hashing shortcut; those fail `items` anyway.
-        const agrees = (input: unknown[]): boolean => !typed(input) || ajvUniqueItems(input, itemTypes) === unique(input);
+        const agrees = (input: unknown[]): boolean => !typed(input) || outcome(() => ajvUniqueItems(input, itemTypes)) === outcome(() => unique(input));
         for (const input of ARRAYS) {
           expect(agrees(input), describeInput(input)).to.be.true;
         }
