@@ -34,9 +34,12 @@ function componentName(id: string): string {
     .replace(/[^A-Za-z0-9_]/g, '_');
 }
 
+// A `$ref` is a URI fragment, which readers percent-decode before resolving the pointer.
+const pointerToken = (key: string): string => key.replace(/~/g, '~0').replace(/\//g, '~1').replace(/%/g, '%25');
+
 // A channel key contains '/', which must be escaped as '~1' in a JSON pointer.
 function channelRef(address: string): string {
-  return `#/channels/${address.replace(/~/g, '~0').replace(/\//g, '~1')}`;
+  return `#/channels/${pointerToken(address)}`;
 }
 
 function sorted<T>(record: Record<string, T>): Record<string, T> {
@@ -60,7 +63,7 @@ class Builder {
 
   public message(name: string, type: TypeRef): { $ref: string } {
     this.messages[name] = { name, payload: type.schema ? { $ref: this.schemaRef(type.schema) } : {} };
-    return { $ref: `#/components/messages/${name}` };
+    return { $ref: `#/components/messages/${pointerToken(name)}` };
   }
 
   public hasSchema(id: string): boolean {
@@ -117,28 +120,44 @@ function addCommand(b: Builder, prefix: string, command: SocketCommandEntry, err
   };
 }
 
-/** One channel per workflow and signal; versions share it, and the newest version's permission is the one documented. */
-function addWorkflowSignals(b: Builder, manifest: Manifest, channels: Record<string, Dict>, operations: Record<string, Dict>): void {
-  const signals = new Map<string, { workflow: string; signal: string; permission?: string; version: number }>();
+interface SignalChannel { workflow: string; signal: string; permission?: string; version: number }
+
+/**
+ * Workflow and signal names may contain '/', '.', '{' or '}', which separate the address, the message name and the operation
+ * key or make a channel parameter. Escaping them (`/` is `$2f;`) keeps every pair apart: `a/b` + `c` and `a` + `b/c` get two
+ * channels. Not percent-encoding: `@asyncapi/parser` decodes `%` in keys and then misses them.
+ */
+const segment = (name: string): string => name.replace(/[^A-Za-z0-9_:-]/gu, (c) => `$${c.codePointAt(0)!.toString(16)};`);
+
+/** Versions share a channel: the newest documents the permission, and within one version the entry that declares one. */
+function signalChannels(manifest: Manifest): SignalChannel[] {
+  const channels = new Map<string, SignalChannel>();
   for (const w of manifest.workflows ?? []) {
     for (const s of w.signals) {
       // '*' records a computed name; a literal with '#' or '*' is one signal() refuses.
       if (/[#*]/.test(s.name)) continue;
-      const key = `${w.name}/${s.name}`;
-      const known = signals.get(key);
-      if (!known || w.version > known.version) signals.set(key, { workflow: w.name, signal: s.name, permission: s.permission, version: w.version });
+      const key = `${w.name}\u0000${s.name}`;
+      const known = channels.get(key);
+      if (!known || w.version > known.version || (w.version === known.version && !known.permission && s.permission)) {
+        channels.set(key, { workflow: w.name, signal: s.name, permission: s.permission, version: w.version });
+      }
     }
   }
-  for (const s of signals.values()) {
-    const address = `workflow/${s.workflow}/${s.signal}`;
+  return [...channels.values()];
+}
+
+function addWorkflowSignals(b: Builder, manifest: Manifest, channels: Record<string, Dict>, operations: Record<string, Dict>): void {
+  for (const s of signalChannels(manifest)) {
+    const id = `${segment(s.workflow)}.${segment(s.signal)}`;
+    const address = `workflow/${segment(s.workflow)}/${segment(s.signal)}`;
     const chan = channelRef(address);
     channels[address] = {
       address,
-      messages: { signal: b.message(`workflow.${s.workflow}.${s.signal}`, { text: 'unknown' }) },
+      messages: { signal: b.message(`workflow.${id}`, { text: 'unknown' }) },
       'x-spinajs-workflow': s.workflow,
       ...(s.permission ? { 'x-spinajs-permission': s.permission } : {}),
     };
-    operations[`workflow.${s.workflow}.${s.signal}.send`] = { action: 'send', channel: { $ref: chan }, messages: [{ $ref: `${chan}/messages/signal` }] };
+    operations[`workflow.${id}.send`] = { action: 'send', channel: { $ref: chan }, messages: [{ $ref: `${chan}/messages/signal` }] };
   }
 }
 

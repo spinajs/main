@@ -49,4 +49,24 @@ describe('manifestToAsyncApi: workflow signals', () => {
     );
     expect(Object.keys(doc.channels)).to.deep.equal(['workflow/order/ok']);
   });
+
+  it('encodes names, so separators never merge two channels, and prefers the permissioned entry of one version', async () => {
+    const doc = manifestToAsyncApi(
+      {
+        ...emptyManifest,
+        workflows: [
+          { name: 'a/b', version: 1, className: 'A', signals: [{ name: 'c' }], source },
+          { name: 'a', version: 1, className: 'B', signals: [{ name: 'b/c' }, { name: '{id}' }, { name: 'x' }, { name: 'x', permission: 'need' }], source },
+          { name: 'a.b', version: 1, className: 'C', signals: [{ name: 'c~d' }], source },
+        ],
+      },
+      { title: 'app', version: '1.0.0' },
+    );
+    expect(Object.keys(doc.channels)).to.deep.equal(['workflow/a$2e;b/c$7e;d', 'workflow/a$2f;b/c', 'workflow/a/$7b;id$7d;', 'workflow/a/b$2f;c', 'workflow/a/x']);
+    expect(doc.channels['workflow/a/x']).to.have.property('x-spinajs-permission', 'need');
+    expect(doc.channels['workflow/a$2e;b/c$7e;d']).to.deep.include({ messages: { signal: { $ref: '#/components/messages/workflow.a$2e;b.c$7e;d' } }, 'x-spinajs-workflow': 'a.b' });
+    expect(Object.keys(doc.operations)).to.have.length(5);
+    const { diagnostics } = await new Parser().parse(JSON.stringify(doc));
+    expect(diagnostics.filter((d) => Number(d.severity) === Number(DiagnosticSeverity.Error))).to.deep.equal([]);
+  });
 });
