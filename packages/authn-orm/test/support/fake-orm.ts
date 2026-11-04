@@ -76,7 +76,7 @@ export interface FakeOrm {
 export async function bootFakeOrm(dialect: keyof typeof FAKE_DIALECTS): Promise<FakeOrm> {
   DI.setESMModuleSupport();
   const driverName = `orm-driver-fake-${dialect}`;
-  const connection = { Name: `n4-fake-${dialect}`, Driver: driverName, Migration: { OnStartup: false } };
+  const connection = { Name: `n4-fake-${dialect}`, Driver: driverName };
 
   class FakeOrmConfiguration extends FrameworkConfiguration {
     public async resolve(): Promise<void> {

@@ -9,7 +9,8 @@ import { DateTime } from 'luxon';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
@@ -82,7 +83,7 @@ describe('one SessionIssuer.restore per authenticated cookie request (PERF-1)', 
 
     const config = await DI.resolve(Configuration);
     await DI.resolve(fsService);
-    await DI.resolve(Orm);
+    await migrateTestDatabase();
 
     child = DI.RootContainer.child();
     identities = new FakeIdentityStore();
@@ -130,6 +131,7 @@ describe('one SessionIssuer.restore per authenticated cookie request (PERF-1)', 
     DI.uncache(RestoreCountConfiguration);
     DI.uncache(Configuration);
     DI.uncache(Orm);
+    DI.uncache(OrmMigrator);
   });
 
   it('an own session: AuthnMiddleware and SessionPrincipalResolver restore it once', async () => {

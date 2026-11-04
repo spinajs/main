@@ -23,6 +23,7 @@ import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spin
 import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
 import { Orm, OrmDriver, QueryContext, modelDriver, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 import { AuthenticationStrategy, AuthnService, IdentityLinkStore, NonceStore, SessionIssuer } from '@spinajs/authn/contracts';
@@ -144,9 +145,9 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
         } finally {
           await admin!.disconnect();
         }
-        connection = { Name: 'n10-acceptance', Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Migration: { OnStartup: true }, Pool: { AcquireTimeout: 15000 } };
+        connection = { Name: 'n10-acceptance', Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Pool: { AcquireTimeout: 15000 } };
       } else {
-        connection = { Name: 'n10-acceptance', Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: { OnStartup: true } };
+        connection = { Name: 'n10-acceptance', Driver: 'orm-driver-sqlite', Filename: ':memory:' };
       }
 
       register(configurationFor(connection) as unknown as Class<Configuration>, Configuration);
@@ -154,8 +155,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       dbContainer = DI.child();
       dbContainer.register(SqliteOrmDriver).as('orm-driver-sqlite');
       dbContainer.register(PostgresOrmDriver).as('orm-driver-postgres');
-      orm = await dbContainer.resolve(Orm);
-      await (await dbContainer.resolve(Orm)).Migrator.ready();
+      ({ orm } = await migrateTestDatabase(dbContainer));
 
       idp = await FakeIdp.create(FAKE_ISSUER, ['RS256']);
       identities = new FakeIdentityStore();
