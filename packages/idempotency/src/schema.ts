@@ -1,7 +1,8 @@
 import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 
-// parseDuration's grammar (durable/src/duration.ts), units case-insensitive
-const DURATION = { type: 'string', pattern: '^\\s*\\d+(\\.\\d+)?\\s*([mM][sS]|[sSmMhHdDwW])\\s*$' };
+// parseDuration's grammar (durable/src/duration.ts), units case-insensitive; the lookahead refuses a zero amount
+const DURATION = { type: 'string', pattern: '^\\s*(?=\\d*\\.?\\d*[1-9])\\d+(\\.\\d+)?\\s*([mM][sS]|[sSmMhHdDwW])\\s*$' };
+const MILLISECONDS = { type: 'integer', minimum: 1 };
 
 /** The `idempotency` module (docs/idempotency/README.md); Ajv fills the defaults and refuses a wrong value at boot. */
 export const IDEMPOTENCY_CONFIGURATION_SCHEMA = {
@@ -11,9 +12,9 @@ export const IDEMPOTENCY_CONFIGURATION_SCHEMA = {
   type: 'object',
   properties: {
     store: { type: 'string', minLength: 1, default: 'OrmIdempotencyStore', description: 'Class name of the IdempotencyStore' },
-    lease: { ...DURATION, default: '30s', description: 'How long a claim holds without a renewal' },
+    lease: { anyOf: [DURATION, MILLISECONDS], default: '30s', description: 'How long a claim holds without a renewal: a duration or milliseconds' },
     sweepBatch: { type: 'integer', minimum: 1, default: 500, description: 'Rows one sweep deletes at most' },
-    sweepEvery: { ...DURATION, default: '5m', description: 'Interval at which an app schedule should call IdempotencyService.sweep()' },
+    sweepEvery: { ...DURATION, default: '5m', description: 'Reserved for the pending builtin idempotency.sweep schedule; nothing in this release reads it' },
   },
 };
 

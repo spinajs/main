@@ -95,25 +95,27 @@ describeIdempotencyStoreConformance('RedisIdempotencyStore', async () => new Red
 ```
 
 In tests, drive leases with `FakeClock` from `@spinajs/durable/testing`: register it as `Clock` and its `dbSource` as
-`DbTimeSource`, then `await clock.advance(ms)` to end a lease.
+`DbTimeSource`, both with `{ replace: true }`, then `await clock.advance(ms)` to end a lease.
 
 ## Configuration
 
 | Key | Default | Meaning |
 |---|---|---|
 | `idempotency.store` | `OrmIdempotencyStore` | class name of the store |
-| `idempotency.lease` | `30s` | lease of a claim |
+| `idempotency.lease` | `30s` | lease of a claim: a duration or a positive number of milliseconds |
 | `idempotency.sweepBatch` | `500` | rows one sweep deletes at most |
-| `idempotency.sweepEvery` | `5m` | the interval an app's sweep schedule is meant to run at (see Sweeping) |
+| `idempotency.sweepEvery` | `5m` | reserved for the pending builtin `idempotency.sweep` schedule; nothing in this release reads it |
 
-The values are checked at boot: a lease or `sweepEvery` that is not a duration (`500ms`, `30s`, `5m`, `2h`, `1d`) and a
-`sweepBatch` below 1 fail the Configuration.
+The values are checked at boot: a lease that is neither a duration above zero (`500ms`, `30s`, `5m`, `2h`, `1d`) nor a
+positive integer of milliseconds, a `sweepEvery` that is not such a duration, and a `sweepBatch` below 1 fail the
+Configuration.
 
 ## Sweeping
 
 Expired replies and claims whose lease ended stay in the table until a sweep deletes them. `IdempotencyService.sweep()`
 deletes at most `idempotency.sweepBatch` rows and answers how many; call it until it answers 0. The package registers
-no schedule of its own yet, so an app that runs `@spinajs/scheduler` declares one:
+no schedule of its own yet, so an app that runs `@spinajs/scheduler` declares one and sets its own `every`
+(`idempotency.sweepEvery` is not read):
 
 ```ts sample
 import { Autoinject } from '@spinajs/di';

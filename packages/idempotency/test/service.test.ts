@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { FakeClock } from '@spinajs/durable/testing';
 import { InvalidArgument } from '@spinajs/exceptions';
 import type { TestApp } from '@spinajs/testing';
-import { IdempotencyInFlight, IdempotencyKeyReuse, IdempotencyOutcomeUnknown, IdempotencyService, idempotencyKey } from '../src/index.js';
+import { IdempotencyInFlight, IdempotencyKeyReuse, IdempotencyLeaseLost, IdempotencyOutcomeUnknown, IdempotencyService, idempotencyKey } from '../src/index.js';
 import type { IdempotencyRunOptions } from '../src/index.js';
 import { bootIdempotencyApp } from './support/app.js';
 import { withClock } from './support/clock.js';
@@ -148,6 +148,44 @@ for (const store of ['MemoryIdempotencyStore', 'OrmIdempotencyStore']) {
         await assert.rejects(service.run(SCOPE, key, counted, numberReply()), IdempotencyInFlight);
       }
       expect(clock.pendingTimers).to.equal(0);
+    });
+
+    it('keeps the claim and rethrows when toReply throws a crash', async () => {
+      const crash = simulatedCrash();
+      const crashing = numberReply({
+        toReply: () => {
+          throw crash;
+        },
+      });
+      await assert.rejects(service.run(SCOPE, 'k', counted, crashing), (err: unknown) => err === crash);
+      await assert.rejects(service.run(SCOPE, 'k', counted, numberReply()), IdempotencyInFlight);
+      expect(clock.pendingTimers).to.equal(0);
+    });
+
+    it('rethrows a crash of the renewal although the function then reports an unknown outcome', async () => {
+      const crash = simulatedCrash();
+      Object.assign(service.Store, { renew: () => Promise.reject(crash) });
+      let reason: unknown;
+      const unknownAfterRenewal = async (signal: AbortSignal): Promise<number> => {
+        await clock.advance(15_000);
+        reason = signal.reason;
+        throw new IdempotencyOutcomeUnknown('the client went away');
+      };
+
+      await assert.rejects(service.run(SCOPE, 'k', unknownAfterRenewal, numberReply()), (err: unknown) => err === crash);
+      expect(reason).to.equal(crash);
+      expect(clock.pendingTimers).to.equal(0);
+    });
+
+    it('releases the key of a function that stops on a lost lease, so a repeat runs again', async () => {
+      Object.assign(service.Store, { renew: () => Promise.resolve(false) });
+      const stopsOnLoss = async (signal: AbortSignal): Promise<number> => {
+        await clock.advance(15_000);
+        throw signal.reason;
+      };
+
+      await assert.rejects(service.run(SCOPE, 'k', stopsOnLoss, numberReply()), IdempotencyLeaseLost);
+      expect(await service.run(SCOPE, 'k', counted, numberReply())).to.deep.equal({ replayed: false, value: 1 });
     });
 
     it('derives the scoped key from the namespace, principal and key', () => {

@@ -109,7 +109,7 @@ export class IdempotencyService extends AsyncService {
       value = await fn(handle.signal);
     } catch (err) {
       // the side effect may have happened: a dead process or a caller that lost its client releases nothing, and the
-      // lease ends on its own
+      // lease ends on its own; abandon() rejects with a crash the heartbeat recorded meanwhile
       if (err instanceof IdempotencyOutcomeUnknown || isCrash(err)) {
         await handle.abandon();
       } else {
@@ -122,6 +122,10 @@ export class IdempotencyService extends AsyncService {
     try {
       reply = opts.toReply(value);
     } catch (err) {
+      if (isCrash(err)) {
+        await handle.abandon();
+        throw err;
+      }
       // a reply that cannot be built must not leave the key claimed until the lease ends
       await this.release(handle, scope);
       throw err;
