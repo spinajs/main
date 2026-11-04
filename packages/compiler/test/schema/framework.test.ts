@@ -99,15 +99,21 @@ describe('schema derivation: model columns', () => {
   const note = extractModelsOf('columns').find((m) => m.className === 'Note')!;
 
   it('lists inherited and writable accessor columns, public members only, in the models section', () => {
-    expect(note.columns.map((c) => c.name)).to.deep.equal(['Id', 'Secret', 'Body', 'CreatedAt']);
+    expect(note.columns.map((c) => c.name)).to.deep.equal(['Id', 'Secret', 'SeenAt', 'Body', 'CreatedAt']);
     expect(note.relations).to.deep.equal([{ name: 'Writer', kind: 'belongsTo', target: 'Author' }]);
   });
   it('derives the schema from the same columns, @Hidden ones left out, and the relations', () => {
     expect(registered('Note')).to.deep.equal({
       $id: 'spinajs/fw/Note',
       type: 'object',
-      properties: { Id: { type: 'number' }, Writer: { $ref: 'spinajs/fw/Author' }, Body: { type: 'string' }, CreatedAt: { type: 'string', format: 'date-time' } },
-      required: ['Id', 'Body', 'CreatedAt'],
+      properties: {
+        Id: { type: 'number' },
+        Writer: { $ref: 'spinajs/fw/Author' },
+        Body: { type: 'string' },
+        SeenAt: { type: 'string', format: 'date-time', 'x-spinajs-type': 'DateTime' },
+        CreatedAt: { type: 'string', format: 'date-time', 'x-spinajs-type': 'Date' },
+      },
+      required: ['Id', 'SeenAt', 'Body', 'CreatedAt'],
       additionalProperties: false,
     });
     const listed = [...note.columns.filter((c) => c.name !== 'Secret').map((c) => c.name), ...note.relations.map((r) => r.name)];

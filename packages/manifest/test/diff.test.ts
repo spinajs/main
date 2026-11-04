@@ -339,6 +339,43 @@ describe('diffManifest', () => {
   });
 
   describe('other sections', () => {
+    it('an added x-spinajs-type is one non-breaking schemas change per schema, and no route change', () => {
+      const head = clone();
+      for (const name of ['UserDto', 'CreateUserDto']) schemaOf(head, name).properties.name = { type: 'string', 'x-spinajs-type': 'Decimal' };
+      const diff = diffManifest(base, head);
+      expect(diff.changes).to.deep.equal([
+        { section: 'schemas', kind: 'changed', id: 'spinajs/app-basic/CreateUserDto', breaking: false, detail: 'schema changed' },
+        { section: 'schemas', kind: 'changed', id: 'spinajs/app-basic/UserDto', breaking: false, detail: 'schema changed' },
+      ]);
+      expect(diff.breaking).to.equal(false);
+    });
+
+    it('an x-spinajs-type added to a union member (Date | number) is a non-breaking schemas change only', () => {
+      const withName = (dateTime: object): Manifest => {
+        const m = clone();
+        for (const name of ['UserDto', 'CreateUserDto']) schemaOf(m, name).properties.name = { anyOf: [dateTime, { type: 'number' }] };
+        return m;
+      };
+      const before = withName({ type: 'string', format: 'date-time' });
+      const after = withName({ type: 'string', format: 'date-time', 'x-spinajs-type': 'Date' });
+      const diff = diffManifest(before, after);
+      expect(diff.changes.map((c) => [c.section, c.id, c.breaking])).to.deep.equal([
+        ['schemas', 'spinajs/app-basic/CreateUserDto', false],
+        ['schemas', 'spinajs/app-basic/UserDto', false],
+      ]);
+      expect(diff.breaking).to.equal(false);
+    });
+
+    it('a union member that differs only in the name of an x-* property is still a different member', () => {
+      const withMember = (key: string): Manifest => {
+        const m = clone();
+        schemaOf(m, 'UserDto').properties.name = { anyOf: [{ type: 'object', properties: { [key]: { type: 'string' } } }, { type: 'number' }] };
+        return m;
+      };
+      const diff = diffManifest(withMember('x-old'), withMember('x-new'));
+      expect(find(diff.changes, 'routes', 'GET /users/:id')).to.include({ breaking: true });
+    });
+
     it('removed config module is breaking', () => {
       const head = clone();
       head.configModules = head.configModules.filter((c) => c.module !== 'app');

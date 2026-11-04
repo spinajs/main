@@ -4,8 +4,15 @@ import type { JsonSchema, TypeHandler } from './derive.js';
 const LIB = /[\\/]lib\.[^\\/]*\.d\.ts$/;
 const NODE = /[\\/]@types[\\/]node[\\/]/;
 const LUXON = /[\\/]luxon[\\/]/;
-const DATE_TIME: JsonSchema = { type: 'string', format: 'date-time' };
+const DECIMAL_JS = /[\\/]decimal\.js[\\/]/;
+// big.js ships no types of its own: `Big` comes from @types/big.js.
+const BIG_JS = /[\\/]big\.js[\\/]/;
 const BINARY: JsonSchema = { type: 'string', format: 'binary' };
+
+/** The server-side type, which the format cannot tell (a JS `Date` and a luxon `DateTime` are both `date-time`). */
+export const SPINAJS_TYPE = 'x-spinajs-type';
+const dateTime = (type: 'Date' | 'DateTime'): JsonSchema => ({ type: 'string', format: 'date-time', [SPINAJS_TYPE]: type });
+const DECIMAL: JsonSchema = { type: 'string', format: 'decimal', [SPINAJS_TYPE]: 'Decimal' };
 
 export interface WellKnownType {
   name: string;
@@ -15,8 +22,10 @@ export interface WellKnownType {
 
 /** Keyed by symbol name and the file that declares it, so a user class named `Stream` is not mistaken for node's. */
 export const WELL_KNOWN_TYPES: WellKnownType[] = [
-  { name: 'Date', from: LIB, schema: DATE_TIME },
-  { name: 'DateTime', from: LUXON, schema: DATE_TIME },
+  { name: 'Date', from: LIB, schema: dateTime('Date') },
+  { name: 'DateTime', from: LUXON, schema: dateTime('DateTime') },
+  { name: 'Decimal', from: DECIMAL_JS, schema: DECIMAL },
+  { name: 'Big', from: BIG_JS, schema: DECIMAL },
   { name: 'Buffer', from: NODE, schema: BINARY },
   { name: 'Uint8Array', from: LIB, schema: BINARY },
   { name: 'Int8Array', from: LIB, schema: BINARY },
