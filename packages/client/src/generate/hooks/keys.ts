@@ -10,6 +10,8 @@ export interface KeysOptions {
   moduleName?: string;
   /** File name of the client without extension, default `client`. */
   basename?: string;
+  /** The routes from `hookRoutes`, when the caller has built them already. */
+  hookRoutes?: HookRoute[];
 }
 
 // Only the names the key factories mention: the import is type-only, and an unused one would fail noUnusedLocals.
@@ -28,7 +30,7 @@ function keyEntry(hook: HookRoute, segments: Segments): string {
 /** `client.keys.ts`: query keys, cache tags, the error type and the shape hash. Server-safe: no React, no query library. */
 export function emitKeys(model: ClientModel, options: KeysOptions = {}): string {
   const prefix = options.keyPrefix ?? DEFAULT_KEY_PREFIX;
-  const hooks = hookRoutes(model, { keyPrefix: prefix });
+  const hooks = options.hookRoutes ?? hookRoutes(model, { keyPrefix: prefix });
   const segments: Segments = (...parts) => [prefix, ...parts].map(literal).join(', ');
   const controllers = model.controllers.map((c) => ({ c, hooks: hooks.filter((h) => h.route.controllerKey === c.key) }));
   const keys = controllers.map(({ c, hooks: own }) => [`  ${c.key}: {`, `    all: [${segments(c.key)}] as const,`, ...own.map((h) => keyEntry(h, segments)), '  },'].join('\n'));
