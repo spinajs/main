@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { IQueueMessage, QueueMessageType } from '@spinajs/queue';
+import { IQueueMessage, PermanentJobFailure, QueueMessageType } from '@spinajs/queue';
 import { DateTime } from 'luxon';
 import * as chai from 'chai';
 import { expect } from 'chai';
@@ -463,6 +463,17 @@ describe('amqp queue transport - unit', function () {
       await tick();
 
       expect(c.pub.published.some((s) => s.routingKey === '/queue/retry-dlq'), 'second failure dead-letters').to.be.true;
+    });
+
+    it('dead-letters a PermanentJobFailure at once, with retries left', async () => {
+      const c = await connected({ retryDelay: 100 });
+      await c.subscribe('/queue/retry-src', sinon.stub().rejects(new PermanentJobFailure('access_denied', 'job RetryRoutedJob needs invoice:send on invoice')));
+
+      deliver(c.con, '/queue/retry-src', jobMessage({ Name: 'RetryRoutedJob', RetryCount: 3 } as any));
+      await tick();
+
+      expect(c.pub.published.some((s) => s.routingKey.startsWith('/queue/retry-src.retry')), 'never retried').to.be.false;
+      expect(c.pub.published.some((s) => s.routingKey === '/queue/retry-dlq'), 'dead-lettered').to.be.true;
     });
 
     it('prefers an explicit RetryCount on the job over the routing default', async () => {

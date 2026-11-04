@@ -1,5 +1,5 @@
 import { Autoinject } from '@spinajs/di';
-import { Schedule, ScheduledTask } from '@spinajs/scheduler';
+import { Schedule, ScheduledTask, SystemTask } from '@spinajs/scheduler';
 import type { RunContext } from '@spinajs/scheduler';
 
 import './register-schema.js';
@@ -9,6 +9,7 @@ import type { SyncOutcome } from './sync.js';
 export const EMAIL_DOMAIN_LIST_SYNC_SCHEDULE = 'email-verification.list-sync';
 
 @Schedule(EMAIL_DOMAIN_LIST_SYNC_SCHEDULE, { every: '24h', runOn: 'leader', overlap: 'skip', misfire: 'run-once' })
+@SystemTask('refreshes the shared disposable and free mail domain lists')
 export class EmailDomainListSyncTask extends ScheduledTask {
   @Autoinject(DomainListSync)
   protected Sync: DomainListSync;

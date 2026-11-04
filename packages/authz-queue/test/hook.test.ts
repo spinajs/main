@@ -2,13 +2,13 @@ import 'mocha';
 
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { SYSTEM, UNATTENDED } from '@spinajs/authz';
-import type { AuthzService, Principal } from '@spinajs/authz';
+import { FALSE, SYSTEM, TRUE, UNATTENDED } from '@spinajs/authz';
+import type { AuthzService, CheckInput, Decision, Principal } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
-import { Job, QueueJob } from '@spinajs/queue';
+import { Job, QueueJob, SystemTask, isPermanentJobFailure } from '@spinajs/queue';
 import type { IQueueMessage } from '@spinajs/queue';
 
-import { AuthzQueueHook, InitiatorPrincipalFactory, StampedInitiatorPrincipalFactory, reviveCeiling } from '../src/index.js';
+import { AuthzQueueHook, InitiatorPrincipalFactory, JobAccessDenied, StampedInitiatorPrincipalFactory, reviveCeiling } from '../src/index.js';
 
 const user = (id: string, extra: Partial<Principal> = {}): Principal => ({ type: 'user', id, authenticated: true, source: 'session', attributes: {}, ...extra });
 
@@ -16,6 +16,12 @@ const user = (id: string, extra: Partial<Principal> = {}): Principal => ({ type:
 class TestHook extends AuthzQueueHook {
   ambient: Principal = UNATTENDED;
   ranAs: { principal: Principal; reason: string }[] = [];
+  checked: CheckInput[] = [];
+  warned: unknown[][] = [];
+  /** The engine's answer per permission; a permission not listed is denied. */
+  grants: Record<string, Partial<Decision>> = {};
+
+  protected Log = { warn: (...args: unknown[]) => this.warned.push(args) } as unknown as AuthzQueueHook['Log'];
 
   protected async service(): Promise<AuthzService> {
     const self = this;
@@ -24,6 +30,11 @@ class TestHook extends AuthzQueueHook {
       runAs: async (principal: Principal, reason: string, fn: () => Promise<unknown>) => {
         self.ranAs.push({ principal, reason });
         return fn();
+      },
+      check: async (input: CheckInput) => {
+        self.checked.push(input);
+        const grant = self.grants[input.permission];
+        return { allowed: false, residual: FALSE, permission: input.permission, resource: input.resource, reason: { code: 'no_access' }, ...grant } as Decision;
       },
     } as unknown as AuthzService;
   }
@@ -206,6 +217,81 @@ describe('AuthzQueueHook.aroundHandle', () => {
       DI.uncache(Reloading);
       DI.uncache(TestHook);
     }
+  });
+});
+
+@Job({ runAs: 'initiator', access: ['invoice:send', 'invoice:admin'], resource: (m: SendInvoice) => ({ type: 'invoice', id: m.InvoiceId }) })
+class SendInvoice extends QueueJob {
+  public InvoiceId = '7';
+  async execute() {
+    return 1;
+  }
+}
+@Job({ access: 'report:run' })
+class RunReport extends QueueJob {
+  async execute() {
+    return 1;
+  }
+}
+@Job({ runAs: 'system' })
+@SystemTask('purges expired drafts of every tenant')
+class Purge extends QueueJob {
+  async execute() {
+    return 1;
+  }
+}
+
+describe('AuthzQueueHook and @Job({ access })', () => {
+  before(() => testHost.installHost());
+  after(() => testHost.uninstallHost());
+
+  const alice = { type: 'user', id: 'alice' };
+  const rejection = (p: Promise<unknown>): Promise<unknown> => p.then(() => expect.fail('should reject'), (e: unknown) => e);
+
+  it('runs the job when the principal it runs as holds one of the permissions on the job resource', async () => {
+    const hook = await built();
+    hook.grants['invoice:admin'] = { allowed: true, residual: TRUE };
+    expect(await hook.aroundHandle(messageOf(SendInvoice, alice), async () => 'sent')).to.equal('sent');
+    expect(hook.checked.map((c) => [c.principal.id, c.permission, c.resource])).to.deep.equal([
+      ['alice', 'invoice:send', { type: 'invoice', id: '7' }],
+      ['alice', 'invoice:admin', { type: 'invoice', id: '7' }],
+    ]);
+  });
+
+  it('refuses before execute with a permanent access_denied failure', async () => {
+    const hook = await built();
+    let ran = false;
+    const err = await rejection(hook.aroundHandle(messageOf(SendInvoice, alice), async () => (ran = true)));
+    expect(ran).to.equal(false);
+    expect(err).to.be.instanceOf(JobAccessDenied);
+    expect(isPermanentJobFailure(err)).to.equal(true);
+    expect((err as JobAccessDenied).reason).to.equal('access_denied');
+    expect((err as Error).message).to.equal('access_denied: job SendInvoice needs invoice:send on invoice:7 (no_access)');
+  });
+
+  it('does not settle a conditional allow on one row, but accepts one on the type', async () => {
+    const hook = await built();
+    hook.grants['invoice:send'] = { allowed: true, residual: { op: 'eq' } as unknown as Decision['residual'] };
+    expect(await rejection(hook.aroundHandle(messageOf(SendInvoice, alice), async () => 'sent'))).to.be.instanceOf(JobAccessDenied);
+
+    hook.grants['report:run'] = { allowed: true, residual: { op: 'eq' } as unknown as Decision['residual'] };
+    expect(await hook.aroundHandle(messageOf(RunReport), async () => 'ran')).to.equal('ran');
+    expect(hook.checked.at(-1)).to.deep.include({ permission: 'report:run', resource: { type: 'report' } });
+  });
+
+  it('checks an unattended job, which every check denies', async () => {
+    const hook = await built();
+    expect(((await rejection(hook.aroundHandle(messageOf(RunReport), async () => 'ran'))) as Error).message).to.equal('access_denied: job RunReport needs report:run on report (no_access)');
+    expect(hook.checked[0].principal).to.equal(UNATTENDED);
+  });
+
+  it("warns once per class about runAs 'system' with neither access nor @SystemTask", async () => {
+    const hook = await built();
+    await run(hook, messageOf(AsSystem));
+    await run(hook, messageOf(AsSystem));
+    await run(hook, messageOf(Purge));
+    expect(hook.warned.map(([fields]) => fields)).to.deep.equal([{ job: 'AsSystem' }]);
+    expect(hook.checked).to.deep.equal([]);
   });
 });
 

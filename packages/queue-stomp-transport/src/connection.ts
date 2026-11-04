@@ -1,5 +1,5 @@
 import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
-import { IQueueMessage, IQueueJob, IQueueConnectionOptions, IQueueCredentialsProvider, QueueClient, QueueMessage, QueueMessageType } from '@spinajs/queue';
+import { IQueueMessage, IQueueJob, IQueueConnectionOptions, IQueueCredentialsProvider, QueueClient, QueueMessage, QueueMessageType, isPermanentJobFailure } from '@spinajs/queue';
 import Stomp from '@stomp/stompjs';
 import _ from 'lodash';
 import { Constructor, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
@@ -579,7 +579,7 @@ export class StompQueueClient extends QueueClient {
    * Events ( fire-and-forget ) are logged and acked ( dropped ) - the queue model
    * does not retry them. Jobs are retried up to their RetryCount by re-publishing
    * to the same channel with an incremented retry header ( and optional backoff ),
-   * then dead-lettered once retries are exhausted.
+   * then dead-lettered once retries are exhausted, or at once for a `PermanentJobFailure`.
    */
   protected handleFailedMessage(message: Stomp.IMessage, qMessage: IQueueMessage, desc: ISubscriptionDescriptor, err: unknown) {
     const reason = (err as Error)?.message ?? String(err);
@@ -594,7 +594,7 @@ export class StompQueueClient extends QueueClient {
     const maxRetries = (qMessage as IQueueJob).RetryCount ?? this.getMaxRetriesForMessage(qMessage) ?? 0;
     const attempt = Number(message.headers?.[RETRY_COUNT_HEADER] ?? '0');
 
-    if (attempt < maxRetries) {
+    if (attempt < maxRetries && !isPermanentJobFailure(err)) {
       const nextAttempt = attempt + 1;
       const delay = this.retryBackoff(nextAttempt);
 

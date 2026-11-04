@@ -1,5 +1,5 @@
 import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
-import { IQueueMessage, IQueueJob, IQueueConnectionOptions, QueueClient, QueueMessage, QueueMessageType } from '@spinajs/queue';
+import { IQueueMessage, IQueueJob, IQueueConnectionOptions, QueueClient, QueueMessage, QueueMessageType, isPermanentJobFailure } from '@spinajs/queue';
 import amqp, { Channel, ChannelModel, ConfirmChannel, ConsumeMessage, Options } from 'amqplib';
 import _ from 'lodash';
 import { Constructor, Injectable, PerInstanceCheck } from '@spinajs/di';
@@ -495,7 +495,7 @@ export class AmqpQueueClient extends QueueClient {
    *
    * Events are fire-and-forget - logged and acked ( dropped ). Jobs are retried up to their
    * RetryCount ( or the routing `maxRetries` when the job carries none ) by re-publishing to a TTL "retry" queue that dead-letters back to the work queue
-   * after an exponential delay, then dead-lettered once retries are exhausted.
+   * after an exponential delay, then dead-lettered once retries are exhausted, or at once for a `PermanentJobFailure`.
    */
   protected handleFailedMessage(msg: ConsumeMessage, qMessage: IQueueMessage, channel: string, err: unknown, consumeChannel: Channel = this.ConsumeChannel) {
     const reason = (err as Error)?.message ?? String(err);
@@ -510,7 +510,7 @@ export class AmqpQueueClient extends QueueClient {
     const maxRetries = (qMessage as IQueueJob).RetryCount ?? this.getMaxRetriesForMessage(qMessage) ?? 0;
     const attempt = Number(msg.properties.headers?.[RETRY_COUNT_HEADER] ?? 0);
 
-    if (attempt < maxRetries) {
+    if (attempt < maxRetries && !isPermanentJobFailure(err)) {
       this.retryJob(msg, qMessage, channel, attempt + 1, reason, consumeChannel).catch((retryErr) => {
         this.Log.error({ error: retryErr, jobName: qMessage.Name, channel }, 'Failed to reschedule job ${jobName} on ${channel}, nacking instead');
         this.settleMessage(consumeChannel, msg, false);

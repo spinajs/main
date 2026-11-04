@@ -14,6 +14,7 @@ export * from './interfaces.js';
 export * from './decorators.js';
 export * from './commander.js';
 export * from './tokens.js';
+export { SystemTask, systemTaskOf } from '@spinajs/util';
 
 /**
  * Best-effort lookup of this package version for `--version`.
