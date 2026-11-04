@@ -1,4 +1,5 @@
-import type { GenerateClientFilesOptions, GeneratorTarget } from '@spinajs/client';
+import { dirname, join } from 'node:path';
+import type { GenerateClientFilesOptions, GeneratedFile, GeneratorTarget } from '@spinajs/client';
 
 export interface GenerateClientFlags {
   manifest: string;
@@ -42,7 +43,17 @@ function missingParent(flags: GenerateClientFlags): string | undefined {
   return bad && `${bad[1]} needs ${bad[3]}`;
 }
 
+const HOOKS_VALUES = ['react-query', 'swr'];
+
+function checkHooks(hooks: string[] = []): void {
+  const unknown = hooks.find((h) => !HOOKS_VALUES.includes(h));
+  if (unknown !== undefined) throw new Error(`--hooks: unknown value '${unknown}'; use ${HOOKS_VALUES.join(' or ')}`);
+  const twice = hooks.find((h, i) => hooks.indexOf(h) !== i);
+  if (twice !== undefined) throw new Error(`--hooks: '${twice}' is listed twice`);
+}
+
 export function toFilesOptions(flags: GenerateClientFlags): Omit<GenerateClientFilesOptions, 'manifest' | 'basename'> {
+  checkHooks(flags.hooks);
   const problem = missingParent(flags);
   if (problem) throw new Error(problem);
 
@@ -76,6 +87,11 @@ export function unavailableFlag(flags: GenerateClientFlags, targets: TargetTable
       [flags.msw, '--msw', ['msw']],
     ] as [boolean | undefined, string, GeneratorTarget[]][]).flatMap(([on, flag, t]): [string, GeneratorTarget[]][] => (on ? [[flag, t]] : [])),
   ];
-  // An unknown hooks value has no table entry; generateClientFiles rejects it with the allowed list.
-  return requested.find(([, ts]) => ts.some((t) => targets[t] !== undefined && !targets[t].available))?.[0];
+  // A target the installed @spinajs/client does not list is as unavailable as one it lists as not landed.
+  return requested.find(([, ts]) => ts.some((t) => !targets[t]?.available))?.[0];
+}
+
+/** The first file is the client, written to `out` as given; companions sit beside it. */
+export function outputPaths(out: string, files: GeneratedFile[]): { path: string; contents: string }[] {
+  return files.map((f, i) => ({ path: i === 0 ? out : join(dirname(out), f.path), contents: f.contents }));
 }

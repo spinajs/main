@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { generateClient, GENERATOR_TARGETS } from '@spinajs/client';
@@ -9,7 +9,7 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import '@spinajs/log';
 import { Cli } from '../src/index.js';
-import { parseList, toFilesOptions, unavailableFlag, type GenerateClientFlags } from '../src/generateClientFlags.js';
+import { outputPaths, parseList, toFilesOptions, unavailableFlag, type GenerateClientFlags } from '../src/generateClientFlags.js';
 
 const manifestPath = resolve(process.cwd(), '../compiler/test/fixtures/app-basic/app.manifest.json');
 
@@ -81,6 +81,15 @@ describe('generate:client', function () {
     expect(await readFile(out, 'utf8')).to.equal(await generateClient({ manifest: await readManifest(manifestPath) }));
   });
 
+  for (const name of ['client.mts', 'api']) {
+    it(`writes the client to --out verbatim for ${name}`, async () => {
+      const out = join(dir, name);
+      await run('--out', out);
+      expect(await readFile(out, 'utf8')).to.equal(await generateClient({ manifest: await readManifest(manifestPath) }));
+      expect(await readdir(dir)).to.deep.equal([name]);
+    });
+  }
+
   describe('flag refusal', () => {
     const cases: [string[], string][] = [
       [['--hooks', 'react-query'], '--hooks react-query'],
@@ -91,6 +100,7 @@ describe('generate:client', function () {
       [['--server'], '--server'],
       [['--next'], '--next'],
       [['--mocks'], '--mocks'],
+      [['--mocks', '--msw'], '--mocks'],
     ];
     for (const [args, flag] of cases) {
       it(`refuses ${args.join(' ')} naming ${flag}`, async () => {
@@ -102,6 +112,16 @@ describe('generate:client', function () {
 
     it('rejects an unknown hooks value with the allowed list', async () => {
       expect(await rejection('--out', join(dir, 'client.ts'), '--hooks', 'vue')).to.include('use react-query or swr');
+    });
+
+    it('rejects a hooks value that names another target, with the allowed list', async () => {
+      for (const value of ['server', 'zod']) {
+        expect(await rejection('--out', join(dir, 'client.ts'), '--hooks', value)).to.equal("--hooks: unknown value '" + value + "'; use react-query or swr");
+      }
+    });
+
+    it('rejects a hooks target listed twice', async () => {
+      expect(await rejection('--out', join(dir, 'client.ts'), '--hooks', 'swr,swr')).to.include('listed twice');
     });
 
     it('rejects a qualifier whose flag is missing', async () => {
@@ -168,6 +188,21 @@ describe('generate:client', function () {
       expect(toFilesOptions({ ...base, zod: true }).zod).to.deep.equal({});
     });
 
+    it('writes the main file to --out and names companions from its basename', () => {
+      const files = [
+        { path: 'x.ts', contents: 'a' },
+        { path: 'x.zod.ts', contents: 'b' },
+      ];
+      expect(outputPaths(join('d', 'x.mts'), files).map((f) => f.path)).to.deep.equal([join('d', 'x.mts'), join('d', 'x.zod.ts')]);
+      expect(outputPaths(join('d', 'x'), files).map((f) => f.path)).to.deep.equal([join('d', 'x'), join('d', 'x.zod.ts')]);
+    });
+
+    it('treats a target missing from the installed table as unavailable', () => {
+      const older = Object.fromEntries(Object.entries(GENERATOR_TARGETS).filter(([target]) => target !== 'mocks'));
+      expect(unavailableFlag({ ...base, mocks: true }, older as unknown as typeof GENERATOR_TARGETS)).to.equal('--mocks');
+      expect(unavailableFlag({ ...base, hooks: ['swr'] }, { ...older, swr: { available: true } } as unknown as typeof GENERATOR_TARGETS)).to.equal(undefined);
+    });
+
     it('names the flag as typed, and reports --next for its implied server target', () => {
       const table = { ...GENERATOR_TARGETS, server: { available: false }, next: { available: true } };
       expect(unavailableFlag({ ...base, next: true }, table)).to.equal('--next');
@@ -224,6 +259,21 @@ describe('generate:client', function () {
       expect(process.exitCode).to.equal(1);
       expect(stderr).to.include(`${out} (missing)`);
       expect(await readFile(out, 'utf8').catch(() => 'absent')).to.equal('absent');
+    });
+
+    it('checks the --out path itself, whatever its extension', async () => {
+      const out = join(dir, 'client.mts');
+      await writeFile(out, await generateClient({ manifest: await readManifest(manifestPath) }));
+      await run('--out', out, '--check');
+      expect(process.exitCode).to.equal(undefined);
+      expect(stderr).to.equal('');
+    });
+
+    it('reports a missing --out without an extension under that name', async () => {
+      const out = join(dir, 'api');
+      await run('--out', out, '--check');
+      expect(process.exitCode).to.equal(1);
+      expect(stderr).to.include(`${out} (missing)`);
     });
 
     it('ignores the line-ending conversion of a checkout', async () => {

@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { basename, dirname, extname, join, resolve } from 'node:path';
+import { basename, dirname, extname, resolve } from 'node:path';
 import { Log, Logger } from '@spinajs/log-common';
 import { CliCommand, Command, Option } from '../index.js';
-import { parseList, toFilesOptions, unavailableFlag, type GenerateClientFlags } from '../generateClientFlags.js';
+import { outputPaths, parseList, toFilesOptions, unavailableFlag, type GenerateClientFlags } from '../generateClientFlags.js';
 
 @Command('generate:client', 'Writes a typed client from app.manifest.json')
 @Option('-m, --manifest <path>', false, 'application manifest file', 'app.manifest.json')
@@ -40,7 +40,7 @@ export class GenerateClient extends CliCommand {
 
     const out = resolve(options.out);
     const files = await generateClientFiles({ ...filesOptions, manifest: await readManifest(options.manifest), basename: basename(out, extname(out)) });
-    const targets = files.map((f) => ({ path: join(dirname(out), f.path), contents: f.contents }));
+    const targets = outputPaths(out, files);
 
     if (options.check) {
       await this.check(targets);
