@@ -185,7 +185,7 @@ describe('generate:client', function () {
       process.stderr.write = ((chunk: string | Uint8Array) => {
         stderr += String(chunk);
         return true;
-      }) as typeof process.stderr.write;
+      });
       process.exitCode = undefined;
     });
 
