@@ -1,6 +1,7 @@
 import { emitClient, type GenerateClientOptions } from '../generate.js';
 import { emitKeys } from './hooks/keys.js';
 import { emitReactContext } from './hooks/react.js';
+import { emitSocketHooks, emitSwrSocketHooks } from './hooks/socket.js';
 import { buildClientModel, type ClientModel } from './model.js';
 
 export interface GeneratedFile {
@@ -41,7 +42,7 @@ export const GENERATOR_TARGETS: Readonly<Record<GeneratorTarget, { readonly avai
   swr: { available: false },
   zod: { available: false },
   models: { available: false },
-  'socket-hooks': { available: false },
+  'socket-hooks': { available: true },
 };
 
 type EmitOptions = GenerateClientFilesOptions & { basename: string };
@@ -57,8 +58,15 @@ const hooksShared: Emitter = (model, options) =>
     { path: `${options.basename}.react.ts`, environment: 'client', contents: emitReactContext(model, options) },
   ]);
 
-// The targets that write their own file; `models` and `socket-hooks` add to client.ts and the hooks files.
-const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': noFiles, swr: noFiles, zod: noFiles };
+// Their own files, not the hooks files: both libraries share the event and stream hooks, which an app using both would otherwise get twice.
+const socketHooksFiles: Emitter = (model, options) =>
+  Promise.resolve([
+    { path: `${options.basename}.socket.ts`, environment: 'client', contents: emitSocketHooks(model, options) },
+    ...(options.hooks?.includes('swr') ? [{ path: `${options.basename}.socket-swr.ts`, environment: 'client' as const, contents: emitSwrSocketHooks(model, options) }] : []),
+  ]);
+
+// The targets that write their own files; `models` adds to client.ts.
+const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': noFiles, swr: noFiles, zod: noFiles, 'socket-hooks': socketHooksFiles };
 
 export function requestedTargets(options: GenerateClientFilesOptions): GeneratorTarget[] {
   const requested: Record<GeneratorTarget, boolean> = {
@@ -77,7 +85,8 @@ function checkOptions(options: GenerateClientFilesOptions): void {
   if (unknown !== undefined) throw new Error(`generateClientFiles: unknown hooks target '${unknown}'; use ${HOOKS_TARGETS.join(' or ')}`);
   const twice = hooks.find((h, i) => hooks.indexOf(h) !== i);
   if (twice !== undefined) throw new Error(`generateClientFiles: hooks target '${twice}' is listed twice`);
-  if (options.socketHooks && hooks.length === 0) throw new Error('generateClientFiles: socketHooks needs hooks, because socket hooks are added to the hooks files');
+  if (options.socketHooks && hooks.length === 0) throw new Error('generateClientFiles: socketHooks needs hooks, which pick the flavour of the socket hooks');
+  if (options.socketHooks && options.includeSocket === false) throw new Error('generateClientFiles: socketHooks needs the socket contracts, which includeSocket: false leaves out of client.ts');
   if (options.keyPrefix === '') throw new Error('generateClientFiles: keyPrefix must not be empty');
 }
 
