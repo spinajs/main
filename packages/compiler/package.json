@@ -43,6 +43,7 @@
   "dependencies": {
     "@spinajs/manifest": "3.0.23",
     "json-schema-to-typescript": "^16.0.0",
+    "node-sql-parser": "~5.4.0",
     "typescript": "~5.9.0"
   },
   "devDependencies": {
