@@ -6,6 +6,7 @@ import { emitSwr } from './hooks/swr.js';
 import { emitQueries, emitReactQuery } from './hooks/react-query.js';
 import { hookRoutes, type HookRoute } from './hooks/shared.js';
 import { buildClientModel, type ClientModel } from './model.js';
+import { emitServer } from './server.js';
 
 export interface GeneratedFile {
   /** Relative to the directory of the client file. */
@@ -29,6 +30,8 @@ export interface GenerateClientFilesOptions extends GenerateClientOptions {
   socketHooks?: boolean;
   /** First segment of every query key and cache tag, default `spinajs`. */
   keyPrefix?: string;
+  /** Writes `client.server.ts`, with `createServerAppClient` for Server Components and loaders. */
+  server?: boolean;
 }
 
 type HooksTarget = NonNullable<GenerateClientFilesOptions['hooks']>[number];
@@ -37,7 +40,7 @@ const HOOKS_TARGET_SET: Record<HooksTarget, true> = { 'react-query': true, swr: 
 
 const HOOKS_TARGETS = Object.keys(HOOKS_TARGET_SET) as HooksTarget[];
 
-export type GeneratorTarget = HooksTarget | 'zod' | 'models' | 'socket-hooks';
+export type GeneratorTarget = HooksTarget | 'zod' | 'models' | 'socket-hooks' | 'server';
 
 /** Whether each target's emitter has landed; the CLI refuses a requested target that is not available. */
 export const GENERATOR_TARGETS: Readonly<Record<GeneratorTarget, { readonly available: boolean }>> = {
@@ -46,6 +49,7 @@ export const GENERATOR_TARGETS: Readonly<Record<GeneratorTarget, { readonly avai
   zod: { available: false },
   models: { available: false },
   'socket-hooks': { available: true },
+  server: { available: true },
 };
 
 // `hookRoutes` is built once, so every hooks file prints the same routes.
@@ -77,8 +81,10 @@ const socketHooksFiles: Emitter = (model, options) =>
     ...(options.hooks?.includes('swr') ? [{ path: `${options.basename}.socket-swr.ts`, environment: 'client' as const, contents: emitSwrSocketHooks(model, options) }] : []),
   ]);
 
+const serverFile: Emitter = (model, options) => Promise.resolve([{ path: `${options.basename}.server.ts`, environment: 'server-safe', contents: emitServer(model, options) }]);
+
 // The targets that write their own files; `models` adds to client.ts.
-const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': reactQuery, swr: swrFile, zod: noFiles, 'socket-hooks': socketHooksFiles };
+const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': reactQuery, swr: swrFile, zod: noFiles, 'socket-hooks': socketHooksFiles, server: serverFile };
 
 export function requestedTargets(options: GenerateClientFilesOptions): GeneratorTarget[] {
   const requested: Record<GeneratorTarget, boolean> = {
@@ -87,6 +93,7 @@ export function requestedTargets(options: GenerateClientFilesOptions): Generator
     zod: !!options.zod,
     models: !!options.models,
     'socket-hooks': !!options.socketHooks,
+    server: !!options.server,
   };
   return (Object.keys(GENERATOR_TARGETS) as GeneratorTarget[]).filter((t) => requested[t]);
 }

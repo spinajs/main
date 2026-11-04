@@ -90,6 +90,8 @@ The same generator is available as `generateClient({ manifest, moduleName?, incl
 
 Install `@spinajs/client` next to `@spinajs/cli` to use the command.
 
+A server that renders pages (Next.js Server Components, loaders) calls the API with `createServerAppClient` from `client.server.ts`, which `generateClientFiles({ manifest, server: true })` writes. It forwards the browser's `cookie` and `authorization` headers. [Server rendering and prefetching](ssr.md) covers it, together with prefetching for React Query and SWR.
+
 ## Extending generated types
 
 The generated file is build output: it starts with `Do not edit`, and the next `spinajs generate:client` overwrites it. Put your code in files next to it.
