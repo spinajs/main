@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { Clock, DbClock, FaultInjector, FaultPointName } from '@spinajs/durable';
+import { computeBackoff, isRetryable, type Clock, type DbClock, type FaultInjector, type FaultPointName, type NormalizedRetry, type RetryPolicyOptions } from '@spinajs/durable';
 import { InvalidArgument, InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import type { Log } from '@spinajs/log-common';
 import type { QueueEvent, QueueJob } from '@spinajs/queue';
@@ -9,6 +9,7 @@ import { ReplayGate } from './gate.js';
 import { identifierProblem } from './identifier.js';
 import type { Journal, StepRow } from './journal.js';
 import { safeStringify } from './json.js';
+import { normalizeRetry, unitHash } from './policy.js';
 import type { WorkflowInstanceModel } from './models/WorkflowInstanceModel.js';
 import type { RegisteredWorkflow } from './registry.js';
 import type { InstanceStore, StepWrite } from './store.js';
@@ -277,6 +278,14 @@ export class ActivationContext implements WorkflowContext {
       if (rec.Status === 'succeeded') return journal.value(op.key) as T;
       throw new WorkflowStepFailed(op.name, rec.Error ?? { name: 'Error', message: 'step failed' });
     }
+    const wakeAt = rec?.Status === 'retrying' ? rec.Meta?.wakeAt : undefined;
+    if (wakeAt !== undefined && this.init.clock.now() < wakeAt) {
+      // A parallel step woke the instance early and this one waits out its own backoff. Parking one turn later lets
+      // the siblings called in the same synchronous run (a Promise.all) take their keys and run.
+      await Promise.resolve();
+      this.interrupt({ kind: 'park', park: { status: 'running', wakeAt, waitingFor: null } });
+      throw new WorkflowSuspended() as unknown;
+    }
     return this.runLive(op, fn, opts, rec);
   }
 
@@ -339,21 +348,33 @@ export class ActivationContext implements WorkflowContext {
     return JSON.parse(json) as unknown;
   }
 
-  /** Returns what the step throws to `run()`. */
-  protected async stepFailed<T>(op: Op, err: unknown, attempt: number, startedAt: number, _opts: WorkflowStepOptions<T>): Promise<unknown> {
+  /** Returns what the step throws to `run()`: a retry parks the instance, a final failure is journaled. */
+  protected async stepFailed<T>(op: Op, err: unknown, attempt: number, startedAt: number, opts: WorkflowStepOptions<T>): Promise<unknown> {
     if (this.crashed || isCrash(err)) {
       this.crash(err);
       return err;
     }
     if (err instanceof LeaseLostError || err instanceof WorkflowAborted || this.signal.aborted) return new WorkflowAborted(this.abortReason());
     const error = serializeError(err, op.name);
+    const retry = this.retryPolicy(opts.retry);
+    const again = isRetryable(retry, err) && attempt < retry.attempts;
+    // the row carries its own wake time: a replay before it parks again instead of running the attempt early
+    const wakeAt = again ? this.init.clock.now() + computeBackoff(retry, attempt, () => unitHash(`${this.instanceId}:${op.key}:${attempt}`)) : null;
     try {
-      await this.enqueueWrite(() => this.saveStep(op, { status: 'failed', attempt, startedAt, error, finished: true }));
+      await this.enqueueWrite(() => this.saveStep(op, { status: again ? 'retrying' : 'failed', attempt, startedAt, error, meta: wakeAt === null ? null : { wakeAt }, finished: true }));
     } catch (writeErr) {
       return this.journalWriteFailed(writeErr);
     }
-    await this.gate.live(op.order);
-    return new WorkflowStepFailed(op.name, error, err);
+    if (wakeAt === null) {
+      await this.gate.live(op.order);
+      return new WorkflowStepFailed(op.name, error, err);
+    }
+    this.interrupt({ kind: 'park', park: { status: 'running', wakeAt, waitingFor: null } });
+    return new WorkflowSuspended();
+  }
+
+  protected retryPolicy(own: RetryPolicyOptions | undefined): NormalizedRetry {
+    return normalizeRetry(own ?? this.init.definition.options.retry ?? this.init.config.retry, `workflow '${this.workflow}'`);
   }
 
   protected stepWrite(op: Op, s: Save, now: number): StepWrite {
