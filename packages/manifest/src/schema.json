@@ -1106,56 +1106,27 @@
         "columns": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "type": {
-                "$ref": "#/definitions/TypeRef"
-              },
-              "primary": {
-                "type": "boolean"
-              },
-              "nullable": {
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "name",
-              "type",
-              "primary",
-              "nullable"
-            ]
+            "$ref": "#/definitions/ModelColumn"
           }
         },
         "relations": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "belongsTo",
-                  "hasMany",
-                  "hasManyToMany",
-                  "forwardBelongsTo"
-                ]
-              },
-              "target": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "kind",
-              "target"
-            ]
+            "$ref": "#/definitions/ModelRelation"
           }
+        },
+        "indexes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ModelIndex"
+          }
+        },
+        "version": {
+          "type": "string"
+        },
+        "exhaustive": {
+          "type": "boolean",
+          "const": true
         },
         "accessResource": {
           "type": "boolean"
@@ -1172,6 +1143,192 @@
         "relations",
         "accessResource",
         "source"
+      ]
+    },
+    "ModelColumn": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/definitions/TypeRef"
+        },
+        "primary": {
+          "type": "boolean"
+        },
+        "nullable": {
+          "type": "boolean"
+        },
+        "sql": {
+          "$ref": "#/definitions/ColumnSqlSpec"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "primary",
+        "nullable"
+      ]
+    },
+    "ColumnSqlSpec": {
+      "type": "object",
+      "properties": {
+        "family": {
+          "$ref": "#/definitions/ColumnFamily"
+        },
+        "nativeType": {
+          "type": "string"
+        },
+        "length": {
+          "type": "number"
+        },
+        "precision": {
+          "type": "number"
+        },
+        "scale": {
+          "type": "number"
+        },
+        "unsigned": {
+          "type": "boolean"
+        },
+        "default": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "raw": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "raw"
+              ]
+            }
+          ]
+        },
+        "autoIncrement": {
+          "type": "boolean"
+        },
+        "unique": {
+          "type": "boolean"
+        },
+        "enumValues": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "version": {
+          "type": "boolean"
+        },
+        "inferred": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "family"
+      ]
+    },
+    "ColumnFamily": {
+      "type": "string",
+      "enum": [
+        "integer",
+        "bigint",
+        "decimal",
+        "float",
+        "text",
+        "boolean",
+        "date",
+        "datetime",
+        "time",
+        "json",
+        "binary",
+        "uuid",
+        "enum"
+      ]
+    },
+    "ModelRelation": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "belongsTo",
+            "hasMany",
+            "hasManyToMany",
+            "forwardBelongsTo"
+          ]
+        },
+        "target": {
+          "type": "string"
+        },
+        "foreignKey": {
+          "type": "string"
+        },
+        "primaryKey": {
+          "type": "string"
+        },
+        "junction": {
+          "type": "object",
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "sourceKey": {
+              "type": "string"
+            },
+            "targetKey": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "model",
+            "sourceKey",
+            "targetKey"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "target"
+      ]
+    },
+    "ModelIndex": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unique": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "columns",
+        "unique"
       ]
     },
     "MigrationEntry": {
