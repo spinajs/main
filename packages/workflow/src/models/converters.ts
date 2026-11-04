@@ -1,5 +1,5 @@
 import { Injectable } from '@spinajs/di';
-import { extractDecoratorPropertyDescriptor, IModelDescriptor, IValueConverterDescriptor, ValueConverter } from '@spinajs/orm';
+import { extractDecoratorPropertyDescriptor, IModelDescriptor, ValueConverter } from '@spinajs/orm';
 
 /**
  * BIGINT as a JS number; Postgres returns int8 as a string. The class name differs from the scheduler's
@@ -17,9 +17,10 @@ export class WorkflowInt8Converter extends ValueConverter {
 }
 
 export function Int8(): PropertyDecorator {
-  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: unknown, propertyKey: string) => {
-    model.Converters.set(propertyKey, { Class: WorkflowInt8Converter as IValueConverterDescriptor['Class'] });
+  const decorator: PropertyDecorator = extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: unknown, propertyKey: string) => {
+    model.Converters.set(propertyKey, { Class: WorkflowInt8Converter });
   });
+  return decorator;
 }
 
 /**

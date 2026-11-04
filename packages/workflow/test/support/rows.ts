@@ -30,7 +30,7 @@ export const seedInstance = (id: string, over: Record<string, unknown> = {}): Pr
     UpdatedAt: T0,
     FinishedAt: null,
     ...encode(over),
-  } as Partial<WorkflowInstanceModel>);
+  });
 
 export const seedStep = (instanceId: string, seq: number, key: string, over: Record<string, unknown> = {}): Promise<WorkflowStepModel> =>
   WorkflowStepModel.create({
@@ -60,11 +60,11 @@ export const seedEvent = (instanceId: string, name: string, over: Record<string,
     ConsumedByKey: null,
     ReceivedAt: T0,
     ...encode(over),
-  } as Partial<WorkflowEventModel>);
+  });
 
 export const instance = (id: string): Promise<WorkflowInstanceModel> => WorkflowInstanceModel.where('Id', id).first();
-export const stepsOf = (id: string): Promise<WorkflowStepModel[]> => WorkflowStepModel.where('InstanceId', id).orderBy('Seq');
-export const eventsOf = (id: string): Promise<WorkflowEventModel[]> => WorkflowEventModel.where('InstanceId', id).orderBy('Id');
+export const stepsOf = async (id: string): Promise<WorkflowStepModel[]> => await WorkflowStepModel.where('InstanceId', id).orderBy('Seq');
+export const eventsOf = async (id: string): Promise<WorkflowEventModel[]> => await WorkflowEventModel.where('InstanceId', id).orderBy('Id');
 
 /** The holder's lease ran out (it died or paused): any replica may claim the instance. */
 export const expireLease = (id: string) => WorkflowInstanceModel.update({ ClaimedUntil: 0 }).where('Id', id);
@@ -87,11 +87,11 @@ export async function rejects(p: Promise<unknown>): Promise<Error> {
 }
 
 export function deferred<T = void>(): { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void } {
-  let resolve!: (v: T) => void;
-  let reject!: (e: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
+  let settle!: (v: T) => void;
+  let fail!: (e: unknown) => void;
+  const promise = new Promise<T>((resolve, reject) => {
+    settle = resolve;
+    fail = reject;
   });
-  return { promise, resolve, reject };
+  return { promise, resolve: settle, reject: fail };
 }
