@@ -4,6 +4,7 @@ import { AutoinjectNamedService, Config, Configuration } from '@spinajs/configur
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger, Perf } from '@spinajs/log-common';
 import { Hooks } from '@spinajs/hooks';
+import { withSpan } from '@spinajs/tracing';
 
 import { asciiLower, isNonEmptyString, isPlainObject, uniqueBy } from '@spinajs/util';
 
@@ -38,6 +39,7 @@ import { AUTHN_THROTTLE_SERVICE } from '../throttle/select.js';
 import { isValidField, mfaResponseField, mfaStepField } from '../schemas/fields.js';
 import { AUTHN_ENV_FALLBACK_WARNING, authnEnvFellBack } from './boot/env.js';
 import { checkAuthnSecrets } from './boot/secrets.js';
+import { AUTHENTICATE_SPAN, authenticationAttributes } from './tracing.js';
 import { hookCopy, hookRefusalOf, hookView } from '../hooks.js';
 import { ACTIVE_ROLE_KEY } from '../impersonation/active-role.js';
 
@@ -226,7 +228,11 @@ export class DefaultAuthnService extends AuthnService {
 
   public authenticate(c: Credentials, ctx: AuthnContext): Promise<AuthenticationResult> {
     const labels = { strategy: 'none' };
-    return Perf.measure('authn.authenticate', () => this.login(c, ctx, labels), { labels }) as Promise<AuthenticationResult>;
+    return withSpan(AUTHENTICATE_SPAN, {}, async (span) => {
+      const result = await (Perf.measure('authn.authenticate', () => this.login(c, ctx, labels), { labels }) as Promise<AuthenticationResult>);
+      if (span.isRecording()) span.setAttributes(authenticationAttributes(result, labels.strategy));
+      return result;
+    });
   }
 
   /** `authn.login`; a token or key used on every request runs no action hook (`ctx.purpose: 'request'`). */

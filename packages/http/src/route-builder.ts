@@ -9,6 +9,8 @@ import _ from 'lodash';
 import { DI, IContainer } from '@spinajs/di';
 import { AuthenticationFailed, UnexpectedServerError } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log';
+import { context, trace } from '@opentelemetry/api';
+import { SpinaAttr, markSpanError, tracer, withSpan } from '@spinajs/tracing';
 import { Configuration } from '@spinajs/configuration';
 import { RouteArgs } from './route-args/index.js';
 import { withDerivedValidators, type DerivedArgValidators } from './route-args/manifest-schema.js';
@@ -105,6 +107,19 @@ export async function resolveRoutePolicies(
   return { Controller: controllerPolicies, Route: routePolicies };
 }
 
+function executePolicy(policy: BasePolicy, req: Express.Request, route: IRoute, controller: IController): Promise<void> {
+  const name = policy.constructor.name;
+  return withSpan(`policy ${name}`, { attributes: { [SpinaAttr.Policy]: name } }, async (span) => {
+    try {
+      await policy.execute(req, route, controller);
+      span.setAttribute(SpinaAttr.PolicyResult, 'allow');
+    } catch (err) {
+      span.setAttribute(SpinaAttr.PolicyResult, 'deny');
+      throw err;
+    }
+  });
+}
+
 /**
  * Express handler gating a route behind its policies.
  *
@@ -154,8 +169,7 @@ export function createPolicyGate(policies: IResolvedRoutePolicies, route: IRoute
           scope.map((group) =>
             Promise.allSettled(
               group.map((p) => {
-                return p
-                  .execute(req, route, controller)
+                return executePolicy(p, req, route, controller)
                   .then(() => {
                     log.trace({ route: routeName, policy: p.constructor.name }, 'Policy succeded for route ${route}, policy: ${policy}');
                   })
@@ -229,10 +243,10 @@ export function wrapMiddlewareAction(
 
 /**
  * Express handler invoking the controller action: extracts route arguments,
- * runs the action inside the request-scoped AsyncLocalStorage context, lets
- * middlewares inspect the produced Response and stores it in
- * `res.locals.response` for the response pipeline. All sync and async errors
- * are forwarded to `next`.
+ * runs the action inside the request-scoped AsyncLocalStorage context and a
+ * `route <Controller>.<action>` span, lets middlewares inspect the produced
+ * Response and stores it in `res.locals.response` for the response pipeline.
+ * All sync and async errors are forwarded to `next`.
  */
 export function createActionHandler(
   controller: ControllerActionHost,
@@ -241,32 +255,29 @@ export function createActionHandler(
   storage: AsyncLocalStorage<IActionLocalStoregeContext>,
   derived?: DerivedArgValidators,
 ): Express.RequestHandler {
+  const action = String(route.Method);
+  const spanName = `route ${controller.constructor.name}.${action}`;
+  const attributes = { [SpinaAttr.Controller]: controller.constructor.name, [SpinaAttr.Action]: action };
+
   const actionHandler = async (req: sRequest, res: Express.Response, next: Express.NextFunction) => {
     try {
       await storage.run(req.storage, async () => {
-        markStage(res, 'arguments');
-        const args = (await extractRouteArgs(route, req, res, controller.constructor.name, derived)).concat([req, res, next]);
-
+        const parent = context.active();
+        const span = tracer().startSpan(spanName, { attributes }, parent);
         let result: unknown;
 
         try {
-          markStage(res, 'action');
-          result = controller[route.Method as string].call(controller, ...args);
-
-          if (isPromise(result)) {
-            result = await result;
-          }
-
-          if (result instanceof Response) {
-            for (const x of enabledMiddlewares) {
-              await x.onResponse(result, route, controller);
-            }
-          }
+          result = await context.with(trace.setSpan(parent, span), () => invokeAction(controller, route, enabledMiddlewares, req, res, next, derived));
         } catch (err) {
+          markSpanError(span, err);
+          span.end();
           next(err);
           return;
         }
 
+        // next() runs outside context.with: the OTel context still carries the server span here, so the response
+        // pipeline and the __handle_response__ log lines correlate to the server span, not to the ended route span.
+        span.end();
         res.locals.response = result;
         next();
       });
@@ -281,6 +292,33 @@ export function createActionHandler(
   });
 
   return actionHandler as Express.RequestHandler;
+}
+
+async function invokeAction(
+  controller: ControllerActionHost,
+  route: IRoute,
+  enabledMiddlewares: RouteMiddleware[],
+  req: sRequest,
+  res: Express.Response,
+  next: Express.NextFunction,
+  derived: DerivedArgValidators | undefined,
+): Promise<unknown> {
+  markStage(res, 'arguments');
+  const args = (await extractRouteArgs(route, req, res, controller.constructor.name, derived)).concat([req, res, next]);
+
+  markStage(res, 'action');
+  let result: unknown = controller[route.Method as string].call(controller, ...args);
+  if (isPromise(result)) {
+    result = await result;
+  }
+
+  if (result instanceof Response) {
+    for (const x of enabledMiddlewares) {
+      await x.onResponse(result, route, controller);
+    }
+  }
+
+  return result;
 }
 
 /**

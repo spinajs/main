@@ -1,5 +1,7 @@
 import { quote, compareStrings } from '@spinajs/util';
 import { Perf } from '@spinajs/log-common';
+import { SpinaAttr, withSpan } from '@spinajs/tracing';
+import { CHECK_SPAN, EXPLAIN_SPAN, decisionAttributes } from './tracing.js';
 import { AuthzConfigError, UnknownPermission } from '../contracts/errors.js';
 import { FALSE, TRUE, and, bindRefs, not, or, simplify } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
@@ -132,6 +134,8 @@ interface Run {
   readonly firm?: boolean;
   /** A fresh check: no cache reads anywhere in the call tree; stores as usual. */
   readonly fresh?: boolean;
+  /** check(): set on a cache hit of the top-level call, for its span. */
+  readonly hit?: { cached: boolean };
 }
 
 /** What nested decisions add to every decision above them: a vote may rest on a nested check. */
@@ -288,6 +292,10 @@ const FAILED_ROW: RowLoad = Object.freeze({ kind: 'failed' });
 
 const byName = (a: Vote, b: Vote): number => compareStrings(a.model, b.model);
 
+const markHit = (run: Run): void => {
+  if (run.depth === 0 && run.hit) run.hit.cached = true;
+};
+
 export class Authorizer {
   readonly domain: string;
   private readonly where: string;
@@ -419,7 +427,18 @@ export class Authorizer {
   }
 
   async check(input: CheckInput, scope?: RequestScope): Promise<Decision> {
-    return Perf.measure('authz.check', async () => (await runAsync(this.pipeline(input, this.newRun(false, scope)))).decision, { labels: { domain: this.domain } });
+    return withSpan(CHECK_SPAN, { attributes: { [SpinaAttr.AuthzDomain]: this.domain } }, (span) =>
+      Perf.measure(
+        'authz.check',
+        async () => {
+          const hit = { cached: false };
+          const decision = (await runAsync(this.pipeline(input, { ...this.newRun(false, scope), hit }))).decision;
+          if (span.isRecording()) span.setAttributes(decisionAttributes(decision, hit.cached));
+          return decision;
+        },
+        { labels: { domain: this.domain } },
+      ),
+    );
   }
 
   /** Introspection, not an access attempt: unaudited, no decision cache read or stored, models read fresh. */
@@ -433,7 +452,7 @@ export class Authorizer {
   /** Every model evaluated, trace attached, caches bypassed. */
   async explain(input: CheckInput, scope?: RequestScope): Promise<Decision> {
     if (!isObject(input)) throw new AuthzConfigError(`${this.where}: check input must be an object`);
-    return this.check({ ...input, explain: true }, scope);
+    return withSpan(EXPLAIN_SPAN, { attributes: { [SpinaAttr.AuthzDomain]: this.domain } }, () => this.check({ ...input, explain: true }, scope));
   }
 
   async checkMany(principal: Principal, permissions: readonly Permission[], resource?: ResourceRef | object, scope?: RequestScope): Promise<ReadonlyMap<Permission, Decision>> {
@@ -1274,6 +1293,7 @@ export class Authorizer {
     const entry = run.scope.get(l1);
     if (entry instanceof CachedDecision && entry.generation === this.generation && now < entry.expiresAt) {
       Perf.count('authz.cache.l1.hit');
+      markHit(run);
       if (run.depth > 0) nest(run, entry.tags);
       if (entry.unaudited && audits(run)) {
         entry.unaudited = false;
@@ -1296,6 +1316,7 @@ export class Authorizer {
       return undefined;
     }
     Perf.count('authz.cache.l2.hit');
+    markHit(run);
     // The L2 returns no tags, so what the stored decision rested on (nested checks, scope nodes) is unknown here.
     if (run.depth > 0) nest(run, undefined);
     const ttl = this.ttlOf(decision);
