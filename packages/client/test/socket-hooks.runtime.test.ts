@@ -1,16 +1,13 @@
 import 'mocha';
 import { expect } from 'chai';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { JSDOM } from 'jsdom';
 import { SocketClient } from '@spinajs/http-socket-client';
-import { createElement, StrictMode, type ReactElement } from 'react';
-import TestRenderer, { act, type ReactTestRenderer } from 'react-test-renderer';
+import { act, createElement, Fragment, StrictMode, useLayoutEffect, type ReactElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { SWRConfig, type Cache } from 'swr';
-import ts from 'typescript';
 import { generateClientFiles } from '../src/index.js';
 import { appBasicManifest } from './support/fixture.js';
+import { writeModules, type ModuleDir } from './support/modules.js';
 
 interface ChatMessage {
   id: string;
@@ -134,56 +131,54 @@ async function mount<P extends object, R>(hook: (props: P) => R, props: P, wrap:
     renders.push({ props: p, result: hook(p) });
     return null;
   };
-  let renderer: ReactTestRenderer | undefined;
-  await step(() => (renderer = TestRenderer.create(wrap(createElement(Probe, props)))));
-  const current = () => {
-    if (!renderer) throw new Error('not mounted');
-    return renderer;
-  };
+  const root = await render(wrap(createElement(Probe, props)));
   return {
     result: () => renders[renders.length - 1].result,
     renders,
-    rerender: (next) => step(() => current().update(wrap(createElement(Probe, next)))),
-    unmount: () => step(() => current().unmount()),
+    rerender: (next) => step(() => root.render(wrap(createElement(Probe, next)))),
+    unmount: () => step(() => root.unmount()),
   };
 }
 
-// The generated files import only `react` and `swr/subscription` at runtime; every other import is type-only.
-async function loadGenerated(files: Record<string, string>, dir: string): Promise<{ socket: SocketModule; swr: SwrSocketModule }> {
-  const resolved: Record<string, string> = { react: import.meta.resolve('react'), 'swr/subscription': import.meta.resolve('swr/subscription') };
-  const write = (name: string) => {
-    const { outputText } = ts.transpileModule(files[name], { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } });
-    const file = join(dir, name.replace(/\.ts$/, '.mjs'));
-    writeFileSync(file, outputText.replace(/from '([^']+)'/g, (whole, specifier: string) => (resolved[specifier] ? `from '${resolved[specifier]}'` : whole)));
-    return pathToFileURL(file).href;
-  };
-  return {
-    socket: (await import(write('client.socket.ts'))) as SocketModule,
-    swr: (await import(write('client.socket-swr.ts'))) as SwrSocketModule,
-  };
+async function render(element: ReactElement): Promise<Root> {
+  const root = createRoot(document.createElement('div'));
+  await step(() => root.render(element));
+  return root;
 }
+
+const GLOBALS = ['window', 'document', 'navigator'] as const;
 
 describe('socket hooks at runtime', () => {
-  let dir: string;
+  let modules: ModuleDir | undefined;
+  let dom: JSDOM;
+  let saved: Partial<Record<(typeof GLOBALS)[number], PropertyDescriptor>>;
   let socketHooks: SocketModule;
   let swrHooks: SwrSocketModule;
   const message: ChatMessage = { id: 'm1', text: 'hello' };
+  const flags = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
 
-  const flags = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean; IS_REACT_NATIVE_TEST_ENVIRONMENT?: boolean };
-
+  // The generator runs first: with `window` defined, its schema tooling takes the browser path.
   before(async () => {
-    flags.IS_REACT_ACT_ENVIRONMENT = true;
-    // react-test-renderer logs its deprecation on every create() unless this is set; it is still the one React renderer that needs no DOM.
-    flags.IS_REACT_NATIVE_TEST_ENVIRONMENT = true;
     const files = await generateClientFiles({ manifest: await appBasicManifest(), hooks: ['swr'], socketHooks: true });
-    dir = mkdtempSync(join(tmpdir(), 'client-socket-hooks-'));
-    ({ socket: socketHooks, swr: swrHooks } = await loadGenerated(Object.fromEntries(files.map((f) => [f.path, f.contents])), dir));
+    // `window` must exist before the generated files load: it picks useLayoutEffect for the listener ref.
+    dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
+    saved = Object.fromEntries(GLOBALS.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+    for (const name of GLOBALS) Object.defineProperty(globalThis, name, { value: dom.window[name], configurable: true, writable: true });
+    flags.IS_REACT_ACT_ENVIRONMENT = true;
+    const generated = Object.fromEntries(files.filter((f) => f.path.startsWith('client.socket')).map((f) => [f.path, f.contents]));
+    modules = writeModules(generated, { react: import.meta.resolve('react'), 'swr/subscription': import.meta.resolve('swr/subscription') });
+    [socketHooks, swrHooks] = await Promise.all([modules.import<SocketModule>('client.socket.js'), modules.import<SwrSocketModule>('client.socket-swr.js')]);
   });
 
   after(() => {
+    modules?.remove();
     delete flags.IS_REACT_ACT_ENVIRONMENT;
-    delete flags.IS_REACT_NATIVE_TEST_ENVIRONMENT;
-    rmSync(dir, { recursive: true, force: true });
+    for (const name of GLOBALS) {
+      const descriptor = saved[name];
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+    dom.window.close();
   });
 
   describe('event hook', () => {
@@ -218,6 +213,26 @@ describe('socket hooks at runtime', () => {
       expect([socket.listenerCount('message'), second]).to.deep.equal([1, [message]]);
       await view.unmount();
       expect(socket.listenerCount('message')).to.equal(0);
+    });
+
+    it('updates the listener in the commit, before a sibling layout effect emits', async () => {
+      const socket = new FakeSocket();
+      const received: string[] = [];
+      const Probe = (p: { name: string }) => {
+        socketHooks.useChatMessageEvent(socket, () => received.push(p.name));
+        return null;
+      };
+      const Emitter = (p: { tick: number }) => {
+        useLayoutEffect(() => {
+          if (p.tick > 0) socket.emit('message', message);
+        }, [p.tick]);
+        return null;
+      };
+      const tree = (name: string, tick: number) => createElement(Fragment, null, createElement(Probe, { name }), createElement(Emitter, { tick }));
+      const root = await render(tree('first', 0));
+      await step(() => root.render(tree('second', 1)));
+      expect(received).to.deep.equal(['second']);
+      await step(() => root.unmount());
     });
 
     it('moves the subscription to a new socket', async () => {
@@ -345,14 +360,13 @@ describe('socket hooks at runtime', () => {
         results[p.name] = { data: swrHooks.useChatMessageLatest(sockets[p.socket]).data };
         return null;
       };
-      let renderer: ReactTestRenderer | undefined;
       const tree = createElement(StrictMode, null, createElement(Probe, { name: 'one', socket: 'a' }), createElement(Probe, { name: 'two', socket: 'a' }), createElement(Probe, { name: 'three', socket: 'b' }));
-      await step(() => (renderer = TestRenderer.create(tree)));
+      const root = await render(tree);
       const counts = () => [sockets.a.listenerCount('message'), sockets.b.listenerCount('message')];
       expect(counts()).to.deep.equal([1, 1]);
       await step(() => sockets.a.emit('message', message));
       expect([results.one.data, results.two.data, results.three.data]).to.deep.equal([message, message, undefined]);
-      await step(() => renderer?.unmount());
+      await step(() => root.unmount());
       expect(counts()).to.deep.equal([0, 0]);
     });
 
