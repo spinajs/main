@@ -57,9 +57,14 @@ describe('buildClientModel', () => {
       kind: 'query',
       args: [{ name: 'id', type: 'number', typeNames: [], required: true, wire: { in: 'path', name: 'id', shape: 'value' }, schema: 'spinajs/app-basic/UsersController_get_id' }],
       returns: 'UserDto',
+      returnNames: ['UserDto'],
       returnSchema: 'spinajs/app-basic/UserDto',
       definition: "{ method: 'get', path: '/users/{id}', args: [{ in: 'path', name: 'id', shape: 'value' }] }",
     });
+  });
+
+  it('records the type names a reply type mentions', () => {
+    expect(['get', 'list', 'create', 'avatar'].map((h) => routeOf(model, 'users', h).returnNames)).to.deep.equal([['UserDto'], ['UserDto'], ['UserDto', 'ValidationProblem'], []]);
   });
 
   it('records the type names an argument type mentions', () => {

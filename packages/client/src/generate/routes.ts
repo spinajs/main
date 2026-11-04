@@ -28,6 +28,8 @@ export interface RouteModel {
   args: ArgumentModel[];
   /** TypeScript expression of the reply. */
   returns: string;
+  /** The named types `returns` mentions, which a file using it must import. */
+  returnNames: string[];
   returnSchema?: string;
   /** The route-table literal `client.ts` prints. */
   definition: string;
@@ -121,7 +123,7 @@ export function routeModel(controller: ControllerEntry, route: RouteEntry, ctx: 
   const label = routeLabel(controller, route);
   const path = pathOf(label, route);
   const args = routeArguments(label, route, path, ctx);
-  const returns = ctx.typeOf(route.returnType);
+  const { type: returns, names: returnNames } = ctx.withNames(() => ctx.typeOf(route.returnType));
   const method = route.method === 'file' ? 'get' : route.method;
   const parts = [`method: ${literal(method)}`, `path: ${literal(path.template)}`, `args: [${args.map((a) => wireLiteral(a.wire)).join(', ')}]`, ...(returns === 'void' ? ['void: true'] : [])];
   return {
@@ -131,6 +133,7 @@ export function routeModel(controller: ControllerEntry, route: RouteEntry, ctx: 
     kind: routeKind(route.method),
     args,
     returns,
+    returnNames,
     ...(route.returnType.schema !== undefined ? { returnSchema: route.returnType.schema } : {}),
     definition: `{ ${parts.join(', ')} }`,
   };
