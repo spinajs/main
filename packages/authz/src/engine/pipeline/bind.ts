@@ -14,7 +14,7 @@ import type { BoundAttributes, Engine, Fields, LoadedAttributes, Parties, Run } 
 
 /** Step 11's binder for one check, shared with the reason pass so both read the same refs and attributes. */
 export function refBinder(engine: Engine, parties: Parties, env: Readonly<Record<string, unknown>>, ancestors: readonly ResourceRef[] | undefined, run: Run): RefBinder {
-  return new RefBinder({ principal: parties.principal, env }, parties.actor ?? parties.principal, ancestors, run.sync, (node) => boundAttributes(engine, node, run.scope));
+  return new RefBinder({ principal: parties.principal, env }, parties.actor ?? parties.principal, ancestors, run.sync, (node) => boundAttributes(engine, node, run.scope), run.reads);
 }
 
 /** Step 11. A malformed node or a binder error gives FALSE (fail closed). */

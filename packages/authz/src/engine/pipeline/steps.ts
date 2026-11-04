@@ -25,6 +25,7 @@ import { envOf, requestOf, subjectEnv } from '../context/request.js';
 import { admits, contextCacheKey, earliest, mergeRoles } from '../support/misc.js';
 import { logAt } from '../support/plumbing.js';
 import type { RefBinder } from '../support/ref-binder.js';
+import { watchEnv, watchRequest } from '../support/reads.js';
 import { DELEGATE_PRIORITY, ENGINE_FAULT, NO_FIELDS } from '../types.js';
 import type { Checked, Combined, Engine, Fields, Finish, Outcome, Parties, Run } from '../types.js';
 import { bind, fieldsOf, refBinder } from './bind.js';
@@ -102,7 +103,7 @@ export function* vote(engine: Engine, a: Admitted, input: CheckInput): Pipeline<
   if (parties.principal !== a.principal) core('delegation', `inherit: the models run as ${principalKey(parties.ref)}`);
   // Before the models: a model receives the principal and must not be able to move what the ceiling reads.
   const ceiling = ceilingOf(delegation, def, ref, a.ancestors, run.instant);
-  const env = envOf(engine, input.env, run.instant);
+  const env = watchEnv(run.reads, envOf(engine, input.env, run.instant));
   const delegated = delegation.intersect === undefined ? undefined : yield* delegateCheck(engine, delegation.intersect, delegation.hopsUsed, def, ref, subject, input.env, run);
   const delegate = delegated?.decision;
   if (delegate) core('delegation', `intersect: the delegate ${delegation.intersectKey} is ${delegate.allowed ? 'allowed' : 'denied'}`, { residual: delegate.residual });
@@ -114,8 +115,8 @@ export function* vote(engine: Engine, a: Admitted, input: CheckInput): Pipeline<
   });
   core('route', `${plan.algorithm} over ${models.length} model(s)`, { models: models.map((m) => m.name) });
   const host = hostFor(engine, run);
-  const contexts = models.map((m) => new ModelContext(host, m.name, run.scope, run.instant, run.depth, a.steps, contextCacheKey(m.name, parties.cacheId)));
-  const request = () => requestOf(engine, parties, def, ref, subject, input.env, run.instant, a.explain, run.fresh === true);
+  const contexts = models.map((m) => new ModelContext(host, m.name, run.scope, run.instant, run.depth, a.steps, contextCacheKey(m.name, parties.cacheId), run.reads));
+  const request = () => watchRequest(run.reads, requestOf(engine, parties, def, ref, subject, input.env, run.instant, a.explain, run.fresh === true));
   const label = `${def.name} on ${resourceKey(ref)}`;
   const binder = refBinder(engine, parties, env, a.ancestors, run);
   const voteLoads = { degraded: false };

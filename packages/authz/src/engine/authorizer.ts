@@ -24,7 +24,7 @@ import { isObject } from './internal/util.js';
 import { CachedPlan, DEADLINE_FACTOR, DELEGATE_PRIORITY, ENGINE_FAULT, GLOBAL_TYPE, INVALID_REQUEST, MAX_PRELOADED, NO_FIELDS, NO_LOG, NO_ROLES, SYSTEM_REF, UNKNOWN_RESOURCE, nextGeneration } from './types.js';
 import type { AuthorizerOptions, Engine, Checked, RequestScope, Run } from './types.js';
 import { Deadline, THREW } from './support/deadline.js';
-import { combinatorsOf, compileTable, decisionCacheOf, fieldSetup, readConfig, resourceIndexes, scopeAttributesOf } from './support/setup.js';
+import { tapsOf, combinatorsOf, compileTable, decisionCacheOf, fieldSetup, readConfig, resourceIndexes, scopeAttributesOf } from './support/setup.js';
 import { contextCacheKey, deniedCopy, newNested, principalCacheId, scopeMap } from './support/misc.js';
 import { logAt, newRun, now } from './support/plumbing.js';
 import { bornOf, epoch, invalidateL2 } from './cache/generation.js';
@@ -83,6 +83,7 @@ export class Authorizer {
       ...scopeAttributesOf(where, options.scopeAttributes),
       ...fieldSetup(where, config.neverRead),
       preloaded: this.preloaded,
+      taps: tapsOf(where, options.taps),
     };
   }
 
