@@ -91,7 +91,8 @@
     "chai-as-promised": "^7.1.1",
     "esbuild": "^0.28.1",
     "fast-check": "^4.10.2",
-    "typescript": "~5.9.0"
+    "typescript": "~5.9.0",
+    "zod": "^4.1.0"
   },
   "spinajs": {
     "manifest": "lib/manifest.fragment.json"
