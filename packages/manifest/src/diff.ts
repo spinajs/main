@@ -1,4 +1,5 @@
 import { loadsFromManifest, publishedManifest } from './mounted.js';
+import { controllerKey } from './client-names.js';
 import { canonicalize } from './hash.js';
 import { compareSchemaRefs } from './schema-compare.js';
 import type { Finding } from './schema-compare.js';
@@ -80,11 +81,22 @@ function compareParams(b: RouteEntry, h: RouteEntry, base: Manifest, head: Manif
   return findings;
 }
 
-function compareRoute(b: RouteEntry, h: RouteEntry, base: Manifest, head: Manifest): Finding[] {
-  return [...compareParams(b, h, base, head), ...compareTypes(b.returnType, h.returnType, 'response', 'response', base, head)];
+interface RouteRef { route: RouteEntry; controller: ControllerEntry }
+
+const clientName = ({ route, controller }: RouteRef): string => `${controllerKey(controller)}.${route.handler}`;
+
+function compareClientName(b: RouteRef, h: RouteRef): Finding[] {
+  const [before, after] = [clientName(b), clientName(h)];
+  return before === after ? [] : [{ breaking: false, detail: `client method ${before} renamed to ${after}: generated hooks and query keys change` }];
 }
 
-interface RouteRef { route: RouteEntry; controller: ControllerEntry }
+function compareRoute(b: RouteRef, h: RouteRef, base: Manifest, head: Manifest): Finding[] {
+  return [
+    ...compareClientName(b, h),
+    ...compareParams(b.route, h.route, base, head),
+    ...compareTypes(b.route.returnType, h.route.returnType, 'response', 'response', base, head),
+  ];
+}
 
 const routeRefs = (m: Manifest): Keyed<RouteRef>[] => m.controllers.flatMap((controller) => controller.routes.map((route) => ({ key: routeKey(route), item: { route, controller } })));
 
@@ -123,7 +135,7 @@ function diffFlaggedPermissions(base: Manifest, head: Manifest): Change[] {
 function diffRoutes(base: Manifest, head: Manifest): Change[] {
   return diffKeyed<RouteRef>('routes', routeRefs(base), routeRefs(head), {
     removedBreaking: true,
-    changed: (b, h) => compareRoute(b.route, h.route, base, head),
+    changed: (b, h) => compareRoute(b, h, base, head),
   });
 }
 
