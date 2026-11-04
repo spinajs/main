@@ -339,6 +339,17 @@ describe('diffManifest', () => {
   });
 
   describe('other sections', () => {
+    it('an added x-spinajs-type is one non-breaking schemas change per schema, and no route change', () => {
+      const head = clone();
+      for (const name of ['UserDto', 'CreateUserDto']) schemaOf(head, name).properties.name = { type: 'string', 'x-spinajs-type': 'Decimal' };
+      const diff = diffManifest(base, head);
+      expect(diff.changes).to.deep.equal([
+        { section: 'schemas', kind: 'changed', id: 'spinajs/app-basic/CreateUserDto', breaking: false, detail: 'schema changed' },
+        { section: 'schemas', kind: 'changed', id: 'spinajs/app-basic/UserDto', breaking: false, detail: 'schema changed' },
+      ]);
+      expect(diff.breaking).to.equal(false);
+    });
+
     it('removed config module is breaking', () => {
       const head = clone();
       head.configModules = head.configModules.filter((c) => c.module !== 'app');

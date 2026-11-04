@@ -27,6 +27,18 @@ describe('manifestToAsyncApi', () => {
     expect(rendered).to.equal(readFileSync(snapshotPath, 'utf8'));
   });
 
+  it('drops x-spinajs-type: the document equals the one built without it', () => {
+    const mark = (node: unknown): unknown => {
+      if (Array.isArray(node)) return node.map(mark);
+      if (typeof node !== 'object' || node === null) return node;
+      const copy = Object.fromEntries(Object.entries(node).map(([key, child]) => [key, mark(child)]));
+      return copy.type === 'string' ? { ...copy, 'x-spinajs-type': 'Decimal' } : copy;
+    };
+    const typed = { ...manifest, schemas: mark(manifest.schemas) as Manifest['schemas'] };
+    expect(JSON.stringify(typed.schemas)).to.include('"x-spinajs-type":"Decimal"');
+    expect(JSON.stringify(manifestToAsyncApi(typed, options))).to.equal(JSON.stringify(doc));
+  });
+
   it('is valid AsyncAPI 3.0', async () => {
     const { document, diagnostics } = await new Parser().parse(JSON.stringify(doc));
     expect(diagnostics.filter((d) => Number(d.severity) === Number(DiagnosticSeverity.Error))).to.deep.equal([]);

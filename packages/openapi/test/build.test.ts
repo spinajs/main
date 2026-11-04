@@ -17,6 +17,17 @@ const options = { title: 'app-basic', version: '1.0.0', servers: [{ url: 'http:/
 type Json = Record<string, unknown>;
 const schemaOf = (response: unknown, type: string): Json => (response as { content: Record<string, { schema: Json }> }).content[type].schema;
 
+/** The manifest with the compiler's `x-spinajs-type` next to every string schema, as a Decimal field would carry it. */
+function withSpinajsTypes(manifest: Manifest): Manifest {
+  const mark = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(mark);
+    if (typeof node !== 'object' || node === null) return node;
+    const copy = Object.fromEntries(Object.entries(node).map(([key, child]) => [key, mark(child)]));
+    return copy.type === 'string' ? { ...copy, 'x-spinajs-type': 'Decimal' } : copy;
+  };
+  return { ...manifest, schemas: mark(manifest.schemas) as Manifest['schemas'] };
+}
+
 describe('manifestToOpenApi', () => {
   let manifest: Manifest;
   let doc: OpenAPIV3_1.Document;
@@ -35,6 +46,12 @@ describe('manifestToOpenApi', () => {
 
   it('is byte-equal across runs', () => {
     expect(JSON.stringify(manifestToOpenApi(manifest, options))).to.equal(JSON.stringify(doc));
+  });
+
+  it('drops x-spinajs-type: the document equals the one built without it', () => {
+    const typed = withSpinajsTypes(manifest);
+    expect(JSON.stringify(typed.schemas)).to.include('"x-spinajs-type":"Decimal"');
+    expect(JSON.stringify(manifestToOpenApi(typed, options))).to.equal(JSON.stringify(doc));
   });
 
   it('is OpenAPI 3.1 and lints clean', async () => {
