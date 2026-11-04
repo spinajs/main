@@ -2560,14 +2560,6 @@
       "count": 1
     }
   },
-  "packages/authz/src/engine/authorizer.ts": {
-    "complexity": {
-      "count": 1
-    },
-    "promise/always-return": {
-      "count": 1
-    }
-  },
   "packages/authz/src/engine/ceiling.ts": {
     "@typescript-eslint/no-unsafe-call": {
       "count": 1
