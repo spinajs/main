@@ -5,7 +5,7 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import '@spinajs/log';
 
 import { DataValidator } from '../src/validator.js';
-import { ValidationFailed } from '../src/exceptions/index.js';
+import { ValidationFailed, sanitizeError } from '../src/exceptions/index.js';
 import { findNonFinite } from '../src/keywords.js';
 
 function validationConfig(validation: Record<string, unknown>) {
@@ -148,7 +148,7 @@ describe('no validated data holds a non-finite number', function () {
     it('reports the walk refusal as a type error at the path, through validate() too', () => {
       const [valid, errors] = validator.tryValidate(SCHEMAS.ifIntString, { v: '1e400' });
       expect(valid).to.eq(false);
-      expect(errors).to.deep.eq([{ keyword: 'type', instancePath: '/v', schemaPath: '#', params: { type: 'number' } }]);
+      expect(errors).to.deep.eq([{ keyword: 'type', instancePath: '/v', schemaPath: '#', params: { type: 'finite number' }, message: 'must be a finite number' }]);
       expect(() => validator.validate(SCHEMAS.notNumber, { v: 'Infinity' })).to.throw(ValidationFailed);
     });
 
@@ -158,6 +158,11 @@ describe('no validated data holds a non-finite number', function () {
       expect(validator.tryValidate(P({ anyOf: [{ type: 'integer' }, { type: 'string' }] }), data)[0]).to.eq(true);
       expect(data.v).to.eq('Infinity');
     });
+  });
+
+  it('sanitizeError drops the nonFinite marker of a raw Ajv error', () => {
+    const raw = { keyword: 'type', instancePath: '/v', schemaPath: '#/properties/v/type', params: { type: 'integer', nonFinite: true } };
+    expect(sanitizeError(raw).params).to.deep.eq({ type: 'integer' });
   });
 
   describe('findNonFinite', () => {
@@ -176,6 +181,44 @@ describe('no validated data holds a non-finite number', function () {
         })();
       }
       expect(findNonFinite(new Dto(), true)).to.deep.eq(['/n']);
+    });
+
+    it('builds the path of a hit deep below arrays and keys', () => {
+      let deep: unknown = { 'a/b': [0, -Infinity] };
+      for (let i = 0; i < 5000; i++) deep = i % 2 ? { k: deep } : [deep];
+      const [path] = findNonFinite({ root: deep }, true);
+      expect(path.startsWith('/root/k/0/k/0/'), path.slice(0, 40)).to.eq(true);
+      expect(path.endsWith('/a~1b/1')).to.eq(true);
+      expect(path.split('/')).to.have.length(5000 + 4);
+    });
+
+    const walkTime = (body: unknown) => {
+      const started = process.hrtime.bigint();
+      const found = findNonFinite(body, true);
+      return { found, ms: Number(process.hrtime.bigint() - started) / 1e6 };
+    };
+
+    // The walk used to build a path string per level: about 3 s for this body. The budgets are generous on purpose.
+    it('walks a 4.8 MB body of nested arrays in under 1.5 s', () => {
+      const levels = 2_400_000;
+      const { found, ms } = walkTime(JSON.parse('['.repeat(levels) + ']'.repeat(levels)));
+      expect(found).to.deep.eq([]);
+      expect(ms, `${ms.toFixed(0)} ms`).to.be.below(1500);
+    });
+
+    it('names a non-finite number at the bottom of that body in under 3 s', () => {
+      const levels = 2_400_000;
+      const { found, ms } = walkTime(JSON.parse('['.repeat(levels) + '1e400' + ']'.repeat(levels)));
+      expect(found).to.deep.eq(['/0'.repeat(levels)]);
+      expect(ms, `${ms.toFixed(0)} ms`).to.be.below(3000);
+    });
+
+    it('a code-built cycle beyond the delayed guard still ends', () => {
+      const cyclic: unknown[] = [];
+      cyclic.push(cyclic, cyclic);
+      expect(findNonFinite(cyclic, true)).to.deep.eq([]);
+      cyclic.push(NaN);
+      expect(findNonFinite(cyclic, false)).to.deep.eq(['/2']);
     });
 
     it('survives cycles and deep values', () => {

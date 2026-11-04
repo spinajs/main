@@ -260,7 +260,8 @@ export class DataValidator extends AsyncService {
 
     const nonFinite = findNonFinite(target, (ajv as { opts?: { allErrors?: unknown } }).opts?.allErrors !== false);
     if (nonFinite.length > 0) {
-      return [false, nonFinite.map((instancePath): IValidationError => ({ keyword: 'type', instancePath, schemaPath: '#', params: { type: 'number' } }))];
+      // `type` keeps the error mapped like any type error; `params.type` says why a number fails it.
+      return [false, nonFinite.map((instancePath): IValidationError => ({ keyword: 'type', instancePath, schemaPath: '#', params: { type: 'finite number' }, message: 'must be a finite number' }))];
     }
 
     return [true, null];
