@@ -64,7 +64,7 @@ class CaptureController extends BaseController {
 
   @Get()
   public headed() {
-    return new Ok({ ok: true }, { Headers: [{ Name: 'X-Order-Version', Value: 3 }, { Name: 'Set-Cookie', Value: 'sid=1' }] });
+    return new Ok({ ok: true }, { Headers: [{ Name: 'X-Order-Version', Value: 3 }, { Name: 'Set-Cookie', Value: 'sid=1' }, { Name: 'Keep-Alive', Value: 'timeout=5' }] });
   }
 
   @Get()
@@ -96,13 +96,13 @@ describe('ResponseCapture', function () {
     expect(captured).to.deep.equal([{ status: 201, headers: { 'content-type': headersOf(res)['content-type'], location: '/capture/7', etag: headersOf(res).etag }, body: res.text }]);
   });
 
-  it('sees the headers the route set through its response options, but never Set-Cookie', async () => {
+  it('sees the headers the route set through its response options, but never Set-Cookie or a connection header', async () => {
     const res = await req().get('capture/headed').set('Accept', 'application/json');
 
     expect(headersOf(res)['set-cookie']).to.not.equal(undefined);
     expect(captured).to.have.length(1);
     expect(captured[0].headers['x-order-version']).to.equal('3');
-    expect(captured[0].headers).to.not.have.property('set-cookie');
+    expect(captured[0].headers).to.not.have.any.keys('set-cookie', 'keep-alive');
   });
 
   it('sees the problem document an error answers with', async () => {

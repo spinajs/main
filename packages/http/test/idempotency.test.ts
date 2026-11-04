@@ -10,7 +10,7 @@ import type express from 'express';
 import { BaseController, BasePath, BasePolicy, Body, CodedHttpException, Controllers, Created, HttpServer, Idempotent, Middleware, Ok, Param, Policy, Post, RouteMiddleware } from '../src/index.js';
 import type { Request } from '../src/interfaces.js';
 
-const state = { calls: 0, afterCalls: 0, closed: false, hold: undefined as Promise<void> | undefined };
+const state = { calls: 0, afterCalls: 0, closed: false, inPolicy: false, hold: undefined as Promise<void> | undefined, policyHold: undefined as Promise<void> | undefined };
 
 /** Counts onAfter (a replay is the gate's own answer, so no middleware runs for it) and sees the connection close. */
 class AfterProbe extends RouteMiddleware {
@@ -39,6 +39,11 @@ class IdemTestPrincipal extends BasePolicy {
     const id = req.headers['x-user'];
     if (typeof id === 'string') {
       (req.storage as unknown as Record<string, unknown>).Principal = { type: 'user', id, authenticated: true, source: 'test', attributes: {} };
+    }
+    if (req.headers['x-hold-policy'] && state.policyHold) {
+      req.res?.once('close', () => (state.closed = true));
+      state.inPolicy = true;
+      await state.policyHold;
     }
   }
 }
@@ -95,9 +100,9 @@ class IdemController extends BaseController {
 
   @Post()
   @Idempotent()
-  public async limited() {
+  public async refusedWith(@Body() body: { status: number }) {
     state.calls++;
-    throw new CodedHttpException(429, 'idem.slow-down', 'too many requests');
+    throw new CodedHttpException(body.status, 'idem.later', 'try again later');
   }
 
   @Post()
@@ -162,7 +167,9 @@ describe('Idempotency-Key', function () {
     state.calls = 0;
     state.afterCalls = 0;
     state.closed = false;
+    state.inPolicy = false;
     state.hold = undefined;
+    state.policyHold = undefined;
   });
 
   afterEach(() => sinon.restore());
@@ -303,13 +310,50 @@ describe('Idempotency-Key', function () {
     expect(state.calls).to.equal(1);
   });
 
-  it('does not keep a 429, so a retry runs again', async () => {
-    expect((await post('limited', 'limited-1', 'u1').send({})).status).to.eq(429);
-    const again = await post('limited', 'limited-1', 'u1').send({});
+  it('does not keep a 401, 403, 408, 425 or 429, so a retry runs again', async () => {
+    for (const status of [401, 403, 408, 425, 429]) {
+      expect((await post('refusedWith', `later-${status}`, 'u1').send({ status })).status).to.eq(status);
+      const again = await post('refusedWith', `later-${status}`, 'u1').send({ status });
 
-    expect(again.status).to.eq(429);
-    expect(headersOf(again)['idempotent-replayed']).to.equal(undefined);
-    expect(state.calls).to.equal(2);
+      expect(again.status).to.eq(status);
+      expect(headersOf(again)['idempotent-replayed']).to.equal(undefined);
+    }
+    expect(state.calls).to.equal(10);
+  });
+
+  it('neither claims nor runs the route for a client that left before the claim', async () => {
+    let release!: () => void;
+    state.policyHold = new Promise<void>((resolve) => (release = resolve));
+
+    const gone = post('create', 'early-1', 'u1').set('x-hold-policy', '1').send({ n: 1 });
+    const failed = gone.then(
+      () => null,
+      (err: unknown) => err,
+    );
+    await waitFor(() => state.inPolicy);
+    gone.abort();
+    expect(await failed).to.not.equal(null);
+    await waitFor(() => state.closed);
+
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const retry = await post('create', 'early-1', 'u1').send({ n: 1 });
+
+    expect(retry.status).to.eq(201);
+    expect(headersOf(retry)['idempotent-replayed']).to.equal(undefined);
+    expect(state.calls).to.equal(1);
+  });
+
+  it('compares a body no parser read by its media type and length', async () => {
+    const upload = (value: string) => post('create', 'upload-1', 'u1').field('note', value);
+
+    await upload('a');
+    const same = await upload('b');
+    const other = await upload('bb');
+
+    expect(headersOf(same)['idempotent-replayed']).to.equal('true');
+    expect(other.status).to.eq(422);
+    expect(state.calls).to.equal(1);
   });
 
   it('answers 400 to a required route without the header and to a malformed key', async () => {

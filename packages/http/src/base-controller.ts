@@ -133,6 +133,8 @@ export abstract class BaseController extends AsyncService implements IController
         ...(idempotency ? [recordIdempotentRouteError] : []),
         createOnErrorHandler(errorHandlers, route, this, this._container, this._log),
         __handle_response__(this._container, { controller: this.constructor.name, handler: String(route.Method) }),
+        // again: a crash raised by the response or by an error handler skips the first recorder
+        ...(idempotency ? [recordIdempotentRouteError] : []),
         __handle_error__(this._container),
       ];
 

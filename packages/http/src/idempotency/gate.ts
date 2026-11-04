@@ -6,7 +6,6 @@ import { CodedHttpException } from '@spinajs/exceptions';
 import { principalKey } from '@spinajs/principal';
 import type { Principal } from '@spinajs/principal';
 import type * as Idempotency from '@spinajs/idempotency';
-import type { IdempotencyService, StoredReply } from '@spinajs/idempotency';
 import type { IRoute, Request } from '../interfaces.js';
 import { RouteRegistrationException } from '../exceptions.js';
 import { markStage } from '../errors/on-error.js';
@@ -17,12 +16,30 @@ import type { ResolvedIdempotentOptions } from './options.js';
 
 type ErrorClass = abstract new (...args: never[]) => Error;
 
+interface StoredReply {
+  kind: string;
+  body: unknown;
+}
+
+/**
+ * The part of IdempotencyService the gate calls, declared here: these declarations must type-check for an app that
+ * does not install the optional peer @spinajs/idempotency.
+ */
+export interface IdempotencyGateService {
+  run<T>(
+    scope: { namespace: string; principal?: string },
+    key: string,
+    fn: (signal: AbortSignal) => Promise<T>,
+    opts: { fingerprint?: string; ttl: string | number; toReply(value: T): StoredReply | undefined; fromReply(reply: StoredReply): T },
+  ): Promise<{ replayed: boolean; value: T }>;
+}
+
 export interface IdempotencyGateOptions {
   /** `http:<METHOD> <path>` */
   namespace: string;
   options: ResolvedIdempotentOptions;
   ttlMs: number;
-  service: Pick<IdempotencyService, 'run'>;
+  service: IdempotencyGateService;
   inFlight: ErrorClass;
   keyReuse: ErrorClass;
   /** A claim inside a transaction lost a deadlock or serialization check: retryable, like a key in flight. */
@@ -43,15 +60,20 @@ const ROUTE_ERROR = Symbol('idempotentRouteError');
 const isCrash = (error: unknown): error is Error => (error as { crash?: unknown } | null | undefined)?.crash === true;
 
 /**
- * Error handler placed before the error handlers of an `@Idempotent` route: the error reaches the client as a 500
- * reply, and only this record tells the gate that the route crashed rather than answered.
+ * Error handler placed before the error handlers of an `@Idempotent` route and before `__handle_error__`: the error
+ * reaches the client as a 500 reply, and only this record tells the gate that the route crashed rather than answered.
  */
 export function recordIdempotentRouteError(err: unknown, _req: Express.Request, res: Express.Response, next: Express.NextFunction): void {
-  (res.locals as Record<symbol, unknown>)[ROUTE_ERROR] = err;
+  // placed twice in the chain; an error handler that turned a crash into another error must not hide it
+  if (!isCrash(routeErrorOf(res))) {
+    (res.locals as Record<symbol, unknown>)[ROUTE_ERROR] = err;
+  }
   next(err);
 }
 
-const routeErrorOf = (res: Express.Response): unknown => (res.locals as Record<symbol, unknown>)[ROUTE_ERROR];
+function routeErrorOf(res: Express.Response): unknown {
+  return (res.locals as Record<symbol, unknown>)[ROUTE_ERROR];
+}
 
 function principalOf(req: Express.Request): string {
   const principal = ((req as Request).storage as { Principal?: Principal } | undefined)?.Principal;
@@ -67,13 +89,20 @@ function bodyBytes(req: Express.Request): string | Uint8Array {
   if (typeof body === 'string') {
     return body;
   }
-  return body === undefined || body === null ? '' : JSON.stringify(body);
+  if (body !== undefined && body !== null) {
+    return JSON.stringify(body);
+  }
+  // no parser read the body (multipart, octet-stream): its type and size are all the gate can compare without
+  // consuming the stream; the boundary parameter is left out, since a client draws a new one for every retry
+  const type = (req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+  return `${type}\n${req.headers['content-length'] ?? ''}`;
 }
 
-// 408, 425 and 429 say "try again later": stored, a retry would replay the refusal for the whole ttl.
-const TRANSIENT_4XX = new Set([408, 425, 429]);
+// 408, 425 and 429 say "try again later", and a retry with other credentials may pass a 401 or 403: stored, the
+// refusal would replay for the whole ttl.
+const UNSTORED_4XX = new Set([401, 403, 408, 425, 429]);
 
-const storable = (status: number): boolean => (status >= 200 && status < 300) || (status >= 400 && status < 500 && !TRANSIENT_4XX.has(status));
+const storable = (status: number): boolean => (status >= 200 && status < 300) || (status >= 400 && status < 500 && !UNSTORED_4XX.has(status));
 
 function toReply(captured: CapturedJsonReply | null, gate: IdempotencyGateOptions): StoredReply | undefined {
   if (!captured) {
@@ -120,9 +149,31 @@ function toHttpError(err: unknown, gate: IdempotencyGateOptions, res: Express.Re
   return err;
 }
 
+/** Released, not kept: the route never ran. */
+class ClientGoneBeforeRoute extends Error {}
+
+/** Watched from the gate's entry: a client that leaves during the claim fires no later close. */
+interface ClientWatch {
+  gone: boolean;
+  onGone?: () => void;
+}
+
+function watchClient(res: Express.Response): ClientWatch {
+  const watch: ClientWatch = { gone: false };
+  res.once('close', () => {
+    watch.gone = true;
+    watch.onGone?.();
+  });
+  return watch;
+}
+
 /** Runs the rest of the route chain and settles with what `jsonResponse` captured, once the response finished. */
-function runRoute(gate: IdempotencyGateOptions, res: Express.Response, next: Express.NextFunction): Promise<CapturedJsonReply | null> {
+function runRoute(gate: IdempotencyGateOptions, res: Express.Response, next: Express.NextFunction, watch: ClientWatch): Promise<CapturedJsonReply | null> {
   return new Promise<CapturedJsonReply | null>((resolve, reject) => {
+    if (watch.gone) {
+      reject(new ClientGoneBeforeRoute(`the client of ${gate.namespace} went away during the claim`));
+      return;
+    }
     let captured: CapturedJsonReply | null = null;
     attachResponseCapture(res, { capture: (reply) => (captured = reply) });
     res.once('finish', () => {
@@ -134,13 +185,15 @@ function runRoute(gate: IdempotencyGateOptions, res: Express.Response, next: Exp
       }
     });
     // close before finish: the client went away while the handler may still commit, so the claim holds until its lease ends
-    res.once('close', () => reject(new gate.outcomeUnknown(`the client of ${gate.namespace} went away before the route answered`)));
+    watch.onGone = () => reject(new gate.outcomeUnknown(`the client of ${gate.namespace} went away before the route answered`));
     next();
   });
 }
 
 function afterAnswer(err: unknown, gate: IdempotencyGateOptions): void {
-  if (err instanceof gate.outcomeUnknown) {
+  if (err instanceof ClientGoneBeforeRoute) {
+    gate.log.warn({ route: gate.namespace }, 'Idempotent route ${route}: the client went away during the claim; the route did not run and its key is released');
+  } else if (err instanceof gate.outcomeUnknown) {
     gate.log.warn({ route: gate.namespace }, 'Idempotent route ${route}: the client went away before the reply; its key stays claimed until the lease ends');
   } else if (isCrash(err)) {
     gate.log.warn({ route: gate.namespace }, 'Idempotent route ${route} crashed; its key stays claimed until the lease ends');
@@ -151,16 +204,17 @@ function afterAnswer(err: unknown, gate: IdempotencyGateOptions): void {
 
 /** Claims the key, then runs the route once or replays its reply; a refused claim reaches the error handlers. */
 async function claimAndRun(gate: IdempotencyGateOptions, key: string, req: Express.Request, res: Express.Response, next: Express.NextFunction): Promise<void> {
+  const watch = watchClient(res);
   // the target is part of the fingerprint: the namespace holds the route template, not the resource
   const target = Buffer.from(`${req.method} ${req.originalUrl}\n`);
   const fingerprint = gate.fingerprint(gate.options.fingerprint === 'body' ? Buffer.concat([target, Buffer.from(bodyBytes(req))]) : target);
   let continued = false;
   const route = () => {
     continued = true;
-    return runRoute(gate, res, next);
+    return runRoute(gate, res, next, watch);
   };
 
-  let outcome: Idempotency.IdempotencyOutcome<CapturedJsonReply | null>;
+  let outcome: { replayed: boolean; value: CapturedJsonReply | null };
   try {
     outcome = await gate.service.run({ namespace: gate.namespace, principal: principalOf(req) }, key, route, {
       fingerprint,
@@ -182,7 +236,10 @@ async function claimAndRun(gate: IdempotencyGateOptions, key: string, req: Expre
   }
 }
 
-/** Express handler running the rest of the route chain at most once per Idempotency-Key, principal and route. */
+/**
+ * Express handler running the rest of the route chain at most once per Idempotency-Key, principal and route. Used
+ * alone, outside a controller, it sees no crash of the route: only the controller chain records route errors for it.
+ */
 export function createIdempotencyGate(gate: IdempotencyGateOptions): Express.RequestHandler {
   return (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
     // a replay is the gate's own answer: no route middleware and no action runs for it
@@ -200,7 +257,17 @@ export function createIdempotencyGate(gate: IdempotencyGateOptions): Express.Req
       return;
     }
 
-    void claimAndRun(gate, key, req, res, next);
+    if (res.destroyed || res.closed) {
+      return;
+    }
+
+    claimAndRun(gate, key, req, res, next).catch((err: unknown) => {
+      if (res.headersSent) {
+        gate.log.error({ error: err, route: gate.namespace }, 'Idempotent route ${route} failed after its reply was sent');
+      } else {
+        next(err);
+      }
+    });
   };
 }
 

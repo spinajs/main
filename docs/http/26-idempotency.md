@@ -57,10 +57,11 @@ malformed or repeated header is refused with 400 `idempotency.key-malformed`.
 | repeat while the first still runs | 409 `idempotency.in-flight` with `Retry-After` (seconds) |
 | repeat with a different body or URL, while the first runs or after it | 422 `idempotency.key-reuse` |
 | a claim inside a database transaction lost a deadlock or serialization check | 409 `idempotency.claim-conflict` with `Retry-After: 1` |
-| client disconnects before the reply | the key stays claimed until the lease ends: the route may still have committed; a retry gets 409 meanwhile |
+| client disconnects before the route started (in a policy or during the claim) | the route does not run; the key is not claimed, or is released |
+| client disconnects after the route started, before the reply finished | the key stays claimed until the lease ends: the route may still commit; a retry gets 409 meanwhile |
 | the route crashed (an error with `crash: true`, a dead process in tests and simulations) | nothing is stored or released; the key stays claimed until the lease ends |
 | 5xx, 1xx or 3xx reply | not stored; the key is released, so a retry runs the route again |
-| 408, 425 or 429 reply | not stored; the key is released: these say "try again later", and a stored one would replay for the whole `ttl` |
+| 401, 403, 408, 425 or 429 reply | not stored; the key is released: these say "try again later" or "with other credentials", and a stored one would replay for the whole `ttl` |
 | reply that is not JSON (HTML, XML, text, file, stream, redirect) | not stored, a warning is logged, the key is released |
 
 All the errors are problem+json. A replay is answered by the gate itself: route middlewares and the action do not run
@@ -73,6 +74,7 @@ for it.
 | `Content-Type`, `Location`, `ETag` | yes |
 | headers the route set through `IResponseOptions.Headers` (`new Ok(body, { Headers: [...] })`) | yes |
 | `Set-Cookie`, also when the route set it through `IResponseOptions.Headers` | never |
+| `Connection`, `Keep-Alive`, `Transfer-Encoding`, `Trailer`, `Upgrade`, `Content-Length`, `Date` | never; the replay's own send sets those it needs |
 | headers set by middlewares, server middlewares or `res.setHeader` in the action | no; server middlewares that run before the route (CORS, helmet) set theirs on the replay again |
 
 ## Scope
@@ -85,6 +87,11 @@ and have clients send random UUIDs.
 The fingerprint covers the method, the full URL (path and query) and, by default, the body. A key reused on another
 resource of the same route template is refused with 422, never replayed. Send one key per operation.
 
+Only a body a server middleware parsed (JSON, form, text) is compared byte for byte. A body no parser read before
+the route (multipart uploads, `application/octet-stream`, any type without a parser) is compared only by the method,
+the URL, the media type of `Content-Type` (without its parameters, so a new multipart boundary still matches) and
+`Content-Length`. Two different uploads of the same size under one key replay the first reply.
+
 ## Guarantees
 
 The route runs at least once. If the server dies after claiming a key and before storing the reply, the key stays
@@ -96,3 +103,11 @@ or a policy that wraps the whole request in one) joins that transaction instead.
 other callers of the key wait on the row until then instead of getting 409 at once, and a lost deadlock or
 serialization check answers 409 `idempotency.claim-conflict`. Keep such request-wide transactions off `@Idempotent`
 routes (see [Transactions](../idempotency/README.md#transactions)).
+
+The lease is renewed while the route runs, but http has no abort signal an action could observe. If a renewal fails
+long enough for the lease to end during a slow action (a lost database connection, a paused process), another
+replica may claim the key and run the action a second time while the first one is still running.
+
+`createIdempotencyGate` is the gate of the controller chain. Used alone in a plain express route, it does not see a
+crash of the route (`crash: true`): only the controller chain records route errors for it, so such a crash answers
+500 and releases the key.

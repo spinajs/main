@@ -5,7 +5,7 @@ export * from './idempotency/options.js';
 export { ResponseCapture, REPLAYED_HEADERS, attachResponseCapture } from './response-capture.js';
 export type { CapturedJsonReply } from './response-capture.js';
 export { createIdempotencyGate, createRouteIdempotencyGate } from './idempotency/gate.js';
-export type { IdempotencyGateOptions } from './idempotency/gate.js';
+export type { IdempotencyGateOptions, IdempotencyGateService } from './idempotency/gate.js';
 export * from './errors/on-error.js';
 export { answeredAsServerError } from './error.js';
 export * from './tokens.js';
