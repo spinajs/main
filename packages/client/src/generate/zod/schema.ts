@@ -429,7 +429,9 @@ export class ZodBuilder {
     if ('type' in member) return this.coercion(member, scope);
     const key = typeof member.$ref === 'string' ? this.graph.resolve(member.$ref, scope.at.schema) : undefined;
     const entry = key === undefined ? undefined : this.graph.get(key);
-    return entry ? this.topCoercion(entry.schema, { ...scope, at: { schema: entry.owner, pointer: entry.pointer } }, depth + 1) : undefined;
+    // Ajv inlines only a target without a $ref of its own; a compiled one coerces a copy the next branch never sees.
+    if (!entry || refsIn(entry.schema).length > 0) return undefined;
+    return this.topCoercion(entry.schema, { ...scope, at: { schema: entry.owner, pointer: entry.pointer } }, depth + 1);
   }
 
   private union(nodes: ZodNode[]): ZodNode {

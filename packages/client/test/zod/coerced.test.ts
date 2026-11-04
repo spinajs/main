@@ -22,14 +22,18 @@ const FIELDS: Record<string, unknown> = {
   oneMutated: { oneOf: [{ type: 'integer', minimum: 10 }, { type: 'boolean' }] },
   oneRef: { oneOf: [{ $ref: 'test/Page' }, { type: 'string', maxLength: 0 }] },
   unique: { type: 'array', items: { type: 'number' }, uniqueItems: true },
+  nestedRef: { anyOf: [{ $ref: 'test/Nested' }, { type: 'string', pattern: '^0' }] },
 };
 
 // Values as a query string carries them; the non-finite ones are refused by the fixed server only.
-const VALUES: unknown[] = ['', '0', 0, '1', 1, '5', 5, '12', 12, null, 'null', false, 'false', true, 'true', [null], ['0'], ['5'], ['1', 1], [], 'a', 'b', ['a'], {}, [1, '1'], [1, 2]];
+const VALUES: unknown[] = ['', '0', '05', 0, '1', 1, '5', 5, '12', 12, null, 'null', false, 'false', true, 'true', [null], ['0'], ['5'], ['1', 1], [], 'a', 'b', ['a'], {}, [1, '1'], [1, 2]];
 
 const EXTRA: Record<string, unknown> = {
   'test/Page': { type: 'integer', minimum: 1 },
   'test/Big': { type: 'integer', minimum: 10 },
+  // Ajv compiles a target that holds a $ref apart: its coercion does not reach the branch after it.
+  'test/Nested': { type: 'integer', minimum: 10, not: { $ref: 'test/Zero' } },
+  'test/Zero': { type: 'integer', const: 999 },
   'test/Status': { type: 'string', enum: ['a', 'b'] },
   'test/Query': object({
     page: { type: 'integer', minimum: 1 },
