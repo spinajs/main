@@ -11,22 +11,25 @@ function isSchema(value: unknown): value is Schema {
 }
 
 // Property names are data: a property called `title` or `$ref` must not be read as a keyword.
-function prepareProperties(properties: Schema, reference: ReferenceName): Schema {
-  return Object.fromEntries(Object.entries(properties).map(([name, schema]) => [name, clientSchema(schema, reference)]));
+function prepareProperties(properties: Schema, reference: ReferenceName, drop: ReadonlySet<string>): Schema {
+  return Object.fromEntries(Object.entries(properties).map(([name, schema]) => [name, clientSchema(schema, reference, drop)]));
 }
+
+const NOTHING: ReadonlySet<string> = new Set();
 
 /**
  * The schema as the client prints it: without `x-*` keys, `$id`, `$schema` and `title`, and each `$ref` replaced by
- * `{ tsType: name }`, the json-schema-to-typescript escape hatch for a verbatim type expression.
+ * `{ tsType: name }`, the json-schema-to-typescript escape hatch for a verbatim type expression. `drop` removes more
+ * keywords; property names are data and always stay.
  */
-export function clientSchema(value: unknown, reference: ReferenceName): unknown {
-  if (Array.isArray(value)) return (value as unknown[]).map((item) => clientSchema(item, reference));
+export function clientSchema(value: unknown, reference: ReferenceName, drop: ReadonlySet<string> = NOTHING): unknown {
+  if (Array.isArray(value)) return (value as unknown[]).map((item) => clientSchema(item, reference, drop));
   if (!isSchema(value)) return value;
   if (typeof value.$ref === 'string') return { tsType: reference(value.$ref) };
   const out: Schema = {};
   for (const [key, item] of Object.entries(value)) {
-    if (key.startsWith('x-') || key === '$id' || key === '$schema' || key === 'title') continue;
-    out[key] = key === 'properties' && isSchema(item) ? prepareProperties(item, reference) : clientSchema(item, reference);
+    if (key.startsWith('x-') || key === '$id' || key === '$schema' || key === 'title' || drop.has(key)) continue;
+    out[key] = key === 'properties' && isSchema(item) ? prepareProperties(item, reference, drop) : clientSchema(item, reference, drop);
   }
   return out;
 }

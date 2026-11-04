@@ -3,8 +3,7 @@
 import { createContext, createElement, useContext, type ReactElement, type ReactNode } from 'react';
 import type { AppClient, manifestHash } from './app-basic.client.js';
 
-const _hash: typeof manifestHash = '47f7521612321fc90ebb904d6c0db1aaf014b826ecb98bfdf0121c9bc87f8d29';
-void _hash;
+void ('47f7521612321fc90ebb904d6c0db1aaf014b826ecb98bfdf0121c9bc87f8d29' satisfies typeof manifestHash);
 
 const AppClientContext = createContext<AppClient | null>(null);
 

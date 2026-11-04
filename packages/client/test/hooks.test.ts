@@ -4,7 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Manifest, ParamEntry, ParamWire, RouteEntry } from '@spinajs/manifest';
 import { buildClientModel, generateClientFiles, type GenerateClientFilesOptions } from '../src/index.js';
-import { hookRoutes } from '../src/generate/hooks/shared.js';
+import { hookRoutes, varsParameter } from '../src/generate/hooks/shared.js';
 import { appBasicManifest } from './support/fixture.js';
 import { keyTable, loadKeys } from './support/keys.js';
 import { typecheckFiles } from './support/typecheck.js';
@@ -73,8 +73,13 @@ describe('hooks shared module', () => {
     expect(custom['api.react.ts']).to.include("from './api.js';");
   });
 
-  it('type-checks with React types, strict and noUnusedLocals, and serves a typed app', () => {
-    const app = [
+  for (const react of [18, 19] as const) {
+    it(`type-checks with React ${react} types, strict and noUnusedLocals, and serves a typed app`, () => {
+      expect(typecheckFiles({ ...files, 'app.ts': typedApp }, { noUnusedLocals: true, react })).to.deep.equal([]);
+    });
+  }
+
+  const typedApp = [
       "import { createElement } from 'react';",
       "import { createAppClient, type UserDto } from './client.js';",
       "import { appKeys, appTags, clientShapeHash, type AppClientError } from './client.keys.js';",
@@ -82,6 +87,7 @@ describe('hooks shared module', () => {
       '',
       "export const get: readonly ['spinajs', 'users', 'get', { id: number }] = appKeys.users.get({ id: 7 });",
       "export const health: readonly ['spinajs', 'health', 'get', {}] = appKeys.health.get();",
+      "export const healthVars: readonly ['spinajs', 'health', 'get', {}] = appKeys.health.get({});",
       "export const create: readonly ['spinajs', 'users', 'create'] = appKeys.users.create;",
       "export const all: readonly ['spinajs', 'users'] = appKeys.users.all;",
       "export const tag: 'spinajs:users:get' = appTags.users.get;",
@@ -93,12 +99,12 @@ describe('hooks shared module', () => {
       '}',
       '// @ts-expect-error the id is required',
       'appKeys.users.get({});',
+      '// @ts-expect-error a route without arguments takes no variables',
+      'appKeys.health.get({ id: 1 });',
       '// @ts-expect-error a mutation route has no tag',
       'void appTags.users.create;',
       '',
     ].join('\n');
-    expect(typecheckFiles({ ...files, 'app.ts': app }, { noUnusedLocals: true })).to.deep.equal([]);
-  });
 
   it('fails to compile against a client.ts generated from another manifest', () => {
     const stale = files['client.ts'].replace(`manifestHash = '${manifest.hash}'`, "manifestHash = 'other'");
@@ -149,7 +155,7 @@ describe('hooks shared module', () => {
       expect(rows).to.deep.equal([
         ['query', 'useArticlesRead', '{ id: number }', false, 'client.articles.read(vars.id)', 'appKeys.articles.read(vars)', 'spinajs:articles', 'spinajs:articles:read'],
         ['mutation', 'useArticlesAdd', '{ body: CreateArticleDto }', false, 'client.articles.add(vars.body)', 'appKeys.articles.add', 'spinajs:articles', 'spinajs:articles:add'],
-        ['query', 'useHealthGet', 'void', true, 'client.health.get()', 'appKeys.health.get()', 'spinajs:health', 'spinajs:health:get'],
+        ['query', 'useHealthGet', 'Record<string, never>', true, 'client.health.get()', 'appKeys.health.get(vars)', 'spinajs:health', 'spinajs:health:get'],
         ['query', 'useUsersList', '{ query: ListQuery }', false, 'client.users.list(vars.query)', 'appKeys.users.list(vars)', 'spinajs:users', 'spinajs:users:list'],
         ['query', 'useUsersGet', '{ id: number }', false, 'client.users.get(vars.id)', 'appKeys.users.get(vars)', 'spinajs:users', 'spinajs:users:get'],
         ['mutation', 'useUsersCreate', '{ body: CreateUserDto }', false, 'client.users.create(vars.body)', 'appKeys.users.create', 'spinajs:users', 'spinajs:users:create'],
@@ -165,14 +171,36 @@ describe('hooks shared module', () => {
     });
 
     for (const [what, className, handler, message] of [
-      ['a handler named all', 'ItemsController', 'all', "generateClientFiles: ItemsController.all would replace appKeys.items.all; rename the handler to generate hooks"],
-      ['a controller keyed all', 'AllController', 'search', "generateClientFiles: AllController would replace appKeys.all; rename the controller to generate hooks"],
+      ['a handler named all', 'ItemsController', 'all', 'generateClientFiles: ItemsController.all (GET /items/all) would replace appKeys.items.all; rename the handler to generate hooks, or generate client.ts alone without hooks'],
+      ['a controller keyed all', 'AllController', 'search', "generateClientFiles: AllController (base path 'items') would replace appKeys.all; rename the controller to generate hooks, or generate client.ts alone without hooks"],
     ]) {
       it(`refuses ${what}, which would replace a prefix key`, () => {
-        const clash: Manifest = { ...manifest, controllers: [{ id: `x:${className}`, className, basePath: 'items', policies: [], middlewares: [], routes: [{ ...searchRoute([]), handler }], source }] };
+        const clash: Manifest = { ...manifest, controllers: [{ id: `x:${className}`, className, basePath: 'items', policies: [], middlewares: [], routes: [{ ...searchRoute([]), handler, fullPath: `/items/${handler}` }], source }] };
         expect(() => hookRoutes(buildClientModel(clash, { includeSocket: false }))).to.throw(message);
       });
     }
+
+    it('refuses two routes whose hooks would share a name', () => {
+      const listGet: RouteEntry = { ...searchRoute([]), handler: 'listGet', fullPath: '/users/list-get' };
+      const get: RouteEntry = { ...searchRoute([]), handler: 'get', fullPath: '/users-list/get' };
+      const clash: Manifest = {
+        ...manifest,
+        controllers: [
+          { id: 'x:UsersController', className: 'UsersController', basePath: 'users', policies: [], middlewares: [], routes: [listGet], source },
+          { id: 'x:UsersListController', className: 'UsersListController', basePath: 'users-list', policies: [], middlewares: [], routes: [get], source },
+        ],
+      };
+      expect(() => hookRoutes(buildClientModel(clash, { includeSocket: false }))).to.throw(
+        'generateClientFiles: UsersController.listGet (GET /users/list-get) and UsersListController.get (GET /users-list/get) would both be useUsersListGet; rename one to generate hooks, or generate client.ts alone without hooks',
+      );
+    });
+
+    it('imports exactly the types the variables reference, not a member that shares a type name', async () => {
+      const named = withItems(manifest, [{ ...searchRoute([param(0, 'UserDto', { in: 'query', name: 'UserDto', shape: 'value' }, 'string')]), fullPath: '/items/search' }]);
+      const generated = await hookFiles(named);
+      expect(generated['client.keys.ts']).to.include("import type { ListQuery, manifestHash } from './client.js';");
+      expect(typecheckFiles(generated, { noUnusedLocals: true })).to.deep.equal([]);
+    });
   });
 
   describe('query-key stability', () => {
@@ -210,11 +238,30 @@ describe('hooks shared module', () => {
       expect([search(ordered)?.varsType, search(ordered)?.callExpression, search(swapped)?.callExpression]).to.deep.equal(['{ id: number; q?: string }', 'client.items.search(vars.id, vars.q)', 'client.items.search(vars.q, vars.id)']);
     });
 
-    it('keeps existing call sites compiling when an optional argument is added, and the no-argument key unchanged', async () => {
+    // The shape FG-10 and FG-11 print: the variables slot, then options.
+    const hookSketch = (m: Manifest) =>
+      [
+        "import { appKeys } from './client.keys.js';",
+        ...hookRoutes(buildClientModel(m))
+          .filter((h) => h.route.controllerKey === 'items')
+          .map((h) => `export function ${h.hookName}(${varsParameter(h)}, options?: { staleTime?: number }) {\n  return [${h.keyExpression}, options] as const;\n}`),
+        '',
+      ].join('\n');
+
+    it('keeps existing call sites of keys and hooks compiling when an optional argument is added, and the no-argument key unchanged', async () => {
       const v1 = withItems(manifest, [searchRoute([idParam(0)]), { ...searchRoute([]), handler: 'count', fullPath: '/items/count' }]);
       const v2 = withItems(manifest, [searchRoute([idParam(0), qParam(1)]), { ...searchRoute([qParam(0)]), handler: 'count', fullPath: '/items/count' }]);
-      const app = ["import { appKeys } from './client.keys.js';", 'export const search = appKeys.items.search({ id: 1 });', 'export const count = appKeys.items.count();', ''].join('\n');
-      for (const m of [v1, v2]) expect(typecheckFiles({ ...(await hookFiles(m)), 'app.ts': app })).to.deep.equal([]);
+      const app = [
+        "import { appKeys } from './client.keys.js';",
+        "import { useItemsCount, useItemsSearch } from './hooks.js';",
+        'export const search = appKeys.items.search({ id: 1 });',
+        'export const count = appKeys.items.count();',
+        'export const counted = [useItemsCount(), useItemsCount({}), useItemsCount({}, { staleTime: 1 }), useItemsSearch({ id: 1 }, { staleTime: 1 })];',
+        '// @ts-expect-error options never go into the variables slot',
+        'useItemsCount({ staleTime: 1 });',
+        '',
+      ].join('\n');
+      for (const m of [v1, v2]) expect(typecheckFiles({ ...(await hookFiles(m)), 'hooks.ts': hookSketch(m), 'app.ts': app })).to.deep.equal([]);
       const counts = await Promise.all([v1, v2].map(async (m) => keyTable(await keysOf(m))['items.count']));
       expect(counts).to.deep.equal([
         ['spinajs', 'items', 'count', {}],
@@ -235,8 +282,13 @@ describe('hooks shared module', () => {
       expect(base).to.match(/^[0-9a-f]{64}$/);
     });
 
-    it('ignores a path move, a policy change and the order of routes and parameters', async () => {
+    it('ignores a path move, a policy change, annotations, HEAD and file routes, and the order of routes and parameters', async () => {
+      const userDto = manifest.schemas['spinajs/app-basic/UserDto'] as { properties: Record<string, Record<string, unknown>> };
+      const annotated = { ...userDto, description: 'A user', $comment: 'c', deprecated: true, properties: { ...userDto.properties, email: { ...userDto.properties.email, examples: ['a@b.c'], readOnly: true, writeOnly: false } } };
+      const head: RouteEntry = { ...searchRoute([]), handler: 'peek', method: 'head', fullPath: '/items/peek' };
       const unchanged = [
+        { ...manifest, schemas: { ...manifest.schemas, 'spinajs/app-basic/UserDto': annotated } },
+        withItems(manifest, [head, { ...head, handler: 'download', method: 'file', fullPath: '/items/download' }]),
         mapRoute(manifest, 'UsersController', 'get', (r) => ({ ...r, fullPath: '/people/:id' })),
         mapRoute(manifest, 'UsersController', 'get', (r) => ({ ...r, policies: [] })),
         { ...manifest, controllers: manifest.controllers.map((c) => ({ ...c, routes: [...c.routes].reverse() })) },
@@ -251,6 +303,7 @@ describe('hooks shared module', () => {
         mapRoute(manifest, 'UsersController', 'get', (r) => ({ ...r, handler: 'read' })),
         mapRoute(manifest, 'UsersController', 'get', (r) => ({ ...r, params: r.params.map((p) => ({ ...p, name: 'userId' })) })),
         { ...manifest, schemas: { ...manifest.schemas, 'spinajs/app-basic/UserDto': { ...userDto, properties: { ...userDto.properties, age: { type: 'number' } } } } },
+        { ...manifest, schemas: { ...manifest.schemas, 'spinajs/app-basic/UserDto': { ...userDto, properties: { ...userDto.properties, description: { type: 'string' } } } } },
       ];
       for (const m of changed) expect(await hashOf(m)).to.not.equal(base);
     });

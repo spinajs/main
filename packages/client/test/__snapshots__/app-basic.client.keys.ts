@@ -2,8 +2,7 @@
 import type { ProblemError } from '@spinajs/client/runtime';
 import type { ListQuery, manifestHash } from './app-basic.client.js';
 
-const _hash: typeof manifestHash = '47f7521612321fc90ebb904d6c0db1aaf014b826ecb98bfdf0121c9bc87f8d29';
-void _hash;
+void ('47f7521612321fc90ebb904d6c0db1aaf014b826ecb98bfdf0121c9bc87f8d29' satisfies typeof manifestHash);
 
 /** A failed call: a problem reply from the server, or `TypeError` from fetch and `SyntaxError` from a malformed reply. */
 export type AppClientError = ProblemError | Error;
@@ -17,7 +16,7 @@ export const appKeys = {
   },
   health: {
     all: ['spinajs', 'health'] as const,
-    get: () => ['spinajs', 'health', 'get', {}] as const,
+    get: (vars: Record<string, never> = {}) => ['spinajs', 'health', 'get', vars] as const,
   },
   users: {
     all: ['spinajs', 'users'] as const,

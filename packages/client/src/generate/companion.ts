@@ -7,8 +7,8 @@ export function companionHeader(target: string, model: ClientModel): string {
 
 /**
  * Fails `tsc` when the file sits next to a `client.ts` from another manifest; needs `manifestHash` in a type import.
- * The `void` keeps the check legal under `noUnusedLocals`.
+ * No binding, so `noUnusedLocals` has nothing to report; the `void` keeps the string out of the directive prologue.
  */
 export function manifestHashCheck(model: ClientModel): string[] {
-  return [`const _hash: typeof manifestHash = ${literal(model.manifestHash)};`, 'void _hash;'];
+  return [`void (${literal(model.manifestHash)} satisfies typeof manifestHash);`];
 }

@@ -13,10 +13,8 @@ export interface KeysOptions {
 }
 
 // Only the names the key factories mention: the import is type-only, and an unused one would fail noUnusedLocals.
-function typeImports(model: ClientModel, hooks: HookRoute[]): string[] {
-  const mentioned = new Set(hooks.filter((h) => h.route.kind === 'query').flatMap((h) => h.varsType.match(/[A-Za-z_$][\w$]*/g) ?? []));
-  const names = [...model.ctx.used].map((id) => model.ctx.nameOf(id));
-  return [...new Set(names.filter((n) => mentioned.has(n)))].sort();
+function typeImports(hooks: HookRoute[]): string[] {
+  return [...new Set(hooks.filter((h) => h.route.kind === 'query').flatMap((h) => h.route.args.flatMap((a) => a.typeNames)))].sort();
 }
 
 type Segments = (...parts: string[]) => string;
@@ -24,8 +22,7 @@ type Segments = (...parts: string[]) => string;
 function keyEntry(hook: HookRoute, segments: Segments): string {
   const { controllerKey, name, kind } = hook.route;
   if (kind === 'mutation') return `    ${name}: [${segments(controllerKey, name)}] as const,`;
-  const vars = hook.varsType === 'void' ? '{}' : 'vars';
-  return `    ${name}: (${varsParameter(hook)}) => [${segments(controllerKey, name)}, ${vars}] as const,`;
+  return `    ${name}: (${varsParameter(hook)}) => [${segments(controllerKey, name)}, vars] as const,`;
 }
 
 /** `client.keys.ts`: query keys, cache tags, the error type and the shape hash. Server-safe: no React, no query library. */
@@ -42,7 +39,7 @@ export function emitKeys(model: ClientModel, options: KeysOptions = {}): string 
   const lines = [
     companionHeader('keys', model),
     `import type { ProblemError } from '${options.moduleName ?? '@spinajs/client/runtime'}';`,
-    `import type { ${[...typeImports(model, hooks), 'manifestHash'].join(', ')} } from './${options.basename ?? 'client'}.js';`,
+    `import type { ${[...typeImports(hooks), 'manifestHash'].join(', ')} } from './${options.basename ?? 'client'}.js';`,
     '',
     ...manifestHashCheck(model),
     '',
