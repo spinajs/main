@@ -268,6 +268,30 @@ describe('ActivationContext: steps and replay', () => {
     expect([r.live, r.replayed]).to.deep.equal(['a,b', 'a,b']);
   });
 
+  it('per-item step names replay even when the waits between steps take different times than the first run', async () => {
+    const code = (xMs: number, yMs: number) => (ctx: ActivationContext) =>
+      Promise.all([
+        ctx
+          .step('quote', () => 'q')
+          .then(async () => {
+            await pause(xMs);
+            return ctx.step('book', () => 'booked');
+          }),
+        ctx
+          .step('profile', () => pause(3).then(() => 'p'))
+          .then(async () => {
+            await pause(yMs);
+            return ctx.step('notify', () => 'notified');
+          }),
+      ]);
+    const first = await activation('c1');
+    const live = await code(80, 5)(first.ctx);
+    await first.release();
+    const replay = await activation('c1');
+    expect(await code(20, 120)(replay.ctx)).to.deep.equal(live);
+    await replay.release();
+  });
+
   it('a step lost in a crash that completes during the replay keeps its result behind the recorded ones', async () => {
     const code = (ctx: ActivationContext, bMs: number) =>
       Promise.all([
