@@ -23,7 +23,21 @@ const routeChange = (base: Manifest, head: Manifest): Change | undefined => diff
 
 describe('diffManifest: pagination', () => {
   it('reports nothing while the pagination stays', () => {
-    expect(routeChange(withList(pageReply, offset), withList(pageReply, { ...offset, firstPage: 0 }))).to.equal(undefined);
+    expect(routeChange(withList(pageReply, offset), withList(pageReply, { ...offset, size: { arg: 'query', path: ['pageSize'] } }))).to.equal(undefined);
+    expect(routeChange(withList(pageReply, { ...offset, firstPage: undefined }), withList(pageReply, offset))).to.equal(undefined);
+  });
+
+  it('a page that loses its page parameter is breaking: the client can no longer page through it', () => {
+    const { param: _param, firstPage: _first, ...unpaged } = offset;
+    const change = routeChange(withList(pageReply, offset), withList(pageReply, unpaged));
+    expect(change).to.include({ breaking: true });
+    expect(change?.detail).to.equal('page parameter query.page removed: the client can no longer page through the route');
+  });
+
+  it('a changed first page is breaking', () => {
+    const change = routeChange(withList(pageReply, offset), withList(pageReply, { ...offset, firstPage: 0 }));
+    expect(change).to.include({ breaking: true });
+    expect(change?.detail).to.equal('first page changed from 1 to 0');
   });
 
   it('a route that stops being paginated is breaking', () => {
