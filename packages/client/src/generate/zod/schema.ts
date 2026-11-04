@@ -146,7 +146,7 @@ function valueType(value: unknown): string {
 export class ZodBuilder {
   /** Names imported from `@spinajs/client/formats`. */
   public readonly formats = new Set<string>();
-  public readonly helpers = new Set<'oneOf'>();
+  public readonly helpers = new Set<'oneOf' | 'oneOfReply'>();
   /** Names of declarations that print as a plain strict object, so `z.looseObject(X.shape)` opens them. */
   public readonly plainObjects = new Set<string>();
   private readonly hoisted: { name: string; node: ZodNode }[] = [];
@@ -375,7 +375,18 @@ export class ZodBuilder {
     const nodes = members.map((m, i) => ({ m, node: () => this.node(m, { ...scope, at: child(scope.at, 'anyOf', i) }) }));
     const others = nodes.filter((n) => !isNull(n.m));
     if (others.length === 1 && others.length < nodes.length) return { ...others[0].node(), nullable: true };
-    return this.union(nodes.map((n) => n.node()));
+    const lenient = nodes.map((n) => n.node());
+    return this.union([...this.exact(members, 'anyOf', lenient, scope), ...lenient]);
+  }
+
+  /**
+   * The members as the server checks them, for a reply: a value that fits one exactly must come out unchanged, where a
+   * lenient member declared before it would strip the keys of the member it fits. Members that print the same are not repeated.
+   */
+  private exact(members: unknown[], keyword: 'anyOf' | 'oneOf', lenient: ZodNode[], scope: Scope): ZodNode[] {
+    if (scope.variant !== 'reply') return [];
+    const exact = members.map((m, i) => this.node(m, { ...scope, variant: 'request', at: child(scope.at, keyword, i) }));
+    return exact.every((node, i) => JSON.stringify(node) === JSON.stringify(lenient[i])) ? [] : exact;
   }
 
   private union(nodes: ZodNode[]): ZodNode {
@@ -388,7 +399,9 @@ export class ZodBuilder {
     if (nodes.length <= 1) return nodes[0] ?? call('never');
     const discriminator = this.discriminator(schema, members, nodes, scope.at.schema);
     if (discriminator) return call('discriminatedUnion', { code: literal(discriminator) }, { list: nodes });
-    this.helpers.add('oneOf');
+    const exact = this.exact(members, 'oneOf', nodes, scope);
+    this.helpers.add(exact.length > 0 ? 'oneOfReply' : 'oneOf');
+    if (exact.length > 0) return { kind: 'call', fn: 'oneOfReply', helper: true, args: [{ list: exact }, { list: nodes }] };
     return { kind: 'call', fn: 'oneOf', helper: true, args: [{ list: nodes }] };
   }
 
@@ -630,8 +643,14 @@ export class ZodBuilder {
     if (isJson(schema.patternProperties)) return { kind: 'object', mode: 'loose', properties, catchall: this.patternCatchall(schema), checks };
     const additional = schema.additionalProperties;
     const catchall = isJson(additional) ? this.node(additional, { ...scope, typePath: undefined, at: child(scope.at, 'additionalProperties') }) : undefined;
-    const node: ZodNode = { kind: 'object', mode: additional === false ? 'strict' : 'loose', properties, ...(catchall && catchall !== UNKNOWN ? { catchall } : {}) };
-    return { ...node, checks: this.requiredChecks(required, properties) };
+    const node: ZodNode = { kind: 'object', mode: additional === false ? this.closed(checks, scope) : 'loose', properties, ...(catchall && catchall !== UNKNOWN ? { catchall } : {}) };
+    return { ...node, checks };
+  }
+
+  // A reply drops what the server's closed object would reject, unless a check reads the parsed value and needs the keys.
+  private closed(checks: Check[], scope: Scope): 'strict' | 'strip' | 'loose' {
+    if (scope.variant !== 'reply') return 'strict';
+    return checks.length > 0 ? 'loose' : 'strip';
   }
 
   // `additionalProperties` does not apply to keys `patternProperties` matches. Until that keyword is mapped, other keys
@@ -694,7 +713,8 @@ export class ZodBuilder {
     const properties = [...shape.properties].map(([name, sources]) => this.property(name, sources, shape.required.has(name), scope));
     // Each member is still validated on its own, opened: its other keywords apply to the merged object.
     const input = shape.members.flatMap((m) => inputChecks(withoutKey(m.schema, 'additionalProperties'), this.host({ ...scope, at: m.at, typePath: undefined })));
-    return { kind: 'object', mode: 'strict', properties, checks: this.requiredChecks([...shape.required], properties), ...(input.length ? { inputChecks: input } : {}) };
+    const checks = this.requiredChecks([...shape.required], properties);
+    return { kind: 'object', mode: this.closed(checks, scope), properties, checks, ...(input.length ? { inputChecks: input } : {}) };
   }
 
   // The server checks `anyOf`/`oneOf` on the members it merges, not on the `allOf` node itself.

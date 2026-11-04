@@ -34,6 +34,7 @@ export function typecheckFiles(files: Record<string, string>, options: ts.Compil
           '@spinajs/client/runtime': ['src/runtime/index.ts'],
           '@spinajs/client/formats': ['src/formats/index.ts'],
           '@spinajs/http-socket-common': ['../http-socket-common/src/index.ts'],
+          'react-hook-form': [join(dirname(fileURLToPath(import.meta.resolve('react-hook-form'))), 'index.d.ts')],
           zod: [join(zodRoot, 'index.d.ts')],
           'zod/mini': [join(zodRoot, 'mini/index.d.ts')],
         },
