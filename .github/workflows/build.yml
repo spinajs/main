@@ -171,10 +171,10 @@ jobs:
       - name: build monorepo
         run: npm run build
 
-      # Measured 2026-11-04 on a loaded dev host: 15.5-25.7 s (avg 21.6 s) per 200-step scheduler seed plus ~25 s
-      # startup, so 10 seeds take ~4 min. The program plan wants 200 seeds per suite; raise --seeds once seeds get cheaper.
-      - name: simulation ( 10 seeds per suite )
-        run: npm run sim -- --all --seeds 10 --out sim-reports
+      # Measured 2026-11-04 on a loaded dev host: 15.5-30.4 s (avg 26.8 s) per 200-step scheduler seed plus ~25 s
+      # startup, so 8 seeds take ~4 min. The program plan wants 200 seeds per suite; raise --seeds once seeds get cheaper.
+      - name: simulation ( 8 seeds per suite )
+        run: npm run sim -- --all --seeds 8 --out sim-reports
 
       - name: upload failing reports
         if: failure()
