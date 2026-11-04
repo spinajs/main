@@ -39,10 +39,16 @@ function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-/** Maps manifest schemas to TypeScript type expressions and records which named schemas the output references. */
+/**
+ * Maps manifest schemas to TypeScript type expressions and records which named schemas the output references.
+ *
+ * @internal
+ */
 export class TypeContext {
-  public readonly used = new Set<string>();
+  private readonly referenced = new Set<string>();
   private readonly names = new Map<string, string>();
+  private sealed = false;
+  private verbatim = false;
 
   constructor(public readonly manifest: Manifest) {
     const bySegment = new Map<string, string[]>();
@@ -64,9 +70,26 @@ export class TypeContext {
     return isSchema(schema) ? schema : undefined;
   }
 
+  public get used(): ReadonlySet<string> {
+    return this.referenced;
+  }
+
+  /** After this, referencing a schema outside `used` throws: every emitter must print from the same schema set. */
+  public seal(): void {
+    this.sealed = true;
+  }
+
+  /** A view that also prints `tsType` nodes verbatim; it shares this context's names, schema set and seal. */
+  public withTsTypes(): TypeContext {
+    const view = Object.create(this) as TypeContext;
+    view.verbatim = true;
+    return view;
+  }
+
   public reference(id: string): string {
     if (!this.schemaOf(id)) return 'unknown';
-    this.used.add(id);
+    if (this.sealed && !this.referenced.has(id)) throw new Error(`generateClient: schema '${id}' is outside the client model; buildClientModel must resolve it`);
+    this.referenced.add(id);
     return this.nameOf(id);
   }
 
@@ -79,6 +102,7 @@ export class TypeContext {
 
   public expression(schema: unknown): string {
     if (!isSchema(schema)) return 'unknown';
+    if (this.verbatim && typeof schema.tsType === 'string') return schema.tsType;
     if (typeof schema.$ref === 'string') return this.reference(schema.$ref);
     if ('const' in schema) return literal(schema.const);
     if (Array.isArray(schema.enum)) return unique(list(schema.enum).map(literal)).join(' | ') || 'never';

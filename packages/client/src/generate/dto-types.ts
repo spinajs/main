@@ -25,25 +25,37 @@ function prepare(value: unknown, ctx: TypeContext): unknown {
   return out;
 }
 
-/** Emits one `export interface`/`export type` per named schema reachable from the types the client uses, ordered by type name. */
-export async function emitDtoTypes(ctx: TypeContext): Promise<string> {
-  const emitted = new Map<string, string>();
+// Walks with `prepare` so the set holds exactly the schemas `emitDtoTypes` will print.
+export function resolveReferences(ctx: TypeContext): void {
   const done = new Set<string>();
   for (;;) {
-    const pending = [...ctx.used].filter((id) => !done.has(id)).sort();
-    if (pending.length === 0) break;
+    const pending = [...ctx.used].filter((id) => !done.has(id));
+    if (pending.length === 0) return;
     for (const id of pending) {
       done.add(id);
-      const name = ctx.nameOf(id);
-      const schema = prepare(ctx.schemaOf(id), ctx) as Schema;
-      const code = await compile({ ...schema, title: name }, name, {
-        bannerComment: '',
-        declareExternallyReferenced: false,
-        format: true,
-        style: { singleQuote: true, printWidth: 120, endOfLine: 'lf' },
-      });
-      emitted.set(name, code.trim());
+      prepare(ctx.schemaOf(id), ctx);
     }
+  }
+}
+
+/** Prints one `export interface`/`export type` named `name`; `tsType` nodes in `schema` print verbatim. */
+export async function compileType(name: string, schema: unknown, ctx: TypeContext): Promise<string> {
+  const prepared = prepare(schema, ctx) as Schema;
+  const code = await compile({ ...prepared, title: name }, name, {
+    bannerComment: '',
+    declareExternallyReferenced: false,
+    format: true,
+    style: { singleQuote: true, printWidth: 120, endOfLine: 'lf' },
+  });
+  return code.trim();
+}
+
+/** Emits one `export interface`/`export type` per schema in `ctx.used`, ordered by type name. */
+export async function emitDtoTypes(ctx: TypeContext): Promise<string> {
+  const emitted = new Map<string, string>();
+  for (const id of [...ctx.used].sort()) {
+    const name = ctx.nameOf(id);
+    emitted.set(name, await compileType(name, ctx.schemaOf(id), ctx));
   }
   return [...emitted.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))

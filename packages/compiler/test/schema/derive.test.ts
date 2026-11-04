@@ -1,6 +1,12 @@
 import { expect } from 'chai';
-import { derive, ref } from './harness.js';
+import { derive, fixture, ref } from './harness.js';
 import type { JsonSchema } from '../../src/schema/derive.js';
+
+// Building the fixture program takes seconds; a `--no-config` run keeps mocha's 2 s default timeout for each test.
+before(function () {
+  this.timeout(60_000);
+  fixture();
+});
 
 type Row = { name: string; schema: JsonSchema; id?: string; codes?: string[] };
 
@@ -8,7 +14,7 @@ export const ROWS: Row[] = [
   { name: 'PString', schema: { type: 'string' } },
   { name: 'PNumber', schema: { type: 'number' } },
   { name: 'PBoolean', schema: { type: 'boolean' } },
-  { name: 'PBigint', schema: { type: 'string', pattern: '^-?[0-9]+$' } },
+  { name: 'PBigint', schema: { type: 'string', pattern: '^-?[0-9]+$', 'x-spinajs-type': 'bigint' } },
   { name: 'PNull', schema: { type: 'null' } },
   { name: 'LStr', schema: { const: 'a' } },
   { name: 'LNum', schema: { const: 1 } },
@@ -58,8 +64,13 @@ export const ROWS: Row[] = [
   { name: 'Square', id: 'fixture/Square', schema: { $id: 'fixture/Square', type: 'object', properties: { kind: { const: 'square' }, side: { type: 'number' } }, required: ['kind', 'side'], additionalProperties: false } },
   { name: 'GPage', id: 'fixture/Page_Point', schema: { $id: 'fixture/Page_Point', type: 'object', properties: { items: { type: 'array', items: ref('Point') }, total: { type: 'number' } }, required: ['items', 'total'], additionalProperties: false } },
   { name: 'GNested', id: 'fixture/Page_Page_Point', schema: { $id: 'fixture/Page_Page_Point', type: 'object', properties: { items: { type: 'array', items: ref('Page_Point') }, total: { type: 'number' } }, required: ['items', 'total'], additionalProperties: false } },
-  { name: 'WDate', schema: { type: 'string', format: 'date-time' } },
-  { name: 'WDateTime', schema: { type: 'string', format: 'date-time' } },
+  { name: 'WDate', schema: { type: 'string', format: 'date-time', 'x-spinajs-type': 'Date' } },
+  { name: 'WDateTime', schema: { type: 'string', format: 'date-time', 'x-spinajs-type': 'DateTime' } },
+  { name: 'WNullableDate', schema: { type: ['string', 'null'], format: 'date-time', 'x-spinajs-type': 'Date' } },
+  { name: 'WDecimal', schema: { type: 'string', format: 'decimal', 'x-spinajs-type': 'Decimal' } },
+  { name: 'WBig', schema: { type: 'string', format: 'decimal', 'x-spinajs-type': 'Decimal' } },
+  { name: 'WLocalDecimal', id: 'fixture/Decimal', schema: { $id: 'fixture/Decimal', type: 'object', properties: { value: { type: 'string' } }, required: ['value'], additionalProperties: false } },
+  { name: 'WJsdocDecimal', id: 'fixture/WJsdocDecimal', schema: { $id: 'fixture/WJsdocDecimal', type: 'object', properties: { amount: { type: 'string', format: 'decimal' } }, required: ['amount'], additionalProperties: false } },
   { name: 'WBuffer', schema: { type: 'string', format: 'binary' } },
   { name: 'WU8', schema: { type: 'string', format: 'binary' } },
   { name: 'WF32', schema: { type: 'string', format: 'binary' } },
@@ -74,7 +85,8 @@ export const ROWS: Row[] = [
   { name: 'XVoid', schema: {} },
 ];
 
-describe('deriveSchema', () => {
+describe('deriveSchema', function () {
+  this.timeout(60_000);
   for (const row of ROWS) {
     it(`derives ${row.name}`, () => {
       const result = derive(row.name);

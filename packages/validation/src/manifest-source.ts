@@ -4,6 +4,7 @@ import { Autoinject, Container, Injectable, type IContainer } from '@spinajs/di'
 import { effectiveManifestOf } from '@spinajs/configuration';
 import type { Manifest } from '@spinajs/manifest';
 import { ValidationFailed, type IValidationError } from './exceptions/index.js';
+import { addSpinajsFormats } from './formats.js';
 import { SchemaSource, type ISchema, type ISchemaObject } from './types.js';
 
 type Json = Record<string, unknown>;
@@ -208,7 +209,7 @@ export class ManifestValidator {
     if (!ajv) {
       // No defaults or removal: the data is checked, never rewritten, apart from coercion of string inputs.
       // strictNumbers: a query `?n=abc` converted to NaN is not a number.
-      ajv = withFormats(new Ajv({ strict: false, strictNumbers: true, allErrors: true, messages: false, coerceTypes: coerce ? 'array' : false }));
+      ajv = addSpinajsFormats(withFormats(new Ajv({ strict: false, strictNumbers: true, allErrors: true, messages: false, coerceTypes: coerce ? 'array' : false })));
       for (const schema of this.schemas.values()) {
         this.add(ajv, schema);
       }

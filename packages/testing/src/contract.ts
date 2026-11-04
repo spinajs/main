@@ -50,6 +50,9 @@ type Schema = Record<string, unknown>;
 // The CJS plugin is callable at runtime, while its types describe the module namespace.
 const addFormats = formats as unknown as (ajv: Ajv) => Ajv;
 
+// The `decimal` format `@spinajs/validation` registers on the server (`DECIMAL_PATTERN`); copied, as this package does not depend on it.
+const DECIMAL_PATTERN = /^-?(0|[1-9][0-9]*)(\.[0-9]+)?$/;
+
 // Keys of these hold schemas by name, so a property called `x-foo` or `$ref` is data, not a keyword.
 const NAMED_SCHEMAS = new Set(['properties', 'patternProperties', '$defs', 'definitions', 'dependentSchemas']);
 
@@ -87,6 +90,7 @@ export function stripExtensions(value: unknown): unknown {
 export function manifestContractValidator(manifest: Manifest): ContractValidator {
   const ajv = new Ajv({ strict: false, allErrors: true });
   addFormats(ajv);
+  ajv.addFormat('decimal', DECIMAL_PATTERN);
 
   const ids = new Set(Object.keys(manifest.schemas));
   for (const [id, schema] of Object.entries(manifest.schemas)) {

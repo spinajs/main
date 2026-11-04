@@ -94,6 +94,28 @@ Used as `@Body() body: JDoc`, a body with `"name": ""` or `"tags": ["a", "a"]` a
 
 The derived schemas are compiled by their own Ajv instance with `ajv-formats`, so `@format` accepts `email`, `date`, `date-time`, `time`, `duration`, `uri`, `uri-reference`, `hostname`, `ipv4`, `ipv6`, `uuid`, `regex` and the other formats of [ajv-formats](https://github.com/ajv-validator/ajv-formats). That instance runs with `strict: false`: an unknown format name is ignored and accepts every value, so check the spelling. Socket contract payloads are compiled with `strictSchema: true` instead: an unknown format there fails to compile, which fails the boot in `require` and skips that contract with a warning in `prefer`.
 
+SpinaJS adds one format of its own, `decimal`, to the derived validator, to the socket contract validator and to `DataValidator`. It accepts plain decimal text: an optional `-`, an integer part without leading zeros, and an optional fraction, as the regex `^-?(0|[1-9][0-9]*)(\.[0-9]+)?$` says. `'12.50'`, `'0'` and `'-0.5'` pass; `'1e3'`, `'01'`, `'.5'` and `'+1'` do not. Use it for a money amount or any value you keep as a string to avoid floating-point rounding:
+
+```ts
+export interface PriceDto {
+  /** @format decimal */
+  amount: string;
+}
+```
+
+A property typed as a decimal.js `Decimal` or a big.js `Big` gets `format: 'decimal'` without a tag (see [Schema derivation](../compiler/README.md#schema-derivation)). By default both libraries write `toJSON()` and `toString()` in exponent notation when the absolute value is at least `1e21` or below `1e-7`: `new Decimal('1e21').toJSON()` is `'1e+21'`, and one satoshi, `new Big('0.00000001')`, is `'1e-8'`. The format rejects both, so such a value answers 400. Send it with `toFixed()`, or switch exponent notation off once at startup, on every side that serializes these values:
+
+```ts
+import Decimal from 'decimal.js';
+import Big from 'big.js';
+
+Decimal.set({ toExpNeg: -9e15, toExpPos: 9e15 });
+Big.NE = -1e6;
+Big.PE = 1e6;
+```
+
+These are the widest limits each library allows. Only a value whose exponent lies beyond them (±9e15 for decimal.js, ±1e6 for big.js) still prints with an exponent.
+
 Two things differ from a `@Schema` run by `DataValidator`:
 
 - `@default` is documentation for tools such as OpenAPI. The derived validator does not set `useDefaults`, so a missing value is not filled in.
