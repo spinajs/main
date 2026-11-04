@@ -37,9 +37,11 @@ const LOCAL = /^#\/(\$defs|definitions)\/([^/]+)$/;
 
 const JSON_TYPES = new Set(['string', 'number', 'integer', 'boolean', 'null', 'array', 'object']);
 const DRAFT_07 = /^https?:\/\/json-schema\.org\/draft-07\/schema#?$/;
-const NUMERIC = ['minLength', 'maxLength', 'minItems', 'maxItems', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf', 'minProperties', 'maxProperties'];
-// Values that are data, not schemas.
-const DATA = new Set(['const', 'enum', 'default', 'examples']);
+// Values that are data, not schemas, so the meta-schema rules do not read them. A merge patch's `with` and the
+// ajv-keywords arguments are checked by their plugin, not by the draft-07 meta-schema.
+const DATA = new Set([
+  'const', 'enum', 'default', 'examples', '$merge', '$patch', 'regexp', 'transform', 'range', 'exclusiveRange', 'dynamicDefaults', 'select', 'selectCases', 'selectDefault',
+]);
 
 function validPattern(pattern: string): boolean {
   try {
@@ -49,25 +51,56 @@ function validPattern(pattern: string): boolean {
   }
 }
 
-function ownRefusal(schema: Json): string | undefined {
-  if (typeof schema.$schema === 'string' && !DRAFT_07.test(schema.$schema)) return `$schema '${schema.$schema}' is not draft-07`;
-  const types: unknown[] = Array.isArray(schema.type) ? schema.type : schema.type === undefined ? [] : [schema.type];
-  const type = types.find((t) => typeof t !== 'string' || !JSON_TYPES.has(t));
-  if (type !== undefined) return `type ${JSON.stringify(type)} is not a JSON Schema type`;
-  if (schema.pattern !== undefined && (typeof schema.pattern !== 'string' || !validPattern(schema.pattern))) return 'pattern is not a valid regular expression with the u flag';
-  // `{ $data }` is FG-5's to map; until then the keyword is dropped with ZOD003.
-  const limit = NUMERIC.find((k) => k in schema && !(typeof schema[k] === 'number' && Number.isFinite(schema[k])) && !(isJson(schema[k]) && '$data' in schema[k]));
-  return limit === undefined ? undefined : `'${limit}' is not a number`;
+// `{ $data }` stands for a number in the keywords that take one: `DataValidator` builds Ajv with `$data: true`.
+const isDataRef = (value: unknown): boolean => isJson(value) && typeof value.$data === 'string' && Object.keys(value).length === 1;
+const isNumber = (value: unknown): boolean => (typeof value === 'number' && Number.isFinite(value)) || isDataRef(value);
+const isCount = (value: unknown): boolean => (Number.isInteger(value) && (value as number) >= 0) || isDataRef(value);
+const isSchema = (value: unknown): boolean => isJson(value) || typeof value === 'boolean';
+const distinct = (values: unknown[]): boolean => new Set(values.map((v) => JSON.stringify(v))).size === values.length;
+const isTypeList = (value: unknown): boolean =>
+  Array.isArray(value) && value.length > 0 && distinct(value) && value.every((t) => typeof t === 'string' && JSON_TYPES.has(t));
+const isNames = (value: unknown): boolean => Array.isArray(value) && value.every((v) => typeof v === 'string') && distinct(value);
+
+/** The draft-07 meta-schema rules of the keywords the emitter reads: a schema that breaks one is refused whole by Ajv. */
+const META: [keys: string[], valid: (value: unknown) => boolean, rule: string][] = [
+  [['minLength', 'maxLength', 'minItems', 'maxItems', 'minProperties', 'maxProperties'], isCount, 'a non-negative integer'],
+  [['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum'], isNumber, 'a number'],
+  [['multipleOf'], (v) => isDataRef(v) || (isNumber(v) && (v as number) > 0), 'a number above 0'],
+  [['enum'], (v) => isDataRef(v) || (Array.isArray(v) && v.length > 0 && distinct(v)), 'a non-empty array of distinct values'],
+  [['required'], (v) => isDataRef(v) || isNames(v), 'an array of distinct strings'],
+  [['type'], (v) => (typeof v === 'string' ? JSON_TYPES.has(v) : isTypeList(v)), 'a JSON type or a non-empty list of distinct ones'],
+  [['pattern'], (v) => isDataRef(v) || (typeof v === 'string' && validPattern(v)), 'a valid regular expression with the u flag'],
+  [['format'], (v) => isDataRef(v) || typeof v === 'string', 'a string'],
+  [['title', 'description', '$ref', '$comment'], (v) => typeof v === 'string', 'a string'],
+  [['uniqueItems', 'readOnly'], (v) => typeof v === 'boolean' || isDataRef(v), 'a boolean'],
+  [['additionalItems', 'additionalProperties', 'contains', 'propertyNames', 'not', 'if', 'then', 'else'], isSchema, 'a schema'],
+  [['items'], (v) => isSchema(v) || (Array.isArray(v) && v.every(isSchema)), 'a schema or an array of schemas'],
+  [['allOf', 'anyOf', 'oneOf'], (v) => Array.isArray(v) && v.length > 0 && v.every(isSchema), 'a non-empty array of schemas'],
+  [['properties', 'definitions'], (v) => isJson(v) && Object.values(v).every(isSchema), 'an object of schemas'],
+  [['patternProperties'], (v) => isJson(v) && Object.entries(v).every(([p, s]) => validPattern(p) && isSchema(s)), 'an object of schemas keyed by valid regular expressions'],
+  [['dependencies'], (v) => isJson(v) && Object.values(v).every((d) => isSchema(d) || isNames(d)), 'an object of schemas or name lists'],
+  [['examples'], Array.isArray, 'an array'],
+];
+
+function ownRefusal(schema: Json, root: boolean): string | undefined {
+  // Below the root Ajv reads `$schema` as an unknown keyword.
+  if (root && typeof schema.$schema === 'string' && !DRAFT_07.test(schema.$schema)) return `$schema '${schema.$schema}' is not draft-07`;
+  for (const [keys, valid, rule] of META) {
+    const key = keys.find((k) => k in schema && !valid(schema[k]));
+    if (key !== undefined) return `'${key}' must be ${rule}`;
+  }
+  return undefined;
 }
 
 /** Why Ajv refuses `schema` (its meta-schema check fails or it does not compile); undefined when it accepts it. */
-export function refusalOf(schema: unknown, named = false): string | undefined {
-  if (Array.isArray(schema)) return schema.map((item) => refusalOf(item)).find((r) => r !== undefined);
+export function refusalOf(schema: unknown, named = false, root = true): string | undefined {
+  if (Array.isArray(schema)) return schema.map((item) => refusalOf(item, false, false)).find((r) => r !== undefined);
   if (!isJson(schema)) return undefined;
-  const own = named ? undefined : ownRefusal(schema);
+  const own = named ? undefined : ownRefusal(schema, root);
   if (own) return own;
   for (const [key, value] of Object.entries(schema)) {
-    const found = named ? refusalOf(value) : key.startsWith('x-') || DATA.has(key) ? undefined : refusalOf(value, NAMED.has(key) || key === '$defs' || key === 'definitions');
+    const skipped = !named && (key.startsWith('x-') || DATA.has(key));
+    const found = skipped ? undefined : refusalOf(value, !named && (NAMED.has(key) || key === '$defs' || key === 'definitions'), false);
     if (found) return found;
   }
   return undefined;
@@ -157,7 +190,10 @@ export class SchemaGraph {
   public resolve(ref: string, owner: string): string | undefined {
     if (ref === '#') return owner;
     const local = LOCAL.exec(ref);
-    if (local) return isJson(this.ctx.schemaOf(owner)?.[local[1]]) && Object.hasOwn(this.ctx.schemaOf(owner)?.[local[1]] as Json, local[2]) ? `${owner}#${ref.slice(1)}` : undefined;
+    if (local) {
+      const group = this.ctx.schemaOf(owner)?.[local[1]];
+      return isJson(group) && Object.hasOwn(group, local[2]) ? `${owner}#${ref.slice(1)}` : undefined;
+    }
     return !ref.startsWith('#') && this.ctx.schemaOf(ref) ? ref : undefined;
   }
 
