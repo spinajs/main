@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { InvalidArgument } from '@spinajs/exceptions';
 import type { IdempotencyStore } from '../store.js';
 import type { IdempotencyClaimOptions, StoredReply } from '../interfaces.js';
 
@@ -63,7 +64,45 @@ export function describeIdempotencyStoreConformance(name: string, factory: () =>
       const token = await claimed(store, 'k', T0, fingerprint);
       assert.equal(await store.complete('k', token, REPLY, TTL, T0 + 10), true);
       assert.deepEqual(await store.claim('k', at(T0 + 10 + TTL - 1)), { state: 'done', reply: REPLY, fingerprint });
+      assert.equal(await store.peek('k', T0 + 10 + TTL), undefined);
       assert.equal((await store.claim('k', at(T0 + 10 + TTL))).state, 'claimed');
+    });
+
+    it('completes a claim once', async (store) => {
+      const token = await claimed(store, 'k', T0);
+      assert.equal(await store.complete('k', token, REPLY, TTL, T0), true);
+      assert.equal(await store.complete('k', token, { kind: 'test', body: 'second' }, TTL, T0), false);
+      assert.deepEqual(await store.peek('k', T0), { state: 'done', reply: REPLY });
+    });
+
+    it('refuses to renew a completed key', async (store) => {
+      const token = await claimed(store, 'k', T0);
+      await store.complete('k', token, REPLY, TTL, T0);
+      assert.equal(await store.renew('k', token, LEASE, T0), false);
+    });
+
+    it('stores a reply as its JSON text would read back', async (store) => {
+      const token = await claimed(store, 'k', T0);
+      await store.complete('k', token, { kind: 'test', body: { at: new Date(T0), gone: undefined, n: 1 } }, TTL, T0);
+      assert.deepEqual(await store.peek('k', T0), { state: 'done', reply: { kind: 'test', body: { at: new Date(T0).toISOString(), n: 1 } } });
+    });
+
+    it('treats an empty fingerprint as none', async (store) => {
+      const token = await claimed(store, 'k', T0, '');
+      assert.deepEqual(await store.peek('k', T0), { state: 'running', leaseUntil: T0 + LEASE });
+      await store.complete('k', token, REPLY, TTL, T0);
+      assert.deepEqual(await store.peek('k', T0), { state: 'done', reply: REPLY });
+    });
+
+    it('rejects a lease or TTL that is not a finite number above 0', async (store) => {
+      const token = await claimed(store, 'k', T0);
+      for (const ms of [Number.NaN, 0, Number.POSITIVE_INFINITY]) {
+        await assert.rejects(store.claim('other', { leaseMs: ms, now: T0 }), InvalidArgument, `claim ${ms}`);
+        await assert.rejects(store.renew('k', token, ms, T0), InvalidArgument, `renew ${ms}`);
+        await assert.rejects(store.complete('k', token, REPLY, ms, T0), InvalidArgument, `complete ${ms}`);
+      }
+      assert.equal(await store.peek('other', T0), undefined);
+      assert.deepEqual(await store.peek('k', T0), { state: 'running', leaseUntil: T0 + LEASE });
     });
 
     it('stores no fingerprint when the claim had none', async (store) => {
@@ -88,6 +127,18 @@ export function describeIdempotencyStoreConformance(name: string, factory: () =>
       assert.equal(await store.renew('k', old, LEASE, T0 + LEASE + 2), false);
       assert.equal(await store.complete('k', old, REPLY, TTL, T0 + LEASE + 2), false);
       assert.equal(await store.complete('k', fresh, REPLY, TTL, T0 + LEASE + 2), true);
+    });
+
+    it('accepts the old holder past its lease until another caller claims the key', async (store) => {
+      const late = await claimed(store, 'late', T0);
+      assert.equal(await store.complete('late', late, REPLY, TTL, T0 + LEASE + 5), true);
+      assert.equal((await store.peek('late', T0 + LEASE + 5))?.state, 'done');
+
+      const old = await claimed(store, 'k', T0);
+      assert.equal(await store.renew('k', old, LEASE, T0 + LEASE + 5), true);
+      await claimed(store, 'k', T0 + 2 * LEASE + 6);
+      assert.equal(await store.renew('k', old, LEASE, T0 + 2 * LEASE + 7), false);
+      assert.equal(await store.complete('k', old, REPLY, TTL, T0 + 2 * LEASE + 7), false);
     });
 
     it('extends the lease on renew', async (store) => {

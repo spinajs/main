@@ -15,7 +15,16 @@ interface IEntry {
 
 const DEFAULT_MAX_ENTRIES = 100_000;
 
-/** Process memory: one replica, lost on restart. `maxEntries` caps completed keys; the oldest completion goes first. */
+// The JSON round trip the ORM store's column makes: a Date reads back as a string, undefined keys are gone.
+const copy = (reply: StoredReply): StoredReply => JSON.parse(JSON.stringify(reply)) as StoredReply;
+
+function positive(name: string, ms: number): void {
+  if (!(Number.isFinite(ms) && ms > 0)) {
+    throw new InvalidArgument(`${name} must be a finite number above 0, got ${ms}`);
+  }
+}
+
+/** Process memory: one replica, lost on restart. `maxEntries` caps completed keys; expired ones go first, then the oldest completion. */
 @Injectable(IdempotencyStore)
 export class MemoryIdempotencyStore extends IdempotencyStore {
   protected entries = new Map<string, IEntry>();
@@ -35,6 +44,7 @@ export class MemoryIdempotencyStore extends IdempotencyStore {
   }
 
   public async claim(key: string, opts: IdempotencyClaimOptions): Promise<IdempotencyClaim> {
+    positive('leaseMs', opts.leaseMs);
     const held = this.held(key, opts.now);
     if (held) {
       return held;
@@ -42,11 +52,12 @@ export class MemoryIdempotencyStore extends IdempotencyStore {
 
     this.drop(key);
     const token = randomUUID();
-    this.entries.set(key, { state: 'running', token, leaseUntil: opts.now + opts.leaseMs, ...(opts.fingerprint === undefined ? {} : { fingerprint: opts.fingerprint }) });
+    this.entries.set(key, { state: 'running', token, leaseUntil: opts.now + opts.leaseMs, ...(opts.fingerprint ? { fingerprint: opts.fingerprint } : {}) });
     return { state: 'claimed', token };
   }
 
   public async renew(key: string, token: string, leaseMs: number, now: number): Promise<boolean> {
+    positive('leaseMs', leaseMs);
     const entry = this.running(key, token);
     if (!entry) {
       return false;
@@ -56,16 +67,18 @@ export class MemoryIdempotencyStore extends IdempotencyStore {
   }
 
   public async complete(key: string, token: string, reply: StoredReply, ttlMs: number, now: number): Promise<boolean> {
+    positive('ttlMs', ttlMs);
     const entry = this.running(key, token);
     if (!entry) {
       return false;
     }
 
+    const stored = copy(reply);
     // re-inserted: Map order is the completion order eviction follows
     this.entries.delete(key);
-    this.entries.set(key, { ...entry, state: 'done', reply: structuredClone(reply), expiresAt: now + ttlMs });
+    this.entries.set(key, { ...entry, state: 'done', reply: stored, expiresAt: now + ttlMs });
     this.doneCount++;
-    this.evict();
+    this.evict(now);
     return true;
   }
 
@@ -103,7 +116,7 @@ export class MemoryIdempotencyStore extends IdempotencyStore {
     if (entry.state === 'running') {
       return { state: 'running', leaseUntil: entry.leaseUntil, ...fingerprint };
     }
-    return { state: 'done', reply: structuredClone(entry.reply!), ...fingerprint };
+    return { state: 'done', reply: copy(entry.reply!), ...fingerprint };
   }
 
   protected running(key: string, token: string): IEntry | undefined {
@@ -122,7 +135,15 @@ export class MemoryIdempotencyStore extends IdempotencyStore {
     this.entries.delete(key);
   }
 
-  protected evict(): void {
+  protected evict(now: number): void {
+    if (this.doneCount <= this.maxEntries) {
+      return;
+    }
+    for (const [key, entry] of this.entries) {
+      if (entry.state === 'done' && this.expired(entry, now)) {
+        this.drop(key);
+      }
+    }
     for (const [key, entry] of this.entries) {
       if (this.doneCount <= this.maxEntries) {
         return;
