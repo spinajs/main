@@ -22,9 +22,9 @@ export abstract class AuthzCliCommand extends AuthzCliBase {
   protected async authz(): Promise<AuthzService> {
     if (!this.Authz) {
       if (this.touchesDb()) {
-        await ((await this.Container.resolve(Orm)) as Orm).Migrator.ready();
+        await (await this.Container.resolve<Orm>(Orm)).Migrator.ready();
       }
-      this.Authz = (await this.Container.resolve(AuthzService)) as AuthzService;
+      this.Authz = await this.Container.resolve<AuthzService>(AuthzService);
     }
     return this.Authz;
   }

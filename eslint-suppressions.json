@@ -1717,11 +1717,6 @@
       "count": 2
     }
   },
-  "packages/authz-rbac/src/cli/base.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    }
-  },
   "packages/authz-rbac/src/cli/commands/check-config.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
@@ -1742,17 +1737,6 @@
   },
   "packages/authz-rbac/src/host/audience.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    }
-  },
-  "packages/authz-rbac/src/host/register.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 3
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    },
-    "complexity": {
       "count": 1
     }
   },
@@ -2448,7 +2432,7 @@
   },
   "packages/authz-testing/test/e2e/support/stack.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 3
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 5
@@ -2963,14 +2947,11 @@
     }
   },
   "packages/authz/test/engine/evaluate.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 2
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     },
     "promise/param-names": {
-      "count": 2
+      "count": 1
     }
   },
   "packages/authz/test/engine/fakes.ts": {
