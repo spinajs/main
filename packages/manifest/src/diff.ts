@@ -113,7 +113,10 @@ function diffPermissions(base: Manifest, head: Manifest): Change[] {
 
 /** A route only a registration serves is no part of the contract, but who may call it, if it runs, is worth a reviewer's eye. */
 function diffFlaggedPermissions(base: Manifest, head: Manifest): Change[] {
-  const flagged = (m: Manifest): Manifest => ({ ...m, controllers: m.controllers.filter((c) => !loadsFromManifest(c)) });
+  const flagged = (m: Manifest): Manifest => {
+    const published = new Set(publishedManifest(m).controllers);
+    return { ...m, controllers: m.controllers.filter((c) => !loadsFromManifest(c) && !published.has(c)) };
+  };
   return diffPermissions(flagged(base), flagged(head)).map((c) => ({ ...c, breaking: false, detail: `${c.detail ?? ''}; the route is served only if a registration runs` }));
 }
 
