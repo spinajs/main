@@ -216,10 +216,10 @@ One pipeline that builds, checks the wiring and fails when committed generated f
 - run: npm run build                                       # compile the app: spinajs build reads lib/, not src/
 - run: npx spinajs build --fail-on-warning                 # manifest, with the deployment's APP_ENV
 - run: npx spinajs doctor --format github                  # annotations on the pull request
-- run: npx spinajs generate:client --out src/generated/client.ts
+- run: npx spinajs generate:client --out src/generated/client.ts --check   # generator drift, names each stale file
 - run: npx spinajs generate:config-types
 - run: npx spinajs generate:openapi --out openapi.json
-- run: git diff --exit-code src/generated/client.ts src/spinajs-config.d.ts openapi.json   # generator drift
+- run: git diff --exit-code src/spinajs-config.d.ts openapi.json   # generator drift
 - run: npx tsc --noEmit
 ```
 
