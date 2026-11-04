@@ -49,7 +49,7 @@ export function asSeenBy(route: RouteEntry, sub: NamedClass, declaring: ts.Class
     return type ? [{ entry, type }] : [];
   });
   const response = ctx.typeRef(returnType, sub, `${hint}_Response`);
-  const pagination = paginationOf(returnType, typed, sub, hint, ctx);
+  const pagination = paginationOf(returnType, typed, sub, { owner: sub.name.text, handler: route.handler }, ctx);
   const { pagination: _declared, ...rest } = route;
   return { ...rest, params, returnType: response, ...(pagination ? { pagination } : {}) };
 }

@@ -8,7 +8,8 @@ export const pageWithoutParam: DoctorRule = {
   code: 'HTTP007',
   describe: 'A route that returns Page<T> or CursorPage<T> has a page parameter',
   run(manifest) {
-    const out: Diagnostic[] = [];
+    // A page the build could not mark (inside a union) has no `pagination` to read here, so the build reported it.
+    const out: Diagnostic[] = manifest.diagnostics.filter((d) => d.code === 'HTTP007');
     for (const c of manifest.controllers) {
       for (const r of c.routes) {
         if (!r.pagination || r.pagination.param) continue;

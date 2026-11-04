@@ -59,6 +59,35 @@ describe('route pagination', function () {
     expect(fragment.schemas['spinajs/paged-app/Page_UserDto']).to.deep.include({ required: ['items', 'total'] });
   });
 
+  describe('other spellings of a page', () => {
+    const shapes = (handler: string): RouteEntry => entry('ShapesController').routes.find((r) => r.handler === handler)!;
+
+    it('marks an app alias of Page<T>, by the declaration it was instantiated from', () => {
+      expect(shapes('named').returnType.text).to.equal('UserPage');
+      expect(shapes('named').pagination).to.deep.equal({ kind: 'offset', item: USER, param: { arg: 'page', path: [] }, firstPage: 1 });
+    });
+
+    it('marks Readonly<CursorPage<T>> and a page intersected with more fields', () => {
+      expect(shapes('frozen').pagination).to.deep.equal({ kind: 'cursor', item: USER, param: { arg: 'cursor', path: [] } });
+      expect(shapes('faceted').pagination).to.deep.equal({ kind: 'offset', item: USER, param: { arg: 'page', path: [] }, firstPage: 1 });
+    });
+
+    it('reads the first page from exclusiveMinimum, and through a $ref on the page property', () => {
+      expect(shapes('exclusive').pagination?.firstPage).to.equal(0);
+      expect(shapes('referenced').pagination).to.deep.include({ param: { arg: 'query', path: ['page'] }, firstPage: 0 });
+    });
+
+    it('does not mark a union reply, and warns with HTTP007 at the route instead of staying silent', () => {
+      expect(shapes('maybe')).to.not.have.property('pagination');
+      const warnings = fragment.diagnostics.filter((d) => d.code === 'HTTP007');
+      expect(warnings.map((d) => [d.severity, d.message, d.source?.file])).to.deep.equal([
+        ['warning', 'ShapesController.maybe returns a page inside a union, which is not marked as paginated: the generated client gets no infinite query for it. Return the page type itself, and the other answers by throwing.', 'src/shapes.ts'],
+      ]);
+      const doctor = pageWithoutParam.run(fixture({ controllers: fragment.controllers, diagnostics: fragment.diagnostics }), doctorCtx);
+      expect(doctor.filter((d) => d.message.startsWith('ShapesController.maybe'))).to.have.length(1);
+    });
+  });
+
   it('records the item a subclass binds on a route inherited from a generic base', () => {
     const list = entry('ArticlesController').routes.find((r) => r.handler === 'list')!;
     expect(list.inheritedFrom).to.equal('paged-app:BaseCrud');

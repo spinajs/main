@@ -30,4 +30,10 @@ describe('HTTP007 page-without-param', () => {
       ['HTTP007', 'warning', 'Articles.list (inherited from app:BaseCrud) returns a page but has no page parameter (page): the generated client gets no infinite query for it.', 'src/articles.ts', 2],
     ]);
   });
+
+  it('repeats the HTTP007 the build reported for a page it could not mark, and no other build diagnostic', () => {
+    const unmarked = { code: 'HTTP007', severity: 'warning' as const, message: 'Users.maybe returns a page inside a union', source: src('src/users.ts', 4) };
+    const other = { code: 'SCH001', severity: 'warning' as const, message: 'unsupported type' };
+    expect(pageWithoutParam.run(fixture({ diagnostics: [other, unmarked] }), ctx)).to.deep.equal([unmarked]);
+  });
 });

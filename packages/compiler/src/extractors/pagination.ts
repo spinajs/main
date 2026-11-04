@@ -19,15 +19,42 @@ interface FoundParam extends PaginationParam {
   entry: ParamEntry;
 }
 
-/** Nominal on purpose: a structurally equal type declared outside `@spinajs/http` is not a page. */
-function pageOf(checker: ts.TypeChecker, returnType: ts.Type): { kind: RoutePagination['kind']; item: ts.Type } | undefined {
-  const payload = unwrapTransparent(checker, returnType);
-  const alias = payload.aliasSymbol;
-  const kind = alias && PAGE_KINDS.get(alias.name);
-  const item = payload.aliasTypeArguments?.[0];
-  if (!kind || !item || !isDeclaredIn(alias.declarations?.[0], '@spinajs/http')) return undefined;
-  return { kind, item };
+const HTTP = '@spinajs/http';
+
+interface FoundPage {
+  kind: RoutePagination['kind'];
+  item: ts.Type;
 }
+
+const inDefaultLib = (symbol: ts.Symbol): boolean => symbol.declarations?.[0]?.getSourceFile().hasNoDefaultLib === true;
+
+/**
+ * Nominal on purpose: the type literal the type was instantiated from must be the body of `Page` or `CursorPage` in
+ * `@spinajs/http`, so a structurally equal type declared elsewhere is not a page. An app alias (`type UserPage =
+ * Page<UserDto>`) renames `aliasSymbol` but keeps that declaration, which is why the alias name is not read.
+ */
+function declaredPage(checker: ts.TypeChecker, type: ts.Type, node: ts.Node): FoundPage | undefined {
+  const declaration = type.getSymbol()?.declarations?.[0];
+  if (!declaration || !ts.isTypeLiteralNode(declaration) || !ts.isTypeAliasDeclaration(declaration.parent) || !isDeclaredIn(declaration, HTTP)) return undefined;
+  const kind = PAGE_KINDS.get(declaration.parent.name.text);
+  const items = checker.getPropertyOfType(type, 'items');
+  const itemsType = items && checker.getTypeOfSymbolAtLocation(items, node);
+  const item = itemsType && checker.isArrayType(itemsType) ? checker.getTypeArguments(itemsType as ts.TypeReference)[0] : undefined;
+  return kind && item ? { kind, item } : undefined;
+}
+
+/** A page, also under `Readonly<…>` or intersected with more fields. */
+function pageIn(checker: ts.TypeChecker, type: ts.Type, node: ts.Node, depth = 0): FoundPage | undefined {
+  if (depth > 4) return undefined;
+  const readonlyOf = type.aliasSymbol?.name === 'Readonly' && inDefaultLib(type.aliasSymbol) ? type.aliasTypeArguments?.[0] : undefined;
+  if (readonlyOf) return pageIn(checker, readonlyOf, node, depth + 1);
+  if (type.isIntersection()) return type.types.reduce<FoundPage | undefined>((found, member) => found ?? pageIn(checker, member, node, depth + 1), undefined);
+  return declaredPage(checker, type, node);
+}
+
+// One reply schema cannot describe several answers, so a union is not unwrapped (`wrapperName`) and not marked either.
+const isUnionWithPage = (checker: ts.TypeChecker, payload: ts.Type, node: ts.Node): boolean =>
+  payload.isUnion() && payload.types.some((member) => !!pageIn(checker, unwrapTransparent(checker, member), node));
 
 /** A query value argument of that name, or the property of that name in a whole or JSON query object. */
 function queryParamNamed(name: string, params: readonly TypedParam[], checker: ts.TypeChecker): FoundParam | undefined {
@@ -60,25 +87,47 @@ function propertySchema(schema: JsonSchema | undefined, key: string, ctx: Extrac
   return parts.reduce<JsonSchema | undefined>((found, part) => found ?? propertySchema(part, key, ctx, depth + 1), undefined);
 }
 
-/** `0` when the page parameter's schema starts at `minimum: 0`; any other start counts from 1. */
+/** The lowest value the schema admits, through `$ref`; an `exclusiveMinimum` counts as the integer above it. */
+function lowestOf(schema: JsonSchema | undefined, ctx: ExtractorContext, depth = 0): number | undefined {
+  if (!schema || depth > 8) return undefined;
+  const exclusive = typeof schema.exclusiveMinimum === 'number' ? schema.exclusiveMinimum + 1 : undefined;
+  const bounds = [schema.minimum, exclusive].filter((bound): bound is number => typeof bound === 'number');
+  if (bounds.length > 0) return Math.max(...bounds);
+  return typeof schema.$ref === 'string' ? lowestOf(schemaById(schema.$ref, ctx), ctx, depth + 1) : undefined;
+}
+
+/** `0` when the page parameter's schema starts at 0; any other start counts from 1. */
 function firstPageOf(found: FoundParam, ctx: ExtractorContext): number {
   const { entry, path } = found;
   const root = schemaById(entry.schema, ctx) ?? schemaById(entry.runtimeType.schema, ctx);
   const at = path.reduce<JsonSchema | undefined>((schema, key) => propertySchema(schema, key, ctx), root);
-  return at?.minimum === 0 ? 0 : 1;
+  return lowestOf(at, ctx) === 0 ? 0 : 1;
 }
 
 const located = (found: FoundParam): PaginationParam => ({ arg: found.arg, path: found.path });
 
+/** The route as doctor names it: the class that serves it and the handler. */
+export interface PagedRoute {
+  owner: string;
+  handler: string;
+}
+
 /** `RouteEntry.pagination` for a route returning the `@spinajs/http` `Page<T>` or `CursorPage<T>`. */
-export function paginationOf(returnType: ts.Type, params: readonly TypedParam[], node: ts.Node, nameHint: string, ctx: ExtractorContext): RoutePagination | undefined {
-  const page = pageOf(ctx.checker, returnType);
-  if (!page) return undefined;
+export function paginationOf(returnType: ts.Type, params: readonly TypedParam[], node: ts.Node, route: PagedRoute, ctx: ExtractorContext): RoutePagination | undefined {
+  const payload = unwrapTransparent(ctx.checker, returnType);
+  const page = pageIn(ctx.checker, payload, node);
+  if (!page) {
+    if (isUnionWithPage(ctx.checker, payload, node)) {
+      const message = `${route.owner}.${route.handler} returns a page inside a union, which is not marked as paginated: the generated client gets no infinite query for it. Return the page type itself, and the other answers by throwing.`;
+      ctx.warn('HTTP007', message, node);
+    }
+    return undefined;
+  }
   const param = firstFound(PAGE_NAMES[page.kind], params, ctx.checker);
   const size = firstFound(SIZE_NAMES, params, ctx.checker);
   return {
     kind: page.kind,
-    item: ctx.typeRef(page.item, node, `${nameHint}_Item`),
+    item: ctx.typeRef(page.item, node, `${route.owner}_${route.handler}_Item`),
     ...(param ? { param: located(param) } : {}),
     ...(size ? { size: located(size) } : {}),
     ...(param && page.kind === 'offset' ? { firstPage: firstPageOf(param, ctx) } : {}),
