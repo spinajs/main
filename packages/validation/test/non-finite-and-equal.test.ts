@@ -160,8 +160,10 @@ describe('non-finite numbers and deep-equal keywords', function () {
           expect(validator.tryValidate(prop({ type: 'string' }), { v: 'Infinity' })[0]).to.eq(true);
         });
 
-        it('leaves a schema without a number type alone', () => {
-          expect(validator.tryValidate(prop({}), { v: Infinity })[0]).to.eq(true);
+        it('refuses a non-finite number no rule constrains, at its path', () => {
+          const [valid, errors] = validator.tryValidate(prop({}), { v: Infinity });
+          expect(valid).to.eq(false);
+          expect(errors!.map((e) => [e.instancePath, e.keyword])).to.deep.eq([['/v', 'type']]);
           expect(validator.tryValidate(prop({ type: 'boolean' }), { v: 'true' })[0]).to.eq(true);
         });
       });

@@ -162,7 +162,7 @@ const UNWRAPPED = new Set(['dataConst', 'dataEnum', 'dataUniq', 'dataMax', 'merg
 
 const VALUES: unknown[] = [
   '1', '1.5', 'abc', '', 'true', 'false', 'null', null, true, false, 0, 1, 1.5, -0, '-0', '0x10', ' 7 ', '1e3', '1e300', ' a ', 'ABC', 'a', '5', '0',
-  'Infinity', '-Infinity', '1e400', '-1e400', ' Infinity', 'NaN',
+  'Infinity', '-Infinity', '1e400', '-1e400', ' Infinity', 'NaN', Infinity, -Infinity, NaN,
   [], [1], ['1'], [1, '1'], ['1', 1], [1, 1], ['a', 'a'], ['__proto__', '__proto__'], ['toString', 'toString'], [1, 'x'], [5, 'a', 3], [6, 'a', '2'],
   ['-Infinity'], ['Infinity', 'b'], [null, null], [null, 1, null], [{}, {}], [{ a: 1 }, { a: 1 }], [{ a: 1 }, { a: 2 }], [{ b: 1, a: 2 }, { a: 2, b: 1 }],
   [{ id: 1 }, { id: '1' }], [{ id: 1 }, { id: 1 }], [{ m: { x: 1 } }, { m: { x: 1 } }], [[1], [1]], [[1], { 0: 1 }], [true, 'true'], [0, false], [null, 'null'],
@@ -187,6 +187,29 @@ const ALLOWED: [string, (schema: string, value: unknown) => boolean][] = [
 ];
 
 type Outcome = { threw: string } | { valid: boolean; data: string; errors: string[] };
+
+const listsNumber = (schema: object | undefined) => {
+  const type = (schema as { type?: unknown } | undefined)?.type;
+  const types: unknown[] = Array.isArray(type) ? type : [type];
+  return (types.includes('number') || types.includes('integer')) && !types.includes('string');
+};
+
+/**
+ * What the fix promises on any input: it never accepts what stock refused on non-finite input, it never accepts data
+ * that holds a non-finite number, and a non-finite value under a property whose own `type` lists a number fails that
+ * `type` rule ( with allErrors; otherwise an earlier rule may report first ), not only the success-path walk.
+ */
+function fixHolds(name: string, property: object | undefined, raw: unknown, stock: Outcome, safe: Outcome, allErrors: boolean): string[] {
+  if ('threw' in safe || 'threw' in stock) return [];
+  const problems: string[] = [];
+  const tag = `${name} ${ser(raw)}`;
+  if (hasNonFinite(raw) && safe.valid && !stock.valid) problems.push(`accepts what stock refused: ${tag}`);
+  if (safe.valid && /#num:(-?Infinity|NaN)/.test(safe.data)) problems.push(`accepts a non-finite number: ${tag} -> ${safe.data}`);
+  if (hasNonFinite(raw) && listsNumber(property) && (safe.valid || (allErrors && !safe.errors.some((e) => e.startsWith('["type","/v","#/properties/v/type"'))))) {
+    problems.push(`no type error at the property: ${tag} -> ${ser(safe)}`);
+  }
+  return problems;
+}
 
 const errorKey = (e: IValidationError) => ser([e.keyword, e.instancePath, e.schemaPath, e.params]);
 
@@ -219,6 +242,7 @@ describe('addSafeKeywords against stock Ajv', function () {
         const { validator, release } = await boot({ ...SHIPPED, ...options });
         const stock = stockAjv(options);
         const unexpected: string[] = [];
+        const problems: string[] = [];
         try {
           for (const [name, inner] of Object.entries(SCHEMAS)) {
             for (const wrapped of UNWRAPPED.has(name) ? [false] : [true, false]) {
@@ -229,6 +253,7 @@ describe('addSafeKeywords against stock Ajv', function () {
                 const value = wrapped ? { v: raw } : raw;
                 const a = stockOutcome(stock, schema, value);
                 const b = safeOutcome(validator, schema, value);
+                problems.push(...fixHolds(name, wrapped ? inner : undefined, raw, a, b, options.allErrors));
                 if (ser(a) === ser(b) || hasNonFinite(raw) || ALLOWED.some(([, allowed]) => allowed(name, raw))) continue;
                 unexpected.push(`${name}${wrapped ? '/prop' : ''} ${ser(value)}\n  stock ${ser(a)}\n  safe  ${ser(b)}`);
               }
@@ -238,6 +263,7 @@ describe('addSafeKeywords against stock Ajv', function () {
           release();
         }
         expect(unexpected, unexpected.slice(0, 10).join('\n')).to.deep.eq([]);
+        expect(problems, problems.slice(0, 10).join('\n')).to.deep.eq([]);
       });
     }
 
@@ -256,15 +282,9 @@ describe('addSafeKeywords against stock Ajv', function () {
 
   describe('rule order', () => {
     const order = (ajv: TestAjv) => ajv.RULES.rules.map((g): [string, string[]] => [g.type ?? '-', g.rules.map((r) => r.keyword)]);
-    const BOUNDS = ['maximum', 'minimum', 'exclusiveMaximum', 'exclusiveMinimum', 'multipleOf'];
 
-    it('keeps every replaced keyword at its stock position; the number bounds close the untyped group', () => {
-      const stock = order(stockAjv({}));
-      const safe = order(safeAjv({}));
-      const expected = stock.map(([type, keywords]) =>
-        type === '-' ? [type, [...keywords, ...BOUNDS]] : type === 'number' ? [type, [...keywords.filter((k) => !BOUNDS.includes(k)), 'spinajs:numberBounds']] : [type, keywords],
-      );
-      expect(safe).to.deep.eq(expected);
+    it('keeps every replaced keyword at its stock position', () => {
+      expect(order(safeAjv({}))).to.deep.eq(order(stockAjv({})));
     });
 
     it('const and enum still see the value before transform and the applicators coerce it', () => {
@@ -429,11 +449,13 @@ describe('addSafeKeywords against stock Ajv', function () {
         });
       }
 
-      it('keeps the finite verdicts and leaves other types to the type rule', () => {
+      it('keeps the finite verdicts and refuses a non-finite number nested where no rule looks', () => {
         expect(validator.tryValidate(P({ minimum: 0, maximum: 10 }), { v: 5 })[0]).to.eq(true);
         expect(validator.tryValidate(P({ minimum: 0, maximum: 10 }), { v: 11 })[0]).to.eq(false);
         expect(validator.tryValidate(P({ minimum: 0, maximum: 10 }), { v: 'Infinity' })[0]).to.eq(true);
-        expect(validator.tryValidate(P({ minimum: 0 }), { v: [Infinity] })[0]).to.eq(true);
+        const [valid, errors] = validator.tryValidate(P({ minimum: 0 }), { v: [1, Infinity] });
+        expect(valid).to.eq(false);
+        expect(errors!.map((e) => [e.instancePath, e.keyword, e.schemaPath])).to.deep.eq([['/v/1', 'type', '#']]);
       });
     });
   });

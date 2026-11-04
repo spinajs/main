@@ -100,6 +100,47 @@ function prototypeEqual(proto: object, a: object, b: object): boolean | undefine
   return undefined;
 }
 
+const pointer = (key: string): string => key.replace(/~/g, '~0').replace(/\//g, '~1');
+
+const walkable = (value: unknown): value is object => {
+  if (!value || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return true;
+  const proto = Object.getPrototypeOf(value) as object | null;
+  return proto === Object.prototype || proto === null;
+};
+
+/**
+ * The JSON pointers of the non-finite numbers in validated data. JSON carries one only through coercion or a literal
+ * such as `1e400`, and a subschema that may fail ( `if`, an `anyOf` / `oneOf` branch, `not` ) coerces in place before
+ * it fails, where no `type` rule sees the result. `data` itself is walked whatever its class ( a `@Schema` DTO ); below
+ * it plain objects and arrays, as JSON builds them. A loop with a `WeakSet`: no depth or cycle overflows it.
+ */
+export function findNonFinite(data: unknown, all: boolean): string[] {
+  if (typeof data === 'number') return Number.isFinite(data) ? [] : [''];
+  if (!data || typeof data !== 'object') return [];
+
+  const found: string[] = [];
+  const seen = new WeakSet<object>([data]);
+  const pending: [object, string][] = [[data, '']];
+  const visit = (child: unknown, path: string) => {
+    if (typeof child === 'number') {
+      if (!Number.isFinite(child)) found.push(path);
+    } else if (walkable(child) && !seen.has(child)) {
+      seen.add(child);
+      pending.push([child, path]);
+    }
+  };
+  for (let next = 0; next < pending.length && (all || found.length === 0); next++) {
+    const [value, path] = pending[next];
+    if (Array.isArray(value)) {
+      for (let i = 0; i < value.length; i++) visit(value[i], `${path}/${i}`);
+    } else {
+      for (const key of Object.keys(value)) visit((value as Record<string, unknown>)[key], `${path}/${pointer(key)}`);
+    }
+  }
+  return all ? found : found.slice(0, 1);
+}
+
 const useEqual = (cxt: KeywordCxt): Name => cxt.gen.scopeValue('func', { ref: jsonEqual });
 
 /**
@@ -237,7 +278,7 @@ const uniqueItemsKeyword: CodeKeywordDefinition = {
 
     function indexed(i: Name, j: Name): void {
       const item = gen.name('item');
-      const matches = itemTypes.map((t) => isOfType(t, item, it.opts.strictNumbers === true)).reduce((all, one) => _`${all} || ${one}`);
+      const matches = itemTypes.map((t) => isOfType(t, item, !!it.opts.strictNumbers)).reduce((all, one) => _`${all} || ${one}`);
       // Ajv's index, on an object without a prototype: on `{}` a "__proto__" item reads Object.prototype. Items of
       // another type are skipped, as Ajv does: `items` already reports them.
       const indices = gen.const('indices', _`Object.create(null)`);
@@ -311,51 +352,6 @@ function valuesUnique(data: unknown[], key: string): boolean {
   return true;
 }
 
-const BOUNDS: Record<string, (data: Code, limit: Code | number | boolean) => Code> = {
-  maximum: (data, limit) => _`${data} > ${limit}`,
-  minimum: (data, limit) => _`${data} < ${limit}`,
-  exclusiveMaximum: (data, limit) => _`${data} >= ${limit}`,
-  exclusiveMinimum: (data, limit) => _`${data} <= ${limit}`,
-};
-const BOUND_KEYWORDS = [...Object.keys(BOUNDS), 'multipleOf'];
-const BOUNDS_PLACEHOLDER = 'spinajs:numberBounds';
-
-/**
- * Ajv's number keywords, moved out of its number group ( which skips a non-finite number ) so that a schema without
- * a `type` refuses one. A schema with a `type` keeps Ajv's checks exactly: there the `type` rule above refuses it.
- */
-function finiteBound(keyword: string, stock: KeywordDefinition): CodeKeywordDefinition {
-  const { error, schemaType, $data } = stock as CodeKeywordDefinition;
-  return {
-    keyword,
-    error,
-    schemaType,
-    $data,
-    code(cxt) {
-      const { gen, data, schemaCode, parentSchema, it } = cxt;
-      let fails: Code;
-      if (keyword === 'multipleOf') {
-        const precision = it.opts.multipleOfPrecision;
-        const res = gen.let('res');
-        const invalid = precision ? _`Math.abs(Math.round(${res}) - ${res}) > 1e-${precision}` : _`${res} !== parseInt(${res})`;
-        fails = _`(${schemaCode} === 0 || (${res} = ${data}/${schemaCode}, ${invalid}))`;
-      } else {
-        fails = _`${BOUNDS[keyword](data, schemaCode)} || isNaN(${data})`;
-      }
-
-      // Ajv's fail$data, with the number check in front: Ajv's number group never looked at another type, nor at
-      // its `$data` limit for one.
-      const fail = (guard: Code, condition: Code) =>
-        cxt.$data ? cxt.fail(_`${guard} && ${schemaCode} !== undefined && (${cxt.invalid$data()} || ${condition})`) : cxt.fail(_`${guard} && (${condition})`);
-      if (parentSchema.type === undefined) {
-        fail(_`typeof ${data} == "number"`, _`!isFinite(${data}) || ${fails}`);
-      } else {
-        fail(it.opts.strictNumbers ? _`typeof ${data} == "number" && isFinite(${data})` : _`typeof ${data} == "number"`, fails);
-      }
-    },
-  };
-}
-
 interface RuleGroup {
   rules: { keyword: string }[];
 }
@@ -395,7 +391,7 @@ function assertStockShape(ajv: KeywordAjv): void {
   if (typeof type !== 'object' || hasCode(type)) {
     throw new Error('@spinajs/validation: Ajv\'s "type" rule is no longer code-less, so the finite-number check cannot replace it');
   }
-  for (const keyword of ['const', 'enum', 'uniqueItems', ...BOUND_KEYWORDS]) {
+  for (const keyword of ['const', 'enum', 'uniqueItems']) {
     if (!hasCode(ajv.getKeyword(keyword))) {
       throw new Error(`@spinajs/validation: Ajv has no "${keyword}" keyword implementation to replace`);
     }
@@ -403,9 +399,9 @@ function assertStockShape(ajv: KeywordAjv): void {
 }
 
 /**
- * Replaces the keywords that compare values with ones built on `jsonEqual`, extends `type` to refuse a non-finite
- * number, and lets the number keywords refuse one where the schema has no `type`. Each keyword keeps Ajv's rule
- * position. Call it after ajv-keywords: its `uniqueItemProperties` is replaced when present.
+ * Replaces the keywords that compare values with ones built on `jsonEqual`, and extends `type` to refuse a non-finite
+ * number. Each keyword keeps Ajv's rule position. Call it after ajv-keywords: its `uniqueItemProperties` is replaced
+ * when present. A non-finite number no `type` rule sees is left to `findNonFinite`.
  */
 export function addSafeKeywords(ajv: KeywordAjv): void {
   assertStockShape(ajv);
@@ -414,16 +410,4 @@ export function addSafeKeywords(ajv: KeywordAjv): void {
     if (definition === uniqueItemPropertiesKeyword && !ajv.getKeyword(definition.keyword as string)) continue;
     replaceInPlace(ajv, definition);
   }
-
-  // Appended to the untyped group, which runs right before the number group: the bounds keep their order.
-  const numberGroup = ajv.RULES.rules.find((group) => (group as { type?: string }).type === 'number');
-  const bounds = (numberGroup?.rules ?? []).map((rule) => rule.keyword).filter((keyword) => BOUND_KEYWORDS.includes(keyword));
-  const definitions = bounds.map((keyword) => finiteBound(keyword, ajv.getKeyword(keyword) as KeywordDefinition));
-  bounds.forEach((keyword) => ajv.removeKeyword(keyword));
-  // Ajv defers the type check of a lone `type: 'number'` into the number group when that group has a rule for the
-  // schema; this no-op rule stands in for the bounds there, so type errors keep their place.
-  ajv.addKeyword({ keyword: BOUNDS_PLACEHOLDER, type: 'number', implements: bounds, code() {} });
-  // `implements` registers the names as bare keywords; free them for the definitions.
-  bounds.forEach((keyword) => ajv.removeKeyword(keyword));
-  definitions.forEach((definition) => ajv.addKeyword(definition));
 }

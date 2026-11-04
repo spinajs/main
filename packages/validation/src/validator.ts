@@ -6,7 +6,7 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { SCHEMA_SYMBOL } from './decorators.js';
 import { IValidationOptions, SchemaSource, ISchemaObject } from './types.js';
 import { Logger, Log } from '@spinajs/log-common';
-import { addSafeKeywords, NON_FINITE_MARK } from './keywords.js';
+import { addSafeKeywords, findNonFinite, NON_FINITE_MARK } from './keywords.js';
 
 // import default souces
 import './sources.js';
@@ -258,6 +258,11 @@ export class DataValidator extends AsyncService {
       return [false, this.sanitizedErrors(schema, ajv)];
     }
 
+    const nonFinite = findNonFinite(target, (ajv as { opts?: { allErrors?: unknown } }).opts?.allErrors !== false);
+    if (nonFinite.length > 0) {
+      return [false, nonFinite.map((instancePath): IValidationError => ({ keyword: 'type', instancePath, schemaPath: '#', params: { type: 'number' } }))];
+    }
+
     return [true, null];
   }
 
@@ -295,7 +300,11 @@ export class DataValidator extends AsyncService {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private sanitizedErrors(schema?: object, ajv: any = this.Validator): IValidationError[] {
-    return dropNonFiniteDuplicates((ajv.errors as IValidationError[]) ?? []).map((error) => sanitizeError(error, schema));
+    // Written back, so a subclass reading `Validator.errors` sees neither the duplicate nor the marker.
+    const instance = ajv as { errors?: IValidationError[] | null };
+    const errors = dropNonFiniteDuplicates(instance.errors ?? []);
+    instance.errors = errors;
+    return errors.map((error) => sanitizeError(error, schema));
   }
 
   /**
