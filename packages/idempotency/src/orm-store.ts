@@ -6,7 +6,7 @@ import type { RawSqlDriver } from '@spinajs/durable';
 import { InsertBehaviour, Orm, QueryContext } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
 import { IDEMPOTENCY_TABLE } from './connection.js';
-import { fitsColumn, positive } from './guards.js';
+import { fitsColumn, plainKey, positive } from './guards.js';
 import { IdempotencyKeyModel } from './models/IdempotencyKeyModel.js';
 import { onPrimary } from './sql.js';
 import { IdempotencyStore } from './store.js';
@@ -68,7 +68,7 @@ function held(row: IKeyRow | undefined, now: number): IdempotencyHeld | undefine
 export class OrmIdempotencyStore extends IdempotencyStore {
   public async claim(key: string, opts: IdempotencyClaimOptions): Promise<IdempotencyClaim> {
     positive('leaseMs', opts.leaseMs);
-    fitsColumn('key', key);
+    plainKey(key);
     fitsColumn('fingerprint', opts.fingerprint);
     const token = randomUUID();
     const values = {
