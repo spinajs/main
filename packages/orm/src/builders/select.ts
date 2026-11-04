@@ -15,6 +15,8 @@ import { relationOf } from '../relation-registry.js';
 import { isNullOrWhitespace } from '@spinajs/util';
 import { extractModelDescriptor } from '../descriptor.js';
 import type { IRelationSort } from './internal.js';
+import { runCloneHooks } from './internal.js';
+import type { BuilderState } from '../extensions.js';
 import { QueryBuilder } from './base.js';
 import { LimitBuilder } from './limit.js';
 import { OrderByBuilder } from './order-by.js';
@@ -135,6 +137,11 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this._owner;
   }
 
+  // The live relation list, not a copy: an extension that creates a relation (intl-orm's translate) pushes it here.
+  public state(): Readonly<BuilderState> {
+    return { ...super.state(), relations: this._relations, owner: this._owner };
+  }
+
   @use(WhereBuilder, LimitBuilder, OrderByBuilder, ColumnsBuilder, JoinBuilder, WithRecursiveBuilder, GroupByBuilder)
   this!: this;
 
@@ -246,6 +253,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._nonSelect = this._nonSelect;
     builder._queryMiddlewares = [...this._queryMiddlewares];
     builder._database = this._database;
+
+    runCloneHooks(this, builder);
 
     return builder as any;
   }

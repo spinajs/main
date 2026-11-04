@@ -36,3 +36,17 @@ export function assertOneOf<T extends string>(value: T, allowed: readonly string
 export function isSelectQuery(value: unknown): value is ISelectQueryBuilder {
   return value instanceof QueryBuilder && (value as unknown as { _method: QueryMethod })._method === QueryMethod.SELECT;
 }
+
+type CloneHook = (source: QueryBuilder, clone: QueryBuilder) => void;
+
+// Set by Orm.resolve() from the registered query extensions; select.ts reads them here because
+// importing extension-install.ts would close a cycle (it imports select.ts).
+let cloneHooks: readonly CloneHook[] = [];
+
+export function setCloneHooks(hooks: readonly CloneHook[]): void {
+  cloneHooks = hooks;
+}
+
+export function runCloneHooks(source: QueryBuilder, clone: QueryBuilder): void {
+  for (const hook of cloneHooks) hook(source, clone);
+}

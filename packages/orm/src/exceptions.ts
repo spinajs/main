@@ -1,4 +1,4 @@
-import { Exception, ResourceDuplicated } from '@spinajs/exceptions';
+import { Exception, InvalidOperation, ResourceDuplicated } from '@spinajs/exceptions';
 import type { IDriverOptions } from './interfaces.js';
 
 /**
@@ -100,3 +100,6 @@ export class ConnectionMismatch extends OrmException {
     super(message);
   }
 }
+
+/** Two query extensions, or an extension and the builder itself, define the same method name. */
+export class ExtensionMethodCollision extends InvalidOperation {}

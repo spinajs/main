@@ -21,6 +21,7 @@ import type { IMigrationUpOptions } from './migration-runner.js';
 import { MIGRATION_DI_SOURCE, mergeMigrationEnv, resolveMigrationEnv } from './migration-environment.js';
 import { MigrationSource } from './migration-sources.js';
 import { MODELS, ORM_DB_VALUE_CONVERTERS } from './tokens.js';
+import { installQueryExtensions, resolveQueryExtensions } from './extension-install.js';
 
 /**
  * Used to exclude sensitive data to others. eg. removed password field from cfg
@@ -232,6 +233,9 @@ export class Orm extends AsyncService {
 
   public async resolve(): Promise<void> {
     await super.resolve();
+
+    // Before any connection opens, so a colliding extension fails the boot with nothing to close.
+    installQueryExtensions(await resolveQueryExtensions(this.Container));
 
     await this.createConnections();
 
