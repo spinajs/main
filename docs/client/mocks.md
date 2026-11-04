@@ -6,7 +6,7 @@
 - `mockPage` and `mockCursorPage`, re-exported from `@spinajs/client/mocks`;
 - `createMockAppClient(impl, options?)`, a typed `AppClient` with no network.
 
-The data comes from the same JSON Schema the server validates with, so every mock passes the server's validation of its DTO. No other generated file imports `client.mocks.ts`, so the mocks stay out of production bundles. Import the file from tests and stories only.
+The data comes from the same JSON Schema the server validates with, so every mock passes the server's validation of its DTO. Only `client.msw.ts` imports `client.mocks.ts`, so the mocks stay out of production bundles. Import the file from tests and stories only.
 
 ```ts
 import { createMockAppClient, mockPage, mockUserDto } from './generated/client.mocks.js';
@@ -91,3 +91,43 @@ mockCursorPage(item, { count, next }); // { items, next }
 ```
 
 `item(i)` gets the index of the item across all pages. `mockPage` defaults to one full page of 20 items, with pages counted from `firstPage` (default 1). `mockCursorPage` defaults to 20 items and `next: null`.
+
+## MSW handlers
+
+`generateClientFiles({ manifest, mocks: true, msw: true })` also writes `client.msw.ts`: one [MSW](https://mswjs.io) request handler per route, answering with the data of `client.mocks.ts`. `msw` without `mocks` throws, because the handlers need the mock data. `client.msw.ts` is the only generated file that imports `msw`, and it has no `'use client'` directive and no React import, so it runs in Node test runners and in browsers.
+
+```ts
+import { HttpResponse } from 'msw';
+import { setupServer } from 'msw/node';
+import { createAppHandlers } from './generated/client.msw.js';
+
+const server = setupServer(
+  ...createAppHandlers('http://localhost:3000', {
+    users: { get: ({ params }) => HttpResponse.json({ id: Number(params.id), email: 'ada@example.com' }) },
+  }),
+);
+server.listen();
+```
+
+- `createAppHandlers(baseUrl, overrides?)` returns `RequestHandler[]`. A trailing slash on `baseUrl` is ignored.
+- `overrides` is typed `AppHandlerOverrides`, keyed `controller.handler`. Each value is an MSW response resolver whose reply must have the route's reply type, so `HttpResponse.json({ wrong: true })` fails `tsc`. Path parameters are typed by name.
+- A route with no reply answers `204`. Any other route answers with `createMockAppClient` data, from the same seed every time. A reply the sampler cannot honour (`MOCK001`) answers with an error from `MockUnsupported`.
+- Handlers follow the order of `client.ts`, and MSW uses the first that matches, as Express does.
+
+### Paths
+
+Paths come from the manifest and are translated from Express 5 to MSW syntax:
+
+| Express 5 | MSW |
+| --- | --- |
+| `/users/:id` | `/users/:id` |
+| `/a{/:id}` | two handlers: `/a` and `/a/:id` |
+| `/a{/:id}{/:sub}` | four handlers, one per combination |
+| `/files/*path` | `/files/*`, read as `params['0']` |
+| `/a\:b`, `/a\*b` | the same, with the backslash kept |
+
+MSW has no optional groups and no named wildcards, so an optional group becomes one handler per combination, all sharing the override. A parameter name MSW cannot read (anything but letters, digits and underscores, such as `:"my-id"`) stops the generator with an error.
+
+### Requirements
+
+`msw` is an optional peer dependency, `^3.0.0`; install it where the handlers run. MSW 3 needs Node 22.12 or later, a little above SpinaJS's own floor, and uses the global `fetch`, so no polyfill is needed. The server option that MSW 2 called `onUnhandledRequest` is `onUnhandledFrame` in MSW 3.
