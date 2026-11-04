@@ -86,6 +86,35 @@ export class AddressBook {
   public work?: { city: string };
 }
 
+/** The keywords only an explicit schema carries: DataValidator validates it, with $data and ajv-keywords. */
+@Schema({
+  type: 'object',
+  properties: {
+    password: { type: 'string', minLength: 8 },
+    confirm: { type: 'string', const: { $data: '1/password' } },
+    kind: { type: 'string', enum: ['person', 'company'] },
+    vat: { type: 'string', transform: ['trim', 'toUpperCase'], pattern: '^[A-Z0-9]+$' },
+    tags: { type: 'array', items: { type: 'string' }, contains: { const: 'main' } },
+    age: { type: 'integer', range: [0, 150] },
+    meta: { type: 'object', patternProperties: { '^x-': { type: 'string' } }, additionalProperties: false },
+  },
+  required: ['password', 'confirm', 'kind'],
+  additionalProperties: false,
+  if: { properties: { kind: { const: 'company' } } },
+  then: { required: ['vat'] },
+  dependencies: { vat: ['kind'] },
+  propertyNames: { maxLength: 16 },
+})
+export class Registration {
+  public password: string;
+  public confirm: string;
+  public kind: 'person' | 'company';
+  public vat?: string;
+  public tags?: string[];
+  public age?: number;
+  public meta?: Record<string, string>;
+}
+
 interface LocalStandard {
   readonly '~standard': { readonly version: 1; readonly vendor: 'my-lib'; readonly validate: (value: unknown) => { value: unknown } };
 }
@@ -147,6 +176,11 @@ export class CorpusController extends BaseController {
   @Post('note')
   public async note(@Body() title: string, @Body() text: string): Promise<NoContent<void>> {
     return accepted(title, text);
+  }
+
+  @Post('register')
+  public async register(@Body() registration: Registration): Promise<NoContent<void>> {
+    return accepted(registration);
   }
 
   @Get('item/:id')

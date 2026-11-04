@@ -3,9 +3,9 @@ import type { ZodOptions } from '../files.js';
 import type { ClientModel } from '../model.js';
 import { literal, propertyKey } from '../ts-type.js';
 import { compare, Diagnostics, type GeneratorDiagnostic } from './diagnostics.js';
-import { Printer, reopen, type ZodNode } from './print.js';
+import { isPlainObject, nodesIn, Printer, reopen, UNKNOWN, type ZodNode } from './print.js';
 import { isPartial, refsIn, SchemaGraph, type NamedSchema } from './refs.js';
-import { ZodBuilder } from './schema.js';
+import { ZodBuilder, type Variant } from './schema.js';
 
 export type { ZodOptions } from '../files.js';
 export type { GeneratorDiagnostic, GeneratorDiagnosticCode } from './diagnostics.js';
@@ -31,19 +31,19 @@ const ROOT_MODES: Partial<Record<string, RootMode>> = {
 };
 
 interface Declared {
-  entry: NamedSchema;
+  name: string;
   node: ZodNode;
-  annotated: boolean;
 }
 
 interface RouteArgument {
-  name: string;
+  param: ParamEntry;
   id: string;
   mode: RootMode;
 }
 
 const PURE = '/*#__PURE__*/ ';
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
+const ROUTE_INDENT = '      ';
 
 function rootMode(param: ParamEntry): RootMode | undefined {
   const mode = ROOT_MODES[param.kind];
@@ -58,9 +58,10 @@ function routeArguments(model: ClientModel): Map<string, Map<string, RouteArgume
     const routes = new Map<string, RouteArgument[]>();
     controller.routes.forEach((route, i) => {
       const params = [...controller.entry.routes[i].params].sort((a, b) => a.index - b.index);
-      const args = params.flatMap((p) => {
-        const mode = rootMode(p);
-        return mode ? [{ name: p.name, id: p.runtimeType.schema!, mode }] : [];
+      const args = params.flatMap((param): RouteArgument[] => {
+        const mode = rootMode(param);
+        const id = param.runtimeType.schema!;
+        return mode ? [{ param, id, mode }] : [];
       });
       if (args.length > 0) routes.set(route.name, args);
     });
@@ -90,7 +91,7 @@ class ZodFile {
     this.printer = new Printer(options.mini === true);
     this.args = routeArguments(model);
     // An argument schema `client.ts` inlines is printed inline too, unless a local `$ref` needs it declared.
-    const inlineNamed = [...this.args.values()].flatMap((r) => [...r.values()].flat()).filter((a) => !ctx.used.has(a.id) && containsLocalRef(ctx.schemaOf(a.id)));
+    const inlineNamed = this.allArgs().filter((a) => !ctx.used.has(a.id) && containsLocalRef(ctx.schemaOf(a.id)));
     this.graph = new SchemaGraph(ctx, [...ctx.used, ...inlineNamed.map((a) => a.id), ...this.inlineRefs()]);
     this.builder = new ZodBuilder(this.graph, ctx, this.diagnostics);
   }
@@ -115,29 +116,36 @@ class ZodFile {
     return { contents: `${lines.join('\n')}\n`, diagnostics: this.diagnostics.list() };
   }
 
+  private allArgs(): RouteArgument[] {
+    return [...this.args.values()].flatMap((r) => [...r.values()].flat());
+  }
+
   // Schemas an inlined argument schema references must be declared, even when `client.ts` has no interface for them.
   private inlineRefs(): string[] {
     const { ctx } = this.model;
-    const ids = [...this.args.values()].flatMap((r) => [...r.values()].flat()).map((a) => a.id);
-    return ids.filter((id) => !ctx.used.has(id)).flatMap((id) => refsIn(ctx.schemaOf(id)).filter((ref) => !ref.startsWith('#')));
+    return this.allArgs()
+      .map((a) => a.id)
+      .filter((id) => !ctx.used.has(id))
+      .flatMap((id) => refsIn(ctx.schemaOf(id)).filter((ref) => !ref.startsWith('#')));
   }
 
   private declaration(entry: NamedSchema): string {
     const state = { annotated: false };
-    const node = this.root(entry, state);
-    this.declared.set(entry.key, { entry, node, annotated: state.annotated });
-    if (node.kind === 'object' && node.mode === 'strict' && !node.checks?.length && !node.nullable && !state.annotated) this.builder.plainObjects.add(entry.key);
+    const node = this.root(entry, state, 'request');
+    const { name } = entry;
+    this.declared.set(entry.key, { name, node });
+    if (isPlainObject(node) && !state.annotated) this.builder.plainObjects.add(name);
     const code = this.pure(this.printer.print(node));
     if (entry.typeName) this.types.add(entry.typeName);
     this.usesZod ||= state.annotated || entry.typeName !== undefined || !IDENTIFIER.test(code);
     const type = `${this.printer.typeName}<${entry.typeName ?? 'unknown'}>`;
     const hoisted = this.hoisted();
-    if (state.annotated) return `${hoisted}export const ${entry.name}: ${type} = ${code};`;
-    return `${hoisted}export const ${entry.name} = ${code}${entry.typeName ? ` satisfies ${type}` : ''};`;
+    if (state.annotated) return `${hoisted}export const ${name}: ${type} = ${code};`;
+    return `${hoisted}export const ${name} = ${code}${entry.typeName ? ` satisfies ${type}` : ''};`;
   }
 
   // client.ts declares an interface for every named root, also for one that accepts anything.
-  private root(entry: NamedSchema, state: { annotated: boolean }): ZodNode {
+  private root(entry: NamedSchema, state: { annotated: boolean }, variant: Variant): ZodNode {
     const custom: ZodNode = { kind: 'call', fn: entry.typeName ? 'custom' : 'unknown', ...(entry.typeName ? { typeArg: entry.typeName } : {}), acceptsUndefined: true };
     if (isPartial(entry.schema)) return custom;
     const refused = this.graph.refused(entry.key);
@@ -145,9 +153,11 @@ class ZodFile {
       this.diagnostics.report('ZOD001', { schema: entry.owner, pointer: entry.pointer }, `the server does not validate this schema: ${refused}; it accepts any value`);
       return custom;
     }
-    const node = this.builder.root(entry.schema, { at: { schema: entry.owner, pointer: entry.pointer }, current: entry.key, state, typePath: entry.typeName });
+    const node = this.builder.root(entry.schema, { at: { schema: entry.owner, pointer: entry.pointer }, current: entry.key, state, typePath: entry.typeName, variant });
     this.collectTypes(node);
-    if (node.kind === 'call' && node.fn === 'unknown' && !node.checks?.length) return { ...custom, ...(node.description !== undefined ? { description: node.description } : {}) };
+    if (node.kind === 'call' && node.fn === 'unknown' && !node.checks?.length && !node.inputChecks?.length && !node.before?.length) {
+      return { ...custom, ...(node.description !== undefined ? { description: node.description } : {}) };
+    }
     return node;
   }
 
@@ -169,24 +179,10 @@ class ZodFile {
 
   // Getter annotations and `z.custom<T>` name interfaces of `client.ts`.
   private collectTypes(node: ZodNode): void {
-    const texts: string[] = [];
-    const walk = (n: ZodNode): void => {
-      if (n.kind === 'call') {
-        if (n.typeArg) texts.push(n.typeArg);
-        for (const arg of n.args ?? []) {
-          if ('node' in arg) walk(arg.node);
-          if ('list' in arg) arg.list.forEach(walk);
-        }
-      }
-      if (n.kind === 'object') {
-        for (const p of n.properties) {
-          if (p.getter) texts.push(p.getter);
-          walk(p.node);
-        }
-        if (n.catchall) walk(n.catchall);
-      }
-    };
-    walk(node);
+    const texts = nodesIn(node).flatMap((n) => {
+      if (n.kind === 'call') return n.typeArg ? [n.typeArg] : [];
+      return n.kind === 'object' ? n.properties.flatMap((p) => p.getter ?? []) : [];
+    });
     const names = new Set([...this.model.ctx.used].map((id) => this.model.ctx.nameOf(id)));
     for (const text of texts) {
       for (const word of text.replace(/'(?:[^'\\]|\\.)*'/g, '').match(/[A-Za-z_$][\w$]*/g) ?? []) if (names.has(word)) this.types.add(word);
@@ -196,35 +192,40 @@ class ZodFile {
   private routeSchemas(): string {
     const controllers = [...this.args].map(([key, routes]) => {
       const handlers = [...routes].map(([name, args]) => {
-        const values = args.map((a) => `      ${propertyKey(a.name)}: ${this.argument(a)},`);
+        const values = args.map((a) => `${ROUTE_INDENT}${propertyKey(a.param.name)}: ${this.argument(a)},`);
         return `    ${propertyKey(name)}: {\n${values.join('\n')}\n    },`;
       });
       return `  ${propertyKey(key)}: {\n${handlers.join('\n')}\n  },`;
     });
     const literalBody = controllers.length ? `{\n${controllers.join('\n')}\n}` : '{}';
-    return `${this.hoisted()}// Per-route argument schemas: a whole body root accepts and drops undeclared keys, as the server does.\nexport const routeSchemas = ${literalBody} as const;`;
+    const comment = '// Per-route argument schemas: a whole body root accepts and drops undeclared keys, as the server does.';
+    return `${this.hoisted()}${comment}\nexport const routeSchemas = ${literalBody} as const;`;
   }
 
   private argument(arg: RouteArgument): string {
-    const declared = this.declared.get(arg.id);
-    if (!declared) return this.inlineArgument(arg);
-    const { node, entry } = declared;
-    if (arg.mode === 'closed') return entry.name;
-    if (this.builder.plainObjects.has(entry.key)) return this.pure(this.printer.print({ kind: 'shape', mode: arg.mode, of: entry.name }));
-    const opened = reopen(node, arg.mode);
-    return opened === node ? entry.name : this.pure(this.printer.print({ ...opened, description: undefined }, '      '));
+    return this.pure(this.printer.print(this.argumentRoot(arg), ROUTE_INDENT));
   }
 
-  private inlineArgument(arg: RouteArgument): string {
+  private argumentRoot(arg: RouteArgument): ZodNode {
+    const declared = this.declared.get(arg.id);
+    if (!declared) return this.inlineArgument(arg, 'request');
+    const { name, node } = declared;
+    if (arg.mode === 'closed') return { kind: 'ref', name };
+    if (this.builder.plainObjects.has(name)) return { kind: 'shape', mode: arg.mode, of: name };
+    const opened = reopen(node, arg.mode);
+    return opened === node ? { kind: 'ref', name } : { ...opened, description: undefined };
+  }
+
+  private inlineArgument(arg: RouteArgument, variant: Variant): ZodNode {
     const schema = this.model.ctx.schemaOf(arg.id);
     const refused = this.graph.refusalOfSchema(schema, arg.id);
     if (refused !== undefined) {
       this.diagnostics.report('ZOD001', { schema: arg.id, pointer: '' }, `the server does not validate this argument: ${refused}; it accepts any value`);
-      return this.pure('z.unknown()');
+      return UNKNOWN;
     }
-    const node = this.builder.root(schema, { at: { schema: arg.id, pointer: '' } });
+    const node = this.builder.root(schema, { at: { schema: arg.id, pointer: '' }, variant });
     this.collectTypes(node);
-    return this.pure(this.printer.print(arg.mode === 'closed' ? node : reopen(node, arg.mode), '      '));
+    return arg.mode === 'closed' ? node : reopen(node, arg.mode);
   }
 
   private helpers(): string[] {
@@ -247,4 +248,3 @@ function oneOf<const T extends readonly [${type}, ${type}, ...${type}[]]>(option
 export function emitZod(model: ClientModel, options: ZodOptions, clientModule = './client.js'): ZodEmitResult {
   return new ZodFile(model, options).emit(clientModule);
 }
-

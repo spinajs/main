@@ -1,8 +1,11 @@
 import * as formats from '../../formats/index.js';
 import { literal, propertyKey, type TypeContext } from '../ts-type.js';
 import { child, type Diagnostics, type Location } from './diagnostics.js';
-import { call, reopen, UNKNOWN, type Check, type Property, type ZodNode } from './print.js';
-import { isJson, isPartial, refsIn, type Json, type SchemaGraph } from './refs.js';
+import { dataChecks, DATA_KEYWORDS, isDataRef, locationKey } from './data-refs.js';
+import { arrayChecks, inputChecks, rangeChecks, regexpCheck, transform, type KeywordHost } from './keywords.js';
+import { resolveMergePatch } from './merge-patch.js';
+import { call, nodesIn, reopen, UNKNOWN, use, valueCode, type Check, type Property, type ZodNode } from './print.js';
+import { isJson, isPartial, refsIn, type Json, type NamedSchema, type SchemaGraph } from './refs.js';
 
 /** Where the builder is: the node's location, the declaration it belongs to, and whether a getter already defers it. */
 export interface Scope {
@@ -14,15 +17,38 @@ export interface Scope {
   state?: { annotated: boolean };
   /** The TypeScript type of the object being built, as `client.ts` declares it, for getter annotations. */
   typePath?: string;
+  /** Which variant of the schemas is built; `request` when absent. */
+  variant?: Variant;
 }
 
-// Keywords whose mapping is not written yet, or cannot be: dropping one makes the schema looser than the server.
+/**
+ * - `request`: `<Name>Schema`, as the server validates a JSON body.
+ * - `reply`: a lenient reply variant (FG-7), whose checks read the request schemas.
+ */
+export type Variant = 'request' | 'reply';
+
+// Each variant hoists its checks under its own prefix, so the variants of one schema can be told apart.
+const HOIST_PREFIX: Record<Variant, string> = { request: '_check', reply: '_replyCheck' };
+
+// Keywords the emitter cannot map: dropping one makes the schema looser than the server.
 const UNMAPPED = new Set([
-  'not', 'if', 'contains', 'patternProperties', 'propertyNames', 'dependencies', 'dependentRequired', 'dependentSchemas', 'minProperties', 'maxProperties',
-  'unevaluatedProperties', 'unevaluatedItems', '$merge', '$patch', '$async', 'formatMinimum', 'formatMaximum', 'formatExclusiveMinimum', 'formatExclusiveMaximum',
-  'instanceof', 'range', 'exclusiveRange', 'regexp', 'transform', 'uniqueItemProperties', 'select', 'dynamicDefaults', 'typeof', 'allRequired', 'anyRequired',
-  'oneRequired', 'patternRequired', 'prohibited', 'deepProperties', 'deepRequired',
+  'dependentRequired', 'dependentSchemas', 'unevaluatedProperties', 'unevaluatedItems', '$async', 'formatMinimum', 'formatMaximum', 'formatExclusiveMinimum',
+  'formatExclusiveMaximum', 'instanceof', 'select', 'selectCases', 'selectDefault', 'dynamicDefaults', 'typeof', 'allRequired', 'anyRequired', 'oneRequired',
+  'patternRequired', 'prohibited', 'deepProperties', 'deepRequired',
 ]);
+
+// The draft-07 keywords and annotations, Ajv's `nullable`, and the plugin keywords the emitter maps. Any other key is a
+// keyword the server's Ajv does not know, such as one an app adds in `createAppAjv()`.
+const KNOWN = new Set([
+  '$id', '$schema', '$ref', '$comment', '$defs', 'definitions', 'title', 'description', 'default', 'examples', 'readOnly', 'writeOnly', 'deprecated',
+  'contentMediaType', 'contentEncoding', 'type', 'nullable', 'enum', 'const', 'format', 'multipleOf', 'maximum', 'exclusiveMaximum', 'minimum',
+  'exclusiveMinimum', 'maxLength', 'minLength', 'pattern', 'items', 'additionalItems', 'maxItems', 'minItems', 'uniqueItems', 'contains', 'maxProperties',
+  'minProperties', 'required', 'properties', 'patternProperties', 'additionalProperties', 'dependencies', 'propertyNames', 'if', 'then', 'else', 'allOf',
+  'anyOf', 'oneOf', 'not', '$merge', '$patch', 'range', 'exclusiveRange', 'transform', 'regexp', 'uniqueItemProperties',
+]);
+
+// Merge patches resolving to further merge patches: past this depth the chain is cut with ZOD003.
+const MAX_MERGE_DEPTH = 8;
 
 const STRING_KEYWORDS = ['minLength', 'maxLength', 'pattern'];
 const NUMBER_KEYWORDS = ['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf'];
@@ -41,7 +67,6 @@ const GUARDS: Record<JsonType, string> = {
   object: "typeof v === 'object' && v !== null && !Array.isArray(v)",
 };
 
-const DRAFT_07 = /^https?:\/\/json-schema\.org\/draft-07\/schema#?$/;
 // json-schema-to-typescript's default `maxItems`: the longest bounded array it still writes as a union of tuples.
 const MAX_TUPLE_ITEMS = 20;
 // Ajv accepts these strings without a check.
@@ -93,6 +118,16 @@ const requiredOf = (schema: Json): string[] => (Array.isArray(schema.required) ?
 const acceptsAnything = (schema: unknown): boolean =>
   schema === true || isPartial(schema) || (isJson(schema) && Object.keys(schema).every((k) => k.startsWith('$') || k.startsWith('x-') || k === 'description' || k === 'title'));
 
+// The schema a `$merge` source names is registered under its own `$id`; the merged copy must not claim it again.
+function withoutId(schema: unknown): unknown {
+  if (!isJson(schema) || !('$id' in schema)) return schema;
+  return Object.fromEntries(Object.entries(schema).filter(([key]) => key !== '$id' && !key.startsWith('x-')));
+}
+
+function withoutKey(schema: Json, key: string): Json {
+  return Object.fromEntries(Object.entries(schema).filter(([k]) => k !== key));
+}
+
 function formatExport(name: string): string {
   return `is${name.replace(/(^|-)([a-z0-9])/g, (_m, _dash, c: string) => c.toUpperCase())}`;
 }
@@ -107,34 +142,29 @@ function valueType(value: unknown): string {
   return literal(value);
 }
 
-// A `__proto__` key in an object literal sets the prototype instead of defining a property.
-function valueCode(value: unknown): string {
-  const json = JSON.stringify(value);
-  return json.includes('"__proto__"') ? `JSON.parse(${literal(json)})` : json;
-}
-
 /** Turns manifest JSON Schema nodes into zod nodes, as `ManifestValidator`'s Ajv validates them. */
 export class ZodBuilder {
   /** Names imported from `@spinajs/client/formats`. */
   public readonly formats = new Set<string>();
   public readonly helpers = new Set<'oneOf'>();
-  /** Declared schemas that print as a plain strict object, so `z.looseObject(X.shape)` opens them. */
+  /** Names of declarations that print as a plain strict object, so `z.looseObject(X.shape)` opens them. */
   public readonly plainObjects = new Set<string>();
   private readonly hoisted: { name: string; node: ZodNode }[] = [];
   private hoistedCount = 0;
+  /** Locations of `$data` keywords a parent object checks; see `dataChecks`. */
+  private readonly dataHandled = new Set<string>();
+  private mergeDepth = 0;
 
   constructor(
     private readonly graph: SchemaGraph,
     private readonly ctx: TypeContext,
     private readonly diagnostics: Diagnostics,
+    /** The const a reference reads in a variant: the referenced declaration's own variant, or its request schema. */
+    private readonly variantName: (entry: NamedSchema, variant: Variant) => string = (entry) => entry.name,
   ) {}
 
-  /** A whole manifest schema, or a local definition hoisted out of one. */
+  /** A whole manifest schema, or a local definition hoisted out of one; `SchemaGraph.refused` has turned away the ones Ajv refuses. */
   public root(schema: unknown, scope: Scope): ZodNode {
-    if (isJson(schema) && typeof schema.$schema === 'string' && !DRAFT_07.test(schema.$schema)) {
-      this.diagnostics.report('ZOD001', scope.at, `Ajv refuses $schema '${schema.$schema}'; the server does not validate this schema, and it accepts any value`);
-      return UNKNOWN;
-    }
     return this.node(schema, scope);
   }
 
@@ -147,7 +177,37 @@ export class ZodBuilder {
     }
     this.reportUnmapped(schema, scope);
     const node = this.conjunction(this.parts(schema, scope), scope);
-    return typeof schema.description === 'string' ? { ...node, description: schema.description } : node;
+    const input = inputChecks(schema, this.host(scope));
+    const before = [transform(schema, this.host(scope))].filter((fn): fn is string => fn !== undefined);
+    return {
+      ...node,
+      ...(input.length ? { inputChecks: [...(node.inputChecks ?? []), ...input] } : {}),
+      ...(before.length ? { before: [...before, ...(node.before ?? [])] } : {}),
+      ...(typeof schema.description === 'string' ? { description: schema.description } : {}),
+    };
+  }
+
+  private host(scope: Scope): KeywordHost {
+    return {
+      at: scope.at,
+      variant: scope.variant ?? 'request',
+      format: (name) => this.format(name),
+      subject: (schema, at) => this.subject(schema, { ...scope, at, typePath: undefined }),
+      unmapped: (at, message) => this.diagnostics.report('ZOD003', at, message),
+    };
+  }
+
+  /**
+   * A schema a check reads: declared once before the declaration, or inline inside a getter, where a later one may be
+   * read. A reply variant's `not` and `if` test what the server would accept, so they read the request schemas.
+   */
+  private subject(schema: unknown, scope: Scope): ZodNode {
+    const inner: Scope = scope.variant === 'reply' ? { ...scope, variant: 'request' } : scope;
+    return this.usable(this.node(schema, inner), inner);
+  }
+
+  private usable(node: ZodNode, scope: Scope): ZodNode {
+    return node.kind === 'ref' || scope.deferred ? node : { kind: 'ref', name: this.hoist(node, scope) };
   }
 
   /**
@@ -158,14 +218,38 @@ export class ZodBuilder {
   private conjunction(parts: ZodNode[], scope: Scope): ZodNode {
     if (parts.length === 0) return UNKNOWN;
     const closed = parts.find((p) => p.kind === 'object' && p.mode === 'strict');
+    if (parts.length > 1 && !closed && this.rewrites(parts, scope)) return this.sequential(parts, scope);
     if (!closed || parts.length === 1 || scope.deferred) return parts.reduce((a, b) => call('intersection', { node: a }, { node: b }));
     const checks = parts
       .filter((p) => p !== closed)
       .map((p): Check => {
-        const schema = p.kind === 'ref' ? p.name : this.hoist(p);
+        const schema = p.kind === 'ref' ? p.name : this.hoist(p, scope);
         return { kind: 'refine', fn: `(v) => ${schema}.safeParse(v).success`, message: 'must match every schema of the node' };
       });
     return { ...closed, checks: [...(closed.checks ?? []), ...checks] };
+  }
+
+  // A part that rewrites the value (`transform`) and another that passes it through give outputs zod cannot merge.
+  private rewrites(parts: ZodNode[], _scope: Scope): boolean {
+    return parts.some((p) => nodesIn(p).some((n) => n.before?.length));
+  }
+
+  /**
+   * Parts that rewrite the value (coercion, `transform`) cannot be intersected: zod throws when the two outputs differ.
+   * The object parts are joined with stripped outputs, which merge, and the others check the joined value, as Ajv's
+   * later keywords see what the earlier ones coerced.
+   */
+  private sequential(parts: ZodNode[], scope: Scope): ZodNode {
+    const isObject = (p: ZodNode): boolean => p.kind === 'object' || p.kind === 'shape';
+    const loose = (p: ZodNode): boolean => isObject(p) && (p as { mode: string }).mode === 'loose' && !p.checks?.length && !p.inputChecks?.length;
+    const strip = (p: ZodNode): ZodNode => (loose(p) ? ({ ...p, mode: 'strip' } as ZodNode) : p);
+    const objects = parts.filter(isObject).map(strip);
+    const base = objects.length ? objects.reduce((a, b) => call('intersection', { node: a }, { node: b })) : parts[0];
+    const others = parts.filter((p) => !isObject(p) && p !== base);
+    const checks = others.map((p): Check => {
+      return { kind: 'refine', fn: `(v) => ${use(0)}.safeParse(v).success`, uses: [this.usable(p, scope)], message: 'must match every schema of the node' };
+    });
+    return checks.length ? { ...base, checks: [...(base.checks ?? []), ...checks] } : base;
   }
 
   /** The TypeScript type of `schema`'s values, as `client.ts` declares it; for a getter's annotation. */
@@ -176,8 +260,8 @@ export class ZodBuilder {
 
   // Ajv applies every keyword of a node: each group becomes one part, and the parts are intersected.
   private parts(schema: Json, scope: Scope): ZodNode[] {
-    if ('const' in schema) return [this.constant(schema.const)];
-    const parts: ZodNode[] = [];
+    if ('const' in schema && !isDataRef(schema.const)) return [this.constant(schema.const)];
+    const parts: ZodNode[] = [...this.mergePatch(schema, scope)];
     const nested: Scope = { ...scope, typePath: undefined };
     let objectDone = false;
     if (Array.isArray(schema.allOf)) {
@@ -207,14 +291,44 @@ export class ZodBuilder {
     if (!target || !closed) return this.node(member, { ...scope, at });
     const key = target.schema === member ? undefined : this.graph.resolve((member as Json).$ref as string, at.schema);
     const entry = key === undefined ? undefined : this.graph.get(key);
-    if (entry && this.plainObjects.has(entry.key) && !this.graph.cyclic(scope.current, entry.key)) return { kind: 'shape', mode: 'loose', of: entry.name };
+    const name = entry && this.nameOf(entry, scope);
+    if (entry && name && this.plainObjects.has(name) && !this.graph.cyclic(scope.current, entry.key)) return { kind: 'shape', mode: 'loose', of: name };
     return reopen(this.node(target.schema, { ...scope, at: target.at }), 'loose');
   }
 
   private reportUnmapped(schema: Json, scope: Scope): void {
-    for (const key of Object.keys(schema)) {
+    for (const [key, value] of Object.entries(schema)) {
       if (UNMAPPED.has(key)) this.diagnostics.report('ZOD003', child(scope.at, key), `keyword '${key}' is not mapped and is dropped; the schema accepts more than the server`);
+      else if (isDataRef(value) && (!DATA_KEYWORDS.includes(key) || !this.dataHandled.has(locationKey(child(scope.at, key))))) {
+        this.diagnostics.report('ZOD003', child(scope.at, key), `$data in '${key}' is not mapped and is dropped; the schema accepts more than the server`);
+      } else if (!KNOWN.has(key) && !key.startsWith('x-')) {
+        this.diagnostics.report('ZOD003', child(scope.at, key), `keyword '${key}' is unknown to the server's default Ajv; one an app adds is not mapped and is dropped`);
+      }
     }
+  }
+
+  /** `$merge` and `$patch`, resolved now, as a part next to the node's other keywords. */
+  private mergePatch(schema: Json, scope: Scope): ZodNode[] {
+    return (['$merge', '$patch'] as const).flatMap((keyword) => {
+      if (!(keyword in schema)) return [];
+      const at = child(scope.at, keyword);
+      const target = (ref: string): unknown => this.graph.get(this.graph.resolve(ref, scope.at.schema) ?? '')?.schema;
+      const resolved = this.mergeDepth < MAX_MERGE_DEPTH ? resolveMergePatch(keyword, schema[keyword], target) : { error: 'merge patches nest too deep' };
+      if ('error' in resolved) {
+        this.diagnostics.report('ZOD003', at, `${resolved.error}; it is dropped, and the schema accepts more than the server`);
+        return [];
+      }
+      this.mergeDepth++;
+      try {
+        return [this.node(withoutId(resolved.schema), { ...scope, at, typePath: undefined })];
+      } finally {
+        this.mergeDepth--;
+      }
+    });
+  }
+
+  private nameOf(entry: NamedSchema, scope: Scope): string {
+    return this.variantName(entry, scope.variant ?? 'request');
   }
 
   private ref(ref: string, scope: Scope): ZodNode {
@@ -225,11 +339,12 @@ export class ZodBuilder {
       return UNKNOWN;
     }
     const acceptsUndefined = acceptsAnything(entry.schema);
+    const name = this.nameOf(entry, scope);
     if (this.graph.cyclic(scope.current, key) && !scope.deferred) {
       if (scope.state) scope.state.annotated = true;
-      return { ...call('lazy', { lazy: entry.name }), acceptsUndefined };
+      return { ...call('lazy', { lazy: name }), acceptsUndefined };
     }
-    return { kind: 'ref', name: entry.name, acceptsUndefined };
+    return { kind: 'ref', name, acceptsUndefined };
   }
 
   private constant(value: unknown): ZodNode {
@@ -327,7 +442,7 @@ export class ZodBuilder {
     const type = ['string', 'number', 'boolean'].includes(typeof schema.default) ? typeof schema.default : '{ [k: string]: unknown }';
     if (implied.length === 0) return { kind: 'call', fn: 'custom', typeArg: type, acceptsUndefined: true };
     // Built outside any getter: the hoisted const is evaluated when the module loads.
-    const checks = this.hoist(this.typelessChecks(schema, implied, { ...scope, deferred: false, typePath: undefined }));
+    const checks = this.hoist(this.typelessChecks(schema, implied, { ...scope, deferred: false, typePath: undefined }), scope);
     return { kind: 'call', fn: 'custom', typeArg: type, args: [{ code: `(v) => ${checks}.safeParse(v).success` }] };
   }
 
@@ -343,8 +458,8 @@ export class ZodBuilder {
     return this.hoisted.splice(0);
   }
 
-  private hoist(node: ZodNode): string {
-    const name = `_check${++this.hoistedCount}`;
+  private hoist(node: ZodNode, scope: Scope): string {
+    const name = `${HOIST_PREFIX[scope.variant ?? 'request']}${++this.hoistedCount}`;
     this.hoisted.push({ name, node });
     return name;
   }
@@ -370,10 +485,7 @@ export class ZodBuilder {
   private limit(schema: Json, key: string, scope: Scope): number | undefined {
     const value = schema[key];
     if (value === undefined || (typeof value === 'number' && Number.isFinite(value))) return value;
-    if (isJson(value) && '$data' in value) {
-      this.diagnostics.report('ZOD003', child(scope.at, key), `$data in '${key}' is not mapped and is dropped; the schema accepts more than the server`);
-      return undefined;
-    }
+    if (isDataRef(value)) return undefined;
     this.diagnostics.report('ZOD001', child(scope.at, key), `'${key}' must be a number; it is dropped`);
     return undefined;
   }
@@ -384,6 +496,7 @@ export class ZodBuilder {
     const max = this.limit(schema, 'maxLength', scope);
     if (min !== undefined) checks.push({ kind: 'refine', fn: `${this.format('minCodePoints')}(${min})`, message: `must NOT have fewer than ${min} characters` });
     if (max !== undefined) checks.push({ kind: 'refine', fn: `${this.format('maxCodePoints')}(${max})`, message: `must NOT have more than ${max} characters` });
+    checks.push(...regexpCheck(schema, this.host(scope)));
     if (typeof schema.pattern === 'string') {
       if (this.validPattern(schema.pattern)) checks.push({ kind: 'regex', source: schema.pattern });
       else this.diagnostics.report('ZOD001', child(scope.at, 'pattern'), 'pattern is not a valid regular expression with the u flag; it is dropped');
@@ -410,6 +523,7 @@ export class ZodBuilder {
       const value = this.limit(schema, key, scope);
       if (value !== undefined) checks.push({ kind, value });
     }
+    checks.push(...rangeChecks(schema, this.host(scope)));
     const multipleOf = this.limit(schema, 'multipleOf', scope);
     if (multipleOf !== undefined) checks.push({ kind: 'refine', fn: `${this.format('ajvMultipleOf')}(${multipleOf})`, message: `must be multiple of ${multipleOf}` });
     const name = typeof schema.format === 'string' ? schema.format : undefined;
@@ -426,7 +540,8 @@ export class ZodBuilder {
     this.diagnostics.report('ZOD002', child(scope.at, 'format'), `format ${JSON.stringify(name)} is unknown to the server's Ajv, which accepts every value; so does the schema`);
   }
 
-  private format(name: string): string {
+  /** A `@spinajs/client/formats` export, imported by the file. */
+  public format(name: string): string {
     if (typeof (formats as Record<string, unknown>)[name] !== 'function') throw new Error(`generateClient: @spinajs/client/formats has no export '${name}'`);
     this.formats.add(name);
     return name;
@@ -441,7 +556,9 @@ export class ZodBuilder {
     const restAt = child(scope.at, Array.isArray(schema.items) ? 'additionalItems' : 'items');
     const rest = restSchema === false || shape.restUses === 0 ? undefined : this.slot(restSchema, shape.restUses, { ...scope, at: restAt });
     const node = this.lengths(items, rest, shape, max);
-    return schema.uniqueItems === true ? { ...node, checks: [...(node.checks ?? []), this.uniqueItems(schema)] } : node;
+    const checks = [...(node.checks ?? []), ...arrayChecks(schema, this.host(scope))];
+    const unique = schema.uniqueItems === true ? [this.uniqueItems()] : [];
+    return { ...node, ...(checks.length ? { checks } : {}), ...(unique.length ? { inputChecks: [...(node.inputChecks ?? []), ...unique] } : {}) };
   }
 
   // A slot printed in several tuples is declared once, outside any getter, as the hoisted const is read at module load.
@@ -449,7 +566,7 @@ export class ZodBuilder {
     const inner: Scope = { ...scope, typePath: undefined };
     if (schema === undefined) return UNKNOWN;
     if (uses <= 1 || isSimple(schema)) return this.node(schema, inner);
-    return { kind: 'ref', name: this.hoist(this.node(schema, { ...inner, deferred: false })) };
+    return { kind: 'ref', name: this.hoist(this.node(schema, { ...inner, deferred: false }), scope) };
   }
 
   // Ajv checks only the positions present. client.ts types a bounded array as a union of tuples, as
@@ -469,14 +586,18 @@ export class ZodBuilder {
     return { ...call('tuple', { list: leading }, { node: rest }), checks };
   }
 
-  private uniqueItems(schema: Json): Check {
-    const items = isJson(schema.items) ? schema.items : undefined;
-    const types = items && (typeof items.type === 'string' || Array.isArray(items.type)) ? [...new Set([items.type, items.nullable === true ? 'null' : []].flat())] : undefined;
-    const check = this.format('ajvUniqueItems');
-    return { kind: 'refine', fn: types ? `(a) => ${check}(a, ${JSON.stringify(types)})` : check, message: 'must NOT have duplicate items' };
+  // The items as sent: a parsed object item has lost an own `__proto__` key, which Ajv compares.
+  private uniqueItems(): Check {
+    return { kind: 'refine', fn: `(a) => !Array.isArray(a) || ${this.format('ajvUniqueItems')}(a)`, message: 'must NOT have duplicate items' };
   }
 
   private object(schema: Json, scope: Scope): ZodNode {
+    const data = dataChecks(ownProperties(schema), scope.at, (name) => this.format(name), this.dataHandled);
+    const node = this.plainObject(schema, scope);
+    return data.length ? { ...node, checks: [...(node.checks ?? []), ...data] } : node;
+  }
+
+  private plainObject(schema: Json, scope: Scope): ZodNode {
     const required = requiredOf(schema);
     const properties = Object.entries(ownProperties(schema)).map(([name, value]) => {
       return this.property(name, [{ schema: value, at: child(scope.at, 'properties', name) }], required.includes(name), scope);
@@ -502,11 +623,23 @@ export class ZodBuilder {
     const member = scope.typePath === undefined ? undefined : `${scope.typePath}[${literal(name)}]`;
     const objectLike = sources.length === 1 && isJson(sources[0].schema) && !has(sources[0].schema, ['allOf', 'anyOf', 'oneOf', '$ref', 'enum', 'const']);
     const inner: Scope = { ...scope, deferred: scope.deferred || getter, typePath: member && objectLike ? `NonNullable<${member}>` : undefined };
-    const node = sources.map((s) => this.node(s.schema, { ...inner, at: s.at })).reduce((a, b) => call('intersection', { node: a }, { node: b }));
+    const built = sources.map((s) => this.node(s.schema, { ...inner, at: s.at })).reduce((a, b) => call('intersection', { node: a }, { node: b }));
+    const node = this.dataConstTyped(built, sources, member, inner);
     if (!getter) return { key: name, node, optional: !required };
     // The interface's own member type cannot disagree with client.ts; a hoisted definition has no interface.
     const type = member === undefined ? sources.map((s) => this.typeOf(s.schema)).join(' & ') : required ? member : `Exclude<${member}, undefined>`;
     return { key: name, node, optional: !required, getter: type };
+  }
+
+  /**
+   * client.ts types `const: { $data }` as that object, which no value the server accepts is. Such a property is typed
+   * as client.ts types it, and its own schema is a check; the `$data` comparison sits on the parent object.
+   */
+  private dataConstTyped(node: ZodNode, sources: { schema: unknown }[], member: string | undefined, scope: Scope): ZodNode {
+    if (!sources.some((s) => isJson(s.schema) && isDataRef(s.schema.const))) return node;
+    const type = member ?? sources.map((s) => this.typeOf(s.schema)).join(' & ');
+    const check: Check = { kind: 'refine', fn: `(v) => ${use(0)}.safeParse(v).success`, uses: [this.usable(node, scope)], message: 'must match the schema of the property' };
+    return { kind: 'call', fn: 'custom', typeArg: type, checks: [check], acceptsUndefined: true };
   }
 
   private readsCycle(schema: unknown, owner: string, current: string | undefined): boolean {
@@ -535,18 +668,22 @@ export class ZodBuilder {
     const shape = this.closedShape(schema, scope.at, new Set());
     if (!shape) return undefined;
     const properties = [...shape.properties].map(([name, sources]) => this.property(name, sources, shape.required.has(name), scope));
-    return { kind: 'object', mode: 'strict', properties, checks: this.requiredChecks([...shape.required], properties) };
+    // Each member is still validated on its own, opened: its other keywords apply to the merged object.
+    const input = shape.members.flatMap((m) => inputChecks(withoutKey(m.schema, 'additionalProperties'), this.host({ ...scope, at: m.at, typePath: undefined })));
+    return { kind: 'object', mode: 'strict', properties, checks: this.requiredChecks([...shape.required], properties), ...(input.length ? { inputChecks: input } : {}) };
   }
 
   // The server checks `anyOf`/`oneOf` on the members it merges, not on the `allOf` node itself.
   private closedShape(schema: Json, at: Location, seen: Set<string>, top = true): ClosedShape | undefined {
-    if (!Array.isArray(schema.allOf) || (!top && has(schema, ['anyOf', 'oneOf']))) return undefined;
-    const shape: ClosedShape = { properties: new Map(), required: new Set(requiredOf(schema)) };
+    // With its own patternProperties the merged node accepts the keys they match, which a strict object cannot.
+    if (!Array.isArray(schema.allOf) || (!top && has(schema, ['anyOf', 'oneOf'])) || isJson(schema.patternProperties)) return undefined;
+    const shape: ClosedShape = { properties: new Map(), required: new Set(requiredOf(schema)), members: [] };
     for (const [i, member] of schema.allOf.entries()) {
       const target = this.target(member, child(at, 'allOf', i), seen);
       const inner = target && (this.closedShape(target.schema, target.at, target.seen, false) ?? this.closedObject(target.schema, target.at));
       if (!inner) return undefined;
-      if (target.schema !== member) this.reportUnmapped(target.schema, { at: target.at });
+      this.reportUnmapped(target.schema, { at: target.at });
+      shape.members.push(...inner.members);
       for (const [name, sources] of inner.properties) shape.properties.set(name, [...(shape.properties.get(name) ?? []), ...sources]);
       inner.required.forEach((name) => shape.required.add(name));
     }
@@ -569,11 +706,13 @@ export class ZodBuilder {
   private closedObject(schema: Json, at: Location): ClosedShape | undefined {
     if (schema.additionalProperties !== false || !isJson(schema.properties) || has(schema, ['anyOf', 'oneOf'])) return undefined;
     const properties = new Map(Object.entries(schema.properties).map(([name, value]) => [name, [{ schema: value, at: child(at, 'properties', name) }]]));
-    return { properties, required: new Set(requiredOf(schema)) };
+    return { properties, required: new Set(requiredOf(schema)), members: [{ schema, at }] };
   }
 }
 
 interface ClosedShape {
   properties: Map<string, { schema: unknown; at: Location }[]>;
   required: Set<string>;
+  /** The closed objects merged. */
+  members: { schema: Json; at: Location }[];
 }
