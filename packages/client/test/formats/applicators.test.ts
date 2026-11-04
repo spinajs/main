@@ -4,12 +4,15 @@ import fc from 'fast-check';
 import { Ajv } from 'ajv';
 import {
   additionalProperties,
+  booleanArgument,
   contains,
   dataLimit,
   dataRef,
   dependencies,
+  isBigIntArgument,
   maxProperties,
   minProperties,
+  numberArgument,
   patternProperties,
   propertyNames,
 } from '../../src/formats/index.js';
@@ -96,5 +99,30 @@ describe('@spinajs/client/formats: applicator and object keyword helpers', funct
         }
       });
     }
+  });
+
+  describe('scalar route arguments, as SpinaJS converts them before validation', () => {
+    it('numberArgument: Number(), with an empty value absent', () => {
+      expect(numberArgument('')).to.equal(undefined);
+      expect(numberArgument(null)).to.equal(undefined);
+      expect(numberArgument(' 5 ')).to.equal(5);
+      expect(numberArgument('0x10')).to.equal(16);
+      expect(numberArgument(['7'])).to.equal(7);
+      expect(numberArgument('abc')).to.be.NaN;
+      expect(numberArgument('Infinity')).to.equal(Infinity);
+      // Number() throws here, and the server answers 500: the value stays, and a number schema refuses it.
+      const trap = { toString: 1, valueOf: 1 };
+      expect(numberArgument(trap)).to.equal(trap);
+    });
+
+    it('booleanArgument: true only for 1 and any case of "true"', () => {
+      expect([true, 1, 'true', 'TRUE', ['true']].map(booleanArgument)).to.deep.equal([true, true, true, true, true]);
+      expect([false, 0, '', 'yes', '1', null, undefined].map(booleanArgument)).to.deep.equal([false, false, false, false, false, false, false]);
+    });
+
+    it('isBigIntArgument: what BigInt() accepts', () => {
+      expect(['', '12', ' 12 ', '0x10', true, ['5']].map(isBigIntArgument)).to.deep.equal([true, true, true, true, true, true]);
+      expect(['1.5', 'a', undefined, null, {}].map(isBigIntArgument)).to.deep.equal([false, false, false, false, false]);
+    });
   });
 });

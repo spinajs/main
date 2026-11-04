@@ -127,7 +127,8 @@ describe('client.zod.ts', function () {
     });
 
     it('opens a whole query root and keeps the other keys, which other arguments read', () => {
-      expect(contents).to.include('filter: /*#__PURE__*/ z.looseObject(DtoSchema.shape),');
+      expect(contents).to.include('filter: /*#__PURE__*/ z.looseObject(DtoCoerced.shape),');
+      expect(contents).to.include('q: DtoCoerced,');
       expect(at('wholeQuery', 'filter').safeParse({ a: 'x', q: '{}' })).to.deep.equal({ success: true, data: { a: 'x', q: '{}' } });
     });
 

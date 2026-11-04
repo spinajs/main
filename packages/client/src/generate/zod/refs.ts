@@ -224,6 +224,11 @@ export class SchemaGraph {
     return !ref.startsWith('#') && this.ctx.schemaOf(ref) ? ref : undefined;
   }
 
+  /** The declarations `key` references. */
+  public targets(key: string): readonly string[] {
+    return this.edges.get(key) ?? [];
+  }
+
   public get(key: string): NamedSchema | undefined {
     return this.entries.get(key);
   }

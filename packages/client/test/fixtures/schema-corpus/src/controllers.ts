@@ -86,6 +86,13 @@ export class AddressBook {
   public work?: { city: string };
 }
 
+export interface Settings {
+  /** @default 20 */
+  pageSize?: number;
+  /** @default "light" */
+  theme?: 'light' | 'dark';
+}
+
 /** The keywords only an explicit schema carries: DataValidator validates it, with $data and ajv-keywords. */
 @Schema({
   type: 'object',
@@ -181,6 +188,16 @@ export class CorpusController extends BaseController {
   @Post('register')
   public async register(@Body() registration: Registration): Promise<NoContent<void>> {
     return accepted(registration);
+  }
+
+  @Post('settings')
+  public async settings(@Body() settings: Settings): Promise<NoContent<void>> {
+    return accepted(settings);
+  }
+
+  @Get('flags')
+  public async flags(@Query() verbose: boolean, @Query() page: PageQuery): Promise<NoContent<void>> {
+    return accepted(verbose, page);
   }
 
   @Get('item/:id')

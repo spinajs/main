@@ -55,3 +55,41 @@ export const coerceInteger = (value: unknown): unknown => ajvCoerce(value, ['int
 export const coerceBoolean = (value: unknown): unknown => ajvCoerce(value, ['boolean']);
 export const coerceNull = (value: unknown): unknown => ajvCoerce(value, ['null']);
 export const coerceArray = (value: unknown): unknown => ajvCoerce(value, ['array']);
+
+/*
+ * A route argument typed `number`, `boolean` or `bigint` is converted by SpinaJS (`RouteArgs.fromRuntimeType` in
+ * @spinajs/http) before its schema is checked, whatever wire it comes from; an absent one is not checked at all.
+ * A value whose conversion throws on the server (500) is left as it is, so the schema refuses it.
+ */
+
+/** `Number(value)`, with `''`, `null` and `undefined` absent. */
+export function numberArgument(value: unknown): unknown {
+  if (value === undefined || value === null || value === '') return undefined;
+  try {
+    return Number(value);
+  } catch {
+    return value;
+  }
+}
+
+/** `true` for a boolean `true`, `1` or any case of `'true'`; every other value is `false`. */
+export function booleanArgument(value: unknown): unknown {
+  if (typeof value === 'boolean') return value;
+  try {
+    // String(value) of a JSON value: an array joins its items, and nothing else reads 'true'.
+    const text = typeof value === 'string' ? value : Array.isArray(value) ? value.join(',') : '';
+    return value ? value === 1 || text.toLowerCase() === 'true' : false;
+  } catch {
+    return value;
+  }
+}
+
+/** Whether `BigInt(value)` accepts the value; a bigint argument is not checked against its schema. */
+export function isBigIntArgument(value: unknown): boolean {
+  try {
+    BigInt(value as string);
+    return true;
+  } catch {
+    return false;
+  }
+}
