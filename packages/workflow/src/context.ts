@@ -10,6 +10,7 @@ import { nextMacrotask, ReplayGate } from './gate.js';
 import { identifierProblem } from './identifier.js';
 import type { Journal, StepRow } from './journal.js';
 import { safeStringify } from './json.js';
+import { WorkflowEventModel } from './models/WorkflowEventModel.js';
 import { normalizeRetry, unitHash } from './policy.js';
 import type { WorkflowInstanceModel } from './models/WorkflowInstanceModel.js';
 import type { RegisteredWorkflow } from './registry.js';
@@ -76,6 +77,14 @@ const stepScope = new AsyncLocalStorage<string>();
 
 /** The uuid v5 namespace of `ctx.uuid()`; changing it changes every id a replay derives. */
 export const WORKFLOW_NAMESPACE = '6f1c2a7e-3b9d-4e84-9a0c-2d4e8b7f1a63';
+
+function waitMeta(name: string, opts: WaitForEventOptions, startedAt: number): StepMeta {
+  return {
+    timeoutAt: opts.timeout === undefined ? null : startedAt + parseDuration(opts.timeout, `waitForEvent('${name}') timeout`),
+    ...(opts.permission !== undefined ? { permission: opts.permission } : {}),
+    ...(opts.resource !== undefined ? { resource: opts.resource } : {}),
+  };
+}
 
 /** Parallel operations parked at once: the instance wakes for whichever is due first and replays the others. */
 function earlierPark(a: Park, b: Park): Park {
@@ -165,8 +174,8 @@ export class ActivationContext implements WorkflowContext {
     );
   }
 
-  public waitForEvent<T = unknown>(_name: string, _opts?: WaitForEventOptions): Promise<WorkflowEvent<T> | undefined> {
-    return Promise.reject(new NotSupported('ctx.waitForEvent()'));
+  public waitForEvent<T = unknown>(name: string, opts: WaitForEventOptions = {}): Promise<WorkflowEvent<T> | undefined> {
+    return this.begin('wait', name, (op) => this.runWait<T>(op, opts));
   }
 
   public emit(_name: string, _message: QueueEvent | QueueJob): Promise<void> {
@@ -456,9 +465,45 @@ export class ActivationContext implements WorkflowContext {
     );
   }
 
+  /** The first run records the timeout and permission; replays honour the recorded ones, whatever `opts` say now. */
+  protected async runWait<T>(op: Op, opts: WaitForEventOptions): Promise<WorkflowEvent<T> | undefined> {
+    const { journal, clock } = this.init;
+    const rec = journal.get(op.key);
+    if (rec?.Status === 'succeeded') {
+      await this.released(op);
+      return (journal.value(op.key) ?? undefined) as WorkflowEvent<T> | undefined;
+    }
+    const startedAt = clock.now();
+    const meta = rec?.Meta ?? waitMeta(op.name, opts, startedAt);
+    if (!rec) {
+      await this.record(op, { status: 'pending', attempt: 1, startedAt, meta });
+      await this.fault('workflow.after-journal', op.key);
+    }
+    const event = await this.consume<T>(op, startedAt);
+    const timeoutAt = meta.timeoutAt ?? null;
+    if (event === undefined && timeoutAt !== null && clock.now() >= timeoutAt) await this.record(op, { status: 'succeeded', attempt: 1, startedAt, finished: true });
+    else if (event === undefined) {
+      this.interrupt({ kind: 'park', park: { status: 'waiting', wakeAt: timeoutAt, waitingFor: op.name } });
+      throw new WorkflowSuspended() as unknown;
+    }
+    await this.gate.live(op.order);
+    return event;
+  }
+
+  /** Oldest pending event first; the conditional consume under the fence lets only one activation take an event. */
+  protected async consume<T>(op: Op, startedAt: number): Promise<WorkflowEvent<T> | undefined> {
+    const pending = await WorkflowEventModel.where({ InstanceId: this.instanceId, Name: op.name, State: 'pending' }).onPrimary().orderBy('Id');
+    for (const e of pending) {
+      const event: WorkflowEvent<T> = { name: e.Name, payload: e.Payload as T, receivedAt: Number(e.ReceivedAt), ...(e.Principal ? { principal: e.Principal } : {}) };
+      const take = async (): Promise<boolean> => (await WorkflowEventModel.update({ State: 'consumed', ConsumedByKey: op.key }).where({ Id: e.Id, State: 'pending' })).RowsAffected === 1;
+      if (await this.record(op, { status: 'succeeded', attempt: 1, startedAt, result: { value: event }, finished: true }, take)) return event;
+    }
+    return undefined;
+  }
+
   /** A blocking operation's journal row, queued behind earlier writes; a failed write is not the operation's failure. */
-  protected record(op: Op, s: Save): Promise<StepRow> {
-    return this.enqueueWrite(() => this.saveStep(op, s)).catch((err: unknown) => {
+  protected record(op: Op, s: Save, claim?: () => Promise<boolean>): Promise<StepRow | null> {
+    return this.enqueueWrite(() => this.saveStep(op, s, claim)).catch((err: unknown) => {
       throw this.journalWriteFailed(err);
     });
   }
@@ -496,7 +541,8 @@ export class ActivationContext implements WorkflowContext {
     }
   }
 
-  protected async saveStep(op: Op, s: Save): Promise<StepRow> {
+  /** `claim` runs under the fence before the row: when it returns false nothing is journaled and null comes back. */
+  protected async saveStep(op: Op, s: Save, claim?: () => Promise<boolean>): Promise<StepRow | null> {
     if (this.crashed) throw new WorkflowAborted('crashed');
     if (this.journalFailed) throw new WorkflowAborted('journal-failed');
     await this.fault('workflow.before-journal', op.key);
@@ -506,14 +552,15 @@ export class ActivationContext implements WorkflowContext {
     const kept = s.meta === undefined ? journal.get(op.key)?.Meta : s.meta;
     const row = await this.guarded(() => {
       const now = clock.now();
-      return store.fenced(this.instanceId, epoch, now, () => {
+      return store.fenced(this.instanceId, epoch, now, async () => {
+        if (claim && !(await claim())) return null;
         // Taken under the row lock the fence UPDATE holds until commit, so the order is the commit order.
         const meta: StepMeta = { ...kept, after: op.after, ...(final ? { order: journal.nextOrder() } : {}) };
         op.order = meta.order;
         return store.saveStep(journal.get(op.key), this.stepWrite(op, { ...s, meta }, now));
       });
     });
-    journal.record(row);
+    if (row) journal.record(row);
     return row;
   }
 }
