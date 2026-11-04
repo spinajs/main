@@ -10,7 +10,7 @@ const PAGE_NAMES: Record<RoutePagination['kind'], string[]> = { offset: ['page']
 const SIZE_NAMES = ['pageSize', 'perPage', 'limit'];
 
 /** A route argument with its type as the class that serves the route sees it. */
-export interface TypedParam {
+interface TypedParam {
   entry: ParamEntry;
   type: ts.Type;
 }
