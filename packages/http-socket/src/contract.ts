@@ -6,7 +6,7 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import type { LineageClass } from '@spinajs/http';
 import { SocketException } from '@spinajs/http-socket-common';
-import { manifestSchemaKey, manifestValidatorOf, prepareManifestSchemas, sanitizeError, schemaOfClass, type IValidationError } from '@spinajs/validation';
+import { addSafeKeywords, dropNonFiniteDuplicates, manifestSchemaKey, manifestValidatorOf, nonFiniteErrors, prepareManifestSchemas, sanitizeError, schemaOfClass, type IValidationError } from '@spinajs/validation';
 import { authoritativeSchema, checkSocketContract, inheritSocketHandlers, loadRuntimeManifest, ownEntries, resolveTypeRef, type Manifest, type ManifestMode, type SocketContractEntry, type SocketControllerEntry, type TypeRef } from '@spinajs/manifest';
 import { FromDiArg, PayloadArg } from './args.js';
 import type { IRegisteredHandler, ISocketControllerDescriptor, ISocketHandlerDescriptor, ISocketParameter } from './interfaces.js';
@@ -45,6 +45,7 @@ function contractAjvOf(manifest: Manifest): IContractAjv {
   if (!instance) {
     const ajv = new Ajv({ strict: false, strictSchema: true, allErrors: true, $data: true, verbose: true });
     (addFormats as unknown as (instance: Ajv) => void)(ajv);
+    addSafeKeywords(ajv);
     ajv.addKeyword('$configurationModule');
     const refused = new Set<string>();
     for (const schema of prepareManifestSchemas(manifest)) {
@@ -56,7 +57,7 @@ function contractAjvOf(manifest: Manifest): IContractAjv {
   return instance;
 }
 
-function describeError(e: ErrorObject) {
+function describeError(e: ErrorObject | IValidationError) {
   const { instancePath, keyword, message } = sanitizeError(e as IValidationError);
   return { path: instancePath, keyword, message: message ?? 'invalid' };
 }
@@ -112,8 +113,8 @@ function validatorOf(manifest: Manifest, ref: TypeRef): Validator | undefined {
   }
 
   return (payload) => {
-    if (!validate(payload)) {
-      const errors = validate.errors ?? [];
+    const errors = validate(payload) ? nonFiniteErrors(payload, true) : dropNonFiniteDuplicates((validate.errors ?? []) as IValidationError[]);
+    if (errors.length > 0) {
       throw new SocketException('invalid_argument', 'payload does not match the socket contract', { details: { errors: errors.slice(0, MAX_REPORTED_ERRORS).map(describeError), total: errors.length } });
     }
   };

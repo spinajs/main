@@ -241,6 +241,25 @@ describe('socket contract enforcement', function () {
       client.close();
     });
 
+    it('refuses a payload whose object has its own valueOf or toString with invalid_argument, not an internal error', async () => {
+      const greet = SCHEMAS['spinajs/app/Greet'];
+      const traps = { ...greet, properties: { ...greet.properties, tags: { type: 'array', uniqueItems: true }, meta: { const: { a: 1 } }, kind: { enum: [{ a: 1 }, 'plain'] } } };
+      writeManifest(manifestOf({ schemas: { ...SCHEMAS, 'spinajs/app/Greet': traps } }));
+      const client = await open(await start('require'));
+      for (const [payload, expected] of [
+        [{ name: 'ada', tags: [{ valueOf: 1 }, { valueOf: 1 }] }, 'uniqueItems@/tags'],
+        [{ name: 'ada', meta: { toString: false } }, 'const@/meta'],
+        [{ name: 'ada', kind: { valueOf: 1 } }, 'enum@/kind'],
+      ] as const) {
+        const error = errorOf(await command(client, 'ctr.say', payload));
+        expect(error.code, JSON.stringify(payload)).to.equal('invalid_argument');
+        expect((error.details as { errors: Array<{ keyword: string; path: string }> }).errors.map((e) => `${e.keyword}@${e.path}`)).to.deep.equal([expected]);
+      }
+      expect(resultOf(await command(client, 'ctr.say', { name: 'ada', tags: [{ a: 1 }, { valueOf: 1 }], meta: { a: 1 }, kind: 'plain' }))).to.deep.equal({ hello: 'ada' });
+      expect(seen).to.have.length(1);
+      client.close();
+    });
+
     it('does not coerce types', async () => {
       const client = await open(await start('require'));
       expect(errorOf(await command(client, 'ctr.say', { name: 'ada', age: '36' })).code).to.equal('invalid_argument');
