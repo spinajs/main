@@ -9,6 +9,8 @@ import { bootTestEnv, disposeTestEnv } from './support/env.js';
 import { TestCrash, TestFaults } from './support/faults.js';
 import { eventsOf, instance, pick, rejects, seedEvent, seedInstance, seedStep, stepsOf, T0, takeOver } from './support/rows.js';
 
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 describe('ActivationContext: steps and replay', () => {
   beforeEach(async () => {
     TestFaults.reset();
@@ -98,7 +100,7 @@ describe('ActivationContext: steps and replay', () => {
   });
 
   it('concurrent branches replay in call order without a false non-determinism', async () => {
-    const branch = (ctx: ActivationContext, first: string, second: string, ms: number) => ctx.step(first, () => new Promise((resolve) => setTimeout(resolve, ms))).then(() => ctx.step(second, () => second));
+    const branch = (ctx: ActivationContext, first: string, second: string, ms: number) => ctx.step(first, () => pause(ms)).then(() => ctx.step(second, () => second));
     const first = await activation('c1');
     await Promise.all([branch(first.ctx, 'a', 'c', 50), branch(first.ctx, 'b', 'd', 0)]);
     await first.release();
@@ -109,8 +111,18 @@ describe('ActivationContext: steps and replay', () => {
     await replay.release();
   });
 
-  it('same-name branches whose occurrences would swap on replay are non-deterministic', async () => {
-    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  it('same-name branches keep their own results on replay, whatever their timing', async () => {
+    const branch = (ctx: ActivationContext, id: string, ms: number) => ctx.step('fetch', () => pause(ms).then(() => id)).then(() => ctx.step('save', () => `saved ${id}`));
+    const run = (ctx: ActivationContext) => Promise.all([branch(ctx, 'x', 50), branch(ctx, 'y', 0)]);
+    const first = await activation('c1');
+    expect(await run(first.ctx)).to.deep.equal(['saved x', 'saved y']);
+    await first.release();
+    const replay = await activation('c1');
+    expect(await run(replay.ctx)).to.deep.equal(['saved x', 'saved y']);
+    await replay.release();
+  });
+
+  it('same-name branches of different lengths replay in their original interleaving', async () => {
     const run = (ctx: ActivationContext) =>
       Promise.all([
         ctx.step('a', () => pause(50)).then(() => ctx.step('save', () => 'a')),
@@ -123,7 +135,18 @@ describe('ActivationContext: steps and replay', () => {
     expect(await run(first.ctx)).to.deep.equal(['a', 'b']);
     await first.release();
     const replay = await activation('c1');
-    expect((await rejects(run(replay.ctx))).message).to.equal("the journal recorded 'step:save#1' at position 4, this run asked for it at 3");
+    expect([await run(replay.ctx), replay.journal.unvisited()]).to.deep.equal([['a', 'b'], []]);
+    await replay.release();
+  });
+
+  it('a recorded result the code no longer asks for fails the replay with NonDeterminismError instead of hanging', async () => {
+    const first = await activation('c1');
+    await first.ctx.step('a', () => 1);
+    await first.ctx.step('b', () => 2);
+    await first.release();
+    const replay = await activation('c1');
+    const err = await rejects(replay.ctx.step('b', () => 2));
+    expect([err.message, replay.ctx.interruption?.kind]).to.deep.equal(["the journal delivered 'step:a#1' before 'step:b#1', this run never asked for it", 'nondeterminism']);
     await replay.release();
   });
 

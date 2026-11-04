@@ -44,10 +44,12 @@ export class Journal {
   protected readonly values: Map<string, unknown>;
   protected readonly visited = new Set<string>();
   protected readonly occurrences = new Map<string, number>();
+  protected lastOrder = 0;
 
   constructor(rows: StepRow[]) {
     for (const r of rows) {
       this.index(r);
+      this.lastOrder = Math.max(this.lastOrder, r.Meta?.order ?? 0);
       if (r.Kind !== 'compensate') this.occurrences.set(baseOf(r.Key), (this.occurrences.get(baseOf(r.Key)) ?? 0) + 1);
     }
     // resultStored is true for every row: a step with persistResult false replays as undefined, it never runs again
@@ -79,6 +81,10 @@ export class Journal {
   /** Recorded operations this run has not asked for: left over at the end of `run()`, the code changed. */
   public unvisited(): string[] {
     return this.rows().flatMap((r) => (r.Kind === 'compensate' || this.visited.has(r.Key) ? [] : [r.Key]));
+  }
+
+  public nextOrder(): number {
+    return ++this.lastOrder;
   }
 
   public get(key: string): StepRow | undefined {

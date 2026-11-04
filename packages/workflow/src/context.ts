@@ -5,6 +5,7 @@ import type { Log } from '@spinajs/log-common';
 import type { QueueEvent, QueueJob } from '@spinajs/queue';
 import type { SerializedError, StepKind, StepMeta, StepStatus, WaitForEventOptions, WorkflowContext, WorkflowEvent, WorkflowStepOptions } from './contract.js';
 import { isCrash, LeaseLostError, NonDeterminismError, serializeError, WorkflowAborted, WorkflowFailure, WorkflowNestingError, WorkflowStepFailed, WorkflowStepResultTooLarge, WorkflowSuspended, type AbortReason } from './errors.js';
+import { ReplayGate } from './gate.js';
 import { identifierProblem } from './identifier.js';
 import type { Journal, StepRow } from './journal.js';
 import { safeStringify } from './json.js';
@@ -89,6 +90,9 @@ export class ActivationContext implements WorkflowContext {
   protected seq = 0;
   protected occurrences = new Map<string, number>();
   protected inflight = new Set<Promise<unknown>>();
+  /** Operations that execute in this activation, as opposed to recorded ones the gate holds back. */
+  protected liveOps = new Set<Promise<unknown>>();
+  protected readonly gate: ReplayGate;
   /** Journal writes of non-transactional operations, in call order: a marker never commits after a later step. */
   protected writes: Promise<unknown> = Promise.resolve();
 
@@ -99,6 +103,7 @@ export class ActivationContext implements WorkflowContext {
     this.version = i.Version;
     this.input = i.Input ?? null;
     this.signal = init.signal;
+    this.gate = new ReplayGate(init.journal.rows(), () => [...this.liveOps]);
     this.log = init.log.child('WORKFLOW', { instanceId: i.Id, workflow: i.Workflow, version: i.Version });
   }
 
@@ -243,10 +248,35 @@ export class ActivationContext implements WorkflowContext {
   }
 
   protected async runStep<T>(op: Op, fn: StepFn<T>, opts: WorkflowStepOptions<T>): Promise<T> {
-    const { journal, clock } = this.init;
+    const { journal } = this.init;
     const rec = journal.get(op.key);
-    if (rec?.Status === 'succeeded') return journal.value(op.key) as T;
-    if (rec?.Status === 'failed') throw new WorkflowStepFailed(op.name, rec.Error ?? { name: 'Error', message: 'step failed' });
+    if (rec?.Status === 'succeeded' || rec?.Status === 'failed') {
+      await this.released(op);
+      if (rec.Status === 'succeeded') return journal.value(op.key) as T;
+      throw new WorkflowStepFailed(op.name, rec.Error ?? { name: 'Error', message: 'step failed' });
+    }
+    const live = this.runLive(op, fn, opts, rec);
+    this.liveOps.add(live);
+    const untrack = (): void => {
+      this.liveOps.delete(live);
+    };
+    void live.then(untrack, untrack);
+    return live;
+  }
+
+  /** Waits for the gate; a divergence it detects is non-determinism unless the activation already ended. */
+  protected async released(op: Op): Promise<void> {
+    try {
+      await this.gate.wait(op.key);
+    } catch (err) {
+      if (this.crashed || this.journalFailed || this.signal.aborted) throw new WorkflowAborted(this.abortReason());
+      this.interrupt({ kind: 'nondeterminism', error: err as NonDeterminismError });
+      throw err;
+    }
+  }
+
+  protected async runLive<T>(op: Op, fn: StepFn<T>, opts: WorkflowStepOptions<T>, rec: StepRow | undefined): Promise<T> {
+    const { clock } = this.init;
     const attempt = (rec?.Attempt ?? 0) + 1;
     const startedAt = clock.now();
     let value: T;
@@ -343,9 +373,11 @@ export class ActivationContext implements WorkflowContext {
     if (this.journalFailed) throw new WorkflowAborted('journal-failed');
     await this.fault('workflow.before-journal', op.key);
     const { store, journal, clock, epoch } = this.init;
+    // Writes are queued in completion order, so this is the order the results reach run()
+    const save = s.status === 'succeeded' || s.status === 'failed' ? { ...s, meta: { ...s.meta, order: journal.nextOrder() } } : s;
     const row = await this.guarded(() => {
       const now = clock.now();
-      return store.fenced(this.instanceId, epoch, now, () => store.saveStep(journal.get(op.key), this.stepWrite(op, s, now)));
+      return store.fenced(this.instanceId, epoch, now, () => store.saveStep(journal.get(op.key), this.stepWrite(op, save, now)));
     });
     journal.record(row);
     return row;
