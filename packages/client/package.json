@@ -85,6 +85,8 @@
     "@spinajs/http-socket-common": "3.0.23",
     "@spinajs/intl": "3.0.23",
     "@spinajs/testing": "3.0.23",
+    "@tanstack/react-query": "5.104.5",
+    "@tanstack/react-query-5.0": "npm:@tanstack/react-query@5.0.0",
     "@types/react": "^19.3.0",
     "@types/react-18": "npm:@types/react@^18.3.31",
     "chai-as-promised": "^7.1.1",
