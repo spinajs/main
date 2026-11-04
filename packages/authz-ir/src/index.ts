@@ -2,3 +2,8 @@ export * from './ir.js';
 export * from './canonical.js';
 export * from './schema.js';
 export * from './validate.js';
+export * from './eval/explain.js';
+export * from './eval/caveats.js';
+export * from './eval/check.js';
+export * from './eval/evaluator.js';
+export * from './testing/memory-tuples.js';
