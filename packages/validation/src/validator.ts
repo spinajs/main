@@ -6,6 +6,7 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { SCHEMA_SYMBOL } from './decorators.js';
 import { IValidationOptions, SchemaSource, ISchemaObject } from './types.js';
 import { Logger, Log } from '@spinajs/log-common';
+import { addSafeKeywords } from './keywords.js';
 
 // import default souces
 import './sources.js';
@@ -148,6 +149,8 @@ export class DataValidator extends AsyncService {
 
     // add keywords
     resolveDefault(ajvKeywords)(ajv);
+
+    addSafeKeywords(ajv);
     /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call */
 
     return ajv;
@@ -277,7 +280,14 @@ export class DataValidator extends AsyncService {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private sanitizedErrors(schema?: object, ajv: any = this.Validator): IValidationError[] {
-    return ((ajv.errors as IValidationError[]) ?? []).map((error) => sanitizeError(error, schema));
+    // A non-finite number that was not coerced fails both Ajv's type check and the finite one in keywords.ts.
+    const seen = new Set<string>();
+    return ((ajv.errors as IValidationError[]) ?? [])
+      .filter((error) => {
+        const key = JSON.stringify([error.keyword, error.instancePath, error.schemaPath]);
+        return seen.has(key) ? false : (seen.add(key), true);
+      })
+      .map((error) => sanitizeError(error, schema));
   }
 
   /**
