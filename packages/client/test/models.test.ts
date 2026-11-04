@@ -10,8 +10,8 @@ import { buildClientModel, generateClient, generateClientFiles, type GenerateCli
 import { dateCodec, fromClass, type ModelEntry } from '../src/runtime/index.js';
 import { planModels, type PlanNode } from '../src/generate/models/plans.js';
 import { appBasicManifest } from './support/fixture.js';
-import { modelsManifest } from './support/models-fixture.js';
-import { typecheck } from './support/typecheck.js';
+import { modelsManifest, SHADOWED, shadowingManifest } from './support/models-fixture.js';
+import { typecheck, typecheckProgram } from './support/typecheck.js';
 
 const snapshot = (name: string) => fileURLToPath(new URL(`./__snapshots__/${name}`, import.meta.url));
 const runtimeUrl = pathToFileURL(fileURLToPath(new URL('../lib/runtime/index.js', import.meta.url))).href;
@@ -29,11 +29,11 @@ function matchSnapshot(name: string, output: string): void {
 }
 
 const consumerHeader = [
-  `import { dateCodec, fromClass, type Codec } from '@spinajs/client/runtime';`,
+  `import { dateCodec, fromClass, type Codec, type ModelEntry } from '@spinajs/client/runtime';`,
   `export type Eq<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;`,
   `export type Reply<C, K extends keyof C> = C[K] extends (...args: never[]) => Promise<infer R> ? R : never;`,
   `export class User { id = 0; email = ''; name?: string; get label(): string { return this.email; } }`,
-  `export { dateCodec, fromClass, type Codec };`,
+  `export { dateCodec, fromClass, type Codec, type ModelEntry };`,
 ].join('\n');
 
 /** The generated client followed by app code; returns the diagnostics. */
@@ -70,12 +70,19 @@ function server(reply: unknown) {
 type Schema = Record<string, unknown>;
 const isSchema = (value: unknown): value is Schema => typeof value === 'object' && value !== null && !Array.isArray(value);
 
+/** The properties a schema declares, through `allOf` members and the `$ref`s they hold. */
+function declaredProperties(manifest: Manifest, schema: unknown): [string, unknown][] {
+  if (!isSchema(schema)) return [];
+  if (typeof schema.$ref === 'string') return declaredProperties(manifest, manifest.schemas[schema.$ref]);
+  if (Array.isArray(schema.allOf)) return (schema.allOf as unknown[]).flatMap((m) => declaredProperties(manifest, m));
+  return isSchema(schema.properties) ? Object.entries(schema.properties) : [];
+}
+
 /** Checks that every object plan under `plan` lists exactly the properties its schema declares. */
 function expectDeclaredProps(manifest: Manifest, schema: unknown, plan: PlanNode | null, where: string): void {
   if (!plan || !isSchema(schema)) return;
   if (plan.kind === 'object') {
-    const members = Array.isArray(schema.allOf) ? (schema.allOf as unknown[]).map((m) => (isSchema(m) && typeof m.$ref === 'string' ? manifest.schemas[m.$ref] : m)) : [schema];
-    const declared = members.flatMap((m) => (isSchema(m) && isSchema(m.properties) ? Object.entries(m.properties) : []));
+    const declared = declaredProperties(manifest, schema);
     expect(plan.props.map(([name]) => name), where).to.deep.equal(declared.map(([name]) => name));
     for (const [name, prop] of declared) expectDeclaredProps(manifest, prop, plan.props.find(([key]) => key === name)?.[1] ?? null, `${where}.${name}`);
   } else if (plan.kind === 'array') expectDeclaredProps(manifest, schema.items, plan.items, `${where}[]`);
@@ -163,8 +170,13 @@ describe('generateClientFiles with models', () => {
       expect(richClient).to.include("Audit: { kind: 'object', closed: true, props: { at: { kind: 'format', format: 'date-time' }, by: null } } satisfies ObjectPlanOf<Audit>,");
     });
 
+    it('close an intersection whose member is a closed intersection, as the server does', () => {
+      const { dtos } = planModels(buildClientModel(rich, { includeSocket: false }));
+      expect(dtos.get('Outer')?.plan).to.deep.include({ kind: 'object', closed: true });
+    });
+
     it('check nested object plans against their TypeScript type', () => {
-      expect(richClient).to.include('satisfies ObjectPlanOf<NonNullable<EventDto[\'meta\']>>');
+      expect(richClient).to.include("satisfies ObjectPlanOf<$Defined<EventDto['meta']>>");
     });
 
     it('send a tuple and a ref to a schema without a plan as they are', () => {
@@ -175,7 +187,7 @@ describe('generateClientFiles with models', () => {
     it('plan only the routes that convert something', () => {
       expect(basicClient.slice(basicClient.indexOf('const routePlans'))).to.not.match(/health: \{/);
       expect(richClient).to.include("since: { reply: { kind: 'array', items: { kind: 'ref', name: 'EventDto' } }, args: [{ kind: 'format', format: 'date-time' }] },");
-      expect(richClient).to.include("stamp: { reply: { kind: 'object', closed: true, props: { when: { kind: 'format', format: 'date-time' }, label: null } } satisfies ObjectPlanOf<NonNullable<Awaited<ReturnType<AppClient['events']['stamp']>>>>, args: [] },");
+      expect(richClient).to.include("stamp: { reply: { kind: 'object', closed: true, props: { when: { kind: 'format', format: 'date-time' }, label: null } } satisfies ObjectPlanOf<$Defined<$ReplyOf<AppClient['events']['stamp']>>>, args: [] },");
     });
   });
 
@@ -245,8 +257,19 @@ describe('generateClientFiles with models', () => {
         `const api = createAppClient(options);`,
         `export const a: Eq<Reply<typeof api.events, 'get'>['at'], Date> = true;`,
         `const plain: { baseUrl: string } = { baseUrl: '' };`,
-        `export const b: Eq<typeof plain extends Parameters<typeof createAppClient>[0] ? true : false, true> = true;`,
+        `const viaPlain = createAppClient(plain);`,
+        `export const b: Eq<typeof viaPlain, AppClient> = true;`,
         `export const c: Eq<ReturnType<typeof createAppClient<{}, {}>>, AppModelClient> = true;`,
+      );
+      expect(diagnostics).to.deep.equal([]);
+    });
+
+    it('keep the null of a nullable DTO through a registered model', () => {
+      const diagnostics = consume(
+        richClient,
+        `class Stamped { at = new Date(); }`,
+        `const api = createAppClient({ baseUrl: '', formats: { 'date-time': dateCodec }, models: { MaybeStamp: fromClass(Stamped) } });`,
+        `export const a: Eq<Reply<typeof api.events, 'maybe'>, Stamped | null> = true;`,
       );
       expect(diagnostics).to.deep.equal([]);
     });
@@ -323,6 +346,8 @@ describe('generateClientFiles with models', () => {
       expect(requests[0].url).to.equal('http://h/events/since?from=2026-05-01T08%3A00%3A00.000Z');
       await api.events.save({ id: 1, at: new Date('2026-05-01T08:00:00.000Z'), meta: { seenAt: new Date('2026-05-02T08:00:00.000Z'), cache: 1 }, local: true });
       expect(requests[1].body).to.deep.equal({ id: 1, at: '2026-05-01T08:00:00.000Z', meta: { seenAt: '2026-05-02T08:00:00.000Z' } });
+      await api.events.outer({ at: new Date('2026-05-01T08:00:00.000Z'), by: 'ann', y: 'y', cache: 1 });
+      expect(requests[2].body).to.deep.equal({ at: '2026-05-01T08:00:00.000Z', by: 'ann', y: 'y' });
     });
   });
 
@@ -336,21 +361,43 @@ describe('generateClientFiles with models', () => {
     );
   });
 
-  it('type-checks a client of 200 DTOs within the recorded budget', async function () {
-    // Measured 2.2-2.9 s (the same client without models: 1.9-2.4 s); the budget leaves room for a loaded CI machine.
-    const budgetMs = 15_000;
-    this.timeout(budgetMs * 4);
+  it('type-checks a client of 200 DTOs within the recorded instantiation budget', async function () {
+    this.timeout(180_000);
+    // TypeScript 5.9 counts 64,312 here; the budget fails a model-type change that makes the check about 1.5x as costly.
+    const budget = 100_000;
     const manifest = manyDtos(basic, 200);
     const source = await client({ manifest, includeSocket: false });
-    const started = Date.now();
-    const diagnostics = consume(
-      source,
-      `const api = createAppClient({ baseUrl: '', formats: { 'date-time': dateCodec }, models: { Dto0: fromClass(User), Dto199: fromClass(User) } });`,
-      `export const a: Eq<NonNullable<Reply<typeof api.many, 'get100'>['prev']>['at'], Date> = true;`,
+    const { diagnostics, instantiations } = typecheckProgram(
+      [
+        source,
+        consumerHeader,
+        `type AppFormats = FormatTypes<{ 'date-time': typeof dateCodec }>;`,
+        `type AppModels = { Dto5: ModelEntry<User>; Dto199: ModelEntry<User> };`,
+        `const api = createAppClient({ baseUrl: '', formats: { 'date-time': dateCodec }, models: { Dto5: fromClass(User), Dto199: fromClass(User) } });`,
+        `export function use(c: AppModelClient<AppFormats, AppModels>): AppModelClient<AppFormats, AppModels> { return c; }`,
+        `export const used = use(api);`,
+        `export const a: Eq<NonNullable<Reply<typeof api.many, 'get100'>['prev']>['at'], Date> = true;`,
+      ].join('\n'),
+      { unused: true },
     );
-    const elapsed = Date.now() - started;
     expect(diagnostics).to.deep.equal([]);
-    expect(elapsed, `tsc took ${elapsed} ms`).to.be.below(budgetMs);
+    expect(instantiations, `${instantiations} instantiations`).to.be.below(budget);
+  });
+
+  describe('names', () => {
+    it('compile with DTOs named like the global types the model code uses', async () => {
+      const generated = await client({ manifest: shadowingManifest(basic), includeSocket: false });
+      expect(typecheck(generated, { unused: true })).to.deep.equal([]);
+      for (const name of SHADOWED) expect(generated).to.include(`export interface ${name}Model<`);
+      expect(generated).to.include('satisfies ObjectPlanOf<$Defined<$ReplyOf<AppClient');
+      expect(generated).to.include('satisfies ObjectPlanOf<$Defined<$ArgOf<AppClient');
+    });
+
+    it('print route types through the sealed client model', () => {
+      const view = buildClientModel(basic).ctx.withTsTypes();
+      expect(() => view.expression({ $ref: 'spinajs/app-basic/ArticlesController_read_id' })).to.throw(/outside the client model/);
+      expect(view.expression({ type: 'array', items: { tsType: "F['date']" } })).to.equal("F['date'][]");
+    });
   });
 });
 

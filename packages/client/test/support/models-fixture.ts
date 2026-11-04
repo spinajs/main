@@ -40,6 +40,8 @@ export const modelSchemas: Record<string, unknown> = {
   [id('EventsController_list_Response')]: { type: 'array', items: ref('EventDto') },
   [id('EventsController_since_from')]: at,
   [id('EventsController_stamp_Response')]: closed({ when: at, label: { type: 'string' } }, ['when', 'label']),
+  [id('MaybeStamp')]: { type: ['object', 'null'], properties: { at }, required: ['at'], additionalProperties: false },
+  [id('Outer')]: { allOf: [ref('Audit'), closed({ y: { type: 'string' } }, ['y'])] },
 };
 
 function param(index: number, name: string, kind: string, wire: ParamEntry['wire'], text: string, schema?: string): ParamEntry {
@@ -60,7 +62,30 @@ const routes: RouteEntry[] = [
   route('shape', 'get', '/events/shape', [], { text: 'Shape', schema: id('Shape') }),
   route('stamp', 'get', '/events/stamp', [], { text: '{ when: Date; label: string; }', schema: id('EventsController_stamp_Response') }),
   route('note', 'get', '/events/note', [], { text: 'Note', schema: id('Note') }),
+  route('maybe', 'get', '/events/maybe', [], { text: 'MaybeStamp', schema: id('MaybeStamp') }),
+  route('outer', 'post', '/events/outer', [param(0, 'body', 'FromBody', { in: 'body', shape: 'whole' }, 'Outer', id('Outer'))], { text: 'void' }),
 ];
+
+// The global types the generated model code could name; a DTO with one of these names must not break it.
+export const SHADOWED = ['Record', 'Required', 'Partial', 'NonNullable', 'Awaited', 'ReturnType', 'Parameters', 'Extract'];
+
+/** app-basic plus DTOs named like global types, an inline reply and an inline argument with nested objects. */
+export function shadowingManifest(base: Manifest): Manifest {
+  const shadow = (name: string) => `spinajs/shadow/${name}`;
+  const schemas: Record<string, unknown> = Object.fromEntries(SHADOWED.map((name) => [shadow(name), closed({ at, inner: closed({ seen: at }, ['seen']) }, ['at'])]));
+  schemas[shadow('ShadowController_inline_Response')] = closed({ when: at, nested: closed({ seen: at }, ['seen']), list: { type: 'array', items: closed({ seen: at }, ['seen']) } }, ['when']);
+  schemas[shadow('ShadowController_send_body')] = closed({ when: at, nested: closed({ seen: at }, ['seen']) }, ['when']);
+  const shadowRoutes = [
+    ...SHADOWED.map((name) => route(`get${name}`, 'get', `/shadow/get${name}`, [], { text: name, schema: shadow(name) })),
+    route('inline', 'get', '/shadow/inline', [], { text: '{ when: Date; }', schema: shadow('ShadowController_inline_Response') }),
+    route('send', 'post', '/shadow/send', [param(0, 'body', 'FromBody', { in: 'body', shape: 'whole' }, '{ when: Date; }', shadow('ShadowController_send_body'))], { text: 'void' }),
+  ];
+  return {
+    ...base,
+    schemas: { ...base.schemas, ...schemas },
+    controllers: [...base.controllers, { id: 'x:ShadowController', className: 'ShadowController', basePath: 'shadow', policies: [], middlewares: [], routes: shadowRoutes, source }],
+  };
+}
 
 /** app-basic plus an `EventsController` whose schemas hold dates, decimals, bigints, unions and intersections. */
 export function modelsManifest(base: Manifest): Manifest {

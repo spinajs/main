@@ -13,7 +13,7 @@ export type PlanNode =
   | { kind: 'ref'; name: string }
   | { kind: 'array'; items: PlanNode }
   | { kind: 'record'; values: PlanNode }
-  | { kind: 'object'; closed: boolean; props: [string, PlanNode | null][]; of?: string }
+  | { kind: 'object'; closed: boolean; props: [string, PlanNode | null][]; of?: TypePath }
   | { kind: 'union'; discriminator?: Discriminator; members: (PlanNode | null)[] };
 
 export interface Discriminator {
@@ -22,6 +22,21 @@ export interface Discriminator {
   absent?: string;
 }
 
+/** Which type parameters a model type uses: an unused one fails `noUnusedParameters` unless it is named `_F`/`_M`. */
+export interface Usage {
+  formats: boolean;
+  models: boolean;
+}
+
+/** The wire TS type of a node: a DTO, a route reply or a route argument, then one index per property, item or value. */
+export interface TypePath {
+  from: 'dto' | 'reply' | 'arg';
+  root: string;
+  steps: string[];
+}
+
+export type PathHelper = 'Defined' | 'ReplyOf' | 'ArgOf';
+
 /**
  * A schema node's plan, and the schema its model type prints from: every converted node is replaced by a `tsType`, so
  * the printed type and the runtime conversion come from one decision.
@@ -29,6 +44,7 @@ export interface Discriminator {
 export interface Planned {
   plan: PlanNode | null;
   type: unknown;
+  uses: Usage;
 }
 
 export interface DtoPlan extends Planned {
@@ -58,7 +74,6 @@ export interface ModelPlans {
 
 const FORMATS = new Set<string>(['date-time', 'date', 'decimal']);
 const MODELABLE = new Set<PlanNode['kind']>(['object', 'record', 'union']);
-const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 const isSchema = (value: unknown): value is Schema => typeof value === 'object' && value !== null && !Array.isArray(value);
 const list = (value: unknown): unknown[] => (Array.isArray(value) ? (value as unknown[]) : []);
@@ -66,11 +81,27 @@ const types = (schema: Schema): unknown[] => (Array.isArray(schema.type) ? (sche
 const isNullType = (value: unknown): boolean => isSchema(value) && value.type === 'null';
 const isPartial = (schema: Schema): boolean => schema['x-explicit'] === 'partial';
 const same = (a: PlanNode | null, b: PlanNode | null): boolean => JSON.stringify(a) === JSON.stringify(b);
-const wire = (schema: unknown): Planned => ({ plan: null, type: schema });
+const NONE: Usage = { formats: false, models: false };
+const BOTH: Usage = { formats: true, models: true };
+const either = (uses: Usage[]): Usage => ({ formats: uses.some((u) => u.formats), models: uses.some((u) => u.models) });
+const wire = (schema: unknown): Planned => ({ plan: null, type: schema, uses: NONE });
 
-// A path is the wire TS type of a node, so nested object plans can be checked with `satisfies ObjectPlanOf<…>`.
-const nonNull = (path: string): string => (IDENTIFIER.test(path) ? path : `NonNullable<${path}>`);
-const child = (path: string | undefined, index: string): string | undefined => path && `${nonNull(path)}[${index}]`;
+// A path lets a nested object plan be checked with `satisfies ObjectPlanOf<…>`.
+const child = (path: TypePath | undefined, step: string): TypePath | undefined => path && { ...path, steps: [...path.steps, step] };
+
+/** The type an object plan is checked against; `$Defined` strips the `null` and `undefined` of optional values. */
+export function pathType(path: TypePath): string {
+  let text = path.root;
+  for (const [i, step] of path.steps.entries()) text = `${i === 0 && path.from === 'dto' ? text : `$Defined<${text}>`}[${step}]`;
+  return path.from === 'dto' && path.steps.length === 0 ? text : `$Defined<${text}>`;
+}
+
+function pathHelpers(path: TypePath): PathHelper[] {
+  const helpers: PathHelper[] = path.from === 'dto' && path.steps.length === 0 ? [] : ['Defined'];
+  if (path.from === 'reply') helpers.push('ReplyOf');
+  if (path.from === 'arg') helpers.push('ArgOf');
+  return helpers;
+}
 
 function formatSlot(schema: Schema): FormatSlot | undefined {
   const all = types(schema);
@@ -109,6 +140,8 @@ export function converts(plan: PlanNode | null): boolean {
   }
 }
 
+type PlanOf<K extends PlanNode['kind']> = Extract<PlanNode, { kind: K }>;
+
 interface Shape {
   properties: Schema;
   required: Set<unknown>;
@@ -119,6 +152,7 @@ interface Part {
   closed: boolean;
   props: [string, PlanNode | null][];
   type: unknown;
+  uses: Usage;
 }
 
 class Planner {
@@ -144,10 +178,10 @@ class Planner {
 
   public method(entry: RouteEntry, route: RouteModel): MethodPlan {
     const base = `AppClient[${literal(route.controllerKey)}][${literal(route.name)}]`;
-    const reply = route.returns === 'void' ? undefined : this.typed(entry.returnType, `Awaited<ReturnType<${base}>>`);
+    const reply = route.returns === 'void' ? undefined : this.typed(entry.returnType, { from: 'reply', root: `$ReplyOf<${base}>`, steps: [] });
     const args = route.args.map((arg, i) => {
       const param = arg.schema === undefined ? undefined : entry.params.find((p) => p.name === arg.name);
-      return param && arg.type === this.ctx.typeOf(param.runtimeType) ? this.typed(param.runtimeType, `Parameters<${base}>[${i}]`) : undefined;
+      return param && arg.type === this.ctx.typeOf(param.runtimeType) ? this.typed(param.runtimeType, { from: 'arg', root: `$ArgOf<${base}, ${i}>`, steps: [] }) : undefined;
     });
     return { route, ...(reply ? { reply: converts(reply.plan) ? reply : { ...reply, plan: null } } : {}), args };
   }
@@ -156,21 +190,21 @@ class Planner {
     const table = new Map<string, DtoPlan>();
     for (const id of ids) {
       const name = this.ctx.nameOf(id);
-      const { plan, type } = this.node(this.ctx.schemaOf(id), name, true);
-      if (plan) table.set(name, { id, plan, type });
+      const { plan, type, uses } = this.node(this.ctx.schemaOf(id), { from: 'dto', root: name, steps: [] }, true);
+      if (plan) table.set(name, { id, plan, type, uses });
     }
     return table;
   }
 
   // Mirrors `TypeContext.typeOf`: a schema named like the TS type is referenced, any other is inlined.
-  private typed(ref: TypeRef, path: string): Planned | undefined {
+  private typed(ref: TypeRef, path: TypePath): Planned | undefined {
     const schema = ref.schema !== undefined ? this.ctx.schemaOf(ref.schema) : undefined;
     if (ref.schema === undefined || !schema) return undefined;
     return this.node(lastSegment(ref.schema) === ref.text ? { $ref: ref.schema } : schema, path);
   }
 
   /** `named`: a DTO's own schema, which gets an object plan even when nothing converts, so a model can be registered. */
-  private node(schema: unknown, path: string | undefined, named = false): Planned {
+  private node(schema: unknown, path: TypePath | undefined, named = false): Planned {
     if (!isSchema(schema)) return wire(schema);
     if (typeof schema.$ref === 'string') return this.ref(schema.$ref, schema);
     if ('const' in schema || Array.isArray(schema.enum)) return wire(schema);
@@ -187,27 +221,29 @@ class Planner {
     const name = this.ctx.nameOf(id);
     if (!this.ctx.schemaOf(id) || !this.available.has(name)) return wire(schema);
     const model = `${name}Model<F, M>`;
-    return { plan: { kind: 'ref', name }, type: { tsType: this.modelable.has(name) ? `ModelOf<M, ${literal(name)}, ${model}>` : model } };
+    return { plan: { kind: 'ref', name }, type: { tsType: this.modelable.has(name) ? `ModelOf<M, ${literal(name)}, ${model}>` : model }, uses: BOTH };
   }
 
   private format(slot: FormatSlot, schema: Schema): Planned {
     const slotType = { tsType: `F[${literal(slot)}]` };
-    return { plan: { kind: 'format', format: slot }, type: types(schema).includes('null') ? { anyOf: [slotType, { type: 'null' }] } : slotType };
+    const type = types(schema).includes('null') ? { anyOf: [slotType, { type: 'null' }] } : slotType;
+    return { plan: { kind: 'format', format: slot }, type, uses: { formats: true, models: false } };
   }
 
   // A `null` member passes through the walker as a value, so only the other members decide the plan.
-  private union(schema: Schema, key: 'anyOf' | 'oneOf', path: string | undefined): Planned {
+  private union(schema: Schema, key: 'anyOf' | 'oneOf', path: TypePath | undefined): Planned {
     const members = list(schema[key]);
     const others = members.filter((m) => !isNullType(m));
     const planned = others.map((m) => this.node(m, others.length === 1 ? path : undefined));
     const type = { ...schema, [key]: members.map((m) => (isNullType(m) ? m : planned[others.indexOf(m)].type)) };
     const plans = planned.map((p) => p.plan);
+    const uses = either(planned.map((p) => p.uses));
     if (plans.every((p) => !p)) return wire(schema);
-    if (plans.length === 1) return { plan: plans[0], type };
+    if (plans.length === 1) return { plan: plans[0], type, uses };
     const discriminator = this.declaredDiscriminator(schema) ?? this.inferredDiscriminator(others, plans);
-    if (discriminator) return { plan: { kind: 'union', discriminator, members: plans }, type };
+    if (discriminator) return { plan: { kind: 'union', discriminator, members: plans }, type, uses };
     // Without a way to pick the member the runtime converts only where members agree, which the type cannot show.
-    return plans.every((p) => same(p, plans[0])) ? { plan: plans[0], type } : wire(schema);
+    return plans.every((p) => same(p, plans[0])) ? { plan: plans[0], type, uses } : wire(schema);
   }
 
   private declaredDiscriminator(schema: Schema): Discriminator | undefined {
@@ -262,9 +298,10 @@ class Planner {
   }
 
   // The server closes an intersection over the union of its members' properties only when every member is closed.
-  private intersection(schema: Schema, path: string | undefined, named: boolean): Planned {
+  private intersection(schema: Schema, path: TypePath | undefined, named: boolean): Planned {
     const props: [string, PlanNode | null][] = [];
     const memberTypes: unknown[] = [];
+    const uses: Usage[] = [];
     let closed = true;
     for (const member of list(schema.allOf)) {
       const part = this.part(member, path);
@@ -276,17 +313,18 @@ class Planner {
         if (!earlier) props.push([name, plan]);
       }
       memberTypes.push(part.type);
+      uses.push(part.uses);
     }
     if (!named && !closed && !props.some(([, p]) => p)) return wire(schema);
-    return { plan: { kind: 'object', closed, props, ...(path ? { of: nonNull(path) } : {}) }, type: { ...schema, allOf: memberTypes } };
+    return { plan: { kind: 'object', closed, props, ...(path ? { of: path } : {}) }, type: { ...schema, allOf: memberTypes }, uses: either(uses) };
   }
 
-  private part(member: unknown, path: string | undefined): Part | undefined {
+  private part(member: unknown, path: TypePath | undefined): Part | undefined {
     if (!isSchema(member)) return undefined;
     if (typeof member.$ref !== 'string') {
       const planned = this.node(member, path, true);
-      if (!planned.plan) return Object.keys(member).length === 0 ? { closed: false, props: [], type: member } : undefined;
-      return planned.plan.kind === 'object' ? { closed: this.closedObject(member), props: planned.plan.props, type: planned.type } : undefined;
+      if (!planned.plan) return Object.keys(member).length === 0 ? { closed: false, props: [], type: member, uses: NONE } : undefined;
+      return planned.plan.kind === 'object' ? { closed: this.closedPart(member, planned.plan), props: planned.plan.props, type: planned.type, uses: planned.uses } : undefined;
     }
     const id = member.$ref;
     const target = this.ctx.schemaOf(id);
@@ -297,26 +335,29 @@ class Planner {
     if (planned.plan?.kind !== 'object') return undefined;
     const name = this.ctx.nameOf(id);
     // The members of an intersection convert inline: a model registered for one of them does not run.
-    return { closed: this.closedObject(target), props: planned.plan.props, type: this.available.has(name) ? { tsType: `${name}Model<F, M>` } : member };
+    const type = this.available.has(name) ? { tsType: `${name}Model<F, M>` } : member;
+    return { closed: this.closedPart(target, planned.plan), props: planned.plan.props, type, uses: this.available.has(name) ? BOTH : planned.uses };
   }
 
-  private closedObject(schema: Schema): boolean {
+  // A member that is itself an intersection is closed as the server prepares it, which its own plan already says.
+  private closedPart(schema: Schema, plan: PlanOf<'object'>): boolean {
+    if (Array.isArray(schema.allOf)) return plan.closed;
     return schema.additionalProperties === false && isSchema(schema.properties) && !isPartial(schema) && !schema.anyOf && !schema.oneOf;
   }
 
   // A tuple has no plan kind, so it converts nothing.
-  private array(schema: Schema, path: string | undefined): Planned {
+  private array(schema: Schema, path: TypePath | undefined): Planned {
     if (!isSchema(schema.items)) return wire(schema);
     const items = this.node(schema.items, child(path, 'number'));
-    return items.plan ? { plan: { kind: 'array', items: items.plan }, type: { ...schema, items: items.type } } : wire(schema);
+    return items.plan ? { plan: { kind: 'array', items: items.plan }, type: { ...schema, items: items.type }, uses: items.uses } : wire(schema);
   }
 
-  private object(schema: Schema, path: string | undefined, named: boolean): Planned {
+  private object(schema: Schema, path: TypePath | undefined, named: boolean): Planned {
     const properties = isSchema(schema.properties) ? schema.properties : undefined;
     const extra = schema.additionalProperties;
     if (!properties && isSchema(extra)) {
       const values = this.node(extra, child(path, 'string'));
-      return values.plan ? { plan: { kind: 'record', values: values.plan }, type: { ...schema, additionalProperties: values.type } } : wire(schema);
+      return values.plan ? { plan: { kind: 'record', values: values.plan }, type: { ...schema, additionalProperties: values.type }, uses: values.uses } : wire(schema);
     }
     const planned = Object.entries(properties ?? {}).map(([name, value]): [string, Planned] => [name, this.node(value, child(path, literal(name)))]);
     const closed = extra === false && !isPartial(schema);
@@ -325,7 +366,8 @@ class Planner {
     const type: Schema = { ...schema, ...(properties ? { properties: Object.fromEntries(planned.map(([name, p]) => [name, p.type])) } : {}) };
     // Typed extra keys stay wire values, and an index signature must admit the converted property types.
     if (convert && isSchema(extra)) type.additionalProperties = true;
-    return { plan: { kind: 'object', closed, props: planned.map(([name, p]) => [name, p.plan]), ...(path ? { of: nonNull(path) } : {}) }, type };
+    const props = planned.map(([name, p]): [string, PlanNode | null] => [name, p.plan]);
+    return { plan: { kind: 'object', closed, props, ...(path ? { of: path } : {}) }, type, uses: either(planned.map(([, p]) => p.uses)) };
   }
 }
 
@@ -336,26 +378,11 @@ export function planModels(model: ClientModel): ModelPlans {
   return { dtos, modelable, controllers };
 }
 
-/** Whether a printed type uses the format slots and the model map: unused type parameters fail `noUnusedParameters`. */
-export function usage(type: unknown): { formats: boolean; models: boolean } {
-  const found = { formats: false, models: false };
-  const visit = (value: unknown): void => {
-    if (Array.isArray(value)) (value as unknown[]).forEach(visit);
-    if (!isSchema(value)) return;
-    if (typeof value.tsType === 'string') {
-      found.models ||= value.tsType.includes('<F, M>');
-      found.formats ||= found.models || value.tsType.startsWith('F[');
-    }
-    Object.values(value).forEach(visit);
-  };
-  visit(type);
-  return found;
-}
 
 // A `__proto__` key in an object literal sets the prototype instead of defining a property.
 const key = (name: string): string => (name === '__proto__' ? `['__proto__']` : propertyKey(name));
 
-function printUnion(plan: Extract<PlanNode, { kind: 'union' }>): string {
+function printUnion(plan: PlanOf<'union'>): string {
   const d = plan.discriminator;
   const mapping = d && (d.mapping.length > 0 ? `{ ${d.mapping.map(([tag, name]) => `${key(tag)}: ${literal(name)}`).join(', ')} }` : '{}');
   const discriminator = d ? `discriminator: { property: ${literal(d.property)}, mapping: ${mapping}${d.absent !== undefined ? `, absent: ${literal(d.absent)}` : ''} }, ` : '';
@@ -375,26 +402,22 @@ export function printPlan(plan: PlanNode | null): string {
       return `{ kind: 'record', values: ${printPlan(plan.values)} }`;
     case 'object': {
       const props = plan.props.map(([name, p]) => `${key(name)}: ${printPlan(p)}`).join(', ');
-      return `{ kind: 'object', closed: ${plan.closed}, props: ${props ? `{ ${props} }` : '{}'} }${plan.of ? ` satisfies ObjectPlanOf<${plan.of}>` : ''}`;
+      return `{ kind: 'object', closed: ${plan.closed}, props: ${props ? `{ ${props} }` : '{}'} }${plan.of ? ` satisfies ObjectPlanOf<${pathType(plan.of)}>` : ''}`;
     }
     case 'union':
       return printUnion(plan);
   }
 }
 
-export function checksShape(plan: PlanNode | null): boolean {
-  if (!plan) return false;
-  switch (plan.kind) {
-    case 'array':
-      return checksShape(plan.items);
-    case 'record':
-      return checksShape(plan.values);
-    case 'object':
-      return plan.of !== undefined || plan.props.some(([, p]) => checksShape(p));
-    case 'union':
-      return plan.members.some(checksShape);
-    default:
-      return false;
+/** Adds the runtime types a printed plan names: `ObjectPlanOf` and the path helpers of its `satisfies` checks. */
+export function planImports(plan: PlanNode | null, into: Set<string>): void {
+  if (!plan) return;
+  if (plan.kind === 'array') planImports(plan.items, into);
+  else if (plan.kind === 'record') planImports(plan.values, into);
+  else if (plan.kind === 'union') plan.members.forEach((m) => planImports(m, into));
+  else if (plan.kind === 'object') {
+    if (plan.of) for (const name of ['ObjectPlanOf', ...pathHelpers(plan.of)]) into.add(name);
+    plan.props.forEach(([, p]) => planImports(p, into));
   }
 }
 
