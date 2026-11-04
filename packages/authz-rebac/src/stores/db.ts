@@ -137,6 +137,7 @@ export class DbTupleStore extends TupleStore {
     const keys = [...new Set(subjects.map(subjectKey))];
     if (keys.length === 0) return [];
     const out = new Map<string, ResourceRef>();
+    // spinajs-orm-ignore ORM102: deliberate batching, one query per IN_CHUNK subject keys
     for (const part of chunks(keys)) {
       const rows = await TupleRecord.query().where({ namespace: objectType, relation }).whereIn('subject_key', part);
       for (const r of rows) out.set(r.object_id, { type: objectType, id: r.object_id });
