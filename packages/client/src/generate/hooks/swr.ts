@@ -32,6 +32,13 @@ const HELPERS = [
   '};',
 ];
 
+// Every import is filtered to what the file uses: an unused one would fail noUnusedLocals.
+function importLine(defaultName: string | false, names: (string | false)[], from: string): string[] {
+  const used = names.filter((n): n is string => n !== false);
+  const parts = [...(defaultName ? [defaultName] : []), ...(used.length > 0 ? [`{ ${used.join(', ')} }`] : [])];
+  return parts.length > 0 ? [`import ${parts.join(', ')} from '${from}';`] : [];
+}
+
 const INFINITE_CONFIG = [
   '',
   '/** SWR infinite options of an infinite hook. Without `parallel`: each page key is computed from the page before it. */',
@@ -93,12 +100,20 @@ function varsParameter(hook: Pick<HookRoute, 'varsType' | 'varsOptional'>): stri
   return hook.varsOptional ? `vars: ${type} = {}` : `vars: ${type}`;
 }
 
+const isVoid = (hook: HookRoute) => hook.route.returns === 'void';
+
+// As in the React Query hooks, an empty reply resolves to `null`, so it is told apart from data not loaded yet.
+const queryData = (hook: HookRoute) => (isVoid(hook) ? 'null' : hook.route.returns);
+
+const NULL_IF_EMPTY = ['', '// The client resolves a 204 reply to undefined, which SWR would show as data not loaded yet.', 'const nullIfEmpty = <T>(data: T): T => data ?? (null as T);'];
+
 function queryHook(hook: HookRoute): string[] {
-  const { returns } = hook.route;
+  const data = queryData(hook);
+  const fetcher = `${hook.callExpression}.then(${isVoid(hook) ? '() => null' : 'nullIfEmpty'})`;
   return [
-    `export function ${hook.hookName}(${varsParameter(hook)}, config?: SWRConfiguration<${returns}, AppClientError>): SWRResponse<${returns}, AppClientError> {`,
+    `export function ${hook.hookName}(${varsParameter(hook)}, config?: SWRConfiguration<${data}, AppClientError>): SWRResponse<${data}, AppClientError> {`,
     '  const client = useAppClient();',
-    `  return useSWR<${returns}, AppClientError>(vars && ${hook.keyExpression}, vars && (() => ${hook.callExpression}), config);`,
+    `  return useSWR<${data}, AppClientError>(vars && ${hook.keyExpression}, vars && (() => ${fetcher}), config);`,
     '}',
   ];
 }
@@ -139,25 +154,40 @@ function mutationHook(hook: HookRoute, withInfinite: boolean): string[] {
   ];
 }
 
+// Nothing from `swr/infinite` without an infinite route; `infiniteKey` only for the mutations that revalidate them.
+function infiniteImports(hooks: HookRoute[], mutations: boolean): string[] {
+  if (!hooks.some((h) => h.infinite)) return [];
+  return importLine('useSWRInfinite', [mutations && 'unstable_serialize as infiniteKey', 'type SWRInfiniteConfiguration', 'type SWRInfiniteResponse'], 'swr/infinite');
+}
+
+function imports(hooks: HookRoute[], base: string): string[] {
+  const queries = hooks.some((h) => h.route.kind === 'query');
+  const mutations = hooks.some((h) => h.route.kind !== 'query');
+  const any = queries || mutations;
+  return [
+    ...importLine(queries && 'useSWR', [mutations && 'unstable_serialize', mutations && 'useSWRConfig', queries && 'type SWRConfiguration', queries && 'type SWRResponse'], 'swr'),
+    ...infiniteImports(hooks, mutations),
+    ...importLine(mutations && 'useSWRMutation', [mutations && 'type SWRMutationConfiguration', mutations && 'type SWRMutationResponse'], 'swr/mutation'),
+    ...importLine(false, [any && 'appKeys', any && 'type AppClientError'], `./${base}.keys.js`),
+    ...importLine(false, [any && 'useAppClient'], `./${base}.react.js`),
+    `import type { ${[...typeNames(hooks), 'manifestHash'].join(', ')} } from './${base}.js';`,
+  ];
+}
+
 /** `client.swr.ts`: a `useSWR` hook per query route and a `useSWRMutation` hook per mutation route. */
 export function emitSwr(model: ClientModel, hooks: HookRoute[], options: SwrOptions = {}): string {
   const base = options.basename ?? 'client';
+  const mutations = hooks.some((h) => h.route.kind !== 'query');
   const infinite = hooks.flatMap((h) => (h.infinite ? [h.infinite] : []));
   const kinds = (['offset', 'cursor'] as const).filter((kind) => infinite.some((i) => i.kind === kind));
-  const mutations = hooks.some((h) => h.route.kind !== 'query');
-  const infiniteImport = [mutations && 'unstable_serialize as infiniteKey', 'type SWRInfiniteConfiguration', 'type SWRInfiniteResponse'].filter((n): n is string => n !== false);
   const lines = [
     companionHeader('swr', model),
-    "import useSWR, { unstable_serialize, useSWRConfig, type SWRConfiguration, type SWRResponse } from 'swr';",
-    ...(infinite.length > 0 ? [`import useSWRInfinite, { ${infiniteImport.join(', ')} } from 'swr/infinite';`] : []),
-    "import useSWRMutation, { type SWRMutationConfiguration, type SWRMutationResponse } from 'swr/mutation';",
-    `import { appKeys, type AppClientError } from './${base}.keys.js';`,
-    `import { useAppClient } from './${base}.react.js';`,
-    `import type { ${[...typeNames(hooks), 'manifestHash'].join(', ')} } from './${base}.js';`,
+    ...imports(hooks, base),
     '',
     ...manifestHashCheck(model),
     '',
-    ...HELPERS,
+    ...(mutations ? HELPERS : []),
+    ...(hooks.some((h) => h.route.kind === 'query' && !isVoid(h)) ? NULL_IF_EMPTY : []),
     ...(kinds.length > 0 ? INFINITE_CONFIG : []),
     ...kinds.flatMap((kind) => PAGES[kind]),
     ...(infinite.length > 0 && mutations ? REVALIDATE : []),

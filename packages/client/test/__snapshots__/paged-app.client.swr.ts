@@ -27,6 +27,9 @@ const underAny = (prefixes: readonly (readonly unknown[])[]) => {
   return (key: unknown) => matchers.some((matches) => matches(key));
 };
 
+// The client resolves a 204 reply to undefined, which SWR would show as data not loaded yet.
+const nullIfEmpty = <T>(data: T): T => data ?? (null as T);
+
 /** SWR infinite options of an infinite hook. Without `parallel`: each page key is computed from the page before it. */
 export type InfiniteConfig<Data> = Omit<SWRInfiniteConfiguration<Data, AppClientError>, 'parallel'>;
 
@@ -71,7 +74,7 @@ async function revalidate(swr: ReturnType<typeof useSWRConfig>, prefixes: readon
 
 export function useTagsList(vars: { query: CursorQuery } | null, config?: SWRConfiguration<{ items: TagDto[]; next: string | null }, AppClientError>): SWRResponse<{ items: TagDto[]; next: string | null }, AppClientError> {
   const client = useAppClient();
-  return useSWR<{ items: TagDto[]; next: string | null }, AppClientError>(vars && appKeys.tags.list(vars), vars && (() => client.tags.list(vars.query)), config);
+  return useSWR<{ items: TagDto[]; next: string | null }, AppClientError>(vars && appKeys.tags.list(vars), vars && (() => client.tags.list(vars.query).then(nullIfEmpty)), config);
 }
 
 export function useTagsListInfinite(vars: { query: Omit<CursorQuery, 'cursor'> } | null, config?: InfiniteConfig<{ items: TagDto[]; next: string | null }>): SWRInfiniteResponse<{ items: TagDto[]; next: string | null }, AppClientError> {
@@ -82,7 +85,7 @@ export function useTagsListInfinite(vars: { query: Omit<CursorQuery, 'cursor'> }
 
 export function useUsersList(vars: { query: ListQuery & PageQuery } | null, config?: SWRConfiguration<{ items: UserDto[]; total: number }, AppClientError>): SWRResponse<{ items: UserDto[]; total: number }, AppClientError> {
   const client = useAppClient();
-  return useSWR<{ items: UserDto[]; total: number }, AppClientError>(vars && appKeys.users.list(vars), vars && (() => client.users.list(vars.query)), config);
+  return useSWR<{ items: UserDto[]; total: number }, AppClientError>(vars && appKeys.users.list(vars), vars && (() => client.users.list(vars.query).then(nullIfEmpty)), config);
 }
 
 export function useUsersListInfinite(vars: { query: Omit<ListQuery & PageQuery, 'page'> } | null, config?: InfiniteConfig<{ items: UserDto[]; total: number }>): SWRInfiniteResponse<{ items: UserDto[]; total: number }, AppClientError> {
@@ -93,7 +96,7 @@ export function useUsersListInfinite(vars: { query: Omit<ListQuery & PageQuery, 
 
 export function useUsersZero(vars: { query: ZeroBasedQuery } | null, config?: SWRConfiguration<{ items: UserDto[]; total: number }, AppClientError>): SWRResponse<{ items: UserDto[]; total: number }, AppClientError> {
   const client = useAppClient();
-  return useSWR<{ items: UserDto[]; total: number }, AppClientError>(vars && appKeys.users.zero(vars), vars && (() => client.users.zero(vars.query)), config);
+  return useSWR<{ items: UserDto[]; total: number }, AppClientError>(vars && appKeys.users.zero(vars), vars && (() => client.users.zero(vars.query).then(nullIfEmpty)), config);
 }
 
 export function useUsersZeroInfinite(vars: { query: Omit<ZeroBasedQuery, 'page'> } | null, config?: InfiniteConfig<{ items: UserDto[]; total: number }>): SWRInfiniteResponse<{ items: UserDto[]; total: number }, AppClientError> {
@@ -104,7 +107,7 @@ export function useUsersZeroInfinite(vars: { query: Omit<ZeroBasedQuery, 'page'>
 
 export function useUsersFeed(vars: { cursor?: string; pageSize?: number } | null = {}, config?: SWRConfiguration<{ items: UserDto[]; next: string | null }, AppClientError>): SWRResponse<{ items: UserDto[]; next: string | null }, AppClientError> {
   const client = useAppClient();
-  return useSWR<{ items: UserDto[]; next: string | null }, AppClientError>(vars && appKeys.users.feed(vars), vars && (() => client.users.feed(vars.cursor, vars.pageSize)), config);
+  return useSWR<{ items: UserDto[]; next: string | null }, AppClientError>(vars && appKeys.users.feed(vars), vars && (() => client.users.feed(vars.cursor, vars.pageSize).then(nullIfEmpty)), config);
 }
 
 export function useUsersFeedInfinite(vars: { pageSize?: number } | null = {}, config?: InfiniteConfig<{ items: UserDto[]; next: string | null }>): SWRInfiniteResponse<{ items: UserDto[]; next: string | null }, AppClientError> {
@@ -115,7 +118,7 @@ export function useUsersFeedInfinite(vars: { pageSize?: number } | null = {}, co
 
 export function useUsersSparse(vars: { page?: number } | null = {}, config?: SWRConfiguration<{ items: UserDto[]; total: number }, AppClientError>): SWRResponse<{ items: UserDto[]; total: number }, AppClientError> {
   const client = useAppClient();
-  return useSWR<{ items: UserDto[]; total: number }, AppClientError>(vars && appKeys.users.sparse(vars), vars && (() => client.users.sparse(vars.page)), config);
+  return useSWR<{ items: UserDto[]; total: number }, AppClientError>(vars && appKeys.users.sparse(vars), vars && (() => client.users.sparse(vars.page).then(nullIfEmpty)), config);
 }
 
 export function useUsersSparseInfinite(vars: Record<string, never> | null = {}, config?: InfiniteConfig<{ items: UserDto[]; total: number }>): SWRInfiniteResponse<{ items: UserDto[]; total: number }, AppClientError> {
@@ -126,7 +129,7 @@ export function useUsersSparseInfinite(vars: Record<string, never> | null = {}, 
 
 export function useUsersEveryone(vars: Record<string, never> | null = {}, config?: SWRConfiguration<{ items: UserDto[]; total: number }, AppClientError>): SWRResponse<{ items: UserDto[]; total: number }, AppClientError> {
   const client = useAppClient();
-  return useSWR<{ items: UserDto[]; total: number }, AppClientError>(vars && appKeys.users.everyone(vars), vars && (() => client.users.everyone()), config);
+  return useSWR<{ items: UserDto[]; total: number }, AppClientError>(vars && appKeys.users.everyone(vars), vars && (() => client.users.everyone().then(nullIfEmpty)), config);
 }
 
 export function useUsersCreate(config?: MutationConfig<UserDto, { body: CreateUserDto }>): MutationResult<UserDto, { body: CreateUserDto }> {

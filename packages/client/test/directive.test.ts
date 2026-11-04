@@ -1,10 +1,12 @@
 import 'mocha';
 import { expect } from 'chai';
 import ts from 'typescript';
+import { registerHooks } from 'node:module';
 import type { Manifest } from '@spinajs/manifest';
 import { generateClientFiles, type GeneratedFile } from '../src/index.js';
 import { withUseClient } from '../src/generate/hooks/directive.js';
 import { appBasicManifest } from './support/fixture.js';
+import { libraryUrls, writeModules } from './support/modules.js';
 
 // Section 3.1 of the frontend generators plan; each later emitter's files are already listed here.
 const ENVIRONMENTS: Record<string, GeneratedFile['environment']> = {
@@ -71,6 +73,28 @@ describe("'use client' placement", () => {
       expect(sourceFile.statements.filter(isUseClient), file.path).to.deep.equal([]);
       const specifiers = moduleSpecifiers(sourceFile);
       expect(specifiers.filter((s) => s === 'react' || s.startsWith('react/') || clientModules.has(s)), file.path).to.deep.equal([]);
+    }
+  });
+
+  it('loads client.keys.js in plain Node while react cannot be resolved, as the server side of an RSC import does', async () => {
+    const generated = Object.fromEntries(files.filter((f) => f.path === 'client.keys.ts' || f.path === 'client.react.ts').map((f) => [f.path, f.contents]));
+    const modules = writeModules(generated, libraryUrls(['react']));
+    const noReact = registerHooks({
+      resolve: (specifier, context, next) => {
+        const resolved = next(specifier, context);
+        if (/\/node_modules\/react\//.test(resolved.url)) throw Object.assign(new Error(`Cannot find package 'react' imported from ${context.parentURL}`), { code: 'ERR_MODULE_NOT_FOUND' });
+        return resolved;
+      },
+    });
+    try {
+      const { appKeys } = await modules.import<{ appKeys: { users: { get(vars: { id: number }): unknown } } }>('client.keys.js');
+      expect(appKeys.users.get({ id: 7 })).to.deep.equal(['spinajs', 'users', 'get', { id: 7 }]);
+      // The hook is what keeps react out: the client file next to it fails to load.
+      const error = await modules.import('client.react.js').catch((e: unknown) => e);
+      expect(error).to.have.property('code', 'ERR_MODULE_NOT_FOUND');
+    } finally {
+      noReact.deregister();
+      modules.remove();
     }
   });
 
