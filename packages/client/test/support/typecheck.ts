@@ -9,8 +9,14 @@ export interface TypecheckOptions {
   unused?: boolean;
 }
 
-/** Type-checks generated client source against the runtime sources; returns the diagnostics as strings. */
-export function typecheck(source: string, options: TypecheckOptions = {}): string[] {
+export interface TypecheckResult {
+  diagnostics: string[];
+  /** The checker's type instantiation count: deterministic for one TypeScript version, unlike wall-clock time. */
+  instantiations: number;
+}
+
+/** Type-checks generated client source against the runtime sources. */
+export function typecheckProgram(source: string, options: TypecheckOptions = {}): TypecheckResult {
   const dir = mkdtempSync(join(tmpdir(), 'client-gen-'));
   try {
     const file = join(dir, 'client.ts');
@@ -32,8 +38,14 @@ export function typecheck(source: string, options: TypecheckOptions = {}): strin
         '@spinajs/http-socket-common': ['../http-socket-common/src/index.ts'],
       },
     });
-    return ts.getPreEmitDiagnostics(program).map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'));
+    const diagnostics = ts.getPreEmitDiagnostics(program).map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'));
+    return { diagnostics, instantiations: program.getInstantiationCount() };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/** Type-checks generated client source against the runtime sources; returns the diagnostics as strings. */
+export function typecheck(source: string, options: TypecheckOptions = {}): string[] {
+  return typecheckProgram(source, options).diagnostics;
 }
