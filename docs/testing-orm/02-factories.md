@@ -24,6 +24,6 @@ factory(User) === users;                          // the registered definition
 - `for(relation, owner)` takes a belongs-to relation (`@BelongsTo`) and sets its foreign key from the owner's key.
   A factory owner is created on the first `create()` and shared by every model of that factory until the next
   `createTestDatabase()`; `build()` only sets the key of an owner that is already saved.
-- Overrides win over the definition, and the definition over owner keys never collides: a key column set in
-  `overrides` replaces the owner's.
+- Overrides win over owner keys, and owner keys over the definition: a key column set in `overrides` replaces
+  the owner's.
 - Models are saved one by one, so sequence numbers and generated keys follow the same order.
