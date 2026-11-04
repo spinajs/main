@@ -57,16 +57,13 @@ export class InlineRunExecutor extends RunExecutor {
     return withRunContext(ctx, () => body(ctx));
   }
 
-  /** A crashed process writes nothing more: the run stays `running` and its leases expire on their own. */
   protected override async complete(
     run: RunModel,
     def: ScheduleDefinition,
     ctx: RunContext,
     outcome: ExecutionOutcome,
   ): Promise<void> {
-    if (!(outcome.kind === 'error' && isCrashError(outcome.error))) {
-      await super.complete(run, def, ctx, outcome);
-    }
+    await super.complete(run, def, ctx, outcome);
     this.ends.set(run.Id, { outcome, status: run.Status, reason: run.Reason });
   }
 }
@@ -123,6 +120,11 @@ export class InlineRunner {
 
   protected leaveLocal(schedule: string): void {
     this.local.delete(schedule);
+  }
+
+  /** For the scheduler loop of the same replica, which must not start a `runOn: 'all'` run beside it. */
+  public isRunningLocally(schedule: string, replicaId: string): boolean {
+    return replicaId === this.Leases.ReplicaId && this.local.has(schedule);
   }
 
   /** `local`: a `runOn: 'all'` run, which must not overlap a run of the schedule this replica holds (as the loop's). */

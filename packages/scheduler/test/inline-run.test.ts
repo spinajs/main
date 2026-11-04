@@ -13,7 +13,9 @@ import {
   RunAttemptModel,
   RunConflict,
   RunModel,
+  RunContext,
   RunStepModel,
+  Scheduler,
   ScheduledTask,
   ScheduleModel,
   ScheduleNotFound,
@@ -29,9 +31,14 @@ chai.use(chaiAsPromised);
 class InlineBody extends ScheduledTask {}
 class LateBody extends ScheduledTask {}
 class StackingTaskAdapter extends ScheduledTask {}
+class CrashingStep extends ScheduledTask {
+  public execute(ctx: RunContext) {
+    return ctx.step('work', () => Promise.reject(crash()));
+  }
+}
 const unregisterAdapter = registerTaskMethod('inline-stacking', StackingTaskAdapter, { stacking: true });
 
-const NAMES = ['inline-skip', 'inline-queue', 'inline-retry', 'inline-stacking', 'inline-all', 'inline-late'];
+const NAMES = ['inline-skip', 'inline-queue', 'inline-retry', 'inline-stacking', 'inline-all', 'inline-every', 'loop-crash', 'inline-late'];
 const crash = () => Object.assign(new Error('process died'), { crash: true });
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
 
@@ -46,6 +53,8 @@ describe('SchedulerService.runInline', () => {
     // overlap 'skip' here: stacking comes from the @Task registration, not from the definition
     defineSchedule(StackingTaskAdapter, 'inline-stacking', { manual: true });
     defineSchedule(InlineBody, 'inline-all', { manual: true, runOn: 'all', overlap: 'skip' });
+    defineSchedule(InlineBody, 'inline-every', { every: '1m', runOn: 'all' });
+    defineSchedule(CrashingStep, 'loop-crash', { manual: true });
     ({ clock } = await bootTestEnv({ now: '2026-01-05T10:00:00Z' }));
     service = await DI.resolve(SchedulerService);
   });
@@ -165,6 +174,29 @@ describe('SchedulerService.runInline', () => {
     expect(err.runId).to.eq(held.Id);
   });
 
+  it("keeps this replica's scheduler loop from starting a runOn: 'all' run beside an inline one", async () => {
+    const loop = await DI.resolve(Scheduler, [{ autoStart: false }]);
+    const tick = async () => {
+      await loop.tickOnce();
+      await loop.idle();
+    };
+    await tick();
+    const gate = deferred();
+    const call = service.runInline('inline-every', () => gate.promise);
+    await untilRuns('inline-every', 1);
+    const queued = await queuedRun('inline-every', clock.now(), { Forced: true });
+
+    clock.set(clock.now() + 60_000);
+    await tick();
+
+    const runs = await runsOf('inline-every');
+    expect(runs.filter((r) => r.Status === 'running')).to.have.length(1);
+    expect(runs.map((r) => r.Status)).to.include('skipped');
+    expect((await RunModel.where('Id', queued.Id).first())?.Status).to.eq('queued');
+    gate.resolve();
+    await call;
+  });
+
   it('rejects with RunAbortedError when the run is cancelled', async () => {
     const call = service.runInline('inline-skip', (ctx) => untilAborted(ctx.signal));
     await untilRuns('inline-skip', 1);
@@ -206,6 +238,17 @@ describe('SchedulerService.runInline', () => {
     ).to.be.rejectedWith(dead);
 
     const run = await onlyRun('inline-skip');
+    expect((await RunStepModel.where('RunId', run.Id)).map((s) => s.Status)).to.deep.eq(['running']);
+    expect((await journal(run.Id)).map((e) => e.type)).to.not.include('step-end');
+  });
+
+  it('writes nothing after a crash in a step of a loop run either', async () => {
+    const loop = await DI.resolve(Scheduler, [{ replicaId: 'r1', autoStart: false }]);
+    const run = await queuedRun('loop-crash', clock.now());
+    await loop.tickOnce();
+    await loop.idle();
+
+    expect(await RunModel.where('Id', run.Id).first()).to.include({ Status: 'running', FinishedAt: null });
     expect((await RunStepModel.where('RunId', run.Id)).map((s) => s.Status)).to.deep.eq(['running']);
     expect((await journal(run.Id)).map((e) => e.type)).to.not.include('step-end');
   });
