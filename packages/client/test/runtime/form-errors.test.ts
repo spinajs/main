@@ -109,12 +109,15 @@ describe('problemFieldErrors', () => {
     expect(message('exclusiveMinimum', { limit: 3 })).to.equal('must be greater than 3');
   });
 
-  it('uses a message the server sent before the mapper and the default', () => {
+  it('prefers the mapper, then the message the server sent, then the default', () => {
     const errors = [
       { instancePath: '/a', keyword: 'format', params: { format: 'email' }, message: 'custom text' },
       { instancePath: '/b', keyword: 'format', params: { format: 'email' } },
     ];
-    expect(problemFieldErrors(problem(errors), { messages: () => 'mapped' })).to.deep.equal({ a: [{ keyword: 'format', message: 'custom text' }], b: [{ keyword: 'format', message: 'mapped' }] });
+    const key = (field: string) => (field === 'a' ? 'custom text' : 'must be a valid email');
+    expect(problemFieldErrors(problem(errors), { messages: () => 'mapped' })).to.deep.equal({ a: [{ keyword: 'format', message: 'mapped' }], b: [{ keyword: 'format', message: 'mapped' }] });
+    expect(problemFieldErrors(problem(errors), { messages: () => undefined })).to.deep.equal({ a: [{ keyword: 'format', message: key('a') }], b: [{ keyword: 'format', message: key('b') }] });
+    expect(problemFieldErrors(problem(errors))).to.deep.equal({ a: [{ keyword: 'format', message: 'custom text' }], b: [{ keyword: 'format', message: 'must be a valid email' }] });
   });
 
   it('takes the text from the messages option, and keeps the default where it returns undefined', () => {

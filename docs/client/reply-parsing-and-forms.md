@@ -92,7 +92,7 @@ Both members are additive. An item without them (a server older than this change
 
 ### Messages
 
-The manifest-derived checks of the server send the Ajv keyword and its params, and no text (an explicit `@Schema` also sends Ajv's `message`). `applyProblem` uses a `message` the server sent as it is; for the others it asks the `messages` option, then writes a short English one (`is required`, `must be a number`, `must be one of: asc, desc`) and passes it to `setError` as `message`, with the keyword as `type`. The `messages` option supplies other texts, for example the app's own UI text:
+The manifest-derived checks of the server send the Ajv keyword and its params, and no text (an explicit `@Schema` also sends Ajv's `message`). `applyProblem` asks the `messages` option first, then uses a `message` the server sent, then writes a short English one (`is required`, `must be a number`, `must be one of: asc, desc`) and passes it to `setError` as `message`, with the keyword as `type`. The `messages` option supplies other texts, for example the app's own UI text:
 
 ```ts
 applyProblem(e, form.setError, {
@@ -100,4 +100,4 @@ applyProblem(e, form.setError, {
 });
 ```
 
-Return `undefined` to keep the default for that error.
+Return `undefined` to fall back to the server's `message`, and to the English default when it sent none.

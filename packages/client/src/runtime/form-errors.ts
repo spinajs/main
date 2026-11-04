@@ -15,7 +15,7 @@ export interface FieldError {
 export type MessageMapper = (issue: FieldIssue) => string | undefined;
 
 export interface ApplyProblemOptions {
-  /** Texts for errors that arrive without one; a `message` the server sent is used as it is. */
+  /** Texts for the errors, tried first; return `undefined` to use the `message` the server sent, else the English default. */
   messages?: MessageMapper;
 }
 
@@ -51,8 +51,10 @@ const DEFAULT_MESSAGES: Record<string, (params: Record<string, unknown>) => stri
 };
 
 function messageOf(issue: FieldIssue, sent: unknown, options: ApplyProblemOptions | undefined): string {
+  const mapped = options?.messages?.(issue);
+  if (mapped !== undefined) return mapped;
   if (typeof sent === 'string' && sent !== '') return sent;
-  return options?.messages?.(issue) ?? DEFAULT_MESSAGES[issue.keyword]?.(issue.params) ?? 'is invalid';
+  return DEFAULT_MESSAGES[issue.keyword]?.(issue.params) ?? 'is invalid';
 }
 
 /**
