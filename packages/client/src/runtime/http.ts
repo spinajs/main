@@ -10,6 +10,8 @@ export interface ClientOptions {
   /** Passed to fetch; in a browser, `include` sends the cookies the browser holds for the API origin. */
   credentials?: RequestCredentials;
   onProblem?: (p: ProblemDetails) => void;
+  /** Runs on a JSON reply after it is parsed; its result is the call's result, and a throw rejects the call. Not called for 204, `void` routes, text replies or errors. */
+  parseReply?: (route: { controller: string; name: string }, value: unknown) => unknown;
 }
 
 export interface RouteDefinition {
@@ -95,7 +97,9 @@ async function toProblem(response: Response, contentType: string): Promise<Probl
     const value = textMember(body, key);
     if (value !== undefined) problem[key] = value;
   }
+  // A failed validation answers with the exception's own fields: the Ajv errors are in `parameter`.
   if (body.errors !== undefined) problem.errors = body.errors;
+  else if (Array.isArray(body.parameter)) problem.errors = body.parameter;
   return problem;
 }
 
@@ -110,7 +114,7 @@ async function requestHeaders(options: ClientOptions, parts: RequestParts): Prom
   return headers;
 }
 
-function call(route: RouteDefinition, options: ClientOptions) {
+function call(controller: string, name: string, route: RouteDefinition, options: ClientOptions) {
   return async (...args: unknown[]): Promise<unknown> => {
     const doFetch = options.fetch ?? globalThis.fetch;
     const parts = route.args ? bindArgs(route.args, args) : slotParts(route, args);
@@ -128,7 +132,9 @@ function call(route: RouteDefinition, options: ClientOptions) {
       throw new ProblemError(problem, response.status);
     }
     if (route.void || response.status === 204) return undefined;
-    return contentType.includes('json') ? response.json() : response.text();
+    if (!contentType.includes('json')) return response.text();
+    const value: unknown = await response.json();
+    return options.parseReply ? options.parseReply({ controller, name }, value) : value;
   };
 }
 
@@ -136,7 +142,7 @@ export function createClient<T>(definition: ClientDefinition, options: ClientOpt
   const client: Record<string, Record<string, unknown>> = {};
   for (const [controller, routes] of Object.entries(definition)) {
     client[controller] = {};
-    for (const [name, route] of Object.entries(routes)) client[controller][name] = call(route, options);
+    for (const [name, route] of Object.entries(routes)) client[controller][name] = call(controller, name, route, options);
   }
   return client as T;
 }
