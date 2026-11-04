@@ -13,9 +13,16 @@ type Json = Record<string, unknown>;
 
 // Keys of these hold schemas by name, so a property called `x-foo` or `$ref` is data, not a keyword.
 const NAMED_SCHEMAS = new Set(['properties', 'patternProperties', '$defs', 'definitions', 'dependentSchemas']);
+// The server drops only `x-*` inside these values, so a `title` key there is data.
+const DATA_KEYWORDS = new Set(['const', 'enum', 'default', 'examples']);
 const DROPPED = new Set(['title', 'description', '$comment', '$id']);
 const REPLY_TYPES: Record<string, MockSchema> = { string: { type: 'string' }, number: { type: 'number' }, boolean: { type: 'boolean' } };
+// A reply with no schema to sample: the sampler reports `not` as unsupported, so the fallback throws MockUnsupported.
+const UNSAMPLED: MockSchema = { not: {} };
 const PAGE_HELPERS = ['mockCursorPage', 'mockPage'];
+
+// x-explicit stays in schemas: the server accepts anything for a partial schema, which changes how allOf treats it.
+const dropped = (name: string, data: boolean): boolean => (name.startsWith('x-') && (data || name !== 'x-explicit')) || (!data && DROPPED.has(name));
 
 const isObject = (value: unknown): value is Json => typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -55,14 +62,16 @@ class Embedder {
     return name;
   }
 
-  private embed(value: unknown, owner: string, named: boolean): unknown {
-    if (Array.isArray(value)) return value.map((item) => this.embed(item, owner, false));
+  private embed(value: unknown, owner: string, named: boolean, data = false): unknown {
+    if (Array.isArray(value)) return value.map((item) => this.embed(item, owner, false, data));
     if (!isObject(value)) return value;
     const entries: [string, unknown][] = [];
     for (const [name, child] of Object.entries(value)) {
-      // x-explicit stays: the server accepts anything for a partial schema, which changes how allOf treats it.
-      if (!named && ((name.startsWith('x-') && name !== 'x-explicit') || DROPPED.has(name))) continue;
-      entries.push([name, !named && name === '$ref' && typeof child === 'string' ? this.ref(child, owner) : this.embed(child, owner, !named && NAMED_SCHEMAS.has(name))]);
+      if (!named && dropped(name, data)) continue;
+      entries.push([
+        name,
+        !named && name === '$ref' && typeof child === 'string' ? this.ref(child, owner) : this.embed(child, owner, !named && NAMED_SCHEMAS.has(name), data || (!named && DATA_KEYWORDS.has(name))),
+      ]);
     }
     // fromEntries defines an own `__proto__` key, where assignment would set the prototype.
     return Object.fromEntries(entries);
@@ -96,14 +105,17 @@ function print(value: unknown, indent: string): string {
   return fits(inline, indent) ? inline : `{\n${entries.map((e) => `${indent}  ${e},`).join('\n')}\n${indent}}`;
 }
 
-function replySchema(route: RouteModel, embedder: Embedder, replies: Set<string>): MockSchema | null {
+function replySchema(route: RouteModel, embedder: Embedder, replies: Set<string>, unsampled: GeneratorDiagnostic[]): MockSchema | null {
   if (route.returns === 'void') return null;
   if (route.returnSchema !== undefined && embedder.has(route.returnSchema)) {
     const name = embedder.add(route.returnSchema);
     replies.add(name);
     return { $ref: name };
   }
-  return Object.hasOwn(REPLY_TYPES, route.returns) ? REPLY_TYPES[route.returns] : true;
+  if (Object.hasOwn(REPLY_TYPES, route.returns)) return REPLY_TYPES[route.returns];
+  const label = `${route.controllerKey}.${route.name}`;
+  unsampled.push({ code: 'MOCK001', severity: 'warning', schema: label, pointer: '', message: `the createMockAppClient fallback for ${label} throws MockUnsupported: its reply type ${route.returns} has no schema to sample` });
+  return UNSAMPLED;
 }
 
 function diagnosticsOf(embedder: Embedder, dtos: string[], replies: Set<string>): GeneratorDiagnostic[] {
@@ -126,7 +138,8 @@ export function emitMocks(model: ClientModel, clientModule = './client.js'): Moc
   const embedder = new Embedder(ctx);
   const dtos = [...ctx.used].map((id) => embedder.add(id)).sort(compare);
   const replies = new Set<string>();
-  const routes = model.controllers.map((c) => `  ${key(c.key)}: {\n${c.routes.map((r) => `    ${key(r.name)}: ${print(replySchema(r, embedder, replies), '    ')},`).join('\n')}\n  },`);
+  const unsampled: GeneratorDiagnostic[] = [];
+  const routes = model.controllers.map((c) => `  ${key(c.key)}: {\n${c.routes.map((r) => `    ${key(r.name)}: ${print(replySchema(r, embedder, replies, unsampled), '    ')},`).join('\n')}\n  },`);
   const schemas = [...embedder.table.keys()].sort(compare).map((name) => `  ${key(name)}: ${print(embedder.table.get(name), '  ')},`);
   const functions = dtos.map((name) =>
     [
@@ -158,5 +171,5 @@ export function emitMocks(model: ClientModel, clientModule = './client.js'): Moc
     '  return createMockClient<AppClient>(routeTable, schemas, impl, options);',
     '}',
   ];
-  return { contents: `${lines.join('\n')}\n`, diagnostics: diagnosticsOf(embedder, dtos, replies) };
+  return { contents: `${lines.join('\n')}\n`, diagnostics: [...diagnosticsOf(embedder, dtos, replies), ...unsampled].sort((a, b) => compare(a.schema, b.schema) || compare(a.pointer, b.pointer)) };
 }

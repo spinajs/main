@@ -5,9 +5,10 @@ import type { Manifest } from '@spinajs/manifest';
 import { buildClientModel, generateClientFiles, type GeneratedFile } from '../../src/index.js';
 import { appBasicManifest, corpusManifest } from '../support/fixture.js';
 import { clearMocks, loadMocks, mockFunction, serverCheck, type MocksModule } from '../support/mocks.js';
-import { mockCorpusManifest, UNSUPPORTED_IDS } from './corpus.js';
+import { mockCorpusManifest, UNSCHEMAED_REPLIES, UNSUPPORTED_IDS } from './corpus.js';
 
 // MOCK_RUNS raises the seeds per DTO for a longer local run.
+const PRIMITIVES = ['string', 'number', 'boolean'];
 const RUNS = Number(process.env.MOCK_RUNS ?? 60);
 
 /**
@@ -71,16 +72,27 @@ describe('client.mocks.ts: parity with the server validation', function () {
 
       it("answers every route of createMockAppClient with fallback: 'mock' as the reply schema says", async () => {
         const model = buildClientModel(manifest);
+        const unschemaed = new Set<string>();
         for (const seed of [1, 2, 3, 99]) {
           const client = module.createMockAppClient({}, { fallback: 'mock', seed });
           for (const controller of model.controllers) {
             for (const route of controller.routes) {
-              const reply = await client[controller.key][route.name]();
-              if (route.returns === 'void') expect(reply, `${controller.key}.${route.name}`).to.equal(undefined);
-              else if (route.returnSchema !== undefined) expect(check(route.returnSchema, reply), `${controller.key}.${route.name}`).to.equal(undefined);
+              const label = `${controller.key}.${route.name}`;
+              const call = client[controller.key][route.name]();
+              if (route.returns === 'void') expect(await call, label).to.equal(undefined);
+              else if (route.returnSchema !== undefined) expect(check(route.returnSchema, await call), label).to.equal(undefined);
+              else if (PRIMITIVES.includes(route.returns)) expect(typeof (await call), label).to.equal(route.returns);
+              else {
+                unschemaed.add(label);
+                const error = await call.then(() => undefined, (e: unknown) => e);
+                expect(error, label).to.be.instanceOf(Error).with.property('name', 'MockUnsupported');
+              }
             }
           }
         }
+        const flagged = (file.diagnostics ?? []).filter((d) => d.code === 'MOCK001' && unschemaed.has(d.schema)).map((d) => d.schema);
+        expect([...unschemaed].sort()).to.deep.equal(flagged.sort());
+        expect([...unschemaed].sort()).to.deep.equal(fixture === 'mock-corpus' ? [...UNSCHEMAED_REPLIES] : []);
       });
     });
   }

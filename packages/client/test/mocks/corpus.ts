@@ -1,5 +1,5 @@
 import type { Manifest } from '@spinajs/manifest';
-import { manifestWith } from '../support/zod.js';
+import { manifestWith, route } from '../support/zod.js';
 
 const STRING_FORMATS = ['date', 'time', 'date-time', 'duration', 'uri', 'uri-reference', 'uri-template', 'url', 'email', 'hostname', 'ipv4', 'ipv6', 'regex', 'uuid', 'json-pointer', 'json-pointer-uri-fragment', 'relative-json-pointer', 'byte', 'password', 'binary', 'decimal', 'zip-code'];
 
@@ -40,6 +40,8 @@ const SUPPORTED: Record<string, unknown> = {
     mixed: { enum: ['a', 'b', 3, null] },
     object: { const: { x: 1, list: [1, 2] } },
     typed: { type: 'string', enum: ['x', 'y'] },
+    keyed: { const: { title: 'Untitled', description: 'd', $comment: 'c', $id: 'i', kind: 'a', 'x-note': 1 } },
+    keyedEnum: { enum: [{ title: 't', 'x-note': 1 }, { $id: 'one' }] },
     nullable: { type: 'string', nullable: true },
     multi: { type: ['string', 'integer', 'null'] },
     defaulted: { type: 'integer', minimum: 1, default: 1 },
@@ -91,6 +93,11 @@ const UNSUPPORTED: Record<string, unknown> = {
 
 export const UNSUPPORTED_IDS = Object.keys(UNSUPPORTED).map((name) => `test/${name}`);
 
+/** Routes of the corpus whose reply has no schema and is no primitive: `fallback: 'mock'` has nothing to sample. */
+export const UNSCHEMAED_REPLIES = ['items.any', 'items.list'];
+
+const replying = (handler: string, text: string) => ({ ...route(handler, 'get', []), returnType: { text } });
+
 export function mockCorpusManifest(base: Manifest): Manifest {
-  return manifestWith(base, { ...SUPPORTED, ...UNSUPPORTED });
+  return manifestWith(base, { ...SUPPORTED, ...UNSUPPORTED }, {}, [replying('count', 'number'), replying('list', 'string[]'), replying('any', 'unknown')]);
 }
