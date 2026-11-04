@@ -19,7 +19,8 @@ function accessOptions(arg: ts.Expression | undefined, ctx: ExtractorContext): {
   if (!arg || !ts.isObjectLiteralExpression(arg)) return { also: [], fieldsFilter: false };
   const alsoProp = arg.properties.find((p): p is ts.PropertyAssignment => ts.isPropertyAssignment(p) && p.name.getText() === 'also');
   const also = alsoProp && ts.isArrayLiteralExpression(alsoProp.initializer) ? alsoProp.initializer.elements.map((e) => refOf(e, ctx)) : [];
-  const fieldsFilter = (literalValue(arg, ctx) as { fields?: string } | undefined)?.fields === 'filter';
+  const fields = (literalValue(arg, ctx) as { fields?: string } | undefined)?.fields;
+  const fieldsFilter = fields === 'filter' || fields === 'filter-rows';
   return { also, fieldsFilter };
 }
 

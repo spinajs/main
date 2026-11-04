@@ -912,6 +912,13 @@ export const manifestSchema: Record<string, any> = {
             "type": "string"
           }
         },
+        "fields": {
+          "type": "string",
+          "enum": [
+            "filter",
+            "filter-rows"
+          ]
+        },
         "policies": {
           "type": "array",
           "items": {

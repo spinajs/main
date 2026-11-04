@@ -17,6 +17,11 @@ function socketAccessOf(m: ts.MethodDeclaration, ctx: ExtractorContext): string[
   return Array.isArray(v) ? v.map(String) : [String(v)];
 }
 
+function socketFieldsOf(m: ts.MethodDeclaration, ctx: ExtractorContext): SocketCommandEntry['fields'] {
+  const fields = (literalValue(findDecorator(m, 'SocketAccess')?.args[1], ctx) as { fields?: unknown } | undefined)?.fields;
+  return fields === 'filter' || fields === 'filter-rows' ? fields : undefined;
+}
+
 function payloadOf(m: NamedMethod, className: string, ctx: ExtractorContext): TypeRef {
   const p = m.parameters.find((param) => findDecorator(param, 'Payload'));
   if (!p) return { text: 'void' };
@@ -52,6 +57,7 @@ function commandOf(m: NamedMethod, className: string, cmd: DecoratorInfo, ctx: E
     ...resultOf(m, className, ctx),
     options: (literalValue(cmd.args[1], ctx) as SocketCommandEntry['options'] | undefined) ?? {},
     ...(access ? { access } : {}),
+    ...(access && socketFieldsOf(m, ctx) ? { fields: socketFieldsOf(m, ctx) } : {}),
     policies,
     source: ctx.sourceRef(m),
   };

@@ -74,6 +74,32 @@ describe('generateClient', () => {
     expect(output).to.include('events: { message: ChatMessage };');
   });
 
+  it('types a field-filtered route and command result as Redacted<T> (G16)', async () => {
+    const m = structuredClone(manifest);
+    m.controllers.find((c) => c.className === 'UsersController')!.routes.find((r) => r.fullPath === '/users/:id')!.middlewares.push({ type: 'AuthzFieldsMiddleware', options: [] });
+    Object.assign(m.socketControllers.find((c) => c.prefix === 'chat')!.commands.find((c) => c.name === 'history')!, { access: ['chat:read'], fields: 'filter' });
+    const redacted = await generateClient({ manifest: m });
+    expect(redacted).to.include('get(id: number): Promise<Redacted<UserDto>>;');
+    expect(redacted).to.include('history: [{ since: string }, AsyncIterable<Redacted<ChatMessage>>]');
+    expect(redacted).to.include("import { createClient, type ClientDefinition, type ClientOptions, type Redacted } from '@spinajs/client/runtime';");
+    expect(typecheck(redacted)).to.deep.equal([]);
+    expect(output).to.not.include('Redacted');
+  });
+
+  it('Redacted<T> makes every property optional and possibly undefined, element-wise for lists', () => {
+    const source = [
+      "import type { Redacted } from '@spinajs/client/runtime';",
+      'type User = { id: number; email: string };',
+      'const a: Redacted<User> = {};',
+      'const b: Redacted<User[]> = [{ id: undefined }];',
+      'const c: Redacted<string> = "x";',
+      '// @ts-expect-error a redacted property is still typed',
+      "const d: Redacted<User> = { id: 'x' };",
+      'export { a, b, c, d };',
+    ].join('\n');
+    expect(typecheck(source)).to.deep.equal([]);
+  });
+
   it('honours moduleName and includeSocket', async () => {
     const custom = await generateClient({ manifest, moduleName: './runtime.js', includeSocket: false });
     expect(custom).to.include("from './runtime.js';");
