@@ -93,6 +93,10 @@ Install `@spinajs/client` next to `@spinajs/cli` to use the command.
 
 A server that renders pages (Next.js Server Components, loaders) calls the API with `createServerAppClient` from `client.server.ts`, which `generateClientFiles({ manifest, server: true })` writes. It forwards the browser's `cookie` and `authorization` headers. [Server rendering and prefetching](ssr.md) covers it, together with prefetching for React Query and SWR, and the Next.js cache tags that `next: true` writes into `client.next.ts`. Next 16 needs `next build --webpack` for the generated files until an import-extension option lands.
 
+## Hooks
+
+`generateClientFiles({ manifest, hooks: ['react-query', 'swr'] })` also writes typed React hooks, one per route: `useUsersGet` for a GET, `useUsersCreate` for a POST. The hooks share `AppClientProvider`, the key tree `appKeys` and the error type `AppClientError`. [Hooks](hooks.md) covers setup, keys, invalidation, errors, infinite queries and the cache buster. The flags of `spinajs generate:client` are in the [CLI command reference](../cli/08-command-reference.md#generateclient).
+
 ## Extending generated types
 
 The generated file is build output: it starts with `Do not edit`, and the next `spinajs generate:client` overwrites it. Put your code in files next to it.
