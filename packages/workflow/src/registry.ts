@@ -31,9 +31,8 @@ export function defineWorkflow(target: Constructor<WorkflowDefinition>, name: st
 }
 
 export function undefineWorkflow(name: string): void {
-  for (let i = DECLARATIONS.length - 1; i >= 0; i--) {
-    if (DECLARATIONS[i].name === name) DECLARATIONS.splice(i, 1);
-  }
+  const kept = DECLARATIONS.filter((d) => d.name !== name);
+  DECLARATIONS.splice(0, DECLARATIONS.length, ...kept);
 }
 
 export function Workflow(name: string, options?: WorkflowOptions): ClassDecorator {

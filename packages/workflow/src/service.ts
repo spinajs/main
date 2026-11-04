@@ -98,7 +98,7 @@ export class DefaultWorkflowService extends WorkflowService {
           CreatedAt: now,
           UpdatedAt: now,
           FinishedAt: null,
-        } as Partial<WorkflowInstanceModel>),
+        }),
       );
       return { id, created: true };
     } catch (err) {
