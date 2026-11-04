@@ -57,21 +57,29 @@ function readMembers(node: ts.ClassDeclaration, ctx: ExtractorContext): Pick<Mod
   return { columns, relations };
 }
 
+const declarations = new WeakMap<ModelEntry, ts.ClassDeclaration>();
+
+/** The class an entry of this run was extracted from. */
+export const modelDeclarationOf = (entry: ModelEntry): ts.ClassDeclaration | undefined => declarations.get(entry);
+
 export const extractModels: Extractor<ModelEntry> = (ctx, file) => {
   const out: ModelEntry[] = [];
   const visit = (node: ts.Node): void => {
     const model = ts.isClassDeclaration(node) && node.name ? findDecorator(node, 'Model') : undefined;
     if (ts.isClassDeclaration(node) && node.name && model) {
       const connection = literalValue(findDecorator(node, 'Connection')?.args[0], ctx) as string | undefined;
-      out.push({
+      const accessResource = literalValue(findDecorator(node, 'AccessResource')?.args[0], ctx);
+      const entry: ModelEntry = {
         id: `${ctx.packageName}:${node.name.text}`,
         className: node.name.text,
         tableName: stringArg(model.args[0], ctx),
         ...(connection ? { connection } : {}),
         ...readMembers(node, ctx),
-        accessResource: !!findDecorator(node, 'AccessResource'),
+        ...(typeof accessResource === 'string' ? { accessResource } : {}),
         source: ctx.sourceRef(node),
-      });
+      };
+      declarations.set(entry, node);
+      out.push(entry);
     }
     ts.forEachChild(node, visit);
   };

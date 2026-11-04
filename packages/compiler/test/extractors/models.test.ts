@@ -10,14 +10,14 @@ describe('extractModels', () => {
 
   it('finds every @Model', () => {
     expect(models.map((m) => [m.className, m.tableName, m.accessResource])).to.deep.equal([
-      ['Tag', 'tags', false],
-      ['PostTag', 'post_tags', false],
-      ['Post', 'posts', true],
+      ['Tag', 'tags', undefined],
+      ['PostTag', 'post_tags', undefined],
+      ['Post', 'posts', 'post'],
     ]);
   });
 
   it('Post columns, relations, connection', () => {
-    expect(post).to.deep.include({ id: 'pkg-basic:Post', connection: 'default', accessResource: true });
+    expect(post).to.deep.include({ id: 'pkg-basic:Post', connection: 'default', accessResource: 'post' });
     expect(post.columns).to.deep.equal([
       { name: 'Id', type: { text: 'number', schema: 'spinajs/pkg-basic/Post_Id' }, primary: true, nullable: false },
       { name: 'Title', type: { text: 'string', schema: 'spinajs/pkg-basic/Post_Title' }, primary: false, nullable: false },
