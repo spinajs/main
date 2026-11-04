@@ -9,6 +9,7 @@ import { DeleteQueryBuilder, ModelBase, Orm, createQuery } from '@spinajs/orm';
 
 import { AccessResource, AuthzResourceAncestor_2026_10_14_00_00_00, AuthzScopeAttribute_2026_10_02_00_00_00, Owner, Parent, Relation } from '@spinajs/authz-orm';
 import { AuthzAudit_2026_10_01_00_00_00 } from '@spinajs/authz-orm/audit';
+import { AuthzChangeLog_2026_11_04_00_00_00 } from '@spinajs/authz-orm/changelog';
 import { TestDb } from './db.js';
 import type { Dialect } from './db.js';
 // authz-rbac's test database helpers import only libraries.
@@ -199,7 +200,7 @@ export function e2eHarness(kind: Dialect): E2eHarness {
         db = await TestDb.open({ postgres: kind === 'postgres', authz: kind });
         activeDb = db;
         const driver = db.driver(kind);
-        for (const m of [new AuthzRbac_2026_10_01_00_00_00(), new AuthzAdminIdempotency_2026_10_02_00_01_00(), new AuthzAbac_2026_10_01_00_00_00(), new AuthzScopeAttribute_2026_10_02_00_00_00(), new AuthzAudit_2026_10_01_00_00_00(), new AuthzResourceAncestor_2026_10_14_00_00_00()]) await m.up(driver);
+        for (const m of [new AuthzRbac_2026_10_01_00_00_00(), new AuthzAdminIdempotency_2026_10_02_00_01_00(), new AuthzAbac_2026_10_01_00_00_00(), new AuthzScopeAttribute_2026_10_02_00_00_00(), new AuthzAudit_2026_10_01_00_00_00(), new AuthzResourceAncestor_2026_10_14_00_00_00(), new AuthzChangeLog_2026_11_04_00_00_00()]) await m.up(driver);
         // The Orm read the table info before the tables existed.
         await db.orm.reloadTableInfo();
         lane = new E2eOrm(db, kind);
