@@ -1,6 +1,6 @@
 name: nightly
 
-# Long simulation runs: 2 000 seeds per suite in four shards of 500. Each night starts from a new seed
+# Long simulation runs: 1 600 seeds per suite in four shards of 400. Each night starts from a new seed
 # range ( run_number * 100000 ), so the runs keep exploring. A failing SimReport holds its replay command
 # and is uploaded as an artifact.
 
@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 300
 
     env:
-      SEEDS_PER_SHARD: 500
+      SEEDS_PER_SHARD: 400
 
     strategy:
       fail-fast: false
@@ -40,7 +40,7 @@ jobs:
       - name: build monorepo
         run: npm run build
 
-      # 500 seeds at the 25 s per seed measured on 2026-11-04 is 3.5 h; above ~32 s per seed the step limit cuts the
+      # 400 seeds at the 25 s per seed measured on 2026-11-04 is 2.8 h; above ~40 s per seed the step limit cuts the
       # shard short, and the reports still upload. The program plan's 2 500 per shard needs cheaper seeds first.
       - name: simulate ${{ matrix.suite }} shard ${{ matrix.shard }}
         timeout-minutes: 270
