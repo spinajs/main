@@ -154,6 +154,7 @@ graphify-out/
 !/docs/http-socket-common/
 !/docs/http-socket-example/
 !/docs/http-swagger/
+!/docs/idempotency/
 !/docs/internal-logger/
 !/docs/intl/
 !/docs/intl-http/

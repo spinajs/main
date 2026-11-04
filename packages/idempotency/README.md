@@ -1,14 +1,14 @@
 # @spinajs/idempotency
 
-The idempotency store contract for SpinaJS. `IdempotencyStore` claims a key as a lease fenced by a token, renews the
-lease, stores the reply on completion and replays it until its TTL passes. `MemoryIdempotencyStore` keeps the keys in
-process memory. `OrmIdempotencyStore` keeps them in the `__idempotency` table on the connection alias `idempotency`
-(`db.Aliases.idempotency`, `default` unless the app maps it elsewhere); import `@spinajs/idempotency` in the app entry
-before the boot, so the Orm sees its model and migration.
+One idempotency service for SpinaJS: a call runs at most once per key while its reply is kept, a repeat replays the
+reply, and a claim whose replica died is taken over when its lease ends. `IdempotencyService.run(scope, key, fn, opts)`
+claims the key as a lease fenced by a token, renews it while `fn` runs, and stores the reply or releases the key.
 
-`IdempotencyLeases` turns a claim into an `IdempotencyHandle`: it renews the lease every third of its length until the
-handle completes, releases or abandons the key, and aborts `handle.signal` with `IdempotencyLeaseLost` once a renewal
-is refused.
+`OrmIdempotencyStore` (the default) keeps the keys in the `__idempotency` table on the connection alias `idempotency`
+(`db.Aliases.idempotency`, `default` unless the app maps it elsewhere); import `@spinajs/idempotency` in the app entry
+before the boot, so the Orm sees its model and migration. `MemoryIdempotencyStore` keeps them in process memory.
 
 `@spinajs/idempotency/testing` exports `describeIdempotencyStoreConformance`, the mocha suite every store
 implementation must pass.
+
+See `docs/idempotency/README.md`.
