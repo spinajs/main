@@ -2024,10 +2024,11 @@ export interface ITransactionContext {
   /** Callbacks queued by `OrmDriver.afterCommit`, run after the outermost commit. Owned by `OrmDriver`. */
   afterCommit?: (() => void | Promise<void>)[];
 }
-/** SQL text with its `?` bindings, built by the `sql` tagged template. */
-export interface SqlFragment {
+/** SQL text with its `?` bindings, built by the `sql` tagged template. `R` is the row the statement returns; only the type checker reads it. */
+export interface SqlFragment<R = unknown> {
   readonly sql: string;
   readonly bindings: readonly unknown[];
+  readonly __row?: R;
 }
 
 /** Options of `deleteChunked`. */
