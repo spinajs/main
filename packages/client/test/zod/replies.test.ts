@@ -33,6 +33,8 @@ const disc = { oneOf: [{ $ref: 'test/A1' }, { $ref: 'test/A2' }], 'x-discriminat
 const user = { type: 'object', properties: { id: { type: 'number' }, email: { type: 'string' } }, required: ['id', 'email'], additionalProperties: false };
 const admin = { type: 'object', properties: { id: { type: 'number' }, email: { type: 'string' }, role: { type: 'string' } }, required: ['id', 'email', 'role'], additionalProperties: false };
 const either = { anyOf: [{ $ref: 'test/User' }, { $ref: 'test/Admin' }] };
+const notX = { type: 'object', properties: { a: { type: 'string' } }, additionalProperties: false, not: { type: 'object', properties: { a: { const: 'x' } }, required: ['a'], additionalProperties: false } };
+const patterned = { type: 'object', patternProperties: { '^x_': { type: 'number' } }, additionalProperties: false };
 const list = { type: 'array', items: { $ref: 'test/Dto' } };
 
 async function fixture(): Promise<Manifest> {
@@ -45,10 +47,12 @@ async function fixture(): Promise<Manifest> {
     replying('oneOf', 'OneOf', 'test/OneOf'),
     replying('disc', 'Disc', 'test/Disc'),
     replying('either', 'Either', 'test/Either'),
+    replying('notX', 'NotX', 'test/NotX'),
+    replying('patterned', 'Patterned', 'test/Patterned'),
     replying('count', 'number'),
     route('remove', 'delete', []),
   ];
-  return manifestWith(await appBasicManifest(), {}, { 'test/Dto': dto, 'test/Inner': inner, 'test/Open': open, 'test/NeedsB': needsB, 'test/Node': node, 'test/List': list, 'test/Strict': strict, 'test/Strict2': strict2, 'test/OneOf': oneOf, 'test/A1': a1, 'test/A2': a2, 'test/Disc': disc, 'test/User': user, 'test/Admin': admin, 'test/Either': either }, routes);
+  return manifestWith(await appBasicManifest(), {}, { 'test/Dto': dto, 'test/Inner': inner, 'test/Open': open, 'test/NeedsB': needsB, 'test/Node': node, 'test/List': list, 'test/Strict': strict, 'test/Strict2': strict2, 'test/OneOf': oneOf, 'test/A1': a1, 'test/A2': a2, 'test/Disc': disc, 'test/User': user, 'test/Admin': admin, 'test/Either': either, 'test/NotX': notX, 'test/Patterned': patterned }, routes);
 }
 
 type Parser = { parse(value: unknown): unknown };
@@ -78,7 +82,7 @@ describe('client.zod.ts reply schemas (replies: true)', function () {
   });
 
   it('keys replySchemas by controller and handler, and leaves out void, scalar and unschematised replies', () => {
-    expect(Object.keys(replies().items).sort()).to.deep.equal(['disc', 'either', 'list', 'needsB', 'oneOf', 'open', 'read', 'tree']);
+    expect(Object.keys(replies().items).sort()).to.deep.equal(['disc', 'either', 'list', 'needsB', 'notX', 'oneOf', 'open', 'patterned', 'read', 'tree']);
   });
 
   it('strips undeclared keys at every depth, where the request schema rejects them', () => {
@@ -108,6 +112,19 @@ describe('client.zod.ts reply schemas (replies: true)', function () {
 
   it('reads a recursive reply through the Reply variant', () => {
     expect(replies().items.tree.parse({ name: 'r', future: 1, child: { name: 'c', future: 2 } })).to.deep.equal({ name: 'r', child: { name: 'c' } });
+  });
+
+  describe('keywords that read a sub-schema', () => {
+    it('a not tests the request schema, so an added key does not make it match', () => {
+      expect(replies().items.notX.parse({ a: 'x', future: 1 })).to.deep.equal({ a: 'x' });
+      expect(() => replies().items.notX.parse({ a: 'x' })).to.throw();
+    });
+
+    it('patternProperties with additionalProperties: false accepts a key a newer server added', () => {
+      expect(() => (module.PatternedSchema as Parser).parse({ x_a: 1, future: 2 })).to.throw();
+      expect(() => replies().items.patterned.parse({ x_a: 1, future: 2 })).to.not.throw();
+      expect(() => replies().items.patterned.parse({ x_a: 'no' })).to.throw();
+    });
   });
 
   describe('unions', () => {
@@ -150,11 +167,11 @@ describe('client.zod.ts reply schemas (replies: true)', function () {
   });
 
   it('reports what it drops from a reply schema that no request schema covers', async () => {
-    const inline = { type: 'object', properties: { a: { type: 'string' } }, minProperties: 1 };
+    const inline = { type: 'object', properties: { a: { type: 'string' } }, appKeyword: 1 };
     const withInline = manifestWith(await appBasicManifest(), {}, { 'test/Inline': inline }, [replying('inline', 'unknown', 'test/Inline')]);
     const codes = (replies: boolean) => emitZod(buildClientModel(withInline), { replies }).diagnostics.map((d) => [d.code, d.schema, d.pointer]);
     expect(codes(false)).to.deep.equal([]);
-    expect(codes(true)).to.deep.equal([['ZOD003', 'test/Inline', '/minProperties']]);
+    expect(codes(true)).to.deep.equal([['ZOD003', 'test/Inline', '/appKeyword']]);
   });
 
   it('zodReplies parses by route, passes unknown routes through and takes its own schemas', () => {
