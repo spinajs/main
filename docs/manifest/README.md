@@ -158,13 +158,13 @@ interface RoutePagination {
 // RouteEntry.pagination?: RoutePagination
 ```
 
-`arg` is the route argument's name. `path` is `[]` for a `@Query()` value argument (`?page=2`) and the property inside the argument otherwise: `{ arg: 'query', path: ['page'] }` for `@Query() query: PageQuery`, which travels as JSON under `query`, or for `@QueryField() query: PageQuery`, the whole query. Without a page parameter, `param` and `firstPage` are absent, and `spinajs doctor` warns with `HTTP007`.
+`arg` is the route argument's `ParamEntry.name`, the name in code, not the wire key: a client reads how the value travels from that entry's `wire`. `path` is `[]` for a `@Query()` value argument (`?page=2`) and the property inside the argument otherwise: `{ arg: 'query', path: ['page'] }` for `@Query() query: PageQuery`, which travels as JSON under `query`, or for `@QueryField() query: PageQuery`, the whole query. Without a page parameter, `param` and `firstPage` are absent, and `spinajs doctor` warns with `HTTP007`.
 
 The reply schema is unchanged by the field: `returnType` still names the derived page schema (`Page_UserDto`). `item` adds a reference to the item schema, so a client can type `items` without unwrapping the page schema. An anonymous item gets a schema of its own, `<Controller>_<handler>_Item`.
 
 A route a controller inherits records its pagination as the subclass sees it, as `returnType` does: a generic `BaseCrud<T>` whose `list` returns `Page<T>` records `item: ArticleDto` on `ArticlesController extends BaseCrud<ArticleDto>`. A subclass that redeclares the route with its own verb decorator takes the pagination of its own return type, or none.
 
-`generate:openapi` and `generate:client` ignore the field. `manifest:diff` reports a route that loses it, or changes `kind`, as breaking (see [Pagination](diff-and-ci.md#pagination)).
+`generate:openapi` and `generate:client` ignore the field. `manifest:diff` reports a route that loses it, changes `kind`, loses `param` or moves `firstPage` as breaking (see [Pagination](diff-and-ci.md#pagination)).
 
 ### Diffing two manifests
 
