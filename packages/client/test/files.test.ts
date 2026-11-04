@@ -35,7 +35,7 @@ describe('generateClientFiles', () => {
   const companions: [Partial<GenerateClientFilesOptions>, string[]][] = [
     [{ zod: true }, ['client.ts']],
     [{ zod: { mini: true } }, ['client.ts']],
-    [{ hooks: ['react-query'] }, ['client.ts', 'client.keys.ts', 'client.react.ts']],
+    [{ hooks: ['react-query'] }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.queries.ts', 'client.react-query.ts']],
     [{ hooks: ['swr'] }, ['client.ts', 'client.keys.ts', 'client.react.ts']],
   ];
   for (const [companion, paths] of companions) {
@@ -61,7 +61,7 @@ describe('generateClientFiles', () => {
 
   it('lists every generator target with whether its emitter has landed', () => {
     expect(GENERATOR_TARGETS).to.deep.equal({
-      'react-query': { available: false },
+      'react-query': { available: true },
       swr: { available: false },
       zod: { available: false },
       models: { available: false },

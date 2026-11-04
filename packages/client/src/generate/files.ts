@@ -1,6 +1,8 @@
 import { emitClient, type GenerateClientOptions } from '../generate.js';
 import { emitKeys } from './hooks/keys.js';
 import { emitReactContext } from './hooks/react.js';
+import { emitQueries, emitReactQuery } from './hooks/react-query.js';
+import { hookRoutes } from './hooks/shared.js';
 import { buildClientModel, type ClientModel } from './model.js';
 
 export interface GeneratedFile {
@@ -37,7 +39,7 @@ export type GeneratorTarget = HooksTarget | 'zod' | 'models' | 'socket-hooks';
 
 /** Whether each target's emitter has landed; the CLI refuses a requested target that is not available. */
 export const GENERATOR_TARGETS: Readonly<Record<GeneratorTarget, { readonly available: boolean }>> = {
-  'react-query': { available: false },
+  'react-query': { available: true },
   swr: { available: false },
   zod: { available: false },
   models: { available: false },
@@ -57,8 +59,16 @@ const hooksShared: Emitter = (model, options) =>
     { path: `${options.basename}.react.ts`, environment: 'client', contents: emitReactContext(model, options) },
   ]);
 
+const reactQuery: Emitter = (model, options) => {
+  const hooks = hookRoutes(model, options);
+  return Promise.resolve([
+    { path: `${options.basename}.queries.ts`, environment: 'server-safe', contents: emitQueries(model, hooks, options) },
+    { path: `${options.basename}.react-query.ts`, environment: 'client', contents: emitReactQuery(model, hooks, options) },
+  ]);
+};
+
 // The targets that write their own file; `models` and `socket-hooks` add to client.ts and the hooks files.
-const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': noFiles, swr: noFiles, zod: noFiles };
+const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': reactQuery, swr: noFiles, zod: noFiles };
 
 export function requestedTargets(options: GenerateClientFilesOptions): GeneratorTarget[] {
   const requested: Record<GeneratorTarget, boolean> = {
