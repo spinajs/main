@@ -2,9 +2,10 @@ import 'mocha';
 import { expect } from 'chai';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import type { Manifest, SocketControllerEntry } from '@spinajs/manifest';
+import { LIFECYCLE_EVENTS } from '@spinajs/http-socket-client';
+import type { Manifest, SocketControllerEntry, TypeRef } from '@spinajs/manifest';
 import { buildClientModel, generateClientFiles, type GenerateClientFilesOptions } from '../src/index.js';
-import { socketHooks } from '../src/generate/hooks/socket.js';
+import { CLIENT_LIFECYCLE_EVENTS, socketHooks } from '../src/generate/hooks/socket.js';
 import { appBasicManifest } from './support/fixture.js';
 import { typecheckFiles } from './support/typecheck.js';
 
@@ -147,6 +148,39 @@ describe('socket hooks', () => {
     const entry = socketController('DocsSocketController', 'docs', ['opened']);
     const model = buildClientModel(withSockets(shadow, { ...entry, events: [{ name: 'opened', payload: { text: 'SocketStreamState', schema: 'x/SocketStreamState' } }] }));
     expect(() => socketHooks(model)).to.throw("generateClientFiles: the type SocketStreamState and the socket hooks' own SocketStreamState would share a name in the socket hooks");
+  });
+
+  it('knows the same lifecycle event names as the socket client', () => {
+    expect([...CLIENT_LIFECYCLE_EVENTS].sort()).to.deep.equal([...LIFECYCLE_EVENTS].sort());
+  });
+
+  for (const event of ['failed', 'state', 'held']) {
+    it(`refuses a server event named '${event}', which SocketClient.on() routes to its lifecycle listeners`, () => {
+      const model = buildClientModel(withSockets(manifest, socketController('DocsSocketController', 'docs', ['opened', event])));
+      expect(() => socketHooks(model)).to.throw(`generateClientFiles: DocsSocketController event '${event}' shares its name with a socket client lifecycle event, so SocketClient.on() would never deliver it; rename the event to generate socket hooks, or generate without socketHooks`);
+    });
+  }
+
+  const nullable: [string, TypeRef, Record<string, unknown>, string][] = [
+    ['a payload type that includes null', { text: 'Page', schema: 'x/Page' }, { 'x/Page': { type: ['object', 'null'], properties: { n: { type: 'number' } } } }, 'Page'],
+    ['a payload referencing a nullable schema', { text: 'Wrapper', schema: 'x/Wrapper' }, { 'x/Wrapper': { anyOf: [{ $ref: 'x/Inner' }, { type: 'string' }] }, 'x/Inner': { type: 'null' } }, 'Wrapper'],
+    ['a payload printed as unknown', { text: 'Mystery' }, {}, 'unknown'],
+  ];
+  for (const [what, payload, schemas, printed] of nullable) {
+    it(`refuses a stream hook for ${what}, because null turns the hook off`, () => {
+      const entry = socketController('DocsSocketController', 'docs', [], ['load']);
+      const commands = entry.commands.map((c) => ({ ...c, payload }));
+      const model = buildClientModel(withSockets({ ...manifest, schemas: { ...manifest.schemas, ...schemas } }, { ...entry, commands }));
+      expect(() => socketHooks(model)).to.throw(`generateClientFiles: DocsSocketController stream 'load' takes a payload typed ${printed}, which allows null, but null turns a stream hook off; give the payload a type without null to generate socket hooks, or generate without socketHooks`);
+    });
+  }
+
+  it('keeps a stream hook for a payload with a nullable property', () => {
+    const entry = socketController('DocsSocketController', 'docs', [], ['load']);
+    const schemas = { ...manifest.schemas, 'x/Query': { type: 'object', properties: { cursor: { type: ['string', 'null'] } } } };
+    const commands = entry.commands.map((c) => ({ ...c, payload: { text: 'Query', schema: 'x/Query' } }));
+    const model = buildClientModel(withSockets({ ...manifest, schemas }, { ...entry, commands }));
+    expect(socketHooks(model).find((c) => c.contract === 'docsContract')?.streams.map((st) => st.hookName)).to.deep.equal(['useDocsLoadStream']);
   });
 
   it('refuses socketHooks when includeSocket leaves the contracts out', async () => {

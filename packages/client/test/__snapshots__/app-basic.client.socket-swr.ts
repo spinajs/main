@@ -6,8 +6,21 @@ import type { ChatSocket } from './app-basic.client.socket.js';
 
 void ('47f7521612321fc90ebb904d6c0db1aaf014b826ecb98bfdf0121c9bc87f8d29' satisfies typeof manifestHash);
 
+// SWR hashes an object in a key by its content, which for a socket client includes its URL and auth headers.
+const socketIds = new WeakMap<object, number>();
+let lastSocketId = 0;
+
+function socketId(socket: object): number {
+  let id = socketIds.get(socket);
+  if (id === undefined) {
+    id = ++lastSocketId;
+    socketIds.set(socket, id);
+  }
+  return id;
+}
+
 export function useChatMessageLatest(socket: ChatSocket): SWRSubscriptionResponse<ChatMessage, never> {
-  const key = ['spinajs', '#socket', 'chat', 'message', socket] as const;
+  const key = ['spinajs', '#socket', 'chat', 'message', socketId(socket)] as const;
   return useSWRSubscription<ChatMessage, never, typeof key>(key, (_key, { next }) =>
     socket.on('message', (payload) => {
       next(null, payload);
