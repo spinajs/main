@@ -1,7 +1,7 @@
-import { publishedManifest } from '@spinajs/manifest';
+import { controllerKey, publishedManifest } from '@spinajs/manifest';
 import type { ControllerEntry, Manifest, SocketControllerEntry } from '@spinajs/manifest';
 import { resolveReferences } from './dto-types.js';
-import { controllerBase, controllerKey, routeModel, type RouteModel } from './routes.js';
+import { controllerBase, routeModel, type RouteModel } from './routes.js';
 import { emitContract } from './socket.js';
 import { TypeContext } from './ts-type.js';
 

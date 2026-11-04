@@ -1,4 +1,4 @@
-import type { ControllerEntry, ParamEntry, ParamWire, RouteEntry } from '@spinajs/manifest';
+import { controllerKey, type ControllerEntry, type ParamEntry, type ParamWire, type RouteEntry } from '@spinajs/manifest';
 import type { RouteDefinition } from '../runtime/http.js';
 import { clientPath, UnsupportedPathError, type ClientPath, type Placeholder } from './path.js';
 import { literal, type TypeContext } from './ts-type.js';
@@ -128,11 +128,6 @@ export function routeModel(controller: ControllerEntry, route: RouteEntry, ctx: 
     ...(route.returnType.schema !== undefined ? { returnSchema: route.returnType.schema } : {}),
     definition: `{ ${parts.join(', ')} }`,
   };
-}
-
-export function controllerKey(controller: ControllerEntry): string {
-  const base = controllerBase(controller);
-  return base.charAt(0).toLowerCase() + base.slice(1);
 }
 
 export function controllerBase(controller: ControllerEntry): string {
