@@ -33,23 +33,44 @@ const inDefaultLib = (symbol: ts.Symbol): boolean => symbol.declarations?.[0]?.g
  * `@spinajs/http`, so a structurally equal type declared elsewhere is not a page. An app alias (`type UserPage =
  * Page<UserDto>`) renames `aliasSymbol` but keeps that declaration, which is why the alias name is not read.
  */
+function itemOf(checker: ts.TypeChecker, type: ts.Type, node: ts.Node): ts.Type | undefined {
+  const items = checker.getPropertyOfType(type, 'items');
+  const itemsType = items && checker.getTypeOfSymbolAtLocation(items, node);
+  return itemsType && checker.isArrayType(itemsType) ? checker.getTypeArguments(itemsType as ts.TypeReference)[0] : undefined;
+}
+
 function declaredPage(checker: ts.TypeChecker, type: ts.Type, node: ts.Node): FoundPage | undefined {
   const declaration = type.getSymbol()?.declarations?.[0];
   if (!declaration || !ts.isTypeLiteralNode(declaration) || !ts.isTypeAliasDeclaration(declaration.parent) || !isDeclaredIn(declaration, HTTP)) return undefined;
   const kind = PAGE_KINDS.get(declaration.parent.name.text);
-  const items = checker.getPropertyOfType(type, 'items');
-  const itemsType = items && checker.getTypeOfSymbolAtLocation(items, node);
-  const item = itemsType && checker.isArrayType(itemsType) ? checker.getTypeArguments(itemsType as ts.TypeReference)[0] : undefined;
+  const item = itemOf(checker, type, node);
   return kind && item ? { kind, item } : undefined;
 }
 
-/** A page, also under `Readonly<â€¦>` or intersected with more fields. */
+const isReference = (type: ts.Type): type is ts.TypeReference => (type.flags & ts.TypeFlags.Object) !== 0 && ((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) !== 0;
+
+/**
+ * An interface that extends a page (`interface UserPage extends Page<UserDto> {}`). The bases of a generic
+ * interface are not instantiated, so the item is read from the type itself.
+ */
+function inheritedPage(checker: ts.TypeChecker, type: ts.Type, node: ts.Node, depth: number): FoundPage | undefined {
+  const declared = isReference(type) ? type.target : type;
+  if (!declared.isClassOrInterface()) return undefined;
+  for (const base of checker.getBaseTypes(declared)) {
+    const found = pageIn(checker, base, node, depth + 1);
+    const item = found && itemOf(checker, type, node);
+    if (found && item) return { kind: found.kind, item };
+  }
+  return undefined;
+}
+
+/** A page, also under `Readonly<…>`, intersected with more fields, or as the base of an interface. */
 function pageIn(checker: ts.TypeChecker, type: ts.Type, node: ts.Node, depth = 0): FoundPage | undefined {
   if (depth > 4) return undefined;
   const readonlyOf = type.aliasSymbol?.name === 'Readonly' && inDefaultLib(type.aliasSymbol) ? type.aliasTypeArguments?.[0] : undefined;
   if (readonlyOf) return pageIn(checker, readonlyOf, node, depth + 1);
   if (type.isIntersection()) return type.types.reduce<FoundPage | undefined>((found, member) => found ?? pageIn(checker, member, node, depth + 1), undefined);
-  return declaredPage(checker, type, node);
+  return declaredPage(checker, type, node) ?? inheritedPage(checker, type, node, depth);
 }
 
 // One reply schema cannot describe several answers, so a union is not unwrapped (`wrapperName`) and not marked either.

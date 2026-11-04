@@ -72,6 +72,10 @@ describe('route pagination', function () {
       expect(shapes('faceted').pagination).to.deep.equal({ kind: 'offset', item: USER, param: { arg: 'page', path: [] }, firstPage: 1 });
     });
 
+    it('marks an interface that extends Page<T>, through its base types', () => {
+      expect(shapes('extended').pagination).to.deep.equal({ kind: 'offset', item: USER, param: { arg: 'page', path: [] }, firstPage: 1 });
+    });
+
     it('reads the first page from exclusiveMinimum, and through a $ref on the page property', () => {
       expect(shapes('exclusive').pagination?.firstPage).to.equal(0);
       expect(shapes('referenced').pagination).to.deep.include({ param: { arg: 'query', path: ['page'] }, firstPage: 0 });

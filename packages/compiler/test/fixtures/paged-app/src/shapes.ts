@@ -5,6 +5,9 @@ import type { UserDto } from './users.js';
 /** An app's own name for a page: TypeScript re-aliases the type, so `aliasSymbol` is `UserPage`, not `Page`. */
 export type UserPage = Page<UserDto>;
 
+/** An interface that extends the http `Page<T>`: its symbol is the interface, so the page is found among its bases. */
+export interface FacetedPage<T> extends Page<T> { facets: string[] }
+
 @BasePath('shapes')
 export class ShapesController {
   @Get()
@@ -19,6 +22,11 @@ export class ShapesController {
 
   @Get()
   public faceted(@Query() page?: number): Promise<Ok<Page<UserDto> & { facets: string[] }>> {
+    return Promise.resolve(new Ok({ items: [], total: page ?? 0, facets: [] }));
+  }
+
+  @Get()
+  public extended(@Query() page?: number): Promise<Ok<FacetedPage<UserDto>>> {
     return Promise.resolve(new Ok({ items: [], total: page ?? 0, facets: [] }));
   }
 
