@@ -176,7 +176,7 @@ How the compiler reads a route:
 - **A union reply is not marked.** `Promise<Ok<Page<UserDto>> | NotFound>` describes several answers, and one reply schema cannot. The build warns with `HTTP007` (repeated by `spinajs doctor`) instead of staying silent, at each controller that serves the route: an abstract base that declares it gets no warning of its own. Return the page type itself and answer the other cases by throwing (`ResourceNotFound` becomes a 404). An optional page, `Promise<Page<UserDto> | undefined>`, is one answer and is marked; `Promise<Ok<Page<UserDto>> | undefined>` is not, because its reply schema is not derived through the wrapper.
 - **The page parameter.** `page` for `Page<T>`, then `cursor` and `after` for `CursorPage<T>`, looked up among the route's query arguments: a `@Query()` value argument of that name, or a property of a `@Query()` JSON object or of `@QueryField()`. The first hit is recorded.
 - **The page size.** `pageSize`, then `perPage` and `limit`, looked up the same way.
-- **The first page.** `page` counts from 1. When its schema says `minimum: 0` (a JSDoc `@minimum 0` on the property, or an explicit `@Query({ type: 'integer', minimum: 0 })`), it counts from 0.
+- **The first page.** `page` counts from 1. When its schema starts at 0, it counts from 0: `minimum: 0` (a JSDoc `@minimum 0` on the property, or an explicit `@Query({ type: 'integer', minimum: 0 })`), or `exclusiveMinimum: -1`, which counts as the integer above it. A `$ref` on the page property is followed to the schema it names.
 
 A route that returns a page but has no page parameter is still marked, and `spinajs doctor` warns about it with `HTTP007`: the generated client cannot page through it.
 
