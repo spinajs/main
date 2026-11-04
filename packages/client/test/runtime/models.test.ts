@@ -63,27 +63,48 @@ describe('fromClass', () => {
     expect(Object.prototype.hasOwnProperty.call(user, 'prototype')).to.equal(false);
   });
 
-  it('never lets a reply key shadow a getter, a method or an Object.prototype member', () => {
-    const wire = JSON.parse('{"id":1,"name":"a","label":"forged","greet":"x","toString":"s","valueOf":1}') as Record<string, unknown>;
-    const user = fromClass(User).decode(wire);
+  it('never lets a reply key shadow a class method or a getter without a setter', () => {
+    const user = fromClass(User).decode({ id: 1, name: 'a', label: 'forged', greet: 'x' });
     expect(user.label).to.equal('#1 a');
     expect(user.greet()).to.equal('hi a');
-    expect(['toString', 'valueOf'].filter((key) => Object.prototype.hasOwnProperty.call(user, key))).to.deep.equal([]);
     expect(Object.keys(user).sort()).to.deep.equal(['id', 'name', 'role']);
   });
 
-  it('does not run a setter or fail on a getter of the class', () => {
+  it('keeps a property named like an Object.prototype member as data', () => {
+    const value = fromClass(User).decode({ id: 1, valueOf: 3, toString: 'x' });
+    expect(['valueOf', 'toString'].map((key) => Object.getOwnPropertyDescriptor(value, key)?.value as unknown)).to.deep.equal([3, 'x']);
+  });
+
+  it('stores a property the class implements as an accessor pair through its setter', () => {
+    class Person {
+      private stored = '';
+      writes = 0;
+      get name(): string {
+        return this.stored;
+      }
+      set name(value: string) {
+        this.writes++;
+        this.stored = value.trim();
+      }
+    }
+    const person = fromClass(Person).decode({ name: ' Ann ' });
+    expect(person.name).to.equal('Ann');
+    expect(person.writes).to.equal(1);
+    expect(Object.prototype.hasOwnProperty.call(person, 'name')).to.equal(false);
+  });
+
+  it('keeps a getter without a setter and passes a setter-only key to its setter', () => {
     class Guarded {
-      written = false;
-      set secret(_value: string) {
-        this.written = true;
+      written = '';
+      set secret(value: string) {
+        this.written = value;
       }
       get fixed(): number {
         return 1;
       }
     }
     const value = fromClass(Guarded).decode({ secret: 's', fixed: 2 });
-    expect(value.written).to.equal(false);
+    expect(value.written).to.equal('s');
     expect(value.fixed).to.equal(1);
   });
 });
@@ -146,11 +167,12 @@ describe('createModelClient', () => {
   });
 
   it('drops undeclared reply fields before the model sees them', async () => {
-    const { fetch } = server({ ...wireArticle, isFresh: false, author: { ...wireArticle.author, label: 'forged', greet: 'x' } });
+    const { fetch } = server({ ...wireArticle, isFresh: false, author: { ...wireArticle.author, label: 'forged', greet: 'x', toString: 's', valueOf: 1 } });
     const article = await api({ fetch, formats: { 'date-time': dateCodec }, models: { ArticleDto: fromClass(Article), UserDto: fromClass(User) } }).articles.read(1);
     expect(article.isFresh).to.equal(true);
     expect(article.author?.label).to.equal('#7 Ann');
     expect(article.author?.greet()).to.equal('hi Ann');
+    expect(Object.keys(article.author ?? {}).sort()).to.deep.equal(['id', 'name', 'role']);
   });
 
   it('decodes every item of an array reply', async () => {

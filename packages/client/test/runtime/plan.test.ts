@@ -63,6 +63,14 @@ describe('conversion plans', () => {
       expect(Object.keys(seen[0])).to.deep.equal(['id', 'at']);
     });
 
+    it('does not hand a model a declared key the reply lacks, even one Object.prototype has', () => {
+      const plans: ConversionPlans = { Q: { kind: 'object', closed: true, props: { id: null, toString: null } } };
+      const seen: Record<string, unknown>[] = [];
+      const models = { Q: { decode: (value: Record<string, unknown>) => (seen.push(value), value) } };
+      decodePlan({ kind: 'ref', name: 'Q' }, { id: 1 }, context(plans, models));
+      expect(Object.prototype.hasOwnProperty.call(seen[0], 'toString')).to.equal(false);
+    });
+
     it('hands a model every own key of an open plan', () => {
       const plans: ConversionPlans = { Bag: { kind: 'object', closed: false, props: { at } } };
       const seen: Record<string, unknown>[] = [];

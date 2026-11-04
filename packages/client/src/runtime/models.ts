@@ -23,17 +23,30 @@ export interface ModelClientOptions extends ClientOptions {
 
 const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
-const shadowsMember = (instance: object, key: string): boolean => key in instance && !Object.prototype.hasOwnProperty.call(instance, key);
+/** The class's own member under `key`, found below `Object.prototype`, whose members a reply value may shadow. */
+function classMember(instance: object, key: string): PropertyDescriptor | undefined {
+  for (let proto: unknown = Object.getPrototypeOf(instance); proto && proto !== Object.prototype; proto = Object.getPrototypeOf(proto)) {
+    const member = Object.getOwnPropertyDescriptor(proto, key);
+    if (member) return member;
+  }
+  return undefined;
+}
+
+function copyKey(instance: object, key: string, value: unknown): void {
+  const member = Object.prototype.hasOwnProperty.call(instance, key) ? undefined : classMember(instance, key);
+  if (member?.set) (instance as Record<string, unknown>)[key] = value;
+  else if (!member || (!member.get && typeof member.value !== 'function')) define(instance, key, value);
+}
 
 /**
- * Copies the decoded keys onto `new cls()`, skipping any key that would shadow a getter, method or `Object.prototype`
- * member. `Object.assign` would also run the `__proto__` setter for a JSON `"__proto__"` key.
+ * Copies the decoded keys onto `new cls()`: through the class's setter where it has one, never over a method or a
+ * getter without a setter. `Object.assign` would also run the `__proto__` setter for a JSON `"__proto__"` key.
  */
 export function fromClass<T extends object>(cls: new () => T): ModelEntry<T> {
   return {
     decode(value) {
       const instance = new cls();
-      for (const key of Object.keys(value)) if (!UNSAFE_KEYS.has(key) && !shadowsMember(instance, key)) define(instance, key, value[key]);
+      for (const key of Object.keys(value)) if (!UNSAFE_KEYS.has(key)) copyKey(instance, key, value[key]);
       return instance;
     },
   };

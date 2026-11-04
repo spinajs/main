@@ -116,7 +116,13 @@ function walk(walker: Walker, plan: ConversionPlan | null | undefined, value: un
 
 /** A model gets only the declared keys of a closed plan, so an undeclared reply field never reaches the instance. */
 function declaredOnly(plan: ConversionPlan | undefined, value: Bag): Bag {
-  return plan?.kind === 'object' && plan.closed ? mapEntries(value, Object.keys(plan.props), (_key, item) => item) : value;
+  if (plan?.kind !== 'object' || !plan.closed) return value;
+  const out: Bag = {};
+  for (const key of Object.keys(plan.props)) {
+    const item = own(value, key);
+    if (item !== undefined) define(out, key, item);
+  }
+  return out;
 }
 
 const DECODE: Walker = {
