@@ -61,10 +61,19 @@ export function taskMethodSchedule<D extends TaskMethodDeclaration>(
 }
 
 const methods = new Map<string, Constructor<ScheduledTask>[]>();
+const stacking = new WeakSet<Constructor<ScheduledTask>>();
 
-/** Called by the `@Task` shim, so config entries can name a `@Task` method in `task`. Returns an undo. */
-export function registerTaskMethod(taskName: string, adapter: Constructor<ScheduledTask>): () => void {
+/**
+ * Called by the `@Task` shim, so config entries can name a `@Task` method in `task`. `stacking` is the
+ * declaration's `taskStacking`: its inline calls take no schedule lease. Returns an undo.
+ */
+export function registerTaskMethod(
+  taskName: string,
+  adapter: Constructor<ScheduledTask>,
+  opts: { stacking?: boolean } = {},
+): () => void {
   methods.set(taskName, [...(methods.get(taskName) ?? []), adapter]);
+  if (opts.stacking) stacking.add(adapter);
   return () => {
     const left = (methods.get(taskName) ?? []).filter((a) => a !== adapter);
     if (left.length) methods.set(taskName, left);
@@ -73,6 +82,11 @@ export function registerTaskMethod(taskName: string, adapter: Constructor<Schedu
 }
 
 export const findTaskMethods: TaskMethodLookup = (taskName) => [...(methods.get(taskName) ?? [])];
+
+/** Read from the declaration, so a config entry of the same name cannot change it. */
+export function isStackingTaskMethod(target: Constructor<ScheduledTask>): boolean {
+  return stacking.has(target);
+}
 
 export function isTaskMethodAdapter(target: Constructor<ScheduledTask>): boolean {
   for (const adapters of methods.values()) if (adapters.includes(target)) return true;

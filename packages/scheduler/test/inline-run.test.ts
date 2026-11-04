@@ -5,6 +5,7 @@ import sinon from 'sinon';
 import { DI } from '@spinajs/di';
 import {
   currentRunContext,
+  defaultReplicaId,
   defineSchedule,
   FakeClock,
   registerTaskMethod,
@@ -12,6 +13,7 @@ import {
   RunAttemptModel,
   RunConflict,
   RunModel,
+  RunStepModel,
   ScheduledTask,
   ScheduleModel,
   ScheduleNotFound,
@@ -20,16 +22,16 @@ import {
   undefineSchedule,
 } from '../src/index.js';
 import { bootTestEnv } from './support/env.js';
-import { deferred, driveUntil, journal, untilAborted } from './support/fixtures.js';
+import { deferred, driveUntil, journal, queuedRun, untilAborted } from './support/fixtures.js';
 
 chai.use(chaiAsPromised);
 
 class InlineBody extends ScheduledTask {}
 class LateBody extends ScheduledTask {}
 class StackingTaskAdapter extends ScheduledTask {}
-const unregisterAdapter = registerTaskMethod('inline-stacking', StackingTaskAdapter);
+const unregisterAdapter = registerTaskMethod('inline-stacking', StackingTaskAdapter, { stacking: true });
 
-const NAMES = ['inline-skip', 'inline-queue', 'inline-retry', 'inline-stacking', 'inline-late'];
+const NAMES = ['inline-skip', 'inline-queue', 'inline-retry', 'inline-stacking', 'inline-all', 'inline-late'];
 const crash = () => Object.assign(new Error('process died'), { crash: true });
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
 
@@ -41,7 +43,9 @@ describe('SchedulerService.runInline', () => {
     defineSchedule(InlineBody, 'inline-skip', { manual: true });
     defineSchedule(InlineBody, 'inline-queue', { manual: true, overlap: 'queue' });
     defineSchedule(InlineBody, 'inline-retry', { manual: true, retry: { attempts: 3 } });
-    defineSchedule(StackingTaskAdapter, 'inline-stacking', { manual: true, overlap: 'queue' });
+    // overlap 'skip' here: stacking comes from the @Task registration, not from the definition
+    defineSchedule(StackingTaskAdapter, 'inline-stacking', { manual: true });
+    defineSchedule(InlineBody, 'inline-all', { manual: true, runOn: 'all', overlap: 'skip' });
     ({ clock } = await bootTestEnv({ now: '2026-01-05T10:00:00Z' }));
     service = await DI.resolve(SchedulerService);
   });
@@ -135,6 +139,32 @@ describe('SchedulerService.runInline', () => {
     expect((await runsOf('inline-stacking')).map((r) => r.Status)).to.deep.eq(['succeeded', 'succeeded', 'succeeded']);
   });
 
+  it("runs one of two concurrent calls of a runOn: 'all' schedule on this replica", async () => {
+    const gate = deferred();
+    const calls = [1, 2].map((n) =>
+      service.runInline('inline-all', () => gate.promise.then(() => n)).catch((e: unknown) => e),
+    );
+    gate.resolve();
+    const results = await Promise.all(calls);
+
+    expect(results.filter((r) => r instanceof ScheduleOverlap)).to.have.length(1);
+    expect(results.filter((r) => typeof r === 'number')).to.have.length(1);
+    expect((await runsOf('inline-all')).map((r) => r.Status)).to.deep.eq(['succeeded']);
+  });
+
+  it("refuses a runOn: 'all' call while this replica holds a live run of the schedule", async () => {
+    const held = await queuedRun('inline-all', clock.now(), {
+      Status: 'running',
+      Forced: true,
+      LeaseOwner: defaultReplicaId(),
+      LeaseUntil: clock.now() + 60_000,
+    });
+
+    const err = (await service.runInline('inline-all', () => Promise.resolve(1)).catch((e: unknown) => e)) as ScheduleOverlap;
+    expect(err).to.be.instanceOf(ScheduleOverlap);
+    expect(err.runId).to.eq(held.Id);
+  });
+
   it('rejects with RunAbortedError when the run is cancelled', async () => {
     const call = service.runInline('inline-skip', (ctx) => untilAborted(ctx.signal));
     await untilRuns('inline-skip', 1);
@@ -167,6 +197,25 @@ describe('SchedulerService.runInline', () => {
     expect(run.LeaseOwner).to.be.a('string');
     expect((await scheduleRow('inline-skip')).LeaseOwner).to.eq(run.LeaseOwner);
     expect((await journal(run.Id)).map((e) => e.type === 'status' && e.status)).to.deep.eq(['running']);
+  });
+
+  it('writes nothing for a crash inside a step: no step-end, the step is not failed', async () => {
+    const dead = crash();
+    await expect(
+      service.runInline('inline-skip', (ctx) => ctx.step('work', () => Promise.reject(dead))),
+    ).to.be.rejectedWith(dead);
+
+    const run = await onlyRun('inline-skip');
+    expect((await RunStepModel.where('RunId', run.Id)).map((s) => s.Status)).to.deep.eq(['running']);
+    expect((await journal(run.Id)).map((e) => e.type)).to.not.include('step-end');
+  });
+
+  it('keeps the schedule lease when the executor itself crashes', async () => {
+    const dead = crash();
+    sinon.stub(RunAttemptModel, 'create').rejects(dead);
+
+    await expect(service.runInline('inline-skip', () => Promise.resolve(1))).to.be.rejectedWith(dead);
+    expect((await scheduleRow('inline-skip')).LeaseOwner).to.eq(defaultReplicaId());
   });
 
   it('rejects with the executor failure itself and releases the schedule lease', async () => {

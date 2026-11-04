@@ -36,6 +36,9 @@ export class ScheduleRegistry extends AsyncService {
 
   protected taskMethods: TaskMethodLookup = findTaskMethods;
 
+  protected warnShadowed = (name: string, kept: string, dropped: string): void =>
+    this.Log.warn(`schedule ${name}: @Schedule ${kept} replaces the schedule of @Task ${dropped} with the same name`);
+
   public async resolve(): Promise<void> {
     await this.ScheduleFiles;
     this.config = resolveSchedulerConfig(this.RawConfig);
@@ -60,8 +63,7 @@ export class ScheduleRegistry extends AsyncService {
       tickMs: this.config.tick,
       findTaskMethods: this.taskMethods,
       validateParamsSchema: this.validateParamsSchema,
-      onShadowed: (name, kept, dropped) =>
-        this.Log.warn(`schedule ${name}: @Schedule ${kept} replaces the schedule of @Task ${dropped} with the same name`),
+      onShadowed: this.warnShadowed,
     });
 
     this.definitions = new Map(defs.map((d) => [d.name, d]));
@@ -108,6 +110,7 @@ export class ScheduleRegistry extends AsyncService {
       tickMs: this.config.tick,
       findTaskMethods: this.taskMethods,
       validateParamsSchema: this.validateParamsSchema,
+      onShadowed: this.warnShadowed,
     });
     this.definitions.set(name, def);
     return def;

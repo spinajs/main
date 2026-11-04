@@ -6,7 +6,7 @@ import type { AbortReason, RunStatus, TriggeredBy } from '../contract.js';
 import type { ScheduleDefinition } from '../interfaces.js';
 import { RunModel } from '../models/RunModel.js';
 import { LeaseStore } from '../store/LeaseStore.js';
-import { isTaskMethodAdapter } from '../tasks/task-methods.js';
+import { isStackingTaskMethod } from '../tasks/task-methods.js';
 import { withRunContext } from './current.js';
 import type { ExecutionOutcome } from './outcome.js';
 import type { RunContext } from './RunContext.js';
@@ -85,6 +85,8 @@ export class InlineRunner {
 
   protected Leases = DI.resolve(LeaseStore);
   protected Executor: InlineRunExecutor | undefined;
+  /** Inline runs of `runOn: 'all'` schedules in this process, which take no schedule lease. */
+  protected local = new Set<string>();
 
   protected executor(): InlineRunExecutor {
     this.Executor ??= DI.resolve(InlineRunExecutor, [this.Leases]);
@@ -94,25 +96,46 @@ export class InlineRunner {
   public async run<T>(def: ScheduleDefinition, body: InlineBody<T>, opts: InlineRunOptions = {}): Promise<T> {
     // the caller sees the failure: an automatic retry would run the schedule's task, not this body
     const inlineDef: ScheduleDefinition = { ...def, retry: undefined, emit: undefined };
-    const run = await this.claim(inlineDef, opts);
-
-    let end: InlineEnd | undefined;
+    const local = def.runOn === 'all' && !isStackingTaskMethod(def.task);
+    if (local) this.enterLocal(def.name);
     try {
-      end = await this.executor().runBody(run, inlineDef, body);
-    } catch (err) {
-      if (!run.Forced) await this.Leases.releaseScheduleLease(def.name, this.Clock.now()).catch(() => false);
-      throw err;
+      const run = await this.claim(inlineDef, opts, local);
+      let end: InlineEnd | undefined;
+      try {
+        end = await this.executor().runBody(run, inlineDef, body);
+      } catch (err) {
+        if (!run.Forced && !isCrashError(err)) {
+          await this.Leases.releaseScheduleLease(def.name, this.Clock.now()).catch(() => false);
+        }
+        throw err;
+      }
+      return resultOf<T>(end);
+    } finally {
+      if (local) this.leaveLocal(def.name);
     }
-
-    return resultOf<T>(end);
   }
 
-  protected async claim(def: ScheduleDefinition, opts: InlineRunOptions): Promise<RunModel> {
+  /** Synchronous, so two calls in this process cannot both pass before either has a run row. */
+  protected enterLocal(schedule: string): void {
+    if (this.local.has(schedule)) throw new ScheduleOverlap(schedule, null);
+    this.local.add(schedule);
+  }
+
+  protected leaveLocal(schedule: string): void {
+    this.local.delete(schedule);
+  }
+
+  /** `local`: a `runOn: 'all'` run, which must not overlap a run of the schedule this replica holds (as the loop's). */
+  protected async claim(def: ScheduleDefinition, opts: InlineRunOptions, local: boolean): Promise<RunModel> {
     const now = await this.Clock.sync();
-    // a @Task with taskStacking (overlap 'queue') never waited for its own earlier calls
-    const forced = def.runOn === 'all' || (def.overlap === 'queue' && isTaskMethodAdapter(def.task));
+    // a @Task with taskStacking never waited for its own earlier calls
+    const forced = local || isStackingTaskMethod(def.task);
     const lease = forced ? null : await this.Leases.takeScheduleLease(def.name, now);
     if (lease === false) throw new ScheduleOverlap(def.name, await this.runningRunId(def.name));
+    if (local) {
+      const mine = await this.heldRunId(def.name, now);
+      if (mine) throw new ScheduleOverlap(def.name, mine);
+    }
 
     try {
       return await RunModel.create({
@@ -139,9 +162,18 @@ export class InlineRunner {
         ResumeFrom: null,
       });
     } catch (err) {
-      if (lease === 'free') await this.Leases.releaseScheduleLease(def.name, now);
+      if (lease === 'free' && !isCrashError(err)) await this.Leases.releaseScheduleLease(def.name, now);
       throw err;
     }
+  }
+
+  protected async heldRunId(schedule: string, now: number): Promise<string | null> {
+    const r = await RunModel.where('Schedule', schedule)
+      .where('Status', 'running')
+      .where('LeaseOwner', this.Leases.ReplicaId)
+      .where('LeaseUntil', '>', now)
+      .first();
+    return r?.Id ?? null;
   }
 
   protected async runningRunId(schedule: string): Promise<string | null> {
