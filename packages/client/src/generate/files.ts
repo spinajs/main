@@ -63,7 +63,10 @@ const mocksFile: Emitter = (model, options) => {
   return Promise.resolve([{ path: `${options.basename}.mocks.ts`, contents, diagnostics }]);
 };
 
-const mswFile: Emitter = (model, options) => Promise.resolve([{ path: `${options.basename}.msw.ts`, contents: emitMsw(model, `./${options.basename}.js`, `./${options.basename}.mocks.js`).contents }]);
+const mswFile: Emitter = (model, options) => {
+  const { contents, diagnostics } = emitMsw(model, `./${options.basename}.js`, `./${options.basename}.mocks.js`);
+  return Promise.resolve([{ path: `${options.basename}.msw.ts`, contents, diagnostics }]);
+};
 
 // The targets that write their own file; `models` and `socket-hooks` add to client.ts and the hooks files.
 const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': noFiles, swr: noFiles, zod: zodFile, mocks: mocksFile, msw: mswFile };

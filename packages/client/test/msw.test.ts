@@ -272,6 +272,23 @@ describe('client.msw.ts', function () {
     });
   });
 
+  describe('a path parameter name MSW cannot read', () => {
+    const make = (handler: string, fullPath: string) => ({ ...route(handler, 'get', []), fullPath, returnType: { text: 'string' } });
+
+    it('skips that route with MSW001 naming the controller, handler and path, and keeps the rest', async () => {
+      const manifest = manifestWith(await appBasicManifest(), {}, {}, [make('dollar', '/items/dollar/:$id'), make('plain', '/items/plain')]);
+      const files = await generateClientFiles({ manifest, mocks: true, msw: true });
+      const msw = files[2];
+      expect(msw.diagnostics).to.have.length(1);
+      expect(msw.diagnostics?.[0]).to.include({ code: 'MSW001', severity: 'warning' });
+      expect(msw.diagnostics?.[0].message).to.include('ItemsController').and.include('dollar').and.include('/items/dollar/:$id');
+      expect(msw.contents).to.not.include('dollar');
+      expect(msw.contents).to.include('plain');
+      expect(files[0].contents).to.include('dollar');
+      expect(typecheckFiles(byPath(files))).to.deep.equal([]);
+    });
+  });
+
   describe('overlapping routes of one controller', () => {
     const baseUrl = 'http://127.0.0.1:59321';
     const make = (handler: string, fullPath: string) => ({ ...route(handler, 'get', []), fullPath, returnType: { text: 'string' } });
