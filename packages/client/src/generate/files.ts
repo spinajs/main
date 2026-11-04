@@ -14,6 +14,8 @@ export interface GeneratedFile {
 export interface ZodOptions {
   mini?: boolean;
   unsupported?: 'warn' | 'error';
+  /** Adds lenient reply schemas, `replySchemas` and `zodReplies`. */
+  replies?: boolean;
 }
 
 export interface GenerateClientFilesOptions extends GenerateClientOptions {

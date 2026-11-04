@@ -1,12 +1,11 @@
 import 'mocha';
 import { expect } from 'chai';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { analyzePackage } from '@spinajs/compiler';
 import { mergeFragments, type Manifest } from '@spinajs/manifest';
 import { buildClientModel, emitZod, generateClient, generateClientFiles, type GeneratedFile } from '../../src/index.js';
 import { appBasicManifest } from '../support/fixture.js';
+import { matchesSnapshot as compareSnapshot } from '../support/snapshot.js';
 import { typecheckFiles } from '../support/typecheck.js';
 import { clearLoaded, loadZod, manifestWith, param, route, schemaIn } from '../support/zod.js';
 
@@ -19,14 +18,7 @@ async function corpusManifest(): Promise<Manifest> {
   return mergeFragments(fragment, [], { app: { name: 'schema-corpus', version: '0.1.0', root: '.', outDir: 'lib' }, packages: [], generatedAt: '' });
 }
 
-function matchesSnapshot(name: string, contents: string): void {
-  const path = snapshot(name);
-  if (!existsSync(path)) {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, contents);
-  }
-  expect(contents).to.equal(readFileSync(path, 'utf8'));
-}
+const matchesSnapshot = (name: string, contents: string): void => compareSnapshot(snapshot(name), contents);
 
 const byPath = (files: GeneratedFile[]): Record<string, string> => Object.fromEntries(files.map((f) => [f.path, f.contents]));
 

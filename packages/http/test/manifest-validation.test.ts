@@ -102,6 +102,28 @@ describe('request validation from the manifest', function () {
       expect(res.text).to.not.include('hunter2-secret');
     });
 
+    describe('which argument an error belongs to', () => {
+      const located = (res: { body: unknown }) => (res.body as { errors: Array<Record<string, unknown>> }).errors.map(({ instancePath, in: where, name }) => ({ instancePath, in: where, ...(name !== undefined ? { name } : {}) }));
+
+      it('names the location only for a whole body', async () => {
+        expect(located(await post('create', { name: 'a', count: 'x' }))).to.deep.equal([{ instancePath: '/count', in: 'body' }]);
+      });
+
+      it('names the argument of two body arguments, whose errors are relative to each', async () => {
+        expect(located(await post('pair', { first: { name: 'a' }, second: { count: 'x' } }))).to.deep.equal([{ instancePath: '/count', in: 'body', name: 'second' }]);
+        expect(located(await post('pair', { first: { name: 1 }, second: { count: 1 } }))).to.deep.equal([{ instancePath: '/name', in: 'body', name: 'first' }]);
+      });
+
+      it('names the location only for body fields, which the manifest records as a whole body', async () => {
+        expect(located(await post('assignFields', { name: 'a', count: 'x' }))).to.deep.equal([{ instancePath: '/count', in: 'body' }]);
+      });
+
+      it('names a single query argument, and only the location of a whole query', async () => {
+        expect(located(await get('sorted?sort=up'))).to.deep.equal([{ instancePath: '', in: 'query', name: 'sort' }]);
+        expect(located(await get('search?page=abc'))).to.deep.equal([{ instancePath: '/page', in: 'query' }]);
+      });
+    });
+
     it('does not coerce a JSON body', async () => {
       expect((await post('create', { name: 'a', count: '2' })).status).to.eq(400);
       expect((await post('create', { name: 'a', count: 2, tags: [1] })).status).to.eq(400);
