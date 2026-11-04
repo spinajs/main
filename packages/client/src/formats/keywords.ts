@@ -1,4 +1,4 @@
-/*
+/*!
  * Ports of the Ajv 8 checks for minLength/maxLength (runtime/ucs2length.ts), multipleOf, uniqueItems, and of
  * fast-deep-equal 3.1.3, which Ajv uses for const, enum and uniqueItems.
  * ajv: MIT License, Copyright (c) 2015-2021 Evgeny Poberezkin. fast-deep-equal: MIT License, Copyright (c) 2017
@@ -54,8 +54,14 @@ function objectsEqual(a: object, b: object): boolean {
   if (a.toString !== Object.prototype.toString) return (a as { toString(): string }).toString() === (b as { toString(): string }).toString();
   const keys = Object.keys(a);
   if (keys.length !== Object.keys(b).length) return false;
-  if (!keys.every((key) => Object.prototype.hasOwnProperty.call(b, key))) return false;
-  return keys.every((key) => ajvEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]));
+  // From the last key, as fast-deep-equal: the order decides whether a nested own `valueOf` throws or a mismatch answers first.
+  for (let i = keys.length; i-- !== 0; ) {
+    if (!Object.prototype.hasOwnProperty.call(b, keys[i])) return false;
+  }
+  for (let i = keys.length; i-- !== 0; ) {
+    if (!ajvEqual((a as Record<string, unknown>)[keys[i]], (b as Record<string, unknown>)[keys[i]])) return false;
+  }
+  return true;
 }
 
 /**
@@ -93,8 +99,10 @@ function uniqueByEqual(items: readonly unknown[]): boolean {
 }
 
 /**
- * `uniqueItems: true`. Pass `itemTypes`, the `type` of the array's `items` schema, to take Ajv's hashing path for
- * scalar items, which differs from deep equality for repeated '__proto__' strings.
+ * `uniqueItems: true`. `itemTypes` is what Ajv's `getSchemaTypes(parentSchema.items)` reads: the literal `type` of
+ * the `items` node, with `null` added for `nullable: true`. When `items` is absent, a tuple array, or has no `type`
+ * of its own (`$ref`, `anyOf`), Ajv reads `[]`: pass nothing. With only scalar types Ajv hashes the items, which
+ * lets repeated '__proto__' strings through where deep equality would not.
  */
 export function ajvUniqueItems(items: readonly unknown[], itemTypes: readonly JsonType[] = []): boolean {
   if (items.length <= 1) return true;

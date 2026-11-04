@@ -6,7 +6,9 @@ import { describeInput, serverAjv } from './server-ajv.js';
 
 const LENGTH_CORPUS = ['', 'a', 'ab', 'é', 'é', '😀', '😀😀', '\ud83d', '\ude00', '\ude00\ud83d', 'a\ud83d', '👨‍👩‍👧', '🇵🇱', 'x😀y'];
 
-const JSON_CORPUS: unknown[] = [null, true, false, 0, -0, 1, 1.5, '', '0', 'a', [], [0], [-0], [1, 2], [2, 1], {}, { a: 1 }, { a: 1, b: 2 }, { b: 2, a: 1 }, { a: [1, { b: null }] }, { a: undefined }, [[]], [{}], { '': 0 }, { valueOf: 1 }, { toString: false }];
+const JSON_CORPUS: unknown[] = [null, true, false, 0, -0, 1, 1.5, '', '0', 'a', [], [0], [-0], [1, 2], [2, 1], {}, { a: 1 }, { a: 1, b: 2 }, { b: 2, a: 1 }, { a: [1, { b: null }] }, { a: undefined }, [[]], [{}], { '': 0 }, { valueOf: 1 }, { toString: false },
+  // fast-deep-equal walks keys from the end: the key order decides whether it throws or answers false first.
+  { x: { valueOf: 1 }, y: 1 }, { x: { a: 1 }, y: 2 }, { y: 1, x: { valueOf: 1 } }, { y: 2, x: { a: 1 } }];
 
 /** A verdict, or 'throws': fast-deep-equal, and so Ajv, throws on data with an own non-function valueOf or toString. */
 function outcome(run: () => boolean): boolean | 'throws' {
@@ -17,11 +19,23 @@ function outcome(run: () => boolean): boolean | 'throws' {
   }
 }
 
-function json(): fc.Arbitrary<unknown> {
-  return fc.oneof(fc.constantFrom(...JSON_CORPUS), fc.jsonValue({ maxDepth: 3 }));
+/** Objects that mix own `valueOf`/`toString` keys with other keys, at any depth. */
+function trickyObjects(): fc.Arbitrary<unknown> {
+  const key = fc.constantFrom('valueOf', 'toString', 'a', 'b', 'x');
+  const leaf = fc.constantFrom<unknown>(1, 2, false, null, 'a');
+  return fc.letrec<{ node: unknown }>((tie) => ({
+    node: fc.oneof({ depthSize: 'small', withCrossShrink: true }, leaf, fc.dictionary(key, tie('node'), { maxKeys: 3, noNullPrototype: true }), fc.array(tie('node'), { maxLength: 2 })),
+  })).node;
 }
 
-describe('@spinajs/client/formats: keyword helpers', () => {
+function json(): fc.Arbitrary<unknown> {
+  return fc.oneof(fc.constantFrom(...JSON_CORPUS), fc.jsonValue({ maxDepth: 3 }), trickyObjects());
+}
+
+describe('@spinajs/client/formats: keyword helpers', function () {
+  // fast-check runs thousands of cases; mocha's 2 s default under --no-config is too short on a loaded machine.
+  this.timeout(60000);
+
   const ajv = serverAjv(false);
   const strings = fc.oneof(fc.constantFrom(...LENGTH_CORPUS), fc.string({ unit: 'binary', maxLength: 8 }), fc.string({ unit: 'grapheme', maxLength: 6 }));
 
@@ -104,7 +118,7 @@ describe('@spinajs/client/formats: keyword helpers', () => {
   describe('ajvUniqueItems', () => {
     const ITEM_TYPES: (JsonType[] | undefined)[] = [undefined, ['string'], ['number'], ['integer'], ['boolean'], ['null'], ['string', 'null'], ['number', 'string'], ['integer', 'boolean', 'null'], ['object'], ['array'], ['string', 'object']];
     const ARRAYS: unknown[][] = [[], [1], [1, 1], [1, '1'], ['1', '1'], [0, -0], [null, 'null'], [null, null], [true, 'true'], [true, true], [{ a: 1 }, { a: 1 }], [[1], [1]], [{ a: 1 }, { a: 2 }], ['__proto__', '__proto__'], ['constructor', 'constructor'], ['toString', 'toString'], [1.5, 1.5], ['a', 'b', 'a'], [{ a: 1 }, { valueOf: 1 }], [{ valueOf: 1 }, { a: 1 }]];
-    const items = fc.oneof(fc.constantFrom(...ARRAYS), fc.array(fc.oneof(fc.constantFrom(null, true, false, 0, 1, '', 'a', '1', '__proto__'), fc.integer({ min: -2, max: 2 }), fc.jsonValue({ maxDepth: 1 })), { maxLength: 6 }));
+    const items = fc.oneof(fc.constantFrom(...ARRAYS), fc.array(fc.oneof(fc.constantFrom(null, true, false, 0, 1, '', 'a', '1', '__proto__'), fc.integer({ min: -2, max: 2 }), fc.jsonValue({ maxDepth: 1 }), trickyObjects()), { maxLength: 6 }));
 
     for (const itemTypes of ITEM_TYPES) {
       it(`answers as uniqueItems with items of type ${JSON.stringify(itemTypes ?? 'any')}`, () => {
