@@ -58,7 +58,11 @@ The contract:
   work belongs in a queue job or another workflow instance.
 - To resume a pass after a crash or a backoff, the engine replays `run()` to collect the compensations: operations with
   a recorded outcome replay, every other one stays pending, and a marker without a recorded value throws
-  `WorkflowSuspended`. Code outside steps runs again, as on any replay, and only the steps the replay reaches register.
+  `WorkflowSuspended`. Code outside steps runs again, as on any replay. The pass undoes all of the journaled steps that
+  have a `compensate` or none of them: a replay that cannot reach one again within `max(leaseTtl, shutdownGrace)` ends
+  the instance `compensation-failed`.
+- A compensation running longer than `workflow.compensationTimeout` (default 3 x `leaseTtl`) has its signal aborted and
+  is retried; the engine does not wait for a body that ignores the signal.
 - The instance ends `compensated` (`cancelled` after a cancel) with the original `Reason` and `Error`, or `failed` with
   `Reason: 'compensation-failed'` and the original failure in `Error.details`; `retry()` resumes the pass. A run that
   failed with `non-determinism` is not compensated. `cancel()` compensates only with `workflow.compensateOnCancel`.
