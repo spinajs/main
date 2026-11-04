@@ -43,6 +43,7 @@
   "homepage": "https://github.com/spinajs/log#readme",
   "dependencies": {
     "@colors/colors": "^1.5.0",
+    "@opentelemetry/api": "^1.9.0",
     "@spinajs/configuration": "3.0.23",
     "@spinajs/di": "3.0.23",
     "@spinajs/exceptions": "3.0.23",
@@ -58,6 +59,7 @@
     "node-schedule": "^2.1.1"
   },
   "devDependencies": {
+    "@opentelemetry/context-async-hooks": "^2.0.0",
     "@types/cron": "^2.0.0",
     "@types/glob-to-regexp": "^0.4.1",
     "@types/node-schedule": "^2.1.0"
