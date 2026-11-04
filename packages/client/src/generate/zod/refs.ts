@@ -82,15 +82,32 @@ const META: [keys: string[], valid: (value: unknown) => boolean, rule: string][]
   [['examples'], Array.isArray, 'an array'],
 ];
 
-const DUNDER_MAPS = ['properties', 'patternProperties', 'definitions', '$defs', 'dependencies'];
+const PROTO = '__proto__';
+const namesProto = (value: unknown): boolean => Array.isArray(value) && value.includes(PROTO);
+const pointsAtProto = (pointer: unknown): boolean => typeof pointer === 'string' && pointer.split('/').some((s) => s.replace(/~1/g, '/').replace(/~0/g, '~') === PROTO);
+
+/** A property named `__proto__`, which the fixed server cannot validate (`declaresProto` in @spinajs/validation). */
+const declaresProto = (schema: Json): boolean =>
+  (isJson(schema.properties) && Object.hasOwn(schema.properties, PROTO)) ||
+  namesProto(schema.required) ||
+  (isJson(schema.dependencies) && (Object.hasOwn(schema.dependencies, PROTO) || Object.values(schema.dependencies).some(namesProto))) ||
+  namesProto(schema.anyRequired) ||
+  namesProto(schema.oneRequired) ||
+  (Array.isArray(schema.deepRequired) && schema.deepRequired.some(pointsAtProto));
+
+/** The server's walk (`containsProto`): every value, data and merge patches included, `x-*` keys outside named maps left out. */
+function containsProto(value: unknown, named = false): boolean {
+  if (Array.isArray(value)) return value.some((item) => containsProto(item));
+  if (!isJson(value)) return false;
+  if (!named && declaresProto(value)) return true;
+  return Object.entries(value).some(([key, child]) => (named || !key.startsWith('x-')) && containsProto(child, !named && NAMED_PROTO.has(key)));
+}
+
+const NAMED_PROTO = new Set(['properties', 'patternProperties', '$defs', 'definitions', 'dependentSchemas']);
 
 function ownRefusal(schema: Json, root: boolean): string | undefined {
   // Below the root Ajv reads `$schema` as an unknown keyword.
   if (root && typeof schema.$schema === 'string' && !DRAFT_07.test(schema.$schema)) return `$schema '${schema.$schema}' is not draft-07`;
-  // The server cannot validate a key named `__proto__`: it refuses a property or required name of that name, and
-  // the stock 4.x preparer turns one in any map of schemas into the map's prototype.
-  if (DUNDER_MAPS.some((k) => isJson(schema[k]) && Object.hasOwn(schema[k], '__proto__'))) return "a key named '__proto__' cannot be validated";
-  if (Array.isArray(schema.required) && schema.required.includes('__proto__')) return "a required property named '__proto__' cannot be validated";
   for (const [keys, valid, rule] of META) {
     const key = keys.find((k) => k in schema && !valid(schema[k]));
     if (key !== undefined) return `'${key}' must be ${rule}`;
@@ -99,14 +116,18 @@ function ownRefusal(schema: Json, root: boolean): string | undefined {
 }
 
 /** Why Ajv refuses `schema` (its meta-schema check fails or it does not compile); undefined when it accepts it. */
-export function refusalOf(schema: unknown, named = false, root = true): string | undefined {
-  if (Array.isArray(schema)) return schema.map((item) => refusalOf(item, false, false)).find((r) => r !== undefined);
+export function refusalOf(schema: unknown): string | undefined {
+  return containsProto(schema) ? "it declares a property named '__proto__', which the server cannot validate" : metaRefusal(schema);
+}
+
+function metaRefusal(schema: unknown, named = false, root = true): string | undefined {
+  if (Array.isArray(schema)) return schema.map((item) => metaRefusal(item, false, false)).find((r) => r !== undefined);
   if (!isJson(schema)) return undefined;
   const own = named ? undefined : ownRefusal(schema, root);
   if (own) return own;
   for (const [key, value] of Object.entries(schema)) {
     const skipped = !named && (key.startsWith('x-') || DATA.has(key));
-    const found = skipped ? undefined : refusalOf(value, !named && (NAMED.has(key) || key === '$defs' || key === 'definitions'), false);
+    const found = skipped ? undefined : metaRefusal(value, !named && (NAMED.has(key) || key === '$defs' || key === 'definitions'), false);
     if (found) return found;
   }
   return undefined;
