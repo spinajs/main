@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import packageConfig from '../src/config/workflow.js';
 import { resolveWorkflowConfig, WORKFLOW_CONFIGURATION_SCHEMA, WORKFLOW_CONNECTION, WORKFLOW_DEFAULTS } from '../src/index.js';
 
 describe('workflow configuration', () => {
@@ -15,6 +16,10 @@ describe('workflow configuration', () => {
       compensateOnCancel: false,
       retry: { attempts: 3, backoff: 'exponential', delay: '1s', maxDelay: '5m' },
     });
+  });
+
+  it('ships WORKFLOW_DEFAULTS as the package config', () => {
+    expect(packageConfig.workflow).to.deep.equal(WORKFLOW_DEFAULTS);
   });
 
   it('merges a partial retry policy over the default one', () => {

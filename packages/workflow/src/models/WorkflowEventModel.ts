@@ -8,7 +8,7 @@ import { Int8 } from './converters.js';
 export class WorkflowEventModel extends ModelBase {
   /** BIGINT: Postgres hands it back as a string, so read it through `Number()`. */
   @Primary()
-  public Id: number;
+  public Id: number | string;
 
   public InstanceId: string;
 

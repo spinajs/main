@@ -20,6 +20,23 @@ for (const target of REAL_DB_TARGETS) {
       expect((await stepsOf('i1'))[0].Meta).to.deep.equal({ wakeAt: FAR });
     });
 
+    it('defaults ClaimEpoch to 0 when the insert leaves it out', async () => {
+      await seedInstance('i2', { ClaimEpoch: undefined });
+      expect((await instance('i2')).ClaimEpoch).to.equal(0);
+    });
+
+    it('compares ids, step keys and dedup keys case-sensitively', async () => {
+      await seedInstance('ab1');
+      await seedInstance('aB1');
+      await seedStep('i1', 1, 'step:charge#1');
+      await seedStep('i1', 2, 'step:Charge#1');
+      await seedEvent('i1', 'go', { DedupKey: 'k' });
+      await seedEvent('i1', 'go', { DedupKey: 'K' });
+      expect((await instance('aB1')).Id).to.equal('aB1');
+      expect((await stepsOf('i1')).map((s) => s.Key)).to.deep.equal(['step:charge#1', 'step:Charge#1']);
+      expect((await eventsOf('i1')).map((e) => e.DedupKey)).to.deep.equal(['k', 'K']);
+    });
+
     it('enforces (InstanceId, Key) and (InstanceId, DedupKey), and allows many events without a key', async () => {
       await seedStep('i1', 1, 'step:a#1');
       expect(await rejects(seedStep('i1', 2, 'step:a#1'))).to.be.instanceOf(Error);

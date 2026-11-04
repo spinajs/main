@@ -18,6 +18,11 @@ describe('Workflow_2026_11_10_00_00_00', () => {
     expect(pick(row, 'Status', 'CancelRequested', 'ClaimEpoch', 'Attempt')).to.deep.equal({ Status: 'running', CancelRequested: false, ClaimEpoch: 0, Attempt: 0 });
   });
 
+  it('defaults ClaimEpoch to 0 when the insert leaves it out', async () => {
+    await seedInstance('i2', { ClaimEpoch: undefined });
+    expect((await instance('i2')).ClaimEpoch).to.equal(0);
+  });
+
   it('keeps one step row per instance and key', async () => {
     await seedStep('i1', 1, 'step:charge#1');
     expect(await rejects(seedStep('i1', 2, 'step:charge#1'))).to.be.instanceOf(Error);

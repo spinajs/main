@@ -9,28 +9,33 @@ const JSON_FIELDS = new Set(['Input', 'Result', 'Error', 'Meta', 'Payload']);
 const encode = (over: Record<string, unknown>): Record<string, unknown> =>
   Object.fromEntries(Object.entries(over).map(([k, v]) => [k, JSON_FIELDS.has(k) ? jsonColumn(v) : v]));
 
+/** An override of `undefined` leaves the column out of the insert, so the column default applies. */
+const omitUndefined = (row: Record<string, unknown>): Record<string, unknown> => Object.fromEntries(Object.entries(row).filter(([, v]) => v !== undefined));
+
 export const seedInstance = (id: string, over: Record<string, unknown> = {}): Promise<WorkflowInstanceModel> =>
-  WorkflowInstanceModel.create({
-    Id: id,
-    Workflow: 'test',
-    Version: 1,
-    Status: 'running',
-    Reason: null,
-    Input: null,
-    Result: null,
-    Error: null,
-    WakeAt: null,
-    WaitingFor: null,
-    Attempt: 0,
-    ClaimedBy: null,
-    ClaimedUntil: null,
-    ClaimEpoch: 0,
-    CancelRequested: false,
-    CreatedAt: T0,
-    UpdatedAt: T0,
-    FinishedAt: null,
-    ...encode(over),
-  });
+  WorkflowInstanceModel.create(
+    omitUndefined({
+      Id: id,
+      Workflow: 'test',
+      Version: 1,
+      Status: 'running',
+      Reason: null,
+      Input: null,
+      Result: null,
+      Error: null,
+      WakeAt: null,
+      WaitingFor: null,
+      Attempt: 0,
+      ClaimedBy: null,
+      ClaimedUntil: null,
+      ClaimEpoch: 0,
+      CancelRequested: false,
+      CreatedAt: T0,
+      UpdatedAt: T0,
+      FinishedAt: null,
+      ...encode(over),
+    }),
+  );
 
 export const seedStep = (instanceId: string, seq: number, key: string, over: Record<string, unknown> = {}): Promise<WorkflowStepModel> =>
   WorkflowStepModel.create({
