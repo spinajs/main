@@ -24,6 +24,10 @@ export interface Verdict {
   readonly counterexample?: Counterexample;
   /** Parts the analysis cannot see: `ir.opaque` plus the opaque rewrites the permissions reach. */
   readonly opaque: OpaqueRef[];
+  /** `AZV090` when the bounded engine had no solver. */
+  readonly code?: 'AZV090';
+  /** Why an `unknown` verdict was not decided. */
+  readonly message?: string;
 }
 
 export function opaqueOf(ir: PolicyIR, ...explorations: Exploration[]): OpaqueRef[] {
