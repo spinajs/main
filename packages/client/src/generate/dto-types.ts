@@ -38,19 +38,24 @@ export function resolveReferences(ctx: TypeContext): void {
   }
 }
 
+/** Prints one `export interface`/`export type` named `name`; `tsType` nodes in `schema` print verbatim. */
+export async function compileType(name: string, schema: unknown, ctx: TypeContext): Promise<string> {
+  const prepared = prepare(schema, ctx) as Schema;
+  const code = await compile({ ...prepared, title: name }, name, {
+    bannerComment: '',
+    declareExternallyReferenced: false,
+    format: true,
+    style: { singleQuote: true, printWidth: 120, endOfLine: 'lf' },
+  });
+  return code.trim();
+}
+
 /** Emits one `export interface`/`export type` per schema in `ctx.used`, ordered by type name. */
 export async function emitDtoTypes(ctx: TypeContext): Promise<string> {
   const emitted = new Map<string, string>();
   for (const id of [...ctx.used].sort()) {
     const name = ctx.nameOf(id);
-    const schema = prepare(ctx.schemaOf(id), ctx) as Schema;
-    const code = await compile({ ...schema, title: name }, name, {
-      bannerComment: '',
-      declareExternallyReferenced: false,
-      format: true,
-      style: { singleQuote: true, printWidth: 120, endOfLine: 'lf' },
-    });
-    emitted.set(name, code.trim());
+    emitted.set(name, await compileType(name, ctx.schemaOf(id), ctx));
   }
   return [...emitted.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
