@@ -7,6 +7,7 @@ import { SCHEMA_SYMBOL } from './decorators.js';
 import { IValidationOptions, SchemaSource, ISchemaObject } from './types.js';
 import { Logger, Log } from '@spinajs/log-common';
 import { isStandardSchema, isThenable, standardOutcome, type StandardResult, type StandardSchemaV1 } from './standard-schema.js';
+import { addSpinajsFormats, type FormatHost } from './formats.js';
 
 // import default souces
 import './sources.js';
@@ -139,6 +140,7 @@ export class DataValidator extends AsyncService {
 
     // add common formats validation eg: date time
     resolveDefault(ajvFormats)(ajv);
+    addSpinajsFormats(ajv as FormatHost);
 
     // $merge, $patch and the ajv-keywords keywords; after ajv-formats, whose keywords would otherwise install them at once
     addKeywordPluginsOnUse(ajv);
