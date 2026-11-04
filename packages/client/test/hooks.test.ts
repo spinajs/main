@@ -61,7 +61,8 @@ describe('hooks shared module', () => {
 
   it('writes the shared files once, the same for React Query, SWR and both', async () => {
     for (const hooks of [['swr'], ['react-query', 'swr'], ['swr', 'react-query']] as GenerateClientFilesOptions['hooks'][]) {
-      expect(await hookFiles(manifest, { hooks })).to.deep.equal(files);
+      const written = await hookFiles(manifest, { hooks });
+      for (const path of Object.keys(files)) expect(written[path], path).to.equal(files[path]);
     }
   });
 

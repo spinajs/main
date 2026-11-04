@@ -1,6 +1,7 @@
 import { emitClient, type GenerateClientOptions } from '../generate.js';
 import { emitKeys } from './hooks/keys.js';
 import { emitReactContext } from './hooks/react.js';
+import { emitSwr } from './hooks/swr.js';
 import { buildClientModel, type ClientModel } from './model.js';
 
 export interface GeneratedFile {
@@ -38,7 +39,7 @@ export type GeneratorTarget = HooksTarget | 'zod' | 'models' | 'socket-hooks';
 /** Whether each target's emitter has landed; the CLI refuses a requested target that is not available. */
 export const GENERATOR_TARGETS: Readonly<Record<GeneratorTarget, { readonly available: boolean }>> = {
   'react-query': { available: false },
-  swr: { available: false },
+  swr: { available: true },
   zod: { available: false },
   models: { available: false },
   'socket-hooks': { available: false },
@@ -50,6 +51,8 @@ type Emitter = (model: ClientModel, options: EmitOptions) => Promise<GeneratedFi
 
 const noFiles: Emitter = () => Promise.resolve([]);
 
+const swrFile: Emitter = (model, options) => Promise.resolve([{ path: `${options.basename}.swr.ts`, environment: 'client', contents: emitSwr(model, options) }]);
+
 // Both hook libraries read these two files, so they are written once whichever libraries are requested.
 const hooksShared: Emitter = (model, options) =>
   Promise.resolve([
@@ -58,7 +61,7 @@ const hooksShared: Emitter = (model, options) =>
   ]);
 
 // The targets that write their own file; `models` and `socket-hooks` add to client.ts and the hooks files.
-const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': noFiles, swr: noFiles, zod: noFiles };
+const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': noFiles, swr: swrFile, zod: noFiles };
 
 export function requestedTargets(options: GenerateClientFilesOptions): GeneratorTarget[] {
   const requested: Record<GeneratorTarget, boolean> = {
