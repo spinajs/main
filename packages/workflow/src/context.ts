@@ -1,8 +1,9 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { computeBackoff, isRetryable, type Clock, type DbClock, type FaultInjector, type FaultPointName, type NormalizedRetry, type RetryPolicyOptions } from '@spinajs/durable';
+import { computeBackoff, isRetryable, parseDuration, type Clock, type DbClock, type FaultInjector, type FaultPointName, type NormalizedRetry, type RetryPolicyOptions } from '@spinajs/durable';
 import { InvalidArgument, InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import type { Log } from '@spinajs/log-common';
 import type { QueueEvent, QueueJob } from '@spinajs/queue';
+import { v5 as uuidv5 } from 'uuid';
 import type { SerializedError, StepKind, StepMeta, StepStatus, WaitForEventOptions, WorkflowContext, WorkflowEvent, WorkflowStepOptions } from './contract.js';
 import { isCrash, LeaseLostError, NonDeterminismError, serializeError, WorkflowAborted, WorkflowFailure, WorkflowNestingError, WorkflowStepFailed, WorkflowStepResultTooLarge, WorkflowSuspended, WorkflowTimeout, type AbortReason } from './errors.js';
 import { nextMacrotask, ReplayGate } from './gate.js';
@@ -72,6 +73,9 @@ interface Save {
 const MAX_NAME = 128;
 const PRIORITY: Record<Interruption['kind'], number> = { park: 0, fail: 1, timeout: 2, nondeterminism: 3 };
 const stepScope = new AsyncLocalStorage<string>();
+
+/** The uuid v5 namespace of `ctx.uuid()`; changing it changes every id a replay derives. */
+export const WORKFLOW_NAMESPACE = '6f1c2a7e-3b9d-4e84-9a0c-2d4e8b7f1a63';
 
 /** Parallel operations parked at once: the instance wakes for whichever is due first and replays the others. */
 function earlierPark(a: Park, b: Park): Park {
@@ -147,12 +151,18 @@ export class ActivationContext implements WorkflowContext {
     return this.begin('step', name, (op) => this.runStep(op, fn, opts, retry));
   }
 
-  public sleep(_duration: string | number, _name?: string): Promise<void> {
-    return Promise.reject(new NotSupported('ctx.sleep()'));
+  public sleep(duration: string | number, name = 'sleep'): Promise<void> {
+    return this.begin('sleep', name, (op) => this.runSleep(op, () => this.init.clock.now() + parseDuration(duration, `sleep('${name}')`)));
   }
 
-  public sleepUntil(_at: number | Date, _name?: string): Promise<void> {
-    return Promise.reject(new NotSupported('ctx.sleepUntil()'));
+  public sleepUntil(at: number | Date, name = 'sleep'): Promise<void> {
+    return this.begin('sleep', name, (op) =>
+      this.runSleep(op, () => {
+        const ms = at instanceof Date ? at.getTime() : at;
+        if (!Number.isFinite(ms)) throw new InvalidArgument(`sleepUntil('${name}') needs a valid instant`);
+        return ms;
+      }),
+    );
   }
 
   public waitForEvent<T = unknown>(_name: string, _opts?: WaitForEventOptions): Promise<WorkflowEvent<T> | undefined> {
@@ -164,15 +174,26 @@ export class ActivationContext implements WorkflowContext {
   }
 
   public now(): number {
-    throw new NotSupported('ctx.now()');
+    const op = this.next('marker', 'now');
+    if (this.init.journal.get(op.key)?.Status === 'succeeded') return this.init.journal.value(op.key) as number;
+    const value = this.init.clock.now();
+    this.recordMarker(op, value);
+    return value;
   }
 
+  /** Derived, not random: a run that repeats before its marker commits produces the same id. */
   public uuid(): string {
-    throw new NotSupported('ctx.uuid()');
+    const op = this.next('marker', 'uuid');
+    const value = uuidv5(`${this.instanceId}:${op.key}`, WORKFLOW_NAMESPACE);
+    if (!this.init.journal.get(op.key)) this.recordMarker(op, value);
+    return value;
   }
 
   public random(): number {
-    throw new NotSupported('ctx.random()');
+    const op = this.next('marker', 'random');
+    const value = unitHash(`${this.instanceId}:${op.key}`);
+    if (!this.init.journal.get(op.key)) this.recordMarker(op, value);
+    return value;
   }
 
   public fail(reason: string, details?: unknown): never {
@@ -398,6 +419,48 @@ export class ActivationContext implements WorkflowContext {
     }
     this.interrupt({ kind: 'park', park: { status: 'running', wakeAt, waitingFor: null } });
     return new WorkflowSuspended();
+  }
+
+  /** The wake time is computed once, on the database clock; every replay reads it back from the row. */
+  protected async runSleep(op: Op, target: () => number): Promise<void> {
+    const { journal, clock } = this.init;
+    const rec = journal.get(op.key);
+    if (rec?.Status === 'succeeded') return this.released(op);
+    const wakeAt = rec?.Meta?.wakeAt ?? target();
+    const startedAt = clock.now();
+    if (clock.now() >= wakeAt) {
+      await this.record(op, { status: 'succeeded', attempt: 1, startedAt, meta: { wakeAt }, finished: true });
+      return this.gate.live(op.order);
+    }
+    if (rec) {
+      // as a not-yet-due retry does: siblings called in the same turn take their keys before the park
+      await new Promise<void>((resolve) => nextMacrotask(resolve));
+    } else {
+      await this.record(op, { status: 'pending', attempt: 1, startedAt, meta: { wakeAt } });
+      await this.fault('workflow.after-journal', op.key);
+    }
+    this.interrupt({ kind: 'park', park: { status: 'sleeping', wakeAt, waitingFor: null } });
+    throw new WorkflowSuspended() as unknown;
+  }
+
+  /**
+   * Markers are synchronous: the row is queued, and every later journal write of this activation commits after it.
+   * A failed write abandons the activation (D3): `run()` already holds a value a replay would compute anew.
+   */
+  protected recordMarker(op: Op, value: unknown): void {
+    const startedAt = this.init.clock.now();
+    void this.track(
+      this.enqueueWrite(() => this.saveStep(op, { status: 'succeeded', attempt: 1, startedAt, result: { value }, finished: true })).catch((err: unknown) => {
+        this.journalWriteFailed(err);
+      }),
+    );
+  }
+
+  /** A blocking operation's journal row, queued behind earlier writes; a failed write is not the operation's failure. */
+  protected record(op: Op, s: Save): Promise<StepRow> {
+    return this.enqueueWrite(() => this.saveStep(op, s)).catch((err: unknown) => {
+      throw this.journalWriteFailed(err);
+    });
   }
 
   protected retryPolicy(own: RetryPolicyOptions | undefined): NormalizedRetry {

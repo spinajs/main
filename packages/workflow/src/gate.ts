@@ -1,4 +1,5 @@
 import type { Clock, TimerHandle } from '@spinajs/durable';
+import type { StepKind } from './contract.js';
 import { NonDeterminismError } from './errors.js';
 import type { StepRow } from './journal.js';
 
@@ -14,6 +15,9 @@ interface HeldDelivery {
   order: number;
   resolve(): void;
 }
+
+/** Operations whose recorded result run() awaits; markers return synchronously and are never gated. */
+const DELIVERED_KINDS = new Set<StepKind>(['step', 'sleep', 'wait', 'emit']);
 
 export interface StallTimer {
   timers: Clock;
@@ -47,7 +51,7 @@ export class ReplayGate {
 
   constructor(rows: StepRow[], causal: boolean, protected readonly onStall: (err: NonDeterminismError) => void, protected readonly stallTimer?: StallTimer) {
     const recorded = causal ? rows.filter((r) => r.Kind !== 'compensate') : [];
-    const ordered = recorded.filter((r) => r.Kind === 'step' && typeof r.Meta?.order === 'number');
+    const ordered = recorded.filter((r) => DELIVERED_KINDS.has(r.Kind) && typeof r.Meta?.order === 'number');
     this.order = ordered.sort((a, b) => (a.Meta?.order ?? 0) - (b.Meta?.order ?? 0)).map((r) => r.Key);
     this.remaining = new Set(this.order);
     for (const r of recorded) {
