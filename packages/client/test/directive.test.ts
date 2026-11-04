@@ -42,11 +42,11 @@ describe("'use client' placement", () => {
 
   before(async () => {
     const manifest: Manifest = await appBasicManifest();
-    files = await generateClientFiles({ manifest, hooks: ['react-query', 'swr'], zod: true, models: true, socketHooks: true });
+    files = await generateClientFiles({ manifest, hooks: ['react-query', 'swr'], zod: true, models: true, socketHooks: true, server: true, next: true });
   });
 
   it('marks every generated file with the environment section 3.1 gives it', () => {
-    expect(files.map((f) => f.path)).to.include.members(['client.ts', 'client.keys.ts', 'client.react.ts', 'client.socket.ts', 'client.socket-swr.ts']);
+    expect(files.map((f) => f.path)).to.include.members(['client.ts', 'client.keys.ts', 'client.react.ts', 'client.socket.ts', 'client.socket-swr.ts', 'client.server.ts', 'client.next.ts']);
     for (const file of files) expect([file.path, file.environment]).to.deep.equal([file.path, ENVIRONMENTS[file.path]]);
   });
 

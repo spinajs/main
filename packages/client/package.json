@@ -57,6 +57,7 @@
   "peerDependencies": {
     "@spinajs/http-socket-client": "3.0.23",
     "@tanstack/react-query": "^5.0.0",
+    "next": ">=16.0.0",
     "swr": "^2.2.0",
     "zod": "^4.1.0"
   },
@@ -65,6 +66,9 @@
       "optional": true
     },
     "@tanstack/react-query": {
+      "optional": true
+    },
+    "next": {
       "optional": true
     },
     "react": {
