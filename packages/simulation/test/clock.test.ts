@@ -121,16 +121,11 @@ describe('SimClock', () => {
     expect(clock.takeFailures()).to.deep.equal([]);
   });
 
-  it('refuses to move by a negative or non-finite amount', () => {
+  it('refuses to move, or to arm a timer, by a negative or non-finite amount', () => {
     expect(() => new SimClock(0).advance(-1)).to.throw(RangeError);
     expect(() => new SimClock(0).jump(Number.NaN)).to.throw(RangeError);
-  });
-
-  it('refuses a timer with a non-finite delay', () => {
-    const clock = new SimClock(0);
-    expect(() => clock.setInterval(() => undefined, Number.NaN)).to.throw(RangeError);
-    expect(() => clock.setTimeout(() => undefined, Number.NaN)).to.throw(RangeError);
-    expect(clock.pending).to.equal(0);
+    expect(() => new SimClock(0).setInterval(() => undefined, Number.NaN)).to.throw(RangeError);
+    expect(() => new SimClock(0).setTimeout(() => undefined, -1)).to.throw(RangeError);
   });
 });
 

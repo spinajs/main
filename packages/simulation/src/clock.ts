@@ -52,11 +52,7 @@ export class SimClock extends Clock {
     return this.timers.size;
   }
 
-  /**
-   * Fires every timer due up to `now + ms` in due order, then sets the time to `now + ms`. The
-   * callbacks run synchronously with no microtask drain in between, so their promise continuations
-   * run only after this returns. For multi-hop async work, call `fireNext` and settle between calls.
-   */
+  /** Fires every timer due up to `now + ms` in due order, then sets the time to `now + ms`. Callbacks run synchronously with no microtask drain in between, so their promise continuations run only after this returns; for multi-hop async work call `fireNext` and settle between calls. */
   public advance(ms: number): void {
     const target = this.target(ms);
     let fired = this.fireNext(target);

@@ -59,7 +59,6 @@ export class SimReplicas {
     if (!e.crashed) this.crash({ replica, incarnation: e.incarnation });
     e.incarnation++;
     e.crashed = false;
-    e.deferredPark = null;
     return { replica, incarnation: e.incarnation };
   }
 
