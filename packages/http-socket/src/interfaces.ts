@@ -18,12 +18,18 @@ export interface ISocketRateConfig {
 }
 
 export interface ISocketIdempotencyConfig {
-  /** Class name of the IdempotencyStore implementation; this whole object is its first constructor argument. */
-  service: string;
+  /**
+   * Class name of an IdempotencyStore of @spinajs/idempotency, or of a 3.x store of this package; this whole object is
+   * its first constructor argument. The shipped default names 'MemoryIdempotencyStore'. null: sockets claim on the
+   * store of IdempotencyService (`idempotency.store`).
+   */
+  service?: string | null;
   /** How long a completed key replays its reply. */
   ttlMs: number;
-  /** MemoryIdempotencyStore: completed keys kept at most; the least recently used go first. */
+  /** MemoryIdempotencyStore named by `service`: completed keys kept at most; the oldest go first. */
   maxEntries: number;
+  /** Lease of a running claim; a claim of a replica that died is taken over once it ends. Not set: `idempotency.lease`. */
+  lease?: string | number;
 }
 
 export interface ISocketCorsConfig {
@@ -377,6 +383,8 @@ export interface ISocketIdempotencyClaim {
   settle(outcome: CommandOutcome): Promise<IdempotentReply | null>;
   /** The pipeline gave up on a handler that still runs: the key stays running until `running` settles, and `settle` answers null. */
   detach(running: Promise<unknown>): void;
+  /** Aborted once the key's lease is lost, or a crash stopped its renewal: another instance may run the command now. */
+  readonly lease?: AbortSignal;
   /** @internal Called right before the handler: from then on an abort marked by `outcomeUnknownAfter` keeps the key running. */
   start(): void;
   readonly started: boolean;
