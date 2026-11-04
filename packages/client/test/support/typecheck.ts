@@ -14,13 +14,14 @@ export interface TypecheckOptions {
 const require = createRequire(import.meta.url);
 const REACT_TYPES = { 18: '@types/react-18', 19: '@types/react' } as const;
 const reactTypes = (major: 18 | 19) => join(dirname(require.resolve(`${REACT_TYPES[major]}/package.json`)), 'index.d.ts');
+const swrSubscriptionTypes = join(dirname(require.resolve('swr/package.json')), 'dist/subscription/index.d.mts');
 
 /** Type-checks generated client source against the runtime sources; returns the diagnostics as strings. */
 export function typecheck(source: string): string[] {
   return typecheckFiles({ 'client.ts': source });
 }
 
-/** Type-checks a set of files written side by side, with React's types available as `react`. */
+/** Type-checks a set of files written side by side, with the types of React, `swr/subscription` and the socket client available. */
 export function typecheckFiles(files: Record<string, string>, options: TypecheckOptions = {}): string[] {
   const dir = mkdtempSync(join(tmpdir(), 'client-gen-'));
   try {
@@ -45,6 +46,8 @@ export function typecheckFiles(files: Record<string, string>, options: Typecheck
       paths: {
         '@spinajs/client/runtime': ['src/runtime/index.ts'],
         '@spinajs/http-socket-common': ['../http-socket-common/src/index.ts'],
+        '@spinajs/http-socket-client': ['../http-socket-client/src/index.ts'],
+        'swr/subscription': [swrSubscriptionTypes],
         react: [reactTypes(options.react ?? 19)],
       },
     });
