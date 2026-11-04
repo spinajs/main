@@ -44,7 +44,7 @@ The `app-basic` fixture of the compiler tests has a `HealthController`, a `Users
   "info": {
     "title": "app-basic",
     "version": "1.0.0",
-    "x-spinajs-manifest-hash": "47f7521612321fc90ebb904d6c0db1aaf014b826ecb98bfdf0121c9bc87f8d29"
+    "x-spinajs-manifest-hash": "d1e78978d05c8685edd0eae6fa57b2784608cfb28a6eb5ce9921cf7f1ccf0f68"
   },
   "servers": [{ "url": "http://localhost:4557" }],
   "tags": [{ "name": "Articles" }, { "name": "Health" }, { "name": "Users" }],

@@ -1432,7 +1432,271 @@
         "declaredIn": "model"
       }
     ],
-    "entryPoints": [],
+    "entryPoints": [
+      {
+        "kind": "route",
+        "id": "GET /users/:id",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": [
+                "strict"
+              ]
+            },
+            {
+              "type": "AccessPolicy",
+              "options": [
+                "user:read"
+              ]
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/controller.ts",
+          "line": 20,
+          "col": 3,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "route",
+        "id": "POST /users/create",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": [
+                "strict"
+              ]
+            },
+            {
+              "type": "AccessPolicy",
+              "options": [
+                "user:create",
+                "user:update"
+              ]
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/controller.ts",
+          "line": 26,
+          "col": 3,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "route",
+        "id": "DELETE /users/:id",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": [
+                "strict"
+              ]
+            },
+            {
+              "type": "AdminPolicy",
+              "options": []
+            },
+            {
+              "type": "policies.admin",
+              "options": []
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/controller.ts",
+          "line": 32,
+          "col": 3,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "route",
+        "id": "GET /users/list",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": [
+                "strict"
+              ]
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/controller.ts",
+          "line": 37,
+          "col": 3,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "route",
+        "id": "GET /users/events",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": [
+                "strict"
+              ]
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/controller.ts",
+          "line": 42,
+          "col": 3,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "route",
+        "id": "GET /users/ping",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": [
+                "strict"
+              ]
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/controller.ts",
+          "line": 47,
+          "col": 3,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "socket-command",
+        "id": "docs.open",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": []
+            },
+            {
+              "type": "AccessPolicy",
+              "options": [
+                "doc:read"
+              ]
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/socket.ts",
+          "line": 12,
+          "col": 3,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "socket-command",
+        "id": "docs.close",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": []
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/socket.ts",
+          "line": 16,
+          "col": 3,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "socket-event",
+        "id": "docs.created",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": []
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/socket.ts",
+          "line": 9,
+          "col": 1,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "socket-event",
+        "id": "docs.ping",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": []
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/socket.ts",
+          "line": 9,
+          "col": 1,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "queue-handler",
+        "id": "job:Cleanup",
+        "access": [],
+        "source": {
+          "file": "src/schedule.ts",
+          "line": 4,
+          "col": 1,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "schedule",
+        "id": "cleanup",
+        "access": [],
+        "source": {
+          "file": "src/schedule.ts",
+          "line": 7,
+          "col": 1,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "cli",
+        "id": "basic:hello",
+        "access": [],
+        "source": {
+          "file": "src/command.ts",
+          "line": 3,
+          "col": 1,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "cli",
+        "id": "basic:bye",
+        "access": [],
+        "source": {
+          "file": "src/command.ts",
+          "line": 8,
+          "col": 1,
+          "package": "pkg-basic"
+        }
+      }
+    ],
     "findings": [],
     "ignores": []
   },

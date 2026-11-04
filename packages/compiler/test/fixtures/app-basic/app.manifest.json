@@ -671,6 +671,175 @@
       }
     }
   ],
+  "authz": {
+    "resources": [],
+    "permissions": [],
+    "entryPoints": [
+      {
+        "kind": "route",
+        "id": "GET /health/get",
+        "access": [],
+        "source": {
+          "file": "src/controllers/HealthController.ts",
+          "line": 6,
+          "col": 3,
+          "package": "app-basic"
+        }
+      },
+      {
+        "kind": "route",
+        "id": "GET /articles/:id",
+        "access": [],
+        "source": {
+          "file": "src/crud/base-crud.ts",
+          "line": 5,
+          "col": 3,
+          "package": "app-basic"
+        }
+      },
+      {
+        "kind": "route",
+        "id": "POST /articles/add",
+        "access": [],
+        "source": {
+          "file": "src/crud/base-crud.ts",
+          "line": 10,
+          "col": 3,
+          "package": "app-basic"
+        }
+      },
+      {
+        "kind": "route",
+        "id": "GET /users/list",
+        "access": [],
+        "source": {
+          "file": "src/controllers/users.ts",
+          "line": 19,
+          "col": 3,
+          "package": "app-basic"
+        }
+      },
+      {
+        "kind": "route",
+        "id": "GET /users/:id",
+        "access": [
+          [
+            {
+              "type": "AccessPolicy",
+              "options": [
+                "user:read"
+              ]
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/controllers/users.ts",
+          "line": 26,
+          "col": 3,
+          "package": "app-basic"
+        }
+      },
+      {
+        "kind": "route",
+        "id": "POST /users/create",
+        "access": [
+          [
+            {
+              "type": "AccessPolicy",
+              "options": [
+                "user:create"
+              ]
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/controllers/users.ts",
+          "line": 34,
+          "col": 3,
+          "package": "app-basic"
+        }
+      },
+      {
+        "kind": "route",
+        "id": "POST /users/:id/avatar",
+        "access": [],
+        "source": {
+          "file": "src/controllers/users.ts",
+          "line": 43,
+          "col": 3,
+          "package": "app-basic"
+        }
+      },
+      {
+        "kind": "socket-command",
+        "id": "chat.send",
+        "access": [],
+        "source": {
+          "file": "src/socket/chat.ts",
+          "line": 7,
+          "col": 3,
+          "package": "app-basic"
+        }
+      },
+      {
+        "kind": "socket-command",
+        "id": "chat.history",
+        "access": [],
+        "source": {
+          "file": "src/socket/chat.ts",
+          "line": 12,
+          "col": 3,
+          "package": "app-basic"
+        }
+      },
+      {
+        "kind": "socket-event",
+        "id": "chat.message",
+        "access": [],
+        "source": {
+          "file": "src/socket/chat.ts",
+          "line": 5,
+          "col": 1,
+          "package": "app-basic"
+        }
+      },
+      {
+        "kind": "queue-handler",
+        "id": "job:SendMailJob",
+        "access": [],
+        "source": {
+          "file": "src/queue/messages.ts",
+          "line": 3,
+          "col": 1,
+          "package": "app-basic"
+        }
+      },
+      {
+        "kind": "schedule",
+        "id": "basic-task",
+        "access": [],
+        "source": {
+          "file": "src/schedules/basic.ts",
+          "line": 3,
+          "col": 1,
+          "package": "app-basic"
+        }
+      },
+      {
+        "kind": "cli",
+        "id": "basic",
+        "access": [],
+        "source": {
+          "file": "src/commands/basic.ts",
+          "line": 3,
+          "col": 1,
+          "package": "app-basic"
+        }
+      }
+    ],
+    "findings": [],
+    "ignores": []
+  },
   "schemas": {
     "spinajs/app-basic/ArticleDto": {
       "$id": "spinajs/app-basic/ArticleDto",
@@ -967,6 +1136,6 @@
       }
     }
   ],
-  "generatedAt": "2026-11-02T20:48:08.957Z",
-  "hash": "47f7521612321fc90ebb904d6c0db1aaf014b826ecb98bfdf0121c9bc87f8d29"
+  "generatedAt": "2026-11-04T03:47:54.553Z",
+  "hash": "d1e78978d05c8685edd0eae6fa57b2784608cfb28a6eb5ce9921cf7f1ccf0f68"
 }
