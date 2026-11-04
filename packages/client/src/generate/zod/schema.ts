@@ -118,7 +118,7 @@ function valueCode(value: unknown): string {
 export class ZodBuilder {
   /** Names imported from `@spinajs/client/formats`. */
   public readonly formats = new Set<string>();
-  public readonly helpers = new Set<'oneOf'>();
+  public readonly helpers = new Set<'oneOf' | 'oneOfReply'>();
   /** Declared schemas that print as a plain strict object, so `z.looseObject(X.shape)` opens them. */
   public readonly plainObjects = new Set<string>();
   private readonly hoisted: { name: string; node: ZodNode }[] = [];
@@ -128,9 +128,13 @@ export class ZodBuilder {
     private readonly graph: SchemaGraph,
     private readonly ctx: TypeContext,
     private readonly diagnostics: Diagnostics,
-    /** Builds reply variants: objects the server closes strip unknown keys, and references name the `Reply` variant. */
-    private readonly lenient = false,
+    /** Set to build reply variants: the request builder is its twin. Objects the server closes strip unknown keys, and references name the `Reply` variant. */
+    private readonly strict?: ZodBuilder,
   ) {}
+
+  private get lenient(): boolean {
+    return this.strict !== undefined;
+  }
 
   /** A whole manifest schema, or a local definition hoisted out of one. */
   public root(schema: unknown, scope: Scope): ZodNode {
@@ -264,7 +268,19 @@ export class ZodBuilder {
     const nodes = members.map((m, i) => ({ m, node: () => this.node(m, { ...scope, at: child(scope.at, 'anyOf', i) }) }));
     const others = nodes.filter((n) => !isNull(n.m));
     if (others.length === 1 && others.length < nodes.length) return { ...others[0].node(), nullable: true };
-    return this.union(nodes.map((n) => n.node()));
+    const lenient = nodes.map((n) => n.node());
+    return this.union([...this.exact(members, 'anyOf', lenient, scope), ...lenient]);
+  }
+
+  /**
+   * The members as the server checks them, for a reply: a value that fits one exactly must come out unchanged, where a
+   * lenient member declared before it would strip the keys of the member it fits. Members that print the same are not repeated.
+   */
+  private exact(members: unknown[], keyword: 'anyOf' | 'oneOf', lenient: ZodNode[], scope: Scope): ZodNode[] {
+    const strict = this.strict;
+    if (!strict) return [];
+    const exact = members.map((m, i) => strict.node(m, { ...scope, at: child(scope.at, keyword, i) }));
+    return exact.every((node, i) => JSON.stringify(node) === JSON.stringify(lenient[i])) ? [] : exact;
   }
 
   private union(nodes: ZodNode[]): ZodNode {
@@ -277,7 +293,9 @@ export class ZodBuilder {
     if (nodes.length <= 1) return nodes[0] ?? call('never');
     const discriminator = this.discriminator(schema, members, nodes, scope.at.schema);
     if (discriminator) return call('discriminatedUnion', { code: literal(discriminator) }, { list: nodes });
-    this.helpers.add('oneOf');
+    const exact = this.exact(members, 'oneOf', nodes, scope);
+    this.helpers.add(exact.length > 0 ? 'oneOfReply' : 'oneOf');
+    if (exact.length > 0) return { kind: 'call', fn: 'oneOfReply', helper: true, args: [{ list: exact }, { list: nodes }] };
     return { kind: 'call', fn: 'oneOf', helper: true, args: [{ list: nodes }] };
   }
 

@@ -109,8 +109,8 @@ class ZodFile {
     const inlineNamed = inlineIds.filter((id) => !ctx.used.has(id) && containsLocalRef(ctx.schemaOf(id)));
     this.graph = new SchemaGraph(ctx, [...ctx.used, ...inlineNamed, ...this.inlineRefs()]);
     this.builder = new ZodBuilder(this.graph, ctx, this.diagnostics);
-    // The strict build already reported what the lenient one would.
-    if (options.replies) this.lenient = new ZodBuilder(this.graph, ctx, new Diagnostics('warning'), true);
+    // Diagnostics are keyed by location, so what both builds meet is reported once.
+    if (options.replies) this.lenient = new ZodBuilder(this.graph, ctx, this.diagnostics, this.builder);
   }
 
   public emit(clientModule: string): ZodEmitResult {
@@ -150,7 +150,7 @@ class ZodFile {
     if (entry.typeName) this.types.add(entry.typeName);
     this.usesZod ||= state.annotated || entry.typeName !== undefined || !IDENTIFIER.test(code);
     const type = `${this.printer.typeName}<${entry.typeName ?? 'unknown'}>`;
-    const hoisted = this.hoisted(builder);
+    const hoisted = this.hoisted(builder) + (builder === this.builder ? '' : this.hoisted(this.builder));
     if (state.annotated) return `${hoisted}export const ${name}: ${type} = ${code};`;
     return `${hoisted}export const ${name} = ${code}${entry.typeName ? ` satisfies ${type}` : ''};`;
   }
@@ -264,7 +264,7 @@ class ZodFile {
     const table = controllers.length ? `{\n${controllers.join('\n')}\n}` : '{}';
     return [
       ...variants,
-      `${this.hoisted(lenient)}// Lenient reply schemas: a closed object strips the keys it does not declare, so a server deployed ahead of the app may add fields.\nexport const replySchemas = ${table} as const;`,
+      `${this.hoisted(lenient)}${this.hoisted(this.builder)}// Lenient reply schemas: a closed object strips the keys it does not declare, so a server deployed ahead of the app may add fields.\nexport const replySchemas = ${table} as const;`,
       REPLY_RUNTIME,
     ];
   }
@@ -285,18 +285,29 @@ class ZodFile {
   }
 
   private helpers(): string[] {
-    if (!this.builder.helpers.has('oneOf') && !this.lenient?.helpers.has('oneOf')) return [];
+    const used = new Set([...this.builder.helpers, ...(this.lenient?.helpers ?? [])]);
+    if (used.size === 0) return [];
     this.usesZod = true;
     const { mini, typeName: type } = this.printer;
-    const check = "(value) => options.filter((option) => option.safeParse(value).success).length === 1, 'must match exactly one schema in oneOf'";
-    const input = `z.custom<z.input<${mini ? 'z.ZodMiniUnion' : 'z.ZodUnion'}<T>>>(${check})`;
-    const schema = mini ? `z.pipe(${input}, z.union(options))` : `${input}.pipe(z.union(options))`;
-    return [
-      `// Ajv's oneOf: exactly one member matches the value as sent (a member's output may have dropped keys).
-function oneOf<const T extends readonly [${type}, ${type}, ...${type}[]]>(options: T) {
-  return ${schema};
-}`,
-    ];
+    const tuple = `readonly [${type}, ${type}, ...${type}[]]`;
+    const union = mini ? 'z.ZodMiniUnion' : 'z.ZodUnion';
+    const pipe = (input: string, target: string): string => (mini ? `z.pipe(${input}, ${target})` : `${input}.pipe(${target})`);
+    const helpers: string[] = [];
+    if (used.has('oneOf')) {
+      const check = "(value) => options.filter((option) => option.safeParse(value).success).length === 1, 'must match exactly one schema in oneOf'";
+      helpers.push(`// Ajv's oneOf: exactly one member matches the value as sent (a member's output may have dropped keys).
+function oneOf<const T extends ${tuple}>(options: T) {
+  return ${pipe(`z.custom<z.input<${union}<T>>>(${check})`, 'z.union(options)')};
+}`);
+    }
+    if (used.has('oneOfReply')) {
+      const check = "(value) => {\n    const fits = exact.filter((option) => option.safeParse(value).success).length;\n    return fits === 1 || (fits === 0 && lenient.some((option) => option.safeParse(value).success));\n  }, 'must match exactly one schema in oneOf'";
+      helpers.push(`// Ajv's oneOf for a reply: exactly one member fits the value as the server sends it; a value a newer server extended fits none exactly, and the first lenient member that takes it parses it.
+function oneOfReply<const A extends ${tuple}, const B extends ${tuple}>(exact: A, lenient: B) {
+  return ${pipe(`z.custom<z.input<${union}<A>>>(${check})`, 'z.union([...exact, ...lenient] as unknown as A)')};
+}`);
+    }
+    return helpers;
   }
 }
 

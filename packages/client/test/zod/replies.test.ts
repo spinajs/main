@@ -1,24 +1,16 @@
 import 'mocha';
 import { expect } from 'chai';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Manifest, RouteEntry } from '@spinajs/manifest';
 import { buildClientModel, emitZod, generateClientFiles } from '../../src/index.js';
 import { appBasicManifest } from '../support/fixture.js';
+import { matchesSnapshot as compareSnapshot } from '../support/snapshot.js';
 import { typecheckFiles } from '../support/typecheck.js';
 import { clearLoaded, loadZod, manifestWith, route } from '../support/zod.js';
 
 const snapshot = (name: string) => fileURLToPath(new URL(`../__snapshots__/zod/${name}`, import.meta.url));
 
-function matchesSnapshot(name: string, contents: string): void {
-  const path = snapshot(name);
-  if (!existsSync(path)) {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, contents);
-  }
-  expect(contents).to.equal(readFileSync(path, 'utf8'));
-}
+const matchesSnapshot = (name: string, contents: string): void => compareSnapshot(snapshot(name), contents);
 
 const replying = (handler: string, text: string, schema?: string): RouteEntry => ({ ...route(handler, 'get', []), returnType: { text, ...(schema ? { schema } : {}) } });
 
@@ -32,6 +24,15 @@ const inner = { type: 'object', properties: { b: { type: 'number' } }, required:
 const open = { type: 'object', properties: { id: { type: 'number' } }, required: ['id'] };
 const needsB = { type: 'object', properties: { a: { type: 'string' } }, required: ['b'], additionalProperties: false };
 const node = { type: 'object', properties: { name: { type: 'string' }, child: { $ref: 'test/Node' } }, required: ['name'], additionalProperties: false };
+const strict = { type: 'object', properties: { a: { type: 'string' } }, additionalProperties: false };
+const strict2 = { type: 'object', properties: { b: { type: 'number' } }, required: ['b'], additionalProperties: false };
+const oneOf = { type: 'object', properties: { f: { oneOf: [{ $ref: 'test/Strict' }, { $ref: 'test/Strict2' }] } }, additionalProperties: false };
+const a1 = { type: 'object', properties: { kind: { const: 'a' }, x: { type: 'string' } }, required: ['kind'], additionalProperties: false };
+const a2 = { type: 'object', properties: { kind: { enum: ['a', 'b'] } }, required: ['kind'] };
+const disc = { oneOf: [{ $ref: 'test/A1' }, { $ref: 'test/A2' }], 'x-discriminator': { propertyName: 'kind' } };
+const user = { type: 'object', properties: { id: { type: 'number' }, email: { type: 'string' } }, required: ['id', 'email'], additionalProperties: false };
+const admin = { type: 'object', properties: { id: { type: 'number' }, email: { type: 'string' }, role: { type: 'string' } }, required: ['id', 'email', 'role'], additionalProperties: false };
+const either = { anyOf: [{ $ref: 'test/User' }, { $ref: 'test/Admin' }] };
 const list = { type: 'array', items: { $ref: 'test/Dto' } };
 
 async function fixture(): Promise<Manifest> {
@@ -41,10 +42,13 @@ async function fixture(): Promise<Manifest> {
     replying('open', 'Open', 'test/Open'),
     replying('needsB', 'NeedsB', 'test/NeedsB'),
     replying('tree', 'Node', 'test/Node'),
+    replying('oneOf', 'OneOf', 'test/OneOf'),
+    replying('disc', 'Disc', 'test/Disc'),
+    replying('either', 'Either', 'test/Either'),
     replying('count', 'number'),
     route('remove', 'delete', []),
   ];
-  return manifestWith(await appBasicManifest(), {}, { 'test/Dto': dto, 'test/Inner': inner, 'test/Open': open, 'test/NeedsB': needsB, 'test/Node': node, 'test/List': list }, routes);
+  return manifestWith(await appBasicManifest(), {}, { 'test/Dto': dto, 'test/Inner': inner, 'test/Open': open, 'test/NeedsB': needsB, 'test/Node': node, 'test/List': list, 'test/Strict': strict, 'test/Strict2': strict2, 'test/OneOf': oneOf, 'test/A1': a1, 'test/A2': a2, 'test/Disc': disc, 'test/User': user, 'test/Admin': admin, 'test/Either': either }, routes);
 }
 
 type Parser = { parse(value: unknown): unknown };
@@ -74,7 +78,7 @@ describe('client.zod.ts reply schemas (replies: true)', function () {
   });
 
   it('keys replySchemas by controller and handler, and leaves out void, scalar and unschematised replies', () => {
-    expect(Object.keys(replies().items).sort()).to.deep.equal(['list', 'needsB', 'open', 'read', 'tree']);
+    expect(Object.keys(replies().items).sort()).to.deep.equal(['disc', 'either', 'list', 'needsB', 'oneOf', 'open', 'read', 'tree']);
   });
 
   it('strips undeclared keys at every depth, where the request schema rejects them', () => {
@@ -104,6 +108,46 @@ describe('client.zod.ts reply schemas (replies: true)', function () {
 
   it('reads a recursive reply through the Reply variant', () => {
     expect(replies().items.tree.parse({ name: 'r', future: 1, child: { name: 'c', future: 2 } })).to.deep.equal({ name: 'r', child: { name: 'c' } });
+  });
+
+  describe('unions', () => {
+    const ajvOneOf = () => module.OneOfSchema as { safeParse(v: unknown): { success: boolean } };
+
+    it('a oneOf counts its matches against the members as the server checks them', () => {
+      const value = { f: { b: 2147483648 } };
+      expect(ajvOneOf().safeParse(value).success).to.equal(true);
+      expect(replies().items.oneOf.parse(value)).to.deep.equal(value);
+      expect(replies().items.oneOf.parse({ f: {} })).to.deep.equal({ f: {} });
+    });
+
+    it('a oneOf takes a value a newer server extended, and refuses one that is no object', () => {
+      expect(() => replies().items.oneOf.parse({ f: { b: 1, future: true } })).to.not.throw();
+      expect(() => replies().items.oneOf.parse({ f: 5 })).to.throw();
+    });
+
+    it('a oneOf with a shared tag keeps the keys of the open member', () => {
+      expect(replies().items.disc.parse({ kind: 'a', toString: 'a' })).to.deep.equal({ kind: 'a', toString: 'a' });
+      expect(() => replies().items.disc.parse({ kind: 'c' })).to.throw();
+    });
+
+    it('an anyOf of closed objects returns the member a value fits exactly, with all its keys', () => {
+      const wire = { id: 1, email: 'a@b', role: 'owner' };
+      expect(replies().items.either.parse(wire)).to.deep.equal(wire);
+      expect(replies().items.either.parse({ id: 1, email: 'a@b' })).to.deep.equal({ id: 1, email: 'a@b' });
+    });
+
+    it('an anyOf strips a value a newer server extended', () => {
+      expect(replies().items.either.parse({ id: 1, email: 'a@b', future: true })).to.deep.equal({ id: 1, email: 'a@b' });
+      expect(() => replies().items.either.parse({ id: 'x' })).to.throw();
+    });
+  });
+
+  it('reports what it drops from a reply schema that no request schema covers', async () => {
+    const inline = { type: 'object', properties: { a: { type: 'string' } }, minProperties: 1 };
+    const withInline = manifestWith(await appBasicManifest(), {}, { 'test/Inline': inline }, [replying('inline', 'unknown', 'test/Inline')]);
+    const codes = (replies: boolean) => emitZod(buildClientModel(withInline), { replies }).diagnostics.map((d) => [d.code, d.schema, d.pointer]);
+    expect(codes(false)).to.deep.equal([]);
+    expect(codes(true)).to.deep.equal([['ZOD003', 'test/Inline', '/minProperties']]);
   });
 
   it('zodReplies parses by route, passes unknown routes through and takes its own schemas', () => {

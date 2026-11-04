@@ -22,8 +22,8 @@ export const REPLY_RUNTIME = `type ReplyParser = { parse(value: unknown): unknow
 /** The \`parseReply\` of \`createAppClient\`: parses a reply with the schema of its route, and passes through a route without one. */
 export function zodReplies(schemas: Record<string, Record<string, ReplyParser>> = replySchemas): (route: { controller: string; name: string }, value: unknown) => unknown {
   return (route, value) => {
-    const handlers = Object.hasOwn(schemas, route.controller) ? schemas[route.controller] : undefined;
-    const schema = handlers && Object.hasOwn(handlers, route.name) ? handlers[route.name] : undefined;
+    const handlers = Object.prototype.hasOwnProperty.call(schemas, route.controller) ? schemas[route.controller] : undefined;
+    const schema = handlers && Object.prototype.hasOwnProperty.call(handlers, route.name) ? handlers[route.name] : undefined;
     return schema ? schema.parse(value) : value;
   };
 }`;
