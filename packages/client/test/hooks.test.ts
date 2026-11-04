@@ -36,9 +36,10 @@ async function hookFiles(manifest: Manifest, options: Partial<GenerateClientFile
 }
 
 // The files every hooks target writes; each library adds its own after them.
-const SHARED = /^[^.]+(\.keys|\.react)?\.ts$/;
-
-const shared = (files: Record<string, string>) => Object.fromEntries(Object.entries(files).filter(([path]) => SHARED.test(path)));
+function shared(files: Record<string, string>, basename = 'client'): Record<string, string> {
+  const paths = [`${basename}.ts`, `${basename}.keys.ts`, `${basename}.react.ts`];
+  return Object.fromEntries(Object.entries(files).filter(([path]) => paths.includes(path)));
+}
 
 const snapshot = (name: string) => fileURLToPath(new URL(`./__snapshots__/${name}`, import.meta.url));
 
@@ -72,7 +73,7 @@ describe('hooks shared module', () => {
 
   it('names the client module after basename and imports the runtime from moduleName', async () => {
     const custom = await hookFiles(manifest, { basename: 'api', moduleName: './runtime.js' });
-    expect(Object.keys(shared(custom))).to.deep.equal(['api.ts', 'api.keys.ts', 'api.react.ts']);
+    expect(Object.keys(shared(custom, 'api'))).to.deep.equal(['api.ts', 'api.keys.ts', 'api.react.ts']);
     expect(custom['api.keys.ts']).to.include("import type { ProblemError } from './runtime.js';");
     expect(custom['api.keys.ts']).to.include("from './api.js';");
     expect(custom['api.react.ts']).to.include("from './api.js';");
