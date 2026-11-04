@@ -48,6 +48,8 @@ export default defineConfig(
     rules: {
       // chai assertions are property reads: expect(x).to.be.true
       '@typescript-eslint/no-unused-expressions': 'off',
+      // Socket suites register probe controllers without policies and run them under http.socket.access.default 'allow'.
+      '@spinajs/authz/require-socket-access': 'off',
     },
   },
   {
