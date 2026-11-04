@@ -15,6 +15,7 @@ export * from './extractors/schedules.js';
 export * from './extractors/commands.js';
 export * from './extractors/queue.js';
 export * from './flow/index.js';
+export * from './extractors/n-plus-one.js';
 export { NoAppDirs } from './extractors/effective-dirs.js';
 export type { AppDirs, EffectiveDirs } from './extractors/effective-dirs.js';
 export * from './doctor/index.js';
