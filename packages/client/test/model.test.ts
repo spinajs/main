@@ -55,18 +55,22 @@ describe('buildClientModel', () => {
       name: 'get',
       method: 'get',
       kind: 'query',
-      args: [{ name: 'id', type: 'number', required: true, wire: { in: 'path', name: 'id', shape: 'value' }, schema: 'spinajs/app-basic/UsersController_get_id' }],
+      args: [{ name: 'id', type: 'number', typeNames: [], required: true, wire: { in: 'path', name: 'id', shape: 'value' }, schema: 'spinajs/app-basic/UsersController_get_id' }],
       returns: 'UserDto',
       returnSchema: 'spinajs/app-basic/UserDto',
       definition: "{ method: 'get', path: '/users/{id}', args: [{ in: 'path', name: 'id', shape: 'value' }] }",
     });
   });
 
+  it('records the type names an argument type mentions', () => {
+    expect(routeOf(model, 'users', 'list').args.map((a) => a.typeNames)).to.deep.equal([['ListQuery']]);
+  });
+
   it('leaves the schema id out where the manifest has none', () => {
     const avatar = routeOf(model, 'users', 'avatar');
     expect(avatar.kind).to.equal('mutation');
     expect(avatar.returnSchema).to.equal(undefined);
-    expect(avatar.args[1]).to.deep.equal({ name: 'file', type: 'Blob | File', required: true, wire: { in: 'multipart', name: 'file', shape: 'value' } });
+    expect(avatar.args[1]).to.deep.equal({ name: 'file', type: 'Blob | File', typeNames: [], required: true, wire: { in: 'multipart', name: 'file', shape: 'value' } });
   });
 
   it('gives GET a query, POST, PUT, PATCH and DELETE a mutation, and HEAD and file routes neither', () => {
@@ -89,7 +93,7 @@ describe('buildClientModel', () => {
 
   it('describes a placeholder no parameter binds as a required path argument without a schema', () => {
     const ping = buildClientModel({ ...manifest, controllers: [items([{ ...route('ping', 'get'), fullPath: '/items/:id/ping' }])] });
-    expect(ping.controllers[0].routes[0].args).to.deep.equal([{ name: 'id', type: 'string | number', required: true, wire: { in: 'path', name: 'id', shape: 'value' } }]);
+    expect(ping.controllers[0].routes[0].args).to.deep.equal([{ name: 'id', type: 'string | number', typeNames: [], required: true, wire: { in: 'path', name: 'id', shape: 'value' } }]);
   });
 
   describe('schema set', () => {
