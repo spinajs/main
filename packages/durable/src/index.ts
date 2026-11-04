@@ -6,3 +6,4 @@ export * from './retry.js';
 export * from './heartbeat.js';
 export * from './faults.js';
 export * from './replay.js';
+export * from './row-lease.js';
