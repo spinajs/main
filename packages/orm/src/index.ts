@@ -21,6 +21,7 @@ export * from './model.js';
 export * from './relations.js';
 export * from './relation-objects.js';
 export * from './middlewares.js';
+export * from './migration-lock.js';
 export * from './migration-service.js';
 export * from './migration-runner.js';
 export * from './migration-guard.js';
