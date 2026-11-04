@@ -1,14 +1,15 @@
-# Single-file bundle
+# Bundle
 
 `npm run bundle` (in `packages/http-socket-example`) compiles the package and writes `dist/bundle`:
 
 | File | Content |
 | --- | --- |
-| `main.mjs` | The app with every dependency inlined; starts the notes server, `GET /health` answers `{"status":"ok"}`. |
+| `main.mjs` | The launcher: turns on Node's compile cache in a per-user dir, imports `app.mjs` and writes the cache once the app listens (see [Compile cache](../http/README.md#compile-cache)). Deploy it together with `app.mjs`. |
+| `app.mjs` | The app with every dependency inlined; starts the notes server, `GET /health` answers `{"status":"ok"}`. |
 | `app.manifest.json` | The manifest built from `lib/`. |
 | `package-roots.json` | Package name to directory, read through `SPINAJS_PACKAGE_ROOTS`. |
 | `packages/<pkg>/<outDir>/config/*.js` | Package config files, standalone module copies beside the bundle. |
 
-The directory runs with no `node_modules` at all: `node main.mjs` (`PORT` picks the port, default a free one). `main.mjs` defaults `SPINAJS_MANIFEST_MODE` to `require` and locates the manifest, the package roots and the app root from its own directory. See [the manifest docs](../manifest/README.md) for the resolve rules.
+The directory runs with no `node_modules` at all: `node main.mjs` (`PORT` picks the port, default a free one). `NODE_DISABLE_COMPILE_CACHE=1` starts it without the compile cache. `app.mjs` defaults `SPINAJS_MANIFEST_MODE` to `require` and locates the manifest, the package roots and the app root from its own directory. See [the manifest docs](../manifest/README.md) for the resolve rules.
 
 `glob` is not inlined: `off` mode, a package fragment without `configFiles`, glob syntax in a config dir path or a custom file pattern needs `glob` installed next to the bundle, and fails with an error naming that cause otherwise.
