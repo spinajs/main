@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { isSymbolKeyed } from '../framework-members.js';
 import type { DeriveContext, JsonSchema, TypeHandler } from '../derive.js';
 
 const isLiteral = (type: ts.Type): boolean => (type.flags & (ts.TypeFlags.StringLiteral | ts.TypeFlags.NumberLiteral | ts.TypeFlags.BooleanLiteral)) !== 0;
@@ -24,7 +25,7 @@ function collapseBooleans(members: ts.Type[]): Array<ts.Type | 'boolean'> {
 /** A union of object types that all carry the same property with a distinct single literal type. */
 export function discriminatorOf(ctx: DeriveContext, members: ts.Type[]): { propertyName: string; values: Map<ts.Type, string | number> } | undefined {
   if (members.length < 2 || !members.every((member) => member.flags & ts.TypeFlags.Object)) return undefined;
-  const candidates = ctx.checker.getPropertiesOfType(members[0]).map((property) => property.name);
+  const candidates = ctx.checker.getPropertiesOfType(members[0]).filter((property) => !isSymbolKeyed(property)).map((property) => property.name);
   for (const name of candidates) {
     const values = new Map<ts.Type, string | number>();
     for (const member of members) {
