@@ -28,7 +28,7 @@ const collector = () => {
 const reply = (body: unknown): Promise<unknown> => {
   const client = createClient<{ users: { create(body: unknown): Promise<unknown> } }>(
     { users: { create: { method: 'post', path: '/users', body: 'json' } } },
-    { baseUrl: 'http://h', fetch: (() => Promise.resolve(Response.json(body, { status: 400, headers: { 'content-type': 'application/problem+json' } }))) as typeof fetch },
+    { baseUrl: 'http://h', fetch: (() => Promise.resolve(Response.json(body, { status: 400, headers: { 'content-type': 'application/problem+json' } }))) },
   );
   return client.users.create({}).catch((e: unknown) => e);
 };
