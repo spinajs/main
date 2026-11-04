@@ -6,7 +6,7 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { SCHEMA_SYMBOL } from './decorators.js';
 import { IValidationOptions, SchemaSource, ISchemaObject } from './types.js';
 import { Logger, Log } from '@spinajs/log-common';
-import { addSafeKeywords } from './keywords.js';
+import { addSafeKeywords, NON_FINITE_MARK } from './keywords.js';
 
 // import default souces
 import './sources.js';
@@ -43,6 +43,21 @@ const syntheticError = (keyword: string, message: string): IValidationError =>
     params: {},
     message,
   } as IValidationError);
+
+const typeErrorKey = (error: IValidationError) => JSON.stringify([error.instancePath, error.schemaPath]);
+
+// A non-finite number that was not coerced fails Ajv's own type check and the finite one: keep Ajv's error.
+function dropNonFiniteDuplicates(errors: IValidationError[]): IValidationError[] {
+  const isMarked = (error: IValidationError) => error.keyword === 'type' && (error.params as Record<string, unknown> | undefined)?.[NON_FINITE_MARK] === true;
+  const stock = new Set(errors.filter((error) => error.keyword === 'type' && !isMarked(error)).map(typeErrorKey));
+  return errors
+    .filter((error) => !(isMarked(error) && stock.has(typeErrorKey(error))))
+    .map((error) => {
+      if (!isMarked(error)) return error;
+      const { [NON_FINITE_MARK]: _mark, ...params } = error.params as Record<string, unknown>;
+      return { ...error, params };
+    });
+}
 
 @Singleton()
 export class DataValidator extends AsyncService {
@@ -280,14 +295,7 @@ export class DataValidator extends AsyncService {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private sanitizedErrors(schema?: object, ajv: any = this.Validator): IValidationError[] {
-    // A non-finite number that was not coerced fails both Ajv's type check and the finite one in keywords.ts.
-    const seen = new Set<string>();
-    return ((ajv.errors as IValidationError[]) ?? [])
-      .filter((error) => {
-        const key = JSON.stringify([error.keyword, error.instancePath, error.schemaPath]);
-        return seen.has(key) ? false : (seen.add(key), true);
-      })
-      .map((error) => sanitizeError(error, schema));
+    return dropNonFiniteDuplicates((ajv.errors as IValidationError[]) ?? []).map((error) => sanitizeError(error, schema));
   }
 
   /**

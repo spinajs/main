@@ -260,7 +260,7 @@ describe('non-finite numbers and deep-equal keywords', function () {
     it('fixes type and const, and does not add uniqueItemProperties', () => {
       const AjvCtor = ((Ajv as unknown as { default?: unknown }).default ?? Ajv) as new (o: object) => { validate(schema: object, data: unknown): boolean; getKeyword(keyword: string): unknown; removeKeyword(keyword: string): unknown; addKeyword(definition: object): unknown };
       const ajv = new AjvCtor({ coerceTypes: true, strict: false });
-      addSafeKeywords(ajv);
+      addSafeKeywords(ajv as unknown as Parameters<typeof addSafeKeywords>[0]);
 
       expect(ajv.validate({ type: 'object', properties: { v: { type: 'integer', minimum: 0 } } }, { v: '-Infinity' })).to.eq(false);
       expect(ajv.validate({ const: { a: 1 } }, JSON.parse('{"valueOf":1}'))).to.eq(false);
