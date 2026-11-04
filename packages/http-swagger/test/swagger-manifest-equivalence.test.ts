@@ -101,8 +101,8 @@ describe('swagger: cache vs manifest documentation', function () {
     for (const controller of controllers) {
       const fromCache = await cache.getCache(controller);
       for (const [method, route] of controller.instance!.Descriptor.Routes) {
-        // what Controllers.register() binds: a route inherited from another file is in neither answer, so the loader
-        // reads its names off the function
+        // what Controllers.register() binds: the cache has no answer for a route inherited from another file, so the
+        // loader reads its names off the function
         const declared = parseFnParamNames((controller.instance as unknown as Record<string, (...args: never[]) => unknown>)[String(method)]);
         const answered = await provider.parameters(controller, String(method));
         const fromManifest = answered.length > 0 ? answered : declared;
@@ -123,7 +123,10 @@ describe('swagger: cache vs manifest documentation', function () {
 
     expect(getDocumentation.called, 'the TypeScript cache was asked').to.equal(false);
     expect(controllers.length).to.be.greaterThan(5);
-    expect(methodTags(fromManifest)).to.deep.equal(methodTags(fromCache));
+    // The cache reads only the controller's own file; the manifest entry also lists what it inherits from its base.
+    const expectedTags = methodTags(fromCache);
+    expectedTags.ScopedUploadsController = { offset: null, state: null, putPart: null, ...expectedTags.ScopedUploadsController };
+    expect(methodTags(fromManifest)).to.deep.equal(expectedTags);
     expect(await build(fromManifest)).to.deep.equal(await build(fromCache));
   });
 

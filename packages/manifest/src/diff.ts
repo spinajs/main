@@ -6,7 +6,14 @@ import type { ControllerEntry, Manifest, ParamEntry, PolicyRef, RouteEntry, Type
 
 export type ChangeKind = 'added' | 'removed' | 'changed';
 export interface Change { section: 'routes' | 'schemas' | 'permissions' | 'config' | 'migrations' | 'services' | 'commands' | 'socket'; kind: ChangeKind; id: string; breaking: boolean; detail?: string }
-export interface ManifestDiff { base: string; head: string; changes: Change[]; breaking: boolean }
+export interface ManifestDiff {
+  base: string;
+  head: string;
+  changes: Change[];
+  breaking: boolean;
+  /** Reasons the changes may not all come from the code, such as base and head built by different compilers. Absent when there are none. */
+  warnings?: string[];
+}
 
 type Section = Change['section'];
 const SECTIONS: Section[] = ['routes', 'permissions', 'schemas', 'config', 'migrations', 'services', 'commands', 'socket'];
@@ -159,12 +166,21 @@ function diffMisc(base: Manifest, head: Manifest): Change[] {
   ];
 }
 
+function compilerWarnings(base: Manifest, head: Manifest): string[] {
+  if (base.compilerVersion === head.compilerVersion) return [];
+  const version = (m: Manifest): string => m.compilerVersion ?? 'unrecorded';
+  return [
+    `base and head were built by different compilers (@spinajs/compiler ${version(base)} and ${version(head)}): a change in what the compiler records, such as inherited routes, shows up as a change. Rebuild the base with the head's compiler to compare like with like.`,
+  ];
+}
+
 export function diffManifest(baseManifest: Manifest, headManifest: Manifest): ManifestDiff {
   const base = publishedManifest(baseManifest);
   const head = publishedManifest(headManifest);
   const all = [...diffRoutes(base, head), ...diffPermissions(base, head), ...diffFlaggedPermissions(baseManifest, headManifest), ...diffMisc(base, head)];
   const changes = all.sort((a, b) => SECTIONS.indexOf(a.section) - SECTIONS.indexOf(b.section) || compareCodeUnits(a.id, b.id) || compareCodeUnits(a.kind, b.kind));
-  return { base: base.hash, head: head.hash, changes, breaking: changes.some((c) => c.breaking) };
+  const warnings = compilerWarnings(baseManifest, headManifest);
+  return { base: base.hash, head: head.hash, changes, breaking: changes.some((c) => c.breaking), ...(warnings.length > 0 ? { warnings } : {}) };
 }
 
 const cell = (s: string): string => s.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
@@ -175,7 +191,9 @@ export function renderMarkdown(diff: ManifestDiff): string {
   const breakingCount = diff.changes.filter((c) => c.breaking).length;
   const verdict = diff.changes.length === 0 ? 'no changes' : diff.breaking ? `**BREAKING** (${breakingCount} breaking of ${diff.changes.length} changes)` : `non-breaking (${diff.changes.length} changes)`;
 
-  lines.push('## Manifest diff', '', `Result: ${verdict}`, '', `\`${short(diff.base)}\` -> \`${short(diff.head)}\``);
+  lines.push('## Manifest diff', '', `Result: ${verdict}`, '');
+  for (const warning of diff.warnings ?? []) lines.push(`> **Warning:** ${warning}`, '');
+  lines.push(`\`${short(diff.base)}\` -> \`${short(diff.head)}\``);
 
   for (const section of SECTIONS) {
     const changes = diff.changes.filter((c) => c.section === section);

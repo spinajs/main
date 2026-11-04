@@ -201,7 +201,7 @@ DI.register(RegisteredOnlyControllers).as(Controllers);
 - A controller without any route decorator logs a warning and mounts nothing; abstract base controllers are fine.
 - The loader keeps one controller per class **name**. Two controller classes with the same name in different files: only the first one mounts.
 - Policies and middlewares are resolved, and `RouteMiddleware.isEnabled()` is called, once per route at startup, not per request.
-- A route inherited from a base class declared in another file gets its parameter names from `Function.prototype.toString()`; see [Controller cache](21-controller-cache-and-cli.md#how-it-works).
+- A route inherited from a base class gets its parameter names from the manifest when one is in effect, else, for a base declared in another file, from `Function.prototype.toString()`; see [Controller cache](21-controller-cache-and-cli.md#how-it-works).
 - An action that returns `undefined` or `null` answers 404 (`ResourceNotFound`). An action must return a [`Response`](10-responses.md) instance.
 - The action receives `req`, `res` and `next` after its decorated arguments. An action that writes to `res` itself and returns nothing still reaches the response handler, which raises a 404 on the already-sent response; return a `Response` instead.
 
