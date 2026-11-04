@@ -125,4 +125,14 @@ describe('inheritSocketHandlers', () => {
     const once = inheritSocketHandlers({ ...base, id: 'app:T', className: 'T', commands: [], events: [], diArgs: undefined, contract: undefined }, [base]);
     expect(inheritSocketHandlers(once, [base])).to.deep.equal(once);
   });
+
+  it('carries the class guards of the base; an own @SocketAccess replaces the inherited one', () => {
+    const admin = [{ type: 'AdminPolicy', options: [] }];
+    const guarded: SocketControllerEntry = { ...base, access: ['doc:read'], policies: [admin, access('class')] };
+    const plain = inheritSocketHandlers({ ...base, id: 'app:P', className: 'P', commands: [], events: [] }, [guarded]);
+    expect(plain).to.deep.include({ access: ['doc:read'], policies: [admin, access('class')] });
+    expect(inheritSocketHandlers(plain, [guarded]).policies).to.deep.equal(plain.policies);
+    const narrowed = inheritSocketHandlers({ ...base, id: 'app:N', className: 'N', commands: [], events: [], access: ['doc:update'], policies: [access('class')] }, [guarded]);
+    expect(narrowed).to.deep.include({ access: ['doc:update'], policies: [admin, access('class')] });
+  });
 });

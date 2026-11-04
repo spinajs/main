@@ -1,5 +1,5 @@
 import { BasePolicy } from '@spinajs/http';
-import { BaseSocketController, Command, OnEvent, Payload, SocketAccess, SocketController, SocketPolicy } from '@spinajs/http-socket';
+import { BaseSocketController, Command, OnEvent, Payload, SocketAccess, SocketController, SocketPolicy, fromPayload } from '@spinajs/http-socket';
 
 export class AdminPolicy extends BasePolicy { public isEnabled(): boolean { return true; } public async execute(): Promise<void> {} }
 export class Edit { public id: string }
@@ -24,4 +24,25 @@ export class DocsSocket extends BaseSocketController {
 export class OpenSocket extends BaseSocketController {
   @OnEvent('hello')
   public async hello(): Promise<void> {}
+}
+
+@SocketPolicy(AdminPolicy)
+@SocketAccess('doc:read')
+export abstract class GuardedBase extends BaseSocketController {
+  @Command('base')
+  public async base(): Promise<void> {}
+}
+
+@SocketController('child')
+export class ChildSocket extends GuardedBase {
+  @Command('own')
+  public async own(): Promise<void> {}
+}
+
+@SocketController('narrow')
+@SocketAccess('doc:update')
+export class NarrowSocket extends GuardedBase {
+  @Command('share')
+  @SocketAccess('doc:share', { resource: fromPayload('docId', 'doc'), allowAnonymous: true })
+  public async share(): Promise<void> {}
 }

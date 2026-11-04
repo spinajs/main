@@ -181,7 +181,10 @@ export interface Diagnostic { code: string; severity: 'error' | 'warning' | 'inf
 
 /**
  * Authorization facts of the package. In `entryPoints`, `access` uses the `PolicyRef[][]` form of routes (OR between groups,
- * AND inside) with the class and handler scopes already combined; an `AccessPolicy` ref lists its permissions as `options`.
+ * AND inside) with the class and handler scopes already combined. An `AccessPolicy` ref lists its permissions as `options`,
+ * then one `{ allowAnonymous?: true; resource?: { type } | { model } }` when anonymous callers reach the check or a literal
+ * resource extractor names the type (or the model of `fromModel`). A route with no group is `[[{ type: 'Public', options:
+ * [reason] }]]` or `[[{ type: 'AllowAnonymous' }]]` when it says so.
  */
 export interface AuthzSection {
   resources: Array<{ type: string; model: string; relations: Array<{ name: string; kind: 'parent' | 'owner' | 'self' | 'relation'; column: string; target?: string }>; rls?: boolean | 'partial'; source: SourceRef }>;
