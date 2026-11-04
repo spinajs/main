@@ -1,6 +1,5 @@
 import 'mocha';
 import { expect } from 'chai';
-import { JSDOM } from 'jsdom';
 import { createRequire } from 'node:module';
 import { dirname } from 'node:path';
 import { createElement, type ComponentType, type ReactNode } from 'react';
@@ -8,33 +7,67 @@ import { createRoot, type Root } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { generateClientFiles } from '../src/index.js';
 import { appBasicManifest } from './support/fixture.js';
-import { loadSwrHooks, setProbeClient, type LoadedSwr, type MutationConfig, type ProbeClient, type SwrPackage, type Trigger } from './support/swr-runtime.js';
+import { installDom, quiet, sleep, waitFor, withAliasedImports, writeModules, type Dom } from './support/modules.js';
 
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+type SwrPackage = 'swr' | 'swr-floor';
 
-async function waitFor(condition: () => boolean, what: string, timeout = 5000): Promise<void> {
-  const deadline = Date.now() + timeout;
-  while (!condition()) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await sleep(5);
+interface ProbeClient {
+  users: { get(id: number): Promise<unknown>; list(query: unknown): Promise<unknown>; create(body: unknown): Promise<unknown> };
+  articles: { read(id: number): Promise<unknown> };
+  health: { get(): Promise<unknown> };
+}
+
+interface Trigger {
+  trigger(arg: unknown): Promise<unknown>;
+}
+
+interface MutationConfig {
+  invalidate?: false | readonly (readonly unknown[])[];
+  onSuccess?: (data: unknown) => void;
+}
+
+interface LoadedHooks {
+  useUsersGet(vars: { id: number } | null): { data?: unknown; isLoading?: boolean };
+  useUsersList(vars: { query: object } | null): { data?: unknown };
+  useUsersCreate(config?: MutationConfig): Trigger;
+  useArticlesRead(vars: { id: number } | null): { data?: unknown };
+  useHealthGet(vars?: Record<string, never> | null): { data?: unknown };
+}
+
+interface LoadedSwr {
+  hooks: LoadedHooks;
+  appKeys: { users: { all: readonly unknown[]; get(vars: { id: number }): readonly unknown[] }; articles: { all: readonly unknown[] } };
+  swr: {
+    SWRConfig: unknown;
+    default: (key: unknown, fetcher: () => unknown) => { data?: unknown };
+    unstable_serialize(key: unknown): string;
+  };
+}
+
+/** Loads the generated SWR hooks against the requested swr copy, with a `client.react` stub that reads `globalThis`. */
+async function loadSwrHooks(files: Record<string, string>, swr: SwrPackage): Promise<LoadedSwr> {
+  const stub = 'export const useAppClient = () => globalThis.__swrProbeClient;';
+  const modules = writeModules(
+    { 'client.keys.ts': files['client.keys.ts'], 'client.swr.ts': files['client.swr.ts'], 'client.react.js': stub },
+    { swr: import.meta.resolve(swr), 'swr/mutation': import.meta.resolve(`${swr}/mutation`) },
+  );
+  try {
+    return await withAliasedImports('swr-floor', 'swr', async () => {
+      const [hooks, keys, lib] = await Promise.all([
+        modules.import<LoadedHooks>('client.swr.js'),
+        modules.import<Pick<LoadedSwr, 'appKeys'>>('client.keys.js'),
+        import(import.meta.resolve(swr)) as Promise<LoadedSwr['swr']>,
+      ]);
+      return { hooks, appKeys: keys.appKeys, swr: lib };
+    });
+  } finally {
+    modules.remove();
   }
 }
 
-// For "nothing else happens": returns once the counts have not moved for a whole quiet period.
-async function quiet(counts: Counts, period = 80): Promise<void> {
-  let last = JSON.stringify(counts);
-  let since = Date.now();
-  while (Date.now() - since < period) {
-    await sleep(10);
-    const now = JSON.stringify(counts);
-    if (now !== last) {
-      last = now;
-      since = Date.now();
-    }
-  }
+function setProbeClient(client: ProbeClient): void {
+  (globalThis as { __swrProbeClient?: ProbeClient }).__swrProbeClient = client;
 }
-
-const GLOBALS = ['window', 'document', 'navigator'] as const;
 
 type Counts = Record<string, number>;
 
@@ -72,26 +105,16 @@ const PACKAGES: [string, SwrPackage][] = [
 for (const [label, swrPackage] of PACKAGES) {
   describe(`SWR hooks at runtime against ${label}`, () => {
     let loaded: LoadedSwr;
-    let dom: JSDOM;
+    let dom: Dom;
     let root: Root | undefined;
-    let saved: Partial<Record<(typeof GLOBALS)[number], PropertyDescriptor>>;
 
     before(async () => {
       const generated = await generateClientFiles({ manifest: await appBasicManifest(), hooks: ['swr'] });
-      dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { pretendToBeVisual: true });
-      saved = Object.fromEntries(GLOBALS.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
-      for (const name of GLOBALS) Object.defineProperty(globalThis, name, { value: dom.window[name], configurable: true, writable: true });
+      dom = installDom();
       loaded = await loadSwrHooks(Object.fromEntries(generated.map((f) => [f.path, f.contents])), swrPackage);
     });
 
-    after(() => {
-      for (const name of GLOBALS) {
-        const descriptor = saved[name];
-        if (descriptor) Object.defineProperty(globalThis, name, descriptor);
-        else Reflect.deleteProperty(globalThis, name);
-      }
-      dom.window.close();
-    });
+    after(() => dom.restore());
 
     afterEach(() => {
       root?.unmount();
@@ -102,7 +125,7 @@ for (const [label, swrPackage] of PACKAGES) {
       createElement(loaded.swr.SWRConfig as ComponentType<{ value: object; children?: ReactNode }>, { value: { provider: () => new Map(), dedupingInterval: 0, revalidateOnFocus: false, errorRetryCount: 0, ...extra } }, children);
 
     async function mount(probe: () => void): Promise<() => Promise<void>> {
-      root = createRoot(dom.window.document.getElementById('root') as HTMLElement);
+      root = createRoot(dom.document.body.appendChild(dom.document.createElement('div')));
       const Probe = () => {
         probe();
         return null;
@@ -141,7 +164,7 @@ for (const [label, swrPackage] of PACKAGES) {
         create = hooks.useUsersCreate(createConfig);
       });
       await waitFor(() => Object.keys(control.counts).length === 6, 'the first fetches');
-      await quiet(control.counts);
+      await quiet(() => control.counts);
       return { control, create: create as Trigger, seen };
     }
 
@@ -156,7 +179,7 @@ for (const [label, swrPackage] of PACKAGES) {
         seen.user = loaded.hooks.useUsersGet(id === null ? null : { id }).data;
         seen.health = loaded.hooks.useHealthGet(null).data;
       });
-      await quiet(control.counts);
+      await quiet(() => control.counts);
       expect(control.counts).to.deep.equal({});
       expect(seen).to.deep.equal({ user: undefined, health: undefined });
       id = 9;
@@ -166,12 +189,24 @@ for (const [label, swrPackage] of PACKAGES) {
       expect(seen.user).to.deep.equal({ id: 9, version: 1 });
     });
 
+    it('resolves an empty reply to null, so it is told apart from data not loaded yet', async () => {
+      const probe = probeClient(newControl());
+      setProbeClient({ ...probe, users: { ...probe.users, get: () => Promise.resolve(undefined) } });
+      let user: { data?: unknown; isLoading?: boolean } = {};
+      await mount(() => {
+        const { data, isLoading } = loaded.hooks.useUsersGet({ id: 1 });
+        user = { data, isLoading };
+      });
+      await waitFor(() => user.isLoading === false, 'the empty reply');
+      expect(user.data).to.equal(null);
+    });
+
     it('revalidates every key of the mutation controller by default, and no key of another controller', async () => {
       const state = await mountAll();
       expect(state.control.counts).to.deep.equal({ 'users.get:1': 1, 'users.get:2': 1, 'users.list': 1, 'articles.read:1': 1, 'health.get': 1, lookalike: 1 });
       const before = { ...state.control.counts };
       await state.create.trigger({ body: { email: 'a@b.c' } });
-      await quiet(state.control.counts);
+      await quiet(() => state.control.counts);
       expect(refetched(before, state.control.counts)).to.deep.equal(['users.create', 'users.get:1', 'users.get:2', 'users.list']);
       expect(state.seen.user1).to.deep.equal({ id: 1, version: 2 });
       expect(state.seen.article).to.deep.equal({ id: 1, version: 1 });
@@ -189,7 +224,7 @@ for (const [label, swrPackage] of PACKAGES) {
       const state = await mountAll({ invalidate: false });
       const before = { ...state.control.counts };
       await state.create.trigger({ body: {} });
-      await quiet(state.control.counts);
+      await quiet(() => state.control.counts);
       expect(refetched(before, state.control.counts)).to.deep.equal(['users.create']);
     });
 
@@ -197,7 +232,7 @@ for (const [label, swrPackage] of PACKAGES) {
       const state = await mountAll({ invalidate: [loaded.appKeys.users.get({ id: 1 })] });
       const before = { ...state.control.counts };
       await state.create.trigger({ body: {} });
-      await quiet(state.control.counts);
+      await quiet(() => state.control.counts);
       expect(refetched(before, state.control.counts)).to.deep.equal(['users.create', 'users.get:1']);
     });
 
@@ -206,7 +241,7 @@ for (const [label, swrPackage] of PACKAGES) {
       const state = await mountAll({ invalidate: [users.all, users.get({ id: 1 }), users.all] });
       const before = { ...state.control.counts };
       await state.create.trigger({ body: {} });
-      await quiet(state.control.counts);
+      await quiet(() => state.control.counts);
       expect(Object.fromEntries(Object.entries(state.control.counts).map(([k, n]) => [k, n - (before[k] ?? 0)]))).to.deep.equal({
         'users.get:1': 1,
         'users.get:2': 1,
@@ -222,7 +257,7 @@ for (const [label, swrPackage] of PACKAGES) {
       const state = await mountAll({ invalidate: [loaded.appKeys.articles.all] });
       const before = { ...state.control.counts };
       await state.create.trigger({ body: {} });
-      await quiet(state.control.counts);
+      await quiet(() => state.control.counts);
       expect(refetched(before, state.control.counts)).to.deep.equal(['articles.read:1', 'users.create']);
     });
 
@@ -238,7 +273,7 @@ for (const [label, swrPackage] of PACKAGES) {
         () => undefined,
         (e: unknown) => e,
       );
-      await quiet(state.control.counts);
+      await quiet(() => state.control.counts);
       expect(error).to.be.instanceOf(TypeError);
       expect(refetched(before, state.control.counts)).to.deep.equal([]);
       expect(replies).to.have.length(1);
