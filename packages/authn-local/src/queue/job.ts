@@ -1,6 +1,6 @@
 import { DI } from '@spinajs/di';
 import { PasswordService } from '@spinajs/authn/contracts';
-import { Job, QueueJob } from '@spinajs/queue';
+import { Job, QueueJob, SystemTask } from '@spinajs/queue';
 
 import { authnMailDeliveryOf } from '../mail/contracts.js';
 import type { AuthnMailPurpose, AuthnMailRequest } from '../mail/contracts.js';
@@ -10,6 +10,7 @@ import type { AuthnMailPurpose, AuthnMailRequest } from '../mail/contracts.js';
  * mail rendered and sent with `EmailService.send` when the job runs (SR-09), so a retry voids the secret of the earlier run.
  */
 @Job({ runAs: 'system' })
+@SystemTask('issues the secret of the identity and purpose the payload names and mails it')
 export class AuthnMailJob extends QueueJob {
   public identityType: string;
   public identityId: string;

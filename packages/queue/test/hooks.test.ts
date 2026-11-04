@@ -180,6 +180,31 @@ describe('queue message hooks', function () {
     expect(jobOptions({})).to.deep.equal({});
   });
 
+  it('jobOptions returns access as a list and the resource extractor', () => {
+    const resource = (m: { InvoiceId: string }) => ({ type: 'invoice', id: m.InvoiceId });
+
+    @Job({ runAs: 'initiator', access: 'invoice:send', resource })
+    class SendInvoice extends QueueJob {
+      public async execute() {
+        return null;
+      }
+    }
+    expect(jobOptions(new SendInvoice())).to.deep.equal({ runAs: 'initiator', access: ['invoice:send'], resource });
+  });
+
+  it('refuses an empty access list, and reads a malformed one as declared and empty', () => {
+    expect(() => Job({ access: [] })).to.throw('@Job access needs a permission');
+    expect(() => Job({ access: [''] })).to.throw('@Job access needs a permission');
+
+    class Forged extends QueueJob {
+      public async execute() {
+        return null;
+      }
+    }
+    Reflect.defineMetadata('queue:options', { type: 'job', access: [42] }, Forged);
+    expect(jobOptions(new Forged())).to.deep.equal({ access: [] });
+  });
+
   it('beforeEmit runs for every hook, in order, before the transport sees the message', async () => {
     await PlainJob.emit({});
 

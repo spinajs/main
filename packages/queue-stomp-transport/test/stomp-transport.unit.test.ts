@@ -2,7 +2,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
-import { IQueueMessage, QueueMessageType } from '@spinajs/queue';
+import { IQueueMessage, PermanentJobFailure, QueueMessageType } from '@spinajs/queue';
 import { DateTime } from 'luxon';
 import * as chai from 'chai';
 import { expect } from 'chai';
@@ -628,6 +628,21 @@ describe('stomp queue transport - unit', function () {
       // no DLQ + retries exhausted -> drop (ack) instead of nack-looping forever
       expect(msg.ack.calledOnce).to.be.true;
       expect(msg.nack.called).to.be.false;
+    });
+
+    it('dead-letters a PermanentJobFailure at once, with retries left', async () => {
+      const c = await connected({ defaultQueueDeadLetterChannel: '/queue/dlq' });
+      await c.subscribe('/queue/fail', sinon.stub().rejects(new PermanentJobFailure('access_denied', 'job FailingJob needs invoice:send on invoice')));
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/fail')!;
+      const msg = brokerMessage(jobMessage({ Name: 'FailingJob', RetryCount: 3 } as any));
+      sub.callback(msg);
+      await tick();
+
+      const dlq = c.fake.published.find((p) => p.destination === '/queue/dlq');
+      expect(dlq, 'dead-lettered without a retry').to.exist;
+      expect((dlq!.headers as Record<string, unknown>)['x-error']).to.eq('access_denied: job FailingJob needs invoice:send on invoice');
+      expect(c.fake.published.filter((p) => p.destination === '/queue/fail')).to.have.length(0);
     });
 
     it('dead-letters a failed JOB ( RetryCount 0 ) and acks the original', async () => {

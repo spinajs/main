@@ -1,9 +1,9 @@
 import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { AuthzDomains, SYSTEM, UNATTENDED } from '@spinajs/authz';
-import type { AuthzService, Principal } from '@spinajs/authz';
-import { QueueMessageHook, jobOptions } from '@spinajs/queue';
-import type { IQueueMessage } from '@spinajs/queue';
+import { AuthzDomains, SYSTEM, UNATTENDED, engineLog, parsePermission, resourceKey } from '@spinajs/authz';
+import type { AuthzLog, AuthzService, Decision, Principal } from '@spinajs/authz';
+import { PermanentJobFailure, QueueMessageHook, jobOptions, systemTaskOf } from '@spinajs/queue';
+import type { IQueueMessage, JobOptions } from '@spinajs/queue';
 import type { Initiator } from '../api.js';
 import { InitiatorPrincipalFactory, reviveCeiling } from './initiator.js';
 
@@ -11,6 +11,19 @@ import { InitiatorPrincipalFactory, reviveCeiling } from './initiator.js';
 const isStrictCeiling = (c: { expiresAt?: unknown; reason?: unknown }): boolean => (c.expiresAt === undefined || c.expiresAt instanceof Date) && (c.reason === undefined || (typeof c.reason === 'string' && c.reason !== ''));
 
 const isPlain = (v: unknown): boolean => v !== null && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype;
+
+/** A `@Job({ access })` the principal does not hold: dead-lettered with `access_denied`, never retried. */
+export class JobAccessDenied extends PermanentJobFailure {
+  constructor(
+    job: string,
+    public readonly decision: Decision | undefined,
+  ) {
+    super('access_denied', decision ? `job ${job} needs ${decision.permission} on ${resourceKey(decision.resource)}${decision.reason ? ` (${decision.reason.code})` : ''}` : `job ${job} declares no permission it may run with`);
+  }
+}
+
+// A conditional allow on one row cannot be settled here, as no row is loaded: only a definite one, or a type-level one, passes.
+const passes = (d: Decision): boolean => d.allowed && (d.residual.op === 'true' || d.resource.id === undefined);
 
 /**
  * Stamps who emitted a message and decides whose authority its handler has (design §14.2, B30).
@@ -27,6 +40,10 @@ export class AuthzQueueHook extends QueueMessageHook {
 
   @Autoinject(AuthzDomains)
   protected Domains: AuthzDomains;
+
+  protected Log: AuthzLog = engineLog('authz-queue');
+
+  private readonly undeclared = new Set<unknown>();
 
   async beforeEmit(message: IQueueMessage): Promise<void> {
     // Whatever the caller put there is dropped: only the ambient principal may be named.
@@ -52,14 +69,38 @@ export class AuthzQueueHook extends QueueMessageHook {
 
   async aroundHandle<T>(message: IQueueMessage, next: () => Promise<T>): Promise<T> {
     const service = await this.service();
-    const { runAs } = jobOptions(message);
+    const options = jobOptions(message);
+    const { runAs, access } = options;
 
     let principal: Principal = UNATTENDED;
     if (runAs === 'system') principal = SYSTEM;
     else if (runAs === 'initiator' && message.Initiator) principal = await this.initiator(message.Initiator as Initiator);
+    if (runAs === 'system' && access === undefined) this.warnUndeclared(message);
 
     // Also for unattended: a consumer running inside the emitter's async context must not inherit its principal.
-    return service.runAs(principal, `job:${message.Name}`, next);
+    return service.runAs(principal, `job:${message.Name}`, async () => {
+      if (access !== undefined) await this.authorize(service, principal, message, options);
+      return next();
+    });
+  }
+
+  /** Any one of the `access` permissions on the job's resource; a denial is final. */
+  protected async authorize(service: AuthzService, principal: Principal, message: IQueueMessage, { access = [], resource }: JobOptions): Promise<void> {
+    let denied: Decision | undefined;
+    for (const permission of typeof access === 'string' ? [access] : access) {
+      const decision = await service.check({ principal, permission, resource: resource ? resource(message) : { type: parsePermission(permission).resource } });
+      if (passes(decision)) return;
+      denied ??= decision;
+    }
+    throw new JobAccessDenied(message.Name, denied);
+  }
+
+  /** `runAs: 'system'` without `access` should say why with `@SystemTask` (doctor AUTHZ004); 4.x only warns, once per job class. */
+  protected warnUndeclared(message: IQueueMessage): void {
+    const type = message.constructor;
+    if (systemTaskOf(type) !== undefined || this.undeclared.has(type)) return;
+    this.undeclared.add(type);
+    this.Log.warn({ job: message.Name }, "Job ${job} runs as SYSTEM with no access and no @SystemTask(reason)");
   }
 
   protected async initiator(initiator: Initiator): Promise<Principal> {
