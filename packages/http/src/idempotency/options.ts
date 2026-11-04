@@ -33,7 +33,7 @@ function givenOptions(options: unknown): IdempotentOptions {
   if (unknown.length > 0) {
     throw new InvalidArgument(`@Idempotent has no option ${unknown.join(', ')}`);
   }
-  return Object.fromEntries(Object.entries(options).filter(([, value]) => value !== undefined)) as IdempotentOptions;
+  return Object.fromEntries(Object.entries(options).filter(([, value]) => value !== undefined));
 }
 
 export function resolveIdempotentOptions(options: IdempotentOptions = {}): ResolvedIdempotentOptions {
