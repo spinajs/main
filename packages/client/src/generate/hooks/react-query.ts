@@ -1,7 +1,7 @@
 import { companionHeader, manifestHashCheck } from '../companion.js';
 import type { ClientModel } from '../model.js';
 import { withUseClient } from './directive.js';
-import { varsParameter, type HookRoute } from './shared.js';
+import { typeNames, varsParameter, type HookRoute } from './shared.js';
 
 export interface ReactQueryOptions {
   /** File name of the client without extension, default `client`. */
@@ -29,10 +29,6 @@ const mutationFn = (hook: HookRoute) => `(${hook.route.args.length > 0 ? 'vars' 
 function importLine(names: (string | false)[], from: string, typeOnly = false): string[] {
   const used = names.filter((n): n is string => n !== false);
   return used.length > 0 ? [`import ${typeOnly ? 'type ' : ''}{ ${used.join(', ')} } from '${from}';`] : [];
-}
-
-function typeNames(hooks: HookRoute[], extra: string[]): string[] {
-  return [...new Set([...hooks.flatMap((h) => [...h.route.args.flatMap((a) => a.typeNames), ...h.route.returnTypeNames]), ...extra])].sort();
 }
 
 function groupByController(model: ClientModel, hooks: HookRoute[]): [string, HookRoute[]][] {
