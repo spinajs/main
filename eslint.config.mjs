@@ -15,6 +15,9 @@ export default defineConfig(
       '**/lib/**',
       '**/*.d.ts',
       '**/test/fixtures/**',
+      // The Next.js fixture's build output and generated client.
+      'fixtures/*/.next/**',
+      'fixtures/*/generated/**',
       // Their tsconfig.json does not include test/, so the typed rules have no program for it.
       'packages/{di,exceptions,fs-onedrive,orm-threading,session-provider-redis,templates-csv,threading,util}/test/**',
     ],
