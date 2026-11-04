@@ -4,7 +4,7 @@ import type { IContainer } from '@spinajs/di';
 import { UnexpectedServerError } from '@spinajs/exceptions';
 import { InsertBehaviour, Orm } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
-import { positive } from './guards.js';
+import { fitsColumn, positive } from './guards.js';
 import { IdempotencyKeyModel } from './models/IdempotencyKeyModel.js';
 import { onPrimary } from './sql.js';
 import { IdempotencyStore } from './store.js';
@@ -34,6 +34,8 @@ const free = (now: number) =>
 export class OrmIdempotencyStore extends IdempotencyStore {
   public async claim(key: string, opts: IdempotencyClaimOptions): Promise<IdempotencyClaim> {
     positive('leaseMs', opts.leaseMs);
+    fitsColumn('key', key);
+    fitsColumn('fingerprint', opts.fingerprint);
     const token = randomUUID();
     const values = {
       Namespace: (opts.namespace ?? '').slice(0, NAMESPACE_LENGTH),

@@ -7,7 +7,7 @@ import { IDEMPOTENCY_CONNECTION, IDEMPOTENCY_TABLE } from '../connection.js';
 export class Idempotency_2026_11_12_00_00_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
     await connection.schema().createTable(IDEMPOTENCY_TABLE, (t) => {
-      t.string('Key', 64).primaryKey().notNull();
+      t.string('Key', 64).primaryKey().notNull().exact();
       // 128: `queue:<subscriptionId>` namespaces (outbox plan A9) do not fit 64
       t.string('Namespace', 128).notNull();
       t.string('Fingerprint', 64);
@@ -19,6 +19,8 @@ export class Idempotency_2026_11_12_00_00_00 extends OrmMigration {
       t.bigint('CreatedAt').notNull();
     });
     await connection.index().table(IDEMPOTENCY_TABLE).name('__idempotency_expires').columns(['ExpiresAt']);
+    // the sweep's running branch: ended leases
+    await connection.index().table(IDEMPOTENCY_TABLE).name('__idempotency_lease').columns(['State', 'LeaseUntil']);
   }
 
   public async down(connection: OrmDriver): Promise<void> {

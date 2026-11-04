@@ -105,6 +105,19 @@ export function describeIdempotencyStoreConformance(name: string, factory: () =>
       assert.deepEqual(await store.peek('k', T0), { state: 'running', leaseUntil: T0 + LEASE });
     });
 
+    it('keeps keys that differ only by case or accent apart', async (store) => {
+      for (const key of ['Key-A', 'key-a', 'Kéy-A']) {
+        await claimed(store, key, T0);
+      }
+    });
+
+    it('rejects a key or a fingerprint longer than 64 characters before storing anything', async (store) => {
+      await assert.rejects(store.claim('k'.repeat(65), at(T0)), InvalidArgument);
+      await assert.rejects(store.claim('k', at(T0, 'f'.repeat(65))), InvalidArgument);
+      assert.equal(await store.peek('k', T0), undefined);
+      await claimed(store, 'k'.repeat(64), T0, 'f'.repeat(64));
+    });
+
     it('stores no fingerprint when the claim had none', async (store) => {
       const token = await claimed(store, 'k', T0);
       await store.complete('k', token, REPLY, TTL, T0);

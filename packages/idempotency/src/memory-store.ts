@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { positive } from './guards.js';
+import { fitsColumn, positive } from './guards.js';
 import { IdempotencyStore } from './store.js';
 import type { IdempotencyClaim, IdempotencyClaimOptions, IdempotencyHeld, StoredReply } from './interfaces.js';
 
@@ -40,6 +40,8 @@ export class MemoryIdempotencyStore extends IdempotencyStore {
 
   public async claim(key: string, opts: IdempotencyClaimOptions): Promise<IdempotencyClaim> {
     positive('leaseMs', opts.leaseMs);
+    fitsColumn('key', key);
+    fitsColumn('fingerprint', opts.fingerprint);
     const held = this.held(key, opts.now);
     if (held) {
       return held;
