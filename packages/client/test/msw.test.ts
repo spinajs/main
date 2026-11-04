@@ -31,7 +31,7 @@ const server = setupServer();
 describe('client.msw.ts', function () {
   this.timeout(120000);
 
-  before(() => server.listen({ onUnhandledFrame: 'bypass' }));
+  before(() => server.listen({ onUnhandledFrame: 'error' }));
   afterEach(() => server.resetHandlers());
   after(() => {
     server.close();
@@ -167,10 +167,20 @@ describe('client.msw.ts', function () {
     let loaded: Awaited<ReturnType<typeof loadGenerated>>;
     let client: ReturnType<typeof loaded.createAppClient>;
 
+    const make = (handler: string, fullPath: string, method: 'get' | 'file' = 'get', returnType: { text: string } = { text: 'string' }) => ({ ...route(handler, method, []), fullPath, returnType });
+    const load = async (routes: ReturnType<typeof make>[]) => loadGenerated(await generateClientFiles({ manifest: manifestWith(await appBasicManifest(), {}, {}, routes), mocks: true, msw: true }));
+
     before(async () => {
-      const make = (handler: string, fullPath: string) => ({ ...route(handler, 'get', []), fullPath, returnType: { text: 'string' } });
-      const manifest = manifestWith(await appBasicManifest(), {}, {}, [make('optional', '/items/optional{/:id}'), make('twice', '/items/twice{/:a}{/:b}'), make('wild', '/items/wild/*path')]);
-      loaded = await loadGenerated(await generateClientFiles({ manifest, mocks: true, msw: true }));
+      loaded = await load([
+        make('optional', '/items/optional{/:id}'),
+        make('twice', '/items/twice{/:a}{/:b}'),
+        make('wild', '/items/wild/*path'),
+        make('question', '/items/q/b\\?c'),
+        make('backslash', '/items/bs/b\\\\c'),
+        make('unsampled', '/items/unsampled', 'get', { text: 'unknown' }),
+        make('download', '/items/download', 'file', { text: 'Blob' }),
+        make('textFile', '/items/text-file', 'file'),
+      ]);
       client = loaded.createAppClient({ baseUrl });
     });
 
@@ -179,8 +189,10 @@ describe('client.msw.ts', function () {
     const status = async (path: string) => {
       try {
         return (await fetch(`${baseUrl}${path}`)).status;
-      } catch {
-        return 'no handler';
+      } catch (e) {
+        const cause = (e as { cause?: Error }).cause;
+        if (e instanceof TypeError && cause?.message.includes('[MSW]') && cause.message.includes('"error" strategy')) return 'no handler';
+        throw e;
       }
     };
 
@@ -217,6 +229,69 @@ describe('client.msw.ts', function () {
       await client.items.optional();
       await client.items.optional(5);
       expect(seen).to.deep.equal([{}, { id: '5' }]);
+    });
+
+    it('binds a single segment to the first optional group, as Express does', async () => {
+      const seen: unknown[] = [];
+      server.use(
+        ...loaded.createAppHandlers(baseUrl, {
+          items: {
+            twice: ({ params }: { params: unknown }) => {
+              seen.push(params);
+              return HttpResponse.json('seen');
+            },
+          },
+        }),
+      );
+      for (const path of ['/items/twice', '/items/twice/7', '/items/twice/1/2']) await fetch(`${baseUrl}${path}`);
+      expect(seen).to.deep.equal([{}, { a: '7' }, { a: '1', b: '2' }]);
+    });
+
+    it('matches a literal question mark only as the encoded path character', async () => {
+      expect(await status('/items/q/b%3Fc')).to.equal(200);
+      expect(await status('/items/q/b?c')).to.equal('no handler');
+      expect(await status('/items/q/b')).to.equal('no handler');
+    });
+
+    it('matches a literal backslash only as itself', async () => {
+      expect(await status('/items/bs/b%5Cc')).to.equal(200);
+      expect(await status('/items/bs/bc')).to.equal('no handler');
+    });
+
+    it('answers a route with no schema to sample with a 500 that names MockUnsupported', async () => {
+      const response = await fetch(`${baseUrl}/items/unsampled`);
+      expect(response.status).to.equal(500);
+      expect(await response.json()).to.deep.include({ name: 'MockUnsupported' });
+    });
+
+    it('answers a file route like a GET: a Blob reply cannot be sampled, a text reply is JSON', async () => {
+      expect((await fetch(`${baseUrl}/items/download`)).status).to.equal(500);
+      const text = await fetch(`${baseUrl}/items/text-file`);
+      expect(text.status).to.equal(200);
+      expect(await text.json()).to.be.a('string');
+    });
+  });
+
+  describe('overlapping routes of one controller', () => {
+    const baseUrl = 'http://127.0.0.1:59321';
+    const make = (handler: string, fullPath: string) => ({ ...route(handler, 'get', []), fullPath, returnType: { text: 'string' } });
+    const answers = async (routes: ReturnType<typeof make>[]) => {
+      const manifest = manifestWith(await appBasicManifest(), {}, {}, routes);
+      const loaded = await loadGenerated(await generateClientFiles({ manifest, mocks: true, msw: true }));
+      const reply = (name: string) => () => HttpResponse.json(name);
+      server.use(...loaded.createAppHandlers(baseUrl, { items: { me: reply('me'), byId: reply('byId') } }));
+      return async (path: string) => (await (await fetch(`${baseUrl}${path}`)).json()) as string;
+    };
+
+    it('lets the first declared route win, as Express does: /users/me before /users/:id', async () => {
+      const get = await answers([make('me', '/users/me'), make('byId', '/users/:id')]);
+      expect(await get('/users/me')).to.equal('me');
+      expect(await get('/users/5')).to.equal('byId');
+    });
+
+    it('lets the first declared route win, as Express does: /users/:id before /users/me', async () => {
+      const get = await answers([make('byId', '/users/:id'), make('me', '/users/me')]);
+      expect(await get('/users/me')).to.equal('byId');
     });
   });
 });

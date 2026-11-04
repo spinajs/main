@@ -8,7 +8,11 @@ export interface MswEmitResult {
 
 // MSW reads `:name` as \w+ and has no `{...}` groups or named wildcards: `*` is its only wildcard, reported as params['0'], params['1'], ...
 const MSW_NAME = /^[A-Za-z_]\w*$/;
-const MSW_SPECIAL = /[:*]/;
+
+// MSW matches the path of a request without its query or fragment, so a literal `?` or `#` can only be one the client percent-encodes.
+const MSW_LITERAL: Record<string, string> = { ':': '\\:', '*': '\\*', '\\': '\\\\', '?': '%3F', '#': '%23' };
+
+export class MswPathError extends Error {}
 
 interface Parsed {
   variants: string[];
@@ -30,18 +34,19 @@ function variantsOf(template: string, start: number, nested: boolean): Parsed {
     }
     if (char === '[') {
       const group = variantsOf(template, i + 1, true);
-      variants = variants.flatMap((v) => [v, ...group.variants.map((g) => v + g)]);
+      // Express fills the first group that can take a segment, so the variant keeping the earlier groups comes first.
+      variants = variants.flatMap((v) => [...group.variants.map((g) => v + g), v]);
       i = group.next;
     } else if (char === '{') {
       const end = template.indexOf('}', i);
       const name = template.slice(i + 1, end);
       if (name.startsWith('*')) append('*');
       else if (MSW_NAME.test(name)) append(`:${name}`);
-      else throw new Error(`parameter name '${name}' cannot be written as an MSW path parameter; use letters, digits and underscores`);
+      else throw new MswPathError(`parameter name '${name}' cannot be written as an MSW path parameter; use letters, digits and underscores`);
       i = end + 1;
     } else {
       const literalChar = char === '\\' ? template[++i] : char;
-      append(MSW_SPECIAL.test(literalChar) ? `\\${literalChar}` : literalChar);
+      append(MSW_LITERAL[literalChar] ?? literalChar);
       i++;
     }
   }
