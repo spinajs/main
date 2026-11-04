@@ -26,7 +26,7 @@ describe('generateClientFiles', () => {
   });
 
   it('keeps client.ts unchanged for options that only shape companion files', async () => {
-    const files = await generateClientFiles({ manifest, models: false, socketHooks: false, keyPrefix: 'app', zod: false, hooks: [] });
+    const files = await generateClientFiles({ manifest, models: false, socketHooks: false, keyPrefix: 'app', zod: false, hooks: [], server: false });
     expect(files).to.have.length(1);
     const [file] = files;
     expect(file.contents).to.equal(client);
@@ -40,6 +40,8 @@ describe('generateClientFiles', () => {
     [{ hooks: ['react-query', 'swr'] }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.queries.ts', 'client.react-query.ts', 'client.swr.ts']],
     [{ hooks: ['react-query'], socketHooks: true }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.queries.ts', 'client.react-query.ts', 'client.socket.ts']],
     [{ hooks: ['swr'], socketHooks: true }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.swr.ts', 'client.socket.ts', 'client.socket-swr.ts']],
+    [{ server: true }, ['client.ts', 'client.server.ts']],
+    [{ hooks: ['react-query'], server: true }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.queries.ts', 'client.react-query.ts', 'client.server.ts']],
   ];
   for (const [companion, paths] of companions) {
     it(`exports manifestHash from client.ts when a companion is requested (${JSON.stringify(companion)})`, async () => {
@@ -69,13 +71,14 @@ describe('generateClientFiles', () => {
       zod: { available: false },
       models: { available: false },
       'socket-hooks': { available: true },
+      server: { available: true },
     });
   });
 
   it('names the targets the options request, in table order whatever the flag order', () => {
     expect(requestedTargets({ manifest })).to.deep.equal([]);
-    expect(requestedTargets({ manifest, hooks: ['swr', 'react-query'], zod: { mini: true }, models: true, socketHooks: true, keyPrefix: 'x' })).to.deep.equal(['react-query', 'swr', 'zod', 'models', 'socket-hooks']);
-    expect(requestedTargets({ manifest, hooks: [], zod: false, models: false, socketHooks: false })).to.deep.equal([]);
+    expect(requestedTargets({ manifest, server: true, hooks: ['swr', 'react-query'], zod: { mini: true }, models: true, socketHooks: true, keyPrefix: 'x' })).to.deep.equal(['react-query', 'swr', 'zod', 'models', 'socket-hooks', 'server']);
+    expect(requestedTargets({ manifest, hooks: [], zod: false, models: false, socketHooks: false, server: false })).to.deep.equal([]);
   });
 
   it('refuses two files at the same path, which two emitters would otherwise both return', () => {
