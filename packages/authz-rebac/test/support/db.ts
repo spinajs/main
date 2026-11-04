@@ -4,10 +4,9 @@ import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import '@spinajs/log';
 import { Orm, QueryContext } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import type { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-
-import { AuthzRebac_2026_10_21_00_00_00 } from '../../src/index.js';
 
 export interface TestDb {
   readonly orm: Orm;
@@ -26,7 +25,7 @@ export function rawQuery(driver: OrmDriver, sql: string, bindings: unknown[] = [
 export async function bootDb(suite: string): Promise<TestDb> {
   DI.setESMModuleSupport();
   const name = `rebac-${suite}`;
-  const connections = [{ Name: name, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: { OnStartup: false } }];
+  const connections = [{ Name: name, Driver: 'orm-driver-sqlite', Filename: ':memory:' }];
 
   class TestDbConfiguration extends FrameworkConfiguration {
     public async resolve(): Promise<void> {
@@ -43,12 +42,8 @@ export async function bootDb(suite: string): Promise<TestDb> {
   container.register(SqliteOrmDriver).as('orm-driver-sqlite');
 
   await container.resolve(Configuration);
-  const orm = await container.resolve(Orm);
+  const { orm } = await migrateTestDatabase(container);
   const driver = orm.Connections.get('authz')!;
-  // By hand: the boot migration pass is not what these suites test.
-  await new AuthzRebac_2026_10_21_00_00_00().up(driver);
-  // The Orm read the table info before authz_rebac_tuple existed.
-  await orm.reloadTableInfo();
 
   return { orm, container, driver, dispose: () => orm.dispose() };
 }
