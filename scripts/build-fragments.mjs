@@ -6,7 +6,7 @@
  *
  *   node scripts/build-fragments.mjs [--only a,b] [--packages-dir <dir>] [--concurrency N]
  */
-import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { availableParallelism } from 'node:os';
@@ -29,17 +29,55 @@ export function countSeverities(diagnostics) {
 }
 
 /** Runs `worker` over `items` with at most `limit` in flight; results keep input order. */
-export async function mapPool(items, limit, worker) {
+export const mapPool = (items, limit, worker) => mapPoolAfter(items, limit, () => [], worker);
+
+/** For each dir, the dirs among `dirs` it depends on at runtime: their fragments hold the bases its controllers inherit from. */
+export function prerequisitesOf(dirs) {
+  const pkgs = dirs.map((dir) => JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')));
+  const dirOf = new Map(pkgs.map((pkg, i) => [pkg.name, dirs[i]]));
+  const needed = (pkg, dir) => Object.keys({ ...pkg.dependencies, ...pkg.peerDependencies }).map((name) => dirOf.get(name)).filter((d) => d !== undefined && d !== dir);
+  return new Map(dirs.map((dir, i) => [dir, needed(pkgs[i], dir)]));
+}
+
+/** `mapPool` that starts an item only once the items `needs` names are done; when only a cycle is left, one of its items starts first. */
+export function mapPoolAfter(items, limit, needs, worker) {
   const results = new Array(items.length);
-  let next = 0;
-  const lane = async () => {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await worker(items[i]);
+  const done = new Set();
+  const waiting = items.map((item, i) => ({ item, i }));
+  let running = 0;
+  const unmet = (item) => (needs(item) ?? []).filter((d) => !done.has(d));
+  const onCycle = (item) => {
+    const seen = new Set();
+    for (const stack = unmet(item); stack.length > 0; ) {
+      const d = stack.pop();
+      if (d === item) return true;
+      if (seen.has(d)) continue;
+      seen.add(d);
+      stack.push(...unmet(d));
     }
+    return false;
   };
-  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, lane));
-  return results;
+  return new Promise((resolvePool, rejectPool) => {
+    const pump = () => {
+      if (waiting.length === 0 && running === 0) return resolvePool(results);
+      while (running < Math.max(1, limit) && waiting.length > 0) {
+        let next = waiting.findIndex(({ item }) => unmet(item).length === 0);
+        if (next === -1 && running > 0) return;
+        if (next === -1) next = Math.max(0, waiting.findIndex(({ item }) => onCycle(item)));
+        const [{ item, i }] = waiting.splice(next, 1);
+        running++;
+        Promise.resolve()
+          .then(() => worker(item))
+          .then((result) => {
+            results[i] = result;
+            done.add(item);
+            running--;
+            pump();
+          }, rejectPool);
+      }
+    };
+    pump();
+  });
 }
 
 async function analyzeInThread(dir) {
@@ -83,12 +121,12 @@ function runInWorker(worker, dir) {
   });
 }
 
-/** Analyzes `dirs` in a pool of worker threads; a dead worker fails its package and is replaced. */
-export async function analyzeAll(dirs, { concurrency, workerFile = fileURLToPath(import.meta.url), onResult = () => {} }) {
+/** Analyzes `dirs` in a pool of worker threads, each after the dirs `needs` names; a dead worker fails its package and is replaced. */
+export async function analyzeAll(dirs, { concurrency, needs = () => [], workerFile = fileURLToPath(import.meta.url), onResult = () => {} }) {
   const spawn = () => new Worker(workerFile);
   const free = Array.from({ length: Math.max(1, Math.min(concurrency, dirs.length)) }, spawn);
   const size = free.length;
-  const results = await mapPool(dirs, size, async (dir) => {
+  const results = await mapPoolAfter(dirs, size, needs, async (dir) => {
     let worker = free.pop();
     const result = await runInWorker(worker, dir);
     if (result.dead) {
@@ -131,7 +169,8 @@ async function main() {
   const dirs = listAnalyzable(packagesDir, only);
 
   const started = performance.now();
-  const results = await analyzeAll(dirs, { concurrency, onResult: (r) => console.log(formatResult(r)) });
+  const prerequisites = prerequisitesOf(dirs);
+  const results = await analyzeAll(dirs, { concurrency, needs: (dir) => prerequisites.get(dir), onResult: (r) => console.log(formatResult(r)) });
 
   let failed = 0;
   for (const r of results) {

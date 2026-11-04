@@ -273,6 +273,20 @@ describe('generateClient', () => {
       expect(typecheck(out)).to.deep.equal([]);
     });
   });
+
+  it('gives a controller whose routes are all inherited a client typed with what it binds', async () => {
+    const create = { ...route('create', 'post', '/uploads', [param(0, 'body', 'FromBody', { in: 'body', shape: 'whole' }, 'CreateFileDto', 'spinajs/app/CreateFileDto')], { text: 'void' }), inheritedFrom: '@spinajs/upload:UploadController' };
+    const out = await generateClient({
+      manifest: {
+        ...manifest,
+        schemas: { ...manifest.schemas, 'spinajs/app/CreateFileDto': { $id: 'spinajs/app/CreateFileDto', type: 'object', properties: { name: { type: 'string' } }, required: ['name'], additionalProperties: false } },
+        controllers: [...manifest.controllers, { id: 'app:AppUploads', className: 'AppUploads', basePath: 'uploads', bases: ['@spinajs/upload:UploadController'], policies: [], middlewares: [], routes: [create], source }],
+      },
+    });
+    expect(out).to.include('appUploads: {');
+    expect(out).to.include('create(body: CreateFileDto): Promise<void>;');
+    expect(typecheck(out)).to.deep.equal([]);
+  });
 });
 
 async function expectRejection(promise: Promise<unknown>, message: RegExp): Promise<void> {

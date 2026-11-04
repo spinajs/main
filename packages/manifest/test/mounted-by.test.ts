@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { diffManifest, publishedManifest, validateManifest } from '../src/index.js';
 import type { Manifest } from '../src/index.js';
+import { manifestWith, profilesOverride } from './support.js';
 
 const fixture = fileURLToPath(new URL('../../compiler/test/fixtures/app-basic/app.manifest.json', import.meta.url));
 const load = (): Manifest => JSON.parse(readFileSync(fixture, 'utf8')) as Manifest;
@@ -58,5 +59,23 @@ describe('entries a registration has to serve', () => {
     const removed = diffManifest(base, flagged()).changes.filter((c) => c.section === 'routes' && c.kind === 'removed');
     expect(removed.length).to.equal(base.controllers.flatMap((c) => c.routes).length);
     expect(removed.every((c) => c.breaking)).to.equal(true);
+  });
+});
+
+describe('publishedManifest and overridden controllers', () => {
+  const { base, sub, registration } = profilesOverride;
+
+  it('drops a controller a subclass is registered over', () => {
+    const published = publishedManifest(manifestWith({ controllers: [base, sub], services: [registration()] }));
+    expect(published.controllers.map((c) => c.className)).to.deep.equal(['AppProfilesController']);
+  });
+
+  it('keeps both when the override is conditional, as only a boot can tell', () => {
+    const published = publishedManifest(manifestWith({ controllers: [base, sub], services: [registration({ kind: 'dynamic', reason: 'x' })] }));
+    expect(published.controllers).to.have.length(2);
+  });
+
+  it('keeps both when the subclass is not registered over the base', () => {
+    expect(publishedManifest(manifestWith({ controllers: [base, sub] })).controllers).to.have.length(2);
   });
 });
