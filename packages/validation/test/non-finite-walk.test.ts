@@ -6,7 +6,7 @@ import '@spinajs/log';
 
 import { DataValidator } from '../src/validator.js';
 import { ValidationFailed, sanitizeError } from '../src/exceptions/index.js';
-import { findNonFinite } from '../src/keywords.js';
+import { findNonFinite, nonFiniteErrors } from '../src/keywords.js';
 
 function validationConfig(validation: Record<string, unknown>) {
   return class extends FrameworkConfiguration {
@@ -211,6 +211,25 @@ describe('no validated data holds a non-finite number', function () {
       const { found, ms } = walkTime(JSON.parse('['.repeat(levels) + '1e400' + ']'.repeat(levels)));
       expect(found).to.deep.eq(['/0'.repeat(levels)]);
       expect(ms, `${ms.toFixed(0)} ms`).to.be.below(3000);
+    });
+
+    it('lists 100 of 200k non-finite numbers in one array, says so, and takes well under a second', () => {
+      const body = JSON.parse(`[${'{"v":1e400},'.repeat(199_999)}{"v":1e400}]`) as unknown;
+      const started = process.hrtime.bigint();
+      const errors = nonFiniteErrors(body, true);
+      const ms = Number(process.hrtime.bigint() - started) / 1e6;
+      expect(errors).to.have.length(100);
+      expect(errors[0]).to.deep.eq({ keyword: 'type', instancePath: '/0/v', schemaPath: '#', params: { type: 'finite number' }, message: 'must be a finite number' });
+      expect(errors[99].instancePath).to.eq('/99/v');
+      expect(errors[99].message).to.eq('must be a finite number; only the first 100 non-finite numbers are listed');
+      // Looking each hit's key up in its parent made this quadratic: 200k hits took about 9 s.
+      expect(ms, `${ms.toFixed(0)} ms`).to.be.below(1000);
+    });
+
+    it('lists exactly 100 non-finite numbers without the note', () => {
+      const errors = nonFiniteErrors(Array.from({ length: 100 }, () => Infinity), true);
+      expect(errors).to.have.length(100);
+      expect(errors.every((e) => e.message === 'must be a finite number')).to.eq(true);
     });
 
     it('a code-built cycle beyond the delayed guard still ends', () => {

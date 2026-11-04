@@ -1,5 +1,6 @@
 import { _, nil, str } from 'ajv';
 import type { Code, CodeKeywordDefinition, FuncKeywordDefinition, KeywordCxt, KeywordDefinition, KeywordErrorDefinition, Name } from 'ajv';
+import type { IValidationError } from './exceptions/index.js';
 
 /**
  * Deep equality of validated values that never calls a method found on the value itself.
@@ -112,31 +113,34 @@ const walkable = (value: unknown): value is object => {
 // About as many containers as a 5 MB body of nested arrays holds ( `[]` is two bytes ).
 const CYCLE_GUARD_AFTER = 3_000_000;
 
-// The key under which `parent` holds `child`; looked up only to spell out the path of a hit.
-function keyOf(parent: object, child: object): string | number {
-  if (Array.isArray(parent)) return parent.indexOf(child);
-  return Object.keys(parent).find((key) => (parent as Record<string, unknown>)[key] === child) ?? '';
-}
+/** At most this many non-finite numbers are reported; `findNonFinite` looks for one more, to tell there are others. */
+export const NON_FINITE_REPORT_LIMIT = 100;
 
 /**
  * The JSON pointers of the non-finite numbers in validated data. JSON carries one only through coercion or a literal
  * such as `1e400`, and a subschema that may fail ( `if`, an `anyOf` / `oneOf` branch, `not` ) coerces in place before
  * it fails, where no `type` rule sees the result. `data` itself is walked whatever its class ( a `@Schema` DTO ); below
- * it plain objects and arrays, as JSON builds them. A loop, not recursion, so no depth overflows it.
+ * it plain objects and arrays, as JSON builds them. A loop, not recursion, so no depth overflows it. With `all`, up
+ * to {@link NON_FINITE_REPORT_LIMIT} + 1 paths, in breadth-first order; else the first.
+ *
+ * @internal
  */
 export function findNonFinite(data: unknown, all: boolean): string[] {
   if (typeof data === 'number') return Number.isFinite(data) ? [] : [''];
   if (!data || typeof data !== 'object') return [];
+  const limit = all ? NON_FINITE_REPORT_LIMIT + 1 : 1;
 
-  // A breadth-first queue that keeps each container's parent, not its path: a string per value made a deeply nested
-  // body cost seconds. Keys are looked up, and the path joined, only for a hit.
+  // A breadth-first queue that keeps each container's parent and key, not its path: a string per value made a deeply
+  // nested body cost seconds. The path is joined only for a hit.
   const values: object[] = [data];
   const parents: number[] = [-1];
+  const keys: (string | number)[] = [''];
   const hits: [number, string | number][] = [];
-  // A cycle walked before the guard below starts revisits the same holder of a hit: report each holder and key once.
+  // Only a cycle walked before the guard below starts revisits a holder of a hit: report each holder and key once.
   const reported = new Map<object, Set<string | number>>();
-  // JSON builds trees, so the cycle guard waits until more containers are queued than a 5 MB body holds: a WeakSet
-  // over millions of containers cost several times the walk itself.
+  // JSON input is a tree: no cycle, no shared value, so it never needs the guard. Only data built in code can be
+  // cyclic, and it pays by queueing up to this many containers first; a WeakSet over millions of containers cost
+  // several times the walk itself.
   let seen: WeakSet<object> | undefined;
 
   const visit = (index: number, key: string | number, child: unknown) => {
@@ -152,28 +156,32 @@ export function findNonFinite(data: unknown, all: boolean): string[] {
     }
     values.push(child);
     parents.push(index);
+    keys.push(key);
   };
   const report = (index: number, key: string | number) => {
     const holder = values[index];
-    const keys = reported.get(holder) ?? new Set<string | number>();
-    reported.set(holder, keys);
-    if (keys.has(key)) return;
-    keys.add(key);
+    const holderKeys = reported.get(holder) ?? new Set<string | number>();
+    reported.set(holder, holderKeys);
+    if (holderKeys.has(key)) return;
+    holderKeys.add(key);
     hits.push([index, key]);
   };
 
-  for (let next = 0; next < values.length && (all || hits.length === 0); next++) {
+  for (let next = 0; next < values.length && hits.length < limit; next++) {
     const value = values[next];
     if (Array.isArray(value)) {
-      for (let i = 0; i < value.length; i++) visit(next, i, value[i]);
+      for (let i = 0; i < value.length && hits.length < limit; i++) visit(next, i, value[i]);
     } else {
-      for (const key of Object.keys(value)) visit(next, key, (value as Record<string, unknown>)[key]);
+      for (const key of Object.keys(value)) {
+        if (hits.length >= limit) break;
+        visit(next, key, (value as Record<string, unknown>)[key]);
+      }
     }
   }
 
-  return hits.slice(0, all ? hits.length : 1).map(([index, key]) => {
+  return hits.map(([index, key]) => {
     const segments = [pointer(key)];
-    for (let i = index; i > 0; i = parents[i]) segments.push(pointer(keyOf(values[parents[i]], values[i])));
+    for (let i = index; i > 0; i = parents[i]) segments.push(pointer(keys[i]));
     return `/${segments.reverse().join('/')}`;
   });
 }
@@ -447,4 +455,20 @@ export function addSafeKeywords(ajv: KeywordAjv): void {
     if (definition === uniqueItemPropertiesKeyword && !ajv.getKeyword(definition.keyword as string)) continue;
     replaceInPlace(ajv, definition);
   }
+}
+
+/**
+ * `findNonFinite` as validation errors: `type` errors at each path, saying why a number fails. Past
+ * {@link NON_FINITE_REPORT_LIMIT} the last one says that more are not listed.
+ */
+export function nonFiniteErrors(data: unknown, all: boolean): IValidationError[] {
+  const paths = findNonFinite(data, all);
+  const listed = paths.slice(0, NON_FINITE_REPORT_LIMIT);
+  return listed.map((instancePath, i) => ({
+    keyword: 'type',
+    instancePath,
+    schemaPath: '#',
+    params: { type: 'finite number' },
+    message: i === listed.length - 1 && paths.length > listed.length ? `must be a finite number; only the first ${NON_FINITE_REPORT_LIMIT} non-finite numbers are listed` : 'must be a finite number',
+  }));
 }

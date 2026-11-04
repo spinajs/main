@@ -6,7 +6,7 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { SCHEMA_SYMBOL } from './decorators.js';
 import { IValidationOptions, SchemaSource, ISchemaObject } from './types.js';
 import { Logger, Log } from '@spinajs/log-common';
-import { addSafeKeywords, findNonFinite, NON_FINITE_MARK } from './keywords.js';
+import { addSafeKeywords, NON_FINITE_MARK, nonFiniteErrors } from './keywords.js';
 
 // import default souces
 import './sources.js';
@@ -258,10 +258,9 @@ export class DataValidator extends AsyncService {
       return [false, this.sanitizedErrors(schema, ajv)];
     }
 
-    const nonFinite = findNonFinite(target, (ajv as { opts?: { allErrors?: unknown } }).opts?.allErrors !== false);
+    const nonFinite = nonFiniteErrors(target, (ajv as { opts?: { allErrors?: unknown } }).opts?.allErrors !== false);
     if (nonFinite.length > 0) {
-      // `type` keeps the error mapped like any type error; `params.type` says why a number fails it.
-      return [false, nonFinite.map((instancePath): IValidationError => ({ keyword: 'type', instancePath, schemaPath: '#', params: { type: 'finite number' }, message: 'must be a finite number' }))];
+      return [false, nonFinite];
     }
 
     return [true, null];
