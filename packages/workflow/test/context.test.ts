@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { FaultInjector, NonRetryableError } from '@spinajs/durable';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { NonDeterminismError, resolveWorkflowConfig, WorkflowAborted, WorkflowFailure, WorkflowStepFailed } from '../src/index.js';
+import { NonDeterminismError, resolveWorkflowConfig, type ActivationContext, WorkflowAborted, WorkflowFailure, WorkflowStepFailed } from '../src/index.js';
 import { activation } from './support/activation.js';
 import { bootTestEnv, disposeTestEnv } from './support/env.js';
 import { TestCrash, TestFaults } from './support/faults.js';
@@ -97,23 +97,40 @@ describe('ActivationContext: steps and replay', () => {
     expect([replayed, calls]).to.deep.equal([undefined, 0]);
   });
 
-  it('a different key at a recorded position is non-deterministic, and stays so', async () => {
+  it('concurrent branches replay in call order without a false non-determinism', async () => {
+    const branch = (ctx: ActivationContext, first: string, second: string, ms: number) => ctx.step(first, () => new Promise((resolve) => setTimeout(resolve, ms))).then(() => ctx.step(second, () => second));
+    const first = await activation('c1');
+    await Promise.all([branch(first.ctx, 'a', 'c', 50), branch(first.ctx, 'b', 'd', 0)]);
+    await first.release();
+    expect((await stepsOf('c1')).map((s) => `${s.Seq}:${s.Key}`)).to.deep.equal(['1:step:a#1', '2:step:b#1', '3:step:d#1', '4:step:c#1']);
+    const replay = await activation('c1');
+    expect(await Promise.all([branch(replay.ctx, 'a', 'c', 50), branch(replay.ctx, 'b', 'd', 0)])).to.deep.equal(['c', 'd']);
+    expect(replay.journal.unvisited()).to.deep.equal([]);
+    await replay.release();
+  });
+
+  it('another occurrence of the same name at a recorded position is non-deterministic, and stays so', async () => {
     await seedStep('c1', 1, 'step:a#1');
+    await seedStep('c1', 2, 'step:a#2');
     const h = await activation('c1');
-    const err = await rejects(h.ctx.step('b', () => 1));
+    await h.ctx.step('x', () => 1);
+    const err = await rejects(h.ctx.step('a', () => 1));
     expect(err).to.be.instanceOf(NonDeterminismError);
-    expect(err.message).to.equal("the journal recorded 'step:a#1' at position 1, this run asked for 'step:b#1'");
-    expect(h.ctx.interruption?.kind).to.equal('nondeterminism');
+    expect(err.message).to.equal("the journal recorded 'step:a#2' at position 2, this run asked for 'step:a#1'");
+    expect([h.ctx.interruption?.kind, h.journal.unvisited()]).to.deep.equal(['nondeterminism', ['step:a#2']]);
     expect(await rejects(h.ctx.step('a', () => 1))).to.equal(err);
     await h.release();
   });
 
-  it('a recorded key asked for at another position is non-deterministic', async () => {
-    await seedStep('c1', 2, 'step:a#1');
+  it('an occurrence of a repeated name asked for at another position is non-deterministic', async () => {
+    await seedStep('c1', 1, 'step:a#1');
+    await seedStep('c1', 2, 'step:b#1');
+    await seedStep('c1', 3, 'step:a#2');
     const h = await activation('c1');
+    await h.ctx.step('a', () => 1);
     const err = await rejects(h.ctx.step('a', () => 1));
     expect(err).to.be.instanceOf(NonDeterminismError);
-    expect(err.message).to.equal("the journal recorded 'step:a#1' at position 2, this run asked for it at 1");
+    expect(err.message).to.equal("the journal recorded 'step:a#2' at position 3, this run asked for it at 2");
     await h.release();
   });
 
@@ -198,6 +215,14 @@ describe('ActivationContext: steps and replay', () => {
     expect(err.reason).to.equal('lease-lost');
     expect((await eventsOf('side')).length).to.equal(1);
     expect((await stepsOf('c1')).length).to.equal(0);
+  });
+
+  it('a journal write that fails for another reason abandons the activation instead of failing the step', async () => {
+    TestFaults.failure = (point) => (point === 'workflow.before-journal' ? new Error('database is away') : undefined);
+    const h = await activation('c1');
+    const err = (await rejects(h.ctx.step('charge', () => 'paid'))) as WorkflowAborted;
+    expect([err.reason, h.abort.signal.reason, (await stepsOf('c1')).length]).to.deep.equal(['journal-failed', 'journal-failed', 0]);
+    expect(((await rejects(h.ctx.step('next', () => 1))) as WorkflowAborted).reason).to.equal('journal-failed');
   });
 
   it('a crash at a fault point stops every write of the activation', async () => {

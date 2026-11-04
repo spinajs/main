@@ -4,19 +4,7 @@ import { InvalidArgument, NotSupported } from '@spinajs/exceptions';
 import type { Log } from '@spinajs/log-common';
 import type { QueueEvent, QueueJob } from '@spinajs/queue';
 import type { SerializedError, StepKind, StepMeta, StepStatus, WaitForEventOptions, WorkflowContext, WorkflowEvent, WorkflowStepOptions } from './contract.js';
-import {
-  isCrash,
-  LeaseLostError,
-  NonDeterminismError,
-  serializeError,
-  WorkflowAborted,
-  WorkflowFailure,
-  WorkflowNestingError,
-  WorkflowStepFailed,
-  WorkflowStepResultTooLarge,
-  WorkflowSuspended,
-  type AbortReason,
-} from './errors.js';
+import { isCrash, LeaseLostError, NonDeterminismError, serializeError, WorkflowAborted, WorkflowFailure, WorkflowNestingError, WorkflowStepFailed, WorkflowStepResultTooLarge, WorkflowSuspended, type AbortReason } from './errors.js';
 import { identifierProblem } from './identifier.js';
 import type { Journal, StepRow } from './journal.js';
 import { safeStringify } from './json.js';
@@ -31,11 +19,7 @@ export interface Park {
   waitingFor: string | null;
 }
 
-export type Interruption =
-  | { kind: 'park'; park: Park }
-  | { kind: 'fail'; error: WorkflowFailure }
-  | { kind: 'timeout'; error: Error }
-  | { kind: 'nondeterminism'; error: NonDeterminismError };
+export type Interruption = { kind: 'park'; park: Park } | { kind: 'fail'; error: WorkflowFailure } | { kind: 'timeout'; error: Error } | { kind: 'nondeterminism'; error: NonDeterminismError };
 
 export interface ActivationInit {
   instance: WorkflowInstanceModel;
@@ -224,6 +208,7 @@ export class ActivationContext implements WorkflowContext {
 
   protected abortReason(): AbortReason {
     if (this.crashed) return 'crashed';
+    if (this.journalFailed) return 'journal-failed';
     return (this.signal.reason as AbortReason | undefined) ?? 'lease-lost';
   }
 
@@ -238,6 +223,14 @@ export class ActivationContext implements WorkflowContext {
     if (this.journalFailed) return;
     this.journalFailed = true;
     this.init.onJournalFailed(err);
+  }
+
+  /** Amendment 20: a journal row that failed for any reason but a crash or a lost lease abandons the activation. */
+  protected journalWriteFailed(err: unknown): unknown {
+    if (isCrash(err)) this.crash();
+    if (isCrash(err) || err instanceof WorkflowAborted) return err;
+    this.abandonJournal(err);
+    return new WorkflowAborted('journal-failed');
   }
 
   protected async fault(name: FaultPointName, key: string): Promise<void> {
@@ -270,7 +263,9 @@ export class ActivationContext implements WorkflowContext {
     const call = (): Promise<T> => stepScope.run(op.name, () => Promise.resolve().then(() => fn({ signal: this.signal, attempt })));
     const journalIt = async (value: T): Promise<T> => {
       const kept = opts.persistResult === false ? undefined : this.checkResult(op, value);
-      await this.saveStep(op, { status: 'succeeded', attempt, startedAt, result: kept === undefined ? undefined : { value: kept }, meta: opts.compensate ? { compensate: true } : null, finished: true });
+      await this.saveStep(op, { status: 'succeeded', attempt, startedAt, result: kept === undefined ? undefined : { value: kept }, meta: opts.compensate ? { compensate: true } : null, finished: true }).catch((err: unknown) => {
+        throw this.journalWriteFailed(err);
+      });
       return opts.persistResult === false ? value : (kept as T);
     };
     if (opts.transactional) {
@@ -309,7 +304,7 @@ export class ActivationContext implements WorkflowContext {
     try {
       await this.enqueueWrite(() => this.saveStep(op, { status: 'failed', attempt, startedAt, error, finished: true }));
     } catch (writeErr) {
-      return isCrash(writeErr) || writeErr instanceof WorkflowAborted ? new WorkflowAborted(this.abortReason()) : writeErr;
+      return this.journalWriteFailed(writeErr);
     }
     return new WorkflowStepFailed(op.name, error, err);
   }

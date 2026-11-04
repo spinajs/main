@@ -1,17 +1,7 @@
 import { DI } from '@spinajs/di';
 import { DbClock, FaultInjector, RowLease } from '@spinajs/durable';
 import type { Log } from '@spinajs/log-common';
-import {
-  ActivationContext,
-  InstanceStore,
-  Journal,
-  resolveWorkflowConfig,
-  workflowDriver,
-  WorkflowDefinition,
-  WorkflowInstanceModel,
-  type ActivationInit,
-  type RegisteredWorkflow,
-} from '../../src/index.js';
+import { ActivationContext, InstanceStore, Journal, resolveWorkflowConfig, workflowDriver, WorkflowDefinition, WorkflowInstanceModel, type ActivationInit, type RegisteredWorkflow } from '../../src/index.js';
 
 const noop = (): void => undefined;
 export const quietLog: Log = { child: () => quietLog, trace: noop, debug: noop, info: noop, warn: noop, error: noop, success: noop } as unknown as Log;
@@ -28,6 +18,7 @@ export interface Harness {
   ctx: ActivationContext;
   abort: AbortController;
   store: InstanceStore;
+  journal: Journal;
   release(): Promise<void>;
 }
 
@@ -39,10 +30,11 @@ export async function activation(instanceId: string, over: Partial<ActivationIni
   const claim = await store.lease.claim(store.target(instanceId), owner, 60_000, await clock.sync());
   if (!claim) throw new Error(`could not claim ${instanceId}`);
   const abort = new AbortController();
+  const journal = await Journal.load(instanceId);
   const ctx = new ActivationContext({
     instance: await WorkflowInstanceModel.where('Id', instanceId).first(),
     definition: HARNESS_DEFINITION,
-    journal: await Journal.load(instanceId),
+    journal,
     store,
     epoch: claim.epoch,
     clock,
@@ -59,6 +51,7 @@ export async function activation(instanceId: string, over: Partial<ActivationIni
     ctx,
     abort,
     store,
+    journal,
     release: async () => {
       await ctx.drain();
       await store.release(instanceId, claim.epoch);

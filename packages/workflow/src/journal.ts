@@ -19,6 +19,8 @@ export interface StepRow {
 /** Compensation rows sort after every step of `run`; their order is the compensation order, not a replay position. */
 export const COMPENSATION_SEQ_BASE = 1_000_000;
 
+const baseOf = (key: string): string => key.slice(0, key.lastIndexOf('#'));
+
 const RECORD_STATUS: Record<StepStatus, JournalRecord['status']> = { pending: 'running', succeeded: 'succeeded', retrying: 'failed', failed: 'failed' };
 
 export function toStepRow(m: WorkflowStepModel): StepRow {
@@ -40,13 +42,16 @@ export class Journal {
   protected readonly byKey = new Map<string, StepRow>();
   protected readonly bySeq = new Map<number, StepRow>();
   protected readonly values: Map<string, unknown>;
+  protected readonly visited = new Set<string>();
+  protected readonly occurrences = new Map<string, number>();
 
   constructor(rows: StepRow[]) {
-    for (const r of rows) this.index(r);
+    for (const r of rows) {
+      this.index(r);
+      if (r.Kind !== 'compensate') this.occurrences.set(baseOf(r.Key), (this.occurrences.get(baseOf(r.Key)) ?? 0) + 1);
+    }
     // resultStored is true for every row: a step with persistResult false replays as undefined, it never runs again
-    this.values = buildReplayMap(
-      rows.map((r) => ({ key: r.Key, status: RECORD_STATUS[r.Status], result: r.ResultStored ? r.Result : undefined, resultStored: true, attempt: 1, seq: r.Seq })),
-    );
+    this.values = buildReplayMap(rows.map((r) => ({ key: r.Key, status: RECORD_STATUS[r.Status], result: r.ResultStored ? r.Result : undefined, resultStored: true, attempt: 1, seq: r.Seq })));
   }
 
   public static async load(instanceId: string): Promise<Journal> {
@@ -54,16 +59,26 @@ export class Journal {
     return new Journal(rows.map(toStepRow));
   }
 
-  /** D3, by position: parallel operations may journal out of order, but each position keeps its key. */
+  /**
+   * D3 by key. Parallel branches journal in completion order and replay in call order, so positions are compared
+   * only between occurrences of one `kind:name`, whose recorded results would otherwise go to the wrong branch.
+   */
   public check(seq: number, key: string): void {
+    this.visited.add(key);
+    const base = baseOf(key);
     const atSeq = this.bySeq.get(seq);
-    if (atSeq && atSeq.Key !== key) {
+    if (atSeq && atSeq.Key !== key && baseOf(atSeq.Key) === base) {
       throw new NonDeterminismError(`the journal recorded '${atSeq.Key}' at position ${seq}, this run asked for '${key}'`);
     }
     const recorded = this.byKey.get(key);
-    if (recorded && recorded.Seq !== seq) {
+    if (recorded && recorded.Seq !== seq && (this.occurrences.get(base) ?? 0) > 1) {
       throw new NonDeterminismError(`the journal recorded '${key}' at position ${recorded.Seq}, this run asked for it at ${seq}`);
     }
+  }
+
+  /** Recorded operations this run has not asked for: left over at the end of `run()`, the code changed. */
+  public unvisited(): string[] {
+    return this.rows().flatMap((r) => (r.Kind === 'compensate' || this.visited.has(r.Key) ? [] : [r.Key]));
   }
 
   public get(key: string): StepRow | undefined {

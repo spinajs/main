@@ -107,8 +107,8 @@ export function isCrash(err: unknown): boolean {
 }
 
 export function serializeError(err: unknown, step?: string): SerializedError {
-  if (err instanceof WorkflowStepFailed) return { ...err.error, step: err.step };
-  const out: SerializedError = err instanceof Error ? { name: err.name, message: err.message } : { name: 'Error', message: String(err) };
+  if (err instanceof WorkflowStepFailed) return { ...err.error, step: step ?? err.step };
+  const out: SerializedError = err instanceof Error ? { name: err.name, message: err.message } : { name: 'Error', message: safeStringify(err) ?? Object.prototype.toString.call(err) };
   if (err instanceof Error && err.stack) out.stack = err.stack;
   if (step !== undefined) out.step = step;
   if (err instanceof WorkflowFailure && err.details !== undefined) {
