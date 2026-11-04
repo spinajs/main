@@ -9,3 +9,5 @@ export { emitZod } from './generate/zod/emit.js';
 export type { GeneratorDiagnostic, GeneratorDiagnosticCode, ZodEmitResult } from './generate/zod/emit.js';
 export { emitMocks } from './generate/mocks.js';
 export type { MocksEmitResult } from './generate/mocks.js';
+export { emitMsw, mswPaths } from './generate/msw.js';
+export type { MswEmitResult } from './generate/msw.js';
