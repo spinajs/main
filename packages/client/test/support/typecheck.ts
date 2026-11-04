@@ -30,10 +30,15 @@ const swrTypes = (version: SwrVersion): Record<string, string[]> => {
   const root = (name: string) => dirname(require.resolve(`${name}/package.json`));
   if (version === 'latest') {
     const dist = join(root('swr'), 'dist');
-    return { swr: [join(dist, 'index/index.d.mts')], 'swr/mutation': [join(dist, 'mutation/index.d.mts')] };
+    return { swr: [join(dist, 'index/index.d.mts')], 'swr/mutation': [join(dist, 'mutation/index.d.mts')], 'swr/subscription': [join(dist, 'subscription/index.d.mts')] };
   }
   const floor = root('swr-floor');
-  return { swr: [join(floor, 'core/dist/index.d.ts')], 'swr/mutation': [join(floor, 'mutation/dist/index.d.ts')], 'swr/_internal': [join(floor, '_internal/dist/index.d.ts')] };
+  return {
+    swr: [join(floor, 'core/dist/index.d.ts')],
+    'swr/mutation': [join(floor, 'mutation/dist/index.d.ts')],
+    'swr/subscription': [join(floor, 'subscription/dist/index.d.ts')],
+    'swr/_internal': [join(floor, '_internal/dist/index.d.ts')],
+  };
 };
 
 /** Type-checks generated client source against the runtime sources; returns the diagnostics as strings. */
@@ -41,7 +46,7 @@ export function typecheck(source: string): string[] {
   return typecheckFiles({ 'client.ts': source });
 }
 
-/** Type-checks a set of files written side by side, with React's and React Query's types available. */
+/** Type-checks a set of files written side by side, with the types of React, React Query, swr and the socket client available. */
 export function typecheckFiles(files: Record<string, string>, options: TypecheckOptions = {}): string[] {
   const dir = mkdtempSync(join(tmpdir(), 'client-gen-'));
   try {
@@ -69,6 +74,7 @@ export function typecheckFiles(files: Record<string, string>, options: Typecheck
       paths: {
         '@spinajs/client/runtime': ['src/runtime/index.ts'],
         '@spinajs/http-socket-common': ['../http-socket-common/src/index.ts'],
+        '@spinajs/http-socket-client': ['../http-socket-client/src/index.ts'],
         react: [reactTypes(options.react ?? 19)],
         ...swrTypes(options.swr ?? 'latest'),
         '@tanstack/react-query': [reactQueryTypes(options.reactQuery ?? 'latest')],
