@@ -15,6 +15,12 @@ import { fragmentStale } from './fragment-stale.js';
 import { modelsWithoutAccessResource } from './models-without-access-resource.js';
 import { explicitSchemaDrift } from './explicit-schema-drift.js';
 import { socketContract } from './socket-contract.js';
+import { socketWithoutPolicy } from './socket-without-policy.js';
+import { handlerWithoutPolicy } from './handler-without-policy.js';
+import { unknownPermission } from './unknown-permission.js';
+import { resourceMismatch } from './resource-mismatch.js';
+import { fieldsWithoutFilter } from './fields-without-filter.js';
+import { systemWithoutReason } from './system-without-reason.js';
 
 export const DEFAULT_RULES: DoctorRule[] = [
   unresolvedInjection,
@@ -33,6 +39,12 @@ export const DEFAULT_RULES: DoctorRule[] = [
   modelsWithoutAccessResource,
   explicitSchemaDrift,
   socketContract,
+  socketWithoutPolicy,
+  handlerWithoutPolicy,
+  unknownPermission,
+  resourceMismatch,
+  fieldsWithoutFilter,
+  systemWithoutReason,
 ];
 
 export {
@@ -52,4 +64,10 @@ export {
   modelsWithoutAccessResource,
   explicitSchemaDrift,
   socketContract,
+  socketWithoutPolicy,
+  handlerWithoutPolicy,
+  unknownPermission,
+  resourceMismatch,
+  fieldsWithoutFilter,
+  systemWithoutReason,
 };
