@@ -9,4 +9,4 @@
 - Seed SWR's `fallback` with `unstable_serialize(appKeys.users.get({ id }))`: array keys do not match by themselves.
 - Without `swr` in `hooks`, nothing changes. `swr` is now an available generator target.
 
-The `swr` peer range of `@spinajs/client` is now `^2.2.0`, because the generated mutation types use the generic order that SWR 2.2.0 introduced. A React 19 app needs SWR 2.3.0 or later, the first release whose own peer range names React 19. `RouteModel` gains `returnNames`, the named types a reply type mentions.
+The `swr` peer range of `@spinajs/client` is now `^2.2.0`, because the generated mutation types use the generic order that SWR 2.2.0 introduced. A React 19 app needs SWR 2.3.0 or later, the first release whose own peer range names React 19.

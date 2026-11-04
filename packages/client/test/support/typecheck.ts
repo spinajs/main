@@ -9,15 +9,22 @@ export type SwrVersion = 'floor' | 'latest';
 
 export interface TypecheckOptions {
   noUnusedLocals?: boolean;
+  noUnusedParameters?: boolean;
   /** Major of the React types `react` resolves to; the peer range covers both. Default 19. */
   react?: 18 | 19;
   /** Which swr the `swr` imports resolve to: the peer floor (2.2.0) or the installed latest. Default latest. */
   swr?: SwrVersion;
+  /** `@tanstack/react-query` at the peer floor (5.0.0) or the pinned latest. Default latest. */
+  reactQuery?: ReactQueryVersion;
 }
+
+export type ReactQueryVersion = 'floor' | 'latest';
 
 const require = createRequire(import.meta.url);
 const REACT_TYPES = { 18: '@types/react-18', 19: '@types/react' } as const;
 const reactTypes = (major: 18 | 19) => join(dirname(require.resolve(`${REACT_TYPES[major]}/package.json`)), 'index.d.ts');
+export const REACT_QUERY_PACKAGES: Record<ReactQueryVersion, string> = { floor: '@tanstack/react-query-5.0', latest: '@tanstack/react-query' };
+const reactQueryTypes = (version: ReactQueryVersion) => join(dirname(require.resolve(`${REACT_QUERY_PACKAGES[version]}/package.json`)), 'build/modern/index.d.ts');
 
 const swrTypes = (version: SwrVersion): Record<string, string[]> => {
   const root = (name: string) => dirname(require.resolve(`${name}/package.json`));
@@ -34,7 +41,7 @@ export function typecheck(source: string): string[] {
   return typecheckFiles({ 'client.ts': source });
 }
 
-/** Type-checks a set of files written side by side, with React's types available as `react`. */
+/** Type-checks a set of files written side by side, with React's and React Query's types available. */
 export function typecheckFiles(files: Record<string, string>, options: TypecheckOptions = {}): string[] {
   const dir = mkdtempSync(join(tmpdir(), 'client-gen-'));
   try {
@@ -53,6 +60,7 @@ export function typecheckFiles(files: Record<string, string>, options: Typecheck
       noUnusedLocals: options.noUnusedLocals ?? false,
       module: floor ? ts.ModuleKind.ESNext : ts.ModuleKind.Node16,
       moduleResolution: floor ? ts.ModuleResolutionKind.Bundler : ts.ModuleResolutionKind.Node16,
+      noUnusedParameters: options.noUnusedParameters ?? false,
       target: ts.ScriptTarget.ES2022,
       lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
       skipLibCheck: true,
@@ -63,6 +71,7 @@ export function typecheckFiles(files: Record<string, string>, options: Typecheck
         '@spinajs/http-socket-common': ['../http-socket-common/src/index.ts'],
         react: [reactTypes(options.react ?? 19)],
         ...swrTypes(options.swr ?? 'latest'),
+        '@tanstack/react-query': [reactQueryTypes(options.reactQuery ?? 'latest')],
       },
     });
     return ts.getPreEmitDiagnostics(program).map((d) => `${d.file ? `${d.file.fileName.slice(dir.length + 1)}: ` : ''}${ts.flattenDiagnosticMessageText(d.messageText, '\n')}`);

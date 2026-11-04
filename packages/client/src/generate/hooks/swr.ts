@@ -1,10 +1,9 @@
 import { companionHeader, manifestHashCheck } from '../companion.js';
 import type { ClientModel } from '../model.js';
 import { withUseClient } from './directive.js';
-import { hookRoutes, type HookRoute } from './shared.js';
+import { typeNames, type HookRoute } from './shared.js';
 
 export interface SwrOptions {
-  keyPrefix?: string;
   /** File name of the client without extension, default `client`. */
   basename?: string;
 }
@@ -71,14 +70,8 @@ function mutationHook(hook: HookRoute): string[] {
   ];
 }
 
-function typeImports(hooks: HookRoute[]): string[] {
-  const names = hooks.flatMap((h) => [...h.route.returnNames, ...h.route.args.flatMap((a) => a.typeNames)]);
-  return [...new Set(names)].sort();
-}
-
 /** `client.swr.ts`: a `useSWR` hook per query route and a `useSWRMutation` hook per mutation route. */
-export function emitSwr(model: ClientModel, options: SwrOptions = {}): string {
-  const hooks = hookRoutes(model, options);
+export function emitSwr(model: ClientModel, hooks: HookRoute[], options: SwrOptions = {}): string {
   const base = options.basename ?? 'client';
   const lines = [
     companionHeader('swr', model),
@@ -86,7 +79,7 @@ export function emitSwr(model: ClientModel, options: SwrOptions = {}): string {
     "import useSWRMutation, { type SWRMutationConfiguration, type SWRMutationResponse } from 'swr/mutation';",
     `import { appKeys, type AppClientError } from './${base}.keys.js';`,
     `import { useAppClient } from './${base}.react.js';`,
-    `import type { ${[...typeImports(hooks), 'manifestHash'].join(', ')} } from './${base}.js';`,
+    `import type { ${[...typeNames(hooks), 'manifestHash'].join(', ')} } from './${base}.js';`,
     '',
     ...manifestHashCheck(model),
     '',
