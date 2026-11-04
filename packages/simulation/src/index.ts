@@ -9,3 +9,5 @@ export * from './database.js';
 export * from './env.js';
 export * from './simulate.js';
 export { SimFailureError } from './harness.js';
+export * from './suite.js';
+export * from './cli.js';

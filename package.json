@@ -6,6 +6,7 @@
     "pretest": "node node_modules/typescript-7/lib/tsc.js -b tsconfig.build.json",
     "test": "node scripts/test-all.mjs",
     "test:scripts": "node --test \"scripts/__tests__/*.test.mjs\"",
+    "sim": "npm run sim -w @spinajs/simulation --",
     "coverage": "node scripts/coverage/run.mjs",
     "build": "npm run clean && node node_modules/typescript-7/lib/tsc.js -b tsconfig.build.json && npm run copy-static && npm run build:fragments",
     "build:fragments": "node scripts/build-fragments.mjs",
