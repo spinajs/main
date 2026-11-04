@@ -28,15 +28,17 @@ import { DI } from '@spinajs/di';
 import { Clock, DbClock, DbTimeSource } from '@spinajs/durable';
 import { FakeClock } from '@spinajs/durable/testing';
 
-const clock = new FakeClock('2026-01-05T10:00:00Z');
-clock.dbSkewMs = 45_000;
-DI.register(() => clock).as(Clock);
-DI.register(() => clock.dbSource).as(DbTimeSource);
+export async function skewedDbClock(): Promise<number> {
+  const clock = new FakeClock('2026-01-05T10:00:00Z');
+  clock.dbSkewMs = 45_000;
+  DI.register(() => clock).as(Clock);
+  DI.register(() => clock.dbSource).as(DbTimeSource);
 
-const dbClock = DI.resolve(DbClock);
-await dbClock.sync();
-await clock.advance(1000);
-console.log(dbClock.now() - clock.now()); // 45000
+  const dbClock = DI.resolve(DbClock);
+  await dbClock.sync();
+  await clock.advance(1000);
+  return dbClock.now() - clock.now(); // 45000
+}
 ```
 
 ## `RowLease`
@@ -55,15 +57,16 @@ import { DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
 import { DbClock, RowLease } from '@spinajs/durable';
 
-const driver = (await DI.resolve(Orm)).Connections.get('default')!;
-const lease = new RowLease(driver);
-const target = { table: 'jobs', key: { Id: 'job-1' } };
-const now = await DI.resolve(DbClock).sync();
+export async function finishJob(id: string, replicaId: string): Promise<boolean> {
+  const driver = (await DI.resolve(Orm)).Connections.get('default')!;
+  const lease = new RowLease(driver);
+  const target = { table: 'jobs', key: { Id: id } };
+  const now = await DI.resolve(DbClock).sync();
 
-const claim = await lease.claim(target, 'replica-a', 60_000, now, { Status: 'due' });
-if (claim) {
-  await driver.update().in('jobs').update({ Status: 'done' }).where(lease.fenced(target, 'replica-a', claim.epoch));
-  await lease.release(target, 'replica-a', claim.epoch);
+  const claim = await lease.claim(target, replicaId, 60_000, now, { Status: 'due' });
+  if (!claim) return false;
+  await driver.update().in('jobs').update({ Status: 'done' }).where(lease.fenced(target, replicaId, claim.epoch));
+  return lease.release(target, replicaId, claim.epoch);
 }
 ```
 
