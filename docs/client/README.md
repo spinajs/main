@@ -84,6 +84,8 @@ The file holds one DTO type per named schema, one interface per controller (`Use
 - Routes a controller inherits are methods of that controller's client, with its path and the types it binds, so a subclass whose routes all come from its base gets a full client. A controller replaced with an unconditional `DI.register(Sub).as(Base)` is left out, because the runtime mounts only the subclass.
 - A parameter without a `wire` binding (a manifest from an older compiler) fails generation with an error naming the route and the parameter. Rebuild the manifest.
 
+Generate with `models: true` (`generateClientFiles`; the CLI flag comes with FG-2) to convert replies and arguments into `Date`, `DateTime`, `Decimal` and your own classes; see [Client models](models.md).
+
 Socket controllers become `defineContract` constants (`chatContract`) from `@spinajs/http-socket-common`; pass `--no-socket` to leave them out and `--module <path>` to import the runtime from somewhere other than `@spinajs/client/runtime`.
 
 The same generator is available as `generateClient({ manifest, moduleName?, includeSocket? })`, which resolves to the file contents. Output is deterministic for a given manifest. Types the analyzer could not derive (a dependency's model, a partly evaluated `@Schema`) are typed as open objects or `unknown`.
@@ -98,13 +100,20 @@ Generated DTOs are `interface`s (`UserDto`, `CreateUserDto`), because the client
 
 **(a) A class merged with the DTO interface.** The interface supplies the fields, the class the behaviour:
 
-```ts
-import type { UserDto } from './generated/client.js';
+```ts sample
+import { fromClass } from '@spinajs/client/runtime';
+
+// In the app this comes from './generated/client.js'.
+interface UserDto {
+  id: number;
+  email: string;
+  name?: string;
+}
 
 export interface User extends UserDto {}
 export class User {
   static from(dto: UserDto): User {
-    return Object.assign(new User(), dto);
+    return fromClass(User).decode({ ...dto });
   }
 
   get label(): string {
@@ -112,6 +121,8 @@ export class User {
   }
 }
 ```
+
+Do not write `Object.assign(new User(), dto)` here. A JSON reply with a `"__proto__"` key makes `Object.assign` run the `__proto__` setter and replace the instance's prototype with the reply's object. `fromClass` defines the keys instead of assigning them, and skips `__proto__`, `constructor` and `prototype`. Nested plain objects keep such keys as own data properties, which is harmless until a hand-written copy loop assigns them.
 
 **(b) A wrapper around the client.** The app gets models, and every route you did not wrap passes through, because the spread keeps the generated methods:
 
@@ -133,6 +144,18 @@ export const api = {
 A route added on the server and regenerated shows up on `api.users` with its generated types, until you wrap it.
 
 **(c) Plain functions.** `export const label = (user: UserDto) => user.name ?? user.email;` needs no class and works on what the client returns.
+
+**(d) Registered models.** With `--models` the client builds the instances itself: dates arrive as `Date` or luxon `DateTime`, decimals as `Decimal`, and a DTO as your class, nested relations included. The same objects can be sent back. `createAppClient({ formats, models })` replaces the wrapper of (b) for replies; see [Client models](models.md).
+
+```ts
+const api = createAppClient({
+  baseUrl: 'https://api.example.com',
+  formats: { 'date-time': dateCodec },
+  models: { UserDto: fromClass(User) },
+});
+
+const user = await api.users.get(7); // User
+```
 
 Regenerate in CI and compile, so a server change that breaks a wrapper fails the build instead of production:
 
