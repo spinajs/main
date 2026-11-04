@@ -208,7 +208,11 @@ function endOfFailedCall(decl: TaskDeclaration, call: TaskCall, err: unknown, op
     return settled.ok ? settled.value : methodFailure(settled.error, opts);
   }
   if (settled && !settled.ok && err === settled.error) return methodFailure(err, opts);
-  log.error({ error: err, taskName: decl.name }, 'Cannot start task ${taskName}');
+  if (err instanceof RunAbortedError) {
+    log.error({ error: err, taskName: decl.name, reason: err.reason }, 'Task ${taskName} was aborted: ${reason}');
+  } else {
+    log.error({ error: err, taskName: decl.name }, 'Cannot start task ${taskName}');
+  }
   throw err;
 }
 
@@ -221,7 +225,7 @@ function methodFailure(err: unknown, opts: RunTaskOptions): unknown {
  * Marks a method as a task. The task is a `manual` schedule of `@spinajs/scheduler` named after the
  * task: calling the method runs it inline as a scheduler run and resolves with its value, with
  * `{ error: true, message }` when it throws, or with `undefined` when another run holds the lease.
- * A failure to start the run rejects. Config schedules can name the task in `task`.
+ * A failure to start the run, and a run cancelled or timed out before the method settled, reject. Config schedules can name the task in `task`.
  *
  * @deprecated Use `@Schedule` classes and `SchedulerService.runInline`. `@spinajs/tasks` is removed in 5.0.
  * @param taskName - unique task name

@@ -18,7 +18,7 @@ At class definition, `Task(taskName, description, opts)`:
 On every call of the decorated method, `runTask()`:
 
 1. Logs `Executing task ...` at `info` through the `TASKS` logger.
-2. Resolves `SchedulerService` and calls `runInline(taskName, body, { triggeredBy: 'task:<name>' })`. That inserts a `__scheduler_run` row already claimed by this process (trigger `manual`), takes the schedule lease unless the schedule is `overlap: 'queue'`, and keeps the lease alive with the run heartbeat while the body runs. A call made while another run holds the lease of an `overlap: 'skip'` schedule is refused with `ScheduleOverlap`: the wrapper logs a warning and resolves with `undefined`.
+2. Resolves `SchedulerService` and calls `runInline(taskName, body, { triggeredBy: 'task:<name>' })`. That inserts a `__scheduler_run` row already claimed by this process (trigger `manual`), takes the schedule lease unless the task has `taskStacking: true`, and keeps the lease alive with the run heartbeat while the body runs. A call made while another run holds the lease is refused with `ScheduleOverlap`: the wrapper logs a warning and resolves with `undefined`. The schedule's `overlap` does not decide this; only `taskStacking` does.
 3. In the body, with `tasks.legacyHistory` on: finds or inserts the `__tasks` row and sets `State = 'running'` and `LastRunAt`.
 4. Calls the original method with the same `this` and arguments, inside the run context, so `currentRunContext()` returns the run.
 5. Emits `TaskSuccess`, or `TaskFailed` with `Reason: message`. An emit that throws is logged and does not change the result.
@@ -56,7 +56,7 @@ sequenceDiagram
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `taskStacking` | `boolean` | `false` | `false`: the schedule is `overlap: 'skip'`; a call while another run holds the schedule lease is skipped. `true`: `overlap: 'queue'`; inline calls run side by side. See [Task locking](02-task-locking.md). |
+| `taskStacking` | `boolean` | `false` | `false`: a call takes the schedule lease, and a call while another run holds it is skipped. `true`: calls take no lease and run side by side. The task's schedule is declared with `overlap: 'skip'` or `'queue'` to match, but only `taskStacking` decides how direct calls overlap. See [Task locking](02-task-locking.md). |
 | `lockTtl` | `number` | `60000` | Deprecated and ignored. The schedule lease lives `scheduler.leaseTtl`. |
 
 The options type is exported as `TaskOptions`, the defaults as `DEFAULT_TASK_OPTIONS`.
@@ -143,6 +143,7 @@ export async function startReportTasks(): Promise<ReportTasks> {
 ## Important behaviour
 
 - **Errors of the method are not rethrown.** A failed run resolves with `{ error: true, message }`. Check the result if the caller must react.
+- **A cancelled or timed-out call rejects.** When the run is cancelled (`scheduler:cancel`, `SchedulerService.cancel`) or runs past the schedule's `timeout` before the method settles, the call logs `Task <name> was aborted: <reason>` and rejects with `RunAbortedError`; the run ends `aborted`. A method that settles anyway within `scheduler.shutdownGrace` after a lost lease keeps its result (see [Task locking](02-task-locking.md#important-behaviour)).
 - **A run that cannot start rejects.** When the scheduler cannot write the run (no scheduler tables, a database outage), the call logs `Cannot start task` and rejects, as a 3.x start failure did. An error carrying `crash: true` is rethrown with nothing emitted or recorded.
 - **A call costs more statements than in 3.x.** With `tasks.legacyHistory` on, a call issues about 20 SQL statements (clock, lease, run row, attempt, journal, finish, release, finalizers, plus the legacy rows) where 3.x issued about 5.
 - **A skipped run resolves with `undefined`.** When another run holds the lease of a non-stacking task, nothing marks the call as skipped except the `warn` log line; no run row is written.

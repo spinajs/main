@@ -194,6 +194,12 @@ describe('@Task shim over the scheduler', function () {
     expect(await new TestTaskValue().execute()).to.deep.eq({ sent: 3 });
   });
 
+  it('returns the error result of a method that threw when the run then loses its lease', async () => {
+    sinon.stub(LeaseStore.prototype, 'finishRun').resolves(false);
+
+    expect(await new TestTaskFailing().execute()).to.deep.eq({ error: true, message: 'boom' });
+  });
+
   it('reports a failure to finish the run after the method threw as a start failure', async () => {
     sinon.stub(LeaseStore.prototype, 'finishRun').rejects(new Error('db gone'));
 
