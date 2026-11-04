@@ -52,17 +52,25 @@ function mergeParams(inherited: ParamEntry[], own: ParamEntry[]): ParamEntry[] {
   return [...byIndex.values()].sort((a, b) => a.index - b.index);
 }
 
+/** Follows `returnType`: a redeclared verb route that returns no page is not paginated. */
+function inheritedPagination(inherited: RouteEntry, declared: RouteEntry | undefined): Pick<RouteEntry, 'pagination'> {
+  const pagination = declared ? declared.pagination : inherited.pagination;
+  return pagination ? { pagination } : {};
+}
+
 function overriddenRoute(inherited: RouteEntry, override: RouteOverride): RouteEntry {
   const declared = override.route;
   const access = override.access ?? inherited.access;
   const reason = override.public ?? inherited.public;
   const doc = override.doc ?? inherited.doc;
+  const { pagination: _inherited, ...rest } = inherited;
   return {
-    ...inherited,
+    ...rest,
     method: declared?.method ?? inherited.method,
     path: declared?.path ?? inherited.path,
     params: mergeParams(inherited.params, override.params),
     returnType: declared?.returnType ?? inherited.returnType,
+    ...inheritedPagination(inherited, declared),
     policies: inheritPolicies(inherited.policies, override.policies),
     middlewares: inheritMiddlewares(inherited.middlewares, override.middlewares),
     ...(access ? { access } : {}),

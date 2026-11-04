@@ -3,6 +3,7 @@ import { DECORATED_PARAM_KIND, inheritController, type ControllerEntry, type Rou
 import type { ExtractorContext } from '../context.js';
 import { declarationOf, routeOverridesOf, UNDERIVED_KINDS } from './controllers.js';
 import { methodTypeOf, nearestAncestor, type Ancestor } from './lineage.js';
+import { paginationOf } from './pagination.js';
 
 export interface ExternalBases {
   controller(decl: ts.ClassDeclaration): ControllerEntry | undefined;
@@ -24,6 +25,7 @@ export const contractOf = (fields: TypeRef, ref: TypeRef): TypeRef => {
 /**
  * `route` as `sub` sees it. Only the contract types change (`text`, `schema`): `ref`, `kind` and `wire` stay what the
  * declaring class recorded, because decorator metadata and the route-arg conversion are bound where the decorator ran.
+ * `pagination` is re-derived with them, so a generic base returning `Page<T>` records the item the subclass binds.
  */
 export function asSeenBy(route: RouteEntry, sub: NamedClass, declaring: ts.ClassDeclaration, ctx: ExtractorContext): RouteEntry {
   const seen = methodTypeOf(sub, route.handler, ctx.checker);
@@ -32,13 +34,24 @@ export function asSeenBy(route: RouteEntry, sub: NamedClass, declaring: ts.Class
   if (!signature) return route;
 
   const hint = `${sub.name.text}_${route.handler}`;
+  const typeOf = (index: number): ts.Type | undefined => {
+    const param = signature.parameters[index];
+    return param && ctx.checker.getNonNullableType(ctx.checker.getTypeOfSymbolAtLocation(param, sub));
+  };
   const params = route.params.map((p) => {
-    const param = signature.parameters[p.index];
-    if (!param || TYPE_KEPT_KINDS.has(p.kind)) return p;
-    const type = ctx.checker.getNonNullableType(ctx.checker.getTypeOfSymbolAtLocation(param, sub));
+    const type = typeOf(p.index);
+    if (!type || TYPE_KEPT_KINDS.has(p.kind)) return p;
     return { ...p, runtimeType: contractOf(ctx.typeRef(type, sub, `${hint}_${p.name}`), p.runtimeType) };
   });
-  return { ...route, params, returnType: ctx.typeRef(ctx.checker.getReturnTypeOfSignature(signature), sub, `${hint}_Response`) };
+  const returnType = ctx.checker.getReturnTypeOfSignature(signature);
+  const typed = params.flatMap((entry) => {
+    const type = typeOf(entry.index);
+    return type ? [{ entry, type }] : [];
+  });
+  const response = ctx.typeRef(returnType, sub, `${hint}_Response`);
+  const pagination = paginationOf(returnType, typed, sub, { owner: sub.name.text, handler: route.handler }, ctx);
+  const { pagination: _declared, ...rest } = route;
+  return { ...rest, params, returnType: response, ...(pagination ? { pagination } : {}) };
 }
 
 /** Every entry with what its ancestors contribute, in input order. Entries are resolved ancestors first, each once. */
