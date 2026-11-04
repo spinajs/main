@@ -413,8 +413,9 @@ describe('amqp queue transport - unit', function () {
       await c.emit(jobMessage({ MessageId: 'm-1', Headers: { traceparent: 't-1', 'x-app': 'a' } }));
 
       const p = c.pub.published.find((x) => x.routingKey === '/queue/default')!;
-      expect(p.options.messageId).to.eq('m-1');
-      expect(p.options.headers).to.deep.eq({ traceparent: 't-1', 'x-app': 'a', 'x-spinajs-message-id': 'm-1' });
+      const published = p.options as { messageId?: string; headers?: Record<string, unknown> };
+      expect(published.messageId).to.eq('m-1');
+      expect(published.headers).to.deep.eq({ traceparent: 't-1', 'x-app': 'a', 'x-spinajs-message-id': 'm-1' });
     });
 
     it('fills MessageId and the standard headers from the delivery, leaving broker-owned headers out', async () => {
@@ -440,8 +441,9 @@ describe('amqp queue transport - unit', function () {
       await tick();
 
       const sent = c.pub.published.find((s) => s.routingKey === '/queue/job.retry.100')!;
-      expect(sent.options.messageId).to.eq('m-3');
-      expect(sent.options.headers['x-spinajs-message-id']).to.eq('m-3');
+      const retry = sent.options as { messageId?: string; headers: Record<string, unknown> };
+      expect(retry.messageId).to.eq('m-3');
+      expect(retry.headers['x-spinajs-message-id']).to.eq('m-3');
     });
   });
 

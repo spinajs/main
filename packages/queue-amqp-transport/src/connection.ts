@@ -492,7 +492,7 @@ export class AmqpQueueClient extends QueueClient {
 
   /** The body wins for MessageId; the broker's standard headers win over the body's, since retries and dead letters rewrite them. */
   protected fromDelivery(message: IQueueMessage, msg: ConsumeMessage): IQueueMessage {
-    const headers = msg.properties.headers as Record<string, unknown> | undefined;
+    const headers = msg.properties.headers;
     const messageId = message.MessageId ?? (msg.properties.messageId as string | undefined) ?? (headers?.[QueueHeaders.MessageId] as string | undefined);
     const standard = readQueueHeaders(headers);
     if (messageId !== undefined) message.MessageId = messageId;

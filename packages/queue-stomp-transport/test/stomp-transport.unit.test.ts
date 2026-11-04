@@ -617,10 +617,10 @@ describe('stomp queue transport - unit', function () {
       sub.callback(brokerMessage(jobMessage({ RetryCount: 1, MessageId: 'm-3' } as any), { 'x-retry-count': '1' }));
       await tick();
 
-      const retry = c.fake.published.find((p) => p.destination === '/queue/fail')!;
-      const dead = c.fake.published.find((p) => p.destination === '/queue/dlq')!;
-      expect(retry.headers['x-spinajs-message-id']).to.eq('m-3');
-      expect(dead.headers['x-spinajs-message-id']).to.eq('m-3');
+      const retry: Record<string, string> = c.fake.published.find((p) => p.destination === '/queue/fail')!.headers;
+      const dead: Record<string, string> = c.fake.published.find((p) => p.destination === '/queue/dlq')!.headers;
+      expect(retry['x-spinajs-message-id']).to.eq('m-3');
+      expect(dead['x-spinajs-message-id']).to.eq('m-3');
     });
   });
 
