@@ -141,6 +141,12 @@ A build with `--no-schemas` records `schemaDerivation: false`. Its socket contra
 
 A direct call of `buildAppManifest` without `effectiveDirs` marks nothing.
 
+### Authorization facts
+
+The `authz` section lists what the build can read about authorization. `resources`: each model that is an access resource (its own `@AccessResource`, its nearest registered base class, or a literal `registerAccessResource(Model, type, options)` call, also on another package's model) with its relation columns. `permissions`: the `<type>:read|create|update|delete` permissions the ORM adapter registers. `ignores`: every `// spinajs-authz-ignore AUTHZxxx: <reason>` comment. `findings` is empty until the flow pass lands.
+
+`ModelEntry.accessResource` is the resource type (`'post'`), absent on a model that is no access resource. Permissions declared in configuration and the compiled policy IR (`ir`, `policyHash`) are not in the manifest yet.
+
 ### Diffing two manifests
 
 `manifest:diff` (`diffManifest`) matches routes by `METHOD fullPath`. A route a controller inherits is an ordinary route of that controller, so a change in its base, such as a new required field in the body type the subclass binds, shows on the subclass's path, and a class `@Access` a subclass adds shows on each inherited route. A controller a subclass replaces with an unconditional `DI.register(Sub).as(Base)` is left out, as the runtime mounts only the subclass. The subclass is kept even when it lives outside `system.dirs`, because the runtime serves it in the slot of the base the manifest loads. This is a static guess that assumes the module holding the registration runs; if nothing imports that module, the base serves instead.

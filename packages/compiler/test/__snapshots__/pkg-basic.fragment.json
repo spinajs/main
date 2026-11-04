@@ -902,6 +902,14 @@
       "id": "pkg-basic:DocsSocket",
       "className": "DocsSocket",
       "prefix": "docs",
+      "policies": [
+        [
+          {
+            "type": "AdminPolicy",
+            "options": []
+          }
+        ]
+      ],
       "commands": [
         {
           "name": "open",
@@ -1392,6 +1400,42 @@
       }
     }
   ],
+  "authz": {
+    "resources": [
+      {
+        "type": "post",
+        "model": "pkg-basic:Post",
+        "relations": [],
+        "source": {
+          "file": "src/model.ts",
+          "line": 7,
+          "col": 1,
+          "package": "pkg-basic"
+        }
+      }
+    ],
+    "permissions": [
+      {
+        "name": "post:read",
+        "declaredIn": "model"
+      },
+      {
+        "name": "post:create",
+        "declaredIn": "model"
+      },
+      {
+        "name": "post:update",
+        "declaredIn": "model"
+      },
+      {
+        "name": "post:delete",
+        "declaredIn": "model"
+      }
+    ],
+    "entryPoints": [],
+    "findings": [],
+    "ignores": []
+  },
   "schemas": {
     "spinajs/basic.configuration.schema.json": {
       "$id": "spinajs/basic.configuration.schema.json",
