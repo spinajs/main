@@ -193,11 +193,29 @@ describe('connect', function () {
 
       expect(server.clients.length).to.equal(2);
       expect(driver.State).to.equal(ConnectionState.Connected);
+
+      const dedicated = await driver.openDedicatedConnection();
+      await dedicated.query('SELECT 1');
+      dedicated.destroy();
+
+      expect(server.clients.length, 'the dedicated connection takes a channel of its own').to.equal(3);
     } finally {
       await driver.disconnect();
       await new Promise((resolve) => sshd.close(resolve));
       unlinkSync(keyFile);
     }
+  });
+
+  it('opens a dedicated connection outside the pool', async () => {
+    driver = silenced(new MySqlOrmDriver(options({ Pool: { Max: 1 } })));
+    await driver.connect();
+
+    const dedicated = await driver.openDedicatedConnection();
+    await dedicated.query('SELECT 1');
+    dedicated.destroy();
+
+    expect(server.clients.length).to.equal(2);
+    expect(driver.poolMetrics().Size).to.equal(1);
   });
 });
 

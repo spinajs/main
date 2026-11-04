@@ -6,10 +6,12 @@ import { Injectable, NewInstance } from '@spinajs/di';
 // emit the same query twice. QueryBuilder / TransactionCallback / ITransaction are gone with
 // the old `{ commit, rollback }` transaction shape this branch replaced. ConnectionState /
 // IPoolMetrics are orm-infra's connection-resilience + pool-telemetry work.
-import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, TableCloneQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler, CreateViewCompiler, LiteralQuoter, InsertQueryCompiler, NowExpression, TextWrapper, SqlExpressions } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, TableCloneQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler, CreateViewCompiler, LiteralQuoter, InsertQueryCompiler, NowExpression, TextWrapper, SqlExpressions, MigrationLock } from '@spinajs/orm';
 import { BacktickIdentifierQuoter, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler, SqlDefaultValueBuilder, SqlDropEventQueryCompiler, SqlEventQueryCompiler, SqlLimitQueryCompiler, SqlOnDuplicateQueryCompiler, SqlTableCloneQueryCompiler, SqlTableHistoryQueryCompiler, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
-import { OkPacket, PoolConnection, PoolOptions } from 'mysql2';
+import { ConnectionOptions, OkPacket, PoolConnection, PoolOptions } from 'mysql2';
+import type { Connection as PromiseConnection } from 'mysql2/promise';
+import { MySqlMigrationLock } from './migration-lock.js';
 import { MySqlColumnQueryCompiler, MySqlCreateViewCompiler, MySqlInsertQueryCompiler, MySqlTableExistsCompiler } from './compilers.js';
 import { MySqlInSetStatement, MySqlLiteralQuoter, MySqlNowExpression, MySqlTextWrapper } from './statements.js';
 import { mapMySqlError } from './errors.js';
@@ -24,6 +26,7 @@ export * from './compilers.js';
 export * from './statements.js';
 
 export * from './expressions.js';
+export * from './migration-lock.js';
 
 export interface IMySqlTransactionContext extends ITransactionContext {
   connection: PoolConnection;
@@ -293,6 +296,8 @@ export class MySqlOrmDriver extends SqlDriver {
     this.Container.register(MySqlCreateViewCompiler).as(CreateViewCompiler);
     this.Container.register(MySqlInsertQueryCompiler).as(InsertQueryCompiler);
     this.Container.register(MySqlLiteralQuoter).as(LiteralQuoter);
+
+    this.Container.register(MySqlMigrationLock).as(MigrationLock);
   }
 
   /**
@@ -357,6 +362,28 @@ export class MySqlOrmDriver extends SqlDriver {
       // top of this class - otherwise OpenAPI starts lying about the type and client-side
       // response validation fails on every row.
     };
+  }
+
+  /**
+   * A connection of this database outside the pool, so a pool reconnect leaves it alone. The caller ends it.
+   *
+   * @param programName - its `program_name` connection attribute, shown in `performance_schema.session_connect_attrs`
+   */
+  public async openDedicatedConnection(programName?: string): Promise<PromiseConnection> {
+    const options = this.dedicatedConnectionOptions();
+    const connection = mysql.createConnection(programName ? { ...options, connectAttributes: { ...options.connectAttributes, program_name: programName } } : options);
+    // unhandled, a fatal 'error' while the connection is idle kills the process; its holder learns of it on the next query
+    connection.on('error', (err) => {
+      this.Log?.warn({ error: err, connection: this.Options.Name }, 'mysql dedicated connection error for ${connection}');
+    });
+
+    const promised = connection.promise();
+    await promised.connect();
+    return promised;
+  }
+
+  protected dedicatedConnectionOptions(): ConnectionOptions {
+    return this.poolConfig();
   }
 
   /** NOW(), CURRENT_TIMESTAMP and TIMESTAMP columns follow the session zone, so every pooled connection runs in UTC. */
@@ -692,6 +719,10 @@ export class MySqlSSHOrmDriver extends MySqlOrmDriver {
     this.setState(ConnectionState.Connected);
 
     return this;
+  }
+
+  protected dedicatedConnectionOptions(): ConnectionOptions {
+    return { ...super.dedicatedConnectionOptions(), stream: this.forwardedStream(this.SshClient) };
   }
 
   private openSshClient(): Promise<SSHClient> {

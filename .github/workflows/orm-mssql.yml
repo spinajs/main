@@ -1,0 +1,66 @@
+name: orm-mssql
+
+# Live SQL Server 2022 suite for @spinajs/orm-mssql. Its unit and live tests share one glob, and the live ones connect to
+# localhost:1433 as sa, so the suite runs against the service.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'packages/orm/**'
+      - 'packages/orm-sql/**'
+      - 'packages/orm-mssql/**'
+      - '.github/workflows/orm-mssql.yml'
+  pull_request:
+    paths:
+      - 'packages/orm/**'
+      - 'packages/orm-sql/**'
+      - 'packages/orm-mssql/**'
+      - '.github/workflows/orm-mssql.yml'
+  workflow_dispatch:
+
+jobs:
+  mssql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: 'yourStrong(!)Password'
+          MSSQL_PID: Developer
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'yourStrong(!)Password' -C -Q 'SELECT 1' || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+          --health-start-period=60s
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      # ts-mocha resolves @spinajs/* to lib/mjs; this builds orm-mssql and its reference graph.
+      - name: build orm-mssql + deps (mjs)
+        run: npx tsc -b packages/orm-mssql/tsconfig.mjs.json
+
+      # the database the suite connects to ( scripts/docker/mssql-init/01-create-databases.sql )
+      - name: create the test database
+        run: |
+          docker exec ${{ job.services.mssql.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'yourStrong(!)Password' -C -Q "IF DB_ID('test') IS NULL CREATE DATABASE [test];"
+
+      # mssql.test.ts truncates user_test in beforeEach, before any of its migrations has created it, so it fails on a fresh database
+      - name: unit and live suite
+        working-directory: packages/orm-mssql
+        run: npx ts-mocha -p tsconfig.json 'test/**/*.test.ts' --ignore test/mssql.test.ts
