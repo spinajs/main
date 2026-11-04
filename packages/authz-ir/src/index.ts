@@ -10,3 +10,5 @@ export * from './testing/memory-tuples.js';
 export * from './eval/expand.js';
 export * from './eval/list.js';
 export * from './compile/merge.js';
+export * from './compile/combine.js';
+export * from './compile/principal.js';

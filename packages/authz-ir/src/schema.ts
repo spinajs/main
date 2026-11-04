@@ -72,7 +72,7 @@ export const POLICY_IR_SCHEMA = {
           properties: { tupleToUserset: { type: 'object', required: ['tupleset', 'computed'], additionalProperties: false, properties: { tupleset: { $ref: '#/$defs/name' }, computed: { $ref: '#/$defs/name' } } } },
         },
         { type: 'object', required: ['union'], additionalProperties: false, properties: { union: { type: 'array', minItems: 1, items: { $ref: '#/$defs/rewrite' } } } },
-        { type: 'object', required: ['intersection'], additionalProperties: false, properties: { intersection: { type: 'array', minItems: 1, items: { $ref: '#/$defs/rewrite' } } } },
+        { type: 'object', required: ['intersection'], additionalProperties: false, properties: { intersection: { type: 'array', items: { $ref: '#/$defs/rewrite' } } } },
         {
           type: 'object',
           required: ['exclusion'],

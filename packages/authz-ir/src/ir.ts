@@ -46,10 +46,10 @@ export type Rewrite =
   | { computed: RelationName }
   | { tupleToUserset: { tupleset: RelationName; computed: RelationName } }
   | { union: Rewrite[] }
-  | { intersection: Rewrite[] }
+  | { intersection: Rewrite[] } // empty: every principal
   | { exclusion: { base: Rewrite; subtract: Rewrite } }
   | { caveat: CaveatName; of: Rewrite } // ABAC `when` (G4)
-  | { priority: Array<{ when: Rewrite; then: 'permit' | 'deny' }> } // first-applicable (G5)
+  | { priority: Array<{ when: Rewrite; then: 'permit' | 'deny' }> } // first-applicable (G5); empty: no principal
   | { opaque: string };
 
 export type CaveatParamType = 'string' | 'int' | 'double' | 'bool' | 'timestamp' | 'ipaddress' | 'list<string>';
