@@ -50,6 +50,19 @@ export class Encoder {
     return b.type === this.universe.resource.type ? this.node(this.universe.resource, b.relation, 0) : false;
   }
 
+  /** `object` is `ancestor` or lies below it along `ir.principal.ancestry`, within `maxDepth` hops. */
+  under(object: ObjectRef, ancestor: ObjectRef, depth = 0): Formula {
+    if (label(object) === label(ancestor)) return true;
+    const rel = own(this.ir.types, object.type) ? this.ir.types[object.type].relations[this.ir.principal.ancestry] : undefined;
+    if (rel === undefined || depth >= this.options.maxDepth) return false;
+    const key = `a:${label(object)}<${label(ancestor)}@${depth}`;
+    if (!this.defs.has(key)) {
+      const parents = rel.allowed.map(parseSubjectTypeRef).filter((a) => a.relation === undefined && !a.wildcard && a.caveat === undefined && own(this.universe.objects, a.type));
+      this.defs.set(key, or(...parents.flatMap((a) => this.universe.objects[a.type].map((y) => and(this.tuple(object, this.ir.principal.ancestry, y), this.under(y, ancestor, depth + 1))))));
+    }
+    return { var: key };
+  }
+
   /** At-most-one constraints of column relations. */
   constraints(): Formula[] {
     const out: Formula[] = [];

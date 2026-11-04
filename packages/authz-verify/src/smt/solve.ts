@@ -17,6 +17,8 @@ export interface BoundedQuery {
   readonly checks: ReadonlyArray<{ readonly permission: Permission; readonly allowed: boolean }>;
   /** Tuples the scenario may contain; the others are fixed absent. */
   readonly admit?: (t: WitnessTuple, u: Universe) => boolean;
+  /** Further constraints over the encoding, built once the checks are encoded (`isolated`). */
+  readonly extra?: (e: Encoder, u: Universe) => Formula[];
 }
 
 export interface BoundedOptions {
@@ -90,7 +92,8 @@ interface Found {
 async function search(ir: PolicyIR, query: BoundedQuery, u: Universe, solver: SatSolver, attempts: number): Promise<Found> {
   const encoder = new Encoder(ir, u, { maxDepth: 8, ...(query.admit === undefined ? {} : { admit: (t: WitnessTuple) => query.admit!(t, u) }) });
   const goal = and(...query.checks.map((c) => (c.allowed ? encoder.check(c.permission) : not(encoder.check(c.permission)))));
-  const formulas: Formula[] = [goal, ...encoder.constraints()];
+  const extra = query.extra?.(encoder, u) ?? [];
+  const formulas: Formula[] = [goal, ...extra, ...encoder.constraints()];
   const expected = Object.fromEntries(query.checks.map((c) => [c.permission, c.allowed]));
   const opaque = encoder.caveats.opaque;
   for (let i = 0; i < attempts; i++) {
