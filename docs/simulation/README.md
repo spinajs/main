@@ -47,3 +47,4 @@ against the directory `npm run sim` was started in. A seed whose database work n
 
 | Suite | Actors | Faults | Invariants |
 |---|---|---|---|
+| `scheduler` | 3 scheduler replicas ticking one 10 s schedule whose runs sleep 1–21 s | crash or 35 s delay at `scheduler.lease-renew`, pause up to 90 s | each occurrence fired once; owners and terminal outcomes written once per attempt, every effect under the lease holder; no run left unfinished |

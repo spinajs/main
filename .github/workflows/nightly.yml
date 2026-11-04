@@ -1,0 +1,53 @@
+name: nightly
+
+# Long simulation runs: 2 400 seeds per suite in four shards of 600. Each night starts from a new seed
+# range ( run_number * 100000 ), so the runs keep exploring. A failing SimReport holds its replay command
+# and is uploaded as an artifact.
+
+on:
+  schedule:
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  simulation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [scheduler]
+        shard: [0, 1, 2, 3]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      - name: build monorepo
+        run: npm run build
+
+      # 600 seeds at the 21.6 s (worst 25.7 s) per seed measured on 2026-11-04 is 3.6 h (4.3 h), inside the 5 h job
+      # limit with install and build. The program plan's 2 500 per shard needs the per-seed cost to drop first.
+      - name: simulate ${{ matrix.suite }} shard ${{ matrix.shard }}
+        run: |
+          FIRST=$(( ${{ github.run_number }} * 100000 + ${{ matrix.shard }} * 600 + 1 ))
+          npm run sim -- --suite ${{ matrix.suite }} --seed "$FIRST" --seeds 600 --out sim-reports
+
+      - name: upload failing reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sim-${{ matrix.suite }}-${{ matrix.shard }}
+          path: sim-reports/
+          if-no-files-found: ignore
