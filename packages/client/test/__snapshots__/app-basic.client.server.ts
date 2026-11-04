@@ -7,7 +7,7 @@ void ('47f7521612321fc90ebb904d6c0db1aaf014b826ecb98bfdf0121c9bc87f8d29' satisfi
 /** `baseUrl` must be absolute. `incoming` is the request being served; `forward` lists the header names copied from it, default `cookie` and `authorization`. */
 export type ServerAppClientOptions = ServerClientOptions;
 
-/** Never forwards `host`, `content-length`, hop-by-hop or `x-forwarded-*` headers, whatever `forward` lists. Create one per request. */
+/** Create one per request, and keep what it renders out of shared caches (`cache-control: private, no-store`). */
 export function createServerAppClient(options: ServerAppClientOptions): AppClient {
   return createAppClient(serverClientOptions(options));
 }
