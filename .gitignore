@@ -139,6 +139,7 @@ graphify-out/
 !/docs/email-verification-orm/
 !/docs/email-verification-redis/
 !/docs/eslint-plugin-authz/
+!/docs/eslint-plugin-orm/
 !/docs/exceptions/
 !/docs/fs/
 !/docs/fs-ftp/
