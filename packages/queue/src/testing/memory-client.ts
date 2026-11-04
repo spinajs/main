@@ -1,6 +1,7 @@
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
 import type { Constructor } from '@spinajs/di';
 import { QueueClient, QueueMessageType } from '../interfaces.js';
+import { QueueHeaders } from '../headers.js';
 import type { IQueueMessage, QueueMessage } from '../interfaces.js';
 
 type Callback = (e: IQueueMessage) => Promise<void>;
@@ -27,7 +28,7 @@ interface MemorySubscription {
 interface PendingDelivery {
   message: IQueueMessage;
   channel: string;
-  /** Subscriptions still owed this message: set once it reached its first subscriber, narrowed to the failed ones on a retry. */
+  /** Events only: the subscriptions that rejected it and get it again. A job is re-queued for whoever consumes its channel. */
   owed?: MemorySubscription[];
 }
 
@@ -59,6 +60,13 @@ function wire<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/** What a subscriber receives: the wire copy with the MessageId header the broker transports add. */
+function delivered(message: IQueueMessage): IQueueMessage {
+  const copy = wire(message);
+  if (copy.MessageId) copy.Headers = { ...copy.Headers, [QueueHeaders.MessageId]: copy.MessageId };
+  return copy;
+}
+
 /** A transport without a server, for tests. It keeps what it was given as JSON, as a broker would. */
 @PerInstanceCheck()
 @Injectable(QueueClient)
@@ -66,7 +74,7 @@ export class MemoryQueueClient extends QueueClient {
   /** Every message this client accepted, in order. Append-only. */
   readonly published: IQueueMessage[] = [];
 
-  /** Filled by the delivery contract (O4); empty until then. */
+  /** Messages the transport dead-lettered. Nothing writes them yet. */
   readonly deadLettered: { channel: string; message: IQueueMessage; headers: Record<string, string> }[] = [];
 
   /** @internal */
@@ -109,7 +117,7 @@ export class MemoryQueueClient extends QueueClient {
 
     if (message.Type !== QueueMessageType.Event) return;
     for (const client of this.broker.clients) {
-      for (const s of client.subscriptions) await s.callback(wire(message));
+      for (const s of client.subscriptions) await s.callback(delivered(message));
     }
   }
 
@@ -163,13 +171,14 @@ export class MemoryQueueClient extends QueueClient {
     const failed: MemorySubscription[] = [];
     for (const target of targets) {
       try {
-        await target.callback(wire(delivery.message));
+        await target.callback(delivered(delivery.message));
       } catch (err) {
         failed.push(target);
         target.client.Log?.warn({ error: err, channel: delivery.channel, messageName: delivery.message.Name }, 'Memory delivery of ${messageName} on ${channel} failed, it stays queued');
       }
     }
 
-    return failed.length > 0 ? { ...delivery, owed: failed } : undefined;
+    if (failed.length === 0) return undefined;
+    return delivery.message.Type === QueueMessageType.Job ? { message: delivery.message, channel: delivery.channel } : { ...delivery, owed: failed };
   }
 }

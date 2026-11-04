@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { v4 as uuidv4 } from 'uuid';
 import { DateTime } from 'luxon';
 import { QueueMessageType } from '../interfaces.js';
+import { QueueHeaders } from '../headers.js';
 import type { IQueueMessage, QueueClient } from '../interfaces.js';
 
 /** What a transport's test setup gives the conformance suite. One harness serves one case. */
@@ -53,7 +54,7 @@ async function keepsMessageId(harness: TransportHarness): Promise<void> {
 
   assert.equal(received.length, 1);
   assert.equal(received[0].MessageId, sent.MessageId);
-  assert.equal(received[0].Headers?.['x-conformance'], 'round-trip');
+  assert.deepEqual(received[0].Headers, { 'x-conformance': 'round-trip', [QueueHeaders.MessageId]: sent.MessageId });
 }
 
 const CASES: [string, (harness: TransportHarness) => Promise<void>][] = [

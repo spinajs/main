@@ -1,11 +1,11 @@
 # Message ids and headers
 
-Every message `QueueService.emit()` sends carries a `MessageId`, and any message can carry `Headers`. The id names one logical message across retries, redeliveries and transports. Consumers dedupe by it, and a caller can pick a deterministic id so a repeated emit is recognised as the same message. Headers carry metadata outside the message's own fields: a trace context, a tenant, or the retry bookkeeping a transport writes.
+Every message `QueueService.emit()` sends carries a `MessageId`, and any message can carry `Headers`. The id names one message across retries, redeliveries and transports, so logs and broker tools can follow it. Only jobs are deduplicated today, by `JobId` (`queue.deduplicate`, see [Job tracking](03-job-tracking.md)); an event delivered twice is handled twice. Headers carry metadata outside the message's own fields: a trace context, a tenant, or the retry bookkeeping a transport writes.
 
 ## How it works
 
-1. `emit()` sets `MessageId` to a random uuid v4 unless the message already has one. A caller-set id is kept as is.
-2. For a job, `JobId` defaults to the `MessageId`. A caller-set `JobId` is kept, so the two can differ. `emit()` still returns the `JobId` for a job and `undefined` for an event.
+1. `emit()` sets `MessageId` to a random uuid v4 unless the message already has one. A caller-set id is kept as is. The id is written onto the object you pass, so emitting the same instance again sends the same `MessageId`.
+2. For a job, `JobId` defaults to the `MessageId`. A caller-set `JobId` is kept, so the two can differ. `queue_jobs.JobId` is `varchar(36)`: a job with a caller-set `MessageId` longer than 36 characters needs an explicit `JobId`. `emit()` still returns the `JobId` for a job and `undefined` for an event.
 3. The message body still carries both fields, since every transport sends the whole message as JSON. Each transport also maps them onto the broker's own metadata, so broker tools can see them:
 
    | Transport | `MessageId` | `Headers` |
@@ -13,7 +13,7 @@ Every message `QueueService.emit()` sends carries a `MessageId`, and any message
    | AMQP | the `messageId` property and the `x-spinajs-message-id` header | AMQP headers |
    | STOMP | the `x-spinajs-message-id` header (STOMP's `message-id` belongs to the broker) | STOMP headers, except the frame headers (`destination`, `receipt`, `content-type`, `message-id`, …) |
 
-4. On receipt the transport fills in `MessageId` from the broker metadata when the body has none (a message from a 3.x publisher, or one sent with broker tools), and merges the standard headers it finds on the delivery into `Headers`. The broker's values win, because retries and dead letters rewrite them. Other broker headers (`x-death`, `destination`, `subscription`, …) stay out of `Headers`.
+4. On receipt the transport fills in `MessageId` from the broker metadata when the body has none (a message published with broker tools or a foreign producer), and merges the standard headers it finds on the delivery into `Headers`. The broker's values win, because retries and dead letters rewrite them. Other broker headers (`x-death`, `destination`, `subscription`, …) stay out of `Headers`.
 5. `QueueMessage.hydrate()` copies both fields onto a message class instance, so a handler reads `this.MessageId` and `this.Headers`.
 
 ## Standard headers
@@ -25,10 +25,10 @@ Every message `QueueService.emit()` sends carries a `MessageId`, and any message
 | `MessageId` | `x-spinajs-message-id` | `emit()` through the transport, and copied onto retries and dead letters |
 | `RetryCount` | `x-retry-count` | The transport, on a retry and on a dead letter |
 | `Error` | `x-error` | The transport, on a dead letter |
-| `OriginalDestination` | `x-original-destination` | The transport, on a dead letter |
+| `OriginalDestination` | `x-original-destination` | STOMP only for now, on a dead letter |
 | `TraceParent` | `traceparent` | Reserved for tracing (W3C trace context) |
 
-`readQueueHeaders(raw)` picks the standard headers out of a broker's raw headers as strings. A custom transport calls it on receipt.
+`RetryCount`, `Error` and `OriginalDestination` belong to the transport: on publish, AMQP and STOMP drop them from `Headers`, so a received message emitted again does not carry a stale retry count. `readQueueHeaders(raw)` picks the standard headers out of a broker's raw headers as strings, and `withoutTransportHeaders(headers)` drops the transport's own; a custom transport calls them on receipt and on publish.
 
 ```ts sample
 import { QueueEvent, Event, QueueHeaders } from '@spinajs/queue';
@@ -38,7 +38,7 @@ export class OrderPlaced extends QueueEvent {
   public OrderId: number;
 }
 
-// a deterministic id: emitting the same order twice is one logical message
+// a deterministic id: both emits of one order carry the same MessageId in logs and broker tools
 export async function placeOrder(orderId: number, traceparent: string) {
   await OrderPlaced.emit({ OrderId: orderId, MessageId: `order-placed:${orderId}`, Headers: { [QueueHeaders.TraceParent]: traceparent } });
 }
@@ -62,9 +62,9 @@ queue: {
 
 With `deferred: true` the client behaves like a broker that you drive by hand, with no timers:
 
-- `published` lists every message the client accepted, in order. Nothing removes an entry.
+- `published` lists every message the client accepted, in order. Nothing removes an entry. A subscriber receives a copy whose `Headers` also carry `x-spinajs-message-id`, as on AMQP and STOMP.
 - `deliverAll()` delivers the queued messages in publish order, by channel. An event goes to every subscription on its channel, a job to the first one. A job waits in its queue until a consumer subscribes; an event nobody listens to is dropped.
-- A message is settled only after its callback resolved. One whose callback rejected stays queued, and the next `deliverAll()` delivers it again to the subscriptions that failed. Messages published during a `deliverAll()` wait for the next call.
+- A message is settled only after its callback resolved. One whose callback rejected stays queued for the next `deliverAll()`: an event goes again to the subscriptions that rejected it, a job to whoever consumes its channel by then. Messages published during a `deliverAll()` wait for the next call.
 
 A transport package proves its semantics by running the conformance cases against its own harness:
 
