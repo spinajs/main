@@ -132,6 +132,7 @@ export type AuthzCommandResult = {
     readonly id?: string;
     readonly token?: string;
     readonly affected: number;
+    readonly consistency?: string;
 } | {
     readonly ok: false;
     readonly kind: AuthzCommand["kind"];
@@ -152,6 +153,8 @@ export interface AuthzAdminOptions {
     readonly reason?: string;
     readonly idempotencyKey?: string;
     readonly dryRun?: boolean;
+    /** Ok results carry `consistency`, the token a later check passes to read this batch's writes; needs a backend that reports its version. */
+    readonly consistency?: boolean;
 }
 /**
  * Root singleton; per-domain variants via (await AuthzDomains.service(name)).admin().
@@ -225,6 +228,18 @@ export interface AdminContext {
     readonly authz: AuthzService;
     readonly reason?: string;
 }
+```
+
+## src/contracts/consistency.ts
+
+```ts
+/** The opaque consistency token of store generation `generation` (`DecisionRequest.consistency.atLeast`). */
+export declare function consistencyToken(generation: number): string;
+/** The generation a consistency token names; undefined for a string that is not such a token. */
+export declare function tokenGeneration(token: string): number | undefined;
+
+// values
+const PREFIX = "spina:g:";
 ```
 
 ## src/contracts/data.ts
@@ -323,6 +338,13 @@ export interface DecisionRequest {
     readonly explain?: boolean;
     /** Skip the decision caches and the models' assignment caches for this call; the answer is still stored. */
     readonly fresh?: boolean;
+    /**
+     * Answer from data at least as new as the write that returned `atLeast` (an AuthzAdmin result's `consistency`): the
+     * decision caches are skipped for anything stored before the engine knew of that write. Models that cannot use it ignore it.
+     */
+    readonly consistency?: {
+        readonly atLeast: string;
+    };
 }
 export interface FieldSet {
     readonly read?: readonly string[];
@@ -565,6 +587,7 @@ export * from "./data.js";
 export * from "./admin.js";
 export * from "./tap.js";
 export * from "./decision-log.js";
+export * from "./consistency.js";
 ```
 
 ## src/contracts/link.ts

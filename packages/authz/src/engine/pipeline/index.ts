@@ -9,6 +9,7 @@ import { resourceKey } from '../../contracts/resource.js';
 import type { CheckInput } from '../../contracts/service.js';
 import { decisionKey } from '../cache-key.js';
 import { isObject } from '../internal/util.js';
+import { tokenGeneration } from '../../contracts/consistency.js';
 import type { Pipeline } from '../run.js';
 import { cached } from '../cache/lookup.js';
 import { tagsOf } from '../cache/store.js';
@@ -76,6 +77,7 @@ function* prepare(engine: Engine, input: CheckInput, run: Run, resolved: Resolve
   const def = requirePermission(engine, input.permission);
   if (input.fresh !== undefined && typeof input.fresh !== 'boolean') throw new AuthzConfigError(`${engine.where}: fresh must be a boolean`);
   if (input.fresh === true || def.consistency === 'fresh') run = { ...run, fresh: true };
+  run = observeConsistency(engine, input, run);
   const { ref, subject } = resolved ?? (yield* resolveResource(engine, input.resource, input.subject, def));
   refuseLateType(engine, ref.type);
   if (ref.type !== GLOBAL_TYPE && !def.types.includes(ref.type)) {
@@ -84,6 +86,22 @@ function* prepare(engine: Engine, input: CheckInput, run: Run, resolved: Resolve
   core('resource', resourceKey(ref));
   const plan = engine.table.get(def.name, ref.type) ?? { algorithm: 'deny-overrides', models: [] };
   return { run, explain, steps, core, def, ref, subject, plan, base: { def, ref, algorithm: plan.algorithm, run, explain, steps, started } };
+}
+
+/** A token newer than any seen raises the generation the caches key on; an unreadable one skips the caches for this check. */
+function observeConsistency(engine: Engine, input: CheckInput, run: Run): Run {
+  const c: unknown = input.consistency;
+  if (c === undefined) return run;
+  if (!isObject(c) || typeof c.atLeast !== 'string') throw new AuthzConfigError(`${engine.where}: consistency must be { atLeast: string }`);
+  const generation = tokenGeneration(c.atLeast);
+  if (generation === undefined) return { ...run, fresh: true };
+  if (generation > engine.storeGeneration) engine.storeGeneration = generation;
+  return run;
+}
+
+/** The version vector a cache key holds, with the store generation once a token named one (keys stay as they were until then). */
+export function generationVersions(engine: Engine, versions: string): string {
+  return engine.storeGeneration > 0 ? `${versions}@g${engine.storeGeneration}` : versions;
 }
 
 function gateExit(engine: Engine, head: Head, gate: Exclude<Gate, RunGate>): Checked {
@@ -140,7 +158,7 @@ function* admit(engine: Engine, head: Head, input: CheckInput, gate: RunGate): P
 function keyOf(engine: Engine, head: Head, principal: Principal, actor: Principal | undefined, parties: Parties | undefined, requester: PrincipalRef): string | undefined {
   const { run, def, ref } = head;
   const keyed = parties !== undefined && head.subject === undefined && !run.bypass && run.versions !== undefined;
-  const key = keyed ? decisionKey({ domain: engine.domain, principal, actor, permission: def.name, ref, versions: run.versions }) : undefined;
+  const key = keyed ? decisionKey({ domain: engine.domain, principal, actor, permission: def.name, ref, versions: generationVersions(engine, run.versions) }) : undefined;
   if (keyed && key === undefined) logAt(engine, 'debug', { permission: def.name, principal: principalKey(requester) }, 'Authz domain ${domain}: ${permission} for ${principal} is not cached: the principal or actor has no canonical state');
   return key;
 }
