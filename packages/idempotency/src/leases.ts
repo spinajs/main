@@ -39,6 +39,22 @@ export type IdempotencyAcquisition = { state: 'claimed'; handle: IdempotencyHand
 
 const NO_FAULTS = new NoFaults();
 
+interface ILeaseState {
+  settled: boolean;
+  crash?: Error;
+}
+
+/** Records an error that carries `crash: true` and aborts the handle's signal with it. */
+function crashed(state: ILeaseState, lost: AbortController, error: unknown): boolean {
+  if ((error as { crash?: unknown } | undefined)?.crash !== true) {
+    return false;
+  }
+  state.settled = true;
+  state.crash ??= error as Error;
+  lost.abort(state.crash);
+  return true;
+}
+
 /** Turns store claims into handles that renew their lease until they complete, release or are abandoned. */
 export class IdempotencyLeases {
   constructor(protected readonly options: IdempotencyLeasesOptions) {}
@@ -72,36 +88,40 @@ export class IdempotencyLeases {
   protected hold(key: string, token: string, leaseMs: number, claimedAt: number): IdempotencyHandle {
     const { store, now } = this.options;
     const lost = new AbortController();
-    const state = { settled: false, crashed: false };
+    const state: ILeaseState = { settled: false };
 
     const heartbeat = this.options.renew === false ? undefined : this.heartbeat(key, token, leaseMs, claimedAt, lost, state);
     heartbeat?.start();
 
-    const settle = async (): Promise<void> => {
+    // Crash contract: a dead process writes nothing, releases nothing, and its caller sees the crash.
+    const write = async <T>(op: () => Promise<T>): Promise<T> => {
       state.settled = true;
       await heartbeat?.stop(leaseMs);
+      if (state.crash) {
+        throw state.crash;
+      }
+      try {
+        return await op();
+      } catch (error) {
+        crashed(state, lost, error);
+        throw error;
+      }
     };
 
-    // after a crash the process counts as dead: it writes nothing, and the claim ends with its lease
     return {
       key,
       token,
       signal: lost.signal,
-      complete: async (reply, ttlMs) => {
-        await settle();
-        return !state.crashed && store.complete(key, token, reply, ttlMs, now());
+      complete: (reply, ttlMs) => write(() => store.complete(key, token, reply, ttlMs, now())),
+      release: () => write(() => store.release(key, token)),
+      abandon: async () => {
+        state.settled = true;
+        await heartbeat?.stop(leaseMs);
       },
-      release: async () => {
-        await settle();
-        if (!state.crashed) {
-          await store.release(key, token);
-        }
-      },
-      abandon: settle,
     };
   }
 
-  protected heartbeat(key: string, token: string, leaseMs: number, claimedAt: number, lost: AbortController, state: { settled: boolean; crashed: boolean }): Heartbeat {
+  protected heartbeat(key: string, token: string, leaseMs: number, claimedAt: number, lost: AbortController, state: ILeaseState): Heartbeat {
     const { store, timers, now } = this.options;
     const renewEveryMs = Math.max(1, Math.floor(leaseMs / 3));
     const heartbeat: Heartbeat = new Heartbeat({
@@ -122,8 +142,7 @@ export class IdempotencyLeases {
       },
       onCancel: () => undefined,
       onError: (error) => {
-        if ((error as { crash?: unknown } | undefined)?.crash === true) {
-          state.settled = state.crashed = true;
+        if (crashed(state, lost, error)) {
           void heartbeat.stop(0);
         }
         this.options.onRenewError?.(error, key);
