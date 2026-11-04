@@ -6,14 +6,18 @@ top after every wake-up or crash and continues where it stopped. See `docs/workf
 
 ## Fan-outs
 
-Concurrent branches (`Promise.all`) replay in the interleaving of the original run. Each step row records how many
-results the workflow had received when the step was called (`Meta.after`) and when its own result arrived
-(`Meta.order`); a replay hands a result back only once every call that preceded it has been made again. A step name
-repeated across branches therefore keeps its occurrence and its result. This ordering matters only for concurrent
-branches; sequential code replays in call order.
+Each step row records how many results the workflow had received when the step was called (`Meta.after`) and the
+order its result was committed in (`Meta.order`). A replay hands recorded results back in that order, one per
+event-loop turn, each only once the calls that preceded it have been made again. Concurrent branches (`Promise.all`,
+`Promise.race`) then continue in their original interleaving. The contract:
 
-Per-item step names (`save:${id}` instead of `save`) are still recommended for fan-outs: they read better in the
-journal and do not depend on that ordering. Code between steps may await non-durable work such as a file read or a
-timer; the replay waits for the call it leads to. If such awaits in two concurrent branches finish in a different
-relative order than in the original run, the replay fails with `NonDeterminismError` instead of guessing. So does a
-replay where a recorded step is not asked for again, or a new step appears where the journal recorded another one.
+- A step name used in several concurrent branches (`ctx.step('save', ...)` inside `items.map(...)`) is replay-safe
+  only if the code between those steps awaits workflow operations alone. If it awaits anything else (a file read, an
+  HTTP call, a timer), per-item step names (`save:${id}`) are required.
+- With per-item step names, awaiting non-durable work between steps is safe: every recorded result belongs to
+  exactly one call.
+- Sequential code is not affected.
+- A replay fails with `NonDeterminismError` when it can see the code changed: a new step where the journal recorded
+  another one, or a repeated step name called at another position or after another number of results. A recorded
+  step that is never asked for again fails the replay when the stall timer fires (`workflow.leaseTtl`) or at the end
+  of the run.
