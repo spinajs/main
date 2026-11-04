@@ -27,6 +27,8 @@ import {
 
 export * from './ajv-formats.js';
 export * from './keywords.js';
+export * from './equal.js';
+export * from './applicators.js';
 export * from './coerce.js';
 
 const DECIMAL = /^-?(0|[1-9][0-9]*)(\.[0-9]+)?$/;
