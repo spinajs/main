@@ -1,3 +1,48 @@
+# Release notes — validation: coerced infinities and comparisons that throw
+
+## Security fix
+
+- `@spinajs/validation`: with `coerceTypes` (on by default), the strings `'Infinity'`, `'-Infinity'` and `'1e400'`
+  coerced to non-finite numbers that passed every number rule. Ajv checks the type before it coerces, and runs
+  `minimum`, `maximum` and `multipleOf` on finite numbers only, so `{ type: 'integer', minimum: 0, maximum: 100 }`
+  accepted `'-Infinity'` from a query string, a form field or a JSON body, for every `@Schema`-validated input.
+  Ajv's `strictNumbers` did not help: it is on by default and checks the value before coercion. `DataValidator` now
+  fails a non-finite number with a `type` error at the field wherever the schema type allows `number` or `integer`,
+  after coercion. After a successful validation it also refuses any other non-finite number left in the data, with
+  a `type` error at its path: a JSON `1e400` under a schema without a `type`, or a value an `if`, an `anyOf`/`oneOf`
+  branch or a `not` coerced before it failed. JSON carries a non-finite number only through coercion or such a
+  literal, so no other request input is refused. A value built in code that holds `Infinity` or `NaN` is refused
+  too: a `@Schema` DTO with `max = Infinity`, scheduler params, configuration-http values. At most 100 are listed;
+  the last error's message says when there are more; a path holds at most 64 segments and 1024 characters, a
+  longer one keeps its leading segments and ends with `/…`. Finite values, `1e300`
+  included, and the coercion itself are unchanged.
+
+## Fixes
+
+- `@spinajs/validation`: a JSON object with its own `valueOf` or `toString` key, such as `{"valueOf":1}`, made
+  `const` and `enum` with an object value, `uniqueItems` over objects and `uniqueItemProperties` throw
+  `TypeError: a.valueOf is not a function`. `DataValidator.validate()` passed it on, so any client could make a route
+  answer 500. These keywords now compare a plain object by its own keys: the value fails or passes the rule like any
+  other, and the route answers 400 naming the field.
+- Apart from the two fixes, verdicts, errors and error order stay Ajv's (each replaced keyword keeps its rule
+  position), with three exceptions: `uniqueItems` over strings finds a repeated `"__proto__"`; two `{"constructor":{}}` values now compare
+  equal (Ajv compared the `constructor` values by identity) under `const`, `enum` and `uniqueItems`; a value nested
+  more than about 101 000 levels deep throws a `RangeError` where Ajv overflowed the stack at about 9 000.
+- Both fixes reach every `DataValidator` consumer: `@spinajs/http` route arguments, `@spinajs/http-socket` payloads,
+  `@spinajs/configuration-http` values and uploads, `@spinajs/scheduler` params. A subclass that overrides
+  `createAjv()` keeps them only when it starts from `super.createAjv()`; `createAjv()` throws at boot when the
+  installed Ajv no longer has the rule shape the fix relies on. The separate Ajv of `@spinajs/configuration`
+  (config files, env, the DB source) is not changed.
+
+- Known, pre-existing in Ajv: a recursive union such as `type T = number | T[]` under `coerceTypes: 'array'` wraps
+  a string into an array of itself until the stack runs out. `DataValidator` now answers that as a validation error at
+  the root (`keyword: 'maxDepth'`, "the value is nested too deeply to validate") instead of throwing, so http answers
+  400 with no stack; only a `RangeError` is caught. Each such request still costs Ajv's recursion (about 15 ms);
+  unrolling recursive `$ref`s on coercing instances is a later task.
+
+> Docs: `docs/validation/01-validating-data.md`, `docs/validation/02-validator-options.md`,
+> `docs/validation/08-customizing-the-validator.md`.
+
 # Release notes — the controller scan registers what the package entry did
 
 ## Security fix
