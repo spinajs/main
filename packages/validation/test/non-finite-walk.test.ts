@@ -183,13 +183,15 @@ describe('no validated data holds a non-finite number', function () {
       expect(findNonFinite(new Dto(), true)).to.deep.eq(['/n']);
     });
 
-    it('builds the path of a hit deep below arrays and keys', () => {
+    it('builds the path of a hit below arrays and keys, keeping its leading segments when deep', () => {
+      let shallow: unknown = { 'a/b': [0, -Infinity] };
+      for (let i = 0; i < 6; i++) shallow = i % 2 ? { k: shallow } : [shallow];
+      expect(findNonFinite({ root: shallow }, true)).to.deep.eq(['/root/k/0/k/0/k/0/a~1b/1']);
+
       let deep: unknown = { 'a/b': [0, -Infinity] };
       for (let i = 0; i < 5000; i++) deep = i % 2 ? { k: deep } : [deep];
       const [path] = findNonFinite({ root: deep }, true);
-      expect(path.startsWith('/root/k/0/k/0/'), path.slice(0, 40)).to.eq(true);
-      expect(path.endsWith('/a~1b/1')).to.eq(true);
-      expect(path.split('/')).to.have.length(5000 + 4);
+      expect(path).to.eq(`/root${'/k/0'.repeat(31)}/k/…`);
     });
 
     const walkTime = (body: unknown) => {
@@ -209,7 +211,7 @@ describe('no validated data holds a non-finite number', function () {
     it('names a non-finite number at the bottom of that body in under 3 s', () => {
       const levels = 2_400_000;
       const { found, ms } = walkTime(JSON.parse('['.repeat(levels) + '1e400' + ']'.repeat(levels)));
-      expect(found).to.deep.eq(['/0'.repeat(levels)]);
+      expect(found).to.deep.eq([`${'/0'.repeat(64)}/…`]);
       expect(ms, `${ms.toFixed(0)} ms`).to.be.below(3000);
     });
 
@@ -224,6 +226,38 @@ describe('no validated data holds a non-finite number', function () {
       expect(errors[99].message).to.eq('must be a finite number; only the first 100 non-finite numbers are listed');
       // Looking each hit's key up in its parent made this quadratic: 200k hits took about 9 s.
       expect(ms, `${ms.toFixed(0)} ms`).to.be.below(1000);
+    });
+
+    it('reports 150 non-finite numbers 100k levels deep with short paths, quickly', () => {
+      const levels = 100_000;
+      const body = JSON.parse('['.repeat(levels) + Array.from({ length: 150 }, () => '1e400').join(',') + ']'.repeat(levels)) as unknown;
+      const started = process.hrtime.bigint();
+      const errors = nonFiniteErrors(body, true);
+      const ms = Number(process.hrtime.bigint() - started) / 1e6;
+      expect(errors).to.have.length(100);
+      expect(errors[0].instancePath).to.eq(`${'/0'.repeat(64)}/…`);
+      // Joining every level of every path made this hits x depth: seconds, and a response of hundreds of MB.
+      expect(JSON.stringify(errors).length).to.be.below(50_000);
+      expect(ms, `${ms.toFixed(0)} ms`).to.be.below(1500);
+    });
+
+    it('keeps a path of 64 segments whole, and cuts one segment longer', () => {
+      const nest = (depth: number) => {
+        let value: unknown = [Infinity];
+        for (let i = 1; i < depth; i++) value = [value];
+        return value;
+      };
+      expect(findNonFinite(nest(64), true)).to.deep.eq(['/0'.repeat(64)]);
+      expect(findNonFinite(nest(65), true)).to.deep.eq([`${'/0'.repeat(64)}/…`]);
+    });
+
+    it('cuts a path past 1024 characters, a long key included, before escaping it', () => {
+      const key = 'k/'.repeat(300_000);
+      const [path] = findNonFinite({ a: { [key]: [Infinity] } }, true);
+      expect(path).to.eq('/a/…');
+      const [mid] = findNonFinite({ [`${'x'.repeat(1000)}`]: { b: Infinity } }, true);
+      expect(mid).to.eq(`/${'x'.repeat(1000)}/b`);
+      expect(findNonFinite({ [`${'x'.repeat(1030)}`]: Infinity }, true)).to.deep.eq(['/…']);
     });
 
     it('lists exactly 100 non-finite numbers without the note', () => {

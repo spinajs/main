@@ -13,7 +13,8 @@
   branch or a `not` coerced before it failed. JSON carries a non-finite number only through coercion or such a
   literal, so no other request input is refused. A value built in code that holds `Infinity` or `NaN` is refused
   too: a `@Schema` DTO with `max = Infinity`, scheduler params, configuration-http values. At most 100 are listed;
-  the last error's message says when there are more. Finite values, `1e300`
+  the last error's message says when there are more; a path holds at most 64 segments and 1024 characters, a
+  longer one keeps its leading segments and ends with `/…`. Finite values, `1e300`
   included, and the coercion itself are unchanged.
 
 ## Fixes

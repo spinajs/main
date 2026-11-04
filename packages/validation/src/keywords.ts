@@ -117,6 +117,14 @@ const CYCLE_GUARD_AFTER = 3_000_000;
 export const NON_FINITE_REPORT_LIMIT = 100;
 
 /**
+ * A reported path holds at most this many segments and characters, so its cost and size do not grow with the depth
+ * or a key of the data. A longer one keeps its leading segments, which name the field, and ends with `/…`.
+ */
+const MAX_PATH_SEGMENTS = 64;
+const MAX_PATH_LENGTH = 1024;
+const ELIDED = '/…';
+
+/**
  * The JSON pointers of the non-finite numbers in validated data. JSON carries one only through coercion or a literal
  * such as `1e400`, and a subschema that may fail ( `if`, an `anyOf` / `oneOf` branch, `not` ) coerces in place before
  * it fails, where no `type` rule sees the result. `data` itself is walked whatever its class ( a `@Schema` DTO ); below
@@ -135,6 +143,10 @@ export function findNonFinite(data: unknown, all: boolean): string[] {
   const values: object[] = [data];
   const parents: number[] = [-1];
   const keys: (string | number)[] = [''];
+  // The depth of each container, and its ancestor at depth MAX_PATH_SEGMENTS ( itself when shallower ): a capped path
+  // is built from there, never from the whole chain.
+  const depths: number[] = [0];
+  const anchors: number[] = [0];
   const hits: [number, string | number][] = [];
   // Only a cycle walked before the guard below starts revisits a holder of a hit: report each holder and key once.
   const reported = new Map<object, Set<string | number>>();
@@ -157,6 +169,9 @@ export function findNonFinite(data: unknown, all: boolean): string[] {
     values.push(child);
     parents.push(index);
     keys.push(key);
+    const depth = depths[index] + 1;
+    depths.push(depth);
+    anchors.push(depth <= MAX_PATH_SEGMENTS ? values.length - 1 : anchors[index]);
   };
   const report = (index: number, key: string | number) => {
     const holder = values[index];
@@ -180,10 +195,23 @@ export function findNonFinite(data: unknown, all: boolean): string[] {
   }
 
   return hits.map(([index, key]) => {
-    const segments = [pointer(key)];
-    for (let i = index; i > 0; i = parents[i]) segments.push(pointer(keys[i]));
-    return `/${segments.reverse().join('/')}`;
+    const whole = depths[index] < MAX_PATH_SEGMENTS;
+    const chain: (string | number)[] = whole ? [key] : [];
+    for (let i = whole ? index : anchors[index]; i > 0; i = parents[i]) chain.push(keys[i]);
+    return joinPath(chain.reverse(), !whole);
   });
+}
+
+// At most MAX_PATH_LENGTH characters: a segment that would pass it is cut, with the rest, before it is escaped.
+function joinPath(segments: (string | number)[], elided: boolean): string {
+  let path = '';
+  for (const segment of segments) {
+    const raw = typeof segment === 'number' ? String(segment) : segment.slice(0, MAX_PATH_LENGTH);
+    const part = `/${pointer(raw)}`;
+    if (path.length + part.length > MAX_PATH_LENGTH) return path + ELIDED;
+    path += part;
+  }
+  return elided ? path + ELIDED : path;
 }
 
 const useEqual = (cxt: KeywordCxt): Name => cxt.gen.scopeValue('func', { ref: jsonEqual });
