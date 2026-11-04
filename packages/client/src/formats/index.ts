@@ -26,6 +26,7 @@ import {
 } from './ajv-formats.js';
 
 export * from './ajv-formats.js';
+export * from './keywords.js';
 
 const DECIMAL = /^-?(0|[1-9][0-9]*)(\.[0-9]+)?$/;
 
