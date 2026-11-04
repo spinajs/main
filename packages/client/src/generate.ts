@@ -53,5 +53,5 @@ export async function emitClient(model: ClientModel, options: EmitClientOptions 
 
 /** Generates TypeScript source for a typed HTTP client (and socket contracts) from an application manifest. */
 export async function generateClient(options: GenerateClientOptions): Promise<string> {
-  return emitClient(buildClientModel(options.manifest), options);
+  return emitClient(buildClientModel(options.manifest, { includeSocket: options.includeSocket }), options);
 }

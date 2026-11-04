@@ -44,7 +44,7 @@ function checkOptions(options: GenerateClientFilesOptions): void {
 export async function generateClientFiles(options: GenerateClientFilesOptions): Promise<GeneratedFile[]> {
   checkOptions(options);
   const basename = options.basename ?? 'client';
-  const model = buildClientModel(options.manifest);
+  const model = buildClientModel(options.manifest, { includeSocket: options.includeSocket });
   const companions = COMPANIONS.filter((c) => c.requested(options));
   const client = await emitClient(model, { moduleName: options.moduleName, includeSocket: options.includeSocket, manifestHash: companions.length > 0 });
   const files: GeneratedFile[] = [{ path: `${basename}.ts`, contents: client }];
