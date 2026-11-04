@@ -36,6 +36,7 @@ describe('generateClientFiles', () => {
     [{ zod: { mini: true } }, 2],
     [{ hooks: ['react-query'] }, 1],
     [{ hooks: ['swr'] }, 1],
+    [{ mocks: true }, 2],
   ] as [Partial<GenerateClientFilesOptions>, number][]) {
     it(`exports manifestHash from client.ts when a companion is requested (${JSON.stringify(companion)})`, async () => {
       const files = await generateClientFiles({ manifest, ...companion });
@@ -64,13 +65,14 @@ describe('generateClientFiles', () => {
       zod: { available: true },
       models: { available: false },
       'socket-hooks': { available: false },
+      mocks: { available: true },
     });
   });
 
   it('names the targets the options request', () => {
     expect(requestedTargets({ manifest })).to.deep.equal([]);
-    expect(requestedTargets({ manifest, hooks: ['swr', 'react-query'], zod: { mini: true }, models: true, socketHooks: true, keyPrefix: 'x' })).to.deep.equal(['swr', 'react-query', 'zod', 'models', 'socket-hooks']);
-    expect(requestedTargets({ manifest, hooks: [], zod: false, models: false, socketHooks: false })).to.deep.equal([]);
+    expect(requestedTargets({ manifest, hooks: ['swr', 'react-query'], zod: { mini: true }, models: true, socketHooks: true, keyPrefix: 'x', mocks: true })).to.deep.equal(['swr', 'react-query', 'zod', 'models', 'socket-hooks', 'mocks']);
+    expect(requestedTargets({ manifest, hooks: [], zod: false, models: false, socketHooks: false, mocks: false })).to.deep.equal([]);
   });
 
   const rejections: [string, Partial<GenerateClientFilesOptions>, string][] = [

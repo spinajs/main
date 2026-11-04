@@ -90,6 +90,8 @@ The same generator is available as `generateClient({ manifest, moduleName?, incl
 
 Install `@spinajs/client` next to `@spinajs/cli` to use the command.
 
+`generateClientFiles({ manifest, mocks: true })` also writes `client.mocks.ts`: schema-driven mock data and a typed fake client for tests. See [Mocks](mocks.md).
+
 ## Extending generated types
 
 The generated file is build output: it starts with `Do not edit`, and the next `spinajs generate:client` overwrites it. Put your code in files next to it.
