@@ -1,7 +1,6 @@
 # @spinajs/idempotency
 
-One idempotency service for SpinaJS: a call runs at most once per key while its reply is kept, a repeat replays the
-reply, and a claim whose replica died is taken over when its lease ends. Used by `@spinajs/http` (`@Idempotent()`),
-`@spinajs/http-socket` (idempotent commands) and `@spinajs/queue` (event deduplication).
-
-See `docs/idempotency/README.md`.
+The idempotency store contract for SpinaJS. `IdempotencyStore` claims a key as a lease fenced by a token, renews the
+lease, stores the reply on completion and replays it until its TTL passes. `MemoryIdempotencyStore` keeps the keys in
+process memory. `@spinajs/idempotency/testing` exports `describeIdempotencyStoreConformance`, the mocha suite every
+store implementation must pass.

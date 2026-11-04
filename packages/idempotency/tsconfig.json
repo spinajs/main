@@ -17,7 +17,6 @@
     { "path": "../orm-sqlite/tsconfig.json" },
     { "path": "../orm-postgres/tsconfig.json" },
     { "path": "../orm-mysql/tsconfig.json" },
-    { "path": "../scheduler/tsconfig.json" },
     { "path": "../testing/tsconfig.json" }
   ]
 }

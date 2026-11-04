@@ -67,13 +67,9 @@
     "@spinajs/orm": "3.0.23"
   },
   "peerDependencies": {
-    "@spinajs/scheduler": "3.0.23",
     "mocha": ">=10"
   },
   "peerDependenciesMeta": {
-    "@spinajs/scheduler": {
-      "optional": true
-    },
     "mocha": {
       "optional": true
     }
@@ -82,7 +78,6 @@
     "@spinajs/orm-mysql": "3.0.23",
     "@spinajs/orm-postgres": "3.0.23",
     "@spinajs/orm-sqlite": "3.0.23",
-    "@spinajs/scheduler": "3.0.23",
     "@spinajs/testing": "3.0.23"
   },
   "spinajs": {

@@ -2,8 +2,8 @@ import type { IdempotencyClaim, IdempotencyClaimOptions, IdempotencyHeld, Stored
 
 /**
  * A claim is a lease fenced by a token. A running claim whose lease ended (`leaseUntil < now`) and a reply past its TTL
- * (`expiresAt <= now`) are free to claim again, and every later write of the old holder is refused. The caller passes
- * every time ( database time, DbClock ); a store never reads a clock.
+ * (`expiresAt <= now`) are free to claim again. The old holder's writes are refused once another caller has claimed the
+ * key, not as soon as its lease ends. The caller passes every time (database time, DbClock); a store never reads a clock.
  */
 export abstract class IdempotencyStore {
   /** Atomic: of many concurrent claims of a free key exactly one answers `claimed`. */

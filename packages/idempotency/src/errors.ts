@@ -22,7 +22,7 @@ export class IdempotencyLeaseLost extends Error {
 }
 
 /**
- * Thrown by a call whose side effect may have happened although it answered nothing ( the client went away ): `run`
+ * Thrown by a call whose side effect may have happened although it answered nothing (the client went away): `run`
  * keeps the claim until its lease ends instead of releasing it, as it does for a dead process.
  */
 export class IdempotencyOutcomeUnknown extends Error {
