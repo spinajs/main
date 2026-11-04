@@ -275,6 +275,12 @@ no transaction in scope on the `authz` connection is an `AuthzConfigError`. `act
 `trace_id` the W3C trace id of the request. `changeLog().covers(kind)` is true only for the kinds whose DB store
 exists in the process; `since(seq)` and `until(at)` read the history in `seq` order, a page at a time.
 
+Writes of `@AccessResource` models add kind `column`: `ColumnChangeMiddleware` logs every `@Parent`, `@Owner` and
+`@Relation` column an insert, update or delete changed, keyed `type:id#relation` (`parent` for a parent column), with
+the old and new `{ type, id }`, in the statement's transaction. Turn it off for one model with
+`@AccessResource('invoice', { changelog: false })` (or the same option of `registerAccessResource`); replays that need
+that model's relations then report it as missing (`changeLog().covers('column', 'invoice') === false`).
+
 ## Config
 
 | Key | Default | Meaning |

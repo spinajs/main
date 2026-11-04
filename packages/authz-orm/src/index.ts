@@ -22,3 +22,6 @@ export { AuthzOrmContributor, checkResourceConnections } from './contributor.js'
 export * from './lists/index.js';
 // `@spinajs/authz-orm/changelog`: registers DbChangeLog as the ChangeLog and the changelog migration.
 export * from './changelog/index.js';
+// Registers ColumnChangeMiddleware as a QueryMiddleware: the relation columns of access resources reach the changelog.
+import './changelog/column-hook.js';
+export { ColumnChangeMiddleware } from './changelog/column-hook.js';

@@ -3,7 +3,7 @@ import type { ResourceType } from '@spinajs/authz';
 import type { Class } from '@spinajs/di';
 import type { ModelBase } from '@spinajs/orm';
 
-import type { AccessResourceOptions, OwnerOptions, ParentOptions, RelationOptions } from './api.js';
+import type { AccessResourceDecoratorOptions, AccessResourceOptions, OwnerOptions, ParentOptions, RelationOptions } from './api.js';
 import { addParent, checkRelationName, checkType, ownerColumns, register, setOwner, setRelation, setSelf } from './registry.js';
 import type { ModelClass } from './registry.js';
 
@@ -15,10 +15,11 @@ function propertyName(decorator: string, target: object, key: string | symbol): 
 }
 
 /** Default permissions: `${type}:read|create|update|delete`; several models may share one type. */
-export function AccessResource(type: ResourceType): ClassDecorator {
+export function AccessResource(type: ResourceType, opts?: AccessResourceDecoratorOptions): ClassDecorator {
   checkType(type, '@AccessResource');
+  if (opts !== undefined && (opts === null || typeof opts !== 'object')) throw new AuthzConfigError(`@AccessResource('${type}'): options must be an object`);
   return (target) => {
-    register(target, type);
+    register(target, type, opts === undefined ? undefined : { changelog: opts.changelog });
   };
 }
 
