@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import { InvalidArgument } from '@spinajs/exceptions';
 import packageConfig from '../src/config/workflow.js';
 import { resolveWorkflowConfig, WORKFLOW_CONFIGURATION_SCHEMA, WORKFLOW_CONNECTION, WORKFLOW_DEFAULTS } from '../src/index.js';
 
@@ -25,6 +26,11 @@ describe('workflow configuration', () => {
   it('merges a partial retry policy over the default one', () => {
     expect(resolveWorkflowConfig({ retry: { attempts: 5 } }).retry).to.deep.equal({ attempts: 5, backoff: 'exponential', delay: '1s', maxDelay: '5m' });
     expect(resolveWorkflowConfig({ concurrency: 2 }).concurrency).to.equal(2);
+  });
+
+  it('refuses an invalid workflow.retry', () => {
+    expect(() => resolveWorkflowConfig({ retry: { attempts: 0 } })).to.throw(InvalidArgument, 'workflow.retry: retry.attempts must be an integer >= 1');
+    expect(() => resolveWorkflowConfig({ retry: { attempts: 2, delay: 'soon' } })).to.throw(InvalidArgument);
   });
 
   it('the schema validates the workflow module on the workflow connection', () => {

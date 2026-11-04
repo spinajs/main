@@ -70,6 +70,26 @@ export class ItCommit extends WorkflowDefinition<null, number> {
   }
 }
 
+let retried = 0;
+
+/** Attempt 1 fails; attempt 2's COMMIT fails on the deferred constraint; the next activation's attempt 2 commits. */
+@Workflow('it-retry-commit', { retry: { attempts: 2, backoff: 'fixed', delay: '10s' } })
+export class ItRetryCommit extends WorkflowDefinition<null, number> {
+  public run(ctx: WorkflowContext<null>): Promise<number> {
+    return ctx.step(
+      'book',
+      async ({ attempt }) => {
+        retried++;
+        if (attempt === 1) throw new Error('transient');
+        await sql('INSERT INTO w04_deferred (v) VALUES (1)', QueryContext.Insert);
+        if (retried === 2) await sql('INSERT INTO w04_deferred (v) VALUES (1)', QueryContext.Insert);
+        return retried;
+      },
+      { transactional: true },
+    );
+  }
+}
+
 for (const target of REAL_DB_TARGETS) {
   (target.enabled ? describe : describe.skip)(`workflow fenced writes (${target.name})`, function () {
     this.timeout(60_000);
@@ -156,6 +176,28 @@ for (const target of REAL_DB_TARGETS) {
         expect(pick(await instance(id), 'Status', 'Result')).to.deep.equal({ Status: 'completed', Result: 2 });
         expect((await stepsOf(id)).map((s) => [s.Key, s.Status, s.Attempt])).to.deep.equal([['step:book#1', 'succeeded', 1]]);
         expect(await sql('SELECT v FROM w04_deferred', QueryContext.Select)).to.deep.equal([{ v: 1 }]);
+      } finally {
+        await sql('DROP TABLE IF EXISTS w04_deferred');
+      }
+    });
+
+    (target.name === 'postgres' ? it : it.skip)('a COMMIT failure of a retried transactional attempt spends no retry and stores no error', async () => {
+      const { clock } = await bootRealDb(target);
+      retried = 0;
+      await sql('DROP TABLE IF EXISTS w04_deferred');
+      await sql('CREATE TABLE w04_deferred (v int, CONSTRAINT w04_deferred_v UNIQUE (v) DEFERRABLE INITIALLY DEFERRED)');
+      try {
+        const { id } = await (await DI.resolve(WorkflowService)).start('it-retry-commit', null);
+        const r1 = await engine();
+        await r1.tick();
+        clock.set(T0 + 10_000);
+        await r1.tick();
+        expect(pick(await instance(id), 'Status', 'Error', 'WakeAt', 'ClaimedBy')).to.deep.equal({ Status: 'running', Error: null, WakeAt: T0 + 10_000, ClaimedBy: null });
+        const [row] = await stepsOf(id);
+        expect([row.Status, row.Attempt, row.Error?.message, await sql('SELECT v FROM w04_deferred', QueryContext.Select)]).to.deep.equal(['retrying', 1, 'transient', []]);
+        await r1.tick();
+        expect(pick(await instance(id), 'Status', 'Result')).to.deep.equal({ Status: 'completed', Result: 3 });
+        expect(pick((await stepsOf(id))[0], 'Status', 'Attempt')).to.deep.equal({ Status: 'succeeded', Attempt: 2 });
       } finally {
         await sql('DROP TABLE IF EXISTS w04_deferred');
       }

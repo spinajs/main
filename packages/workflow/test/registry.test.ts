@@ -84,6 +84,16 @@ describe('WorkflowRegistry', () => {
     }
   });
 
+  it('refuses an invalid retry policy when the workflow registers, before any step runs', async () => {
+    defineWorkflow(Clash, 'reg-retry', { retry: { attempts: 0 } });
+    try {
+      const err = await rejects(registry());
+      expect([err.constructor, err.message]).to.deep.equal([InvalidArgument, "workflow 'reg-retry': retry.attempts must be an integer >= 1"]);
+    } finally {
+      undefineWorkflow('reg-retry');
+    }
+  });
+
   it('refuses a version that is not a positive integer', async () => {
     defineWorkflow(Clash, 'reg-bad', { version: 0 });
     try {

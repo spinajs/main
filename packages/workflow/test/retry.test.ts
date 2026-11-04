@@ -2,6 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { computeBackoff, NonRetryableError } from '@spinajs/durable';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { normalizeRetry, unitHash, Workflow, WorkflowDefinition, WorkflowService, type WorkflowContext, type WorkflowStepFailed } from '../src/index.js';
 import { engine } from './support/engine.js';
 import { bootTestEnv, disposeTestEnv } from './support/env.js';
@@ -10,6 +11,8 @@ import { instance, pick, stepsOf, T0 } from './support/rows.js';
 
 let attempts: Record<string, number[]> = {};
 let caught: string[] = [];
+let delivered: string[] = [];
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Fails attempts 1..failures with `error()`, then returns `ok@<attempt>`. */
 function flaky(key: string, failures: number, error: () => Error = () => new Error('transient')) {
@@ -103,6 +106,44 @@ export class RtParallel extends WorkflowDefinition<null, string> {
   }
 }
 
+/** The sibling takes its key one microtask after the parked step. */
+@Workflow('rt-late-sibling')
+export class RtLateSibling extends WorkflowDefinition<null, string> {
+  public async run(ctx: WorkflowContext<null>): Promise<string> {
+    const [a, b] = await Promise.all([
+      ctx.step('slow', flaky('slow', 1), { retry: { attempts: 2, backoff: 'fixed', delay: '30s' } }),
+      Promise.resolve().then(() => ctx.step('fast', flaky('fast', 1), { retry: { attempts: 2, backoff: 'fixed', delay: '10s' } })),
+    ]);
+    return `${a}+${b}`;
+  }
+}
+
+@Workflow('rt-bad-policy')
+export class RtBadPolicy extends WorkflowDefinition<null, string> {
+  public run(ctx: WorkflowContext<null>): Promise<string> {
+    return ctx.step('bad', flaky('bad', 1), { retry: { attempts: 0 } });
+  }
+}
+
+/** `late` fails its first attempt after a and c were journaled; its retry finishes while c's replay still waits. */
+@Workflow('rt-held')
+export class RtHeld extends WorkflowDefinition<null, string> {
+  public async run(ctx: WorkflowContext<null>): Promise<string> {
+    const chain = async (): Promise<void> => {
+      const a = await ctx.step('a', () => 'a');
+      await pause(100);
+      delivered.push(a, await ctx.step('c', () => 'c'));
+    };
+    const late = ctx.step('late', async ({ attempt }) => {
+      if (attempt > 1) return 'late';
+      await pause(300);
+      throw new Error('transient');
+    });
+    await Promise.all([chain(), late.then((v) => delivered.push(v))]);
+    return delivered.join(',');
+  }
+}
+
 describe('step retries', () => {
   let service: WorkflowService;
   let clock: FakeClock;
@@ -110,6 +151,7 @@ describe('step retries', () => {
   beforeEach(async () => {
     attempts = {};
     caught = [];
+    delivered = [];
     ({ clock } = await bootTestEnv());
     service = await DI.resolve(WorkflowService);
   });
@@ -225,5 +267,40 @@ describe('step retries', () => {
     await r1.tick();
     expect(pick(await instance(id), 'Status', 'Result')).to.deep.equal({ Status: 'completed', Result: 'ok@2+ok@2' });
     expect(attempts).to.deep.equal({ slow: [1, 2], fast: [1, 2] });
+  });
+
+  it('a sibling called a microtask after a step that parks again still runs its own due retry', async () => {
+    const { id } = await service.start('rt-late-sibling', null);
+    const r1 = await engine();
+    await r1.tick();
+    clock.set(T0 + 10_000);
+    await r1.tick();
+    expect(pick(await instance(id), 'Status', 'WakeAt')).to.deep.equal({ Status: 'running', WakeAt: T0 + 30_000 });
+    expect(attempts).to.deep.equal({ slow: [1], fast: [1, 2] });
+  });
+
+  it('an invalid step policy fails the run before the body runs', async () => {
+    const { id } = await service.start('rt-bad-policy', null);
+    await (await engine()).tick();
+    const row = await instance(id);
+    expect([row.Status, row.Error?.name, (await stepsOf(id)).length, attempts.bad]).to.deep.equal(['failed', new InvalidArgument('').name, 0, undefined]);
+  });
+
+  it('a retried attempt that finishes during a replay is held behind the recorded results', async () => {
+    const { id } = await service.start('rt-held', null);
+    const r1 = await engine();
+    await r1.tick();
+    expect([delivered, (await stepsOf(id)).map((s) => [s.Key, s.Status])]).to.deep.equal([
+      ['a', 'c'],
+      [
+        ['step:late#1', 'retrying'],
+        ['step:a#1', 'succeeded'],
+        ['step:c#1', 'succeeded'],
+      ],
+    ]);
+    delivered = [];
+    clock.set(T0 + 10_000);
+    await r1.tick();
+    expect(pick(await instance(id), 'Status', 'Result')).to.deep.equal({ Status: 'completed', Result: 'a,c,late' });
   });
 });

@@ -1,4 +1,5 @@
 import type { RetryPolicyOptions } from '@spinajs/durable';
+import { normalizeRetry } from './policy.js';
 
 /** The ORM connection alias of every workflow table; the package config maps it to `default`. */
 export const WORKFLOW_CONNECTION = 'workflow';
@@ -30,5 +31,7 @@ export const WORKFLOW_DEFAULTS: WorkflowConfig = {
 
 export function resolveWorkflowConfig(raw?: Partial<WorkflowConfig> | null): WorkflowConfig {
   const r = raw ?? {};
-  return { ...WORKFLOW_DEFAULTS, ...r, retry: { ...WORKFLOW_DEFAULTS.retry, ...(r.retry ?? {}) } };
+  const config = { ...WORKFLOW_DEFAULTS, ...r, retry: { ...WORKFLOW_DEFAULTS.retry, ...(r.retry ?? {}) } };
+  normalizeRetry(config.retry, 'workflow.retry');
+  return config;
 }

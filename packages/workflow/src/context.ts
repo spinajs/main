@@ -5,7 +5,7 @@ import type { Log } from '@spinajs/log-common';
 import type { QueueEvent, QueueJob } from '@spinajs/queue';
 import type { SerializedError, StepKind, StepMeta, StepStatus, WaitForEventOptions, WorkflowContext, WorkflowEvent, WorkflowStepOptions } from './contract.js';
 import { isCrash, LeaseLostError, NonDeterminismError, serializeError, WorkflowAborted, WorkflowFailure, WorkflowNestingError, WorkflowStepFailed, WorkflowStepResultTooLarge, WorkflowSuspended, type AbortReason } from './errors.js';
-import { ReplayGate } from './gate.js';
+import { nextMacrotask, ReplayGate } from './gate.js';
 import { identifierProblem } from './identifier.js';
 import type { Journal, StepRow } from './journal.js';
 import { safeStringify } from './json.js';
@@ -127,8 +127,11 @@ export class ActivationContext implements WorkflowContext {
     return this.init.epoch;
   }
 
-  public step<T>(name: string, fn: StepFn<T>, opts: WorkflowStepOptions<T> = {}): Promise<T> {
-    return this.begin('step', name, (op) => this.runStep(op, fn, opts));
+  /** Async so an invalid policy rejects; the key is still taken synchronously at the call, so parallel calls keep their order. */
+  public async step<T>(name: string, fn: StepFn<T>, opts: WorkflowStepOptions<T> = {}): Promise<T> {
+    // before any body runs: an invalid policy would otherwise surface only when the step first fails
+    const retry = this.retryPolicy(opts.retry);
+    return this.begin('step', name, (op) => this.runStep(op, fn, opts, retry));
   }
 
   public sleep(_duration: string | number, _name?: string): Promise<void> {
@@ -270,7 +273,7 @@ export class ActivationContext implements WorkflowContext {
     }
   }
 
-  protected async runStep<T>(op: Op, fn: StepFn<T>, opts: WorkflowStepOptions<T>): Promise<T> {
+  protected async runStep<T>(op: Op, fn: StepFn<T>, opts: WorkflowStepOptions<T>, retry: NormalizedRetry): Promise<T> {
     const { journal } = this.init;
     const rec = journal.get(op.key);
     if (rec?.Status === 'succeeded' || rec?.Status === 'failed') {
@@ -280,13 +283,13 @@ export class ActivationContext implements WorkflowContext {
     }
     const wakeAt = rec?.Status === 'retrying' ? rec.Meta?.wakeAt : undefined;
     if (wakeAt !== undefined && this.init.clock.now() < wakeAt) {
-      // A parallel step woke the instance early and this one waits out its own backoff. Parking one turn later lets
-      // the siblings called in the same synchronous run (a Promise.all) take their keys and run.
-      await Promise.resolve();
+      // A parallel step woke the instance early and this one waits out its own backoff. Parking a macrotask later lets
+      // siblings called in the same turn (a Promise.all, a .then chain) take their keys and run.
+      await new Promise<void>((resolve) => nextMacrotask(resolve));
       this.interrupt({ kind: 'park', park: { status: 'running', wakeAt, waitingFor: null } });
       throw new WorkflowSuspended() as unknown;
     }
-    return this.runLive(op, fn, opts, rec);
+    return this.runLive(op, fn, opts, rec, retry);
   }
 
   /** The gate fails its waiters only when the activation has ended; they get what ended it. */
@@ -299,7 +302,7 @@ export class ActivationContext implements WorkflowContext {
     }
   }
 
-  protected async runLive<T>(op: Op, fn: StepFn<T>, opts: WorkflowStepOptions<T>, rec: StepRow | undefined): Promise<T> {
+  protected async runLive<T>(op: Op, fn: StepFn<T>, opts: WorkflowStepOptions<T>, rec: StepRow | undefined, retry: NormalizedRetry): Promise<T> {
     const { clock } = this.init;
     const attempt = (rec?.Attempt ?? 0) + 1;
     const startedAt = clock.now();
@@ -307,7 +310,7 @@ export class ActivationContext implements WorkflowContext {
     try {
       value = await this.execute(op, fn, attempt, startedAt, opts);
     } catch (err) {
-      throw await this.stepFailed(op, err, attempt, startedAt, opts);
+      throw await this.stepFailed(op, err, attempt, startedAt, retry);
     }
     await this.fault('workflow.after-journal', op.key);
     await this.gate.live(op.order);
@@ -326,11 +329,22 @@ export class ActivationContext implements WorkflowContext {
     if (opts.transactional) {
       // earlier markers first; the journal write inside the transaction bypasses the queue, which could wait on it
       await this.writes;
-      return this.init.store.driver.transaction(async () => {
-        const value = await call();
-        await this.fault('workflow.after-step-fn', op.key);
-        return journalIt(value);
-      });
+      const before = this.init.journal.get(op.key);
+      let journaled = false;
+      try {
+        return await this.init.store.driver.transaction(async () => {
+          const value = await call();
+          await this.fault('workflow.after-step-fn', op.key);
+          const kept = await journalIt(value);
+          journaled = true;
+          return kept;
+        });
+      } catch (err) {
+        if (!journaled) throw err;
+        // the body succeeded and its row was written, then COMMIT failed: a journal failure, not the step's
+        this.init.journal.restore(op.key, before);
+        throw this.journalWriteFailed(err);
+      }
     }
     const value = await call();
     await this.fault('workflow.after-step-fn', op.key);
@@ -349,14 +363,13 @@ export class ActivationContext implements WorkflowContext {
   }
 
   /** Returns what the step throws to `run()`: a retry parks the instance, a final failure is journaled. */
-  protected async stepFailed<T>(op: Op, err: unknown, attempt: number, startedAt: number, opts: WorkflowStepOptions<T>): Promise<unknown> {
+  protected async stepFailed(op: Op, err: unknown, attempt: number, startedAt: number, retry: NormalizedRetry): Promise<unknown> {
     if (this.crashed || isCrash(err)) {
       this.crash(err);
       return err;
     }
     if (err instanceof LeaseLostError || err instanceof WorkflowAborted || this.signal.aborted) return new WorkflowAborted(this.abortReason());
     const error = serializeError(err, op.name);
-    const retry = this.retryPolicy(opts.retry);
     const again = isRetryable(retry, err) && attempt < retry.attempts;
     // the row carries its own wake time: a replay before it parks again instead of running the attempt early
     const wakeAt = again ? this.init.clock.now() + computeBackoff(retry, attempt, () => unitHash(`${this.instanceId}:${op.key}:${attempt}`)) : null;
