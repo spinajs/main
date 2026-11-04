@@ -1,9 +1,10 @@
 import 'mocha';
 import { expect } from 'chai';
+import assert from 'node:assert/strict';
 import { Orm } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import type { TestApp } from '@spinajs/testing';
-import { IdempotencyKeyModel, OrmIdempotencyStore } from '../../src/index.js';
+import { IdempotencyClaimConflict, IdempotencyKeyModel, OrmIdempotencyStore } from '../../src/index.js';
 import { describeIdempotencyStoreConformance } from '../../src/testing/index.js';
 import { REAL_DB_TARGETS, bootRealDb } from './real-db.js';
 
@@ -63,6 +64,44 @@ for (const target of REAL_DB_TARGETS) {
         });
 
         expect(seen).to.deep.equal({ state: 'running', rows: 1 });
+      });
+
+      it('answers concurrent claims, each in its own transaction, with claimed, running or IdempotencyClaimConflict', async () => {
+        await store.claim('e', { leaseMs: 1, now: T0 });
+
+        const outcomes = await Promise.all(
+          Array.from({ length: 6 }, (_, i) =>
+            driver.transaction(() => store.claim('e', { leaseMs: 60_000, now: T0 + 100 + i })).then(
+              (claim) => claim.state as string,
+              (error: unknown) => {
+                if (error instanceof IdempotencyClaimConflict) {
+                  return 'conflict';
+                }
+                throw error;
+              },
+            ),
+          ),
+        );
+
+        expect(outcomes.filter((outcome) => outcome === 'claimed')).to.have.length.at.most(1);
+        expect(outcomes.filter((outcome) => !['claimed', 'running', 'conflict'].includes(outcome))).to.deep.equal([]);
+      });
+
+      (target.name === 'postgres' ? it : it.skip)('refuses a REPEATABLE READ claim after a concurrent commit with IdempotencyClaimConflict', async () => {
+        let start!: () => void;
+        const elsewhere = new Promise<void>((resolve) => (start = resolve)).then(() => store.claim('t', { leaseMs: 60_000, now: T0 }));
+
+        const claim = driver.transaction(
+          async () => {
+            await IdempotencyKeyModel.where('Key', 'snapshot');
+            start();
+            await elsewhere;
+            return store.claim('t', { leaseMs: 60_000, now: T0 + 1 });
+          },
+          { isolation: 'REPEATABLE READ' },
+        );
+
+        await assert.rejects(claim, IdempotencyClaimConflict);
       });
 
       it('replays a completed reply and its fingerprint', async () => {
