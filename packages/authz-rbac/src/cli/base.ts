@@ -23,7 +23,7 @@ export abstract class AuthzCliCommand extends AuthzCliBase {
       if (this.touchesDb()) {
         await this.Container.resolve(Orm);
       }
-      this.Authz = (await this.Container.resolve(AuthzService)) as AuthzService;
+      this.Authz = await this.Container.resolve<AuthzService>(AuthzService);
     }
     return this.Authz;
   }
