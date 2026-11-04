@@ -12,7 +12,8 @@ import type { DecisionAudit, DecisionCache } from '../contracts/service.js';
 import type { ConditionCompiler } from '../conditions/contracts.js';
 import type { AuthzLog } from '../host/log.js';
 import { BUILTIN_COMBINATORS } from './combinators.js';
-import type { CombineConfig } from './routes.js';
+import type { CombineConfig, RouteTable } from './routes.js';
+import type { FieldCombiner } from './fields.js';
 
 /**
  * summary() and covers() check at most this many permissions (one check per
@@ -260,3 +261,38 @@ export const MISSING_ROW: RowLoad = Object.freeze({ kind: 'missing' });
 export const FAILED_ROW: RowLoad = Object.freeze({ kind: 'failed' });
 
 export const byName = (a: Vote, b: Vote): number => compareStrings(a.model, b.model);
+
+/** The state of one Authorizer, shared by the engine functions; built once by the constructor. */
+export interface Engine {
+  readonly domain: string;
+  readonly where: string;
+  readonly registry: PermissionRegistry;
+  readonly modelList: readonly AuthorizationModel[];
+  readonly combinators: ReadonlyMap<string, Combinator>;
+  readonly combineConfig: CombineConfig;
+  table: RouteTable;
+  readonly cache: DecisionCache | undefined;
+  /** The last version vector seen as a string. */
+  versions: string | undefined;
+  versionsWarned: boolean;
+  /** Moved by invalidate() and by a version change: a request scope born before it does not store into the L2. */
+  generation: number;
+  /** cache.invalidate threw, so dropped entries may still be there: the L2 is unused until an invalidate(['*']) succeeds (retried at each call). */
+  l2Stale: boolean;
+  readonly adapterList: readonly ResourceAdapter[];
+  readonly adapterByType: ReadonlyMap<ResourceType, ResourceAdapter>;
+  readonly resolverByType: ReadonlyMap<ResourceType, ScopeResolver>;
+  readonly relationIndex: ReadonlyMap<string, RelationResolver>;
+  readonly natives: ReadonlyMap<string, NativeFilter>;
+  /** Native ops whose filter declares `principalInArgs`: an intersect delegate's residual keeps them. */
+  readonly argBoundNatives: ReadonlySet<string>;
+  readonly attributeDefaults: ReadonlyMap<ResourceType, Readonly<Record<string, unknown>>>;
+  readonly attributeStore: ScopeAttributeStore | undefined;
+  readonly conditions: ConditionCompiler;
+  readonly clock: () => Date;
+  readonly log: Pick<AuthzLog, 'error' | 'warn' | 'debug'>;
+  readonly auditSink: DecisionAudit | undefined;
+  readonly config: EngineConfig;
+  readonly allFields: Fields;
+  readonly fieldCombiner: FieldCombiner;
+}

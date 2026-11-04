@@ -2567,11 +2567,8 @@
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    },
     "complexity": {
-      "count": 6
+      "count": 5
     },
     "promise/always-return": {
       "count": 1

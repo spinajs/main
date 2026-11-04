@@ -1,23 +1,21 @@
 import { quote, compareStrings } from '@spinajs/util';
 import { Perf } from '@spinajs/log-common';
 import { AuthzConfigError, UnknownPermission } from '../contracts/errors.js';
-import { FALSE, TRUE, and, not, or, simplify } from '../contracts/filter.js';
+import { FALSE, TRUE, and, not, simplify } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
 import type { CombiningAlgorithm, Decision, DecisionRequest, DenyReason, FieldSet, Trace, TraceStep, Vote } from '../contracts/decision.js';
 import { compareDenyReasons } from '../contracts/decision.js';
 import type { AccessPlan, ListPlanRequest, ModelListPlan } from '../contracts/plan.js';
-import type { AuthorizationModel, Combinator, ModelSummary, NativeFilter } from '../contracts/model.js';
-import type { Permission, PermissionDef, PermissionRegistry } from '../contracts/permission.js';
+import type { AuthorizationModel, ModelSummary } from '../contracts/model.js';
+import type { Permission, PermissionDef } from '../contracts/permission.js';
 import { SYSTEM, UNATTENDED, principalKey } from '../contracts/principal.js';
 import type { Ceiling, Principal, PrincipalRef, ResourceRef, ResourceType } from '../contracts/principal.js';
 import { GLOBAL, resourceKey } from '../contracts/resource.js';
-import type { RelationResolver, ResourceAdapter, ScopeAttributeSchema, ScopeAttributeStore, ScopeResolver } from '../contracts/adapter.js';
-import type { AccessSummary, CheckInput, DecisionAudit, DecisionCache } from '../contracts/service.js';
+import type { RelationResolver, ResourceAdapter } from '../contracts/adapter.js';
+import type { AccessSummary, CheckInput, DecisionAudit } from '../contracts/service.js';
 import { subtractFieldGlobs, unionFieldGlobs } from '../contracts/fields.js';
-import type { ConditionCompiler } from '../conditions/contracts.js';
-import { BUILTIN_COMBINATORS, normalizeVote } from './combinators.js';
-import { DEFAULT_COMBINE, compileRoutes } from './routes.js';
-import type { CombineConfig, RouteTable } from './routes.js';
+import { DEFAULT_COMBINE } from './routes.js';
+import type { RouteTable } from './routes.js';
 import { defaultAttribute, evaluateResidual } from './evaluate.js';
 import type { SubjectEnv, Truth } from './evaluate.js';
 import { selectDenyReason, staticTruths } from './reasons.js';
@@ -25,11 +23,9 @@ import { ceilingOutcome, mergeCeilings, readCeiling, scopeCovers } from './ceili
 import type { CeilingOutcome } from './ceiling.js';
 import { resolveDelegation, stripPrincipalOps } from './delegation.js';
 import type { Delegation } from './delegation.js';
-import type { AuthzLog } from '../host/log.js';
 import type { VoteTruths } from './reasons.js';
 import { decisionKey, entryTags, invalidationTags, principalState, versionVector } from './cache-key.js';
-import { mergeAttributes, schemaIndex } from './attributes.js';
-import { FieldCombiner } from './fields.js';
+import { mergeAttributes } from './attributes.js';
 import { ModelContext, NoConditionCompiler, l1Key, memo } from './context.js';
 import type { ContextHost, MaybePromise } from './context.js';
 import { NEEDS_ASYNC, isThenable, runAsync, runSync, settleWithin, swallow } from './run.js';
@@ -37,131 +33,58 @@ import type { Pipeline, Settled } from './run.js';
 import { MAX_DATA_VALUES, MAX_FILTER_NODES, budget, copyData, copyRef, deepFreeze, describeError, faultVote, sanitizeFilter, sanitizeVote, thrownError, validDate } from './vote.js';
 import { ALL_PLAN, CEILING_DENIAL, combinePlans, nonePlan, readModelPlan, withinOf } from './plan.js';
 import type { PlanAnswer } from './plan.js';
-import { ENGINE_DEFAULTS } from './defaults.js';
 import { isObject } from './internal/util.js';
-import { BUILTIN_ALGORITHMS, CORE, CachedDecision, CachedPlan, DEADLINE_FACTOR, DELEGATE_PRIORITY, ENGINE_FAULT, FAILED_ROW, GLOBAL_ANCESTORS, GLOBAL_TYPE, INVALID_REQUEST, MAX_PRELOADED, MAX_SUMMARY_PERMISSIONS, MISSING_ROW, NO_FIELDS, NO_LOG, NO_ROLES, SUMMARY_BATCH, SYSTEM_REF, UNATTENDED_REF, UNKNOWN_RESOURCE, byName, nextGeneration } from './types.js';
-import type { Attributes, AuthorizerOptions, BoundAttributes, Checked, Combined, EngineConfig, Fields, Finish, Gate, LoadedAttributes, Nested, NodeLoad, Outcome, Parties, RequestScope, RowLoad, Run } from './types.js';
+import { BUILTIN_ALGORITHMS, CORE, CachedDecision, CachedPlan, DEADLINE_FACTOR, DELEGATE_PRIORITY, ENGINE_FAULT, FAILED_ROW, GLOBAL_ANCESTORS, GLOBAL_TYPE, INVALID_REQUEST, MAX_PRELOADED, MAX_SUMMARY_PERMISSIONS, MISSING_ROW, NO_FIELDS, NO_LOG, NO_ROLES, SUMMARY_BATCH, SYSTEM_REF, UNATTENDED_REF, UNKNOWN_RESOURCE, nextGeneration } from './types.js';
+import type { Attributes, AuthorizerOptions, Engine, BoundAttributes, Checked, Combined, Fields, Finish, Gate, LoadedAttributes, NodeLoad, Outcome, Parties, RequestScope, RowLoad, Run } from './types.js';
 import { Deadline, EXPIRED, THREW } from './support/deadline.js';
 import { RefBinder, TIMED_OUT, bounded } from './support/ref-binder.js';
 import { entryCovers, firmFieldsOf } from './support/compare.js';
+import { combinatorsOf, compileTable, decisionCacheOf, fieldSetup, readConfig, resourceIndexes, scopeAttributesOf } from './support/setup.js';
+import { admits, audits, byType, capabilitiesOf, contextCacheKey, decides, deniedCopy, detachingOnThrow, earliest, mergeRoles, nest, newNested, once, principalCacheId, principalRef, refShaped, scopeMap, syncMode, withOwnDate } from './support/misc.js';
 
 export { MAX_SUMMARY_PERMISSIONS } from './types.js';
 export type { AuthorizerOptions, RequestScope } from './types.js';
 
 export class Authorizer {
   readonly domain: string;
-  private readonly where: string;
-  private readonly registry: PermissionRegistry;
-  private readonly modelList: readonly AuthorizationModel[];
-  private readonly combinators = new Map<string, Combinator>();
-  private readonly combineConfig: CombineConfig;
-  private table: RouteTable;
-  private readonly cache: DecisionCache | undefined;
-  /** The last version vector seen as a string. */
-  private versions: string | undefined;
-  private versionsWarned = false;
-  /** Moved by invalidate() and by a version change: a request scope born before it does not store into the L2. */
-  private generation = nextGeneration();
-  /** cache.invalidate threw, so dropped entries may still be there: the L2 is unused until an invalidate(['*']) succeeds (retried at each call). */
-  private l2Stale = false;
-  private readonly adapterList: readonly ResourceAdapter[];
-  private readonly adapterByType = new Map<ResourceType, ResourceAdapter>();
-  private readonly resolverByType = new Map<ResourceType, ScopeResolver>();
-  private readonly relationIndex = new Map<string, RelationResolver>();
-  private readonly natives = new Map<string, NativeFilter>();
-  /** Native ops whose filter declares `principalInArgs`: an intersect delegate's residual keeps them. */
-  private readonly argBoundNatives = new Set<string>();
-  private readonly attributeDefaults: ReadonlyMap<ResourceType, Readonly<Record<string, unknown>>>;
-  private readonly attributeStore: ScopeAttributeStore | undefined;
-  private readonly conditions: ConditionCompiler;
-  private readonly clock: () => Date;
-  private readonly log: Pick<AuthzLog, 'error' | 'warn' | 'debug'>;
-  private readonly auditSink: DecisionAudit | undefined;
-  private readonly config: EngineConfig;
-  private readonly allFields: Fields;
-  private readonly fieldCombiner: FieldCombiner;
+  private readonly engine: Engine;
   private readonly host: ContextHost;
   /** Principal cache id ⇒ the generation its preload finished in; a stale generation counts as not preloaded. */
   private readonly preloaded = new Map<string, number>();
 
   constructor(options: AuthorizerOptions) {
+    const generation = nextGeneration();
     if (!isObject(options)) throw new AuthzConfigError('Authorizer options must be an object');
     if (typeof options.domain !== 'string' || options.domain === '') throw new AuthzConfigError(`Authorizer domain must be a non-empty string, got ${quote(options.domain)}`);
     this.domain = options.domain;
-    this.where = `Authz domain ${quote(this.domain)}`;
-    if (!isObject(options.registry)) throw new AuthzConfigError(`${this.where}: a permission registry is required`);
-    this.registry = options.registry;
-    if (!Array.isArray(options.models)) throw new AuthzConfigError(`${this.where}: models must be an array`);
-    this.modelList = Object.freeze([...options.models]);
-    this.config = this.readConfig(options.config ?? {});
-    this.log = options.log ?? NO_LOG;
-    this.auditSink = options.audit;
-    this.clock = options.clock ?? (() => new Date());
-    this.conditions = options.conditions ?? new NoConditionCompiler();
-
-    for (const c of BUILTIN_COMBINATORS) this.combinators.set(c.name, c);
-    for (const c of options.combinators ?? []) {
-      // Duck-typed: a combinator from a second copy of this package (two installed versions) fails instanceof.
-      if (!isObject(c) || typeof c.combine !== 'function' || typeof c.name !== 'string' || c.name === '') throw new AuthzConfigError(`${this.where}: a custom combinator needs a non-empty name and a combine() method`);
-      if (this.combinators.has(c.name)) throw new AuthzConfigError(`${this.where}: combinator ${quote(c.name)} is ${BUILTIN_COMBINATORS.some((b) => b.name === c.name) ? 'a built-in' : 'registered twice'}`);
-      this.combinators.set(c.name, c);
-    }
-
-    this.combineConfig = options.combine ?? DEFAULT_COMBINE;
-    this.table = this.compileTable();
-    this.versions = versionVector(this.modelList);
-    const cache: unknown = options.cache;
-    // Duck-typed like combinators: a cache from a second copy of this package fails instanceof.
-    if (cache !== undefined && (!isObject(cache) || typeof cache.get !== 'function' || typeof cache.set !== 'function' || typeof cache.invalidate !== 'function')) throw new AuthzConfigError(`${this.where}: cache must be a DecisionCache with get(), set() and invalidate()`);
-    this.cache = cache as DecisionCache | undefined;
-
-    this.adapterList = Object.freeze([...(options.adapters ?? [])]);
-    for (const adapter of this.adapterList) {
-      for (const type of adapter.types) {
-        if (this.adapterByType.has(type)) throw new AuthzConfigError(`${this.where}: two resource adapters (${quote(this.adapterByType.get(type)!.kind)}, ${quote(adapter.kind)}) handle type ${quote(type)}`);
-        this.adapterByType.set(type, adapter);
-      }
-    }
-    for (const resolver of options.scopeResolvers ?? []) {
-      for (const type of resolver.types) {
-        if (this.resolverByType.has(type)) throw new AuthzConfigError(`${this.where}: two scope resolvers handle type ${quote(type)}`);
-        this.resolverByType.set(type, resolver);
-      }
-    }
-    for (const relation of [...(options.relations ?? []), ...this.adapterList.flatMap((a) => (typeof a.relations === 'function' ? a.relations() : []))]) {
-      const key = `${relation.type}\u0000${relation.relation}`;
-      if (this.relationIndex.has(key)) throw new AuthzConfigError(`${this.where}: two relation resolvers for ${quote(relation.relation)} on type ${quote(relation.type)}`);
-      this.relationIndex.set(key, relation);
-    }
-    for (const filter of options.nativeFilters ?? []) {
-      if (this.natives.has(filter.op)) throw new AuthzConfigError(`${this.where}: two native filters for op ${quote(filter.op)}`);
-      this.natives.set(filter.op, filter);
-      if (declaresPrincipalInArgs(filter)) this.argBoundNatives.add(filter.op);
-    }
-    const scopeAttributes: unknown = options.scopeAttributes === undefined ? {} : options.scopeAttributes;
-    if (!isObject(scopeAttributes)) throw new AuthzConfigError(`${this.where}: scopeAttributes must be an object`);
-    try {
-      this.attributeDefaults = schemaIndex(scopeAttributes.schemas as readonly ScopeAttributeSchema[] | undefined);
-    } catch (e) {
-      throw e instanceof AuthzConfigError ? new AuthzConfigError(`${this.where}: ${e.message}`, { cause: e }) : e;
-    }
-    const store = scopeAttributes.store;
-    // Duck-typed like combinators: a store from a second copy of this package fails instanceof.
-    if (store !== undefined && (!isObject(store) || typeof store.get !== 'function')) throw new AuthzConfigError(`${this.where}: scopeAttributes.store must be a ScopeAttributeStore with a get() method`);
-    this.attributeStore = store as ScopeAttributeStore | undefined;
-
-    try {
-      this.fieldCombiner = new FieldCombiner({ neverRead: this.config.neverRead });
-    } catch (e) {
-      throw e instanceof AuthzConfigError ? new AuthzConfigError(`${this.where}: config.neverRead: ${e.message}`, { cause: e }) : e;
-    }
-    const allowed = Object.freeze(subtractFieldGlobs(['*'], this.config.neverRead));
-    this.allFields = Object.freeze({ read: allowed, write: allowed });
-
+    const where = `Authz domain ${quote(this.domain)}`;
+    if (!isObject(options.registry)) throw new AuthzConfigError(`${where}: a permission registry is required`);
+    if (!Array.isArray(options.models)) throw new AuthzConfigError(`${where}: models must be an array`);
+    const modelList = Object.freeze([...options.models]);
+    const config = readConfig(where, options.config ?? {});
+    const routing = { domain: this.domain, registry: options.registry, modelList, combinators: combinatorsOf(where, options.combinators), combineConfig: options.combine ?? DEFAULT_COMBINE };
+    this.engine = {
+      ...routing,
+      where,
+      config,
+      log: options.log ?? NO_LOG,
+      auditSink: options.audit,
+      clock: options.clock ?? (() => new Date()),
+      conditions: options.conditions ?? new NoConditionCompiler(),
+      table: compileTable(routing),
+      versions: versionVector(modelList),
+      versionsWarned: false,
+      generation,
+      l2Stale: false,
+      cache: decisionCacheOf(where, options.cache),
+      ...resourceIndexes(where, options),
+      ...scopeAttributesOf(where, options.scopeAttributes),
+      ...fieldSetup(where, config.neverRead),
+    };
     this.host = Object.freeze({
       domain: this.domain,
-      permissions: this.registry,
-      conditions: this.conditions,
+      permissions: this.engine.registry,
+      conditions: this.engine.conditions,
       ancestors: (ref: ResourceRef, scope: Map<string, unknown>) => this.marking(scope, () => this.ancestorsOf(this.requireRef(ref), scope)),
       attributes: (ref: ResourceRef, scope: Map<string, unknown>) => this.attributesOf(this.requireRef(ref), scope),
       relation: (type: ResourceType, name: string) => this.relation(type, name),
@@ -184,20 +107,20 @@ export class Authorizer {
 
   /** Introspection, not an access attempt: unaudited, no decision cache read or stored, models read fresh. */
   async inspect(input: CheckInput, scope?: RequestScope): Promise<Decision> {
-    if (!isObject(input)) throw new AuthzConfigError(`${this.where}: check input must be an object`);
-    for (const flag of ['fresh', 'explain'] as const) if (input[flag] !== undefined && typeof input[flag] !== 'boolean') throw new AuthzConfigError(`${this.where}: ${flag} must be a boolean`);
+    if (!isObject(input)) throw new AuthzConfigError(`${this.engine.where}: check input must be an object`);
+    for (const flag of ['fresh', 'explain'] as const) if (input[flag] !== undefined && typeof input[flag] !== 'boolean') throw new AuthzConfigError(`${this.engine.where}: ${flag} must be a boolean`);
     const run: Run = { ...this.newRun(false, scope), bypass: true, quiet: true };
     return (await runAsync(this.pipeline({ ...input, explain: false, fresh: true }, run))).decision;
   }
 
   /** Every model evaluated, trace attached, caches bypassed. */
   async explain(input: CheckInput, scope?: RequestScope): Promise<Decision> {
-    if (!isObject(input)) throw new AuthzConfigError(`${this.where}: check input must be an object`);
+    if (!isObject(input)) throw new AuthzConfigError(`${this.engine.where}: check input must be an object`);
     return this.check({ ...input, explain: true }, scope);
   }
 
   async checkMany(principal: Principal, permissions: readonly Permission[], resource?: ResourceRef | object, scope?: RequestScope): Promise<ReadonlyMap<Permission, Decision>> {
-    if (!Array.isArray(permissions)) throw new AuthzConfigError(`${this.where}: checkMany permissions must be an array`);
+    if (!Array.isArray(permissions)) throw new AuthzConfigError(`${this.engine.where}: checkMany permissions must be an array`);
     const shared: RequestScope = { cache: scopeMap(scope) };
     const resolved = resource === undefined ? undefined : await runAsync(this.resolveObject(resource));
     const out = new Map<Permission, Decision>();
@@ -216,9 +139,9 @@ export class Authorizer {
    */
   async accessPlan(principal: Principal, permission: Permission, type: ResourceType, env?: Readonly<Record<string, unknown>>, scope?: RequestScope): Promise<AccessPlan> {
     const def = this.requirePermission(permission);
-    if (def.list !== true) throw new AuthzConfigError(`${this.where}: permission ${quote(def.name)} is not declared with list: true, so it has no access plan`);
+    if (def.list !== true) throw new AuthzConfigError(`${this.engine.where}: permission ${quote(def.name)} is not declared with list: true, so it has no access plan`);
     this.refuseLateType(type);
-    if (!def.types.includes(type)) throw new AuthzConfigError(`${this.where}: permission ${quote(def.name)} is planned on type ${quote(type)}, which is not in its types (${def.types.join(', ')})`);
+    if (!def.types.includes(type)) throw new AuthzConfigError(`${this.engine.where}: permission ${quote(def.name)} is planned on type ${quote(type)}, which is not in its types (${def.types.join(', ')})`);
     const gate = this.principalGate(principal);
     if (gate.kind === 'system') return ALL_PLAN;
     if (gate.kind === 'deny') return nonePlan(gate.reason);
@@ -245,12 +168,12 @@ export class Authorizer {
    * permission cannot be checked on is a denial with invalid_request, so one bad entry never fails the batch.
    */
   async checkAll(principal: Principal, requests: readonly { readonly permission: Permission; readonly resource: ResourceRef }[], scope?: RequestScope): Promise<readonly Decision[]> {
-    if (!Array.isArray(requests)) throw new AuthzConfigError(`${this.where}: checkAll requests must be an array`);
+    if (!Array.isArray(requests)) throw new AuthzConfigError(`${this.engine.where}: checkAll requests must be an array`);
     const out: Decision[] = [];
     const items = (requests as readonly unknown[]).map((r, i) => {
-      if (!isObject(r)) throw new AuthzConfigError(`${this.where}: checkAll request ${i} must be an object`);
+      if (!isObject(r)) throw new AuthzConfigError(`${this.engine.where}: checkAll request ${i} must be an object`);
       const ref = this.requireRef(r.resource);
-      const def = typeof r.permission === 'string' ? this.registry.get(r.permission) : undefined;
+      const def = typeof r.permission === 'string' ? this.engine.registry.get(r.permission) : undefined;
       if (!def || this.lateType(ref.type) !== undefined || (ref.type !== GLOBAL_TYPE && !def.types.includes(ref.type))) {
         out[i] = this.invalidRequest(principal, r.permission, ref);
         return undefined;
@@ -307,10 +230,10 @@ export class Authorizer {
     const gate = this.principalGate(principal);
     if (gate.kind === 'deny') return deepFreeze({ principal: gate.principal, models: [], permissions: [] });
     const { defs } = this.checkable(ref, 'summary');
-    if (gate.kind === 'system') return deepFreeze({ principal: SYSTEM_REF, models: [], permissions: defs.map((def) => summaryEntry(def, false, this.allFields)) });
+    if (gate.kind === 'system') return deepFreeze({ principal: SYSTEM_REF, models: [], permissions: defs.map((def) => summaryEntry(def, false, this.engine.allFields)) });
 
     const run = this.quietRun(scope);
-    const limit = new Deadline(DEADLINE_FACTOR * this.config.modelTimeoutMs);
+    const limit = new Deadline(DEADLINE_FACTOR * this.engine.config.modelTimeoutMs);
     try {
       const out: { -readonly [K in keyof AccessSummary]: AccessSummary[K] } = { principal: gate.ref, models: [], permissions: [] };
       const ceiling = summaryCeiling(gate.principal);
@@ -378,7 +301,7 @@ export class Authorizer {
       this.logAt('error', { permission: custom.def.name, resourceType: custom.type, algorithm: custom.algorithm }, 'Authz domain ${domain}: covers is false: ${permission} on ${resourceType} uses the combinator ${algorithm}, which may allow without a permit that a summary lists');
       return false;
     }
-    const limit = new Deadline(DEADLINE_FACTOR * this.config.modelTimeoutMs);
+    const limit = new Deadline(DEADLINE_FACTOR * this.engine.config.modelTimeoutMs);
     let strict = false;
     try {
       const summarized = await limit.race(this.modelSummaries(target, ref, defs, { ...run, nested: newNested() }));
@@ -439,7 +362,7 @@ export class Authorizer {
     try {
       // Mirrors the pipeline: the gate, then delegation, then the intersect delegate's own check with the hops left.
       let next: Principal | undefined = principal;
-      let hopsLeft = this.config.maxDelegation;
+      let hopsLeft = this.engine.config.maxDelegation;
       while (next !== undefined) {
         const gate = this.principalGate(next);
         if (gate.kind !== 'run') break;
@@ -459,16 +382,16 @@ export class Authorizer {
     // A version change first, so the scope is born with the generation its data belongs to.
     this.epoch();
     this.bornOf(map);
-    const generation = this.generation;
+    const generation = this.engine.generation;
     const failed = new Set<string>();
     await Promise.all(
-      this.modelList.flatMap((model) =>
+      this.engine.modelList.flatMap((model) =>
         typeof model.preload !== 'function'
           ? []
           : runAs.map(async ({ who, cacheId }) => {
               const settled = await settleWithin(
                 Promise.resolve().then(() => model.preload!(who, new ModelContext(this.host, model.name, map, instant, 0, undefined, contextCacheKey(model.name, cacheId)))),
-                this.config.modelTimeoutMs,
+                this.engine.config.modelTimeoutMs,
                 describeError,
                 'preload',
               );
@@ -481,7 +404,7 @@ export class Authorizer {
       ),
     );
     // An invalidate() during the preload may have dropped what it loaded.
-    if (this.generation !== generation) return;
+    if (this.engine.generation !== generation) return;
     for (const { cacheId } of runAs) {
       if (failed.has(cacheId)) continue;
       map.set(l1Key('preloaded', this.domain, cacheId), generation);
@@ -492,11 +415,11 @@ export class Authorizer {
   }
 
   invalidate(tags: readonly string[]): void {
-    this.generation = nextGeneration();
+    this.engine.generation = nextGeneration();
     this.preloaded.clear();
     this.invalidateL2(invalidationTags(tags));
     const copy = Object.freeze(Array.isArray(tags) ? [...tags] : []);
-    for (const model of this.modelList) {
+    for (const model of this.engine.modelList) {
       try {
         if (typeof model.invalidate === 'function') model.invalidate(copy);
       } catch (e) {
@@ -506,11 +429,11 @@ export class Authorizer {
   }
 
   models(): readonly AuthorizationModel[] {
-    return this.modelList;
+    return this.engine.modelList;
   }
 
   routes(): RouteTable {
-    return this.table;
+    return this.engine.table;
   }
 
   // ---- summary and covers ----
@@ -520,7 +443,7 @@ export class Authorizer {
     const gate = this.principalGate(p);
     if (gate.kind !== 'run') return false;
     try {
-      return this.delegation(gate.principal, undefined, this.config.maxDelegation).denial === undefined;
+      return this.delegation(gate.principal, undefined, this.engine.config.maxDelegation).denial === undefined;
     } catch (e) {
       this.logAt('debug', { error: thrownError(e), principal: principalKey(gate.ref) }, 'Authz domain ${domain}: covers is false: the onBehalfOf chain of ${principal} does not resolve');
       return false;
@@ -534,7 +457,7 @@ export class Authorizer {
 
   /** Registered permissions checkable at `ref` (its type in `types`, or `$global`), sorted by name, at most MAX_SUMMARY_PERMISSIONS. */
   private checkable(ref: ResourceRef, what: string): { readonly defs: readonly PermissionDef[]; readonly truncated: boolean } {
-    const defs = this.registry
+    const defs = this.engine.registry
       .all()
       .filter((d) => ref.type === GLOBAL_TYPE || d.types.includes(ref.type))
       .sort((a, b) => compareStrings(a.name, b.name));
@@ -551,7 +474,7 @@ export class Authorizer {
   private async modelSummaries(principal: Principal, ref: ResourceRef, defs: readonly PermissionDef[], run: Run): Promise<{ readonly list: readonly ModelSummary[]; readonly names: ReadonlySet<string> | undefined }> {
     let runAs: Principal;
     try {
-      const d = this.delegation(principal, undefined, this.config.maxDelegation);
+      const d = this.delegation(principal, undefined, this.engine.config.maxDelegation);
       // Every check denies `delegate` then.
       if (d.denial) return { list: [], names: undefined };
       runAs = d.principal;
@@ -562,13 +485,13 @@ export class Authorizer {
     const routed = new Set<AuthorizationModel>();
     for (const def of defs) {
       // A check at $global is concrete: the models routed for the permission's types hold what lies below it.
-      for (const type of ref.type === GLOBAL_TYPE ? [ref.type, ...def.types] : [ref.type]) for (const m of this.table.get(def.name, type)?.models ?? []) routed.add(m);
+      for (const type of ref.type === GLOBAL_TYPE ? [ref.type, ...def.types] : [ref.type]) for (const m of this.engine.table.get(def.name, type)?.models ?? []) routed.add(m);
     }
     const host = this.hostFor(run);
     const cacheId = principalCacheId(runAs);
     let complete = true;
     const results = await Promise.all(
-      this.modelList
+      this.engine.modelList
         .filter((m) => routed.has(m) && admits(m, runAs))
         .map(async (model): Promise<ModelSummary | undefined> => {
           try {
@@ -580,7 +503,7 @@ export class Authorizer {
             const ctx = new ModelContext(host, model.name, run.scope, run.instant, 0, undefined, contextCacheKey(model.name, cacheId, 'summarize'));
             const settled = await settleWithin(
               Promise.resolve().then(() => model.summarize!(runAs, ref, ctx)),
-              this.config.modelTimeoutMs,
+              this.engine.config.modelTimeoutMs,
               describeError,
               'summarize',
             );
@@ -640,7 +563,7 @@ export class Authorizer {
   private summaryEntries(principal: Principal, list: readonly ModelSummary[], defs: readonly PermissionDef[], instant: Date): Map<Permission, SummaryItem[]> | undefined {
     let ceilings: readonly unknown[];
     try {
-      const d = this.delegation(principal, undefined, this.config.maxDelegation);
+      const d = this.delegation(principal, undefined, this.engine.config.maxDelegation);
       if (d.denial) return undefined;
       ceilings = d.ceilings;
     } catch {
@@ -663,7 +586,7 @@ export class Authorizer {
 
   /** The union of the entries' fields (none listed: every field), less neverRead. Throws AuthzConfigError past the field budget. */
   private listedFields(entries: readonly SummaryItem[]): Fields {
-    const union = (k: 'read' | 'write') => subtractFieldGlobs(unionFieldGlobs(...entries.map((e) => e.fields?.[k] ?? ['*'])), this.config.neverRead);
+    const union = (k: 'read' | 'write') => subtractFieldGlobs(unionFieldGlobs(...entries.map((e) => e.fields?.[k] ?? ['*'])), this.engine.config.neverRead);
     return { read: union('read'), write: union('write') };
   }
 
@@ -676,7 +599,7 @@ export class Authorizer {
     if (!holder.decision.allowed || holder.decision.residual.op !== 'true') return false;
     if (def.fields !== true) return true;
     const held = firmFieldsOf(holder);
-    const inside = (k: 'read' | 'write') => subtractFieldGlobs(subtractFieldGlobs(entry.fields?.[k] ?? ['*'], this.config.neverRead), held[k]).length === 0;
+    const inside = (k: 'read' | 'write') => subtractFieldGlobs(subtractFieldGlobs(entry.fields?.[k] ?? ['*'], this.engine.config.neverRead), held[k]).length === 0;
     return inside('read') && inside('write');
   }
 
@@ -684,7 +607,7 @@ export class Authorizer {
   private customPlan(defs: readonly PermissionDef[], ref: ResourceRef): { readonly def: PermissionDef; readonly type: ResourceType; readonly algorithm: string } | undefined {
     for (const def of defs) {
       for (const r of comparedRefs(def, ref)) {
-        const algorithm = this.table.get(def.name, r.type)?.algorithm;
+        const algorithm = this.engine.table.get(def.name, r.type)?.algorithm;
         if (algorithm !== undefined && !BUILTIN_ALGORITHMS.has(algorithm)) return { def, type: r.type, algorithm };
       }
     }
@@ -702,7 +625,7 @@ export class Authorizer {
 
   private cachedPlan(key: string, run: Run): AccessPlan | undefined {
     const entry = run.scope.get(key);
-    if (!(entry instanceof CachedPlan) || entry.generation !== this.generation) return undefined;
+    if (!(entry instanceof CachedPlan) || entry.generation !== this.engine.generation) return undefined;
     const until = entry.plan.kind === 'filter' ? entry.plan.validUntil : undefined;
     return until !== undefined && until.getTime() <= run.instant.getTime() ? undefined : entry.plan;
   }
@@ -712,8 +635,8 @@ export class Authorizer {
     if (ceiling.denials.length > 0) return { plan: nonePlan([...ceiling.denials].sort(compareDenyReasons)[0]), faulted: false };
     const within = withinOf(ceiling.restrict);
     if (within === null) return { plan: nonePlan(CEILING_DENIAL), faulted: false };
-    const route = this.table.get(def.name, type) ?? { algorithm: 'deny-overrides', models: [] };
-    if (route.algorithm !== 'deny-overrides') throw new AuthzConfigError(`${this.where}: list permission ${quote(def.name)} is routed on type ${quote(type)} with ${quote(route.algorithm)}; access plans combine with deny-overrides only (boot rule 12)`);
+    const route = this.engine.table.get(def.name, type) ?? { algorithm: 'deny-overrides', models: [] };
+    if (route.algorithm !== 'deny-overrides') throw new AuthzConfigError(`${this.engine.where}: list permission ${quote(def.name)} is routed on type ${quote(type)} with ${quote(route.algorithm)}; access plans combine with deny-overrides only (boot rule 12)`);
     const runAs = d.principal;
     const fresh = run.fresh === true ? { fresh: true } : {};
     const req: ListPlanRequest = Object.freeze(d.actor === undefined ? { principal: runAs, permission: def, type, env, ...fresh } : { principal: runAs, actor: d.actor, permission: def, type, env, ...fresh });
@@ -731,12 +654,12 @@ export class Authorizer {
     try {
       support = typeof model.listSupport === 'function' ? model.listSupport(req.permission, req.type, { relation: (type, name) => this.relation(type, name) }) : undefined;
     } catch (e) {
-      throw new AuthzConfigError(`${this.where}: model ${quote(model.name)} threw from listSupport() for ${label}: ${describeError(e)}`, { cause: e });
+      throw new AuthzConfigError(`${this.engine.where}: model ${quote(model.name)} threw from listSupport() for ${label}: ${describeError(e)}`, { cause: e });
     }
-    if (support !== true || typeof model.listPlan !== 'function') throw new AuthzConfigError(`${this.where}: model ${quote(model.name)} cannot plan lists of ${label} (boot rule 12)`);
+    if (support !== true || typeof model.listPlan !== 'function') throw new AuthzConfigError(`${this.engine.where}: model ${quote(model.name)} cannot plan lists of ${label} (boot rule 12)`);
     const settled = await settleWithin(
       Promise.resolve().then(() => model.listPlan!(req, ctx)),
-      this.config.modelTimeoutMs,
+      this.engine.config.modelTimeoutMs,
       describeError,
       'listPlan',
     );
@@ -764,11 +687,11 @@ export class Authorizer {
     const pending = refs.filter((r) => r.id !== undefined && !scope.has(l1Key('ancestors', this.domain, resourceKey(r))));
     await Promise.all(
       [...byType(pending)].map(async ([type, list]) => {
-        const adapter = this.adapterByType.get(type);
+        const adapter = this.engine.adapterByType.get(type);
         if (!adapter || typeof adapter.ancestorsMany !== 'function') return;
         const settled = await settleWithin(
           Promise.resolve().then(() => adapter.ancestorsMany!(list)),
-          this.config.modelTimeoutMs,
+          this.engine.config.modelTimeoutMs,
           describeError,
           'ancestorsMany',
         );
@@ -795,11 +718,11 @@ export class Authorizer {
     const rowOf = (v: unknown): RowLoad => (v === undefined || v === null ? MISSING_ROW : { kind: 'row', row: v });
     await Promise.all(
       [...byType(refs)].map(async ([type, list]) => {
-        const adapter = this.adapterByType.get(type);
+        const adapter = this.engine.adapterByType.get(type);
         if (adapter && typeof adapter.loadMany === 'function') {
           const settled = await settleWithin(
             Promise.resolve().then(() => adapter.loadMany!(list)),
-            this.config.modelTimeoutMs,
+            this.engine.config.modelTimeoutMs,
             describeError,
             'loadMany',
           );
@@ -811,7 +734,7 @@ export class Authorizer {
             list.map(async (ref) => {
               const settled = await settleWithin(
                 Promise.resolve().then(() => adapter.load!(ref)),
-                this.config.modelTimeoutMs,
+                this.engine.config.modelTimeoutMs,
                 describeError,
                 'load',
               );
@@ -830,29 +753,29 @@ export class Authorizer {
   /** `resolved`: a ref (and subject) the caller already resolved, so no adapter sees it again. */
   private *pipeline(input: CheckInput, run: Run, resolved?: { readonly ref: ResourceRef; readonly subject: unknown }): Pipeline<Checked> {
     const started = performance.now();
-    if (!isObject(input)) throw new AuthzConfigError(`${this.where}: check input must be an object`);
+    if (!isObject(input)) throw new AuthzConfigError(`${this.engine.where}: check input must be an object`);
     const explain = run.depth === 0 && input.explain === true;
     if (explain) run = { ...run, bypass: true };
-    const steps: TraceStep[] | undefined = explain || this.config.explain ? [] : undefined;
+    const steps: TraceStep[] | undefined = explain || this.engine.config.explain ? [] : undefined;
     // Engine-owned data goes in as is (frozen with the trace), so a deep residual is never cut.
     const core = (step: string, note: string, data?: unknown) => steps?.push(data === undefined ? { by: CORE, step, note } : { by: CORE, step, note, data });
 
     const def = this.requirePermission(input.permission);
-    if (input.fresh !== undefined && typeof input.fresh !== 'boolean') throw new AuthzConfigError(`${this.where}: fresh must be a boolean`);
+    if (input.fresh !== undefined && typeof input.fresh !== 'boolean') throw new AuthzConfigError(`${this.engine.where}: fresh must be a boolean`);
     if (input.fresh === true || def.consistency === 'fresh') run = { ...run, fresh: true };
     const { ref, subject } = resolved ?? (yield* this.resolveResource(input.resource, input.subject, def));
     this.refuseLateType(ref.type);
     if (ref.type !== GLOBAL_TYPE && !def.types.includes(ref.type)) {
-      throw new AuthzConfigError(`${this.where}: permission ${quote(def.name)} is checked on type ${quote(ref.type)}, which is not in its types (${def.types.join(', ')}) or $global`);
+      throw new AuthzConfigError(`${this.engine.where}: permission ${quote(def.name)} is checked on type ${quote(ref.type)}, which is not in its types (${def.types.join(', ')}) or $global`);
     }
     core('resource', resourceKey(ref));
-    const plan = this.table.get(def.name, ref.type) ?? { algorithm: 'deny-overrides', models: [] };
+    const plan = this.engine.table.get(def.name, ref.type) ?? { algorithm: 'deny-overrides', models: [] };
     const base = { def, ref, algorithm: plan.algorithm, run, explain, steps, started };
 
     const gate = this.principalGate(input.principal);
     if (gate.kind === 'system') {
       core('principal', 'SYSTEM: allowed without models');
-      return { decision: this.finish({ ...base, requester: SYSTEM_REF, system: true }, { principal: SYSTEM_REF, residual: TRUE, roles: NO_ROLES, fields: this.allFields, models: [], votes: [] }), uncacheable: true, faulted: false, ...(run.firm ? { firmFields: this.allFields } : {}) };
+      return { decision: this.finish({ ...base, requester: SYSTEM_REF, system: true }, { principal: SYSTEM_REF, residual: TRUE, roles: NO_ROLES, fields: this.engine.allFields, models: [], votes: [] }), uncacheable: true, faulted: false, ...(run.firm ? { firmFields: this.engine.allFields } : {}) };
     }
     if (gate.kind === 'deny') {
       core('principal', `denied before the models: ${gate.reason.code}`);
@@ -933,15 +856,15 @@ export class Authorizer {
       const strips = delegation.intersectKey !== principalKey(parties.ref);
       // The delegate's residual is already bound for the delegate; SQL and the subject evaluator would read its principal ops as ours.
       // A kept principalInArgs native is evaluated below and in SQL with our principal, context and ctx.cache: right only because its args name the delegate and the filter keys its memos by them.
-      let theirs = !delegate.allowed ? FALSE : strips ? stripPrincipalOps(delegate.residual, this.argBoundNatives) : delegate.residual;
+      let theirs = !delegate.allowed ? FALSE : strips ? stripPrincipalOps(delegate.residual, this.engine.argBoundNatives) : delegate.residual;
       if (strips && subject !== undefined && delegate.allowed && residual.op !== 'false') {
         // The filter strips the delegate's relation ops and its natives without principalInArgs, which the subject check above evaluated exactly: the row must also pass the stripped type-level residual, or filter and check part (B06).
         typeLevel = yield* this.delegateCheck(delegation.intersect!, delegation.hopsUsed, def, { type: ref.type }, undefined, input.env, run);
-        const strip = typeLevel.decision.allowed ? stripPrincipalOps(typeLevel.decision.residual, this.argBoundNatives) : FALSE;
+        const strip = typeLevel.decision.allowed ? stripPrincipalOps(typeLevel.decision.residual, this.engine.argBoundNatives) : FALSE;
         let truth: string = !typeLevel.decision.allowed ? 'the delegate is denied' : strip.op === 'true' ? 'TRUE' : 'FALSE';
         let holds = strip.op === 'true';
         if (strip.op !== 'true' && strip.op !== 'false') {
-          const settled = (yield settleWithin(evaluateResidual(strip, subject, this.subjectEnv(parties, ref, run, steps, cores)), this.config.modelTimeoutMs, describeError, 'subject evaluation')) as Settled;
+          const settled = (yield settleWithin(evaluateResidual(strip, subject, this.subjectEnv(parties, ref, run, steps, cores)), this.engine.config.modelTimeoutMs, describeError, 'subject evaluation')) as Settled;
           if (!settled.ok) {
             subjectFault = true;
             this.logAt('error', { delegate: delegation.intersectKey, check: label, cause: settled.error }, 'Authz domain ${domain}: evaluating the stripped type-level residual of the delegate ${delegate} of ${check} against the subject failed: ${cause}');
@@ -959,7 +882,7 @@ export class Authorizer {
 
     let subjectDenied = false;
     if (subject !== undefined && residual.op !== 'true' && residual.op !== 'false') {
-      const settled = (yield settleWithin(evaluateResidual(residual, subject, this.subjectEnv(parties, ref, run, steps, cores)), this.config.modelTimeoutMs, describeError, 'subject evaluation')) as Settled;
+      const settled = (yield settleWithin(evaluateResidual(residual, subject, this.subjectEnv(parties, ref, run, steps, cores)), this.engine.config.modelTimeoutMs, describeError, 'subject evaluation')) as Settled;
       const truth = settled.ok ? settled.value : undefined;
       if (!settled.ok) {
         subjectFault = true;
@@ -1032,7 +955,7 @@ export class Authorizer {
     const now = run.instant.getTime();
     const l1 = l1Key('decision', this.domain, key);
     const entry = run.scope.get(l1);
-    if (entry instanceof CachedDecision && entry.generation === this.generation && now < entry.expiresAt) {
+    if (entry instanceof CachedDecision && entry.generation === this.engine.generation && now < entry.expiresAt) {
       Perf.count('authz.cache.l1.hit');
       if (run.depth > 0) nest(run, entry.tags);
       if (entry.unaudited && audits(run)) {
@@ -1041,10 +964,10 @@ export class Authorizer {
       }
       return { decision: withOwnDate(entry.decision), uncacheable: false, faulted: false };
     }
-    if (!this.cache || this.l2Stale) return undefined;
+    if (!this.engine.cache || this.engine.l2Stale) return undefined;
     let found: unknown;
     try {
-      found = this.cache.get(key);
+      found = this.engine.cache.get(key);
     } catch (e) {
       this.logAt('error', { error: thrownError(e) }, 'Authz domain ${domain}: the decision cache failed on get');
       return undefined;
@@ -1065,7 +988,7 @@ export class Authorizer {
   }
 
   private auditDenial(requester: PrincipalRef, def: PermissionDef, ref: ResourceRef, decision: Decision): void {
-    if (this.config.auditDenials) this.record({ kind: 'deny', principal: requester, permission: def.name, resource: ref, reason: decision.reason?.code ?? 'no_access' });
+    if (this.engine.config.auditDenials) this.record({ kind: 'deny', principal: requester, permission: def.name, resource: ref, reason: decision.reason?.code ?? 'no_access' });
   }
 
   /** A decision from the L2 is used only when it is what this check asks for and still valid. */
@@ -1091,9 +1014,9 @@ export class Authorizer {
     const t = tags();
     const stored = withOwnDate(checked.decision);
     run.scope.set(l1Key('decision', this.domain, key), new CachedDecision(stored, t, ttl.now + ttl.ms, run.generation, !stored.allowed && !audits(run)));
-    if (this.cache && !this.l2Stale && t !== undefined && this.generation === run.generation) {
+    if (this.engine.cache && !this.engine.l2Stale && t !== undefined && this.engine.generation === run.generation) {
       try {
-        this.cache.set(key, stored, t, ttl.ms);
+        this.engine.cache.set(key, stored, t, ttl.ms);
       } catch (e) {
         this.logAt('error', { error: thrownError(e) }, 'Authz domain ${domain}: the decision cache failed on set');
       }
@@ -1105,13 +1028,13 @@ export class Authorizer {
   private ttlOf(decision: Decision): { readonly ms: number; readonly now: number } | undefined {
     let now: number;
     try {
-      const date = validDate(this.clock());
+      const date = validDate(this.engine.clock());
       if (!date) return undefined;
       now = date.getTime();
     } catch {
       return undefined;
     }
-    let ms = this.config.cacheTtlSeconds * 1000;
+    let ms = this.engine.config.cacheTtlSeconds * 1000;
     if (decision.validUntil !== undefined) ms = Math.min(ms, decision.validUntil.getTime() - now);
     return Number.isFinite(ms) && ms > 0 ? { ms, now } : undefined;
   }
@@ -1164,46 +1087,42 @@ export class Authorizer {
   /** The version vector of a top-level call. A change recompiles the routes and drops the L2; undefined turns caching off for the call. */
   private epoch(): string | undefined {
     // The first failure was logged at error; a cache that stays down would log every call.
-    if (this.l2Stale) this.invalidateL2(['*'], 'debug');
-    const versions = versionVector(this.modelList);
+    if (this.engine.l2Stale) this.invalidateL2(['*'], 'debug');
+    const versions = versionVector(this.engine.modelList);
     if (versions === undefined) {
-      if (!this.versionsWarned) {
-        this.versionsWarned = true;
+      if (!this.engine.versionsWarned) {
+        this.engine.versionsWarned = true;
         this.logAt('warn', {}, "Authz domain ${domain}: a model's version() threw or returned a non-string; decisions are not cached while it does");
       }
       return undefined;
     }
-    if (versions !== this.versions) {
-      this.generation = nextGeneration();
+    if (versions !== this.engine.versions) {
+      this.engine.generation = nextGeneration();
       this.invalidateL2(['*']);
       try {
-        this.table = this.compileTable();
+        this.engine.table = compileTable(this.engine);
       } catch (e) {
         // The old routes stay; the next call tries again.
         this.logAt('error', { error: thrownError(e) }, 'Authz domain ${domain}: recompiling the routes after a model version change failed; decisions are not cached');
         return undefined;
       }
-      this.versions = versions;
+      this.engine.versions = versions;
     }
     return versions;
   }
 
   /** The generation when this Authorizer first touched the request scope (its first run or preload). */
   private bornOf(scope: Map<string, unknown>): number {
-    return memo(scope, l1Key('generation', this.domain, ''), () => this.generation);
-  }
-
-  private compileTable(): RouteTable {
-    return compileRoutes({ domain: this.domain, models: this.modelList, registry: this.registry, combine: this.combineConfig, algorithms: [...this.combinators.keys()] });
+    return memo(scope, l1Key('generation', this.domain, ''), () => this.engine.generation);
   }
 
   private invalidateL2(tags: readonly string[], level: 'error' | 'debug' = 'error'): void {
-    if (!this.cache) return;
+    if (!this.engine.cache) return;
     try {
-      this.cache.invalidate(tags);
-      if (tags.includes('*')) this.l2Stale = false;
+      this.engine.cache.invalidate(tags);
+      if (tags.includes('*')) this.engine.l2Stale = false;
     } catch (e) {
-      this.l2Stale = true;
+      this.engine.l2Stale = true;
       this.logAt(level, { error: thrownError(e), tags }, 'Authz domain ${domain}: the decision cache failed to invalidate ${tags}; it is not used until a full invalidation succeeds');
     }
   }
@@ -1239,7 +1158,7 @@ export class Authorizer {
             return l.attributes;
           }),
         ) as Promise<Attributes>,
-      nestedCheck: (req: Omit<DecisionRequest, 'explain'>, scope: Map<string, unknown>, instant: Date, depth: number) => runAsync(this.pipeline(req, { ...run, sync: false, scope, instant, depth, delegationBudget: this.config.maxDelegation })).then((r) => r.decision, fault),
+      nestedCheck: (req: Omit<DecisionRequest, 'explain'>, scope: Map<string, unknown>, instant: Date, depth: number) => runAsync(this.pipeline(req, { ...run, sync: false, scope, instant, depth, delegationBudget: this.engine.config.maxDelegation })).then((r) => r.decision, fault),
     });
   }
 
@@ -1250,15 +1169,15 @@ export class Authorizer {
   }
 
   private *resolveObject(resource: unknown): Pipeline<{ readonly ref: ResourceRef; readonly subject: unknown }> {
-    if (!isObject(resource)) throw new AuthzConfigError(`${this.where}: a resource must be a ResourceRef or an object an adapter accepts, got ${resource === null ? 'null' : typeof resource}`);
-    for (const adapter of this.adapterList) {
+    if (!isObject(resource)) throw new AuthzConfigError(`${this.engine.where}: a resource must be a ResourceRef or an object an adapter accepts, got ${resource === null ? 'null' : typeof resource}`);
+    for (const adapter of this.engine.adapterList) {
       if (adapter.accepts(resource) !== true) continue;
       const ref = copyRef(yield adapter.refOf(resource));
-      if (!ref) throw new AuthzConfigError(`${this.where}: adapter ${quote(adapter.kind)} returned a malformed ref from refOf()`);
+      if (!ref) throw new AuthzConfigError(`${this.engine.where}: adapter ${quote(adapter.kind)} returned a malformed ref from refOf()`);
       return { ref, subject: resource };
     }
     const ref = refShaped(resource);
-    if (!ref) throw new AuthzConfigError(`${this.where}: the resource is neither accepted by an adapter nor a ResourceRef ({ type, id? } with a string id or null)`);
+    if (!ref) throw new AuthzConfigError(`${this.engine.where}: the resource is neither accepted by an adapter nor a ResourceRef ({ type, id? } with a string id or null)`);
     return { ref, subject: undefined };
   }
 
@@ -1293,10 +1212,10 @@ export class Authorizer {
   }
 
   private wasPreloaded(cacheId: string, scope: Map<string, unknown>): boolean {
-    if (scope.get(l1Key('preloaded', this.domain, cacheId)) === this.generation) return true;
-    if (this.preloaded.get(cacheId) !== this.generation) return false;
+    if (scope.get(l1Key('preloaded', this.domain, cacheId)) === this.engine.generation) return true;
+    if (this.preloaded.get(cacheId) !== this.engine.generation) return false;
     this.preloaded.delete(cacheId);
-    this.preloaded.set(cacheId, this.generation);
+    this.preloaded.set(cacheId, this.engine.generation);
     return true;
   }
 
@@ -1347,7 +1266,7 @@ export class Authorizer {
     }
     if (!pending) return this.accept(model, ctx, { raw }, label);
     if (run.sync) return raw as PromiseLike<unknown>;
-    return settleWithin(raw as PromiseLike<unknown>, this.config.modelTimeoutMs, describeError, 'evaluate').then((s) => this.accept(model, ctx, s.ok ? { raw: s.value } : { fault: s.error }, label));
+    return settleWithin(raw as PromiseLike<unknown>, this.engine.config.modelTimeoutMs, describeError, 'evaluate').then((s) => this.accept(model, ctx, s.ok ? { raw: s.value } : { fault: s.error }, label));
   }
 
   /** Step 9: vote hygiene. */
@@ -1361,7 +1280,7 @@ export class Authorizer {
   /** Step 10. */
   private combine(algorithm: string, votes: readonly Vote[]): Combined {
     try {
-      const combinator = this.combinators.get(algorithm);
+      const combinator = this.engine.combinators.get(algorithm);
       if (!combinator) throw new AuthzConfigError(`unknown algorithm ${quote(algorithm)}`);
       const result = combinator.combine(votes);
       if (isThenable(result)) {
@@ -1401,10 +1320,10 @@ export class Authorizer {
    */
   private boundAttributes(node: ResourceRef, scope: Map<string, unknown>): Promise<BoundAttributes> {
     const load = this.nodeLoad(node, scope);
-    return bounded(() => load.result, this.config.modelTimeoutMs).then((r): BoundAttributes => {
+    return bounded(() => load.result, this.engine.config.modelTimeoutMs).then((r): BoundAttributes => {
       if (r.kind === 'value') return { ...(r.value as LoadedAttributes), failed: false };
       if (r.kind === 'error') this.logAt('error', { error: thrownError(r.error), resource: resourceKey(node) }, 'Authz domain ${domain}: scope attributes of ${resource} failed; its refs bind as missing');
-      else this.logTimeout(load, { resource: resourceKey(node), timeoutMs: this.config.modelTimeoutMs }, 'Authz domain ${domain}: scope attributes of ${resource} timed out after ${timeoutMs} ms; its refs bind as missing');
+      else this.logTimeout(load, { resource: resourceKey(node), timeoutMs: this.engine.config.modelTimeoutMs }, 'Authz domain ${domain}: scope attributes of ${resource} timed out after ${timeoutMs} ms; its refs bind as missing');
       return { attributes: null, failed: r.kind === 'error', degraded: true };
     });
   }
@@ -1417,11 +1336,11 @@ export class Authorizer {
 
   /** Throws AuthzConfigError for a malformed actor and for a chain deeper than the budget or with a cycle (B08). */
   private delegation(principal: Principal, actor: unknown, budget: number): Delegation {
-    if (actor !== undefined && (!isObject(actor) || typeof actor.type !== 'string' || typeof actor.id !== 'string')) throw new AuthzConfigError(`${this.where}: actor must be a principal`);
+    if (actor !== undefined && (!isObject(actor) || typeof actor.type !== 'string' || typeof actor.id !== 'string')) throw new AuthzConfigError(`${this.engine.where}: actor must be a principal`);
     try {
       return resolveDelegation(principal, actor as Principal | undefined, budget);
     } catch (e) {
-      if (e instanceof AuthzConfigError) throw new AuthzConfigError(`${this.where}: ${e.message}`, { cause: e });
+      if (e instanceof AuthzConfigError) throw new AuthzConfigError(`${this.engine.where}: ${e.message}`, { cause: e });
       throw e;
     }
   }
@@ -1469,11 +1388,11 @@ export class Authorizer {
       faulted = true;
     }
     try {
-      const own = this.fieldCombiner.combine(algorithm, votes, (f) => binder.bind(f));
-      const fields = delegate ? this.fieldCombiner.intersect(own, delegate) : own;
+      const own = this.engine.fieldCombiner.combine(algorithm, votes, (f) => binder.bind(f));
+      const fields = delegate ? this.engine.fieldCombiner.intersect(own, delegate) : own;
       if (!firm) return { fields, failed: false, faulted, uncacheable };
-      const firmOwn = this.fieldCombiner.combine(algorithm, votes, (f) => binder.bind(f), true);
-      return { fields, firm: firm.delegate ? this.fieldCombiner.intersect(firmOwn, firm.delegate) : firmOwn, failed: false, faulted, uncacheable };
+      const firmOwn = this.engine.fieldCombiner.combine(algorithm, votes, (f) => binder.bind(f), true);
+      return { fields, firm: firm.delegate ? this.engine.fieldCombiner.intersect(firmOwn, firm.delegate) : firmOwn, failed: false, faulted, uncacheable };
     } catch (e) {
       if (!(e instanceof AuthzConfigError)) throw e;
       this.logAt('error', { error: thrownError(e), check: label }, 'Authz domain ${domain}: combining the field sets of ${check} failed');
@@ -1523,7 +1442,7 @@ export class Authorizer {
         return Promise.all([truthOf(v.permitWhen, false), Promise.all((v.denies ?? []).map((d) => truthOf(d.when, true)))]).then(([permit, denies]) => Object.freeze({ permit: permit === true, denies: Object.freeze(denies) }));
       }),
     );
-    const left = Math.max(0, this.config.modelTimeoutMs - (performance.now() - started));
+    const left = Math.max(0, this.engine.config.modelTimeoutMs - (performance.now() - started));
     const settled = (yield settleWithin(batch, left, describeError, 'deny reason pass')) as Settled;
     if (!settled.ok) {
       this.logAt('error', { check: label, cause: settled.error }, 'Authz domain ${domain}: evaluating the deny reasons of ${check} against the subject failed: ${cause}; using static truths');
@@ -1581,24 +1500,24 @@ export class Authorizer {
     if (f.steps) {
       trace = deepFreeze({ domain: this.domain, algorithm: f.algorithm as CombiningAlgorithm, models: [...o.models], votes: [...o.votes], steps: [...f.steps], durationMs: performance.now() - f.started });
       if (f.explain) decision.trace = trace;
-      if (this.config.explain) this.logAt('debug', { permission: f.def.name, resource: resourceKey(f.ref), trace }, 'Authz domain ${domain}: trace of ${permission} on ${resource}: ${trace}');
+      if (this.engine.config.explain) this.logAt('debug', { permission: f.def.name, resource: resourceKey(f.ref), trace }, 'Authz domain ${domain}: trace of ${permission} on ${resource}: ${trace}');
     }
     deepFreeze(decision);
 
     if (audits(f.run)) {
       const base = { principal: f.requester, permission: f.def.name, resource: f.ref };
       if (f.system) this.record({ kind: 'system', ...base });
-      if (!allowed && this.config.auditDenials) this.record({ kind: 'deny', ...base, reason: decision.reason!.code });
+      if (!allowed && this.engine.config.auditDenials) this.record({ kind: 'deny', ...base, reason: decision.reason!.code });
       if (f.explain) this.record(allowed ? { kind: 'explain', ...base, trace } : { kind: 'explain', ...base, reason: decision.reason!.code, trace });
     }
     return decision;
   }
 
   private record(entry: Parameters<DecisionAudit['record']>[0]): void {
-    if (!this.auditSink) return;
+    if (!this.engine.auditSink) return;
     const failed = (e: unknown) => this.logAt('error', { error: thrownError(e), entryKind: entry.kind }, 'Authz domain ${domain}: audit failed for a ${entryKind} entry');
     try {
-      const r = this.auditSink.record(entry);
+      const r = this.engine.auditSink.record(entry);
       if (isThenable(r)) r.then(undefined, failed);
     } catch (e) {
       failed(e);
@@ -1617,13 +1536,13 @@ export class Authorizer {
 
   /** A fresh frozen env per use; `now` from the clock always wins. */
   private envOf(env: unknown, instant: Date): Readonly<Record<string, unknown>> {
-    if (env !== undefined && (!isObject(env) || Array.isArray(env))) throw new AuthzConfigError(`${this.where}: env must be an object`);
+    if (env !== undefined && (!isObject(env) || Array.isArray(env))) throw new AuthzConfigError(`${this.engine.where}: env must be an object`);
     return Object.freeze({ ...env, now: new Date(instant.getTime()) });
   }
 
   /** `cores` gets the env's context. */
   private subjectEnv(parties: Parties, ref: ResourceRef, run: Run, steps: TraceStep[] | undefined, cores: ModelContext[]): SubjectEnv {
-    const adapter = this.adapterByType.get(ref.type);
+    const adapter = this.engine.adapterByType.get(ref.type);
     const attribute = adapter && typeof adapter.attribute === 'function' ? (subject: unknown, field: string) => adapter.attribute!(subject, field) : defaultAttribute;
     const ctx = new ModelContext(this.hostFor(run), CORE, run.scope, run.instant, run.depth, steps, contextCacheKey('\u0000core', parties.cacheId));
     cores.push(ctx);
@@ -1634,7 +1553,7 @@ export class Authorizer {
       relation: (type, name) => this.relation(type, name),
       ancestors: (r) => Promise.resolve(this.ancestorsOf(this.requireRef(r), run.scope)),
       native: (op) => {
-        const filter = this.natives.get(op);
+        const filter = this.engine.natives.get(op);
         return filter && detachingOnThrow(filter, ctx);
       },
       ctx,
@@ -1642,7 +1561,7 @@ export class Authorizer {
   }
 
   private relation(type: ResourceType, name: string): RelationResolver | undefined {
-    return this.relationIndex.get(`${type}\u0000${name}`);
+    return this.engine.relationIndex.get(`${type}\u0000${name}`);
   }
 
   /** Step 5 and ctx.ancestors: memoised in L1; sync for refs that need no IO. */
@@ -1653,10 +1572,10 @@ export class Authorizer {
   private loadAncestors(ref: ResourceRef): MaybePromise<readonly ResourceRef[] | null> {
     if (ref.type === GLOBAL_TYPE && ref.id === undefined) return GLOBAL_ANCESTORS;
     if (ref.id === undefined) return Object.freeze([ref, GLOBAL]);
-    const adapter = this.adapterByType.get(ref.type);
+    const adapter = this.engine.adapterByType.get(ref.type);
     // An ancestor or scope node a model reads, not only the checked ref, may be of a late type.
     if (!adapter) this.refuseLateType(ref.type);
-    const source = adapter ?? this.resolverByType.get(ref.type);
+    const source = adapter ?? this.engine.resolverByType.get(ref.type);
     if (!source) return Object.freeze([ref, GLOBAL]);
     const raw = source.ancestors(ref);
     return isThenable(raw) ? Promise.resolve(raw).then((list) => this.ancestorList(list, ref)) : this.ancestorList(raw, ref);
@@ -1665,7 +1584,7 @@ export class Authorizer {
   private ancestorList(list: unknown, ref: ResourceRef): readonly ResourceRef[] | null {
     if (list === null) return null;
     const out = Array.isArray(list) ? Array.from(list, (r: unknown) => copyRef(r)) : undefined;
-    if (!out || out.some((r) => r === undefined)) throw new AuthzConfigError(`${this.where}: ancestors of ${resourceKey(ref)} must be a list of refs or null`);
+    if (!out || out.some((r) => r === undefined)) throw new AuthzConfigError(`${this.engine.where}: ancestors of ${resourceKey(ref)} must be a list of refs or null`);
     return Object.freeze(out as ResourceRef[]);
   }
 
@@ -1700,16 +1619,16 @@ export class Authorizer {
    * (unknown node).
    */
   private async loadAttributes(ref: ResourceRef, load: NodeLoad): Promise<LoadedAttributes> {
-    const adapter = this.adapterByType.get(ref.type);
-    const resolver = this.resolverByType.get(ref.type);
+    const adapter = this.engine.adapterByType.get(ref.type);
+    const resolver = this.engine.resolverByType.get(ref.type);
     if (!adapter) this.refuseLateType(ref.type);
     let own: unknown = {};
     if (adapter && typeof adapter.scopeAttributes === 'function') own = await this.attributeLoad(ref, load, `adapter ${quote(adapter.kind)}`, () => adapter.scopeAttributes!(ref));
     else if (resolver && typeof resolver.attributes === 'function') own = await this.attributeLoad(ref, load, 'the scope resolver', () => resolver.attributes!(ref));
     if (own === TIMED_OUT) return { attributes: null, degraded: true };
     if (own === null) return { attributes: null, degraded: false };
-    const layers: unknown[] = [this.attributeDefaults.get(ref.type) ?? {}, own];
-    const store = this.attributeStore;
+    const layers: unknown[] = [this.engine.attributeDefaults.get(ref.type) ?? {}, own];
+    const store = this.engine.attributeStore;
     if (store) {
       const row = await this.attributeLoad(ref, load, 'the scope attribute store', () => store.get(ref));
       if (row === TIMED_OUT) return { attributes: null, degraded: true };
@@ -1718,15 +1637,15 @@ export class Authorizer {
     try {
       return { attributes: mergeAttributes(layers), degraded: false };
     } catch (e) {
-      throw new AuthzConfigError(`${this.where}: scope attributes of ${resourceKey(ref)}: ${describeError(e)}`, { cause: e });
+      throw new AuthzConfigError(`${this.engine.where}: scope attributes of ${resourceKey(ref)}: ${describeError(e)}`, { cause: e });
     }
   }
 
   private async attributeLoad(ref: ResourceRef, node: NodeLoad, source: string, load: () => unknown): Promise<unknown> {
-    const r = await bounded(load, this.config.modelTimeoutMs);
+    const r = await bounded(load, this.engine.config.modelTimeoutMs);
     if (r.kind === 'error') throw r.error;
     if (r.kind === 'value') return r.value;
-    this.logTimeout(node, { resource: resourceKey(ref), source, timeoutMs: this.config.modelTimeoutMs }, 'Authz domain ${domain}: scope attributes of ${resource} from ${source} timed out after ${timeoutMs} ms; the node is unknown');
+    this.logTimeout(node, { resource: resourceKey(ref), source, timeoutMs: this.engine.config.modelTimeoutMs }, 'Authz domain ${domain}: scope attributes of ${resource} from ${source} timed out after ${timeoutMs} ms; the node is unknown');
     return TIMED_OUT;
   }
 
@@ -1743,10 +1662,10 @@ export class Authorizer {
   /** An unknown permission that a late type's adapter lists now throws the late-type error instead. */
   private requirePermission(name: Permission): PermissionDef {
     try {
-      return this.registry.require(name);
+      return this.engine.registry.require(name);
     } catch (e) {
       if (!(e instanceof UnknownPermission)) throw e;
-      for (const adapter of this.adapterList) {
+      for (const adapter of this.engine.adapterList) {
         let types: unknown;
         try {
           const listed: unknown = typeof adapter.permissions === 'function' ? adapter.permissions() : undefined;
@@ -1767,8 +1686,8 @@ export class Authorizer {
 
   /** The adapter whose live `types` lists `type` although the constructor did not index it; an adapter whose types cannot be read is passed over. */
   private lateType(type: ResourceType): ResourceAdapter | undefined {
-    if (type === GLOBAL_TYPE || this.adapterByType.has(type)) return undefined;
-    for (const adapter of this.adapterList) {
+    if (type === GLOBAL_TYPE || this.engine.adapterByType.has(type)) return undefined;
+    for (const adapter of this.engine.adapterList) {
       try {
         const types: unknown = adapter.types;
         if (Array.isArray(types) && types.includes(type)) return adapter;
@@ -1786,12 +1705,12 @@ export class Authorizer {
     } catch {
       name = '<unreadable>';
     }
-    return new kind(`${this.where}: resource type ${quote(type)} was registered with adapter ${quote(name)} after the domain booted; register it before boot, or boot the domain again`);
+    return new kind(`${this.engine.where}: resource type ${quote(type)} was registered with adapter ${quote(name)} after the domain booted; register it before boot, or boot the domain again`);
   }
 
   private requireRef(v: unknown): ResourceRef {
     const ref = copyRef(v);
-    if (!ref) throw new AuthzConfigError(`${this.where}: expected a ResourceRef`);
+    if (!ref) throw new AuthzConfigError(`${this.engine.where}: expected a ResourceRef`);
     return ref;
   }
 
@@ -1804,193 +1723,22 @@ export class Authorizer {
   /** A run that starts a call tree; epoch() first, so a fresh scope is born with the generation after a version change. */
   private topRun(sync: boolean, scope: Map<string, unknown>, instant: Date, depth: number): Run {
     const versions = this.epoch();
-    return { sync, scope, instant, depth, delegationBudget: this.config.maxDelegation, versions, generation: this.bornOf(scope), nested: newNested(), bypass: false };
+    return { sync, scope, instant, depth, delegationBudget: this.engine.config.maxDelegation, versions, generation: this.bornOf(scope), nested: newNested(), bypass: false };
   }
 
   private now(): Date {
-    const now = validDate(this.clock());
-    if (!now) throw new AuthzConfigError(`${this.where}: the clock returned an invalid date`);
+    const now = validDate(this.engine.clock());
+    if (!now) throw new AuthzConfigError(`${this.engine.where}: the clock returned an invalid date`);
     return now;
   }
 
   private logAt(level: 'error' | 'warn' | 'debug', fields: Record<string, unknown>, template: string): void {
     try {
-      this.log[level]({ domain: this.domain, ...fields }, template);
+      this.engine.log[level]({ domain: this.domain, ...fields }, template);
     } catch {
       // a broken logger must not change a decision
     }
   }
-
-  private readConfig(c: NonNullable<AuthorizerOptions['config']>): EngineConfig {
-    const number = (name: string, v: unknown, dflt: number, min: 'positive' | 'non-negative'): number => {
-      if (v === undefined) return dflt;
-      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || (min === 'positive' && v === 0)) throw new AuthzConfigError(`${this.where}: config.${name} must be a ${min} number, got ${quote(v)}`);
-      return v;
-    };
-    const flag = (name: string, v: unknown, dflt: boolean): boolean => {
-      if (v === undefined) return dflt;
-      if (typeof v !== 'boolean') throw new AuthzConfigError(`${this.where}: config.${name} must be a boolean`);
-      return v;
-    };
-    const neverRead = c.neverRead ?? ENGINE_DEFAULTS.neverRead;
-    if (!Array.isArray(neverRead) || neverRead.some((x) => typeof x !== 'string')) throw new AuthzConfigError(`${this.where}: config.neverRead must be a list of field globs`);
-    const maxDelegation = c.maxDelegation ?? ENGINE_DEFAULTS.maxDelegation;
-    if (typeof maxDelegation !== 'number' || !Number.isInteger(maxDelegation) || maxDelegation < 0) throw new AuthzConfigError(`${this.where}: config.maxDelegation must be an integer >= 0`);
-    return Object.freeze({
-      modelTimeoutMs: number('modelTimeoutMs', c.modelTimeoutMs, ENGINE_DEFAULTS.modelTimeoutMs, 'positive'),
-      maxDelegation,
-      neverRead: Object.freeze([...neverRead]),
-      explain: flag('explain', c.explain, ENGINE_DEFAULTS.explain),
-      cacheTtlSeconds: number('cacheTtlSeconds', c.cacheTtlSeconds, ENGINE_DEFAULTS.cacheTtlSeconds, 'non-negative'),
-      auditDenials: flag('auditDenials', c.auditDenials, ENGINE_DEFAULTS.auditDenials),
-    });
-  }
-}
-
-const scopeMap = (scope: RequestScope | undefined): Map<string, unknown> => (scope?.cache instanceof Map ? scope.cache : new Map());
-
-const newNested = (): Nested => ({ uncacheable: false, untagged: false, faulted: false, tags: new Set() });
-
-/** Only a top-level check outside summary/covers is an access attempt. */
-const audits = (run: Run): boolean => run.depth === 0 && run.quiet !== true;
-
-/** undefined tags: no invalidate can reach a decision above this one in the L2, so it stays in the L1 (which the generation guards). */
-function nest(run: Run, tags: readonly string[] | undefined): void {
-  if (tags === undefined) run.nested.untagged = true;
-  else for (const t of tags) run.nested.tags.add(t);
-}
-
-function once<T>(f: () => T): () => T {
-  let done = false;
-  let value: T;
-  return () => {
-    if (!done) {
-      value = f();
-      done = true;
-    }
-    return value;
-  };
-}
-
-const principalRef = (p: PrincipalRef): PrincipalRef => Object.freeze({ type: p.type, id: p.id });
-
-const principalObjects = new WeakMap<object, number>();
-let nextPrincipalObject = 0;
-
-/**
- * ctx.cache is per model and per full state of the principal the
- * models run with, not per type:id: a narrowed inherit copy differs from its
- * delegate only in ceiling.roles. A principal with no canonical state gets a
- * key of its own object.
- */
-function principalCacheId(p: Principal): string {
-  const state = principalState(p);
-  if (state !== undefined) return `state:${state}`;
-  let n = principalObjects.get(p);
-  if (n === undefined) {
-    n = nextPrincipalObject++;
-    principalObjects.set(p, n);
-  }
-  return `object:${n}`;
-}
-
-// Duck-typed and read once: a filter from a second copy of this package, or a throwing getter (undeclared, so stripped).
-function declaresPrincipalInArgs(filter: NativeFilter): boolean {
-  try {
-    return filter.principalInArgs === true;
-  } catch {
-    return false;
-  }
-}
-
-/** The subject evaluator reads a native filter's throw as UNKNOWN, not a fault, so nothing else drops what it memoised before throwing. */
-function detachingOnThrow(filter: NativeFilter, ctx: ModelContext): NativeFilter {
-  const detach = (e: unknown): never => {
-    ctx.detachMemo();
-    throw e;
-  };
-  return {
-    op: filter.op,
-    matches: (args, subject, ref, c) => {
-      let out: boolean | Promise<boolean>;
-      try {
-        out = filter.matches(args, subject, ref, c);
-      } catch (e) {
-        return detach(e);
-      }
-      return Promise.resolve(out).catch(detach);
-    },
-  };
-}
-
-/** `hook`: a model hook with a memo of its own (summarize), apart from the votes' one. */
-const contextCacheKey = (owner: string, cacheId: string, hook?: string): string => JSON.stringify(hook === undefined ? [cacheId, owner] : [cacheId, owner, hook]);
-
-/** Exactly `{ type, id? }` as own data properties; `id: null` = no id. */
-function refShaped(v: object): ResourceRef | undefined {
-  if (Reflect.ownKeys(v).some((k) => k !== 'type' && k !== 'id')) return undefined;
-  const type = Object.getOwnPropertyDescriptor(v, 'type');
-  if (!type || !('value' in type) || typeof type.value !== 'string' || type.value === '') return undefined;
-  const id = Object.getOwnPropertyDescriptor(v, 'id');
-  if (id === undefined || ('value' in id && id.value === null)) return Object.freeze({ type: type.value });
-  return 'value' in id && typeof id.value === 'string' ? Object.freeze({ type: type.value, id: id.value }) : undefined;
-}
-
-function capabilitiesOf(model: AuthorizationModel): { readonly effects?: unknown; readonly residuals?: unknown } {
-  try {
-    const caps: unknown = model.capabilities;
-    return isObject(caps) ? { effects: caps.effects, residuals: caps.residuals } : {};
-  } catch {
-    return {};
-  }
-}
-
-function syncMode(model: AuthorizationModel): unknown {
-  try {
-    return model.capabilities.sync;
-  } catch {
-    return 'never';
-  }
-}
-
-// Skipping drops a model's denies too, so only a well-formed principalTypes list that lacks the type skips.
-function admits(model: AuthorizationModel, principal: Principal): boolean {
-  try {
-    const types: unknown = model.capabilities.principalTypes;
-    return !Array.isArray(types) || types.includes(principal.type);
-  } catch {
-    return true;
-  }
-}
-
-function decides(algorithm: string, vote: Vote): boolean {
-  const v = normalizeVote(vote);
-  return (algorithm === 'permit-overrides' ? and(v.permitWhen, not(v.denyWhen)) : or(v.permitWhen, v.denyWhen)).op === 'true';
-}
-
-function mergeRoles(votes: readonly Vote[]): Readonly<Record<string, string>> {
-  const merged: Record<string, string> = {};
-  for (const vote of votes.filter((v) => v.error === undefined && v.roles !== undefined).sort(byName)) {
-    for (const [ladder, role] of Object.entries(vote.roles!)) {
-      if (!Object.hasOwn(merged, ladder)) Object.defineProperty(merged, ladder, { value: role, enumerable: true, writable: true, configurable: true });
-    }
-  }
-  return Object.freeze(merged);
-}
-
-/** Freezing does not stop setTime: the store and every cache hit get their own validUntil, so no caller can move another's. */
-function withOwnDate(d: Decision): Decision {
-  const until = validDate(d.validUntil);
-  return until === undefined ? d : Object.freeze({ ...d, validUntil: until });
-}
-
-function earliest(dates: readonly (Date | undefined)[]): Date | undefined {
-  let best: Date | undefined;
-  for (const d of dates) {
-    const valid = validDate(d);
-    if (valid && (best === undefined || valid.getTime() < best.getTime())) best = valid;
-  }
-  return best;
 }
 
 function summaryEntry(def: PermissionDef, conditional: boolean, fields: Fields): AccessSummary['permissions'][number] {
@@ -2069,23 +1817,3 @@ function copySummary(raw: unknown, model: string): ModelSummary {
 }
 
 const isStrings = (v: unknown): boolean => Array.isArray(v) && v.every((x) => typeof x === 'string');
-
-/** Distinct refs (by resourceKey) grouped by type, in first-seen order. */
-function byType(refs: readonly ResourceRef[]): Map<ResourceType, ResourceRef[]> {
-  const out = new Map<ResourceType, ResourceRef[]>();
-  const seen = new Set<string>();
-  for (const ref of refs) {
-    const key = resourceKey(ref);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const list = out.get(ref.type);
-    if (list) list.push(ref);
-    else out.set(ref.type, [ref]);
-  }
-  return out;
-}
-
-/** A conditional decision whose row could not be read, denied the way authz-http's subject loading denies it. */
-function deniedCopy(d: Decision, reason: DenyReason): Decision {
-  return deepFreeze({ ...d, allowed: false, residual: FALSE, fields: NO_FIELDS, reason: { ...reason } });
-}
