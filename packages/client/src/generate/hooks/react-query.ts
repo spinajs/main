@@ -10,10 +10,18 @@ export interface ReactQueryOptions {
 
 const isQuery = (hook: HookRoute) => hook.route.kind === 'query';
 
-// React Query rejects `undefined` as query data, so a query whose reply is empty resolves to `null`.
-const queryData = (hook: HookRoute) => (hook.route.returns === 'void' ? 'null' : hook.route.returns);
+const isVoid = (hook: HookRoute) => hook.route.returns === 'void';
 
-const queryFn = (hook: HookRoute) => (hook.route.returns === 'void' ? `() => ${hook.callExpression}.then(() => null)` : `() => ${hook.callExpression}`);
+// React Query rejects `undefined` as query data, so a query whose reply is empty resolves to `null`.
+const queryData = (hook: HookRoute) => (isVoid(hook) ? 'null' : hook.route.returns);
+
+const queryFn = (hook: HookRoute) => `() => ${hook.callExpression}.then(${isVoid(hook) ? '() => null' : 'nullIfEmpty'})`;
+
+const NULL_IF_EMPTY = [
+  '// The client resolves a 204 reply to undefined, which React Query rejects as query data.',
+  'const nullIfEmpty = <T>(data: T): T => data ?? (null as T);',
+  '',
+];
 
 const mutationFn = (hook: HookRoute) => `(${hook.route.args.length > 0 ? 'vars' : ''}) => ${hook.callExpression}`;
 
@@ -52,6 +60,7 @@ export function emitQueries(model: ClientModel, hooks: HookRoute[], options: Rea
     '',
     ...manifestHashCheck(model),
     '',
+    ...(queries.some((h) => !isVoid(h)) ? NULL_IF_EMPTY : []),
     '/** Each factory takes the client, so a server can prefetch with a per-request one: `queryClient.prefetchQuery(appQueries.<controller>.<handler>(client, vars))`. */',
     `export const appQueries = {${controllers.length > 0 ? `\n${controllers.join('\n')}\n` : ''}};`,
   ];
@@ -72,16 +81,16 @@ function mutationHook(hook: HookRoute): string {
   const { controllerKey, returns } = hook.route;
   const types = `${returns}, AppClientError, ${hook.varsType}`;
   return [
-    `export function ${hook.hookName}(options?: MutationOpts<${returns}, ${hook.varsType}>): UseMutationResult<${types}> {`,
+    `export function ${hook.hookName}<TContext = unknown>(options?: MutationOpts<${returns}, ${hook.varsType}, TContext>): UseMutationResult<${types}, TContext> {`,
     '  const client = useAppClient();',
     '  const queryClient = useQueryClient();',
     `  const { invalidate = [appKeys.${controllerKey}.all], onSuccess, ...rest } = options ?? {};`,
-    `  return useMutation<${types}>({`,
+    `  return useMutation<${types}, TContext>({`,
     `    mutationKey: ${hook.keyExpression},`,
     '    ...rest,',
     `    mutationFn: ${mutationFn(hook)},`,
     '    onSuccess: async (...args) => {',
-    '      if (invalidate) await Promise.all(invalidate.map((queryKey) => queryClient.invalidateQueries({ queryKey })));',
+    '      if (invalidate) await queryClient.invalidateQueries({ predicate: (query) => invalidate.some((queryKey) => matchQuery({ queryKey }, query)) });',
     '      return onSuccess?.(...args);',
     '    },',
     '  });',
@@ -97,14 +106,15 @@ const QUERY_OPTS = [
 const MUTATION_OPTS = [
   '/**',
   ' * Options of a mutation hook. `invalidate` lists the query keys to invalidate after a success, default the',
-  " * controller's `appKeys.<controller>.all`; the mutation stays pending until their refetch settles. `false` invalidates nothing.",
+  " * controller's `appKeys.<controller>.all`; a query several keys match refetches once, and the mutation stays pending",
+  ' * until the refetch settles. `false` invalidates nothing. `TContext` is what `onMutate` returns, for `onError` to read.',
   ' */',
-  "export type MutationOpts<T, V> = Omit<UseMutationOptions<T, AppClientError, V>, 'mutationFn'> & { invalidate?: false | readonly QueryKey[] };",
+  "export type MutationOpts<T, V, TContext = unknown> = Omit<UseMutationOptions<T, AppClientError, V, TContext>, 'mutationFn'> & { invalidate?: false | readonly QueryKey[] };",
 ];
 
 function reactQueryImports(hooks: HookRoute[], basename: string): string[] {
   const [queries, mutations, any] = [hooks.some(isQuery), hooks.some((h) => !isQuery(h)), hooks.length > 0];
-  const library = [mutations && 'useMutation', queries && 'useQuery', mutations && 'useQueryClient', any && 'type QueryKey', mutations && 'type UseMutationOptions', mutations && 'type UseMutationResult', queries && 'type UseQueryOptions', queries && 'type UseQueryResult'];
+  const library = [mutations && 'matchQuery', mutations && 'useMutation', queries && 'useQuery', mutations && 'useQueryClient', any && 'type QueryKey', mutations && 'type UseMutationOptions', mutations && 'type UseMutationResult', queries && 'type UseQueryOptions', queries && 'type UseQueryResult'];
   return [
     ...importLine(library, '@tanstack/react-query'),
     ...importLine([mutations && 'appKeys', any && 'type AppClientError'], `./${basename}.keys.js`),

@@ -59,6 +59,13 @@ const typedApp = [
   '    },',
   '  });',
   '  const avatar = useUsersAvatar({ invalidate: [appKeys.all, appKeys.users.get({ id: 1 })], retry: 2 });',
+  '  const optimistic = useUsersCreate({',
+  '    onMutate: () => ({ previous: 1 }),',
+  '    onError: (_error, _vars, context) => {',
+  '      const previous: number | undefined = context?.previous;',
+  '      return previous;',
+  '    },',
+  '  });',
   '  const suspense = useSuspenseQuery(appQueries.users.get(useAppClient(), { id: 1 }));',
   '  const checks: [',
   '    Equal<typeof user.data, UserDto | undefined>,',
@@ -70,7 +77,8 @@ const typedApp = [
   '    Equal<Parameters<typeof create.mutate>[0], { body: CreateUserDto }>,',
   '    Equal<Parameters<typeof avatar.mutate>[0], { file: Blob | File; id: number }>,',
   '    Equal<typeof suspense.data, UserDto>,',
-  '  ] = [true, true, true, true, true, true, true, true, true];',
+  '    Equal<typeof optimistic.context, { previous: number } | undefined>,',
+  '  ] = [true, true, true, true, true, true, true, true, true, true];',
   "  create.mutate({ body: { email: 'a@b.c' } });",
   '  // @ts-expect-error mutate needs the body',
   '  create.mutate({});',
@@ -161,6 +169,27 @@ describe('React Query emitter', () => {
     expect(errors.filter((e) => e.startsWith('client.queries.ts: ') || e.startsWith('client.react-query.ts: '))).to.have.length(2);
   });
 
+  // Plan risk 5: the minified app-basic output, with React Query, React and the runtime left external.
+  describe('bundle size', function () {
+    this.timeout(60000);
+    // Measured 841 and 2353 bytes with esbuild 0.28.1; the budgets leave about a quarter for growth.
+    const BUDGETS = { 'client.queries.js': 1100, 'client.react-query.js': 3000 };
+
+    for (const [entry, budget] of Object.entries(BUDGETS)) {
+      it(`keeps ${entry} with the files it imports within ${budget} bytes`, async () => {
+        const { build } = await import('esbuild');
+        const modules = writeModules(files);
+        try {
+          const result = await build({ entryPoints: [modules.path(entry)], bundle: true, minify: true, write: false, format: 'esm', platform: 'neutral', external: ['@tanstack/react-query', 'react', '@spinajs/client/runtime'] });
+          const size = result.outputFiles[0].contents.length;
+          expect(size, `${entry} is ${size} bytes`).to.be.at.most(budget);
+        } finally {
+          modules.remove();
+        }
+      });
+    }
+  });
+
   for (const version of VERSIONS) {
     describe(`at runtime, against @tanstack/react-query ${version === 'floor' ? '5.0.0' : 'latest'}`, () => {
       const calls: unknown[][] = [];
@@ -178,11 +207,12 @@ describe('React Query emitter', () => {
 
       before(async () => {
         const url = import.meta.resolve(REACT_QUERY_PACKAGES[version]);
+        const runtime = import.meta.resolve('@spinajs/client/runtime');
         rq = (await import(url)) as ReactQuery;
         const stub = [`export * from '${url}';`, 'let queryClient;', 'export const setQueryClient = (c) => { queryClient = c; };', 'export const useQueryClient = () => queryClient;', 'export const useMutation = (options) => options;', ''].join('\n');
         modules = writeModules(
-          { ...(await hookFiles(withItems(manifest))), 'react-query-stub.js': stub, 'client.react.ts': 'export const useAppClient = () => globalThis.__appClient;\n' },
-          { '@tanstack/react-query': './react-query-stub.js' },
+          { ...(await hookFiles(withItems(manifest), { includeSocket: false })), 'react-query-stub.js': stub, 'client.react.ts': 'export const useAppClient = () => globalThis.__appClient;\n' },
+          { '@tanstack/react-query': './react-query-stub.js', '@spinajs/client/runtime': runtime },
         );
         (globalThis as { __appClient?: unknown }).__appClient = client;
       });
@@ -211,6 +241,15 @@ describe('React Query emitter', () => {
         ]);
       });
 
+      it('resolves a 204 reply of the client runtime to null instead of failing the query', async () => {
+        const { appQueries } = await modules.import<{ appQueries: Record<string, Record<string, (client: unknown, vars?: unknown) => { queryKey: readonly unknown[] }>> }>('client.queries.js');
+        const { createAppClient } = await modules.import<{ createAppClient: (options: unknown) => unknown }>('client.js');
+        const noContent = createAppClient({ baseUrl: 'http://api', fetch: () => Promise.resolve(new Response(null, { status: 204 })) });
+        const queryClient = new rq.QueryClient();
+        expect(await queryClient.fetchQuery(appQueries.users.get(noContent, { id: 7 }))).to.equal(null);
+        expect(await queryClient.fetchQuery(appQueries.items.ping(noContent))).to.equal(null);
+      });
+
       type Hooks = Record<string, (options?: Record<string, unknown>) => ConstructorParameters<ReactQuery['MutationObserver']>[1]>;
 
       async function mutationSetup() {
@@ -227,7 +266,7 @@ describe('React Query emitter', () => {
           return observer.subscribe(() => undefined);
         };
         const stops = [watch(['spinajs', 'users', 'get', { id: 1 }]), watch(['spinajs', 'articles', 'read', { id: 1 }])];
-        await new Promise((resolve) => setTimeout(resolve, 40));
+        while (queryClient.isFetching() > 0) await new Promise((resolve) => setTimeout(resolve, 5));
         log.length = 0;
         const mutate = (hook: string, options: Record<string, unknown> | undefined, vars: unknown) => new rq.MutationObserver(queryClient, hooks[hook](options)).mutate(vars);
         return { log, mutate, stop: () => stops.forEach((stop) => stop()) };
@@ -258,6 +297,13 @@ describe('React Query emitter', () => {
         await mutate('useUsersCreate', { invalidate: [['spinajs', 'articles']] }, { body: {} });
         stop();
         expect(log).to.deep.equal(['none', 'fetched spinajs,articles,read,[object Object]']);
+      });
+
+      it('refetches a query once when several invalidate keys match it', async () => {
+        const { log, mutate, stop } = await mutationSetup();
+        await mutate('useUsersCreate', { invalidate: [['spinajs'], ['spinajs', 'users'], ['spinajs', 'users', 'get', { id: 1 }]] }, { body: {} });
+        stop();
+        expect([...log].sort()).to.deep.equal(['fetched spinajs,articles,read,[object Object]', 'fetched spinajs,users,get,[object Object]']);
       });
 
       it('keys each mutation, passes other options through, and calls a route without arguments with none', async () => {

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export interface ModuleDir {
+  path(file: string): string;
   import<T>(file: string): Promise<T>;
   remove(): void;
 }
@@ -24,6 +25,7 @@ export function writeModules(files: Record<string, string>, rewrite: Record<stri
     writeFileSync(join(dir, name.replace(/\.ts$/, '.js')), js);
   }
   return {
+    path: (file: string) => join(dir, file),
     import: <T>(file: string) => import(pathToFileURL(join(dir, file)).href) as Promise<T>,
     remove: () => rmSync(dir, { recursive: true, force: true }),
   };

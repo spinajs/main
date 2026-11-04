@@ -5,20 +5,23 @@ import type { AppClient, ArticleDto, ListQuery, UserDto, manifestHash } from './
 
 void ('47f7521612321fc90ebb904d6c0db1aaf014b826ecb98bfdf0121c9bc87f8d29' satisfies typeof manifestHash);
 
+// The client resolves a 204 reply to undefined, which React Query rejects as query data.
+const nullIfEmpty = <T>(data: T): T => data ?? (null as T);
+
 /** Each factory takes the client, so a server can prefetch with a per-request one: `queryClient.prefetchQuery(appQueries.<controller>.<handler>(client, vars))`. */
 export const appQueries = {
   articles: {
     read: (client: AppClient, vars: { id: number }) =>
-      queryOptions<ArticleDto, AppClientError>({ queryKey: appKeys.articles.read(vars), queryFn: () => client.articles.read(vars.id) }),
+      queryOptions<ArticleDto, AppClientError>({ queryKey: appKeys.articles.read(vars), queryFn: () => client.articles.read(vars.id).then(nullIfEmpty) }),
   },
   health: {
     get: (client: AppClient, vars: Record<string, never> = {}) =>
-      queryOptions<{ ok: boolean }, AppClientError>({ queryKey: appKeys.health.get(vars), queryFn: () => client.health.get() }),
+      queryOptions<{ ok: boolean }, AppClientError>({ queryKey: appKeys.health.get(vars), queryFn: () => client.health.get().then(nullIfEmpty) }),
   },
   users: {
     list: (client: AppClient, vars: { query: ListQuery }) =>
-      queryOptions<UserDto[], AppClientError>({ queryKey: appKeys.users.list(vars), queryFn: () => client.users.list(vars.query) }),
+      queryOptions<UserDto[], AppClientError>({ queryKey: appKeys.users.list(vars), queryFn: () => client.users.list(vars.query).then(nullIfEmpty) }),
     get: (client: AppClient, vars: { id: number }) =>
-      queryOptions<UserDto, AppClientError>({ queryKey: appKeys.users.get(vars), queryFn: () => client.users.get(vars.id) }),
+      queryOptions<UserDto, AppClientError>({ queryKey: appKeys.users.get(vars), queryFn: () => client.users.get(vars.id).then(nullIfEmpty) }),
   },
 };
