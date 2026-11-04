@@ -3,6 +3,7 @@ import { literal, propertyKey, type TypeContext } from '../ts-type.js';
 import { child, type Diagnostics, type Location } from './diagnostics.js';
 import { call, reopen, UNKNOWN, type Check, type Property, type ZodNode } from './print.js';
 import { isJson, isPartial, refsIn, type Json, type SchemaGraph } from './refs.js';
+import { replyName } from './replies.js';
 
 /** Where the builder is: the node's location, the declaration it belongs to, and whether a getter already defers it. */
 export interface Scope {
@@ -127,6 +128,8 @@ export class ZodBuilder {
     private readonly graph: SchemaGraph,
     private readonly ctx: TypeContext,
     private readonly diagnostics: Diagnostics,
+    /** Builds reply variants: objects the server closes strip unknown keys, and references name the `Reply` variant. */
+    private readonly lenient = false,
   ) {}
 
   /** A whole manifest schema, or a local definition hoisted out of one. */
@@ -225,11 +228,12 @@ export class ZodBuilder {
       return UNKNOWN;
     }
     const acceptsUndefined = acceptsAnything(entry.schema);
+    const name = this.lenient ? replyName(entry.name) : entry.name;
     if (this.graph.cyclic(scope.current, key) && !scope.deferred) {
       if (scope.state) scope.state.annotated = true;
-      return { ...call('lazy', { lazy: entry.name }), acceptsUndefined };
+      return { ...call('lazy', { lazy: name }), acceptsUndefined };
     }
-    return { kind: 'ref', name: entry.name, acceptsUndefined };
+    return { kind: 'ref', name, acceptsUndefined };
   }
 
   private constant(value: unknown): ZodNode {
@@ -344,7 +348,7 @@ export class ZodBuilder {
   }
 
   private hoist(node: ZodNode): string {
-    const name = `_check${++this.hoistedCount}`;
+    const name = `${this.lenient ? '_replyCheck' : '_check'}${++this.hoistedCount}`;
     this.hoisted.push({ name, node });
     return name;
   }
@@ -485,8 +489,14 @@ export class ZodBuilder {
     if (isJson(schema.patternProperties)) return { kind: 'object', mode: 'loose', properties, catchall: this.patternCatchall(schema), checks };
     const additional = schema.additionalProperties;
     const catchall = isJson(additional) ? this.node(additional, { ...scope, typePath: undefined, at: child(scope.at, 'additionalProperties') }) : undefined;
-    const node: ZodNode = { kind: 'object', mode: additional === false ? 'strict' : 'loose', properties, ...(catchall && catchall !== UNKNOWN ? { catchall } : {}) };
-    return { ...node, checks: this.requiredChecks(required, properties) };
+    const node: ZodNode = { kind: 'object', mode: additional === false ? this.closed(checks) : 'loose', properties, ...(catchall && catchall !== UNKNOWN ? { catchall } : {}) };
+    return { ...node, checks };
+  }
+
+  // A reply drops what the server's closed object would reject, unless a check reads the parsed value and needs the keys.
+  private closed(checks: Check[]): 'strict' | 'strip' | 'loose' {
+    if (!this.lenient) return 'strict';
+    return checks.length > 0 ? 'loose' : 'strip';
   }
 
   // `additionalProperties` does not apply to keys `patternProperties` matches. Until that keyword is mapped, other keys
@@ -535,7 +545,8 @@ export class ZodBuilder {
     const shape = this.closedShape(schema, scope.at, new Set());
     if (!shape) return undefined;
     const properties = [...shape.properties].map(([name, sources]) => this.property(name, sources, shape.required.has(name), scope));
-    return { kind: 'object', mode: 'strict', properties, checks: this.requiredChecks([...shape.required], properties) };
+    const checks = this.requiredChecks([...shape.required], properties);
+    return { kind: 'object', mode: this.closed(checks), properties, checks };
   }
 
   // The server checks `anyOf`/`oneOf` on the members it merges, not on the `allOf` node itself.
