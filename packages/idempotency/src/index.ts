@@ -7,3 +7,4 @@ export * from './connection.js';
 export * from './models/IdempotencyKeyModel.js';
 export * from './migrations/Idempotency_2026_11_12_00_00_00.js';
 export * from './orm-store.js';
+export * from './leases.js';
