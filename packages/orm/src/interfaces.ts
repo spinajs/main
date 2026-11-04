@@ -18,6 +18,7 @@ import { IConnectionResilienceOptions } from './resilience.js';
 // Type-only: `snapshot.ts` imports IModelDescriptor from here, so a value import would close
 // the cycle. Keep this import type-only.
 import type { IModelChange, IModelSnapshot } from './snapshot.js';
+import type { ColumnSqlSpec, ModelIndex } from '@spinajs/manifest';
 
 export enum QueryContext {
   Insert,
@@ -510,6 +511,14 @@ export interface IPrimaryKeyOptions {
   generated?: PrimaryKeyGeneration;
 }
 
+/** `@Model` options. `columns: 'exhaustive'`: the model declares every column of its table, so tooling may drop the others (D19). */
+export interface ModelOptions {
+  columns?: 'partial' | 'exhaustive';
+}
+
+/** What `@Column` states about a column: the manifest's `ColumnSqlSpec` without the analyzer's `inferred`. */
+export type ColumnSpec = Partial<Omit<ColumnSqlSpec, 'inferred'>>;
+
 export interface IModelDescriptor {
   /**
    * Primary key column names, in declaration order. Empty when the model has no @Primary().
@@ -608,6 +617,15 @@ export interface IModelDescriptor {
    * Holds relation names as well as column names.
    */
   Hidden: string[];
+
+  /** `@Column` specs by property. Schema tooling reads them; queries and hydration do not. */
+  ColumnSpecs?: Map<string, ColumnSpec>;
+
+  /** `@Index` declarations, keyed by name or by the comma-joined column list. */
+  Indexes?: Map<string, ModelIndex>;
+
+  /** From `@Model(table, { columns })`; absent means `'partial'`. */
+  ColumnsMode?: 'partial' | 'exhaustive';
 }
 
 export interface IDiscriminationMap {
