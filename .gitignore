@@ -168,6 +168,7 @@ graphify-out/
 !/docs/orm-http/
 !/docs/orm-mssql/
 !/docs/orm-mysql/
+!/docs/orm-pglite/
 !/docs/orm-postgres/
 !/docs/orm-sql/
 !/docs/orm-sqlite/

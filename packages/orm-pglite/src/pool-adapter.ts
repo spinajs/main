@@ -138,7 +138,10 @@ export class PglitePool {
     }
 
     return new Promise((resolve, reject) => {
-      let timer: NodeJS.Timeout | undefined;
+      const timer = setTimeout(() => {
+        this.waiting.splice(this.waiting.indexOf(waiter), 1);
+        reject(new Error(`timeout exceeded when trying to connect: the PGlite session stayed busy for ${this.acquireTimeout} ms`));
+      }, this.acquireTimeout);
       const waiter: Waiter = {
         grant: (client) => {
           clearTimeout(timer);
@@ -149,11 +152,6 @@ export class PglitePool {
           reject(err);
         },
       };
-
-      timer = setTimeout(() => {
-        this.waiting.splice(this.waiting.indexOf(waiter), 1);
-        reject(new Error(`timeout exceeded when trying to connect: the PGlite session stayed busy for ${this.acquireTimeout} ms`));
-      }, this.acquireTimeout);
 
       this.waiting.push(waiter);
     });
