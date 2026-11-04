@@ -2,8 +2,9 @@
  * - `ZOD001`: a schema or `$ref` the generator cannot see or Ajv refuses; that node accepts anything.
  * - `ZOD002`: a format Ajv does not know; the server accepts every value, and so does the schema.
  * - `ZOD003`: a keyword the emitter does not map; it is dropped, so the schema accepts more than the server.
+ * - `MOCK001`: a schema the mock sampler cannot honour; its mock throws instead of giving data the server rejects.
  */
-export type GeneratorDiagnosticCode = 'ZOD001' | 'ZOD002' | 'ZOD003';
+export type GeneratorDiagnosticCode = 'ZOD001' | 'ZOD002' | 'ZOD003' | 'MOCK001';
 
 export interface GeneratorDiagnostic {
   code: GeneratorDiagnosticCode;

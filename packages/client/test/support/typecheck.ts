@@ -33,6 +33,7 @@ export function typecheckFiles(files: Record<string, string>, options: ts.Compil
         paths: {
           '@spinajs/client/runtime': ['src/runtime/index.ts'],
           '@spinajs/client/formats': ['src/formats/index.ts'],
+          '@spinajs/client/mocks': ['src/mocks/index.ts'],
           '@spinajs/http-socket-common': ['../http-socket-common/src/index.ts'],
           zod: [join(zodRoot, 'index.d.ts')],
           'zod/mini': [join(zodRoot, 'mini/index.d.ts')],

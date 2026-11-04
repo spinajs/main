@@ -1,6 +1,7 @@
 import { emitClient, type GenerateClientOptions } from '../generate.js';
 import { buildClientModel, type ClientModel } from './model.js';
 import type { GeneratorDiagnostic } from './zod/diagnostics.js';
+import { emitMocks } from './mocks.js';
 import { emitZod } from './zod/emit.js';
 
 export interface GeneratedFile {
@@ -24,13 +25,15 @@ export interface GenerateClientFilesOptions extends GenerateClientOptions {
   models?: boolean;
   socketHooks?: boolean;
   keyPrefix?: string;
+  /** Writes `<basename>.mocks.ts`: schema-driven mock data and a typed fake client, imported by no other generated file. */
+  mocks?: boolean;
 }
 
 type HooksTarget = NonNullable<GenerateClientFilesOptions['hooks']>[number];
 
 const HOOKS_TARGETS = ['react-query', 'swr'] as const satisfies readonly HooksTarget[];
 
-export type GeneratorTarget = HooksTarget | 'zod' | 'models' | 'socket-hooks';
+export type GeneratorTarget = HooksTarget | 'zod' | 'models' | 'socket-hooks' | 'mocks';
 
 /** Whether each target's emitter has landed; the CLI refuses a requested target that is not available. */
 export const GENERATOR_TARGETS: Readonly<Record<GeneratorTarget, { readonly available: boolean }>> = {
@@ -39,6 +42,7 @@ export const GENERATOR_TARGETS: Readonly<Record<GeneratorTarget, { readonly avai
   zod: { available: true },
   models: { available: false },
   'socket-hooks': { available: false },
+  mocks: { available: true },
 };
 
 type Emitter = (model: ClientModel, options: GenerateClientFilesOptions & { basename: string }) => Promise<GeneratedFile[]>;
@@ -50,11 +54,16 @@ const zodFile: Emitter = (model, options) => {
   return Promise.resolve([{ path: `${options.basename}.zod.ts`, contents, diagnostics }]);
 };
 
+const mocksFile: Emitter = (model, options) => {
+  const { contents, diagnostics } = emitMocks(model, `./${options.basename}.js`);
+  return Promise.resolve([{ path: `${options.basename}.mocks.ts`, contents, diagnostics }]);
+};
+
 // The targets that write their own file; `models` and `socket-hooks` add to client.ts and the hooks files.
-const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': noFiles, swr: noFiles, zod: zodFile };
+const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': noFiles, swr: noFiles, zod: zodFile, mocks: mocksFile };
 
 export function requestedTargets(options: GenerateClientFilesOptions): GeneratorTarget[] {
-  return [...(options.hooks ?? []), ...(options.zod ? (['zod'] as const) : []), ...(options.models ? (['models'] as const) : []), ...(options.socketHooks ? (['socket-hooks'] as const) : [])];
+  return [...(options.hooks ?? []), ...(options.zod ? (['zod'] as const) : []), ...(options.models ? (['models'] as const) : []), ...(options.socketHooks ? (['socket-hooks'] as const) : []), ...(options.mocks ? (['mocks'] as const) : [])];
 }
 
 function checkOptions(options: GenerateClientFilesOptions): void {

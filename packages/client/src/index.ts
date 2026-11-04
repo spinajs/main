@@ -7,3 +7,5 @@ export { generateClientFiles, GENERATOR_TARGETS, requestedTargets } from './gene
 export type { GeneratedFile, GenerateClientFilesOptions, GeneratorTarget, ZodOptions } from './generate/files.js';
 export { emitZod } from './generate/zod/emit.js';
 export type { GeneratorDiagnostic, GeneratorDiagnosticCode, ZodEmitResult } from './generate/zod/emit.js';
+export { emitMocks } from './generate/mocks.js';
+export type { MocksEmitResult } from './generate/mocks.js';
