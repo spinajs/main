@@ -107,6 +107,9 @@
       "path": "packages/orm-postgres/tsconfig.build.json"
     },
     {
+      "path": "packages/orm-pglite/tsconfig.build.json"
+    },
+    {
       "path": "packages/orm-sql/tsconfig.build.json"
     },
     {
