@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { ensure, invariant, simulate, type FaultRule, type SimActor, type SimEnv, type SimSystem } from '../src/index.js';
+import { ensure, invariant, resolveOptions, runInContext, simulate, type FaultRule, type SimActor, type SimEnv, type SimSystem } from '../src/index.js';
 
 const RULES: FaultRule[] = [
   { point: 'outbox.after-insert', when: { probability: 0.1 }, effect: 'crash' },
@@ -128,5 +128,85 @@ describe('simulate', () => {
     expect(report.failure).to.equal(undefined);
     expect(ticks).to.be.greaterThan(0);
     expect(report.trace.filter((t) => t.action === 'restart').length).to.be.greaterThan(0);
+  });
+
+  it('keeps the crash of parked timer work inside a failing run', async () => {
+    // mocha swallows unhandled rejections, so a leak shows up as one that arrives after simulate() returned
+    const late: unknown[] = [];
+    let returned = false;
+    const collect = (reason: unknown) => void (returned && late.push(reason));
+    const before = process.listenerCount('unhandledRejection');
+    process.on('unhandledRejection', collect);
+    try {
+      const report = await simulate(
+        (env) =>
+          single(() => Promise.resolve(), [invariant('fails', async () => ensure(false, 'on purpose'))])(env).then((system): SimSystem => ({
+            ...system,
+            workload: async (_random, step) => {
+              if (step === 0) runInContext(env.replicas.context('a'), () => env.clock.setTimeout(() => void env.park(1_000_000), 10));
+            },
+          })),
+        { seed: 1, steps: 20, faults: [] },
+      );
+      returned = true;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(report.failure?.invariant).to.equal('fails');
+      expect(late).to.deep.equal([]);
+    } finally {
+      process.off('unhandledRejection', collect);
+    }
+    expect(process.listenerCount('unhandledRejection')).to.equal(before);
+  });
+
+  it('reports a dispose that throws as a failure', async () => {
+    const report = await simulate(
+      (env) => single(() => Promise.resolve())(env).then((system) => ({ ...system, dispose: () => Promise.reject(new Error('dispose broke')) })),
+      { seed: 1, steps: 3, faults: [] },
+    );
+    expect(report.failure?.invariant).to.equal('dispose');
+    expect((report.failure?.error as Error).message).to.equal('dispose broke');
+  });
+
+  it('picks an actor again after its replica crashed while the tick was parked', async () => {
+    let armed = true;
+    const steps = 40;
+    const report = await simulate(
+      single(async (env) => {
+        if (!armed || env.quiescing) return;
+        armed = false;
+        // a background branch of the same incarnation crashes it while the tick is parked
+        void new Promise((resolve) => setImmediate(resolve)).then(() => env.faults.point('outbox.after-insert')).catch(() => undefined);
+        await env.park(1_000);
+      }),
+      { seed: 2, steps, faults: [{ point: 'outbox.after-insert', when: 'always', effect: 'crash' }], restartProbability: 1 },
+    );
+    expect(report.failure).to.equal(undefined);
+    expect(report.trace.some((t) => t.action === 'crash')).to.equal(true);
+    expect(report.trace.some((t) => t.action === 'restart' && t.step < steps)).to.equal(true);
+  });
+
+  it('fails a zero-delay timer chain as a stuck clock', async () => {
+    const report = await simulate(
+      single(async (env) => {
+        const again = (): void => void env.clock.setTimeout(again, 0);
+        again();
+      }),
+      { seed: 1, steps: 3, faults: [] },
+    );
+    expect(report.failure?.invariant).to.equal('stuck:clock');
+  });
+
+  it('labels errors from the workload and from quiesced()', async () => {
+    const failing = (patch: Partial<SimSystem>) => (env: SimEnv) => single(() => Promise.resolve())(env).then((system) => ({ ...system, ...patch }));
+    const workload = await simulate(failing({ workload: () => Promise.reject(new Error('no work')) }), { seed: 1, steps: 3, faults: [] });
+    const quiesced = await simulate(failing({ quiesced: () => Promise.reject(new Error('no quiet')) }), { seed: 1, steps: 3, faults: [] });
+    expect(workload.failure?.invariant).to.equal('workload');
+    expect(quiesced.failure?.invariant).to.equal('quiesced');
+  });
+
+  it('keeps defaults for undefined options and rejects bad counts', () => {
+    expect(resolveOptions({ seed: 1, steps: 1, faults: [], maxPauseMs: undefined }).maxPauseMs).to.equal(120_000);
+    expect(() => resolveOptions({ seed: 1, steps: 1, faults: [], checkEvery: 0 })).to.throw(RangeError);
+    expect(() => resolveOptions({ seed: 1, steps: 1, faults: [], maxPauseMs: 1.5 })).to.throw(RangeError);
   });
 });

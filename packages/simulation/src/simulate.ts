@@ -68,7 +68,8 @@ export interface SimReport {
 }
 
 export function resolveOptions(o: SimulationOptions): ResolvedSimulationOptions {
-  return {
+  const given = Object.fromEntries(Object.entries(o).filter(([, value]) => value !== undefined)) as SimulationOptions;
+  const resolved: ResolvedSimulationOptions = {
     pausableReplicas: [],
     maxClockStepMs: 5_000,
     suite: 'unnamed',
@@ -78,8 +79,15 @@ export function resolveOptions(o: SimulationOptions): ResolvedSimulationOptions 
     maxPauseMs: 120_000,
     quiesceRounds: 40,
     tickTimeoutMs: 15_000,
-    ...o,
+    ...given,
   };
+  positiveInteger('maxPauseMs', resolved.maxPauseMs);
+  positiveInteger('checkEvery', resolved.checkEvery);
+  return resolved;
+}
+
+function positiveInteger(name: string, value: number): void {
+  if (!Number.isInteger(value) || value < 1) throw new RangeError(`simulate: ${name} must be a positive integer, got ${value}`);
 }
 
 export async function simulate(build: (env: SimEnv) => Promise<SimSystem>, options: SimulationOptions): Promise<SimReport> {
@@ -87,6 +95,7 @@ export async function simulate(build: (env: SimEnv) => Promise<SimSystem>, optio
   const env = createEnv(o);
   const report: SimReport = { seed: o.seed, steps: 0, faults: env.faults.hits, trace: [] };
   const harness = new Harness(env, o, report);
+  const release = harness.trapRejections();
   let system: SimSystem | undefined;
   try {
     system = await build(env);
@@ -94,7 +103,11 @@ export async function simulate(build: (env: SimEnv) => Promise<SimSystem>, optio
   } catch (error) {
     report.failure = harness.failureOf(error);
   } finally {
-    await harness.shutdown(system);
+    try {
+      await harness.shutdown(system);
+    } finally {
+      release();
+    }
   }
   return report;
 }
