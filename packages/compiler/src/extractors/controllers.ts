@@ -1,7 +1,7 @@
 import { isAbstractClass } from './abstract.js';
 import ts from 'typescript';
 import { configuredMountPath, controllerMountPath, DECORATED_PARAM_KIND, routeFullPath, servedPath } from '@spinajs/manifest';
-import type { ControllerEntry, ParamEntry, RouteEntry, RouteOverride, TypeRef } from '@spinajs/manifest';
+import type { ControllerEntry, ParamEntry, RouteEntry, RouteOverride, RoutePagination, TypeRef } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
 import { globalRef } from '../runtime-ref.js';
 import { decoratorsOf, findDecorator, literalValue, type DecoratorInfo } from '../decorators.js';
@@ -10,6 +10,7 @@ import { routeDocOf } from './jsdoc.js';
 import { publicOf } from './public.js';
 import { conditionOf } from './conditions.js';
 import { wireOf, type RouteWireContext } from './wire.js';
+import { paginationOf } from './pagination.js';
 
 /** Parameter decorator -> the `ParameterType` (http) or route-arg type (orm-http) it registers; `ParamEntry.kind` records it. */
 export const PARAM_KINDS: Record<string, string> = {
@@ -107,6 +108,11 @@ function paramsOf(m: ts.MethodDeclaration, fullPath: string, owner: string, ctx:
   return m.parameters.map((p, i) => paramOf(p, i, owner, wire, ctx)).filter((p): p is ParamEntry => !!p);
 }
 
+function declaredPaginationOf(m: ts.MethodDeclaration, sig: ts.Signature, params: ParamEntry[], hint: string, ctx: ExtractorContext): RoutePagination | undefined {
+  const typed = params.map((entry) => ({ entry, type: ctx.checker.getNonNullableType(ctx.checker.getTypeAtLocation(m.parameters[entry.index])) }));
+  return paginationOf(ctx.checker.getReturnTypeOfSignature(sig), typed, m, hint, ctx);
+}
+
 function routeOf(m: ts.MethodDeclaration, mountPath: string, className: string, ctx: ExtractorContext): RouteEntry | undefined {
   const dec = decoratorsOf(m).find((d) => ROUTE_METHODS[d.name]);
   if (!dec || !ts.isIdentifier(m.name)) return undefined;
@@ -118,10 +124,11 @@ function routeOf(m: ts.MethodDeclaration, mountPath: string, className: string, 
   const doc = routeDocOf(m, ctx);
   const reason = publicOf(m, ctx);
   const fullPath = servedPath(routeFullPath(mountPath, path, handler));
+  const params = paramsOf(m, fullPath, `${className}.${handler}`, ctx);
+  const pagination = sig && declaredPaginationOf(m, sig, params, `${className}_${handler}`, ctx);
   return {
-    method: ROUTE_METHODS[dec.name], path, handler, fullPath,
-    params: paramsOf(m, fullPath, `${className}.${handler}`, ctx),
-    returnType, policies: policyGroupsOf(m, ctx, 'route'), middlewares: middlewaresOf(m, ctx),
+    method: ROUTE_METHODS[dec.name], path, handler, fullPath, params,
+    returnType, ...(pagination ? { pagination } : {}), policies: policyGroupsOf(m, ctx, 'route'), middlewares: middlewaresOf(m, ctx),
     ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}), ...(reason ? { public: reason } : {}), ...(doc ? { doc } : {}),
     source: ctx.sourceRef(m),
   };
