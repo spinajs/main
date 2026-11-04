@@ -34,6 +34,7 @@ ruleTester.run('require-accessible', requireAccessible, {
     code("return Task.where('id', id).first();"),
     code("return await Task.where('id', id);"),
     code("return SubTask.where('id', id).firstOrFail();"),
+    { code: code("const user = { type: 'user', id: '7' };\nreturn runAs(user, 'job', async () => Task.where('a', 1).first());"), options: [{ legacyRunAsExemption: true }] },
   ],
   invalid: [
     { code: code("return Task.where('a', 1).first();"), errors: [{ messageId: 'unscopedQuery', data: { model: 'Task', call: '.first()' } }] },
@@ -55,5 +56,8 @@ ruleTester.run('require-accessible', requireAccessible, {
     },
     { code: code("return [1].map(async () => Task.where('a', 1).first());"), errors: [{ messageId: 'unscopedQuery', data: { model: 'Task', call: '.first()' } }] },
     { code: code("return Note.where('a', 1).first();"), options: [{ resources: ['Note'] }], errors: [{ messageId: 'unscopedQuery', data: { model: 'Note', call: '.first()' } }] },
+    // G11: a runAs of another principal still reads only what that principal may
+    { code: code("const user = { type: 'user', id: '7' };\nreturn runAs(user, 'job', async () => Task.where('a', 1).first());"), errors: [{ messageId: 'unscopedQuery', data: { model: 'Task', call: '.first()' } }] },
+    { code: code("return authz().runAs({ type: 'user', id: '7' }, 'job', async () => Task.count());"), errors: [{ messageId: 'unscopedShortcut', data: { model: 'Task', call: 'count' } }] },
   ],
 });
