@@ -5,7 +5,7 @@ import { addKeywordPluginsOnUse, effectiveManifestOf } from '@spinajs/configurat
 import type { Manifest } from '@spinajs/manifest';
 import { ValidationFailed, type IValidationError } from './exceptions/index.js';
 import { SchemaSource, type ISchema, type ISchemaObject } from './types.js';
-import { addSafeKeywords, dropNonFiniteDuplicates, nonFiniteErrors } from './keywords.js';
+import { addSafeKeywords, dropNonFiniteDuplicates, isTooDeep, nonFiniteErrors, TOO_DEEP_ERROR } from './keywords.js';
 
 type Json = Record<string, unknown>;
 
@@ -42,8 +42,8 @@ function opened(schema: Json): Json {
 const PROTO = '__proto__';
 
 /**
- * A schema that names a property `__proto__`, in `properties`, `required`, `dependencies`, `anyRequired`, `oneRequired`
- * or a `deepRequired` pointer. Ajv skips that name: an open object accepts any `__proto__` value and
+ * A schema that names a property `__proto__`, in `properties`, `required`, `dependencies`, `anyRequired`, `oneRequired`,
+ * `prohibited` or a `deepRequired` pointer. Ajv skips that name: an open object accepts any `__proto__` value and
  * `required: ['__proto__']` passes without the key, so the rule would hold nowhere. The schema is refused instead.
  */
 export class UnenforceableSchema extends Error {
@@ -62,6 +62,7 @@ const declaresProto = (schema: Json): boolean =>
   (isObject(schema.dependencies) && (Object.hasOwn(schema.dependencies, PROTO) || Object.values(schema.dependencies).some(namesProto))) ||
   namesProto(schema.anyRequired) ||
   namesProto(schema.oneRequired) ||
+  namesProto(schema.prohibited) ||
   (Array.isArray(schema.deepRequired) && schema.deepRequired.some(pointsAtProto));
 
 class ManifestSchemaPreparer {
@@ -248,7 +249,14 @@ export class ManifestValidator {
 
     const compiled = validate;
     return (data) => {
-      if (!compiled(data)) {
+      let valid: boolean;
+      try {
+        valid = compiled(data);
+      } catch (error) {
+        if (!isTooDeep(error)) throw error;
+        throw new ValidationFailed('validation error', [{ ...TOO_DEEP_ERROR, params: {} }], schema);
+      }
+      if (!valid) {
         throw new ValidationFailed('validation error', dropNonFiniteDuplicates((compiled.errors ?? []) as IValidationError[]), schema);
       }
       const nonFinite = nonFiniteErrors(data, true);

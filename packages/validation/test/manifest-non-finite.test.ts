@@ -29,6 +29,7 @@ SCHEMAS['app/ProtoAnyRequired'] = { type: 'object', anyRequired: ['__proto__', '
 SCHEMAS['app/ProtoOneRequired'] = { type: 'object', oneRequired: ['b', '__proto__'] };
 SCHEMAS['app/ProtoDeepRequired'] = { type: 'object', deepRequired: ['/a/__proto__'] };
 SCHEMAS['app/ProtoDeepRequiredEscaped'] = { type: 'object', deepRequired: ['/a~1__proto__'] };
+SCHEMAS['app/ProtoProhibited'] = { type: 'object', prohibited: ['__proto__'] };
 SCHEMAS['app/DefsNamedProto'] = JSON.parse('{"type":"object","properties":{"v":{"$ref":"#/definitions/__proto__"}},"definitions":{"__proto__":{"type":"string"}}}') as object;
 
 const errorOf = (fn: () => void): ValidationFailed => {
@@ -99,6 +100,7 @@ describe('ManifestValidator: non-finite numbers and comparisons', function () {
       ['app/ProtoAnyRequired', 'in anyRequired'],
       ['app/ProtoOneRequired', 'in oneRequired'],
       ['app/ProtoDeepRequired', 'as a deepRequired pointer segment'],
+      ['app/ProtoProhibited', 'in prohibited'],
     ] as const) {
       it(`is refused ${where}, naming the schema`, () => {
         expect(() => body(id)).to.throw(Error, `schema ${id} declares a property named __proto__, which cannot be validated`);
@@ -118,6 +120,7 @@ describe('ManifestValidator: non-finite numbers and comparisons', function () {
         'app/ProtoDependencyValue',
         'app/ProtoOneRequired',
         'app/ProtoOpen',
+        'app/ProtoProhibited',
         'app/ProtoRequired',
       ]);
       expect(ids).to.not.include(manifestSchemaKey('app/Proto'));
