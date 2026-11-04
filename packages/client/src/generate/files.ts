@@ -1,4 +1,6 @@
 import { emitClient, type GenerateClientOptions } from '../generate.js';
+import { emitKeys } from './hooks/keys.js';
+import { emitReactContext } from './hooks/react.js';
 import { buildClientModel, type ClientModel } from './model.js';
 
 export interface GeneratedFile {
@@ -21,6 +23,7 @@ export interface GenerateClientFilesOptions extends GenerateClientOptions {
   zod?: boolean | ZodOptions;
   models?: boolean;
   socketHooks?: boolean;
+  /** First segment of every query key and cache tag, default `spinajs`. */
   keyPrefix?: string;
 }
 
@@ -47,6 +50,13 @@ type Emitter = (model: ClientModel, options: EmitOptions) => Promise<GeneratedFi
 
 const noFiles: Emitter = () => Promise.resolve([]);
 
+// Both hook libraries read these two files, so they are written once whichever libraries are requested.
+const hooksShared: Emitter = (model, options) =>
+  Promise.resolve([
+    { path: `${options.basename}.keys.ts`, environment: 'server-safe', contents: emitKeys(model, options) },
+    { path: `${options.basename}.react.ts`, environment: 'client', contents: emitReactContext(model, options) },
+  ]);
+
 // The targets that write their own file; `models` and `socket-hooks` add to client.ts and the hooks files.
 const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': noFiles, swr: noFiles, zod: noFiles };
 
@@ -68,6 +78,7 @@ function checkOptions(options: GenerateClientFilesOptions): void {
   const twice = hooks.find((h, i) => hooks.indexOf(h) !== i);
   if (twice !== undefined) throw new Error(`generateClientFiles: hooks target '${twice}' is listed twice`);
   if (options.socketHooks && hooks.length === 0) throw new Error('generateClientFiles: socketHooks needs hooks, because socket hooks are added to the hooks files');
+  if (options.keyPrefix === '') throw new Error('generateClientFiles: keyPrefix must not be empty');
 }
 
 export function assertUniquePaths(files: GeneratedFile[]): void {
@@ -81,7 +92,7 @@ export async function generateClientFiles(options: GenerateClientFilesOptions): 
   const basename = options.basename ?? 'client';
   const model = buildClientModel(options.manifest, { includeSocket: options.includeSocket });
   const targets = requestedTargets(options);
-  const emitters = targets.flatMap((t) => COMPANIONS[t] ?? []);
+  const emitters = [...(options.hooks?.length ? [hooksShared] : []), ...targets.flatMap((t) => COMPANIONS[t] ?? [])];
   const client = await emitClient(model, { moduleName: options.moduleName, manifestHash: emitters.length > 0 });
   const files: GeneratedFile[] = [{ path: `${basename}.ts`, environment: 'server-safe', contents: client }];
   for (const emit of emitters) files.push(...(await emit(model, { ...options, basename })));

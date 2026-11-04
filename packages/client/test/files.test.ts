@@ -35,8 +35,8 @@ describe('generateClientFiles', () => {
   const companions: [Partial<GenerateClientFilesOptions>, string[]][] = [
     [{ zod: true }, ['client.ts']],
     [{ zod: { mini: true } }, ['client.ts']],
-    [{ hooks: ['react-query'] }, ['client.ts']],
-    [{ hooks: ['swr'] }, ['client.ts']],
+    [{ hooks: ['react-query'] }, ['client.ts', 'client.keys.ts', 'client.react.ts']],
+    [{ hooks: ['swr'] }, ['client.ts', 'client.keys.ts', 'client.react.ts']],
   ];
   for (const [companion, paths] of companions) {
     it(`exports manifestHash from client.ts when a companion is requested (${JSON.stringify(companion)})`, async () => {
