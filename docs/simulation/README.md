@@ -13,8 +13,14 @@ names the replica. Timers, fault points and database statements read that contex
 its timers are dropped, its statements are rejected, and its pending COMMIT becomes a ROLLBACK. A restart
 creates a new incarnation, and engines register it under the replica id `<name>.<incarnation>`.
 
-All replicas share one sqlite file (`os.tmpdir()/spinajs-sim-<seed>/sim.sqlite`) through one driver. The file is
-deleted when a seed passes and kept when it fails.
+All replicas share one sqlite file (`os.tmpdir()/spinajs-sim-<seed>-<random>/sim.sqlite`) through one driver,
+whose handle runs statements one at a time in the order they were issued. A dead incarnation cannot begin a
+transaction, and a transaction whose COMMIT became a ROLLBACK rejects with `SimCrash`. The file is deleted
+when a seed passes. When a seed fails, the file is kept and the report and summary line name it, for the first
+20 failing seeds of a process (`SIM_KEEP_DBS` changes the limit).
+
+A suite that passes `template` to `boot()` gets a copy of the database as it was right after the first boot of
+that template and the same aliases, so the boot itself must not write rows.
 
 ## Faults
 
@@ -33,7 +39,9 @@ that is `NoFaults`, a no-op. A rule fires `always`, with a `probability`, or on 
     npm run sim -- --all --seeds 200 --out sim-reports     # what CI runs
     npm test -w @spinajs/simulation                        # 3 smoke seeds per suite plus a replay check; SIM_SEEDS=50 for more
 
-A failing seed prints its report, which includes the replay command, and exits with 1.
+A failing seed prints its report, which includes the replay command, and exits with 1. `--out` is resolved
+against the directory `npm run sim` was started in. A seed whose database work never settles fails as
+`stuck:database`.
 
 ## Suites
 

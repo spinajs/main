@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import type { SimReport } from './simulate.js';
 import { runSuite, type SuiteRegistry } from './suite.js';
 
@@ -26,9 +26,9 @@ export function parseArgs(argv: readonly string[], available: readonly string[])
       return v;
     };
     const integer = (): number => {
-      const n = Number(value());
-      if (!Number.isInteger(n) || n < 0) throw new SimUsageError(`${flag} needs a non-negative integer`);
-      return n;
+      const v = value();
+      if (!/^\d+$/.test(v) || !Number.isSafeInteger(Number(v))) throw new SimUsageError(`${flag} needs a non-negative integer`);
+      return Number(v);
     };
     switch (flag) {
       case '--suite':
@@ -75,15 +75,33 @@ const CONSOLE_IO: SimCliIo = {
 };
 
 export function summaryLine(suite: string, r: SimReport): string {
-  const status = r.failure ? `FAIL ${r.failure.invariant} at step ${r.failure.step}; replay: ${r.failure.replay}` : 'ok';
+  const database = r.databaseFile === undefined ? '' : `; database: ${r.databaseFile}`;
+  const status = r.failure ? `FAIL ${r.failure.invariant} at step ${r.failure.step}; replay: ${r.failure.replay}${database}` : 'ok';
   return `${suite} seed=${r.seed} steps=${r.steps} faults=${r.faults.length} ${status}`;
 }
 
-/** JSON.stringify drops an Error's fields, so errors are written as `{ name, message, stack, details }`. */
+interface JsonAncestor {
+  original: unknown;
+  written: unknown;
+}
+
+/**
+ * JSON.stringify drops an Error's fields, so errors are written as `{ name, message, stack, details, cause }`.
+ * A report must still print when an error's details hold a BigInt or a cycle.
+ */
 export function reportJson(r: SimReport): string {
+  const ancestors: JsonAncestor[] = [];
   return JSON.stringify(
     r,
-    (_key, value: unknown) => (value instanceof Error ? { name: value.name, message: value.message, stack: value.stack, details: (value as { details?: unknown }).details } : value),
+    function (this: unknown, _key, value: unknown) {
+      if (typeof value === 'bigint') return value.toString();
+      if (typeof value !== 'object' || value === null) return value;
+      while (ancestors.length > 0 && ancestors[ancestors.length - 1].written !== this) ancestors.pop();
+      if (ancestors.some((a) => a.original === value)) return '[Circular]';
+      const written = value instanceof Error ? { name: value.name, message: value.message, stack: value.stack, details: (value as { details?: unknown }).details, cause: value.cause } : value;
+      ancestors.push({ original: value, written });
+      return written;
+    },
     2,
   );
 }
@@ -98,17 +116,20 @@ export async function main(argv: readonly string[], registry: SuiteRegistry, io:
     io.log(USAGE);
     return 2;
   }
+  // npm runs a workspace script in the package directory; INIT_CWD is where `npm run sim` was typed
+  const out = args.out === undefined ? undefined : resolve(process.env.INIT_CWD ?? process.cwd(), args.out);
   let failed = 0;
   for (const name of args.suites) {
     const suite = await registry[name]();
     for (let seed = args.seed; seed < args.seed + args.seeds; seed++) {
       const report = await runSuite(suite, seed, args.steps);
+      if (report.failure && args.steps !== undefined) report.failure.replay += ` --steps ${args.steps}`;
       io.log(summaryLine(name, report));
       if (!report.failure) continue;
       failed++;
       const json = reportJson(report);
       io.log(json);
-      if (args.out) io.writeReport(join(args.out, `${name}-${seed}.json`), json);
+      if (out) io.writeReport(join(out, `${name}-${seed}.json`), json);
     }
   }
   io.log(failed === 0 ? 'simulation: all seeds passed' : `simulation: ${failed} seed(s) failed`);
