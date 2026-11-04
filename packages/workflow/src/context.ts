@@ -4,7 +4,7 @@ import { InvalidArgument, InvalidOperation, NotSupported } from '@spinajs/except
 import type { Log } from '@spinajs/log-common';
 import type { QueueEvent, QueueJob } from '@spinajs/queue';
 import type { SerializedError, StepKind, StepMeta, StepStatus, WaitForEventOptions, WorkflowContext, WorkflowEvent, WorkflowStepOptions } from './contract.js';
-import { isCrash, LeaseLostError, NonDeterminismError, serializeError, WorkflowAborted, WorkflowFailure, WorkflowNestingError, WorkflowStepFailed, WorkflowStepResultTooLarge, WorkflowSuspended, type AbortReason } from './errors.js';
+import { isCrash, LeaseLostError, NonDeterminismError, serializeError, WorkflowAborted, WorkflowFailure, WorkflowNestingError, WorkflowStepFailed, WorkflowStepResultTooLarge, WorkflowSuspended, WorkflowTimeout, type AbortReason } from './errors.js';
 import { nextMacrotask, ReplayGate } from './gate.js';
 import { identifierProblem } from './identifier.js';
 import type { Journal, StepRow } from './journal.js';
@@ -34,6 +34,8 @@ export interface ActivationInit {
   config: WorkflowConfig;
   signal: AbortSignal;
   log: Log;
+  /** CreatedAt + the workflow's `timeout`; null without one. */
+  deadline?: number | null;
   /** A fenced write matched no row: another replica owns the instance now. */
   onLeaseLost: () => void;
   /** A crash reached the activation: as far as the instance is concerned, this replica is dead. */
@@ -127,6 +129,17 @@ export class ActivationContext implements WorkflowContext {
     return this.init.epoch;
   }
 
+  public get deadline(): number | null {
+    return this.init.deadline ?? null;
+  }
+
+  /** The instance passed its `timeout`: every later operation throws and the engine fails it. */
+  public expire(): WorkflowTimeout {
+    const error = new WorkflowTimeout(this.workflow, this.init.definition.timeoutMs ?? 0);
+    this.interrupt({ kind: 'timeout', error });
+    return error;
+  }
+
   /** Async so an invalid policy rejects; the key is still taken synchronously at the call, so parallel calls keep their order. */
   public async step<T>(name: string, fn: StepFn<T>, opts: WorkflowStepOptions<T> = {}): Promise<T> {
     // before any body runs: an invalid policy would otherwise surface only when the step first fails
@@ -207,6 +220,7 @@ export class ActivationContext implements WorkflowContext {
     if (i?.kind === 'park') throw new WorkflowSuspended() as unknown;
     if (i) throw i.error;
     if (this.signal.aborted) throw new WorkflowAborted(this.abortReason());
+    if (this.deadline !== null && this.init.clock.now() >= this.deadline) throw this.expire();
   }
 
   protected interrupt(next: Interruption): void {

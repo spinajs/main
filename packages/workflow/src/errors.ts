@@ -117,3 +117,10 @@ export function serializeError(err: unknown, step?: string): SerializedError {
   }
   return out;
 }
+
+export class WorkflowTimeout extends NonRetryableError {
+  constructor(workflow: string, timeoutMs: number) {
+    super(`workflow '${workflow}' passed its timeout of ${timeoutMs} ms`);
+    this.name = 'WorkflowTimeout';
+  }
+}

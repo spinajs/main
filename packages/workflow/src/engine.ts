@@ -6,7 +6,7 @@ import { Clock, DbClock, FaultInjector, Heartbeat, quoteFor, RowLease, sqlDialec
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
 import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
-import { ActivationContext } from './context.js';
+import { ActivationContext, type Park } from './context.js';
 import type { SerializedError } from './contract.js';
 import { isCrash, LeaseLostError, NonDeterminismError, serializeError, type AbortReason } from './errors.js';
 import { missingVersions } from './health.js';
@@ -105,6 +105,7 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
   protected active = new Map<string, Activation>();
   /** Set by a crash during the current tick: no further claims. */
   protected crashed = false;
+  protected stopping = false;
 
   constructor(public readonly Options: WorkflowEngineOptions = {}) {
     super();
@@ -141,6 +142,7 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
 
   /** Rejects with the first crash of an activation, once every activation settled: the replica is dead (crash contract). */
   public async tick(): Promise<void> {
+    if (this.stopping) return;
     const now = await this.Clock.sync();
     await this.warnMissingVersions();
     const defs = this.Registry.all();
@@ -149,13 +151,34 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
     this.crashed = false;
     const launched: Promise<void>[] = [];
     for (const row of await this.dueInstances(now, defs, free)) {
-      if (this.crashed || this.active.size >= this.config.concurrency) break;
+      if (this.stopping || this.crashed || this.active.size >= this.config.concurrency) break;
       if (this.active.has(row.Id)) continue;
       const claim = await this.store.lease.claim(this.store.target(row.Id), this.replicaId, this.config.leaseTtl, now, { Status: row.Status, WakeAt: row.WakeAt });
-      if (claim) launched.push(this.launch(row.Id, claim.epoch, now));
+      if (!claim) continue;
+      // stop() ran while this claim was in flight and would not wait for an activation launched after it
+      if (this.stopping) {
+        await this.store.release(row.Id, claim.epoch);
+        break;
+      }
+      launched.push(this.launch(row.Id, claim.epoch, now));
     }
     const crash = (await Promise.allSettled(launched)).find((r) => r.status === 'rejected');
     if (crash) throw crash.reason;
+  }
+
+  /** Aborts every activation as `shutdown` and waits for them at most `workflow.shutdownGrace`; later ticks do nothing. */
+  public async stop(): Promise<void> {
+    this.stopping = true;
+    const running = [...this.active.values()];
+    for (const a of running) a.abort('shutdown');
+    if (running.length === 0) return;
+    const ac = new AbortController();
+    await Promise.race([Promise.allSettled(running.map((a) => a.done)), this.Timers.sleep(this.config?.shutdownGrace ?? 0, ac.signal)]);
+    ac.abort();
+  }
+
+  public async dispose(): Promise<void> {
+    await this.stop();
   }
 
   /** D5: an instance of an unregistered version stays untouched, so it is reported on every tick. */
@@ -231,6 +254,7 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
       return;
     }
     const journal = await Journal.load(instanceId);
+    const deadline = definition.timeoutMs === null ? null : row.CreatedAt + definition.timeoutMs;
     const ctx = new ActivationContext({
       instance: row,
       definition,
@@ -242,6 +266,7 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
       config: this.config,
       signal,
       log: this.Log,
+      deadline,
       onLeaseLost: () => abort('lease-lost'),
       onCrash: () => this.crashAll(),
       onJournalFailed: (err) => {
@@ -262,6 +287,7 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
     let outcome: Outcome = { kind: 'aborted' };
     try {
       if (row.CancelRequested) abort('cancelled');
+      else if (deadline !== null && this.Clock.now() >= deadline) ctx.expire();
       else outcome = await this.execute(ctx, definition, signal);
     } finally {
       await heartbeat.stop(this.config.shutdownGrace);
@@ -365,10 +391,17 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
     if (i && i.kind !== 'park') return this.failed(INTERRUPTION_REASON[i.kind], serializeError(i.error), now);
     if (reason === 'shutdown') return { kind: 'release' };
     if (reason === 'cancelled') return this.cancelled(row.Id, now);
-    if (i?.kind === 'park') return { kind: 'write', patch: { Status: i.park.status, WakeAt: i.park.wakeAt, WaitingFor: i.park.waitingFor } };
+    if (i?.kind === 'park') return { kind: 'write', patch: this.parked(i.park, ctx.deadline) };
     if (outcome.kind === 'ok') return this.completed(outcome.value, journal, now);
     if (outcome.kind === 'error') return this.failed('error', serializeError(outcome.error), now);
     return { kind: 'release' };
+  }
+
+  /** A sleep or a backoff past the instance deadline wakes at the deadline, which then fails the instance. */
+  protected parked(park: Park, deadline: number | null): Patch {
+    let wakeAt = park.wakeAt;
+    if (deadline !== null) wakeAt = wakeAt === null ? (park.status === 'running' ? null : deadline) : Math.min(wakeAt, deadline);
+    return { Status: park.status, WakeAt: wakeAt, WaitingFor: park.waitingFor };
   }
 
   protected completed(value: unknown, journal: Journal, now: number): Decision {
