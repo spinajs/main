@@ -123,13 +123,13 @@ export class SimClock extends Clock {
   }
 
   protected add(fn: () => void, ms: number, every: number | null): number {
-    if (!Number.isFinite(ms) || ms < 0) throw new RangeError(`SimClock: invalid timer delay ${ms} ms`);
+    if (!Number.isFinite(ms)) throw new RangeError(`SimClock: invalid timer delay ${ms} ms`);
     const id = this.nextId++;
     const ctx = currentContext();
     const owner = ctx ? ownerKey(ctx) : null;
     if (owner !== null && this.dead.has(owner)) return id;
     const restore = AsyncLocalStorage.snapshot();
-    this.timers.set(id, { id, at: this.current + ms, every, owner, replica: ctx?.replica ?? null, fire: () => restore(fn) });
+    this.timers.set(id, { id, at: this.current + Math.max(0, ms), every, owner, replica: ctx?.replica ?? null, fire: () => restore(fn) });
     return id;
   }
 }
