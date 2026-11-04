@@ -63,7 +63,7 @@ function compareTypes(b: TypeRef, h: TypeRef, direction: 'request' | 'response',
   return b.text === h.text ? [] : [{ breaking: true, detail: `${label} type changed from ${b.text} to ${h.text}` }];
 }
 
-function compareParams(b: RouteEntry, h: RouteEntry, base: Manifest, head: Manifest): Finding[] {
+function compareParams(b: RouteEntry, h: RouteEntry, route: string, base: Manifest, head: Manifest): Finding[] {
   const key = [...b.params, ...h.params].every((p) => p.wire) ? wireKey : legacyKey;
   const before = new Map(requestParams(b).map((p) => [key(p), p]));
   const after = new Map(requestParams(h).map((p) => [key(p), p]));
@@ -71,8 +71,12 @@ function compareParams(b: RouteEntry, h: RouteEntry, base: Manifest, head: Manif
 
   for (const [k, p] of before) {
     const next = after.get(k);
-    if (!next) findings.push({ breaking: true, detail: `parameter ${p.name} (${p.kind}) removed` });
-    else if (!p.required && next.required) findings.push({ breaking: true, detail: `parameter ${p.name} is now required` });
+    if (!next) {
+      findings.push({ breaking: true, detail: `parameter ${p.name} (${p.kind}) removed` });
+      continue;
+    }
+    if (p.name !== next.name) findings.push({ breaking: false, detail: `argument ${p.name} renamed to ${next.name} on ${route}: generated hook variables and query keys change` });
+    if (!p.required && next.required) findings.push({ breaking: true, detail: `parameter ${p.name} is now required` });
     else findings.push(...compareTypes(p.runtimeType, next.runtimeType, 'request', `parameter ${p.name}`, base, head));
   }
   for (const [k, p] of after) {
@@ -93,7 +97,7 @@ function compareClientName(b: RouteRef, h: RouteRef): Finding[] {
 function compareRoute(b: RouteRef, h: RouteRef, base: Manifest, head: Manifest): Finding[] {
   return [
     ...compareClientName(b, h),
-    ...compareParams(b.route, h.route, base, head),
+    ...compareParams(b.route, h.route, clientName(h), base, head),
     ...compareTypes(b.route.returnType, h.route.returnType, 'response', 'response', base, head),
   ];
 }
