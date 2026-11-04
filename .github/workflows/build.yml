@@ -154,8 +154,13 @@ jobs:
     timeout-minutes: 30
 
     concurrency:
-      group: simulation-${{ github.ref }}
+      group: simulation-${{ github.ref }}-${{ matrix.suite }}
       cancel-in-progress: true
+
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [scheduler]
 
     steps:
       - uses: actions/checkout@v4
@@ -171,16 +176,18 @@ jobs:
       - name: build monorepo
         run: npm run build
 
-      # Measured 2026-11-04 on a loaded dev host: 15.5-30.4 s (avg 26.8 s) per 200-step scheduler seed plus ~25 s
-      # startup, so 8 seeds take ~4 min. The program plan wants 200 seeds per suite; raise --seeds once seeds get cheaper.
-      - name: simulation ( 8 seeds per suite )
-        run: npm run sim -- --all --seeds 8 --out sim-reports
+      # Measured 2026-11-04 on a loaded dev host: 14-50 s (avg 25 s) per 200-step scheduler seed plus ~25 s startup,
+      # so 8 seeds take ~4 min. The program plan wants 200 seeds per suite; raise --seeds once seeds get cheaper.
+      # One leg per suite, so the gate stays ~4 min as suites are added; release waits for every leg.
+      - name: simulate ${{ matrix.suite }} ( 8 seeds )
+        timeout-minutes: 10
+        run: npm run sim -- --suite ${{ matrix.suite }} --seeds 8 --out sim-reports
 
       - name: upload failing reports
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@v4
         with:
-          name: sim-reports
+          name: sim-reports-${{ matrix.suite }}
           path: sim-reports/
           if-no-files-found: ignore
 
