@@ -1,3 +1,30 @@
+# Release notes — validation: coerced infinities and comparisons that throw
+
+## Security fix
+
+- `@spinajs/validation`: with `coerceTypes` (on by default), the strings `'Infinity'`, `'-Infinity'` and `'1e400'`
+  coerced to non-finite numbers that passed every number rule. Ajv checks the type before it coerces, and runs
+  `minimum`, `maximum` and `multipleOf` on finite numbers only, so `{ type: 'integer', minimum: 0, maximum: 100 }`
+  accepted `'-Infinity'` from a query string, a form field or a JSON body, for every `@Schema`-validated input.
+  Ajv's `strictNumbers` did not help: it is on by default and checks the value before coercion. `DataValidator` now
+  fails a non-finite number with a `type` error at the field wherever the schema type allows `number` or `integer`,
+  after coercion. Finite values, `1e300` included, and the coercion itself are unchanged.
+
+## Fixes
+
+- `@spinajs/validation`: a JSON object with its own `valueOf` or `toString` key, such as `{"valueOf":1}`, made
+  `const` and `enum` with an object value, `uniqueItems` over objects and `uniqueItemProperties` throw
+  `TypeError: a.valueOf is not a function`. `DataValidator.validate()` passed it on, so any client could make a route
+  answer 500. These keywords now compare a plain object by its own keys: the value fails or passes the rule like any
+  other, and the route answers 400 naming the field. `uniqueItems` over strings also finds a repeated `"__proto__"`.
+- Both fixes reach every `DataValidator` consumer: `@spinajs/http` route arguments, `@spinajs/http-socket` payloads,
+  `@spinajs/configuration-http` values and uploads, `@spinajs/scheduler` params. A subclass that overrides
+  `createAjv()` keeps them only when it starts from `super.createAjv()`. The separate Ajv of `@spinajs/configuration`
+  (config files, env, the DB source) is not changed.
+
+> Docs: `docs/validation/01-validating-data.md`, `docs/validation/02-validator-options.md`,
+> `docs/validation/08-customizing-the-validator.md`.
+
 # Release notes — the controller scan registers what the package entry did
 
 ## Security fix

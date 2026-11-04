@@ -23,7 +23,7 @@
 | `resolve()` | public | Startup. Call `super.resolve()` first when you override it. |
 | `Validator` | protected, `any` | The Ajv 8 instance: `addFormat()`, `addKeyword()`, `addVocabulary()`, `addMetaSchema()`. |
 | `StrictValidator` | protected | The second Ajv 8 instance, with `coerceTypes: false`, for [strict schema ids](02-validator-options.md#strict-schema-ids). Add every format and keyword to it too. |
-| `createAjv(options)` | protected | Builds one Ajv instance with the three plugins; `resolve()` calls it for both instances. Override it to add a format or keyword to both at once. |
+| `createAjv(options)` | protected | Builds one Ajv instance with the three plugins, the finite-number `type` check and the throw-safe `const`, `enum`, `uniqueItems` and `uniqueItemProperties`; `resolve()` calls it for both instances. Override it to add a format or keyword to both at once, and start from `super.createAjv(options)`: an instance built without it accepts a coerced `'-Infinity'` and throws on `{ "valueOf": 1 }`. |
 | `isStrict(schemaOrId)` | public | Whether a schema object or registered id is validated on `StrictValidator`. |
 | `Options` | public, read-only | The `validation` config object. `@Config` defines it as a getter: assigning to it throws `TypeError`. Change Ajv options in the config. |
 | `Sources` | protected | The `SchemaSource` list, before `super.resolve()` loads it. |
