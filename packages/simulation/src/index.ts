@@ -5,6 +5,7 @@ export * from './crash.js';
 export * from './replicas.js';
 export * from './faults.js';
 export * from './invariants.js';
+export * from './database.js';
 export * from './env.js';
 export * from './simulate.js';
 export { SimFailureError } from './harness.js';
