@@ -10,6 +10,7 @@ const app = fileURLToPath(new URL('..', import.meta.url));
 const client = fileURLToPath(new URL('../../../packages/client/', import.meta.url));
 const nextBin = fileURLToPath(new URL('../node_modules/next/dist/bin/next', import.meta.url));
 const children = [];
+const startupTimeout = 120_000;
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -42,6 +43,7 @@ function startApi(frontendOrigin) {
   });
   return new Promise((resolve, reject) => {
     child.once('exit', (code) => reject(new Error(`the app-basic server exited with ${code}`)));
+    setTimeout(() => reject(new Error(`the app-basic server printed no address within ${startupTimeout / 1000}s`)), startupTimeout).unref();
     createInterface({ input: child.stdout }).on('line', (line) => {
       if (line.startsWith('{')) resolve(JSON.parse(line));
       else console.log(`[api] ${line}`);
@@ -67,7 +69,13 @@ function stopAll() {
     if (child.exitCode !== null) continue;
     // `next start` may run the server in a child process of its own.
     if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
-    else process.kill(-child.pid, 'SIGTERM');
+    else {
+      try {
+        process.kill(-child.pid, 'SIGTERM');
+      } catch (error) {
+        if (error.code !== 'ESRCH') throw error;
+      }
+    }
   }
 }
 
@@ -123,15 +131,23 @@ async function main() {
     assert.ok(response.status < 400, `the action answered ${response.status}`);
     const before = await counts();
     // 'max' is stale-while-revalidate: the first render may still show the cached list while it refetches.
-    let html2 = '';
-    for (let i = 0; i < 20 && !html2.includes('grace@example.com'); i++) {
+    const deadline = Date.now() + 15_000;
+    let html2 = await page();
+    while (!html2.includes('grace@example.com') && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
       html2 = await page();
-      if (!html2.includes('grace@example.com')) await new Promise((resolve) => setTimeout(resolve, 250));
     }
     assert.match(html2, /grace@example\.com/);
     assert.equal(await counts(), before + 1);
     await page();
     assert.equal(await counts(), before + 1);
+  });
+}
+
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.once(signal, () => {
+    stopAll();
+    process.exit(1);
   });
 }
 
