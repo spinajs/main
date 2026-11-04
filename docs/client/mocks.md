@@ -127,7 +127,7 @@ Paths come from the manifest and are translated from Express 5 to MSW syntax:
 | `/files/*path` | `/files/*`, read as `params['0']` |
 | `/a\:b`, `/a\*b` | the same, with the backslash kept |
 | `/a/b\?c` | `/a/b%3Fc`: MSW ignores the query of a request, so a literal `?` matches only as the encoded path character |
-| `/a/b\c` | `/a/b\c`: a literal backslash, matched against `%5C` |
+| `/a/b\\c` | `/a/b\\c`: a literal backslash, which MSW would otherwise read as an escape; it matches the request `/a/b%5Cc` |
 
 MSW has no optional groups and no named wildcards, so an optional group becomes one handler per combination, all sharing the override. A parameter name MSW cannot read (anything but letters, digits and underscores, such as `:"my-id"` or `:$id`) gets no handler: the generator reports diagnostic `MSW001` on `client.msw.ts`, naming the controller, the handler and the path, and writes the other routes. Aborting would lose `client.ts` for the sake of one route.
 
