@@ -23,7 +23,30 @@ export { MIGRATION_FILE_REGEXP } from './symbols.js';
  * programmatic registration. Equal on both = 0, so a sort stays stable.
  */
 function compareUnits(a: IMigrationUnit, b: IMigrationUnit): number {
-  return a.created < b.created ? -1 : a.created > b.created ? 1 : a.name.localeCompare(b.name);
+  return compareMigrationNames(a.name, b.name);
+}
+
+function nameTimestamp(name: string): number | null {
+  const match = name.match(MIGRATION_FILE_REGEXP);
+  const created = match && match.length === 3 ? DateTime.fromFormat(match[2], 'yyyy_MM_dd_HH_mm_ss') : null;
+
+  return created?.isValid ? created.toMillis() : null;
+}
+
+/**
+ * The order `migrate-up` applies migrations in, from their names alone: a free prefix does not take part.
+ * A name without a parsable timestamp sorts after every parsable one, by name; `plan()` refuses such
+ * names, so this only matters to a caller sorting names it did not take from a plan.
+ */
+export function compareMigrationNames(a: string, b: string): number {
+  const ta = nameTimestamp(a);
+  const tb = nameTimestamp(b);
+
+  if (ta === null || tb === null) {
+    return ta === tb ? a.localeCompare(b) : ta === null ? 1 : -1;
+  }
+
+  return ta - tb || a.localeCompare(b);
 }
 
 /**
@@ -75,6 +98,14 @@ export interface IMigrationUpOptions {
    * The name is resolved to a driver before it is compared, so an alias ( `db.Aliases` ) and the
    * connection it points at select the same run. A name no connection answers to throws.
    */
+  connection?: string;
+}
+
+export interface IMigrationRunnerStatusOptions {
+  /** Read without DDL: no tracking table is created or upgraded. */
+  readOnly?: boolean;
+
+  /** Report one connection, by name or alias. A name no connection answers to throws. */
   connection?: string;
 }
 
@@ -220,14 +251,14 @@ export class MigrationRunner {
     return executed;
   }
 
-  public async status(): Promise<IMigrationStatusEntry[]> {
+  public async status(options: IMigrationRunnerStatusOptions = {}): Promise<IMigrationStatusEntry[]> {
     const entries: IMigrationStatusEntry[] = [];
 
     // force: a status report that hid the connections with OnStartup off would answer "nothing
     // to see" for exactly the connections somebody is most likely asking about
-    for (const [driver, units] of this.plan(undefined, true)) {
+    for (const [driver, units] of this.plan(undefined, true, options.connection)) {
       const service = await this.service(driver);
-      entries.push(...(await service.status(units)));
+      entries.push(...(await service.status(units, { readOnly: options.readOnly })));
     }
 
     return entries;

@@ -101,6 +101,11 @@ export function migrationChecksum(type: Class<OrmMigration>): string {
   return createHash('sha256').update(type.toString()).digest('hex');
 }
 
+export interface IMigrationStatusOptions {
+  /** Read without DDL: no tracking table is created or upgraded. What the boot guard uses. */
+  readOnly?: boolean;
+}
+
 /**
  * Per-connection migration execution contract. Configure an alternative
  * implementation with db.Connections[n].Migration.Service (DI token).
@@ -122,7 +127,7 @@ export abstract class OrmMigrationService {
 
   public abstract up(units: IMigrationUnit[], options?: IMigrationRunOptions): Promise<OrmMigration[]>;
   public abstract down(units: IMigrationUnit[], options?: IMigrationDownOptions): Promise<OrmMigration[]>;
-  public abstract status(units: IMigrationUnit[]): Promise<IMigrationStatusEntry[]>;
+  public abstract status(units: IMigrationUnit[], options?: IMigrationStatusOptions): Promise<IMigrationStatusEntry[]>;
 
   /**
    * Forces a migration's recorded state without running it - the escape hatch for a
@@ -944,40 +949,54 @@ export class DefaultMigrationService extends OrmMigrationService {
     });
   }
 
-  public async status(units: IMigrationUnit[]): Promise<IMigrationStatusEntry[]> {
-    await this.ensureStorage();
-
+  public async status(units: IMigrationUnit[], options?: IMigrationStatusOptions): Promise<IMigrationStatusEntry[]> {
     // deliberately unlocked, unlike up()/down(): this is a read-only report and taking the lock
     // would make it block for the whole Timeout behind any running migration - exactly when
     // somebody is asking what is going on
-    const records = await this.records();
+    const records = options?.readOnly ? await this.readOnlyRecords() : await this.storedRecords();
 
     // read once for the whole report rather than per entry: every row on this connection is
     // judged against the same "is anything running right now?", and asking N times would let the
     // answer change halfway down a single report
-    const running = await this.runInProgress();
+    const running = options?.readOnly && !(await this.driver.schema().tableExists(this.lockTable)) ? false : await this.runInProgress();
 
-    return units.map((u) => {
-      const rec = records.find((r) => r.Migration === u.name);
-      const applied = !!(rec?.FinishedAt && !rec.RolledBackAt);
-      const failed = !!(rec && !rec.FinishedAt && rec.Logs);
+    return units.map((u) => this.statusEntry(u, records, running));
+  }
 
-      return {
-        name: u.name,
-        connection: this.driver.Options.Name,
-        applied,
-        failed,
-        rolledBack: !!rec?.RolledBackAt,
-        pending: !applied && !failed,
-        // a live run legitimately holds an open row, so it is only "interrupted" once nobody is
-        // there to close it
-        interrupted: !!rec && !running && this.isInterrupted(rec),
-        batch: rec?.Batch ?? null,
-        startedAt: rec?.StartedAt ?? null,
-        finishedAt: rec?.FinishedAt ?? null,
-        checksumMismatch: !!(rec?.Checksum && rec.Checksum !== migrationChecksum(u.type)),
-      };
-    });
+  protected async storedRecords(): Promise<IMigrationRecord[]> {
+    await this.ensureStorage();
+    return this.records();
+  }
+
+  protected async readOnlyRecords(): Promise<IMigrationRecord[]> {
+    if (!(await this.driver.schema().tableExists(this.table))) {
+      return [];
+    }
+
+    // a column that does not exist yet hydrates as undefined, a NULL one as null: only the former is a legacy row
+    return (await this.records()).map((r) => (r.FinishedAt === undefined && !r.Logs ? { ...r, StartedAt: r.StartedAt ?? r.CreatedAt, FinishedAt: r.CreatedAt, Batch: r.Batch ?? 1 } : r));
+  }
+
+  protected statusEntry(u: IMigrationUnit, records: IMigrationRecord[], running: boolean): IMigrationStatusEntry {
+    const rec = records.find((r) => r.Migration === u.name);
+    const applied = !!(rec?.FinishedAt && !rec.RolledBackAt);
+    const failed = !!(rec && !rec.FinishedAt && rec.Logs);
+
+    return {
+      name: u.name,
+      connection: this.driver.Options.Name,
+      applied,
+      failed,
+      rolledBack: !!rec?.RolledBackAt,
+      pending: !applied && !failed,
+      // a live run legitimately holds an open row, so it is only "interrupted" once nobody is
+      // there to close it
+      interrupted: !!rec && !running && this.isInterrupted(rec),
+      batch: rec?.Batch ?? null,
+      startedAt: rec?.StartedAt ?? null,
+      finishedAt: rec?.FinishedAt ?? null,
+      checksumMismatch: !!(rec?.Checksum && rec.Checksum !== migrationChecksum(u.type)),
+    };
   }
 
   public async resolve(name: string, action: MigrationResolveAction, unit?: IMigrationUnit): Promise<void> {
