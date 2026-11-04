@@ -36,6 +36,8 @@ export async function buildAppManifest(options: BuildAppOptions): Promise<{ mani
     schemaDerivation: options.schemaDerivation === false ? false : undefined,
     compilerVersion: COMPILER_VERSION,
   });
+  // The compiler reads no `authz.*` configuration yet, so the section never carries `ir` / `policyHash`.
+  if (merged.authz) merged.diagnostics.push({ code: 'AUTHZ010', severity: 'info', message: 'policy IR not in manifest, run `spinajs authz verify` with config' });
   const manifest: Manifest = { ...merged, hash: hashManifest(merged) };
 
   const written = resolve(options.out ?? join(root, 'app.manifest.json'));

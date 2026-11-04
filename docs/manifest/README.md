@@ -143,9 +143,9 @@ A direct call of `buildAppManifest` without `effectiveDirs` marks nothing.
 
 ### Authorization facts
 
-The `authz` section lists what the build can read about authorization. `resources`: each model that is an access resource (its own `@AccessResource`, its nearest registered base class, or a literal `registerAccessResource(Model, type, options)` call, also on another package's model) with its relation columns. `permissions`: the `<type>:read|create|update|delete` permissions the ORM adapter registers. `ignores`: every `// spinajs-authz-ignore AUTHZxxx: <reason>` comment. `findings` is empty until the flow pass lands.
+The `authz` section lists what the build can read about authorization. `resources`: each model that is an access resource (its own `@AccessResource`, its nearest registered base class, or a literal `registerAccessResource(Model, type, options)` call, also on another package's model) with its relation columns. `permissions`: the `<type>:read|create|update|delete` permissions the ORM adapter registers. `entryPoints`: every route, socket command and event, queue job (`job:<Class>`), literal `consume(Event, handler)` call (`event:<Class>`), schedule and CLI command, with its access as OR-of-AND policy groups: the class and handler scopes combined as the runtime combines them, and an `AccessPolicy` group listing its permissions; `system` is the `@SystemTask(reason)` of the class. `ignores`: every `// spinajs-authz-ignore AUTHZxxx: <reason>` comment. `findings` is empty until the flow pass lands.
 
-`ModelEntry.accessResource` is the resource type (`'post'`), absent on a model that is no access resource. Permissions declared in configuration and the compiled policy IR (`ir`, `policyHash`) are not in the manifest yet.
+`ModelEntry.accessResource` is the resource type (`'post'`), absent on a model that is no access resource. Permissions declared in configuration and the compiled policy IR (`ir`, `policyHash`) are not in the manifest yet; an app manifest with an `authz` section says so with the info diagnostic `AUTHZ010`.
 
 ### Diffing two manifests
 

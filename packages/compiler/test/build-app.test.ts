@@ -87,6 +87,13 @@ describe('buildAppManifest', () => {
     expect(owners.length).to.be.at.most(1);
   });
 
+  it('merges the authz sections and says the policy IR is not in the manifest', async () => {
+    const { manifest } = await buildAppManifest(APP);
+    expect(manifest.authz?.entryPoints.map((e) => e.id)).to.include.members(['GET /health/get', 'GET /users/list']);
+    expect(manifest.authz).to.not.have.property('ir');
+    expect(manifest.diagnostics.filter((d) => d.code === 'AUTHZ010')).to.deep.equal([{ code: 'AUTHZ010', severity: 'info', message: 'policy IR not in manifest, run `spinajs authz verify` with config' }]);
+  });
+
   it('records the compiler version that built it, outside the hash', async () => {
     const { manifest } = await buildAppManifest(APP);
     const { version } = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string };

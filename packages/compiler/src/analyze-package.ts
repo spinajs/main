@@ -120,7 +120,7 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   discovered?.requireDirs(controllers.length + socketControllers.length + migrations.length + schedules.length + commands.length);
   const marked = <T extends ScannedEntry>(section: DirSection, entries: T[]): T[] => (discovered ? discovered.filter(section, entries) : entries);
   const { models, resources } = accessResources(ctx, files, run(extractModels));
-  const authz = authzSectionOf(ctx, files, { resources });
+  const authz = authzSectionOf(ctx, files, { controllers, socketControllers, schedules, commands, resources });
 
   const fragment: ManifestFragment = {
     manifestVersion: MANIFEST_VERSION,
