@@ -179,14 +179,21 @@ describe('@spinajs/client/mocks: runtime', function () {
       }
     });
 
-    it('never writes a key named __proto__, constructor or prototype, and refuses a required one', () => {
-      const props = Object.fromEntries(FORBIDDEN.map((k) => [k, { type: 'string' }]));
-      const optional = { A: { type: 'object', properties: { ...props, ok: { type: 'string' } }, required: ['ok'] } };
+    it('never writes a key named __proto__, constructor or prototype, and refuses a schema that needs one', () => {
+      const optional = { A: { type: 'object', properties: { prototype: { type: 'string' }, constructor: {}, ok: { type: 'string' } }, required: ['ok'] } };
       expect(keysDeep(mockFrom(optional, 'A', undefined, { optional: 'all' }))).to.deep.equal(['ok']);
-      const required = JSON.parse('{"A": {"type": "object", "properties": {"__proto__": {"type": "string"}}, "required": ["__proto__"]}}') as Record<string, MockSchema>;
-      expect(() => mockFrom(required, 'A')).to.throw(MockUnsupported, /__proto__/);
+      const required = JSON.parse('{"A": {"type": "object", "properties": {"prototype": {"type": "string"}}, "required": ["prototype"]}}') as Record<string, MockSchema>;
+      expect(() => mockFrom(required, 'A')).to.throw(MockUnsupported, /prototype/);
+      const proto = JSON.parse('{"A": {"type": "object", "properties": {"__proto__": {"type": "string"}}}}') as Record<string, MockSchema>;
+      expect(() => mockFrom(proto, 'A')).to.throw(MockUnsupported, /__proto__/);
+      expect(() => mockFrom({ A: { type: 'object', properties: { constructor: { type: 'number' } } } }, 'A')).to.throw(MockUnsupported, /constructor/);
       const enumObject = JSON.parse('{"A": {"enum": [{"__proto__": 1}, {"ok": 1}]}}') as Record<string, MockSchema>;
       expect(mockFrom(enumObject, 'A')).to.deep.equal({ ok: 1 });
+    });
+
+    it('always writes a declared property named after an Object.prototype member, which Ajv would read as inherited', () => {
+      const schemas = { A: { type: 'object', properties: { toString: { type: 'string' }, valueOf: { type: 'number' }, ok: { type: 'string' } } } };
+      fc.assert(fc.property(seeds, (seed) => ['toString', 'valueOf'].every((k) => Object.hasOwn(mockFrom<object>(schemas, 'A', undefined, { seed, maxDepth: 0 }), k))));
     });
 
     it('never produces a non-finite number, whatever the limits', () => {

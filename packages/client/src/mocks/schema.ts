@@ -134,6 +134,19 @@ export function usableExamples(node: Json): unknown[] {
   return candidates.filter((value) => (value === null || ['string', 'number', 'boolean'].includes(typeof value)) && fitsNode(value, node));
 }
 
+/** Whether a schema accepts every value: `true`, or annotations only. */
+export function acceptsAnything(schema: unknown): boolean {
+  return schema === true || (isObject(schema) && Object.keys(schema).every((key) => key.startsWith('x-') || ANNOTATIONS.has(key)));
+}
+
+/**
+ * Ajv reads a declared property as `data[name]`, so a missing `toString` or `valueOf` is checked as the inherited
+ * function and fails its schema. A mock writes such a property whenever it is declared.
+ */
+export function isInheritedName(name: string): boolean {
+  return Object.hasOwn(Object.prototype, name) && !FORBIDDEN_KEYS.has(name);
+}
+
 const escape = (segment: string | number): string => String(segment).replace(/~/g, '~0').replace(/\//g, '~1');
 
 /** The subschemas of a node, with their JSON pointer paths relative to it. */
@@ -256,13 +269,15 @@ class Analysis {
         return (typesOf(node) ?? []).every((t) => JSON_TYPES.has(t)) ? undefined : at(key, `type ${JSON.stringify(value)} is not a JSON type`);
       case 'pattern':
         return this.pattern(node, value, at);
-      case 'patternProperties':
-        return this.patternNames(value, at);
-      case 'required':
-        return this.required(node, value, at);
       default:
-        return this.listed(key, value, at, base);
+        return this.objectKeyword(node, key, at) ?? this.listed(key, value, at, base);
     }
+  }
+
+  private objectKeyword(node: Json, key: string, at: At): MockIssue | undefined {
+    if (key === 'patternProperties') return this.patternNames(node[key], at);
+    if (key === 'required') return this.required(node, node[key], at);
+    return key === 'properties' ? this.inheritedNames(node[key], at) : undefined;
   }
 
   private limit(key: string, value: unknown, at: At): MockIssue | undefined {
@@ -282,6 +297,16 @@ class Analysis {
     if (!isValidRegex(value)) return at('pattern', `pattern ${value} is not a valid u-flag regex, so the server refuses the schema`);
     if (parsePattern(value) || 'const' in node || usableExamples(node).length > 0) return undefined;
     return at('pattern', `pattern ${value} is outside the sampled regex subset, and the node has no valid examples, default or const`);
+  }
+
+  private inheritedNames(value: unknown, at: At): MockIssue | undefined {
+    if (!isObject(value)) return undefined;
+    // ManifestSchemaPreparer copies with plain assignment, so the property becomes the copy's prototype.
+    if (Object.hasOwn(value, '__proto__')) return at('properties', 'a property named __proto__ becomes a prototype in the server schema preparation, and Ajv refuses the schema');
+    if (Object.hasOwn(value, 'constructor') && !acceptsAnything(value.constructor)) {
+      return at('properties', 'Ajv checks a missing property named constructor against the inherited Object constructor, and a mock cannot write that key');
+    }
+    return undefined;
   }
 
   private patternNames(value: unknown, at: At): MockIssue | undefined {

@@ -3,7 +3,7 @@ import { MockError, MockUnsupported } from './errors.js';
 import { FORMAT_SAMPLERS, word } from './formats.js';
 import { endsAnchored, parsePattern, samplePattern } from './pattern.js';
 import { Rng } from './rng.js';
-import { FORBIDDEN_KEYS, fitsNode, hasForbiddenKey, isObject, list, mockIssue, own, resolveRef, schemaIssue, typesOf, usableExamples, type Json, type MockSchema, type MockSchemas } from './schema.js';
+import { FORBIDDEN_KEYS, fitsNode, hasForbiddenKey, isInheritedName, isObject, list, mockIssue, own, resolveRef, schemaIssue, typesOf, usableExamples, type Json, type MockSchema, type MockSchemas } from './schema.js';
 
 export interface MockOptions {
   /** Default 1. The same seed, schema and overrides always give the same value. */
@@ -123,20 +123,22 @@ class Sampler {
     parts.push({ node, base });
   }
 
-  // Mirrors ManifestSchemaPreparer.intersection: closed members are opened and the node closed over their names.
+  // Mirrors ManifestSchemaPreparer.intersection: every closed member is opened, and the node is closed over their
+  // names only when all members are closed.
   private intersection(node: Json, base: string, parts: Part[], choices: { members: unknown[]; base: string }[], hops: number): Json {
-    const members = list(node.allOf);
-    const targets = members.map((m) => intersectionTarget(m, base, this.ctx));
-    if (!targets.every((t) => t !== undefined && isClosedObject(t.schema))) {
-      for (const member of members) this.collect({ schema: member, base }, parts, choices, hops + 1);
-      return node;
-    }
     const names = new Set<string>();
-    for (const target of targets as Located[]) {
-      const closed = target.schema as Json;
-      Object.keys(closed.properties as Json).forEach((name) => names.add(name));
-      this.collect({ schema: opened(closed), base: target.base }, parts, choices, hops + 1);
+    let allClosed = true;
+    for (const member of list(node.allOf)) {
+      const target = intersectionTarget(member, base, this.ctx);
+      if (!target || !isClosedObject(target.schema)) {
+        allClosed = false;
+        this.collect({ schema: member, base }, parts, choices, hops + 1);
+        continue;
+      }
+      Object.keys(target.schema.properties as Json).forEach((name) => names.add(name));
+      this.collect({ schema: opened(target.schema), base: target.base }, parts, choices, hops + 1);
     }
+    if (!allClosed) return node;
     const properties = { ...(isObject(node.properties) ? node.properties : {}), ...Object.fromEntries([...names].map((name) => [name, true])) };
     return { ...node, properties, additionalProperties: false };
   }
@@ -254,7 +256,7 @@ class Sampler {
         if (isRequired) throw new MockError(`required property ${key} cannot be written: it is not allowed by additionalProperties: false, or it is an inherited name`);
         continue;
       }
-      if (!isRequired && (depth >= this.ctx.maxDepth || (this.ctx.optional !== 'all' && !rng.child(`?${key}`).chance()))) continue;
+      if (!isRequired && !isInheritedName(key) && (depth >= this.ctx.maxDepth || (this.ctx.optional !== 'all' && !rng.child(`?${key}`).chance()))) continue;
       out[key] = this.sample(located, rng.child(key), depth + 1);
     }
     return out;
