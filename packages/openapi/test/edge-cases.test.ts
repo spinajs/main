@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { createConfig, lintFromString } from '@redocly/openapi-core';
 import { PROBLEM_DETAILS_SCHEMA } from '@spinajs/http';
-import type { Manifest } from '@spinajs/manifest';
+import type { ControllerEntry, Manifest, RouteEntry, ServiceEntry } from '@spinajs/manifest';
 import { manifestToOpenApi } from '../src/index.js';
 import { createComponentRegistry } from '../src/components.js';
 import { validateRefs } from '../src/refs.js';
@@ -214,5 +214,58 @@ describe('top-level security', () => {
 
   it('emits no top-level security without schemes', () => {
     expect(manifestToOpenApi(manifest, { title: 't', version: '1' })).to.not.have.property('security');
+  });
+});
+
+describe('inherited routes', () => {
+  let manifest: Manifest;
+  const source = { file: 'src/x.ts', line: 1, col: 1, package: 'app' };
+  const getById = (fullPath: string, returnSchema: string, inheritedFrom?: string): RouteEntry => ({
+    method: 'get',
+    path: ':id',
+    handler: 'get',
+    fullPath,
+    params: [{ index: 0, name: 'id', kind: 'FromParams', runtimeType: { text: 'number' }, required: true, wire: { in: 'path', name: 'id', shape: 'value' } }],
+    returnType: { text: returnSchema.split('/').pop()!, schema: returnSchema },
+    policies: [],
+    middlewares: [],
+    ...(inheritedFrom ? { inheritedFrom } : {}),
+    source,
+  });
+  const entry = (id: string, className: string, basePath: string, routes: RouteEntry[], bases?: string[]): ControllerEntry => ({ id, className, basePath, mountPath: basePath, policies: [], middlewares: [], routes, ...(bases ? { bases } : {}), source });
+  const dto = { type: 'object', properties: { id: { type: 'number' } }, required: ['id'] };
+  const withControllers = (controllers: ControllerEntry[], services: ServiceEntry[] = []): Manifest => ({
+    ...structuredClone(manifest),
+    controllers,
+    services,
+    schemas: { ...manifest.schemas, 'spinajs/app/ArticleDto': dto, 'spinajs/app/TagDto': dto, 'spinajs/app/ProfileDto': dto },
+  });
+  const okSchema = (operation: unknown): string => JSON.stringify((operation as { responses: Record<string, unknown> }).responses['200']);
+
+  before(async () => {
+    manifest = await appBasicManifest();
+  });
+
+  it('documents a route on each controller that inherits it, under its path and with the type it binds', () => {
+    const doc = manifestToOpenApi(
+      withControllers([
+        entry('app:ArticlesController', 'ArticlesController', 'articles', [getById('/articles/:id', 'spinajs/app/ArticleDto', 'app:BaseCrud')], ['app:BaseCrud']),
+        entry('app:TagsController', 'TagsController', 'tags', [getById('/tags/:id', 'spinajs/app/TagDto', 'app:BaseCrud')], ['app:BaseCrud']),
+      ]),
+      options,
+    );
+    expect(doc.paths!['/articles/{id}']!.get!.operationId).to.equal('Articles_get');
+    expect(doc.paths!['/tags/{id}']!.get!.operationId).to.equal('Tags_get');
+    expect(okSchema(doc.paths!['/articles/{id}']!.get)).to.include('"#/components/schemas/ArticleDto"');
+    expect(okSchema(doc.paths!['/tags/{id}']!.get)).to.include('"#/components/schemas/TagDto"');
+  });
+
+  it('documents only the subclass of a controller it is registered over', () => {
+    const pkg = entry('@x/users:ProfilesController', 'ProfilesController', 'profiles', [getById('/profiles/:id', 'spinajs/app/ProfileDto')]);
+    const app = entry('app:AppProfilesController', 'AppProfilesController', 'profiles', [getById('/profiles/:id', 'spinajs/app/ProfileDto', '@x/users:ProfilesController')], ['@x/users:ProfilesController']);
+    const registration: ServiceEntry = { id: 'app:AppProfilesController', className: 'AppProfilesController', registeredAs: ['ProfilesController'], lifetime: 'singleton', async: false, bootstrapper: false, ctorInjects: [], propertyInjects: [], source };
+    const doc = manifestToOpenApi(withControllers([pkg, app], [registration]), options);
+    const operations = Object.entries(doc.paths!).flatMap(([path, item]) => Object.values(item as Record<string, { operationId: string }>).map((op) => `${path} ${op.operationId}`));
+    expect(operations).to.deep.equal(['/profiles/{id} AppProfiles_get']);
   });
 });

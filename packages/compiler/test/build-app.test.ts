@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import { cpSync, mkdirSync, rmSync, symlinkSync, writeFileSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { analyzePackage, buildAppManifest, locateFragments } from '../src/index.js';
+import { hashManifest } from '@spinajs/manifest';
 
 const OUT_DIR = 'test/fixtures/.tmp-out';
 // Built @spinajs/* dependencies carry fragments too; these tests pin only the fixture packages.
@@ -84,6 +85,13 @@ describe('buildAppManifest', () => {
     expect(manifest.diagnostics.filter((d) => d.severity === 'error')).to.deep.equal([]);
     const owners = manifest.configModules.filter((c) => c.module === 'hooks');
     expect(owners.length).to.be.at.most(1);
+  });
+
+  it('records the compiler version that built it, outside the hash', async () => {
+    const { manifest } = await buildAppManifest(APP);
+    const { version } = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string };
+    expect(manifest.compilerVersion).to.equal(version);
+    expect(hashManifest({ ...manifest, compilerVersion: '0.0.0' })).to.equal(manifest.hash);
   });
 
   it('is deterministic across runs except generatedAt', async () => {
