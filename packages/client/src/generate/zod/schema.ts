@@ -153,7 +153,7 @@ function valueType(value: unknown): string {
 export class ZodBuilder {
   /** Names imported from `@spinajs/client/formats`. */
   public readonly formats = new Set<string>();
-  public readonly helpers = new Set<'oneOf' | 'oneOfReply'>();
+  public readonly helpers = new Set<'oneOf' | 'oneOfReply' | 'guardDepth'>();
   /** Names of declarations that print as a plain strict object, so `z.looseObject(X.shape)` opens them. */
   public readonly plainObjects = new Set<string>();
   private readonly hoisted: { name: string; node: ZodNode }[] = [];

@@ -150,6 +150,22 @@ describe('emitZod: coerced variants, scalar arguments and defaults', function ()
         }
       });
 
+      it('refuses a recursive array union at the root instead of overflowing the stack', async () => {
+        const recursive = manifestWith(manifest, {}, { 'test/Tree': { anyOf: [{ type: 'number' }, { type: 'array', items: { $ref: 'test/Tree' } }] } }, [
+          route('tree', 'get', [json(0, 'tree', 'FromQuery', 'test/Tree', 'json')]),
+        ]);
+        const { contents } = emitZod(buildClientModel(recursive), { mini });
+        const pair = { 'client.ts': `${await generateClient({ manifest: recursive })}export const manifestHash = '${recursive.hash}';
+`, 'client.zod.ts': contents };
+        expect(typecheckFiles(pair, { noUnusedLocals: true })).to.deep.equal([]);
+        const tree = ((await loadZod(contents)).routeSchemas as Record<string, Record<string, Record<string, SafeParse>>>).items.tree.tree;
+        for (const value of ['x', '', ['x'], [['y']]]) {
+          expect(() => tree.safeParse(value), JSON.stringify(value)).to.not.throw();
+          expect(tree.safeParse(value).success, JSON.stringify(value)).to.equal(false);
+        }
+        for (const value of ['5', 5, [], [[]], ['5'], [['5', 6]]]) expect(tree.safeParse(value).success, JSON.stringify(value)).to.equal(true);
+      });
+
       it('refuses a coerced infinity, as the fixed server does', () => {
         for (const page of ['Infinity', '-Infinity', '1e400']) expect(routes().items.list.query.safeParse({ page }).success, page).to.equal(false);
       });

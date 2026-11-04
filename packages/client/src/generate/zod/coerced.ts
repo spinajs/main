@@ -38,3 +38,35 @@ export function convertedFits(runtime: ScalarRuntime, schema: unknown): boolean 
   const type = isJson(schema) ? schema.type : undefined;
   return runtime === 'Number' ? type === 'number' || type === 'integer' : runtime === 'Boolean' && type === 'boolean';
 }
+
+const SAME_VALUE = ['not', 'if', 'then', 'else'] as const;
+const ELEMENTS = ['items', 'additionalItems', 'contains'] as const;
+
+/**
+ * Whether the coerced schema at `key` can reach itself again without a step into the data: through an array that
+ * wraps a scalar (the elements of a `type` that includes array), `$ref` and the combinators. `type T = number | T[]` is
+ * one: a string that is no number is wrapped, and its element is wrapped again, with no end.
+ */
+export function wrapsWithoutEnd(graph: SchemaGraph, key: string): boolean {
+  const seen = new Set<string>();
+  const visit = (schema: unknown, owner: string, wrapped: boolean): boolean => {
+    if (!isJson(schema)) return false;
+    if (typeof schema.$ref === 'string') {
+      const target = graph.resolve(schema.$ref, owner);
+      if (target === key) return wrapped;
+      const entry = target === undefined || seen.has(target) ? undefined : graph.get(target);
+      if (entry) {
+        seen.add(entry.key);
+        if (visit(entry.schema, entry.owner, wrapped)) return true;
+      }
+    }
+    const list = (k: string): unknown[] => (Array.isArray(schema[k]) ? (schema[k] as unknown[]) : []);
+    const same = [...list('anyOf'), ...list('oneOf'), ...list('allOf'), ...SAME_VALUE.map((k) => schema[k])];
+    if (same.some((member) => visit(member, owner, wrapped))) return true;
+    const types: unknown[] = Array.isArray(schema.type) ? schema.type : [schema.type];
+    if (!types.includes('array')) return false;
+    return ELEMENTS.flatMap((k) => (Array.isArray(schema[k]) ? (schema[k] as unknown[]) : [schema[k]])).some((member) => visit(member, owner, true));
+  };
+  const entry = graph.get(key);
+  return entry !== undefined && visit(entry.schema, entry.owner, false);
+}

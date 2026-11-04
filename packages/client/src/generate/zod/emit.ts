@@ -2,7 +2,7 @@ import type { ParamEntry } from '@spinajs/manifest';
 import type { ZodOptions } from '../files.js';
 import type { ClientModel } from '../model.js';
 import { literal, propertyKey } from '../ts-type.js';
-import { coercedClosure, COERCED_KINDS, convertedFits, isStrictId, scalarRuntime } from './coerced.js';
+import { coercedClosure, COERCED_KINDS, convertedFits, isStrictId, scalarRuntime, wrapsWithoutEnd } from './coerced.js';
 import { defaultsLiteral, defaultsOf } from './defaults.js';
 import { compare, Diagnostics, type GeneratorDiagnostic } from './diagnostics.js';
 import { isPlainObject, nodesIn, Printer, reopen, UNKNOWN, type ZodNode } from './print.js';
@@ -205,7 +205,10 @@ class ZodFile {
 
   private declaration(entry: NamedSchema, variant: Variant = 'request'): string {
     const state = { annotated: false };
-    const node = this.root(entry, state, variant);
+    const rooted = this.root(entry, state, variant);
+    const guarded = variant === 'coerced' && wrapsWithoutEnd(this.graph, entry.key);
+    if (guarded) this.builder.helpers.add('guardDepth');
+    const node: ZodNode = guarded ? { ...rooted, guarded } : rooted;
     const name = this.variantName(entry, variant);
     // A reply opens what a request closes, so only request and coerced declarations stand for an argument.
     if (variant !== 'reply') {
@@ -370,6 +373,25 @@ class ZodFile {
       helpers.push(`// Ajv's oneOf: exactly one member matches the value as sent (a member's output may have dropped keys).
 function oneOf<const T extends ${tuple}>(options: T) {
   return ${pipe(`z.custom<z.input<${union}<T>>>(${check})`, 'z.union(options)')};
+}`);
+    }
+    if (used.has('guardDepth')) {
+      // zod/mini's transform context has no addIssue.
+      const add = (issue: string): string => (mini ? `ctx.issues.push({ ...${issue}, input: value } as never)` : `ctx.addIssue(${issue} as never)`);
+      const body = `(value, ctx) => {
+    try {
+      const result = schema.safeParse(value);
+      if (result.success) return result.data;
+      for (const issue of result.error.issues) ${add('issue')};
+    } catch (error) {
+      if (!(error instanceof RangeError)) throw error;
+      ${add("{ code: 'custom', message: 'the value is nested too deeply to validate' }")};
+    }
+    return z.NEVER;
+  }`;
+      helpers.push(`// Ajv refuses a value that recurses without end (maxDepth); zod would overflow the stack.
+function guardDepth<T>(schema: ${type}<T>): ${type}<T> {
+  return ${mini ? `z.pipe(z.unknown(), z.transform(${body}))` : `z.unknown().transform(${body})`} as unknown as ${type}<T>;
 }`);
     }
     if (used.has('oneOfReply')) {
