@@ -1,48 +1,19 @@
 import 'mocha';
 import { expect } from 'chai';
-import { JSDOM } from 'jsdom';
-import type { AddressInfo } from 'node:net';
-import { registerHooks } from 'node:module';
 import { createElement, type ComponentType, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { AccessPolicy, PrincipalMiddleware } from '@spinajs/authz-http';
-import { DI } from '@spinajs/di';
-import { fsService } from '@spinajs/fs';
-import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
-import { Intl } from '@spinajs/intl';
-import { createTestApp, type TestApp } from '@spinajs/testing';
+import type { TestApp } from '@spinajs/testing';
 import { generateClientFiles } from '../src/index.js';
 import { resetUsers, TagsController, UsersController } from './fixtures/paged-app/src/controllers.js';
-import { AllowAccess, E2eConfiguration } from './support/harness.js';
-import { writeModules, type ModuleDir } from './support/modules.js';
+import { startApp } from './support/harness.js';
+import { installDom, quiet, waitFor, withAliasedImports, writeModules, type Dom, type ModuleDir } from './support/modules.js';
 import { pagedManifest } from './support/paged.js';
-
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-async function waitFor(condition: () => boolean, what: string, timeout = 10000): Promise<void> {
-  const deadline = Date.now() + timeout;
-  while (!condition()) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await sleep(5);
-  }
-}
 
 /** Requests per path, as the counting fetch saw them. */
 type Requests = Record<string, number>;
 
 // Returns once no request has been sent for a whole quiet period.
-async function settled(requests: Requests, period = 100, timeout = 10000): Promise<void> {
-  const deadline = Date.now() + timeout;
-  let last = JSON.stringify(requests);
-  for (let since = Date.now(); Date.now() - since < period; ) {
-    if (Date.now() > deadline) throw new Error(`requests never settled: ${last}`);
-    await sleep(10);
-    const now = JSON.stringify(requests);
-    if (now !== last) [last, since] = [now, Date.now()];
-  }
-}
-
-const GLOBALS = ['window', 'document', 'navigator'] as const;
+const settled = (requests: Requests) => quiet(() => requests, 100);
 
 interface Page { items: { id: number; name: string }[]; total?: number; next?: string | null }
 interface Infinite { data?: { pages: Page[]; pageParams: unknown[] }; hasNextPage: boolean; fetchNextPage(): Promise<Infinite> }
@@ -71,36 +42,17 @@ describe('infinite hooks against a booted paged-app', function () {
   let app: TestApp;
   let baseUrl: string;
   let files: Record<string, string>;
-  let dom: JSDOM;
-  let saved: Partial<Record<(typeof GLOBALS)[number], PropertyDescriptor>>;
+  let dom: Dom;
 
   before(async () => {
-    app = await createTestApp({
-      configuration: E2eConfiguration,
-      register: (c) => {
-        c.unregister(ServerMiddleware, PrincipalMiddleware);
-        for (const controller of [UsersController, TagsController]) c.register(controller).as(BaseController);
-        c.register(AllowAccess).as(AccessPolicy);
-      },
-      resolve: [fsService, Intl, Controllers],
-      bootTimeout: 50000,
-    });
-    await (await app.resolve(HttpServer)).start();
-    baseUrl = `http://127.0.0.1:${(DI.get(HttpServer)!.Server.address() as AddressInfo).port}`;
+    ({ app, baseUrl } = await startApp([UsersController, TagsController]));
     const generated = await generateClientFiles({ manifest: await pagedManifest(), hooks: ['react-query', 'swr'] });
     files = Object.fromEntries(generated.map((f) => [f.path, f.contents]));
-    dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { pretendToBeVisual: true });
-    saved = Object.fromEntries(GLOBALS.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
-    for (const name of GLOBALS) Object.defineProperty(globalThis, name, { value: dom.window[name], configurable: true, writable: true });
+    dom = installDom();
   });
 
   after(async () => {
-    for (const name of GLOBALS) {
-      const descriptor = saved[name];
-      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
-      else Reflect.deleteProperty(globalThis, name);
-    }
-    dom.window.close();
+    dom.restore();
     await app.dispose();
   });
 
@@ -118,12 +70,7 @@ describe('infinite hooks against a booted paged-app', function () {
           library.kind === 'swr' ? { swr: sub(''), 'swr/infinite': sub('/infinite'), 'swr/mutation': sub('/mutation') } : { '@tanstack/react-query': sub('') };
         const hooksFile = library.kind === 'swr' ? 'client.swr.js' : 'client.react-query.js';
         const module = writeModules(files, { react: import.meta.resolve('react'), '@spinajs/client/runtime': runtimeUrl, ...libraries });
-        // swr 2.2.0 is installed under an alias, and its own files import `swr/_internal`, which has to stay inside that copy.
-        const redirect = registerHooks({
-          resolve: (specifier, context, next) =>
-            library.package === 'swr-floor' && context.parentURL?.includes('/node_modules/swr-floor/') && /^swr(\/|$)/.test(specifier) ? next(specifier.replace(/^swr/, 'swr-floor'), context) : next(specifier, context),
-        });
-        try {
+        const load = async () => {
           const [client, react, hooks, lib] = await Promise.all([
             module.import<Pick<Loaded, 'createAppClient'>>('client.js'),
             module.import<Pick<Loaded, 'AppClientProvider'>>('client.react.js'),
@@ -136,9 +83,8 @@ describe('infinite hooks against a booted paged-app', function () {
             return createElement(lib.QueryClientProvider, { client: queryClient }, children);
           };
           loaded = { module, createAppClient: client.createAppClient, AppClientProvider: react.AppClientProvider, hooks, Provider };
-        } finally {
-          redirect.deregister();
-        }
+        };
+        await (library.package === 'swr-floor' ? withAliasedImports('swr-floor', 'swr', load) : load());
       });
 
       after(() => loaded.module.remove());
@@ -168,9 +114,9 @@ describe('infinite hooks against a booted paged-app', function () {
           latest = use();
           return null;
         };
-        root = createRoot(dom.window.document.getElementById('root') as HTMLElement);
+        root = createRoot(dom.document.body.appendChild(dom.document.createElement('div')));
         root.render(loaded.Provider(createElement(loaded.AppClientProvider, { client }, createElement(Probe))));
-        await waitFor(() => latest !== undefined, 'the first render');
+        await waitFor(() => latest !== undefined, 'the first render', 10000);
         return { current: () => latest as T };
       }
 
