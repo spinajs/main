@@ -20,6 +20,15 @@ export interface ArgumentModel {
 
 export type RouteKind = 'query' | 'mutation' | 'none';
 
+/** `RouteEntry.pagination` of a route whose page parameter the client can send. */
+export interface PaginationModel {
+  kind: 'offset' | 'cursor';
+  /** The argument that carries the page parameter, and the property inside it (`[]` for the argument itself). */
+  param: { arg: string; path: string[] };
+  /** First page index of an `offset` route: 0 or 1. */
+  firstPage?: number;
+}
+
 export interface RouteModel {
   controllerKey: string;
   name: string;
@@ -33,6 +42,8 @@ export interface RouteModel {
   returnSchema?: string;
   /** The route-table literal `client.ts` prints. */
   definition: string;
+  /** Absent on a route that returns no page, and on a page without a page parameter (doctor HTTP007). */
+  pagination?: PaginationModel;
 }
 
 function routeLabel(controller: ControllerEntry, route: RouteEntry): string {
@@ -119,6 +130,16 @@ function routeKind(method: RouteEntry['method']): RouteKind {
   return method === 'head' || method === 'file' ? 'none' : 'mutation';
 }
 
+// `param.arg` is the ParamEntry name, which an argument keeps; a path deeper than one property is not one the compiler records.
+function paginationModel(route: RouteEntry, args: ArgumentModel[]): PaginationModel | undefined {
+  const { pagination } = route;
+  const param = pagination?.param;
+  const arg = param && args.find((a) => a.name === param.arg && a.wire.in === 'query');
+  if (!pagination || !param || !arg || param.path.length > 1 || (param.path.length === 0) !== (arg.wire.shape === 'value')) return undefined;
+  const located = { kind: pagination.kind, param: { arg: param.arg, path: [...param.path] } };
+  return pagination.kind === 'offset' ? { ...located, firstPage: pagination.firstPage ?? 1 } : located;
+}
+
 export function routeModel(controller: ControllerEntry, route: RouteEntry, ctx: TypeContext): RouteModel {
   const label = routeLabel(controller, route);
   const path = pathOf(label, route);
@@ -136,8 +157,11 @@ export function routeModel(controller: ControllerEntry, route: RouteEntry, ctx: 
     returnTypeNames,
     ...(route.returnType.schema !== undefined ? { returnSchema: route.returnType.schema } : {}),
     definition: `{ ${parts.join(', ')} }`,
+    ...withPagination(paginationModel(route, args)),
   };
 }
+
+const withPagination = (pagination: PaginationModel | undefined) => (pagination ? { pagination } : {});
 
 export function controllerBase(controller: ControllerEntry): string {
   return controller.className.replace(/Controller$/, '');
