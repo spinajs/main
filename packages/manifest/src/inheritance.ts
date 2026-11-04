@@ -57,12 +57,16 @@ function overriddenRoute(inherited: RouteEntry, override: RouteOverride): RouteE
   const access = override.access ?? inherited.access;
   const reason = override.public ?? inherited.public;
   const doc = override.doc ?? inherited.doc;
+  const { pagination: inheritedPagination, ...rest } = inherited;
+  // Follows `returnType`: a redeclared verb route that returns no page is not paginated.
+  const pagination = declared ? declared.pagination : inheritedPagination;
   return {
-    ...inherited,
+    ...rest,
     method: declared?.method ?? inherited.method,
     path: declared?.path ?? inherited.path,
     params: mergeParams(inherited.params, override.params),
     returnType: declared?.returnType ?? inherited.returnType,
+    ...(pagination ? { pagination } : {}),
     policies: inheritPolicies(inherited.policies, override.policies),
     middlewares: inheritMiddlewares(inherited.middlewares, override.middlewares),
     ...(access ? { access } : {}),
