@@ -19,6 +19,7 @@ import * as cs from 'cookie-signature';
 import { loadedFastXmlParser, loadXmlBuilder } from './lazy-modules.js';
 import { FIELD_NAME_PATTERN, strictHeader } from './headers.js';
 import { isProblem, PROBLEM_CONTENT_TYPE } from './problem.js';
+import { capturedJsonReply, responseCaptureOf } from './response-capture.js';
 
 const TRANSFORMER_HEADER_MAX_LENGTH = 256;
 // RFC 9110 token: only such a name is repeated back in the 400 for an unknown transformer.
@@ -83,6 +84,9 @@ export function jsonResponse(model: any, options?: IResponseOptions) {
     } else {
       res.json();
     }
+
+    // Every JSON reply passes here: route results, error problems, transformers. See docs/http/26-idempotency.md.
+    responseCaptureOf(res)?.capture(capturedJsonReply(res, model));
   };
 }
 
