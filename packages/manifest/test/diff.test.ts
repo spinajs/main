@@ -58,6 +58,59 @@ describe('diffManifest', () => {
       expect(find(diffManifest(base, head).changes, 'routes', 'GET /health/get')).to.include({ kind: 'removed', breaking: true });
     });
 
+    describe('client names', () => {
+      const withController = (className: string, handler: string, path = ':id'): Manifest =>
+        manifestWith({ controllers: [controllerEntry({ className, basePath: 'users', mountPath: '/users', routes: [routeEntry('get', '/users/:id', { path, handler })] })] });
+
+      it('a handler rename under an unchanged path is a non-breaking routes change', () => {
+        const diff = diffManifest(withController('UsersController', 'get'), withController('UsersController', 'read'));
+        expect(diff.changes).to.have.length(1);
+        expect(find(diff.changes, 'routes', 'GET /users/:id')).to.deep.include({
+          kind: 'changed',
+          breaking: false,
+          detail: 'client method users.get renamed to users.read: generated hooks and query keys change',
+        });
+        expect(diff.breaking).to.equal(false);
+      });
+
+      it('a controller class rename under an unchanged base path is a non-breaking routes change', () => {
+        const diff = diffManifest(withController('UsersController', 'get'), withController('PeopleController', 'get'));
+        expect(find(diff.changes, 'routes', 'GET /users/:id')).to.deep.include({
+          kind: 'changed',
+          breaking: false,
+          detail: 'client method users.get renamed to people.get: generated hooks and query keys change',
+        });
+      });
+
+      it('a rename of both reports one finding', () => {
+        const diff = diffManifest(withController('UsersController', 'get'), withController('PeopleController', 'read'));
+        expect(diff.changes).to.have.length(1);
+        expect(diff.changes[0].detail).to.equal('client method users.get renamed to people.read: generated hooks and query keys change');
+      });
+
+      it('a class rename that keeps the client key reports nothing', () => {
+        expect(diffManifest(withController('UsersController', 'get'), withController('Users', 'get')).changes).to.deep.equal([]);
+      });
+
+      it('joins the finding with a breaking one, so the route stays breaking', () => {
+        const head = withController('UsersController', 'read');
+        head.controllers[0].routes[0].params.push({ ...param('tenant', true), index: 0 });
+        const change = find(diffManifest(withController('UsersController', 'get'), head).changes, 'routes', 'GET /users/:id');
+        expect(change?.breaking).to.equal(true);
+        expect(change?.detail).to.include('client method users.get renamed to users.read');
+        expect(change?.detail).to.include('tenant');
+      });
+
+      it('a handler rename under a bare path that follows the handler stays a removal plus an addition', () => {
+        const bare = (handler: string): Manifest =>
+          manifestWith({ controllers: [controllerEntry({ className: 'UsersController', basePath: 'users', routes: [routeEntry('get', `/users/${handler}`, { path: '', handler })] })] });
+        const diff = diffManifest(bare('list'), bare('all'));
+        expect(find(diff.changes, 'routes', 'GET /users/list')).to.include({ kind: 'removed', breaking: true });
+        expect(find(diff.changes, 'routes', 'GET /users/all')).to.include({ kind: 'added', breaking: false });
+        expect(diff.changes).to.have.length(2);
+      });
+    });
+
     it('new required parameter is breaking', () => {
       const head = clone();
       routeOf(head, 'get', '/users/list').params.push(param('tenant', true));
