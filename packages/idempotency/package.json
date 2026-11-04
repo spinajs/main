@@ -12,16 +12,11 @@
     "./testing": {
       "types": "./lib/testing/index.d.ts",
       "import": "./lib/testing/index.js"
-    },
-    "./scheduler": {
-      "types": "./lib/scheduler.d.ts",
-      "import": "./lib/scheduler.js"
     }
   },
   "typesVersions": {
     "*": {
-      "testing": ["lib/testing/index.d.ts"],
-      "scheduler": ["lib/scheduler.d.ts"]
+      "testing": ["lib/testing/index.d.ts"]
     }
   },
   "type": "module",
