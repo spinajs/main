@@ -35,12 +35,29 @@ describe('extractWorkflows', () => {
     expect(basic).to.not.have.property('workflows');
   });
 
+  const names = createProgramFromTsconfig('test/fixtures/pkg-workflow/tsconfig.names.json');
+  const extractFrom = (suffix: string) => {
+    const fileCtx = createContext(names, 'pkg-workflow', 'test/fixtures/pkg-workflow');
+    const entries = extractWorkflows(fileCtx, names.sourceFiles.find((f) => f.fileName.endsWith(suffix))!);
+    return { entries, diagnostics: fileCtx.diagnostics.map((d) => [d.code, d.severity, d.message, d.source?.line]) };
+  };
+
+  it('reads names, permissions and options held in constants; WF004 still checks a step key', () => {
+    const { entries, diagnostics } = extractFrom('consts.ts');
+    expect(entries.map(({ name, version, className, signals }) => ({ name, version, className, signals }))).to.deep.equal([
+      { name: 'consts', version: 3, className: 'Consts', signals: [{ name: 'approved', permission: 'orders:approve' }, { name: 'ship', permission: 'orders:ship' }] },
+    ]);
+    expect(diagnostics.filter((d) => d[0] !== 'CMP001')).to.deep.equal([
+      ['WF004', 'warning', 'Consts.run calls Date.now() outside a step; use ctx.now() so a replay sees the same value', 15],
+      ['WF006', 'warning', 'UnreadVersion: the @Workflow name or version cannot be read at build time; the class is left out of the manifest', 19],
+      ['WF006', 'warning', 'UnreadOptions: the @Workflow name or version cannot be read at build time; the class is left out of the manifest', 24],
+    ]);
+  });
+
   it("WF005 flags a literal event name with '#' or '*', which waitForEvent refuses, and leaves it out", () => {
-    const names = createProgramFromTsconfig('test/fixtures/pkg-workflow/tsconfig.names.json');
-    const namesCtx = createContext(names, 'pkg-workflow', 'test/fixtures/pkg-workflow');
-    const [entry] = extractWorkflows(namesCtx, names.sourceFiles.find((f) => f.fileName.endsWith('names.ts'))!);
-    expect(entry?.signals).to.deep.equal([{ name: 'ok' }]);
-    expect(namesCtx.diagnostics.map((d) => [d.code, d.severity, d.message, d.source?.line])).to.deep.equal([
+    const { entries, diagnostics } = extractFrom('names.ts');
+    expect(entries[0]?.signals).to.deep.equal([{ name: 'ok' }]);
+    expect(diagnostics).to.deep.equal([
       ['WF005', 'warning', `Names.run waits for event "a#b", which waitForEvent refuses: event names cannot contain '#' or '*'`, 6],
       ['WF005', 'warning', `Names.run waits for event "all*", which waitForEvent refuses: event names cannot contain '#' or '*'`, 7],
     ]);

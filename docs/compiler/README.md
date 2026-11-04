@@ -89,7 +89,7 @@ The packages considered are the app's installed dependency closure: `dependencie
 | `schedules` | `@Schedule(name, options)` | |
 | `commands` | Classes extending `CliCommand` with `@Command`, `@Option` and `@Argument` | Name is the first word of the command string. |
 | `queueMessages` | `@Job`, `@Event` classes | `kind` is `job` or `event`; the payload is the class type. |
-| `workflows` | `@Workflow(name, { version })` classes | `version` defaults to 1. `signals` lists the literal names of the `ctx.waitForEvent` calls in `run()` with their literal `permission`, once per name and permission; a computed name is recorded as `'*'`. Omitted when the package has no workflow. |
+| `workflows` | `@Workflow(name, { version })` classes | `version` defaults to 1. `signals` lists the names of the `ctx.waitForEvent` calls in `run()` with their `permission`, once per name and permission; literals and constants count, and a name that cannot be evaluated is recorded as `'*'`. Omitted when the package has no workflow. |
 
 ### Conditions
 
@@ -194,8 +194,9 @@ Every diagnostic has a `code`, a `severity` (`error`, `warning`, `info`), a `mes
 | `CLI001` | warning | `spinajs build` only: the working directory is not the `tsconfig` folder, and `system.dirs` was computed from it. |
 | `TYP001` | info | `runtime-type-not-exported`: a route argument, socket payload or injected property has a class type that is not exported, so the manifest records no `ref` for it. Without decorator metadata the runtime cannot load it; export the class. |
 | `TYP002` | info | `runtime-type-not-importable`: the class is declared in a package without a manifest fragment (types from `@types/*`), or in an ambient module (`node:async_hooks`). Without decorator metadata the runtime cannot load it; pass the type to the decorator (`@Type(X)`, `@Autoinject(X)`). |
-| `WF004` | warning | `Date.now()`, `new Date()` without arguments or `Math.random()` in the `run()` of a `@Workflow` class, outside a `ctx.step` or `ctx.emit` callback: a replay sees another value. Use `ctx.now()` or `ctx.random()`. |
+| `WF004` | warning | `Date.now()`, `new Date()` without arguments or `Math.random()` in the `run()` of a `@Workflow` class, outside the functions passed to `ctx.step` or `ctx.emit` (a step key is checked too): a replay sees another value. Use `ctx.now()` or `ctx.random()`. |
 | `WF005` | warning | A `ctx.waitForEvent` in `run()` names a literal event with `#` or `*`, which `waitForEvent` refuses at runtime. The signal is left out of the manifest. |
+| `WF006` | warning | The name or the `version` of a `@Workflow` decorator cannot be evaluated at build time. The class is left out of the manifest, since a guessed version would show as a duplicate (`WF001`) or as a wrong diff row. |
 | `CFG010` | warning | A configuration schema is not a literal with `$id` and `$configurationModule`. |
 | `SCH001` | warning / info | A type has no JSON Schema form and is emitted as `{}`: `any`, a function, `symbol`, `never`. Give the member a real type. `unknown`, `object` and an `any` index signature are `info`: the value is accepted as is, which suits an opaque value. A model read from a declaration file is `info` too (see the model row above). A type declared outside the package says where in the message (`declared in X`). |
 | `SCH002` | warning | A type nests deeper than the depth limit (20) and the cut is emitted as `{}`. Usually a framework type reached through a member; a recursive alias no longer causes it. |
