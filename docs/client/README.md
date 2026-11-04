@@ -90,6 +90,22 @@ The same generator is available as `generateClient({ manifest, moduleName?, incl
 
 Install `@spinajs/client` next to `@spinajs/cli` to use the command.
 
+### Flags
+
+| Flag | Writes next to `--out` |
+| --- | --- |
+| none | `client.ts` |
+| `--hooks react-query,swr` | the hooks files |
+| `--socket-hooks` | socket hooks inside the hooks files; needs `--hooks` |
+| `--zod` with `--zod-mini`, `--zod-replies`, `--zod-unsupported warn\|error` | `client.zod.ts` |
+| `--models` | model types and conversions inside `client.ts` |
+| `--server`, `--next` | `client.server.ts`, `client.next.ts` (`--next` implies `--server`) |
+| `--mocks`, `--msw` | `client.mocks.ts`, `client.msw.ts` |
+| `--key-prefix <name>` | changes the first element of every query key |
+| `--check` | nothing; exits 1 and names each file that is missing or differs |
+
+Every file comes from one read of the manifest. A flag whose generator has not been released in your `@spinajs/client` fails with `<flag> is not available in this version`, and nothing is written. [CLI command reference](../cli/08-command-reference.md#generateclient) has the full table.
+
 ## Extending generated types
 
 The generated file is build output: it starts with `Do not edit`, and the next `spinajs generate:client` overwrites it. Put your code in files next to it.
@@ -138,7 +154,6 @@ Regenerate in CI and compile, so a server change that breaks a wrapper fails the
 
 ```sh
 spinajs build
-spinajs generate:client --out src/generated/client.ts
-git diff --exit-code src/generated/client.ts   # only when the file is committed
+spinajs generate:client --out src/generated/client.ts --check   # only when the files are committed
 tsc --noEmit
 ```

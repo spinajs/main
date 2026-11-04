@@ -189,8 +189,7 @@ A pipeline that builds, checks the wiring and fails when committed generated fil
 - run: npm run build
 - run: npx spinajs build --fail-on-warning
 - run: npx spinajs doctor --format github
-- run: npx spinajs generate:client --out src/generated/client.ts
-- run: git diff --exit-code src/generated/client.ts   # generator drift
+- run: npx spinajs generate:client --out src/generated/client.ts --check   # generator drift
 - run: npx tsc --noEmit
 ```
 
