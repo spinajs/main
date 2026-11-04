@@ -13,17 +13,23 @@ const MUTATION_KEY = 'readonly unknown[]';
 
 // Every hook in the file shares these, so each signature stays short.
 const HELPERS = [
-  `type MutationConfig<Data, Vars> = SWRMutationConfiguration<Data, AppClientError, ${MUTATION_KEY}, Vars> & {`,
+  `export type MutationConfig<Data, Vars> = SWRMutationConfiguration<Data, AppClientError, ${MUTATION_KEY}, Vars> & {`,
   '  /** Key prefixes to revalidate once the mutation succeeded; replaces the default, the whole controller. `false` revalidates nothing. */',
   `  invalidate?: false | readonly (${MUTATION_KEY})[];`,
   '};',
   '',
-  `type MutationResult<Data, Vars> = SWRMutationResponse<Data, AppClientError, ${MUTATION_KEY}, Vars>;`,
+  `export type MutationResult<Data, Vars> = SWRMutationResponse<Data, AppClientError, ${MUTATION_KEY}, Vars>;`,
   '',
   '// An array key hashes to a string whose elements end in commas, so a prefix key hashes to a prefix of its longer keys.',
   `const under = (prefix: ${MUTATION_KEY}) => {`,
   '  const head = unstable_serialize(prefix);',
   '  return (key: unknown) => Array.isArray(key) && unstable_serialize(key).startsWith(head);',
+  '};',
+  '',
+  // One filter for all prefixes, so a key under several of them is revalidated once.
+  `const underAny = (prefixes: readonly (${MUTATION_KEY})[]) => {`,
+  '  const matchers = prefixes.map(under);',
+  '  return (key: unknown) => matchers.some((matches) => matches(key));',
   '};',
 ];
 
@@ -56,7 +62,7 @@ function mutationHook(hook: HookRoute): string[] {
     '    async (_key, { arg: vars }) => {',
     `      const result = await ${hook.callExpression};`,
     // Awaiting keeps the mutation pending until the refetch settles, like the React Query hooks.
-    '      if (invalidate) await Promise.all(invalidate.map((prefix) => mutate(under(prefix))));',
+    '      if (invalidate) await mutate(underAny(invalidate));',
     '      return result;',
     '    },',
     '    rest,',

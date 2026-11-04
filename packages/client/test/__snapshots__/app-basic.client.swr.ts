@@ -8,17 +8,22 @@ import type { ArticleDto, CreateArticleDto, CreateUserDto, ListQuery, UserDto, V
 
 void ('47f7521612321fc90ebb904d6c0db1aaf014b826ecb98bfdf0121c9bc87f8d29' satisfies typeof manifestHash);
 
-type MutationConfig<Data, Vars> = SWRMutationConfiguration<Data, AppClientError, readonly unknown[], Vars> & {
+export type MutationConfig<Data, Vars> = SWRMutationConfiguration<Data, AppClientError, readonly unknown[], Vars> & {
   /** Key prefixes to revalidate once the mutation succeeded; replaces the default, the whole controller. `false` revalidates nothing. */
   invalidate?: false | readonly (readonly unknown[])[];
 };
 
-type MutationResult<Data, Vars> = SWRMutationResponse<Data, AppClientError, readonly unknown[], Vars>;
+export type MutationResult<Data, Vars> = SWRMutationResponse<Data, AppClientError, readonly unknown[], Vars>;
 
 // An array key hashes to a string whose elements end in commas, so a prefix key hashes to a prefix of its longer keys.
 const under = (prefix: readonly unknown[]) => {
   const head = unstable_serialize(prefix);
   return (key: unknown) => Array.isArray(key) && unstable_serialize(key).startsWith(head);
+};
+
+const underAny = (prefixes: readonly (readonly unknown[])[]) => {
+  const matchers = prefixes.map(under);
+  return (key: unknown) => matchers.some((matches) => matches(key));
 };
 
 export function useArticlesRead(vars: { id: number } | null, config?: SWRConfiguration<ArticleDto, AppClientError>): SWRResponse<ArticleDto, AppClientError> {
@@ -34,7 +39,7 @@ export function useArticlesAdd(config?: MutationConfig<ArticleDto, { body: Creat
     appKeys.articles.add,
     async (_key, { arg: vars }) => {
       const result = await client.articles.add(vars.body);
-      if (invalidate) await Promise.all(invalidate.map((prefix) => mutate(under(prefix))));
+      if (invalidate) await mutate(underAny(invalidate));
       return result;
     },
     rest,
@@ -64,7 +69,7 @@ export function useUsersCreate(config?: MutationConfig<UserDto | ValidationProbl
     appKeys.users.create,
     async (_key, { arg: vars }) => {
       const result = await client.users.create(vars.body);
-      if (invalidate) await Promise.all(invalidate.map((prefix) => mutate(under(prefix))));
+      if (invalidate) await mutate(underAny(invalidate));
       return result;
     },
     rest,
@@ -79,7 +84,7 @@ export function useUsersAvatar(config?: MutationConfig<void, { file: Blob | File
     appKeys.users.avatar,
     async (_key, { arg: vars }) => {
       const result = await client.users.avatar(vars.id, vars.file);
-      if (invalidate) await Promise.all(invalidate.map((prefix) => mutate(under(prefix))));
+      if (invalidate) await mutate(underAny(invalidate));
       return result;
     },
     rest,
