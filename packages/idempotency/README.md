@@ -11,4 +11,4 @@ handle completes, releases or abandons the key, and aborts `handle.signal` with 
 is refused.
 
 `@spinajs/idempotency/testing` exports `describeIdempotencyStoreConformance`, the mocha suite every store
-implementation must pass, and `ManualClock`, a `Clock` whose timers fire only inside `advance()`.
+implementation must pass.

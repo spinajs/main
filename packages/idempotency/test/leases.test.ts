@@ -5,8 +5,9 @@ import { FaultInjector } from '@spinajs/durable';
 import type { FaultPointName } from '@spinajs/durable';
 import { IdempotencyKeyReuse, IdempotencyLeaseLost, IdempotencyLeases, MemoryIdempotencyStore } from '../src/index.js';
 import type { IdempotencyAcquisition, IdempotencyHandle } from '../src/index.js';
-import { ManualClock } from '../src/testing/index.js';
+import { FakeClock } from '@spinajs/durable/testing';
 
+const T0 = Date.parse('2026-01-01T00:00:00.000Z');
 const LEASE = 3_000;
 const REPLY = { kind: 'test', body: { n: 1 } };
 
@@ -29,7 +30,7 @@ class RenewCountingStore extends MemoryIdempotencyStore {
 }
 
 function setup(renew = true) {
-  const clock = new ManualClock();
+  const clock = new FakeClock(T0);
   const store = new RenewCountingStore();
   const faults = new RecordingFaults();
   const leases = new IdempotencyLeases({ store, timers: clock, now: () => clock.now(), leaseMs: LEASE, faults, renew });
