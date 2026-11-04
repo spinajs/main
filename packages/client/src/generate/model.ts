@@ -22,6 +22,8 @@ export interface ClientModel {
   controllers: ControllerModel[];
   /** The socket controllers the client includes; empty with `includeSocket: false`. */
   sockets: SocketControllerEntry[];
+  /** Can be true with no sockets: 4.0 printed the `defineContract` import whenever it was asked to include sockets. */
+  includeSocket: boolean;
 }
 
 export interface BuildClientModelOptions {
@@ -42,5 +44,5 @@ export function buildClientModel(manifest: Manifest, options: BuildClientModelOp
   for (const socket of sockets) emitContract(socket, ctx);
   resolveReferences(ctx);
   ctx.seal();
-  return { manifestHash: published.hash, ctx, controllers, sockets };
+  return { manifestHash: published.hash, ctx, controllers, sockets, includeSocket };
 }

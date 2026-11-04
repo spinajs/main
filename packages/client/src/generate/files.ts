@@ -63,7 +63,7 @@ export async function generateClientFiles(options: GenerateClientFilesOptions): 
   const basename = options.basename ?? 'client';
   const model = buildClientModel(options.manifest, { includeSocket: options.includeSocket });
   const emitters = requestedTargets(options).flatMap((t) => COMPANIONS[t] ?? []);
-  const client = await emitClient(model, { moduleName: options.moduleName, includeSocket: options.includeSocket, manifestHash: emitters.length > 0 });
+  const client = await emitClient(model, { moduleName: options.moduleName, manifestHash: emitters.length > 0 });
   const files: GeneratedFile[] = [{ path: `${basename}.ts`, contents: client }];
   for (const emit of emitters) files.push(...(await emit(model, { ...options, basename })));
   return files;

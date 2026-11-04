@@ -2,6 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import type { Manifest, RouteEntry } from '@spinajs/manifest';
 import { buildClientModel, generateClient, type ClientModel, type RouteModel } from '../src/index.js';
+import { emitClient } from '../src/generate.js';
 import { appBasicManifest } from './support/fixture.js';
 
 const source = { line: 1, col: 1, file: 'x.ts', package: 'x' };
@@ -28,6 +29,16 @@ describe('buildClientModel', () => {
   it('carries the manifest hash and the socket controllers', () => {
     expect(model.manifestHash).to.equal(manifest.hash);
     expect(model.sockets.map((s) => s.id)).to.deep.equal(['app-basic:ChatSocketController']);
+  });
+
+  it('records whether the client includes sockets, so every printer of the model agrees', async () => {
+    const noSockets: Manifest = { ...manifest, socketControllers: [] };
+    expect(model.includeSocket).to.equal(true);
+    expect(buildClientModel(manifest, { includeSocket: false }).includeSocket).to.equal(false);
+    expect(buildClientModel(noSockets).includeSocket).to.equal(false);
+    const forced = buildClientModel(noSockets, { includeSocket: true });
+    expect(forced.includeSocket).to.equal(true);
+    expect(await emitClient(forced)).to.include("import { defineContract } from '@spinajs/http-socket-common';");
   });
 
   it('orders controllers by class name and names them as the client does', () => {
