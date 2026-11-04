@@ -18,6 +18,8 @@ import { extractMigrations } from './extractors/migrations.js';
 import { extractSchedules } from './extractors/schedules.js';
 import { extractCommands } from './extractors/commands.js';
 import { extractQueueMessages } from './extractors/queue.js';
+import { accessResources } from './extractors/access-resources.js';
+import { authzSectionOf } from './extractors/authz.js';
 import { declaredDirsOf, isUnderDeclaredDirs, type DirSection } from './extractors/declared-dirs.js';
 import { discoveredBy, type AppDirs, type ScannedEntry } from './extractors/effective-dirs.js';
 
@@ -117,6 +119,8 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   const commands = scanned('commands', extractCommands);
   discovered?.requireDirs(controllers.length + socketControllers.length + migrations.length + schedules.length + commands.length);
   const marked = <T extends ScannedEntry>(section: DirSection, entries: T[]): T[] => (discovered ? discovered.filter(section, entries) : entries);
+  const { models, resources } = accessResources(ctx, files, run(extractModels));
+  const authz = authzSectionOf(ctx, files, { resources });
 
   const fragment: ManifestFragment = {
     manifestVersion: MANIFEST_VERSION,
@@ -137,12 +141,13 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
     socketContracts: run(extractSocketContracts),
     configModules: run(extractConfigModules),
     configUsages: run(extractConfigUsages),
-    models: run(extractModels),
+    models,
     migrations: marked('migrations', migrations),
     schedules: marked('schedules', schedules),
     commands: marked('commands', commands),
     ...(discovered?.scanFiles.length ? { scanFiles: discovered.scanFiles } : {}),
     queueMessages: run(extractQueueMessages),
+    ...(authz ? { authz } : {}),
     schemas: Object.fromEntries([...Object.entries(ctx.schemas), ...ctx.schemaRegistry].sort(([a], [b]) => compareCodeUnits(a, b))),
     diagnostics: sortDiagnostics(ctx.diagnostics),
   };

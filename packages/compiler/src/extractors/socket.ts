@@ -2,7 +2,7 @@ import { isAbstractClass } from './abstract.js';
 import ts from 'typescript';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { SocketCommandEntry, SocketContractEntry, SocketControllerEntry, TypeRef } from '@spinajs/manifest';
+import type { PolicyRef, SocketCommandEntry, SocketContractEntry, SocketControllerEntry, SocketEventEntry, TypeRef } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
 import { findDecorator, literalValue, type DecoratorInfo } from '../decorators.js';
 import { policyGroupsOf } from './policies.js';
@@ -11,7 +11,7 @@ import { owningPackage } from '../owning-package.js';
 type NamedMethod = ts.MethodDeclaration & { name: ts.Identifier };
 type NamedClass = ts.ClassDeclaration & { name: ts.Identifier };
 
-function socketAccessOf(m: ts.MethodDeclaration, ctx: ExtractorContext): string[] | undefined {
+function socketAccessOf(m: ts.HasDecorators, ctx: ExtractorContext): string[] | undefined {
   const d = findDecorator(m, 'SocketAccess');
   if (!d) return undefined;
   const v = literalValue(d.args[0], ctx);
@@ -42,10 +42,27 @@ function resultOf(m: NamedMethod, className: string, ctx: ExtractorContext): Pic
   return item ? { result: ctx.typeRef(item, m, hint), stream: true } : { result: ctx.typeRef(returned, m, hint) };
 }
 
+/** `@SocketAccess` joins the `@SocketPolicy` groups as one more alternative, like `@Access` on a route. */
+function guardsOf(node: ts.HasDecorators, scope: 'route' | 'class', ctx: ExtractorContext): { access?: string[]; policies: PolicyRef[][] } {
+  const access = socketAccessOf(node, ctx);
+  const policies = policyGroupsOf(node, ctx, scope);
+  if (access) policies.push([{ type: 'AccessPolicy', options: [scope] }]);
+  return { ...(access ? { access } : {}), policies };
+}
+
+function eventOf(m: NamedMethod, className: string, ev: DecoratorInfo, ctx: ExtractorContext): SocketEventEntry {
+  const { access, policies } = guardsOf(m, 'route', ctx);
+  return {
+    name: (literalValue(ev.args[0], ctx) as string | undefined) ?? m.name.text,
+    handler: m.name.text,
+    ...payloadOf(m, className, ctx),
+    ...(access ? { access } : {}),
+    ...(policies.length ? { policies } : {}),
+  };
+}
+
 function commandOf(m: NamedMethod, className: string, cmd: DecoratorInfo, ctx: ExtractorContext): SocketCommandEntry {
-  const access = socketAccessOf(m, ctx);
-  const policies = policyGroupsOf(m, ctx, 'route');
-  if (access) policies.push([{ type: 'AccessPolicy', options: ['route'] }]);
+  const { access, policies } = guardsOf(m, 'route', ctx);
   return {
     name: (literalValue(cmd.args[0], ctx) as string | undefined) ?? m.name.text,
     handler: m.name.text,
@@ -118,15 +135,18 @@ function controllerOf(node: NamedClass, sc: DecoratorInfo | undefined, ctx: Extr
     const cmd = findDecorator(m, 'Command');
     const ev = findDecorator(m, 'OnEvent');
     if (cmd) commands.push(commandOf(named, node.name.text, cmd, ctx));
-    else if (ev) events.push({ name: (literalValue(ev.args[0], ctx) as string | undefined) ?? named.name.text, handler: named.name.text, ...payloadOf(named, node.name.text, ctx) });
+    else if (ev) events.push(eventOf(named, node.name.text, ev, ctx));
   }
   const contract = sc && boundContractOf(sc, ctx);
   const diArgs = diArgsOf(node, ctx);
+  const { access, policies } = guardsOf(node, 'class', ctx);
   return {
     id: `${ctx.packageName}:${node.name.text}`,
     className: node.name.text,
     prefix: (literalValue(sc?.args[0], ctx) as string | undefined) ?? '',
     ...(contract ? { contract } : {}),
+    ...(access ? { access } : {}),
+    ...(policies.length ? { policies } : {}),
     commands,
     events,
     ...(diArgs.length ? { diArgs } : {}),
