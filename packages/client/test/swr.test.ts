@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import type { Manifest } from '@spinajs/manifest';
+import type { Manifest, RouteEntry } from '@spinajs/manifest';
 import { generateClientFiles, GENERATOR_TARGETS, type GenerateClientFilesOptions } from '../src/index.js';
 import { appBasicManifest } from './support/fixture.js';
 import { typecheckFiles, type SwrVersion } from './support/typecheck.js';
@@ -13,6 +13,31 @@ function matchSnapshot(name: string, contents: string): void {
   if (!existsSync(snapshot(name))) writeFileSync(snapshot(name), contents);
   expect(contents).to.equal(readFileSync(snapshot(name), 'utf8'));
 }
+
+const source = { line: 1, col: 1, file: 'x.ts', package: 'x' };
+
+const itemsRoute = (handler: string, method: RouteEntry['method'], returns: string): RouteEntry => ({ method, path: '', handler, fullPath: `/items/${handler}`, params: [], returnType: { text: returns }, policies: [], middlewares: [], source });
+
+// The only query of this manifest has an empty reply, so the file needs no nullIfEmpty helper. The mutation keeps the
+// mutation imports in use.
+function voidOnly(base: Manifest): Manifest {
+  const routes = [itemsRoute('ping', 'get', 'void'), itemsRoute('touch', 'post', 'string')];
+  return { ...base, controllers: [{ id: 'x:ItemsController', className: 'ItemsController', basePath: 'items', policies: [], middlewares: [], routes, source }] };
+}
+
+const voidApp = [
+  "import { useItemsPing } from './client.swr.js';",
+  '',
+  'type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;',
+  'const exact = <_T extends true>(): void => undefined;',
+  '',
+  'export function app() {',
+  '  const ping = useItemsPing();',
+  '  exact<Equal<typeof ping.data, null | undefined>>();',
+  '  return ping;',
+  '}',
+  '',
+].join('\n');
 
 async function generate(manifest: Manifest, options: Partial<GenerateClientFilesOptions> = {}): Promise<Record<string, string>> {
   const files = await generateClientFiles({ manifest, hooks: ['swr'], ...options });
@@ -138,6 +163,12 @@ describe('SWR hooks', () => {
       expect(typecheckFiles({ ...files, 'app.ts': typedApp }, { noUnusedLocals: true, react, swr })).to.deep.equal([]);
     });
   }
+
+  it('types an empty-reply query as null, and leaves the nullIfEmpty helper out when no query needs it', async () => {
+    const generated = await generate(voidOnly(manifest));
+    expect(generated['client.swr.ts']).to.include('client.items.ping().then(() => null)').and.not.include('nullIfEmpty');
+    expect(typecheckFiles({ ...generated, 'app.ts': voidApp }, { noUnusedLocals: true, swr: 'latest' })).to.deep.equal([]);
+  });
 
   it('fails to compile against a client.ts generated from another manifest', () => {
     const stale = files['client.ts'].replace(`manifestHash = '${manifest.hash}'`, "manifestHash = 'other'");

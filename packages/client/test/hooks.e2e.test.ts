@@ -297,14 +297,13 @@ describe('generated hooks against a booted app', function () {
         expect(requests).to.deep.equal(['POST /users/abc/avatar']);
       });
 
-      it('settles a query whose reply is a 204 without an error', async () => {
+      it('resolves a query whose reply is a 204 to null, without an error', async () => {
         let optional: QueryResult = {};
         mount(() => (optional = library.wire.useWireOptional()), [library.provider()]);
         await waitFor(() => requests.length > 0 && optional.isLoading === false, 'the reply');
         expect(requests).to.deep.equal(['GET /wire/optional']);
         expect(optional.error ?? null).to.equal(null);
-        // React Query fails a query function that resolves undefined, so its factories map an empty reply to null.
-        expect(optional.data).to.equal(name === 'React Query' ? null : undefined);
+        expect(optional.data).to.equal(null);
       });
 
       it('resolves a mutation whose reply is a 204, and refetches its controller', async () => {

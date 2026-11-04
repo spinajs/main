@@ -27,7 +27,7 @@ interface MutationConfig {
 }
 
 interface LoadedHooks {
-  useUsersGet(vars: { id: number } | null): { data?: unknown };
+  useUsersGet(vars: { id: number } | null): { data?: unknown; isLoading?: boolean };
   useUsersList(vars: { query: object } | null): { data?: unknown };
   useUsersCreate(config?: MutationConfig): Trigger;
   useArticlesRead(vars: { id: number } | null): { data?: unknown };
@@ -187,6 +187,18 @@ for (const [label, swrPackage] of PACKAGES) {
       await waitFor(() => seen.user !== undefined, 'the fetch for the variables');
       expect(control.counts).to.deep.equal({ 'users.get:9': 1 });
       expect(seen.user).to.deep.equal({ id: 9, version: 1 });
+    });
+
+    it('resolves an empty reply to null, so it is told apart from data not loaded yet', async () => {
+      const probe = probeClient(newControl());
+      setProbeClient({ ...probe, users: { ...probe.users, get: () => Promise.resolve(undefined) } });
+      let user: { data?: unknown; isLoading?: boolean } = {};
+      await mount(() => {
+        const { data, isLoading } = loaded.hooks.useUsersGet({ id: 1 });
+        user = { data, isLoading };
+      });
+      await waitFor(() => user.isLoading === false, 'the empty reply');
+      expect(user.data).to.equal(null);
     });
 
     it('revalidates every key of the mutation controller by default, and no key of another controller', async () => {

@@ -38,12 +38,20 @@ function varsParameter(hook: HookRoute): string {
   return hook.varsOptional ? `vars: ${type} = {}` : `vars: ${type}`;
 }
 
+const isVoid = (hook: HookRoute) => hook.route.returns === 'void';
+
+// As in the React Query hooks, an empty reply resolves to `null`, so it is told apart from data not loaded yet.
+const queryData = (hook: HookRoute) => (isVoid(hook) ? 'null' : hook.route.returns);
+
+const NULL_IF_EMPTY = ['', '// The client resolves a 204 reply to undefined, which SWR would show as data not loaded yet.', 'const nullIfEmpty = <T>(data: T): T => data ?? (null as T);'];
+
 function queryHook(hook: HookRoute): string[] {
-  const { returns } = hook.route;
+  const data = queryData(hook);
+  const fetcher = `${hook.callExpression}.then(${isVoid(hook) ? '() => null' : 'nullIfEmpty'})`;
   return [
-    `export function ${hook.hookName}(${varsParameter(hook)}, config?: SWRConfiguration<${returns}, AppClientError>): SWRResponse<${returns}, AppClientError> {`,
+    `export function ${hook.hookName}(${varsParameter(hook)}, config?: SWRConfiguration<${data}, AppClientError>): SWRResponse<${data}, AppClientError> {`,
     '  const client = useAppClient();',
-    `  return useSWR<${returns}, AppClientError>(vars && ${hook.keyExpression}, vars && (() => ${hook.callExpression}), config);`,
+    `  return useSWR<${data}, AppClientError>(vars && ${hook.keyExpression}, vars && (() => ${fetcher}), config);`,
     '}',
   ];
 }
@@ -84,6 +92,7 @@ export function emitSwr(model: ClientModel, hooks: HookRoute[], options: SwrOpti
     ...manifestHashCheck(model),
     '',
     ...HELPERS,
+    ...(hooks.some((h) => h.route.kind === 'query' && !isVoid(h)) ? NULL_IF_EMPTY : []),
     ...hooks.flatMap((h) => ['', ...(h.route.kind === 'query' ? queryHook(h) : mutationHook(h))]),
   ];
   return withUseClient(`${lines.join('\n')}\n`);
