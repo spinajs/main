@@ -12,6 +12,8 @@ import * as express from 'express';
 import type { ErrorClass, OnErrorHandler, OnErrorOptions } from './errors/on-error.js';
 import { strictHeaderReader } from './headers.js';
 import type { StrictHeaderOptions } from './headers.js';
+import { resolveIdempotentOptions } from './idempotency/options.js';
+import type { IdempotentOptions } from './idempotency/options.js';
 
 
 export const CONTROLLED_DESCRIPTOR_SYMBOL = Symbol('CONTROLLER_SYMBOL');
@@ -359,6 +361,21 @@ export function Public(reason: string) {
   return Route((controller: IControllerDescriptor, route: IRoute) => {
     (route ?? controller).Public = reason;
   });
+}
+
+/**
+ * Runs the route at most once per `Idempotency-Key` header, principal and route while its reply is kept: a repeat gets
+ * the stored JSON reply with `Idempotent-Replayed: true`. Needs `@spinajs/idempotency` installed. Options are checked
+ * here, so a wrong one fails at import. See docs/http/26-idempotency.md.
+ */
+export function Idempotent(options?: IdempotentOptions): MethodDecorator {
+  const resolved = resolveIdempotentOptions(options);
+  return Route((_: IControllerDescriptor, route: IRoute | null) => {
+    if (!route) {
+      throw new InvalidArgument('@Idempotent goes on a route method, not on a controller');
+    }
+    route.Idempotency = resolved;
+  }) as MethodDecorator;
 }
 
 export function Middleware(policy: Constructor<RouteMiddleware>, ...options: any[]) {
