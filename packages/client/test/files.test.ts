@@ -57,7 +57,7 @@ describe('generateClientFiles', () => {
       'react-query': { available: false },
       swr: { available: false },
       zod: { available: false },
-      models: { available: false },
+      models: { available: true },
       'socket-hooks': { available: false },
     });
   });
