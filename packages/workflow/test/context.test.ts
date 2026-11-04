@@ -7,7 +7,7 @@ import { NonDeterminismError, resolveWorkflowConfig, type ActivationContext, Wor
 import { activation } from './support/activation.js';
 import { bootTestEnv, disposeTestEnv } from './support/env.js';
 import { TestCrash, TestFaults } from './support/faults.js';
-import { eventsOf, pick, rejects, seedEvent, seedInstance, seedStep, stepsOf, T0, takeOver } from './support/rows.js';
+import { eventsOf, instance, pick, rejects, seedEvent, seedInstance, seedStep, stepsOf, T0, takeOver } from './support/rows.js';
 
 describe('ActivationContext: steps and replay', () => {
   beforeEach(async () => {
@@ -106,6 +106,24 @@ describe('ActivationContext: steps and replay', () => {
     const replay = await activation('c1');
     expect(await Promise.all([branch(replay.ctx, 'a', 'c', 50), branch(replay.ctx, 'b', 'd', 0)])).to.deep.equal(['c', 'd']);
     expect(replay.journal.unvisited()).to.deep.equal([]);
+    await replay.release();
+  });
+
+  it('same-name branches whose occurrences would swap on replay are non-deterministic', async () => {
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const run = (ctx: ActivationContext) =>
+      Promise.all([
+        ctx.step('a', () => pause(50)).then(() => ctx.step('save', () => 'a')),
+        ctx
+          .step('b', () => 0)
+          .then(() => ctx.step('c', () => 0))
+          .then(() => ctx.step('save', () => 'b')),
+      ]);
+    const first = await activation('c1');
+    expect(await run(first.ctx)).to.deep.equal(['a', 'b']);
+    await first.release();
+    const replay = await activation('c1');
+    expect((await rejects(run(replay.ctx))).message).to.equal("the journal recorded 'step:save#1' at position 4, this run asked for it at 3");
     await replay.release();
   });
 
@@ -223,6 +241,17 @@ describe('ActivationContext: steps and replay', () => {
     const err = (await rejects(h.ctx.step('charge', () => 'paid'))) as WorkflowAborted;
     expect([err.reason, h.abort.signal.reason, (await stepsOf('c1')).length]).to.deep.equal(['journal-failed', 'journal-failed', 0]);
     expect(((await rejects(h.ctx.step('next', () => 1))) as WorkflowAborted).reason).to.equal('journal-failed');
+  });
+
+  it('a crash thrown by a step body writes nothing and releases nothing', async () => {
+    const h = await activation('c1');
+    const crash = new TestCrash('body');
+    const err = await rejects(
+      h.ctx.step('charge', () => {
+        throw crash;
+      }),
+    );
+    expect([err, h.ctx.crashed, (await stepsOf('c1')).length, (await instance('c1')).ClaimedBy]).to.deep.equal([crash, true, 0, 'r1']);
   });
 
   it('a crash at a fault point stops every write of the activation', async () => {
