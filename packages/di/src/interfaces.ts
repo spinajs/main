@@ -222,6 +222,9 @@ export interface IContainer extends EventEmitter {
   getCacheStats(): ContainerCacheStats;
 
   extractDescriptor(type: Class<unknown>): IInjectDescriptor<unknown>;
+
+  /** What this container itself registered (not its ancestors): every key with its implementations, injections and runtime state. */
+  describe(): ContainerDescription;
 }
 
 export interface IDisposeOptions {
@@ -278,6 +281,12 @@ export interface IToInject<T> {
    * `explicit` is the class the decorator names: only the metadata could tell whether the property is a list of it.
    */
   pendingType?: { property: string | symbol; explicit?: Class<unknown>; bind: (type: Class<unknown>, isList: boolean) => IToInject<unknown> };
+
+  /** Set by `@LazyInject`: the property resolves on every read. */
+  lazy?: true;
+
+  /** Set by `@Autoinject(T, { optional: true })`: `undefined` when nothing is registered. */
+  optional?: true;
 }
 
 /** `type` is absent when the build could not record one; `array`: the property is an array or a map. */
@@ -362,4 +371,41 @@ export interface IAutoinjectOptions<T> {
   check?: boolean;
   /** Resolve as `resolveOptional(type)`: `undefined` when nothing is registered. */
   optional?: boolean;
+}
+
+/** `@spinajs/manifest`'s `Lifetime` for classes, plus what a factory or a value registration is. */
+export type ServiceLifetime = 'singleton' | 'new-instance' | 'per-child' | 'per-instance' | 'per-instance-check' | 'factory' | 'value';
+
+export interface InjectionDescription {
+  /** The DI key; for `Array.ofType(T)` or `Array.chainOf(T)` the key of `T`, with `array` set. */
+  token: string;
+  kind: 'ctor' | 'property' | 'lazy';
+  optional: boolean;
+  array: boolean;
+  /** Injected as a Map keyed by `mapFunc`. */
+  mapped?: boolean;
+  property?: string;
+}
+
+export interface ImplementationDescription {
+  name: string;
+  kind: 'class' | 'factory' | 'value';
+  lifetime: ServiceLifetime;
+  /** An instance of the class sits in this container's cache. */
+  instantiated: boolean;
+  async: boolean;
+  injects: InjectionDescription[];
+  /** Why the injections could not be read (a property nothing types); the class is listed without them. */
+  error?: string;
+}
+
+export interface ServiceDescription {
+  token: string;
+  /** A resolution of this key is in flight. */
+  resolving: boolean;
+  implementations: ImplementationDescription[];
+}
+
+export interface ContainerDescription {
+  services: ServiceDescription[];
 }

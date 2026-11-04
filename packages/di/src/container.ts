@@ -6,7 +6,7 @@ import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
 import { ResolveType } from './enums.js';
 import { getTypeName, isAsyncService, isChainArray, isFactory, isTypedArray, isPromise } from './helpers.js';
 import { isToken, Token } from './token.js';
-import { ChildOptions, ContainerCacheStats, ContainerSnapshot, IBind, IContainer, IDisposeOptions, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service, ResolveChainResult } from './interfaces.js';
+import { ChildOptions, ContainerCacheStats, ContainerDescription, ContainerSnapshot, IBind, IContainer, IDisposeOptions, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service, ResolveChainResult } from './interfaces.js';
 import { Class, Factory, ResolveResult } from './types.js';
 import { EventEmitter } from './events.js';
 import { Binder } from './binder.js';
@@ -15,6 +15,7 @@ import { ContainerCache } from './container-cache.js';
 import _ from 'lodash';
 import { ResolveException, RestoreIncomplete, ServiceNotFound } from './exceptions.js';
 import { noteBoundSingle, PROPERTY_TYPE_RESOLVER } from './property-type.js';
+import { describeContainer } from './describe.js';
 
 const MAX_RESTORE_GENERATIONS = 5;
 // restore() gives up on resolutions that keep starting ( a poller, a reconnect loop ) after these. Counts, not a time
@@ -1133,6 +1134,10 @@ export class Container extends EventEmitter implements IContainer {
     descriptor.inject = [...constructorInject, ...uniqueBy(rest, (x) => x.autoinjectKey)].map((x) => (x.pendingType ? this.pendingInjection(x, pendingOwners.get(x)!) : x));
 
     return descriptor;
+  }
+
+  public describe(): ContainerDescription {
+    return describeContainer(this);
   }
 
   /** A property whose type the build did not record: typed by the registered {@link PROPERTY_TYPE_RESOLVER}, else unresolvable. */
