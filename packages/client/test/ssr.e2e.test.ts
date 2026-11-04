@@ -16,6 +16,7 @@ import { createTestApp, type TestApp } from '@spinajs/testing';
 import { HealthController } from '../../compiler/test/fixtures/app-basic/src/controllers/HealthController.js';
 import { UsersController } from '../../compiler/test/fixtures/app-basic/src/controllers/users.js';
 import { generateClientFiles } from '../src/index.js';
+import { DEFAULT_FORWARDED_HEADERS } from '../src/runtime/index.js';
 import type { AppClient, UserDto } from './__snapshots__/app-basic.client.js';
 import { appBasicManifest } from './support/fixture.js';
 import { AllowAccess, E2eConfiguration } from './support/harness.js';
@@ -41,9 +42,19 @@ class RecordHeaders extends ServerMiddleware {
   }
 }
 
+const FRONTEND = 'https://app.example';
+
+// The session cookie makes CsrfGuard check unsafe requests; the frontend's origin is the one it accepts besides its own.
+class CsrfConfiguration extends E2eConfiguration {
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    (this.Config as { http: Record<string, unknown> }).http.csrf = { ambientCookies: ['session'], allowedOrigins: [FRONTEND] };
+  }
+}
+
 interface Generated {
   createAppClient(options: { baseUrl: string; fetch?: typeof fetch }): AppClient;
-  createServerAppClient(options: { baseUrl: string; incoming?: Headers; forward?: string[] }): AppClient;
+  createServerAppClient(options: { baseUrl: string; incoming?: Headers; forward?: readonly string[] }): AppClient;
   appKeys: { users: { get(vars: { id: number }): readonly unknown[] } };
   appQueries: { users: { get(client: AppClient, vars: { id: number }): { queryKey: readonly unknown[]; queryFn: () => Promise<UserDto> } } };
   AppClientProvider: ComponentType<{ client: AppClient; children?: ReactNode }>;
@@ -117,7 +128,7 @@ describe('SSR prefetch and hydration against the booted app-basic', function () 
 
   before(async () => {
     app = await createTestApp({
-      configuration: E2eConfiguration,
+      configuration: CsrfConfiguration,
       register: (c) => {
         c.unregister(ServerMiddleware, PrincipalMiddleware);
         for (const controller of [HealthController, UsersController]) c.register(controller).as(BaseController);
@@ -253,6 +264,31 @@ describe('SSR prefetch and hydration against the booted app-basic', function () 
       root.render(tree(new QueryClient({ defaultOptions: { queries: { retry: false } } }), browser.client, state));
       await waitFor(() => browser.calls.length === 1, 'the refetch of stale hydrated data');
       expect(container().textContent).to.equal('ada@example.com');
+    });
+  });
+
+  describe('mutations from a route handler, through the CSRF guard', () => {
+    const withOrigin = (origin?: string) => {
+      const headers = incoming();
+      if (origin) headers.set('origin', origin);
+      return headers;
+    };
+    const create = (headers: Headers, forward?: readonly string[]) => generated.createServerAppClient({ baseUrl, incoming: headers, forward }).users.create({ email: 'nope' });
+    // The generated files run on the built runtime, whose ProblemError is not the class from src.
+    const refusal = (promise: Promise<unknown>) => promise.then(() => undefined, (e: unknown) => (e instanceof Error && e.name === 'ProblemError' ? (e as Error & { status: number }).status : e));
+
+    it('refuses an unsafe call that carries the session cookie but no Origin', async () => {
+      expect(await refusal(create(withOrigin(FRONTEND)))).to.equal(403);
+      expect(seenByServer[0].headers).to.not.have.property('origin');
+    });
+
+    it("passes when the browser's Origin is forwarded and listed in http.csrf.allowedOrigins", async () => {
+      expect(await create(withOrigin(FRONTEND), [...DEFAULT_FORWARDED_HEADERS, 'origin'])).to.deep.equal({ kind: 'validation', errors: ['email'] });
+      expect(seenByServer[0].headers).to.include({ origin: FRONTEND, cookie: 'session=abc' });
+    });
+
+    it('still refuses a forwarded cross-site Origin, so the SSR server relays no forged request', async () => {
+      expect(await refusal(create(withOrigin('https://evil.example'), [...DEFAULT_FORWARDED_HEADERS, 'origin']))).to.equal(403);
     });
   });
 
