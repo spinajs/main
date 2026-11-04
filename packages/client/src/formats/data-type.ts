@@ -1,4 +1,4 @@
-/*
+/*!
  * Port of checkDataType and checkDataTypes from ajv 8 (lib/compile/validate/dataType.ts), with `strictNumbers: true`.
  * MIT License, Copyright (c) 2015-2021 Evgeny Poberezkin. The full notice is in ajv-formats.ts.
  */

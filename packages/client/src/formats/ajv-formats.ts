@@ -1,4 +1,4 @@
-/*
+/*!
  * Port of the full-mode formats of ajv-formats 2.1.1 (src/formats.ts), which the server registers with `addFormats(ajv)`.
  * The regular expressions are copied verbatim, except where noted.
  *

@@ -1,4 +1,4 @@
-/*
+/*!
  * Port of coerceData from ajv 8 (lib/compile/validate/dataType.ts), with `coerceTypes: 'array'` and `strictNumbers: true`,
  * as the server validates query, path, header and cookie values.
  * MIT License, Copyright (c) 2015-2021 Evgeny Poberezkin. The full notice is in ajv-formats.ts.
