@@ -6,7 +6,7 @@ import { Clock, DbClock, FaultInjector, Heartbeat, quoteFor, RowLease, sqlDialec
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
 import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
-import { ActivationContext, type Park } from './context.js';
+import { ActivationContext, type CompensationResult, type Park } from './context.js';
 import type { SerializedError } from './contract.js';
 import { isCrash, LeaseLostError, NonDeterminismError, serializeError, type AbortReason } from './errors.js';
 import { missingVersions } from './health.js';
@@ -284,9 +284,10 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
     }
     const journal = await Journal.load(instanceId);
     const deadline = definition.timeoutMs === null ? null : row.CreatedAt + definition.timeoutMs;
-    // a compensation pass, a compensated cancel and a timeout found at claim replay run() only to collect the
-    // compensations of the steps already taken (D6)
-    const collect = row.Status === 'compensating' || (row.CancelRequested ? this.config.compensateOnCancel : deadline !== null && this.Clock.now() >= deadline);
+    // a compensation pass, and a compensated cancel or a timeout found at claim of a run with compensable steps,
+    // replay run() only to collect the compensations of the steps already taken (D6)
+    const expired = deadline !== null && this.Clock.now() >= deadline;
+    const collect = row.Status === 'compensating' || (journal.compensable().length > 0 && (row.CancelRequested ? this.config.compensateOnCancel : expired));
     const ctx = new ActivationContext({
       instance: row,
       definition,
@@ -321,7 +322,7 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
     try {
       decision = this.alive(ctx, signals, await this.runPass(row, ctx, definition, journal, signals, abort));
       // under the heartbeat: a compensation longer than leaseTtl keeps the lease, so no other replica runs it again (D6)
-      if (decision.kind === 'write' && this.compensates(row, ctx, decision.patch)) decision = this.alive(ctx, signals, await this.compensation(row, ctx, decision.patch, signals.compensation));
+      if (decision.kind === 'write' && this.compensates(row, ctx, decision.patch)) decision = this.alive(ctx, signals, await this.compensation(row, ctx, decision.patch, signals));
     } finally {
       await heartbeat.stop(this.config.shutdownGrace);
     }
@@ -336,18 +337,15 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
 
   /** Runs run(), or replays it to collect compensations, and decides what it ended with. */
   protected async runPass(row: WorkflowInstanceModel, ctx: ActivationContext, definition: RegisteredWorkflow, journal: Journal, signals: Signals, abort: (reason: AbortReason) => void): Promise<Decision> {
-    if (row.Status === 'compensating') {
-      await this.execute(ctx, definition, signals.compensation);
-      return this.resumed(row, ctx, signals.compensation);
+    if (row.CancelRequested && row.Status !== 'compensating') abort('cancelled');
+    if (ctx.mode === 'collect') {
+      await this.collect(ctx, definition, signals.compensation);
+      return this.collected(ctx, signals.compensation, await this.original(row, ctx));
     }
     let outcome: Outcome = { kind: 'aborted' };
-    if (row.CancelRequested) abort('cancelled');
-    if (ctx.mode === 'collect') await this.execute(ctx, definition, signals.compensation);
-    // collecting without a cancel: the deadline had passed at claim
-    if (ctx.mode === 'collect' && !row.CancelRequested) {
-      return signals.compensation.aborted ? { kind: 'release' } : this.failed(INTERRUPTION_REASON.timeout, serializeError(ctx.expire()), this.Clock.now());
-    }
-    if (!row.CancelRequested) {
+    if (row.CancelRequested) return this.decide(row, ctx, journal, outcome, signals.run);
+    if (ctx.deadline !== null && this.Clock.now() >= ctx.deadline) ctx.expire();
+    else {
       const disarm = this.expireAt(ctx, ctx.deadline, abort);
       try {
         outcome = await this.execute(ctx, definition, signals.run);
@@ -358,34 +356,67 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
     return this.decide(row, ctx, journal, outcome, signals.run);
   }
 
-  /** A compensating instance keeps the failure (or cancel) it compensates for. */
-  protected resumed(row: WorkflowInstanceModel, ctx: ActivationContext, signal: AbortSignal): Decision {
-    if (signal.aborted) return { kind: 'release' };
+  /**
+   * Ends once every compensable step registered, when run() settles, or at the cap: a replay awaiting something
+   * outside the workflow must not hold the instance, and the pass then refuses the incomplete set.
+   */
+  protected async collect(ctx: ActivationContext, definition: RegisteredWorkflow, signal: AbortSignal): Promise<void> {
+    if (ctx.missingCompensations().length === 0) return;
+    const handle = this.Timers.setTimeout(() => ctx.endCollect(), Math.max(this.config.leaseTtl, this.config.shutdownGrace));
+    try {
+      await this.execute(ctx, definition, signal);
+    } finally {
+      this.Timers.clearTimeout(handle);
+    }
+  }
+
+  /** What a collecting activation compensates for: the stored failure or cancel, a cancel or a timeout found at claim. */
+  protected async original(row: WorkflowInstanceModel, ctx: ActivationContext): Promise<Patch> {
     const now = this.Clock.now();
-    const original: Patch = { Status: row.CancelRequested ? 'cancelled' : 'failed', Reason: row.Reason, Error: row.Error, WakeAt: null, WaitingFor: null, FinishedAt: now };
+    if (row.Status === 'compensating') return { Status: row.CancelRequested ? 'cancelled' : 'failed', Reason: row.Reason, Error: row.Error, WakeAt: null, WaitingFor: null, FinishedAt: now };
+    if (row.CancelRequested) return this.cancelled(row.Id, now);
+    return this.failure(INTERRUPTION_REASON.timeout, serializeError(ctx.expire()), now);
+  }
+
+  protected collected(ctx: ActivationContext, signal: AbortSignal, original: Patch): Decision {
+    if (signal.aborted) return { kind: 'release' };
     const i = ctx.interruption;
     // the code changed under the instance: the collected compensations may not be all the steps it took
-    if (i?.kind === 'nondeterminism') return this.compensationFailed(serializeError(i.error), original, now);
+    if (i?.kind === 'nondeterminism') return this.compensationFailed(serializeError(i.error), original, this.Clock.now());
     return { kind: 'write', patch: original };
   }
 
   protected compensates(row: WorkflowInstanceModel, ctx: ActivationContext, patch: Patch): boolean {
-    if (ctx.compensations.length === 0 || UNCOMPENSATED.has(patch.Reason ?? '')) return false;
+    if (!ctx.mayCompensate() || UNCOMPENSATED.has(patch.Reason ?? '')) return false;
     if (row.Status === 'compensating' || patch.Status === 'failed') return true;
     return patch.Status === 'cancelled' && this.config.compensateOnCancel;
   }
 
   /** Marks the instance compensating, so a crash resumes the pass, then runs it. */
-  protected async compensation(row: WorkflowInstanceModel, ctx: ActivationContext, original: Patch, signal: AbortSignal): Promise<Decision> {
+  protected async compensation(row: WorkflowInstanceModel, ctx: ActivationContext, original: Patch, signals: Signals): Promise<Decision> {
+    // a step the deadline or a cancel aborted may still commit: collect it, then refuse what commits later
+    if (ctx.mode === 'run' && signals.run.aborted) await this.bounded(ctx.drain(), this.config.compensationTimeout);
+    ctx.seal();
+    if (signals.compensation.aborted) return { kind: 'release' };
+    const missing = ctx.missingCompensations();
+    if (missing.length > 0) {
+      const message = `the run did not reach the compensable steps '${missing.slice(0, 3).join("', '")}' again; compensating the others alone would leave them in place`;
+      return this.compensationFailed({ name: 'WorkflowCompensationIncomplete', message }, original, this.Clock.now());
+    }
+    if (ctx.compensations.length === 0) return { kind: 'write', patch: original };
     if (row.Status !== 'compensating') {
       try {
-        await this.store.update(row.Id, ctx.epoch, { Status: 'compensating', Reason: original.Reason ?? null, Error: original.Error ?? null, WakeAt: null, WaitingFor: null, UpdatedAt: this.Clock.now() });
+        const patch: Patch = { Status: 'compensating', Reason: original.Reason ?? null, Error: original.Error ?? null, CancelRequested: original.Status === 'cancelled' };
+        await this.store.update(row.Id, ctx.epoch, { ...patch, WakeAt: null, WaitingFor: null, UpdatedAt: this.Clock.now() });
       } catch (err) {
         if (err instanceof LeaseLostError) return { kind: 'release' };
         throw err;
       }
     }
-    const result = await ctx.compensate(signal);
+    return this.passed(await ctx.compensate(signals.compensation), original);
+  }
+
+  protected passed(result: CompensationResult, original: Patch): Decision {
     const now = this.Clock.now();
     switch (result.kind) {
       case 'done':
@@ -419,15 +450,18 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
     // a synchronous throw from run() is a rejected run like any other
     const work = new Promise<unknown>((resolve) => resolve(workflow.run(ctx)));
     ctx.observe(work);
-    const outcome = await this.settle(work, signal, ctx.suspended);
+    const outcome = await this.settle(work, signal, ctx.suspended, ctx.mode === 'run');
     if (outcome.kind === 'error' && isCrash(outcome.error)) ctx.crash(outcome.error);
     if (signal.aborted) await this.bounded(ctx.drain());
     else await ctx.drain();
     return outcome;
   }
 
-  /** After an abort or a park, `run()` gets `shutdownGrace` to settle: one awaiting a promise that never settles cannot hold the lease. */
-  protected async settle(work: Promise<unknown>, signal: AbortSignal, parked: Promise<void>): Promise<Outcome> {
+  /**
+   * After an abort or a park, `run()` gets `shutdownGrace` to settle: one awaiting a promise that never settles cannot
+   * hold the lease. A collecting replay does not wait: nothing registers once it ended.
+   */
+  protected async settle(work: Promise<unknown>, signal: AbortSignal, parked: Promise<void>, grace: boolean): Promise<Outcome> {
     const guarded = work.then(
       (value): Outcome => ({ kind: 'ok', value }),
       (error): Outcome => ({ kind: 'error', error }),
@@ -437,16 +471,16 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
       signal.addEventListener('abort', () => resolve('aborted'), { once: true });
     });
     const first = await Promise.race([guarded, aborted, parked.then(() => 'aborted' as const)]);
-    if (first !== 'aborted') return first;
+    if (first !== 'aborted' || !grace) return first === 'aborted' ? { kind: 'aborted' } : first;
     const ac = new AbortController();
     const late = await Promise.race([guarded, this.Timers.sleep(this.config.shutdownGrace, ac.signal).then(() => null)]);
     ac.abort();
     return late ?? { kind: 'aborted' };
   }
 
-  protected async bounded(work: Promise<unknown>): Promise<void> {
+  protected async bounded(work: Promise<unknown>, ms = this.config.shutdownGrace): Promise<void> {
     const ac = new AbortController();
-    await Promise.race([work.catch(() => undefined), this.Timers.sleep(this.config.shutdownGrace, ac.signal)]);
+    await Promise.race([work.catch(() => undefined), this.Timers.sleep(ms, ac.signal)]);
     ac.abort();
   }
 
@@ -509,7 +543,7 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
     const i = ctx.interruption;
     if (i && i.kind !== 'park') return this.failed(INTERRUPTION_REASON[i.kind], serializeError(i.error), now);
     if (reason === 'shutdown') return { kind: 'release' };
-    if (reason === 'cancelled') return this.cancelled(row.Id, now);
+    if (reason === 'cancelled') return { kind: 'write', patch: await this.cancelled(row.Id, now) };
     if (i?.kind === 'park') return { kind: 'write', patch: this.parked(i.park, ctx.deadline) };
     if (outcome.kind === 'ok') return this.completed(outcome.value, journal, now);
     if (outcome.kind === 'error') return this.failed('error', serializeError(outcome.error), now);
@@ -540,12 +574,16 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
   }
 
   protected failed(reason: string, error: SerializedError, now: number): Decision {
-    return { kind: 'write', patch: { Status: 'failed', Reason: reason, Error: error, WakeAt: null, WaitingFor: null, FinishedAt: now } };
+    return { kind: 'write', patch: this.failure(reason, error, now) };
+  }
+
+  protected failure(reason: string, error: SerializedError, now: number): Patch {
+    return { Status: 'failed', Reason: reason, Error: error, WakeAt: null, WaitingFor: null, FinishedAt: now };
   }
 
   /** `cancel()` may have stored its reason after this activation read the row. */
-  protected async cancelled(instanceId: string, now: number): Promise<Decision> {
+  protected async cancelled(instanceId: string, now: number): Promise<Patch> {
     const fresh = await WorkflowInstanceModel.where('Id', instanceId).onPrimary().first();
-    return { kind: 'write', patch: { Status: 'cancelled', Reason: fresh?.Reason ?? 'cancelled', WakeAt: null, WaitingFor: null, FinishedAt: now } };
+    return { Status: 'cancelled', Reason: fresh?.Reason ?? 'cancelled', WakeAt: null, WaitingFor: null, FinishedAt: now };
   }
 }
