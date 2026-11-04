@@ -1,6 +1,7 @@
 import { defaultMigrationDirs, effectiveManifestOf } from '@spinajs/configuration';
 import { Configuration, normalizeEnvironment } from '@spinajs/configuration-common';
-import { AsyncService, Autoinject, Class, ClassInfo, Container, DI, IContainer, Injectable } from '@spinajs/di';
+import { AsyncService, Autoinject, Container, DI, Injectable } from '@spinajs/di';
+import type { Class, ClassInfo, IContainer } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { migrationScanGlobs } from '@spinajs/manifest';
 import glob from 'glob';

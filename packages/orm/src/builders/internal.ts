@@ -1,8 +1,8 @@
 import { InvalidArgument } from '@spinajs/exceptions';
 import { OrmException } from '../exceptions.js';
 import { QueryMethod } from '../enums.js';
-import { ISelectQueryBuilder, ISort } from '../interfaces.js';
-import { IQueryStatement } from '../statements.js';
+import type { ISelectQueryBuilder, ISort } from '../interfaces.js';
+import type { IQueryStatement } from '../statements.js';
 import { QueryBuilder } from './base.js';
 
 /**

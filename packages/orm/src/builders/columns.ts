@@ -1,8 +1,10 @@
-import { Container, NewInstance, Constructor } from '@spinajs/di';
+import { NewInstance } from '@spinajs/di';
+import type { Container, Constructor } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { IColumnsBuilder } from '../interfaces.js';
-import { ColumnStatement, IQueryStatement, ColumnRawStatement } from '../statements.js';
-import { ModelBase } from '../model.js';
+import type { IColumnsBuilder } from '../interfaces.js';
+import { ColumnStatement, ColumnRawStatement } from '../statements.js';
+import type { IQueryStatement } from '../statements.js';
+import type { ModelBase } from '../model.js';
 import { extractModelDescriptor } from '../descriptor.js';
 import { RawQuery } from './raw.js';
 

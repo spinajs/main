@@ -1,5 +1,6 @@
 /* eslint-disable prettier/prettier */
-import { ForwardRefFunction, RelationType } from './interfaces.js';
+import { RelationType } from './interfaces.js';
+import type { ForwardRefFunction } from './interfaces.js';
 import type { ModelBase } from './model.js';
 import { isModel } from './model-registry.js';
 import { Injectable, isConstructor } from '@spinajs/di';

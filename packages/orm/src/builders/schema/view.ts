@@ -1,9 +1,10 @@
 import { Container, NewInstance } from '@spinajs/di';
-import { ICompilerOutput, QueryContext, DropViewCompiler, CreateViewCompiler } from '../../interfaces.js';
+import { QueryContext, DropViewCompiler, CreateViewCompiler } from '../../interfaces.js';
+import type { ICompilerOutput } from '../../interfaces.js';
 import type { OrmDriver } from '../../driver.js';
-import { SchemaTouch } from '../../schema-touches.js';
+import type { SchemaTouch } from '../../schema-touches.js';
 import { assertOneOf } from '../internal.js';
-import { RawQuery } from '../raw.js';
+import type { RawQuery } from '../raw.js';
 import { QueryBuilder } from '../base.js';
 import { SelectQueryBuilder } from '../select.js';
 

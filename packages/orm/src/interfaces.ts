@@ -1,21 +1,22 @@
-import { JoinMethod, Op } from './enums.js';
+import type { JoinMethod, Op } from './enums.js';
 /* eslint-disable prettier/prettier */
 import type { QueryBuilder } from './builders/base.js';
 import type { RawQuery } from './builders/raw.js';
-import { SortOrder, WhereBoolean } from './enums.js';
-import { IQueryStatement, OuterColumn, Wrap } from './statements.js';
-import { ModelData, ModelDataWithRelationData, ModelDataWithRelationDataSearchable, PartialArray, PickRelations, Unbox, WhereFunction } from './types.js';
-import { IOrmRelation } from './relations.js';
+import type { SortOrder, WhereBoolean } from './enums.js';
+import type { IQueryStatement, OuterColumn, Wrap } from './statements.js';
+import type { ModelData, ModelDataWithRelationData, ModelDataWithRelationDataSearchable, PartialArray, PickRelations, Unbox, WhereFunction } from './types.js';
+import type { IOrmRelation } from './relations.js';
 import type { OrmDriver } from './driver.js';
-import { NewInstance, Constructor, Singleton, IContainer } from '@spinajs/di';
-import { ModelBase } from './model.js';
+import { NewInstance, Singleton } from '@spinajs/di';
+import type { Constructor, IContainer } from '@spinajs/di';
+import type { ModelBase } from './model.js';
 import { MethodNotImplemented } from '@spinajs/exceptions';
-import { DateTime } from 'luxon';
-import { Relation } from './relation-objects.js';
-import { Lazy } from '@spinajs/util';
+import type { DateTime } from 'luxon';
+import type { Relation } from './relation-objects.js';
+import type { Lazy } from '@spinajs/util';
 // imported, deliberately NOT re-exported: `index.ts` does `export *` on both this file and
 // `resilience.js`, and exporting the same name from both is an ambiguous re-export.
-import { IConnectionResilienceOptions } from './resilience.js';
+import type { IConnectionResilienceOptions } from './resilience.js';
 // Type-only: `snapshot.ts` imports IModelDescriptor from here, so a value import would close
 // the cycle. Keep this import type-only.
 import type { IModelChange, IModelSnapshot } from './snapshot.js';

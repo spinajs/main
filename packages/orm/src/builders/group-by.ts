@@ -1,7 +1,9 @@
-import { Container, NewInstance } from '@spinajs/di';
-import { IGroupByBuilder } from '../interfaces.js';
-import { IQueryStatement, GroupByStatement } from '../statements.js';
-import { RawQuery } from './raw.js';
+import { NewInstance } from '@spinajs/di';
+import type { Container } from '@spinajs/di';
+import type { IGroupByBuilder } from '../interfaces.js';
+import { GroupByStatement } from '../statements.js';
+import type { IQueryStatement } from '../statements.js';
+import type { RawQuery } from './raw.js';
 
 @NewInstance()
 export class GroupByBuilder implements IGroupByBuilder {

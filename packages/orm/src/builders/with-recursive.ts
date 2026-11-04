@@ -1,6 +1,8 @@
-import { Container, NewInstance } from '@spinajs/di';
-import { IWithRecursiveBuilder } from '../interfaces.js';
-import { IQueryStatement, WithRecursiveStatement } from '../statements.js';
+import { NewInstance } from '@spinajs/di';
+import type { Container } from '@spinajs/di';
+import type { IWithRecursiveBuilder } from '../interfaces.js';
+import { WithRecursiveStatement } from '../statements.js';
+import type { IQueryStatement } from '../statements.js';
 
 @NewInstance()
 export class WithRecursiveBuilder implements IWithRecursiveBuilder {

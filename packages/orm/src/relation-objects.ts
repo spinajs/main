@@ -1,6 +1,8 @@
 /* eslint-disable prettier/prettier */
-import { IRelationDescriptor, IModelDescriptor, InsertBehaviour, ForwardRefFunction, IRelation, ISelectQueryBuilder, QueryScope } from './interfaces.js';
-import { DI, Constructor, NewInstance } from '@spinajs/di';
+import { InsertBehaviour } from './interfaces.js';
+import type { IRelationDescriptor, IModelDescriptor, ForwardRefFunction, IRelation, ISelectQueryBuilder, QueryScope } from './interfaces.js';
+import { DI, NewInstance } from '@spinajs/di';
+import type { Constructor } from '@spinajs/di';
 import { DateTime } from 'luxon';
 import { createQuery, SelectQueryBuilder, UpdateQueryBuilder } from './builders.js';
 import type { ModelBase } from './model.js';

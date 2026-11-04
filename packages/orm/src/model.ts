@@ -1,24 +1,28 @@
-import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
+import type { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './symbols.js';
 import { ORM_MODEL_FACTORY } from './tokens.js';
-import { IModelDescriptor, RelationType, InsertBehaviour, IInsertResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IColumnDescriptor, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult, ITransactionOptions } from './interfaces.js';
-import { WhereFunction } from './types.js';
+import { RelationType, InsertBehaviour, ModelToSqlConverter, ObjectToSqlConverter, ServerResponseMapper } from './interfaces.js';
+import type { IModelDescriptor, IInsertResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, IModelBase, IColumnDescriptor, IRelationDescriptor, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult, ITransactionOptions } from './interfaces.js';
+import type { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
-import { Op } from './enums.js';
+import type { Op } from './enums.js';
 import type { Orm } from './orm.js';
 import { ModelHydrator } from './hydrators.js';
 import { OrmException } from './exceptions.js';
 import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from './dehydrators.js';
-import { Wrap } from './statements.js';
+import type { Wrap } from './statements.js';
 import type { OrmDriver } from './driver.js';
-import { Relation, SingleRelation } from './relation-objects.js';
-import { baselineValue, createSnapshot, IModelChange, IModelSnapshot, snapshotEquals, snapshotValue } from './snapshot.js';
+import { SingleRelation } from './relation-objects.js';
+import type { Relation } from './relation-objects.js';
+import { baselineValue, createSnapshot, snapshotEquals, snapshotValue } from './snapshot.js';
+import type { IModelChange, IModelSnapshot } from './snapshot.js';
 import { UnitOfWork } from './unit-of-work.js';
 import { quoterOf } from './quoting.js';
 import { registerModelBase } from './model-registry.js';
 
-import { DI, isConstructor, IContainer, Constructor, isClass, getInheritedDescriptor } from '@spinajs/di';
+import { DI, isConstructor, isClass, getInheritedDescriptor } from '@spinajs/di';
+import type { IContainer, Constructor } from '@spinajs/di';
 
 import { DateTime } from 'luxon';
 import _ from 'lodash';

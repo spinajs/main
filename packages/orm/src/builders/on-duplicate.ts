@@ -1,7 +1,8 @@
-import { NewInstance, IContainer } from '@spinajs/di';
+import { NewInstance } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import _ from 'lodash';
-import { ICompilerOutput } from '../interfaces.js';
-import { RawQuery } from './raw.js';
+import type { ICompilerOutput } from '../interfaces.js';
+import type { RawQuery } from './raw.js';
 import { QueryBuilder } from './base.js';
 
 @NewInstance()

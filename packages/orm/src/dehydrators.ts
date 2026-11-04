@@ -1,7 +1,9 @@
 import { OrmException } from './exceptions.js';
-import { IDehydrateOptions, RelationType } from './interfaces.js';
-import { ModelBase } from './model.js';
-import { Relation, SingleRelation } from './relation-objects.js';
+import { RelationType } from './interfaces.js';
+import type { IDehydrateOptions } from './interfaces.js';
+import type { ModelBase } from './model.js';
+import { SingleRelation } from './relation-objects.js';
+import type { Relation } from './relation-objects.js';
 
 export abstract class ModelDehydrator {
   public abstract dehydrate(model: ModelBase, options?: IDehydrateOptions): any;
