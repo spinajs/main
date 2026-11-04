@@ -29,7 +29,7 @@ describe('SimDatabase and SimEnv.boot', () => {
 
   it('opens one sqlite file per seed and runs the migrations of aliased connections on it', async () => {
     await boot();
-    expect(env.database.file).to.match(/spinajs-sim-9001[\\/]sim\.sqlite$/);
+    expect(env.database.file).to.match(/spinajs-sim-9001-[^\\/]+[\\/]sim\.sqlite$/);
     expect(existsSync(env.database.file)).to.equal(true);
     expect(env.database.migratedFrom).to.equal('migrations');
     expect(await notes()).to.deep.equal([]);
@@ -53,16 +53,33 @@ describe('SimDatabase and SimEnv.boot', () => {
     expect(await notes()).to.deep.equal([]);
   });
 
+  it('does not let a dead incarnation begin a transaction', async () => {
+    await boot();
+    const ctx = env.replicas.context('r1');
+    env.replicas.crash(ctx);
+    let ran = false;
+    const tx = runInContext(ctx, () => env.database.driver.transaction(async () => void (ran = true)));
+    expect(await rejection(tx)).to.be.instanceOf(SimCrash);
+    expect(ran).to.equal(false);
+    expect(env.database.inTransaction()).to.equal(false);
+  });
+
   it('turns the COMMIT of an incarnation that died inside its transaction into a ROLLBACK', async () => {
     await boot();
     const ctx = env.replicas.context('r1');
-    await runInContext(ctx, () =>
+    let afterCommitRan = false;
+    const tx = runInContext(ctx, () =>
       env.database.driver.transaction(async () => {
         await insert('lost');
+        await env.database.driver.afterCommit(() => void (afterCommitRan = true));
         env.replicas.crash(ctx);
       }),
     );
+    expect(await rejection(tx)).to.be.instanceOf(SimCrash);
+    expect(afterCommitRan).to.equal(false);
     expect(await notes()).to.deep.equal([]);
+    await insert('after');
+    expect(await notes()).to.deep.equal(['after']);
   });
 
   it('commits the transaction of a live incarnation', async () => {
@@ -113,11 +130,55 @@ describe('SimDatabase and SimEnv.boot', () => {
     expect(await notes()).to.deep.equal(['from-template']);
   });
 
+  it('keys a template by its name and the aliases that were migrated', async () => {
+    await env.boot({ config: {}, aliases: ['simprobe'], template: 'aliases' });
+    await env.shutdown(false);
+    env = newEnv(9002);
+    await env.boot({ config: {}, aliases: ['unused', 'simprobe'], template: 'aliases' });
+    expect(env.database.migratedFrom).to.equal('migrations');
+  });
+
   it('deletes the database after a pass and keeps it after a failure', async () => {
+    await boot();
+    const passed = env.database.dir;
+    expect(await env.shutdown(false)).to.equal(undefined);
+    expect(existsSync(passed)).to.equal(false);
+    env = newEnv(9002);
     await boot();
     const kept = await env.shutdown(true);
     expect(kept).to.equal(env.database.file);
     expect(existsSync(kept!)).to.equal(true);
+  });
+
+  it('keeps no more failing databases than SIM_KEEP_DBS', async () => {
+    await boot();
+    const dir = env.database.dir;
+    process.env.SIM_KEEP_DBS = '0';
+    try {
+      expect(await env.shutdown(true)).to.equal(undefined);
+    } finally {
+      delete process.env.SIM_KEEP_DBS;
+    }
+    expect(existsSync(dir)).to.equal(false);
+  });
+
+  it('fails a seed as stuck:database when a statement never settles, and still reports it', async function () {
+    this.timeout(90_000);
+    const report = await simulate(
+      async (e) => {
+        await e.boot({ config: {}, aliases: ['simprobe'] });
+        const db = e.database.driver;
+        const tick = (): Promise<void> => {
+          void db.transaction(() => e.clock.sleep(1_000));
+          return Promise.resolve();
+        };
+        return { actors: [{ name: 'a', replica: 'a', tick, restart: () => Promise.resolve() }], invariants: [], workload: () => Promise.resolve(), dispose: () => Promise.resolve() };
+      },
+      { seed: 9004, steps: 1, faults: [], suite: 'db-test' },
+    );
+    expect(report.failure?.invariant).to.equal('stuck:database');
+    expect(existsSync(report.databaseFile!)).to.equal(true);
+    rmSync(dirname(report.databaseFile!), { recursive: true, force: true });
   });
 
   it('reports the kept database file of a failing seed', async () => {

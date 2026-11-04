@@ -8,6 +8,7 @@ import { SimClock, SimDbTimeSource } from './clock.js';
 import { currentContext, type SimContext } from './context.js';
 import { SIM_CONNECTION, SimDatabase } from './database.js';
 import { SimFaults, type FaultRuntime } from './faults.js';
+import { SimFailureError } from './harness.js';
 import { SimRandom } from './random.js';
 import { SimReplicas } from './replicas.js';
 import type { ResolvedSimulationOptions } from './simulate.js';
@@ -90,14 +91,18 @@ export function createEnv(o: ResolvedSimulationOptions): MutableSimEnv {
       const ctx = currentContext();
       return ctx && !env.quiescing ? runtime.park(ctx, ms) : Promise.resolve();
     },
-    settle: () => database.idle(),
+    settle: () =>
+      database.idle().catch((error: unknown) => {
+        throw new SimFailureError('stuck:database', error);
+      }),
     boot: async (options) => {
       if (app) throw new Error('SimEnv.boot: this seed is already booted');
-      database.prepare(options.template);
+      const aliases = options.aliases ?? [];
+      database.prepare(options.template, aliases);
       app = await createTestApp({
         name: `simulation ${o.suite} seed ${o.seed}`,
         bootTimeout: 0,
-        config: { ...options.config, logger: SILENT_LOGGER, db: database.config(options.aliases ?? []) },
+        config: { ...options.config, logger: SILENT_LOGGER, db: database.config(aliases) },
         register: (container) => {
           container.register(() => clock).as(Clock);
           container.register(() => new SimDbTimeSource(clock)).as(DbTimeSource);
@@ -110,7 +115,7 @@ export function createEnv(o: ResolvedSimulationOptions): MutableSimEnv {
       const driver = orm.Connections.get(SIM_CONNECTION);
       if (!driver) throw new Error(`SimEnv.boot: the ${SIM_CONNECTION} connection did not open`);
       database.attach(driver);
-      await database.saveTemplate(options.template);
+      await database.saveTemplate();
       return app;
     },
     shutdown: async (keep) => {
