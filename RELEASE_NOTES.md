@@ -34,6 +34,12 @@
   installed Ajv no longer has the rule shape the fix relies on. The separate Ajv of `@spinajs/configuration`
   (config files, env, the DB source) is not changed.
 
+- Known, pre-existing in Ajv: a recursive union such as `type T = number | T[]` under `coerceTypes: 'array'` wraps
+  a string into an array of itself until the stack runs out. `DataValidator` now answers that as a validation error at
+  the root (`keyword: 'maxDepth'`, "the value is nested too deeply to validate") instead of throwing, so http answers
+  400 with no stack; only a `RangeError` is caught. Each such request still costs Ajv's recursion (about 15 ms);
+  unrolling recursive `$ref`s on coercing instances is a later task.
+
 > Docs: `docs/validation/01-validating-data.md`, `docs/validation/02-validator-options.md`,
 > `docs/validation/08-customizing-the-validator.md`.
 

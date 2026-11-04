@@ -498,6 +498,17 @@ export function addSafeKeywords(ajv: KeywordAjv): void {
 }
 
 /**
+ * The error for data Ajv's compiled code recursed on until the stack ran out: a recursive union such as
+ * `T = number | T[]` under `coerceTypes: 'array'` wraps a string into an array of itself without end.
+ */
+export const TOO_DEEP_ERROR = Object.freeze({ keyword: 'maxDepth', instancePath: '', schemaPath: '#', params: Object.freeze({}), message: 'the value is nested too deeply to validate' });
+
+/** Only a stack overflow, or `jsonEqual`'s own depth limit, is a verdict; every other error is a bug to surface. */
+export function isTooDeep(error: unknown): boolean {
+  return error instanceof RangeError;
+}
+
+/**
  * `findNonFinite` as validation errors: `type` errors at each path, saying why a number fails. Past
  * {@link NON_FINITE_REPORT_LIMIT} the last one says that more are not listed.
  */

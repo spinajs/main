@@ -6,7 +6,7 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { SCHEMA_SYMBOL } from './decorators.js';
 import { IValidationOptions, SchemaSource, ISchemaObject } from './types.js';
 import { Logger, Log } from '@spinajs/log-common';
-import { addSafeKeywords, NON_FINITE_MARK, nonFiniteErrors } from './keywords.js';
+import { addSafeKeywords, isTooDeep, NON_FINITE_MARK, nonFiniteErrors, TOO_DEEP_ERROR } from './keywords.js';
 
 // import default souces
 import './sources.js';
@@ -253,7 +253,13 @@ export class DataValidator extends AsyncService {
 
     const strict = this.isStrict(schema) || (hasSchemaArg && typeof schemaOrData === 'string' && this.isStrict(schemaOrData));
     const ajv = strict ? this.StrictValidator : this.Validator;
-    const result = ajv.validate(this.uniqueIdSchema(schema, ajv), target);
+    let result: unknown;
+    try {
+      result = ajv.validate(this.uniqueIdSchema(schema, ajv), target);
+    } catch (error) {
+      if (!isTooDeep(error)) throw error;
+      return [false, [{ ...TOO_DEEP_ERROR, params: {} }]];
+    }
     if (!result) {
       return [false, this.sanitizedErrors(schema, ajv)];
     }
