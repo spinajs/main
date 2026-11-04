@@ -641,7 +641,7 @@ describe('stomp queue transport - unit', function () {
 
       const dlq = c.fake.published.find((p) => p.destination === '/queue/dlq');
       expect(dlq, 'dead-lettered without a retry').to.exist;
-      expect(dlq!.headers['x-error']).to.eq('access_denied: job FailingJob needs invoice:send on invoice');
+      expect((dlq!.headers as Record<string, unknown>)['x-error']).to.eq('access_denied: job FailingJob needs invoice:send on invoice');
       expect(c.fake.published.filter((p) => p.destination === '/queue/fail')).to.have.length(0);
     });
 
