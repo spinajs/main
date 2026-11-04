@@ -137,6 +137,59 @@ export class PlanTilesController extends BaseController {
 }
 ```
 
+## Paginated replies
+
+`@spinajs/http` exports four type-only shapes for list routes. They exist for the compiler, not for the runtime: a route that returns `Page<T>` or `CursorPage<T>` gets a `pagination` field in `app.manifest.json`, which the generated client reads.
+
+| Type | Shape | Use |
+| --- | --- | --- |
+| `Page<T>` | `{ items: T[]; total: number }` | Reply of an offset-paginated route. |
+| `CursorPage<T>` | `{ items: T[]; next: string \| null }` | Reply of a cursor-paginated route, or of any list that cannot count its rows. `next` is `null` on the last page. |
+| `PageQuery` | `{ page?: number; pageSize?: number }` | Query of a `Page<T>` route. `page` counts from 1. |
+| `CursorQuery` | `{ cursor?: string; pageSize?: number }` | Query of a `CursorPage<T>` route. |
+
+```ts sample
+import { BaseController, BasePath, Get, Ok, Query } from '@spinajs/http';
+import type { CursorPage, CursorQuery, Page, PageQuery } from '@spinajs/http';
+
+interface UserDto { id: number; name: string }
+type ListQuery = { search?: string };
+
+@BasePath('users')
+export class UsersController extends BaseController {
+  /** GET /users/list?query={"search":"an","page":2,"pageSize":20} */
+  @Get()
+  public list(@Query() query: ListQuery & PageQuery): Promise<Ok<Page<UserDto>>> {
+    return Promise.resolve(new Ok({ items: [], total: query.page ?? 0 }));
+  }
+
+  @Get()
+  public feed(@Query() query: CursorQuery): Promise<Ok<CursorPage<UserDto>>> {
+    return Promise.resolve(new Ok({ items: [], next: query.cursor ?? null }));
+  }
+}
+```
+
+How the compiler reads a route:
+
+- **The reply.** Only the `Page` and `CursorPage` declared in `@spinajs/http` count, after the wrappers (`Promise`, `Ok`, ...) are unwrapped. A type of the same shape or name declared anywhere else, such as `teams`' `Paged<T>` or `scheduler`'s `Page<T>`, is not marked, so a reply that happens to have `items` and `total` is never taken for a page.
+- **The page parameter.** `page` for `Page<T>`, then `cursor` and `after` for `CursorPage<T>`, looked up among the route's query arguments: a `@Query()` value argument of that name, or a property of a `@Query()` JSON object or of `@QueryField()`. The first hit is recorded.
+- **The page size.** `pageSize`, then `perPage` and `limit`, looked up the same way.
+- **The first page.** `page` counts from 1. When its schema says `minimum: 0` (a JSDoc `@minimum 0` on the property, or an explicit `@Query({ type: 'integer', minimum: 0 })`), it counts from 0.
+
+A route that returns a page but has no page parameter is still marked, and `spinajs doctor` warns about it with `HTTP007`: the generated client cannot page through it.
+
+The reply schema is derived as for any other type (`Page<UserDto>` is published as `Page_UserDto`), and OpenAPI documents it the same way.
+
+**Name clash with `@spinajs/orm-http`.** `orm-http` (and `authz-rbac` and `teams`) export their own `Page`, the *input* `{ limit, offset }`. The names are kept, because the compiler matches the declaration, not the name. A file that needs both renames one on import:
+
+```ts
+import type { Page as HttpPage } from '@spinajs/http';
+import type { Page } from '@spinajs/orm-http';
+```
+
+**Adopting it on an existing route.** Turning an array reply into `{ items, total }` changes the reply, and `manifest:diff` reports it as breaking. Within 4.x, add a paginated sibling route instead, and keep the old one. A new route uses `Page<T>` from the start. A route that sends its total in an `X-Total-Count` header, as `users-http`'s admin user list does, moves the total into the body by adopting `Page<T>`: the generated client returns only the body, so a header total never reaches it.
+
 ## Configuration
 
 | Key | Type | Default | Allowed values | Meaning |
