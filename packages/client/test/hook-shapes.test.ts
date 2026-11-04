@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import type { ControllerEntry, Manifest, SocketControllerEntry } from '@spinajs/manifest';
 import { generateClientFiles } from '../src/index.js';
 import { appBasicManifest } from './support/fixture.js';
+import { pagedManifest } from './support/paged.js';
 import { typecheckFiles } from './support/typecheck.js';
 
 const source = { line: 1, col: 1, file: 'x.ts', package: 'x' };
@@ -29,7 +30,10 @@ describe('generated hook files for every manifest shape', function () {
   this.timeout(120000);
 
   let base: Manifest;
-  before(async () => (base = await appBasicManifest()));
+  let paged: Manifest;
+  before(async () => {
+    [base, paged] = await Promise.all([appBasicManifest(), pagedManifest()]);
+  });
 
   const SHAPES: [string, (m: Manifest) => Manifest][] = [
     ['queries only', (m) => shape(m, (method) => method === 'get')],
@@ -37,6 +41,8 @@ describe('generated hook files for every manifest shape', function () {
     ['no routes at all', (m) => shape(m, () => false)],
     ['socket events only', (m) => shape(m, () => false, [socketController(['message'], [])])],
     ['socket streams only', (m) => shape(m, () => false, [socketController([], ['history'])])],
+    ['infinite queries and mutations', () => paged],
+    ['infinite queries only', () => shape(paged, (method) => method === 'get')],
   ];
 
   for (const [name, build] of SHAPES) {
