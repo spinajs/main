@@ -103,7 +103,18 @@ export interface PriceDto {
 }
 ```
 
-A property typed as a decimal.js `Decimal` or a big.js `Big` gets `format: 'decimal'` without a tag (see [Schema derivation](../compiler/README.md#schema-derivation)). Both libraries write very large and very small values in exponent notation (`new Decimal('1e21').toJSON()` is `'1e+21'`), which the format rejects. Send such values with `toFixed()`.
+A property typed as a decimal.js `Decimal` or a big.js `Big` gets `format: 'decimal'` without a tag (see [Schema derivation](../compiler/README.md#schema-derivation)). By default both libraries write `toJSON()` and `toString()` in exponent notation when the absolute value is at least `1e21` or below `1e-7`: `new Decimal('1e21').toJSON()` is `'1e+21'`, and one satoshi, `new Big('0.00000001')`, is `'1e-8'`. The format rejects both, so such a value answers 400. Send it with `toFixed()`, or switch exponent notation off once at startup, on every side that serializes these values:
+
+```ts
+import Decimal from 'decimal.js';
+import Big from 'big.js';
+
+Decimal.set({ toExpNeg: -9e15, toExpPos: 9e15 });
+Big.NE = -1e6;
+Big.PE = 1e6;
+```
+
+These are the widest limits each library allows. Only a value whose exponent lies beyond them (±9e15 for decimal.js, ±1e6 for big.js) still prints with an exponent.
 
 Two things differ from a `@Schema` run by `DataValidator`:
 
