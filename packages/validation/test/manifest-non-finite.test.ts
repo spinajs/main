@@ -23,6 +23,12 @@ SCHEMAS['app/ProtoOpen'] = JSON.parse('{"type":"object","properties":{"nested":{
 SCHEMAS['app/ProtoRequired'] = { type: 'object', properties: { name: { type: 'string' } }, required: ['__proto__'] };
 SCHEMAS['app/ProtoHolder'] = P({ inner: { $ref: 'app/Proto' } });
 SCHEMAS['app/ProtoBoth'] = { allOf: [{ $ref: 'app/Proto' }, { type: 'object', properties: { b: { type: 'string' } }, additionalProperties: false }] };
+SCHEMAS['app/ProtoDependencyValue'] = { type: 'object', dependencies: { a: ['__proto__'] } };
+SCHEMAS['app/ProtoDependencyKey'] = JSON.parse('{"type":"object","dependencies":{"__proto__":["a"]}}') as object;
+SCHEMAS['app/ProtoAnyRequired'] = { type: 'object', anyRequired: ['__proto__', 'b'] };
+SCHEMAS['app/ProtoOneRequired'] = { type: 'object', oneRequired: ['b', '__proto__'] };
+SCHEMAS['app/ProtoDeepRequired'] = { type: 'object', deepRequired: ['/a/__proto__'] };
+SCHEMAS['app/ProtoDeepRequiredEscaped'] = { type: 'object', deepRequired: ['/a~1__proto__'] };
 SCHEMAS['app/DefsNamedProto'] = JSON.parse('{"type":"object","properties":{"v":{"$ref":"#/definitions/__proto__"}},"definitions":{"__proto__":{"type":"string"}}}') as object;
 
 const errorOf = (fn: () => void): ValidationFailed => {
@@ -88,6 +94,11 @@ describe('ManifestValidator: non-finite numbers and comparisons', function () {
       ['app/Proto', 'in properties'],
       ['app/ProtoOpen', 'in the properties of a nested object'],
       ['app/ProtoRequired', 'in required'],
+      ['app/ProtoDependencyValue', 'as a dependencies value'],
+      ['app/ProtoDependencyKey', 'as a dependencies key'],
+      ['app/ProtoAnyRequired', 'in anyRequired'],
+      ['app/ProtoOneRequired', 'in oneRequired'],
+      ['app/ProtoDeepRequired', 'as a deepRequired pointer segment'],
     ] as const) {
       it(`is refused ${where}, naming the schema`, () => {
         expect(() => body(id)).to.throw(Error, `schema ${id} declares a property named __proto__, which cannot be validated`);
@@ -98,7 +109,17 @@ describe('ManifestValidator: non-finite numbers and comparisons', function () {
     it('is left out of the prepared schemas, with the reason', () => {
       const unenforceable = new Map<string, string>();
       const ids = prepareManifestSchemas(manifestOf(SCHEMAS), unenforceable).map((s) => s.$id);
-      expect([...unenforceable.keys()].sort()).to.deep.eq(['app/Proto', 'app/ProtoBoth', 'app/ProtoOpen', 'app/ProtoRequired']);
+      expect([...unenforceable.keys()].sort()).to.deep.eq([
+        'app/Proto',
+        'app/ProtoAnyRequired',
+        'app/ProtoBoth',
+        'app/ProtoDeepRequired',
+        'app/ProtoDependencyKey',
+        'app/ProtoDependencyValue',
+        'app/ProtoOneRequired',
+        'app/ProtoOpen',
+        'app/ProtoRequired',
+      ]);
       expect(ids).to.not.include(manifestSchemaKey('app/Proto'));
       expect(ids).to.include(manifestSchemaKey('app/Search'));
     });
@@ -106,6 +127,10 @@ describe('ManifestValidator: non-finite numbers and comparisons', function () {
     it('refuses a schema that references one, by $ref or in an intersection', () => {
       expect(() => body('app/ProtoHolder')).to.throw(Error, 'schema app/ProtoHolder references app/Proto, which declares a property named __proto__ that cannot be validated');
       expect(() => body('app/ProtoBoth')).to.throw(Error, 'schema app/ProtoBoth references app/Proto, which declares a property named __proto__ that cannot be validated');
+    });
+
+    it('keeps a deepRequired pointer whose segment only contains __proto__ after an escaped slash', () => {
+      expect(() => body('app/ProtoDeepRequiredEscaped')).to.not.throw();
     });
 
     it('keeps a definition named __proto__, which is a name and not a property', () => {

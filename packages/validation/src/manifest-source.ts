@@ -42,9 +42,9 @@ function opened(schema: Json): Json {
 const PROTO = '__proto__';
 
 /**
- * A schema that declares a property named `__proto__`, in `properties` or `required`. Ajv skips that name: an open
- * object accepts any `__proto__` value and `required: ['__proto__']` passes without the key, so the rule would hold
- * nowhere. The schema is refused instead.
+ * A schema that names a property `__proto__`, in `properties`, `required`, `dependencies`, `anyRequired`, `oneRequired`
+ * or a `deepRequired` pointer. Ajv skips that name: an open object accepts any `__proto__` value and
+ * `required: ['__proto__']` passes without the key, so the rule would hold nowhere. The schema is refused instead.
  */
 export class UnenforceableSchema extends Error {
   constructor(public readonly schemaId: string, message: string) {
@@ -52,8 +52,17 @@ export class UnenforceableSchema extends Error {
   }
 }
 
+const namesProto = (list: unknown): boolean => Array.isArray(list) && list.includes(PROTO);
+// A JSON pointer segment unescapes `~1` and `~0`; `/a~1__proto__` names `a/__proto__`, not `__proto__`.
+const pointsAtProto = (pointer: unknown): boolean => typeof pointer === 'string' && pointer.split('/').some((segment) => segment.replace(/~1/g, '/').replace(/~0/g, '~') === PROTO);
+
 const declaresProto = (schema: Json): boolean =>
-  (isObject(schema.properties) && Object.hasOwn(schema.properties, PROTO)) || (Array.isArray(schema.required) && schema.required.includes(PROTO));
+  (isObject(schema.properties) && Object.hasOwn(schema.properties, PROTO)) ||
+  namesProto(schema.required) ||
+  (isObject(schema.dependencies) && (Object.hasOwn(schema.dependencies, PROTO) || Object.values(schema.dependencies).some(namesProto))) ||
+  namesProto(schema.anyRequired) ||
+  namesProto(schema.oneRequired) ||
+  (Array.isArray(schema.deepRequired) && schema.deepRequired.some(pointsAtProto));
 
 class ManifestSchemaPreparer {
   protected prepared = new Map<string, Json>();
