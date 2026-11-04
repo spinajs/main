@@ -5,8 +5,9 @@ import { readFile } from 'node:fs/promises';
 import sinon from 'sinon';
 import { Clock, FaultInjector, NonRetryableError } from '@spinajs/durable';
 import type { FakeClock } from '@spinajs/durable/testing';
-import { InvalidArgument } from '@spinajs/exceptions';
-import { NonDeterminismError, resolveWorkflowConfig, type ActivationContext, WorkflowAborted, WorkflowFailure, WorkflowStepFailed } from '../src/index.js';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
+import { ReplayGate } from '../src/gate.js';
+import { NonDeterminismError, resolveWorkflowConfig, type ActivationContext, type Op, type StepRow, WorkflowAborted, WorkflowFailure, WorkflowStepFailed } from '../src/index.js';
 import { activation } from './support/activation.js';
 import { bootTestEnv, disposeTestEnv } from './support/env.js';
 import { TestCrash, TestFaults } from './support/faults.js';
@@ -236,6 +237,137 @@ describe('ActivationContext: steps and replay', () => {
       timers.restore();
     }
     await replay.release();
+  });
+
+  it('a Promise.race between a step with a continuation and a bare step picks the same winner on replay', async () => {
+    const r = await twice(async (ctx) => {
+      const parsed = ctx.step('primary', () => pause(5).then(() => 'primary')).then((v) => v.toUpperCase());
+      const fallback = ctx.step('fallback', () => pause(40).then(() => 'fallback'));
+      const winner = await Promise.race([parsed, fallback]);
+      await Promise.allSettled([parsed, fallback]);
+      return winner;
+    });
+    expect([r.live, r.replayed]).to.deep.equal(['PRIMARY', 'PRIMARY']);
+  });
+
+  it('branches that push their results as they finish push them in the same order on replay', async () => {
+    const r = await twice(async (ctx) => {
+      const done: string[] = [];
+      await Promise.all([
+        ctx
+          .step('a', () => pause(5).then(() => 'a'))
+          .then(async (v) => {
+            await null;
+            await null;
+            return done.push(v);
+          }),
+        ctx.step('b', () => pause(40).then(() => 'b')).then((v) => done.push(v)),
+      ]);
+      return done.join();
+    });
+    expect([r.live, r.replayed]).to.deep.equal(['a,b', 'a,b']);
+  });
+
+  it('a step lost in a crash that completes during the replay keeps its result behind the recorded ones', async () => {
+    const code = (ctx: ActivationContext, bMs: number) =>
+      Promise.all([
+        ctx
+          .step('a', () => 'a')
+          .then(async () => {
+            await pause(60);
+            return ctx.step('c', () => 'c');
+          })
+          .then(async () => {
+            await pause(10);
+            return ctx.step('e', () => 'e');
+          }),
+        ctx.step('b', () => pause(bMs).then(() => 'b')),
+      ]);
+    TestFaults.crashOnce('workflow.after-step-fn', 'step:b');
+    const crashed = await activation('c1');
+    await Promise.allSettled([code(crashed.ctx, 400)]);
+    await crashed.ctx.drain();
+    await expireLease('c1');
+    TestFaults.reset();
+    const r = await twice((ctx) => code(ctx, 5));
+    expect([r.live, r.replayed]).to.deep.equal([
+      ['e', 'b'],
+      ['e', 'b'],
+    ]);
+  });
+
+  it('a NonDeterminismError in one branch settles the other branches at once, without a stall timer', async () => {
+    const code = (renamed: boolean) => (ctx: ActivationContext) => Promise.all([ctx.step('a', () => 'a').then(() => ctx.step(renamed ? 'c2' : 'c', () => 'c')), ctx.step('b', () => pause(50).then(() => 'b'))]);
+    const first = await activation('c1', { timers: undefined });
+    await code(false)(first.ctx);
+    await first.release();
+    const replay = await activation('c1', { timers: undefined });
+    expect(await rejects(code(true)(replay.ctx))).to.be.instanceOf(NonDeterminismError);
+    const t0 = Date.now();
+    await replay.release();
+    expect([Date.now() - t0 < 1000, replay.ctx.interruption?.kind]).to.deep.equal([true, 'nondeterminism']);
+  });
+
+  it('ctx.fail in one branch settles a branch waiting for a release and stays the interruption', async () => {
+    const code = (xMs: number, yMs: number) => (ctx: ActivationContext) =>
+      Promise.all([
+        ctx
+          .step('a', () => 'a')
+          .then(async () => {
+            await pause(xMs);
+            return ctx.fail('over limit');
+          }),
+        ctx
+          .step('b', () => 'b')
+          .then(async () => {
+            await pause(yMs);
+            return ctx.step('c', () => 'c');
+          }),
+        ctx.step('d', () => pause(30).then(() => 'd')),
+      ]);
+    const first = await activation('c1', { timers: undefined });
+    await rejects(code(60, 5)(first.ctx));
+    await first.release();
+    const replay = await activation('c1', { timers: undefined });
+    expect(await rejects(code(5, 60)(replay.ctx))).to.be.instanceOf(WorkflowFailure);
+    const t0 = Date.now();
+    await replay.release();
+    expect([Date.now() - t0 < 1000, replay.ctx.interruption?.kind]).to.deep.equal([true, 'fail']);
+  });
+
+  it('releases 10 000 recorded results well within two seconds', async () => {
+    const row = (seq: number, key: string, after: number): StepRow => ({ Id: seq, Seq: seq, Key: key, Kind: 'step', Status: 'succeeded', Attempt: 1, Result: null, ResultStored: false, Error: null, Meta: { after, order: seq } });
+    const n = 5000;
+    const items = Array.from({ length: n }, (_, i) => i);
+    const gate = new ReplayGate([...items.map((i) => row(i + 1, `step:fetch-${i}#1`, 0)), ...items.map((i) => row(n + i + 1, `step:save-${i}#1`, n))], true, () => undefined);
+    const t0 = Date.now();
+    const replay = (kind: string) =>
+      Promise.all(
+        items.map((i) => {
+          gate.call(`step:${kind}-${i}#1`);
+          return gate.wait(`step:${kind}-${i}#1`);
+        }),
+      );
+    await replay('fetch');
+    await replay('save');
+    expect([gate.delivered, Date.now() - t0 < 2000]).to.deep.equal([2 * n, true]);
+  });
+
+  it('refuses to journal a row without Meta.after into a journal that carries it', async () => {
+    const h = await activation('c1');
+    const ctx = h.ctx as unknown as { saveStep(op: Op, s: unknown): Promise<unknown> };
+    const op: Op = { kind: 'step', name: 'x', key: 'step:x#1', seq: 1, after: Number.NaN };
+    expect(await rejects(ctx.saveStep(op, { status: 'succeeded', attempt: 1, startedAt: T0, finished: true }))).to.be.instanceOf(InvalidOperation);
+    await h.release();
+    expect((await stepsOf('c1')).length).to.equal(0);
+  });
+
+  it('updating a journal row that no longer exists fails instead of passing silently', async () => {
+    const h = await activation('c1');
+    const gone = { Id: 9999, Seq: 1, Key: 'step:x#1', Kind: 'step', Status: 'succeeded', Attempt: 1, Result: null, ResultStored: false, Error: null, Meta: null } satisfies StepRow;
+    const write = { instanceId: 'c1', seq: 1, key: 'step:x#1', kind: 'step', status: 'failed', attempt: 1, startedAt: T0, finishedAt: T0 } as const;
+    expect(await rejects(h.store.saveStep(gone, write))).to.be.instanceOf(InvalidOperation);
+    await h.release();
   });
 
   it('another occurrence of the same name at a recorded position is non-deterministic, and stays so', async () => {
