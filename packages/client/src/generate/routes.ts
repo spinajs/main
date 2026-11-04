@@ -1,4 +1,4 @@
-import type { ControllerEntry, ParamEntry, ParamWire, RouteEntry } from '@spinajs/manifest';
+import { controllerKey, type ControllerEntry, type ParamEntry, type ParamWire, type RouteEntry } from '@spinajs/manifest';
 import type { RouteDefinition } from '../runtime/http.js';
 import { clientPath, UnsupportedPathError, type ClientPath, type Placeholder } from './path.js';
 import { literal, type TypeContext } from './ts-type.js';
@@ -10,6 +10,8 @@ const SEGMENTS_TYPE = 'string[]';
 export interface ArgumentModel {
   name: string;
   type: string;
+  /** The named types `type` mentions, which a file using it must import. */
+  typeNames: string[];
   required: boolean;
   wire: ParamWire;
   /** Manifest schema id of the parameter type, when the compiler recorded one. */
@@ -61,15 +63,19 @@ function placeholderArguments(path: ClientPath, args: ArgumentModel[]): Argument
   const taken = new Set(args.map((a) => a.name));
   return path.placeholders
     .filter((p) => !bound.has(p.name))
-    .map((p) => ({ name: taken.has(p.name) ? `${p.name}Path` : p.name, type: p.splat ? SEGMENTS_TYPE : 'string | number', required: !p.optional, wire: { in: 'path', name: p.name, shape: 'value' } }));
+    .map((p) => ({ name: taken.has(p.name) ? `${p.name}Path` : p.name, type: p.splat ? SEGMENTS_TYPE : 'string | number', typeNames: [], required: !p.optional, wire: { in: 'path', name: p.name, shape: 'value' } }));
 }
 
 function sentArgument(param: ParamEntry, wire: ParamWire, placeholders: Map<string, Placeholder>, ctx: TypeContext): ArgumentModel {
   const schema = param.runtimeType.schema !== undefined ? { schema: param.runtimeType.schema } : {};
-  if (wire.in !== 'path') return { name: param.name, type: argumentType(param, wire, ctx), required: param.required, wire, ...schema };
+  if (wire.in !== 'path') {
+    const { type, names } = ctx.withNames(() => argumentType(param, wire, ctx));
+    return { name: param.name, type, typeNames: names, required: param.required, wire, ...schema };
+  }
   // The runtime cannot build the URL without a path value, whatever the controller parameter says.
   const placeholder = wire.name !== undefined ? placeholders.get(wire.name) : undefined;
-  return { name: param.name, type: placeholder?.splat ? SEGMENTS_TYPE : argumentType(param, wire, ctx), required: !placeholder?.optional, wire, ...schema };
+  const { type, names } = placeholder?.splat ? { type: SEGMENTS_TYPE, names: [] } : ctx.withNames(() => argumentType(param, wire, ctx));
+  return { name: param.name, type, typeNames: names, required: !placeholder?.optional, wire, ...schema };
 }
 
 // FromBody reads req.body, which no parser fills for a multipart request: the handler would get null.
@@ -128,11 +134,6 @@ export function routeModel(controller: ControllerEntry, route: RouteEntry, ctx: 
     ...(route.returnType.schema !== undefined ? { returnSchema: route.returnType.schema } : {}),
     definition: `{ ${parts.join(', ')} }`,
   };
-}
-
-export function controllerKey(controller: ControllerEntry): string {
-  const base = controllerBase(controller);
-  return base.charAt(0).toLowerCase() + base.slice(1);
 }
 
 export function controllerBase(controller: ControllerEntry): string {

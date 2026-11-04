@@ -48,6 +48,7 @@ export class TypeContext {
   private readonly referenced = new Set<string>();
   private readonly names = new Map<string, string>();
   private sealed = false;
+  private mentioned: Set<string> | undefined;
 
   constructor(public readonly manifest: Manifest) {
     const bySegment = new Map<string, string[]>();
@@ -82,7 +83,18 @@ export class TypeContext {
     if (!this.schemaOf(id)) return 'unknown';
     if (this.sealed && !this.referenced.has(id)) throw new Error(`generateClient: schema '${id}' is outside the client model; buildClientModel must resolve it`);
     this.referenced.add(id);
+    this.mentioned?.add(this.nameOf(id));
     return this.nameOf(id);
+  }
+
+  /** Prints a type expression and returns the named types it mentions, sorted. */
+  public withNames(print: () => string): { type: string; names: string[] } {
+    this.mentioned = new Set();
+    try {
+      return { type: print(), names: [...this.mentioned].sort() };
+    } finally {
+      this.mentioned = undefined;
+    }
   }
 
   public typeOf(ref: TypeRef): string {
