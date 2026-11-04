@@ -237,6 +237,16 @@ describe('generateClient', () => {
       await expectRejection(generateClient({ manifest: mixed }), /ItemsController\.upload \(POST \/items\/upload\) sends body argument\(s\) 'meta' next to multipart argument\(s\) 'doc'.*@FormField/);
     });
 
+    it('declares and references the same type name for ids json-schema-to-typescript renames', async () => {
+      const ids = ['authn.Login', 'authn.oidc.callbackQuery', 'app/models/User', 'lib/models/User', 'spinajs/x/snake_case_dto', 'spinajs/x/lowerCamel'];
+      const schemas = Object.fromEntries(ids.map((id) => [id, { $id: id, type: 'object', properties: { n: { type: 'number' } }, required: ['n'], additionalProperties: false }]));
+      const routes = ids.map((id, i) => route(`r${i}`, 'get', `/items/r${i}`, [], { text: id.split('/').pop() ?? id, schema: id }));
+      const out = await generateClient({ manifest: extend(manifest, routes, schemas) });
+      expect(typecheck(out)).to.deep.equal([]);
+      const names = [...out.matchAll(/^export (?:interface|type) (\w+)/gm)].map((m) => m[1]);
+      expect(new Set(names).size).to.equal(names.length);
+    });
+
     it('escapes line breaks and line separators in emitted string literals', async () => {
       const out = await generateClient({
         manifest: extend(manifest, [route('odd', 'get', '/items/odd', [], { text: 'Odd', schema: 'spinajs/x/OddValues' })], {
