@@ -2,10 +2,10 @@ import { loadsFromManifest, publishedManifest } from './mounted.js';
 import { canonicalize } from './hash.js';
 import { compareSchemaRefs } from './schema-compare.js';
 import type { Finding } from './schema-compare.js';
-import type { ControllerEntry, Manifest, ParamEntry, PolicyRef, RouteEntry, TypeRef } from './types.js';
+import type { ColumnSqlSpec, ControllerEntry, Manifest, ModelColumn, ParamEntry, PolicyRef, RouteEntry, TypeRef } from './types.js';
 
 export type ChangeKind = 'added' | 'removed' | 'changed';
-export interface Change { section: 'routes' | 'schemas' | 'permissions' | 'config' | 'migrations' | 'services' | 'commands' | 'socket'; kind: ChangeKind; id: string; breaking: boolean; detail?: string }
+export interface Change { section: 'routes' | 'schemas' | 'permissions' | 'config' | 'migrations' | 'models' | 'services' | 'commands' | 'socket'; kind: ChangeKind; id: string; breaking: boolean; detail?: string }
 export interface ManifestDiff {
   base: string;
   head: string;
@@ -16,7 +16,7 @@ export interface ManifestDiff {
 }
 
 type Section = Change['section'];
-const SECTIONS: Section[] = ['routes', 'permissions', 'schemas', 'config', 'migrations', 'services', 'commands', 'socket'];
+const SECTIONS: Section[] = ['routes', 'permissions', 'schemas', 'config', 'migrations', 'models', 'services', 'commands', 'socket'];
 
 interface Keyed<T> { key: string; item: T }
 
@@ -174,10 +174,59 @@ function compilerWarnings(base: Manifest, head: Manifest): string[] {
   ];
 }
 
+const SIZES = ['length', 'precision', 'scale'] as const;
+
+function compareSpec(name: string, b: ColumnSqlSpec, h: ColumnSqlSpec): Finding[] {
+  if (!b.inferred && !h.inferred && b.family !== h.family) return [{ breaking: true, detail: `column ${name} changed from ${b.family} to ${h.family}` }];
+  const narrowed = SIZES.filter((k) => {
+    const before = b[k];
+    const after = h[k];
+    return before !== undefined && after !== undefined && after < before;
+  });
+  if (narrowed.length > 0) return [{ breaking: true, detail: `column ${name} narrowed (${narrowed.map((k) => `${k} ${String(b[k])} -> ${String(h[k])}`).join(', ')})` }];
+  return differs(b, h) ? [{ breaking: false, detail: `column ${name} SQL spec changed` }] : [];
+}
+
+function compareColumn(name: string, b: ModelColumn, h: ModelColumn): Finding[] {
+  const findings: Finding[] = [];
+  if (b.nullable && !h.nullable) findings.push({ breaking: true, detail: `column ${name} is now NOT NULL` });
+  if (!b.nullable && h.nullable) findings.push({ breaking: false, detail: `column ${name} is now nullable` });
+  if (b.sql && h.sql) findings.push(...compareSpec(name, b.sql, h.sql));
+  return findings;
+}
+
+function compareTable(b: Map<string, ModelColumn>, h: Map<string, ModelColumn>): Finding[] {
+  const findings: Finding[] = [];
+  for (const [name, column] of b) {
+    const next = h.get(name);
+    findings.push(...(next ? compareColumn(name, column, next) : [{ breaking: true, detail: `column ${name} removed` }]));
+  }
+  for (const [name, column] of h) {
+    if (!b.has(name)) findings.push({ breaking: false, detail: `column ${name} added${column.nullable ? '' : ' (NOT NULL)'}` });
+  }
+  return findings;
+}
+
+/** A table is the union of the models mapped to it (D19). */
+function tables(m: Manifest): Keyed<Map<string, ModelColumn>>[] {
+  const out = new Map<string, Map<string, ModelColumn>>();
+  for (const model of m.models) {
+    const key = `${model.connection ?? 'default'}:${model.tableName}`;
+    const columns = out.get(key) ?? new Map<string, ModelColumn>();
+    for (const c of model.columns) if (!columns.has(c.name)) columns.set(c.name, c);
+    out.set(key, columns);
+  }
+  return [...out].map(([key, item]) => ({ key, item }));
+}
+
+function diffModels(base: Manifest, head: Manifest): Change[] {
+  return diffKeyed('models', tables(base), tables(head), { removedBreaking: true, changed: compareTable });
+}
+
 export function diffManifest(baseManifest: Manifest, headManifest: Manifest): ManifestDiff {
   const base = publishedManifest(baseManifest);
   const head = publishedManifest(headManifest);
-  const all = [...diffRoutes(base, head), ...diffPermissions(base, head), ...diffFlaggedPermissions(baseManifest, headManifest), ...diffMisc(base, head)];
+  const all = [...diffRoutes(base, head), ...diffPermissions(base, head), ...diffFlaggedPermissions(baseManifest, headManifest), ...diffMisc(base, head), ...diffModels(base, head)];
   const changes = all.sort((a, b) => SECTIONS.indexOf(a.section) - SECTIONS.indexOf(b.section) || compareCodeUnits(a.id, b.id) || compareCodeUnits(a.kind, b.kind));
   const warnings = compilerWarnings(baseManifest, headManifest);
   return { base: base.hash, head: head.hash, changes, breaking: changes.some((c) => c.breaking), ...(warnings.length > 0 ? { warnings } : {}) };
