@@ -153,7 +153,7 @@ spinajs generate:client [-m, --manifest <path>] [-o, --out <path>] [--module <na
 
 All generated files come from one read of the manifest, so they never disagree. A flag whose generator is not part of the installed `@spinajs/client` fails before anything is written, with `<flag> is not available in this version`. Each generator is released separately, in a 4.x minor, so a flag is accepted from the release that carries its generator; `--check` is available now.
 
-`--check` replaces `generate:client` followed by `git diff --exit-code` in CI. Pass the same flags the app uses locally. It compares text with line endings normalised, so a Windows checkout with `autocrlf` is not reported as stale.
+`--check` replaces `generate:client` followed by `git diff --exit-code` in CI. It checks only the files the given flags generate, so a companion file left over from a dropped flag is not reported. Pass the same flags the app uses locally. It compares text with line endings normalised, so a Windows checkout with `autocrlf` is not reported as stale.
 
 See [`@spinajs/client`](../client/README.md).
 
