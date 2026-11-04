@@ -16,6 +16,10 @@
     "./formats": {
       "types": "./lib/formats/index.d.ts",
       "import": "./lib/formats/index.js"
+    },
+    "./mocks": {
+      "types": "./lib/mocks/index.d.ts",
+      "import": "./lib/mocks/index.js"
     }
   },
   "type": "module",
