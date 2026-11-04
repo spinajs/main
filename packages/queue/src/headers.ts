@@ -16,3 +16,10 @@ export function readQueueHeaders(raw: Record<string, unknown> | undefined): Reco
   }
   return result;
 }
+
+const TRANSPORT_HEADERS: readonly string[] = [QueueHeaders.RetryCount, QueueHeaders.Error, QueueHeaders.OriginalDestination];
+
+/** `headers` without the ones a transport writes itself, so a received message emitted again does not carry them. */
+export function withoutTransportHeaders(headers: Record<string, string> | undefined): Record<string, string> {
+  return Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !TRANSPORT_HEADERS.includes(name)));
+}

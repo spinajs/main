@@ -1,5 +1,5 @@
 import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
-import { IQueueMessage, IQueueJob, IQueueConnectionOptions, IQueueCredentialsProvider, QueueClient, QueueHeaders, QueueMessage, QueueMessageType, readQueueHeaders } from '@spinajs/queue';
+import { IQueueMessage, IQueueJob, IQueueConnectionOptions, IQueueCredentialsProvider, QueueClient, QueueHeaders, QueueMessage, QueueMessageType, readQueueHeaders, withoutTransportHeaders } from '@spinajs/queue';
 import Stomp from '@stomp/stompjs';
 import _ from 'lodash';
 import { Constructor, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
@@ -749,8 +749,8 @@ export class StompQueueClient extends QueueClient {
    */
   protected publishMessage(message: IQueueMessage): Promise<void> {
     const channels = this.getChannelForMessage(message);
-    // application headers first, so none of them can replace a transport header
-    const headers: Stomp.StompHeaders = { ..._.omitBy(message.Headers, (_value, name) => FRAME_HEADERS.has(name.toLowerCase())), 'content-type': 'application/json' };
+    // application headers first, so every header set below wins over them
+    const headers: Stomp.StompHeaders = { ..._.omitBy(withoutTransportHeaders(message.Headers), (_value, name) => FRAME_HEADERS.has(name.toLowerCase())), 'content-type': 'application/json' };
 
     if (message.MessageId) {
       headers[QueueHeaders.MessageId] = message.MessageId;

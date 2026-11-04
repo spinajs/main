@@ -418,6 +418,14 @@ describe('amqp queue transport - unit', function () {
       expect(published.headers).to.deep.eq({ traceparent: 't-1', 'x-app': 'a', 'x-spinajs-message-id': 'm-1' });
     });
 
+    it("does not publish the transport's own headers from Headers, so a re-emitted message starts fresh", async () => {
+      const c = await connected();
+      await c.emit(jobMessage({ MessageId: 'm-1', Headers: { 'x-retry-count': '3', 'x-error': 'old', 'x-original-destination': '/queue/a', 'x-app': 'a' } }));
+
+      const p = c.pub.published.find((x) => x.routingKey === '/queue/default')!;
+      expect((p.options as { headers?: Record<string, unknown> }).headers).to.deep.eq({ 'x-app': 'a', 'x-spinajs-message-id': 'm-1' });
+    });
+
     it('fills MessageId and the standard headers from the delivery, leaving broker-owned headers out', async () => {
       const c = await connected();
       const received: IQueueMessage[] = [];

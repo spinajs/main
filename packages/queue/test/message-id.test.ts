@@ -103,9 +103,11 @@ describe('message ids', function () {
 
   it('hydrates MessageId and Headers into a message class', () => {
     const event = new MessageIdEvent();
-    event.hydrate({ MessageId: 'm-1', Headers: { traceparent: 't-1' } });
+    const payload = { MessageId: 'm-1', Headers: { traceparent: 't-1' } };
+    event.hydrate(payload);
 
     expect(event.MessageId).to.equal('m-1');
     expect(event.Headers).to.deep.equal({ traceparent: 't-1' });
+    expect(event.Headers, 'a copy, not the payload object').to.not.equal(payload.Headers);
   });
 });

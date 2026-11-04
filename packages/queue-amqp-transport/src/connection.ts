@@ -1,5 +1,5 @@
 import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
-import { IQueueMessage, IQueueJob, IQueueConnectionOptions, QueueClient, QueueHeaders, QueueMessage, QueueMessageType, readQueueHeaders } from '@spinajs/queue';
+import { IQueueMessage, IQueueJob, IQueueConnectionOptions, QueueClient, QueueHeaders, QueueMessage, QueueMessageType, readQueueHeaders, withoutTransportHeaders } from '@spinajs/queue';
 import amqp, { Channel, ChannelModel, ConfirmChannel, ConsumeMessage, Options } from 'amqplib';
 import _ from 'lodash';
 import { Constructor, Injectable, PerInstanceCheck } from '@spinajs/di';
@@ -646,7 +646,7 @@ export class AmqpQueueClient extends QueueClient {
     }
 
     if (message.Headers || message.MessageId) {
-      publishOptions.headers = { ...message.Headers, ...(message.MessageId ? { [QueueHeaders.MessageId]: message.MessageId } : {}) };
+      publishOptions.headers = { ...withoutTransportHeaders(message.Headers), ...(message.MessageId ? { [QueueHeaders.MessageId]: message.MessageId } : {}) };
     }
 
     if (message.Priority) {

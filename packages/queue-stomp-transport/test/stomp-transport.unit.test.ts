@@ -594,6 +594,15 @@ describe('stomp queue transport - unit', function () {
       expect(h['x-spinajs-message-id']).to.eq('m-1');
     });
 
+    it("does not publish the transport's own headers from Headers, so a re-emitted message starts fresh", async () => {
+      const c = await connected();
+      await c.emit(jobMessage({ MessageId: 'm-1', Headers: { 'x-retry-count': '3', 'x-error': 'old', 'x-original-destination': '/queue/a', 'x-app': 'a' } }));
+
+      const h: Record<string, string> = c.fake.published[0].headers;
+      expect([h['x-retry-count'], h['x-error'], h['x-original-destination']]).to.deep.eq([undefined, undefined, undefined]);
+      expect(h['x-app']).to.eq('a');
+    });
+
     it('fills MessageId and the standard headers from the frame, ignoring the broker-owned message-id', async () => {
       const c = await connected();
       const received: IQueueMessage[] = [];
