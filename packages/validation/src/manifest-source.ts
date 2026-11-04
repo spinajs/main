@@ -64,7 +64,9 @@ class ManifestSchemaPreparer {
     const copy: Json = {};
     for (const [key, child] of Object.entries(value)) {
       if (!named && key.startsWith('x-')) continue;
-      copy[key] = !named && key === '$ref' && typeof child === 'string' ? this.ref(child) : this.prepare(child, !named && NAMED_SCHEMAS.has(key));
+      const prepared = !named && key === '$ref' && typeof child === 'string' ? this.ref(child) : this.prepare(child, !named && NAMED_SCHEMAS.has(key));
+      // Not `copy[key] =`: for a property named `__proto__` that sets the prototype and drops the property.
+      Object.defineProperty(copy, key, { value: prepared, enumerable: true, writable: true, configurable: true });
     }
     return !named && Array.isArray(copy.allOf) ? this.intersection(copy, copy.allOf) : copy;
   }

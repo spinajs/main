@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 
-import { ManifestValidator } from '../src/manifest-source.js';
+import { manifestSchemaKey, ManifestValidator, prepareManifestSchemas } from '../src/manifest-source.js';
 import { ValidationFailed } from '../src/exceptions/index.js';
 import { manifestOf } from './manifest-of.js';
 
@@ -17,6 +17,8 @@ const SCHEMAS: Record<string, object> = {
   'app/Tags': P({ tags: { type: 'array', uniqueItems: true } }),
   'app/Strings': P({ tags: { type: 'array', items: { type: 'string' }, uniqueItems: true } }),
 };
+// An object literal's `__proto__` sets the prototype; JSON.parse makes it an own property, as a manifest file does.
+SCHEMAS['app/Proto'] = JSON.parse('{"type":"object","properties":{"__proto__":{"type":"string"},"name":{"type":"string"}},"required":["name"],"additionalProperties":false}') as object;
 
 const errorOf = (fn: () => void): ValidationFailed => {
   try {
@@ -73,5 +75,20 @@ describe('ManifestValidator: non-finite numbers and comparisons', function () {
   it('distinct objects with an own valueOf are unique, a repeated "__proto__" string is not', () => {
     expect(() => body('app/Tags')(JSON.parse('{"tags":[{"a":1},{"valueOf":1}]}') as object)).to.not.throw();
     expect(fields(errorOf(() => body('app/Strings')({ tags: ['__proto__', '__proto__'] })))).to.deep.eq([['/tags', 'uniqueItems']]);
+  });
+
+  describe('a schema with a property named __proto__', () => {
+    it('keeps the property through preparation', () => {
+      const prepared = prepareManifestSchemas(manifestOf(SCHEMAS)).find((s) => s.$id === manifestSchemaKey('app/Proto'))!;
+      const properties = prepared.properties as Record<string, unknown>;
+      expect(Object.getPrototypeOf(properties)).to.eq(Object.prototype);
+      expect(Object.keys(properties)).to.deep.eq(['__proto__', 'name']);
+    });
+
+    it('compiles, and Ajv reports a __proto__ key of the data as unknown, as it skips that name in properties', () => {
+      expect(() => body('app/Proto')({ name: 'a' })).to.not.throw();
+      const err = errorOf(() => body('app/Proto')(JSON.parse('{"name":"a","__proto__":"x"}') as object));
+      expect(err.parameter.map((e) => [e.keyword, e.params])).to.deep.eq([['additionalProperties', { additionalProperty: '__proto__' }]]);
+    });
   });
 });
