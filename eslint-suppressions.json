@@ -2568,7 +2568,7 @@
       "count": 1
     },
     "complexity": {
-      "count": 3
+      "count": 2
     },
     "promise/always-return": {
       "count": 1
