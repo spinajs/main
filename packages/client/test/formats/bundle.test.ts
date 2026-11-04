@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 
 const packageDir = fileURLToPath(new URL('../../', import.meta.url));
 
-describe('@spinajs/client/formats: packaging', () => {
+describe('@spinajs/client/formats: packaging', function () {
+  // A cold esbuild start takes several seconds on a loaded machine, beyond mocha's default under --no-config.
+  this.timeout(30000);
+
   it('bundles from its own files only', async () => {
     const result = await build({
       absWorkingDir: packageDir,

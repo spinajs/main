@@ -27,7 +27,10 @@ function serverCoerce(validate: (data: unknown) => boolean, input: unknown): { v
   return { valid: validate(data), value: data.v };
 }
 
-describe('@spinajs/client/formats: coercion', () => {
+describe('@spinajs/client/formats: coercion', function () {
+  // fast-check runs thousands of cases; mocha's 2 s default under --no-config is too short on a loaded machine.
+  this.timeout(60000);
+
   const ajv = serverAjv(true);
 
   for (const types of TYPES) {

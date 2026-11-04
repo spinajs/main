@@ -54,7 +54,10 @@ function stringsFor(corpus: string[]): fc.Arbitrary<string> {
   return fc.oneof(fc.string({ unit: 'binary', maxLength: 30 }), fc.string({ unit: fc.constantFrom(...alphabet), maxLength: 40 }), mutated(corpus, alphabet));
 }
 
-describe('@spinajs/client/formats: format predicates', () => {
+describe('@spinajs/client/formats: format predicates', function () {
+  // fast-check runs thousands of cases; mocha's 2 s default under --no-config is too short on a loaded machine.
+  this.timeout(60000);
+
   const ajv = serverAjv(false);
 
   it('test against the ajv-formats the server installs', () => {
