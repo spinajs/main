@@ -101,6 +101,8 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
   protected config: WorkflowConfig;
   protected store: InstanceStore;
   protected active = new Map<string, Activation>();
+  /** Set by a crash during the current tick: no further claims. */
+  protected crashed = false;
 
   constructor(public readonly Options: WorkflowEngineOptions = {}) {
     super();
@@ -125,25 +127,32 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
   /** One transaction at a time (SQLite): a transactional step would block every other activation's heartbeat on this replica. */
   protected clampConcurrency(config: WorkflowConfig, driver: OrmDriver): WorkflowConfig {
     if (config.concurrency <= 1 || driver.supportedFeatures().concurrentTransactions !== false) return config;
-    this.Log.warn(
+    this.warn(
       `workflow.concurrency ${config.concurrency} clamped to 1: the '${driver.Options.Driver}' driver runs one transaction at a time, and a transactional step would stall every other activation's heartbeat`,
     );
     return { ...config, concurrency: 1 };
   }
 
+  protected warn(message: string): void {
+    this.Log.warn(message);
+  }
+
+  /** Rejects with the first crash of an activation, once every activation settled: the replica is dead (crash contract). */
   public async tick(): Promise<void> {
     const now = await this.Clock.sync();
     const defs = this.Registry.all();
     const free = this.config.concurrency - this.active.size;
     if (free <= 0 || defs.length === 0) return;
+    this.crashed = false;
     const launched: Promise<void>[] = [];
     for (const row of await this.dueInstances(now, defs, free)) {
-      if (launched.length >= free) break;
+      if (this.crashed || this.active.size >= this.config.concurrency) break;
       if (this.active.has(row.Id)) continue;
-      const claim = await this.store.lease.claim(this.store.target(row.Id), this.replicaId, this.config.leaseTtl, now, { Status: row.Status });
+      const claim = await this.store.lease.claim(this.store.target(row.Id), this.replicaId, this.config.leaseTtl, now, { Status: row.Status, WakeAt: row.WakeAt });
       if (claim) launched.push(this.launch(row.Id, claim.epoch, now));
     }
-    await Promise.all(launched);
+    const crash = (await Promise.allSettled(launched)).find((r) => r.status === 'rejected');
+    if (crash) throw crash.reason;
   }
 
   /**
@@ -151,7 +160,7 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
    * starve an instance whose signal landed while it was being parked (D7). Both reads go to the primary.
    */
   protected async dueInstances(now: number, defs: RegisteredWorkflow[], limit: number): Promise<WorkflowInstanceModel[]> {
-    const signalled = (await this.signalledInstances(now, Math.max(1, Math.floor(limit / 4)))).filter((r) => !!this.Registry.find(r.Workflow, r.Version));
+    const signalled = await this.signalledInstances(now, defs, Math.max(1, Math.floor(limit / 4)));
     const seen = new Set(signalled.map((r) => r.Id));
     const timed = await WorkflowInstanceModel.query()
       .onPrimary()
@@ -165,31 +174,45 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
   }
 
   /** Waiting instances with a pending event of the name they wait for: the signal landed while they were being parked. */
-  protected async signalledInstances(now: number, limit: number): Promise<WorkflowInstanceModel[]> {
+  protected async signalledInstances(now: number, defs: RegisteredWorkflow[], limit: number): Promise<WorkflowInstanceModel[]> {
     const driver = this.store.driver;
     const q = quoteFor(sqlDialect(driver.Options.Driver, 'due scan', 'workflow'));
+    // filtered before the LIMIT: unregistered versions must not take the reserved slots
+    const versions = defs.map(() => `(w.${q('Workflow')} = ? AND w.${q('Version')} = ?)`).join(' OR ');
     const rows = await selectRows<{ id: string }>(
       driver,
-      `SELECT DISTINCT w.${q('Id')} AS id FROM ${q('__workflow')} w INNER JOIN ${q('__workflow_event')} e ON e.${q('InstanceId')} = w.${q('Id')} AND e.${q('Name')} = w.${q('WaitingFor')} ` +
-        `WHERE w.${q('Status')} = ? AND e.${q('State')} = ? AND (w.${q('ClaimedBy')} IS NULL OR w.${q('ClaimedUntil')} < ?) LIMIT ${Math.floor(limit)}`,
-      ['waiting', 'pending', now],
+      `SELECT w.${q('Id')} AS id FROM ${q('__workflow')} w WHERE w.${q('Status')} = ? AND (w.${q('ClaimedBy')} IS NULL OR w.${q('ClaimedUntil')} < ?) AND (${versions}) ` +
+        `AND EXISTS (SELECT 1 FROM ${q('__workflow_event')} e WHERE e.${q('InstanceId')} = w.${q('Id')} AND e.${q('Name')} = w.${q('WaitingFor')} AND e.${q('State')} = ?) ` +
+        `ORDER BY w.${q('UpdatedAt')} LIMIT ${Math.floor(limit)}`,
+      ['waiting', now, ...defs.flatMap((d) => [d.name, d.version]), 'pending'],
     );
     const ids = rows.map((r) => r.id);
     return ids.length === 0 ? [] : await WorkflowInstanceModel.query().onPrimary().whereIn('Id', ids).take(limit);
   }
 
+  /** Rejects only with a crash; any other error of the engine's own is logged. */
   protected launch(instanceId: string, epoch: number, claimedAt: number): Promise<void> {
     const ac = new AbortController();
     const abort = (reason: AbortReason): void => {
       if (!ac.signal.aborted) ac.abort(reason);
     };
     const done = this.activate(instanceId, epoch, claimedAt, ac.signal, abort)
-      .catch((err: unknown) => this.Log.error(err as Error, `workflow instance ${instanceId}: activation failed inside the engine`))
+      .catch((err: unknown) => {
+        if (isCrash(err)) throw err;
+        this.Log.error(err as Error, `workflow instance ${instanceId}: activation failed inside the engine`);
+      })
       .finally(() => this.active.delete(instanceId));
     this.active.set(instanceId, { abort, done });
     return done;
   }
 
+  /** A dead replica: every activation on it stops writing, not only the one that saw the crash. */
+  protected crashAll(): void {
+    this.crashed = true;
+    for (const a of this.active.values()) a.abort('crashed');
+  }
+
+  /** Rejects with the error that crashed the activation, once it has stopped. */
   protected async activate(instanceId: string, epoch: number, claimedAt: number, signal: AbortSignal, abort: (reason: AbortReason) => void): Promise<void> {
     const row = await WorkflowInstanceModel.where('Id', instanceId).onPrimary().first();
     const definition = row ? this.Registry.find(row.Workflow, row.Version) : undefined;
@@ -210,14 +233,21 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
       signal,
       log: this.Log,
       onLeaseLost: () => abort('lease-lost'),
-      onCrash: () => abort('crashed'),
+      onCrash: () => this.crashAll(),
       onJournalFailed: (err) => {
         this.Log.error(err as Error, `workflow instance ${instanceId}: a journal row could not be written; the activation is abandoned and replays later`);
         abort('journal-failed');
       },
       timers: this.Timers,
     });
-    const heartbeat = this.heartbeat(instanceId, epoch, claimedAt, abort);
+    const heartbeat = this.heartbeat(ctx, claimedAt, abort);
+    signal.addEventListener(
+      'abort',
+      () => {
+        if (signal.reason === 'crashed') void heartbeat.stop(0);
+      },
+      { once: true },
+    );
     heartbeat.start();
     let outcome: Outcome = { kind: 'aborted' };
     try {
@@ -227,6 +257,7 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
       await heartbeat.stop(this.config.shutdownGrace);
     }
     await this.finish(row, ctx, journal, outcome, signal);
+    if (ctx.crashError !== undefined) throw ctx.crashError as Error;
   }
 
   protected async execute(ctx: ActivationContext, definition: RegisteredWorkflow, signal: AbortSignal): Promise<Outcome> {
@@ -234,6 +265,7 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
     // a synchronous throw from run() is a rejected run like any other
     const work = new Promise<unknown>((resolve) => resolve(workflow.run(ctx)));
     const outcome = await this.settle(work, signal);
+    if (outcome.kind === 'error' && isCrash(outcome.error)) ctx.crash(outcome.error);
     if (signal.aborted) await this.bounded(ctx.drain());
     else await ctx.drain();
     return outcome;
@@ -263,7 +295,8 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
     ac.abort();
   }
 
-  protected heartbeat(instanceId: string, epoch: number, claimedAt: number, abort: (reason: AbortReason) => void): Heartbeat {
+  protected heartbeat(ctx: ActivationContext, claimedAt: number, abort: (reason: AbortReason) => void): Heartbeat {
+    const { instanceId, epoch } = ctx;
     const target = this.store.target(instanceId);
     const ttl = this.config.leaseTtl;
     const renewEveryMs = Math.floor(ttl / 3);
@@ -284,7 +317,7 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
       onLost: () => abort('lease-lost'),
       onCancel: () => abort('cancelled'),
       onError: (err) => {
-        if (isCrash(err)) abort('crashed');
+        if (isCrash(err)) ctx.crash(err);
         else this.Log.warn(err as Error, `workflow instance ${instanceId}: lease renewal failed`);
       },
     });
@@ -298,18 +331,12 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
       await this.store.release(row.Id, ctx.epoch);
     } catch (err) {
       if (!(err instanceof LeaseLostError)) throw err;
-      this.Log.warn(`workflow instance ${row.Id}: the lease was lost before the activation was recorded`);
+      this.warn(`workflow instance ${row.Id}: the lease was lost before the activation was recorded`);
     }
   }
 
-  /** The crash contract: a crash from a fault point, a step body or `run()` itself means this replica is dead. */
-  protected abortReason(ctx: ActivationContext, outcome: Outcome, signal: AbortSignal): AbortReason | undefined {
-    if (ctx.crashed || (outcome.kind === 'error' && isCrash(outcome.error))) return 'crashed';
-    return signal.aborted ? (signal.reason as AbortReason) : undefined;
-  }
-
   protected async decide(row: WorkflowInstanceModel, ctx: ActivationContext, journal: Journal, outcome: Outcome, signal: AbortSignal): Promise<Decision> {
-    const reason = this.abortReason(ctx, outcome, signal);
+    const reason = ctx.crashed ? 'crashed' : signal.aborted ? (signal.reason as AbortReason) : undefined;
     // a dead replica writes and releases nothing: its lease expires on its own
     if (reason === 'crashed') return { kind: 'discard' };
     // an abandoned activation writes no status; the fenced release affects 0 rows after a takeover and otherwise
@@ -327,7 +354,7 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
   }
 
   protected completed(value: unknown, journal: Journal, now: number): Decision {
-    // Amendment 37: old code journaled a step this code returned without asking for
+    // the journal recorded a step this code returned without asking for: the code changed under the instance
     const unvisited = journal.unvisited();
     if (unvisited.length > 0) {
       const error = new NonDeterminismError(`the run ended without asking for '${unvisited.slice(0, 3).join("', '")}', which the journal recorded`);

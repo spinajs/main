@@ -3,13 +3,11 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { FaultInjector } from '@spinajs/durable';
 import type { FakeClock } from '@spinajs/durable/testing';
-import { Log } from '@spinajs/log-common';
-import { Workflow, WorkflowDefinition, WorkflowInstanceModel, WorkflowService, type WorkflowContext } from '../src/index.js';
+import { Workflow, WorkflowDefinition, WorkflowEngine, WorkflowInstanceModel, WorkflowService, type WorkflowContext } from '../src/index.js';
 import { engine } from './support/engine.js';
 import { bootTestEnv, disposeTestEnv, waitFor } from './support/env.js';
 import { TestCrash, TestFaults } from './support/faults.js';
-import { SpyLog } from './support/log.js';
-import { deferred, expireLease, instance, pick, seedEvent, seedInstance, seedStep, stepsOf, T0 } from './support/rows.js';
+import { deferred, expireLease, instance, pick, rejects, seedEvent, seedInstance, seedStep, stepsOf, T0 } from './support/rows.js';
 
 const calls = { sum: 0, noop: 0, gated: 0 };
 let gate = deferred<string>();
@@ -70,20 +68,31 @@ export class EngAbortable extends WorkflowDefinition<null, string> {
   }
 }
 
+/** Its warnings are captured whichever logger the process resolved first. */
+class WarningsEngine extends WorkflowEngine {
+  public static warnings: string[] = [];
+  protected warn(message: string): void {
+    WarningsEngine.warnings.push(message);
+  }
+}
+
+@Workflow('eng-hb-crash')
+export class EngHbCrash extends WorkflowDefinition<null, string> {
+  public run(ctx: WorkflowContext<null>): Promise<string> {
+    return ctx.step('work', () => {
+      started.resolve();
+      return gate.promise;
+    });
+  }
+}
+
 describe('WorkflowEngine.tick', () => {
   let service: WorkflowService;
   let clock: FakeClock;
 
   async function boot(workflow: Record<string, unknown> = {}): Promise<void> {
     TestFaults.reset();
-    SpyLog.reset();
-    ({ clock } = await bootTestEnv({
-      workflow,
-      register: () => {
-        DI.register(TestFaults).as(FaultInjector);
-        DI.register(SpyLog).as(Log);
-      },
-    }));
+    ({ clock } = await bootTestEnv({ workflow, register: () => DI.register(TestFaults).as(FaultInjector) }));
     service = await DI.resolve(WorkflowService);
   }
 
@@ -112,12 +121,13 @@ describe('WorkflowEngine.tick', () => {
 
   it('clamps workflow.concurrency to 1 on SQLite, which runs one transaction at a time, and says so once', async () => {
     await boot({ concurrency: 2 });
+    WarningsEngine.warnings = [];
     for (const id of ['n1', 'n2', 'n3']) await service.start('eng-noop', null, { id });
-    await (await engine()).tick();
+    await (await DI.resolve(WarningsEngine, [{ replicaId: 'r1' }])).tick();
     const statuses = await Promise.all(['n1', 'n2', 'n3'].map(async (id) => (await instance(id)).Status));
     expect(statuses.filter((s) => s === 'completed').length).to.equal(1);
     expect(calls.noop).to.equal(1);
-    expect(SpyLog.warnings).to.deep.equal([
+    expect(WarningsEngine.warnings).to.deep.equal([
       "workflow.concurrency 2 clamped to 1: the 'orm-driver-sqlite' driver runs one transaction at a time, and a transactional step would stall every other activation's heartbeat",
     ]);
   });
@@ -152,6 +162,16 @@ describe('WorkflowEngine.tick', () => {
       done: 'completed',
     });
     expect(calls.noop).to.equal(4);
+  });
+
+  it('a signalled wait of an unregistered version does not take the reserved slot of a registered one', async () => {
+    await boot();
+    await seedInstance('a-unreg', { Workflow: 'eng-noop', Version: 9, Status: 'waiting', WaitingFor: 'go' });
+    await seedEvent('a-unreg', 'go');
+    await seedInstance('b-reg', { Workflow: 'eng-noop', Status: 'waiting', WaitingFor: 'go', UpdatedAt: T0 + 1 });
+    await seedEvent('b-reg', 'go');
+    await (await engine()).tick();
+    expect([(await instance('a-unreg')).Status, (await instance('b-reg')).Status]).to.deep.equal(['waiting', 'completed']);
   });
 
   it('leaves an instance alone while another replica holds a valid lease', async () => {
@@ -260,7 +280,7 @@ describe('WorkflowEngine.tick', () => {
     await boot();
     TestFaults.crashOnce('workflow.after-step-fn', 'step:add');
     const { id } = await service.start('eng-sum', { a: 4, b: 5 });
-    await (await engine('r1')).tick();
+    expect(await rejects((await engine('r1')).tick())).to.be.instanceOf(TestCrash);
     expect(pick(await instance(id), 'Status', 'ClaimedBy')).to.deep.equal({ Status: 'running', ClaimedBy: 'r1' });
     expect((await stepsOf(id)).length).to.equal(0);
     clock.set(T0 + 60_001);
@@ -269,11 +289,27 @@ describe('WorkflowEngine.tick', () => {
     expect(calls.sum).to.equal(2);
   });
 
-  it('a crash thrown by run() itself writes no failure and keeps the lease', async () => {
+  it('a crash thrown by run() itself rejects the tick, writes no failure and keeps the lease', async () => {
     await boot();
     const { id } = await service.start('eng-dead', null);
-    await (await engine('r1')).tick();
+    expect(await rejects((await engine('r1')).tick())).to.be.instanceOf(TestCrash);
     expect(pick(await instance(id), 'Status', 'Reason', 'Error', 'ClaimedBy')).to.deep.equal({ Status: 'running', Reason: null, Error: null, ClaimedBy: 'r1' });
+  });
+
+  it('a crash at the lease renewal stops the heartbeat, discards the late step result and rejects the tick', async () => {
+    await boot();
+    TestFaults.rule = (p) => p === 'workflow.lease-renew';
+    const { id } = await service.start('eng-hb-crash', null);
+    const tick = (await engine('r1')).tick().catch((e: unknown) => e);
+    await started.promise;
+    await clock.advance(20_000);
+    await waitFor(() => TestFaults.hits.includes('workflow.lease-renew'));
+    gate.resolve('late');
+    await clock.advance(40_000);
+    expect(await tick).to.be.instanceOf(TestCrash);
+    expect(TestFaults.hits.filter((h) => h === 'workflow.lease-renew').length).to.equal(1);
+    expect((await stepsOf(id)).length).to.equal(0);
+    expect(pick(await instance(id), 'Status', 'ClaimedBy', 'ClaimedUntil')).to.deep.equal({ Status: 'running', ClaimedBy: 'r1', ClaimedUntil: T0 + 60_000 });
   });
 
   it('CancelRequested ends a parked instance as cancelled without running it', async () => {

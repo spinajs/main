@@ -1,14 +1,17 @@
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { RowLease } from '@spinajs/durable';
+import { FaultInjector, RowLease } from '@spinajs/durable';
 import { QueryContext } from '@spinajs/orm';
-import { InstanceStore, LeaseLostError, Workflow, WorkflowDefinition, WorkflowService, workflowDriver, type WorkflowContext } from '../../src/index.js';
+import { InstanceStore, LeaseLostError, Workflow, WorkflowDefinition, WorkflowInstanceModel, WorkflowService, workflowDriver, type WorkflowContext } from '../../src/index.js';
 import { engine } from '../support/engine.js';
 import { disposeTestEnv } from '../support/env.js';
+import { TestCrash, TestFaults } from '../support/faults.js';
 import { instance, pick, rejects, seedEvent, seedInstance, stepsOf, T0 } from '../support/rows.js';
 import { bootRealDb, REAL_DB_TARGETS } from './real-db.js';
 
 let commits = 0;
+const executions = new Map<string, number>();
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function sql(stmt: string, context = QueryContext.Schema): Promise<unknown> {
   return (await workflowDriver()).executeOnDb(stmt, [], context);
@@ -25,6 +28,28 @@ export class ItSum extends WorkflowDefinition<{ a: number; b: number }, number> 
 export class ItNoop extends WorkflowDefinition<null, string> {
   public run(): Promise<string> {
     return Promise.resolve('woke');
+  }
+}
+
+@Workflow('it-count')
+export class ItCount extends WorkflowDefinition<null, string> {
+  public run(ctx: WorkflowContext<null>): Promise<string> {
+    return ctx.step('work', async () => {
+      executions.set(ctx.instanceId, (executions.get(ctx.instanceId) ?? 0) + 1);
+      await pause(20);
+      return 'ok';
+    });
+  }
+}
+
+/** Runs one step named after its input; 'slow' takes a while. */
+@Workflow('it-named')
+export class ItNamed extends WorkflowDefinition<string, string> {
+  public run(ctx: WorkflowContext<string>): Promise<string> {
+    return ctx.step(ctx.input, async () => {
+      if (ctx.input === 'slow') await pause(200);
+      return ctx.input;
+    });
   }
 }
 
@@ -86,6 +111,35 @@ for (const target of REAL_DB_TARGETS) {
       await seedEvent('w1', 'go');
       await (await engine()).tick();
       expect((await instance('w1')).Status).to.equal('completed');
+    });
+
+    it('three replicas with concurrency 4 ticking at once run every instance exactly once', async () => {
+      await bootRealDb(target, { workflow: { concurrency: 4 } });
+      executions.clear();
+      const service = await DI.resolve(WorkflowService);
+      const ids = Array.from({ length: 24 }, (_, i) => `c${i}`);
+      for (const id of ids) await service.start('it-count', null, { id });
+      const replicas = [await engine('r1'), await engine('r2'), await engine('r3')];
+      for (let round = 0; round < 12; round++) await Promise.all(replicas.map((r) => r.tick()));
+      expect(ids.map((id) => executions.get(id))).to.deep.equal(ids.map(() => 1));
+      for (const id of ids) expect((await instance(id)).Status).to.equal('completed');
+    });
+
+    it("a crash in one activation stops every other activation's writes and rejects the tick", async () => {
+      TestFaults.reset();
+      await bootRealDb(target, { workflow: { concurrency: 2 }, register: () => DI.register(TestFaults).as(FaultInjector) });
+      TestFaults.crashOnce('workflow.after-step-fn', 'step:boom');
+      const service = await DI.resolve(WorkflowService);
+      await service.start('it-named', 'slow', { id: 'slow' });
+      await service.start('it-named', 'boom', { id: 'boom' });
+      // claimed after 'slow', which is then already running when 'boom' crashes
+      await WorkflowInstanceModel.update({ UpdatedAt: T0 + 1 }).where('Id', 'boom');
+      expect(await rejects((await engine()).tick())).to.be.instanceOf(TestCrash);
+      for (const id of ['slow', 'boom']) {
+        expect(pick(await instance(id), 'Status', 'ClaimedBy')).to.deep.equal({ Status: 'running', ClaimedBy: 'r1' });
+        expect((await stepsOf(id)).length).to.equal(0);
+      }
+      TestFaults.reset();
     });
 
     (target.name === 'postgres' ? it : it.skip)('a transactional step whose COMMIT fails journals nothing, spends no retry and runs again on the next activation', async () => {
