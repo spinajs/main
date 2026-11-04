@@ -36,15 +36,18 @@ that is `NoFaults`, a no-op. A rule fires `always`, with a `probability`, or on 
 ## Running
 
     npm run sim -- --suite <name> --seed <n>               # replay one seed
-    npm run sim -- --all --seeds 200 --out sim-reports     # what CI runs
+    npm run sim -- --suite <name> --seeds 8 --out sim-reports   # what each CI leg runs
     npm test -w @spinajs/simulation                        # 3 smoke seeds per suite plus a replay check; SIM_SEEDS=50 for more
 
 A failing seed prints its report, which includes the replay command, and exits with 1. `--out` is resolved
 against the directory `npm run sim` was started in. A seed whose database work never settles fails as
 `stuck:database`.
 
+Replicas interleave only between settle points, never inside one `tickOnce()`, so a compare-and-set guard that
+is missing between a read and the write that depends on it is not found by the simulation.
+
 ## Suites
 
 | Suite | Actors | Faults | Invariants |
 |---|---|---|---|
-| `scheduler` | 3 scheduler replicas ticking one 10 s schedule whose runs sleep 1–21 s | crash or 35 s delay at `scheduler.lease-renew`, pause up to 90 s | each occurrence fired once; owners and terminal outcomes written once per attempt, every effect under the lease holder; no run left unfinished |
+| `scheduler` | 3 scheduler replicas ticking one 10 s schedule whose runs sleep 1–21 s and sometimes pause past the lease | crash or 35 s delay at `scheduler.lease-renew`, pause up to 90 s | each occurrence fired once; no finished outcome rewritten and no attempt handed to another owner (sqlite triggers log every such write), every effect under the lease holder; finished runs agree with their attempts; no run left unfinished; at least one run succeeded |

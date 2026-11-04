@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { runSuite, summaryLine } from '../src/index.js';
 import { SUITES } from '../suites/index.js';
 
-// smoke only: the `simulation` CI job (200 seeds per suite) is the seed gate; SIM_SEEDS raises it locally
+// smoke only: the `simulation` CI job (8 seeds per suite) is the seed gate; SIM_SEEDS raises it locally
 const SEEDS = Number(process.env.SIM_SEEDS ?? 3);
 
 for (const [name, load] of Object.entries(SUITES)) {
