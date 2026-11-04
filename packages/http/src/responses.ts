@@ -86,8 +86,21 @@ export function jsonResponse(model: any, options?: IResponseOptions) {
     }
 
     // Every JSON reply passes here: route results, error problems, transformers. See docs/http/26-idempotency.md.
-    responseCaptureOf(res)?.capture(capturedJsonReply(res, model));
+    captureReply(res, model);
   };
+}
+
+// The reply is already sent: a throw here would reach the error handler and answer a second time.
+function captureReply(res: express.Response, model: unknown) {
+  const capture = responseCaptureOf(res);
+  if (!capture) {
+    return;
+  }
+  try {
+    capture.capture(capturedJsonReply(res, model));
+  } catch (err) {
+    DI.resolve(Log, ['http']).error({ error: err }, 'A response capture failed; the reply was sent but not captured');
+  }
 }
 
 /**

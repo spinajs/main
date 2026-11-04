@@ -1,13 +1,18 @@
 import 'mocha';
 import { expect } from 'chai';
+import sinon from 'sinon';
 import { Intl } from '@spinajs/intl';
+import { Log } from '@spinajs/log-common';
 import type { TestApp } from '@spinajs/testing';
+import { DI } from '@spinajs/di';
 import type express from 'express';
 import { httpApp, req, TestConfiguration } from './common.js';
 import { BaseController, BasePath, BufferResponse, CodedHttpException, Controllers, Created, Get, HttpServer, Middleware, Ok, Post, RouteMiddleware, attachResponseCapture } from '../src/index.js';
 import type { CapturedJsonReply } from '../src/index.js';
 
 const captured: CapturedJsonReply[] = [];
+
+let captureThrows = false;
 
 const headersOf = (res: { headers: unknown }) => res.headers as Record<string, string>;
 
@@ -19,7 +24,14 @@ class CaptureProbe extends RouteMiddleware {
   }
 
   public async onBefore(_req: express.Request, res: express.Response): Promise<void> {
-    attachResponseCapture(res, { capture: (reply) => void captured.push(reply) });
+    attachResponseCapture(res, {
+      capture: (reply) => {
+        if (captureThrows) {
+          throw new Error('capture exploded');
+        }
+        captured.push(reply);
+      },
+    });
   }
 
   public async onResponse(): Promise<void> {}
@@ -126,5 +138,45 @@ describe('ResponseCapture', function () {
     expect(res.status).to.eq(200);
     expect((res.body as Buffer).equals(BYTES)).to.equal(true);
     expect(captured).to.deep.equal([]);
+  });
+
+  describe('that throws', () => {
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => void rejections.push(reason);
+    const log = () => DI.resolve(Log, ['http']);
+    const accessLog = () => DI.resolve(Log, ['http.access']);
+
+    beforeEach(() => {
+      captureThrows = true;
+      rejections.length = 0;
+      process.on('unhandledRejection', onRejection);
+    });
+
+    afterEach(() => {
+      captureThrows = false;
+      process.off('unhandledRejection', onRejection);
+      sinon.restore();
+    });
+
+    for (const [path, status] of [
+      ['capture/bytesInJson', 200],
+      ['capture/coded', 404],
+    ] as const) {
+      it(`leaves the ${status} reply of ${path} as it was sent and logs the failure once`, async () => {
+        const fatal = sinon.spy(log(), 'fatal');
+        const error = sinon.spy(log(), 'error');
+        const access = sinon.spy(accessLog(), 'info');
+
+        const res = await req().get(path).set('Accept', 'application/json');
+        // the access log and a stray rejection both land after the client has the reply
+        await new Promise((resolve) => setTimeout(resolve, 300));
+
+        expect(res.status).to.eq(status);
+        expect(fatal.called, 'the error handler ran').to.equal(false);
+        expect(error.args.filter(([, message]) => message === 'A response capture failed; the reply was sent but not captured')).to.have.length(1);
+        expect(access.args.map(([fields]) => (fields as { status?: number }).status)).to.deep.equal([status]);
+        expect(rejections).to.deep.equal([]);
+      });
+    }
   });
 });
