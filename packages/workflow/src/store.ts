@@ -1,4 +1,5 @@
 import type { RowLease, RowLeaseTarget } from '@spinajs/durable';
+import { InvalidOperation } from '@spinajs/exceptions';
 import type { SerializedError, StepKind, StepMeta, StepStatus } from './contract.js';
 import { LeaseLostError } from './errors.js';
 import type { StepRow } from './journal.js';
@@ -66,7 +67,9 @@ export class InstanceStore {
     const error = w.error ?? null;
     if (existing) {
       const meta = w.meta === undefined ? existing.Meta : w.meta;
-      await WorkflowStepModel.update({ Status: w.status, Attempt: w.attempt, Result: result, ResultStored: stored, Error: error, Meta: meta, FinishedAt: w.finishedAt }).where('Id', existing.Id);
+      const r = await WorkflowStepModel.update({ Status: w.status, Attempt: w.attempt, Result: result, ResultStored: stored, Error: error, Meta: meta, FinishedAt: w.finishedAt }).where('Id', existing.Id);
+      // e.g. the row came from a transaction whose COMMIT failed
+      if (r.RowsAffected !== 1) throw new InvalidOperation(`journal row ${existing.Id} of '${w.key}' no longer exists`);
       return { ...existing, Status: w.status, Attempt: w.attempt, Result: result, ResultStored: stored, Error: error, Meta: meta };
     }
     const meta = w.meta ?? null;

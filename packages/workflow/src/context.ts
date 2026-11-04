@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Clock, DbClock, FaultInjector, FaultPointName } from '@spinajs/durable';
-import { InvalidArgument, NotSupported } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import type { Log } from '@spinajs/log-common';
 import type { QueueEvent, QueueJob } from '@spinajs/queue';
 import type { SerializedError, StepKind, StepMeta, StepStatus, WaitForEventOptions, WorkflowContext, WorkflowEvent, WorkflowStepOptions } from './contract.js';
@@ -50,6 +50,8 @@ export interface Op {
   seq: number;
   /** Results delivered to run() before this call. */
   after: number;
+  /** Set once the operation's result is journaled. */
+  order?: number;
 }
 
 type StepFn<T> = (s: { signal: AbortSignal; attempt: number }) => Promise<T> | T;
@@ -105,7 +107,8 @@ export class ActivationContext implements WorkflowContext {
     this.version = i.Version;
     this.input = i.Input ?? null;
     this.signal = init.signal;
-    this.gate = new ReplayGate(init.journal.rows(), init.journal.causal, init.timers && { timers: init.timers, ms: init.config.leaseTtl });
+    this.gate = new ReplayGate(init.journal.rows(), init.journal.causal, (error) => this.interrupt({ kind: 'nondeterminism', error }), init.timers && { timers: init.timers, ms: init.config.leaseTtl });
+    init.signal.addEventListener('abort', () => this.gate.abort(new WorkflowAborted(this.abortReason())), { once: true });
     this.log = init.log.child('WORKFLOW', { instanceId: i.Id, workflow: i.Workflow, version: i.Version });
   }
 
@@ -197,6 +200,8 @@ export class ActivationContext implements WorkflowContext {
     if (!cur) this.interruption = next;
     else if (cur.kind === 'park' && next.kind === 'park') this.interruption = { kind: 'park', park: earlierPark(cur.park, next.park) };
     else if (PRIORITY[next.kind] > PRIORITY[cur.kind]) this.interruption = next;
+    const now = this.interruption;
+    if (now) this.gate.abort(now.kind === 'park' ? new WorkflowSuspended() : now.error);
   }
 
   protected track<T>(p: Promise<T>): Promise<T> {
@@ -223,6 +228,7 @@ export class ActivationContext implements WorkflowContext {
   protected crash(): void {
     if (this.crashed) return;
     this.crashed = true;
+    this.gate.abort(new WorkflowAborted('crashed'));
     this.init.onCrash();
   }
 
@@ -230,6 +236,7 @@ export class ActivationContext implements WorkflowContext {
   protected abandonJournal(err: unknown): void {
     if (this.journalFailed) return;
     this.journalFailed = true;
+    this.gate.abort(new WorkflowAborted('journal-failed'));
     this.init.onJournalFailed(err);
   }
 
@@ -261,13 +268,12 @@ export class ActivationContext implements WorkflowContext {
     return this.runLive(op, fn, opts, rec);
   }
 
-  /** Waits for the gate; a divergence it detects is non-determinism unless the activation already ended. */
+  /** The gate fails its waiters only when the activation has ended; they get what ended it. */
   protected async released(op: Op): Promise<void> {
     try {
       await this.gate.wait(op.key);
     } catch (err) {
-      if (this.crashed || this.journalFailed || this.signal.aborted) throw new WorkflowAborted(this.abortReason());
-      this.interrupt({ kind: 'nondeterminism', error: err as NonDeterminismError });
+      this.assertLive();
       throw err;
     }
   }
@@ -283,7 +289,7 @@ export class ActivationContext implements WorkflowContext {
       throw await this.stepFailed(op, err, attempt, startedAt, opts);
     }
     await this.fault('workflow.after-journal', op.key);
-    this.gate.delivered++;
+    await this.gate.live(op.order);
     return value;
   }
 
@@ -334,7 +340,7 @@ export class ActivationContext implements WorkflowContext {
     } catch (writeErr) {
       return this.journalWriteFailed(writeErr);
     }
-    this.gate.delivered++;
+    await this.gate.live(op.order);
     return new WorkflowStepFailed(op.name, error, err);
   }
 
@@ -372,12 +378,15 @@ export class ActivationContext implements WorkflowContext {
     if (this.journalFailed) throw new WorkflowAborted('journal-failed');
     await this.fault('workflow.before-journal', op.key);
     const { store, journal, clock, epoch } = this.init;
+    if (journal.causal && !Number.isInteger(op.after)) throw new InvalidOperation(`'${op.key}' has no Meta.after: the journal would lose its causality metadata`);
     const final = s.status === 'succeeded' || s.status === 'failed';
+    const kept = s.meta === undefined ? journal.get(op.key)?.Meta : s.meta;
     const row = await this.guarded(() => {
       const now = clock.now();
       return store.fenced(this.instanceId, epoch, now, () => {
-        // Taken under the row lock the fence UPDATE holds until commit, so the order is the commit order and the order results reach run().
-        const meta = final ? { ...s.meta, after: op.after, order: journal.nextOrder() } : s.meta;
+        // Taken under the row lock the fence UPDATE holds until commit, so the order is the commit order.
+        const meta: StepMeta = { ...kept, after: op.after, ...(final ? { order: journal.nextOrder() } : {}) };
+        op.order = meta.order;
         return store.saveStep(journal.get(op.key), this.stepWrite(op, { ...s, meta }, now));
       });
     });

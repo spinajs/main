@@ -71,11 +71,15 @@ export class Journal {
     else this.checkLenient(seq, key);
   }
 
-  /** A gated replay makes every call at its recorded position, after as many results as it was the first time. */
+  /**
+   * A gated replay makes every call at its recorded position, after as many results as it was the first time. A
+   * recorded name used once cannot hand its result to the wrong caller, so timing between steps may move it.
+   */
   protected checkCausal(seq: number, key: string, after: number): void {
+    const recorded = this.byKey.get(key);
+    if (recorded && this.occurrences.get(baseOf(key)) === 1) return;
     const atSeq = this.bySeq.get(seq);
     if (atSeq && atSeq.Key !== key) throw new NonDeterminismError(`the journal recorded '${atSeq.Key}' at position ${seq}, this run asked for '${key}'`);
-    const recorded = this.byKey.get(key);
     if (recorded && recorded.Seq !== seq) throw new NonDeterminismError(`the journal recorded '${key}' at position ${recorded.Seq}, this run asked for it at ${seq}`);
     const was = recorded?.Meta?.after;
     if (was !== undefined && was !== after) throw new NonDeterminismError(`the journal recorded '${key}' after ${was} results, this run asked for it after ${after}`);
