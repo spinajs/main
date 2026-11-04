@@ -32,6 +32,7 @@ declare module '@spinajs/orm' {
     /** Only rows that are one of `ref` or descend from one (authz_resource_ancestor); narrows, does not authorize. */
     within(ref: ResourceRef | readonly ResourceRef[]): this;
     withAccess(permissions: readonly Permission[], opts?: WithAccessOptions): this;
+    withFields(permission: Permission, opts?: WithAccessOptions): this;
   }
   interface IUpdateQueryBuilder<T> {
     accessible(permission: Permission, opts?: AccessibleOptions): this;
@@ -127,12 +128,21 @@ function withAccess(this: object, permissions: readonly Permission[], opts?: Wit
   return this;
 }
 
+function withFields(this: object, permission: Permission, opts?: WithAccessOptions): object {
+  const what = `.withFields(${JSON.stringify(permission)})`;
+  requireResource(this, what);
+  if (!isPermission(permission)) throw new AuthzConfigError(`${what}: not a permission name`);
+  setMarks(this, { ...(marksOf(this) ?? {}), withFields: permission, ...envOf(opts, what) });
+  return this;
+}
+
 for (const proto of [SelectQueryBuilder.prototype, UpdateQueryBuilder.prototype, DeleteQueryBuilder.prototype] as unknown as Record<string, unknown>[]) {
   proto.accessible = accessible;
   proto.unscoped = unscoped;
   proto.within = within;
 }
 (SelectQueryBuilder.prototype as unknown as Record<string, unknown>).withAccess = withAccess;
+(SelectQueryBuilder.prototype as unknown as Record<string, unknown>).withFields = withFields;
 
 // A clone is the same query: it keeps what the caller declared (clone() runs no middleware, builders.ts:1299).
 const clone = SelectQueryBuilder.prototype.clone;
