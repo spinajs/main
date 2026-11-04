@@ -15,3 +15,4 @@ export * from './validator.js';
 export * from './types.js';
 export * from './standard-schema.js';
 export * from './manifest-source.js';
+export { addSafeKeywords, dropNonFiniteDuplicates, findNonFinite, jsonEqual, nonFiniteErrors, type SafeKeywordsOptions } from './keywords.js';
