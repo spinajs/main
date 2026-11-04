@@ -221,7 +221,8 @@ export interface IContainer extends EventEmitter {
 
   getCacheStats(): ContainerCacheStats;
 
-  extractDescriptor(type: Class<unknown>): IInjectDescriptor<unknown>;
+  /** With `record: false` nothing is consulted or marked for the boot checks: a property the decorator alone types gets that class, an untyped one throws. */
+  extractDescriptor(type: Class<unknown>, options?: { record?: boolean }): IInjectDescriptor<unknown>;
 
   /** What this container itself registered (not its ancestors): every key with its implementations, injections and runtime state. */
   describe(): ContainerDescription;

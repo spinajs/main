@@ -1081,7 +1081,7 @@ export class Container extends EventEmitter implements IContainer {
     }
   }
 
-  public extractDescriptor(type: Class<unknown>) {
+  public extractDescriptor(type: Class<unknown>, options?: { record?: boolean }) {
     const descriptor: IInjectDescriptor<unknown> = {
       inject: [],
       resolver: ResolveType.Singleton,
@@ -1131,7 +1131,7 @@ export class Container extends EventEmitter implements IContainer {
     // and add them first
     const constructorInject = descriptor.inject.filter((x) => x.autoinjectKey === '');
     const rest = descriptor.inject.filter((x) => x.autoinjectKey !== '');
-    descriptor.inject = [...constructorInject, ...uniqueBy(rest, (x) => x.autoinjectKey)].map((x) => (x.pendingType ? this.pendingInjection(x, pendingOwners.get(x)!) : x));
+    descriptor.inject = [...constructorInject, ...uniqueBy(rest, (x) => x.autoinjectKey)].map((x) => (x.pendingType ? this.pendingInjection(x, pendingOwners.get(x)!, options?.record !== false) : x));
 
     return descriptor;
   }
@@ -1141,8 +1141,12 @@ export class Container extends EventEmitter implements IContainer {
   }
 
   /** A property whose type the build did not record: typed by the registered {@link PROPERTY_TYPE_RESOLVER}, else unresolvable. */
-  private pendingInjection(pending: IToInject<unknown>, owner: Class<unknown>): IToInject<unknown> {
+  private pendingInjection(pending: IToInject<unknown>, owner: Class<unknown>, record: boolean): IToInject<unknown> {
     const { property, explicit, bind } = pending.pendingType!;
+    if (!record) {
+      if (explicit) return bind(explicit, false);
+      throw new ResolveException(`cannot read ${owner.name}.${String(property)}: the decorator names no type and the build emits no decorator metadata`);
+    }
     const resolver = this.get(PROPERTY_TYPE_RESOLVER);
     const declared = resolver?.typeOf(owner, String(property), this);
     if (explicit && !declared) noteBoundSingle(owner, String(property));

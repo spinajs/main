@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 
-import { AsyncService, Autoinject, Container, Inject, LazyInject, NewInstance } from '../src/index.js';
+import { AsyncService, Autoinject, Container, forgetPendingProperties, Inject, LazyInject, NewInstance, PerChildInstance, pendingProperties, PROPERTY_TYPE_RESOLVER } from '../src/index.js';
 import type { ImplementationDescription } from '../src/index.js';
 
 class Dep {}
@@ -33,6 +33,21 @@ class Impl extends Contract {
 @NewInstance()
 class Fresh {}
 
+@PerChildInstance()
+class PerChild {}
+
+// Applied by hand: TypeScript emits `design:type` only for decorators it applies itself, so these have no metadata.
+class ExplicitWithoutMetadata {
+  public dep: Dep;
+}
+Autoinject(Dep)(ExplicitWithoutMetadata.prototype, 'dep');
+
+class Untyped {
+  public dep: Dep;
+}
+NewInstance()(Untyped);
+Autoinject()(Untyped.prototype, 'dep');
+
 let releaseSlow: () => void;
 
 class Slow extends AsyncService {
@@ -50,6 +65,12 @@ describe('Container.describe', () => {
 
   beforeEach(() => {
     c = new Container();
+  });
+
+  // The pending-property table is process-wide.
+  after(() => {
+    forgetPendingProperties(ExplicitWithoutMetadata);
+    forgetPendingProperties(Untyped);
   });
 
   it('lists the own registrations through Registry.entries', () => {
@@ -104,5 +125,47 @@ describe('Container.describe', () => {
     releaseSlow();
     await resolving;
     expect(c.describe().services.find((s) => s.token === 'Slow')).to.deep.include({ resolving: false });
+  });
+
+  it('flags a token resolving while its implementation is in flight', async () => {
+    c.register(Slow).as('slowToken');
+    const resolving = c.resolve('slowToken');
+
+    expect(c.describe().services.find((s) => s.token === 'slowToken')).to.deep.include({ resolving: true });
+
+    releaseSlow();
+    await resolving;
+    expect(c.describe().services.find((s) => s.token === 'slowToken')).to.deep.include({ resolving: false });
+  });
+
+  it('reports the per-child lifetime and the generated name of an anonymous class', () => {
+    c.register(PerChild).asSelf();
+    c.register(class {}).as('anonymous');
+    expect(implementationsOf(c, 'PerChild')[0].lifetime).to.eq('per-child');
+    expect(implementationsOf(c, 'anonymous')[0].name).to.match(/^AnonymousClass#\d+$/);
+  });
+
+  it('lists a class whose property nothing types with the error and its declared lifetime', () => {
+    c.register(Untyped).asSelf();
+    const [impl] = implementationsOf(c, 'Untyped');
+    expect(impl).to.include({ lifetime: 'new-instance', instantiated: false });
+    expect(impl.injects).to.deep.eq([]);
+    expect(impl.error).to.match(/Untyped\.dep/);
+  });
+
+  it('describes a property typed only by its decorator without consulting the type resolver or marking boot-check state', () => {
+    let consulted = 0;
+    c.register({ typeOf: () => void consulted++ }).asValue(PROPERTY_TYPE_RESOLVER.key);
+    c.register(ExplicitWithoutMetadata).asSelf();
+    expect(implementationsOf(c, 'ExplicitWithoutMetadata')[0].injects).to.deep.eq([{ token: 'Dep', kind: 'property', optional: false, array: false, property: 'dep' }]);
+    expect(pendingProperties().find((p) => p.owner === ExplicitWithoutMetadata)).to.not.have.property('boundSingle');
+    expect(consulted).to.eq(0);
+  });
+
+  it('hands out copies of the registration lists', () => {
+    c.register(Impl).as(Contract);
+    const [, list] = [...c.Registry.entries()].find(([key]) => key === 'Contract')!;
+    (list as unknown[]).push(Fresh);
+    expect(c.getRegisteredTypes(Contract)).to.deep.eq([Impl]);
   });
 });

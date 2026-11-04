@@ -1,7 +1,8 @@
+import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
 import { ResolveType } from './enums.js';
 import { getTypeName, isConstructor, isFactory, isTypedArray } from './helpers.js';
 import { AsyncService } from './interfaces.js';
-import type { ContainerDescription, IContainer, IToInject, ImplementationDescription, InjectionDescription, ServiceDescription, ServiceLifetime } from './interfaces.js';
+import type { ContainerDescription, IContainer, IInjectDescriptor, IToInject, ImplementationDescription, InjectionDescription, ServiceDescription, ServiceLifetime } from './interfaces.js';
 import type { Class } from './types.js';
 
 const LIFETIMES: Record<ResolveType, ServiceLifetime> = {
@@ -36,10 +37,11 @@ function describeClass(container: IContainer, type: Class<unknown>, live: Readon
   // getTypeName, not type.name: an anonymous class keys by a generated name, and Studio joins on it.
   const base = { name: getTypeName(type), kind: 'class' as const, instantiated: live.has(type), async: (type.prototype as object) instanceof AsyncService };
   try {
-    const descriptor = container.extractDescriptor(type);
+    const descriptor = container.extractDescriptor(type, { record: false });
     return { ...base, lifetime: LIFETIMES[descriptor.resolver], injects: descriptor.inject.map(describeInjection) };
   } catch (e) {
-    return { ...base, lifetime: 'singleton', injects: [], error: e instanceof Error ? e.message : String(e) };
+    const declared = Reflect.getMetadata(DI_DESCRIPTION_SYMBOL, type) as IInjectDescriptor<unknown> | undefined;
+    return { ...base, lifetime: LIFETIMES[declared?.resolver ?? ResolveType.Singleton], injects: [], error: e instanceof Error ? e.message : String(e) };
   }
 }
 
@@ -60,7 +62,10 @@ export function describeContainer(container: IContainer): ContainerDescription {
   };
 
   for (const [token, list] of container.Registry.entries()) {
-    for (const impl of list) service(token).implementations.push(describeImplementation(container, impl, live));
+    const described = service(token);
+    // In-flight resolutions are keyed by the implementation class, not by the token it is registered as.
+    described.resolving ||= list.some((impl) => isConstructor(impl) && pending.has(getTypeName(impl)));
+    for (const impl of list) described.implementations.push(describeImplementation(container, impl, live));
   }
   for (const { key } of container.Registry.valueEntries()) {
     service(key).implementations.push({ name: key, kind: 'value', lifetime: 'value', instantiated: true, async: false, injects: [] });
