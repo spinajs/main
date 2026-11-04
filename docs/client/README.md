@@ -84,7 +84,7 @@ The file holds one DTO type per named schema, one interface per controller (`Use
 - Routes a controller inherits are methods of that controller's client, with its path and the types it binds, so a subclass whose routes all come from its base gets a full client. A controller replaced with an unconditional `DI.register(Sub).as(Base)` is left out, because the runtime mounts only the subclass.
 - A parameter without a `wire` binding (a manifest from an older compiler) fails generation with an error naming the route and the parameter. Rebuild the manifest.
 
-Pass `--models` to convert replies and arguments into `Date`, `DateTime`, `Decimal` and your own classes; see [Client models](models.md).
+Generate with `models: true` (`generateClientFiles`; the CLI flag comes with FG-2) to convert replies and arguments into `Date`, `DateTime`, `Decimal` and your own classes; see [Client models](models.md).
 
 Socket controllers become `defineContract` constants (`chatContract`) from `@spinajs/http-socket-common`; pass `--no-socket` to leave them out and `--module <path>` to import the runtime from somewhere other than `@spinajs/client/runtime`.
 

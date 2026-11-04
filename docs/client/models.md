@@ -6,10 +6,12 @@ Nothing changes until you ask for it. Without `formats` and `models`, `createApp
 
 ## Turning it on
 
-Generate with `--models` (`generateClientFiles({ manifest, models: true })` from code):
+Generate with the `models` option of `generateClientFiles`. A `--models` flag for `spinajs generate:client` comes with that command's flag task (FG-2) and does not exist yet:
 
-```sh
-spinajs generate:client --models
+```ts
+import { generateClientFiles } from '@spinajs/client';
+
+const files = await generateClientFiles({ manifest, models: true });
 ```
 
 `client.ts` then gains, next to the 4.0 declarations:
@@ -56,7 +58,7 @@ The slots are:
 
 A slot with no codec keeps its wire type, so you convert only what you register. A string field tagged `@format decimal` uses the `decimal` slot as well, although its server type is a plain `string` and its schema has no `x-spinajs-type`.
 
-`@spinajs/client/runtime` ships `dateCodec` (`Date`, ISO text). The codecs for libraries are in `@spinajs/client/codecs`. They take the library as an argument and import nothing, so `@spinajs/client` depends on neither luxon, decimal.js nor big.js, and your bundle contains only the library you already use:
+`@spinajs/client/runtime` ships `dateCodec` (`Date`, ISO text). The codecs for libraries are in `@spinajs/client/codecs`. They take the library as an argument and import no package (only types from the runtime), so `@spinajs/client` depends on neither luxon, decimal.js nor big.js, and your bundle contains only the library you already use:
 
 ```ts sample
 import { Big } from 'big.js';
@@ -77,7 +79,7 @@ export const price: Big = decimalCodec(Big).decode('12.50');
 | Codec | App type | Encodes with |
 | --- | --- | --- |
 | `luxonCodec(DateTime)` | `DateTime`, keeping the offset of the text | `toISO()` |
-| `luxonDateCodec(DateTime)` | `DateTime` at the start of the day | `toISODate()` |
+| `luxonDateCodec(DateTime)` | `DateTime` at the start of the day; refuses text with a time | `toISODate()` |
 | `decimalCodec(Decimal)` / `decimalCodec(Big)` | `Decimal` / `Big` | `toFixed()` |
 | `bigintCodec` | `bigint` | `toString()` |
 
@@ -92,7 +94,7 @@ The server's `decimal` format accepts plain decimal text only: `12.50`, `-0.5`, 
 | decimal.js | `toExpNeg` = -7 (`1e-7`) | `toExpPos` = 21 (`1e+21`) | `Decimal.set({ toExpNeg: -9e15, toExpPos: 9e15 })` |
 | big.js | `Big.NE` = -7 | `Big.PE` = 21 | `Big.NE = -1e6; Big.PE = 1e6` |
 
-`decimalCodec` encodes with `toFixed()`, which never uses exponent notation, so it needs no global change. Write your own codec the same way:
+`decimalCodec` encodes with `toFixed()`, which never uses exponent notation, so it needs no global change. It refuses `NaN`, `Infinity` and hex text on decode, and a `NaN` or `Infinity` value on encode, with a `TypeError`. It recognises a value by its `toFixed()` method, so a value from `Decimal.clone()` or a second copy of the library is encoded as well. Write your own codec the same way:
 
 ```ts sample
 import { Decimal } from 'decimal.js';
@@ -104,7 +106,7 @@ export const money: Codec<Decimal> = {
 };
 ```
 
-The same applies to a decimal in a query or path argument: a `Decimal` that no codec handles is sent with `String()`, which can use exponents. Register the codec.
+The same applies to a decimal argument. A `Decimal` that no codec handles travels through `String()` in a path or header argument, which writes exponent notation, and makes a **query** argument throw `TypeError`, because a query value cannot be an object. Register the codec and both work.
 
 ### Types of the format slots
 
@@ -130,7 +132,7 @@ interface ModelEntry<T> {
 ```
 
 - `decode` receives the DTO after its dates and other formats were converted, and with nested DTOs already converted (and already models, when you registered those).
-- `fromClass` copies the keys of the reply onto `new User()`: through the class's setter where it has one, never over a method or a getter without a setter. It skips `__proto__`, `constructor` and `prototype`.
+- `fromClass` copies the keys of the reply onto `new User()`: through the class's setter where it has one (a class may implement a declared property as a getter and setter pair, and the setter receives the decoded value), never over a method or a getter without a setter. It skips `__proto__`, `constructor` and `prototype`.
 - Models are registered by DTO name. Only DTOs that are objects, records or unions can have one; the generated `DtoName` type lists them, and a key outside it is a compile error.
 
 Keep the app class and the generated shape in step by merging them. With `--models` the class merges with `<Dto>Model<AppFormats, AppModels>`, the converted shape, not with the wire interface `<Dto>`:
@@ -178,7 +180,7 @@ When `formats` or `models` is set, every argument that came from a schema is enc
 
 The projection matters because the server rejects extra properties of a closed object with a 400 (`docs/http/04-route-arguments.md`). Without it, a field a model class adds would turn a valid request into a failure.
 
-- Query and path arguments are plain text: a `Date` travels as ISO text, and anything else through `String()`.
+- Path and header arguments are text: a `Date` travels as ISO text, and any other value through `String()`. A query value must be a primitive or a `Date`: an object such as a luxon `DateTime` or a `Decimal` makes the call throw `TypeError`, so register its codec.
 - The top level of a request body is the exception on the server: a root-level extra key is accepted and dropped there. Nested closed objects are where the 400 happens, so they are where the projection counts.
 - A file argument and a splat argument are never touched.
 
@@ -188,10 +190,14 @@ A union converts only when the client can tell which member it holds.
 
 - **Discriminated unions convert.** With an `x-discriminator` mapping, the tag picks the member and so its model. Prefer discriminated unions for anything you register a class for.
 - **A tag can be inferred.** If one property is a required literal in every member but at most one, and that one member is a closed object, the generator uses it as the discriminator. `UserDto | ValidationProblem` is told apart by `kind` (declared by `ValidationProblem` only), and a reply without `kind` is a `UserDto`. The reply type of `users.create` therefore becomes `User | ValidationProblem`.
-- **Anything else keeps its wire type** and converts nothing: the generated type stays `string | number` or the plain DTO union, and encode does not project it either. A union you cannot discriminate cannot hold a model class, because no model runs for it.
+- **Anything else keeps its wire type** and converts nothing, unless every member needs the same conversion: the generated type stays `string | number` or the plain DTO union, and encode does not project it either. A union you cannot discriminate cannot hold a model class, because no model runs for it.
 - **An unknown tag converts nothing.** A newer server that adds a member the client does not know gives a value that passes through as received, while the type still claims the known members. Regenerate when the server changes.
 
 Tuples, `patternProperties`, enum DTOs and `const` values are not converted either.
+
+## Bigint and hook variables
+
+A `bigint` value in the query variables of a generated hook breaks TanStack Query's key hashing, which cannot serialise `bigint`. With `bigintCodec` registered, a route that takes an `int64` argument types it as `bigint`: pass it to hooks as a string, or convert it before it reaches the variables.
 
 ## Failure modes
 
@@ -211,6 +217,6 @@ A `ModelBase` subclass is server code: it imports the ORM, DI and the driver con
 
 What the client gets from an ORM model is its derived schema: the columns that are not `@Hidden`, computed members, relations as optional references or arrays (a relation is in the reply only when it was populated), and `@DateTime()` columns as `format: 'date-time'` with `x-spinajs-type: 'DateTime'`. Register a client class for the DTO name (`ArticleDto`) as for any other DTO, and `article.author` becomes a client `User` when `UserDto` is registered.
 
-`x-spinajs-type` records which server type produced a schema (`Date`, `DateTime`, `Decimal`, `bigint`). Conversion follows `format` and, for `bigint`, the `int64` slot. Use `DateTime` as the hint to register a luxon codec where the server used luxon: query and path arguments already travel as ISO text, and a luxon value in a body needs `luxonCodec` to encode as it should.
+`x-spinajs-type` records which server type produced a schema (`Date`, `DateTime`, `Decimal`, `bigint`). Conversion follows `format` and, for `bigint`, the `int64` slot. Use `DateTime` as the hint to register a luxon codec where the server used luxon. Register it for every `DateTime` argument: without a codec a `DateTime` in a query throws,, and in a body it is written by `JSON.stringify`.
 
 See [Extending generated types](README.md#extending-generated-types) for the hand-written alternatives.
