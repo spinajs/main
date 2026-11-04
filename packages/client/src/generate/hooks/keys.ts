@@ -21,10 +21,15 @@ function typeImports(hooks: HookRoute[]): string[] {
 
 type Segments = (...parts: string[]) => string;
 
+// An infinite key sits under the route's own prefix, so `[prefix, controller, handler]` matches both caches of a route,
+// but never equals a plain key: React Query must not share one entry between `useQuery` and `useInfiniteQuery`.
 function keyEntry(hook: HookRoute, segments: Segments): string {
   const { controllerKey, name, kind } = hook.route;
   if (kind === 'mutation') return `    ${name}: [${segments(controllerKey, name)}] as const,`;
-  return `    ${name}: (${varsParameter(hook)}) => [${segments(controllerKey, name)}, vars] as const,`;
+  const plain = `    ${name}: (${varsParameter(hook)}) => [${segments(controllerKey, name)}, vars] as const,`;
+  const { infinite } = hook;
+  if (!infinite) return plain;
+  return `${plain}\n    ${infinite.keyName}: (${varsParameter(infinite)}) => [${segments(controllerKey, name, 'infinite')}, vars] as const,`;
 }
 
 /** `client.keys.ts`: query keys, cache tags, the error type and the shape hash. Server-safe: no React, no query library. */
