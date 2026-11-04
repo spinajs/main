@@ -80,7 +80,7 @@ Two ambiguities remain, as in react-hook-form itself: a property name that conta
 
 ### Which argument an error belongs to
 
-The server validates each argument on its own, so an error path is relative to the argument. Each item of `errors` therefore also carries `in` (`body`, `query`, `path`, `header` or `cookie`) and, unless the argument is the whole body, query, path or header set, `name`, the key the argument has on the wire. `applyProblem` prefixes the field with `name`:
+The server validates each argument on its own, so an error path is relative to the argument. Each item of `errors` for an argument checked against its manifest-derived schema therefore also carries `in` (`body`, `query`, `path`, `header` or `cookie`) and, unless the argument is the whole body, query, path or header set, `name`, the key the argument has on the wire. `applyProblem` prefixes the field with `name`:
 
 | Request | Error | Field |
 | --- | --- | --- |
@@ -88,11 +88,11 @@ The server validates each argument on its own, so an error path is relative to t
 | `GET /sorted?sort=up` (`@Query() sort`) | `instancePath: ''`, `in: 'query'`, `name: 'sort'` | `sort` |
 | `@Body() dto`, `count` wrong | `instancePath: '/count'`, `in: 'body'` | `count` |
 
-Both members are additive, and a server older than this change sends neither: errors then map as if every argument were the whole body.
+Both members are additive. An item without them (a server older than this change, or an explicit `@Schema`, a route schema, a file or multipart refusal) maps as if the argument were the whole body.
 
 ### Messages
 
-The server sends the Ajv keyword and its params, and no text. `applyProblem` writes a short English one from them (`is required`, `must be a number`, `must be one of: asc, desc`) and passes it to `setError` as `message`, with the keyword as `type`. The `messages` option replaces it, for example with the app's own UI text:
+The manifest-derived checks of the server send the Ajv keyword and its params, and no text (an explicit `@Schema` also sends Ajv's `message`). `applyProblem` uses a `message` the server sent as it is; for the others it asks the `messages` option, then writes a short English one (`is required`, `must be a number`, `must be one of: asc, desc`) and passes it to `setError` as `message`, with the keyword as `type`. The `messages` option supplies other texts, for example the app's own UI text:
 
 ```ts
 applyProblem(e, form.setError, {

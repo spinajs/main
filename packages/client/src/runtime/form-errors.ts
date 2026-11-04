@@ -14,8 +14,8 @@ export interface FieldError {
 /** Returns the text for an error, or `undefined` to keep the default English one. */
 export type MessageMapper = (issue: FieldIssue) => string | undefined;
 
-export interface ProblemOptions {
-  /** Localised or app-specific texts; the server sends only the keyword and its params. */
+export interface ApplyProblemOptions {
+  /** Texts for errors that arrive without one; a `message` the server sent is used as it is. */
   messages?: MessageMapper;
 }
 
@@ -50,7 +50,8 @@ const DEFAULT_MESSAGES: Record<string, (params: Record<string, unknown>) => stri
   additionalProperties: () => 'is not allowed',
 };
 
-function messageOf(issue: FieldIssue, options: ProblemOptions | undefined): string {
+function messageOf(issue: FieldIssue, sent: unknown, options: ApplyProblemOptions | undefined): string {
+  if (typeof sent === 'string' && sent !== '') return sent;
   return options?.messages?.(issue) ?? DEFAULT_MESSAGES[issue.keyword]?.(issue.params) ?? 'is invalid';
 }
 
@@ -72,7 +73,7 @@ function fieldName(item: Record<string, unknown>, params: Record<string, unknown
  * `root`. A property name that contains `.` cannot be told from a path, and a property called `root` shares the whole-body
  * bucket.
  */
-export function problemFieldErrors(problem: ProblemDetails, options?: ProblemOptions): Record<string, FieldError[]> {
+export function problemFieldErrors(problem: ProblemDetails, options?: ApplyProblemOptions): Record<string, FieldError[]> {
   const fields: Record<string, FieldError[]> = {};
   if (!Array.isArray(problem.errors)) return fields;
   for (const item of problem.errors as unknown[]) {
@@ -80,7 +81,7 @@ export function problemFieldErrors(problem: ProblemDetails, options?: ProblemOpt
     const params = isRecord(item.params) ? item.params : {};
     const name = fieldName(item, params);
     if (name === undefined) continue;
-    (fields[name] ??= []).push({ keyword: item.keyword, message: messageOf({ keyword: item.keyword, params }, options) });
+    (fields[name] ??= []).push({ keyword: item.keyword, message: messageOf({ keyword: item.keyword, params }, item.message, options) });
   }
   return fields;
 }
@@ -95,7 +96,7 @@ function problemOf(error: unknown): ProblemDetails | undefined {
  * Sets the first error of each field named by a validation problem on a form; false when `error` carries none. `N` lets a
  * typed react-hook-form `setError` through: the names are built from the server's paths, which the type cannot know.
  */
-export function applyProblem<N extends string>(error: unknown, setError: SetFieldError<N>, options?: ProblemOptions): boolean {
+export function applyProblem<N extends string>(error: unknown, setError: SetFieldError<N>, options?: ApplyProblemOptions): boolean {
   const problem = problemOf(error);
   if (!problem) return false;
   const fields = Object.entries(problemFieldErrors(problem, options));

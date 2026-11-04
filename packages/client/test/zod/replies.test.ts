@@ -142,6 +142,13 @@ describe('client.zod.ts reply schemas (replies: true)', function () {
     });
   });
 
+  it('does not repeat a member whose reply print equals its exact print', async () => {
+    const scalars = { anyOf: [{ type: 'string' }, { type: 'number' }] };
+    const manifest = manifestWith(await appBasicManifest(), {}, { 'test/Scalars': scalars }, [replying('scalars', 'unknown', 'test/Scalars')]);
+    const { contents } = emitZod(buildClientModel(manifest), { replies: true });
+    expect(contents).to.include('scalars: /*#__PURE__*/ z.union([z.string(), z.number()]),');
+  });
+
   it('reports what it drops from a reply schema that no request schema covers', async () => {
     const inline = { type: 'object', properties: { a: { type: 'string' } }, minProperties: 1 };
     const withInline = manifestWith(await appBasicManifest(), {}, { 'test/Inline': inline }, [replying('inline', 'unknown', 'test/Inline')]);

@@ -109,6 +109,14 @@ describe('problemFieldErrors', () => {
     expect(message('exclusiveMinimum', { limit: 3 })).to.equal('must be greater than 3');
   });
 
+  it('uses a message the server sent before the mapper and the default', () => {
+    const errors = [
+      { instancePath: '/a', keyword: 'format', params: { format: 'email' }, message: 'custom text' },
+      { instancePath: '/b', keyword: 'format', params: { format: 'email' } },
+    ];
+    expect(problemFieldErrors(problem(errors), { messages: () => 'mapped' })).to.deep.equal({ a: [{ keyword: 'format', message: 'custom text' }], b: [{ keyword: 'format', message: 'mapped' }] });
+  });
+
   it('takes the text from the messages option, and keeps the default where it returns undefined', () => {
     const errors = [
       { instancePath: '', keyword: 'required', params: { missingProperty: 'a' } },
