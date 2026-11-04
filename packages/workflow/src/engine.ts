@@ -28,15 +28,24 @@ type Patch = Partial<WorkflowInstanceModel>;
 /** `release`: no status write, only the fenced release (0 rows after a takeover, the row freed at once otherwise); `discard`: a dead replica writes and releases nothing. */
 type Decision = { kind: 'write'; patch: Patch } | { kind: 'release' } | { kind: 'discard' };
 
+interface Signals {
+  run: AbortSignal;
+  /** Outlives a cancel and the instance deadline, which must not cut a compensation pass short. */
+  compensation: AbortSignal;
+}
+
 interface Activation {
   abort(reason: AbortReason): void;
   done: Promise<void>;
 }
 
 const MAX_REPLICA_ID = 64;
-const DUE_STATUSES = ['running', 'sleeping', 'waiting'];
+const DUE_STATUSES = ['running', 'sleeping', 'waiting', 'compensating'];
 const PARKED = new Set(['running', 'sleeping', 'waiting']);
 const INTERRUPTION_REASON = { fail: 'fail', timeout: 'timeout', nondeterminism: 'non-determinism' } as const;
+const STOPS_COMPENSATION = new Set<AbortReason>(['lease-lost', 'crashed', 'journal-failed', 'shutdown']);
+/** A run that no longer matches its journal cannot tell which steps it took; a failed pass is resumed by retry(). */
+const UNCOMPENSATED = new Set<string>([INTERRUPTION_REASON.nondeterminism, 'compensation-failed']);
 
 let processReplicaId: string | undefined;
 
@@ -64,11 +73,11 @@ function registeredVersions(defs: RegisteredWorkflow[]) {
   };
 }
 
-/** Semantic 1: running with no wake time, or any of the due statuses whose wake time has come. */
+/** Semantic 1: running or compensating with no wake time, or any of the due statuses whose wake time has come. */
 function dueNow(now: number) {
   return function (this: IWhereBuilder<unknown>) {
     this.where(function (this: IWhereBuilder<unknown>) {
-      this.where('Status', 'running').whereNull('WakeAt');
+      this.whereIn('Status', ['running', 'compensating']).whereNull('WakeAt');
     }).orWhere('WakeAt', '<=', now);
   };
 }
@@ -243,11 +252,13 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
 
   /** Rejects only with a crash; any other error of the engine's own is logged. */
   protected launch(instanceId: string, epoch: number, claimedAt: number): Promise<void> {
-    const ac = new AbortController();
+    const run = new AbortController();
+    const compensation = new AbortController();
     const abort = (reason: AbortReason): void => {
-      if (!ac.signal.aborted) ac.abort(reason);
+      if (!run.signal.aborted) run.abort(reason);
+      if (STOPS_COMPENSATION.has(reason) && !compensation.signal.aborted) compensation.abort(reason);
     };
-    const done = this.activate(instanceId, epoch, claimedAt, ac.signal, abort)
+    const done = this.activate(instanceId, epoch, claimedAt, { run: run.signal, compensation: compensation.signal }, abort)
       .catch((err: unknown) => {
         if (isCrash(err)) throw err;
         this.Log.error(err as Error, `workflow instance ${instanceId}: activation failed inside the engine`);
@@ -264,7 +275,7 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
   }
 
   /** Rejects with the error that crashed the activation, once it has stopped. */
-  protected async activate(instanceId: string, epoch: number, claimedAt: number, signal: AbortSignal, abort: (reason: AbortReason) => void): Promise<void> {
+  protected async activate(instanceId: string, epoch: number, claimedAt: number, signals: Signals, abort: (reason: AbortReason) => void): Promise<void> {
     const row = await WorkflowInstanceModel.where('Id', instanceId).onPrimary().first();
     const definition = row ? this.Registry.find(row.Workflow, row.Version) : undefined;
     if (!row || !definition) {
@@ -272,7 +283,8 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
       return;
     }
     const journal = await Journal.load(instanceId);
-    const deadline = definition.timeoutMs === null ? null : row.CreatedAt + definition.timeoutMs;
+    // a compensation pass replays run() only to collect the compensations of the steps already taken (D6)
+    const collect = row.Status === 'compensating' || (row.CancelRequested && this.config.compensateOnCancel);
     const ctx = new ActivationContext({
       instance: row,
       definition,
@@ -282,9 +294,10 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
       clock: this.Clock,
       faults: this.Faults,
       config: this.config,
-      signal,
+      signal: collect ? signals.compensation : signals.run,
       log: this.Log,
-      deadline,
+      deadline: collect || definition.timeoutMs === null ? null : row.CreatedAt + definition.timeoutMs,
+      mode: collect ? 'collect' : 'run',
       onLeaseLost: () => abort('lease-lost'),
       onCrash: () => this.crashAll(),
       onJournalFailed: (err, what) => {
@@ -294,29 +307,97 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
       timers: this.Timers,
     });
     const heartbeat = this.heartbeat(ctx, claimedAt, abort);
-    signal.addEventListener(
+    signals.compensation.addEventListener(
       'abort',
       () => {
-        if (signal.reason === 'crashed') void heartbeat.stop(0);
+        if (signals.compensation.reason === 'crashed') void heartbeat.stop(0);
       },
       { once: true },
     );
     heartbeat.start();
-    let outcome: Outcome = { kind: 'aborted' };
-    let disarm = (): void => undefined;
+    let decision: Decision;
     try {
-      if (row.CancelRequested) abort('cancelled');
-      else if (deadline !== null && this.Clock.now() >= deadline) ctx.expire();
-      else {
-        disarm = this.expireAt(ctx, deadline, abort);
-        outcome = await this.execute(ctx, definition, signal);
-      }
+      decision = this.alive(ctx, signals, await this.runPass(row, ctx, definition, journal, signals, abort));
+      // under the heartbeat: a compensation longer than leaseTtl keeps the lease, so no other replica runs it again (D6)
+      if (decision.kind === 'write' && this.compensates(row, ctx, decision.patch)) decision = this.alive(ctx, signals, await this.compensation(row, ctx, decision.patch, signals.compensation));
     } finally {
-      disarm();
       await heartbeat.stop(this.config.shutdownGrace);
     }
-    await this.finish(row, ctx, journal, outcome, signal);
+    await this.finish(row, ctx, decision);
     if (ctx.crashError !== undefined) throw ctx.crashError as Error;
+  }
+
+  /** A crash elsewhere on this replica may come after a cancel, which the run signal keeps as its reason. */
+  protected alive(ctx: ActivationContext, signals: Signals, decision: Decision): Decision {
+    return ctx.crashed || signals.compensation.reason === 'crashed' ? { kind: 'discard' } : decision;
+  }
+
+  /** Runs run(), or replays it to collect compensations, and decides what it ended with. */
+  protected async runPass(row: WorkflowInstanceModel, ctx: ActivationContext, definition: RegisteredWorkflow, journal: Journal, signals: Signals, abort: (reason: AbortReason) => void): Promise<Decision> {
+    if (row.Status === 'compensating') {
+      await this.execute(ctx, definition, signals.compensation);
+      return this.resumed(row, ctx, signals.compensation);
+    }
+    let outcome: Outcome = { kind: 'aborted' };
+    if (row.CancelRequested) {
+      abort('cancelled');
+      if (this.config.compensateOnCancel) await this.execute(ctx, definition, signals.compensation);
+    } else if (ctx.deadline !== null && this.Clock.now() >= ctx.deadline) ctx.expire();
+    else {
+      const disarm = this.expireAt(ctx, ctx.deadline, abort);
+      try {
+        outcome = await this.execute(ctx, definition, signals.run);
+      } finally {
+        disarm();
+      }
+    }
+    return this.decide(row, ctx, journal, outcome, signals.run);
+  }
+
+  /** A compensating instance keeps the failure (or cancel) it compensates for. */
+  protected resumed(row: WorkflowInstanceModel, ctx: ActivationContext, signal: AbortSignal): Decision {
+    if (signal.aborted) return { kind: 'release' };
+    const now = this.Clock.now();
+    const original: Patch = { Status: row.CancelRequested ? 'cancelled' : 'failed', Reason: row.Reason, Error: row.Error, WakeAt: null, WaitingFor: null, FinishedAt: now };
+    const i = ctx.interruption;
+    // the code changed under the instance: the collected compensations may not be all the steps it took
+    if (i?.kind === 'nondeterminism') return this.compensationFailed(serializeError(i.error), original, now);
+    return { kind: 'write', patch: original };
+  }
+
+  protected compensates(row: WorkflowInstanceModel, ctx: ActivationContext, patch: Patch): boolean {
+    if (ctx.compensations.length === 0 || UNCOMPENSATED.has(patch.Reason ?? '')) return false;
+    if (row.Status === 'compensating' || patch.Status === 'failed') return true;
+    return patch.Status === 'cancelled' && this.config.compensateOnCancel;
+  }
+
+  /** Marks the instance compensating, so a crash resumes the pass, then runs it. */
+  protected async compensation(row: WorkflowInstanceModel, ctx: ActivationContext, original: Patch, signal: AbortSignal): Promise<Decision> {
+    if (row.Status !== 'compensating') {
+      try {
+        await this.store.update(row.Id, ctx.epoch, { Status: 'compensating', Reason: original.Reason ?? null, Error: original.Error ?? null, WakeAt: null, WaitingFor: null, UpdatedAt: this.Clock.now() });
+      } catch (err) {
+        if (err instanceof LeaseLostError) return { kind: 'release' };
+        throw err;
+      }
+    }
+    const result = await ctx.compensate(signal);
+    const now = this.Clock.now();
+    switch (result.kind) {
+      case 'done':
+        return { kind: 'write', patch: { Status: original.Status === 'cancelled' ? 'cancelled' : 'compensated', Reason: original.Reason ?? null, Error: original.Error ?? null, WakeAt: null, WaitingFor: null, FinishedAt: now } };
+      case 'park':
+        return { kind: 'write', patch: { Status: 'compensating', WakeAt: result.wakeAt } };
+      case 'failed':
+        return this.compensationFailed(result.error, original, now);
+      default:
+        return { kind: 'release' };
+    }
+  }
+
+  /** The failure being compensated for travels in `details`, so retry() can put it back. */
+  protected compensationFailed(error: SerializedError, original: Patch, now: number): Decision {
+    return this.failed('compensation-failed', { ...error, details: { original: original.Error ?? null, originalReason: original.Reason ?? null } }, now);
   }
 
   /** A step still running at the deadline must not let the instance end `completed`. */
@@ -393,8 +474,8 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
     });
   }
 
-  protected async finish(row: WorkflowInstanceModel, ctx: ActivationContext, journal: Journal, outcome: Outcome, signal: AbortSignal): Promise<void> {
-    const decision = await this.decide(row, ctx, journal, outcome, signal);
+  /** Only the fenced status write and the release: everything that takes time ran under the heartbeat. */
+  protected async finish(row: WorkflowInstanceModel, ctx: ActivationContext, decision: Decision): Promise<void> {
     if (decision.kind === 'discard') return;
     try {
       if (decision.kind === 'write') {

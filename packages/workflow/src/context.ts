@@ -5,11 +5,11 @@ import { InvalidArgument, InvalidOperation, NotSupported } from '@spinajs/except
 import type { Log } from '@spinajs/log-common';
 import type { QueueEvent, QueueJob } from '@spinajs/queue';
 import { v5 as uuidv5 } from 'uuid';
-import type { SerializedError, StepKind, StepMeta, StepStatus, WaitForEventOptions, WorkflowContext, WorkflowEvent, WorkflowStepOptions } from './contract.js';
+import type { CompensationContext, SerializedError, StepKind, StepMeta, StepStatus, WaitForEventOptions, WorkflowContext, WorkflowEvent, WorkflowStepOptions } from './contract.js';
 import { isCrash, LeaseLostError, NonDeterminismError, serializeError, WorkflowAborted, WorkflowFailure, WorkflowNestingError, WorkflowStepFailed, WorkflowStepResultTooLarge, WorkflowSuspended, WorkflowTimeout, type AbortReason } from './errors.js';
 import { nextMacrotask, ReplayGate } from './gate.js';
 import { eventNameProblem, identifierProblem } from './identifier.js';
-import type { Journal, StepRow } from './journal.js';
+import { COMPENSATION_SEQ_BASE, type Journal, type StepRow } from './journal.js';
 import { safeStringify } from './json.js';
 import { WorkflowEventModel } from './models/WorkflowEventModel.js';
 import { normalizeRetry, unitHash } from './policy.js';
@@ -26,6 +26,18 @@ export interface Park {
 }
 
 export type Interruption = { kind: 'park'; park: Park } | { kind: 'fail'; error: WorkflowFailure } | { kind: 'timeout'; error: Error } | { kind: 'nondeterminism'; error: NonDeterminismError };
+
+export interface RegisteredCompensation {
+  /** The key of the step it undoes. */
+  key: string;
+  name: string;
+  /** The step's `Meta.order`: compensations run newest first, in the same order on every replay. */
+  order: number;
+  retry: NormalizedRetry;
+  run: (ctx: CompensationContext) => Promise<void>;
+}
+
+export type CompensationResult = { kind: 'done' } | { kind: 'park'; wakeAt: number } | { kind: 'failed'; error: SerializedError } | { kind: 'aborted' };
 
 export interface ActivationInit {
   instance: WorkflowInstanceModel;
@@ -46,6 +58,8 @@ export interface ActivationInit {
   onCrash: (err: unknown) => void;
   /** A journal row failed to commit for a reason other than a lost lease or a crash: nothing of this activation may commit after it. */
   onJournalFailed: (err: unknown, what?: string) => void;
+  /** 'collect': only operations with a recorded outcome replay, registering their compensations; nothing else runs (D6). */
+  mode?: 'run' | 'collect';
   /** Arms the coarse fallback that fails a replay waiting for a recorded call that never comes; none without it. */
   timers?: Clock;
 }
@@ -76,6 +90,8 @@ interface Save {
 const MAX_NAME = 128;
 const PRIORITY: Record<Interruption['kind'], number> = { park: 0, fail: 1, timeout: 2, nondeterminism: 3 };
 const stepScope = new AsyncLocalStorage<string>();
+/** A collecting replay parks on whatever has no recorded outcome; the engine never writes this park. */
+const COLLECT_PARK: Park = { status: 'running', wakeAt: null, waitingFor: null };
 
 /** The uuid v5 namespace of `ctx.uuid()`; changing it changes every id a replay derives. */
 export const WORKFLOW_NAMESPACE = '6f1c2a7e-3b9d-4e84-9a0c-2d4e8b7f1a63';
@@ -123,6 +139,8 @@ export class ActivationContext implements WorkflowContext {
   /** What crashed the activation; unset when another activation's crash took this one down. */
   public crashError: unknown;
   protected journalFailed = false;
+  /** Registered by the succeeded steps this activation ran or replayed. */
+  public readonly compensations: RegisteredCompensation[] = [];
 
   protected seq = 0;
   protected occurrences = new Map<string, number>();
@@ -209,7 +227,7 @@ export class ActivationContext implements WorkflowContext {
   }
 
   public now(): number {
-    const op = this.next('marker', 'now');
+    const op = this.marker('now');
     if (this.init.journal.get(op.key)?.Status === 'succeeded') return this.init.journal.value(op.key) as number;
     const value = this.init.clock.now();
     this.recordMarker(op, value);
@@ -218,14 +236,14 @@ export class ActivationContext implements WorkflowContext {
 
   /** Derived, not random: a run that repeats before its marker commits produces the same id. */
   public uuid(): string {
-    const op = this.next('marker', 'uuid');
+    const op = this.marker('uuid');
     const value = uuidv5(`${this.instanceId}:${op.key}`, WORKFLOW_NAMESPACE);
     if (!this.init.journal.get(op.key)) this.recordMarker(op, value);
     return value;
   }
 
   public random(): number {
-    const op = this.next('marker', 'random');
+    const op = this.marker('random');
     const value = unitHash(`${this.instanceId}:${op.key}`);
     if (!this.init.journal.get(op.key)) this.recordMarker(op, value);
     return value;
@@ -258,7 +276,22 @@ export class ActivationContext implements WorkflowContext {
 
   /** `next()` runs synchronously at the call, so parallel operations take their keys in call order. */
   protected async begin<T>(kind: StepKind, name: string, run: (op: Op) => Promise<T>): Promise<T> {
-    return this.track(run(this.next(kind, name)));
+    const op = this.next(kind, name);
+    // a branch stops at its first operation without an outcome, the others go on replaying; the park ends the replay
+    return this.track(this.collecting(op) ? this.park(COLLECT_PARK) : run(op));
+  }
+
+  /** Markers return synchronously, so one without a recorded value ends its branch instead of parking it. */
+  protected marker(name: 'now' | 'uuid' | 'random'): Op {
+    const op = this.next('marker', name);
+    if (this.collecting(op)) throw new WorkflowSuspended() as unknown;
+    return op;
+  }
+
+  protected collecting(op: Op): boolean {
+    if (this.init.mode !== 'collect') return false;
+    const status = this.init.journal.get(op.key)?.Status;
+    return status !== 'succeeded' && status !== 'failed';
   }
 
   protected next(kind: StepKind, name: string): Op {
@@ -403,6 +436,8 @@ export class ActivationContext implements WorkflowContext {
     const { journal } = this.init;
     const rec = journal.get(op.key);
     if (rec?.Status === 'succeeded' || rec?.Status === 'failed') {
+      // before the gate releases it: the step ran even if this activation ends before run() sees its result
+      if (rec.Status === 'succeeded') this.registerCompensation(op, journal.value(op.key) as T, opts, retry);
       await this.released(op);
       if (rec.Status === 'succeeded') return journal.value(op.key) as T;
       throw new WorkflowStepFailed(op.name, rec.Error ?? { name: 'Error', message: 'step failed' });
@@ -433,6 +468,7 @@ export class ActivationContext implements WorkflowContext {
     } catch (err) {
       throw await this.stepFailed(op, err, attempt, startedAt, retry);
     }
+    this.registerCompensation(op, value, opts, retry);
     await this.fault('workflow.after-journal', op.key);
     await this.gate.live(op.order);
     return value;
@@ -595,6 +631,83 @@ export class ActivationContext implements WorkflowContext {
     return this.enqueueWrite(() => this.guarded(() => store.fenced(this.instanceId, epoch, clock.now(), reject))).catch((err: unknown) => {
       throw this.journalWriteFailed(err);
     });
+  }
+
+  /** The closure is rebuilt on every replay, so a compensation is registered by the replayed step, not stored. */
+  protected registerCompensation<T>(op: Op, value: T, opts: WorkflowStepOptions<T>, retry: NormalizedRetry): void {
+    const compensate = opts.compensate;
+    if (!compensate) return;
+    const order = op.order ?? this.init.journal.get(op.key)?.Meta?.order ?? 0;
+    this.compensations.push({ key: op.key, name: op.name, order, retry, run: (ctx) => compensate(value, ctx) });
+  }
+
+  /** Exactly the fields of `CompensationContext`: no `step`, `emit` or markers inside a compensation (D6). */
+  protected compensationContext(signal: AbortSignal): CompensationContext {
+    return { instanceId: this.instanceId, workflow: this.workflow, version: this.version, input: this.input, signal, log: this.log };
+  }
+
+  /**
+   * Runs the registered compensations newest first, each journaled as `compensate:<step>#<occurrence>` and retried
+   * under its step's policy. Called by the engine after `run()` settled, under the activation's lease.
+   */
+  public async compensate(signal: AbortSignal): Promise<CompensationResult> {
+    signal.addEventListener(
+      'abort',
+      () => {
+        if (signal.reason === 'crashed') this.crashed = true;
+      },
+      { once: true },
+    );
+    // stable: rows without Meta.order (older journals) keep reverse registration order
+    const pending = [...this.compensations].reverse().sort((a, b) => b.order - a.order);
+    for (const [i, c] of pending.entries()) {
+      const op: Op = { kind: 'compensate', name: c.name, key: `compensate:${c.key.slice(c.key.indexOf(':') + 1)}`, seq: COMPENSATION_SEQ_BASE + i, after: this.gate.delivered };
+      const rec = this.init.journal.get(op.key);
+      if (rec?.Status === 'succeeded') continue;
+      if (rec?.Status === 'failed') return { kind: 'failed', error: rec.Error ?? { name: 'Error', message: 'compensation failed', step: c.name } };
+      const wakeAt = rec?.Status === 'retrying' ? rec.Meta?.wakeAt : undefined;
+      if (wakeAt !== undefined && this.init.clock.now() < wakeAt) return { kind: 'park', wakeAt };
+      const result = await this.runCompensation(op, c, (rec?.Attempt ?? 0) + 1, signal);
+      if (result) return result;
+    }
+    return { kind: 'done' };
+  }
+
+  /** `null`: this compensation succeeded, go on with the next one. */
+  protected async runCompensation(op: Op, c: RegisteredCompensation, attempt: number, signal: AbortSignal): Promise<CompensationResult | null> {
+    if (signal.aborted || this.crashed) return { kind: 'aborted' };
+    const startedAt = this.init.clock.now();
+    let failure: { err: unknown } | undefined;
+    try {
+      await stepScope.run(op.name, () => Promise.resolve().then(() => c.run(this.compensationContext(signal))));
+    } catch (err) {
+      failure = { err };
+    }
+    if (failure && (this.crashed || isCrash(failure.err))) {
+      this.crash(failure.err);
+      return { kind: 'aborted' };
+    }
+    if (failure && signal.aborted) return { kind: 'aborted' };
+    try {
+      return await this.journalCompensation(op, c, attempt, startedAt, failure);
+    } catch (err) {
+      // the compensation ran but its row is missing: the pass resumes at it on the next activation
+      this.journalWriteFailed(err, `the journal row of '${op.key}' could not be written`);
+      return { kind: 'aborted' };
+    }
+  }
+
+  protected async journalCompensation(op: Op, c: RegisteredCompensation, attempt: number, startedAt: number, failure: { err: unknown } | undefined): Promise<CompensationResult | null> {
+    if (!failure) {
+      await this.saveStep(op, { status: 'succeeded', attempt, startedAt, meta: null, finished: true });
+      await this.fault('workflow.after-journal', op.key);
+      return null;
+    }
+    const error = serializeError(failure.err, op.name);
+    const again = isRetryable(c.retry, failure.err) && attempt < c.retry.attempts;
+    const wakeAt = again ? this.init.clock.now() + computeBackoff(c.retry, attempt, () => unitHash(`${this.instanceId}:${op.key}:${attempt}`)) : null;
+    await this.saveStep(op, { status: again ? 'retrying' : 'failed', attempt, startedAt, error, meta: wakeAt === null ? null : { wakeAt }, finished: true });
+    return wakeAt === null ? { kind: 'failed', error } : { kind: 'park', wakeAt };
   }
 
   /** A blocking operation's journal row, queued behind earlier writes; a failed write is not the operation's failure. */
