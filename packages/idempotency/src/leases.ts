@@ -49,7 +49,7 @@ export class IdempotencyLeases {
     const claim = await this.options.store.claim(key, { fingerprint: opts.fingerprint, leaseMs, now, namespace: opts.namespace });
 
     // a running claim carries its fingerprint too: a repeat with another request is refused before the call ends, not told to wait
-    if (claim.state !== 'claimed' && opts.fingerprint !== undefined && claim.fingerprint !== undefined && claim.fingerprint !== opts.fingerprint) {
+    if (claim.state !== 'claimed' && opts.fingerprint && claim.fingerprint !== undefined && claim.fingerprint !== opts.fingerprint) {
       throw new IdempotencyKeyReuse();
     }
 
@@ -70,51 +70,65 @@ export class IdempotencyLeases {
   }
 
   protected hold(key: string, token: string, leaseMs: number, claimedAt: number): IdempotencyHandle {
-    const { store, timers, now } = this.options;
+    const { store, now } = this.options;
     const lost = new AbortController();
-    let settled = false;
-    const renewEveryMs = Math.max(1, Math.floor(leaseMs / 3));
+    const state = { settled: false, crashed: false };
 
-    const heartbeat =
-      this.options.renew === false
-        ? undefined
-        : new Heartbeat({
-            timers,
-            now,
-            intervalMs: renewEveryMs,
-            renewEveryMs,
-            leaseTtlMs: leaseMs,
-            leaseStartedAt: claimedAt,
-            needsFlush: () => false,
-            renew: async () => ({ ok: await store.renew(key, token, leaseMs, now()), cancelRequested: false }),
-            onLost: () => {
-              if (!settled) {
-                lost.abort(new IdempotencyLeaseLost(key));
-              }
-            },
-            onCancel: () => undefined,
-            onError: (error) => this.options.onRenewError?.(error, key),
-          });
+    const heartbeat = this.options.renew === false ? undefined : this.heartbeat(key, token, leaseMs, claimedAt, lost, state);
     heartbeat?.start();
 
     const settle = async (): Promise<void> => {
-      settled = true;
+      state.settled = true;
       await heartbeat?.stop(leaseMs);
     };
 
+    // after a crash the process counts as dead: it writes nothing, and the claim ends with its lease
     return {
       key,
       token,
       signal: lost.signal,
       complete: async (reply, ttlMs) => {
         await settle();
-        return store.complete(key, token, reply, ttlMs, now());
+        return !state.crashed && store.complete(key, token, reply, ttlMs, now());
       },
       release: async () => {
         await settle();
-        await store.release(key, token);
+        if (!state.crashed) {
+          await store.release(key, token);
+        }
       },
       abandon: settle,
     };
+  }
+
+  protected heartbeat(key: string, token: string, leaseMs: number, claimedAt: number, lost: AbortController, state: { settled: boolean; crashed: boolean }): Heartbeat {
+    const { store, timers, now } = this.options;
+    const renewEveryMs = Math.max(1, Math.floor(leaseMs / 3));
+    const heartbeat: Heartbeat = new Heartbeat({
+      timers,
+      now,
+      // Heartbeat counts a renewal from when it returns, so a tick exactly one period later finds it not yet due;
+      // four ticks per period keep the cadence within a quarter period of lease/3 and retry a failed renewal soon.
+      intervalMs: Math.max(1, Math.floor(renewEveryMs / 4)),
+      renewEveryMs,
+      leaseTtlMs: leaseMs,
+      leaseStartedAt: claimedAt,
+      needsFlush: () => false,
+      renew: async () => ({ ok: await store.renew(key, token, leaseMs, now()), cancelRequested: false }),
+      onLost: () => {
+        if (!state.settled) {
+          lost.abort(new IdempotencyLeaseLost(key));
+        }
+      },
+      onCancel: () => undefined,
+      onError: (error) => {
+        if ((error as { crash?: unknown } | undefined)?.crash === true) {
+          state.settled = state.crashed = true;
+          void heartbeat.stop(0);
+        }
+        this.options.onRenewError?.(error, key);
+      },
+    });
+    return heartbeat;
   }
 }

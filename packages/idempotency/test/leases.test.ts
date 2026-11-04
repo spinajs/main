@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import assert from 'node:assert/strict';
 import { FaultInjector } from '@spinajs/durable';
-import type { FaultPointName } from '@spinajs/durable';
+import type { FaultPointName, TimerHandle } from '@spinajs/durable';
 import { IdempotencyKeyReuse, IdempotencyLeaseLost, IdempotencyLeases, MemoryIdempotencyStore } from '../src/index.js';
 import type { IdempotencyAcquisition, IdempotencyHandle } from '../src/index.js';
 import { FakeClock } from '@spinajs/durable/testing';
@@ -26,6 +26,22 @@ class RenewCountingStore extends MemoryIdempotencyStore {
   public async renew(key: string, token: string, leaseMs: number, now: number): Promise<boolean> {
     this.renewals++;
     return this.refuse ? false : super.renew(key, token, leaseMs, now);
+  }
+}
+
+// Database time moves on while a renewal is in flight; the renewal timer keeps its own schedule.
+class LatencyClock extends FakeClock {
+  public extra = 0;
+
+  public now(): number {
+    return super.now() + this.extra;
+  }
+
+  public setInterval(fn: () => void, ms: number): TimerHandle {
+    return super.setInterval(() => {
+      this.extra = 0;
+      fn();
+    }, ms);
   }
 }
 
@@ -82,6 +98,7 @@ describe('IdempotencyLeases', () => {
     await assert.rejects(leases.acquire('k', { fingerprint: 'f2' }), IdempotencyKeyReuse);
     expect((await leases.acquire('k', { fingerprint: 'f1' })).state).to.equal('running');
     expect((await leases.acquire('k')).state).to.equal('running');
+    expect((await leases.acquire('k', { fingerprint: '' })).state).to.equal('running');
   });
 
   it('renews every third of the lease, so a holder past several leases keeps its key', async () => {
@@ -93,6 +110,52 @@ describe('IdempotencyLeases', () => {
     expect((await leases.acquire('k')).state).to.equal('running');
     expect(handle.signal.aborted).to.equal(false);
     await handle.release();
+  });
+
+  it('keeps a third-of-the-lease cadence when renewals take time, and survives one failed renewal', async () => {
+    const clock = new LatencyClock(T0);
+    const at: number[] = [];
+    const errors: unknown[] = [];
+    class SlowStore extends MemoryIdempotencyStore {
+      public async renew(key: string, token: string, leaseMs: number, now: number): Promise<boolean> {
+        at.push(now);
+        clock.extra = 5;
+        if (at.length === 2) {
+          throw new Error('database blip');
+        }
+        return super.renew(key, token, leaseMs, now);
+      }
+    }
+    const leases = new IdempotencyLeases({ store: new SlowStore(), timers: clock, now: () => clock.now(), leaseMs: LEASE, onRenewError: (error) => errors.push(error) });
+    const handle = handleOf(await leases.acquire('k'));
+    await clock.advance(10 * LEASE);
+
+    expect(handle.signal.aborted).to.equal(false);
+    expect(errors).to.have.length(1);
+    const gaps = at.slice(1).map((t, i) => t - at.slice(i)[0]);
+    expect(Math.max(...gaps)).to.be.at.most(LEASE / 3 + LEASE / 12);
+    expect(at.length).to.be.at.least(23);
+    await handle.release();
+  });
+
+  it('stops renewing after a crash: true renewal error, and keeps both the claim and the signal', async () => {
+    const clock = new FakeClock(T0);
+    let renewals = 0;
+    class CrashingStore extends MemoryIdempotencyStore {
+      public async renew(): Promise<boolean> {
+        renewals++;
+        throw Object.assign(new Error('simulated crash'), { crash: true });
+      }
+    }
+    const leases = new IdempotencyLeases({ store: new CrashingStore(), timers: clock, now: () => clock.now(), leaseMs: LEASE });
+    const handle = handleOf(await leases.acquire('k'));
+    await clock.advance(LEASE);
+
+    expect(renewals).to.equal(1);
+    expect(clock.pendingTimers).to.equal(0);
+    expect(handle.signal.aborted).to.equal(false);
+    await handle.release();
+    expect((await leases.peek('k'))?.state).to.equal('running');
   });
 
   it('aborts the handle signal with IdempotencyLeaseLost when a renewal is refused', async () => {
