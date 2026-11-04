@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
+import { ID_ONLY_TRACE_FLAGS } from '@spinajs/tracing/testing';
 
 import { RequestId } from '../src/middlewares/RequestId.js';
 import { Request as sRequest } from '../src/interfaces.js';
@@ -61,7 +62,18 @@ describe('RequestId middleware — traceparent seeding', () => {
 
     const call = (res.header as sinon.SinonStub).getCalls().find((c) => c.args[0] === 'traceparent');
     expect(call, 'traceparent header set').to.not.be.undefined;
-    expect(call!.args[1]).to.eq(`00-${INBOUND_TRACE_ID}-${req.storage.spanId}-01`);
+    expect(call!.args[1]).to.eq(`00-${INBOUND_TRACE_ID}-${req.storage.spanId}-${ID_ONLY_TRACE_FLAGS}`);
+  });
+
+  it('answers trace-flags 00 without a server span, like id-only mode', () => {
+    const mw = new RequestId();
+    const req = fakeReq();
+    const res = fakeRes();
+
+    mw.before()(req, res, sinon.spy());
+
+    const call = (res as { header: sinon.SinonStub }).header.getCalls().find((c) => c.args[0] === 'traceparent');
+    expect(call!.args[1]).to.eq(`00-${req.storage.traceId}-${req.storage.spanId}-${ID_ONLY_TRACE_FLAGS}`);
   });
 
   it('before() sets x-request-id header, after() is disabled', () => {

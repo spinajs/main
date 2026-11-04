@@ -82,6 +82,8 @@
     }
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/semantic-conventions": "^1.30.0",
     "@spinajs/configuration": "3.0.23",
     "@spinajs/di": "3.0.23",
     "@spinajs/exceptions": "3.0.23",
@@ -91,6 +93,7 @@
     "@spinajs/reflection": "3.0.23",
     "@spinajs/templates": "3.0.23",
     "@spinajs/templates-pug": "3.0.23",
+    "@spinajs/tracing": "3.0.23",
     "@spinajs/util": "3.0.23",
     "@spinajs/validation": "3.0.23",
     "compression": "^1.7.4",

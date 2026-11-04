@@ -47,6 +47,7 @@ export * from './middlewares/PerfRollup.js';
 export * from './middlewares/Throttle.js';
 export * from './middlewares/ResponseTime.js';
 export * from './middlewares/ReqStorage.js';
+export * from './middlewares/Tracing.js';
 export { RequestId as RequestIdMiddleware } from './middlewares/RequestId.js';
 export * from './cookie.js';
 export * from './hydrators/DateTimeHydrator.js';

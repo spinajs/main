@@ -16,6 +16,7 @@ import { createOnErrorHandler, resolveConfigErrorHandlers } from './errors/on-er
 import { classLineage, derivedValidatorsOf } from './route-args/manifest-schema.js';
 import { routesWithRuntimeTypes } from './manifest-runtime-types.js';
 import { buildRoutePath, resolveRouteMiddlewares, resolveRoutePolicies, createPolicyGate, createActionHandler, wrapMiddlewareAction, ControllerActionHost } from './route-builder.js';
+import { routeMarker } from './tracing.js';
 
 // Own metadata only: an undecorated class would report the file of the base whose descriptor it reads.
 const ownSourceFile = (type: object): string | undefined => (Reflect.getOwnMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, (type as { prototype: object }).prototype) as IControllerDescriptor | undefined)?.SourceFile;
@@ -122,6 +123,7 @@ export abstract class BaseController extends AsyncService implements IController
       const derived = derivedValidatorsOf({ container: this._container, controller, lineage, route, mountPath: this.BasePath, log: this._log });
 
       const handlers: (Express.RequestHandler | Express.ErrorRequestHandler)[] = [
+        routeMarker(path),
         createPolicyGate(policies, route, this, this._log),
         ...enabledMiddlewares.map((m) => wrapMiddlewareAction(m, m.onBefore.bind(m), route, this, 'middleware')),
         createActionHandler(this as ControllerActionHost, route, enabledMiddlewares, this._actionLocalStorage, derived),
