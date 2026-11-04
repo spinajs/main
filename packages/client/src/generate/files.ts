@@ -1,10 +1,14 @@
 import { emitClient, type GenerateClientOptions } from '../generate.js';
 import { buildClientModel, type ClientModel } from './model.js';
+import type { GeneratorDiagnostic } from './zod/diagnostics.js';
+import { emitZod } from './zod/emit.js';
 
 export interface GeneratedFile {
   /** Relative to the directory of the client file. */
   path: string;
   contents: string;
+  /** What the emitter could not reproduce of the server's validation. */
+  diagnostics?: GeneratorDiagnostic[];
 }
 
 export interface ZodOptions {
@@ -32,7 +36,7 @@ export type GeneratorTarget = HooksTarget | 'zod' | 'models' | 'socket-hooks';
 export const GENERATOR_TARGETS: Readonly<Record<GeneratorTarget, { readonly available: boolean }>> = {
   'react-query': { available: false },
   swr: { available: false },
-  zod: { available: false },
+  zod: { available: true },
   models: { available: false },
   'socket-hooks': { available: false },
 };
@@ -41,8 +45,13 @@ type Emitter = (model: ClientModel, options: GenerateClientFilesOptions & { base
 
 const noFiles: Emitter = () => Promise.resolve([]);
 
+const zodFile: Emitter = (model, options) => {
+  const { contents, diagnostics } = emitZod(model, typeof options.zod === 'object' ? options.zod : {}, `./${options.basename}.js`);
+  return Promise.resolve([{ path: `${options.basename}.zod.ts`, contents, diagnostics }]);
+};
+
 // The targets that write their own file; `models` and `socket-hooks` add to client.ts and the hooks files.
-const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': noFiles, swr: noFiles, zod: noFiles };
+const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': noFiles, swr: noFiles, zod: zodFile };
 
 export function requestedTargets(options: GenerateClientFilesOptions): GeneratorTarget[] {
   return [...(options.hooks ?? []), ...(options.zod ? (['zod'] as const) : []), ...(options.models ? (['models'] as const) : []), ...(options.socketHooks ? (['socket-hooks'] as const) : [])];
