@@ -18,7 +18,7 @@ import { hashManifest, type Manifest } from '@spinajs/manifest';
 import { createTestApp, testManifest } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
 import { generateClientFiles } from '../src/index.js';
-import { dateCodec, fromClass, type Codec, type ProblemError } from '../src/runtime/index.js';
+import { dateCodec, fromClass, type Codec, type ProblemError } from '../lib/runtime/index.js';
 import { ArticlesController, received, SAMPLE } from './fixtures/models-app/src/controllers.js';
 import { AllowAccess, E2eConfiguration } from './support/harness.js';
 import { typecheck } from './support/typecheck.js';
