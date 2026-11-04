@@ -14,6 +14,16 @@ function guarded(call: () => void): void {
   }
 }
 
+// Every processor gets the call even when one fails; the first failure is rethrown once all have settled.
+async function settleAll(calls: readonly (() => Promise<void>)[]): Promise<void> {
+  const results = await Promise.allSettled(calls.map(async (call) => call()));
+  const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (failed) {
+    const reason: unknown = failed.reason;
+    throw reason instanceof Error ? reason : new Error(String(reason));
+  }
+}
+
 export class SpanProcessorHub implements SpanProcessor {
   // Replaced, never mutated: a detach during onEnd must not skip a sibling.
   private processors: readonly SpanProcessor[] = [];
@@ -29,8 +39,11 @@ export class SpanProcessorHub implements SpanProcessor {
       if (!attached) return;
       attached = false;
       this.processors = this.processors.filter((p) => p !== processor);
-      await processor.forceFlush();
-      await processor.shutdown();
+      try {
+        await processor.forceFlush();
+      } finally {
+        await processor.shutdown();
+      }
     };
   }
 
@@ -38,18 +51,22 @@ export class SpanProcessorHub implements SpanProcessor {
     for (const p of this.processors) guarded(() => p.onStart(span, parentContext));
   }
 
+  public onEnding(span: Span): void {
+    for (const p of this.processors) guarded(() => p.onEnding?.(span));
+  }
+
   public onEnd(span: ReadableSpan): void {
     for (const p of this.processors) guarded(() => p.onEnd(span));
   }
 
-  public async forceFlush(): Promise<void> {
-    await Promise.all(this.processors.map((p) => p.forceFlush()));
+  public forceFlush(): Promise<void> {
+    return settleAll(this.processors.map((p) => () => p.forceFlush()));
   }
 
-  public async shutdown(): Promise<void> {
+  public shutdown(): Promise<void> {
     const detached = this.processors;
     this.processors = [];
-    await Promise.all(detached.map((p) => p.shutdown()));
+    return settleAll(detached.map((p) => () => p.shutdown()));
   }
 }
 

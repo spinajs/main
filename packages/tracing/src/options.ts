@@ -7,10 +7,10 @@ export interface TracingOptions {
   sampler: { type: SamplerType; ratio?: number };
 }
 
-export const DEFAULT_TRACING_OPTIONS: Readonly<Omit<TracingOptions, 'serviceName'>> = {
+export const DEFAULT_TRACING_OPTIONS: Readonly<Omit<TracingOptions, 'serviceName'>> = Object.freeze({
   enabled: true,
-  resourceAttributes: {},
-  sampler: { type: 'parent-ratio', ratio: 1 },
-};
+  resourceAttributes: Object.freeze({}),
+  sampler: Object.freeze({ type: 'parent-ratio', ratio: 1 }),
+});
 
 export const FALLBACK_SERVICE_NAME = 'spinajs-app';

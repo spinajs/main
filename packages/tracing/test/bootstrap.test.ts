@@ -3,10 +3,11 @@ import { expect } from 'chai';
 import { trace } from '@opentelemetry/api';
 import type { ProxyTracerProvider } from '@opentelemetry/api';
 import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
+import type { Configuration } from '@spinajs/configuration';
 import { configurationViolations, createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
 
-import { DEFAULT_TRACING_OPTIONS, TRACING_CONFIGURATION_SCHEMA, ensureTracing, tracer, tracingState } from '../src/index.js';
+import { DEFAULT_TRACING_OPTIONS, TRACING_CONFIGURATION_SCHEMA, ensureTracing, readTracingOptions, tracer, tracingState } from '../src/index.js';
 import type { SpanProcessorHub } from '../src/index.js';
 import { resetTracing, useInMemorySpans } from '../src/testing.js';
 
@@ -45,14 +46,24 @@ describe('TracingBootstrapper', function () {
       const hub = tracingState().hub as SpanProcessorHub;
       const exporter = new InMemorySpanExporter();
       const detach = hub.add(new SimpleSpanProcessor(exporter));
+      // Unlike the exporter, which shutdown clears, this list outlives detach.
+      const collected: string[] = [];
+      const detachCollector = hub.add({
+        onStart: () => undefined,
+        onEnd: (span) => {
+          collected.push(span.name);
+        },
+        forceFlush: () => Promise.resolve(),
+        shutdown: () => Promise.resolve(),
+      });
       tracer().startSpan('exported').end();
       expect(exporter.getFinishedSpans().map((s) => s.name)).to.deep.eq(['exported']);
 
-      // detach() shuts the processor down, which also clears the exporter.
       await detach();
+      await detachCollector();
       expect(hub.size).to.eq(0);
       tracer().startSpan('dropped').end();
-      expect(exporter.getFinishedSpans()).to.deep.eq([]);
+      expect(collected).to.deep.eq(['exported']);
     });
 
     it('is idempotent', () => {
@@ -94,6 +105,17 @@ describe('TracingBootstrapper', function () {
 
     it('starts tracing from the di.resolved.Configuration event of that container', () => {
       expect(tracingState().owner).to.eq('spinajs');
+    });
+  });
+
+  describe('readTracingOptions', () => {
+    it('hands out defaults nobody can change', () => {
+      const unset = { get: <T>(_path: string, fallback: T): T => fallback } as unknown as Configuration;
+      const options = readTracingOptions(unset);
+      expect(() => {
+        options.sampler.ratio = 0;
+      }).to.throw(TypeError);
+      expect(DEFAULT_TRACING_OPTIONS.sampler.ratio).to.eq(1);
     });
   });
 

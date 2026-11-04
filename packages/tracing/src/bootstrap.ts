@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { context, isSpanContextValid, propagation, trace } from '@opentelemetry/api';
-import type { ProxyTracerProvider, TracerProvider } from '@opentelemetry/api';
+import { ROOT_CONTEXT, TraceFlags, context, isSpanContextValid, propagation, trace } from '@opentelemetry/api';
+import type { ProxyTracerProvider, SpanContext, TracerProvider } from '@opentelemetry/api';
 import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { AlwaysOffSampler, AlwaysOnSampler, BasicTracerProvider, ParentBasedSampler, TraceIdRatioBasedSampler } from '@opentelemetry/sdk-trace-base';
@@ -24,18 +24,30 @@ export interface TracingState {
 }
 
 const NONE: TracingState = Object.freeze({ owner: 'none' });
+const EXTERNAL: TracingState = Object.freeze({ owner: 'external' });
 
 let state: TracingState = NONE;
 let provider: BasicTracerProvider | undefined;
+// Only globals this package registered are disabled on reset; a refused registration leaves the other owner's.
+let ownsContextManager = false;
+let ownsPropagator = false;
+
+const PROBE_PARENT: SpanContext = Object.freeze({
+  traceId: '5f0c2a1e9d8b7c6a5f4e3d2c1b0a9f8e',
+  spanId: '1a2b3c4d5e6f7a8b',
+  traceFlags: TraceFlags.NONE,
+  isRemote: true,
+});
 
 // Checked by shape, not identity: a second copy of @opentelemetry/api registers its own proxy, whose no-op
-// constant is another object. The probe span is a no-op on a NoopTracerProvider and ends at once on a real SDK.
+// constant is another object. A no-op tracer hands back the parent's span id, an SDK mints a new one; under an
+// unsampled remote parent a parent-based sampler drops the probe, so the app's exporter never sees it.
 function isNoopProvider(candidate: TracerProvider): boolean {
   if (candidate.constructor.name === 'NoopTracerProvider') return true;
-  const probe = candidate.getTracer(`${TRACER_NAME}/probe`).startSpan('probe');
-  const valid = isSpanContextValid(probe.spanContext());
+  const probe = candidate.getTracer(`${TRACER_NAME}/probe`).startSpan('probe', {}, trace.setSpanContext(ROOT_CONTEXT, PROBE_PARENT));
   probe.end();
-  return !valid;
+  const sc = probe.spanContext();
+  return !isSpanContextValid(sc) || sc.spanId === PROBE_PARENT.spanId;
 }
 
 function hasExternalProvider(): boolean {
@@ -66,34 +78,44 @@ export function ensureTracing(options: TracingOptions): TracingState {
   if (state.owner !== 'none' || !options.enabled) return state;
 
   if (hasExternalProvider()) {
-    state = Object.freeze({ owner: 'external' });
+    state = EXTERNAL;
     return state;
   }
 
   const hub = new SpanProcessorHub();
-  context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
-  propagation.setGlobalPropagator(W3C_PROPAGATOR);
-  provider = new BasicTracerProvider({
+  const created = new BasicTracerProvider({
     resource: resourceFromAttributes({ [ATTR_SERVICE_NAME]: options.serviceName, ...options.resourceAttributes }),
     sampler: new HubSampler(hub, delegateSampler(options.sampler)),
     spanProcessors: [hub],
   });
-  trace.setGlobalTracerProvider(provider);
+  // Registered first: when the slot refuses it (taken through another API copy, a version mismatch), nothing of
+  // ours is registered yet, so there is nothing to roll back.
+  if (!trace.setGlobalTracerProvider(created)) {
+    void created.shutdown();
+    state = EXTERNAL;
+    return state;
+  }
+  provider = created;
+
+  const contextManager = new AsyncLocalStorageContextManager().enable();
+  ownsContextManager = context.setGlobalContextManager(contextManager);
+  if (!ownsContextManager) contextManager.disable();
+  ownsPropagator = propagation.setGlobalPropagator(W3C_PROPAGATOR);
 
   state = Object.freeze({ owner: 'spinajs', hub });
   return state;
 }
 
-/** Tests only (exported as `resetTracing` from `@spinajs/tracing/testing`): globals of an external owner stay. */
+/** Tests only (exported as `resetTracing` from `@spinajs/tracing/testing`): globals of another owner stay. */
 export async function resetTracingState(): Promise<void> {
   const owned = provider;
-  if (state.owner === 'spinajs') {
-    trace.disable();
-    context.disable();
-    propagation.disable();
-  }
+  if (owned) trace.disable();
+  if (ownsContextManager) context.disable();
+  if (ownsPropagator) propagation.disable();
   state = NONE;
   provider = undefined;
+  ownsContextManager = false;
+  ownsPropagator = false;
   await owned?.shutdown();
 }
 

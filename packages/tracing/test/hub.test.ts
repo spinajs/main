@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { ROOT_CONTEXT, SpanKind } from '@opentelemetry/api';
-import { AlwaysOnSampler, InMemorySpanExporter, SamplingDecision, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { AlwaysOnSampler, BasicTracerProvider, InMemorySpanExporter, SamplingDecision, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
 import type { ReadableSpan, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 
 import { HubSampler, SpanProcessorHub } from '../src/hub.js';
@@ -65,6 +65,72 @@ describe('SpanProcessorHub', () => {
     });
     await detach();
     expect(calls).to.deep.eq(['flush', 'shutdown']);
+  });
+
+  it('still shuts a processor down on detach when its flush rejects, and rejects with that error', async () => {
+    const calls: string[] = [];
+    const hub = new SpanProcessorHub();
+    const detach = hub.add({
+      onStart: () => undefined,
+      onEnd: () => undefined,
+      forceFlush: () => Promise.reject(new Error('flush')),
+      shutdown: () => {
+        calls.push('shutdown');
+        return Promise.resolve();
+      },
+    });
+    let thrown: unknown;
+    try {
+      await detach();
+    } catch (err) {
+      thrown = err;
+    }
+    expect((thrown as Error).message).to.eq('flush');
+    expect(calls).to.deep.eq(['shutdown']);
+  });
+
+  it('rejects with the first error only after every processor has shut down', async () => {
+    const calls: string[] = [];
+    const hub = new SpanProcessorHub();
+    hub.add({ ...collecting([]), shutdown: () => Promise.reject(new Error('first')) });
+    hub.add({
+      ...collecting([]),
+      shutdown: () =>
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            calls.push('second');
+            resolve();
+          }, 10),
+        ),
+    });
+    let thrown: unknown;
+    try {
+      await hub.shutdown();
+    } catch (err) {
+      thrown = err;
+    }
+    expect((thrown as Error).message).to.eq('first');
+    expect(calls).to.deep.eq(['second']);
+  });
+
+  it('forwards onEnding before onEnd, while the span still takes attributes', () => {
+    const order: string[] = [];
+    let seen: unknown;
+    const hub = new SpanProcessorHub();
+    hub.add({
+      ...collecting([]),
+      onEnding: (span) => {
+        order.push('onEnding');
+        span.setAttribute('late', 'yes');
+      },
+      onEnd: (span) => {
+        order.push('onEnd');
+        seen = span.attributes.late;
+      },
+    });
+    new BasicTracerProvider({ sampler: new AlwaysOnSampler(), spanProcessors: [hub] }).getTracer('hub-test').startSpan('ending').end();
+    expect(order).to.deep.eq(['onEnding', 'onEnd']);
+    expect(seen).to.eq('yes');
   });
 });
 
