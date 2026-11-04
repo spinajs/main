@@ -10,3 +10,5 @@
 | `packages/<pkg>/<outDir>/config/*.js` | Package config files, standalone module copies beside the bundle. |
 
 The directory runs with no `node_modules` at all: `node main.mjs` (`PORT` picks the port, default a free one). `main.mjs` defaults `SPINAJS_MANIFEST_MODE` to `require` and locates the manifest, the package roots and the app root from its own directory. See [the manifest docs](../manifest/README.md) for the resolve rules.
+
+`glob` is not inlined: `off` mode, a package fragment without `configFiles`, glob syntax in a config dir path or a custom file pattern needs `glob` installed next to the bundle, and fails with an error naming that cause otherwise.
