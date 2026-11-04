@@ -63,6 +63,14 @@ Some schemas cannot be mocked faithfully. Their mock throws `MockUnsupported` in
 
 A schema the sampler supports can still have no value, for example an empty number range or a `maxLength` shorter than its format. The mock then throws `MockError`.
 
+## Server behaviour the mocks mirror
+
+Three behaviours of the server's schema handling show through in mocks. They are the server's, not the mocks', and the mocks follow them so that their data passes.
+
+- **An optional property named like an `Object.prototype` member is required.** Ajv reads the inherited function for a declared `toString`, `valueOf` or `hasOwnProperty`, so an object without its own key fails. The mock always writes such a property, even with `optional: 'some'`. A declared `constructor` is the same, and only `{}` can be met without a forbidden key.
+- **`allOf` opens its closed members.** Even when the result stays open because one member is open, the closed members lose `additionalProperties: false`, so `A & { z?: string }` accepts extra keys. The mock still writes only declared keys.
+- **A property named `__proto__` breaks the schema.** The server copies schemas with assignment, which sets a prototype, and Ajv then refuses the schema, so every request to that route fails. The mock reports `MOCK001`.
+
 ## The fake client
 
 ```ts
@@ -71,7 +79,7 @@ const client = createMockAppClient(impl, { fallback: 'throw', seed: 1 });
 
 - A method in `impl` is called with the arguments.
 - A method missing from `impl` rejects with `MockNotImplemented`: "createMockAppClient: users.get is not implemented; pass it in the first argument".
-- With `fallback: 'mock'`, a missing method resolves to mock data of its reply type, from `seed`. A route that answers with no body resolves to `undefined`.
+- With `fallback: 'mock'`, a missing method resolves to mock data of its reply type, from `seed`. A route that answers with no body resolves to `undefined`. A reply type with no schema and no primitive type (`unknown`, an array of strings) has nothing to sample: the generator reports `MOCK001` for the route, and the fallback rejects with `MockUnsupported`.
 
 The client is typed as `AppClient`, so it fits wherever the app expects the real one, such as the hooks provider in component tests.
 
