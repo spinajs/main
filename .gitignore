@@ -202,6 +202,7 @@ graphify-out/
 !/docs/templates-puppeteer/
 !/docs/templates-xlsx/
 !/docs/testing/
+!/docs/testing-orm/
 !/docs/threading/
 !/docs/upload/
 !/docs/users/
