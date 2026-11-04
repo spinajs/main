@@ -4,8 +4,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createElement } from 'react';
+import { SocketClient } from '@spinajs/http-socket-client';
+import { createElement, StrictMode, type ReactElement } from 'react';
 import TestRenderer, { act, type ReactTestRenderer } from 'react-test-renderer';
+import { SWRConfig, type Cache } from 'swr';
 import ts from 'typescript';
 import { generateClientFiles } from '../src/index.js';
 import { appBasicManifest } from './support/fixture.js';
@@ -29,7 +31,7 @@ interface SocketModule {
 }
 
 interface SwrSocketModule {
-  useChatMessageLatest(socket: FakeSocket): { data?: unknown };
+  useChatMessageLatest(socket: FakeSocket | SocketClient): { data?: unknown };
 }
 
 class FakeStream implements AsyncIterator<unknown> {
@@ -116,25 +118,32 @@ async function step(action: () => void = () => undefined): Promise<void> {
 
 interface Mounted<P, R> {
   result(): R;
+  /** Every render's props and hook result, in order. */
+  renders: { props: P; result: R }[];
   rerender(props: P): Promise<void>;
   unmount(): Promise<void>;
 }
 
-async function mount<P extends object, R>(hook: (props: P) => R, props: P): Promise<Mounted<P, R>> {
-  let result: R | undefined;
+type Wrap = (element: ReactElement) => ReactElement;
+
+const strict: Wrap = (element) => createElement(StrictMode, null, element);
+
+async function mount<P extends object, R>(hook: (props: P) => R, props: P, wrap: Wrap = (element) => element): Promise<Mounted<P, R>> {
+  const renders: { props: P; result: R }[] = [];
   const Probe = (p: P) => {
-    result = hook(p);
+    renders.push({ props: p, result: hook(p) });
     return null;
   };
   let renderer: ReactTestRenderer | undefined;
-  await step(() => (renderer = TestRenderer.create(createElement(Probe, props))));
+  await step(() => (renderer = TestRenderer.create(wrap(createElement(Probe, props)))));
   const current = () => {
     if (!renderer) throw new Error('not mounted');
     return renderer;
   };
   return {
-    result: () => result as R,
-    rerender: (next) => step(() => current().update(createElement(Probe, next))),
+    result: () => renders[renders.length - 1].result,
+    renders,
+    rerender: (next) => step(() => current().update(wrap(createElement(Probe, next)))),
     unmount: () => step(() => current().unmount()),
   };
 }
@@ -200,6 +209,17 @@ describe('socket hooks at runtime', () => {
       await view.unmount();
     });
 
+    it('keeps one live subscription under StrictMode and calls the latest listener', async () => {
+      const socket = new FakeSocket();
+      const second: unknown[] = [];
+      const view = await mount<{ listener: Listener }, void>((p) => socketHooks.useChatMessageEvent(socket, p.listener), { listener: () => undefined }, strict);
+      await view.rerender({ listener: (m) => second.push(m) });
+      await step(() => socket.emit('message', message));
+      expect([socket.listenerCount('message'), second]).to.deep.equal([1, [message]]);
+      await view.unmount();
+      expect(socket.listenerCount('message')).to.equal(0);
+    });
+
     it('moves the subscription to a new socket', async () => {
       const [a, b] = [new FakeSocket(), new FakeSocket()];
       const view = await mount((p: { socket: FakeSocket }) => socketHooks.useChatMessageEvent(p.socket, () => undefined), { socket: a });
@@ -248,6 +268,46 @@ describe('socket hooks at runtime', () => {
       await view.unmount();
     });
 
+    // A render must never show one payload's items, or a running stream, under another payload.
+    function expectEveryRenderMatchesItsPayload(renders: { props: Props; result: StreamState }[]): void {
+      for (const { props, result } of renders) {
+        const label = JSON.stringify([props.payload, result]);
+        if (props.payload === null) {
+          expect(result, label).to.deep.equal({ items: [], status: 'idle', error: undefined });
+          continue;
+        }
+        const since = props.payload.since;
+        expect(result.status, label).to.not.equal('idle');
+        expect((result.items as ChatMessage[]).every((item) => item.id.startsWith(since)), label).to.equal(true);
+      }
+    }
+
+    it('renders no stale items or status for a new payload, in any render', async () => {
+      const socket = new FakeSocket();
+      const view = await mountStream(socket, { since: 'a' });
+      expect(view.renders[0].result).to.deep.equal({ items: [], status: 'streaming', error: undefined });
+      await step(() => socket.streams[0].push({ id: 'a1', text: 'x' }));
+      await view.rerender({ payload: { since: 'b' } });
+      await step(() => socket.streams[1].push({ id: 'b1', text: 'y' }));
+      await view.rerender({ payload: null });
+      await view.rerender({ payload: { since: 'c' } });
+      expectEveryRenderMatchesItsPayload(view.renders);
+      expect(view.renders.flatMap((r) => (r.result.items as ChatMessage[]).map((i) => i.id))).to.include.members(['a1', 'b1']);
+      await view.unmount();
+    });
+
+    it('keeps one live stream under StrictMode and cancels it on unmount', async () => {
+      const socket = new FakeSocket();
+      const view = await mount<Props, StreamState>((p) => socketHooks.useChatHistoryStream(socket, p.payload), { payload: { since: 'a' } }, strict);
+      const live = () => socket.streams.filter((st) => st.returned === 0);
+      expect(live()).to.have.length(1);
+      await step(() => live()[0].push({ id: 'a1', text: 'x' }));
+      expect(view.result().items).to.deep.equal([{ id: 'a1', text: 'x' }]);
+      expectEveryRenderMatchesItsPayload(view.renders);
+      await view.unmount();
+      expect(live()).to.have.length(0);
+    });
+
     it('reports the end of the stream and a failure', async () => {
       const socket = new FakeSocket();
       const ended = await mountStream(socket, { since: 'a' });
@@ -268,13 +328,51 @@ describe('socket hooks at runtime', () => {
   describe('SWR latest hook', () => {
     it('holds the latest payload of the event and unsubscribes on unmount', async () => {
       const socket = new FakeSocket();
-      const view = await mount(() => swrHooks.useChatMessageLatest(socket), {});
+      const view = await mount(() => ({ data: swrHooks.useChatMessageLatest(socket).data }), {});
       expect([view.result().data, socket.listenerCount('message')]).to.deep.equal([undefined, 1]);
       await step(() => socket.emit('message', message));
       await step(() => socket.emit('message', { id: 'm2', text: 'again' }));
       expect(view.result().data).to.deep.equal({ id: 'm2', text: 'again' });
       await view.unmount();
       expect(socket.listenerCount('message')).to.equal(0);
+    });
+
+    it('shares one subscription between two components on one socket, and keeps two sockets apart', async () => {
+      const sockets = { a: new FakeSocket(), b: new FakeSocket() };
+      const results: Record<string, { data?: unknown }> = {};
+      const Probe = (p: { name: string; socket: 'a' | 'b' }) => {
+        // SWR re-renders a component only for the fields it read during render.
+        results[p.name] = { data: swrHooks.useChatMessageLatest(sockets[p.socket]).data };
+        return null;
+      };
+      let renderer: ReactTestRenderer | undefined;
+      const tree = createElement(StrictMode, null, createElement(Probe, { name: 'one', socket: 'a' }), createElement(Probe, { name: 'two', socket: 'a' }), createElement(Probe, { name: 'three', socket: 'b' }));
+      await step(() => (renderer = TestRenderer.create(tree)));
+      const counts = () => [sockets.a.listenerCount('message'), sockets.b.listenerCount('message')];
+      expect(counts()).to.deep.equal([1, 1]);
+      await step(() => sockets.a.emit('message', message));
+      expect([results.one.data, results.two.data, results.three.data]).to.deep.equal([message, message, undefined]);
+      await step(() => renderer?.unmount());
+      expect(counts()).to.deep.equal([0, 0]);
+    });
+
+    it('keys the subscription by a socket id, never by what the socket holds', async () => {
+      const cache: Cache = new Map();
+      const socket = new SocketClient({ url: 'http://socket.example', autoConnect: false, io: { extraHeaders: { authorization: 'Bearer SECRET-TOKEN' } } });
+      try {
+        const view = await mount(() => ({ data: swrHooks.useChatMessageLatest(socket).data }), {}, (element) => createElement(SWRConfig, { value: { provider: () => cache } }, element));
+        const keys = [...cache.keys()];
+        expect(keys).to.have.length.greaterThan(0);
+        for (const key of keys) {
+          expect(key).to.not.include('SECRET-TOKEN');
+          expect(key).to.not.include('socket.example');
+          expect(key).to.not.include(socket.clientId);
+          expect(key.length).to.be.lessThan(100);
+        }
+        await view.unmount();
+      } finally {
+        await socket.close();
+      }
     });
   });
 });
