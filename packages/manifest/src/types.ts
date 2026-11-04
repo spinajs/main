@@ -92,7 +92,10 @@ export interface ParamEntry {
 
 export interface PolicyRef { type: string; options?: unknown[] }
 
-/** A route argument, and for an object argument the property path inside it (`[]` for the argument itself). */
+/**
+ * `arg` is the `ParamEntry.name` of the route argument, the code name, not the wire key: read how the value travels from
+ * that entry's `wire`. `path` is the property inside an object argument, `[]` for the argument itself.
+ */
 export interface PaginationParam { arg: string; path: string[] }
 
 /** On a route whose reply is the `@spinajs/http` `Page<T>` (`offset`) or `CursorPage<T>` (`cursor`). */

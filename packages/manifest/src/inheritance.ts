@@ -53,7 +53,7 @@ function mergeParams(inherited: ParamEntry[], own: ParamEntry[]): ParamEntry[] {
 }
 
 /** Follows `returnType`: a redeclared verb route that returns no page is not paginated. */
-function paginationOf(inherited: RouteEntry, declared: RouteEntry | undefined): Pick<RouteEntry, 'pagination'> {
+function inheritedPagination(inherited: RouteEntry, declared: RouteEntry | undefined): Pick<RouteEntry, 'pagination'> {
   const pagination = declared ? declared.pagination : inherited.pagination;
   return pagination ? { pagination } : {};
 }
@@ -70,7 +70,7 @@ function overriddenRoute(inherited: RouteEntry, override: RouteOverride): RouteE
     path: declared?.path ?? inherited.path,
     params: mergeParams(inherited.params, override.params),
     returnType: declared?.returnType ?? inherited.returnType,
-    ...paginationOf(inherited, declared),
+    ...inheritedPagination(inherited, declared),
     policies: inheritPolicies(inherited.policies, override.policies),
     middlewares: inheritMiddlewares(inherited.middlewares, override.middlewares),
     ...(access ? { access } : {}),
