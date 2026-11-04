@@ -20,3 +20,5 @@ export { guardMode } from './guard/env.js';
 // Registers AuthzOrmContributor: the domain boot checks the resource connection.
 export { AuthzOrmContributor, checkResourceConnections } from './contributor.js';
 export * from './lists/index.js';
+// `@spinajs/authz-orm/changelog`: registers DbChangeLog as the ChangeLog and the changelog migration.
+export * from './changelog/index.js';

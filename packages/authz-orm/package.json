@@ -16,6 +16,10 @@
       "types": "./lib/audit/index.d.ts",
       "import": "./lib/audit/index.js"
     },
+    "./changelog": {
+      "types": "./lib/changelog/index.d.ts",
+      "import": "./lib/changelog/index.js"
+    },
     "./plan": {
       "types": "./lib/plan/index.d.ts",
       "import": "./lib/plan/index.js"
@@ -28,6 +32,9 @@
       ],
       "audit": [
         "lib/audit/index.d.ts"
+      ],
+      "changelog": [
+        "lib/changelog/index.d.ts"
       ],
       "plan": [
         "lib/plan/index.d.ts"
