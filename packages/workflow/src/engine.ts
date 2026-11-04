@@ -283,8 +283,10 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
       return;
     }
     const journal = await Journal.load(instanceId);
-    // a compensation pass replays run() only to collect the compensations of the steps already taken (D6)
-    const collect = row.Status === 'compensating' || (row.CancelRequested && this.config.compensateOnCancel);
+    const deadline = definition.timeoutMs === null ? null : row.CreatedAt + definition.timeoutMs;
+    // a compensation pass, a compensated cancel and a timeout found at claim replay run() only to collect the
+    // compensations of the steps already taken (D6)
+    const collect = row.Status === 'compensating' || (row.CancelRequested ? this.config.compensateOnCancel : deadline !== null && this.Clock.now() >= deadline);
     const ctx = new ActivationContext({
       instance: row,
       definition,
@@ -296,7 +298,7 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
       config: this.config,
       signal: collect ? signals.compensation : signals.run,
       log: this.Log,
-      deadline: collect || definition.timeoutMs === null ? null : row.CreatedAt + definition.timeoutMs,
+      deadline: collect ? null : deadline,
       mode: collect ? 'collect' : 'run',
       onLeaseLost: () => abort('lease-lost'),
       onCrash: () => this.crashAll(),
@@ -339,11 +341,13 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
       return this.resumed(row, ctx, signals.compensation);
     }
     let outcome: Outcome = { kind: 'aborted' };
-    if (row.CancelRequested) {
-      abort('cancelled');
-      if (this.config.compensateOnCancel) await this.execute(ctx, definition, signals.compensation);
-    } else if (ctx.deadline !== null && this.Clock.now() >= ctx.deadline) ctx.expire();
-    else {
+    if (row.CancelRequested) abort('cancelled');
+    if (ctx.mode === 'collect') await this.execute(ctx, definition, signals.compensation);
+    // collecting without a cancel: the deadline had passed at claim
+    if (ctx.mode === 'collect' && !row.CancelRequested) {
+      return signals.compensation.aborted ? { kind: 'release' } : this.failed(INTERRUPTION_REASON.timeout, serializeError(ctx.expire()), this.Clock.now());
+    }
+    if (!row.CancelRequested) {
       const disarm = this.expireAt(ctx, ctx.deadline, abort);
       try {
         outcome = await this.execute(ctx, definition, signals.run);

@@ -184,6 +184,10 @@ export class ActivationContext implements WorkflowContext {
     return this.init.epoch;
   }
 
+  public get mode(): 'run' | 'collect' {
+    return this.init.mode ?? 'run';
+  }
+
   public get deadline(): number | null {
     return this.init.deadline ?? null;
   }

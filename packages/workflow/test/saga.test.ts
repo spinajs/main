@@ -144,6 +144,14 @@ export class SagaBranches extends WorkflowDefinition<null, void> {
   }
 }
 
+@Workflow('saga-deadline', { timeout: '1h' })
+export class SagaDeadline extends WorkflowDefinition<null, void> {
+  public async run(ctx: WorkflowContext<null>): Promise<void> {
+    await ctx.step('charge', record('charge', 'ch-1'), { compensate: undo('refund') });
+    await ctx.sleep('2h');
+  }
+}
+
 @Workflow('saga-escape')
 export class SagaEscape extends WorkflowDefinition<null, string> {
   public async run(ctx: WorkflowContext<null>): Promise<string> {
@@ -313,6 +321,16 @@ describe('saga compensation (D6)', () => {
     await r1.tick();
     expect((await instance(id)).Status).to.equal('cancelled');
     expect(effects).to.deep.equal(['a1', 'a2', 'undo:A2', 'undo:A1']);
+  });
+
+  it('an instance found past its timeout at claim compensates the steps it took', async () => {
+    const { id } = await service.start('saga-deadline', null);
+    await r1.tick();
+    expect(pick(await instance(id), 'Status', 'WakeAt')).to.deep.equal({ Status: 'sleeping', WakeAt: T0 + 3_600_000 });
+    clock.set(T0 + 3_600_000);
+    await r1.tick();
+    expect(pick(await instance(id), 'Status', 'Reason')).to.deep.equal({ Status: 'compensated', Reason: 'timeout' });
+    expect(effects).to.deep.equal(['charge', 'refund:ch-1']);
   });
 
   it('ctx.fail() compensates too', async () => {
