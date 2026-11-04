@@ -37,6 +37,12 @@ describe('manifestToOpenApi', () => {
     expect(JSON.stringify(manifestToOpenApi(manifest, options))).to.equal(JSON.stringify(doc));
   });
 
+  it('ignores route pagination', () => {
+    const paged: Manifest = JSON.parse(JSON.stringify(manifest)) as Manifest;
+    for (const route of paged.controllers.flatMap((c) => c.routes)) route.pagination = { kind: 'offset', item: { text: 'UserDto' }, param: { arg: 'query', path: ['page'] }, firstPage: 1 };
+    expect(JSON.stringify(manifestToOpenApi(paged, options), null, 2)).to.equal(readFileSync(snapshotPath, 'utf8'));
+  });
+
   it('is OpenAPI 3.1 and lints clean', async () => {
     expect(doc.openapi).to.equal('3.1.0');
     const config = await createConfig({ extends: ['minimal'] });

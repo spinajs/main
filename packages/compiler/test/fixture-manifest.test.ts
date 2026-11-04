@@ -85,4 +85,12 @@ describe('app-basic manifest fixture', () => {
     const fresh = await buildFixtureManifest();
     expect({ ...manifest(), generatedAt: '' }).to.deep.equal({ ...fresh, generatedAt: '' });
   });
+
+  it('builds byte for byte, hash included, with no paginated route', async () => {
+    const committed = readFileSync(APP_BASIC_MANIFEST, 'utf8');
+    const fresh = await buildFixtureManifest();
+    expect(JSON.stringify({ ...fresh, generatedAt: manifest().generatedAt }, null, 2) + '\n').to.equal(committed);
+    expect(fresh.hash).to.equal(manifest().hash);
+    expect(committed).to.not.contain('"pagination"');
+  });
 });

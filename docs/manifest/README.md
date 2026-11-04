@@ -141,6 +141,31 @@ A build with `--no-schemas` records `schemaDerivation: false`. Its socket contra
 
 A direct call of `buildAppManifest` without `effectiveDirs` marks nothing.
 
+### Route pagination
+
+A route whose reply is the `@spinajs/http` `Page<T>` or `CursorPage<T>` (see [Paginated replies](../http/10-responses.md#paginated-replies)) carries `pagination`. Every other route has no such key, so a manifest of an app without paginated routes is byte for byte what it was before the field existed, hash included. `manifestVersion` stays 2.
+
+```ts
+interface PaginationParam { arg: string; path: string[] }
+
+interface RoutePagination {
+  kind: 'offset' | 'cursor';     // Page<T> or CursorPage<T>
+  item: TypeRef;                 // one item, `UserDto`, with its schema
+  param?: PaginationParam;       // page, or cursor / after
+  size?: PaginationParam;        // pageSize, perPage or limit
+  firstPage?: number;            // offset only: 0 when the page schema says minimum: 0, else 1
+}
+// RouteEntry.pagination?: RoutePagination
+```
+
+`arg` is the route argument's `ParamEntry.name`, the name in code, not the wire key: a client reads how the value travels from that entry's `wire`. `path` is `[]` for a `@Query()` value argument (`?page=2`) and the property inside the argument otherwise: `{ arg: 'query', path: ['page'] }` for `@Query() query: PageQuery`, which travels as JSON under `query`, or for `@QueryField() query: PageQuery`, the whole query. Without a page parameter, `param` and `firstPage` are absent, and `spinajs doctor` warns with `HTTP007`.
+
+The reply schema is unchanged by the field: `returnType` still names the derived page schema (`Page_UserDto`). `item` adds a reference to the item schema, so a client can type `items` without unwrapping the page schema. An anonymous item gets a schema of its own, `<Controller>_<handler>_Item`.
+
+A route a controller inherits records its pagination as the subclass sees it, as `returnType` does: a generic `BaseCrud<T>` whose `list` returns `Page<T>` records `item: ArticleDto` on `ArticlesController extends BaseCrud<ArticleDto>`. A subclass that redeclares the route with its own verb decorator takes the pagination of its own return type, or none.
+
+`generate:openapi` and `generate:client` ignore the field. `manifest:diff` reports a route that loses it, changes `kind`, loses `param` or moves `firstPage` as breaking (see [Pagination](diff-and-ci.md#pagination)).
+
 ### Diffing two manifests
 
 `manifest:diff` (`diffManifest`) matches routes by `METHOD fullPath`. A route a controller inherits is an ordinary route of that controller, so a change in its base, such as a new required field in the body type the subclass binds, shows on the subclass's path, and a class `@Access` a subclass adds shows on each inherited route. A controller a subclass replaces with an unconditional `DI.register(Sub).as(Base)` is left out, as the runtime mounts only the subclass. The subclass is kept even when it lives outside `system.dirs`, because the runtime serves it in the slot of the base the manifest loads. This is a static guess that assumes the module holding the registration runs; if nothing imports that module, the base serves instead.
