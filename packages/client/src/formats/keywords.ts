@@ -1,10 +1,8 @@
 /*!
- * Ports of the Ajv 8 checks for minLength/maxLength (runtime/ucs2length.ts), multipleOf, uniqueItems, and of
- * fast-deep-equal 3.1.3, which Ajv uses for const, enum and uniqueItems.
- * ajv: MIT License, Copyright (c) 2015-2021 Evgeny Poberezkin. fast-deep-equal: MIT License, Copyright (c) 2017
- * Evgeny Poberezkin. The full notice is in ajv-formats.ts.
+ * Ports of the Ajv 8 checks for minLength/maxLength (runtime/ucs2length.ts) and multipleOf.
+ * ajv: MIT License, Copyright (c) 2015-2021 Evgeny Poberezkin. The full notice is in ajv-formats.ts.
  */
-import { checkDataTypes, type JsonType } from './data-type.js';
+import { jsonEqual } from './equal.js';
 
 /** Length in code points, as Ajv counts it: a lone surrogate counts as one. */
 function ucs2length(str: string): number {
@@ -38,74 +36,60 @@ export function ajvMultipleOf(n: number): (value: number) => boolean {
   };
 }
 
-function arraysEqual(a: unknown[], b: unknown[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = a.length; i-- !== 0; ) {
-    if (!ajvEqual(a[i], b[i])) return false;
-  }
-  return true;
-}
-
-function objectsEqual(a: object, b: object): boolean {
-  if (a.constructor !== b.constructor) return false;
-  if (Array.isArray(a)) return arraysEqual(a, b as unknown[]);
-  if (a.constructor === RegExp) return (a as RegExp).source === (b as RegExp).source && (a as RegExp).flags === (b as RegExp).flags;
-  if (a.valueOf !== Object.prototype.valueOf) return a.valueOf() === b.valueOf();
-  if (a.toString !== Object.prototype.toString) return (a as { toString(): string }).toString() === (b as { toString(): string }).toString();
-  const keys = Object.keys(a);
-  if (keys.length !== Object.keys(b).length) return false;
-  // From the last key, as fast-deep-equal: the order decides whether a nested own `valueOf` throws or a mismatch answers first.
-  for (let i = keys.length; i-- !== 0; ) {
-    if (!Object.prototype.hasOwnProperty.call(b, keys[i])) return false;
-  }
-  for (let i = keys.length; i-- !== 0; ) {
-    if (!ajvEqual((a as Record<string, unknown>)[keys[i]], (b as Record<string, unknown>)[keys[i]])) return false;
-  }
-  return true;
-}
-
 /**
- * Deep equality as Ajv decides `const`, `enum` and `uniqueItems`: 0 equals -0, NaN equals NaN, key order is ignored.
- * Pass the data first: like Ajv, it throws a TypeError when the first object has an own `valueOf` or `toString` key
- * that is not a function.
+ * Deep equality as the server decides `const` and `enum` (see `jsonEqual`): 0 equals -0, NaN equals NaN, key order is
+ * ignored, and an own `valueOf` or `toString` key is compared as data. Stock Ajv throws a TypeError there instead.
  */
 export function ajvEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (a && b && typeof a === 'object' && typeof b === 'object') return objectsEqual(a, b);
-  return Number.isNaN(a) && Number.isNaN(b);
+  return jsonEqual(a, b);
 }
 
-function uniqueByHash(items: readonly unknown[], itemTypes: readonly JsonType[]): boolean {
-  // A plain object, as in Ajv's generated code: a '__proto__' key never registers, so repeats of it pass.
-  const indices: Record<string, unknown> = {};
-  for (let i = items.length; i--; ) {
-    let item = items[i];
-    if (checkDataTypes(itemTypes, item, false)) continue;
-    if (itemTypes.length > 1 && typeof item === 'string') item += '_';
-    const key = String(item);
-    if (typeof indices[key] === 'number') return false;
-    indices[key] = i;
+/** `uniqueItems: true`, as the server checks it with `jsonEqual`. A repeated '__proto__' string is a duplicate. */
+export function ajvUniqueItems(items: readonly unknown[]): boolean {
+  if (items.length <= 1) return true;
+  // Primitives are equal exactly when SameValueZero says so, which is what a Set compares by.
+  const primitives = new Set<unknown>();
+  const objects: unknown[] = [];
+  for (const item of items) {
+    if (item !== null && typeof item === 'object') objects.push(item);
+    else if (primitives.has(item)) return false;
+    else primitives.add(item);
   }
-  return true;
-}
-
-function uniqueByEqual(items: readonly unknown[]): boolean {
-  for (let i = items.length; i--; ) {
+  for (let i = objects.length; i--; ) {
     for (let j = i; j--; ) {
-      if (ajvEqual(items[i], items[j])) return false;
+      if (jsonEqual(objects[i], objects[j])) return false;
     }
   }
   return true;
 }
 
 /**
- * `uniqueItems: true`. `itemTypes` is what Ajv's `getSchemaTypes(parentSchema.items)` reads: the literal `type` of
- * the `items` node, with `null` added for `nullable: true`. When `items` is absent, a tuple array, or has no `type`
- * of its own (`$ref`, `anyOf`), Ajv reads `[]`: pass nothing. With only scalar types Ajv hashes the items, which
- * lets repeated '__proto__' strings through where deep equality would not.
+ * ajv-keywords' `uniqueItemProperties: keys`, with the server's `jsonEqual`. `scalar[k]` tells whether the `items`
+ * schema types `keys[k]` as a scalar, as ajv-keywords reads it; only object items are compared.
  */
-export function ajvUniqueItems(items: readonly unknown[], itemTypes: readonly JsonType[] = []): boolean {
-  if (items.length <= 1) return true;
-  const hashable = itemTypes.length > 0 && !itemTypes.some((type) => type === 'object' || type === 'array');
-  return hashable ? uniqueByHash(items, itemTypes) : uniqueByEqual(items);
+export function uniqueItemProperties(keys: readonly string[], scalar: readonly boolean[]): (items: readonly unknown[]) => boolean {
+  return (items) => items.length <= 1 || keys.every((key, k) => (scalar[k] ? scalarsUnique(items, key) : valuesUnique(items, key)));
+}
+
+function scalarsUnique(items: readonly unknown[], key: string): boolean {
+  const seen = new Set<unknown>();
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue;
+    let value = (item as Record<string, unknown>)[key];
+    if (value && typeof value === 'object') continue;
+    if (typeof value === 'string') value = `"${value}`;
+    if (seen.has(value)) return false;
+    seen.add(value);
+  }
+  return true;
+}
+
+function valuesUnique(items: readonly unknown[], key: string): boolean {
+  const values = items.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object').map((item) => item[key]);
+  for (let i = values.length; i--; ) {
+    for (let j = i; j--; ) {
+      if (jsonEqual(values[i], values[j])) return false;
+    }
+  }
+  return true;
 }
