@@ -131,6 +131,7 @@ graphify-out/
 !/docs/configuration-fs-protocol/
 !/docs/configuration-http/
 !/docs/di/
+!/docs/durable/
 !/docs/electron/
 !/docs/email/
 !/docs/email-smtp-transport/
