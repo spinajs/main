@@ -190,7 +190,9 @@ In each directory it matches `**/!(*.*).{ts,js,cjs,mjs}` (no environment tag) an
 | `Runner` | The `MigrationRunner` over the `Orm`'s migrations and connections. Assigned in `boot()`. |
 | `boot(orm: Orm)` | Called by `Orm.resolve()`: binds the migrator to `orm` and applies the pending `Migration.OnStartup` migrations, see [above](#migrating-on-startup-diresolveorm). Their `data()` runs on `di.resolved.Orm`. |
 | `ready()` | `Promise<void>` that settles after the `data()` seeds of `boot()`, or rejects with their aggregated failure. With `MigrateOnStartup: false` it resolves at once. |
-| `migrate(options?: IOrmMigrateOptions)` | `IMigrationUpOptions` plus `name`. Under one run lock per connection: applies (`force` defaults to `true`), re-reads the touched models, runs `data()` (not with `fake`). Resolves with the applied migrations. With `name`, it locks only that migration's connection, and an unknown name throws before any lock is taken or storage created. |
+| `migrate(options?: IOrmMigrateOptions)` | `IMigrationUpOptions` plus `name` and `skipSeed`. Under one run lock per connection: applies (`force` defaults to `true`), re-reads the touched models, runs `data()` (not with `fake` or `skipSeed`). Resolves with the applied migrations. With `name`, it locks only that migration's connection, and an unknown name throws before any lock is taken or storage created. |
+| `seed(options?: IOrmSeedOptions)` | `name`, `connection`. Under the run lock (with `name`, only of the connection it runs on): runs `data()` of every applied migration (or only `name`, or only one connection's) in `(timestamp, name)` order; every hook runs and the failures are reported in one `OrmException`. It reads the tracking table without DDL, and with nothing applied it takes no lock, so a fresh database gets no table. A `name` that is registered but not applied throws `Migration <name> is not applied on any configured connection - nothing to seed` (`on connection <connection>` with `connection`). Resolves with the seeded migrations. What `migrate-seed` runs. |
+| `plan(options?: { name?, connection? })` | `Promise<IMigrationPlanEntry[]>`: what `migrate()` with the same options would apply, in order, as `{ name, connection, batch }`, then the FAILED migrations that stop it, with `failed: true`. Read-only: no tracking table is created, no lock taken, nothing applied. What `migrate-up --dry-run` prints. |
 
 `Orm.Migrator` is the migrator the `Orm` booted. `OrmMigrator` is a DI singleton: the options apply only to the resolve that constructs it, and resolving it migrates nothing. The next `Orm.resolve()` (after `DI.uncache(Orm)`) boots the cached migrator again against the new `Orm`.
 
@@ -205,6 +207,7 @@ In each directory it matches `**/!(*.*).{ts,js,cjs,mjs}` (no environment tag) an
 | `up(name?, options?: IMigrationUpOptions)` | `force` (default `true`), `fake`, `connection` | `Promise<IMigrationUpResult>`: `executed` and `touched.models`. Runs no `data()` and reads no table info; use `OrmMigrator.migrate()` for that. |
 | `down(name?, options?: IMigrationDownFacadeOptions)` | `force` (default `true`), `fake`, `connection`, `all` | `Promise<OrmMigration[]>`: the migrations rolled back. |
 | `status()` | none | `Promise<IMigrationStatusEntry[]>` |
+| `pending(name?, connection?)` | as `up()` | `Promise<IMigrationPlanEntry[]>`: what `up()` would apply, in run order; `batch` is one past the connection's highest applied batch. The FAILED migrations of every connection the run would touch follow, with `failed: true`, whatever `name` is: `up()` throws at the first stretch of such a connection, so nothing from there on, on any connection, is listed as applied. `batch` counts registered migrations only, so an applied row whose class is gone, in a higher batch, makes it lower than the one the run records. Read-only. |
 | `resolve(name, action: MigrationResolveAction)` | `'applied'` or `'rolled-back'` | `Promise<void>` |
 | `withRunLock(connection, fn, name?)` | connection name, or `undefined` for all; migration name | Holds the run lock of every connection with registered migrations (or only `connection`, or only the connection `name` runs on) while `fn` runs, and resolves with its result. Locks an enclosing call already holds are reused. An unknown `name` throws before any lock is taken. |
 | `assertRunLocksHeld()` | none | Rejects with `MigrationLockLostException` when a lock of the enclosing `withRunLock()` was lost. |
@@ -217,7 +220,7 @@ In each directory it matches `**/!(*.*).{ts,js,cjs,mjs}` (no environment tag) an
 | `locked` | The caller holds `withRunLock()`; the call takes no lock of its own. |
 | `all` | `down()` only: roll back every batch instead of the last one. |
 
-`@spinajs/orm-cli` exposes the same operations as `migrate-up` (`OrmMigrator.migrate()`), `migrate-down`, `migrate-status`, `migrate-resolve` and `migrate-create`. It boots through `resolveMigrationTool()`, so booting the CLI applies nothing on its own.
+`@spinajs/orm-cli` exposes the same operations as `migrate-up` (`OrmMigrator.migrate()`), `migrate-seed` (`OrmMigrator.seed()`), `migrate-down`, `migrate-status`, `migrate-resolve` and `migrate-create`. It boots through `resolveMigrationTool()`, so booting the CLI applies nothing on its own.
 
 ### Migration states
 
@@ -239,6 +242,35 @@ The entry also carries `name`, `connection`, `batch`, `startedAt` and `finishedA
 3. Call `migrator.Runner.resolve(name, 'applied')` (or `migrate-resolve`) when the change is complete, or `resolve(name, 'rolled-back')` to make the migration pending again.
 
 `resolve()` accepts failed and interrupted rows only; any other row throws `OrmException`. `'applied'` stamps `FinishedAt`, the next batch number and the checksum; `'rolled-back'` stamps `RolledBackAt` and clears `Logs`. A failed row whose class no longer exists cannot be resolved: delete it from the tracking table by hand.
+
+## Tests
+
+`@spinajs/orm/testing` migrates a test database explicitly. Use it in test harnesses instead of `Migration.OnStartup` and `orm.Migrator.ready()`:
+
+```ts
+import { DI } from '@spinajs/di';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
+
+beforeEach(async () => {
+  DI.clearCache();
+  DI.register(TestConfiguration).as(Configuration);
+
+  // before anything else resolves the Orm: an http app, a queue, an authz service
+  const { orm, migrator, executed } = await migrateTestDatabase(DI.RootContainer);
+});
+```
+
+`migrateTestDatabase(container = DI.RootContainer, options?: IMigrateTestDatabaseOptions): Promise<IMigratedTestDatabase>`:
+
+1. refuses with `OrmException` (`... is a test helper and refuses to run ...`) when `NODE_ENV` is `production` or `APP_ENV` is `prod` or `production`. It reads the raw variables, because an unset `APP_ENV` counts as production elsewhere and every test process has one;
+2. resolves the `Orm` through `resolveMigrationTool(container)`, so the resolve applies nothing;
+3. refuses with `OrmException` (`migrateTestDatabase() must run before anything resolves the Orm or OrmMigrator in this container ...`) when the resolved migrator migrates on startup or is not the one `orm.Migrator` booted with: something resolved the `Orm` or `OrmMigrator` in that container first, or only `OrmMigrator` was uncached since the last call;
+4. calls `migrator.migrate()`, with seeds unless `options.seed` is `false`;
+5. with `db.StrictTableCheck` on, calls `orm.reloadTableInfo({ strict: true })`, so a model without a table fails the helper as it would fail a boot.
+
+It resolves with `{ orm, migrator, executed }`. The database is then migrated and seeded, so a boot check that runs later (`OrmMigrationGuard`) finds nothing pending. A second call on the same cached container returns `executed: []`. To migrate again from scratch, uncache `Orm` and `OrmMigrator` together, or call `DI.clearCache()`.
+
+The package's lint configuration bans `@spinajs/orm/testing` in `packages/*/src/**`, so framework code never ships it: static imports and re-exports, the deep `@spinajs/orm/lib/<format>/testing` path, a relative path to `orm/src/testing` (`./testing` inside `packages/orm/src`), and a dynamic `import()`, `require()` or `createRequire()(...)` call given one of those names as a string literal (`no-restricted-imports`, `no-restricted-syntax`). A module name computed at runtime escapes the rule; the helper's production refusal (step 1) is the runtime backstop. Applications migrate with `npx spinajs migrate-up` as a deploy step.
 
 ## Transaction modes
 
@@ -413,7 +445,7 @@ DI.register(MaintenanceWindowMigrationService).as('maintenance-window-migrations
 - A re-read model holds what its table holds after the run: a column a migration dropped or renamed leaves the model. See [Models](02-models.md#how-it-works).
 - A migration on a `db.Aliases` name whose target connection does not exist is skipped with a warning, like one on an unknown connection.
 - `data()` runs after the `Orm` resolves, for the migrations its startup run applied, and in `OrmMigrator.migrate()` (`migrate-up`), for the migrations that call applied; never with `fake`. `Runner.up()` never calls it.
-- When a run applies M1 and then fails on M2, M1 is recorded as applied but its `data()` never runs, on that run or any later one. Nothing reports it.
+- When a run applies M1 and then fails on M2, M1 is recorded as applied but its `data()` never runs, on that run or any later one. Nothing reports it. `migrate-seed --name M1` (`OrmMigrator.seed({ name })`) runs it afterwards.
 - During a startup `up()` the `Orm` is still resolving: `DI.resolve(Orm)` there, or a service injecting it, never settles. During `data()` they resolve at once.
 - `up()` applies pending migrations in `(timestamp, name)` order across all connections, not connection by connection.
 - A failed row on a connection blocks every later `up()` there, even one with nothing pending, until `resolve()` clears it.

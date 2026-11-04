@@ -8,7 +8,7 @@ import { MIGRATION_FILE_REGEXP } from './symbols.js';
 import { extractMigrationDescriptor, extractModelDescriptor } from './descriptor.js';
 import { OrmException } from './exceptions.js';
 import type { IMigrationLockHandle } from './migration-lock.js';
-import { DefaultMigrationService, IMigrationRunOptions, IMigrationStatusEntry, IMigrationUnit, MigrationResolveAction, OrmMigrationService } from './migration-service.js';
+import { DefaultMigrationService, IMigrationRunOptions, IMigrationStatusEntry, IMigrationStatusOptions, IMigrationUnit, MigrationResolveAction, OrmMigrationService } from './migration-service.js';
 import type { ModelBase } from './model.js';
 import { recordSchemaTouches, SchemaTouches, touchAllTables } from './schema-touches.js';
 
@@ -117,6 +117,16 @@ export interface IMigrationRunnerStatusOptions {
 
   /** Report one connection, by name or alias. A name no connection answers to throws. */
   connection?: string;
+}
+
+/** One migration `up()` would apply, or a FAILED one that stops it, as `pending()` reports it. */
+export interface IMigrationPlanEntry {
+  name: string;
+  connection: string;
+  /** The batch the run would record it in: one past the connection's highest applied batch, a failed entry included. */
+  batch: number;
+  /** Recorded as FAILED: `up()` refuses its connection until `migrate-resolve` clears it, and the run stops there. */
+  failed?: true;
 }
 
 export interface IMigrationDownFacadeOptions extends IMigrationUpOptions {
@@ -265,6 +275,43 @@ export class MigrationRunner {
     return { executed, touched: { models: this.touchedModels(touches) } };
   }
 
+  /**
+   * What `up(name, { connection })` would apply, in the order it would apply it, with the batch each one would get,
+   * followed by the FAILED migrations ( `failed: true` ) of the connections it would run on. `up()` throws at the
+   * first stretch of such a connection, so nothing from there on is listed as applied, on any connection.
+   * Read-only: no tracking table is created, no lock is taken and no migration runs.
+   */
+  public async pending(name?: string, connection?: string): Promise<IMigrationPlanEntry[]> {
+    const groups = this.plan(name, true, connection);
+    const planned = new Set(groups.map(([driver]) => driver));
+    const next = new Map<OrmDriver, number>();
+    const failed: IMigrationPlanEntry[] = [];
+
+    // every migration of the connection, not only `name`: the batch, and the failed rows that block `name`, follow from all of them
+    for (const [driver, units] of this.plan(undefined, true, connection, true)) {
+      const status = await (await this.service(driver)).status(units, { readOnly: true });
+      const batch = Math.max(0, ...status.filter((e) => e.applied).map((e) => e.batch ?? 0)) + 1;
+      next.set(driver, batch);
+
+      if (planned.has(driver)) {
+        failed.push(...status.filter((e) => e.failed).map((e): IMigrationPlanEntry => ({ name: e.name, connection: driver.Options.Name, batch, failed: true })));
+      }
+    }
+
+    const blocked = new Set(failed.map((e) => e.connection));
+    const entries: IMigrationPlanEntry[] = [];
+
+    for (const [driver, units] of await this.stretches(groups, { readOnly: true })) {
+      if (blocked.has(driver.Options.Name)) {
+        break;
+      }
+
+      entries.push(...units.map((u) => ({ name: u.name, connection: driver.Options.Name, batch: next.get(driver) ?? 1 })));
+    }
+
+    return [...entries, ...failed.sort((a, b) => compareMigrationNames(a.name, b.name))];
+  }
+
   protected touchedModels(touches: SchemaTouches): Array<Class<ModelBase>> {
     if (touches.size === 0) {
       return [];
@@ -293,12 +340,12 @@ export class MigrationRunner {
    * refusal to run over a FAILED row covers every row of the connection, registered or not, and
    * skipping the call would quietly drop that guard for it.
    */
-  protected async stretches(groups: Array<[OrmDriver, IMigrationUnit[]]>): Promise<Array<[OrmDriver, IMigrationUnit[]]>> {
+  protected async stretches(groups: Array<[OrmDriver, IMigrationUnit[]]>, statusOptions?: IMigrationStatusOptions): Promise<Array<[OrmDriver, IMigrationUnit[]]>> {
     const queue: Array<{ driver: OrmDriver; unit: IMigrationUnit }> = [];
     const idle: OrmDriver[] = [];
 
     for (const [driver, units] of groups) {
-      const status = await (await this.service(driver)).status(units);
+      const status = await (await this.service(driver)).status(units, statusOptions);
       const open = new Set(status.filter((s) => s.pending || s.failed).map((s) => s.name));
 
       if (open.size === 0) {
