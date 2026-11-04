@@ -30,7 +30,7 @@ describe('RowLease (sqlite)', () => {
     expect(rows[0]).to.include({ Owner: 'a', Until: 1000, Fence: 1 });
   });
 
-  it('reads back the epoch inside an open transaction', async () => {
+  it('claims inside an open transaction', async () => {
     const driver = await bootDb();
     await createTable(driver);
     await driver.insert().into(LEASE_TABLE).values({ Id: 'tx' });

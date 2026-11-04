@@ -43,7 +43,7 @@ export async function skewedDbClock(): Promise<number> {
 
 ## `RowLease`
 
-A row is claimable when its owner column is `NULL` or its expiry is in the past. Every call is one conditional `UPDATE`; the affected-row count says whether this owner won.
+A row is claimable when its owner column is `NULL` or its expiry is in the past. `claim()` reads the current epoch on the primary, then runs one compare-and-set `UPDATE` conditioned on that epoch; `renew()` and `release()` are one conditional `UPDATE` each. The affected-row count says whether this owner won.
 
 - `claim(target, owner, ttlMs, now, extraWhere?)` takes a free row, sets the owner and `now + ttlMs`, increments the epoch and returns the new epoch, or `null` when the row is held or missing. `extraWhere` adds equality conditions (`null` means `IS NULL`).
 - `renew(target, owner, epoch, ttlMs, now)` extends the expiry while this owner still holds this epoch.

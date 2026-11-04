@@ -1,4 +1,5 @@
 import type { IUpdateResult, IWhereBuilder, OrmDriver } from '@spinajs/orm';
+import { onPrimary } from './sql.js';
 
 export interface RowLeaseColumns {
   owner: string;
@@ -26,9 +27,9 @@ function whereEquals(builder: IWhereBuilder<unknown>, conditions: Record<string,
  * A lease on one row, fenced by an epoch: every claim increments it, so writes guarded by
  * `fenced()` stop matching once another owner has taken the row over.
  *
- * Each call is one conditional UPDATE whose affected-row count says whether this owner won; that count
+ * Every write is a conditional UPDATE whose affected-row count says whether this owner won; that count
  * must mean "rows matched" (see the scheduler's LeaseStore on MySQL found rows). The epoch column
- * must be NOT NULL (default 0): `NULL + 1` would never fence.
+ * must be NOT NULL (default 0).
  */
 export class RowLease {
   constructor(
@@ -39,27 +40,24 @@ export class RowLease {
   /** Claims a free row (no owner, or `until < now`); `extraWhere` adds equality conditions (`null` means IS NULL). */
   public async claim(target: RowLeaseTarget, owner: string, ttlMs: number, now: number, extraWhere: Record<string, unknown> = {}): Promise<{ epoch: number } | null> {
     const c = this.columns;
+    const rows = (await onPrimary(this.driver.select().from(target.table).columns([c.epoch]).where(target.key))) as Array<Record<string, unknown>>;
+    if (rows.length !== 1) return null;
+    const observed = Number(rows[0][c.epoch]);
+
+    // Compare-and-set on the observed epoch rather than increment-then-read-back: a read after the UPDATE can
+    // see a later claim by the same owner string (a replica id) and hand both callers one epoch. A stale
+    // observation only makes this claim lose.
     const r = await this.driver
       .update()
       .in(target.table)
-      .update({ [c.owner]: owner, [c.until]: now + ttlMs })
-      .increment(c.epoch)
+      .update({ [c.owner]: owner, [c.until]: now + ttlMs, [c.epoch]: observed + 1 })
       .where(function (this: IWhereBuilder<unknown>) {
-        whereEquals(this, { ...extraWhere, ...target.key });
+        whereEquals(this, { ...extraWhere, ...target.key, [c.epoch]: observed });
       })
       .where(function (this: IWhereBuilder<unknown>) {
         this.whereNull(c.owner).orWhere(c.until, '<', now);
       });
-    if (affected(r) !== 1) return null;
-
-    // The row stays ours until `now + ttlMs`, so the read-back cannot see a later owner's epoch unless
-    // the TTL already ran out; the owner condition turns that case into a lost claim.
-    const rows = (await this.driver
-      .select()
-      .from(target.table)
-      .columns([c.epoch])
-      .where({ ...target.key, [c.owner]: owner })) as Array<Record<string, unknown>>;
-    return rows.length === 1 ? { epoch: Number(rows[0][c.epoch]) } : null;
+    return affected(r) === 1 ? { epoch: observed + 1 } : null;
   }
 
   public async renew(target: RowLeaseTarget, owner: string, epoch: number, ttlMs: number, now: number): Promise<boolean> {

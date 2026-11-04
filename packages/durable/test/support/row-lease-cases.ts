@@ -86,6 +86,24 @@ export function describeRowLease(boot: () => Promise<OrmDriver>): void {
     expect((await row()).Status).to.eq('written');
   });
 
+  it('never hands one epoch to two overlapping claims of the same owner', async () => {
+    const claims = await Promise.all([lease.claim(target(), 'a', TTL, 0), lease.claim(target(), 'a', TTL, 2 * TTL)]);
+    const won = claims.filter((c): c is { epoch: number } => c !== null);
+    expect(won.length).to.be.greaterThan(0);
+    expect(new Set(won.map((c) => c.epoch)).size).to.eq(won.length);
+    let fencedWrites = 0;
+    for (const c of won) fencedWrites += await fencedUpdate(lease.fenced(target(), 'a', c.epoch));
+    expect(fencedWrites).to.eq(1);
+    expect((await row()).ClaimEpoch).to.eq(Math.max(...won.map((c) => c.epoch)));
+  });
+
+  it('lets exactly one of two concurrent owners claim a free row, raising the epoch by one', async () => {
+    const claims = await Promise.all([lease.claim(target(), 'a', TTL, T0), lease.claim(target(), 'b', TTL, T0)]);
+    const won = claims.filter((c) => c !== null);
+    expect(won).to.deep.eq([{ epoch: 1 }]);
+    expect(await row()).to.include({ ClaimedBy: claims[0] ? 'a' : 'b', ClaimEpoch: 1 });
+  });
+
   it('releases with the current owner and epoch, clearing the owner and keeping the epoch', async () => {
     await lease.claim(target(), 'a', TTL, T0);
     expect(await lease.release(target(), 'a', 2)).to.eq(false);
