@@ -5,6 +5,7 @@ import { effectiveManifestOf } from '@spinajs/configuration';
 import type { Manifest } from '@spinajs/manifest';
 import { ValidationFailed, type IValidationError } from './exceptions/index.js';
 import { SchemaSource, type ISchema, type ISchemaObject } from './types.js';
+import { addSafeKeywords, dropNonFiniteDuplicates, nonFiniteErrors } from './keywords.js';
 
 type Json = Record<string, unknown>;
 
@@ -186,7 +187,11 @@ export class ManifestValidator {
     const compiled = validate;
     return (data) => {
       if (!compiled(data)) {
-        throw new ValidationFailed('validation error', (compiled.errors ?? []) as IValidationError[], schema);
+        throw new ValidationFailed('validation error', dropNonFiniteDuplicates((compiled.errors ?? []) as IValidationError[]), schema);
+      }
+      const nonFinite = nonFiniteErrors(data, true);
+      if (nonFinite.length > 0) {
+        throw new ValidationFailed('validation error', nonFinite, schema);
       }
     };
   }
@@ -209,6 +214,7 @@ export class ManifestValidator {
       // No defaults or removal: the data is checked, never rewritten, apart from coercion of string inputs.
       // strictNumbers: a query `?n=abc` converted to NaN is not a number.
       ajv = withFormats(new Ajv({ strict: false, strictNumbers: true, allErrors: true, messages: false, coerceTypes: coerce ? 'array' : false }));
+      addSafeKeywords(ajv);
       for (const schema of this.schemas.values()) {
         this.add(ajv, schema);
       }
