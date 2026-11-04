@@ -92,10 +92,16 @@ function waitMeta(name: string, opts: WaitForEventOptions, startedAt: number): S
   };
 }
 
-/** Parallel operations parked at once: the instance wakes for whichever is due first and replays the others. */
-function earlierPark(a: Park, b: Park): Park {
-  const rank = (p: Park): number => p.wakeAt ?? (p.status === 'running' ? -Infinity : Infinity);
-  return rank(b) < rank(a) ? b : a;
+/**
+ * Parallel operations parked at once: the instance wakes at the earliest wake time or on a signal for any of its
+ * waits (`'*'` when they wait for different names), and replays the others.
+ */
+export function mergePark(a: Park, b: Park): Park {
+  const wakes = [a.wakeAt, b.wakeAt].filter((w): w is number => w !== null);
+  const names = [a.waitingFor, b.waitingFor].filter((n): n is string => n !== null);
+  const waitingFor = names.length === 0 ? null : names.every((n) => n === names[0]) ? names[0] : '*';
+  const earlier = (a.wakeAt ?? Infinity) <= (b.wakeAt ?? Infinity) ? a : b;
+  return { status: waitingFor === null ? earlier.status : 'waiting', wakeAt: wakes.length === 0 ? null : Math.min(...wakes), waitingFor };
 }
 
 /**
@@ -120,6 +126,11 @@ export class ActivationContext implements WorkflowContext {
   protected seq = 0;
   protected occurrences = new Map<string, number>();
   protected inflight = new Set<Promise<unknown>>();
+  /** Blocking operations that cannot finish in this activation; their promises stay pending until the park or the end. */
+  protected parked: ((err: unknown) => void)[] = [];
+  protected pendingPark: Park | null = null;
+  protected parkCheck = false;
+  protected runDone = false;
   protected readonly gate: ReplayGate;
   /** Journal writes of non-transactional operations, in call order: a marker never commits after a later step. */
   protected writes: Promise<unknown> = Promise.resolve();
@@ -217,8 +228,17 @@ export class ActivationContext implements WorkflowContext {
     throw error;
   }
 
-  /** Waits for every operation still in flight, e.g. the sibling of a suspended `Promise.all`. */
+  /** The engine hands over `run()`: once it settled, its outcome stands and no park is decided. */
+  public observe(run: Promise<unknown>): void {
+    const settled = (): void => {
+      this.runDone = true;
+    };
+    void run.then(settled, settled);
+  }
+
+  /** Waits for every operation still in flight, e.g. the sibling of a suspended `Promise.all`; parked ones are abandoned. */
   public async drain(): Promise<void> {
+    this.abandonParked();
     while (this.inflight.size > 0) await Promise.allSettled([...this.inflight]);
     await this.writes;
   }
@@ -259,22 +279,59 @@ export class ActivationContext implements WorkflowContext {
     if (this.deadline !== null && this.init.clock.now() >= this.deadline) throw this.expire();
   }
 
-  protected interrupt(next: Interruption): void {
+  protected interrupt(requested: Interruption): void {
+    const next: Interruption = requested.kind === 'park' && this.pendingPark ? { kind: 'park', park: mergePark(this.pendingPark, requested.park) } : requested;
     const cur = this.interruption;
     if (!cur) this.interruption = next;
-    else if (cur.kind === 'park' && next.kind === 'park') this.interruption = { kind: 'park', park: earlierPark(cur.park, next.park) };
+    else if (cur.kind === 'park' && next.kind === 'park') this.interruption = { kind: 'park', park: mergePark(cur.park, next.park) };
     else if (PRIORITY[next.kind] > PRIORITY[cur.kind]) this.interruption = next;
     const now = this.interruption;
     if (now) this.gate.abort(now.kind === 'park' ? new WorkflowSuspended() : now.error);
+    this.abandonParked();
   }
 
   protected track<T>(p: Promise<T>): Promise<T> {
     this.inflight.add(p);
     const untrack = (): void => {
       this.inflight.delete(p);
+      if (this.parked.length > 0) this.checkPark();
     };
     void p.then(untrack, untrack);
     return p;
+  }
+
+  /** Records the park and leaves the operation pending: a sibling may still finish `run()` or need more work first. */
+  protected park(p: Park): Promise<never> {
+    this.pendingPark = this.pendingPark ? mergePark(this.pendingPark, p) : p;
+    return new Promise<never>((_resolve, reject) => {
+      this.parked.push(reject);
+      this.checkPark();
+    });
+  }
+
+  /**
+   * Parks once `run()` has not settled and every operation in flight is parked, after the write queue drained and a
+   * macrotask passed without a new durable call. A park is never a correctness decision: whatever it cuts off (a
+   * non-durable await, a branch that had not reached its next call) replays in the next activation.
+   */
+  protected checkPark(): void {
+    if (this.parkCheck) return;
+    this.parkCheck = true;
+    void this.parkWhenIdle();
+  }
+
+  protected async parkWhenIdle(): Promise<void> {
+    const seq = this.seq;
+    await this.writes;
+    await new Promise<void>((resolve) => nextMacrotask(resolve));
+    this.parkCheck = false;
+    if (this.runDone || this.interruption || this.parked.length === 0) return;
+    if (this.seq !== seq) this.checkPark();
+    else if (this.inflight.size === this.parked.length && this.pendingPark) this.interrupt({ kind: 'park', park: this.pendingPark });
+  }
+
+  protected abandonParked(): void {
+    for (const reject of this.parked.splice(0)) reject(new WorkflowSuspended());
   }
 
   protected enqueueWrite<T>(work: () => Promise<T>): Promise<T> {
@@ -447,15 +504,11 @@ export class ActivationContext implements WorkflowContext {
       await this.record(op, { status: 'succeeded', attempt: 1, startedAt, meta: { wakeAt }, finished: true });
       return this.gate.live(op.order);
     }
-    if (rec) {
-      // as a not-yet-due retry does: siblings called in the same turn take their keys before the park
-      await new Promise<void>((resolve) => nextMacrotask(resolve));
-    } else {
+    if (!rec) {
       await this.record(op, { status: 'pending', attempt: 1, startedAt, meta: { wakeAt } });
       await this.fault('workflow.after-journal', op.key);
     }
-    this.interrupt({ kind: 'park', park: { status: 'sleeping', wakeAt, waitingFor: null } });
-    throw new WorkflowSuspended() as unknown;
+    return this.park({ status: 'sleeping', wakeAt, waitingFor: null });
   }
 
   /**
@@ -488,10 +541,8 @@ export class ActivationContext implements WorkflowContext {
     const event = await this.consume<T>(op, meta, startedAt);
     const timeoutAt = meta.timeoutAt ?? null;
     if (event === undefined && timeoutAt !== null && clock.now() >= timeoutAt) await this.record(op, { status: 'succeeded', attempt: 1, startedAt, finished: true });
-    else if (event === undefined) {
-      this.interrupt({ kind: 'park', park: { status: 'waiting', wakeAt: timeoutAt, waitingFor: op.name } });
-      throw new WorkflowSuspended() as unknown;
-    }
+    // a wait that loses a race stays pending and consumes events of its name on later replays
+    else if (event === undefined) return this.park({ status: 'waiting', wakeAt: timeoutAt, waitingFor: op.name });
     await this.gate.live(op.order);
     return event;
   }

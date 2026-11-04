@@ -222,15 +222,20 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
   /** Waiting instances with a pending event of the name they wait for: the signal landed while they were being parked. */
   protected async signalledInstances(now: number, defs: RegisteredWorkflow[], limit: number): Promise<WorkflowInstanceModel[]> {
     const driver = this.store.driver;
-    const q = quoteFor(sqlDialect(driver.Options.Driver, 'due scan', 'workflow'));
+    const dialect = sqlDialect(driver.Options.Driver, 'due scan', 'workflow');
+    const q = quoteFor(dialect);
+    const cat = (...parts: string[]): string => (dialect === 'mysql' ? `CONCAT(${parts.join(', ')})` : parts.join(' || '));
     // filtered before the LIMIT: unregistered versions must not take the reserved slots
     const versions = defs.map(() => `(w.${q('Workflow')} = ? AND w.${q('Version')} = ?)`).join(' OR ');
     const rows = await selectRows<{ id: string }>(
       driver,
       `SELECT w.${q('Id')} AS id FROM ${q('__workflow')} w WHERE w.${q('Status')} = ? AND (w.${q('ClaimedBy')} IS NULL OR w.${q('ClaimedUntil')} < ?) AND (${versions}) ` +
-        `AND EXISTS (SELECT 1 FROM ${q('__workflow_event')} e WHERE e.${q('InstanceId')} = w.${q('Id')} AND e.${q('Name')} = w.${q('WaitingFor')} AND e.${q('State')} = ?) ` +
+        `AND EXISTS (SELECT 1 FROM ${q('__workflow_event')} e WHERE e.${q('InstanceId')} = w.${q('Id')} AND e.${q('State')} = ? AND (e.${q('Name')} = w.${q('WaitingFor')} OR (w.${q('WaitingFor')} = ? ` +
+        // '*' waits for several names: an event counts only if a wait of its name is pending (the exact-collation key range)
+        `AND EXISTS (SELECT 1 FROM ${q('__workflow_step')} s WHERE s.${q('InstanceId')} = w.${q('Id')} AND s.${q('Kind')} = ? AND s.${q('Status')} = ? ` +
+        `AND s.${q('Key')} >= ${cat('?', `e.${q('Name')}`, '?')} AND s.${q('Key')} < ${cat('?', `e.${q('Name')}`, '?')})))) ` +
         `ORDER BY w.${q('UpdatedAt')} LIMIT ${Math.floor(limit)}`,
-      ['waiting', now, ...defs.flatMap((d) => [d.name, d.version]), 'pending'],
+      ['waiting', now, ...defs.flatMap((d) => [d.name, d.version]), 'pending', '*', 'wait', 'pending', 'wait:', '#', 'wait:', '$'],
     );
     const ids = rows.map((r) => r.id);
     return ids.length === 0 ? [] : await WorkflowInstanceModel.query().onPrimary().whereIn('Id', ids).take(limit);
@@ -328,6 +333,7 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
     const workflow = await Promise.resolve(DI.resolve(definition.target));
     // a synchronous throw from run() is a rejected run like any other
     const work = new Promise<unknown>((resolve) => resolve(workflow.run(ctx)));
+    ctx.observe(work);
     const outcome = await this.settle(work, signal);
     if (outcome.kind === 'error' && isCrash(outcome.error)) ctx.crash(outcome.error);
     if (signal.aborted) await this.bounded(ctx.drain());

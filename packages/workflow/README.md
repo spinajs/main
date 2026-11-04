@@ -20,8 +20,12 @@ The contract:
   belongs to exactly one call. It is not safe for markers: `ctx.now()`, `ctx.uuid()` and `ctx.random()` are keyed by
   call order alone, so in concurrent branches call them before any non-durable await, or take the value from a
   per-item step (``ctx.step(`id:${k}`, () => randomUUID())``).
-- `Promise.race` over `ctx.sleep()` or `ctx.waitForEvent()` is not supported yet: the first operation that parks
-  suspends the whole run. For a wait with a deadline use `ctx.waitForEvent(name, { timeout })`.
+- A sleep that is not due and a wait without an event do not suspend the run at once: the activation parks only when
+  every durable operation in flight is parked and no new one is called for a macrotask. A branch that is still
+  working (steps, another wait that finds its event) can therefore finish a `Promise.race` or a `Promise.all` first.
+  Parallel parks merge: the instance waits if any operation waits, wakes at the earliest wake time, and is woken by
+  a signal for any of its pending waits (`WaitingFor` is `'*'` when they wait for different names).
+- A wait that loses a race stays pending: on later replays it keeps consuming events of its name, oldest first.
 - Sequential code is not affected.
 - A replay fails with `NonDeterminismError` when it can see the code changed: a new step where the journal recorded
   another one, or a repeated step name called at another position or after another number of results. A recorded
