@@ -13,6 +13,10 @@
       "types": "./lib/runtime/index.d.ts",
       "import": "./lib/runtime/index.js"
     },
+    "./codecs": {
+      "types": "./lib/codecs/index.d.ts",
+      "import": "./lib/codecs/index.js"
+    },
     "./formats": {
       "types": "./lib/formats/index.d.ts",
       "import": "./lib/formats/index.js"
@@ -85,8 +89,11 @@
     "@spinajs/http-socket-common": "3.0.23",
     "@spinajs/intl": "3.0.23",
     "@spinajs/testing": "3.0.23",
+    "@types/big.js": "^6.2.2",
     "@types/luxon": "^3.6.1",
+    "big.js": "^6.2.2",
     "chai-as-promised": "^7.1.1",
+    "decimal.js": "^10.6.0",
     "luxon": "^3.6.1",
     "typescript": "~5.9.0"
   },
