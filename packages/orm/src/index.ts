@@ -23,6 +23,7 @@ export * from './relation-objects.js';
 export * from './middlewares.js';
 export * from './migration-service.js';
 export * from './migration-runner.js';
+export * from './migration-guard.js';
 export * from './discrimination-middleware.js';
 export * from './orm.js';
 export * from './migrator.js';
