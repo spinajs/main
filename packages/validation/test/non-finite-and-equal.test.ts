@@ -7,6 +7,8 @@ import '@spinajs/log';
 import { DataValidator } from '../src/validator.js';
 import { Schema } from '../src/decorators.js';
 import { ValidationFailed } from '../src/exceptions/index.js';
+import { addSafeKeywords, jsonEqual } from '../src/keywords.js';
+import Ajv from 'ajv';
 
 function validationConfig(validation: Record<string, unknown>) {
   return class extends FrameworkConfiguration {
@@ -230,6 +232,41 @@ describe('non-finite numbers and deep-equal keywords', function () {
       });
     });
   }
+
+  describe('jsonEqual', () => {
+    it('compares values with a prototype of their own through that prototype', () => {
+      expect(jsonEqual(new Date(1), new Date(1))).to.eq(true);
+      expect(jsonEqual(new Date(1), new Date(2))).to.eq(false);
+      expect(jsonEqual(/a/g, /a/g)).to.eq(true);
+      expect(jsonEqual(/a/g, /a/i)).to.eq(false);
+      expect(jsonEqual(new Date(1), {})).to.eq(false);
+    });
+
+    it('compares objects without a prototype by their keys', () => {
+      const a = Object.assign(Object.create(null) as object, { x: 1 });
+      const b = Object.assign(Object.create(null) as object, { x: 1 });
+      expect(jsonEqual(a, b)).to.eq(true);
+      expect(jsonEqual(a, { x: 1 })).to.eq(false);
+    });
+
+    it('treats NaN as equal to NaN and an array as different from an object', () => {
+      expect(jsonEqual(NaN, NaN)).to.eq(true);
+      expect(jsonEqual([], {})).to.eq(false);
+      expect(jsonEqual({ constructor: 1 }, { constructor: 1 })).to.eq(true);
+    });
+  });
+
+  describe('addSafeKeywords on an Ajv without ajv-keywords', () => {
+    it('fixes type and const, and does not add uniqueItemProperties', () => {
+      const AjvCtor = ((Ajv as unknown as { default?: unknown }).default ?? Ajv) as new (o: object) => { validate(schema: object, data: unknown): boolean; getKeyword(keyword: string): unknown; removeKeyword(keyword: string): unknown; addKeyword(definition: object): unknown };
+      const ajv = new AjvCtor({ coerceTypes: true, strict: false });
+      addSafeKeywords(ajv);
+
+      expect(ajv.validate({ type: 'object', properties: { v: { type: 'integer', minimum: 0 } } }, { v: '-Infinity' })).to.eq(false);
+      expect(ajv.validate({ const: { a: 1 } }, JSON.parse('{"valueOf":1}'))).to.eq(false);
+      expect(ajv.getKeyword('uniqueItemProperties')).to.eq(false);
+    });
+  });
 
   describe('a strict schema id ( no coercion )', () => {
     let validator: DataValidator;

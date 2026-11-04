@@ -224,17 +224,20 @@ function valuesUnique(data: unknown[], key: string): boolean {
 }
 
 interface KeywordAjv {
+  getKeyword(keyword: string): unknown;
   removeKeyword(keyword: string): unknown;
   addKeyword(definition: CodeKeywordDefinition | FuncKeywordDefinition): unknown;
 }
 
 /**
  * Replaces the keywords that compare values with ones built on `jsonEqual`, and extends `type` to refuse
- * a non-finite number. Call it after ajv-keywords, whose `uniqueItemProperties` it replaces too.
+ * a non-finite number. Call it after ajv-keywords: its `uniqueItemProperties` is replaced when present.
  */
 export function addSafeKeywords(ajv: KeywordAjv): void {
   for (const definition of [finiteNumberType, constKeyword, enumKeyword, uniqueItemsKeyword, uniqueItemPropertiesKeyword]) {
-    ajv.removeKeyword(definition.keyword as string);
+    const keyword = definition.keyword as string;
+    if (definition === uniqueItemPropertiesKeyword && !ajv.getKeyword(keyword)) continue;
+    ajv.removeKeyword(keyword);
     ajv.addKeyword(definition);
   }
 }
