@@ -73,7 +73,7 @@ export async function bootPostgres(suite: string): Promise<PgTestDb> {
             // Every suite creates its own table after the boot, in a database that never has the other suites' tables.
             StrictTableCheck: false,
             Migration: { Startup: false },
-            Connections: [{ Driver: 'orm-driver-postgres', Name: 'pg', ...PG_SERVER, Database: name, Migration: { OnStartup: false } }],
+            Connections: [{ Driver: 'orm-driver-postgres', Name: 'pg', ...PG_SERVER, Database: name }],
           },
         },
         (target: unknown, source: unknown) => (Array.isArray(target) ? target.concat(source) : undefined),

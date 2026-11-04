@@ -1,6 +1,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Constructor, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/orm-sqlite';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -48,7 +49,6 @@ class EmitConnectionConf extends FrameworkConfiguration {
             Filename: ':memory:',
             Name: 'queue',
             Migration: {
-              OnStartup: true,
               Table: 'orm_migrations',
               Transaction: { Mode: MigrationTransactionMode.PerMigration },
             },
@@ -92,7 +92,7 @@ describe('DefaultQueueService.emit (job correlation)', function () {
     DI.clearCache();
     DI.register(EmitConnectionConf).as(Configuration);
     await DI.resolve(Configuration);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
     await DI.resolve(QueueService);
   });
 

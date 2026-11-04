@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { OrmEventTransportInitial_2022_06_28_01_13_00 } from '../src/migrations/OrmEventTransportInitial_2022_06_28_01_13_00.js';
 import { Event } from '../src/models/Event.js';
@@ -22,7 +23,7 @@ class SchemaConfiguration extends FrameworkConfiguration {
             Driver: 'orm-driver-sqlite',
             Filename: ':memory:',
             Name: 'orm-event-transport',
-            Migration: { Table: 'orm_migrations', OnStartup: true },
+            Migration: { Table: 'orm_migrations' },
           },
         ],
       },
@@ -40,7 +41,7 @@ describe('event transport schema', () => {
       await b.bootstrap();
     }
     await DI.resolve(Configuration);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
   });
 
   const driver = () => DI.get(Orm)!.Connections.get('orm-event-transport')!;

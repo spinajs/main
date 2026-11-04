@@ -12,7 +12,8 @@ import * as sinon from 'sinon';
 import { Socket } from 'net';
 
 import '../../queue-stomp-transport/lib/mjs/connection.js';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 
 chai.use(chaiAsPromised);
 
@@ -61,7 +62,6 @@ export class ConnectionConf extends FrameworkConfiguration {
             Filename: ':memory:',
             Name: 'queue',
             Migration: {
-              OnStartup: true,
               Table: 'orm_migrations',
               Transaction: {
                 Mode: MigrationTransactionMode.PerMigration,
@@ -75,7 +75,6 @@ export class ConnectionConf extends FrameworkConfiguration {
             Filename: ':memory:',
             Name: 'sqlite',
             Migration: {
-              OnStartup: true,
               Table: 'orm_migrations',
               Transaction: {
                 Mode: MigrationTransactionMode.PerMigration,
@@ -177,7 +176,7 @@ describe('jobs', function () {
     DI.register(ConnectionConf).as(Configuration);
 
     await DI.resolve(Configuration);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
   });
 
   afterEach(async () => {

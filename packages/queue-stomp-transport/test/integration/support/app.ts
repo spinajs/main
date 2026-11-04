@@ -1,5 +1,6 @@
 import { DI } from '@spinajs/di';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { QueueService } from '@spinajs/queue';
 import '@spinajs/orm-sqlite';
 import '../../../src/index.js';
@@ -26,7 +27,7 @@ export function tempDbFile(): { dir: string; file: string } {
 }
 
 function sqlite(name: string, filename: string) {
-  return { Driver: 'orm-driver-sqlite', Filename: filename, Name: name, Migration: { OnStartup: true, Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } } };
+  return { Driver: 'orm-driver-sqlite', Filename: filename, Name: name, Migration: { Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } } };
 }
 
 export function appConfig(o: IAppOptions): Record<string, unknown> {
@@ -61,7 +62,7 @@ export async function startApp(o: IAppOptions): Promise<QueueService> {
   return retryConnect(async () => {
     try {
       await useConfig(appConfig(o));
-      await (await DI.resolve(Orm)).Migrator.ready();
+      await migrateTestDatabase();
       return await DI.resolve(QueueService);
     } catch (err) {
       await DI.get(Orm)
