@@ -10,6 +10,10 @@ import { REBAC_DEFAULT_LIMITS, REBAC_DEFAULT_STORE, REBAC_STORE_NAMES } from '..
 import { DbTupleStore } from '../stores/db.js';
 import { MemoryTupleStore } from '../stores/memory.js';
 import { rebacListPlan, rebacListSupport } from './filter.js';
+import { RebacWalk, expand } from '../expand.js';
+import type { UsersetTree } from '../expand.js';
+import { listSubjects } from '../list-subjects.js';
+import type { SubjectList } from '../list-subjects.js';
 
 export const REBAC_CHECK_OP = 'native:rebac.check' as const;
 
@@ -159,6 +163,24 @@ export class RebacModel extends AuthorizationModel {
   /** The limits in force. */
   limit(): Required<RebacLimits> {
     return this.limits;
+  }
+
+  /** Zanzibar's expand of `name` (a relation or permission) on `object`. @throws RebacLimitExceeded past maxCalls */
+  expand(object: ResourceRef, name: string): Promise<UsersetTree> {
+    return expand(this.walker(object, name), object, name);
+  }
+
+  /** The subjects of `subjectType` holding `name` (a relation or permission) on `object`. @throws RebacLimitExceeded past maxCalls */
+  listSubjects(object: ResourceRef, name: string, subjectType: ResourceType): Promise<SubjectList> {
+    return listSubjects(this.walker(object, name), object, name, subjectType);
+  }
+
+  private walker(object: ResourceRef, name: string): RebacWalk {
+    const schema = this.schema();
+    if (!schema.namespaces.has(object.type) || (schema.relation(object.type, name) === undefined && schema.permission(object.type, name) === undefined)) {
+      throw new AuthzConfigError(`${this.name}: ${object.type}#${name} is neither a relation nor a permission of the namespaces`);
+    }
+    return new RebacWalk(schema, this.store(), this.limits, (message) => new RebacLimitExceeded(`${this.name}: ${message}`));
   }
 
   /** Does `principal` hold `name` (a relation or permission) on `object`? @throws RebacLimitExceeded past maxCalls */
