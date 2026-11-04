@@ -8,6 +8,6 @@ top after every wake-up or crash and continues where it stopped. See `docs/workf
 
 A replay hands recorded step results back in the order the original run received them, so the branches of a
 `Promise.all` continue in their original interleaving and a step repeated across branches keeps its occurrence.
-Per-item step names (`ctx.step(\`save:${id}\`, …)`) are still clearer: they read better in the journal and do not
+Per-item step names (`save:${id}` instead of `save`) are still clearer: they read better in the journal and do not
 depend on that order. Code between steps must await only durable operations; a replay that waits for a recorded
 step nobody asks for fails with `NonDeterminismError`.
