@@ -3,7 +3,7 @@ import type { ZodOptions } from '../files.js';
 import type { ClientModel } from '../model.js';
 import { literal, propertyKey } from '../ts-type.js';
 import { compare, Diagnostics, type GeneratorDiagnostic } from './diagnostics.js';
-import { Printer, type ZodNode } from './print.js';
+import { Printer, reopen, type ZodNode } from './print.js';
 import { isPartial, refsIn, SchemaGraph, type NamedSchema } from './refs.js';
 import { ZodBuilder } from './schema.js';
 
@@ -71,11 +71,6 @@ function routeArguments(model: ClientModel): Map<string, Map<string, RouteArgume
 
 const containsLocalRef = (schema: unknown): boolean => refsIn(schema).some((ref) => ref.startsWith('#'));
 
-/** A whole body or query root: open the root object as the server does; it stays closed below the root. */
-function reopen(node: ZodNode, mode: 'strip' | 'loose'): ZodNode {
-  return node.kind === 'object' && node.mode === 'strict' ? { ...node, mode } : node;
-}
-
 class ZodFile {
   private readonly diagnostics: Diagnostics;
   private readonly printer: Printer;
@@ -131,6 +126,7 @@ class ZodFile {
     const state = { annotated: false };
     const node = this.root(entry, state);
     this.declared.set(entry.key, { entry, node, annotated: state.annotated });
+    if (node.kind === 'object' && node.mode === 'strict' && !node.checks?.length && !node.nullable && !state.annotated) this.builder.plainObjects.add(entry.key);
     const code = this.pure(this.printer.print(node));
     if (entry.typeName) this.types.add(entry.typeName);
     this.usesZod ||= state.annotated || entry.typeName !== undefined || !IDENTIFIER.test(code);
@@ -144,7 +140,12 @@ class ZodFile {
   private root(entry: NamedSchema, state: { annotated: boolean }): ZodNode {
     const custom: ZodNode = { kind: 'call', fn: entry.typeName ? 'custom' : 'unknown', ...(entry.typeName ? { typeArg: entry.typeName } : {}), acceptsUndefined: true };
     if (isPartial(entry.schema)) return custom;
-    const node = this.builder.root(entry.schema, { at: { schema: entry.owner, pointer: entry.pointer }, current: entry.key, state });
+    const refused = this.graph.refused(entry.key);
+    if (refused !== undefined) {
+      this.diagnostics.report('ZOD001', { schema: entry.owner, pointer: entry.pointer }, `the server does not validate this schema: ${refused}; it accepts any value`);
+      return custom;
+    }
+    const node = this.builder.root(entry.schema, { at: { schema: entry.owner, pointer: entry.pointer }, current: entry.key, state, typePath: entry.typeName });
     this.collectTypes(node);
     if (node.kind === 'call' && node.fn === 'unknown' && !node.checks?.length) return { ...custom, ...(node.description !== undefined ? { description: node.description } : {}) };
     return node;
@@ -206,24 +207,39 @@ class ZodFile {
 
   private argument(arg: RouteArgument): string {
     const declared = this.declared.get(arg.id);
-    if (!declared) {
-      const node = this.builder.root(this.model.ctx.schemaOf(arg.id), { at: { schema: arg.id, pointer: '' } });
-      this.collectTypes(node);
-      return this.pure(this.printer.print(arg.mode === 'closed' ? node : reopen(node, arg.mode), '      '));
+    if (!declared) return this.inlineArgument(arg);
+    const { node, entry } = declared;
+    if (arg.mode === 'closed') return entry.name;
+    if (this.builder.plainObjects.has(entry.key)) return this.pure(this.printer.print({ kind: 'shape', mode: arg.mode, of: entry.name }));
+    const opened = reopen(node, arg.mode);
+    return opened === node ? entry.name : this.pure(this.printer.print({ ...opened, description: undefined }, '      '));
+  }
+
+  private inlineArgument(arg: RouteArgument): string {
+    const schema = this.model.ctx.schemaOf(arg.id);
+    const refused = this.graph.refusalOfSchema(schema, arg.id);
+    if (refused !== undefined) {
+      this.diagnostics.report('ZOD001', { schema: arg.id, pointer: '' }, `the server does not validate this argument: ${refused}; it accepts any value`);
+      return this.pure('z.unknown()');
     }
-    const { node, entry, annotated } = declared;
-    if (arg.mode === 'closed' || node.kind !== 'object' || node.mode !== 'strict') return entry.name;
-    if (!annotated && !node.checks?.length && !node.nullable) return this.pure(this.printer.print({ kind: 'shape', mode: arg.mode, of: entry.name }));
-    return this.pure(this.printer.print(reopen({ ...node, description: undefined }, arg.mode), '      '));
+    const node = this.builder.root(schema, { at: { schema: arg.id, pointer: '' } });
+    this.collectTypes(node);
+    return this.pure(this.printer.print(arg.mode === 'closed' ? node : reopen(node, arg.mode), '      '));
   }
 
   private helpers(): string[] {
     if (!this.builder.helpers.has('oneOf')) return [];
     this.usesZod = true;
-    const type = this.printer.typeName;
-    const refine = "(value) => options.filter((option) => option.safeParse(value).success).length === 1, 'must match exactly one schema in oneOf'";
-    const union = this.printer.mini ? `z.union(options).check(z.refine(${refine}))` : `z.union(options).refine(${refine})`;
-    return [`// Ajv's oneOf: exactly one member matches.\nfunction oneOf<const T extends readonly [${type}, ${type}, ...${type}[]]>(options: T) {\n  return ${union};\n}`];
+    const { mini, typeName: type } = this.printer;
+    const check = "(value) => options.filter((option) => option.safeParse(value).success).length === 1, 'must match exactly one schema in oneOf'";
+    const input = `z.custom<z.input<${mini ? 'z.ZodMiniUnion' : 'z.ZodUnion'}<T>>>(${check})`;
+    const schema = mini ? `z.pipe(${input}, z.union(options))` : `${input}.pipe(z.union(options))`;
+    return [
+      `// Ajv's oneOf: exactly one member matches the value as sent (a member's output may have dropped keys).
+function oneOf<const T extends readonly [${type}, ${type}, ...${type}[]]>(options: T) {
+  return ${schema};
+}`,
+    ];
   }
 }
 

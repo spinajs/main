@@ -88,6 +88,19 @@ describe('client.zod.ts', function () {
     expect(zod.diagnostics?.map((d) => [d.code, d.severity, d.schema, d.pointer])).to.deep.equal([['ZOD002', 'error', 'spinajs/schema-corpus/SignUpDto', '/properties/zip/format']]);
   });
 
+  it('declares a bounded array item once, not once per tuple slot', async () => {
+    const item = { type: 'object', properties: { sku: { type: 'string', minLength: 1 }, qty: { type: 'integer', minimum: 1 } }, required: ['sku', 'qty'], additionalProperties: false };
+    const manifest = manifestWith(await appBasicManifest(), { Order: { type: 'object', properties: { lines: { type: 'array', items: item, maxItems: 20 } }, additionalProperties: false } });
+    const { contents } = emitZod(buildClientModel(manifest), {});
+    expect(contents.split('z.strictObject(').length - 1).to.equal(2);
+    expect(contents.length).to.be.below(4000);
+    const order = schemaIn(await loadZod(contents), 'OrderSchema');
+    const lines = (n: number) => Array.from({ length: n }, () => ({ sku: 'a', qty: 1 }));
+    expect([0, 1, 20].map((n) => order.safeParse({ lines: lines(n) }).success)).to.deep.equal([true, true, true]);
+    expect(order.safeParse({ lines: lines(21) }).success).to.equal(false);
+    expect(order.safeParse({ lines: [{ sku: '', qty: 1 }] }).success).to.equal(false);
+  });
+
   describe('routeSchemas', () => {
     let module: Record<string, unknown>;
     let contents: string;
@@ -100,8 +113,9 @@ describe('client.zod.ts', function () {
         route('wholeQuery', 'get', [param(0, 'filter', 'QueryFieldRouteArgs', { in: 'query', shape: 'whole' }, 'test/Dto', 'Dto'), param(1, 'q', 'FromQuery', { in: 'query', name: 'q', shape: 'json' }, 'test/Dto', 'Dto')]),
         route('upload', 'post', [param(0, 'file', 'FromFile', { in: 'multipart', name: 'file', shape: 'value' }), param(1, 'm', 'FromModel', { in: 'path', name: 'm', shape: 'value' }, 'test/N')]),
         route('raw', 'post', [param(0, 'raw', 'RawBodyRouteArgs', { in: 'body', shape: 'whole' }, 'test/N')]),
+        route('either', 'post', [param(0, 'body', 'FromBody', { in: 'body', shape: 'whole' }, 'test/Either', 'Either')]),
       ];
-      const manifest = manifestWith(await appBasicManifest(), {}, { 'test/Dto': closed, 'test/N': { type: 'integer', minimum: 1 } }, routes);
+      const manifest = manifestWith(await appBasicManifest(), {}, { 'test/Dto': closed, 'test/N': { type: 'integer', minimum: 1 }, 'test/Either': { type: 'object', properties: { a: { type: 'string' } }, additionalProperties: false, anyOf: [{ required: ['a'] }, { required: ['b'] }] } }, routes);
       contents = emitZod(buildClientModel(manifest), {}).contents;
       module = await loadZod(contents);
     });
@@ -123,6 +137,11 @@ describe('client.zod.ts', function () {
     it('opens a whole query root and keeps the other keys, which other arguments read', () => {
       expect(contents).to.include('filter: /*#__PURE__*/ z.looseObject(DtoSchema.shape),');
       expect(at('wholeQuery', 'filter').safeParse({ a: 'x', q: '{}' })).to.deep.equal({ success: true, data: { a: 'x', q: '{}' } });
+    });
+
+    it('keeps the undeclared keys of an opened root whose checks read them', () => {
+      expect(at('either', 'body').safeParse({ b: {} }).success).to.equal(true);
+      expect(at('either', 'body').safeParse({ c: 1 }).success).to.equal(false);
     });
 
     it('leaves out the arguments the server does not validate: files, models, raw bodies', () => {

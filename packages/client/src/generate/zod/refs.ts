@@ -35,6 +35,44 @@ function sanitize(value: string): string {
 
 const LOCAL = /^#\/(\$defs|definitions)\/([^/]+)$/;
 
+const JSON_TYPES = new Set(['string', 'number', 'integer', 'boolean', 'null', 'array', 'object']);
+const DRAFT_07 = /^https?:\/\/json-schema\.org\/draft-07\/schema#?$/;
+const NUMERIC = ['minLength', 'maxLength', 'minItems', 'maxItems', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf', 'minProperties', 'maxProperties'];
+// Values that are data, not schemas.
+const DATA = new Set(['const', 'enum', 'default', 'examples']);
+
+function validPattern(pattern: string): boolean {
+  try {
+    return new RegExp(pattern, 'u') instanceof RegExp;
+  } catch {
+    return false;
+  }
+}
+
+function ownRefusal(schema: Json): string | undefined {
+  if (typeof schema.$schema === 'string' && !DRAFT_07.test(schema.$schema)) return `$schema '${schema.$schema}' is not draft-07`;
+  const types: unknown[] = Array.isArray(schema.type) ? schema.type : schema.type === undefined ? [] : [schema.type];
+  const type = types.find((t) => typeof t !== 'string' || !JSON_TYPES.has(t));
+  if (type !== undefined) return `type ${JSON.stringify(type)} is not a JSON Schema type`;
+  if (schema.pattern !== undefined && (typeof schema.pattern !== 'string' || !validPattern(schema.pattern))) return 'pattern is not a valid regular expression with the u flag';
+  // `{ $data }` is FG-5's to map; until then the keyword is dropped with ZOD003.
+  const limit = NUMERIC.find((k) => k in schema && !(typeof schema[k] === 'number' && Number.isFinite(schema[k])) && !(isJson(schema[k]) && '$data' in schema[k]));
+  return limit === undefined ? undefined : `'${limit}' is not a number`;
+}
+
+/** Why Ajv refuses `schema` (its meta-schema check fails or it does not compile); undefined when it accepts it. */
+export function refusalOf(schema: unknown, named = false): string | undefined {
+  if (Array.isArray(schema)) return schema.map((item) => refusalOf(item)).find((r) => r !== undefined);
+  if (!isJson(schema)) return undefined;
+  const own = named ? undefined : ownRefusal(schema);
+  if (own) return own;
+  for (const [key, value] of Object.entries(schema)) {
+    const found = named ? refusalOf(value) : key.startsWith('x-') || DATA.has(key) ? undefined : refusalOf(value, NAMED.has(key) || key === '$defs' || key === 'definitions');
+    if (found) return found;
+  }
+  return undefined;
+}
+
 /** One generated `const`: a manifest schema, or a local definition hoisted out of one. */
 export interface NamedSchema {
   key: string;
@@ -58,6 +96,7 @@ export class SchemaGraph {
   private readonly edges = new Map<string, string[]>();
   private readonly component = new Map<string, number>();
   private sorted: NamedSchema[] = [];
+  private readonly refusals = new Map<string, string>();
 
   constructor(
     private readonly ctx: TypeContext,
@@ -73,6 +112,45 @@ export class SchemaGraph {
       pending.push(...targets);
     }
     this.order();
+    this.refuse();
+  }
+
+  /**
+   * Why the server does not validate the schema at `key`: Ajv refuses it, or a schema it references. The server then
+   * leaves the argument unchecked (or fails the boot), so the schema must accept anything.
+   */
+  public refused(key: string): string | undefined {
+    return this.refusals.get(key);
+  }
+
+  /** The same for a schema that is not declared, such as an argument schema printed inline. */
+  public refusalOfSchema(schema: unknown, owner: string): string | undefined {
+    const own = refusalOf(schema);
+    if (own) return own;
+    const target = refsIn(schema)
+      .map((ref) => this.resolve(ref, owner))
+      .find((key) => key !== undefined && this.refusals.has(key));
+    return target === undefined ? undefined : this.referenceRefusal(target);
+  }
+
+  private referenceRefusal(target: string): string {
+    return `it references ${this.entries.get(target)?.owner ?? target}, which Ajv refuses (${this.refusals.get(target)})`;
+  }
+
+  private refuse(): void {
+    for (const entry of this.entries.values()) {
+      const reason = refusalOf(this.ctx.schemaOf(entry.owner));
+      if (reason) this.refusals.set(entry.key, reason);
+    }
+    for (let changed = true; changed; ) {
+      changed = false;
+      for (const [key, targets] of this.edges) {
+        const target = this.refusals.has(key) ? undefined : targets.find((t) => this.refusals.has(t));
+        if (target === undefined) continue;
+        this.refusals.set(key, this.referenceRefusal(target));
+        changed = true;
+      }
+    }
   }
 
   /** The key of the schema `ref` points at, from inside `owner`; undefined when it is not in the manifest. */

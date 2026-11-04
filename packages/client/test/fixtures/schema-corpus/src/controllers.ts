@@ -97,52 +97,56 @@ export class Feedback {
   public text: string;
 }
 
+function accepted(..._args: unknown[]): NoContent<void> {
+  return new NoContent<void>(null);
+}
+
 /** One route per schema shape the zod emitter maps. */
 @BasePath('corpus')
 export class CorpusController extends BaseController {
   @Post('signup')
   public async signUp(@Body() body: SignUpDto): Promise<NoContent<void>> {
-    return new NoContent<void>(body && null);
+    return accepted(body);
   }
 
   @Post('figure')
   public async figure(@Body() figure: Figure): Promise<NoContent<void>> {
-    return new NoContent<void>(figure && null);
+    return accepted(figure);
   }
 
   @Post('tree')
   public async tree(@Body() root: Category): Promise<NoContent<void>> {
-    return new NoContent<void>(root && null);
+    return accepted(root);
   }
 
   @Post('geo')
   public async geo(@Body() geo: Geo): Promise<NoContent<void>> {
-    return new NoContent<void>(geo && null);
+    return accepted(geo);
   }
 
   @Post('people')
   public async people(@Body() person: Person): Promise<NoContent<void>> {
-    return new NoContent<void>(person && null);
+    return accepted(person);
   }
 
   @Get('search')
   public async search(@QueryField() filter: PageQuery, @Query() limit: number): Promise<NoContent<void>> {
-    return new NoContent<void>(filter && limit && null);
+    return accepted(filter, limit);
   }
 
   @Post('addresses')
   public async addresses(@Body() book: AddressBook): Promise<NoContent<void>> {
-    return new NoContent<void>(book && null);
+    return accepted(book);
   }
 
   @Post('feedback')
   public async feedback(@Body() feedback: Feedback): Promise<NoContent<void>> {
-    return new NoContent<void>(feedback && null);
+    return accepted(feedback);
   }
 
   @Post('note')
   public async note(@Body() title: string, @Body() text: string): Promise<NoContent<void>> {
-    return new NoContent<void>(title && text && null);
+    return accepted(title, text);
   }
 
   @Get('item/:id')

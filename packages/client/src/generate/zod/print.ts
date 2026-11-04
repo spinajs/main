@@ -36,6 +36,17 @@ export const call = (fn: string, ...args: Arg[]): ZodNode => ({ kind: 'call', fn
 
 export const UNKNOWN: ZodNode = { kind: 'call', fn: 'unknown', acceptsUndefined: true };
 
+/**
+ * Opens the closed object of a node, and of each part of an intersection, as the server opens a schema's root. An object
+ * with checks stays loose instead of stripping, because the checks read the parsed value: a required key the root does
+ * not declare must still be there.
+ */
+export function reopen(node: ZodNode, mode: 'strip' | 'loose'): ZodNode {
+  if (node.kind === 'object' && node.mode === 'strict') return { ...node, mode: node.checks?.length ? 'loose' : mode };
+  if (node.kind !== 'call' || node.fn !== 'intersection') return node;
+  return { ...node, args: (node.args ?? []).map((a) => ('node' in a ? { node: reopen(a.node, mode) } : a)) };
+}
+
 const CONSTRUCTORS = { strict: 'strictObject', loose: 'looseObject', strip: 'object' } as const;
 
 /** Prints the emitter's nodes as classic `zod` (method chains) or `zod/mini` (functions and `.check()`). */
