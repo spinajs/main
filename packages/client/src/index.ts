@@ -4,3 +4,5 @@ export type { GenerateClientOptions } from './generate.js';
 export { buildClientModel } from './generate/model.js';
 export type { ArgumentModel, ClientModel, ControllerModel, RouteKind, RouteModel } from './generate/model.js';
 export type { TypeContext } from './generate/ts-type.js';
+export { generateClientFiles } from './generate/files.js';
+export type { GeneratedFile, GenerateClientFilesOptions, ZodOptions } from './generate/files.js';
