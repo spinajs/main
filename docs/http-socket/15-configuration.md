@@ -18,6 +18,7 @@ Everything the socket server reads lives under `http.socket`, plus `system.dirs.
 | `http.socket.cors.origins` | string[] | `[]` | exact origins, no wildcards | Other origins allowed to open a socket |
 | `http.socket.auth.required` | boolean | `false` | `true`, `false` only | Refuse handshakes no source resolves |
 | `http.socket.auth.revalidateMs` | number | `60000` | 0 or more | Principal re-check interval; `0` turns it off (expiry still applies) |
+| `http.socket.access.default` | string | `'deny'` | `'allow'`, `'deny'` | A command or event no enabled policy guards: refused (`no_policy`), or run as before 4.0 (removed in 5.0) |
 | `http.socket.pingInterval` | integer | `25000` | 1 to 2^31-1 | socket.io heartbeat interval |
 | `http.socket.pingTimeout` | integer | `20000` | 1 to 2^31-1 | socket.io heartbeat timeout |
 | `http.socket.recovery.maxDisconnectionMs` | number | `120000` | 0 or more | Connection state recovery window; `0` turns recovery off |

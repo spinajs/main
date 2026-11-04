@@ -72,6 +72,24 @@ export class SocketHandlerRegistry {
     }
 
     this.Contracts.reportUnvalidated(bound);
+    this.reportUnguarded();
+  }
+
+  /** Commands and events with no `@SocketAccess` or `@SocketPolicy` on them or their class, as authz-http's UnguardedRoutesReport lists routes. */
+  public unguarded(): IRegisteredHandler[] {
+    return [...this.commands.values(), ...this.events.values()].filter((h) => h.policies.Controller.length === 0 && h.policies.Route.length === 0);
+  }
+
+  protected reportUnguarded(): void {
+    const deny = this.Cfg.get<string>('http.socket.access.default', 'deny') !== 'allow';
+    for (const h of this.unguarded()) {
+      const fields = { kind: h.descriptor.Kind, name: h.fullName, controller: h.controller.constructor.name };
+      if (deny) {
+        this.Log.warn(fields, 'Socket ${kind} ${name} ( ${controller} ) has no @SocketAccess or @SocketPolicy and is denied ( http.socket.access.default is deny )');
+      } else {
+        this.Log.warn(fields, 'Socket ${kind} ${name} ( ${controller} ) has no @SocketAccess or @SocketPolicy and runs unguarded ( http.socket.access.default is allow, removed in 5.0 )');
+      }
+    }
   }
 
   public command(name: string): IRegisteredHandler | undefined {

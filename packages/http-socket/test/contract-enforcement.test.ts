@@ -437,8 +437,9 @@ describe('socket contract enforcement', function () {
 
     const warningsOf = (): string[] => {
       const warnings: string[] = [];
-      const enforcer = DI.resolve(SocketContractEnforcer) as unknown as { Log: { warn(fields: { problem: string }): void } };
-      enforcer.Log.warn = (fields) => void warnings.push(fields.problem);
+      const enforcer = DI.resolve(SocketContractEnforcer) as unknown as { Log: { warn(fields: { problem?: string }): void } };
+      // the registry writes to the same 'http-socket' log, e.g. its report of handlers without a policy
+      enforcer.Log.warn = (fields) => void (fields.problem !== undefined && warnings.push(fields.problem));
       return warnings;
     };
 
@@ -452,8 +453,9 @@ describe('socket contract enforcement', function () {
       writeManifest(manifestOf());
       const registry = await buildWith('prefer', MissingSocket);
       const warnings: string[] = [];
-      const enforcer = DI.resolve(SocketContractEnforcer) as unknown as { Log: { warn(fields: { problem: string }): void } };
-      enforcer.Log.warn = (fields) => void warnings.push(fields.problem);
+      const enforcer = DI.resolve(SocketContractEnforcer) as unknown as { Log: { warn(fields: { problem?: string }): void } };
+      // the registry writes to the same 'http-socket' log, e.g. its report of handlers without a policy
+      enforcer.Log.warn = (fields) => void (fields.problem !== undefined && warnings.push(fields.problem));
       await registry.build();
       expect(warnings.join('\n')).to.match(/handler-missing: ContractSocket has no @Command for ctr\.loose/);
       expect(registry.command('ctr.say')).to.exist;

@@ -83,7 +83,8 @@ try {
   // the middleware stops the server when no authz domain boots; which domain answers is not what this probe checks
   DI.unregister(ServerMiddleware, PrincipalMiddleware);
   for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
-  await DI.resolve(Configuration);
+  // the probed socket controllers carry no policy; the boot is what this probe checks
+  (await DI.resolve(Configuration)).set(['http', 'socket', 'access', 'default'], 'allow');
   await DI.resolve(fsService);
   await DI.resolve(Intl);
   const orm = await DI.resolve(Orm);

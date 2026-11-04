@@ -296,7 +296,8 @@ export function socketHarness(opts: SocketHarnessOptions = {}): BehaviourHarness
       };
       cfg.set('logger', { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
       cfg.set('db', { DefaultConnection: 'sqlite', Aliases: { authz: 'sqlite' }, StrictTableCheck: false, Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite' }] });
-      cfg.set('http', { socket: structuredClone({ ...socketConfig.http.socket, transports: ['websocket'] }) });
+      // the B09 cases decide inside their handlers; the commands carry no socket policy
+      cfg.set('http', { socket: structuredClone({ ...socketConfig.http.socket, transports: ['websocket'], access: { default: 'allow' } }) });
 
       const undo = [testHost.registerInRoot(SocketHttpHost, BehaviourHttpHost), testHost.registerInRoot(SocketPrincipalSource, BehaviourSocketSource)];
       const orm = new SocketOrm((await DI.resolve(Orm)) as Orm);

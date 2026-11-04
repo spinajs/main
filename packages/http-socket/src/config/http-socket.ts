@@ -44,6 +44,9 @@ const config: ISocketConfigFile = {
         maxPerConnection: 8,
         stallTimeoutMs: 60_000,
       },
+      access: {
+        default: 'deny',
+      },
       drainMs: 5_000,
       shutdownRetryAfterMs: 5_000,
       adapter: undefined,

@@ -76,6 +76,11 @@ export interface ISocketServerConfig {
   hooks: { connectTimeoutMs: number };
   /** stream replies ( W4 ) */
   streams: ISocketStreamsConfig;
+  /**
+   * `default`: what happens to a command or event no enabled `@SocketAccess` / `@SocketPolicy` guards. `'deny'` refuses it
+   * with AccessDenied ( `no_policy` ); `'allow'` runs it, as before 4.0, for apps still adding policies; removed in 5.0.
+   */
+  access: { default: 'allow' | 'deny' };
   /** socket.io adapter constructor for several instances; unset = in memory */
   adapter?: unknown;
   /**

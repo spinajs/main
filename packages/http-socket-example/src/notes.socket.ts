@@ -1,6 +1,8 @@
 import { Autoinject } from '@spinajs/di';
-import { InvalidArgument, ResourceNotFound } from '@spinajs/exceptions';
-import { BaseSocketController, Command, Connection, Payload, Signal, SocketConnection, SocketController, SocketHub } from '@spinajs/http-socket';
+import { AuthenticationFailed, InvalidArgument, ResourceNotFound } from '@spinajs/exceptions';
+import { BasePolicy } from '@spinajs/http';
+import { BaseSocketController, Command, Connection, Payload, Signal, SocketConnection, SocketController, SocketHub, SocketPolicy } from '@spinajs/http-socket';
+import type { ISocketPolicyRequest } from '@spinajs/http-socket';
 import type { NotesContract, SnapshotFrame } from './contract.js';
 import type { DemoUser } from './auth.js';
 import { ENTITIES_PER_CHUNK, NotesStore, chunkCount } from './store.js';
@@ -23,7 +25,24 @@ const EditSchema = {
 };
 const HashSchema = { type: 'object', required: ['hash'], properties: { hash: { type: 'string', pattern: '^[0-9a-f]{64}$' } }, additionalProperties: false };
 
+/**
+ * Every command of the example needs a signed-in user. A command with no `@SocketPolicy` or `@SocketAccess` is refused
+ * ( `http.socket.access.default: 'deny'` ); an app with authz configured guards each one with `@SocketAccess` instead.
+ */
+export class SignedIn extends BasePolicy {
+  public isEnabled(): boolean {
+    return true;
+  }
+
+  public async execute(req: unknown): Promise<void> {
+    if (!(req as ISocketPolicyRequest).storage.Principal.authenticated) {
+      throw new AuthenticationFailed('sign in first');
+    }
+  }
+}
+
 @SocketController('notes')
+@SocketPolicy(SignedIn)
 export class NotesSocket extends BaseSocketController {
   @Autoinject()
   protected Store: NotesStore;
@@ -70,6 +89,7 @@ export class NotesSocket extends BaseSocketController {
 }
 
 @SocketController('blob')
+@SocketPolicy(SignedIn)
 export class BlobSocket extends BaseSocketController {
   @Autoinject()
   protected Store: NotesStore;

@@ -68,7 +68,8 @@ export class TestConfiguration extends FrameworkConfiguration {
         },
         configuration: { isProduction: false },
         // W1's tests close servers with handlers still running; without a drain they close as fast as before
-        http: { socket: { drainMs: 0 } },
+        // most suites register controllers without policies; default-deny.test.ts covers the shipped 'deny'
+        http: { socket: { drainMs: 0, access: { default: 'allow' } } },
       },
       overrides,
     );
