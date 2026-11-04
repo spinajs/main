@@ -2,7 +2,7 @@ import { loadsFromManifest, publishedManifest } from './mounted.js';
 import { canonicalize } from './hash.js';
 import { compareSchemaRefs } from './schema-compare.js';
 import type { Finding } from './schema-compare.js';
-import type { ControllerEntry, Manifest, ParamEntry, PolicyRef, RouteEntry, TypeRef } from './types.js';
+import type { ControllerEntry, Manifest, ParamEntry, PolicyRef, RouteEntry, TypeRef, WorkflowEntry } from './types.js';
 
 export type ChangeKind = 'added' | 'removed' | 'changed';
 export interface Change { section: 'routes' | 'schemas' | 'permissions' | 'config' | 'migrations' | 'services' | 'commands' | 'socket' | 'workflows'; kind: ChangeKind; id: string; breaking: boolean; detail?: string }
@@ -156,12 +156,36 @@ function diffMisc(base: Manifest, head: Manifest): Change[] {
       changed: (b, h) => changedIf([b.options, b.arguments], [h.options, h.arguments], 'options or arguments changed'),
     }),
     ...diffKeyed('socket', socketEntries(base), socketEntries(head), { changed: (b, h) => changedIf(b, h, 'payload or result changed') }),
-    // A removed version strands its unfinished instances (D5), hence breaking.
+    // A removed version strands its unfinished instances, hence breaking.
     ...diffKeyed('workflows', byKey(base.workflows ?? [], (w) => `${w.name}@${w.version}`), byKey(head.workflows ?? [], (w) => `${w.name}@${w.version}`), {
       removedBreaking: true,
-      changed: (b, h) => changedIf([b.className, b.signals], [h.className, h.signals], 'class or signals changed'),
+      changed: workflowChanges,
     }),
   ];
+}
+
+const signalKeys = (w: WorkflowEntry): string[] => w.signals.map((s) => `${s.name}\u0000${s.permission ?? ''}`).sort(compareCodeUnits);
+
+/** The permissions each signal is waited for with, `''` for none. */
+function signalPermissions(w: WorkflowEntry): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const s of w.signals) out.set(s.name, (out.get(s.name) ?? new Set<string>()).add(s.permission ?? ''));
+  return out;
+}
+
+/** A sender breaks when a signal it sends goes away or newly needs a permission; a new signal breaks no one. */
+function workflowChanges(b: WorkflowEntry, h: WorkflowEntry): Finding[] {
+  const findings: Finding[] = [];
+  if (b.className !== h.className) findings.push({ breaking: false, detail: 'class changed' });
+  if (differs(signalKeys(b), signalKeys(h))) {
+    const after = signalPermissions(h);
+    const breaking = [...signalPermissions(b)].some(([name, before]) => {
+      const now = after.get(name);
+      return !now || [...now].some((p) => p !== '' && !before.has(p));
+    });
+    findings.push({ breaking, detail: 'signals changed' });
+  }
+  return findings;
 }
 
 export function diffManifest(baseManifest: Manifest, headManifest: Manifest): ManifestDiff {

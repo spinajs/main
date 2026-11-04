@@ -30,9 +30,25 @@ describe('workflows in the manifest', () => {
     const head = mergeFragments(fragment('app', { workflows: [wf('order', 2, { signals: [{ name: 'approved' }] }), wf('order', 3)] }), [], meta);
     expect(diffManifest(base, head).changes.filter((c) => c.section === 'workflows')).to.deep.equal([
       { section: 'workflows', kind: 'removed', id: 'order@1', breaking: true },
-      { section: 'workflows', kind: 'changed', id: 'order@2', breaking: false, detail: 'class or signals changed' },
+      { section: 'workflows', kind: 'changed', id: 'order@2', breaking: false, detail: 'signals changed' },
       { section: 'workflows', kind: 'added', id: 'order@3', breaking: false },
     ]);
     expect(diffManifest(base, head).breaking).to.equal(true);
+  });
+
+  it('diff: signal order is no change; a removed signal or a new permission on one breaks its senders', () => {
+    const rows = (before: Partial<WorkflowEntry>, after: Partial<WorkflowEntry>) =>
+      diffManifest(mergeFragments(fragment('app', { workflows: [wf('order', 1, before)] }), [], meta), mergeFragments(fragment('app', { workflows: [wf('order', 1, after)] }), [], meta)).changes.map(
+        (c) => [c.detail, c.breaking],
+      );
+    const a = { name: 'a' };
+    const b = { name: 'b' };
+    expect(rows({ signals: [a, b] }, { signals: [b, a] })).to.deep.equal([]);
+    expect(rows({ className: 'Old' }, { className: 'New' })).to.deep.equal([['class changed', false]]);
+    expect(rows({ className: 'Old', signals: [a] }, { className: 'New', signals: [a, b] })).to.deep.equal([['class changed; signals changed', false]]);
+    expect(rows({ signals: [a, b] }, { signals: [a] })).to.deep.equal([['signals changed', true]]);
+    expect(rows({ signals: [a] }, { signals: [{ name: 'a', permission: 'p' }] })).to.deep.equal([['signals changed', true]]);
+    expect(rows({ signals: [{ name: 'a', permission: 'p' }] }, { signals: [{ name: 'a', permission: 'q' }] })).to.deep.equal([['signals changed', true]]);
+    expect(rows({ signals: [{ name: 'a', permission: 'p' }] }, { signals: [a] })).to.deep.equal([['signals changed', false]]);
   });
 });

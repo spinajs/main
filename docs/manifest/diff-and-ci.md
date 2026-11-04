@@ -132,7 +132,7 @@ A route that is served only by a registration (an entry with `mountedBy`) is com
 | `services` | never | Registration, lifetime or `async` changed |
 | `commands` | never | CLI command options or arguments changed |
 | `socket` | never | A command or event added, removed, or with a changed payload or result schema |
-| `workflows` | A workflow version removed: its unfinished instances are left without code to run on | Each `name@version` is a row of its own, so a new version is `added`. A changed class or signal list is `class or signals changed`, non-breaking |
+| `workflows` | A workflow version removed: its unfinished instances are left without code to run on. Within one version, `signals changed` when a signal is removed or newly needs a permission (added or changed): its senders are rejected | Each `name@version` is a row of its own, so a new version is `added`. `class changed` and a signal that is only added or loses its permission are non-breaking. Signal order does not count |
 
 Socket changes are reported, not classified. Review them by hand.
 
