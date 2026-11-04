@@ -28,3 +28,15 @@ export class Nightly extends ScheduledTask {}
 
 @Command('docs:sync', 'Sync documents')
 export class Sync extends CliCommand { public async execute(): Promise<void> {} }
+
+@Event()
+@SystemTask('mirrors every published document to the search index')
+export class DocPublished extends QueueEvent { public id: string }
+
+export class Indexer {
+  constructor(protected Queue: QueueService) {}
+
+  public async start(): Promise<void> {
+    await this.Queue.consume(DocPublished, async () => {});
+  }
+}

@@ -678,7 +678,14 @@
       {
         "kind": "route",
         "id": "GET /health/get",
-        "access": [],
+        "access": [
+          [
+            {
+              "type": "AllowAnonymous",
+              "options": []
+            }
+          ]
+        ],
         "source": {
           "file": "src/controllers/HealthController.ts",
           "line": 6,
@@ -689,7 +696,14 @@
       {
         "kind": "route",
         "id": "GET /articles/:id",
-        "access": [],
+        "access": [
+          [
+            {
+              "type": "AllowAnonymous",
+              "options": []
+            }
+          ]
+        ],
         "source": {
           "file": "src/crud/base-crud.ts",
           "line": 5,
@@ -700,7 +714,14 @@
       {
         "kind": "route",
         "id": "POST /articles/add",
-        "access": [],
+        "access": [
+          [
+            {
+              "type": "AllowAnonymous",
+              "options": []
+            }
+          ]
+        ],
         "source": {
           "file": "src/crud/base-crud.ts",
           "line": 10,
@@ -1136,6 +1157,6 @@
       }
     }
   ],
-  "generatedAt": "2026-11-04T03:47:54.553Z",
-  "hash": "d1e78978d05c8685edd0eae6fa57b2784608cfb28a6eb5ce9921cf7f1ccf0f68"
+  "generatedAt": "2026-11-04T06:44:24.502Z",
+  "hash": "a5a3089daee95281268baa5520cc78048e0c79f21ac3ffd9a54b9255cdf88a81"
 }

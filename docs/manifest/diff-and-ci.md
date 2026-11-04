@@ -30,7 +30,7 @@ A report starts with a verdict, then the short hashes of the two manifests, then
 
 Result: **BREAKING** (5 breaking of 6 changes)
 
-`d1e78978d05c` -> `ffffffffffff`
+`a5a3089daee9` -> `ffffffffffff`
 
 ### routes
 
