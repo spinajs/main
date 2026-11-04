@@ -7,7 +7,7 @@ import { engine } from './support/engine.js';
 import { bootTestEnv, disposeTestEnv, waitFor } from './support/env.js';
 import type { FakeClock } from '@spinajs/durable/testing';
 import { TestCrash } from './support/faults.js';
-import { deferred, instance, pick, rejects, stepsOf, T0 } from './support/rows.js';
+import { deferred, instance, pick, rejects, seedInstance, seedStep, stepsOf, T0 } from './support/rows.js';
 
 let effects: string[] = [];
 const flags = { crashedOnce: false, bankDown: true };
@@ -149,6 +149,15 @@ export class SagaDeadline extends WorkflowDefinition<null, void> {
   public async run(ctx: WorkflowContext<null>): Promise<void> {
     await ctx.step('charge', record('charge', 'ch-1'), { compensate: undo('refund') });
     await ctx.sleep('2h');
+  }
+}
+
+@Workflow('saga-changed')
+export class SagaChanged extends WorkflowDefinition<null, string> {
+  public async run(ctx: WorkflowContext<null>): Promise<string> {
+    await ctx.step('charge', record('charge', 'ch-1'), { compensate: undo('refund') });
+    await ctx.step('ship', record('ship', 'sh-1'));
+    return 'shipped';
   }
 }
 
@@ -331,6 +340,15 @@ describe('saga compensation (D6)', () => {
     await r1.tick();
     expect(pick(await instance(id), 'Status', 'Reason')).to.deep.equal({ Status: 'compensated', Reason: 'timeout' });
     expect(effects).to.deep.equal(['charge', 'refund:ch-1']);
+  });
+
+  it('a run that no longer matches its journal fails with non-determinism and compensates nothing', async () => {
+    await seedInstance('changed', { Workflow: 'saga-changed' });
+    await seedStep('changed', 1, 'step:charge#1', { Result: 'ch-1', ResultStored: true, Meta: { compensate: true, after: 0, order: 1 } });
+    await seedStep('changed', 2, 'step:pack#1', { Meta: { after: 1, order: 2 } });
+    await r1.tick();
+    expect(pick(await instance('changed'), 'Status', 'Reason')).to.deep.equal({ Status: 'failed', Reason: 'non-determinism' });
+    expect(effects).to.deep.equal([]);
   });
 
   it('ctx.fail() compensates too', async () => {
