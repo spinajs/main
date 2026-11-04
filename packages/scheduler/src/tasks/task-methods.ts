@@ -60,6 +60,25 @@ export function taskMethodSchedule<D extends TaskMethodDeclaration>(
   return adapter;
 }
 
+const methods = new Map<string, Constructor<ScheduledTask>[]>();
+
+/** Called by the `@Task` shim, so config entries can name a `@Task` method in `task`. Returns an undo. */
+export function registerTaskMethod(taskName: string, adapter: Constructor<ScheduledTask>): () => void {
+  methods.set(taskName, [...(methods.get(taskName) ?? []), adapter]);
+  return () => {
+    const left = (methods.get(taskName) ?? []).filter((a) => a !== adapter);
+    if (left.length) methods.set(taskName, left);
+    else methods.delete(taskName);
+  };
+}
+
+export const findTaskMethods: TaskMethodLookup = (taskName) => [...(methods.get(taskName) ?? [])];
+
+export function isTaskMethodAdapter(target: Constructor<ScheduledTask>): boolean {
+  for (const adapters of methods.values()) if (adapters.includes(target)) return true;
+  return false;
+}
+
 // The quoted name is the missing module itself; a dependency missing inside @spinajs/tasks names
 // another module and only mentions @spinajs/tasks in its unquoted path, so it is not swallowed.
 function isNotInstalled(err: unknown): boolean {
