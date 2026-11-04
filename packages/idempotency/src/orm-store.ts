@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { UnexpectedServerError } from '@spinajs/exceptions';
-import { InsertBehaviour, Orm } from '@spinajs/orm';
+import type { RawSqlDriver } from '@spinajs/durable';
+import { InsertBehaviour, Orm, QueryContext } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
+import { IDEMPOTENCY_TABLE } from './connection.js';
 import { fitsColumn, positive } from './guards.js';
 import { IdempotencyKeyModel } from './models/IdempotencyKeyModel.js';
 import { onPrimary } from './sql.js';
@@ -24,11 +26,43 @@ const free = (now: number) =>
     });
   };
 
+interface IKeyRow {
+  Fingerprint: string | null;
+  State: 'running' | 'done';
+  LeaseUntil: number | string;
+  Reply: StoredReply | string | null;
+  ExpiresAt: number | string | null;
+}
+
+const LOCKING_READ = `SELECT \`Fingerprint\`, \`State\`, \`LeaseUntil\`, \`Reply\`, \`ExpiresAt\` FROM \`${IDEMPOTENCY_TABLE}\` WHERE \`Key\` = ? LOCK IN SHARE MODE`;
+
+function held(row: IKeyRow | undefined, now: number): IdempotencyHeld | undefined {
+  if (!row) {
+    return undefined;
+  }
+
+  const fingerprint = row.Fingerprint ? { fingerprint: row.Fingerprint } : {};
+  if (row.State === 'done') {
+    if (Number(row.ExpiresAt) <= now) {
+      return undefined;
+    }
+    const reply = typeof row.Reply === 'string' ? (JSON.parse(row.Reply) as StoredReply) : (row.Reply as StoredReply);
+    return { state: 'done', reply, ...fingerprint };
+  }
+
+  const leaseUntil = Number(row.LeaseUntil);
+  return leaseUntil < now ? undefined : { state: 'running', leaseUntil, ...fingerprint };
+}
+
 /**
  * `__idempotency` on the `idempotency` connection. Every write is one conditional statement, and the affected-row count
  * decides who won, as in scheduler/src/store/LeaseStore.ts, including its MySQL CLIENT_FOUND_ROWS requirement.
- * The claim is an ignore-on-duplicate insert, never a refused statement: statements join a transaction open on the
- * connection, and Postgres aborts such a transaction on any statement that errors.
+ * The claim is an ignore-on-duplicate insert, never a refused statement, so it never aborts a Postgres transaction.
+ *
+ * The ORM cannot run a statement beside the transaction open on the connection, so a claim made inside one joins it:
+ * the claim commits or rolls back with that transaction, and other callers wait on the row until then. On MySQL the
+ * read after an ignored insert is then a locking read (LOCK IN SHARE MODE, which MySQL 5.7 and MariaDB know too),
+ * because a REPEATABLE READ snapshot misses the row that refused the insert; it holds the row until the transaction ends.
  */
 @Injectable(IdempotencyStore)
 export class OrmIdempotencyStore extends IdempotencyStore {
@@ -60,9 +94,9 @@ export class OrmIdempotencyStore extends IdempotencyStore {
         return { state: 'claimed', token };
       }
 
-      const held = await this.peek(key, opts.now);
-      if (held) {
-        return held;
+      const current = await this.current(key, opts.now);
+      if (current) {
+        return current;
       }
     }
 
@@ -87,20 +121,18 @@ export class OrmIdempotencyStore extends IdempotencyStore {
 
   public async peek(key: string, now: number): Promise<IdempotencyHeld | undefined> {
     const [row] = await onPrimary(IdempotencyKeyModel.where('Key', key));
-    if (!row) {
-      return undefined;
-    }
+    return held(row, now);
+  }
 
-    const fingerprint = row.Fingerprint ? { fingerprint: row.Fingerprint } : {};
-    if (row.State === 'done') {
-      if (Number(row.ExpiresAt) <= now) {
-        return undefined;
-      }
-      return { state: 'done', reply: row.Reply as StoredReply, ...fingerprint };
+  protected async current(key: string, now: number): Promise<IdempotencyHeld | undefined> {
+    const query = IdempotencyKeyModel.where('Key', key);
+    const driver = query.Driver as RawSqlDriver;
+    if (driver.CurrentTransaction && driver.Options.Driver.toLowerCase().includes('mysql')) {
+      const [row] = (await driver.executeOnDb(LOCKING_READ, [key], QueryContext.Select)) as IKeyRow[];
+      return held(row, now);
     }
-
-    const leaseUntil = Number(row.LeaseUntil);
-    return leaseUntil < now ? undefined : { state: 'running', leaseUntil, ...fingerprint };
+    const [row] = await onPrimary(query);
+    return held(row, now);
   }
 
   public async sweep(now: number, limit: number): Promise<number> {
