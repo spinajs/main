@@ -34,6 +34,9 @@
     },
     {
       "path": "../hooks/tsconfig.json"
+    },
+    {
+      "path": "../tracing/tsconfig.json"
     }
   ]
 }
