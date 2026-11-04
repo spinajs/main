@@ -10,6 +10,8 @@ export interface ClientOptions {
   /** Passed to fetch; in a browser, `include` sends the cookies the browser holds for the API origin. */
   credentials?: RequestCredentials;
   onProblem?: (p: ProblemDetails) => void;
+  /** Extra fetch options per call, merged after the client's own; the runtime keeps `method`, `headers` and `body`. */
+  init?: (route: { controller: string; name: string; method: string }) => RequestInit;
 }
 
 export interface RouteDefinition {
@@ -110,13 +112,19 @@ async function requestHeaders(options: ClientOptions, parts: RequestParts): Prom
   return headers;
 }
 
-function call(route: RouteDefinition, options: ClientOptions) {
+function requestInit(route: RouteDefinition, options: ClientOptions, headers: Record<string, string>, id: { controller: string; name: string }): RequestInit {
+  const extra: RequestInit = { ...options.init?.({ ...id, method: route.method }) };
+  delete extra.body;
+  return { ...(options.credentials ? { credentials: options.credentials } : {}), ...extra, method: route.method.toUpperCase(), headers };
+}
+
+function call(route: RouteDefinition, options: ClientOptions, id: { controller: string; name: string }) {
   return async (...args: unknown[]): Promise<unknown> => {
     const doFetch = options.fetch ?? globalThis.fetch;
     const parts = route.args ? bindArgs(route.args, args) : slotParts(route, args);
 
     const headers = await requestHeaders(options, parts);
-    const init: RequestInit = { method: route.method.toUpperCase(), headers, ...(options.credentials ? { credentials: options.credentials } : {}) };
+    const init = requestInit(route, options, headers, id);
     const body = requestBody(parts, headers);
     if (body !== undefined) init.body = body;
 
@@ -136,7 +144,7 @@ export function createClient<T>(definition: ClientDefinition, options: ClientOpt
   const client: Record<string, Record<string, unknown>> = {};
   for (const [controller, routes] of Object.entries(definition)) {
     client[controller] = {};
-    for (const [name, route] of Object.entries(routes)) client[controller][name] = call(route, options);
+    for (const [name, route] of Object.entries(routes)) client[controller][name] = call(route, options, { controller, name });
   }
   return client as T;
 }

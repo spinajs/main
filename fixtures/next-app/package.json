@@ -1,0 +1,26 @@
+{
+  "name": "spinajs-next-app-fixture",
+  "private": true,
+  "type": "module",
+  "description": "Next.js App Router fixture for the generated client.next.ts; outside the workspaces, run on purpose with npm run e2e",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "build": "next build --webpack",
+    "e2e": "node scripts/e2e.mjs"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "5.104.5",
+    "next": "16.4.5",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "typescript": "5.9.3"
+  }
+}
