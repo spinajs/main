@@ -104,6 +104,17 @@ function chunks<T>(list: readonly T[]): T[][] {
   return out;
 }
 
+/** The keys among `keys` that authz_rebac_tuple holds. */
+async function storedKeys(keys: readonly string[]): Promise<Set<string>> {
+  const stored = new Set<string>();
+  // spinajs-orm-ignore ORM102: deliberate batching, one query per IN_CHUNK tuple keys
+  for (const part of chunks([...new Set(keys)])) {
+    const rows = await TupleRecord.query().whereIn('tuple_key', part);
+    for (const r of rows) stored.add(r.tuple_key);
+  }
+  return stored;
+}
+
 /**
  * `TupleStore` over `authz_rebac_tuple` on the ORM connection alias `authz`. `write` runs in its own
  * transaction; `writeIn` joins the transaction of an `AuthzAdmin` command. Built with `new`, not by DI, so it cannot inject
@@ -166,18 +177,20 @@ export class DbTupleStore extends TupleStore {
     if (principalKey(actor).length > TUPLE_COLUMN_WIDTHS.created_by) throw new AuthzConfigError(`DbTupleStore: the actor key is longer than the created_by column (${TUPLE_COLUMN_WIDTHS.created_by})`);
     requireTupleTransaction(tx, 'DbTupleStore.writeIn');
     let removed = 0;
+    const toRemove = await storedKeys(removes.map(hashOf));
     for (const t of removes) {
       const key = hashOf(t);
-      const [had] = await TupleRecord.query().where('tuple_key', key);
-      if (!had) continue;
+      if (!toRemove.has(key)) continue;
       await TupleRecord.destroy().where('tuple_key', key);
+      toRemove.delete(key);
       removed++;
     }
     let added = 0;
+    // Read after the removals, so a tuple removed and re-added in one call is inserted again.
+    const stored = await storedKeys(adds.map(hashOf));
     for (const t of adds) {
       const row = rowOf(t, actor, now);
-      const [has] = await TupleRecord.query().where('tuple_key', row.tuple_key);
-      if (has) continue;
+      if (stored.has(row.tuple_key)) continue;
       try {
         await TupleRecord.insert(row);
         added++;
@@ -185,6 +198,7 @@ export class DbTupleStore extends TupleStore {
         // Another transaction stored the same tuple meanwhile: it is there, which is what was asked.
         if (!(err instanceof UniqueViolation)) throw err;
       }
+      stored.add(row.tuple_key);
     }
     return { added, removed };
   }
