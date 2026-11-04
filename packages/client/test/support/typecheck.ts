@@ -35,6 +35,7 @@ export function typecheckFiles(files: Record<string, string>, options: ts.Compil
           '@spinajs/client/formats': ['src/formats/index.ts'],
           '@spinajs/client/mocks': ['src/mocks/index.ts'],
           '@spinajs/http-socket-common': ['../http-socket-common/src/index.ts'],
+          msw: [join(dirname(fileURLToPath(import.meta.resolve('msw'))), 'index.d.ts')],
           zod: [join(zodRoot, 'index.d.ts')],
           'zod/mini': [join(zodRoot, 'mini/index.d.ts')],
         },

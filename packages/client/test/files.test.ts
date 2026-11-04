@@ -37,6 +37,7 @@ describe('generateClientFiles', () => {
     [{ hooks: ['react-query'] }, 1],
     [{ hooks: ['swr'] }, 1],
     [{ mocks: true }, 2],
+    [{ mocks: true, msw: true }, 3],
   ] as [Partial<GenerateClientFilesOptions>, number][]) {
     it(`exports manifestHash from client.ts when a companion is requested (${JSON.stringify(companion)})`, async () => {
       const files = await generateClientFiles({ manifest, ...companion });
@@ -66,18 +67,20 @@ describe('generateClientFiles', () => {
       models: { available: false },
       'socket-hooks': { available: false },
       mocks: { available: true },
+      msw: { available: true },
     });
   });
 
   it('names the targets the options request', () => {
     expect(requestedTargets({ manifest })).to.deep.equal([]);
-    expect(requestedTargets({ manifest, hooks: ['swr', 'react-query'], zod: { mini: true }, models: true, socketHooks: true, keyPrefix: 'x', mocks: true })).to.deep.equal(['swr', 'react-query', 'zod', 'models', 'socket-hooks', 'mocks']);
+    expect(requestedTargets({ manifest, hooks: ['swr', 'react-query'], zod: { mini: true }, models: true, socketHooks: true, keyPrefix: 'x', mocks: true, msw: true })).to.deep.equal(['swr', 'react-query', 'zod', 'models', 'socket-hooks', 'mocks', 'msw']);
     expect(requestedTargets({ manifest, hooks: [], zod: false, models: false, socketHooks: false, mocks: false })).to.deep.equal([]);
   });
 
   const rejections: [string, Partial<GenerateClientFilesOptions>, string][] = [
     ['an unknown hooks target, naming the allowed ones', { hooks: ['react-query', 'vue' as 'swr'] }, "generateClientFiles: unknown hooks target 'vue'; use react-query or swr"],
     ['a hooks target listed twice', { hooks: ['swr', 'react-query', 'swr'] }, "generateClientFiles: hooks target 'swr' is listed twice"],
+    ['msw without mocks', { msw: true }, 'generateClientFiles: msw needs mocks, because the handlers answer with the data of the mocks file'],
     ['socketHooks without hooks', { socketHooks: true }, 'generateClientFiles: socketHooks needs hooks, because socket hooks are added to the hooks files'],
   ];
   for (const [what, options, message] of rejections) {

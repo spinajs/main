@@ -87,13 +87,15 @@ describe('client.mocks.ts', function () {
   it('is a leaf: no generated file imports client.mocks.ts or client.msw.ts, and runtime/ and formats/ never import mocks/', async () => {
     // Every target that writes a file of its own; the next emitter that lands joins this list.
     const writing = (Object.keys(GENERATOR_TARGETS) as GeneratorTarget[]).filter((t) => GENERATOR_TARGETS[t].available);
-    expect(writing).to.deep.equal(['zod', 'mocks']);
-    const options: GenerateClientFilesOptions = { manifest: await appBasicManifest(), zod: true, mocks: true };
+    expect(writing).to.deep.equal(['zod', 'mocks', 'msw']);
+    const options: GenerateClientFilesOptions = { manifest: await appBasicManifest(), zod: true, mocks: true, msw: true };
     for (const basename of ['client', 'api']) {
       const files = await generateClientFiles({ ...options, basename });
       expect(files.map((f) => f.path)).to.include(`${basename}.mocks.ts`);
       for (const file of files) {
-        expect(importsOf(file.contents).filter((s) => /\.(mocks|msw)(\.js|\.ts)?$/.test(s)), file.path).to.deep.equal([]);
+        // The handlers answer with the mock data, so client.msw.ts is the one file allowed to import client.mocks.ts.
+        const allowed = file.path === `${basename}.msw.ts` ? [`./${basename}.mocks.js`] : [];
+        expect(importsOf(file.contents).filter((s) => /\.(mocks|msw)(\.js|\.ts)?$/.test(s)), file.path).to.deep.equal(allowed);
       }
       expect(importsOf(files.find((f) => f.path === `${basename}.mocks.ts`)!.contents).filter((s) => s === 'msw' || s.startsWith('msw/'))).to.deep.equal([]);
     }
