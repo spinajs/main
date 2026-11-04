@@ -100,6 +100,12 @@ export const manifestSchema: Record<string, any> = {
             "$ref": "#/definitions/QueueMessageEntry"
           }
         },
+        "workflows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WorkflowEntry"
+          }
+        },
         "scanFiles": {
           "type": "array",
           "items": {
@@ -1342,6 +1348,53 @@ export const manifestSchema: Record<string, any> = {
         "source"
       ]
     },
+    "WorkflowEntry": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "number"
+        },
+        "className": {
+          "type": "string"
+        },
+        "signals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "permission": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          }
+        },
+        "mountedBy": {
+          "$ref": "#/definitions/MountedBy"
+        },
+        "exported": {
+          "$ref": "#/definitions/NotExported"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "className",
+        "signals",
+        "source"
+      ]
+    },
     "ScanFile": {
       "type": "object",
       "properties": {
@@ -1518,6 +1571,12 @@ export const manifestSchema: Record<string, any> = {
           "type": "array",
           "items": {
             "$ref": "#/definitions/QueueMessageEntry"
+          }
+        },
+        "workflows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WorkflowEntry"
           }
         },
         "scanFiles": {

@@ -117,6 +117,31 @@ function addCommand(b: Builder, prefix: string, command: SocketCommandEntry, err
   };
 }
 
+/** One channel per workflow and signal; versions share it, and the newest version's permission is the one documented. */
+function addWorkflowSignals(b: Builder, manifest: Manifest, channels: Record<string, Dict>, operations: Record<string, Dict>): void {
+  const signals = new Map<string, { workflow: string; signal: string; permission?: string; version: number }>();
+  for (const w of manifest.workflows ?? []) {
+    for (const s of w.signals) {
+      // '*' records a computed name; a literal with '#' or '*' is one signal() refuses.
+      if (/[#*]/.test(s.name)) continue;
+      const key = `${w.name}/${s.name}`;
+      const known = signals.get(key);
+      if (!known || w.version > known.version) signals.set(key, { workflow: w.name, signal: s.name, permission: s.permission, version: w.version });
+    }
+  }
+  for (const s of signals.values()) {
+    const address = `workflow/${s.workflow}/${s.signal}`;
+    const chan = channelRef(address);
+    channels[address] = {
+      address,
+      messages: { signal: b.message(`workflow.${s.workflow}.${s.signal}`, { text: 'unknown' }) },
+      'x-spinajs-workflow': s.workflow,
+      ...(s.permission ? { 'x-spinajs-permission': s.permission } : {}),
+    };
+    operations[`workflow.${s.workflow}.${s.signal}.send`] = { action: 'send', channel: { $ref: chan }, messages: [{ $ref: `${chan}/messages/signal` }] };
+  }
+}
+
 export function manifestToAsyncApi(fullManifest: Manifest, options: AsyncApiOptions): AsyncApiDocument {
   const manifest = publishedManifest(fullManifest);
   const b = new Builder(manifest);
@@ -148,6 +173,8 @@ export function manifestToAsyncApi(fullManifest: Manifest, options: AsyncApiOpti
     };
     operations[`queue.${msg.className}.send`] = { action: 'send', channel: { $ref: chan }, messages: [{ $ref: `${chan}/messages/message` }] };
   }
+
+  addWorkflowSignals(b, manifest, channels, operations);
 
   const serverUrl = options.serverUrl;
   return {

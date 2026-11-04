@@ -15,5 +15,6 @@ export function publishedManifest(manifest: Manifest): Manifest {
     schedules: manifest.schedules.filter(loadsFromManifest),
     commands: manifest.commands.filter(loadsFromManifest),
     migrations: manifest.migrations.filter(loadsFromManifest),
+    ...(manifest.workflows ? { workflows: manifest.workflows.filter(loadsFromManifest) } : {}),
   };
 }

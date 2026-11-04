@@ -57,6 +57,7 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
   const controllerBases = collect((f) => f.controllerBases ?? []);
   const socketControllerBases = collect((f) => f.socketControllerBases ?? []);
   const classProperties = collect((f) => f.classProperties ?? []);
+  const workflows = plain((f) => f.workflows ?? []);
 
   const manifest: Manifest = {
     manifestVersion: MANIFEST_VERSION,
@@ -79,6 +80,7 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
     commands: plain((f) => f.commands),
     ...(app.scanFiles?.length ? { scanFiles: app.scanFiles } : {}),
     queueMessages: plain((f) => f.queueMessages),
+    ...(workflows.length ? { workflows } : {}),
     schemas,
     diagnostics,
     ...(meta.buildEnv ? { buildEnv: meta.buildEnv } : {}),

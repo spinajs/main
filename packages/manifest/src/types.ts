@@ -175,6 +175,8 @@ export interface MigrationEntry { id: string; className: string; connection: str
 export interface ScheduleEntry { name: string; className: string; options: Record<string, unknown>; mountedBy?: MountedBy; exported?: NotExported; source: SourceRef }
 export interface CliCommandEntry { name: string; className: string; description?: string; options: { flags: string; description?: string }[]; arguments: { name: string; description?: string }[]; parent?: string; mountedBy?: MountedBy; source: SourceRef }
 export interface QueueMessageEntry { className: string; kind: 'job' | 'event'; payload: TypeRef; options: Record<string, unknown>; source: SourceRef }
+/** A `@Workflow` class. A signal named `'*'` is a `waitForEvent` whose name is not a literal. */
+export interface WorkflowEntry { name: string; version: number; className: string; signals: { name: string; permission?: string }[]; mountedBy?: MountedBy; exported?: NotExported; source: SourceRef }
 
 export interface Diagnostic { code: string; severity: 'error' | 'warning' | 'info'; message: string; source?: SourceRef }
 
@@ -195,6 +197,8 @@ export interface ManifestFragment {
   classProperties?: ClassPropertiesEntry[];
   configModules: ConfigModuleEntry[]; configUsages: ConfigUsageEntry[];
   models: ModelEntry[]; migrations: MigrationEntry[]; schedules: ScheduleEntry[]; commands: CliCommandEntry[]; queueMessages: QueueMessageEntry[];
+  /** Omitted when there are none. */
+  workflows?: WorkflowEntry[];
   /** Omitted when there are none; only an app built with its dirs has any. */
   scanFiles?: ScanFile[];
   schemas: Record<string, unknown>;   // $id → JSON Schema

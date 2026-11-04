@@ -5,11 +5,11 @@ import type { Finding } from './schema-compare.js';
 import type { ControllerEntry, Manifest, ParamEntry, PolicyRef, RouteEntry, TypeRef } from './types.js';
 
 export type ChangeKind = 'added' | 'removed' | 'changed';
-export interface Change { section: 'routes' | 'schemas' | 'permissions' | 'config' | 'migrations' | 'services' | 'commands' | 'socket'; kind: ChangeKind; id: string; breaking: boolean; detail?: string }
+export interface Change { section: 'routes' | 'schemas' | 'permissions' | 'config' | 'migrations' | 'services' | 'commands' | 'socket' | 'workflows'; kind: ChangeKind; id: string; breaking: boolean; detail?: string }
 export interface ManifestDiff { base: string; head: string; changes: Change[]; breaking: boolean }
 
 type Section = Change['section'];
-const SECTIONS: Section[] = ['routes', 'permissions', 'schemas', 'config', 'migrations', 'services', 'commands', 'socket'];
+const SECTIONS: Section[] = ['routes', 'permissions', 'schemas', 'config', 'migrations', 'services', 'commands', 'socket', 'workflows'];
 
 interface Keyed<T> { key: string; item: T }
 
@@ -156,6 +156,11 @@ function diffMisc(base: Manifest, head: Manifest): Change[] {
       changed: (b, h) => changedIf([b.options, b.arguments], [h.options, h.arguments], 'options or arguments changed'),
     }),
     ...diffKeyed('socket', socketEntries(base), socketEntries(head), { changed: (b, h) => changedIf(b, h, 'payload or result changed') }),
+    // A removed version strands its unfinished instances (D5), hence breaking.
+    ...diffKeyed('workflows', byKey(base.workflows ?? [], (w) => `${w.name}@${w.version}`), byKey(head.workflows ?? [], (w) => `${w.name}@${w.version}`), {
+      removedBreaking: true,
+      changed: (b, h) => changedIf([b.className, b.signals], [h.className, h.signals], 'class or signals changed'),
+    }),
   ];
 }
 
