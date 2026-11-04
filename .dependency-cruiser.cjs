@@ -54,6 +54,13 @@ module.exports = {
       to: { path: ['^packages/(authn|authz|users)[^/]*/', '(^|/)node_modules/@spinajs/(authn|authz|users)[^/]*/'] },
     },
     {
+      name: 'client-browser-subpaths-self-contained',
+      severity: 'error',
+      comment: '@spinajs/client/runtime and /formats run in browser bundles: no npm packages, no Node built-ins, no other client folder.',
+      from: { path: '^packages/client/src/(runtime|formats)/' },
+      to: { pathNot: '^packages/client/src/$1/' },
+    },
+    {
       name: 'no-deprecated-core',
       severity: 'warn',
       from: {},
