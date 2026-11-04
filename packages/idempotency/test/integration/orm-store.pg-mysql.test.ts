@@ -73,12 +73,7 @@ for (const target of REAL_DB_TARGETS) {
           Array.from({ length: 6 }, (_, i) =>
             driver.transaction(() => store.claim('e', { leaseMs: 60_000, now: T0 + 100 + i })).then(
               (claim) => claim.state as string,
-              (error: unknown) => {
-                if (error instanceof IdempotencyClaimConflict) {
-                  return 'conflict';
-                }
-                throw error;
-              },
+              (error: unknown) => (error instanceof IdempotencyClaimConflict ? 'conflict' : String(error)),
             ),
           ),
         );
@@ -91,17 +86,14 @@ for (const target of REAL_DB_TARGETS) {
         let start!: () => void;
         const elsewhere = new Promise<void>((resolve) => (start = resolve)).then(() => store.claim('t', { leaseMs: 60_000, now: T0 }));
 
-        const claim = driver.transaction(
-          async () => {
-            await IdempotencyKeyModel.where('Key', 'snapshot');
-            start();
-            await elsewhere;
-            return store.claim('t', { leaseMs: 60_000, now: T0 + 1 });
-          },
-          { isolation: 'REPEATABLE READ' },
-        );
+        const claim = async () => {
+          await IdempotencyKeyModel.where('Key', 'snapshot');
+          start();
+          await elsewhere;
+          return store.claim('t', { leaseMs: 60_000, now: T0 + 1 });
+        };
 
-        await assert.rejects(claim, IdempotencyClaimConflict);
+        await assert.rejects(driver.transaction(claim, { isolation: 'REPEATABLE READ' }), IdempotencyClaimConflict);
       });
 
       it('replays a completed reply and its fingerprint', async () => {

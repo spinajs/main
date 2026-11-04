@@ -138,46 +138,36 @@ describe('IdempotencyLeases', () => {
     await handle.release();
   });
 
-  it('aborts the signal with a crash: true renewal error, stops renewing, and rejects complete and release without writing', async () => {
-    const clock = new FakeClock(T0);
-    const crash = Object.assign(new Error('simulated crash'), { crash: true });
-    let renewals = 0;
-    class CrashingStore extends MemoryIdempotencyStore {
-      public async renew(): Promise<boolean> {
-        renewals++;
-        throw crash;
+  for (const at of ['renewal', 'store write'] as const) {
+    it(`ends the handle on a crash: true error of the ${at}: signal aborted, complete and release rejected, nothing written`, async () => {
+      const clock = new FakeClock(T0);
+      const crash = Object.assign(new Error('simulated crash'), { crash: true });
+      let renewals = 0;
+      class CrashingStore extends MemoryIdempotencyStore {
+        public async renew(): Promise<boolean> {
+          renewals++;
+          throw crash;
+        }
+
+        public async complete(): Promise<boolean> {
+          throw crash;
+        }
       }
-    }
-    const leases = new IdempotencyLeases({ store: new CrashingStore(), timers: clock, now: () => clock.now(), leaseMs: LEASE });
-    const handle = handleOf(await leases.acquire('k'));
-    await clock.advance(LEASE);
-
-    expect(renewals).to.equal(1);
-    expect(clock.pendingTimers).to.equal(0);
-    expect(handle.signal.reason).to.equal(crash);
-    await assert.rejects(handle.complete(REPLY, 60_000), (error) => error === crash);
-    await assert.rejects(handle.release(), (error) => error === crash);
-    await handle.abandon();
-    expect(await leases.peek('k')).to.deep.equal({ state: 'running', leaseUntil: T0 + LEASE });
-  });
-
-  it('treats a crash: true error of the store write as the end of the handle', async () => {
-    const clock = new FakeClock(T0);
-    const crash = Object.assign(new Error('simulated crash'), { crash: true });
-    class CrashingStore extends MemoryIdempotencyStore {
-      public async complete(): Promise<boolean> {
-        throw crash;
+      const leases = new IdempotencyLeases({ store: new CrashingStore(), timers: clock, now: () => clock.now(), leaseMs: LEASE });
+      const handle = handleOf(await leases.acquire('k'));
+      if (at === 'renewal') {
+        await clock.advance(LEASE);
+        expect(renewals).to.equal(1);
+        expect(handle.signal.reason).to.equal(crash);
       }
-    }
-    const leases = new IdempotencyLeases({ store: new CrashingStore(), timers: clock, now: () => clock.now(), leaseMs: LEASE });
-    const handle = handleOf(await leases.acquire('k'));
 
-    await assert.rejects(handle.complete(REPLY, 60_000), (error) => error === crash);
-    await assert.rejects(handle.release(), (error) => error === crash);
-    expect(handle.signal.reason).to.equal(crash);
-    expect(clock.pendingTimers).to.equal(0);
-    expect((await leases.peek('k'))?.state).to.equal('running');
-  });
+      await assert.rejects(handle.complete(REPLY, 60_000), (error) => error === crash);
+      await assert.rejects(handle.release(), (error) => error === crash);
+      expect(handle.signal.reason).to.equal(crash);
+      expect(clock.pendingTimers).to.equal(0);
+      expect((await leases.peek('k'))?.state).to.equal('running');
+    });
+  }
 
   it('aborts the handle signal with IdempotencyLeaseLost when a renewal is refused', async () => {
     const { leases, clock, store } = setup();

@@ -39,10 +39,7 @@ export class IdempotencyOutcomeUnknown extends Error {
 export class IdempotencyClaimConflict extends Error {
   public readonly retryable = true;
 
-  constructor(
-    public readonly key: string,
-    cause: unknown,
-  ) {
+  constructor(public readonly key: string, cause: unknown) {
     super(`idempotency key ${key}: the claim lost a lock or serialization conflict, so the database rolled the surrounding transaction back; retry that transaction`, { cause });
     this.name = 'IdempotencyClaimConflict';
   }

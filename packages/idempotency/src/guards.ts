@@ -3,10 +3,7 @@ import { InvalidArgument } from '@spinajs/exceptions';
 /** The width of the `Key` and `Fingerprint` columns; MySQL would cut a longer value silently. */
 export const MAX_KEY_LENGTH = 64;
 
-const isControl = (char: string): boolean => {
-  const code = char.charCodeAt(0);
-  return code < 0x20 || code === 0x7f;
-};
+const isControl = (char: string): boolean => char.charCodeAt(0) < 0x20 || char.charCodeAt(0) === 0x7f;
 
 export function positive(name: string, ms: number): void {
   if (!(Number.isFinite(ms) && ms > 0)) {
