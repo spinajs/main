@@ -4,6 +4,8 @@ import { buildClientModel, type ClientModel } from './model.js';
 export interface GeneratedFile {
   /** Relative to the directory of the client file. */
   path: string;
+  /** `client` files start with `'use client'`; `server-safe` files import neither React nor a `client` file. */
+  environment: 'client' | 'server-safe';
   contents: string;
 }
 
@@ -24,7 +26,9 @@ export interface GenerateClientFilesOptions extends GenerateClientOptions {
 
 type HooksTarget = NonNullable<GenerateClientFilesOptions['hooks']>[number];
 
-const HOOKS_TARGETS = ['react-query', 'swr'] as const satisfies readonly HooksTarget[];
+const HOOKS_TARGET_SET: Record<HooksTarget, true> = { 'react-query': true, swr: true };
+
+const HOOKS_TARGETS = Object.keys(HOOKS_TARGET_SET) as HooksTarget[];
 
 export type GeneratorTarget = HooksTarget | 'zod' | 'models' | 'socket-hooks';
 
@@ -37,7 +41,9 @@ export const GENERATOR_TARGETS: Readonly<Record<GeneratorTarget, { readonly avai
   'socket-hooks': { available: false },
 };
 
-type Emitter = (model: ClientModel, options: GenerateClientFilesOptions & { basename: string }) => Promise<GeneratedFile[]>;
+type EmitOptions = GenerateClientFilesOptions & { basename: string };
+
+type Emitter = (model: ClientModel, options: EmitOptions) => Promise<GeneratedFile[]>;
 
 const noFiles: Emitter = () => Promise.resolve([]);
 
@@ -45,7 +51,14 @@ const noFiles: Emitter = () => Promise.resolve([]);
 const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': noFiles, swr: noFiles, zod: noFiles };
 
 export function requestedTargets(options: GenerateClientFilesOptions): GeneratorTarget[] {
-  return [...(options.hooks ?? []), ...(options.zod ? (['zod'] as const) : []), ...(options.models ? (['models'] as const) : []), ...(options.socketHooks ? (['socket-hooks'] as const) : [])];
+  const requested: Record<GeneratorTarget, boolean> = {
+    'react-query': options.hooks?.includes('react-query') ?? false,
+    swr: options.hooks?.includes('swr') ?? false,
+    zod: !!options.zod,
+    models: !!options.models,
+    'socket-hooks': !!options.socketHooks,
+  };
+  return (Object.keys(GENERATOR_TARGETS) as GeneratorTarget[]).filter((t) => requested[t]);
 }
 
 function checkOptions(options: GenerateClientFilesOptions): void {
@@ -57,14 +70,21 @@ function checkOptions(options: GenerateClientFilesOptions): void {
   if (options.socketHooks && hooks.length === 0) throw new Error('generateClientFiles: socketHooks needs hooks, because socket hooks are added to the hooks files');
 }
 
+export function assertUniquePaths(files: GeneratedFile[]): void {
+  const twice = files.find((f, i) => files.findIndex((g) => g.path === f.path) !== i);
+  if (twice) throw new Error(`generateClientFiles: two emitters write ${twice.path}`);
+}
+
 /** Generates `client.ts` and every companion file the options request, all from one manifest read. */
 export async function generateClientFiles(options: GenerateClientFilesOptions): Promise<GeneratedFile[]> {
   checkOptions(options);
   const basename = options.basename ?? 'client';
   const model = buildClientModel(options.manifest, { includeSocket: options.includeSocket });
-  const emitters = requestedTargets(options).flatMap((t) => COMPANIONS[t] ?? []);
+  const targets = requestedTargets(options);
+  const emitters = targets.flatMap((t) => COMPANIONS[t] ?? []);
   const client = await emitClient(model, { moduleName: options.moduleName, manifestHash: emitters.length > 0 });
-  const files: GeneratedFile[] = [{ path: `${basename}.ts`, contents: client }];
+  const files: GeneratedFile[] = [{ path: `${basename}.ts`, environment: 'server-safe', contents: client }];
   for (const emit of emitters) files.push(...(await emit(model, { ...options, basename })));
+  assertUniquePaths(files);
   return files;
 }
