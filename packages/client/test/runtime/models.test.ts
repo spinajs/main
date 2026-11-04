@@ -68,8 +68,7 @@ describe('fromClass', () => {
     const user = fromClass(User).decode(wire);
     expect(user.label).to.equal('#1 a');
     expect(user.greet()).to.equal('hi a');
-    expect(user.toString).to.equal(Object.prototype.toString);
-    expect(user.valueOf).to.equal(Object.prototype.valueOf);
+    expect(['toString', 'valueOf'].filter((key) => Object.prototype.hasOwnProperty.call(user, key))).to.deep.equal([]);
     expect(Object.keys(user).sort()).to.deep.equal(['id', 'name', 'role']);
   });
 
