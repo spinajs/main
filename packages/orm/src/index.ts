@@ -52,3 +52,4 @@ export * from './metadata.js';
 
 // NOTE: metadata.js is not exported from index to avoid circular dependency issues
 // Import directly from './metadata.js' if needed.
+export * from './session-settings.js';
