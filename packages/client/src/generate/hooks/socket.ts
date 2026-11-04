@@ -163,7 +163,7 @@ const STREAM_HELPERS = [
   '  useEffect(() => {',
   '    const { payload: current, open: start } = latest.current;',
   '    if (current === null) {',
-  '      setState({ socket, key, view: IDLE });',
+  '      setState((s) => (s.socket === socket && s.key === key ? s : { socket, key, view: IDLE }));',
   '      return undefined;',
   '    }',
   '    let active = true;',

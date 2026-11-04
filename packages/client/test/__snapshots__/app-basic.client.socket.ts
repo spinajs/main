@@ -37,7 +37,7 @@ function useSocketStream<S, P, T>(socket: S, payload: P | null, open: (socket: S
   useEffect(() => {
     const { payload: current, open: start } = latest.current;
     if (current === null) {
-      setState({ socket, key, view: IDLE });
+      setState((s) => (s.socket === socket && s.key === key ? s : { socket, key, view: IDLE }));
       return undefined;
     }
     let active = true;
