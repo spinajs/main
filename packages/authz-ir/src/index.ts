@@ -7,3 +7,5 @@ export * from './eval/caveats.js';
 export * from './eval/check.js';
 export * from './eval/evaluator.js';
 export * from './testing/memory-tuples.js';
+export * from './eval/expand.js';
+export * from './eval/list.js';

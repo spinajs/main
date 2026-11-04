@@ -6,6 +6,9 @@ import type { ObjectRef, PermissionBinding, PolicyIR, PrincipalFacts, RelationNa
 import { CaveatEvaluator } from './caveats.js';
 import type { CaveatContext } from './caveats.js';
 import { IRLimitExceeded, Walker, objectLabel, subjectsOf } from './check.js';
+import { expandUserset } from './expand.js';
+import type { UsersetTree } from './expand.js';
+import { objectCandidates, subjectCandidates } from './list.js';
 import { and3, explainNode } from './explain.js';
 import type { ExplainNode, Truth } from './explain.js';
 
@@ -72,6 +75,28 @@ export class IREvaluator {
     if (binding === undefined) return { truth: 'deny', tree: explainNode(`${input.permission} is bound to no relation`, 'deny', 'permissions') };
     if (binding.type !== resource.type) return { truth: 'deny', tree: explainNode(`${input.permission} applies to ${binding.type}, not ${resource.type}`, 'deny', `permissions.${input.permission}`) };
     return this.asPrincipal(input.principal, [], 0, { ...input, resource }, binding);
+  }
+
+  /** One level of the userset rewrite of `object#relation` (Zanzibar Expand). @throws TypeError for an unknown relation */
+  expand(object: EvalInput['resource'], relation: RelationName): Promise<UsersetTree> {
+    return expandUserset(this.ir, this.tuples, rootRef(object), relation);
+  }
+
+  /** Objects of `type` the check allows, sorted; see `objectCandidates` for what is enumerable. @throws IRLimitExceeded */
+  async *listObjects(input: Omit<EvalInput, 'resource'> & { type: TypeName }): AsyncIterable<ObjectRef> {
+    const binding = own(this.ir.permissions, input.permission) ? this.ir.permissions[input.permission] : undefined;
+    if (binding === undefined || binding.type !== input.type) return;
+    for (const resource of await objectCandidates(this.ir, this.tuples, input.principal, input.type, this.maxCalls)) {
+      if ((await this.check({ ...input, resource })).truth === 'allow') yield resource;
+    }
+  }
+
+  /** Subjects of `subjectType` (the wildcard included) the check allows on `object`, sorted. @throws IRLimitExceeded */
+  async *listSubjects(object: EvalInput['resource'], permission: Permission, subjectType: TypeName): AsyncIterable<TupleSubjectRef> {
+    const resource = rootRef(object);
+    for (const s of await subjectCandidates(this.ir, this.tuples, resource, subjectType, this.maxCalls)) {
+      if ((await this.check({ principal: { type: s.type, id: s.id }, permission, resource })).truth === 'allow') yield s;
+    }
   }
 
   private async asPrincipal(p: PrincipalFacts, ceilings: ReadonlyArray<PrincipalFacts['ceiling']>, hops: number, input: EvalInput & { resource: ObjectRef }, binding: PermissionBinding): Promise<CheckResult> {
