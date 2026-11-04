@@ -28,6 +28,9 @@
     },
     {
       "path": "../orm/tsconfig.build.json"
+    },
+    {
+      "path": "../scheduler/tsconfig.build.json"
     }
   ]
 }

@@ -281,12 +281,18 @@ the old and new `{ type, id }`, in the statement's transaction. Turn it off for 
 `@AccessResource('invoice', { changelog: false })` (or the same option of `registerAccessResource`); replays that need
 that model's relations then report it as missing (`changeLog().covers('column', 'invoice') === false`).
 
+`recordPolicyVersion(policyHash, irJson)` keeps the policy IR an app ran with in `authz_policy_version` (first
+instant kept, text verbatim), `readPolicyVersion(policyHash)` reads it back. Import `@spinajs/authz-orm/scheduler`
+(with `@spinajs/scheduler` installed) to prune the changelog daily: schedule `authz.changelog.retention` deletes the
+changes older than `authz.changelog.retentionDays` (default 400); `pruneChangeLog()` does it on demand.
+
 ## Config
 
 | Key | Default | Meaning |
 |---|---|---|
 | `authz.orm.domain` | `'root'` | the domain whose service plans lists and whose stores a delete cleans up |
 | `authz.orm.accessField` | `'$access'` | the per-row access key of `.withAccess()` |
+| `authz.changelog.retentionDays` | `400` | how long the retention job keeps changelog rows |
 
 ## From 3.0.0-rc.1
 
