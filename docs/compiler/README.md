@@ -89,6 +89,7 @@ The packages considered are the app's installed dependency closure: `dependencie
 | `schedules` | `@Schedule(name, options)` | |
 | `commands` | Classes extending `CliCommand` with `@Command`, `@Option` and `@Argument` | Name is the first word of the command string. |
 | `queueMessages` | `@Job`, `@Event` classes | `kind` is `job` or `event`; the payload is the class type. |
+| `workflows` | `@Workflow(name, { version })` classes | `version` defaults to 1. `signals` lists the literal names of the `ctx.waitForEvent` calls in `run()` with their literal `permission`, once per name and permission; a computed name is recorded as `'*'`. Omitted when the package has no workflow. |
 
 ### Conditions
 
@@ -193,6 +194,8 @@ Every diagnostic has a `code`, a `severity` (`error`, `warning`, `info`), a `mes
 | `CLI001` | warning | `spinajs build` only: the working directory is not the `tsconfig` folder, and `system.dirs` was computed from it. |
 | `TYP001` | info | `runtime-type-not-exported`: a route argument, socket payload or injected property has a class type that is not exported, so the manifest records no `ref` for it. Without decorator metadata the runtime cannot load it; export the class. |
 | `TYP002` | info | `runtime-type-not-importable`: the class is declared in a package without a manifest fragment (types from `@types/*`), or in an ambient module (`node:async_hooks`). Without decorator metadata the runtime cannot load it; pass the type to the decorator (`@Type(X)`, `@Autoinject(X)`). |
+| `WF004` | warning | `Date.now()`, `new Date()` without arguments or `Math.random()` in the `run()` of a `@Workflow` class, outside a `ctx.step` or `ctx.emit` callback: a replay sees another value. Use `ctx.now()` or `ctx.random()`. |
+| `WF005` | warning | A `ctx.waitForEvent` in `run()` names a literal event with `#` or `*`, which `waitForEvent` refuses at runtime. The signal is left out of the manifest. |
 | `CFG010` | warning | A configuration schema is not a literal with `$id` and `$configurationModule`. |
 | `SCH001` | warning / info | A type has no JSON Schema form and is emitted as `{}`: `any`, a function, `symbol`, `never`. Give the member a real type. `unknown`, `object` and an `any` index signature are `info`: the value is accepted as is, which suits an opaque value. A model read from a declaration file is `info` too (see the model row above). A type declared outside the package says where in the message (`declared in X`). |
 | `SCH002` | warning | A type nests deeper than the depth limit (20) and the cut is emitted as `{}`. Usually a framework type reached through a member; a recursive alias no longer causes it. |
@@ -215,7 +218,7 @@ The triage of `users-http`, `teams-http` and `authz-http-admin` left these diagn
 | `SCH001` warning | `@spinajs/orm` `MetadataModel.Value` (`orm/src/metadata.ts`), reached through `users-http` `FilterableUserMetadata` | The `Value` accessor is typed `any`. | Type it `unknown` in `@spinajs/orm`. Out of scope for the triage: the type change reaches every metadata consumer. |
 | `SCH001` info | `users-http` (5) and `authz-http-admin` (4) | Opaque by design: `unknown` values (`UserProfile.AdditionalData`, `CreateUserDto.Metadata`, link `attributes`) and models read from `@spinajs/users` declaration files (`User`, `UserMetadataBase`, `FilterableUserMetadata`). | None needed. |
 
-`runDoctor` runs consistency rules over a manifest and is exported from the same package. Its rules are `DI001` to `DI003`, `HTTP001` to `HTTP006` (duplicate, unguarded, shadowed and ambiguous routes, and `@Public` markers), `CFG001` to `CFG003`, `BLD001`, `ORM001`, `SCH003` and `SOCK001` to `SOCK006`; `spinajs doctor` adds `DOCTOR` when it cannot read the manifest. Each is listed with its severity in [doctor](doctor.md#rules).
+`runDoctor` runs consistency rules over a manifest and is exported from the same package. Its rules are `DI001` to `DI003`, `HTTP001` to `HTTP006` (duplicate, unguarded, shadowed and ambiguous routes, and `@Public` markers), `CFG001` to `CFG003`, `BLD001`, `ORM001`, `SCH003`, `SOCK001` to `SOCK006` and `WF001` to `WF003`; `spinajs doctor` adds `DOCTOR` when it cannot read the manifest. Each is listed with its severity in [doctor](doctor.md#rules).
 
 ## TypeScript version
 
