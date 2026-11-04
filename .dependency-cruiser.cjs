@@ -68,6 +68,13 @@ module.exports = {
       to: { pathNot: '^packages/client/src/formats/' },
     },
     {
+      name: 'client-codecs-types-only',
+      severity: 'error',
+      comment: '@spinajs/client/codecs takes its libraries as constructor arguments: it imports no package and nothing but the runtime types.',
+      from: { path: '^packages/client/src/codecs/' },
+      to: { pathNot: ['^packages/client/src/codecs/', '^packages/client/src/runtime/'] },
+    },
+    {
       name: 'no-deprecated-core',
       severity: 'warn',
       from: {},
