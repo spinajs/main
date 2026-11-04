@@ -16,9 +16,15 @@ export type PlainFormats = { 'date-time': string; date: string; decimal: string;
 
 export type FormatCodecs = { [K in keyof Formats]?: Codec<unknown> };
 
-/** The app type of every format slot for the given codecs: the codec's type, else the wire string. */
+type SlotType<S, Wire> = [S] extends [Codec<infer T> | undefined] ? (undefined extends S ? T | Wire : T) : Wire;
+
+/**
+ * The app type of every format slot for the given codecs: the codec's type, else the wire string. A slot that may be
+ * unset (an optional key, or a variable typed `FormatCodecs`) is typed as either; pass `formats` as a literal to get
+ * the codec's type alone.
+ */
 export type FormatTypes<C extends FormatCodecs> = {
-  [K in keyof PlainFormats]: K extends keyof C ? (C[K] extends Codec<infer T> ? T : PlainFormats[K]) : PlainFormats[K];
+  [K in keyof PlainFormats]: K extends keyof C ? SlotType<C[K], PlainFormats[K]> : PlainFormats[K];
 };
 
 export const dateCodec: Codec<Date> = {
