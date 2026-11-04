@@ -18,11 +18,10 @@ const source = { line: 1, col: 1, file: 'x.ts', package: 'x' };
 
 const itemsRoute = (handler: string, method: RouteEntry['method'], returns: string): RouteEntry => ({ method, path: '', handler, fullPath: `/items/${handler}`, params: [], returnType: { text: returns }, policies: [], middlewares: [], source });
 
-// The only query of this manifest has an empty reply, so the file needs no nullIfEmpty helper. The mutation keeps the
-// mutation imports in use.
+// The only route of this manifest is a query with an empty reply, so the file needs no nullIfEmpty helper.
 function voidOnly(base: Manifest): Manifest {
-  const routes = [itemsRoute('ping', 'get', 'void'), itemsRoute('touch', 'post', 'string')];
-  return { ...base, controllers: [{ id: 'x:ItemsController', className: 'ItemsController', basePath: 'items', policies: [], middlewares: [], routes, source }] };
+  const routes = [itemsRoute('ping', 'get', 'void')];
+  return { ...base, controllers: [{ id: 'x:ItemsController', className: 'ItemsController', basePath: 'items', policies: [], middlewares: [], routes, source }], controllerBases: [] };
 }
 
 const voidApp = [

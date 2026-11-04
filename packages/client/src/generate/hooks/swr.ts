@@ -32,6 +32,13 @@ const HELPERS = [
   '};',
 ];
 
+// Every import is filtered to what the file uses: an unused one would fail noUnusedLocals.
+function importLine(defaultName: string | false, names: (string | false)[], from: string): string[] {
+  const used = names.filter((n): n is string => n !== false);
+  const parts = [...(defaultName ? [defaultName] : []), ...(used.length > 0 ? [`{ ${used.join(', ')} }`] : [])];
+  return parts.length > 0 ? [`import ${parts.join(', ')} from '${from}';`] : [];
+}
+
 // `null` is SWR's conditional fetch, so it has to stay assignable next to the `{}` default of an optional variables object.
 function varsParameter(hook: HookRoute): string {
   const type = `${hook.varsType} | null`;
@@ -78,20 +85,30 @@ function mutationHook(hook: HookRoute): string[] {
   ];
 }
 
+function imports(hooks: HookRoute[], base: string): string[] {
+  const queries = hooks.some((h) => h.route.kind === 'query');
+  const mutations = hooks.some((h) => h.route.kind !== 'query');
+  const any = queries || mutations;
+  return [
+    ...importLine(queries && 'useSWR', [mutations && 'unstable_serialize', mutations && 'useSWRConfig', queries && 'type SWRConfiguration', queries && 'type SWRResponse'], 'swr'),
+    ...importLine(mutations && 'useSWRMutation', [mutations && 'type SWRMutationConfiguration', mutations && 'type SWRMutationResponse'], 'swr/mutation'),
+    ...importLine(false, [any && 'appKeys', any && 'type AppClientError'], `./${base}.keys.js`),
+    ...importLine(false, [any && 'useAppClient'], `./${base}.react.js`),
+    `import type { ${[...typeNames(hooks), 'manifestHash'].join(', ')} } from './${base}.js';`,
+  ];
+}
+
 /** `client.swr.ts`: a `useSWR` hook per query route and a `useSWRMutation` hook per mutation route. */
 export function emitSwr(model: ClientModel, hooks: HookRoute[], options: SwrOptions = {}): string {
   const base = options.basename ?? 'client';
+  const mutations = hooks.some((h) => h.route.kind !== 'query');
   const lines = [
     companionHeader('swr', model),
-    "import useSWR, { unstable_serialize, useSWRConfig, type SWRConfiguration, type SWRResponse } from 'swr';",
-    "import useSWRMutation, { type SWRMutationConfiguration, type SWRMutationResponse } from 'swr/mutation';",
-    `import { appKeys, type AppClientError } from './${base}.keys.js';`,
-    `import { useAppClient } from './${base}.react.js';`,
-    `import type { ${[...typeNames(hooks), 'manifestHash'].join(', ')} } from './${base}.js';`,
+    ...imports(hooks, base),
     '',
     ...manifestHashCheck(model),
     '',
-    ...HELPERS,
+    ...(mutations ? HELPERS : []),
     ...(hooks.some((h) => h.route.kind === 'query' && !isVoid(h)) ? NULL_IF_EMPTY : []),
     ...hooks.flatMap((h) => ['', ...(h.route.kind === 'query' ? queryHook(h) : mutationHook(h))]),
   ];
