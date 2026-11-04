@@ -184,3 +184,16 @@ Models work too. `@HasMany`, `@HasManyToMany`, `@Virtual` and `@JunctionTable` r
 Relations read the root container, as the ORM does elsewhere, so an app in an isolated child container with its own manifest needs `withManifest` to hold it in root.
 
 `packages/compiler/test/e2e/boot-from-manifest.test.ts` boots `app-basic` compiled with `emitDecoratorMetadata: false` in `require`, in a separate process, and compares what it serves with the build that has metadata. `orm-no-metadata.test.ts` does the same for a timestamped model with relations against sqlite.
+
+## Models (schema v2)
+
+`models[].columns[].sql` (`ColumnSqlSpec`) is the column's type family plus what `@Column` states (length, precision,
+scale, default, unique, autoIncrement, version). `inferred: true` marks a family taken from the TypeScript type
+because `@Column` did not state one (or is absent); the other members are never inferred. `enum` is never inferred.
+`relations[]` carry `foreignKey`, `primaryKey` and, for many-to-many, `junction { model, sourceKey, targetKey }`. A key
+that defaults to a primary key is left out: it is the primary key of the target (`belongsTo`) or of the owner
+(`hasMany`, `hasManyToMany`). `indexes`, `version` (the `@Version` column) and `exhaustive` are optional.
+
+`diffManifest` has a `models` section keyed `<connection>:<table>` over the union of the models on that table. A
+removed table or column, a column made NOT NULL, an explicit family change, or a smaller length, precision or scale
+is breaking.
