@@ -225,7 +225,7 @@ The triage of `users-http`, `teams-http` and `authz-http-admin` left these diagn
 | `SCH001` warning | `@spinajs/orm` `MetadataModel.Value` (`orm/src/metadata.ts`), reached through `users-http` `FilterableUserMetadata` | The `Value` accessor is typed `any`. | Type it `unknown` in `@spinajs/orm`. Out of scope for the triage: the type change reaches every metadata consumer. |
 | `SCH001` info | `users-http` (5) and `authz-http-admin` (4) | Opaque by design: `unknown` values (`UserProfile.AdditionalData`, `CreateUserDto.Metadata`, link `attributes`) and models read from `@spinajs/users` declaration files (`User`, `UserMetadataBase`, `FilterableUserMetadata`). | None needed. |
 
-`runDoctor` runs consistency rules over a manifest and is exported from the same package. Its rules are `DI001` to `DI003`, `HTTP001` to `HTTP006` (duplicate, unguarded, shadowed and ambiguous routes, and `@Public` markers), `CFG001` to `CFG003`, `BLD001`, `ORM001`, `SCH003` and `SOCK001` to `SOCK006`; `spinajs doctor` adds `DOCTOR` when it cannot read the manifest. Each is listed with its severity in [doctor](doctor.md#rules).
+`runDoctor` runs consistency rules over a manifest and is exported from the same package. Its rules are `DI001` to `DI003`, `HTTP001` to `HTTP007` (duplicate, unguarded, shadowed and ambiguous routes, `@Public` markers, and pages without a page parameter), `CFG001` to `CFG003`, `BLD001`, `ORM001`, `SCH003` and `SOCK001` to `SOCK006`; `spinajs doctor` adds `DOCTOR` when it cannot read the manifest. Each is listed with its severity in [doctor](doctor.md#rules).
 
 ## TypeScript version
 

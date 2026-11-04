@@ -2,6 +2,7 @@ import { loadsFromManifest, publishedManifest } from './mounted.js';
 import { controllerKey } from './client-names.js';
 import { canonicalize } from './hash.js';
 import { compareSchemaRefs } from './schema-compare.js';
+import { comparePagination } from './pagination-diff.js';
 import type { Finding } from './schema-compare.js';
 import type { ControllerEntry, Manifest, ParamEntry, PolicyRef, RouteEntry, TypeRef } from './types.js';
 
@@ -95,6 +96,7 @@ function compareRoute(b: RouteRef, h: RouteRef, base: Manifest, head: Manifest):
     ...compareClientName(b, h),
     ...compareParams(b.route, h.route, base, head),
     ...compareTypes(b.route.returnType, h.route.returnType, 'response', 'response', base, head),
+    ...comparePagination(b.route, h.route),
   ];
 }
 

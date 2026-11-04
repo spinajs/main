@@ -8,6 +8,7 @@ import { publicContradictsGuard } from './public-contradicts-guard.js';
 import { doubleSlashPath } from './double-slash-path.js';
 import { shadowedRoute } from './shadowed-route.js';
 import { ambiguousBody } from './ambiguous-body.js';
+import { pageWithoutParam } from './page-without-param.js';
 import { configUsageWithoutSchema } from './config-usage-without-schema.js';
 import { dirsMissing } from './dirs-missing.js';
 import { conditionUnmet } from './condition-unmet.js';
@@ -26,6 +27,7 @@ export const DEFAULT_RULES: DoctorRule[] = [
   doubleSlashPath,
   shadowedRoute,
   ambiguousBody,
+  pageWithoutParam,
   configUsageWithoutSchema,
   dirsMissing,
   conditionUnmet,
@@ -45,6 +47,7 @@ export {
   doubleSlashPath,
   shadowedRoute,
   ambiguousBody,
+  pageWithoutParam,
   configUsageWithoutSchema,
   dirsMissing,
   conditionUnmet,

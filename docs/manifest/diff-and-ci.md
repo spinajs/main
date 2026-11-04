@@ -90,6 +90,20 @@ A rename under the same `METHOD fullPath` is a `changed` entry with the detail `
 
 A parameter is identified by where it travels (query key, header, whole body), so renaming the argument in code while the wire name stays the same is not a change. Arguments the framework injects (the request, the response, DI values, models loaded with `@FromModel`) are not request parameters and are ignored.
 
+### Pagination
+
+A route that returns the `@spinajs/http` `Page<T>` or `CursorPage<T>` carries `pagination` (see [`RouteEntry.pagination`](README.md#route-pagination)). A generated client pages through the route by it, so the routes section compares it too:
+
+| Change | Breaking | Detail |
+| --- | --- | --- |
+| Pagination removed | yes | `no longer paginated (was offset)` |
+| Kind changed (`offset` to `cursor` or back) | yes | `pagination changed from offset to cursor` |
+| Page parameter removed while the route still returns a page | yes | `page parameter query.page removed: the client can no longer page through the route` |
+| First page changed (`firstPage`, 1 when absent) | yes | `first page changed from 1 to 0` |
+| Pagination added | no | `now paginated (offset)` |
+
+Adding pagination is not breaking on its own, but the reply changes with it: an array reply that becomes `{ items, total }` is reported as breaking by the schema rules below, in the same row. A page parameter that moves to another argument or property is not compared as pagination: a removed value argument shows as a removed parameter, but a property dropped from a JSON query object is only a request schema change, which is not breaking. `item` and `size` are not compared.
+
 ### Schema directions
 
 Types are compared structurally through the schemas the build derived, following `$ref`, `allOf`, unions and recursive types.

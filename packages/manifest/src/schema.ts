@@ -594,6 +594,9 @@ export const manifestSchema: Record<string, any> = {
         "returnType": {
           "$ref": "#/definitions/TypeRef"
         },
+        "pagination": {
+          "$ref": "#/definitions/RoutePagination"
+        },
         "policies": {
           "type": "array",
           "items": {
@@ -787,6 +790,52 @@ export const manifestSchema: Record<string, any> = {
         "json",
         "whole",
         "field"
+      ]
+    },
+    "RoutePagination": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "offset",
+            "cursor"
+          ]
+        },
+        "item": {
+          "$ref": "#/definitions/TypeRef"
+        },
+        "param": {
+          "$ref": "#/definitions/PaginationParam"
+        },
+        "size": {
+          "$ref": "#/definitions/PaginationParam"
+        },
+        "firstPage": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "item"
+      ]
+    },
+    "PaginationParam": {
+      "type": "object",
+      "properties": {
+        "arg": {
+          "type": "string"
+        },
+        "path": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "arg",
+        "path"
       ]
     },
     "MountedBy": {

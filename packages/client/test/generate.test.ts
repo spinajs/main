@@ -42,6 +42,12 @@ describe('generateClient', () => {
     expect(output).to.equal(readFileSync(snapshotPath, 'utf8'));
   });
 
+  it('ignores route pagination', async () => {
+    const paged: Manifest = JSON.parse(JSON.stringify(manifest)) as Manifest;
+    for (const route of paged.controllers.flatMap((c) => c.routes)) route.pagination = { kind: 'cursor', item: { text: 'UserDto' }, param: { arg: 'query', path: ['cursor'] } };
+    expect(await generateClient({ manifest: paged })).to.equal(readFileSync(snapshotPath, 'utf8'));
+  });
+
   it('type-checks with zero errors', () => {
     expect(typecheck(output)).to.deep.equal([]);
   });

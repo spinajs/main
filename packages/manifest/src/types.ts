@@ -92,6 +92,25 @@ export interface ParamEntry {
 
 export interface PolicyRef { type: string; options?: unknown[] }
 
+/**
+ * `arg` is the `ParamEntry.name` of the route argument, the code name, not the wire key: read how the value travels from
+ * that entry's `wire`. `path` is the property inside an object argument, `[]` for the argument itself.
+ */
+export interface PaginationParam { arg: string; path: string[] }
+
+/** On a route whose reply is the `@spinajs/http` `Page<T>` (`offset`) or `CursorPage<T>` (`cursor`). */
+export interface RoutePagination {
+  kind: 'offset' | 'cursor';
+  /** Schema of one item, so the client can type `items` without unwrapping the page schema. */
+  item: TypeRef;
+  /** Where the page parameter travels: `page` for `offset`, `cursor` or `after` for `cursor`. Absent when the route has none (doctor HTTP007). */
+  param?: PaginationParam;
+  /** Where the page size travels: `pageSize`, `perPage` or `limit`. */
+  size?: PaginationParam;
+  /** First page index for `offset`, from the parameter schema's `minimum` (0 or 1); default 1. */
+  firstPage?: number;
+}
+
 export interface RouteEntry {
   method: 'get' | 'post' | 'put' | 'patch' | 'delete' | 'head' | 'file';
   path: string;
@@ -104,6 +123,8 @@ export interface RouteEntry {
   fullPath: string;
   params: ParamEntry[];
   returnType: TypeRef;
+  /** Absent on a route that does not return a page. */
+  pagination?: RoutePagination;
   policies: PolicyRef[][];           // groups: OR between groups, AND inside
   middlewares: { type: string; options?: unknown[] }[];
   access?: string[];                 // @Access permissions (authz-http)
