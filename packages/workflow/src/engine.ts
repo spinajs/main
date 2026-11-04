@@ -9,6 +9,7 @@ import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
 import { ActivationContext } from './context.js';
 import type { SerializedError } from './contract.js';
 import { isCrash, LeaseLostError, NonDeterminismError, serializeError, type AbortReason } from './errors.js';
+import { missingVersions } from './health.js';
 import { identifierProblem } from './identifier.js';
 import { Journal } from './journal.js';
 import { safeStringify } from './json.js';
@@ -34,6 +35,7 @@ interface Activation {
 
 const MAX_REPLICA_ID = 64;
 const DUE_STATUSES = ['running', 'sleeping', 'waiting'];
+const PARKED = new Set(['running', 'sleeping', 'waiting']);
 const INTERRUPTION_REASON = { fail: 'fail', timeout: 'timeout', nondeterminism: 'non-determinism' } as const;
 
 let processReplicaId: string | undefined;
@@ -140,6 +142,7 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
   /** Rejects with the first crash of an activation, once every activation settled: the replica is dead (crash contract). */
   public async tick(): Promise<void> {
     const now = await this.Clock.sync();
+    await this.warnMissingVersions();
     const defs = this.Registry.all();
     const free = this.config.concurrency - this.active.size;
     if (free <= 0 || defs.length === 0) return;
@@ -153,6 +156,13 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
     }
     const crash = (await Promise.allSettled(launched)).find((r) => r.status === 'rejected');
     if (crash) throw crash.reason;
+  }
+
+  /** D5: an instance of an unregistered version stays untouched, so it is reported on every tick. */
+  protected async warnMissingVersions(): Promise<void> {
+    for (const m of await missingVersions(this.Registry)) {
+      this.warn(`workflow '${m.workflow}' version ${m.version} is not registered; ${m.instances} unfinished instance(s) stay untouched`);
+    }
   }
 
   /**
@@ -327,12 +337,20 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
     const decision = await this.decide(row, ctx, journal, outcome, signal);
     if (decision.kind === 'discard') return;
     try {
-      if (decision.kind === 'write') await this.store.update(row.Id, ctx.epoch, { ...decision.patch, Attempt: row.Attempt + 1, UpdatedAt: this.Clock.now() });
+      if (decision.kind === 'write') {
+        await this.store.update(row.Id, ctx.epoch, { ...decision.patch, Attempt: row.Attempt + 1, UpdatedAt: this.Clock.now() });
+        if (PARKED.has(decision.patch.Status as string)) await this.wakeIfCancelled(row.Id, ctx.epoch);
+      }
       await this.store.release(row.Id, ctx.epoch);
     } catch (err) {
       if (!(err instanceof LeaseLostError)) throw err;
       this.warn(`workflow instance ${row.Id}: the lease was lost before the activation was recorded`);
     }
+  }
+
+  /** A cancel() that landed while this activation parked set WakeAt, which the park just overwrote. */
+  protected async wakeIfCancelled(instanceId: string, epoch: number): Promise<void> {
+    await WorkflowInstanceModel.update({ WakeAt: this.Clock.now() }).where(this.store.fence(instanceId, epoch)).where('CancelRequested', true);
   }
 
   protected async decide(row: WorkflowInstanceModel, ctx: ActivationContext, journal: Journal, outcome: Outcome, signal: AbortSignal): Promise<Decision> {

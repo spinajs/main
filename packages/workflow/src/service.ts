@@ -1,13 +1,15 @@
 import { Autoinject, DI, Injectable, Singleton, type Constructor } from '@spinajs/di';
 import { DbClock, quoteFor, sqlDialect, type RawSqlDriver } from '@spinajs/durable';
-import { InvalidArgument, NotSupported } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import { UniqueViolation } from '@spinajs/orm';
 import { v4 as uuidv4 } from 'uuid';
 import type { StartOptions, WorkflowInstanceView, WorkflowStatus } from './contract.js';
-import { WorkflowIdConflict, WorkflowStartConflict } from './errors.js';
+import { WorkflowIdConflict, WorkflowNotFound, WorkflowStartConflict } from './errors.js';
+import { missingVersions } from './health.js';
 import { identifierProblem } from './identifier.js';
 import { safeStringify } from './json.js';
 import { WorkflowInstanceModel } from './models/WorkflowInstanceModel.js';
+import { WorkflowStepModel } from './models/WorkflowStepModel.js';
 import { WorkflowRegistry, type WorkflowDefinition } from './registry.js';
 import { selectRows, workflowDriver } from './sql.js';
 
@@ -63,6 +65,9 @@ export function toView(r: WorkflowInstanceModel): WorkflowInstanceView {
 }
 
 const MAX_ID = 128;
+const MAX_REASON = 64;
+const CANCELLABLE: WorkflowStatus[] = ['running', 'sleeping', 'waiting'];
+const MAX_PAGE = 500;
 
 function inputColumn(input: unknown): string | null {
   if (input === null || input === undefined) return null;
@@ -129,20 +134,47 @@ export class DefaultWorkflowService extends WorkflowService {
     return Promise.reject(new NotSupported('WorkflowService.signal()'));
   }
 
-  public cancel(): Promise<void> {
-    return Promise.reject(new NotSupported('WorkflowService.cancel()'));
+  /** WakeAt = now makes a parked instance due at once; a compensating or finished instance is left alone. */
+  public async cancel(instanceId: string, reason = 'cancelled'): Promise<void> {
+    const now = await this.now();
+    // cut by code point: a split surrogate pair is not valid utf8mb4
+    const stored = Array.from(reason).slice(0, MAX_REASON).join('');
+    const r = await WorkflowInstanceModel.update({ CancelRequested: true, Reason: stored, WakeAt: now, UpdatedAt: now })
+      .where('Id', instanceId)
+      .whereIn('Status', CANCELLABLE);
+    if (r.RowsAffected === 1) return;
+    if (!(await WorkflowInstanceModel.where('Id', instanceId).onPrimary().first())) throw new WorkflowNotFound(instanceId);
   }
 
-  public retry(): Promise<void> {
-    return Promise.reject(new NotSupported('WorkflowService.retry()'));
+  public async retry(instanceId: string): Promise<void> {
+    const row = await WorkflowInstanceModel.where('Id', instanceId).onPrimary().first();
+    if (!row) throw new WorkflowNotFound(instanceId);
+    if (row.Status !== 'failed') throw new InvalidOperation(`workflow instance '${instanceId}' is ${row.Status}; only a failed instance can be retried`);
+    const now = await this.now();
+    const driver = await workflowDriver();
+    await driver.transaction(async () => {
+      const r = await WorkflowInstanceModel.update({ Status: 'running', Reason: null, Error: null, WakeAt: null, WaitingFor: null, FinishedAt: null, UpdatedAt: now }).where({ Id: instanceId, Status: 'failed' });
+      if (r.RowsAffected !== 1) throw new InvalidOperation(`workflow instance '${instanceId}' changed while it was being retried`);
+      const failed = await WorkflowStepModel.where({ InstanceId: instanceId, Status: 'failed' }).whereIn('Kind', ['step', 'emit']);
+      for (const step of failed) {
+        // a fresh attempt budget and no stale backoff; Meta.after keeps the journal causal for the replay
+        const after = step.Meta?.after;
+        await WorkflowStepModel.update({ Status: 'retrying', Attempt: 0, Meta: after === undefined ? null : { after } }).where('Id', step.Id);
+      }
+    });
   }
 
-  public list(): Promise<WorkflowInstanceView[]> {
-    return Promise.reject(new NotSupported('WorkflowService.list()'));
+  public async list(filter: ListFilter): Promise<WorkflowInstanceView[]> {
+    const query = WorkflowInstanceModel.query();
+    if (filter.workflow !== undefined) query.where('Workflow', filter.workflow);
+    if (filter.status?.length) query.whereIn('Status', filter.status);
+    if (filter.after !== undefined) query.where('Id', '>', filter.after);
+    const rows = await query.orderBy('Id').take(Math.min(Math.max(Math.floor(filter.limit ?? 50), 1), MAX_PAGE));
+    return rows.map(toView);
   }
 
-  public health(): Promise<{ missingVersions: MissingVersion[] }> {
-    return Promise.reject(new NotSupported('WorkflowService.health()'));
+  public async health(): Promise<{ missingVersions: MissingVersion[] }> {
+    return { missingVersions: await missingVersions(await this.registry()) };
   }
 
   /**
