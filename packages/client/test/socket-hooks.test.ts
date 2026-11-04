@@ -81,14 +81,14 @@ describe('socket hooks', () => {
   });
 
   it('writes client.socket.ts for either hooks library and client.socket-swr.ts only with SWR', async () => {
-    expect(Object.keys(await socketFiles(manifest, { hooks: ['react-query'] }))).to.deep.equal(['client.ts', 'client.keys.ts', 'client.react.ts', 'client.socket.ts']);
-    expect(Object.keys(await socketFiles(manifest, { hooks: ['swr'] }))).to.deep.equal(['client.ts', 'client.keys.ts', 'client.react.ts', 'client.socket.ts', 'client.socket-swr.ts']);
+    expect(Object.keys(await socketFiles(manifest, { hooks: ['react-query'] }))).to.deep.equal(['client.ts', 'client.keys.ts', 'client.react.ts', 'client.queries.ts', 'client.react-query.ts', 'client.socket.ts']);
+    expect(Object.keys(await socketFiles(manifest, { hooks: ['swr'] }))).to.deep.equal(['client.ts', 'client.keys.ts', 'client.react.ts', 'client.swr.ts', 'client.socket.ts', 'client.socket-swr.ts']);
     expect((await socketFiles(manifest, { hooks: ['react-query'] }))['client.socket.ts']).to.equal(files['client.socket.ts']);
   });
 
   it('leaves every other file as it is without socketHooks', async () => {
     const without = await socketFiles(manifest, { socketHooks: false });
-    expect(Object.keys(without)).to.deep.equal(['client.ts', 'client.keys.ts', 'client.react.ts']);
+    expect(Object.keys(without)).to.deep.equal(['client.ts', 'client.keys.ts', 'client.react.ts', 'client.queries.ts', 'client.react-query.ts', 'client.swr.ts']);
     for (const [path, contents] of Object.entries(without)) expect(files[path], path).to.equal(contents);
   });
 
@@ -97,6 +97,10 @@ describe('socket hooks', () => {
       expect(typecheckFiles({ ...files, 'app.ts': typedApp }, { noUnusedLocals: true, react })).to.deep.equal([]);
     });
   }
+
+  it('type-checks client.socket-swr.ts against the swr peer floor (2.2.0)', () => {
+    expect(typecheckFiles({ ...files, 'app.ts': typedApp }, { noUnusedLocals: true, swr: 'floor' })).to.deep.equal([]);
+  });
 
   it('fails to compile against a client.ts generated from another manifest', () => {
     const stale = files['client.ts'].replace(`manifestHash = '${manifest.hash}'`, "manifestHash = 'other'");
