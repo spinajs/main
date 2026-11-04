@@ -1,5 +1,8 @@
 import type { PermissionRegistry } from '@spinajs/authz';
-import type { FragmentBinding, IRFragment, Rewrite, TypeDef } from '@spinajs/authz-ir';
+import type { FragmentBinding, IRFragment, ObjectRef, Rewrite, TupleSource, TupleSubjectRef, TypeDef } from '@spinajs/authz-ir';
+
+import type { TupleStore, TupleSubject } from './contracts.js';
+import { isSubjectSet } from './keys.js';
 
 import type { CompiledRewrite, NamespaceSchema } from './namespace/compile.js';
 
@@ -43,4 +46,20 @@ function toRewrite(r: CompiledRewrite): Rewrite {
     case 'exclusion':
       return { exclusion: { base: toRewrite(r.base), subtract: toRewrite(r.subtract) } };
   }
+}
+
+const subjectRef = (s: TupleSubject): TupleSubjectRef => (isSubjectSet(s) ? { type: s.object.type, id: s.object.id ?? '', relation: s.relation } : { type: s.type, id: s.id });
+
+/** The IR evaluator's view of a ReBAC tuple store; ReBAC relations have no columns. */
+export function rebacTupleSource(store: TupleStore): TupleSource {
+  return {
+    async *read(object: ObjectRef, relation: string): AsyncIterable<TupleSubjectRef> {
+      for (const t of await store.read(object, relation)) yield subjectRef(t.subject);
+    },
+    async *reverse(subject: TupleSubjectRef, relation: string, objectType: string): AsyncIterable<ObjectRef> {
+      const s: TupleSubject = subject.relation === undefined ? { type: subject.type, id: subject.id } : { object: { type: subject.type, id: subject.id }, relation: subject.relation };
+      for (const o of await store.reverse(s, relation, objectType)) yield { type: o.type, id: o.id ?? '' };
+    },
+    column: () => Promise.resolve(undefined),
+  };
 }

@@ -1,25 +1,12 @@
 import * as chai from 'chai';
 import 'mocha';
 import { IREvaluator, mergeFragments, validateIR } from '@spinajs/authz-ir';
-import type { ObjectRef, TupleSource, TupleSubjectRef } from '@spinajs/authz-ir';
 import { FakePermissionRegistry } from '@spinajs/authz-testing';
 
-import { NamespaceSchema, RebacModel, isSubjectSet, rebacToIR } from '../src/index.js';
-import type { TupleStore } from '../src/index.js';
+import { NamespaceSchema, RebacModel, rebacTupleSource, rebacToIR } from '../src/index.js';
 import { NAMESPACES, PERMISSIONS, PERMISSION_INPUTS, setup } from './support/world.js';
 
 const expect = chai.expect;
-
-/** The IR evaluator's view of a TupleStore. */
-function source(store: TupleStore): TupleSource {
-  return {
-    async *read(object: ObjectRef, relation: string): AsyncIterable<TupleSubjectRef> {
-      for (const t of await store.read(object, relation)) yield isSubjectSet(t.subject) ? { type: t.subject.object.type, id: t.subject.object.id!, relation: t.subject.relation } : { type: t.subject.type, id: t.subject.id };
-    },
-    async *reverse(): AsyncIterable<ObjectRef> {},
-    column: () => Promise.resolve(undefined),
-  };
-}
 
 describe('authz-rebac: rebacToIR', () => {
   const schema = NamespaceSchema.compile(NAMESPACES, PERMISSIONS);
@@ -52,7 +39,7 @@ describe('authz-rebac: rebacToIR', () => {
 
   it('agrees with RebacModel.check on every user, permission and object of the fixture', async () => {
     const s = await setup();
-    const ev = new IREvaluator(mergeFragments([rebacToIR(schema)]).ir, source(s.store));
+    const ev = new IREvaluator(mergeFragments([rebacToIR(schema)]).ir, rebacTupleSource(s.store));
     const users = ['alice', 'bob', 'olga', 'carol', 'frank', 'eve'];
     const objects = [...['d1', 'd2', 'd3'].map((id) => ({ type: 'doc', id })), ...['f0', 'f1'].map((id) => ({ type: 'folder', id }))];
     for (const [permission, target] of Object.entries(PERMISSIONS)) {
