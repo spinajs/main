@@ -4,7 +4,10 @@
     "rootDir": "./",
     "outDir": "./lib",
     "module": "node16",
-    "moduleResolution": "node16"
+    "moduleResolution": "node16",
+    "paths": {
+      "next/cache": ["./test/support/next-cache.d.ts"]
+    }
   },
   "include": [
     "src/**/*",

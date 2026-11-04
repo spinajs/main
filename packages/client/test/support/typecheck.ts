@@ -52,7 +52,7 @@ export function typecheck(source: string): string[] {
   return typecheckFiles({ 'client.ts': source });
 }
 
-/** Type-checks a set of files written side by side, with the types of React, React Query, swr and the socket client available. */
+/** Type-checks a set of files written side by side, with the types of React, React Query, swr, the socket client and a next/cache stub available. */
 export function typecheckFiles(files: Record<string, string>, options: TypecheckOptions = {}): string[] {
   const dir = mkdtempSync(join(tmpdir(), 'client-gen-'));
   try {
@@ -84,6 +84,7 @@ export function typecheckFiles(files: Record<string, string>, options: Typecheck
         react: [reactTypes(options.react ?? 19)],
         ...swrTypes(options.swr ?? 'latest'),
         '@tanstack/react-query': [reactQueryTypes(options.reactQuery ?? 'latest')],
+        'next/cache': [fileURLToPath(new URL('./next-cache.d.ts', import.meta.url))],
       },
     });
     return ts.getPreEmitDiagnostics(program).map((d) => `${d.file ? `${d.file.fileName.slice(dir.length + 1)}: ` : ''}${ts.flattenDiagnosticMessageText(d.messageText, '\n')}`);
