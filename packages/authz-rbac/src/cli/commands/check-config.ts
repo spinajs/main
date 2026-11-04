@@ -42,7 +42,7 @@ export class CheckConfigCommand extends AuthzCliCommand {
 
   /**
    * Validating loads the role stores and boots AuthzService, which loads the rule stores; the config-backed defaults
-   * need no database. A role store the app registers may be DB-backed, so it gets the migrator.
+   * need no database. A role store the app registers may be DB-backed, so it gets the Orm.
    */
   protected touchesDb(): boolean {
     if (!this.Roles && this.Container.hasRegistered(RoleStore)) return true;

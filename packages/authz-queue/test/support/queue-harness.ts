@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 import { DI } from '@spinajs/di';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/orm-sqlite';
 import { DefaultQueueService, Job, QueueClient, QueueJob, QueueMessageHook, QueueService, QueueTrackingHook } from '@spinajs/queue';
@@ -194,6 +194,7 @@ export function queueHarness(): BehaviourHarness {
           DI.uncache(MemoryQueueClient);
           DI.uncache(Orm);
           DI.uncache(OrmMigrator);
+          DI.uncache(OrmMigrationGuard);
           forgetHooks();
         },
       };

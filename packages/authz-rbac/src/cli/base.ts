@@ -8,8 +8,7 @@ import '../admin/index.js';
 
 /**
  * Resolves AuthzService only when the command runs it, so a failing authz boot becomes a message; tests set `Authz`.
- * A command whose run touches the RBAC DB stores resolves the `Orm` first, which applies the
- * `Migration.OnStartup` migrations an app process applies before serving.
+ * A command whose run touches the RBAC DB stores resolves the Orm first, which boots the models the DB stores query.
  */
 export abstract class AuthzCliCommand extends AuthzCliBase {
   public Authz?: AuthzService;
@@ -22,7 +21,7 @@ export abstract class AuthzCliCommand extends AuthzCliBase {
   protected async authz(): Promise<AuthzService> {
     if (!this.Authz) {
       if (this.touchesDb()) {
-        await (await this.Container.resolve<Orm>(Orm)).Migrator.ready();
+        await this.Container.resolve(Orm);
       }
       this.Authz = await this.Container.resolve<AuthzService>(AuthzService);
     }

@@ -12,7 +12,7 @@ import type { Class, IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
@@ -359,6 +359,7 @@ export async function stopUsersHttpApp(): Promise<void> {
   // fsTemp's cleanup interval would keep the mocha process alive after the last suite.
   for (const provider of DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES)?.values() ?? []) await provider.dispose();
   DI.uncache(OrmMigrator);
+  DI.uncache(OrmMigrationGuard);
   DI.uncache(Orm);
   for (const undo of rootUndo.splice(0).reverse()) undo();
   await testHost.uninstallHost();

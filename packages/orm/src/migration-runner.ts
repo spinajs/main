@@ -89,12 +89,6 @@ export interface IMigrationUpResult {
 
 export interface IMigrationUpOptions {
   /**
-   * Run even for connections whose `Migration.OnStartup` is off. Public callers ( CLI, an
-   * explicit `OrmMigrator.migrate()` ) default to true; only the migrator's boot pass passes false.
-   */
-  force?: boolean;
-
-  /**
    * Record the migrations as applied without running them.
    */
   fake?: boolean;
@@ -159,7 +153,7 @@ export class MigrationRunner {
    */
   public async withRunLock<R>(connection: string | undefined, fn: () => Promise<R>, name?: string): Promise<R> {
     return await this.holdRunLocks(
-      this.plan(name, true, connection, true).map(([driver]) => driver),
+      this.plan(name, connection, true).map(([driver]) => driver),
       fn,
     );
   }
@@ -248,7 +242,7 @@ export class MigrationRunner {
    * The whole call holds one lock per connection ( `withRunLock()` ), taken before anything is read.
    */
   public async up(name?: string, options?: IMigrationUpOptions): Promise<IMigrationUpResult> {
-    const groups = this.plan(name, options?.force ?? true, options?.connection);
+    const groups = this.plan(name, options?.connection);
     return await this.locking(groups, options, () => this.applyUp(groups, options));
   }
 
@@ -282,13 +276,13 @@ export class MigrationRunner {
    * Read-only: no tracking table is created, no lock is taken and no migration runs.
    */
   public async pending(name?: string, connection?: string): Promise<IMigrationPlanEntry[]> {
-    const groups = this.plan(name, true, connection);
+    const groups = this.plan(name, connection);
     const planned = new Set(groups.map(([driver]) => driver));
     const next = new Map<OrmDriver, number>();
     const failed: IMigrationPlanEntry[] = [];
 
     // every migration of the connection, not only `name`: the batch, and the failed rows that block `name`, follow from all of them
-    for (const [driver, units] of this.plan(undefined, true, connection, true)) {
+    for (const [driver, units] of this.plan(undefined, connection, true)) {
       const status = await (await this.service(driver)).status(units, { readOnly: true });
       const batch = Math.max(0, ...status.filter((e) => e.applied).map((e) => e.batch ?? 0)) + 1;
       next.set(driver, batch);
@@ -387,7 +381,7 @@ export class MigrationRunner {
    * service contract, so it is deliberately not done inside this facade.
    */
   public async down(name?: string, options?: IMigrationDownFacadeOptions): Promise<OrmMigration[]> {
-    const groups = this.plan(name, options?.force ?? true, options?.connection);
+    const groups = this.plan(name, options?.connection);
 
     return await this.locking(groups, options, async () => {
       const executed: OrmMigration[] = [];
@@ -404,9 +398,7 @@ export class MigrationRunner {
   public async status(options: IMigrationRunnerStatusOptions = {}): Promise<IMigrationStatusEntry[]> {
     const entries: IMigrationStatusEntry[] = [];
 
-    // force: a status report that hid the connections with OnStartup off would answer "nothing
-    // to see" for exactly the connections somebody is most likely asking about
-    for (const [driver, units] of this.plan(undefined, true, options.connection)) {
+    for (const [driver, units] of this.plan(undefined, options.connection)) {
       const service = await this.service(driver);
       entries.push(...(await service.status(units, { readOnly: options.readOnly })));
     }
@@ -423,7 +415,7 @@ export class MigrationRunner {
    * It holds the connection's run lock, so it cannot rewrite a row under a run in progress.
    */
   public async resolve(name: string, action: MigrationResolveAction): Promise<void> {
-    for (const [driver, units] of this.plan(name, true)) {
+    for (const [driver, units] of this.plan(name)) {
       const unit = units.find((u) => u.name === name);
 
       if (unit) {
@@ -460,7 +452,7 @@ export class MigrationRunner {
    *
    * `quiet` drops the skip warnings, for a caller that plans the same run a second time.
    */
-  protected plan(name: string | undefined, force: boolean, connection?: string, quiet = false): Array<[OrmDriver, IMigrationUnit[]]> {
+  protected plan(name: string | undefined, connection?: string, quiet = false): Array<[OrmDriver, IMigrationUnit[]]> {
     const log = quiet ? undefined : this.Log;
 
     // `ClassInfo.name` is the migration's identity everywhere else in the system - it is what the
@@ -513,7 +505,6 @@ export class MigrationRunner {
     }
 
     const groups = new Map<OrmDriver, IMigrationUnit[]>();
-    const gated = new Set<OrmDriver>();
 
     for (const u of units) {
       // chain-walking, deliberately: a subclass is still the same migration on the same
@@ -521,9 +512,9 @@ export class MigrationRunner {
       // Orm.discoverMigrations() ), Connection is meant to be inherited.
       const md = extractMigrationDescriptor(u.type);
 
-      // none of the three skips below throws: a connection missing from this deployment's
-      // configuration, or switched off for startup, is a normal state - taking the whole boot
-      // down over it would be worse than running what can be run
+      // none of the skips below throws: a connection missing from this deployment's
+      // configuration is a normal state - refusing the whole run over it would be worse than
+      // running what can be run
       if (!md?.Connection) {
         log?.warn({ migration: u.name }, "Migration ${migration} has no connection assigned ( missing @Migration('connection') decorator ) and is skipped");
         continue;
@@ -536,21 +527,9 @@ export class MigrationRunner {
         continue;
       }
 
-      // silently, and before the OnStartup gate below: the operator asked for one connection, so
-      // a line per migration on every OTHER connection is noise, and the gate warning in
-      // particular would name connections this run was never going to touch
+      // silently: the operator asked for one connection, so a line per migration on every OTHER
+      // connection is noise
       if (only && driver !== only) {
-        continue;
-      }
-
-      if (!driver.Options.Migration?.OnStartup && !force) {
-        // the gate belongs to the connection, not to the migration, so it is reported once -
-        // repeating it per migration turns a boot log into noise nobody reads
-        if (!gated.has(driver)) {
-          gated.add(driver);
-          log?.warn({ connection: md.Connection }, 'Migration for connection ${connection} is disabled on startup, please check conf file for db.[connection].Migration.OnStartup property');
-        }
-
         continue;
       }
 

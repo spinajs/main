@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Bootstrapper, DI } from '@spinajs/di';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import type { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
@@ -31,7 +31,7 @@ export class OrmStoreTestConfiguration extends FrameworkConfiguration {
 
 // Configuration stays cached: InternalLogger flushes its buffer only on the first resolve, so a re-resolved
 // Configuration would leave its boot log in the buffer to be dumped on exit.
-const OWNED: unknown[] = [Orm, OrmMigrator, EmailVerificationStore, OrmEmailVerificationStore];
+const OWNED: unknown[] = [Orm, OrmMigrator, OrmMigrationGuard, EmailVerificationStore, OrmEmailVerificationStore];
 let registered = false;
 let current: { orm: Orm; store: OrmEmailVerificationStore } | undefined;
 

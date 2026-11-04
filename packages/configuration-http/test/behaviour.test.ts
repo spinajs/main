@@ -3,7 +3,7 @@ import { SYSTEM, authz } from '@spinajs/authz';
 import { hostHarness, runBehaviour } from '@spinajs/authz-testing';
 import { DbConfig, resetSystemPrincipal } from '@spinajs/configuration-db-source';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/log';
 
@@ -65,6 +65,7 @@ runBehaviour(
             orm.dispose();
             DI.uncache(Orm);
             DI.uncache(OrmMigrator);
+            DI.uncache(OrmMigrationGuard);
             DI.uncache('orm-driver-sqlite');
             DI.unregister(SqliteOrmDriver);
             resetSystemPrincipal();

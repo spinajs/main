@@ -3,7 +3,7 @@ import '@spinajs/orm-sqlite';
 
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 // Side-effect imports: the migrations and the models register themselves, and must before the Orm resolves.
@@ -64,6 +64,7 @@ after(async function () {
   for (const fn of closers.splice(0).reverse()) await fn();
   DI.RootContainer.uncache(Orm);
   DI.RootContainer.uncache(OrmMigrator);
+  DI.RootContainer.uncache(OrmMigrationGuard);
   await db.orm.dispose();
   await testHost.uninstallHost();
   opened = undefined;

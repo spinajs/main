@@ -85,7 +85,8 @@ function ormSuite(kind: DbKind): void {
       DI.register(FakeConfiguration).as(Configuration);
       DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
       config = (await DI.resolve(Configuration)) as Configuration;
-      config.set(['db'], { DefaultConnection: main.Name, Connections: [main, sqlite('other'), sqlite('nocase')] });
+      // MigrationCheck off: the boot would otherwise refuse the pending migrations this suite applies by hand
+      config.set(['db'], { DefaultConnection: main.Name, MigrationCheck: 'off', Connections: [main, sqlite('other'), sqlite('nocase')] });
       orm = (await DI.resolve(Orm)) as Orm;
       db = orm.Connections.get('default')!;
       await new AuthzFsAcl_2026_10_17_00_00_00().up(db);

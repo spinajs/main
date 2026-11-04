@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Bootstrapper, DI } from '@spinajs/di';
-import { Orm, OrmDriver, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmDriver, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { SessionIssuer } from '@spinajs/authn/contracts';
@@ -40,7 +40,7 @@ export class DbSessionTestConfiguration extends FrameworkConfiguration {
 }
 
 /** Types these tests resolve; uncached between boots instead of a blanket DI.clearCache(). */
-const OWNED_TYPES: unknown[] = [Configuration, DbSessionTestConfiguration, Orm, OrmMigrator, SessionProvider, DbSessionStore, SessionExpirationProvider, AbsoluteExpiration, SlidingExpiration, SlidingCappedExpiration, DefaultSessionIssuer, SessionIssuer];
+const OWNED_TYPES: unknown[] = [Configuration, DbSessionTestConfiguration, Orm, OrmMigrator, OrmMigrationGuard, SessionProvider, DbSessionStore, SessionExpirationProvider, AbsoluteExpiration, SlidingExpiration, SlidingCappedExpiration, DefaultSessionIssuer, SessionIssuer];
 
 let registered = false;
 let current: { orm: Orm; store: DbSessionStore } | undefined;

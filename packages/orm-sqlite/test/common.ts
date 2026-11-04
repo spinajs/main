@@ -6,7 +6,7 @@
 /* eslint-disable @typescript-eslint/no-floating-promises */
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Orm, MigrationRunner, MigrationTransactionMode, resolveMigrationTool } from '@spinajs/orm';
+import { Orm, MigrationRunner, MigrationTransactionMode } from '@spinajs/orm';
 import _ from 'lodash';
 import { mergeArrays } from './util.js';
 import '@spinajs/log';
@@ -33,6 +33,7 @@ export class ConnectionConf2 extends FrameworkConfiguration {
         db: {
           // In-memory database: the tables come from migrations().up() or test DDL after the Orm boots.
           StrictTableCheck: false,
+          MigrationCheck: 'off',
           Migration: {
             Startup: false,
           },
@@ -78,6 +79,7 @@ export class ConnectionConf extends FrameworkConfiguration {
         db: {
           // In-memory database: the tables come from migrations().up() or test DDL after the Orm boots.
           StrictTableCheck: false,
+          MigrationCheck: 'off',
           Connections: [
             {
               Driver: 'orm-driver-sqlite',
@@ -99,7 +101,7 @@ export function db() {
   return DI.get(Orm)!;
 }
 
-/** The migration runner, from a migrator resolved without its boot pass, so each test applies migrations itself. */
+/** A migration runner over the application Orm these suites boot with the check off, so each test applies migrations itself. */
 export async function migrations(): Promise<MigrationRunner> {
-  return (await resolveMigrationTool()).Runner;
+  return new MigrationRunner(await DI.resolve(Orm));
 }

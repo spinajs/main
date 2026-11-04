@@ -1,7 +1,7 @@
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { MigrationTransactionMode, Orm, OrmDriver, OrmMigrator } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm, OrmDriver, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { IdentityStore, RoleSource } from '@spinajs/authn/contracts';
@@ -16,6 +16,9 @@ const CONNECTION = 'sqlite';
  * `users` table exists until {@link insertUserRow} creates it.
  */
 export class V3DbConfiguration extends FrameworkConfiguration {
+  /** A file instead, for a suite whose migrate-up and application boot are separate Orms on one database. */
+  public static Filename = ':memory:';
+
   public async resolve(): Promise<void> {
     await super.resolve();
     dropOwnCompiledDirs(this);
@@ -42,11 +45,10 @@ export class V3DbConfiguration extends FrameworkConfiguration {
         Connections: [
           {
             Driver: 'orm-driver-sqlite',
-            Filename: ':memory:',
+            Filename: V3DbConfiguration.Filename,
             Name: CONNECTION,
             Migration: {
               Table: 'orm_migrations',
-              ...this.startupMigration(),
               Transaction: { Mode: MigrationTransactionMode.PerMigration },
             },
           },
@@ -56,14 +58,9 @@ export class V3DbConfiguration extends FrameworkConfiguration {
   }
 }
 
-class V3ExplicitDbConfiguration extends V3DbConfiguration {
-  protected override startupMigration(): { OnStartup?: boolean } {
-    return {};
-  }
-}
-
-function uncacheOwn(): void {
+export function uncacheOwn(): void {
   DI.uncache(OrmMigrator);
+  DI.uncache(OrmMigrationGuard);
   DI.uncache(Orm);
   DI.uncache(Configuration);
   DI.uncache(V3DbConfiguration);

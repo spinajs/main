@@ -13,8 +13,8 @@ export interface IMigrateUpCommandOptions {
 }
 
 /**
- * Runs `OrmMigrator.migrate()`, the same pass an application's boot runs: the pending migrations, a re-read of the
- * table info they touched, then their `data()` seeds ( none with `--fake` ).
+ * Runs `OrmMigrator.migrate()`, the deploy step an application's boot checks for: the pending migrations, a re-read of
+ * the table info they touched, then their `data()` seeds ( none with `--fake` or `--skip-seed` ).
  */
 @Command('migrate-up', 'Runs pending ORM migrations and their data() seeds on every configured connection')
 @Option('-n, --name [name]', false, 'run a single migration, by class name')
