@@ -14,11 +14,14 @@ function propertyName(decorator: string, target: object, key: string | symbol): 
   return key;
 }
 
-/** Default permissions: `${type}:read|create|update|delete`; several models may share one type. */
-export function AccessResource(type: ResourceType): ClassDecorator {
+/**
+ * Default permissions: `${type}:read|create|update|delete`; several models may share one type.
+ * `rls` (Postgres): `authz:rls` writes the table's row level security from the list plans (G17).
+ */
+export function AccessResource(type: ResourceType, opts?: Pick<AccessResourceOptions, 'rls'>): ClassDecorator {
   checkType(type, '@AccessResource');
   return (target) => {
-    register(target, type);
+    register(target, type, opts?.rls === undefined ? undefined : { rls: opts.rls });
   };
 }
 

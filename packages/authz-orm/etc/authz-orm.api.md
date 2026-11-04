@@ -38,5 +38,7 @@ export interface AccessResourceOptions {
         readonly column: string;
         readonly typeColumn?: string;
     }>>;
+    /** Postgres row level security from the list plans (`authz:rls`): `true` refuses what the database cannot evaluate (AUTHZ020), `'partial'` widens it (AUTHZ021). */
+    readonly rls?: boolean | "partial";
 }
 ```

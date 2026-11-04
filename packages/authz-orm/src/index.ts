@@ -20,3 +20,4 @@ export { guardMode } from './guard/env.js';
 // Registers AuthzOrmContributor: the domain boot checks the resource connection.
 export { AuthzOrmContributor, checkResourceConnections } from './contributor.js';
 export * from './lists/index.js';
+export * from './rls/index.js';

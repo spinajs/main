@@ -25,7 +25,7 @@ describe('authz-orm api', () => {
   });
 
   it('the implementations keep the frozen signatures', () => {
-    same<typeof root.AccessResource, (type: ResourceType) => ClassDecorator>(true);
+    same<typeof root.AccessResource, (type: ResourceType, opts?: Pick<AccessResourceOptions, 'rls'>) => ClassDecorator>(true);
     same<typeof root.Parent, (type: ResourceType, opts?: ParentOptions) => PropertyDecorator>(true);
     same<typeof root.Owner, (opts?: OwnerOptions) => PropertyDecorator>(true);
     same<typeof root.Self, () => PropertyDecorator>(true);
