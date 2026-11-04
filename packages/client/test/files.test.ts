@@ -31,10 +31,15 @@ describe('generateClientFiles', () => {
     expect(file.contents).to.equal(client);
   });
 
-  for (const companion of [{ zod: true }, { zod: { mini: true } }, { hooks: ['react-query'] }, { hooks: ['swr'] }] as Partial<GenerateClientFilesOptions>[]) {
+  for (const [companion, count] of [
+    [{ zod: true }, 2],
+    [{ zod: { mini: true } }, 2],
+    [{ hooks: ['react-query'] }, 1],
+    [{ hooks: ['swr'] }, 1],
+  ] as [Partial<GenerateClientFilesOptions>, number][]) {
     it(`exports manifestHash from client.ts when a companion is requested (${JSON.stringify(companion)})`, async () => {
       const files = await generateClientFiles({ manifest, ...companion });
-      expect(files).to.have.length(1);
+      expect(files).to.have.length(count);
       const [file] = files;
       expect(file.path).to.equal('client.ts');
       const hashLine = `export const manifestHash = '${manifest.hash}';\n\n`;
@@ -56,7 +61,7 @@ describe('generateClientFiles', () => {
     expect(GENERATOR_TARGETS).to.deep.equal({
       'react-query': { available: false },
       swr: { available: false },
-      zod: { available: false },
+      zod: { available: true },
       models: { available: false },
       'socket-hooks': { available: false },
     });
