@@ -89,6 +89,8 @@ export class MaxAgeTempCleanupStrategy extends TempCleanupStrategy {
     this.cleanupTimer = setInterval(() => {
       void this.safeCleanup(fs, options);
     }, options.cleanupInterval ?? DEFAULT_CLEANUP_INTERVAL);
+    // A janitor must not keep the process alive; a sweep in flight still finishes, its I/O holds the loop.
+    this.cleanupTimer.unref();
   }
 
   public stop(): void {
@@ -165,6 +167,11 @@ export class CronTempCleanupStrategy extends MaxAgeTempCleanupStrategy {
           void this.safeCleanup(fs, options);
         },
         null,
+        true,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
         true,
       );
     } catch (err) {
