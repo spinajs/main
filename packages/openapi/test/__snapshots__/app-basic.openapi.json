@@ -3,7 +3,7 @@
   "info": {
     "title": "app-basic",
     "version": "1.0.0",
-    "x-spinajs-manifest-hash": "e8c022b23448e14475f69d3729820cfbaea3f5b1db9cb43d4a0d1c760eae2f21"
+    "x-spinajs-manifest-hash": "47f7521612321fc90ebb904d6c0db1aaf014b826ecb98bfdf0121c9bc87f8d29"
   },
   "servers": [
     {
@@ -12,6 +12,9 @@
   ],
   "tags": [
     {
+      "name": "Articles"
+    },
+    {
       "name": "Health"
     },
     {
@@ -19,6 +22,92 @@
     }
   ],
   "paths": {
+    "/articles/{id}": {
+      "get": {
+        "operationId": "Articles_read",
+        "tags": [
+          "Articles"
+        ],
+        "description": "Read one item.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArticleDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "x-authz-anonymous": true,
+        "security": []
+      }
+    },
+    "/articles/add": {
+      "post": {
+        "operationId": "Articles_add",
+        "tags": [
+          "Articles"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateArticleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArticleDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "x-authz-anonymous": true,
+        "security": []
+      }
+    },
     "/health/get": {
       "get": {
         "operationId": "Health_get",
@@ -325,6 +414,34 @@
   },
   "components": {
     "schemas": {
+      "ArticleDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "CreateArticleDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false
+      },
       "CreateUserDto": {
         "type": "object",
         "properties": {

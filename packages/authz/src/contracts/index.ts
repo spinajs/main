@@ -15,3 +15,6 @@ export * from './service.js';
 export * from './data.js';
 export * from './admin.js';
 export * from './changelog.js';
+export * from './tap.js';
+export * from './decision-log.js';
+export * from './consistency.js';

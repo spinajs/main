@@ -2560,26 +2560,6 @@
       "count": 1
     }
   },
-  "packages/authz/src/engine/authorizer.ts": {
-    "@typescript-eslint/no-base-to-string": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    },
-    "complexity": {
-      "count": 6
-    },
-    "promise/always-return": {
-      "count": 1
-    },
-    "promise/catch-or-return": {
-      "count": 1
-    }
-  },
   "packages/authz/src/engine/ceiling.ts": {
     "@typescript-eslint/no-unsafe-call": {
       "count": 1
@@ -2846,12 +2826,9 @@
   },
   "packages/authz/test/engine/behaviour/B17-fields.test.ts": {
     "@typescript-eslint/no-unsafe-call": {
-      "count": 6
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 6
-    },
-    "@typescript-eslint/no-unsafe-return": {
       "count": 2
     }
   },
@@ -3419,9 +3396,6 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 2
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
     }
   },
   "packages/di/src/registry.ts": {
@@ -4844,9 +4818,6 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    },
-    "@typescript-eslint/restrict-template-expressions": {
       "count": 2
     }
   },

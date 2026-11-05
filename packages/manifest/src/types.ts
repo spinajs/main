@@ -211,5 +211,5 @@ export interface Manifest extends Omit<ManifestFragment, 'package'> {
   /** Version of `@spinajs/compiler` that built the manifest; `manifest:diff` warns when base and head differ. Absent in manifests older than the field. */
   compilerVersion?: string;
   generatedAt: string;
-  hash: string;                        // sha256 of canonical JSON with `hash` and `generatedAt` blanked
+  hash: string;                        // sha256 of canonical JSON with `hash`, `generatedAt` and `compilerVersion` blanked
 }
