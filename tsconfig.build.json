@@ -278,6 +278,9 @@
       "path": "packages/authz-ir/tsconfig.build.json"
     },
     {
+      "path": "packages/authz-verify/tsconfig.build.json"
+    },
+    {
       "path": "packages/teams/tsconfig.build.json"
     },
     {
