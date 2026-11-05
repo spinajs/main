@@ -1,7 +1,7 @@
 import { quote, compareStrings } from '@spinajs/util';
 import { Perf } from '@spinajs/log-common';
 import { AuthzConfigError, UnknownPermission } from '../contracts/errors.js';
-import { FALSE, TRUE, and, bindRefs, not, or, simplify } from '../contracts/filter.js';
+import { FALSE, TRUE, and, not, or, simplify } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
 import type { CombiningAlgorithm, Decision, DecisionRequest, DenyReason, FieldSet, Trace, TraceStep, Vote } from '../contracts/decision.js';
 import { compareDenyReasons } from '../contracts/decision.js';
@@ -27,10 +27,9 @@ import { resolveDelegation, stripPrincipalOps } from './delegation.js';
 import type { Delegation } from './delegation.js';
 import type { AuthzLog } from '../host/log.js';
 import type { VoteTruths } from './reasons.js';
-import { cacheSafeRef, decisionKey, entryTags, invalidationTags, principalState, versionVector } from './cache-key.js';
+import { decisionKey, entryTags, invalidationTags, principalState, versionVector } from './cache-key.js';
 import { mergeAttributes, schemaIndex } from './attributes.js';
 import { FieldCombiner } from './fields.js';
-import { bindEngineRefs, collectRefs, refValues, scopeNodes } from './refs.js';
 import { ModelContext, NoConditionCompiler, l1Key, memo } from './context.js';
 import type { ContextHost, MaybePromise } from './context.js';
 import { NEEDS_ASYNC, isThenable, runAsync, runSync, settleWithin, swallow } from './run.js';
@@ -40,253 +39,14 @@ import { ALL_PLAN, CEILING_DENIAL, combinePlans, nonePlan, readModelPlan, within
 import type { PlanAnswer } from './plan.js';
 import { ENGINE_DEFAULTS } from './defaults.js';
 import { isObject } from './internal/util.js';
+import { BUILTIN_ALGORITHMS, CORE, CachedDecision, CachedPlan, DEADLINE_FACTOR, DELEGATE_PRIORITY, ENGINE_FAULT, FAILED_ROW, GLOBAL_ANCESTORS, GLOBAL_TYPE, INVALID_REQUEST, MAX_PRELOADED, MAX_SUMMARY_PERMISSIONS, MISSING_ROW, NO_FIELDS, NO_LOG, NO_ROLES, SUMMARY_BATCH, SYSTEM_REF, UNATTENDED_REF, UNKNOWN_RESOURCE, byName, nextGeneration } from './types.js';
+import type { Attributes, AuthorizerOptions, BoundAttributes, Checked, Combined, EngineConfig, Fields, Finish, Gate, LoadedAttributes, Nested, NodeLoad, Outcome, Parties, RequestScope, RowLoad, Run } from './types.js';
+import { Deadline, EXPIRED, THREW } from './support/deadline.js';
+import { RefBinder, TIMED_OUT, bounded } from './support/ref-binder.js';
+import { entryCovers, firmFieldsOf } from './support/compare.js';
 
-/**
- * summary() and covers() check at most this many permissions (one check per
- * permission and principal; each check keeps its own budgets and time limits).
- * Past it, a summary lists the first ones by name and covers is false.
- */
-export const MAX_SUMMARY_PERMISSIONS = 1000;
-/** Permissions checked at once by summary() and covers(). */
-const SUMMARY_BATCH = 8;
-/** A whole summary() or covers() call gets this many modelTimeoutMs. */
-const DEADLINE_FACTOR = 4;
-/** Principals remembered as preloaded per Authorizer (filterNow gates sync 'after-preload' models on it, B22), least recently used dropped first. */
-const MAX_PRELOADED = 10_000;
-
-/**
- * Generations come from one counter for every Authorizer of this module, so a
- * request scope born under one instance never matches a rebuilt one.
- */
-let generations = 0;
-const nextGeneration = (): number => ++generations;
-
-export interface AuthorizerOptions {
-  readonly domain: string;
-  readonly models: readonly AuthorizationModel[];
-  /** Populated and frozen by the host. */
-  readonly registry: PermissionRegistry;
-  readonly combine?: CombineConfig;
-  /** Added to the built-ins; a built-in's name is refused. */
-  readonly combinators?: readonly Combinator[];
-  readonly adapters?: readonly ResourceAdapter[];
-  readonly scopeResolvers?: readonly ScopeResolver[];
-  readonly relations?: readonly RelationResolver[];
-  readonly nativeFilters?: readonly NativeFilter[];
-  readonly scopeAttributes?: { readonly schemas?: readonly ScopeAttributeSchema[]; readonly store?: ScopeAttributeStore };
-  /** Absent: compile() rejects, so a model that needs conditions is indeterminate. */
-  readonly conditions?: ConditionCompiler;
-  /** L2; absent = no L2. Each Authorizer needs its own cache, never shared with another Authorizer of the same domain; a rebuilt Authorizer gets a fresh one. */
-  readonly cache?: DecisionCache;
-  readonly audit?: DecisionAudit;
-  readonly clock?: () => Date;
-  readonly log?: Pick<AuthzLog, 'error' | 'warn' | 'debug'>;
-  readonly config?: {
-    readonly modelTimeoutMs?: number;
-    readonly maxDelegation?: number;
-    readonly neverRead?: readonly string[];
-    /** Trace every check and log it at debug. */
-    readonly explain?: boolean;
-    readonly cacheTtlSeconds?: number;
-    readonly auditDenials?: boolean;
-  };
-}
-
-/** L1: the request's AuthzCache map. */
-export interface RequestScope {
-  readonly cache?: Map<string, unknown>;
-}
-
-interface EngineConfig {
-  readonly modelTimeoutMs: number;
-  readonly maxDelegation: number;
-  readonly neverRead: readonly string[];
-  readonly explain: boolean;
-  readonly cacheTtlSeconds: number;
-  readonly auditDenials: boolean;
-}
-
-interface Run {
-  readonly sync: boolean;
-  readonly scope: Map<string, unknown>;
-  /** The engine's own instant for the top-level call; contexts get copies. */
-  readonly instant: Date;
-  readonly depth: number;
-  /** onBehalfOf hops left: maxDelegation at the top, less the hops an intersect delegate's check already used. */
-  readonly delegationBudget: number;
-  /** The version vector of the top-level call; undefined: nothing is cached. */
-  readonly versions: string | undefined;
-  /**
-   * The invalidation generation when this Authorizer first touched the request
-   * scope (`bornOf`): the scope's data (ctx.cache, ancestors, attributes) may
-   * date from then, so L1 hits and L2 stores need it still current.
-   */
-  readonly generation: number;
-  /** Shared by the whole call tree (intersect delegates, ctx.check). */
-  readonly nested: Nested;
-  /** explain(): the whole call tree runs live, without the caches. */
-  readonly bypass: boolean;
-  /** summary() and covers(): not an access attempt, so nothing is audited. */
-  readonly quiet?: boolean;
-  /** covers() on the holder: no cache reads, since a cached decision has no `firmFields`; stores as usual. */
-  readonly firm?: boolean;
-  /** A fresh check: no cache reads anywhere in the call tree; stores as usual. */
-  readonly fresh?: boolean;
-}
-
-/** What nested decisions add to every decision above them: a vote may rest on a nested check. */
-interface Nested {
-  /** No level may keep the decisions above. */
-  uncacheable: boolean;
-  /** Some nested tags are unknown (an L2 hit): the decisions above stay out of the L2. */
-  untagged: boolean;
-  /** Some decision or data load of the call tree failed: every decision of the tree may rest on it. */
-  faulted: boolean;
-  readonly tags: Set<string>;
-}
-
-/** Who the models run with. */
-interface Parties {
-  readonly principal: Principal;
-  /** Ref of `principal`, read once. */
-  readonly ref: PrincipalRef;
-  /** `principalCacheId` of `principal`. */
-  readonly cacheId: string;
-  readonly actor?: Principal;
-  readonly actorRef?: PrincipalRef;
-}
-
-type Attributes = Readonly<Record<string, unknown>> | null;
-
-/** `degraded`: null because a layer timed out, not because a source answered null. */
-interface LoadedAttributes {
-  readonly attributes: Attributes;
-  readonly degraded: boolean;
-}
-
-/** One scope node's load in a request (L1), shared by the models and the binder. */
-interface NodeLoad {
-  readonly ref: ResourceRef;
-  readonly result: Promise<LoadedAttributes>;
-  /** The layer's own limit and the binder's run out at about the same time; one of them logs. */
-  timeoutLogged: boolean;
-  /** Set once the load settled degraded or rejected: no decision of the request is cached then. */
-  degraded: boolean;
-}
-
-/** What a binder load gives: `failed` (a rejection) is an engine fault in the deny reason, `degraded` (a rejection or a timeout) stops caching and marks the decision faulted. */
-interface BoundAttributes {
-  readonly attributes: Attributes;
-  readonly failed: boolean;
-  readonly degraded: boolean;
-}
-
-/** What the pipeline returns: the decision and what step 10 must know about it. */
-interface Checked {
-  readonly decision: Decision;
-  /**
-   * Never cache: SYSTEM; a vote that is not cacheable; a binder or fields
-   * fault; a ref outside the cache-safe paths (`cacheSafeRef`) in the allow,
-   * the field terms or the reason pass; any scope load of the request that
-   * timed out or rejected (a load still pending when the decision is built
-   * cannot be seen); the same in an intersect delegate's or a nested
-   * ctx.check's decision.
-   */
-  readonly uncacheable: boolean;
-  /**
-   * Rests on an engine fault whatever the reason says (an indeterminate vote,
-   * a combine/bind/fields/subject failure, a failed or timed-out load, a
-   * faulted nested decision), or the request saw one a model may have
-   * memoised (a degraded scope load, a rejected host call). Never cached, so
-   * cache hits are not faulted.
-   */
-  readonly faulted: boolean;
-  /**
-   * Firm runs only: the fields the allow gives on every row it covers
-   * (`FieldCombiner.combine` with `firm`), within `decision.fields`. covers
-   * judges the holder by them: a conditional permit adds to the decision's
-   * fields though it may not hold on the target's rows.
-   */
-  readonly firmFields?: Fields;
-}
-
-/** An L1 decision entry; `generation` makes an invalidate drop it too. */
-class CachedDecision {
-  constructor(
-    readonly decision: Decision,
-    /** undefined: unknown (from the L2, or not buildable), so no decision above it goes to the L2. */
-    readonly tags: readonly string[] | undefined,
-    readonly expiresAt: number,
-    readonly generation: number,
-    /** A denial no audit has recorded yet (decided nested or by summary/covers): the first audited hit records it. */
-    public unaudited: boolean,
-  ) {}
-}
-
-/** An L1 access plan; `generation` makes an invalidate drop it too. */
-class CachedPlan {
-  constructor(readonly plan: AccessPlan, readonly generation: number) {}
-}
-
-/** checkAll's second pass: the row, no row (unknown resource), or a failed load. */
-type RowLoad = { readonly kind: 'row'; readonly row: unknown } | { readonly kind: 'missing' } | { readonly kind: 'failed' };
-
-type Gate = { readonly kind: 'system' } | { readonly kind: 'deny'; readonly principal: PrincipalRef; readonly reason: DenyReason } | { readonly kind: 'run'; readonly principal: Principal; readonly ref: PrincipalRef };
-
-interface Combined {
-  readonly allow: ResourceFilter;
-  readonly deciding?: Vote;
-  readonly failed: boolean;
-}
-
-interface Fields {
-  readonly read: readonly string[];
-  readonly write: readonly string[];
-}
-
-interface Outcome {
-  readonly principal: PrincipalRef;
-  readonly actor?: PrincipalRef;
-  readonly residual: ResourceFilter;
-  readonly reason?: DenyReason;
-  readonly roles: Readonly<Record<string, string>>;
-  readonly fields: Fields;
-  readonly validUntil?: Date;
-  readonly models: readonly string[];
-  readonly votes: readonly Vote[];
-}
-
-interface Finish {
-  readonly def: PermissionDef;
-  readonly ref: ResourceRef;
-  readonly algorithm: string;
-  /** Audit identity: the principal of the request, before delegation. */
-  readonly requester: PrincipalRef;
-  readonly system?: boolean;
-  readonly run: Run;
-  readonly explain: boolean;
-  readonly steps: TraceStep[] | undefined;
-  readonly started: number;
-}
-
-const GLOBAL_TYPE: ResourceType = '$global';
-const CORE = 'core';
-const ENGINE_FAULT: DenyReason = Object.freeze({ code: 'model_error' });
-const DELEGATE_PRIORITY = 200;
-const NO_LOG: Pick<AuthzLog, 'error' | 'warn' | 'debug'> = Object.freeze({ error() {}, warn() {}, debug() {} });
-const NO_FIELDS: Fields = Object.freeze({ read: Object.freeze([]), write: Object.freeze([]) });
-const NO_ROLES: Readonly<Record<string, string>> = Object.freeze({});
-const GLOBAL_ANCESTORS: readonly ResourceRef[] = Object.freeze([GLOBAL]);
-// covers relies on an allow needing some model's permit, which only the built-ins promise.
-const BUILTIN_ALGORITHMS: ReadonlySet<string> = new Set(BUILTIN_COMBINATORS.map((c) => c.name));
-const SYSTEM_REF: PrincipalRef = Object.freeze({ type: SYSTEM.type, id: SYSTEM.id });
-const UNATTENDED_REF: PrincipalRef = Object.freeze({ type: UNATTENDED.type, id: UNATTENDED.id });
-const UNKNOWN_RESOURCE: DenyReason = Object.freeze({ code: 'unknown_resource' });
-const INVALID_REQUEST: DenyReason = Object.freeze({ code: 'invalid_request' });
-const MISSING_ROW: RowLoad = Object.freeze({ kind: 'missing' });
-const FAILED_ROW: RowLoad = Object.freeze({ kind: 'failed' });
-
-const byName = (a: Vote, b: Vote): number => compareStrings(a.model, b.model);
+export { MAX_SUMMARY_PERMISSIONS } from './types.js';
+export type { AuthorizerOptions, RequestScope } from './types.js';
 
 export class Authorizer {
   readonly domain: string;
@@ -2091,36 +1851,6 @@ const scopeMap = (scope: RequestScope | undefined): Map<string, unknown> => (sco
 
 const newNested = (): Nested => ({ uncacheable: false, untagged: false, faulted: false, tags: new Set() });
 
-const THREW: unique symbol = Symbol('threw');
-const EXPIRED: unique symbol = Symbol('expired');
-
-/** One time limit for a whole summary() or covers() call; clear() it when the call ends. */
-class Deadline {
-  expired = false;
-  private readonly reached: Promise<typeof EXPIRED>;
-  private timer: ReturnType<typeof setTimeout> | undefined;
-
-  constructor(readonly ms: number) {
-    this.reached = new Promise((resolve) => {
-      this.timer = setTimeout(() => {
-        this.expired = true;
-        resolve(EXPIRED);
-      }, ms);
-    });
-  }
-
-  /** EXPIRED when the limit comes first; `work` is left running. */
-  race<T>(work: Promise<T>): Promise<T | typeof EXPIRED> {
-    if (!this.expired) return Promise.race([work, this.reached]);
-    swallow(work);
-    return Promise.resolve(EXPIRED);
-  }
-
-  clear(): void {
-    clearTimeout(this.timer);
-  }
-}
-
 /** Only a top-level check outside summary/covers is an access attempt. */
 const audits = (run: Run): boolean => run.depth === 0 && run.quiet !== true;
 
@@ -2238,73 +1968,6 @@ function decides(algorithm: string, vote: Vote): boolean {
   return (algorithm === 'permit-overrides' ? and(v.permitWhen, not(v.denyWhen)) : or(v.permitWhen, v.denyWhen)).op === 'true';
 }
 
-const TIMED_OUT: unique symbol = Symbol('timed out');
-
-type Bounded = { readonly kind: 'value'; readonly value: unknown } | { readonly kind: 'error'; readonly error: unknown } | { readonly kind: 'timeout' };
-
-/** `settleWithin` that keeps a rejection (with its error) apart from a timeout. Never rejects. */
-function bounded(load: () => unknown, ms: number): Promise<Bounded> {
-  const outcome = Promise.resolve()
-    .then(load)
-    .then(
-      (value): Bounded => ({ kind: 'value', value }),
-      (error): Bounded => ({ kind: 'error', error }),
-    );
-  return settleWithin(outcome, ms, describeError, 'scope attribute load').then((s): Bounded => (s.ok ? (s.value as Bounded) : { kind: 'timeout' }));
-}
-
-/**
- * Step 11 for one check: `bindRefs`, then actor.* and scope.* refs. `cover`
- * loads the scope nodes the refs of some filters need (each type once);
- * `bind` is sync, and a scope ref of a type no `cover` loaded binds as
- * missing, so every ref is gone either way.
- */
-class RefBinder {
-  private readonly attributes = new Map<string, Attributes>();
-
-  constructor(
-    private readonly scope: { readonly principal: Principal; readonly env: Readonly<Record<string, unknown>> },
-    private readonly actor: Principal,
-    /** undefined for a ref without id: only $global resolves then. */
-    private readonly ancestors: readonly ResourceRef[] | undefined,
-    private readonly sync: boolean,
-    private readonly load: (node: ResourceRef) => Promise<BoundAttributes>,
-  ) {}
-
-  /** `uncacheable`: a filter read a ref the L2 key does not hold (refs read before `bindRefs`, which replaces principal.* and env.*), or a load it needed was degraded. */
-  *cover(filters: readonly ResourceFilter[]): Pipeline<{ readonly failed: boolean; readonly degraded: boolean; readonly uncacheable: boolean }> {
-    let uncacheable = false;
-    const refs = new Set<string>();
-    for (const f of filters) {
-      if (!collectRefs(f).every(cacheSafeRef)) uncacheable = true;
-      for (const r of collectRefs(bindRefs(f, this.scope))) refs.add(r);
-    }
-    const nodes = [...scopeNodes([...refs], { ancestors: this.ancestors })].filter(([type]) => !this.attributes.has(type));
-    if (nodes.length === 0) return { failed: false, degraded: false, uncacheable };
-    if (this.sync) yield NEEDS_ASYNC;
-    const loaded = (yield Promise.all(nodes.map(([, node]) => this.load(node)))) as readonly BoundAttributes[];
-    nodes.forEach(([type], i) => this.attributes.set(type, loaded[i].attributes));
-    const degraded = loaded.some((l) => l.degraded);
-    return { failed: loaded.some((l) => l.failed), degraded, uncacheable: uncacheable || degraded };
-  }
-
-  bind(f: ResourceFilter): ResourceFilter {
-    const pre = bindRefs(f, this.scope);
-    return bindEngineRefs(pre, refValues(collectRefs(pre), this.actor, this.attributes));
-  }
-
-  /** The first scope.* ref of `filters` without a value from the nodes `cover` loaded. */
-  missingScopeRef(filters: readonly ResourceFilter[]): string | undefined {
-    for (const f of filters) {
-      const refs = collectRefs(bindRefs(f, this.scope)).filter((r) => r.startsWith('scope.'));
-      const values = refValues(refs, this.actor, this.attributes);
-      const missing = refs.find((r) => !values.has(r));
-      if (missing !== undefined) return missing;
-    }
-    return undefined;
-  }
-}
-
 function mergeRoles(votes: readonly Vote[]): Readonly<Record<string, string>> {
   const merged: Record<string, string> = {};
   for (const vote of votes.filter((v) => v.error === undefined && v.roles !== undefined).sort(byName)) {
@@ -2406,47 +2069,6 @@ function copySummary(raw: unknown, model: string): ModelSummary {
 }
 
 const isStrings = (v: unknown): boolean => Array.isArray(v) && v.every((x) => typeof x === 'string');
-
-// Residuals are engine copies within the vote budgets; past this a walk fails closed (no cover).
-const COMPARE_NODES = 100_000;
-const COMPARE_DEPTH = 256;
-
-/**
- * `big` covers `small`: nothing to cover, or `big` is unconditional or the
- * same tree without a relation or native node (those mean the current
- * principal, so equal trees still differ), and `small`'s fields are inside
- * `bigFields` (by default `big`'s). Throws AuthzConfigError when the field
- * budget runs out.
- */
-function entryCovers(big: Decision, small: Decision, bigFields: Fields = big.fields): boolean {
-  if (!small.allowed) return true;
-  if (!big.allowed) return false;
-  if (big.residual.op !== 'true' && (readsPrincipal(big.residual, 0, { left: COMPARE_NODES }) || !sameTree(big.residual, small.residual, 0, { left: COMPARE_NODES }))) return false;
-  return subtractFieldGlobs(small.fields.read, bigFields.read).length === 0 && subtractFieldGlobs(small.fields.write, bigFields.write).length === 0;
-}
-
-/** A holder check of covers; none recorded (not a firm run) counts as no field. */
-function firmFieldsOf(holder: Checked): Fields {
-  return holder.firmFields ?? NO_FIELDS;
-}
-
-function readsPrincipal(f: unknown, depth: number, nodes: { left: number }): boolean {
-  if (--nodes.left < 0 || depth > COMPARE_DEPTH || !isObject(f)) return true;
-  const op = f.op;
-  if (op === 'relation' || (typeof op === 'string' && op.startsWith('native:'))) return true;
-  if (op === 'and' || op === 'or') return !Array.isArray(f.args) || f.args.some((x) => readsPrincipal(x, depth + 1, nodes));
-  if (op === 'not') return readsPrincipal(f.arg, depth + 1, nodes);
-  return false;
-}
-
-function sameTree(a: unknown, b: unknown, depth: number, nodes: { left: number }): boolean {
-  if (--nodes.left < 0 || depth > COMPARE_DEPTH) return false;
-  if (a === b) return true;
-  if (!isObject(a) || !isObject(b) || Array.isArray(a) !== Array.isArray(b)) return false;
-  const keys = Object.keys(a);
-  if (keys.length !== Object.keys(b).length) return false;
-  return keys.every((k) => Object.hasOwn(b, k) && sameTree(a[k], b[k], depth + 1, nodes));
-}
 
 /** Distinct refs (by resourceKey) grouped by type, in first-seen order. */
 function byType(refs: readonly ResourceRef[]): Map<ResourceType, ResourceRef[]> {
