@@ -40,4 +40,10 @@ export interface PlanRow {
 export abstract class PlanTermCompiler {
   abstract readonly op: string;
   abstract apply(args: unknown, where: IWhereBuilder<unknown>, row: PlanRow): void;
+  /**
+   * The args of narrower terms of this op whose OR is the term, each standing for one source of access
+   * (RBAC: one role). Rows matching the same atoms share one field-set decision (`.withFields()`), so a
+   * term over several roles must split here, or rows holding different roles would share one field set.
+   */
+  atoms?(args: unknown): readonly unknown[];
 }
