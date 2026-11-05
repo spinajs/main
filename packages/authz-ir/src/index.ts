@@ -14,3 +14,5 @@ export * from './compile/combine.js';
 export * from './compile/principal.js';
 export * from './dsl/define.js';
 export * from './dsl/openfga-write.js';
+export * from './dsl/openfga-read.js';
+export * from './dsl/rebac-config.js';

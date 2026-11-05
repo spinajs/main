@@ -40,7 +40,8 @@ export function writeOpenFga(ir: PolicyIR, options: OpenFgaWriteOptions = {}): O
   const declared = Object.keys(ir.types).sort();
   const referenced = new Set<string>();
   for (const t of declared) for (const rel of Object.values(ir.types[t].relations)) for (const a of rel.allowed) referenced.add(parseSubjectTypeRef(a).type);
-  for (const t of [...referenced].filter((r) => !declared.includes(r)).sort()) lines.push(`type ${typeName(t)}`);
+  // OpenFGA needs every referenced type declared; the IR does not.
+  for (const t of [...referenced].filter((r) => !declared.includes(r)).sort()) lines.push(`type ${typeName(t)} # spina:implicit`);
   for (const t of declared) lines.push(...typeLines(t, ir.types[t], options.subjectType ?? 'user', skip));
   for (const name of Object.keys(ir.caveats).sort()) lines.push(...conditionLines(name, ir.caveats[name], skip));
   lines.push('', `# spina:ir ${stableStringify({ combine: ir.combine, principal: ir.principal, opaque: ir.opaque })}`);
