@@ -1,8 +1,10 @@
 import type { PolicyIR, RelationName, TypeName } from '@spinajs/authz-ir';
 import type { Permission } from '@spinajs/authz';
 
-import { ACCEPT, RewriteAutomaton, holderKey } from './graph.js';
+import { ACCEPT, RewriteAutomaton, holderKey, letterKey } from './graph.js';
 import type { Edge, HolderRef } from './graph.js';
+import { confirm, matchesHolder, opaqueOf } from './verdict.js';
+import type { Verdict } from './verdict.js';
 import { instantiate } from './witness.js';
 import type { Scenario } from './witness.js';
 
@@ -110,4 +112,104 @@ export function reachers(ir: PolicyIR, permission: Permission): Reacher[] {
   const a = new RewriteAutomaton(ir);
   const start = a.start(permission);
   return start === undefined ? [] : reachersOf(ir, permission, explore(a, start));
+}
+
+interface Pair {
+  readonly a: string;
+  readonly b: ReadonlySet<string>;
+  readonly prev?: Pair;
+  readonly edge?: Edge;
+}
+
+/** States reachable without consuming a tuple (`computed`, `self` tuplesets and `self` relations). */
+function closure(m: RewriteAutomaton, states: Iterable<string>): Set<string> {
+  const out = new Set(states);
+  const queue = [...out];
+  for (let i = 0; i < queue.length; i++) {
+    for (const e of m.edges(queue[i])) {
+      if (e.letter !== undefined || out.has(e.to)) continue;
+      out.add(e.to);
+      queue.push(e.to);
+    }
+  }
+  return out;
+}
+
+function step(m: RewriteAutomaton, states: ReadonlySet<string>, letter: string): Set<string> {
+  const next: string[] = [];
+  for (const s of states) for (const e of m.edges(s)) if (e.letter !== undefined && letterKey(e.letter) === letter) next.push(e.to);
+  return closure(m, next);
+}
+
+function edgesOf(p: Pair, last: Edge): Edge[] {
+  const out = [last];
+  for (let at: Pair | undefined = p; at?.edge !== undefined; at = at.prev) out.push(at.edge);
+  return out.reverse();
+}
+
+/**
+ * The shortest word `a` accepts and `b` does not: breadth-first search of the product of `a` with the lazy subset
+ * construction of `b`. `b` undefined is the empty language.
+ */
+export function difference(m: RewriteAutomaton, a: string, b: string | undefined): Edge[] | undefined {
+  const start: Pair = { a, b: b === undefined ? new Set() : closure(m, [b]) };
+  const key = (p: { a: string; b: ReadonlySet<string> }): string => `${p.a}|${[...p.b].sort().join(',')}`;
+  const seen = new Set([key(start)]);
+  const queue: Pair[] = [start];
+  for (let i = 0; i < queue.length; i++) {
+    const p = queue[i];
+    for (const e of m.edges(p.a)) {
+      const b2 = e.letter === undefined ? p.b : step(m, p.b, letterKey(e.letter));
+      if (e.to === ACCEPT) {
+        if (!b2.has(ACCEPT)) return edgesOf(p, e);
+        continue;
+      }
+      const next = { a: e.to, b: b2, prev: p, edge: e };
+      if (seen.has(key(next))) continue;
+      seen.add(key(next));
+      queue.push(next);
+    }
+  }
+  return undefined;
+}
+
+/**
+ * `a` implies `b`: every principal allowed `a` on a resource is allowed `b` on it, for every data set (G7). Exact
+ * when both permissions are monotone: the tuple language of `a` is included in that of `b`. A `violated` verdict
+ * carries the shortest separating word as its minimal tuple set, confirmed by the reference evaluator.
+ * @throws WitnessRejected when the evaluator disagrees with the analyzer
+ */
+export async function implies(ir: PolicyIR, a: Permission, b: Permission): Promise<Verdict> {
+  const m = new RewriteAutomaton(ir);
+  const sa = m.start(a);
+  if (sa === undefined) return { result: 'holds', engine: 'exact', opaque: opaqueOf(ir) };
+  const ex = [explore(m, sa)];
+  const sb = m.start(b);
+  if (sb !== undefined) ex.push(explore(m, sb));
+  const opaque = opaqueOf(ir, ...ex);
+  if (ex.some((x) => !x.monotone)) return { result: 'unknown', engine: 'exact', opaque };
+  const type = ir.permissions[a].type;
+  const sameType = sb !== undefined && ir.permissions[b].type === type;
+  const edges = difference(m, sa, sameType ? sb : undefined);
+  if (edges === undefined) return { result: 'holds', engine: 'exact', opaque };
+  const counterexample = await confirm(ir, instantiate(type, edges), { [a]: 'allow', [b]: 'not-allow' }, toReachPath(edges));
+  return { result: 'violated', engine: 'exact', counterexample, opaque };
+}
+
+/**
+ * Every path to `permission` goes through one of `holders` (`role:<role>@<type>`, `<type>#<relation>`, `public`):
+ * the reach language is empty once their paths are removed. Exact on the monotone fragment.
+ * @throws WitnessRejected when the evaluator disagrees with the analyzer
+ */
+export async function onlyVia(ir: PolicyIR, permission: Permission, holders: readonly string[]): Promise<Verdict> {
+  const m = new RewriteAutomaton(ir);
+  const start = m.start(permission);
+  if (start === undefined) return { result: 'holds', engine: 'exact', opaque: opaqueOf(ir) };
+  const ex = explore(m, start, (h) => !holders.some((s) => matchesHolder(s, h)));
+  const opaque = opaqueOf(ir, ex);
+  if (!ex.monotone) return { result: 'unknown', engine: 'exact', opaque };
+  const [first] = ex.accepted;
+  if (first === undefined) return { result: 'holds', engine: 'exact', opaque };
+  const counterexample = await confirm(ir, instantiate(ir.permissions[permission].type, first.edges), { [permission]: 'allow' }, toReachPath(first.edges));
+  return { result: 'violated', engine: 'exact', counterexample, opaque };
 }
