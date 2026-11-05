@@ -22,6 +22,8 @@ export interface IRFragment {
   types?: Record<TypeName, TypeDef>;
   permissions?: Record<Permission, FragmentBinding>;
   caveats?: Record<CaveatName, CaveatDef>;
+  /** Relations and permissions every type but `$global` gets when no fragment defines them (`can_P: parent->can_P`). */
+  defaults?: TypeDef;
   roles?: PrincipalNarrowing['roles'];
   opaque?: OpaqueRef[];
 }
@@ -66,6 +68,7 @@ export function mergeFragments(fragments: readonly IRFragment[], options: MergeO
   const keep = keeper(conflicts);
   for (const f of fragments) addFragment(ir, f, keep);
   closeAtGlobal(ir);
+  for (const f of fragments) if (f.defaults !== undefined) addDefaults(ir, f.defaults);
   bindPermissions(ir, fragments, options.models ?? fragments.map((f) => f.model), conflicts);
   const compiled = new Set(fragments.map((f) => f.model));
   for (const m of options.models ?? []) if (!compiled.has(m)) ir.opaque.push({ kind: 'model', name: m });
@@ -90,6 +93,14 @@ function addFragment(ir: PolicyIR, f: IRFragment, keep: Keep): void {
   for (const [name, c] of Object.entries(f.caveats ?? {})) keep(ir.caveats, name, c, `caveats.${name}`);
   for (const [role, relations] of Object.entries(f.roles ?? {})) ir.principal.roles[role] = [...(ir.principal.roles[role] ?? []), ...relations];
   ir.opaque.push(...(f.opaque ?? []));
+}
+
+function addDefaults(ir: PolicyIR, defaults: TypeDef): void {
+  for (const [type, def] of Object.entries(ir.types)) {
+    if (type === GLOBAL_TYPE) continue;
+    for (const [name, rel] of Object.entries(defaults.relations)) if (!own(def.relations, name) && !own(def.permissions, name)) def.relations[name] = rel;
+    for (const [name, rw] of Object.entries(defaults.permissions)) if (!own(def.relations, name) && !own(def.permissions, name)) def.permissions[name] = rw;
+  }
 }
 
 function closeAtGlobal(ir: PolicyIR): void {

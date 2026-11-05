@@ -64,6 +64,15 @@ describe('mergeFragments', () => {
     expect(conflicts.map((c) => c.path)).to.deep.equal(['types.doc.relations.viewer', 'permissions.doc:read']);
   });
 
+  it('puts the defaults of a fragment on every type but $global that does not define the name', () => {
+    const defaults: IRFragment = { model: 'd', defaults: { relations: {}, permissions: { can_x: { tupleToUserset: { tupleset: 'parent', computed: 'can_x' } }, member: { computed: 'viewer' } } } };
+    const { ir } = mergeFragments([rebac, { model: 'g', types: { $global: { relations: {}, permissions: { can_x: { priority: [] } } } } }, defaults]);
+    expect(ir.types.$global.permissions.can_x).to.deep.equal({ priority: [] });
+    expect(ir.types.org.permissions.can_x).to.deep.equal({ tupleToUserset: { tupleset: 'parent', computed: 'can_x' } });
+    expect(ir.types.org.permissions.member).to.equal(undefined);
+    expect(ir.types.doc.permissions.member).to.deep.equal({ computed: 'viewer' });
+  });
+
   it('evaluates a $global grant down the closed chain', async () => {
     const { ir } = mergeFragments([rbac, rebac]);
     const data = new MemoryTupleSource(ir).add(GLOBAL_OBJECT, 'admin', { type: 'user', id: 'a' }).setColumn('Doc', 'org_id', { type: 'doc', id: 'd1' }, { type: 'org', id: 'o1' });
