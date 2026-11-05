@@ -1,5 +1,6 @@
 import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, FALSE, NativeFilter, TRUE, UnknownPermission } from '@spinajs/authz';
-import type { DecisionRequest, EvaluationContext, FilterOp, ListPlanRequest, ListSupport, ModelCapabilities, ModelInitContext, ModelListPlan, PermissionDef, PermissionRegistry, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { DecisionRequest, EvaluationContext, FilterOp, IRCompileContext, ListPlanRequest, ListSupport, ModelCapabilities, ModelInitContext, ModelListPlan, PermissionDef, PermissionRegistry, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { IRFragment } from '@spinajs/authz-ir';
 
 import type { NamespaceConfig, PermissionMap, RebacLimits, Tuple } from '../contracts.js';
 import { TupleStore } from '../contracts.js';
@@ -148,6 +149,12 @@ export class RebacModel extends AuthorizationModel {
     this.unsubscribe = undefined;
     this.unbindSchema?.();
     this.unbindSchema = undefined;
+  }
+
+  /** This model's part of the policy IR; before init it compiles the namespaces from config. */
+  toIR(ctx: IRCompileContext): IRFragment {
+    const schema = this.compiled ?? NamespaceSchema.compile(this.opts.namespaces ?? ctx.config<NamespaceConfig>('namespaces', {}), this.opts.permissions ?? ctx.config<PermissionMap>('permissions', {}));
+    return rebacToIR(schema, { model: this.name, ...(ctx.permissions === undefined ? {} : { permissions: ctx.permissions }) });
   }
 
   /** The compiled namespaces. @throws AuthzConfigError before init */

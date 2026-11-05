@@ -3396,9 +3396,6 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 2
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
     }
   },
   "packages/di/src/registry.ts": {
@@ -4821,9 +4818,6 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    },
-    "@typescript-eslint/restrict-template-expressions": {
       "count": 2
     }
   },
