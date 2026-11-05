@@ -17,6 +17,7 @@ import { relation } from '../context/request.js';
 import { ceilingOf } from '../pipeline/delegate.js';
 import { admits, contextCacheKey, principalCacheId } from '../support/misc.js';
 import { logAt } from '../support/plumbing.js';
+import { generationVersions } from '../pipeline/index.js';
 import { CachedPlan } from '../types.js';
 import type { Engine, Run } from '../types.js';
 
@@ -24,7 +25,7 @@ import type { Engine, Run } from '../types.js';
 export function planKey(engine: Engine, principal: Principal, def: PermissionDef, type: ResourceType, run: Run): string | undefined {
   if (run.versions === undefined) return undefined;
   const state = principalState(principal);
-  return state === undefined ? undefined : l1Key('plan', engine.domain, JSON.stringify([state, def.name, type, run.versions]));
+  return state === undefined ? undefined : l1Key('plan', engine.domain, JSON.stringify([state, def.name, type, generationVersions(engine, run.versions)]));
 }
 
 export function cachedPlan(engine: Engine, key: string, run: Run): AccessPlan | undefined {

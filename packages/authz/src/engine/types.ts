@@ -304,4 +304,6 @@ export interface Engine {
   /** Principal cache id ⇒ the generation its preload finished in; a stale generation counts as not preloaded. */
   readonly preloaded: Map<string, number>;
   readonly taps: readonly DecisionTap[];
+  /** The newest store generation a consistency token named; the decision caches key on it once it is set. */
+  storeGeneration: number;
 }

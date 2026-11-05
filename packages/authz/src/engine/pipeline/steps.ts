@@ -116,7 +116,7 @@ export function* vote(engine: Engine, a: Admitted, input: CheckInput): Pipeline<
   core('route', `${plan.algorithm} over ${models.length} model(s)`, { models: models.map((m) => m.name) });
   const host = hostFor(engine, run);
   const contexts = models.map((m) => new ModelContext(host, m.name, run.scope, run.instant, run.depth, a.steps, contextCacheKey(m.name, parties.cacheId), run.reads));
-  const request = () => requestOf(engine, parties, def, ref, subject, input.env, run.instant, a.explain, run.fresh === true);
+  const request = () => requestOf(engine, parties, def, ref, subject, input.env, run.instant, a.explain, run.fresh === true, input.consistency);
   const label = `${def.name} on ${resourceKey(ref)}`;
   const binder = refBinder(engine, parties, env, a.ancestors, run);
   const voteLoads = { degraded: false };

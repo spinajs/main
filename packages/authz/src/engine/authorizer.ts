@@ -84,6 +84,7 @@ export class Authorizer {
       ...fieldSetup(where, config.neverRead),
       preloaded: this.preloaded,
       taps: tapsOf(where, options.taps),
+      storeGeneration: 0,
     };
   }
 

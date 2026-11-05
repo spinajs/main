@@ -13,6 +13,11 @@ export interface DecisionRequest {
   readonly explain?: boolean;
   /** Skip the decision caches and the models' assignment caches for this call; the answer is still stored. */
   readonly fresh?: boolean;
+  /**
+   * Answer from data at least as new as the write that returned `atLeast` (an AuthzAdmin result's `consistency`): the
+   * decision caches are skipped for anything stored before the engine knew of that write. Models that cannot use it ignore it.
+   */
+  readonly consistency?: { readonly atLeast: string };
 }
 
 export interface FieldSet {
