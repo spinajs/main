@@ -168,6 +168,11 @@ export class CronTempCleanupStrategy extends MaxAgeTempCleanupStrategy {
         },
         null,
         true,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        true,
       );
     } catch (err) {
       throw new InvalidOption(
