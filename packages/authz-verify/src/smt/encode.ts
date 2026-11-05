@@ -3,27 +3,10 @@ import type { ObjectRef, ParsedSubjectType, PolicyIR, RelationDef, RelationName,
 import type { Permission } from '@spinajs/authz';
 
 import type { WitnessTuple } from '../witness.js';
+import { CaveatEncoder } from './caveats.js';
+import { Unsupported, and, not, or } from './formula.js';
+import type { Formula } from './formula.js';
 import type { Universe } from './universe.js';
-
-/** A boolean formula over tuple variables and named node definitions; plain booleans are constants. */
-export type Formula = boolean | { readonly var: string } | { readonly not: Formula } | { readonly and: readonly Formula[] } | { readonly or: readonly Formula[] };
-
-export function and(...xs: Formula[]): Formula {
-  if (xs.includes(false)) return false;
-  const rest = xs.filter((x) => x !== true);
-  return rest.length === 0 ? true : rest.length === 1 ? rest[0] : { and: rest };
-}
-
-export function or(...xs: Formula[]): Formula {
-  if (xs.includes(true)) return true;
-  const rest = xs.filter((x) => x !== false);
-  return rest.length === 0 ? false : rest.length === 1 ? rest[0] : { or: rest };
-}
-
-export const not = (x: Formula): Formula => (typeof x === 'boolean' ? !x : 'not' in x ? x.not : { not: x });
-
-/** A part of the IR the bounded encoding does not model; the query answers `unknown`. */
-export class Unsupported extends Error {}
 
 export interface EncodeOptions {
   /** Tuple hops a check follows, as the evaluator's `maxDepth`. */
@@ -34,7 +17,7 @@ export interface EncodeOptions {
 
 const own = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
 const label = (o: ObjectRef): string => `${o.type}:${o.id}`;
-const subjectLabel = (s: TupleSubjectRef): string => `${label(s)}${s.relation === undefined ? '' : `#${s.relation}`}`;
+const subjectLabel = (s: TupleSubjectRef): string => `${label(s)}${s.relation === undefined ? '' : `#${s.relation}`}${s.caveat === undefined ? '' : `[${s.caveat.name}]`}`;
 
 /**
  * The checks of a `PolicyIR` over a finite universe as boolean formulas: one variable per possible tuple, one
@@ -48,13 +31,17 @@ export class Encoder {
   readonly defs = new Map<string, Formula>();
   /** Column relations: their variables per object, at most one of which holds. */
   readonly columns = new Map<string, string[]>();
+  /** The caveats the checks read, over one request context. */
+  readonly caveats: CaveatEncoder;
   private readonly building = new Set<string>();
 
   constructor(
     readonly ir: PolicyIR,
     readonly universe: Universe,
     private readonly options: EncodeOptions,
-  ) {}
+  ) {
+    this.caveats = new CaveatEncoder(ir);
+  }
 
   /** The principal is allowed `permission` on the resource. */
   check(permission: Permission): Formula {
@@ -110,7 +97,7 @@ export class Encoder {
     if ('intersection' in r) return and(...r.intersection.map((c) => this.rewrite(object, self, c, depth)));
     if ('exclusion' in r) return and(this.rewrite(object, self, r.exclusion.base, depth), not(this.rewrite(object, self, r.exclusion.subtract, depth)));
     if ('priority' in r) return this.priority(object, self, r.priority, depth);
-    if ('caveat' in r) throw new Unsupported(`caveat ${r.caveat}`);
+    if ('caveat' in r) return and(this.caveats.formula(r.caveat), this.rewrite(object, self, r.of, depth));
     throw new Unsupported(`opaque ${r.opaque}`);
   }
 
@@ -132,17 +119,26 @@ export class Encoder {
     return or(...rel.allowed.map(parseSubjectTypeRef).map((a) => this.subject(object, name, rel, a, depth)));
   }
 
-  /** One allowed subject type of a stored relation: the principal directly, by wildcard, itself, or through a subject set. */
+  /**
+   * One allowed subject type of a stored relation: the principal directly, by wildcard, itself, or through a
+   * subject set. A caveated subject type is a conditional tuple whose caveat reads the request context.
+   */
   private subject(object: ObjectRef, name: RelationName, rel: RelationDef, a: ParsedSubjectType, depth: number): Formula {
     const p = this.universe.principal;
-    if (a.caveat !== undefined) throw new Unsupported(`caveated subject ${a.type} on ${object.type}#${name}`);
-    if (rel.source.kind === 'self') return a.relation === undefined && !a.wildcard && a.type === object.type && label(object) === label(p);
+    const { caveat, when } = this.conditional(a);
+    if (rel.source.kind === 'self') return a.caveat === undefined && a.relation === undefined && !a.wildcard && a.type === object.type && label(object) === label(p);
+    if (rel.source.kind === 'column' && (a.caveat !== undefined || a.relation !== undefined || a.wildcard)) return false;
     if (a.relation !== undefined) {
-      if (rel.source.kind === 'column' || !own(this.ir.types, a.type)) return false;
-      return or(...this.universe.objects[a.type].map((y) => and(this.tuple(object, name, { ...y, relation: a.relation }), this.node(y, a.relation!, depth + 1))));
+      if (!own(this.ir.types, a.type)) return false;
+      return or(...this.universe.objects[a.type].map((y) => and(this.tuple(object, name, { ...y, relation: a.relation, ...caveat }), when, this.node(y, a.relation!, depth + 1))));
     }
-    if (a.type !== p.type || (a.wildcard && rel.source.kind === 'column')) return false;
-    return this.tuple(object, name, a.wildcard ? { type: a.type, id: '*' } : p);
+    if (a.type !== p.type) return false;
+    return and(this.tuple(object, name, { ...(a.wildcard ? { type: a.type, id: '*' } : p), ...caveat }), when);
+  }
+
+  /** The caveat a conditional subject type puts on its tuples, and the formula it adds. */
+  private conditional(a: ParsedSubjectType): { caveat: { caveat?: { name: string } }; when: Formula } {
+    return a.caveat === undefined ? { caveat: {}, when: true } : { caveat: { caveat: { name: a.caveat } }, when: this.caveats.formula(a.caveat) };
   }
 
   private arrow(object: ObjectRef, tupleset: RelationName, computed: RelationName, depth: number): Formula {
@@ -151,12 +147,13 @@ export class Encoder {
     const out: Formula[] = [];
     for (const a of rel.allowed.map(parseSubjectTypeRef)) {
       if (a.relation !== undefined || a.wildcard || !own(this.ir.types, a.type)) continue;
-      if (a.caveat !== undefined) throw new Unsupported(`caveated tupleset ${object.type}#${tupleset}`);
       if (rel.source.kind === 'self') {
-        if (a.type === object.type) out.push(this.node(object, computed, depth + 1));
+        if (a.type === object.type && a.caveat === undefined) out.push(this.node(object, computed, depth + 1));
         continue;
       }
-      for (const y of this.universe.objects[a.type]) out.push(and(this.tuple(object, tupleset, y), this.node(y, computed, depth + 1)));
+      if (rel.source.kind === 'column' && a.caveat !== undefined) continue;
+      const { caveat, when } = this.conditional(a);
+      for (const y of this.universe.objects[a.type]) out.push(and(this.tuple(object, tupleset, { ...y, ...caveat }), when, this.node(y, computed, depth + 1)));
     }
     return or(...out);
   }
