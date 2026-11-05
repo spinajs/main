@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 // Links the local ckit checkout into node_modules/@coderush for every workspace with a "ckit" field and pins
-// the checkout's commit in that workspace's ckit.lock. --check verifies the pin; --unlink removes the links.
+// the checkout's commit in that workspace's ckit.lock. --check verifies the pin.
+// npm install and npm ci prune the links (they are not dependencies): rerun this after either.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ckitPackagesOf, ckitWorkspaces } from './ckit-workspaces.mjs';
-import { rootFromArgs, unlinkScope } from './link-safety.mjs';
 
-const ROOT = rootFromArgs(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'));
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CKIT_PATH = path.resolve(process.env.CKIT_PATH ?? path.join(ROOT, '..', '..', 'coderush', 'ckit'));
 const SCOPE_DIR = path.join(ROOT, 'node_modules', '@coderush');
 const LOCK = 'ckit.lock';
@@ -27,16 +27,7 @@ function checkout() {
 
 const workspaces = ckitWorkspaces(ROOT);
 const packages = [...new Set(workspaces.flatMap(({ manifest }) => ckitPackagesOf(manifest)))].sort();
-const mode = process.argv.includes('--unlink') ? 'unlink' : process.argv.includes('--check') ? 'check' : 'link';
-
-if (mode === 'unlink') {
-  // Every link in the scope, not only the listed packages: a package dropped from a "ckit" list keeps its old link.
-  const { unlinked, real } = unlinkScope(SCOPE_DIR);
-  for (const name of unlinked) console.log(`  unlinked @coderush/${name}`);
-  if (real.length > 0) fail(`${real.map((name) => path.join(SCOPE_DIR, name)).join(', ')}: real directories, not links; refusing to touch them`);
-  console.log('link:ckit: unlinked');
-  process.exit(0);
-}
+const check = process.argv.includes('--check');
 
 if (packages.length === 0) {
   console.log('link:ckit: no workspace lists ckit packages');
@@ -47,7 +38,7 @@ if (!fs.existsSync(CKIT_PATH)) fail(`ckit checkout not found at ${CKIT_PATH} (se
 
 const { commit, dirty } = checkout();
 
-if (mode === 'check') {
+if (check) {
   const stale = workspaces.filter(({ dir }) => {
     const file = path.join(dir, LOCK);
     return !fs.existsSync(file) || JSON.parse(fs.readFileSync(file, 'utf8')).commit !== commit;
@@ -82,4 +73,4 @@ for (const { dir, manifest } of workspaces) {
 }
 if (dirty) console.warn(`link:ckit: ${CKIT_PATH} has uncommitted changes; ${LOCK} pins ${commit} without them`);
 console.log(`link:ckit: linked ${packages.length} package(s) from ${CKIT_PATH} at ${commit}`);
-console.log('link:ckit: run npm run unlink:ckit before npm ci');
+console.log('link:ckit: npm install and npm ci remove the links; run npm run link:ckit again after either');

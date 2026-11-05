@@ -9,7 +9,7 @@ import { requiresChangeset } from '../changeset-guard.mjs';
 import { ckitPackagesOf, isCkitWorkspace } from '../ckit-workspaces.mjs';
 
 const SCRIPTS = fileURLToPath(new URL('..', import.meta.url));
-const COPIED = ['ckit-workspaces.mjs', 'link-safety.mjs', 'link-ckit.mjs', 'require-ckit.mjs'];
+const COPIED = ['ckit-workspaces.mjs', 'link-ckit.mjs', 'require-ckit.mjs'];
 
 /** A repository with one ckit workspace next to a ckit checkout, both in a throwaway directory. */
 function sandbox({ built = true } = {}) {
@@ -35,10 +35,7 @@ function sandbox({ built = true } = {}) {
     link: (...args) => run(root, 'link-ckit.mjs', args, { CKIT_PATH: ckit }),
     requireCkit: (...args) => run(join(root, 'packages', 'ui'), 'require-ckit.mjs', args),
     linkPath: join(root, 'node_modules', '@coderush', 'ckit-components'),
-    cleanup: () => {
-      box.link('--unlink');
-      rmSync(base, { recursive: true, force: true });
-    },
+    cleanup: () => rmSync(base, { recursive: true, force: true }),
   };
   return box;
 }
@@ -102,18 +99,6 @@ test('require-ckit skips without the link, runs with it, and --strict refuses to
     const ran = box.requireCkit('node', '--version');
     assert.equal(ran.status, 0);
     assert.match(ran.stdout, /^v\d+\./m);
-  } finally {
-    box.cleanup();
-  }
-});
-
-test('--unlink removes the junction and leaves the checkout alone', () => {
-  const box = sandbox();
-  try {
-    box.link();
-    assert.equal(box.link('--unlink').status, 0);
-    assert.equal(existsSync(box.linkPath), false);
-    assert.ok(existsSync(join(box.ckit, 'packages', 'components', 'package.json')));
   } finally {
     box.cleanup();
   }

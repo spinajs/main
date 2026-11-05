@@ -28,8 +28,7 @@
     "prepare": "node scripts/install-hooks.mjs",
     "link": "powershell -NoProfile -ExecutionPolicy Bypass -File link-all.ps1",
     "link:sh": "bash link-all.sh",
-    "link:ckit": "node scripts/link-ckit.mjs",
-    "unlink:ckit": "node scripts/link-ckit.mjs --unlink"
+    "link:ckit": "node scripts/link-ckit.mjs"
   },
   "workspaces": [
     "packages/*"
