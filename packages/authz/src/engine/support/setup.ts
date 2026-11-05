@@ -4,6 +4,7 @@ import type { Combinator, NativeFilter } from '../../contracts/model.js';
 import type { RelationResolver, ResourceAdapter, ScopeAttributeSchema, ScopeAttributeStore, ScopeResolver } from '../../contracts/adapter.js';
 import type { ResourceType } from '../../contracts/principal.js';
 import type { DecisionCache } from '../../contracts/service.js';
+import type { DecisionTap } from '../../contracts/tap.js';
 import { subtractFieldGlobs } from '../../contracts/fields.js';
 import { schemaIndex } from '../attributes.js';
 import { BUILTIN_COMBINATORS } from '../combinators.js';
@@ -30,6 +31,15 @@ export function combinatorsOf(where: string, custom: readonly Combinator[] | und
     combinators.set(c.name, c);
   }
   return combinators;
+}
+
+export function tapsOf(where: string, taps: readonly DecisionTap[] | undefined): readonly DecisionTap[] {
+  if (taps === undefined) return Object.freeze([]);
+  const list: unknown = taps;
+  if (!Array.isArray(list)) throw new AuthzConfigError(`${where}: taps must be an array`);
+  // Duck-typed like combinators: a tap from a second copy of this package fails instanceof.
+  for (const t of list as readonly unknown[]) if (!isObject(t) || typeof t.onDecision !== 'function') throw new AuthzConfigError(`${where}: a decision tap needs an onDecision() method`);
+  return Object.freeze([...taps]);
 }
 
 export function decisionCacheOf(where: string, cache: unknown): DecisionCache | undefined {

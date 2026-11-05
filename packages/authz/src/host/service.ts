@@ -10,6 +10,7 @@ import type { ModelInitContext } from '../contracts/model.js';
 import { RelationResolver, ResourceAdapter, ScopeAttributeStore, ScopeResolver } from '../contracts/adapter.js';
 import type { ScopeAttributeSchema } from '../contracts/adapter.js';
 import { AuthzAdmin } from '../contracts/admin.js';
+import { DecisionTap } from '../contracts/tap.js';
 import { AuthzDomains, AuthzService, ChangeBus, DecisionAudit, DecisionCache } from '../contracts/service.js';
 import type { AccessSummary, AuthzChange, CheckInput } from '../contracts/service.js';
 import { SYSTEM, UNATTENDED } from '../contracts/principal.js';
@@ -386,6 +387,7 @@ export class DefaultAuthzService extends AuthzService {
     const chainRelations = await chain(RelationResolver);
     const chainFilters = await chain(NativeFilter);
     const combinators = await chain(Combinator);
+    const taps = await chain(DecisionTap);
 
     // Registered under AuthorizationModel means available; only a `models` list activates. The ancestors' lists come
     // from their boots, so their models are neither resolved nor initialised again here.
@@ -508,6 +510,7 @@ export class DefaultAuthzService extends AuthzService {
       ...(conditions ? { conditions } : {}),
       ...(cache ? { cache } : {}),
       ...(audit ? { audit } : {}),
+      ...(taps.length > 0 ? { taps } : {}),
       clock: now,
       log: this.log,
       config: {

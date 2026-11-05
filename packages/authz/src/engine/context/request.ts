@@ -36,13 +36,16 @@ export function relation(engine: Engine, type: ResourceType, name: string): Rela
 export function subjectEnv(engine: Engine, parties: Parties, ref: ResourceRef, run: Run, steps: TraceStep[] | undefined, cores: ModelContext[]): SubjectEnv {
   const adapter = engine.adapterByType.get(ref.type);
   const attribute = adapter && typeof adapter.attribute === 'function' ? (subject: unknown, field: string) => adapter.attribute!(subject, field) : defaultAttribute;
-  const ctx = new ModelContext(hostFor(engine, run), CORE, run.scope, run.instant, run.depth, steps, contextCacheKey('\u0000core', parties.cacheId));
+  const ctx = new ModelContext(hostFor(engine, run), CORE, run.scope, run.instant, run.depth, steps, contextCacheKey('\u0000core', parties.cacheId), run.reads);
   cores.push(ctx);
   return {
     principal: parties.principal,
     ref,
     attribute,
-    relation: (type, name) => relation(engine, type, name),
+    relation: (type, name) => {
+      run.reads?.relation(CORE, { type }, name);
+      return relation(engine, type, name);
+    },
     ancestors: (r) => Promise.resolve(ancestorsOf(engine, requireRef(engine, r), run.scope)),
     native: (op) => {
       const filter = engine.natives.get(op);

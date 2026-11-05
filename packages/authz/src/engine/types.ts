@@ -14,6 +14,8 @@ import type { AuthzLog } from '../host/log.js';
 import { BUILTIN_COMBINATORS } from './combinators.js';
 import type { CombineConfig, RouteTable } from './routes.js';
 import type { FieldCombiner } from './fields.js';
+import type { DecisionTap } from '../contracts/tap.js';
+import type { ReadRecorder } from './support/reads.js';
 
 /**
  * summary() and covers() check at most this many permissions (one check per
@@ -53,6 +55,8 @@ export interface AuthorizerOptions {
   /** L2; absent = no L2. Each Authorizer needs its own cache, never shared with another Authorizer of the same domain; a rebuilt Authorizer gets a fresh one. */
   readonly cache?: DecisionCache;
   readonly audit?: DecisionAudit;
+  /** Each top-level decision once it is final; reads are recorded only while one is registered. */
+  readonly taps?: readonly DecisionTap[];
   readonly clock?: () => Date;
   readonly log?: Pick<AuthzLog, 'error' | 'warn' | 'debug'>;
   readonly config?: {
@@ -106,6 +110,8 @@ export interface Run {
   readonly firm?: boolean;
   /** A fresh check: no cache reads anywhere in the call tree; stores as usual. */
   readonly fresh?: boolean;
+  /** The top-level decision's reads, shared by its whole call tree; only while a DecisionTap is registered. */
+  readonly reads?: ReadRecorder;
 }
 
 /** What nested decisions add to every decision above them: a vote may rest on a nested check. */
@@ -297,4 +303,5 @@ export interface Engine {
   readonly fieldCombiner: FieldCombiner;
   /** Principal cache id ⇒ the generation its preload finished in; a stale generation counts as not preloaded. */
   readonly preloaded: Map<string, number>;
+  readonly taps: readonly DecisionTap[];
 }

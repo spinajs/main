@@ -16,12 +16,14 @@ import { ancestorsOf } from '../context/scope.js';
 import { refuseLateType, requirePermission } from '../context/late-type.js';
 import { once } from '../support/misc.js';
 import { logAt } from '../support/plumbing.js';
+import { ReadRecorder } from '../support/reads.js';
 import { CORE, GLOBAL_TYPE, NO_ROLES, SYSTEM_REF } from '../types.js';
 import type { Checked, Engine, Gate, Parties, Run } from '../types.js';
 import { delegationOf, partiesOf } from './delegate.js';
 import { finish } from './finish.js';
 import { coreDenial, partiesDenial, principalGate } from './principal-gate.js';
 import { resolveResource } from './resolve.js';
+import { cacheHit, tap } from './tap.js';
 import { combineVotes, conclude, fieldsStep, reasonStep, vote } from './steps.js';
 import type { Admitted, Core, Head } from './steps.js';
 
@@ -33,8 +35,18 @@ export interface Resolved {
 
 type RunGate = Extract<Gate, { readonly kind: 'run' }>;
 
-/** The check pipeline (design §10.1); every step below runs in this order. */
+/** The check pipeline (design §10.1). A top-level access check records its reads for the taps, when there are any. */
 export function* pipeline(engine: Engine, input: CheckInput, run: Run, resolved?: Resolved): Pipeline<Checked> {
+  if (engine.taps.length === 0 || run.depth > 0 || run.quiet === true) return yield* check(engine, input, run, resolved);
+  const reads = new ReadRecorder();
+  const started = performance.now();
+  const checked = yield* check(engine, input, { ...run, reads }, resolved);
+  tap(engine, input, run.instant, checked, reads, performance.now() - started);
+  return checked;
+}
+
+/** Every step below runs in this order. */
+function* check(engine: Engine, input: CheckInput, run: Run, resolved?: Resolved): Pipeline<Checked> {
   const head = yield* prepare(engine, input, run, resolved);
   const gate = principalGate(input.principal);
   if (gate.kind !== 'run') return gateExit(engine, head, gate);
@@ -119,7 +131,7 @@ function* admit(engine: Engine, head: Head, input: CheckInput, gate: RunGate): P
   const tags = once(() => tagsOf(engine, head.plan.models, principals, ref, ancestors, run));
   if (key !== undefined && run.firm !== true && run.fresh !== true) {
     const hit = cached(engine, key, run, head.def, ref, requester, parties.ref);
-    if (hit) return hit;
+    if (hit) return cacheHit(run, hit);
     Perf.count('authz.cache.miss');
   }
   return { ...head, principal: gate.principal, requester, delegation, parties, key, ancestors, tags };

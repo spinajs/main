@@ -7,6 +7,7 @@ import { NEEDS_ASYNC, settleWithin } from '../run.js';
 import type { Pipeline } from '../run.js';
 import { describeError } from '../vote.js';
 import type { Attributes, BoundAttributes } from '../types.js';
+import type { ReadRecorder } from './reads.js';
 
 export const TIMED_OUT: unique symbol = Symbol('timed out');
 
@@ -39,6 +40,7 @@ export class RefBinder {
     private readonly ancestors: readonly ResourceRef[] | undefined,
     private readonly sync: boolean,
     private readonly load: (node: ResourceRef) => Promise<BoundAttributes>,
+    private readonly reads?: ReadRecorder,
   ) {}
 
   /** `uncacheable`: a filter read a ref the L2 key does not hold (refs read before `bindRefs`, which replaces principal.* and env.*), or a load it needed was degraded. */
@@ -60,7 +62,12 @@ export class RefBinder {
 
   bind(f: ResourceFilter): ResourceFilter {
     const pre = bindRefs(f, this.scope);
-    return bindEngineRefs(pre, refValues(collectRefs(pre), this.actor, this.attributes));
+    const values = refValues(collectRefs(pre), this.actor, this.attributes);
+    if (this.reads) {
+      const refs = collectRefs(f);
+      this.reads.bound(refs, values, this.scope.principal, scopeNodes(refs, { ancestors: this.ancestors }));
+    }
+    return bindEngineRefs(pre, values);
   }
 
   /** The first scope.* ref of `filters` without a value from the nodes `cover` loaded. */
