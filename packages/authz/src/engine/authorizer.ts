@@ -1,43 +1,41 @@
 import { quote, compareStrings } from '@spinajs/util';
 import { Perf } from '@spinajs/log-common';
 import { AuthzConfigError } from '../contracts/errors.js';
-import { FALSE, TRUE, and, not, simplify } from '../contracts/filter.js';
+import { FALSE, TRUE, and, not } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
-import type { Decision, DecisionRequest, DenyReason, FieldSet, TraceStep, Vote } from '../contracts/decision.js';
+import type { Decision, DecisionRequest, DenyReason, TraceStep, Vote } from '../contracts/decision.js';
 import { compareDenyReasons } from '../contracts/decision.js';
 import type { AccessPlan, ListPlanRequest, ModelListPlan } from '../contracts/plan.js';
 import type { AuthorizationModel, ModelSummary } from '../contracts/model.js';
 import type { Permission, PermissionDef } from '../contracts/permission.js';
 import { SYSTEM, principalKey } from '../contracts/principal.js';
-import type { Ceiling, Principal, ResourceRef, ResourceType } from '../contracts/principal.js';
+import type { Principal, ResourceRef, ResourceType } from '../contracts/principal.js';
 import { GLOBAL, resourceKey } from '../contracts/resource.js';
 import type { AccessSummary, CheckInput } from '../contracts/service.js';
-import { subtractFieldGlobs, unionFieldGlobs } from '../contracts/fields.js';
 import { DEFAULT_COMBINE } from './routes.js';
 import type { RouteTable } from './routes.js';
 import { defaultAttribute, evaluateResidual } from './evaluate.js';
 import type { SubjectEnv, Truth } from './evaluate.js';
 import { staticTruths } from './reasons.js';
-import { ceilingOutcome, readCeiling, scopeCovers } from './ceiling.js';
 import { resolveDelegation, stripPrincipalOps } from './delegation.js';
 import type { Delegation } from './delegation.js';
 import type { VoteTruths } from './reasons.js';
 import { decisionKey, invalidationTags, principalState, versionVector } from './cache-key.js';
 import { ModelContext, NoConditionCompiler, l1Key } from './context.js';
 import type { ContextHost, MaybePromise } from './context.js';
-import { NEEDS_ASYNC, isThenable, runAsync, runSync, settleWithin, swallow } from './run.js';
+import { isThenable, runAsync, runSync, settleWithin } from './run.js';
 import type { Pipeline, Settled } from './run.js';
-import { MAX_DATA_VALUES, MAX_FILTER_NODES, budget, copyData, copyRef, deepFreeze, describeError, faultVote, sanitizeFilter, sanitizeVote, thrownError } from './vote.js';
+import { deepFreeze, describeError, thrownError } from './vote.js';
 import { ALL_PLAN, CEILING_DENIAL, combinePlans, nonePlan, readModelPlan, withinOf } from './plan.js';
 import type { PlanAnswer } from './plan.js';
 import { isObject } from './internal/util.js';
-import { BUILTIN_ALGORITHMS, CORE, CachedPlan, DEADLINE_FACTOR, DELEGATE_PRIORITY, ENGINE_FAULT, GLOBAL_TYPE, INVALID_REQUEST, MAX_PRELOADED, MAX_SUMMARY_PERMISSIONS, NO_FIELDS, NO_LOG, NO_ROLES, SUMMARY_BATCH, SYSTEM_REF, UNKNOWN_RESOURCE, nextGeneration } from './types.js';
-import type { Attributes, AuthorizerOptions, Engine, BoundAttributes, Checked, Combined, Fields, LoadedAttributes, Outcome, Parties, RequestScope, Run } from './types.js';
+import { CORE, CachedPlan, DEADLINE_FACTOR, DELEGATE_PRIORITY, ENGINE_FAULT, GLOBAL_TYPE, INVALID_REQUEST, MAX_PRELOADED, MAX_SUMMARY_PERMISSIONS, NO_FIELDS, NO_LOG, NO_ROLES, SUMMARY_BATCH, SYSTEM_REF, UNKNOWN_RESOURCE, nextGeneration } from './types.js';
+import type { Attributes, AuthorizerOptions, Engine, Checked, Fields, Outcome, Parties, RequestScope, Run } from './types.js';
 import { Deadline, EXPIRED, THREW } from './support/deadline.js';
-import { RefBinder, bounded } from './support/ref-binder.js';
+import { RefBinder } from './support/ref-binder.js';
 import { entryCovers, firmFieldsOf } from './support/compare.js';
 import { combinatorsOf, compileTable, decisionCacheOf, fieldSetup, readConfig, resourceIndexes, scopeAttributesOf } from './support/setup.js';
-import { admits, capabilitiesOf, contextCacheKey, decides, deniedCopy, detachingOnThrow, earliest, mergeRoles, newNested, once, principalCacheId, scopeMap, syncMode } from './support/misc.js';
+import { admits, contextCacheKey, deniedCopy, detachingOnThrow, earliest, mergeRoles, newNested, once, principalCacheId, scopeMap } from './support/misc.js';
 import { logAt, newRun, now, topRun } from './support/plumbing.js';
 import { bornOf, epoch, invalidateL2 } from './cache/generation.js';
 import { cached } from './cache/lookup.js';
@@ -45,12 +43,16 @@ import { markFault, marking, remember, scopeFaulted, tagsOf } from './cache/stor
 import { coreDenial, partiesDenial, principalGate } from './pipeline/principal-gate.js';
 import { finish } from './pipeline/finish.js';
 import { envOf, relation, requestOf } from './context/request.js';
-import { ancestorsOf, attributesOf, logTimeout, nodeLoad } from './context/scope.js';
+import { ancestorsOf, attributesOf, nodeLoad } from './context/scope.js';
 import { lateType, refuseLateType, requirePermission, requireRef } from './context/late-type.js';
 import { loadRows, prefillAncestors } from './context/rows.js';
 import { resolveObject, resolveResource } from './pipeline/resolve.js';
 import { ceilingOf, delegationOf, partiesOf } from './pipeline/delegate.js';
 import { denyReason } from './pipeline/reasons.js';
+import { combine, evaluate, resolveScopeRefs } from './pipeline/vote.js';
+import { bind, fieldsOf, refBinder } from './pipeline/bind.js';
+import { comparedRefs, copySummary, customPlan, listedFields, summaryCeiling, summaryCovered, summaryEntries, summaryEntry } from './summary/entries.js';
+import type { SummaryItem } from './summary/entries.js';
 
 export { MAX_SUMMARY_PERMISSIONS } from './types.js';
 export type { AuthorizerOptions, RequestScope } from './types.js';
@@ -90,6 +92,7 @@ export class Authorizer {
       ...resourceIndexes(where, options),
       ...scopeAttributesOf(where, options.scopeAttributes),
       ...fieldSetup(where, config.neverRead),
+      preloaded: this.preloaded,
     };
     this.host = Object.freeze({
       domain: this.domain,
@@ -251,7 +254,7 @@ export class Authorizer {
       const summaries = await this.modelSummaries(gate.principal, ref, defs, { ...run, nested: newNested() });
       out.models = summaries.list;
       const candidates = summaries.names === undefined ? defs : defs.filter((d) => summaries.names!.has(d.name));
-      const listed = this.summaryEntries(gate.principal, summaries.list, defs, run.instant) ?? new Map<Permission, SummaryItem[]>();
+      const listed = summaryEntries(this.engine, gate.principal, summaries.list, defs, run.instant) ?? new Map<Permission, SummaryItem[]>();
       const checked = await this.checkEach(gate.principal, candidates, ref, run, limit);
       const faulted = candidates
         .filter((_, i) => {
@@ -267,7 +270,7 @@ export class Authorizer {
         const entries = listed.get(def.name);
         if (entries === undefined) return [];
         try {
-          return [summaryEntry(def, true, def.fields === true ? this.listedFields(entries) : NO_FIELDS)];
+          return [summaryEntry(def, true, def.fields === true ? listedFields(this.engine, entries) : NO_FIELDS)];
         } catch (e) {
           logAt(this.engine, 'error', { error: thrownError(e), permission: def.name }, 'Authz domain ${domain}: summary left out ${permission}: the fields its model summaries list could not be combined');
           return [];
@@ -306,7 +309,7 @@ export class Authorizer {
     if (truncated) return false;
     const run = this.quietRun(scope);
     // After quietRun: a model version change recompiles the routes there.
-    const custom = this.customPlan(defs, ref);
+    const custom = customPlan(this.engine, defs, ref);
     if (custom) {
       logAt(this.engine, 'error', { permission: custom.def.name, resourceType: custom.type, algorithm: custom.algorithm }, 'Authz domain ${domain}: covers is false: ${permission} on ${resourceType} uses the combinator ${algorithm}, which may allow without a permit that a summary lists');
       return false;
@@ -323,7 +326,7 @@ export class Authorizer {
         logAt(this.engine, 'error', {}, 'Authz domain ${domain}: covers is false: a model routed for the target gave no summary');
         return false;
       }
-      const listed = this.summaryEntries(target, summarized.list, defs, run.instant);
+      const listed = summaryEntries(this.engine, target, summarized.list, defs, run.instant);
       if (listed === undefined) {
         logAt(this.engine, 'error', {}, 'Authz domain ${domain}: covers is false: the onBehalfOf chain of the target does not resolve');
         return false;
@@ -346,7 +349,7 @@ export class Authorizer {
           // Only the gate denies `unattended`: the target read as another type than when it was admitted.
           if (pairs.some(([h, t]) => t.decision.reason?.code === 'unattended' || !entryCovers(h.decision, t.decision, firmFieldsOf(h)))) return false;
           const entries = listed.get(def.name) ?? [];
-          if (entries.some((e) => pairs.some(([h]) => !this.summaryCovered(h, e, def)))) return false;
+          if (entries.some((e) => pairs.some(([h]) => !summaryCovered(this.engine, h, e, def)))) return false;
           // An entry against a conditional holder is unknown, so it does not make the holder strictly above.
           const blocked = (h: Checked) => entries.some((e) => !e.conditional || h.decision.residual.op !== 'true');
           if (pairs.some(([h, t]) => h.decision.allowed && !entryCovers(t.decision, h.decision) && !blocked(h))) strict = true;
@@ -565,65 +568,6 @@ export class Authorizer {
     return runAsync(this.pipeline({ principal, permission: def.name }, { ...run, nested: newNested(), ...(firm ? { firm } : {}) }, { ref, subject: undefined }));
   }
 
-  /**
-   * The summary entries for `defs` by name, under the ceilings of the
-   * principal's onBehalfOf resolution (the ones its checks apply); undefined
-   * when the resolution throws or denies.
-   */
-  private summaryEntries(principal: Principal, list: readonly ModelSummary[], defs: readonly PermissionDef[], instant: Date): Map<Permission, SummaryItem[]> | undefined {
-    let ceilings: readonly unknown[];
-    try {
-      const d = delegationOf(this.engine, principal, undefined, this.engine.config.maxDelegation);
-      if (d.denial) return undefined;
-      ceilings = d.ceilings;
-    } catch {
-      return undefined;
-    }
-    const names = new Set(defs.map((d) => d.name));
-    const out = new Map<Permission, SummaryItem[]>();
-    for (const summary of list) {
-      for (const entry of summary.permissions) {
-        if (!names.has(entry.name)) continue;
-        const kept = underCeilings(ceilings, entry, instant);
-        if (kept === undefined) continue;
-        const entries = out.get(entry.name);
-        if (entries) entries.push(kept);
-        else out.set(entry.name, [kept]);
-      }
-    }
-    return out;
-  }
-
-  /** The union of the entries' fields (none listed: every field), less neverRead. Throws AuthzConfigError past the field budget. */
-  private listedFields(entries: readonly SummaryItem[]): Fields {
-    const union = (k: 'read' | 'write') => subtractFieldGlobs(unionFieldGlobs(...entries.map((e) => e.fields?.[k] ?? ['*'])), this.engine.config.neverRead);
-    return { read: union('read'), write: union('write') };
-  }
-
-  /**
-   * An entry has no residual to compare, so only an unconditional holder
-   * covers it, with every field it lists (none listed: every field but
-   * neverRead). `hide` only narrows the target, so it is not read.
-   */
-  private summaryCovered(holder: Checked, entry: SummaryItem, def: PermissionDef): boolean {
-    if (!holder.decision.allowed || holder.decision.residual.op !== 'true') return false;
-    if (def.fields !== true) return true;
-    const held = firmFieldsOf(holder);
-    const inside = (k: 'read' | 'write') => subtractFieldGlobs(subtractFieldGlobs(entry.fields?.[k] ?? ['*'], this.engine.config.neverRead), held[k]).length === 0;
-    return inside('read') && inside('write');
-  }
-
-  /** The first route plan of `defs` at `ref` (at `$global`, also on each type) whose algorithm is not built in. */
-  private customPlan(defs: readonly PermissionDef[], ref: ResourceRef): { readonly def: PermissionDef; readonly type: ResourceType; readonly algorithm: string } | undefined {
-    for (const def of defs) {
-      for (const r of comparedRefs(def, ref)) {
-        const algorithm = this.engine.table.get(def.name, r.type)?.algorithm;
-        if (algorithm !== undefined && !BUILTIN_ALGORITHMS.has(algorithm)) return { def, type: r.type, algorithm };
-      }
-    }
-    return undefined;
-  }
-
   // ---- accessPlan ----
 
   /** undefined when nothing may be cached for this call (a model version() that fails, a principal without canonical state). */
@@ -780,14 +724,14 @@ export class Authorizer {
     const contexts = models.map((m) => new ModelContext(host, m.name, run.scope, run.instant, run.depth, steps, contextCacheKey(m.name, parties.cacheId)));
     const request = () => requestOf(this.engine, parties, def, ref, subject, input.env, run.instant, explain, run.fresh === true);
     const label = `${def.name} on ${resourceKey(ref)}`;
-    const binder = this.refBinder(parties, env, ancestors, run);
+    const binder = refBinder(this.engine, parties, env, ancestors, run);
     const voteLoads = { degraded: false };
-    const resolve = (vs: readonly Vote[]) => this.resolveScopeRefs(vs, binder, label, voteLoads);
-    const votes = yield* this.evaluate(models, contexts, request, plan.algorithm, explain, run, label, resolve, parties.cacheId);
+    const resolve = (vs: readonly Vote[]) => resolveScopeRefs(this.engine, vs, binder, label, voteLoads);
+    const votes = yield* evaluate(this.engine, models, contexts, request, plan.algorithm, explain, run, label, resolve, parties.cacheId);
 
-    const combined = this.combine(plan.algorithm, votes);
+    const combined = combine(this.engine, plan.algorithm, votes);
     const allow = ceiling.denials.length > 0 ? FALSE : and(combined.allow, ceiling.restrict);
-    const bound = yield* this.bind(allow, binder);
+    const bound = yield* bind(this.engine, allow, binder);
     let residual = bound.residual;
     const coreDenials: DenyReason[] = [...ceiling.denials];
     // Core contexts handed to native filters during the subject steps.
@@ -843,7 +787,7 @@ export class Authorizer {
     let fieldsFaulted = false;
     if (allowed) {
       const firmDelegate = delegated?.firmFields ?? delegate?.fields;
-      const f = yield* this.fieldsOf(plan.algorithm, votes, binder, delegate?.fields, label, run.firm ? (firmDelegate ? { delegate: firmDelegate } : {}) : undefined);
+      const f = yield* fieldsOf(this.engine, plan.algorithm, votes, binder, delegate?.fields, label, run.firm ? (firmDelegate ? { delegate: firmDelegate } : {}) : undefined);
       fieldsUncacheable = f.uncacheable;
       fieldsFaulted = f.faulted;
       if (f.failed) {
@@ -927,193 +871,11 @@ export class Authorizer {
     });
   }
 
-  /**
-   * Step 8: concurrent under deny-overrides and custom algorithms; in plan
-   * order with a stop otherwise. `resolve` (resolveScopeRefs) runs on each vote
-   * before the stop rule reads it, so check and explain stop at the same vote.
-   */
-  private *evaluate(models: readonly AuthorizationModel[], contexts: readonly ModelContext[], request: () => DecisionRequest, algorithm: string, explain: boolean, run: Run, label: string, resolve: (votes: readonly Vote[]) => Pipeline<Vote[]>, cacheId: string): Pipeline<Vote[]> {
-    if (run.sync && models.some((m) => syncMode(m) === 'never')) yield NEEDS_ASYNC;
-    // B22: such a model may answer sync from state only its preload loads.
-    if (run.sync && models.some((m) => syncMode(m) === 'after-preload') && !this.wasPreloaded(cacheId, run.scope)) yield NEEDS_ASYNC;
-
-    if (algorithm === 'permit-overrides' || algorithm === 'first-applicable') {
-      const votes: Vote[] = [];
-      for (let i = 0; i < models.length; i++) {
-        const started = this.start(models[i], contexts[i], request(), run, label);
-        const [vote] = yield* resolve([(isThenable(started) ? yield started : started) as Vote]);
-        votes.push(vote);
-        if (!explain && decides(algorithm, vote)) break;
-      }
-      return votes;
-    }
-
-    const started: (Vote | PromiseLike<unknown>)[] = [];
-    for (let i = 0; i < models.length; i++) {
-      const s = this.start(models[i], contexts[i], request(), run, label);
-      if (run.sync && isThenable(s)) yield s;
-      started.push(s);
-    }
-    return yield* resolve(started.some(isThenable) ? ((yield Promise.all(started)) as Vote[]) : (started as Vote[]));
-  }
-
-  private wasPreloaded(cacheId: string, scope: Map<string, unknown>): boolean {
-    if (scope.get(l1Key('preloaded', this.domain, cacheId)) === this.engine.generation) return true;
-    if (this.preloaded.get(cacheId) !== this.engine.generation) return false;
-    this.preloaded.delete(cacheId);
-    this.preloaded.set(cacheId, this.engine.generation);
-    return true;
-  }
-
-  /**
-   * B39 (design §5.6): a vote holding a scope.* ref that resolves missing (absent
-   * attribute, unknown node, a type-level ref other than $global, a failed or
-   * timed-out load) is indeterminate. Loads through the check's binder, so the
-   * allow, fields and reasons reuse them; sync mode yields NEEDS_ASYNC before
-   * any load.
-   */
-  private *resolveScopeRefs(votes: readonly Vote[], binder: RefBinder, label: string, loads: { degraded: boolean }): Pipeline<Vote[]> {
-    const filtersOf = (v: Vote): ResourceFilter[] => [v.permitWhen, v.denyWhen, ...(v.denies ?? []).map((d) => d.when)];
-    try {
-      if ((yield* binder.cover(votes.filter((v) => v.error === undefined).flatMap(filtersOf))).degraded) loads.degraded = true;
-    } catch (e) {
-      // Nodes left unloaded make their refs missing below.
-      loads.degraded = true;
-      logAt(this.engine, 'error', { error: thrownError(e), check: label }, 'Authz domain ${domain}: loading the scope attributes of the votes of ${check} failed');
-    }
-    return votes.map((v) => {
-      if (v.error !== undefined) return v;
-      let fault: string | undefined;
-      try {
-        const missing = binder.missingScopeRef(filtersOf(v));
-        if (missing !== undefined) fault = `scope ref ${quote(missing)} resolves missing`;
-      } catch (e) {
-        fault = `reading its scope refs failed: ${describeError(e)}`;
-      }
-      if (fault === undefined) return v;
-      logAt(this.engine, 'error', { model: v.model, check: label, cause: fault }, 'Authz domain ${domain}: model ${model} is indeterminate for ${check}: ${cause}');
-      return faultVote(v.model, fault);
-    });
-  }
-
-  /** A clean vote, or (async) a promise of one that never rejects, or (sync) the model's thenable. */
-  private start(model: AuthorizationModel, ctx: ModelContext, request: DecisionRequest, run: Run, label: string): Vote | PromiseLike<unknown> {
-    let raw: unknown;
-    try {
-      raw = model.evaluate(request, ctx);
-    } catch (e) {
-      return this.accept(model, ctx, { fault: `evaluate threw: ${describeError(e)}` }, label);
-    }
-    let pending: boolean;
-    try {
-      pending = isThenable(raw);
-    } catch (e) {
-      return this.accept(model, ctx, { fault: `evaluate returned an unreadable value: ${describeError(e)}` }, label);
-    }
-    if (!pending) return this.accept(model, ctx, { raw }, label);
-    if (run.sync) return raw as PromiseLike<unknown>;
-    return settleWithin(raw as PromiseLike<unknown>, this.engine.config.modelTimeoutMs, describeError, 'evaluate').then((s) => this.accept(model, ctx, s.ok ? { raw: s.value } : { fault: s.error }, label));
-  }
-
-  /** Step 9: vote hygiene. */
-  private accept(model: AuthorizationModel, ctx: ModelContext, result: { readonly raw: unknown } | { readonly fault: string }, label: string): Vote {
-    let vote = 'fault' in result ? faultVote(model.name, result.fault) : sanitizeVote(result.raw, model.name, capabilitiesOf(model));
-    if (vote.error === undefined && ctx.fault !== undefined) vote = faultVote(model.name, ctx.fault);
-    if (vote.error !== undefined) logAt(this.engine, 'error', { model: model.name, check: label, cause: vote.error }, 'Authz domain ${domain}: model ${model} is indeterminate for ${check}: ${cause}');
-    return vote;
-  }
-
-  /** Step 10. */
-  private combine(algorithm: string, votes: readonly Vote[]): Combined {
-    try {
-      const combinator = this.engine.combinators.get(algorithm);
-      if (!combinator) throw new AuthzConfigError(`unknown algorithm ${quote(algorithm)}`);
-      const result = combinator.combine(votes);
-      if (isThenable(result)) {
-        swallow(result);
-        throw new AuthzConfigError('combine() must be synchronous, it returned a thenable');
-      }
-      const scale = votes.length * votes.length + 1;
-      // first-applicable repeats every earlier vote's not(or(P, D)), so k votes expand to about k * (sum of votes).
-      const allow = simplify(sanitizeFilter(result.allow, '*', 'combinator allow', budget(MAX_FILTER_NODES * scale), budget(MAX_DATA_VALUES * scale)));
-      return algorithm === 'first-applicable' && result.deciding !== undefined ? { allow, deciding: result.deciding, failed: false } : { allow, failed: false };
-    } catch (e) {
-      logAt(this.engine, 'error', { error: thrownError(e), algorithm }, 'Authz domain ${domain}: combinator ${algorithm} failed');
-      return { allow: FALSE, failed: true };
-    }
-  }
-
-  /** Step 11's binder for one check, shared with the reason pass so both read the same refs and attributes. */
-  private refBinder(parties: Parties, env: Readonly<Record<string, unknown>>, ancestors: readonly ResourceRef[] | undefined, run: Run): RefBinder {
-    return new RefBinder({ principal: parties.principal, env }, parties.actor ?? parties.principal, ancestors, run.sync, (node) => this.boundAttributes(node, run.scope));
-  }
-
-  /** Step 11. A malformed node or a binder error gives FALSE (fail closed). */
-  private *bind(allow: ResourceFilter, binder: RefBinder): Pipeline<{ readonly residual: ResourceFilter; readonly failed: boolean; readonly degraded: boolean; readonly uncacheable: boolean }> {
-    try {
-      const covered = yield* binder.cover([allow]);
-      return { residual: binder.bind(allow), failed: covered.failed, degraded: covered.degraded, uncacheable: covered.uncacheable };
-    } catch (e) {
-      logAt(this.engine, 'error', { error: thrownError(e) }, 'Authz domain ${domain}: binding refs failed');
-      return { residual: FALSE, failed: true, degraded: true, uncacheable: true };
-    }
-  }
-
-  /**
-   * A scope node's attributes for the binder, never waiting past modelTimeoutMs
-   * (a model may already have given up on the memoised load). Either failure
-   * leaves the node unknown; only a rejection is an engine fault.
-   */
-  private boundAttributes(node: ResourceRef, scope: Map<string, unknown>): Promise<BoundAttributes> {
-    const load = nodeLoad(this.engine, node, scope);
-    return bounded(() => load.result, this.engine.config.modelTimeoutMs).then((r): BoundAttributes => {
-      if (r.kind === 'value') return { ...(r.value as LoadedAttributes), failed: false };
-      if (r.kind === 'error') logAt(this.engine, 'error', { error: thrownError(r.error), resource: resourceKey(node) }, 'Authz domain ${domain}: scope attributes of ${resource} failed; its refs bind as missing');
-      else logTimeout(this.engine, load, { resource: resourceKey(node), timeoutMs: this.engine.config.modelTimeoutMs }, 'Authz domain ${domain}: scope attributes of ${resource} timed out after ${timeoutMs} ms; its refs bind as missing');
-      return { attributes: null, failed: r.kind === 'error', degraded: true };
-    });
-  }
-
   /** The intersect delegate's full decision: same permission, ref, subject, env and scope, with the hops left. */
   private *delegateCheck(delegate: Principal, hopsUsed: number, def: PermissionDef, ref: ResourceRef, subject: unknown, env: unknown, run: Run): Pipeline<Checked> {
     const input: { -readonly [K in keyof CheckInput]: CheckInput[K] } = { principal: delegate, permission: def.name };
     if (env !== undefined) input.env = env as Readonly<Record<string, unknown>>;
     return yield* this.pipeline(input, { ...run, depth: run.depth + 1, delegationBudget: run.delegationBudget - hopsUsed }, { ref, subject });
-  }
-
-  /**
-   * Fields of an allowed decision, intersected with an intersect delegate's.
-   * The votes' terms are bound like the allow; their refs may be gone from the
-   * simplified allow, so their scope nodes are loaded first. `failed`: an
-   * AuthzConfigError (glob budget, binder), which denies with model_error.
-   * A degraded or failed load leaves its refs missing: the decision stands
-   * but is faulted and not cached. `firm` (firm runs) also gives `firm`,
-   * intersected with the delegate's firm fields.
-   */
-  private *fieldsOf(algorithm: string, votes: readonly Vote[], binder: RefBinder, delegate: Fields | undefined, label: string, firm?: { readonly delegate?: Fields }): Pipeline<{ readonly fields: Fields; readonly firm?: Fields; readonly failed: boolean; readonly faulted: boolean; readonly uncacheable: boolean }> {
-    let uncacheable: boolean;
-    let faulted: boolean;
-    try {
-      const covered = yield* binder.cover(votes.filter((v) => v.error === undefined).flatMap((v) => [v.permitWhen, v.denyWhen]));
-      uncacheable = covered.uncacheable;
-      faulted = covered.degraded;
-    } catch (e) {
-      // Refs of nodes left unloaded bind as missing: fewer fields, more hidden.
-      logAt(this.engine, 'error', { error: thrownError(e), check: label }, 'Authz domain ${domain}: loading the scope attributes of the field sets of ${check} failed');
-      uncacheable = true;
-      faulted = true;
-    }
-    try {
-      const own = this.engine.fieldCombiner.combine(algorithm, votes, (f) => binder.bind(f));
-      const fields = delegate ? this.engine.fieldCombiner.intersect(own, delegate) : own;
-      if (!firm) return { fields, failed: false, faulted, uncacheable };
-      const firmOwn = this.engine.fieldCombiner.combine(algorithm, votes, (f) => binder.bind(f), true);
-      return { fields, firm: firm.delegate ? this.engine.fieldCombiner.intersect(firmOwn, firm.delegate) : firmOwn, failed: false, faulted, uncacheable };
-    } catch (e) {
-      if (!(e instanceof AuthzConfigError)) throw e;
-      logAt(this.engine, 'error', { error: thrownError(e), check: label }, 'Authz domain ${domain}: combining the field sets of ${check} failed');
-      return { fields: NO_FIELDS, failed: true, faulted: true, uncacheable: true };
-    }
   }
 
   /**
@@ -1198,80 +960,3 @@ export class Authorizer {
   }
 
 }
-
-function summaryEntry(def: PermissionDef, conditional: boolean, fields: Fields): AccessSummary['permissions'][number] {
-  return def.fields === true ? { name: def.name, conditional, fields: { read: [...fields.read], write: [...fields.write] } } : { name: def.name, conditional };
-}
-
-type SummaryItem = ModelSummary['permissions'][number];
-
-/**
- * A summary entry under its principal's ceilings, judged at GLOBAL and
- * `instant`: dropped (undefined) when a ceiling's permissions, expiry or
- * empty resources rule it out, or the ceiling is malformed; conditional
- * when a ceiling's resources lie below GLOBAL.
- */
-function underCeilings(ceilings: readonly unknown[], entry: SummaryItem, instant: Date): SummaryItem | undefined {
-  let conditional = entry.conditional;
-  for (const raw of ceilings) {
-    const read = readCeiling(raw);
-    if (!read.ok) return undefined;
-    if (read.ceiling === undefined) continue;
-    const { resources, ...rest } = read.ceiling;
-    if (ceilingOutcome(rest, entry.name, GLOBAL, undefined, instant).denials.length > 0) return undefined;
-    if (resources === undefined) continue;
-    if (resources.length === 0) return undefined;
-    if (!resources.some((r) => scopeCovers(r, GLOBAL))) conditional = true;
-  }
-  return conditional === entry.conditional ? entry : { ...entry, conditional };
-}
-
-/** The refs covers compares a permission on: at `$global`, also each of its types, whose type-level check stands for every row (B06). */
-function comparedRefs(def: PermissionDef, ref: ResourceRef): readonly ResourceRef[] {
-  return ref.type === GLOBAL_TYPE ? [ref, ...def.types.map((type) => Object.freeze({ type }))] : [ref];
-}
-
-/** A validated copy; a malformed ceiling (every check denies then) is left out. */
-function summaryCeiling(p: Principal): Ceiling | undefined {
-  let raw: unknown;
-  try {
-    raw = p.ceiling;
-  } catch {
-    return undefined;
-  }
-  const read = readCeiling(raw);
-  return read.ok ? read.ceiling : undefined;
-}
-
-/** A frozen engine copy of a model's summary, stamped with the model's name; throws when malformed or over the data budget. */
-function copySummary(raw: unknown, model: string): ModelSummary {
-  const data = copyData(raw, true);
-  if (!isObject(data) || !Array.isArray(data.permissions)) throw new Error('the summary has no permissions list');
-  const permissions = data.permissions.map((p: unknown, i): ModelSummary['permissions'][number] => {
-    if (!isObject(p) || typeof p.name !== 'string' || typeof p.conditional !== 'boolean') throw new Error(`permissions[${i}] is not { name, conditional }`);
-    if (p.fields === undefined) return { name: p.name, conditional: p.conditional };
-    const given = p.fields;
-    if (!isObject(given)) throw new Error(`permissions[${i}].fields is not a field set`);
-    // Rebuilt: anything else a model puts there would reach the access summary (B25).
-    const fields: { -readonly [K in keyof FieldSet]: FieldSet[K] } = {};
-    for (const k of ['read', 'write', 'hide'] as const) {
-      const globs = given[k];
-      if (globs === undefined) continue;
-      if (!isStrings(globs)) throw new Error(`permissions[${i}].fields is not a field set`);
-      fields[k] = globs as string[];
-    }
-    return { name: p.name, conditional: p.conditional, fields };
-  });
-  const out: { -readonly [K in keyof ModelSummary]: ModelSummary[K] } = { model, permissions };
-  if (data.roles !== undefined) {
-    if (!Array.isArray(data.roles)) throw new Error('roles is not a list');
-    out.roles = data.roles.map((r: unknown, i) => {
-      const scope = isObject(r) ? copyRef(r.scope) : undefined;
-      if (!isObject(r) || typeof r.role !== 'string' || !scope || (r.expiresAt !== undefined && typeof r.expiresAt !== 'string')) throw new Error(`roles[${i}] is not { role, scope, expiresAt? }`);
-      return r.expiresAt === undefined ? { role: r.role, scope } : { role: r.role, scope, expiresAt: r.expiresAt };
-    });
-  }
-  return deepFreeze(out);
-}
-
-const isStrings = (v: unknown): boolean => Array.isArray(v) && v.every((x) => typeof x === 'string');

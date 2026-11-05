@@ -295,4 +295,6 @@ export interface Engine {
   readonly config: EngineConfig;
   readonly allFields: Fields;
   readonly fieldCombiner: FieldCombiner;
+  /** Principal cache id ⇒ the generation its preload finished in; a stale generation counts as not preloaded. */
+  readonly preloaded: Map<string, number>;
 }
