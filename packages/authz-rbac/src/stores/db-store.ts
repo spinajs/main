@@ -1,5 +1,8 @@
-import { AuthzClock } from '@spinajs/authz';
+import { AuthzClock, changeLog } from '@spinajs/authz';
+import type { ChangeEntry } from '@spinajs/authz';
 import type { IContainer } from '@spinajs/di';
+// Registers DbChangeLog and its migration: every DB store write appends to it.
+import '@spinajs/authz-orm/changelog';
 
 import { storeDomain } from './context.js';
 
@@ -16,6 +19,11 @@ export abstract class DbRbacStore {
 
   protected now(): Date {
     return this.container.resolveOptional(AuthzClock)?.now() ?? new Date();
+  }
+
+  /** Appends in the transaction of the write; call it after the rows changed. */
+  protected logChanges(entries: readonly ChangeEntry[]): Promise<void> {
+    return changeLog().append(entries);
   }
 }
 

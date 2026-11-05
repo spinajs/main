@@ -208,7 +208,7 @@ DI.register(RegisteredOnlyControllers).as(Controllers);
 ## Best practices
 
 - Give every controller an explicit `@BasePath`; the class-name fallback keeps the `Controller` suffix.
-- Override package controllers with `DI.register(Mine).as(Theirs)`, not by subclassing alone.
+- Override package controllers with `DI.register(Mine).as(Theirs)`, not by subclassing alone, and call it at module top level. The manifest treats a call inside `bootstrap()`, a function, a loop or a `try` as conditional: it keeps both controllers, so on a path both serve `generate:openapi` fails with `duplicate operation` and `spinajs doctor` reports HTTP001.
 - Keep `resolve()` overrides calling `await super.resolve()` first; it builds the router.
 - Put the API version in `http.controllers.route.prefix` instead of every `@BasePath`.
 

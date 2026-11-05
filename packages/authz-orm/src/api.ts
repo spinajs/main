@@ -15,7 +15,15 @@ export interface RelationOptions {
   readonly typeColumn?: string;
 }
 
-export interface AccessResourceOptions {
+/** Options of `@AccessResource`. */
+export interface AccessResourceDecoratorOptions {
+  /** `false` keeps the relation columns of the model out of the authz changelog; replays that need them report `unreplayable`. Default true. */
+  readonly changelog?: boolean;
+  /** Postgres row level security from the list plans (`authz:rls`): `true` refuses what the database cannot evaluate (AUTHZ020), `'partial'` widens it (AUTHZ021). */
+  readonly rls?: boolean | 'partial';
+}
+
+export interface AccessResourceOptions extends AccessResourceDecoratorOptions {
   /** The `@Parent` columns of a model the package does not own. */
   readonly parents?: readonly { readonly column: string; readonly type: ResourceType }[];
   /** The `owner` column (the user whose id it holds), or the id column plus a principal type column. */
@@ -24,6 +32,4 @@ export interface AccessResourceOptions {
   readonly self?: string;
   /** Named column relations (`@Relation`) of a model the package does not own. */
   readonly relations?: Readonly<Record<string, string | { readonly column: string; readonly typeColumn?: string }>>;
-  /** Postgres row level security from the list plans (`authz:rls`): `true` refuses what the database cannot evaluate (AUTHZ020), `'partial'` widens it (AUTHZ021). */
-  readonly rls?: boolean | 'partial';
 }

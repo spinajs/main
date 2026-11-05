@@ -1,4 +1,4 @@
-/** Test DB fixture: an Orm in a child DI container on SQLite `:memory:`, with authz_rebac_tuple on the alias `authz`. */
+/** Test DB fixture: an Orm in a child DI container on SQLite `:memory:`, with authz_rebac_tuple and authz_change_log on the alias `authz`. */
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
@@ -6,6 +6,7 @@ import '@spinajs/log';
 import { Orm, QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
+import { AuthzChangeLog_2026_11_04_00_00_00 } from '@spinajs/authz-orm/changelog';
 
 import { AuthzRebac_2026_10_21_00_00_00 } from '../../src/index.js';
 
@@ -47,6 +48,7 @@ export async function bootDb(suite: string): Promise<TestDb> {
   const driver = orm.Connections.get('authz')!;
   // By hand: the boot migration pass is not what these suites test.
   await new AuthzRebac_2026_10_21_00_00_00().up(driver);
+  await new AuthzChangeLog_2026_11_04_00_00_00().up(driver);
   // The Orm read the table info before authz_rebac_tuple existed.
   await orm.reloadTableInfo();
 
