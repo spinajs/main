@@ -15,9 +15,10 @@ The replacement must be registered before `Cli` dispatches, in your own CLI entr
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `MigrateUpCommand` | Class token, singleton (no lifetime decorator); also `'__cli_command__'` | `MigrateUpCommand` | none shipped | `DI.register(Sub).as(MigrateUpCommand)`. Hooks: `execute(options)`, `reportRun(orm, executed, options)`, `explainEmptyNamedRun(orm, name, connection?)`, `checkModelTables(orm, fake?)`, `Log` |
+| `MigrateUpCommand` | Class token, singleton (no lifetime decorator); also `'__cli_command__'` | `MigrateUpCommand` | none shipped | `DI.register(Sub).as(MigrateUpCommand)`. Hooks: `execute(options)`, `printPlan(migrator, options)`, `reportRun(migrator, executed, options)`, `explainEmptyNamedRun(migrator, name, connection?)`, `checkModelTables(orm, fake?)`, `Log` |
 | `MigrateDownCommand` | Class token, singleton; also `'__cli_command__'` | `MigrateDownCommand` | none shipped | `DI.register(Sub).as(MigrateDownCommand)`. Hooks: `execute(options)`, `announce(options)` (runs before `down()`; throw to veto), `Log` |
-| `MigrateStatusCommand` | Class token, singleton; also `'__cli_command__'` | `MigrateStatusCommand` | none shipped | `DI.register(Sub).as(MigrateStatusCommand)`. Hooks: `execute()`, `state(entry)`, `explainFailed(failed)`, `explainInterrupted(interrupted)` |
+| `MigrateStatusCommand` | Class token, singleton; also `'__cli_command__'` | `MigrateStatusCommand` | none shipped | `DI.register(Sub).as(MigrateStatusCommand)`. Hooks: `execute(options)`, `collect(options)`, `printTable(entries, pendingInRunOrder)`, `toJson(entry)`, `state(entry)`, `explainFailed(failed)`, `explainInterrupted(interrupted)` |
+| `MigrateSeedCommand` | Class token, singleton; also `'__cli_command__'` | `MigrateSeedCommand` | none shipped | `DI.register(Sub).as(MigrateSeedCommand)`. Hooks: `execute(options)`, `Log` |
 | `MigrateResolveCommand` | Class token, singleton; also `'__cli_command__'` | `MigrateResolveCommand` | none shipped | `DI.register(Sub).as(MigrateResolveCommand)`. Hooks: `execute(options)`, `action(options)` (runs before the `Orm` is resolved), `Log` |
 | `MigrateCreateCommand` | Class token, singleton; also `'__cli_command__'` | `MigrateCreateCommand` | none shipped | `DI.register(Sub).as(MigrateCreateCommand)`. Hooks: `execute(options)`, `Log`. The template is not overridable on the class |
 | Your own command | Your class token; discovered from your `system.dirs.cli` | none | none | Extend `CliCommand`, call `resolveCliMigrator()`, reuse the exported constants and functions |
@@ -28,6 +29,7 @@ The replacement must be registered before `Cli` dispatches, in your own CLI entr
 
 | Command | Protected member | Called | Default behaviour |
 | --- | --- | --- | --- |
+| `MigrateUpCommand` | `printPlan(migrator: OrmMigrator, options: IMigrateUpCommandOptions): Promise<void>` | with `--dry-run`, instead of `migrator.migrate()` | Prints `migrator.plan()` on stdout and sets `process.exitCode = 1` when it has entries; see [Dry run](01-applying-migrations.md#dry-run) |
 | `MigrateUpCommand` | `reportRun(migrator: OrmMigrator, executed: OrmMigration[], options: IMigrateUpCommandOptions): Promise<void>` | after every `migrator.migrate()` | Logs what was applied or recorded, or that nothing is pending; calls `explainEmptyNamedRun()` for an empty named run |
 | `MigrateUpCommand` | `explainEmptyNamedRun(migrator: OrmMigrator, name: string, connection?: string): Promise<void>` | `--name` given and nothing applied | Looks the migration up in `migrator.Runner.status()`, logs why it did not run, sets `process.exitCode = 1` unless applied |
 | `MigrateUpCommand` | `checkModelTables(orm: Orm, fake?: boolean): Promise<void>` | after `reportRun()`, only without `--name` and `--connection` | Returns when `orm.StrictTableCheck` is `false`; otherwise calls `orm.reloadTableInfo({ strict: true })`, logs a missing table at error level and sets `process.exitCode = 1` |
@@ -86,7 +88,7 @@ This entry point skips the `spinajs` bin's argv provider. Register one as in [`@
 
 ### Write a new command on the CLI migrator
 
-A command of your own gets the same safe migrator through `resolveCliMigrator()`. This one prints the status as JSON for a dashboard and keeps the deploy-gate exit code.
+A command of your own gets the same tool-mode migrator, booted without the application's boot check, through `resolveCliMigrator()`. This one prints the status as JSON for a dashboard and keeps the deploy-gate exit code.
 
 ```ts sample
 import { CliCommand, Command, Option } from '@spinajs/cli';
@@ -117,7 +119,8 @@ Put it in its own file in a directory your application lists in `system.dirs.cli
 - **Do not add `@Option` to a subclass of a shipped command.** `@Option` appends to the inherited metadata array, so the new option leaks into the shipped command too. Declare a new command on `CliCommand` instead.
 - **Register before `Cli` dispatches.** Commands resolve lazily; a registration made after the command was resolved is ignored for that run.
 - **`migrationTemplate()` and `resolveCliMigrator()` are imported directly by the commands.** Replacing them on a subclass or in DI changes nothing; override `execute()` or write a new command.
-- **A command of your own gets no table check.** The CLI migrator applies nothing on its way in and the `Orm` only warns about a missing table; call `orm.reloadTableInfo({ strict: true })` after `migrator.migrate()` when the command must fail like `migrate-up` does.
+- **A command of your own gets no table check.** The CLI migrator boots without the boot check and the `Orm` only warns about a missing table; call `orm.reloadTableInfo({ strict: true })` after `migrator.migrate()` when the command must fail like `migrate-up` does.
+- **A command that injects the `Orm` is not in tool mode.** Injecting or resolving the `Orm` before `resolveCliMigrator()` boots it as an application does, with the boot check, so the command refuses a database with pending migrations.
 - **Commands are singletons.** State kept on a command instance survives between calls in the same process, which matters when a script calls `execute()` twice.
 
 ## Best practices

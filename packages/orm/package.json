@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm",
-  "version": "3.0.27",
+  "version": "3.0.29",
   "description": "framework orm module",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -9,6 +9,18 @@
       "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
+    },
+    "./testing": {
+      "types": "./lib/mjs/testing/index.d.ts",
+      "import": "./lib/mjs/testing/index.js",
+      "require": "./lib/cjs/testing/index.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "testing": [
+        "lib/cjs/testing/index.d.ts"
+      ]
     }
   },
   "type": "module",
@@ -59,12 +71,12 @@
     "@types/uuid": "9.0.0"
   },
   "dependencies": {
-    "@spinajs/configuration-common": "3.0.27",
-    "@spinajs/di": "3.0.27",
-    "@spinajs/exceptions": "3.0.27",
-    "@spinajs/log-common": "3.0.27",
-    "@spinajs/telemetry-common": "3.0.27",
-    "@spinajs/validation": "3.0.27",
+    "@spinajs/configuration-common": "3.0.29",
+    "@spinajs/di": "3.0.29",
+    "@spinajs/exceptions": "3.0.29",
+    "@spinajs/log-common": "3.0.29",
+    "@spinajs/telemetry-common": "3.0.29",
+    "@spinajs/validation": "3.0.29",
     "glob": "^8.1.0",
     "glob-to-regexp": "^0.4.1",
     "lodash": "^4.17.21",

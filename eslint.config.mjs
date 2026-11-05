@@ -63,4 +63,36 @@ export default defineConfig(
       'max-nested-callbacks': ['error', 3],
     },
   },
+  {
+    files: ['packages/*/src/**/*.ts'],
+    rules: ormTestingBan(),
+  },
+  {
+    files: ['packages/orm/src/**/*.ts'],
+    ignores: ['packages/orm/src/testing/**'],
+    rules: ormTestingBan(String.raw`^(\.\.?\/)+testing(\/|$)`),
+  },
 );
+
+/**
+ * Keeps `@spinajs/orm/testing` out of shipped code. A module name only known at runtime escapes it; the helper's
+ * production refusal is the backstop.
+ */
+function ormTestingBan(...extra) {
+  const message = 'Test helper: applications migrate with `npx spinajs migrate-up`.';
+  // the bare subpath is a `paths` entry, so the patterns leave it out rather than report it twice
+  const deep = [String.raw`^@spinajs\/orm\/testing\/`, String.raw`^@spinajs\/orm\/lib\/[\w-]+\/testing(\/|$)`, String.raw`(^|\/)orm\/src\/testing(\/|$)`, ...extra];
+  const literal = `/${[String.raw`^@spinajs\/orm\/testing$`, ...deep].join('|')}/`;
+
+  return {
+    'no-restricted-imports': ['error', { paths: [{ name: '@spinajs/orm/testing', message }], patterns: [{ regex: deep.join('|'), message }] }],
+    'no-restricted-syntax': [
+      'error',
+      {
+        // import(), require(), createRequire(...)(), and TypeScript's import x = require()
+        selector: `:matches(ImportExpression[source.value=${literal}], CallExpression[arguments.0.value=${literal}], TSExternalModuleReference[expression.value=${literal}])`,
+        message,
+      },
+    ],
+  };
+}

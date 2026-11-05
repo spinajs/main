@@ -58,7 +58,7 @@ sequenceDiagram
 | `db.Connections[].Pool.AcquireTimeout` | `number` | `10000` | ms | Passed as `connectionTimeoutMillis`: how long a query waits for a client. |
 | `db.Connections[].PoolLimit` | `number` | | | Deprecated. Used as `Pool.Max` when `Pool.Max` is absent. |
 | `db.Connections[].Resilience.*` | object | see [Observability and resilience](../orm/13-observability-and-resilience.md#configuration) | | Health-check interval and retry backoff. |
-| `db.Connections[].Migration.*` | object | see [Connections](../orm/01-connections.md#configuration) | | Migrations applied when the `Orm` resolves (`OnStartup`), migration table and transaction mode. See [Migrations](../orm/10-migrations.md#configuration). |
+| `db.Connections[].Migration.*` | object | see [Connections](../orm/01-connections.md#configuration) | | Migration boot check (`Check`), migration table and transaction mode. See [Migrations](../orm/10-migrations.md#configuration). |
 
 `pg` default: a key that is not set reaches `pg` as `undefined`, and `pg` falls back to its own default (the matching `PG*` environment variable, then its built-in value).
 
@@ -80,7 +80,6 @@ this.Config = _.merge(this.Config, {
         Options: { Schema: 'sales' },
         Pool: { Min: 2, Max: 20, IdleTimeout: 30000, AcquireTimeout: 5000 },
         Resilience: { HealthCheckInterval: 15000, MaxRetries: 3 },
-        Migration: { OnStartup: true },
       },
     ],
   },
@@ -161,6 +160,23 @@ catch (err) {
 ```
 
 The same holds for `23502`, `23503` and `23514`: match `ConstraintViolation` and its `kind`. It still extends `OrmException`, so a broad `instanceof OrmException` check keeps catching it.
+
+## Migration lock
+
+The driver registers `PostgresMigrationLock` as the migration run lock ([Locking](../orm/10-migrations.md#locking)).
+
+1. It takes `pg_try_advisory_lock(k1, k2)`, polled, where `(k1, k2)` is `advisoryKeyPair(migrationLockKey(driver, table))`. It runs on a `pg.Client` of its own from `openDedicatedClient()`, outside the pool, with the pool's settings and `search_path`, `application_name` `spinajs-migration-lock:<Name>`, and on postgres 14+ `idle_session_timeout = 0`, so a long migration does not idle it out. While held it is queried every `min(StaleAfter / 3, 30 s)`.
+2. After the advisory lock it also takes the lock-table row, so a process of an earlier 3.x release, which takes only the row, is kept out during a rolling deploy.
+3. Before each migration it checks `pg_locks` on that client. If the backend was terminated, the run stops with `MigrationLockLostException`.
+4. Advisory locks belong to a session. PgBouncer in transaction pooling mode does not keep one, so set `Migration.Lock.Mode: 'table'` there, before upgrading to a release with this lock: under `'auto'` the lock lands on one server connection, its checks run on others, and the run fails with `MigrationLockLostException` while the lock stays on that pooled server connection.
+
+To see a holder:
+
+```sql
+SELECT l.pid, a.application_name, l.classid::int AS k1, l.objid::int AS k2, l.granted
+FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+WHERE l.locktype = 'advisory' AND l.objsubid = 2;
+```
 
 ## Important behaviour
 

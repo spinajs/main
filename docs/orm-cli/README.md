@@ -1,6 +1,8 @@
 # `@spinajs/orm-cli`
 
-Migration commands for the `spinajs` bin: apply, roll back, report, record the outcome of a failed run, and scaffold a new migration. Each command is a thin wrapper over `OrmMigrator` and its `Runner` ([`@spinajs/orm`](../orm/10-migrations.md#ormmigrator)); this package adds argument checks, operator-facing wording and exit codes.
+Migration commands for the `spinajs` bin: apply, seed, roll back, report, record the outcome of a failed run, and scaffold a new migration. Each command is a thin wrapper over `OrmMigrator` and its `Runner` ([`@spinajs/orm`](../orm/10-migrations.md#ormmigrator)); this package adds argument checks, operator-facing wording and exit codes.
+
+`migrate-up` is the deploy step. The application never migrates: its `Orm.resolve()` checks the tracking tables and fails with `PendingMigrationsException` while a migration is pending or failed ([Migrations: boot check](../orm/10-migrations.md#boot-check-diresolveorm)). Run `npx spinajs migrate-up` before the application starts; see [Applying migrations: in a deploy](01-applying-migrations.md#in-a-deploy).
 
 It does **not** decide what a migration run does: ordering, batching, locking, transactions and the tracking table all live in `@spinajs/orm`. The dependency runs one way, `orm-cli` to `orm`, so the ORM has no CLI in its dependency tree.
 
@@ -16,22 +18,23 @@ The package ships a config file that appends its command directory to `system.di
 
 | Feature | What it does |
 | --- | --- |
-| [Applying migrations](01-applying-migrations.md) | `migrate-up`: applies pending migrations, all or one by name, on every connection or one, for real or `--fake`; a full run exits `1` when a registered model still has no table |
+| [Applying migrations](01-applying-migrations.md) | `migrate-up`: applies pending migrations, all or one by name, on every connection or one, for real or `--fake`, with or without seeds, or as a `--dry-run`; a full run exits `1` when a registered model still has no table |
 | [Rolling back migrations](02-rolling-back-migrations.md) | `migrate-down`: reverses the last applied batch, or everything with `--all` |
 | [Migration status](03-migration-status.md) | `migrate-status`: one line per migration per connection on stdout; exits `1` while anything is pending or failed, so it works as a deploy gate |
 | [Resolving failed migrations](04-resolving-failed-migrations.md) | `migrate-resolve`: records whether a failed or interrupted migration reached the database, which unblocks the connection |
 | [Scaffolding migrations](05-scaffolding-migrations.md) | `migrate-create`: writes a timestamped migration class file, optionally tagged for one environment |
-| [The CLI migrator](06-cli-orm.md) | `resolveCliMigrator()`: the `OrmMigrator` every command runs against, with its startup migrations switched off |
+| [The CLI migrator](06-cli-orm.md) | `resolveCliMigrator()`: the `OrmMigrator` every command runs against, booted in tool mode, without the application's boot check |
 | [Command discovery](07-command-discovery.md) | The `system.dirs.cli` config fragment, how `Cli` finds the commands, and running them without the bin |
 | [Customizing commands](08-customizing-commands.md) | Replace or extend a shipped command through DI, override its protected hooks, or build your own command on the exported pieces |
+| [Seeding](09-seeding.md) | `migrate-seed`: reruns the `data()` seeds of the applied migrations under the run lock; `migrate-up --skip-seed` applies without them |
 
 ## Quick start
 
 ```sh
 spinajs migrate-create --name CreateInvoices        # prints ./src/migrations/CreateInvoices_<timestamp>.ts
 spinajs migrate-status                              # exit 1: CreateInvoices_... is pending
-spinajs migrate-up                                  # applies it
-spinajs migrate-status                              # exit 0
+spinajs migrate-up                                  # applies it and runs its data() seed
+spinajs migrate-status                              # exit 0; the application now boots
 ```
 
 The same commands are plain DI classes, so a deploy script can run them without commander:

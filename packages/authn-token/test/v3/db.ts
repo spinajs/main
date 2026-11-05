@@ -1,7 +1,8 @@
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { MigrationTransactionMode, Orm, OrmDriver, OrmMigrator } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm, OrmDriver, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { IdentityStore, RoleSource } from '@spinajs/authn/contracts';
 
@@ -15,9 +16,17 @@ const CONNECTION = 'sqlite';
  * `users` table exists until {@link insertUserRow} creates it.
  */
 export class V3DbConfiguration extends FrameworkConfiguration {
+  /** A file instead, for a suite whose migrate-up and application boot are separate Orms on one database. */
+  public static Filename = ':memory:';
+
   public async resolve(): Promise<void> {
     await super.resolve();
     dropOwnCompiledDirs(this);
+  }
+
+  /** The boot-migration suites register this class itself and need the connection to migrate on startup. */
+  protected startupMigration(): { OnStartup?: boolean } {
+    return { OnStartup: true };
   }
 
   protected onLoad(): unknown {
@@ -36,11 +45,10 @@ export class V3DbConfiguration extends FrameworkConfiguration {
         Connections: [
           {
             Driver: 'orm-driver-sqlite',
-            Filename: ':memory:',
+            Filename: V3DbConfiguration.Filename,
             Name: CONNECTION,
             Migration: {
               Table: 'orm_migrations',
-              OnStartup: true,
               Transaction: { Mode: MigrationTransactionMode.PerMigration },
             },
           },
@@ -50,11 +58,13 @@ export class V3DbConfiguration extends FrameworkConfiguration {
   }
 }
 
-function uncacheOwn(): void {
+export function uncacheOwn(): void {
   DI.uncache(OrmMigrator);
+  DI.uncache(OrmMigrationGuard);
   DI.uncache(Orm);
   DI.uncache(Configuration);
   DI.uncache(V3DbConfiguration);
+  DI.uncache(V3ExplicitDbConfiguration);
   DI.uncache('orm-driver-sqlite');
   DI.uncache(SqliteOrmDriver);
   DI.uncache(UsersTableTokenOwnerResolver);
@@ -93,12 +103,12 @@ export async function bootV3Db(): Promise<OrmDriver> {
   uncacheOwn();
   hideForeignRegistrations();
 
-  DI.register(V3DbConfiguration).as(Configuration);
+  DI.register(V3ExplicitDbConfiguration).as(Configuration);
   DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
   registerAuthnSchema();
 
   await DI.resolve(Configuration);
-  await (await DI.resolve(Orm)).Migrator.ready();
+  await migrateTestDatabase();
 
   return v3Connection();
 }
@@ -107,6 +117,7 @@ export async function shutdownV3Db(): Promise<void> {
   await DI.get(Orm)?.dispose();
   uncacheOwn();
   DI.unregister(V3DbConfiguration);
+  DI.unregister(V3ExplicitDbConfiguration);
   restoreForeign?.();
 }
 

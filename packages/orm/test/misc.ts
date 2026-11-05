@@ -1045,22 +1045,19 @@ export class ConnectionConf extends FrameworkConfiguration {
       db: {
         // relation.test.ts and model.test.ts stub tableInfo() for the tables they describe only.
         StrictTableCheck: false,
+        // the fake drivers keep no tracking table, and the mock migrations every file can see stay registered for the
+        // whole run; boot-guard.test.ts and migration.test.ts test the check with their own configurations
+        MigrationCheck: 'off',
         Connections: [
           {
             Driver: 'sqlite',
             Filename: 'foo.sqlite',
             Name: 'sqlite',
-            Migration: {
-              OnStartup: false,
-            },
           },
           {
             Driver: 'sqlite',
             Filename: 'sample.sqlite',
             Name: 'SampleConnection1',
-            Migration: {
-              OnStartup: false,
-            },
           },
           {
             Driver: 'mysql',
@@ -1070,9 +1067,6 @@ export class ConnectionConf extends FrameworkConfiguration {
             Host: 'localhost',
             Port: 1234,
             Name: 'main_connection',
-            Migration: {
-              OnStartup: false,
-            },
           },
         ],
       },

@@ -18,7 +18,7 @@ import { Orm } from '@spinajs/orm';
 import { MySqlOrmDriver } from '@spinajs/orm-mysql';
 
 DI.register(MySqlOrmDriver).as('orm-driver-mysql');
-// Migration.OnStartup (below): the Orm applies the migrations as it resolves
+// fails on pending migrations: run `npx spinajs migrate-up` first
 await DI.resolve(Orm);
 ```
 
@@ -38,7 +38,6 @@ await DI.resolve(Orm);
         Database: 'app',
         Encoding: 'utf8mb4',
         Pool: { Min: 2, Max: 20 },
-        Migration: { OnStartup: true },
       },
     ],
   },

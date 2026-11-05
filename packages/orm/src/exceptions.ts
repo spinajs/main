@@ -1,5 +1,5 @@
 import { Exception, ResourceDuplicated } from '@spinajs/exceptions';
-import { IDriverOptions } from './interfaces.js';
+import type { IDriverOptions } from './interfaces.js';
 
 /**
  * Exception thrown when functionality is not supported
@@ -90,6 +90,44 @@ export class OrmConnectionMissing extends OrmException {
 export class NotAnOrmDriver extends OrmException {}
 
 export class TransactionRequired extends OrmException {}
+
+export interface IPendingMigration {
+  name: string;
+  connection: string;
+}
+
+export function pendingMigrationsMessage(pending: IPendingMigration[], failed: IPendingMigration[]): string {
+  const parts: string[] = [];
+
+  if (pending.length > 0) {
+    const byConnection = new Map<string, string[]>();
+
+    for (const p of pending) {
+      byConnection.set(p.connection, [...(byConnection.get(p.connection) ?? []), p.name]);
+    }
+
+    const list = [...byConnection].map(([connection, names], i) => `${names.length}${i === 0 ? ' pending migration(s)' : ''} on connection ${connection} (${names.join(', ')})`);
+
+    parts.push(`Database is not migrated: ${list.join('; ')}. The application never migrates on its own: run "npx spinajs migrate-up" (add --env <env> when the application runs with one), then start it again.`);
+  }
+
+  for (const f of failed) {
+    parts.push(`Migration ${f.name} on connection ${f.connection} FAILED in an earlier run and blocks migrate-up: inspect it with "npx spinajs migrate-status", then record what happened with "npx spinajs migrate-resolve --name ${f.name} --applied" (or --rolled-back).`);
+  }
+
+  return parts.join(' ');
+}
+
+/** The database is behind the code. Thrown by the boot guard before the application serves anything. */
+export class PendingMigrationsException extends OrmException {
+  // no driver is passed on: OrmException would rewrite the message around it
+  constructor(
+    public readonly pending: IPendingMigration[],
+    public readonly failed: IPendingMigration[],
+  ) {
+    super(pendingMigrationsMessage(pending, failed));
+  }
+}
 
 export class ConnectionMismatch extends OrmException {
   /**

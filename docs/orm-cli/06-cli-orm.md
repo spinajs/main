@@ -1,6 +1,6 @@
 # The CLI migrator
 
-`resolveCliMigrator()` returns the `OrmMigrator` every migration command runs against, resolved without its startup migrations, together with the `Orm`: connections, models, value converters and table info. Nothing is applied on the way in. Use it in your own commands and scripts that inspect or repair migrations.
+`resolveCliMigrator()` returns the `OrmMigrator` every migration command runs against, together with its `Orm`: connections, models, value converters and table info. It boots in tool mode: the boot check that an application's `Orm.resolve()` runs is disabled, so the commands work on a database with pending or failed migrations, and nothing is applied on the way in. Use it in your own commands and scripts that inspect or repair migrations.
 
 ```ts
 import { resolveCliMigrator } from '@spinajs/orm-cli';
@@ -11,36 +11,30 @@ const entries = await migrator.Runner.status();
 
 ## How it works
 
-1. `resolveCliMigrator()` calls `resolveMigrationTool()` from `@spinajs/orm`, which resolves `OrmMigrator` with `[{ MigrateOnStartup: false }]`, then the `Orm`.
-2. `Orm.resolve()` picks up that cached migrator and calls its `boot()`, which assigns `Runner`, sees `MigrateOnStartup: false` and applies nothing, so no `data()` runs either. See [Migrations: migrating on startup](../orm/10-migrations.md#migrating-on-startup-diresolveorm).
-3. `Orm.resolve()` reads table info and skips its `db.StrictTableCheck` check, so a fresh database without tables boots. See [Connections](../orm/01-connections.md).
-4. When an `OrmMigrator` was already resolved in this process, DI returns that singleton and ignores the options.
+1. `resolveCliMigrator()` calls `resolveMigrationTool()` from `@spinajs/orm`, in `DI.RootContainer`.
+2. `resolveMigrationTool()` resolves `OrmMigrationGuard` with `[{ Enabled: false }]`. The guard is one per container, so the `Orm` resolved next in that container gets this disabled one.
+3. It resolves the `Orm`. `Orm.resolve()` sees the guard disabled and runs no boot check, so no `PendingMigrationsException` and no `Migration.OnStartup` refusal. It reads table info, logs each missing table as a warning and skips its `db.StrictTableCheck` check, so a fresh database without tables boots. See [Migrations: boot check](../orm/10-migrations.md#boot-check-diresolveorm).
+4. It resolves `OrmMigrator` with `[orm]` and returns it. A cached `OrmMigrator` that runs over another `Orm` (the `Orm` was uncached alone) is refused with `OrmException` (`The cached OrmMigrator runs over an Orm that is no longer cached: uncache Orm and OrmMigrator together ( or DI.clearCache() ) ...`).
 
-Without the option, the startup migrations are a trap for a migration tool:
+Without tool mode, the application's boot check would stop every command:
 
-- A connection holding a **failed** migration refuses every migration run, so the resolve throws before the command starts. That would block `migrate-resolve`, the one command that clears the row.
-- `migrate-status` would apply everything pending and only then report, so the deploy gate would make the database current, answer "yes" and exit `0`.
-- `migrate-up --fake` would really apply the migrations the flag promises only to record.
-- `migrate-down` would roll back the batch the startup run had just created.
+- A pending migration fails the boot with `PendingMigrationsException`, so `migrate-up` could never start, and `migrate-status` could not report what is pending.
+- A **failed** migration fails it too, which would block `migrate-resolve`, the one command that clears the row.
+- A configuration that still sets `Migration.OnStartup` fails it as well. In tool mode the key is not read, so `migrate-up` still runs on a configuration written for 3.0; the application's boot then names the key.
 
 ## Configuration
 
-`resolveCliMigrator()` reads no configuration of its own. The `Orm` reads the usual `db.*` keys; see [Connections](../orm/01-connections.md#configuration).
-
-| Key | Type | Default | Allowed values | Meaning |
-| --- | --- | --- | --- | --- |
-| `IOrmMigratorOptions.MigrateOnStartup` (constructor argument, not a config key) | `boolean` | `true` (when absent) | `true`, `false` | `false` makes the `Orm` apply nothing on its resolve. `resolveCliMigrator()` passes `false` |
-
-Nothing changes for an application that resolves the `Orm` the ordinary way.
+`resolveCliMigrator()` reads no configuration of its own. The `Orm` reads the usual `db.*` keys; see [Connections](../orm/01-connections.md#configuration). `db.MigrationCheck` and `Migration.Check` do not apply in tool mode: the guard is disabled whatever they say.
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `OrmMigrator` (as resolved by `resolveCliMigrator()`) | Class token `OrmMigrator`, singleton. Constructed with `[{ MigrateOnStartup: false }]` when the CLI resolves it first | `OrmMigrator` from `@spinajs/orm` | none | Resolve your own `OrmMigrator` first; the commands then reuse it |
+| `OrmMigrationGuard` (as resolved by `resolveMigrationTool()`) | Class token `OrmMigrationGuard`, one per DI container (`@PerChildInstance()`). Constructed with `[{ Enabled: false }]` when the tool resolves it first | `OrmMigrationGuard` from `@spinajs/orm` | none | Not replaced. A guard already cached in the container keeps its options |
+| `OrmMigrator` | Class token `OrmMigrator`, singleton. Constructed with `[orm]` by `resolveMigrationTool()` | `OrmMigrator` from `@spinajs/orm` | none | Not replaced |
 | `Orm` | Class token `Orm`, singleton, resolved by `resolveMigrationTool()` | `Orm` from `@spinajs/orm` | A subclass you register as `Orm` | `DI.register(MyOrm).as(Orm)` before the first resolve |
 | `resolveCliMigrator()` | Plain exported function, not a DI service | `resolveMigrationTool()` | none | Not replaceable: the commands import it directly. Call it from your own commands |
-| `OrmMigrator.Runner` | `MigrationRunner` created in `OrmMigrator.boot()` | `MigrationRunner` | none | Owned by `@spinajs/orm`. Per-connection behaviour is replaced through `db.Connections[].Migration.Service`; see [Migrations: services](../orm/10-migrations.md#services-and-extension-points) |
+| `OrmMigrator.Runner` | `MigrationRunner` created in the `OrmMigrator` constructor | `MigrationRunner` | none | Owned by `@spinajs/orm`. Per-connection behaviour is replaced through `db.Connections[].Migration.Service`; see [Migrations: services](../orm/10-migrations.md#services-and-extension-points) |
 
 ### `Orm`: a subclass the commands pick up
 
@@ -68,27 +62,26 @@ See [Customizing commands](08-customizing-commands.md#write-a-new-command-on-the
 
 ## Important behaviour
 
-- **A migrator resolved earlier wins.** In a process that already resolved `OrmMigrator` or the `Orm`, the commands get that migrator and the option is ignored. An `Orm` resolved earlier has already applied whatever its configuration asked for; a migrator resolved without the option makes the `Orm` resolve that follows apply the startup migrations.
-- **`migrate-up` seeds.** It runs `OrmMigrator.migrate()`, which calls `data()` of every migration it applied, as an application's `Orm.resolve()` does for its startup migrations. `--fake` seeds nothing.
+- **An application `Orm` resolved earlier is refused.** In a process whose root container already booted the `Orm` as an application, `resolveMigrationTool()` finds the enabled guard that boot cached and throws `OrmException` (`resolveMigrationTool() needs the boot guard disabled ...`). An application boot that failed caches neither the `Orm` nor the guard, so the commands still run after it.
+- **Only the migration commands boot in tool mode.** The CLI commands of other packages that open the database (`@spinajs/authn-keys`, `authn-local`, `authn-orm`, `authn-token`, `authn-totp`, `authz-orm`, `authz-rbac`, `scheduler`, `upload`, `users`) inject the `Orm` and boot it as an application does, so they refuse to run on a database with pending migrations. Run `migrate-up` first.
+- **`migrate-up` seeds.** It runs `OrmMigrator.migrate()`, which calls `data()` of every migration it applied. `--fake` and `--skip-seed` seed nothing.
 - **Everything else still resolves.** Connections are opened, so a configuration or network error still fails the command. `migrate-create` is the only command that resolves nothing.
-- **`MigrateOnStartup: false` is not `force`.** `force` chooses whether `Migration.OnStartup` is honoured, and both its values run migrations. Only `MigrateOnStartup: false` runs none.
 - **The table check moves to `migrate-up`.** The CLI boots on a database without tables; a full `migrate-up` then fails with exit code `1` when a registered model still has no table, which is what the application's `Orm.resolve()` would do next.
 
 ## Best practices
 
-- Call `resolveCliMigrator()` (or `resolveMigrationTool()`), not `DI.resolve(Orm)`, in any tool that reports on or repairs migrations.
+- Call `resolveCliMigrator()` (or `resolveMigrationTool()`), not `DI.resolve(Orm)`, in any tool that reports on or repairs migrations, and call it before anything else resolves the `Orm`.
 - Register an `Orm` subclass before the first resolve; registering it later has no effect on the cached singleton.
 
 ## Patterns and antipatterns
 
 ```ts
-// Don't: the Orm's resolve migrates the database, and fails outright on a connection with a failed row
-const orm = await DI.resolve(Orm);
-const entries = await orm.Migrator.Runner.status();
+// Don't: an ordinary resolve runs the boot check, so it fails on exactly the database you want to inspect
+const orm = await DI.resolve(Orm); // PendingMigrationsException while anything is pending or failed
 
 // Do
 const migrator = await resolveCliMigrator();
-const entries = await migrator.Runner.status();
+const entries = await migrator.Runner.status({ readOnly: true });
 ```
 
 ## Examples
@@ -98,7 +91,6 @@ const entries = await migrator.Runner.status();
 ```ts sample
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { Orm } from '@spinajs/orm';
 import { resolveCliMigrator } from '@spinajs/orm-cli';
 import '@spinajs/log';
 
@@ -107,13 +99,13 @@ async function checkDrift(): Promise<void> {
   await DI.resolve(Configuration);
 
   const migrator = await resolveCliMigrator();
-  const drifted = (await migrator.Runner.status()).filter((e) => e.applied && e.checksumMismatch);
+  const drifted = (await migrator.Runner.status({ readOnly: true })).filter((e) => e.applied && e.checksumMismatch);
 
   for (const e of drifted) {
     console.log(`${e.connection}\t${e.name}\tedited after it was applied`);
   }
 
-  await (await DI.resolve(Orm)).dispose();
+  await migrator.Orm.dispose();
   process.exit(drifted.length > 0 ? 1 : 0);
 }
 
@@ -122,7 +114,21 @@ void checkDrift();
 
 ## Migration
 
-`resolveCliOrm()` and `CLI_ORM_OPTIONS` are removed: the runner lives on `OrmMigrator`. `resolveCliMigrator()` now calls `resolveMigrationTool()`; its result is unchanged.
+### 3.1.0: tool mode is the disabled boot guard
+
+`IOrmMigratorOptions` and `MigrateOnStartup` are removed, and so is `OrmMigrator.boot()`: the `Orm` never migrates, and `resolveMigrationTool()` now boots it with the boot guard disabled. `resolveCliMigrator()` is unchanged for callers.
+
+```ts
+// Before (3.0.x); in 3.1.0 this throws an OrmException naming resolveMigrationTool()
+const tool = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+
+// After
+const tool = await resolveCliMigrator(); // or resolveMigrationTool() from @spinajs/orm
+```
+
+### `resolveCliOrm()` is removed (3.0.x, history)
+
+`resolveCliOrm()` and `CLI_ORM_OPTIONS` are removed: the runner lives on `OrmMigrator`. `resolveCliMigrator()` calls `resolveMigrationTool()`.
 
 ```ts
 // Before
@@ -136,6 +142,6 @@ const entries = await migrator.Runner.status();
 
 ## Related
 
-- [Migrations: `OrmMigrator`](../orm/10-migrations.md#ormmigrator): the options and members of the migrator.
-- [Migrations: migrating on startup](../orm/10-migrations.md#migrating-on-startup-diresolveorm): what `MigrateOnStartup: false` skips.
+- [Migrations: `OrmMigrator`](../orm/10-migrations.md#ormmigrator): the members of the migrator and `resolveMigrationTool()`.
+- [Migrations: boot check](../orm/10-migrations.md#boot-check-diresolveorm): what tool mode skips.
 - [Customizing commands](08-customizing-commands.md): building your own commands on this migrator.

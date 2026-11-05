@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/orm-sqlite';
 import '@spinajs/authz-queue/jobs';
 import { JobModel } from '@spinajs/queue';
@@ -33,7 +34,7 @@ class BehaviourPrincipalSource extends PrincipalSource {
   }
 }
 
-const MIGRATION = { OnStartup: true, Table: 'orm_migrations', Transaction: { Mode: 'PerMigration' } };
+const MIGRATION = { Table: 'orm_migrations', Transaction: { Mode: 'PerMigration' } };
 
 /** The real JobsController re-declared under a case prefix, with its @Access bound to the test domain instead of root. */
 function jobsController(prefix: string, domain: string): Class<BaseController> {
@@ -97,8 +98,7 @@ export function statusHarness(opts: { rbac?: boolean } = {}): BehaviourHarness {
     },
     async extend(host, session) {
       const prefix = `c${caseNo}`;
-      const orm = await DI.resolve(Orm);
-      await (await DI.resolve(Orm)).Migrator.ready();
+      const { orm } = await migrateTestDatabase();
       const authz = session.authz as unknown as AuthzService;
 
       await authz.runAs(SYSTEM, 'status-harness seed', async () => {
@@ -142,6 +142,7 @@ export function statusHarness(opts: { rbac?: boolean } = {}): BehaviourHarness {
           await orm.dispose();
           DI.uncache(Orm);
           DI.uncache(OrmMigrator);
+          DI.uncache(OrmMigrationGuard);
         },
       } as Partial<HarnessSession>;
     },

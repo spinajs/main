@@ -392,10 +392,8 @@ export interface IDriverOptions {
   };
 
   Migration?: {
-    /**
-     * Should run migration on startup
-     */
-    OnStartup?: boolean;
+    /** What the boot guard does with pending or failed migrations on this connection; overrides db.MigrationCheck. Default 'fail'. */
+    Check?: 'fail' | 'warn' | 'off';
 
     /**
      * Migration table name, if not set default is spinajs_migration
@@ -428,14 +426,27 @@ export interface IDriverOptions {
       Enabled?: boolean;
 
       /**
-       * Ms to wait for the lock before failing. Default 30_000.
+       * Ms to wait for the lock before failing. Default 30_000. A session lock ( postgres, mysql,
+       * mssql ) that finds a crashed run's lock-table row unrefreshed waits for it up to 10.5 s past
+       * this, so a shorter value still takes that row over. Against a live holder that still refreshes
+       * its row it fails at that holder's next refresh, up to 5 s past this.
        */
       Timeout?: number;
 
       /**
-       * Ms after which a held lock counts as stale and is stolen. Default 600_000.
+       * Ms after which a lock-table row counts as stale and is stolen. Default 600_000. The holder
+       * refreshes its row every StaleAfter / 3, so only a dead holder goes stale. A row written under
+       * a session lock is taken over by the next holder of that lock once it goes 10 s unrefreshed,
+       * whatever its age. A session lock also takes its intervals from this: it refreshes its row
+       * every min(StaleAfter / 3, 5 s) and queries its session every min(StaleAfter / 3, 30 s).
        */
       StaleAfter?: number;
+
+      /**
+       * 'table' forces the lock-table row even where the driver offers an advisory lock: PgBouncer
+       * transaction pooling does not keep a session. Default 'auto', the driver's `MigrationLock`.
+       */
+      Mode?: 'auto' | 'table';
     };
   };
 

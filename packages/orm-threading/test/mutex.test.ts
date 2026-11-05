@@ -1,5 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { _modelProxyFactory, MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { __mutex__, OrmMutex, dbNowMs } from '../src/index';
 
 import chaiAsPromised from 'chai-as-promised';
@@ -44,7 +45,6 @@ export class ConnectionConf extends FrameworkConfiguration {
             Filename: ':memory:',
             Name: 'sqlite',
             Migration: {
-              OnStartup: true,
               Table: 'orm_migrations',
               Transaction: {
                 Mode: MigrationTransactionMode.PerMigration,
@@ -66,7 +66,7 @@ describe('orm-threading', function () {
 
   beforeEach(async () => {
     await DI.resolve(Configuration, [null, null, [dir('./config')]]);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
   });
 
   afterEach(async () => {

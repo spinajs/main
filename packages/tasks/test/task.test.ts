@@ -9,7 +9,8 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import '@spinajs/log';
 
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { Mutex, mutex_acquire, mutex_get } from '@spinajs/threading';
 import { OrmMutex } from '@spinajs/orm-threading';
 import { QueueService } from '@spinajs/queue';
@@ -74,7 +75,6 @@ export class ConnectionConf extends FrameworkConfiguration {
             Filename: ':memory:',
             Name: 'queue',
             Migration: {
-              OnStartup: true,
               Table: 'orm_migrations',
               Transaction: {
                 Mode: MigrationTransactionMode.PerMigration,
@@ -91,7 +91,6 @@ export class ConnectionConf extends FrameworkConfiguration {
             Name: 'sqlite',
             Migration: {
               Table: 'orm_migrations',
-              OnStartup: true,
             },
           },
         ],
@@ -113,7 +112,7 @@ describe('Commands', function () {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(OrmMutex).as(Mutex);
     await DI.resolve(Configuration);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
     await DI.resolve(QueueService);
   });
 

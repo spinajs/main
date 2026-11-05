@@ -17,7 +17,7 @@ import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
 DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-// Migration.OnStartup (below): the Orm applies the migrations as it resolves
+// fails on pending migrations: run `npx spinajs migrate-up` first
 await DI.resolve(Orm);
 ```
 
@@ -32,7 +32,6 @@ await DI.resolve(Orm);
         Driver: 'orm-driver-sqlite',
         Filename: './data/app.sqlite',   // or ':memory:'
         Pool: { Max: 4 },                // sizes the READ-ONLY handle pool
-        Migration: { OnStartup: true },
       },
     ],
   },

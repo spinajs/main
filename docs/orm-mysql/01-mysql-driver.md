@@ -116,7 +116,6 @@ export class ShopConfiguration extends FrameworkConfiguration {
             Pool: { Min: 2, Max: 20, IdleTimeout: 30000 },
             Resilience: { HealthCheckInterval: 30000, MaxRetries: 5, RetryDelay: 200, MaxRetryDelay: 5000 },
             Migration: {
-              OnStartup: true,
               Table: 'spinajs_migration',
               Transaction: { Mode: MigrationTransactionMode.PerMigration },
             },
@@ -265,7 +264,7 @@ import '@spinajs/orm-mysql';
 
 export async function bootstrap(): Promise<Orm> {
   // importing @spinajs/orm-mysql registered 'orm-driver-mysql' and 'orm-driver-mysql-ssh'
-  // the shop connection migrates on startup: the Orm applies its migrations before it reads the tables
+  // resolving fails until `npx spinajs migrate-up` has applied the shop migrations
   return await DI.resolve(Orm);
 }
 ```

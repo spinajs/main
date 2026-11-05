@@ -7,7 +7,8 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument, ResourceNotFound } from '@spinajs/exceptions';
-import { Connection, Model, Orm } from '@spinajs/orm';
+import { Connection, Model } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService, Job, QueueJob, QueueMessageHook } from '@spinajs/queue';
 import { ChangeBus, SYSTEM, UNATTENDED, currentPrincipal, runWithPrincipal } from '@spinajs/authz';
@@ -79,7 +80,7 @@ describe('UserPrincipalFactory', function () {
     }
 
     await DI.resolve(Configuration, [null, null, [dir('./config')]]);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
   });
 
   afterEach(() => {

@@ -3,7 +3,8 @@ import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Class, ClassInfo, DI, IContainer } from '@spinajs/di';
 import '@spinajs/log';
-import { DiRegistryMigrationSource, MIGRATION_DESCRIPTION_SYMBOL, MigrationSource, Orm, OrmDriver, OrmMigration, OrmMigrator, QueryContext } from '@spinajs/orm';
+import { DiRegistryMigrationSource, MIGRATION_DESCRIPTION_SYMBOL, MigrationSource, Orm, OrmDriver, OrmMigration, OrmMigrator, QueryContext, resolveMigrationTool } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { randomBytes } from 'node:crypto';
@@ -22,7 +23,7 @@ const PG_ACQUIRE_TIMEOUT = 15000;
 export interface TestDb {
   kind: DbKind;
   orm: Orm;
-  /** Resolved in the same container; it ran the boot pass. */
+  /** Resolved in the same container; the migration tool when the boot passed `migrate: false`. */
   migrator: OrmMigrator;
   /** The child container the Orm was resolved in; resolve stores from it. */
   container: IContainer;
@@ -34,7 +35,7 @@ export interface TestDb {
 }
 
 export interface BootOptions {
-  /** `Migration.OnStartup` of the connection; default true. */
+  /** Migrate and seed the database after the boot; default true. When false the Orm is resolved as a migration tool. */
   migrate?: boolean;
   /**
    * Migrations for this boot only, run on `'default'`. Leave them undecorated: `@Migration` registers a class for
@@ -140,16 +141,15 @@ export async function dropPgDatabase(name: string): Promise<void> {
  */
 export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, options: BootOptions = {}): Promise<TestDb> {
   DI.setESMModuleSupport();
-  const migration = { OnStartup: options.migrate ?? true };
   let database: string | undefined;
   let connection: Record<string, unknown>;
 
   if (kind === 'postgres') {
     await requirePostgres(ctx);
     database = await createPgDatabase(suite);
-    connection = { Name: `n4-${suite}`, Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Migration: migration, Pool: { AcquireTimeout: PG_ACQUIRE_TIMEOUT } };
+    connection = { Name: `n4-${suite}`, Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Pool: { AcquireTimeout: PG_ACQUIRE_TIMEOUT } };
   } else {
-    connection = { Name: `n4-${suite}`, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: migration };
+    connection = { Name: `n4-${suite}`, Driver: 'orm-driver-sqlite', Filename: ':memory:' };
   }
 
   const container: IContainer = DI.child();
@@ -166,8 +166,12 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
 
   try {
     await container.resolve(Configuration);
-    migrator = (await container.resolve(Orm)).Migrator;
-    orm = await container.resolve(Orm);
+    if (options.migrate === false) {
+      migrator = await resolveMigrationTool(container);
+      orm = await container.resolve(Orm);
+    } else {
+      ({ orm, migrator } = await migrateTestDatabase(container));
+    }
   } catch (err) {
     if (database) {
       await dropPgDatabase(database);

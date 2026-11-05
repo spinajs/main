@@ -35,7 +35,6 @@ export class TestConfiguration extends FrameworkConfiguration {
             Name: 'orm-event-transport',
             Migration: {
               Table: 'orm_migrations',
-              OnStartup: true,
             },
           },
         ],

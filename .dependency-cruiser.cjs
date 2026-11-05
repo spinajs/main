@@ -1,5 +1,6 @@
 // Existing violations live in .dependency-cruiser-known-violations.json (`npm run deps:baseline`
 // rewrites it); `npm run deps` fails only on new ones.
+// The orm cycle through migration-guard.ts is safe only while no module in it uses MigrationRunner at load time.
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
   forbidden: [

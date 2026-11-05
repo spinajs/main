@@ -67,6 +67,11 @@ class EnvConf extends ConnectionConf {
   }
 }
 
+/** The Orm a migration tool boots: these tests read the migration registry, which an application's boot guard would refuse over. */
+async function toolOrm(): Promise<Orm> {
+  return (await resolveMigrationTool()).Orm;
+}
+
 const entry = (type: any, file: string): ClassInfo<OrmMigration> => ({ file, name: type.name, type });
 
 describe('Orm migration environments', () => {
@@ -107,7 +112,7 @@ describe('Orm migration environments', () => {
     EnvConf.Env = 'prod';
     FakeMigrationSource.Entries = [entry(MigrationEnvTest_Always_2026_07_29_10_00_00, '/app/MigrationEnvTest_Always_2026_07_29_10_00_00.js')];
 
-    const orm = await DI.resolve(Orm);
+    const orm = await toolOrm();
 
     expect(orm.Migrations.map((m) => m.name)).to.include('MigrationEnvTest_Always_2026_07_29_10_00_00');
   });
@@ -116,7 +121,7 @@ describe('Orm migration environments', () => {
     EnvConf.Env = 'local';
     FakeMigrationSource.Entries = [entry(MigrationEnvTest_Local_2026_07_29_10_01_00, '/app/MigrationEnvTest_Local_2026_07_29_10_01_00.local.js')];
 
-    const orm = await DI.resolve(Orm);
+    const orm = await toolOrm();
 
     expect(orm.Migrations.map((m) => m.name)).to.include('MigrationEnvTest_Local_2026_07_29_10_01_00');
   });
@@ -125,7 +130,7 @@ describe('Orm migration environments', () => {
     EnvConf.Env = 'prod';
     FakeMigrationSource.Entries = [entry(MigrationEnvTest_Local_2026_07_29_10_01_00, '/app/MigrationEnvTest_Local_2026_07_29_10_01_00.local.js')];
 
-    const orm = await DI.resolve(Orm);
+    const orm = await toolOrm();
 
     expect(orm.Migrations.map((m) => m.name)).to.not.include('MigrationEnvTest_Local_2026_07_29_10_01_00');
 
@@ -147,7 +152,7 @@ describe('Orm migration environments', () => {
       entry(MigrationEnvTest_Local_2026_07_29_10_01_00, '<di>'),
     ];
 
-    const orm = await DI.resolve(Orm);
+    const orm = await toolOrm();
 
     expect(orm.Migrations.map((m) => m.name), 'the untagged duplicate dropped the .local tag').to.not.include('MigrationEnvTest_Local_2026_07_29_10_01_00');
   });
@@ -156,7 +161,7 @@ describe('Orm migration environments', () => {
     EnvConf.Env = 'prod';
     FakeMigrationSource.Entries = [entry(MigrationEnvTest_Always_2026_07_29_10_00_00, '/app/src/MigrationEnvTest_Always_2026_07_29_10_00_00.js'), entry(MigrationEnvTest_Always_2026_07_29_10_00_00, '/app/lib/MigrationEnvTest_Always_2026_07_29_10_00_00.js')];
 
-    const orm = await DI.resolve(Orm);
+    const orm = await toolOrm();
 
     expect(orm.Migrations.filter((m) => m.name === 'MigrationEnvTest_Always_2026_07_29_10_00_00')).to.have.lengthOf(1);
   });
@@ -171,7 +176,7 @@ describe('Orm migration environments', () => {
       entry(MigrationEnvTest_Always_2026_07_29_10_00_00, '/app/MigrationEnvTest_Always_2026_07_29_10_00_00.js'),
     ];
 
-    const orm = await DI.resolve(Orm);
+    const orm = await toolOrm();
     const found = orm.Migrations.find((m) => m.name === 'MigrationEnvTest_Always_2026_07_29_10_00_00');
 
     expect(found?.file).to.equal('/app/MigrationEnvTest_Always_2026_07_29_10_00_00.js');
@@ -184,7 +189,7 @@ describe('Orm migration environments', () => {
     // primes Orm.prototype's shared `Log` getter - the property decorator caches the resolved
     // logger on first access, on the PROTOTYPE, so any Orm instance's `.Log` from here on is this
     // same object and a spy on it observes what the Orm resolved below logs internally
-    const warmup = await DI.resolve(Orm);
+    const warmup = await toolOrm();
     const warn = sinon.spy((warmup as any).Log, 'warn');
     DI.clearCache();
 
@@ -213,7 +218,7 @@ describe('Orm migration environments', () => {
     // must not throw "The same migration cannot belong to two environments" - that would
     // contradict the collision warning below, since these are two UNRELATED classes, not one
     // migration declared for two environments
-    const orm = await DI.resolve(Orm);
+    const orm = await toolOrm();
 
     expect(warn.getCalls().some((c) => logText(c).includes('Two different migration classes')), 'expected the collision warning to fire').to.equal(true);
 
@@ -227,13 +232,13 @@ describe('Orm migration environments', () => {
     // path a package re-exporting its migrations from index.ts takes
     EnvConf.Env = 'prod';
 
-    const underProd = await DI.resolve(Orm);
+    const underProd = await toolOrm();
     expect(underProd.Migrations.map((m) => m.name)).to.not.include('MigrationEnvTest_Decorated_2026_07_29_10_02_00');
 
     DI.clearCache();
     EnvConf.Env = 'local';
 
-    const underLocal = await DI.resolve(Orm);
+    const underLocal = await toolOrm();
     expect(underLocal.Migrations.map((m) => m.name)).to.include('MigrationEnvTest_Decorated_2026_07_29_10_02_00');
   });
 
@@ -243,7 +248,7 @@ describe('Orm migration environments', () => {
 
     let err: unknown;
     try {
-      await DI.resolve(Orm);
+      await toolOrm();
     } catch (e) {
       err = e;
     }
@@ -257,7 +262,7 @@ describe('Orm migration environments', () => {
 
     // before the fix: a naive read of the descriptor resolves the PARENT's ( Env: 'local' )
     // through the prototype chain, and the subclass silently vanishes under 'prod'
-    const orm = await DI.resolve(Orm);
+    const orm = await toolOrm();
 
     expect(orm.Migrations.map((m) => m.name), "inherited the parent's Env and vanished under prod").to.include('MigrationEnvTest_UndecoratedSubclass_2026_07_29_10_05_00');
   });
@@ -270,7 +275,7 @@ describe('Orm migration environments', () => {
     // is not on this class at all
     FakeMigrationSource.Entries = [entry(MigrationEnvTest_UndecoratedSubclass_2026_07_29_10_05_00, '/app/MigrationEnvTest_UndecoratedSubclass_2026_07_29_10_05_00.dev.js')];
 
-    const orm = await DI.resolve(Orm);
+    const orm = await toolOrm();
 
     expect(orm.Migrations.map((m) => m.name)).to.include('MigrationEnvTest_UndecoratedSubclass_2026_07_29_10_05_00');
   });

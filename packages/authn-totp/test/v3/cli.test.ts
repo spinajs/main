@@ -162,10 +162,8 @@ describe('v3 cli: authn:mfa-reset', () => {
         super({ step });
       }
     }
-    /** MfaReset autoinjects the migrator; the reset never touches it. */
-    class KitOrm {
-      public Migrator = { ready: async () => undefined };
-    }
+    /** MfaReset autoinjects the Orm; the reset never touches it. */
+    class KitOrm {}
 
     before(async () => {
       DI.clearCache();
@@ -237,9 +235,7 @@ describe('v3 support', () => {
   });
 
   it('MfaReset does not resolve without a registered IdentityStore', async () => {
-    class KitOrm {
-      public Migrator = { ready: async () => undefined };
-    }
+    class KitOrm {}
     DI.register(KitOrm).as(Orm);
     try {
       assert.strictEqual(DI.hasImplementation(IdentityStore), false);

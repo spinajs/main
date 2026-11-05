@@ -6,7 +6,8 @@ import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
 import { DateTime } from 'luxon';
 
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { JobModel, QueueService } from '@spinajs/queue';
 import { DI } from '@spinajs/di';
@@ -78,7 +79,6 @@ export class ConnectionConf extends FrameworkConfiguration {
             Filename: ':memory:',
             Name: 'queue',
             Migration: {
-              OnStartup: true,
               Table: 'orm_migrations',
               Transaction: {
                 Mode: MigrationTransactionMode.PerMigration,
@@ -92,7 +92,6 @@ export class ConnectionConf extends FrameworkConfiguration {
             Filename: ':memory:',
             Name: 'sqlite',
             Migration: {
-              OnStartup: true,
               Table: 'orm_migrations',
               Transaction: {
                 Mode: MigrationTransactionMode.PerMigration,
@@ -202,7 +201,7 @@ describe('smtp email transport', function () {
     await b.bootstrap();
 
     await DI.resolve(Configuration);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
   });
 
   afterEach(async () => {

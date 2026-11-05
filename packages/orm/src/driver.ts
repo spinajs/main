@@ -7,6 +7,7 @@ import { Int64ValueConverter, JsonValueConverter, StandardModelToSqlConverter, S
 import { InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import { OrmException } from './exceptions.js';
 import { SqlExpressions } from './expressions.js';
+import { MigrationLock, TableMigrationLock } from './migration-lock.js';
 import { AsyncLocalStorage } from 'async_hooks';
 import { backoffDelay, ConnectionState, delay, IConnectionResilienceOptions, isRetryableErrorCode } from './resilience.js';
 import { IPoolMetrics, ORM_METRIC_KEY_ACQUIRE_SECONDS, ORM_METRIC_KEY_CONNECTION_STATE, ORM_METRIC_KEY_POOL_IN_USE, ORM_METRIC_KEY_POOL_SIZE, ORM_METRIC_KEY_POOL_WAITING, ormGauge, ormHistogram, ormMetrics } from './metrics.js';
@@ -138,6 +139,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
     this.Container.register(UniversalValueConverter).as(UniversalValueConverter);
     this.Container.register(Int64ValueConverter).as(Int64ValueConverter);
     this.Container.register(SqlExpressions).as(SqlExpressions);
+    this.Container.register(TableMigrationLock).as(MigrationLock);
   }
 
   /**

@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/teams-http",
-  "version": "3.0.27",
+  "version": "3.0.29",
   "description": "REST API over SpinaJS teams, groups and invitations",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -53,24 +53,24 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authz": "3.0.27",
-    "@spinajs/authz-http": "3.0.27",
-    "@spinajs/configuration": "3.0.27",
-    "@spinajs/di": "3.0.27",
-    "@spinajs/exceptions": "3.0.27",
-    "@spinajs/http": "3.0.27",
-    "@spinajs/teams": "3.0.27",
-    "@spinajs/validation": "3.0.27"
+    "@spinajs/authz": "3.0.29",
+    "@spinajs/authz-http": "3.0.29",
+    "@spinajs/configuration": "3.0.29",
+    "@spinajs/di": "3.0.29",
+    "@spinajs/exceptions": "3.0.29",
+    "@spinajs/http": "3.0.29",
+    "@spinajs/teams": "3.0.29",
+    "@spinajs/validation": "3.0.29"
   },
   "devDependencies": {
-    "@spinajs/authz-abac": "3.0.27",
-    "@spinajs/authz-orm": "3.0.27",
-    "@spinajs/authz-rbac": "3.0.27",
-    "@spinajs/authz-testing": "3.0.27",
-    "@spinajs/fs": "3.0.27",
-    "@spinajs/http-swagger": "3.0.27",
-    "@spinajs/log": "3.0.27",
-    "@spinajs/orm": "3.0.27",
-    "@spinajs/orm-sqlite": "3.0.27"
+    "@spinajs/authz-abac": "3.0.29",
+    "@spinajs/authz-orm": "3.0.29",
+    "@spinajs/authz-rbac": "3.0.29",
+    "@spinajs/authz-testing": "3.0.29",
+    "@spinajs/fs": "3.0.29",
+    "@spinajs/http-swagger": "3.0.29",
+    "@spinajs/log": "3.0.29",
+    "@spinajs/orm": "3.0.29",
+    "@spinajs/orm-sqlite": "3.0.29"
   }
 }
