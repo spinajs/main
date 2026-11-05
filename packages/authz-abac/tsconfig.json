@@ -18,6 +18,9 @@
       "path": "../authz-ir/tsconfig.json"
     },
     {
+      "path": "../authz-orm/tsconfig.json"
+    },
+    {
       "path": "../configuration/tsconfig.json"
     },
     {
