@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const SRC = /^packages\/[^/]+\/src\//;
+// packages/studio-ui is outside the changesets group (owner decision OD2): its notes live in its CHANGELOG.md.
+const SRC = /^packages\/(?!studio-ui\/)[^/]+\/src\//;
 const CHANGESET = /^\.changeset\/(?!README\.md$)[^/]+\.md$/;
 
 // Entries are paths or { path, status } with a git name-status letter; a deleted changeset does not count.
