@@ -58,9 +58,24 @@ class Builder {
 
   constructor(private readonly manifest: Manifest) {}
 
-  public message(name: string, type: TypeRef): { $ref: string } {
-    this.messages[name] = { name, payload: type.schema ? { $ref: this.schemaRef(type.schema) } : {} };
+  /** `fields`: the permission whose field set redacts the payload; its properties become optional and marked (G16). */
+  public message(name: string, type: TypeRef, fields?: string): { $ref: string } {
+    const payload = type.schema ? { $ref: this.schemaRef(type.schema) } : {};
+    this.messages[name] = { name, payload: fields === undefined ? payload : this.redactable(payload, fields, 0) };
     return { $ref: `#/components/messages/${name}` };
+  }
+
+  // A component is copied inline, so commands without filtering keep it as is.
+  private redactable(schema: unknown, permission: string, depth: number): unknown {
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema) || depth > 8) return schema;
+    const node = schema as Dict;
+    if (typeof node.$ref === 'string') return this.redactable(this.schemas[node.$ref.replace('#/components/schemas/', '')], permission, depth + 1);
+    const { required: _required, ...out } = node;
+    if (node.items && typeof node.items === 'object') out.items = this.redactable(node.items, permission, depth + 1);
+    if (node.properties && typeof node.properties === 'object') {
+      out.properties = Object.fromEntries(Object.entries(node.properties as Dict).map(([key, p]) => [key, p && typeof p === 'object' ? { ...(p as Dict), 'x-spina-fields': permission } : p]));
+    }
+    return out;
   }
 
   public hasSchema(id: string): boolean {
@@ -100,7 +115,7 @@ function addCommand(b: Builder, prefix: string, command: SocketCommandEntry, err
   const replies = ['reply'];
   const messages: Dict = {
     request: b.message(`${key}.request`, command.payload),
-    reply: b.message(`${key}.reply`, command.result),
+    reply: b.message(`${key}.reply`, command.result, command.fields && command.access?.length ? command.access[0] : undefined),
   };
   if (errorType) {
     messages.error = b.message(`${key}.error`, errorType);
