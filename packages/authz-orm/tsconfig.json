@@ -40,6 +40,9 @@
     },
     {
       "path": "../authz-testing/tsconfig.json"
+    },
+    {
+      "path": "../scheduler/tsconfig.json"
     }
   ]
 }
