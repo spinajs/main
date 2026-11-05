@@ -5,6 +5,7 @@ import type { ISelectQueryBuilder } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 import { recordDriver, selectFrom } from '../records.js';
+import { classesOf, entryOf } from '../registry.js';
 import { ChangeLogRecord } from './record.js';
 import { CHANGE_LOG_TABLE, CHANGE_LOG_WIDTHS } from './table.js';
 
@@ -14,6 +15,19 @@ const MAX_LIMIT = 10000;
 const INSERT_CHUNK = 100;
 const OPS: readonly string[] = ['add', 'remove', 'put'];
 const TRACE_ID = /^[0-9a-f]{32}$/;
+
+let columnHook = false;
+
+/** The column middleware calls it once it is registered: the `column` kind is covered from then on. */
+export function columnChangesRecorded(): void {
+  columnHook = true;
+}
+
+/** Every model of `type` records its relation columns; an unknown type has none to replay from. */
+function columnsCovered(type: ResourceType): boolean {
+  const models = classesOf(type);
+  return models.length > 0 && models.every((m) => entryOf(m)?.changelog !== false);
+}
 
 /** The W3C trace id http's RequestId puts on the request store authz shares with it. */
 function ambientTraceId(): string | null {
@@ -64,7 +78,8 @@ function limitOf(q: ChangeQuery | undefined): number {
 export class DbChangeLog extends ChangeLog {
   private readonly tracked = new Set<ChangeKind>();
 
-  covers(kind: ChangeKind, _resourceType?: ResourceType): boolean {
+  covers(kind: ChangeKind, resourceType?: ResourceType): boolean {
+    if (kind === 'column') return columnHook && (resourceType === undefined || columnsCovered(resourceType));
     return this.tracked.has(kind);
   }
 

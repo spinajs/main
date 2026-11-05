@@ -26,6 +26,8 @@ export interface ResourceEntry {
   /** Named column relations (`@Relation`), each like `owner`: a user id column, or an id column plus a principal type column. */
   readonly relations?: Readonly<Record<string, OwnerColumns>>;
   readonly idColumn: string;
+  /** False when `@AccessResource(type, { changelog: false })` keeps the relation columns out of the changelog. */
+  readonly changelog: boolean;
 }
 
 export interface OwnerColumns {
@@ -38,6 +40,7 @@ export interface RegistrationOptions {
   readonly owner?: string | OwnerColumns;
   readonly self?: string;
   readonly relations?: Readonly<Record<string, string | OwnerColumns>>;
+  readonly changelog?: boolean;
 }
 
 interface Registration {
@@ -46,6 +49,7 @@ interface Registration {
   readonly owner?: OwnerColumns;
   readonly self?: string;
   readonly relations?: Readonly<Record<string, OwnerColumns>>;
+  readonly changelog: boolean;
   /** Canonical form, to tell an idempotent re-registration from a conflicting one. */
   readonly key: string;
 }
@@ -122,7 +126,7 @@ function normalize(model: ModelClass, type: unknown, opts: unknown): Registratio
   const t = checkType(type, where);
   if (opts !== undefined && (opts === null || typeof opts !== 'object')) throw new AuthzConfigError(`${where}('${t}'): options must be an object`);
   const o = (opts ?? {}) as RegistrationOptions;
-  for (const k of Object.keys(o)) if (!['parents', 'owner', 'self', 'relations'].includes(k)) throw new AuthzConfigError(`${where}('${t}'): unknown option '${k}'`);
+  for (const k of Object.keys(o)) if (!['parents', 'owner', 'self', 'relations', 'changelog'].includes(k)) throw new AuthzConfigError(`${where}('${t}'): unknown option '${k}'`);
   if (o.parents !== undefined && !Array.isArray(o.parents)) throw new AuthzConfigError(`${where}('${t}'): parents must be a list of { column, type }`);
   const parents = (o.parents ?? []).map((p) => {
     const column = checkColumn(p?.column, `${where}('${t}') parents`);
@@ -131,8 +135,10 @@ function normalize(model: ModelClass, type: unknown, opts: unknown): Registratio
   const owner = o.owner === undefined ? undefined : ownerColumns(o.owner, `${where}('${t}') owner`);
   const self = o.self === undefined ? undefined : checkColumn(o.self, `${where}('${t}') self`);
   const relations = o.relations === undefined ? undefined : relationColumns(o.relations, `${where}('${t}') relations`);
-  const key = JSON.stringify([t, parents.map((p) => [p.column, p.type]), owner ? [owner.column, owner.typeColumn ?? null] : null, self ?? null, relationsKey(relations)]);
-  return { type: t, parents, ...(owner !== undefined ? { owner } : {}), ...(self !== undefined ? { self } : {}), ...(relations !== undefined ? { relations } : {}), key };
+  if (o.changelog !== undefined && typeof o.changelog !== 'boolean') throw new AuthzConfigError(`${where}('${t}'): changelog must be a boolean`);
+  const changelog = o.changelog !== false;
+  const key = JSON.stringify([t, parents.map((p) => [p.column, p.type]), owner ? [owner.column, owner.typeColumn ?? null] : null, self ?? null, relationsKey(relations), changelog]);
+  return { type: t, parents, changelog, ...(owner !== undefined ? { owner } : {}), ...(self !== undefined ? { self } : {}), ...(relations !== undefined ? { relations } : {}), key };
 }
 
 export function register(model: ModelClass, type: unknown, opts?: unknown): void {
@@ -260,6 +266,7 @@ function buildEntry(model: ModelClass): ResourceEntry | undefined {
     ...(self !== undefined ? { self: Object.freeze({ column: self }) } : {}),
     ...(relations.size > 0 ? { relations: Object.freeze(Object.fromEntries([...relations].map(([n, c]) => [n, Object.freeze({ column: c.column, ...(c.typeColumn !== undefined ? { typeColumn: c.typeColumn } : {}) })]))) } : {}),
     idColumn: pkOf(model),
+    changelog: r.changelog,
   });
 }
 

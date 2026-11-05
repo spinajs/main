@@ -1,6 +1,8 @@
 import { registerConfigurationSchema, registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 import { Bootstrapper, Injectable } from '@spinajs/di';
 
+import { AUTHZ_CHANGELOG_CONFIGURATION_SCHEMA } from './changelog/schema.js';
+
 export const AUTHZ_ORM_CONFIGURATION_SCHEMA = {
   $id: 'spinajs/authz-orm.configuration.schema.json',
   $configurationModule: 'authz.orm',
@@ -20,5 +22,6 @@ registerConfigurationSchemaAtImport(AUTHZ_ORM_CONFIGURATION_SCHEMA);
 export class AuthzOrmConfigBootstrapper extends Bootstrapper {
   public bootstrap(): void {
     registerConfigurationSchema(AUTHZ_ORM_CONFIGURATION_SCHEMA);
+    registerConfigurationSchema(AUTHZ_CHANGELOG_CONFIGURATION_SCHEMA);
   }
 }

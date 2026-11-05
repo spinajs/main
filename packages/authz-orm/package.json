@@ -23,6 +23,10 @@
     "./plan": {
       "types": "./lib/plan/index.d.ts",
       "import": "./lib/plan/index.js"
+    },
+    "./scheduler": {
+      "types": "./lib/scheduler.d.ts",
+      "import": "./lib/scheduler.js"
     }
   },
   "typesVersions": {
@@ -38,6 +42,9 @@
       ],
       "plan": [
         "lib/plan/index.d.ts"
+      ],
+      "scheduler": [
+        "lib/scheduler.d.ts"
       ]
     }
   },
@@ -95,10 +102,19 @@
     "@spinajs/log": "3.0.23",
     "@spinajs/orm-postgres": "3.0.23",
     "@spinajs/orm-sqlite": "3.0.23",
+    "@spinajs/scheduler": "3.0.23",
     "@types/luxon": "^3.6.1"
   },
   "types": "./lib/index.d.ts",
   "spinajs": {
     "manifest": "lib/manifest.fragment.json"
+  },
+  "peerDependencies": {
+    "@spinajs/scheduler": "3.0.23"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/scheduler": {
+      "optional": true
+    }
   }
 }
