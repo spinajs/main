@@ -2,7 +2,7 @@ import { Autoinject, DI } from '@spinajs/di';
 import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Post, Query, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
-import { SortOrder, SqlOperator } from '@spinajs/orm';
+import { LikeLiteral, SortOrder, SqlOperator } from '@spinajs/orm';
 import type { ISelectQueryBuilder } from '@spinajs/orm';
 import { Filter, FilterableOperators, IColumnFilter, IFilterEntry, IFilterRequest, isFilterGroup, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { assertLoginNotReserved, assertUserUnique, create, deleteUser, roleList, updateUser, User, UserAlreadyExists, UserCreatedIncomplete, userModel } from '@spinajs/users';
@@ -240,13 +240,13 @@ const USER_FILTER: IColumnFilter<User>[] = [
               this.where('Value', SqlOperator.NOT, value);
               break;
             case 'like':
-              this.where('Value', SqlOperator.LIKE, `%${value}%`);
+              this.where('Value', SqlOperator.LIKE, LikeLiteral.contains(String(value)));
               break;
             case 'b-like':
-              this.where('Value', SqlOperator.LIKE, `%${value}`);
+              this.where('Value', SqlOperator.LIKE, LikeLiteral.endsWith(String(value)));
               break;
             case 'e-like':
-              this.where('Value', SqlOperator.LIKE, `${value}%`);
+              this.where('Value', SqlOperator.LIKE, LikeLiteral.startsWith(String(value)));
               break;
           }
         });

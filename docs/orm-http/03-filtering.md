@@ -61,9 +61,9 @@ sequenceDiagram
 | `eq` | `= ?` | defined |
 | `neq` | `!= ?` | defined |
 | `gt` / `gte` / `lt` / `lte` | `> ?` / `>= ?` / `< ?` / `<= ?` | defined |
-| `like` | `LIKE '%value%'` | non-empty string; `null` / `undefined` skip the check |
-| `b-like` | `LIKE '%value'`: wildcard before, matches values ending with it | as `like` |
-| `e-like` | `LIKE 'value%'`: wildcard at the end, matches values starting with it | as `like` |
+| `like` | `LIKE '%value%' ESCAPE '~'`: values containing it | non-empty string; `null` / `undefined` skip the check and are searched as the text `"null"` / `"undefined"` |
+| `b-like` | `LIKE '%value' ESCAPE '~'`: values **ending** with it | as `like` |
+| `e-like` | `LIKE 'value%' ESCAPE '~'`: values **beginning** with it | as `like` |
 | `regexp` | `REGEXP ?` | as `like` |
 | `between` / `notbetween` | `BETWEEN` / `NOT BETWEEN` | array, at least 2 values |
 | `in` / `nin` | `IN (...)` / `NOT IN (...)` | array, at least 1 value |
@@ -72,6 +72,10 @@ sequenceDiagram
 | `exists` / `n-exists` | `whereExist(column)` / `whereNotExists(column)` on a relation | none |
 
 A failed value check throws `InvalidArgument` (`400`).
+
+The value of `like`, `b-like` and `e-like` is matched literally: `%` and `_` (and `[` on MSSQL) in it match only themselves, and on MySQL and PostgreSQL a backslash is no longer an escape. A client searching for `%` gets the rows containing a `%`, not every row. Case sensitivity stays the database's: SQLite, MySQL with a `_ci` collation and MSSQL with a `CI` collation ignore case, PostgreSQL does not.
+
+The names `b-like` and `e-like` read backwards: `b-like` is "ends with", `e-like` is "begins with". Existing clients depend on that meaning, so it stays.
 
 ### Request shape
 
@@ -154,6 +158,7 @@ The operator map is private to `builders.ts`. You cannot add an operator name; g
 - A column marked aggregate (`@Filterable(ops, null, true)`) lands in `HAVING`, ANDed with the rest of the query. It cannot be ORed with other entries either.
 - `filter()` needs the columns: from `filterColumns()` (bound by the bootstrapper) or from the third argument.
 - `@Filterable` on a property without a column creates a virtual column. It is never selected or written; filter on it with a custom `query`.
+- `like`, `b-like` and `e-like` bind a `LikeLiteral` from `@spinajs/orm`. A custom `query` gets the raw value and does its own escaping; see [Custom filter columns](07-custom-filter-columns.md).
 
 ## Best practices
 
