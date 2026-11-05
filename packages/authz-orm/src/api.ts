@@ -19,6 +19,8 @@ export interface RelationOptions {
 export interface AccessResourceDecoratorOptions {
   /** `false` keeps the relation columns of the model out of the authz changelog; replays that need them report `unreplayable`. Default true. */
   readonly changelog?: boolean;
+  /** Postgres row level security from the list plans (`authz:rls`): `true` refuses what the database cannot evaluate (AUTHZ020), `'partial'` widens it (AUTHZ021). */
+  readonly rls?: boolean | 'partial';
 }
 
 export interface AccessResourceOptions extends AccessResourceDecoratorOptions {

@@ -14,12 +14,15 @@ function propertyName(decorator: string, target: object, key: string | symbol): 
   return key;
 }
 
-/** Default permissions: `${type}:read|create|update|delete`; several models may share one type. */
+/**
+ * Default permissions: `${type}:read|create|update|delete`; several models may share one type.
+ * `rls` (Postgres): `authz:rls` writes the table's row level security from the list plans (G17).
+ */
 export function AccessResource(type: ResourceType, opts?: AccessResourceDecoratorOptions): ClassDecorator {
   checkType(type, '@AccessResource');
   if (opts !== undefined && (opts === null || typeof opts !== 'object')) throw new AuthzConfigError(`@AccessResource('${type}'): options must be an object`);
   return (target) => {
-    register(target, type, opts === undefined ? undefined : { changelog: opts.changelog });
+    register(target, type, opts === undefined ? undefined : { changelog: opts.changelog, rls: opts.rls });
   };
 }
 
