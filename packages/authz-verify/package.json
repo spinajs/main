@@ -48,5 +48,16 @@
   "dependencies": {
     "@spinajs/authz": "3.0.23",
     "@spinajs/authz-ir": "3.0.23"
+  },
+  "devDependencies": {
+    "z3-solver": "^5.3.3"
+  },
+  "peerDependencies": {
+    "z3-solver": "^5.3.3"
+  },
+  "peerDependenciesMeta": {
+    "z3-solver": {
+      "optional": true
+    }
   }
 }
