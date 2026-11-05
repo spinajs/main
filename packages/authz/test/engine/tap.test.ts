@@ -57,7 +57,8 @@ describe('DecisionTap', () => {
     const { a } = make([new StaticModel('m', { vote: vote(FALSE) })], [tap], { audit });
     const expected = await plain.check({ principal: alice, permission: 'doc:read', resource: { type: 'doc', id: 'd1' } });
     const d = await a.check({ principal: alice, permission: 'doc:read', resource: { type: 'doc', id: 'd1' } });
-    expect(d).to.deep.equal(expected);
+    expect({ ...d, id: undefined }).to.deep.equal({ ...expected, id: undefined });
+    expect(expected).to.not.have.property('id');
     expect(tap.seen).to.have.length(1);
     expect(tap.seen[0].decision).to.equal(d);
     expect(Object.isFrozen(d)).to.equal(true);
@@ -75,10 +76,11 @@ describe('DecisionTap', () => {
     await a.check({ principal: alice, permission: 'doc:read', resource: { type: 'doc', id: 'd1' } }, scope);
     await a.check({ principal: alice, permission: 'doc:read', resource: { type: 'doc', id: 'd1' } }, scope);
     expect(tap.seen.map((t) => t.meta.cached)).to.deep.equal([false, true]);
-    expect(tap.seen[1].reads).to.deep.equal({ env: {}, attributes: [], relations: [], modelVersions: { m: 'v7' } });
+    // The read set is built on first access; JSON gives it as plain data.
+    expect(JSON.parse(JSON.stringify(tap.seen[1].reads))).to.deep.equal({ env: {}, attributes: [], relations: [], modelVersions: { m: 'v7' } });
   });
 
-  it('records the env keys, attributes and relations a model reads and every model version', async () => {
+  it('records the env, the attributes and relations a model reads and every model version', async () => {
     const tap = new RecordingTap();
     const model = new VersionedModel('m', {
       vote: async (req: DecisionRequest, ctx: EvaluationContext) => {
@@ -91,13 +93,13 @@ describe('DecisionTap', () => {
     const d = await a.check({ principal: alice, permission: 'doc:read', resource: { type: 'doc', id: 'd1' }, env: { ip: '10.0.0.1', unused: 1 } });
     expect(d.allowed).to.equal(true);
     const { reads } = tap.seen[0];
-    expect(reads.env).to.deep.equal({ ip: '10.0.0.1' });
+    expect(reads.env).to.deep.equal({ ip: '10.0.0.1', unused: 1 });
     expect(reads.attributes).to.deep.equal([{ ref: { type: 'org', id: 'o1' }, path: '', value: { region: 'eu' } }]);
     expect(reads.relations).to.deep.equal([{ model: 'm', object: { type: 'doc' }, relation: 'owner' }]);
     expect(reads.modelVersions).to.deep.equal({ m: 'v7' });
   });
 
-  it('records the principal, actor and scope refs the engine binds', async () => {
+  it('records the scope nodes the engine loads for scope refs, and the env it binds env refs from', async () => {
     const tap = new RecordingTap();
     const when: ResourceFilter = {
       op: 'and',
@@ -119,8 +121,7 @@ describe('DecisionTap', () => {
     });
     const { reads } = tap.seen[0];
     expect(reads.env).to.deep.equal({ zone: 'z1' });
-    expect(reads.attributes).to.deep.include({ ref: 'principal', path: 'attributes.dept', value: 'eng' });
-    expect(reads.attributes).to.deep.include({ ref: { type: 'org', id: 'o1' }, path: 'region', value: 'eu' });
+    expect(reads.attributes).to.deep.equal([{ ref: { type: 'org', id: 'o1' }, path: '', value: { region: 'eu' } }]);
   });
 
   it('a tap that throws or rejects is logged; the decision and the other taps go on', async () => {
@@ -154,7 +155,7 @@ describe('DecisionTap', () => {
     expect(tap.seen.map((t) => t.req.principal.id)).to.deep.equal(['alice', 'alice']);
   });
 
-  it('without a tap the models get a plain env; with one, an env that records its reads', async () => {
+  it('a tap does not change what the models see: the same plain, frozen env', async () => {
     const descriptors: PropertyDescriptor[] = [];
     const model = () =>
       new StaticModel('m', {
@@ -165,8 +166,37 @@ describe('DecisionTap', () => {
       });
     await make([model()], []).a.check({ principal: alice, permission: 'doc:read', env: { ip: '10.0.0.1' } });
     await make([model()], [new RecordingTap()]).a.check({ principal: alice, permission: 'doc:read', env: { ip: '10.0.0.1' } });
-    expect(descriptors[0]).to.include({ value: '10.0.0.1' });
-    expect('get' in descriptors[1] && !('value' in descriptors[1])).to.equal(true);
+    expect(descriptors[0]).to.include({ value: '10.0.0.1', writable: false });
+    expect(descriptors[1]).to.include({ value: '10.0.0.1', writable: false });
+  });
+
+  it('gives each tapped top-level denial an id of its own, an L1 hit included; allows and untapped decisions have none', async () => {
+    const tap = new RecordingTap();
+    const { a } = make([new VersionedModel('m', { vote: (req: DecisionRequest) => vote(req.env?.ok === true ? TRUE : FALSE) })], [tap]);
+    const scope = { cache: new Map<string, unknown>() };
+    const first = await a.check({ principal: alice, permission: 'doc:read', resource: { type: 'doc', id: 'd1' } }, scope);
+    const hit = await a.check({ principal: alice, permission: 'doc:read', resource: { type: 'doc', id: 'd1' } }, scope);
+    expect(first.id).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(hit.id).to.be.a('string').and.not.equal(first.id);
+    expect(tap.seen.map((t) => t.decision.id)).to.deep.equal([first.id, hit.id]);
+    expect({ ...hit, id: undefined }).to.deep.equal({ ...first, id: undefined });
+    const allowed = await a.check({ principal: alice, permission: 'doc:read', resource: { type: 'doc', id: 'd1' }, env: { ok: true } });
+    expect(allowed.allowed).to.equal(true);
+    expect(allowed).to.not.have.property('id');
+    const plain = await make([new VersionedModel('m', { vote: vote(FALSE) })], []).a.check({ principal: alice, permission: 'doc:read', resource: { type: 'doc', id: 'd1' } });
+    expect(plain).to.not.have.property('id');
+  });
+
+  it('skips a decision no tap wants: onDecision is not called', async () => {
+    const denialsOnly = new (class extends RecordingTap {
+      wants(decision: Decision): boolean {
+        return !decision.allowed;
+      }
+    })();
+    const { a } = make([new StaticModel('m', { vote: (req: DecisionRequest) => vote(req.env?.ok === true ? TRUE : FALSE) })], [denialsOnly]);
+    await a.check({ principal: alice, permission: 'doc:read', resource: { type: 'doc', id: 'd1' }, env: { ok: true } });
+    await a.check({ principal: alice, permission: 'doc:read', resource: { type: 'doc', id: 'd1' }, env: { ok: false } });
+    expect(denialsOnly.seen.map((s) => s.decision.allowed)).to.deep.equal([false]);
   });
 
   it('refuses a tap without onDecision', () => {

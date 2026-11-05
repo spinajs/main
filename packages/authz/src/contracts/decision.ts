@@ -60,6 +60,8 @@ export interface Decision {
   readonly validUntil?: Date;
   readonly domain: string;
   readonly trace?: Trace;
+  /** UUIDv7 of a top-level denial, set while a DecisionTap is registered; its DecisionRecord and 403 carry it. */
+  readonly id?: string;
 }
 
 /** A permit with nothing left to settle: a residual (a relation or a resource.* condition the subject did not settle) makes it no permit yet. */

@@ -55,19 +55,17 @@ export class RefBinder {
     if (nodes.length === 0) return { failed: false, degraded: false, uncacheable };
     if (this.sync) yield NEEDS_ASYNC;
     const loaded = (yield Promise.all(nodes.map(([, node]) => this.load(node)))) as readonly BoundAttributes[];
-    nodes.forEach(([type], i) => this.attributes.set(type, loaded[i].attributes));
+    nodes.forEach(([type, node], i) => {
+      this.attributes.set(type, loaded[i].attributes);
+      this.reads?.attribute(node, '', loaded[i].attributes);
+    });
     const degraded = loaded.some((l) => l.degraded);
     return { failed: loaded.some((l) => l.failed), degraded, uncacheable: uncacheable || degraded };
   }
 
   bind(f: ResourceFilter): ResourceFilter {
     const pre = bindRefs(f, this.scope);
-    const values = refValues(collectRefs(pre), this.actor, this.attributes);
-    if (this.reads) {
-      const refs = collectRefs(f);
-      this.reads.bound(refs, values, this.scope.principal, scopeNodes(refs, { ancestors: this.ancestors }));
-    }
-    return bindEngineRefs(pre, values);
+    return bindEngineRefs(pre, refValues(collectRefs(pre), this.actor, this.attributes));
   }
 
   /** The first scope.* ref of `filters` without a value from the nodes `cover` loaded. */

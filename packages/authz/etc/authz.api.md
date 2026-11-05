@@ -254,6 +254,59 @@ export interface ScopeAttributesQuery {
 }
 ```
 
+## src/contracts/decision-log.ts
+
+```ts
+import type { Permission } from "./permission.js";
+import type { ResourceRef } from "./principal.js";
+import type { DecisionReadSet } from "./tap.js";
+/** One logged decision (G13); `inputsHash` lets a replay prove it saw the same inputs (G14). */
+export interface DecisionRecord {
+    /** UUIDv7, the `Decision.id` of the decision and the `decisionId` of its 403. */
+    id: string;
+    /** ISO instant of the check. */
+    at: string;
+    traceId?: string;
+    spanId?: string;
+    domain: string;
+    /** principalKey() of the principal the decision names, and of its actor. */
+    principal: string;
+    actor?: string;
+    permission: Permission;
+    resource: ResourceRef;
+    allowed: boolean;
+    reason?: string;
+    cached: boolean;
+    /** `PolicyHashSource.policyHash(domain)`, `'unknown'` while none is registered. */
+    policyHash: string;
+    modelVersions: Record<string, string>;
+    /** SHA-256 (hex) of the canonical inputs the decision read. */
+    inputsHash: string;
+    /** Only with `authz.decisionLog.captureInputs`. */
+    inputs?: DecisionReadSet;
+}
+/** Where decision records go; writes are batched and a failed write never fails a check. */
+export declare abstract class DecisionLog {
+    abstract write(records: DecisionRecord[]): Promise<void>;
+}
+/**
+ * The hash of the policy a domain decides under. The policy IR (`@spinajs/authz-ir`) and the policy version store
+ * register one; until then records carry `'unknown'`.
+ */
+export declare abstract class PolicyHashSource {
+    abstract policyHash(domain: string): string | undefined;
+}
+/** The trace a decision is made in; telemetry registers one so records carry trace ids and spans the decision id. */
+export declare abstract class DecisionTraceContext {
+    abstract current(): {
+        readonly traceId: string;
+        readonly spanId: string;
+    } | undefined;
+    /** Marks the active span with `spina.authz.decision_id`. */
+    abstract annotate(decisionId: string): void;
+}
+```
+
 ## src/contracts/decision.ts
 
 ```ts
@@ -316,6 +369,8 @@ export interface Decision {
     readonly validUntil?: Date;
     readonly domain: string;
     readonly trace?: Trace;
+    /** UUIDv7 of a top-level denial, set while a DecisionTap is registered; its DecisionRecord and 403 carry it. */
+    readonly id?: string;
 }
 /** A permit with nothing left to settle: a residual (a relation or a resource.* condition the subject did not settle) makes it no permit yet. */
 export declare function definite(decision: Decision): boolean;
@@ -509,6 +564,7 @@ export * from "./service.js";
 export * from "./data.js";
 export * from "./admin.js";
 export * from "./tap.js";
+export * from "./decision-log.js";
 ```
 
 ## src/contracts/link.ts
@@ -879,11 +935,14 @@ const DOMAIN_NAME_PATTERN = "^[A-Za-z0-9_.-]{1,64}$";
 ```ts
 import type { Decision, DecisionRequest } from "./decision.js";
 import type { ResourceRef } from "./principal.js";
-/** What one decision read: its nested checks and intersect delegates included. */
+/** What one decision read: its nested checks and intersect delegates included. A tap gets it built on first access. */
 export interface DecisionReadSet {
-    /** The env keys read, by the models or by the engine binding `env.*` refs, with their values. */
+    /** The env the decision was made with: the caller's keys, which the models may read, without `now` (the decision's instant). */
     env: Record<string, unknown>;
-    /** `path` is empty for a whole node a model loaded through ctx.attributes. */
+    /**
+     * The scope nodes a model (ctx.attributes) or the engine (`scope.*` refs) loaded, whole (`path` empty). The principal's
+     * and actor's attributes are not listed: a decision log hashes their full state.
+     */
     attributes: Array<{
         ref: ResourceRef | "principal" | "actor";
         path: string;
@@ -905,6 +964,8 @@ export interface DecisionReadSet {
  * recorded only while at least one tap is registered. A tap that throws or rejects is logged and ignored.
  */
 export declare abstract class DecisionTap {
+    /** When given and false for every tap, the engine builds nothing for the decision and calls no `onDecision`. */
+    wants?(decision: Decision): boolean;
     abstract onDecision(req: DecisionRequest, decision: Decision, reads: DecisionReadSet, meta: {
         cached: boolean;
         durationMs: number;
