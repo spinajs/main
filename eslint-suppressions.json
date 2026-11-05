@@ -2568,12 +2568,9 @@
       "count": 1
     },
     "complexity": {
-      "count": 5
+      "count": 3
     },
     "promise/always-return": {
-      "count": 1
-    },
-    "promise/catch-or-return": {
       "count": 1
     }
   },
