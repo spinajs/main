@@ -592,6 +592,13 @@ export declare abstract class AuthorizationModel {
     invalidate?(tags: readonly string[]): void;
     version?(): string;
     dispose?(): Promise<void>;
+    /** The model's part of the policy IR (an `IRFragment` of `@spinajs/authz-ir`, which owns the shape). A model without it is opaque to analysis. */
+    toIR?(ctx: IRCompileContext): unknown;
+}
+export interface IRCompileContext {
+    /** Reads `authz.<model name>.<path>`, as `ModelInitContext.config` does. */
+    readonly config: <T>(path: string, dflt?: T) => T;
+    readonly permissions?: PermissionRegistry;
 }
 export interface ModelSummary {
     readonly model: string;

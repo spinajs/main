@@ -1,4 +1,4 @@
-import { parseSubjectTypeRef } from '../ir.js';
+import { GLOBAL_OBJECT, GLOBAL_TYPE, parseSubjectTypeRef } from '../ir.js';
 import type { ObjectRef, ParsedSubjectType, PolicyIR, RelationDef, RelationName, Rewrite, TupleSubjectRef } from '../ir.js';
 import type { CaveatEvaluator, CaveatInput } from './caveats.js';
 import { and3, explainNode, not3, or3 } from './explain.js';
@@ -50,12 +50,18 @@ export async function subjectsOf(tuples: TupleSource, object: ObjectRef, name: R
     }
     case 'self':
       return [{ type: object.type, id: object.id }];
-    default: {
-      const out: TupleSubjectRef[] = [];
-      for await (const s of tuples.read(object, name)) out.push(s);
-      return out;
-    }
+    case 'ancestor':
+      if (rel.source.via === GLOBAL_TYPE) return object.type === GLOBAL_TYPE ? [] : [GLOBAL_OBJECT];
+      return readAll(tuples, object, name);
+    default:
+      return readAll(tuples, object, name);
   }
+}
+
+async function readAll(tuples: TupleSource, object: ObjectRef, name: RelationName): Promise<TupleSubjectRef[]> {
+  const out: TupleSubjectRef[] = [];
+  for await (const s of tuples.read(object, name)) out.push(s);
+  return out;
 }
 
 /**
