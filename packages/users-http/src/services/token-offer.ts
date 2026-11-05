@@ -1,6 +1,6 @@
-import { AuthzConfigError, AuthzDomains } from '@spinajs/authz';
+import { AuthzConfigError, AuthzDomains, isPermissionGlob, matchesPermission } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
-import { RoleSource, TokenService } from '@spinajs/authn/contracts';
+import { PrincipalFactory, RoleSource, TokenService } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { loadTokenRoleRules } from '@spinajs/authz-rbac';
 import type { TokenRoleRules } from '@spinajs/authz-rbac';
@@ -57,6 +57,45 @@ export async function offeredTokenRoles(owner: Principal, accessDomain: string, 
   const held = (await source.rolesOf(bare)).map((r) => r?.role).filter((r): r is string => typeof r === 'string' && r !== '');
 
   return (await tokenRoleRulesOf(accessDomain)).allowedRoles(owner, held, profile);
+}
+
+/** Permission globs left out of the offer, such as grants that only drive a client's menu. */
+export const HIDDEN_TOKEN_PERMISSIONS_KEY = 'users.http.tokens.hiddenPermissions';
+
+/**
+ * The permissions a token of `owner` carrying {@link offeredTokenRoles} (for `profile` when given) is allowed at
+ * GLOBAL: the names `scope.permissions` of `POST /user/tokens` narrows such a token to. The access domain's summary of
+ * the principal TokenStrategy would build for it (token authn facts, the roles as ceiling, the profile as attribute),
+ * so the token role rules and whatever the application derives from the profile apply. Less the globs in
+ * {@link HIDDEN_TOKEN_PERMISSIONS_KEY}. None when no role is offered.
+ * @throws when the roles cannot be offered, the hidden globs are not a list of permission globs, or the summary fails
+ */
+export async function offeredTokenPermissions(owner: Principal, accessDomain: string, profile?: string): Promise<string[]> {
+  const roles = await offeredTokenRoles(owner, accessDomain, profile);
+  if (roles.length === 0) return [];
+  const hidden = await hiddenTokenPermissions();
+
+  const factory = await DI.resolve(PrincipalFactory);
+  const asToken = await factory.principalOf(
+    { type: owner.type, id: owner.id },
+    { method: 'token', strategy: 'token', assurance: 'aal1', mfa: [], authenticatedAt: new Date() },
+    { ceiling: { roles }, ...(profile !== undefined ? { attributes: { profile } } : {}) },
+  );
+  const domains = DI.get(AuthzDomains);
+  if (!domains) throw new AuthzConfigError('users-http: no AuthzDomains to ask for the token permissions');
+  const summary = await (await domains.service(accessDomain)).summary(asToken);
+
+  const names = new Set(summary.permissions.map((p) => p.name));
+  return [...names].filter((name) => !hidden.some((glob) => matchesPermission(glob, name))).sort();
+}
+
+async function hiddenTokenPermissions(): Promise<readonly string[]> {
+  const configuration = await DI.resolve(Configuration);
+  const globs: unknown = configuration.get(HIDDEN_TOKEN_PERMISSIONS_KEY, []);
+  if (!Array.isArray(globs) || !globs.every((g) => isPermissionGlob(g))) {
+    throw new AuthzConfigError(`users-http: ${HIDDEN_TOKEN_PERMISSIONS_KEY} must be a list of permission globs`);
+  }
+  return globs;
 }
 
 /** As authz-rbac's token role extension loads them for the RBAC model of domain `name`. */
