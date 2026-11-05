@@ -87,12 +87,15 @@ function registerOnce(what: keyof typeof registered, register: () => void): void
 
 const ROLES = '/user/tokens/roles';
 const PROFILES = '/user/tokens/profiles';
+const PERMISSIONS = '/user/tokens/permissions';
+
+const permissionsOf = (res: { body: unknown }): string[] => (res.body as { Permissions: string[] }).Permissions;
 
 /**
  * `GET /user/tokens/roles` and `/user/tokens/profiles` (C5/N6 hand-off): what authn-http's
  * `POST /user/tokens` would accept from this caller, narrowed to what a token keeps at check time (`authz.token`).
  */
-describe('users-http v3: GET /user/tokens/roles and /user/tokens/profiles', function () {
+describe('users-http v3: GET /user/tokens/roles, /user/tokens/profiles and /user/tokens/permissions', function () {
   this.timeout(120000);
 
   let app: UsersHttpApp;
@@ -110,8 +113,8 @@ describe('users-http v3: GET /user/tokens/roles and /user/tokens/profiles', func
       controllers: [UserController],
       roles: (shipped: RoleDefs): RoleDefs => ({
         ...shipped,
-        editor: {},
-        reviewer: {},
+        editor: { grants: ['users:read', 'users:create'] },
+        reviewer: { grants: ['users:delete'] },
         'route.home': {},
         'policy-refused': {},
         'scoped-role': {},
@@ -123,6 +126,7 @@ describe('users-http v3: GET /user/tokens/roles and /user/tokens/profiles', func
       config: {
         'authz.token.excludedRoles': ['route.*'],
         'authz.token.rolePolicy.service': 'UsersHttpOfferTokenRolePolicy',
+        'users.http.tokens.hiddenPermissions': ['users:create'],
         'authn.strategies': [...REAUTH_STRATEGIES, TOKEN_STRATEGY],
       },
     });
@@ -154,7 +158,7 @@ describe('users-http v3: GET /user/tokens/roles and /user/tokens/profiles', func
     ).to.deep.eq([]);
     const client = await app.signIn(me.Uuid);
 
-    for (const path of [ROLES, PROFILES]) {
+    for (const path of [ROLES, PROFILES, PERMISSIONS]) {
       const res = await client.get(path);
       expect(res.status, `${path} ${res.text}`).to.eq(404);
       expect(res.text).to.not.contain('editor');
@@ -167,7 +171,7 @@ describe('users-http v3: GET /user/tokens/roles and /user/tokens/profiles', func
     });
 
     it('answers 401 to an anonymous request', async () => {
-      for (const path of [ROLES, PROFILES]) {
+      for (const path of [ROLES, PROFILES, PERMISSIONS]) {
         const res = await app.anonymous().get(path);
         expect(res.status, `${path} ${res.text}`).to.eq(401);
       }
@@ -212,15 +216,52 @@ describe('users-http v3: GET /user/tokens/roles and /user/tokens/profiles', func
     });
 
     it('answers 403 to a user whose roles do not grant user:read on its own record', async () => {
-      const res = await (await app.signIn(bystander.Uuid)).get(ROLES);
+      for (const path of [ROLES, PERMISSIONS]) {
+        const res = await (await app.signIn(bystander.Uuid)).get(path);
 
-      expect(res.status, res.text).to.eq(403);
-      expect(res.body).to.not.have.property('Roles');
+        expect(res.status, `${path} ${res.text}`).to.eq(403);
+        expect(res.body).to.not.have.property('Roles');
+        expect(res.body).to.not.have.property('Permissions');
+      }
+    });
+
+    it('offers what a token carrying the offered roles is allowed, less the hidden permissions', async () => {
+      const res = await (await app.signIn(me.Uuid)).get(PERMISSIONS);
+
+      expect(res.status, res.text).to.eq(200);
+      const offered = permissionsOf(res);
+      expect(offered).to.include.members(['users:read', 'users:delete']);
+      expect(offered, 'hidden by users.http.tokens.hiddenPermissions').to.not.include('users:create');
+      expect(offered, 'sorted, unique').to.deep.eq([...new Set(offered)].sort());
+      expect(res.headers['cache-control']).to.eq('no-store');
+    });
+
+    it('offers no permission a token of the offered roles would not have', async () => {
+      const res = await (await app.signIn(plain.Uuid)).get(PERMISSIONS);
+
+      expect(res.status, res.text).to.eq(200);
+      expect(permissionsOf(res)).to.not.include.members(['users:read']);
+      expect(permissionsOf(res)).to.not.include('users:delete');
+    });
+
+    it('fails closed (500) when the hidden permissions are not a list of permission globs', async () => {
+      const config = await DI.resolve(Configuration);
+      const original = config.get.bind(config) as (path: string | string[], ...rest: unknown[]) => unknown;
+      const hiddenKey = (path: string | string[]) => (Array.isArray(path) ? path.join('.') : path) === 'users.http.tokens.hiddenPermissions';
+      const stub = sinon.stub(config, 'get').callsFake((path: string | string[], ...rest: unknown[]) => (hiddenKey(path) ? ['no glob'] : original(path, ...rest)));
+      try {
+        const res = await (await app.signIn(me.Uuid)).get(PERMISSIONS);
+
+        expect(res.status, res.text).to.eq(500);
+        expect(res.body).to.not.have.property('Permissions');
+      } finally {
+        stub.restore();
+      }
     });
 
     // POST /user/tokens refuses them, so neither route offers them anything.
     it('answers 403 session_required to a token caller', async () => {
-      for (const path of [ROLES, PROFILES]) {
+      for (const path of [ROLES, PROFILES, PERMISSIONS]) {
         const res = await app.anonymous().get(path, { Authorization: `Bearer ${bearerTokenOf(me.Uuid)}` });
         expect(res.status, `${path} ${res.text}`).to.eq(403);
         expect(res.body.error, res.text).to.eq('session_required');
@@ -231,7 +272,7 @@ describe('users-http v3: GET /user/tokens/roles and /user/tokens/profiles', func
       const client = await app.signIn(impersonated.Uuid, { impersonator: { type: 'user', id: support.Uuid } });
       expect((await client.get('/user')).status, 'the impersonation session is live').to.eq(200);
 
-      for (const path of [ROLES, PROFILES]) {
+      for (const path of [ROLES, PROFILES, PERMISSIONS]) {
         const res = await client.get(path);
         expect(res.status, `${path} ${res.text}`).to.eq(403);
         expect(res.body.error, res.text).to.eq('impersonating');
@@ -315,6 +356,21 @@ describe('users-http v3: GET /user/tokens/roles and /user/tokens/profiles', func
         expect(res.body).to.deep.eq({ Roles: ['editor', 'user'] });
       });
 
+      it('offers what a token pinned to an offered profile is allowed, without the grants of the roles it drops', async () => {
+        const res = await (await app.signIn(me.Uuid)).get(`${PERMISSIONS}?profile=editor`);
+
+        expect(res.status, res.text).to.eq(200);
+        expect(permissionsOf(res)).to.include('users:read');
+        expect(permissionsOf(res), 'reviewer is not a role of an editor token').to.not.include('users:delete');
+      });
+
+      it('offers no permission for a profile the create path refuses', async () => {
+        const res = await (await app.signIn(me.Uuid)).get(`${PERMISSIONS}?profile=reviewer`);
+
+        expect(res.status, res.text).to.eq(200);
+        expect(res.body).to.deep.eq({ Permissions: [] });
+      });
+
       it('offers no role for a profile the create path refuses', async () => {
         const res = await (await app.signIn(me.Uuid)).get(`${ROLES}?profile=reviewer`);
 
@@ -325,10 +381,13 @@ describe('users-http v3: GET /user/tokens/roles and /user/tokens/profiles', func
       it('answers 400 to a profile that is not one role name', async () => {
         const client = await app.signIn(me.Uuid);
 
-        for (const query of ['profile=', 'profile=editor&profile=user', `profile=${'x'.repeat(200)}`]) {
-          const res = await client.get(`${ROLES}?${query}`);
-          expect(res.status, `${query} ${res.text}`).to.eq(400);
-          expect(res.body).to.not.have.property('Roles');
+        for (const path of [ROLES, PERMISSIONS]) {
+          for (const query of ['profile=', 'profile=editor&profile=user', `profile=${'x'.repeat(200)}`]) {
+            const res = await client.get(`${path}?${query}`);
+            expect(res.status, `${path}?${query} ${res.text}`).to.eq(400);
+            expect(res.body).to.not.have.property('Roles');
+            expect(res.body).to.not.have.property('Permissions');
+          }
         }
       });
 
