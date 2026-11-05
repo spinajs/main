@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { analyzeAll, countSeverities, listAnalyzable, mapPool, parseConcurrency } from '../build-fragments.mjs';
+import { analyzeAll, countSeverities, listAnalyzable, mapPool, mapPoolAfter, parseConcurrency, prerequisitesOf } from '../build-fragments.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const FIXTURES = join(ROOT, 'packages/compiler/test/fixtures');
@@ -31,6 +31,35 @@ test('mapPool bounds concurrency and keeps order', async () => {
   });
   assert.deepEqual(out, [2, 4, 6, 8, 10, 12]);
   assert.equal(peak, 2);
+});
+
+test('mapPoolAfter starts an item only after the items it needs, and still runs a cycle', async () => {
+  const started = [];
+  const needs = { app: ['http', 'di'], http: ['di', 'y'], di: [], x: ['y'], y: ['x'] };
+  const out = await mapPoolAfter(['app', 'http', 'di', 'x', 'y'], 3, (n) => needs[n], async (n) => {
+    started.push(n);
+    await new Promise((r) => setTimeout(r, 5));
+    return n.toUpperCase();
+  });
+  assert.deepEqual(out, ['APP', 'HTTP', 'DI', 'X', 'Y']);
+  assert.deepEqual(started, ['di', 'x', 'y', 'http', 'app']);
+});
+
+test('prerequisitesOf lists the runtime and peer dependencies among the analyzed dirs only', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'prerequisites-'));
+  try {
+    const pkg = (dir, json) => {
+      mkdirSync(join(tmp, dir));
+      writeFileSync(join(tmp, dir, 'package.json'), JSON.stringify(json));
+      return join(tmp, dir);
+    };
+    const di = pkg('di', { name: '@x/di' });
+    const http = pkg('http', { name: '@x/http', dependencies: { '@x/di': '1', express: '5' } });
+    const app = pkg('app', { name: '@x/app', peerDependencies: { '@x/http': '1' }, devDependencies: { '@x/di': '1' } });
+    assert.deepEqual([...prerequisitesOf([di, http, app])], [[di, []], [http, [di]], [app, [http]]]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test('a package with analyzer warnings still gets a fragment and exits 0', () => {
