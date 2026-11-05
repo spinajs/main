@@ -7,7 +7,10 @@ import { resolveDelegation } from '../delegation.js';
 import type { Delegation } from '../delegation.js';
 import { isObject } from '../internal/util.js';
 import { principalCacheId, principalRef } from '../support/misc.js';
-import type { Engine, Parties } from '../types.js';
+import type { Engine, Parties, Checked, Run } from '../types.js';
+import type { CheckInput } from '../../contracts/service.js';
+import type { Pipeline } from '../run.js';
+import { pipeline } from './index.js';
 
 /** Throws AuthzConfigError for a malformed actor and for a chain deeper than the budget or with a cycle (B08). */
 export function delegationOf(engine: Engine, principal: Principal, actor: unknown, budget: number): Delegation {
@@ -31,4 +34,11 @@ export function partiesOf(d: Delegation, requestPrincipal: Principal, requester:
 /** Every ceiling of the resolution (the request principal's and each inherit delegate's), from the validated copies. */
 export function ceilingOf(d: Delegation, def: PermissionDef, ref: ResourceRef, ancestors: readonly ResourceRef[] | undefined, instant: Date): CeilingOutcome {
   return mergeCeilings(d.ceilings.map((c) => ceilingOutcome(c, def.name, ref, ancestors, instant)));
+}
+
+/** The intersect delegate's full decision: same permission, ref, subject, env and scope, with the hops left. */
+export function* delegateCheck(engine: Engine, delegate: Principal, hopsUsed: number, def: PermissionDef, ref: ResourceRef, subject: unknown, env: unknown, run: Run): Pipeline<Checked> {
+  const input: { -readonly [K in keyof CheckInput]: CheckInput[K] } = { principal: delegate, permission: def.name };
+  if (env !== undefined) input.env = env as Readonly<Record<string, unknown>>;
+  return yield* pipeline(engine, input, { ...run, depth: run.depth + 1, delegationBudget: run.delegationBudget - hopsUsed }, { ref, subject });
 }

@@ -1,9 +1,9 @@
 import { quote, compareStrings } from '@spinajs/util';
 import { Perf } from '@spinajs/log-common';
 import { AuthzConfigError } from '../contracts/errors.js';
-import { FALSE, TRUE, and, not } from '../contracts/filter.js';
+import { FALSE } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
-import type { Decision, DecisionRequest, DenyReason, TraceStep, Vote } from '../contracts/decision.js';
+import type { Decision } from '../contracts/decision.js';
 import { compareDenyReasons } from '../contracts/decision.js';
 import type { AccessPlan, ListPlanRequest, ModelListPlan } from '../contracts/plan.js';
 import type { AuthorizationModel, ModelSummary } from '../contracts/model.js';
@@ -14,45 +14,37 @@ import { GLOBAL, resourceKey } from '../contracts/resource.js';
 import type { AccessSummary, CheckInput } from '../contracts/service.js';
 import { DEFAULT_COMBINE } from './routes.js';
 import type { RouteTable } from './routes.js';
-import { defaultAttribute, evaluateResidual } from './evaluate.js';
-import type { SubjectEnv, Truth } from './evaluate.js';
-import { staticTruths } from './reasons.js';
-import { resolveDelegation, stripPrincipalOps } from './delegation.js';
+import { resolveDelegation } from './delegation.js';
 import type { Delegation } from './delegation.js';
-import type { VoteTruths } from './reasons.js';
-import { decisionKey, invalidationTags, principalState, versionVector } from './cache-key.js';
+import { invalidationTags, principalState, versionVector } from './cache-key.js';
 import { ModelContext, NoConditionCompiler, l1Key } from './context.js';
-import type { ContextHost, MaybePromise } from './context.js';
-import { isThenable, runAsync, runSync, settleWithin } from './run.js';
-import type { Pipeline, Settled } from './run.js';
+import { runAsync, runSync, settleWithin } from './run.js';
+import type { Pipeline } from './run.js';
 import { deepFreeze, describeError, thrownError } from './vote.js';
 import { ALL_PLAN, CEILING_DENIAL, combinePlans, nonePlan, readModelPlan, withinOf } from './plan.js';
 import type { PlanAnswer } from './plan.js';
 import { isObject } from './internal/util.js';
-import { CORE, CachedPlan, DEADLINE_FACTOR, DELEGATE_PRIORITY, ENGINE_FAULT, GLOBAL_TYPE, INVALID_REQUEST, MAX_PRELOADED, MAX_SUMMARY_PERMISSIONS, NO_FIELDS, NO_LOG, NO_ROLES, SUMMARY_BATCH, SYSTEM_REF, UNKNOWN_RESOURCE, nextGeneration } from './types.js';
-import type { Attributes, AuthorizerOptions, Engine, Checked, Fields, Outcome, Parties, RequestScope, Run } from './types.js';
+import { CachedPlan, DEADLINE_FACTOR, DELEGATE_PRIORITY, ENGINE_FAULT, GLOBAL_TYPE, INVALID_REQUEST, MAX_PRELOADED, MAX_SUMMARY_PERMISSIONS, NO_FIELDS, NO_LOG, NO_ROLES, SUMMARY_BATCH, SYSTEM_REF, UNKNOWN_RESOURCE, nextGeneration } from './types.js';
+import type { AuthorizerOptions, Engine, Checked, RequestScope, Run } from './types.js';
 import { Deadline, EXPIRED, THREW } from './support/deadline.js';
-import { RefBinder } from './support/ref-binder.js';
 import { entryCovers, firmFieldsOf } from './support/compare.js';
 import { combinatorsOf, compileTable, decisionCacheOf, fieldSetup, readConfig, resourceIndexes, scopeAttributesOf } from './support/setup.js';
-import { admits, contextCacheKey, deniedCopy, detachingOnThrow, earliest, mergeRoles, newNested, once, principalCacheId, scopeMap } from './support/misc.js';
-import { logAt, newRun, now, topRun } from './support/plumbing.js';
+import { admits, contextCacheKey, deniedCopy, newNested, principalCacheId, scopeMap } from './support/misc.js';
+import { logAt, newRun, now } from './support/plumbing.js';
 import { bornOf, epoch, invalidateL2 } from './cache/generation.js';
-import { cached } from './cache/lookup.js';
-import { markFault, marking, remember, scopeFaulted, tagsOf } from './cache/store.js';
-import { coreDenial, partiesDenial, principalGate } from './pipeline/principal-gate.js';
-import { finish } from './pipeline/finish.js';
-import { envOf, relation, requestOf } from './context/request.js';
-import { ancestorsOf, attributesOf, nodeLoad } from './context/scope.js';
+import { markFault } from './cache/store.js';
+import { principalGate } from './pipeline/principal-gate.js';
+import { envOf, relation } from './context/request.js';
+import { ancestorsOf } from './context/scope.js';
 import { lateType, refuseLateType, requirePermission, requireRef } from './context/late-type.js';
 import { loadRows, prefillAncestors } from './context/rows.js';
-import { resolveObject, resolveResource } from './pipeline/resolve.js';
-import { ceilingOf, delegationOf, partiesOf } from './pipeline/delegate.js';
-import { denyReason } from './pipeline/reasons.js';
-import { combine, evaluate, resolveScopeRefs } from './pipeline/vote.js';
-import { bind, fieldsOf, refBinder } from './pipeline/bind.js';
+import { resolveObject } from './pipeline/resolve.js';
+import { ceilingOf, delegationOf } from './pipeline/delegate.js';
 import { comparedRefs, copySummary, customPlan, listedFields, summaryCeiling, summaryCovered, summaryEntries, summaryEntry } from './summary/entries.js';
 import type { SummaryItem } from './summary/entries.js';
+import { pipeline } from './pipeline/index.js';
+import type { Resolved } from './pipeline/index.js';
+import { baseHost, hostFor } from './context/host.js';
 
 export { MAX_SUMMARY_PERMISSIONS } from './types.js';
 export type { AuthorizerOptions, RequestScope } from './types.js';
@@ -60,7 +52,6 @@ export type { AuthorizerOptions, RequestScope } from './types.js';
 export class Authorizer {
   readonly domain: string;
   private readonly engine: Engine;
-  private readonly host: ContextHost;
   /** Principal cache id ⇒ the generation its preload finished in; a stale generation counts as not preloaded. */
   private readonly preloaded = new Map<string, number>();
 
@@ -94,24 +85,6 @@ export class Authorizer {
       ...fieldSetup(where, config.neverRead),
       preloaded: this.preloaded,
     };
-    this.host = Object.freeze({
-      domain: this.domain,
-      permissions: this.engine.registry,
-      conditions: this.engine.conditions,
-      ancestors: (ref: ResourceRef, scope: Map<string, unknown>) => marking(this.engine, scope, () => ancestorsOf(this.engine, requireRef(this.engine, ref), scope)),
-      attributes: (ref: ResourceRef, scope: Map<string, unknown>) => attributesOf(this.engine, requireRef(this.engine, ref), scope),
-      relation: (type: ResourceType, name: string) => relation(this.engine, type, name),
-      // Contexts outside a check (preload); a check's own contexts use hostFor(run).
-      nestedCheck: (req: Omit<DecisionRequest, 'explain'>, scope: Map<string, unknown>, instant: Date, depth: number): Promise<Decision> =>
-        Promise.resolve(
-          marking(this.engine, scope, () =>
-            runAsync(this.pipeline(req, topRun(this.engine, false, scope, instant, depth))).then((r) => {
-              if (r.faulted) markFault(this.engine, scope);
-              return r.decision;
-            }),
-          ),
-        ),
-    });
   }
 
   async check(input: CheckInput, scope?: RequestScope): Promise<Decision> {
@@ -396,6 +369,7 @@ export class Authorizer {
     epoch(this.engine);
     bornOf(this.engine, map);
     const generation = this.engine.generation;
+    const host = baseHost(this.engine);
     const failed = new Set<string>();
     await Promise.all(
       this.engine.modelList.flatMap((model) =>
@@ -403,7 +377,7 @@ export class Authorizer {
           ? []
           : runAs.map(async ({ who, cacheId }) => {
               const settled = await settleWithin(
-                Promise.resolve().then(() => model.preload!(who, new ModelContext(this.host, model.name, map, instant, 0, undefined, contextCacheKey(model.name, cacheId)))),
+                Promise.resolve().then(() => model.preload!(who, new ModelContext(host, model.name, map, instant, 0, undefined, contextCacheKey(model.name, cacheId)))),
                 this.engine.config.modelTimeoutMs,
                 describeError,
                 'preload',
@@ -500,7 +474,7 @@ export class Authorizer {
       // A check at $global is concrete: the models routed for the permission's types hold what lies below it.
       for (const type of ref.type === GLOBAL_TYPE ? [ref.type, ...def.types] : [ref.type]) for (const m of this.engine.table.get(def.name, type)?.models ?? []) routed.add(m);
     }
-    const host = this.hostFor(run);
+    const host = hostFor(this.engine, run);
     const cacheId = principalCacheId(runAs);
     let complete = true;
     const results = await Promise.all(
@@ -594,7 +568,7 @@ export class Authorizer {
     const runAs = d.principal;
     const fresh = run.fresh === true ? { fresh: true } : {};
     const req: ListPlanRequest = Object.freeze(d.actor === undefined ? { principal: runAs, permission: def, type, env, ...fresh } : { principal: runAs, actor: d.actor, permission: def, type, env, ...fresh });
-    const host = this.hostFor(run);
+    const host = hostFor(this.engine, run);
     const cacheId = principalCacheId(runAs);
     const label = `${def.name} on ${quote(type)}`;
     const answers = await Promise.all(route.models.filter((m) => admits(m, runAs)).map((m) => this.modelPlan(m, req, new ModelContext(host, m.name, run.scope, run.instant, 0, undefined, contextCacheKey(m.name, cacheId, 'listPlan')), label)));
@@ -637,321 +611,11 @@ export class Authorizer {
   // ---- the check pipeline (design §10.1) ----
 
   /** `resolved`: a ref (and subject) the caller already resolved, so no adapter sees it again. */
-  private *pipeline(input: CheckInput, run: Run, resolved?: { readonly ref: ResourceRef; readonly subject: unknown }): Pipeline<Checked> {
-    const started = performance.now();
-    if (!isObject(input)) throw new AuthzConfigError(`${this.engine.where}: check input must be an object`);
-    const explain = run.depth === 0 && input.explain === true;
-    if (explain) run = { ...run, bypass: true };
-    const steps: TraceStep[] | undefined = explain || this.engine.config.explain ? [] : undefined;
-    // Engine-owned data goes in as is (frozen with the trace), so a deep residual is never cut.
-    const core = (step: string, note: string, data?: unknown) => steps?.push(data === undefined ? { by: CORE, step, note } : { by: CORE, step, note, data });
-
-    const def = requirePermission(this.engine, input.permission);
-    if (input.fresh !== undefined && typeof input.fresh !== 'boolean') throw new AuthzConfigError(`${this.engine.where}: fresh must be a boolean`);
-    if (input.fresh === true || def.consistency === 'fresh') run = { ...run, fresh: true };
-    const { ref, subject } = resolved ?? (yield* resolveResource(this.engine, input.resource, input.subject, def));
-    refuseLateType(this.engine, ref.type);
-    if (ref.type !== GLOBAL_TYPE && !def.types.includes(ref.type)) {
-      throw new AuthzConfigError(`${this.engine.where}: permission ${quote(def.name)} is checked on type ${quote(ref.type)}, which is not in its types (${def.types.join(', ')}) or $global`);
-    }
-    core('resource', resourceKey(ref));
-    const plan = this.engine.table.get(def.name, ref.type) ?? { algorithm: 'deny-overrides', models: [] };
-    const base = { def, ref, algorithm: plan.algorithm, run, explain, steps, started };
-
-    const gate = principalGate(input.principal);
-    if (gate.kind === 'system') {
-      core('principal', 'SYSTEM: allowed without models');
-      return { decision: finish(this.engine, { ...base, requester: SYSTEM_REF, system: true }, { principal: SYSTEM_REF, residual: TRUE, roles: NO_ROLES, fields: this.engine.allFields, models: [], votes: [] }), uncacheable: true, faulted: false, ...(run.firm ? { firmFields: this.engine.allFields } : {}) };
-    }
-    if (gate.kind === 'deny') {
-      core('principal', `denied before the models: ${gate.reason.code}`);
-      return { decision: finish(this.engine, { ...base, requester: gate.principal }, coreDenial(gate.principal, gate.reason)), uncacheable: false, faulted: false };
-    }
-    const requester = gate.ref;
-    const actor = input.actor as Principal | undefined;
-    // Before the resource step, so a chain deeper than maxDelegation throws whatever the resource.
-    const delegation = delegationOf(this.engine, gate.principal, actor, run.delegationBudget);
-    // Undefined for a forbidden or unreadable delegate: no model runs, so the denial names the requester.
-    const parties = delegation.denial ? undefined : partiesOf(delegation, gate.principal, requester);
-    // Step 6's key, in the same synchronous stretch as the delegation: the caller may change the principal while a step waits.
-    const keyed = parties !== undefined && subject === undefined && !run.bypass && run.versions !== undefined;
-    const key = keyed ? decisionKey({ domain: this.domain, principal: gate.principal, actor, permission: def.name, ref, versions: run.versions! }) : undefined;
-    if (keyed && key === undefined) logAt(this.engine, 'debug', { permission: def.name, principal: principalKey(requester) }, 'Authz domain ${domain}: ${permission} for ${principal} is not cached: the principal or actor has no canonical state');
-
-    let ancestors: readonly ResourceRef[] | undefined;
-    if (ref.id !== undefined) {
-      const list = (yield ancestorsOf(this.engine, ref, run.scope)) as readonly ResourceRef[] | null;
-      if (list === null) {
-        core('resource', 'unknown resource: ancestors answered null');
-        // No revocation tag reaches a resource that does not exist yet: a decision resting on this one is not cached.
-        if (run.depth > 0) run.nested.uncacheable = true;
-        return { decision: finish(this.engine, { ...base, requester }, parties ? partiesDenial(parties, { code: 'unknown_resource' }) : coreDenial(requester, { code: 'unknown_resource' })), uncacheable: false, faulted: false };
-      }
-      ancestors = list;
-    }
-
-    if (!parties) {
-      core('delegation', 'denied before the models: a forbidden or unreadable delegate');
-      return { decision: finish(this.engine, { ...base, requester }, coreDenial(requester, delegation.denial!)), uncacheable: false, faulted: false };
-    }
-
-    // Step 6.
-    const principals: Principal[] = [gate.principal, ...delegation.chain];
-    if (actor !== undefined) principals.push(actor);
-    if (delegation.actor !== undefined) principals.push(delegation.actor);
-    const tags = once(() => tagsOf(this.engine, plan.models, principals, ref, ancestors, run));
-    if (key !== undefined && run.firm !== true && run.fresh !== true) {
-      const hit = cached(this.engine, key, run, def, ref, requester, parties.ref);
-      if (hit) return hit;
-      Perf.count('authz.cache.miss');
-    }
-
-    if (parties.principal !== gate.principal) core('delegation', `inherit: the models run as ${principalKey(parties.ref)}`);
-    // Before the models: a model receives the principal and must not be able to move what the ceiling reads.
-    const ceiling = ceilingOf(delegation, def, ref, ancestors, run.instant);
-    const env = envOf(this.engine, input.env, run.instant);
-    const delegated = delegation.intersect === undefined ? undefined : yield* this.delegateCheck(delegation.intersect, delegation.hopsUsed, def, ref, subject, input.env, run);
-    const delegate = delegated?.decision;
-    if (delegate) core('delegation', `intersect: the delegate ${delegation.intersectKey} is ${delegate.allowed ? 'allowed' : 'denied'}`, { residual: delegate.residual });
-
-    const models = plan.models.filter((m) => {
-      const admitted = admits(m, parties.principal);
-      if (!admitted) core('skip', `model ${quote(m.name)} does not serve principal type ${quote(parties.principal.type)}`);
-      return admitted;
-    });
-    core('route', `${plan.algorithm} over ${models.length} model(s)`, { models: models.map((m) => m.name) });
-    const host = this.hostFor(run);
-    const contexts = models.map((m) => new ModelContext(host, m.name, run.scope, run.instant, run.depth, steps, contextCacheKey(m.name, parties.cacheId)));
-    const request = () => requestOf(this.engine, parties, def, ref, subject, input.env, run.instant, explain, run.fresh === true);
-    const label = `${def.name} on ${resourceKey(ref)}`;
-    const binder = refBinder(this.engine, parties, env, ancestors, run);
-    const voteLoads = { degraded: false };
-    const resolve = (vs: readonly Vote[]) => resolveScopeRefs(this.engine, vs, binder, label, voteLoads);
-    const votes = yield* evaluate(this.engine, models, contexts, request, plan.algorithm, explain, run, label, resolve, parties.cacheId);
-
-    const combined = combine(this.engine, plan.algorithm, votes);
-    const allow = ceiling.denials.length > 0 ? FALSE : and(combined.allow, ceiling.restrict);
-    const bound = yield* bind(this.engine, allow, binder);
-    let residual = bound.residual;
-    const coreDenials: DenyReason[] = [...ceiling.denials];
-    // Core contexts handed to native filters during the subject steps.
-    const cores: ModelContext[] = [];
-    let subjectFault = false;
-    let typeLevel: Checked | undefined;
-    if (delegate) {
-      const strips = delegation.intersectKey !== principalKey(parties.ref);
-      // The delegate's residual is already bound for the delegate; SQL and the subject evaluator would read its principal ops as ours.
-      // A kept principalInArgs native is evaluated below and in SQL with our principal, context and ctx.cache: right only because its args name the delegate and the filter keys its memos by them.
-      let theirs = !delegate.allowed ? FALSE : strips ? stripPrincipalOps(delegate.residual, this.engine.argBoundNatives) : delegate.residual;
-      if (strips && subject !== undefined && delegate.allowed && residual.op !== 'false') {
-        // The filter strips the delegate's relation ops and its natives without principalInArgs, which the subject check above evaluated exactly: the row must also pass the stripped type-level residual, or filter and check part (B06).
-        typeLevel = yield* this.delegateCheck(delegation.intersect!, delegation.hopsUsed, def, { type: ref.type }, undefined, input.env, run);
-        const strip = typeLevel.decision.allowed ? stripPrincipalOps(typeLevel.decision.residual, this.engine.argBoundNatives) : FALSE;
-        let truth: string = !typeLevel.decision.allowed ? 'the delegate is denied' : strip.op === 'true' ? 'TRUE' : 'FALSE';
-        let holds = strip.op === 'true';
-        if (strip.op !== 'true' && strip.op !== 'false') {
-          const settled = (yield settleWithin(evaluateResidual(strip, subject, this.subjectEnv(parties, ref, run, steps, cores)), this.engine.config.modelTimeoutMs, describeError, 'subject evaluation')) as Settled;
-          if (!settled.ok) {
-            subjectFault = true;
-            logAt(this.engine, 'error', { delegate: delegation.intersectKey, check: label, cause: settled.error }, 'Authz domain ${domain}: evaluating the stripped type-level residual of the delegate ${delegate} of ${check} against the subject failed: ${cause}');
-          }
-          holds = settled.ok && settled.value === true;
-          truth = settled.ok ? (settled.value === undefined ? 'UNKNOWN' : String(settled.value)) : settled.error;
-        }
-        core('delegation', `intersect: the delegate's type-level residual, stripped, against the subject: ${truth}`, { residual: strip });
-        if (!holds) theirs = FALSE;
-      }
-      if (theirs.op === 'false') coreDenials.push(Object.freeze({ code: 'delegate', priority: DELEGATE_PRIORITY, delegate: delegation.intersectKey }));
-      residual = and(residual, theirs);
-    }
-    core('combine', `allow ${residual.op === 'true' ? 'TRUE' : residual.op === 'false' ? 'FALSE' : 'residual'}`, { residual });
-
-    let subjectDenied = false;
-    if (subject !== undefined && residual.op !== 'true' && residual.op !== 'false') {
-      const settled = (yield settleWithin(evaluateResidual(residual, subject, this.subjectEnv(parties, ref, run, steps, cores)), this.engine.config.modelTimeoutMs, describeError, 'subject evaluation')) as Settled;
-      const truth = settled.ok ? settled.value : undefined;
-      if (!settled.ok) {
-        subjectFault = true;
-        logAt(this.engine, 'error', { check: label, cause: settled.error }, 'Authz domain ${domain}: evaluating the residual of ${check} against the subject failed: ${cause}');
-      }
-      core('subject', `residual against the subject: ${settled.ok ? (truth === undefined ? 'UNKNOWN' : String(truth)) : settled.error}`);
-      residual = truth === true ? TRUE : FALSE;
-      subjectDenied = truth !== true;
-    }
-
-    let allowed = residual.op !== 'false';
-    let fields: Fields = NO_FIELDS;
-    let firmFields: Fields | undefined = run.firm ? NO_FIELDS : undefined;
-    let fieldsFailed = false;
-    let fieldsUncacheable = false;
-    let fieldsFaulted = false;
-    if (allowed) {
-      const firmDelegate = delegated?.firmFields ?? delegate?.fields;
-      const f = yield* fieldsOf(this.engine, plan.algorithm, votes, binder, delegate?.fields, label, run.firm ? (firmDelegate ? { delegate: firmDelegate } : {}) : undefined);
-      fieldsUncacheable = f.uncacheable;
-      fieldsFaulted = f.faulted;
-      if (f.failed) {
-        core('fields', 'combining the field sets failed: denied');
-        residual = FALSE;
-        allowed = false;
-        fieldsFailed = true;
-      } else {
-        fields = f.fields;
-        if (run.firm) firmFields = f.firm ?? NO_FIELDS;
-      }
-    }
-    let reason: DenyReason | undefined;
-    let reasonsUncacheable = false;
-    // The allow held up to the fields step, so no vote or core step caused this denial.
-    if (fieldsFailed) reason = ENGINE_FAULT;
-    else if (!allowed) {
-      // Also when the allow was FALSE before the subject step: a row-level deny entry may still beat a ceiling.
-      const pass = subject !== undefined && !subjectFault ? yield* this.subjectTruths(votes, combined.deciding, plan.algorithm, subject, binder, parties, ref, run, label, core, cores) : { truths: votes.map(staticTruths), uncacheable: false };
-      reasonsUncacheable = pass.uncacheable;
-      reason = denyReason(coreDenials, votes, pass.truths, combined.deciding, plan.algorithm, subjectDenied && !subjectFault, combined.failed || bound.failed || subjectFault);
-    }
-    const outcome: { -readonly [K in keyof Outcome]: Outcome[K] } = {
-      principal: parties.ref,
-      residual: allowed ? residual : FALSE,
-      roles: mergeRoles(votes),
-      fields,
-      models: models.map((m) => m.name),
-      votes,
-    };
-    if (parties.actorRef) outcome.actor = parties.actorRef;
-    if (reason) outcome.reason = reason;
-    const validUntil = earliest([...votes.map((v) => v.validUntil), ceiling.expiresAt, delegate?.validUntil, typeLevel?.decision.validUntil]);
-    if (validUntil) outcome.validUntil = validUntil;
-    const faulted = votes.some((v) => v.error !== undefined) || voteLoads.degraded || combined.failed || bound.failed || bound.degraded || subjectFault || fieldsFaulted || delegated?.faulted === true || typeLevel?.faulted === true || run.nested.faulted || scopeFaulted(this.engine, run.scope);
-    if (faulted) {
-      run.nested.faulted = true;
-      // A model may memoise a nested answer in ctx.cache; the marker stops later checks of the request trusting it.
-      if (run.depth > 0) markFault(this.engine, run.scope);
-      // A marker here would fail every later summary/covers of the request; dropping the memos this decision wrote is enough.
-      else for (const ctx of [...contexts.slice(0, votes.length), ...cores]) ctx.detachMemo();
-    }
-    const uncacheable = faulted || bound.uncacheable || fieldsUncacheable || reasonsUncacheable || delegated?.uncacheable === true || typeLevel?.uncacheable === true || votes.some((v) => v.cacheable !== true) || run.nested.uncacheable;
-    return remember(this.engine, { decision: finish(this.engine, { ...base, requester }, outcome), uncacheable, faulted, ...(firmFields ? { firmFields } : {}) }, key, run, tags);
-  }
-
-  // ---- L1/L2 lookup and store (design §10.3) ----
-
-  /**
-   * The context host of one call tree: a model's ctx.check shares its versions,
-   * generation, nested record and cache bypass. A failed (or, for attributes,
-   * timed-out) call marks the tree faulted even when the model catches it; a
-   * rejection also marks the request, as nothing else records it.
-   */
-  private hostFor(run: Run): ContextHost {
-    const fault = (e: unknown): never => {
-      run.nested.faulted = true;
-      markFault(this.engine, run.scope);
-      throw e;
-    };
-    const watched = <T>(call: () => MaybePromise<T>): MaybePromise<T> => {
-      let r: MaybePromise<T>;
-      try {
-        r = call();
-      } catch (e) {
-        return fault(e);
-      }
-      return isThenable(r) ? Promise.resolve(r).then(undefined, fault) : r;
-    };
-    return Object.freeze({
-      ...this.host,
-      ancestors: (ref: ResourceRef, scope: Map<string, unknown>) => watched(() => ancestorsOf(this.engine, requireRef(this.engine, ref), scope)),
-      attributes: (ref: ResourceRef, scope: Map<string, unknown>) =>
-        watched(() =>
-          nodeLoad(this.engine, requireRef(this.engine, ref), scope).result.then((l) => {
-            if (l.degraded) run.nested.faulted = true;
-            return l.attributes;
-          }),
-        ) as Promise<Attributes>,
-      nestedCheck: (req: Omit<DecisionRequest, 'explain'>, scope: Map<string, unknown>, instant: Date, depth: number) => runAsync(this.pipeline(req, { ...run, sync: false, scope, instant, depth, delegationBudget: this.engine.config.maxDelegation })).then((r) => r.decision, fault),
-    });
-  }
-
-  /** The intersect delegate's full decision: same permission, ref, subject, env and scope, with the hops left. */
-  private *delegateCheck(delegate: Principal, hopsUsed: number, def: PermissionDef, ref: ResourceRef, subject: unknown, env: unknown, run: Run): Pipeline<Checked> {
-    const input: { -readonly [K in keyof CheckInput]: CheckInput[K] } = { principal: delegate, permission: def.name };
-    if (env !== undefined) input.env = env as Readonly<Record<string, unknown>>;
-    return yield* this.pipeline(input, { ...run, depth: run.depth + 1, delegationBudget: run.delegationBudget - hopsUsed }, { ref, subject });
-  }
-
-  /**
-   * Truths of the counted votes against the subject, the loads and the batch
-   * under one time limit; static truths for the others and on timeout. Not
-   * traced as subject checks: one core 'reason' step holds the result.
-   */
-  private *subjectTruths(votes: readonly Vote[], deciding: Vote | undefined, algorithm: string, subject: unknown, binder: RefBinder, parties: Parties, ref: ResourceRef, run: Run, label: string, core: (step: string, note: string, data?: unknown) => void, cores: ModelContext[]): Pipeline<{ readonly truths: readonly VoteTruths[]; readonly uncacheable: boolean }> {
-    const started = performance.now();
-    const counted: readonly Vote[] = algorithm === 'first-applicable' && deciding !== undefined ? [deciding] : votes;
-    const subjectEnv = this.subjectEnv(parties, ref, run, undefined, cores);
-    let uncacheable: boolean;
-    try {
-      // Deny entries may read scope nodes the allow did not.
-      uncacheable = (yield* binder.cover(counted.filter((v) => v.error === undefined).flatMap((v) => [v.permitWhen, ...(v.denies ?? []).map((d) => d.when)]))).uncacheable;
-    } catch (e) {
-      // Refs of nodes left unloaded bind as missing.
-      logAt(this.engine, 'error', { error: thrownError(e), check: label }, 'Authz domain ${domain}: loading the scope attributes of the deny reasons of ${check} failed');
-      uncacheable = true;
-    }
-    // A deny entry sits under `not` in the allow, where the binder reads a missing ref as TRUE: it is bound under `not` here too.
-    const truthOf = (f: ResourceFilter, deny: boolean): Promise<Truth> => {
-      let bound: ResourceFilter;
-      try {
-        bound = binder.bind(deny ? not(f) : f);
-      } catch {
-        uncacheable = true;
-        return Promise.resolve(undefined);
-      }
-      const truth = evaluateResidual(bound, subject, subjectEnv);
-      return deny ? truth.then((t) => (t === undefined ? undefined : !t)) : truth;
-    };
-    const batch = Promise.all(
-      votes.map((v): VoteTruths | Promise<VoteTruths> => {
-        if (!counted.includes(v) || v.error !== undefined) return staticTruths(v);
-        // Against the subject, a permit that is not TRUE does not permit, whether or not the subject step denied.
-        return Promise.all([truthOf(v.permitWhen, false), Promise.all((v.denies ?? []).map((d) => truthOf(d.when, true)))]).then(([permit, denies]) => Object.freeze({ permit: permit === true, denies: Object.freeze(denies) }));
-      }),
-    );
-    const left = Math.max(0, this.engine.config.modelTimeoutMs - (performance.now() - started));
-    const settled = (yield settleWithin(batch, left, describeError, 'deny reason pass')) as Settled;
-    if (!settled.ok) {
-      logAt(this.engine, 'error', { check: label, cause: settled.error }, 'Authz domain ${domain}: evaluating the deny reasons of ${check} against the subject failed: ${cause}; using static truths');
-      core('reason', 'deny reason against the subject', { fallback: 'static' });
-      return { truths: votes.map(staticTruths), uncacheable };
-    }
-    const truths = settled.value as readonly VoteTruths[];
-    const traced = counted.map((v) => {
-      const i = votes.indexOf(v);
-      return v.error !== undefined || i < 0 ? { model: v.model, indeterminate: true } : { model: v.model, permit: truths[i].permit, denies: truths[i].denies };
-    });
-    core('reason', 'deny reason against the subject', { truths: traced });
-    return { truths, uncacheable };
+  private pipeline(input: CheckInput, run: Run, resolved?: Resolved): Pipeline<Checked> {
+    return pipeline(this.engine, input, run, resolved);
   }
 
   // ---- context services ----
-
-  /** `cores` gets the env's context. */
-  private subjectEnv(parties: Parties, ref: ResourceRef, run: Run, steps: TraceStep[] | undefined, cores: ModelContext[]): SubjectEnv {
-    const adapter = this.engine.adapterByType.get(ref.type);
-    const attribute = adapter && typeof adapter.attribute === 'function' ? (subject: unknown, field: string) => adapter.attribute!(subject, field) : defaultAttribute;
-    const ctx = new ModelContext(this.hostFor(run), CORE, run.scope, run.instant, run.depth, steps, contextCacheKey('\u0000core', parties.cacheId));
-    cores.push(ctx);
-    return {
-      principal: parties.principal,
-      ref,
-      attribute,
-      relation: (type, name) => relation(this.engine, type, name),
-      ancestors: (r) => Promise.resolve(ancestorsOf(this.engine, requireRef(this.engine, r), run.scope)),
-      native: (op) => {
-        const filter = this.engine.natives.get(op);
-        return filter && detachingOnThrow(filter, ctx);
-      },
-      ctx,
-    };
-  }
 
   // ---- plumbing ----
 

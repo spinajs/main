@@ -1,10 +1,18 @@
 import { AuthzConfigError } from '../../contracts/errors.js';
-import type { DecisionRequest } from '../../contracts/decision.js';
+import type { DecisionRequest, TraceStep } from '../../contracts/decision.js';
 import type { PermissionDef } from '../../contracts/permission.js';
 import type { ResourceRef, ResourceType } from '../../contracts/principal.js';
 import type { RelationResolver } from '../../contracts/adapter.js';
 import { isObject } from '../internal/util.js';
-import type { Engine, Parties } from '../types.js';
+import type { Engine, Parties, Run } from '../types.js';
+import { CORE } from '../types.js';
+import { ModelContext } from '../context.js';
+import { defaultAttribute } from '../evaluate.js';
+import type { SubjectEnv } from '../evaluate.js';
+import { contextCacheKey, detachingOnThrow } from '../support/misc.js';
+import { hostFor } from './host.js';
+import { requireRef } from './late-type.js';
+import { ancestorsOf } from './scope.js';
 
 export function requestOf(engine: Engine, parties: Parties, def: PermissionDef, ref: ResourceRef, subject: unknown, env: unknown, instant: Date, explain: boolean, fresh: boolean): DecisionRequest {
   const req: { -readonly [K in keyof DecisionRequest]: DecisionRequest[K] } = { principal: parties.principal, permission: def.name, resource: ref, env: envOf(engine, env, instant), explain };
@@ -22,4 +30,24 @@ export function envOf(engine: Engine, env: unknown, instant: Date): Readonly<Rec
 
 export function relation(engine: Engine, type: ResourceType, name: string): RelationResolver | undefined {
   return engine.relationIndex.get(`${type}\u0000${name}`);
+}
+
+/** `cores` gets the env's context. */
+export function subjectEnv(engine: Engine, parties: Parties, ref: ResourceRef, run: Run, steps: TraceStep[] | undefined, cores: ModelContext[]): SubjectEnv {
+  const adapter = engine.adapterByType.get(ref.type);
+  const attribute = adapter && typeof adapter.attribute === 'function' ? (subject: unknown, field: string) => adapter.attribute!(subject, field) : defaultAttribute;
+  const ctx = new ModelContext(hostFor(engine, run), CORE, run.scope, run.instant, run.depth, steps, contextCacheKey('\u0000core', parties.cacheId));
+  cores.push(ctx);
+  return {
+    principal: parties.principal,
+    ref,
+    attribute,
+    relation: (type, name) => relation(engine, type, name),
+    ancestors: (r) => Promise.resolve(ancestorsOf(engine, requireRef(engine, r), run.scope)),
+    native: (op) => {
+      const filter = engine.natives.get(op);
+      return filter && detachingOnThrow(filter, ctx);
+    },
+    ctx,
+  };
 }
