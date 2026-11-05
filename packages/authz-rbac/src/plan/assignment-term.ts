@@ -1,6 +1,6 @@
 import type { PrincipalRef } from '@spinajs/authz';
 import { PlanTermCompiler } from '@spinajs/authz-orm/plan';
-import type { PlanRow } from '@spinajs/authz-orm/plan';
+import type { PlanRow, RlsSqlContext } from '@spinajs/authz-orm/plan';
 import { Injectable, Singleton } from '@spinajs/di';
 import { Wrapper, outer } from '@spinajs/orm';
 import type { ISelectQueryBuilder, IWhereBuilder } from '@spinajs/orm';
@@ -8,6 +8,7 @@ import type { ISelectQueryBuilder, IWhereBuilder } from '@spinajs/orm';
 import { parsePrincipalSubjectKey } from '../model/sets/keys.js';
 import { AUTHZ_ASSIGNMENT_TABLE } from '../stores/tables.js';
 import { RBAC_ASSIGNMENT_PLAN_OP, parseRbacPlanArgs, rbacPlanArgs } from './args.js';
+import { rbacAssignmentSql } from './assignment-sql.js';
 import type { RbacAssignmentPlanArgs, RbacPlanRole } from './args.js';
 
 type Where = IWhereBuilder<unknown>;
@@ -165,5 +166,9 @@ export class RbacAssignmentTerm extends PlanTermCompiler {
   atoms(args: unknown): readonly unknown[] {
     const parsed = parseRbacPlanArgs(args);
     return parsed.roles.length <= 1 ? [parsed] : parsed.roles.map((role) => rbacPlanArgs({ ...parsed, roles: [role] }));
+  }
+
+  renderSql(args: unknown, ctx: RlsSqlContext): string {
+    return rbacAssignmentSql(parseRbacPlanArgs(args), ctx);
   }
 }

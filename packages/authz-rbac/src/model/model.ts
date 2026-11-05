@@ -314,6 +314,12 @@ export class RbacModel extends AuthorizationModel {
     return readRbacInput({ principal, permission: ROLES_PROBE, resource: GLOBAL }, ctx, { ...this.sources(), extensions });
   }
 
+  /** Roles the config gives at GLOBAL without an assignment row (anonymousRoles, serviceRoles). */
+  configRoles(): ReadonlySet<string> {
+    const { anonymousRoles, serviceRoles } = this.state();
+    return new Set([...anonymousRoles, ...[...serviceRoles.values()].flat()]);
+  }
+
   /** The link store of the options (share links). */
   get linkStore(): LinkStore | undefined {
     return this.opts?.links;
