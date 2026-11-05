@@ -1,8 +1,11 @@
 import type { AuthorizationModel, IRCompileContext, Permission } from '@spinajs/authz';
 
 import { stableStringify } from '../canonical.js';
+import { combineVotes, routeFor } from './combine.js';
+import { principalNarrowing } from './principal.js';
+import type { PrincipalOptions } from './principal.js';
 import { GLOBAL_TYPE } from '../ir.js';
-import type { CaveatDef, CaveatName, CombineIR, FieldRules, OpaqueRef, PolicyIR, PrincipalNarrowing, RelationDef, RelationName, Rewrite, SourceRef, TypeDef, TypeName } from '../ir.js';
+import type { CaveatDef, CaveatName, CombineIR, FieldRules, OpaqueRef, PolicyIR, PrincipalNarrowing, RelationDef, RelationName, SourceRef, TypeDef, TypeName } from '../ir.js';
 
 /** A permission as one model grants and denies it; `merge` combines the models into one binding. */
 export interface FragmentBinding {
@@ -32,7 +35,7 @@ export interface MergeOptions {
   /** Every model of the domain in combine order; a model without a fragment is listed in `opaque`. Default: the fragments' models. */
   models?: readonly string[];
   combine?: CombineIR;
-  principal?: Partial<Omit<PrincipalNarrowing, 'roles'>>;
+  principal?: PrincipalOptions;
 }
 
 export interface MergeConflict {
@@ -50,8 +53,8 @@ export const permissionRelation = (permission: Permission): RelationName => `per
 
 /**
  * Unions the fragments into one `PolicyIR`: adds the `$global` root type, gives every type without a `parent`
- * relation the constant `parent -> $global` link (G21), binds each permission (one permitting model directly,
- * several through a deny-overrides combination) and lists models without a fragment as opaque. The first
+ * relation the constant `parent -> $global` link (G21), binds each permission through the `combine` route of its
+ * type (G5; a lone permitting relation directly) and lists models without a fragment as opaque. The first
  * definition of a relation, permission or caveat wins; a different later one is a conflict.
  */
 export function mergeFragments(fragments: readonly IRFragment[], options: MergeOptions = {}): { ir: PolicyIR; conflicts: MergeConflict[] } {
@@ -62,7 +65,7 @@ export function mergeFragments(fragments: readonly IRFragment[], options: MergeO
     permissions: {},
     caveats: {},
     combine: options.combine ?? { default: { algorithm: 'deny-overrides' } },
-    principal: { ceiling: true, delegation: true, ancestry: 'parent', ...options.principal, roles: {} },
+    principal: { ...principalNarrowing(options.principal), roles: {} },
     opaque: [],
   };
   const keep = keeper(conflicts);
@@ -113,34 +116,25 @@ function closeAtGlobal(ir: PolicyIR): void {
 function bindPermissions(ir: PolicyIR, fragments: readonly IRFragment[], order: readonly string[], conflicts: MergeConflict[]): void {
   const rank = (model: string): number => (order.includes(model) ? order.indexOf(model) : order.length);
   const sorted = [...fragments].sort((a, b) => rank(a.model) - rank(b.model));
-  const byPermission = new Map<Permission, FragmentBinding[]>();
-  for (const f of sorted) for (const [p, b] of Object.entries(f.permissions ?? {})) byPermission.set(p, [...(byPermission.get(p) ?? []), b]);
+  const byPermission = new Map<Permission, Array<FragmentBinding & { model: string }>>();
+  for (const f of sorted) for (const [p, b] of Object.entries(f.permissions ?? {})) byPermission.set(p, [...(byPermission.get(p) ?? []), { ...b, model: f.model }]);
   for (const [permission, bindings] of byPermission) {
     const [first] = bindings;
     const same = bindings.filter((b) => b.type === first.type);
     if (same.length < bindings.length) conflicts.push({ path: `permissions.${permission}`, message: `${permission} is bound to several types; only ${first.type} is kept` });
-    const list = same.some((b) => b.list === true);
     const fields = same.find((b) => b.fields !== undefined)?.fields;
-    const base = { type: first.type, list, source: first.source, ...(fields === undefined ? {} : { fields }) };
-    if (same.length === 1 && first.permit !== undefined && first.deny === undefined) {
-      ir.permissions[permission] = { ...base, relation: first.permit };
+    const base = { type: first.type, list: same.some((b) => b.list === true), source: first.source, ...(fields === undefined ? {} : { fields }) };
+    const route = routeFor(ir.combine, first.type);
+    const rewrite = combineVotes(route, same);
+    if ('computed' in rewrite) {
+      ir.permissions[permission] = { ...base, relation: rewrite.computed };
       continue;
     }
     const relation = permissionRelation(permission);
     if (own(ir.types[first.type].relations, relation) || own(ir.types[first.type].permissions, relation)) conflicts.push({ path: `types.${first.type}.permissions.${relation}`, message: `${relation} is already defined; ${permission} overwrites it` });
-    ir.types[first.type].permissions[relation] = denyOverrides(same);
+    ir.types[first.type].permissions[relation] = rewrite;
     ir.permissions[permission] = { ...base, relation };
   }
-}
-
-/** `exclusion(∪ permit, ∪ deny)` (G5); with no permitting model, an empty priority chain, which never permits. */
-function denyOverrides(bindings: readonly FragmentBinding[]): Rewrite {
-  const permits: Rewrite[] = bindings.flatMap((b) => (b.permit === undefined ? [] : [{ computed: b.permit }]));
-  const denies: Rewrite[] = bindings.flatMap((b) => (b.deny === undefined ? [] : [{ computed: b.deny }]));
-  if (permits.length === 0) return { priority: [] };
-  const permit: Rewrite = permits.length === 1 ? permits[0] : { union: permits };
-  if (denies.length === 0) return permit;
-  return { exclusion: { base: permit, subtract: denies.length === 1 ? denies[0] : { union: denies } } };
 }
 
 /**
