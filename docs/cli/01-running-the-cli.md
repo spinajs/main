@@ -4,7 +4,7 @@ The `spinajs` bin boots the framework, builds the command tree from every discov
 
 ## How it works
 
-1. **Entry.** `spinajs` runs `lib/cli.js` (`src/cli.ts`). Its import of `args.js` registers the default [argv provider](06-argv-provider.md) under `'__cli_argv_provider__'`.
+1. **Entry.** `spinajs` runs `lib/cli.js` (`src/cli.ts`). It turns on Node's compile cache, then imports `run-cli.js`, whose import of `args.js` registers the default [argv provider](06-argv-provider.md) under `'__cli_argv_provider__'`. The cache keeps the compiled framework modules for the next run in a per-user dir (`~/.cache/spinajs/compile-cache`, `%LOCALAPPDATA%\spinajs\compile-cache` on Windows; see [`@spinajs/util/compile-cache`](../util/15-compile-cache.md)), never in the shared temp dir. `NODE_COMPILE_CACHE` picks another dir and `NODE_DISABLE_COMPILE_CACHE=1` turns it off. A cache dir that cannot be created, or that another user could write to, leaves the cache off without a message.
 2. **Module loading.** `@spinajs/di` loads every scanned file with `import()`.
 3. **Bootstrappers.** `DI.resolve(Array.ofType(Bootstrapper))` returns every `Bootstrapper` registered by the modules loaded so far; the bin awaits `bootstrap()` on each.
 4. **Configuration.** `await DI.resolve(Configuration)` loads every config file, including each `@spinajs/*` package's `system.dirs.cli` entry, and reads `--app`, `--env` and `--apppath` from `process.argv`.
@@ -14,7 +14,7 @@ The `spinajs` bin boots the framework, builds the command tree from every discov
 
 ```mermaid
 sequenceDiagram
-  participant Bin as spinajs (cli.ts)
+  participant Bin as spinajs (run-cli.ts)
   participant DI
   participant Conf as Configuration
   participant Cli

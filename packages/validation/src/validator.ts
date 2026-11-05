@@ -1,6 +1,6 @@
 import { Autoinject, Container, AsyncService, Singleton } from '@spinajs/di';
 import Ajv from 'ajv';
-import { Config } from '@spinajs/configuration';
+import { addKeywordPluginsOnUse, Config } from '@spinajs/configuration';
 import { IValidationError, ValidationFailed, sanitizeError } from './exceptions/index.js';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { SCHEMA_SYMBOL } from './decorators.js';
@@ -13,10 +13,7 @@ import './sources.js';
 // The package index loads no Bootstrapper: the schema module registers itself.
 import './schemas/validation.js';
 
-
-import { default as ajvMergePath } from 'ajv-merge-patch';
 import { default as ajvFormats } from 'ajv-formats';
-import { default as ajvKeywords } from 'ajv-keywords';
 
 
 /**
@@ -29,7 +26,7 @@ const resolveDefault = (mod: any): any => mod?.default ?? mod;
 
 // The members of the strict Ajv instance used here; `Validator` stays `any` for subclasses.
 interface StrictAjv {
-  addSchema(schema: object, key: string): unknown;
+  addSchema(schema: object, key: string, meta?: boolean, validateSchema?: boolean): unknown;
   removeSchema(key: string): unknown;
 }
 
@@ -62,10 +59,12 @@ export class DataValidator extends AsyncService {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   protected Validator: any;
 
-  /**
-   * Same options and schemas as `Validator`, with `coerceTypes: false`; used for schemas whose `$id` has a strict prefix.
-   */
-  protected StrictValidator: StrictAjv;
+  private StrictAjvInstance?: StrictAjv;
+
+  private AjvConfig: object = {};
+
+  // What a strict instance created later must hold: every schema `addSchema` put on `Validator`.
+  private Registered = new Map<string, object>();
 
   protected StrictIdPrefixes: readonly string[] = DEFAULT_STRICT_ID_PREFIXES;
 
@@ -83,7 +82,7 @@ export class DataValidator extends AsyncService {
     const ajvStrict = strictIds ? strictIds.ajvStrict : strict;
     this.StrictIdPrefixes = strictIds?.idPrefixes ?? DEFAULT_STRICT_ID_PREFIXES;
 
-    const ajvConfig = {
+    this.AjvConfig = {
       logger: {
         log: (msg: string) => this.Log.info(msg),
         warn: (msg: string) => this.Log.warn(msg),
@@ -96,9 +95,7 @@ export class DataValidator extends AsyncService {
       verbose: true,
     };
 
-
-    this.Validator = this.createAjv(ajvConfig);
-    this.StrictValidator = this.createAjv({ ...ajvConfig, coerceTypes: false });
+    this.Validator = this.createAjv(this.AjvConfig);
 
     const pSources = this.Sources.map((x) => x.Load());
     const result = await Promise.all(pSources);
@@ -128,9 +125,8 @@ export class DataValidator extends AsyncService {
           return false;
         }
       })
-      .forEach((s) => {
-        this.addSchema(s.schema, s.schema.$id);
-      });
+      // Just checked against the meta-schema: Ajv would check it again on add.
+      .forEach((s) => this.register(s.schema, s.schema.$id, false));
 
     await super.resolve();
   }
@@ -141,14 +137,11 @@ export class DataValidator extends AsyncService {
     const AjvConstructor = resolveDefault(Ajv);
     const ajv = new AjvConstructor(options);
 
-    // add $merge & $patch for json schema
-    resolveDefault(ajvMergePath)(ajv);
-
     // add common formats validation eg: date time
     resolveDefault(ajvFormats)(ajv);
 
-    // add keywords
-    resolveDefault(ajvKeywords)(ajv);
+    // $merge, $patch and the ajv-keywords keywords; after ajv-formats, whose keywords would otherwise install them at once
+    addKeywordPluginsOnUse(ajv);
     /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call */
 
     return ajv;
@@ -163,15 +156,41 @@ export class DataValidator extends AsyncService {
   }
 
   public addSchema(schemaObject: object, identifier: string) {
+    this.register(schemaObject, identifier);
+  }
+
+  // `metaCheck: undefined` leaves the meta-schema check to the `validateSchema` option, as Ajv's own addSchema does.
+  private register(schemaObject: object, identifier: string, metaCheck?: false) {
     if (this.hasSchema(identifier)) {
       this.Log.warn({ schema: identifier }, 'Schema ${schema} already registered, skipping');
       return;
     }
 
     // Both instances hold every schema, so a $ref from a strict schema resolves on the strict one.
-    this.Validator.addSchema(schemaObject, identifier);
-    this.StrictValidator.addSchema(schemaObject, identifier);
+    this.Validator.addSchema(schemaObject, identifier, undefined, metaCheck);
+    this.Registered.set(identifier, schemaObject);
+    this.StrictAjvInstance?.addSchema(schemaObject, identifier, undefined, false);
     this.Log.trace({ schema: identifier }, 'Schema ${schema} added !');
+  }
+
+  /**
+   * Same options and schemas as `Validator`, with `coerceTypes: false`; used for schemas whose `$id` has a strict prefix.
+   * Built on first access, which most apps never make at boot.
+   */
+  protected get StrictValidator(): StrictAjv {
+    if (!this.StrictAjvInstance) {
+      if (!this.Validator) throw new InvalidOperation('StrictValidator is built from the options resolve() reads; call super.resolve() first');
+      const strict = this.createAjv({ ...this.AjvConfig, coerceTypes: false }) as StrictAjv;
+      for (const [identifier, schema] of this.Registered) {
+        strict.addSchema(schema, identifier, undefined, false);
+      }
+      this.StrictAjvInstance = strict;
+    }
+    return this.StrictAjvInstance;
+  }
+
+  protected set StrictValidator(ajv: StrictAjv) {
+    this.StrictAjvInstance = ajv;
   }
 
   /**
@@ -182,7 +201,8 @@ export class DataValidator extends AsyncService {
   public removeSchema(schemaId: string): void {
     if (this.hasSchema(schemaId)) {
       this.Validator.removeSchema(schemaId);
-      this.StrictValidator.removeSchema(schemaId);
+      this.Registered.delete(schemaId);
+      this.StrictAjvInstance?.removeSchema(schemaId);
       this.Log.trace({ schema: schemaId }, 'Schema ${schema} removed !');
     }
   }

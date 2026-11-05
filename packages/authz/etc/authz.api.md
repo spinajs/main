@@ -132,6 +132,7 @@ export type AuthzCommandResult = {
     readonly id?: string;
     readonly token?: string;
     readonly affected: number;
+    readonly consistency?: string;
 } | {
     readonly ok: false;
     readonly kind: AuthzCommand["kind"];
@@ -152,6 +153,8 @@ export interface AuthzAdminOptions {
     readonly reason?: string;
     readonly idempotencyKey?: string;
     readonly dryRun?: boolean;
+    /** Ok results carry `consistency`, the token a later check passes to read this batch's writes; needs a backend that reports its version. */
+    readonly consistency?: boolean;
 }
 /**
  * Root singleton; per-domain variants via (await AuthzDomains.service(name)).admin().
@@ -312,6 +315,18 @@ const CHANGE_KINDS = Object.freeze([
 ] as const);
 ```
 
+## src/contracts/consistency.ts
+
+```ts
+/** The opaque consistency token of store generation `generation` (`DecisionRequest.consistency.atLeast`). */
+export declare function consistencyToken(generation: number): string;
+/** The generation a consistency token names; undefined for a string that is not such a token. */
+export declare function tokenGeneration(token: string): number | undefined;
+
+// values
+const PREFIX = "spina:g:";
+```
+
 ## src/contracts/data.ts
 
 ```ts
@@ -339,6 +354,59 @@ export interface ScopeAttributesQuery {
 }
 ```
 
+## src/contracts/decision-log.ts
+
+```ts
+import type { Permission } from "./permission.js";
+import type { ResourceRef } from "./principal.js";
+import type { DecisionReadSet } from "./tap.js";
+/** One logged decision (G13); `inputsHash` lets a replay prove it saw the same inputs (G14). */
+export interface DecisionRecord {
+    /** UUIDv7, the `Decision.id` of the decision and the `decisionId` of its 403. */
+    id: string;
+    /** ISO instant of the check. */
+    at: string;
+    traceId?: string;
+    spanId?: string;
+    domain: string;
+    /** principalKey() of the principal the decision names, and of its actor. */
+    principal: string;
+    actor?: string;
+    permission: Permission;
+    resource: ResourceRef;
+    allowed: boolean;
+    reason?: string;
+    cached: boolean;
+    /** `PolicyHashSource.policyHash(domain)`, `'unknown'` while none is registered. */
+    policyHash: string;
+    modelVersions: Record<string, string>;
+    /** SHA-256 (hex) of the canonical inputs the decision read. */
+    inputsHash: string;
+    /** Only with `authz.decisionLog.captureInputs`. */
+    inputs?: DecisionReadSet;
+}
+/** Where decision records go; writes are batched and a failed write never fails a check. */
+export declare abstract class DecisionLog {
+    abstract write(records: DecisionRecord[]): Promise<void>;
+}
+/**
+ * The hash of the policy a domain decides under. The policy IR (`@spinajs/authz-ir`) and the policy version store
+ * register one; until then records carry `'unknown'`.
+ */
+export declare abstract class PolicyHashSource {
+    abstract policyHash(domain: string): string | undefined;
+}
+/** The trace a decision is made in; telemetry registers one so records carry trace ids and spans the decision id. */
+export declare abstract class DecisionTraceContext {
+    abstract current(): {
+        readonly traceId: string;
+        readonly spanId: string;
+    } | undefined;
+    /** Marks the active span with `spina.authz.decision_id`. */
+    abstract annotate(decisionId: string): void;
+}
+```
+
 ## src/contracts/decision.ts
 
 ```ts
@@ -355,6 +423,13 @@ export interface DecisionRequest {
     readonly explain?: boolean;
     /** Skip the decision caches and the models' assignment caches for this call; the answer is still stored. */
     readonly fresh?: boolean;
+    /**
+     * Answer from data at least as new as the write that returned `atLeast` (an AuthzAdmin result's `consistency`): the
+     * decision caches are skipped for anything stored before the engine knew of that write. Models that cannot use it ignore it.
+     */
+    readonly consistency?: {
+        readonly atLeast: string;
+    };
 }
 export interface FieldSet {
     readonly read?: readonly string[];
@@ -401,6 +476,8 @@ export interface Decision {
     readonly validUntil?: Date;
     readonly domain: string;
     readonly trace?: Trace;
+    /** UUIDv7 of a top-level denial, set while a DecisionTap is registered; its DecisionRecord and 403 carry it. */
+    readonly id?: string;
 }
 /** A permit with nothing left to settle: a residual (a relation or a resource.* condition the subject did not settle) makes it no permit yet. */
 export declare function definite(decision: Decision): boolean;
@@ -594,6 +671,9 @@ export * from "./service.js";
 export * from "./data.js";
 export * from "./admin.js";
 export * from "./changelog.js";
+export * from "./tap.js";
+export * from "./decision-log.js";
+export * from "./consistency.js";
 ```
 
 ## src/contracts/link.ts
@@ -678,6 +758,13 @@ export declare abstract class AuthorizationModel {
     invalidate?(tags: readonly string[]): void;
     version?(): string;
     dispose?(): Promise<void>;
+    /** The model's part of the policy IR (an `IRFragment` of `@spinajs/authz-ir`, which owns the shape). A model without it is opaque to analysis. */
+    toIR?(ctx: IRCompileContext): unknown;
+}
+export interface IRCompileContext {
+    /** Reads `authz.<model name>.<path>`, as `ModelInitContext.config` does. */
+    readonly config: <T>(path: string, dflt?: T) => T;
+    readonly permissions?: PermissionRegistry;
 }
 export interface ModelSummary {
     readonly model: string;
@@ -950,6 +1037,49 @@ export declare abstract class DecisionAudit {
 // values
 const ROOT_DOMAIN = "root";
 const DOMAIN_NAME_PATTERN = "^[A-Za-z0-9_.-]{1,64}$";
+```
+
+## src/contracts/tap.ts
+
+```ts
+import type { Decision, DecisionRequest } from "./decision.js";
+import type { ResourceRef } from "./principal.js";
+/** What one decision read: its nested checks and intersect delegates included. A tap gets it built on first access. */
+export interface DecisionReadSet {
+    /** The env the decision was made with: the caller's keys, which the models may read, without `now` (the decision's instant). */
+    env: Record<string, unknown>;
+    /**
+     * The scope nodes a model (ctx.attributes) or the engine (`scope.*` refs) loaded, whole (`path` empty). The principal's
+     * and actor's attributes are not listed: a decision log hashes their full state.
+     */
+    attributes: Array<{
+        ref: ResourceRef | "principal" | "actor";
+        path: string;
+        value: unknown;
+    }>;
+    /** Relation resolvers looked up by a model (ctx.relation) or by the subject evaluation (`model: 'core'`). */
+    relations: Array<{
+        model: string;
+        object: ResourceRef;
+        relation: string;
+        version?: string;
+    }>;
+    /** Each model's version(); a model without one, or whose version() fails, is left out. */
+    modelVersions: Record<string, string>;
+}
+/**
+ * Sees every top-level decision of check, explain, checkMany, checkAll, filter and filterNow once it is final
+ * (audited and cached). summary, covers and inspect are not access attempts and are not tapped. Reads are
+ * recorded only while at least one tap is registered. A tap that throws or rejects is logged and ignored.
+ */
+export declare abstract class DecisionTap {
+    /** When given and false for every tap, the engine builds nothing for the decision and calls no `onDecision`. */
+    wants?(decision: Decision): boolean;
+    abstract onDecision(req: DecisionRequest, decision: Decision, reads: DecisionReadSet, meta: {
+        cached: boolean;
+        durationMs: number;
+    }): void;
+}
 ```
 
 ## Re-exported from other packages
