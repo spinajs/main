@@ -24,7 +24,7 @@ export interface Scenario {
 export class WitnessRejected extends Error {}
 
 /** Fresh objects named by the type's initial and a counter (`invoice:i1`); `$global` is always its one object. */
-class Objects {
+export class Objects {
   private readonly counters = new Map<TypeName, number>();
 
   fresh(type: TypeName): ObjectRef {
@@ -35,10 +35,11 @@ class Objects {
   }
 }
 
-/** The minimal data that walks `edges` from a fresh resource: one tuple per letter, each to a fresh object. */
-export function instantiate(resourceType: TypeName, edges: readonly Edge[]): Scenario {
-  const objects = new Objects();
-  const resource = objects.fresh(resourceType);
+/**
+ * The minimal data that walks `edges` from a fresh resource: one tuple per letter, each to a fresh object. Two
+ * paths share `objects` and `resource` to be laid side by side on one resource.
+ */
+export function instantiate(resourceType: TypeName, edges: readonly Edge[], objects = new Objects(), resource = objects.fresh(resourceType)): Scenario {
   const tuples: WitnessTuple[] = [];
   let current = resource;
   let principal: PrincipalFacts | undefined;
