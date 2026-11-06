@@ -4,7 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { DiagnosticSeverity, Parser } from '@asyncapi/parser';
 import { WIRE_EVENTS } from '@spinajs/http-socket-common';
-import type { Manifest } from '@spinajs/manifest';
+import type { Manifest, SocketControllerEntry } from '@spinajs/manifest';
 import { manifestToAsyncApi } from '../src/index.js';
 import type { AsyncApiDocument } from '../src/index.js';
 import { appBasicManifest } from './support/fixture.js';
@@ -77,7 +77,39 @@ describe('manifestToAsyncApi', () => {
     expect(JSON.stringify(manifestToAsyncApi(manifest, options))).to.equal(JSON.stringify(doc));
   });
 
+  it('documents a command a socket controller inherits, with the payload it binds', () => {
+    const copy = structuredClone(manifest);
+    const source = { file: 'src/socket/things.ts', line: 3, col: 1, package: 'app-basic' };
+    const things: SocketControllerEntry = {
+      id: 'app-basic:ThingsSocket',
+      className: 'ThingsSocket',
+      prefix: 'things',
+      bases: ['app-basic:CrudSocket'],
+      commands: [{ name: 'save', handler: 'save', payload: { text: 'ChatMessage', schema: 'spinajs/app-basic/ChatMessage' }, payloadIndex: 0, result: { text: 'void' }, options: {}, policies: [], inheritedFrom: 'app-basic:CrudSocket', source }],
+      events: [],
+      source,
+    };
+    copy.socketControllers.push(things);
+    const out = manifestToAsyncApi(copy, options);
+    expect(out.channels['socket/things/save']).to.deep.include({ address: 'socket/things/save' });
+    expect(out.components.messages['things.save.request']).to.deep.equal({ name: 'things.save.request', payload: { $ref: '#/components/schemas/ChatMessage' } });
+  });
+
   it('stream frames match the socket wire protocol', () => {
     expect(doc.operations['chat.history.receive']['x-spinajs-stream-frames']).to.deep.equal([WIRE_EVENTS.chunk, WIRE_EVENTS.end, WIRE_EVENTS.fail]);
   });
+
+  it("marks the reply of a field-filtered command: optional properties with x-spina-fields (G16)", () => {
+    const m = structuredClone(manifest);
+    const history = m.socketControllers.find((c) => c.prefix === 'chat')!.commands.find((c) => c.name === 'history')!;
+    Object.assign(history, { access: ['chat:read'], fields: 'filter-rows' });
+    const out = manifestToAsyncApi(m, options);
+    expect((out.components.messages['chat.history.reply'] as { payload: unknown }).payload).to.deep.equal({
+      type: 'object',
+      properties: { id: { type: 'string', 'x-spina-fields': 'chat:read' }, text: { type: 'string', 'x-spina-fields': 'chat:read' } },
+      additionalProperties: false,
+    });
+    expect((out.components.schemas.ChatMessage as { required?: unknown }).required).to.deep.equal(['id', 'text']);
+  });
 });
+

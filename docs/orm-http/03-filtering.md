@@ -140,7 +140,7 @@ A failed value check throws `InvalidArgument` (`400`).
 | --- | --- | --- | --- | --- |
 | `@Filter` extractor | name `'FilterModelRouteArg'`, singleton, resolved per route by name | `FilterModelRouteArg` | none shipped | `@Injectable(FilterModelRouteArg)` on a subclass; see [Custom route arguments and hydrators](08-custom-route-args-and-hydrators.md). |
 | Per-column SQL | `IColumnFilter.query` | built-in operator map | any function returning a `WhereFunction` | See [Custom filter columns](07-custom-filter-columns.md). |
-| `SelectQueryBuilder.filter()` | prototype method, installed at import | `builders.ts` | none | Wrap the prototype method; see [Model statics and builder extension](10-model-statics-and-builder-extension.md). |
+| `SelectQueryBuilder.filter()` | `FilterQueryExtension` under `SelectQueryExtension`, installed by `Orm.resolve()` | `filterQuery` in `builders.ts` | none | Register a subclass of `FilterQueryExtension`; see [Model statics and builder extension](10-model-statics-and-builder-extension.md). |
 | Filter statics | `MODEL_STATIC_MIXINS` bound by `OrmHttpBootstrapper` | `filter`, `filterColumns`, `filterSchema` | none | See [Model statics and builder extension](10-model-statics-and-builder-extension.md). |
 
 The operator map is private to `builders.ts`. You cannot add an operator name; give a column a custom `query` instead.

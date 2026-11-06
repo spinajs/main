@@ -10,6 +10,9 @@
     "src/**/*",
     "test/**/*"
   ],
+  "exclude": [
+    "test/types/**/*"
+  ],
   "references": [
     {
       "path": "../configuration-common/tsconfig.json"

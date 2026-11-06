@@ -19,7 +19,7 @@ export function isSqlFragment(value: unknown): value is SqlFragment {
 const TRUE: SqlFragment = Object.freeze({ sql: '1 = 1', bindings: Object.freeze([]) });
 const FALSE: SqlFragment = Object.freeze({ sql: '1 = 0', bindings: Object.freeze([]) });
 
-function template(strings: TemplateStringsArray, ...values: unknown[]): SqlFragment {
+function template<R = unknown>(strings: TemplateStringsArray, ...values: unknown[]): SqlFragment<R> {
   let text = strings[0];
   const bindings: unknown[] = [];
   values.forEach((v, i) => {

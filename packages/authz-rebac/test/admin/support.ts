@@ -5,7 +5,7 @@ import { AdminGuard, AuthzAdminBackend, AuthzAdminFailure, AuthzClock, AuthzEven
 import type { AdminCallContext, AuthzAdmin, AuthzCommand, AuthzCommandResult, AuthzEvent, AuthzService, Principal } from '@spinajs/authz';
 
 import { MemoryTupleStore, RebacModel, TupleStore } from '../../src/index.js';
-import type { Tuple } from '../../src/index.js';
+import type { RebacLimits, Tuple } from '../../src/index.js';
 import { NAMESPACES, PERMISSIONS } from '../support/world.js';
 
 export const { config, installHost, uninstallHost, resetHost, domains, instance } = testHost;
@@ -16,7 +16,7 @@ const TYPES = ['doc', 'folder', 'group'];
 const PERMISSION_DEFS: Record<string, { types?: string[] }> = {
   ...Object.fromEntries(['doc:read', 'doc:edit', 'doc:view'].map((n) => [n, { types: ['doc'] }])),
   'folder:read': { types: ['folder'] },
-  ...Object.fromEntries(['authz:tuples.manage', 'authz:tuples.read', 'authz:scope.forget'].map((n) => [n, { types: TYPES }])),
+  ...Object.fromEntries(['authz:tuples.manage', 'authz:tuples.read', 'authz:tuples.expand.read', 'authz:tuples.subjects.read', 'authz:scope.forget'].map((n) => [n, { types: TYPES }])),
 };
 
 export class TestGuard extends AdminGuard {
@@ -66,14 +66,14 @@ export interface RebacDomain {
 }
 
 /** A child of root with a RebacModel over a MemoryTupleStore, the very instance registered as TupleStore. */
-export async function rebacDomain(name = 'test', opts: { readonly tuples?: readonly Tuple[]; readonly without?: readonly ('store' | 'model')[] } = {}): Promise<RebacDomain> {
+export async function rebacDomain(name = 'test', opts: { readonly tuples?: readonly Tuple[]; readonly without?: readonly ('store' | 'model')[]; readonly limit?: RebacLimits } = {}): Promise<RebacDomain> {
   config().set(['authz', 'domains', name], { permissions: PERMISSION_DEFS, cache: { maxEntries: 0 } });
   config().set(['authz', 'admin'], { guard: { service: 'TestGuard' }, backend: 'TestBackend' });
   const ds = await domains();
   const c = ds.create(name, 'root');
   const without = new Set(opts.without ?? []);
   const store = new MemoryTupleStore(opts.tuples ?? []);
-  const model = new RebacModel({ store, namespaces: NAMESPACES, permissions: PERMISSIONS });
+  const model = new RebacModel({ store, namespaces: NAMESPACES, permissions: PERMISSIONS, ...(opts.limit ? { limit: opts.limit } : {}) });
   const bus = new RecordingChangeBus();
   const audit = new RecordingAudit();
   const sink = new RecordingSink();

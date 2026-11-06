@@ -124,8 +124,8 @@ export async function resolveRoutePolicies(
  * A scope with no enabled group states no requirement and passes, so a route
  * that nothing guards still runs.
  */
-export function createPolicyGate(policies: IResolvedRoutePolicies, route: IRoute, controller: IController, log: Log): Express.RequestHandler {
-  const routeName = `${controller.constructor.name}:${String(route.Method)} ${controller.BasePath}/${String(route.Path || route.Method)}`;
+export function createPolicyGate(policies: IResolvedRoutePolicies, route: IRoute, controller: IController, log: Log, basePath: string = controller.BasePath): Express.RequestHandler {
+  const routeName = `${controller.constructor.name}:${String(route.Method)} ${basePath}/${String(route.Path || route.Method)}`;
 
   return (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
     markStage(res, 'policy');
