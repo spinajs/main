@@ -11,6 +11,7 @@ import { REBAC_DEFAULT_LIMITS, REBAC_DEFAULT_STORE, REBAC_STORE_NAMES } from '..
 import { DbTupleStore } from '../stores/db.js';
 import { MemoryTupleStore } from '../stores/memory.js';
 import { rebacListPlan, rebacListSupport } from './filter.js';
+import { rebacToIR } from '../ir.js';
 import { RebacWalk, expand } from '../expand.js';
 import type { UsersetTree } from '../expand.js';
 import { listSubjects } from '../list-subjects.js';
