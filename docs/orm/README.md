@@ -21,6 +21,7 @@ Pick the driver package for your database.
 | [Model API](03-model-api.md) | Static and instance methods on `ModelBase`: get, find, where, insert, update, destroy, scopes |
 | [Converters and hydration](04-converters-and-hydration.md) | Converts column values between the database and JS, and maps rows to models and back |
 | [Query builder](05-query-builder.md) | Builds select, insert, update and delete queries, and hooks query and model middleware |
+| [Streams](20-streams.md) | `query.stream()`: reads a large result in batches, hydrated and populated per batch, from a server-side cursor or by keyset |
 | [Typed queries](18-typed-queries.md) | Checks column names, values and result shapes at compile time; strict mode is opt-in per package |
 | [Scopes and builder extensions](16-scopes-and-builder-extensions.md) | Adds your own methods to query builders: per-model scopes, prototype extensions, builder subclasses |
 | [SQL helpers](17-sql-helpers.md) | Dialect expressions (`SqlExpressions`), affected rows, duplicate keys, SQL fragments, typed raw SQL (`sql<Row>` and `executeSql`, checked by `spinajs doctor` and the `typed-sql` ESLint rule), composite-key `IN`, chunked writes and purges for stores that use a connection directly |
