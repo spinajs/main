@@ -41,7 +41,7 @@ for (const target of REAL_DB_TARGETS) {
     beforeEach(() => bootRealDb(target));
     after(disposeTestEnv);
 
-    it('health() groups unfinished instances by version with quoted raw SQL', async () => {
+    it('health() groups unfinished instances by version', async () => {
       await seedInstance('m1', { Workflow: 'it-gone', Version: 3 });
       await seedInstance('m2', { Workflow: 'it-gone', Version: 3, Status: 'sleeping' });
       await seedInstance('m3', { Workflow: 'it-gone', Version: 3, Status: 'failed' });

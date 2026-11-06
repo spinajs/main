@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Orm, OrmDriver, QueryContext } from '@spinajs/orm';
+import { Orm, OrmDriver } from '@spinajs/orm';
 import '@spinajs/orm-sqlite';
 import '@spinajs/log';
 
@@ -20,15 +20,13 @@ class DurableTestConf extends FrameworkConfiguration {
   }
 }
 
-export type RawDriver = OrmDriver & { executeOnDb(sql: string, p: unknown[], c: QueryContext): Promise<unknown> };
-
 /** Boots DI with the given connections (in-memory sqlite `default` when none) and returns the default driver. */
-export async function bootDb(conns: Record<string, unknown>[] = [sqliteConnection('default')]): Promise<RawDriver> {
+export async function bootDb(conns: Record<string, unknown>[] = [sqliteConnection('default')]): Promise<OrmDriver> {
   await DI.dispose();
   DI.clearCache();
   connections = conns;
   DI.register(DurableTestConf).as(Configuration);
   await DI.resolve(Configuration);
   const orm = await DI.resolve(Orm);
-  return orm.Connections.get('default') as RawDriver;
+  return orm.Connections.get('default') as OrmDriver;
 }

@@ -1,12 +1,18 @@
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { QueryContext } from '@spinajs/orm';
+import type { OrmDriver } from '@spinajs/orm';
 import { RowLease, RowLeaseTarget } from '../src/index.js';
-import { bootDb, RawDriver } from './support/env.js';
+import { bootDb } from './support/env.js';
 import { describeRowLease, LeaseRow, LEASE_TABLE } from './support/row-lease-cases.js';
 
-async function createTable(driver: RawDriver) {
-  await driver.executeOnDb(`CREATE TABLE ${LEASE_TABLE} (Id TEXT PRIMARY KEY, Status TEXT, ClaimedBy TEXT, ClaimedUntil BIGINT, ClaimEpoch INTEGER NOT NULL DEFAULT 0)`, [], QueryContext.Schema);
+async function createTable(driver: OrmDriver) {
+  await driver.schema().createTable(LEASE_TABLE, (t) => {
+    t.text('Id').primaryKey();
+    t.text('Status');
+    t.text('ClaimedBy');
+    t.bigint('ClaimedUntil');
+    t.int('ClaimEpoch').notNull().default().value(0);
+  });
 }
 
 describe('RowLease (sqlite)', () => {
@@ -20,7 +26,12 @@ describe('RowLease (sqlite)', () => {
 
   it('takes custom column names', async () => {
     const driver = await bootDb();
-    await driver.executeOnDb('CREATE TABLE custom_lease (Name TEXT PRIMARY KEY, Owner TEXT, Until BIGINT, Fence INTEGER NOT NULL DEFAULT 0)', [], QueryContext.Schema);
+    await driver.schema().createTable('custom_lease', (t) => {
+      t.text('Name').primaryKey();
+      t.text('Owner');
+      t.bigint('Until');
+      t.int('Fence').notNull().default().value(0);
+    });
     await driver.insert().into('custom_lease').values({ Name: 'n1' });
     const lease = new RowLease(driver, { owner: 'Owner', until: 'Until', epoch: 'Fence' });
     const target: RowLeaseTarget = { table: 'custom_lease', key: { Name: 'n1' } };

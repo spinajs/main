@@ -1,5 +1,5 @@
 import { DI } from '@spinajs/di';
-import { MigrationTransactionMode, Orm, QueryContext } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 import '@spinajs/orm-mysql';
 import '@spinajs/orm-postgres';
 import { bootTestEnv, sqlite, type TestEnvOptions } from '../support/env.js';
@@ -56,9 +56,7 @@ function db(target: RealDbTarget, migrate: boolean) {
 /** Drops the workflow tables, then boots again so the migration recreates them on the real database. */
 export async function bootRealDb(target: RealDbTarget, options: TestEnvOptions = {}) {
   await bootTestEnv({ ...options, extra: { ...options.extra, db: db(target, false) } });
-  const driver = (await DI.resolve(Orm)).Connections.get('it') as unknown as {
-    executeOnDb(sql: string, p: unknown[], c: QueryContext): Promise<unknown>;
-  };
-  for (const t of TABLES) await driver.executeOnDb(`DROP TABLE IF EXISTS ${t}`, [], QueryContext.Schema);
+  const driver = (await DI.resolve(Orm)).Connections.get('it')!;
+  for (const t of TABLES) await driver.schema().dropTable(t).ifExists();
   return bootTestEnv({ ...options, extra: { ...options.extra, db: db(target, true) } });
 }
