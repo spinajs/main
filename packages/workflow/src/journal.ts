@@ -105,6 +105,11 @@ export class Journal {
     return this.rows().flatMap((r) => (r.Kind === 'compensate' || silent(r) || this.visited.has(r.Key) ? [] : [r.Key]));
   }
 
+  /** Succeeded steps registered with a `compensate`: the set a compensation pass must undo in full. */
+  public compensable(): string[] {
+    return this.rows().flatMap((r) => (r.Kind === 'step' && r.Status === 'succeeded' && r.Meta?.compensate === true ? [r.Key] : []));
+  }
+
   public nextOrder(): number {
     return ++this.lastOrder;
   }

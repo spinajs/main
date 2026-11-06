@@ -44,3 +44,25 @@ The contract:
   another one, or a repeated step name called at another position or after another number of results. A recorded
   step that is never asked for again fails the replay when the stall timer fires (`workflow.leaseTtl`) or at the end
   of the run.
+
+## Sagas
+
+- `ctx.step(name, fn, { compensate })` registers `compensate(result, ctx)` once the step succeeds. When the run fails
+  (an error, `ctx.fail()`, the instance `timeout`), the instance goes `compensating` and the compensations run newest
+  first, in the order the steps' results were journaled, so concurrent branches unwind in the same order every time.
+- Each compensation is journaled as `compensate:<step>#<occurrence>` and retried under its step's retry policy; a
+  backoff parks the instance `compensating`. A compensation cut off by a crash before its row commits runs again on
+  the next owner: make it idempotent, like a step.
+- A compensation receives a `CompensationContext` (`instanceId`, `workflow`, `version`, `input`, `signal`, `log`) and
+  cannot run durable operations; calling the outer `ctx` inside it throws `WorkflowNestingError`. Journaled follow-up
+  work belongs in a queue job or another workflow instance.
+- To resume a pass after a crash or a backoff, the engine replays `run()` to collect the compensations: operations with
+  a recorded outcome replay, every other one stays pending, and a marker without a recorded value throws
+  `WorkflowSuspended`. Code outside steps runs again, as on any replay. The pass undoes all of the journaled steps that
+  have a `compensate` or none of them: a replay that cannot reach one again within `max(leaseTtl, shutdownGrace)` ends
+  the instance `compensation-failed`.
+- A compensation running longer than `workflow.compensationTimeout` (default 3 x `leaseTtl`) has its signal aborted and
+  is retried; the engine does not wait for a body that ignores the signal.
+- The instance ends `compensated` (`cancelled` after a cancel) with the original `Reason` and `Error`, or `failed` with
+  `Reason: 'compensation-failed'` and the original failure in `Error.details`; `retry()` resumes the pass. A run that
+  failed with `non-determinism` is not compensated. `cancel()` compensates only with `workflow.compensateOnCancel`.

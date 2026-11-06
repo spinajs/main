@@ -3,7 +3,7 @@ import { DbClock } from '@spinajs/durable';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { UniqueViolation } from '@spinajs/orm';
 import { v4 as uuidv4 } from 'uuid';
-import { isTerminal, type StartOptions, type WorkflowInstanceView, type WorkflowStatus } from './contract.js';
+import { isTerminal, type SerializedError, type StartOptions, type WorkflowInstanceView, type WorkflowStatus } from './contract.js';
 import { WorkflowIdConflict, WorkflowNotFound, WorkflowStartConflict } from './errors.js';
 import { missingVersions } from './health.js';
 import { eventNameProblem, identifierProblem } from './identifier.js';
@@ -38,7 +38,7 @@ export abstract class WorkflowService {
   public abstract start<TInput>(workflow: string | Constructor<WorkflowDefinition<TInput>>, input: TInput, opts?: StartOptions): Promise<{ id: string; created: boolean }>;
   public abstract signal(instanceId: string, name: string, payload: unknown, opts?: SignalOptions): Promise<{ accepted: boolean }>;
   public abstract cancel(instanceId: string, reason?: string): Promise<void>;
-  /** failed → running, from the failed step. */
+  /** failed → running from the failed step; compensation-failed → compensating from the failed compensation, keeping the failure it undoes. */
   public abstract retry(instanceId: string): Promise<void>;
   public abstract get(instanceId: string): Promise<WorkflowInstanceView | undefined>;
   public abstract list(filter: ListFilter): Promise<WorkflowInstanceView[]>;
@@ -210,10 +210,18 @@ export class DefaultWorkflowService extends WorkflowService {
     if (row.Reason === 'timeout') throw new InvalidOperation(`workflow instance '${instanceId}' passed its deadline; a retry would fail it again at once`);
     const now = await this.now();
     const driver = await workflowDriver();
+    const compensation = row.Reason === 'compensation-failed';
+    const details = (row.Error?.details ?? {}) as { original?: SerializedError | null; originalReason?: string | null };
+    // a failed pass resumes with the failure it compensates for; CancelRequested still tells it to end cancelled
+    const patch: Partial<WorkflowInstanceModel> = compensation
+      ? { Status: 'compensating', Reason: details.originalReason ?? null, Error: details.original ?? null }
+      : { Status: 'running', Reason: null, Error: null, CancelRequested: false };
     await driver.transaction(async () => {
-      const r = await WorkflowInstanceModel.update({ Status: 'running', Reason: null, Error: null, WakeAt: null, WaitingFor: null, CancelRequested: false, FinishedAt: null, UpdatedAt: now }).where({ Id: instanceId, Status: 'failed' });
+      const r = await WorkflowInstanceModel.update({ ...patch, WakeAt: null, WaitingFor: null, FinishedAt: null, UpdatedAt: now }).where({ Id: instanceId, Status: 'failed' });
       if (r.RowsAffected !== 1) throw new InvalidOperation(`workflow instance '${instanceId}' changed while it was being retried`);
-      for (const step of unobservedFailures(await WorkflowStepModel.where('InstanceId', instanceId))) {
+      const rows = await WorkflowStepModel.where('InstanceId', instanceId);
+      // a retried pass leaves the step failure it undoes alone
+      for (const step of compensation ? rows.filter((s) => s.Kind === 'compensate' && s.Status === 'failed') : unobservedFailures(rows)) {
         // a fresh attempt budget and no stale backoff; Meta.after keeps the journal causal for the replay
         const after = step.Meta?.after;
         await WorkflowStepModel.update({ Status: 'retrying', Attempt: 0, Meta: after === undefined ? null : { after } }).where('Id', step.Id);
