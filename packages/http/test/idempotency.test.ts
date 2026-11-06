@@ -405,3 +405,35 @@ describe('Idempotency-Key', function () {
     expect(state.calls).to.equal(0);
   });
 });
+
+// registered alone: the loader reports a subclass as the override of its parent
+class IdemRedecoratedController extends IdemController {
+  @Post()
+  @Idempotent({ ttl: '1h' })
+  public async create(@Body() body: { n: number }) {
+    return super.create(body);
+  }
+}
+
+describe('Idempotency-Key on a re-decorated inherited route', function () {
+  this.timeout(20_000);
+
+  let app: TestApp;
+
+  before(async () => {
+    app = await httpApp({ configuration: IdemConfiguration, register: (c) => c.register(IdemRedecoratedController).as(BaseController), resolve: [Intl, Controllers] });
+    await (await app.resolve(HttpServer)).start();
+  });
+
+  after(() => app.dispose());
+
+  it('runs the first keyed request instead of answering it 409 from a nested gate', async () => {
+    state.calls = 0;
+    const first = await post('create', 'redecorated-1', 'u1').send({ n: 1 });
+    const again = await post('create', 'redecorated-1', 'u1').send({ n: 1 });
+
+    expect(first.status).to.eq(201);
+    expect(headersOf(again)['idempotent-replayed']).to.equal('true');
+    expect(state.calls).to.equal(1);
+  });
+});

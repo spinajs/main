@@ -30,7 +30,7 @@ resolved without the model fails the boot with `RouteRegistrationException`. Wit
 `idempotency.store: 'MemoryIdempotencyStore'` the import is optional.
 
 A wrong `idempotency.*` value, or a `ttl` that is not a duration, fails the route registration as well, not the first
-request.
+request: the boot fails with `RouteRegistrationException`, and for a bad `ttl` its cause is an `InvalidArgument`.
 
 ## Options
 
@@ -64,8 +64,12 @@ malformed or repeated header is refused with 400 `idempotency.key-malformed`.
 | 401, 403, 408, 425 or 429 reply | not stored; the key is released: these say "try again later" or "with other credentials", and a stored one would replay for the whole `ttl` |
 | reply that is not JSON (HTML, XML, text, file, stream, redirect) | not stored, a warning is logged, the key is released |
 
-All the errors are problem+json. A replay is answered by the gate itself: route middlewares and the action do not run
-for it.
+All the errors are problem+json. A replay is answered by the gate itself: the action and the inner route middlewares do
+not run for it. Outer middlewares run in declaration order, so an outer middleware declared before `@Idempotent` still
+runs on a replay; one declared after it does not.
+
+An optional route (`required: false`) without a key runs as usual. If its client left during the policy stage, before
+the route started, the route does not run either.
 
 ### Headers of a replay
 
@@ -107,7 +111,3 @@ routes (see [Transactions](../idempotency/README.md#transactions)).
 The lease is renewed while the route runs, but http has no abort signal an action could observe. If a renewal fails
 long enough for the lease to end during a slow action (a lost database connection, a paused process), another
 replica may claim the key and run the action a second time while the first one is still running.
-
-`createIdempotencyGate` is the gate of the controller chain. Used alone in a plain express route, it does not see a
-crash of the route (`crash: true`): only the controller chain records route errors for it, so such a crash answers
-500 and releases the key.
