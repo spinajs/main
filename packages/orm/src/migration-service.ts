@@ -1,11 +1,13 @@
-import { NewInstance, Class } from '@spinajs/di';
+import { NewInstance } from '@spinajs/di';
+import type { Class } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
-import { DateTime } from 'luxon';
+import type { DateTime } from 'luxon';
 import { createHash } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { TableQueryBuilder } from './builders.js';
 import type { OrmDriver } from './driver.js';
-import { MigrationTransactionMode, OrmMigration } from './interfaces.js';
+import { MigrationTransactionMode } from './interfaces.js';
+import type { OrmMigration } from './interfaces.js';
 import { OrmException } from './exceptions.js';
 import { runMigrationUp } from './schema-touches.js';
 
@@ -515,6 +517,7 @@ export class DefaultMigrationService extends OrmMigrationService {
     const expired = () => Date.now() - start > timeout;
     let steals = 0;
 
+    // spinajs-orm-ignore ORM102: lock polling, retried until the lock is acquired or the timeout passes
     for (;;) {
       try {
         await this.driver.insert().into(this.lockTable).values({ Id: 1, AcquiredAt: new Date(), Owner: owner });

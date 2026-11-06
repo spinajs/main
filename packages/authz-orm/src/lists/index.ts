@@ -5,3 +5,5 @@ export * from './render.js';
 export * from './augment.js';
 export { AccessListMiddleware, restrict } from './middleware.js';
 export { ACCESS_FIELD, AccessFieldMiddleware, accessColumn, accessField } from './access-field.js';
+export { RowFieldsMiddleware, fieldConditions, fieldsColumn } from './row-fields.js';
+export type { RowFieldsRequest } from './row-fields.js';

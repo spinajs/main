@@ -1,4 +1,5 @@
-import { Constructor, Container, DI } from '@spinajs/di';
+import { DI } from '@spinajs/di';
+import type { Constructor, Container } from '@spinajs/di';
 import { ManyToManyRelationList, OneToManyRelationList } from './relation-objects.js';
 import { ORM_RELATION_HAS_MANY_FACTORY, ORM_RELATION_HAS_MANY_TO_MANY_FACTORY } from './tokens.js';
 

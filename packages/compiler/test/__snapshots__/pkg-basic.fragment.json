@@ -697,7 +697,12 @@
               }
             ]
           ],
-          "middlewares": [],
+          "middlewares": [
+            {
+              "type": "AuthzFieldsMiddleware",
+              "options": []
+            }
+          ],
           "access": [
             "user:read"
           ],
@@ -927,6 +932,7 @@
           "access": [
             "doc:read"
           ],
+          "fields": "filter-rows",
           "policies": [
             [
               {

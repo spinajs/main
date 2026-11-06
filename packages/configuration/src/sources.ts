@@ -1,11 +1,11 @@
 import { Autoinject, Container, IContainer, Injectable } from '@spinajs/di';
-import glob from 'glob';
 import { join, normalize, resolve } from 'path';
 import { findBasePath, loadJsConfigFile, mergeConfig, type ArrayMerge } from './util.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { InternalLogger } from '@spinajs/internal-logger';
-import type { Manifest } from '@spinajs/manifest';
+import { realpathOf, type Manifest } from '@spinajs/manifest';
+import { listConfigFiles } from './config-files.js';
 import { activeManifestOf, manifestPackageConfigFiles, manifestSettingsOf, projectConfigDirs } from './manifest-runtime.js';
 import { Configuration, ConfigurationSource, IConfigLike, normalizeEnvironment } from '@spinajs/configuration-common';
 
@@ -201,7 +201,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
    */
   protected configFiles(extension: string): ConfigFile[] {
     const globDir = (dir: string, arrays: ArrayMerge): ConfigFile[] =>
-      glob.sync(path.join(path.isAbsolute(dir) ? dir : join(this.BasePath, dir), `/**/${extension}`).replace(/\\/g, '/')).map((file) => ({ file, arrays }));
+      listConfigFiles(path.join(path.isAbsolute(dir) ? dir : join(this.BasePath, dir), `/**/${extension}`).replace(/\\/g, '/')).map((file) => ({ file, arrays }));
 
     const manifest = this.commonDirsOverride ? undefined : this.activeManifest();
     if (!manifest) {
@@ -215,13 +215,14 @@ export abstract class BaseFileSource extends ConfigurationSource {
   }
 
   private resolvedFiles(extension: string): ConfigFile[] {
+    const realDirs = new Map<string, string>();
     return this.configFiles(extension)
       // Overlapping globs (ancestors and WORKSPACE_ROOT_PATH) list the same path twice: the first listing wins.
       .map((f) => ({ ...f, file: normalize(resolve(f.file)) }))
       .filter((f, index, self) => self.findIndex((o) => o.file === f.file) === index)
       // A workspace package's own lib/config is also reached through its node_modules symlink. The last place a
       // file is reached wins, so a project dir searched later still merges over the package globs.
-      .map((f) => ({ ...f, file: fs.realpathSync(f.file) }))
+      .map((f) => ({ ...f, file: realpathOf(f.file, realDirs) }))
       .filter((f, index, self) => self.findLastIndex((o) => o.file === f.file) === index);
   }
 

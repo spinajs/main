@@ -16,6 +16,8 @@ export default defineConfig(
       '**/lib/**',
       '**/*.d.ts',
       '**/test/fixtures/**',
+      // A Vite + ckit app: its @coderush/* imports only resolve where ckit is linked; its own typecheck covers it.
+      'packages/studio-ui/**',
       // Their tsconfig.json does not include test/, so the typed rules have no program for it.
       'packages/{di,exceptions,fs-onedrive,orm-threading,session-provider-redis,templates-csv,threading,util}/test/**',
     ],
