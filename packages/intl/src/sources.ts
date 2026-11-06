@@ -1,9 +1,16 @@
  import { DI, Injectable } from '@spinajs/di';
-import glob from 'glob';
 import * as fs from 'fs';
 import _ from 'lodash';
 import { normalize, resolve, basename } from 'path';
 import { TranslationSource } from "./interfaces.js";
+
+/** One glob per existing dir; glob is imported only when there is one. */
+async function globIn(dirs: string[], pattern: string): Promise<string[][]> {
+  const existing = dirs.filter((d) => fs.existsSync(d));
+  if (existing.length === 0) return [];
+  const { default: glob } = await import('glob');
+  return existing.map((d) => glob.sync(`${d}/**/${pattern}`.replace(/\\/g, '/')));
+}
 
 
 @Injectable(TranslationSource)
@@ -12,9 +19,7 @@ export class JsonTranslationSource extends TranslationSource {
     const localeDirs = this.Configuration.get('system.dirs.locales', []);
     let translations = {};
 
-    localeDirs
-      .filter((d) => fs.existsSync(d))
-      .map((d) => glob.sync(`${d}/**/*.json`.replace(/\\/g, '/')))
+    (await globIn(localeDirs, '*.json'))
       .reduce((prev, current) => {
         return prev.concat(_.flattenDeep(current));
       }, [])
@@ -52,9 +57,7 @@ export class JsTranslationSource extends TranslationSource {
     const localeDirs = this.Configuration.get('system.dirs.locales', []);
     let translations = {};
 
-    const files = localeDirs
-      .filter((d) => fs.existsSync(d))
-      .map((d) => glob.sync(`${d}/**/*.{js,cjs}`.replace(/\\/g, '/')))
+    const files = (await globIn(localeDirs, '*.{js,cjs}'))
       .reduce((prev, current) => {
         return prev.concat(_.flattenDeep(current));
       }, [])

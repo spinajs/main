@@ -41,4 +41,8 @@ describe('boot module graph', function () {
   it('loads no dependency that only a view, zip, form, CSV or XML request needs', () => {
     expect(result.packages.filter((p) => LOADED_ON_FIRST_USE.includes(p))).to.deep.equal([]);
   });
+
+  it('loads neither glob nor minimatch: in require mode the manifest says what to load', () => {
+    expect(result.packages.filter((p) => ['glob', 'minimatch'].includes(p))).to.deep.equal([]);
+  });
 });

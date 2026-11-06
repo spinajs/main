@@ -19,4 +19,12 @@ export class MsSqlSqlExpressions extends SqlExpressions {
   public equalsExactly(left: string, right: SqlFragment): SqlFragment {
     return { sql: `(${left} = ${right.sql} COLLATE Latin1_General_BIN2 AND LEN(${left} + 'x') = LEN(${right.sql} + 'x'))`, bindings: [...right.bindings, ...right.bindings] };
   }
+
+  public epochMillis(): string {
+    return "DATEDIFF_BIG(MILLISECOND, '19700101', SYSUTCDATETIME())";
+  }
+
+  public concat(...parts: string[]): string {
+    return parts.length === 1 ? parts[0] : `CONCAT(${parts.join(', ')})`;
+  }
 }

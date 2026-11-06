@@ -18,6 +18,7 @@ import { socketContract } from './socket-contract.js';
 import { workflowDuplicateVersion } from './workflow-duplicate-version.js';
 import { workflowSignalWithoutAuthorizer } from './workflow-signal-without-authorizer.js';
 import { workflowTooManyVersions } from './workflow-too-many-versions.js';
+import { sqlAmbiguousColumn, sqlDynamic, sqlInsertValueCount, sqlNoDialect, sqlParseError, sqlRowMismatch, sqlUnknownColumn, sqlUnknownTable } from './sql-queries.js';
 
 export const DEFAULT_RULES: DoctorRule[] = [
   unresolvedInjection,
@@ -39,6 +40,14 @@ export const DEFAULT_RULES: DoctorRule[] = [
   workflowDuplicateVersion,
   workflowSignalWithoutAuthorizer,
   workflowTooManyVersions,
+  sqlParseError,
+  sqlUnknownTable,
+  sqlUnknownColumn,
+  sqlAmbiguousColumn,
+  sqlRowMismatch,
+  sqlInsertValueCount,
+  sqlDynamic,
+  sqlNoDialect,
 ];
 
 export {
@@ -61,4 +70,12 @@ export {
   workflowDuplicateVersion,
   workflowSignalWithoutAuthorizer,
   workflowTooManyVersions,
+  sqlParseError,
+  sqlUnknownTable,
+  sqlUnknownColumn,
+  sqlAmbiguousColumn,
+  sqlRowMismatch,
+  sqlInsertValueCount,
+  sqlDynamic,
+  sqlNoDialect,
 };

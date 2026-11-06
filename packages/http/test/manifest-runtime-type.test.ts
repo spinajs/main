@@ -408,6 +408,21 @@ describe('route argument types from the manifest ( no decorator metadata )', fun
     });
   }
 
+  it('still finds an inherited route on the base entry in a manifest built before inheritance was flattened', async () => {
+    expect(manifest.controllers.find((c) => c.className === 'ConcreteCrudController')!.routes.map((r) => r.fullPath)).to.deep.equal(['/crud/:id', '/crud/create']);
+    const older = { ...manifest, controllers: manifest.controllers.map((c) => ({ ...c, routes: c.routes.filter((r) => !r.inheritedFrom) })) };
+    expect(older.controllers.find((c) => c.className === 'ConcreteCrudController')!.routes).to.deep.equal([]);
+    const app = await boot(CrudWithout, older, 'require');
+    try {
+      expect((await req().get('crud/5')).body).to.deep.equal({ id: 5, type: 'number' });
+      expect((await req().get('crud/abc')).status).to.equal(400);
+      expect((await req().post('crud/create').send({ name: 'a', count: 1 })).body).to.deep.equal({ hydrated: true, name: 'a' });
+      expect((await req().post('crud/create').send({ name: 'a', count: 'x' })).status).to.equal(400);
+    } finally {
+      await app.dispose();
+    }
+  });
+
   it('validates an inherited route of a build with decorator metadata too', async () => {
     const app = await boot(CrudWithMetadata, manifest);
     try {

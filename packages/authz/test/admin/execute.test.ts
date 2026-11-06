@@ -3,7 +3,7 @@ import 'mocha';
 import { userPrincipal } from '@spinajs/authz-testing';
 import { Configuration } from '@spinajs/configuration';
 
-import { AuthzAdminFailure, DefaultAuthzAdmin, SYSTEM, UnknownPermission, adminActor, adminContainer } from '@spinajs/authz';
+import { AuthzAdminFailure, DefaultAuthzAdmin, SYSTEM, UnknownPermission, adminActor, adminContainer, consistencyToken } from '@spinajs/authz';
 import type { AdminCallContext, AuthzCommand, AuthzCommandResult, ResourceRef } from '@spinajs/authz';
 import { FailingBus, FakeValidator, HOUR, PERMISSIONS, START, ThrowingAudit, ThrowingSink, adminConfig, adminDomain, installHost, rejection, resetHost, uninstallHost } from './support.js';
 import { hookedAdminDomain } from '../hooks/support.js';
@@ -61,6 +61,14 @@ describe('DefaultAuthzAdmin.execute', function () {
         { ok: true, kind: GRANT, id: 'a2', affected: 1 },
       ]);
       expect([...d.store.rows.keys()]).to.deep.equal(['a1', 'a2']);
+    });
+
+    it("with consistency: true, every ok result carries the token of the domain's version after the batch", async () => {
+      const d = await adminDomain();
+      await d.admin.execute(alice, [grant('bob')]);
+      const out = await d.admin.execute(alice, [grant('dan'), grant('eve', 'viewer')], { consistency: true });
+      expect(out.map((r) => (r.ok ? r.consistency : undefined))).to.deep.equal([consistencyToken(2), consistencyToken(2)]);
+      expect(await rejection(d.admin.execute(alice, [grant('fay')], { consistency: 'yes' as never }))).to.be.instanceOf(AuthzAdminFailure);
     });
 
     it('returns [] for an empty batch and publishes nothing', async () => {

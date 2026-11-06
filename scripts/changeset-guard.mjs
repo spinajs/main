@@ -1,14 +1,29 @@
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const SRC = /^packages\/[^/]+\/src\//;
+// packages/studio-ui is outside the changesets group (owner decision OD2): its notes live in its CHANGELOG.md.
+const SRC = /^packages\/(?!studio-ui\/)([^/]+)\/src\//;
 const CHANGESET = /^\.changeset\/(?!README\.md$)[^/]+\.md$/;
 
+/** A "private": true package is never published ( .changeset/config.json ignores it ), so its src needs no changeset. */
+export function isPrivatePackage(name) {
+  try {
+    return JSON.parse(readFileSync(new URL(`../packages/${name}/package.json`, import.meta.url), 'utf8')).private === true;
+  } catch {
+    return false;
+  }
+}
+
 // Entries are paths or { path, status } with a git name-status letter; a deleted changeset does not count.
-export function requiresChangeset(files) {
+export function requiresChangeset(files, privatePackage = isPrivatePackage) {
   const entries = files.map((f) => (typeof f === 'string' ? { path: f, status: 'M' } : f));
   const norm = entries.map((e) => ({ ...e, path: e.path.replace(/\\/g, '/') }));
-  return norm.some((e) => SRC.test(e.path)) && !norm.some((e) => e.status !== 'D' && CHANGESET.test(e.path));
+  const publishedSrc = norm.some((e) => {
+    const match = SRC.exec(e.path);
+    return match !== null && !privatePackage(match[1]);
+  });
+  return publishedSrc && !norm.some((e) => e.status !== 'D' && CHANGESET.test(e.path));
 }
 
 function changedFiles(base) {

@@ -1,5 +1,5 @@
 import { Autoinject, DI, Injectable, Singleton, type Constructor } from '@spinajs/di';
-import { DbClock, quoteFor, sqlDialect, type RawSqlDriver } from '@spinajs/durable';
+import { DbClock } from '@spinajs/durable';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { UniqueViolation } from '@spinajs/orm';
 import { v4 as uuidv4 } from 'uuid';
@@ -12,7 +12,7 @@ import { WorkflowEventModel } from './models/WorkflowEventModel.js';
 import { WorkflowInstanceModel } from './models/WorkflowInstanceModel.js';
 import { WorkflowStepModel } from './models/WorkflowStepModel.js';
 import { WorkflowRegistry, type WorkflowDefinition } from './registry.js';
-import { selectRows, workflowDriver } from './sql.js';
+import { workflowDriver } from './sql.js';
 
 export interface SignalOptions {
   principal?: string;
@@ -142,7 +142,7 @@ export class DefaultWorkflowService extends WorkflowService {
       );
       return { id, created: true };
     } catch (err) {
-      const existing = await this.existingWorkflow(driver, id);
+      const existing = await this.existingWorkflow(id);
       if (existing === undefined) throw err instanceof UniqueViolation ? new WorkflowStartConflict(id) : err;
       if (existing !== def.name) throw new WorkflowIdConflict(id, existing, def.name);
       return { id, created: false };
@@ -163,7 +163,7 @@ export class DefaultWorkflowService extends WorkflowService {
     const now = await this.now();
     const driver = await workflowDriver();
     return driver.transaction(async () => {
-      const status = await this.lockedStatus(driver, instanceId);
+      const status = await this.lockedStatus(instanceId);
       if (status === undefined) throw new WorkflowNotFound(instanceId);
       if (isTerminal(status)) return { accepted: false };
       try {
@@ -250,25 +250,17 @@ export class DefaultWorkflowService extends WorkflowService {
   }
 
   /** Locked until the signal commits, so it is ordered against the activation's fenced status write. */
-  protected async lockedStatus(driver: RawSqlDriver, id: string): Promise<WorkflowStatus | undefined> {
-    const dialect = sqlDialect(driver.Options.Driver, 'locking read', 'workflow');
-    const q = quoteFor(dialect);
-    const lock = dialect === 'sqlite' ? '' : ' FOR UPDATE';
-    const rows = await selectRows<{ Status: WorkflowStatus }>(driver, `SELECT ${q('Status')} FROM ${q('__workflow')} WHERE ${q('Id')} = ?${lock}`, [id]);
-    return rows[0]?.Status;
+  protected async lockedStatus(id: string): Promise<WorkflowStatus | undefined> {
+    return (await WorkflowInstanceModel.where('Id', id).forUpdate().first())?.Status;
   }
 
   /**
    * Inside a transaction the snapshot can predate a concurrent start that committed this id. A locking read sees
    * the latest committed row on InnoDB and on Postgres READ COMMITTED; Postgres REPEATABLE READ still cannot.
    */
-  protected async existingWorkflow(driver: RawSqlDriver, id: string): Promise<string | undefined> {
-    if (driver.CurrentTransaction === undefined) return (await WorkflowInstanceModel.where('Id', id).onPrimary().first())?.Workflow;
-    const dialect = sqlDialect(driver.Options.Driver, 'locking read', 'workflow');
-    const q = quoteFor(dialect);
-    const lock = dialect === 'sqlite' ? '' : dialect === 'mysql' ? ' LOCK IN SHARE MODE' : ' FOR SHARE';
-    const rows = await selectRows<{ Workflow: string }>(driver, `SELECT ${q('Workflow')} FROM ${q('__workflow')} WHERE ${q('Id')} = ?${lock}`, [id]);
-    return rows[0]?.Workflow;
+  protected async existingWorkflow(id: string): Promise<string | undefined> {
+    const query = WorkflowInstanceModel.where('Id', id);
+    return (await (query.Driver.CurrentTransaction === undefined ? query.onPrimary() : query.forShare()).first())?.Workflow;
   }
 
   /** Resolved per call: an async registry injected into this sync service could arrive as a promise (doctor DI003). */
