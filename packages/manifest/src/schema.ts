@@ -1662,7 +1662,13 @@ export const manifestSchema: Record<string, any> = {
           "type": "string"
         },
         "nativeTypes": {
-          "$ref": "#/definitions/Partial%3CRecord%3Cstring%2Cdef-alias-src_types.ts-10498-10875-src_types.ts-0-18451%5B%5D%3E%3E"
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/ColumnFamily"
+            }
+          }
         },
         "untrustedNullability": {
           "type": "array",
@@ -1723,15 +1729,6 @@ export const manifestSchema: Record<string, any> = {
         },
         "enum": {
           "type": "string"
-        }
-      }
-    },
-    "Partial<Record<string,def-alias-src_types.ts-10498-10875-src_types.ts-0-18451[]>>": {
-      "type": "object",
-      "additionalProperties": {
-        "type": "array",
-        "items": {
-          "$ref": "#/definitions/ColumnFamily"
         }
       }
     },
