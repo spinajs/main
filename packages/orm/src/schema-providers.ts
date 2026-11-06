@@ -1,7 +1,8 @@
-import { Class, DI, Injectable } from '@spinajs/di';
+import { DI, Injectable } from '@spinajs/di';
+import type { Class } from '@spinajs/di';
 import { MODELS } from './tokens.js';
 import { SchemaProvider } from '@spinajs/validation';
-import { IModelDescriptor } from './interfaces.js';
+import type { IModelDescriptor } from './interfaces.js';
 
 const TO_MANY_RELATION = new Set<number>([1, 2]);
 

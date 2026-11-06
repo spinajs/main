@@ -3,6 +3,7 @@ import type { ModelEntry } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
 import { findDecorator, identifierName, literalValue } from '../decorators.js';
 import { modelMembers } from '../model-members.js';
+import { columnSqlSpec, modelIndexes, optionOf, relationKeys } from './model-sql.js';
 import { stringArg } from './string-arg.js';
 
 type Relation = ModelEntry['relations'][number];
@@ -44,7 +45,10 @@ function readMembers(node: ts.ClassDeclaration, ctx: ExtractorContext): Pick<Mod
     if (member.kind === 'relation') {
       // A relation typed but not decorated has no kind or target to record.
       const rel = member.decorators.find((d) => RELATIONS[d.name]);
-      if (rel) relations.push({ name: member.name, kind: RELATIONS[rel.name].kind, target: relationTarget(rel.args[RELATIONS[rel.name].targetArg], ctx) });
+      if (rel) {
+        const target = relationTarget(rel.args[RELATIONS[rel.name].targetArg], ctx);
+        relations.push({ name: member.name, kind: RELATIONS[rel.name].kind, target, ...relationKeys(rel, member.name, className, target, ctx) });
+      }
       continue;
     }
     columns.push({
@@ -52,9 +56,20 @@ function readMembers(node: ts.ClassDeclaration, ctx: ExtractorContext): Pick<Mod
       type: ctx.typeRef(stripNullable(member.type), member.declaration, `${className}_${member.name}`),
       primary: member.decorators.some((d) => d.name === 'Primary'),
       nullable: isNullable(member.type, member.optional),
+      sql: columnSqlSpec(member, ctx),
     });
   }
   return { columns, relations };
+}
+
+function modelExtras(node: ts.ClassDeclaration, options: ts.Expression | undefined, columns: Column[], ctx: ExtractorContext): Pick<ModelEntry, 'indexes' | 'version' | 'exhaustive'> {
+  const extras: Pick<ModelEntry, 'indexes' | 'version' | 'exhaustive'> = {};
+  const indexes = modelIndexes(node, ctx);
+  const version = columns.find((c) => c.sql?.version)?.name;
+  if (indexes.length > 0) extras.indexes = indexes;
+  if (version) extras.version = version;
+  if (stringArg(optionOf(options, 'columns'), ctx) === 'exhaustive') extras.exhaustive = true;
+  return extras;
 }
 
 export const extractModels: Extractor<ModelEntry> = (ctx, file) => {
@@ -63,12 +78,14 @@ export const extractModels: Extractor<ModelEntry> = (ctx, file) => {
     const model = ts.isClassDeclaration(node) && node.name ? findDecorator(node, 'Model') : undefined;
     if (ts.isClassDeclaration(node) && node.name && model) {
       const connection = literalValue(findDecorator(node, 'Connection')?.args[0], ctx) as string | undefined;
+      const members = readMembers(node, ctx);
       out.push({
         id: `${ctx.packageName}:${node.name.text}`,
         className: node.name.text,
         tableName: stringArg(model.args[0], ctx),
         ...(connection ? { connection } : {}),
-        ...readMembers(node, ctx),
+        ...members,
+        ...modelExtras(node, model.args[1], members.columns, ctx),
         accessResource: !!findDecorator(node, 'AccessResource'),
         source: ctx.sourceRef(node),
       });

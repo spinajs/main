@@ -1,9 +1,10 @@
 /* eslint-disable prettier/prettier */
-import { IRelationDescriptor, IModelDescriptor, RelationType, IBuilderMiddleware, ISelectQueryBuilder } from './interfaces.js';
-import { ModelBase } from './model.js';
+import { RelationType } from './interfaces.js';
+import type { IRelationDescriptor, IModelDescriptor, IBuilderMiddleware, ISelectQueryBuilder } from './interfaces.js';
+import type { ModelBase } from './model.js';
 import _ from 'lodash';
 import { ManyQueryRelationList, ManyToManyRelationList, OneToManyRelationList, SingleQueryRelation } from './relation-objects.js';
-import { BelongsToRelation, NativeOrmRelation } from './relations.js';
+import type { BelongsToRelation, NativeOrmRelation } from './relations.js';
 import { DI } from '@spinajs/di';
 import { ORM_MODEL_FACTORY } from './tokens.js';
 import { OrmException } from './exceptions.js';

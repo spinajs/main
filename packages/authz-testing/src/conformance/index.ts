@@ -3,3 +3,5 @@ export type { ConformanceCheck } from './common.js';
 export * from './model.js';
 export * from './adapter.js';
 export * from './client-access.js';
+export * from './rls.js';
+export * from './ir-agreement.js';

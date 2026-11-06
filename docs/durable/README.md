@@ -13,7 +13,7 @@ npm install @spinajs/durable
 | Export | What it does |
 | --- | --- |
 | `Clock`, `DurableSystemClock` | Time and timers behind DI. `DurableSystemClock` is the registered default and uses the host's timers. |
-| `DbTimeSource`, `SqlDbTimeSource`, `DbClock` | `DbClock.sync()` reads the database time once and keeps the offset; `now()` is local time plus that offset. `SqlDbTimeSource` reads the `default` connection (SQLite, MySQL, Postgres). |
+| `DbTimeSource`, `SqlDbTimeSource`, `DbClock` | `DbClock.sync()` reads the database time once and keeps the offset; `now()` is local time plus that offset. `SqlDbTimeSource` reads the `default` connection's time through `SqlExpressions.epochMillis()`, so it works on any driver that implements it (SQLite, PGlite, PostgreSQL, MySQL, MSSQL). |
 | `parseDuration` | `500ms`, `10s`, `5m`, `2h`, `30d`, `1w` or a number of milliseconds. |
 | `computeBackoff`, `isRetryable`, `NonRetryableError`, `RetryPolicyOptions`, `NormalizedRetry` | Fixed or exponential backoff with ±10 % jitter capped at `maxDelayMs`; `NonRetryableError` is never retried, whatever `retryOn` says. |
 | `Heartbeat` | One timer that renews a lease and flushes progress, and reports the lease lost after `leaseTtlMs` without a successful renewal. |

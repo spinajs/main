@@ -12,6 +12,8 @@ export interface DoctorContext {
   fileExists(p: string): boolean;
   fragmentMtime(pkg: string): number | undefined;
   libMtime(pkg: string): number | undefined;
+  /** `package.json#spinajs.orm.dialects` of the app (D6): a profile name or driver token per connection. */
+  sqlDialects?: Readonly<Record<string, string>>;
 }
 
 export function diagnostic(code: string, severity: Diagnostic['severity'], message: string, source?: SourceRef): Diagnostic {
