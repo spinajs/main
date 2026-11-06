@@ -17,6 +17,7 @@ import { backoffDelay, ConnectionState, delay, isRetryableErrorCode } from './re
 import type { IConnectionResilienceOptions } from './resilience.js';
 import { ORM_METRIC_KEY_ACQUIRE_SECONDS, ORM_METRIC_KEY_CONNECTION_STATE, ORM_METRIC_KEY_POOL_IN_USE, ORM_METRIC_KEY_POOL_SIZE, ORM_METRIC_KEY_POOL_WAITING, ormGauge, ormHistogram, ormMetrics } from './metrics.js';
 import type { IPoolMetrics } from './metrics.js';
+import type { LiveForeignKey, LiveIndex } from './introspection.js';
 import './hydrators.js';
 import './dehydrators.js';
 
