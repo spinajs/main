@@ -10,6 +10,8 @@ import { Orm, OrmMigrator, type IDriverOptions } from '@spinajs/orm';
 import { PgliteOrmDriver, execOnSharedPglite } from '@spinajs/orm-pglite';
 import { createTestApp } from '@spinajs/testing';
 
+import { resetFactorySequences } from './factory.js';
+
 export type TestDatabaseStrategy = 'schema' | 'template';
 
 /** The process-wide PGlite instance the `schema` strategy puts its schemas in. */
@@ -53,6 +55,7 @@ let templateDir: string | undefined;
 
 /** A database for one test app. Call it before creating the app that uses it. */
 export async function createTestDatabase(options: TestDatabaseOptions = {}): Promise<TestDatabase> {
+  resetFactorySequences();
   const connection = options.connection ?? 'default';
   const migrate = options.migrate ?? true;
   const Migration = { OnStartup: migrate };
