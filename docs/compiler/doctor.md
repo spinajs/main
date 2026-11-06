@@ -88,7 +88,7 @@ The dialect of a connection is set in the app's `package.json`:
 { "spinajs": { "orm": { "dialects": { "default": "postgresql", "reports": "mysql" } } } }
 ```
 
-Each ORM driver declares its dialect with `@SqlDialect` (`postgresql` for `@spinajs/orm-postgres`, `mysql`, `sqlite`,
+Each ORM driver declares its dialect with `@SqlDialect` (`postgresql` for `@spinajs/orm-postgres`, `pglite` for `@spinajs/orm-pglite`, `mysql`, `sqlite`,
 `transactsql`), and `spinajs build` records it in the app manifest. A value is such a name or a driver token
 (`orm-driver-postgres`). Without one, a connection takes the dialect of its driver with `--config`
 (`db.Connections[].Driver`, through `db.Aliases` and `db.DefaultConnection`), else the only dialect installed; otherwise
