@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { FaultInjector, RowLease } from '@spinajs/durable';
-import { QueryContext } from '@spinajs/orm';
+import { QueryContext, type OrmDriver } from '@spinajs/orm';
 import { InstanceStore, LeaseLostError, Workflow, WorkflowDefinition, WorkflowInstanceModel, WorkflowService, workflowDriver, type WorkflowContext } from '../../src/index.js';
 import { engine } from '../support/engine.js';
 import { disposeTestEnv } from '../support/env.js';
@@ -13,8 +13,11 @@ let commits = 0;
 const executions = new Map<string, number>();
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+type RawDriver = OrmDriver & { executeOnDb(stmt: string, params: unknown[], context: QueryContext): Promise<unknown> };
+
+/** Raw on purpose: the scratch table needs a DEFERRABLE unique constraint, which the schema builder cannot declare. */
 async function sql(stmt: string, context = QueryContext.Schema): Promise<unknown> {
-  return (await workflowDriver()).executeOnDb(stmt, [], context);
+  return ((await workflowDriver()) as RawDriver).executeOnDb(stmt, [], context);
 }
 
 @Workflow('it-sum')
