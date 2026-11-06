@@ -84,7 +84,7 @@ Every statement extends `QueryStatement` (`IQueryStatement`): `TableAlias`, `Boo
 | --- | --- | --- |
 | `WhereStatement` | `where(column, [operator,] value)`, `whereNull`, `whereNotNull`, `whereNot` | `column`, `operator`, `value`, owning `WhereBuilder` |
 | `WhereQueryStatement` | `where(function () { ... })`, `whereNot(function () { ... })` | nested `WhereBuilder`, `not` (`true` for `whereNot`). `WhereQueryStatement.isGroup(statement)` recognizes one by a `Symbol.for` brand, also across two loaded copies of the ORM. |
-| `ColumnCompareStatement` | `whereColumn(left, operator, right)` | `left`, `operator`, `right` (a column, a `Wrap` or an `OuterColumn` from `outer()`), owning `WhereBuilder` |
+| `ColumnCompareStatement` | `whereColumn(left, operator, right)` | `left`, `operator`, `right` (a column, a `Wrap`, an `OuterColumn` from `outer()` or a `ConcatExpression` from `concat()`), owning `WhereBuilder` |
 | `RawQueryStatement` | `where(RawQuery)`, `where(boolean)` | `query`, `bindings` |
 | `LazyQueryStatement` | `where(Lazy)` | `callback`, `context` |
 | `InStatement` | `whereIn` / `whereNotIn` with an array | `column`, `values`, `not`, owning builder |
