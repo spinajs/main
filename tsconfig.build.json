@@ -185,6 +185,9 @@
       "path": "packages/telemetry-otel/tsconfig.build.json"
     },
     {
+      "path": "packages/tracing/tsconfig.build.json"
+    },
+    {
       "path": "packages/templates-pdf/tsconfig.build.json"
     },
     {
@@ -204,6 +207,9 @@
     },
     {
       "path": "packages/scheduler-http/tsconfig.build.json"
+    },
+    {
+      "path": "packages/workflow/tsconfig.build.json"
     },
     {
       "path": "packages/threading/tsconfig.build.json"
