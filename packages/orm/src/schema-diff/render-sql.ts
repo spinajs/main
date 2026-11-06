@@ -1,3 +1,4 @@
+import { NotSupported } from '@spinajs/exceptions';
 import { RawQuery } from '../builders/raw.js';
 import type { AlterTableQueryBuilder, TableQueryBuilder } from '../builders/schema/table.js';
 import type { OrmDriver, TransactionCallback } from '../driver.js';
@@ -42,30 +43,40 @@ export async function runStep(driver: OrmDriver, step: MigrationStep): Promise<v
   }
 }
 
+// a line terminator in a name, a reason or a message would end the comment and turn the rest into SQL
+const comment = (text: string): string => `-- ${text.replace(/[\r\n\p{Zl}\p{Zp}]/gu, ' ')}`;
+
 /**
  * The DDL `changes` run on `driver`'s dialect, compiled without touching the database: the steps run on a copy of the
- * driver whose `executeOnDb` records each statement and answers with no rows.
+ * driver whose `executeOnDb` records each statement and answers with no rows. The driver must send its DDL through
+ * `executeOnDb` and open transactions through `transaction()`; one without `executeOnDb` is refused.
  */
 export async function renderSql(changes: SchemaChange[], driver: OrmDriver, options: { allowDestructive: boolean }): Promise<string[]> {
+  if (typeof (driver as { executeOnDb?: unknown }).executeOnDb !== 'function') {
+    throw new NotSupported(`renderSql needs a driver that sends its statements through executeOnDb; ${driver.constructor.name} does not`);
+  }
   const statements: string[] = [];
   let recorded: string[] = [];
   const recorder = Object.create(driver) as OrmDriver & { executeOnDb(statement: string): Promise<unknown[]> };
   recorder.executeOnDb = (statement: string) => {
-    recorded.push(statement.trim());
+    // the caller ends each statement itself; some compilers (CREATE INDEX) already end theirs with one
+    recorded.push(statement.trim().replace(/;\s*$/, ''));
     return Promise.resolve([]);
   };
   // a driver's transaction() sends BEGIN past executeOnDb (sqlite's column rebuild opens one)
   recorder.transaction = <R>(cb: TransactionCallback<R>): Promise<R> => cb(recorder);
   for (const planned of planMigration(changes)) {
-    if (planned.destructive && !options.allowDestructive) continue;
+    const { kind, table } = planned.step;
+    if (planned.destructive && !options.allowDestructive) {
+      statements.push(comment(`DESTRUCTIVE ${kind} ${table}: ${planned.reason ?? kind} (left out; pass --allow-destructive)`));
+      continue;
+    }
     recorded = [];
     try {
       await runStep(recorder, planned.step);
       statements.push(...recorded);
     } catch (err) {
-      const line = `-- ${planned.step.kind} ${planned.step.table} is not compiled offline: ${err instanceof Error ? err.message : String(err)}`;
-      // a line terminator in a name or in the message would end the comment and turn the rest into SQL
-      statements.push(line.replace(/[\r\n\p{Zl}\p{Zp}]/gu, ' '));
+      statements.push(comment(`${kind} ${table} is not compiled offline: ${err instanceof Error ? err.message : String(err)}`));
     }
   }
   return statements;

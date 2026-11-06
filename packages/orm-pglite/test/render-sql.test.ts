@@ -71,9 +71,18 @@ for (const connection of ['pglite', 'sqlite'] as const) {
       const without = (await renderSql(changes, driver, { allowDestructive: false })).join('\n');
       const withDrops = (await renderSql(changes, driver, { allowDestructive: true })).join('\n');
       expect(without).to.not.match(/DROP COLUMN/i);
+      expect(without).to.include('-- DESTRUCTIVE alterTable rs_legacy: rs_legacy is exhaustive and no model declares Old (left out; pass --allow-destructive)');
       expect(withDrops).to.match(/DROP COLUMN/i);
+      expect(withDrops).to.not.include('-- DESTRUCTIVE');
       // prefix only: the rest of the sqlite line is the driver's own error (the recorder answered [] for sqlite_master, so the rebuild found "no such table")
       expect(without).to.include(connection === 'pglite' ? 'SET NOT NULL' : '-- alterTable rs_legacy is not compiled offline: ');
+    });
+
+    it('records CREATE INDEX without the semicolon its compiler ends it with', async () => {
+      const indexed = [model('Item', 'rs_items', [id(), col('Name', { family: 'text', length: 80 })], { indexes: [{ columns: ['Name'], unique: false }] })];
+      const sql = await renderSql(await changesFor(indexed), driver, { allowDestructive: false });
+      expect(sql.join(' ')).to.match(/CREATE INDEX/i);
+      expect(sql.filter((s) => s.endsWith(';'))).to.deep.equal([]);
     });
   });
 }
