@@ -3,7 +3,7 @@ import type { JoinMethod, Op, SqlOperator } from './enums.js';
 import type { QueryBuilder } from './builders/base.js';
 import type { RawQuery } from './builders/raw.js';
 import type { SortOrder, WhereBoolean } from './enums.js';
-import type { IQueryStatement, OuterColumn, Wrap } from './statements.js';
+import type { ConcatExpression, IQueryStatement, OuterColumn, Wrap } from './statements.js';
 import type { ModelData, ModelDataWithRelationData, ModelDataWithRelationDataSearchable, PartialArray, PickRelations, Unbox, WhereFunction } from './types.js';
 import type { IOrmRelation } from './relations.js';
 import type { OrmDriver } from './driver.js';
@@ -1317,8 +1317,8 @@ export interface IWhereBuilder<T> {
   whereNotBetween(column: ColumnRef<Unbox<T>>, val: unknown[]): this;
   whereInSet(column: ColumnRef<Unbox<T>>, val: unknown[]): this;
   whereNotInSet(column: ColumnRef<Unbox<T>>, val: unknown[]): this;
-  /** `left <op> right` over two columns; `right` may be `outer(column)`, a column of an enclosing query. */
-  whereColumn(left: ColumnRef<Unbox<T>> | Wrap, operator: Op, right: ColumnRef<Unbox<T>> | Wrap | OuterColumn): this;
+  /** `left <op> right` over two columns; `right` may be `outer(column)`, a column of an enclosing query, or `concat(...)` of values and columns. */
+  whereColumn(left: ColumnRef<Unbox<T>> | Wrap, operator: Op, right: ColumnRef<Unbox<T>> | Wrap | OuterColumn | ConcatExpression): this;
   whereStartsWith(column: ColumnRef<Unbox<T>>, prefix: string): this;
 
   // join-scoped conditions - land in relation JOIN ON clause instead of parent WHERE

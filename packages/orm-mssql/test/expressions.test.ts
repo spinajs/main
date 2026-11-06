@@ -43,6 +43,13 @@ describe('mssql sql expressions', function () {
     expect(expressions.concat('[Name]')).to.eq('[Name]');
   });
 
+  it('ago() is a DATEADD on SYSDATETIMEOFFSET(), the clock of now()', () => {
+    expect(expressions.ago(7, 'day')).to.eq('(DATEADD(day, -7, SYSDATETIMEOFFSET()))');
+    expect(driver.ago(30, 'second').Query).to.eq('(DATEADD(second, -30, SYSDATETIMEOFFSET()))');
+    expect(driver.ago(5, 'minute').Query).to.eq('(DATEADD(minute, -5, SYSDATETIMEOFFSET()))');
+    expect(driver.ago(2, 'hour').Query).to.eq('(DATEADD(hour, -2, SYSDATETIMEOFFSET()))');
+  });
+
   it('refuses a row lock: MSSQL takes it as a table hint', () => {
     expect(() => driver.select().from('t').forUpdate().toDB()).to.throw(NotSupported);
   });
