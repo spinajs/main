@@ -14,7 +14,7 @@ Add your own methods to query builders. A **scope** adds methods to the builders
 ### Query scopes
 
 1. You write a class that implements `QueryScope` and assign an instance to `public static readonly _queryScopes` on the model.
-2. A model static (`query()`, `where()`, `update()`, `destroy()`, ...) calls `createQuery()` in `builders.ts`.
+2. A model static (`query()`, `where()`, `update()`, `destroy()`, ...) calls `createQuery()` in `builders/create-query.ts`.
 3. `createQuery()` resolves the builder from the connection's container.
 4. For a `SelectQueryBuilder`, `UpdateQueryBuilder` or `DeleteQueryBuilder`, it copies every method of the scope's class onto the builder instance, bound to the builder. `InsertQueryBuilder` gets none: it has no `WHERE`.
 5. You call the scope method on the builder. Inside it, `this` is the builder; return `this` to keep chaining.
