@@ -60,6 +60,7 @@ jspm_packages/
 
 # build info from compilation
 tsconfig.tsbuildinfo
+packages/orm/test/types/.budget.tsconfig.json
 
 # doc ( generated typedoc output, per package )
 packages/*/api-docs/

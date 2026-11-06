@@ -12,6 +12,7 @@ import { Int64ValueConverter, JsonValueConverter, StandardModelToSqlConverter, S
 import { InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import { OrmException } from './exceptions.js';
 import { SqlExpressions } from './expressions.js';
+import type { IntervalUnit } from './expressions.js';
 import { AsyncLocalStorage } from 'async_hooks';
 import { backoffDelay, ConnectionState, delay, isRetryableErrorCode } from './resilience.js';
 import type { IConnectionResilienceOptions } from './resilience.js';
@@ -447,9 +448,26 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
     return this.Container.resolve(SchemaQueryBuilder, [this]);
   }
 
+  /**
+   * The database's current instant less `amount` units: `where('CreatedAt', '<', driver.ago(7, 'day'))`. Like `now()`,
+   * computed by the database like `now()` (on PostgreSQL that is the start of the transaction), so an event body
+   * re-evaluates it on every run. Validated by `SqlExpressions.ago()`.
+   */
+  public ago(amount: number, unit: IntervalUnit): RawQuery {
+    return RawQuery.create(this.Container.resolve(SqlExpressions).ago(amount, unit));
+  }
+
   /** The database's current instant: `where('expires_at', '>', driver.now())`, or `driver.now().Query` inside raw SQL. */
   public now(): RawQuery {
     return RawQuery.create(this.Container.resolve<NowExpression>(NowExpression).sql());
+  }
+
+  /**
+   * The database's current instant in epoch milliseconds, read when the statement runs rather than when its transaction
+   * began. Drivers implement it; the default throws `NotSupported`.
+   */
+  public async epochMillis(): Promise<number> {
+    throw new NotSupported(`driver ${this.Options.Driver} cannot read the database time`);
   }
 
   /**

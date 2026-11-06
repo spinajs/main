@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { OrmMigration, OrmDriver, Migration, RawQuery } from '@spinajs/orm';
+import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
 
 @Migration('default')
 export class Task_2024_12_03_11_41_00 extends OrmMigration {
@@ -27,7 +27,7 @@ export class Task_2024_12_03_11_41_00 extends OrmMigration {
       // The cutoff is computed by the engine on every run: a DateTime bound here would be
       // written into the event as a literal and stay frozen at migration time.
       await connection.schema().createEvent('__task_delete_old_entries', (event) => {
-        event.every(1, 'DAY').do(connection.del().from('__task_history').where('CreatedAt', '<', RawQuery.create('NOW() - INTERVAL 7 DAY')));
+        event.every(1, 'DAY').do(connection.del().from('__task_history').where('CreatedAt', '<', connection.ago(7, 'day')));
       });
     }
   }
