@@ -47,4 +47,9 @@ describe('sqlite sql expressions', function () {
     const plain = driver().select().from('t').where('Id', 1).toDB().expression;
     expect(driver().select().from('t').where('Id', 1).forUpdate().toDB().expression).to.eq(plain);
   });
+
+  it('refuses a row lock on a recursive CTE query instead of dropping it', () => {
+    const query = driver().select().withRecursive('parent_id', 'id').from('t').forUpdate();
+    expect(() => query.toDB()).to.throw('row locks are not supported on a recursive CTE query');
+  });
 });

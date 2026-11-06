@@ -369,6 +369,10 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
     this._builder.Relations.forEach((r) => r.compile());
 
     if (this._builder.CteRecursive) {
+      if (this._builder.RowLock) {
+        throw new NotSupported('row locks are not supported on a recursive CTE query');
+      }
+
       return this.recursive(this._builder as IWithRecursiveBuilder);
     }
 
