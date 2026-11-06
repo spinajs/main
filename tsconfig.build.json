@@ -320,6 +320,9 @@
       "path": "packages/upload/tsconfig.build.json"
     },
     {
+      "path": "packages/idempotency/tsconfig.build.json"
+    },
+    {
       "path": "packages/authn/tsconfig.build.json"
     },
     {
