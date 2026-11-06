@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { isTerminal, type StartOptions, type WorkflowInstanceView, type WorkflowStatus } from './contract.js';
 import { WorkflowIdConflict, WorkflowNotFound, WorkflowStartConflict } from './errors.js';
 import { missingVersions } from './health.js';
-import { identifierProblem } from './identifier.js';
+import { eventNameProblem, identifierProblem } from './identifier.js';
 import { safeStringify } from './json.js';
 import { WorkflowEventModel } from './models/WorkflowEventModel.js';
 import { WorkflowInstanceModel } from './models/WorkflowInstanceModel.js';
@@ -92,7 +92,7 @@ function jsonText(value: unknown, what: string): string | null {
 }
 
 function checkSignal(name: string, opts: SignalOptions): void {
-  const problem = identifierProblem(name, MAX_SIGNAL_NAME);
+  const problem = identifierProblem(name, MAX_SIGNAL_NAME) ?? eventNameProblem(name);
   if (problem) throw new InvalidArgument(`signal name ${problem}`);
   const dedup = opts.dedupKey === undefined ? undefined : identifierProblem(opts.dedupKey, MAX_DEDUP_KEY);
   if (dedup) throw new InvalidArgument(`signal dedupKey ${dedup}`);
@@ -184,7 +184,9 @@ export class DefaultWorkflowService extends WorkflowService {
         if (opts.dedupKey !== undefined && (await WorkflowEventModel.where({ InstanceId: instanceId, DedupKey: opts.dedupKey }).onPrimary().first())) return { accepted: false };
         throw err;
       }
-      await WorkflowInstanceModel.update({ Status: 'running', WakeAt: null, WaitingFor: null, UpdatedAt: now }).where({ Id: instanceId, Status: 'waiting', WaitingFor: name });
+      const wake = { Status: 'running' as const, WakeAt: null, WaitingFor: null, UpdatedAt: now };
+      const r = await WorkflowInstanceModel.update(wake).where({ Id: instanceId, Status: 'waiting', WaitingFor: name });
+      if (r.RowsAffected === 0 && (await this.waitPending(instanceId, name))) await WorkflowInstanceModel.update(wake).where({ Id: instanceId, Status: 'waiting', WaitingFor: '*' });
       return { accepted: true };
     });
   }
@@ -231,6 +233,12 @@ export class DefaultWorkflowService extends WorkflowService {
 
   public async health(): Promise<{ missingVersions: MissingVersion[] }> {
     return { missingVersions: await missingVersions(await this.registry()) };
+  }
+
+  /** `'*'` parks wait for several names; only a pending wait of this name may wake one (keys `wait:<name>#n`). */
+  protected async waitPending(instanceId: string, name: string): Promise<boolean> {
+    const row = await WorkflowStepModel.where({ InstanceId: instanceId, Kind: 'wait', Status: 'pending' }).where('Key', '>=', `wait:${name}#`).where('Key', '<', `wait:${name}$`).onPrimary().first();
+    return row !== undefined;
   }
 
   /** Locked until the signal commits, so it is ordered against the activation's fenced status write. */

@@ -20,8 +20,25 @@ The contract:
   belongs to exactly one call. It is not safe for markers: `ctx.now()`, `ctx.uuid()` and `ctx.random()` are keyed by
   call order alone, so in concurrent branches call them before any non-durable await, or take the value from a
   per-item step (``ctx.step(`id:${k}`, () => randomUUID())``).
-- `Promise.race` over `ctx.sleep()` or `ctx.waitForEvent()` is not supported yet: the first operation that parks
-  suspends the whole run. For a wait with a deadline use `ctx.waitForEvent(name, { timeout })`.
+- A sleep that is not due, a wait without an event and a step waiting out its retry backoff do not suspend the run
+  at once: the activation parks only when every durable operation in flight is parked and no new one is called for
+  a macrotask. A branch that is still working (steps, another wait that finds its event) can therefore finish a
+  `Promise.race` or a `Promise.all` first; once `run()` settled, its result stands and the losers are abandoned (a
+  loser that catches that cannot journal anything more). Parallel parks merge: the instance waits if any operation
+  waits, wakes at the earliest wake time, and is woken by a signal for any of its pending waits (`WaitingFor` is
+  `'*'` when they wait for different names, which is why event names cannot contain `'#'` or `'*'`).
+- Code running next to a blocking operation must reach its next durable call without a non-durable await (a timer,
+  an HTTP call). Otherwise the park comes first, and that branch continues only when the park wakes.
+- A wait that loses a race stays pending: on later replays it keeps consuming events of its name, oldest first. Do
+  not race a wait whose name the same run waits for again; the loser would take the later event. A reminder loop
+  uses a wait timeout instead:
+
+  ```ts
+  for (let i = 0; i < 5; i++) {
+    if (await ctx.waitForEvent('approve', { timeout: '1h' })) return 'approved';
+    await ctx.step(`remind:${i}`, () => sendReminder());
+  }
+  ```
 - Sequential code is not affected.
 - A replay fails with `NonDeterminismError` when it can see the code changed: a new step where the journal recorded
   another one, or a repeated step name called at another position or after another number of results. A recorded

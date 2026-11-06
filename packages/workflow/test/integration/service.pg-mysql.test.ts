@@ -3,7 +3,7 @@ import { DI } from '@spinajs/di';
 import { Workflow, WorkflowDefinition, WorkflowService, type WorkflowContext } from '../../src/index.js';
 import { engine } from '../support/engine.js';
 import { disposeTestEnv } from '../support/env.js';
-import { eventsOf, instance, pick, seedInstance, seedStep, stepsOf, T0 } from '../support/rows.js';
+import { eventsOf, instance, pick, seedEvent, seedInstance, seedStep, stepsOf, T0 } from '../support/rows.js';
 import { bootRealDb, REAL_DB_TARGETS } from './real-db.js';
 
 @Workflow('it-svc')
@@ -17,6 +17,20 @@ export class ItSvc extends WorkflowDefinition<null, string> {
 export class ItWait extends WorkflowDefinition<null, unknown> {
   public async run(ctx: WorkflowContext<null>): Promise<unknown> {
     return (await ctx.waitForEvent('go'))?.payload;
+  }
+}
+
+@Workflow('it-race')
+export class ItRace extends WorkflowDefinition<null, unknown> {
+  public async run(ctx: WorkflowContext<null>): Promise<unknown> {
+    return (await Promise.race([ctx.waitForEvent('approve'), ctx.waitForEvent('reject')]))?.name;
+  }
+}
+
+@Workflow('it-near')
+export class ItNear extends WorkflowDefinition<null, unknown> {
+  public async run(ctx: WorkflowContext<null>): Promise<unknown> {
+    return (await Promise.race([ctx.waitForEvent('a$'), ctx.waitForEvent('ab')]))?.name;
   }
 }
 
@@ -59,6 +73,40 @@ for (const target of REAL_DB_TARGETS) {
         [1, 'consumed', 'wait:go#1'],
         [3, 'pending', null],
       ]);
+    });
+
+    it('a * park wakes through signal() and through the signalled scan only for names with a pending wait', async () => {
+      const service = await DI.resolve(WorkflowService);
+      await service.start('it-race', null, { id: 'flip' });
+      await service.start('it-race', null, { id: 'scan' });
+      const r1 = await engine();
+      await r1.tick();
+      expect(pick(await instance('flip'), 'Status', 'WaitingFor')).to.deep.equal({ Status: 'waiting', WaitingFor: '*' });
+      await service.signal('flip', 'other', 1);
+      await service.signal('flip', 'Reject', 1);
+      expect((await instance('flip')).Status).to.equal('waiting');
+      await service.signal('flip', 'reject', 2);
+      expect((await instance('flip')).Status).to.equal('running');
+      await seedEvent('scan', 'other');
+      await seedEvent('scan', 'approve');
+      await r1.tick();
+      expect(pick(await instance('flip'), 'Status', 'Result')).to.deep.equal({ Status: 'completed', Result: 'reject' });
+      expect(pick(await instance('scan'), 'Status', 'Result')).to.deep.equal({ Status: 'completed', Result: 'approve' });
+    });
+
+    it("the * key range excludes names that only start with the signalled one ('a$', 'ab' for 'a')", async () => {
+      const service = await DI.resolve(WorkflowService);
+      await service.start('it-near', null, { id: 'near' });
+      const r1 = await engine();
+      await r1.tick();
+      await service.signal('near', 'a', 1);
+      expect(pick(await instance('near'), 'Status', 'WaitingFor')).to.deep.equal({ Status: 'waiting', WaitingFor: '*' });
+      const attempt = (await instance('near')).Attempt;
+      await r1.tick();
+      expect((await instance('near')).Attempt).to.equal(attempt);
+      await service.signal('near', 'ab', 2);
+      await r1.tick();
+      expect(pick(await instance('near'), 'Status', 'Result')).to.deep.equal({ Status: 'completed', Result: 'ab' });
     });
 
     it('retry() resets the failed step rows in one transaction', async () => {
