@@ -50,3 +50,24 @@ export function setCloneHooks(hooks: readonly CloneHook[]): void {
 export function runCloneHooks(source: QueryBuilder, clone: QueryBuilder): void {
   for (const hook of cloneHooks) hook(source, clone);
 }
+
+const EXECUTION_LISTS = ['_statements', '_joinStatements', '_columns', '_groupStatements', '_sorts', '_relations', '_middlewares', '_queryMiddlewares'] as const;
+
+/**
+ * A copy of `query` for one more execution (a builder runs once): it owns the lists that the caller, a query
+ * middleware or the execution appends to, and shares the statements. `clone()` rebinds every statement to the
+ * copy, so a join or where merged in from a nested relation query would read the copy's alias instead of its own.
+ */
+export function executionCopy<Q extends object>(query: Q): Q {
+  const source = query as unknown as Record<string, unknown>;
+  const copy = Object.create(query) as Record<string, unknown>;
+  for (const key of EXECUTION_LISTS) {
+    copy[key] = [...(source[key] as unknown[])];
+  }
+  copy._limit = { ...(source._limit as object) };
+  // the CTE compiles its owning query, which has to be the copy for the copy's WHERE to reach it
+  copy._cteStatement = (source._cteStatement as IQueryStatement | undefined)?.clone(copy as unknown as QueryBuilder);
+  copy._executionPromise = null;
+
+  return copy as Q;
+}
