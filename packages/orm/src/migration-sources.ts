@@ -4,7 +4,6 @@ import { AsyncService, Autoinject, Container, DI, Injectable } from '@spinajs/di
 import type { Class, ClassInfo, IContainer } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { migrationScanGlobs } from '@spinajs/manifest';
-import glob from 'glob';
 import _ from 'lodash';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -101,6 +100,7 @@ export class FilesystemMigrationSource extends MigrationSource {
     // `!(*.*)` - a basename with no dot at all, so it also excludes `*.d.ts` for free. `mts`, `cts`,
     // `cjs` and `mjs` join `ts`/`js` because an app may author migrations in any of them.
     const patterns = migrationScanGlobs(env);
+    const { default: glob } = await import('glob');
 
     const files = _.uniq(dirs)
       .filter((d) => {
