@@ -2,10 +2,10 @@ import { loadsFromManifest, publishedManifest } from './mounted.js';
 import { canonicalize } from './hash.js';
 import { compareSchemaRefs } from './schema-compare.js';
 import type { Finding } from './schema-compare.js';
-import type { ColumnSqlSpec, ControllerEntry, Manifest, ModelColumn, ParamEntry, PolicyRef, RouteEntry, TypeRef } from './types.js';
+import type { ColumnSqlSpec, ControllerEntry, Manifest, ModelColumn, ParamEntry, PolicyRef, RouteEntry, TypeRef, WorkflowEntry } from './types.js';
 
 export type ChangeKind = 'added' | 'removed' | 'changed';
-export interface Change { section: 'routes' | 'schemas' | 'permissions' | 'config' | 'migrations' | 'models' | 'services' | 'commands' | 'socket'; kind: ChangeKind; id: string; breaking: boolean; detail?: string }
+export interface Change { section: 'routes' | 'schemas' | 'permissions' | 'config' | 'migrations' | 'models' | 'services' | 'commands' | 'socket' | 'workflows'; kind: ChangeKind; id: string; breaking: boolean; detail?: string }
 export interface ManifestDiff {
   base: string;
   head: string;
@@ -16,7 +16,7 @@ export interface ManifestDiff {
 }
 
 type Section = Change['section'];
-const SECTIONS: Section[] = ['routes', 'permissions', 'schemas', 'config', 'migrations', 'models', 'services', 'commands', 'socket'];
+const SECTIONS: Section[] = ['routes', 'permissions', 'schemas', 'config', 'migrations', 'models', 'services', 'commands', 'socket', 'workflows'];
 
 interface Keyed<T> { key: string; item: T }
 
@@ -166,7 +166,36 @@ function diffMisc(base: Manifest, head: Manifest): Change[] {
       changed: (b, h) => changedIf([b.options, b.arguments], [h.options, h.arguments], 'options or arguments changed'),
     }),
     ...diffKeyed('socket', socketEntries(base), socketEntries(head), { changed: (b, h) => changedIf(b, h, 'payload or result changed') }),
+    // A removed version strands its unfinished instances, hence breaking.
+    ...diffKeyed('workflows', byKey(base.workflows ?? [], (w) => `${w.name}@${w.version}`), byKey(head.workflows ?? [], (w) => `${w.name}@${w.version}`), {
+      removedBreaking: true,
+      changed: workflowChanges,
+    }),
   ];
+}
+
+const signalKeys = (w: WorkflowEntry): string[] => w.signals.map((s) => `${s.name}\u0000${s.permission ?? ''}`).sort(compareCodeUnits);
+
+/** The permissions each signal is waited for with, `''` for none. */
+function signalPermissions(w: WorkflowEntry): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const s of w.signals) out.set(s.name, (out.get(s.name) ?? new Set<string>()).add(s.permission ?? ''));
+  return out;
+}
+
+/** A sender breaks when a signal it sends goes away or newly needs a permission; a new signal breaks no one. */
+function workflowChanges(b: WorkflowEntry, h: WorkflowEntry): Finding[] {
+  const findings: Finding[] = [];
+  if (b.className !== h.className) findings.push({ breaking: false, detail: 'class changed' });
+  if (differs(signalKeys(b), signalKeys(h))) {
+    const after = signalPermissions(h);
+    const breaking = [...signalPermissions(b)].some(([name, before]) => {
+      const now = after.get(name);
+      return !now || [...now].some((p) => p !== '' && !before.has(p));
+    });
+    findings.push({ breaking, detail: 'signals changed' });
+  }
+  return findings;
 }
 
 function compilerWarnings(base: Manifest, head: Manifest): string[] {
