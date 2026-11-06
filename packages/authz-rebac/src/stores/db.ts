@@ -106,6 +106,17 @@ function chunks<T>(list: readonly T[]): T[][] {
   return out;
 }
 
+/** The keys among `keys` that authz_rebac_tuple holds. */
+async function storedKeys(keys: readonly string[]): Promise<Set<string>> {
+  const stored = new Set<string>();
+  // spinajs-orm-ignore ORM102: deliberate batching, one query per IN_CHUNK tuple keys
+  for (const part of chunks([...new Set(keys)])) {
+    const rows = await TupleRecord.query().whereIn('tuple_key', part);
+    for (const r of rows) stored.add(r.tuple_key);
+  }
+  return stored;
+}
+
 /**
  * `TupleStore` over `authz_rebac_tuple` on the ORM connection alias `authz`. `write` runs in its own
  * transaction; `writeIn` joins the transaction of an `AuthzAdmin` command. Built with `new`, not by DI, so it cannot inject
@@ -144,6 +155,7 @@ export class DbTupleStore extends TupleStore {
     const keys = [...new Set(subjects.map(subjectKey))];
     if (keys.length === 0) return [];
     const out = new Map<string, ResourceRef>();
+    // spinajs-orm-ignore ORM102: deliberate batching, one query per IN_CHUNK subject keys
     for (const part of chunks(keys)) {
       const rows = await TupleRecord.query().where({ namespace: objectType, relation }).whereIn('subject_key', part);
       for (const r of rows) out.set(r.object_id, { type: objectType, id: r.object_id });
@@ -173,18 +185,20 @@ export class DbTupleStore extends TupleStore {
     requireTupleTransaction(tx, 'DbTupleStore.writeIn');
     const changes: ChangeEntry[] = [];
     const change = (op: 'add' | 'remove', tuple: Tuple, key: string) => changes.push({ kind: 'tuple', op, key, payload: tuple, actor: principalKey(actor), at: now });
+    const toRemove = await storedKeys(removes.map(hashOf));
     for (const t of removes) {
       const key = hashOf(t);
-      const [had] = await TupleRecord.query().where('tuple_key', key);
-      if (!had) continue;
+      if (!toRemove.has(key)) continue;
       await TupleRecord.destroy().where('tuple_key', key);
+      toRemove.delete(key);
       change('remove', t, key);
     }
     const removed = changes.length;
+    // Read after the removals, so a tuple removed and re-added in one call is inserted again.
+    const stored = await storedKeys(adds.map(hashOf));
     for (const t of adds) {
       const row = rowOf(t, actor, now);
-      const [has] = await TupleRecord.query().where('tuple_key', row.tuple_key);
-      if (has) continue;
+      if (stored.has(row.tuple_key)) continue;
       try {
         await TupleRecord.insert(row);
         change('add', t, row.tuple_key);
@@ -192,6 +206,7 @@ export class DbTupleStore extends TupleStore {
         // Another transaction stored the same tuple meanwhile: it is there, which is what was asked.
         if (!(err instanceof UniqueViolation)) throw err;
       }
+      stored.add(row.tuple_key);
     }
     await changeLog().append(changes);
     return { added: changes.length - removed, removed };

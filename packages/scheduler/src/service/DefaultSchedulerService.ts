@@ -308,6 +308,7 @@ export class DefaultSchedulerService extends SchedulerService {
     if (!failed.length) return { runIds: [] };
 
     const retried = new Set<string>();
+    // spinajs-orm-ignore ORM102: deliberate batching, one query per ID_BATCH failed run ids
     for (let i = 0; i < failed.length; i += ID_BATCH) {
       const ids = failed.slice(i, i + ID_BATCH).map((f) => f.Id);
       for (const child of await RunModel.query().whereIn('ParentRunId', ids)) {

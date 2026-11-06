@@ -162,6 +162,11 @@ export class BelongsToRelation extends NativeOrmRelation {
       this._query.setAlias(`${this._separator}${this._description.SourceModel!.name}${this._separator}`);
     }
 
+    // No columns compiles to `SELECT *`, but the merge below adds the joined ones, and the queried model's would be lost.
+    if (this._query.getColumns().length === 0) {
+      this._query.select('*');
+    }
+
     // whereOnJoin() conditions go to the LEFT JOIN ON clause - folded into parent WHERE
     // they would silently narrow the outer join into an inner one and drop parent rows
     const onStatements = this._relationQuery.Statements.filter((s) => s.OnJoin);

@@ -113,6 +113,9 @@
       "path": "packages/testing-orm/tsconfig.build.json"
     },
     {
+      "path": "packages/orm-conformance/tsconfig.build.json"
+    },
+    {
       "path": "packages/orm-sql/tsconfig.build.json"
     },
     {
@@ -258,6 +261,9 @@
     },
     {
       "path": "packages/eslint-plugin-authz/tsconfig.build.json"
+    },
+    {
+      "path": "packages/eslint-plugin-orm/tsconfig.build.json"
     },
     {
       "path": "packages/authz-orm/tsconfig.build.json"

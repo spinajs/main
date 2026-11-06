@@ -20,6 +20,9 @@ import type { IPoolMetrics } from './metrics.js';
 import './hydrators.js';
 import './dehydrators.js';
 
+// Lane S imports these from '../introspection.js'; this keeps '../driver.js' valid for them too ( review 2.1 ).
+export type { LiveForeignKey, LiveIndex } from './introspection.js';
+
 /**
  * Body of a transaction. Whatever it resolves with becomes the result of `transaction()`.
  */
@@ -138,6 +141,12 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    * probing a table they created compile unchanged; `Orm.reloadTableInfo()` reads a missing table from the `null`.
    */
   public abstract tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]>;
+
+  /** The table's indexes, primary key included, sorted by name. Absent on a driver that cannot read them. */
+  public tableIndexes?(name: string, schema?: string): Promise<LiveIndex[]>;
+
+  /** The table's foreign keys, one entry per column. Absent on a driver that cannot read them. */
+  public tableForeignKeys?(name: string, schema?: string): Promise<LiveForeignKey[]>;
 
   public resolve() {
     this.Log = DI.resolve(Log, [`orm-driver-${this.Options.Name}`]);

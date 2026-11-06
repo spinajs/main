@@ -517,6 +517,7 @@ export class DefaultMigrationService extends OrmMigrationService {
     const expired = () => Date.now() - start > timeout;
     let steals = 0;
 
+    // spinajs-orm-ignore ORM102: lock polling, retried until the lock is acquired or the timeout passes
     for (;;) {
       try {
         await this.driver.insert().into(this.lockTable).values({ Id: 1, AcquiredAt: new Date(), Owner: owner });

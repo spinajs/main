@@ -52,6 +52,18 @@ describe('authz-rebac: DbTupleStore changelog (sqlite)', function () {
     expect(rows[1].payload).to.deep.equal(eng);
   });
 
+  it('a batched writeIn records each tuple it removed or added once, also for duplicates and remove-then-add', async () => {
+    const store = new DbTupleStore();
+    const viewer = (name: string) => tuple(d1, 'viewer', user(name));
+    await store.write(['a', 'b', 'c'].map(viewer), [], user('admin'));
+    const before = (await changeLog().since(0)).length;
+    await db.driver.transaction((tx) => store.writeIn({ driver: tx }, ['a', 'b', 'c', 'd', 'd', 'e', 'f'].map(viewer), ['a', 'a', 'b', 'nobody'].map(viewer), user('root')));
+
+    const rows = (await changeLog().since(0)).slice(before);
+    const entry = (op: string, name: string) => [op, hash(viewer(name)), 'user:root'];
+    expect(rows.map((r) => [r.op, r.key, r.actor])).to.deep.equal([entry('remove', 'a'), entry('remove', 'b'), ...['a', 'b', 'd', 'e', 'f'].map((n) => entry('add', n))]);
+  });
+
   it('a rolled-back writeIn records nothing', async () => {
     const store = new DbTupleStore();
     await db.driver
