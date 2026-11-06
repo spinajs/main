@@ -1,0 +1,7 @@
+{
+  "typescript": "7.0.2",
+  "notes": "bench.types.ts leaves out class-to-interface assignability (const i: ISelectQueryBuilder<User[]> = User.all()): in strict mode it costs 7078 instantiations, once per program.",
+  "enforce": false,
+  "loose": 3233,
+  "strict": 3838
+}
