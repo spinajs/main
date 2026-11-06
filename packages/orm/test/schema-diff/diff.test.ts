@@ -1,5 +1,6 @@
 import { expect } from 'chai';
 import type { Diagnostic, ModelColumn, ModelEntry, SqlDialectProfile } from '@spinajs/manifest';
+import { RawQuery } from '../../src/builders/raw.js';
 import type { IColumnDescriptor } from '../../src/interfaces.js';
 import { diffSchema } from '../../src/schema-diff/diff.js';
 import { buildTargetSchema } from '../../src/schema-diff/target.js';
@@ -74,6 +75,26 @@ describe('diffSchema', () => {
     const models = [posts(col('Code', { family: 'text', length: 100 }), col('Tag', { family: 'text', length: 20 }))];
     const sqlite = [live('Id', 'INTEGER', { PrimaryKey: true }), live('Title', 'TEXT'), live('Code', 'TEXT'), live('Tag', 'TEXT')];
     expect(run(models, sqlite, { hasRows: true }, { dialect: SQLITE })).to.deep.equal({ changes: [], diagnostics: ['MIG003 lengths of posts not compared: the driver reports none'] });
+  });
+
+  it('marks a modify that re-states a precision or a length it never compared as destructive (Q16)', () => {
+    const models = [posts(col('Price', { family: 'decimal', precision: 10, scale: 2 }, { nullable: true }), col('Rate', { family: 'decimal' }, { nullable: true }))];
+    expect(run(models, [pk, title, live('Price', 'numeric'), live('Rate', 'numeric')]).changes).to.deep.equal([
+      '!alterColumn posts (posts.Price: NULL allowed, precision not compared; re-stated as (10,2))',
+      "!alterColumn posts (posts.Rate: NULL allowed, precision not compared; re-stated as the driver's default)",
+    ]);
+    const sqlite = [model('Post', 'posts', [id(), col('Code', { family: 'text', length: 50 }, { nullable: true })])];
+    expect(run(sqlite, [live('Id', 'INTEGER', { PrimaryKey: true }), live('Code', 'TEXT')], { hasRows: true }, { dialect: SQLITE }).changes).to.deep.equal(['!alterColumn posts (posts.Code: NULL allowed, length not compared; re-stated as 50)']);
+  });
+
+  it('marks a modify destructive when a converter turned the live default into an object it cannot re-state (Q16)', () => {
+    const models = [posts(col('Opens', { family: 'text' }, { nullable: true }))];
+    const opens = (DefaultValue: unknown): IColumnDescriptor => live('Opens', 'text', { DefaultValue });
+    expect(run(models, [pk, title, opens({ some: 'object' })]).changes).to.deep.equal(['!alterColumn posts (posts.Opens: NULL allowed, live default not re-statable)']);
+    expect(run(models, [pk, title, opens('08:00')]).changes).to.deep.equal(['alterColumn posts (posts.Opens: NULL allowed)']);
+    expect(run(models, [pk, title, opens(RawQuery.create('CURRENT_TIME'))]).changes).to.deep.equal(['alterColumn posts (posts.Opens: NULL allowed)']);
+    const stated = [posts(col('Opens', { family: 'text', default: '08:00' }, { nullable: true }))];
+    expect(run(stated, [pk, title, opens({ some: 'object' })]).changes).to.deep.equal(['alterColumn posts (posts.Opens: NULL allowed)']);
   });
 
   it('compares the nullability of explicit columns only, and never of a sqlite boolean', () => {

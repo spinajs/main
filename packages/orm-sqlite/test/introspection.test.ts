@@ -1,6 +1,6 @@
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
+import { Orm, RawQuery } from '@spinajs/orm';
 import { expect } from 'chai';
 import 'mocha';
 import '@spinajs/log';
@@ -66,5 +66,29 @@ describe('sqlite index and foreign-key introspection', function () {
 
     const posts = await driver().tableInfo('in_posts');
     expect(posts.find((c) => c.Name === 'UserId')!.ForeignKeyDescription).to.deep.equal({ From: 'UserId', Table: 'in_users', To: 'Id' });
+  });
+
+  it('reads a default as a string, a number, or a RawQuery for an expression', async () => {
+    await driver().schema().createTable('in_defaults', (t) => {
+      t.int('Id').primaryKey().autoIncrement();
+      t.string('Code').default().value("it's");
+      t.int('Count').default().value(5);
+      t.double('Ratio').default().value(-1.5);
+      t.dateTime('Seen').default().raw(RawQuery.create('CURRENT_TIMESTAMP'));
+      t.dateTime('Stamp').default().dateTime();
+      t.boolean('Flag').default().value(1);
+      t.text('Note');
+    });
+    const defaults = (await driver().tableInfo('in_defaults')).map((c) => [c.Name, c.DefaultValue instanceof RawQuery ? { raw: c.DefaultValue.Query } : c.DefaultValue] as const);
+    expect(defaults).to.deep.equal([
+      ['Id', null],
+      ['Code', "it's"],
+      ['Count', 5],
+      ['Ratio', -1.5],
+      ['Seen', { raw: 'CURRENT_TIMESTAMP' }],
+      ['Stamp', { raw: "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')" }],
+      ['Flag', true],
+      ['Note', null],
+    ]);
   });
 });

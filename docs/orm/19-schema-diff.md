@@ -58,3 +58,42 @@ const changes = diffSchema(target, columns, extras, { dialect: sqlDialectOf(Sqli
 | `MIG003` | info | An aspect was not compared (no lengths, no index or foreign-key introspection, unknown type or dialect) |
 | `MIG004` | warning | An unmanaged column is `NOT NULL` without a default |
 | `MIG005` | info | A declared foreign key is missing on an existing table |
+
+## Generating the migration
+
+`generateMigration(changes, { name, connection, allowDestructive, now })` writes a `@Migration` class named `<name>_yyyy_MM_dd_HH_mm_ss` over the schema builder, so the existing runner, checksum and lock run it:
+
+```ts
+@Migration('default')
+export class SchemaDiff_2026_11_03_10_20_30 extends OrmMigration {
+  public async up(connection: OrmDriver): Promise<void> {
+    await connection.schema().alterTable('users', (table) => {
+      table.dateTime('EmailVerifiedAt');
+    });
+    // DESTRUCTIVE: users.Legacy was removed from the models since --base (pass --allow-destructive to run it)
+    // await connection.schema().alterTable('users', (table) => {
+    //   table.dropColumn('Legacy');
+    // });
+  }
+  …
+}
+```
+
+Tables are created before the tables that reference them, then columns are added, altered, indexed, and dropped. `down()` reverses created tables, added columns and added indexes. A `DESTRUCTIVE` step stays a comment unless `allowDestructive` is set. `introspectSchema(driver, tables)` reads `tableInfo()`, the driver's `tableIndexes()`/`tableForeignKeys()` where it has them, and whether each table has rows.
+
+A `modify()` re-states the whole column, so it keeps what the spec does not state from the live column:
+- the nullability of an inferred column;
+- the default, verbatim when the driver reports an expression (`DEFAULT CURRENT_TIMESTAMP` stays `CURRENT_TIMESTAMP`);
+- `unsigned` and `unique`;
+- the length, when the driver reports one.
+
+An aspect the driver does not report cannot be kept, so re-stating it makes the change `DESTRUCTIVE`:
+- the precision of a `decimal` (`precision not compared; re-stated as (10,2)`, or `as the driver's default` without one);
+- an explicit length on sqlite or mysql (`length not compared; re-stated as 50`);
+- a live default that a value converter turned into an object, such as a `TimeSpan` (`live default not re-statable`).
+
+On a driver that reports no length (mysql), a modify of a text column whose spec states no length rewrites `VARCHAR(n)` as `TEXT`, and an index on that column can then fail. Give such a column an explicit `length`. A per-dialect flag for unbounded text types is an open question.
+
+Other limits of a modify:
+- A `uuid` column is re-stated as `binary(16)`: the schema builder has no other uuid type outside `createTable`, so on postgres a modify re-types a native `uuid` column to `bytea`. Review such a step before running it.
+- sqlite modifies a column by rebuilding the table, and refuses to do so while `PRAGMA foreign_keys` is on and another table references it. Alter such a table in a hand-written migration.
