@@ -78,7 +78,7 @@ export interface WorkflowContext<TInput = unknown> {
   step<T>(name: string, fn: (s: { signal: AbortSignal; attempt: number }) => Promise<T> | T, opts?: WorkflowStepOptions<T>): Promise<T>;
   sleep(duration: string | number, name?: string): Promise<void>;
   sleepUntil(at: number | Date, name?: string): Promise<void>;
-  /** `undefined` on timeout. */
+  /** Consumes the oldest pending event of `name` in insert order; `undefined` on timeout. */
   waitForEvent<T = unknown>(name: string, opts?: WaitForEventOptions): Promise<WorkflowEvent<T> | undefined>;
   emit(name: string, message: QueueEvent | QueueJob): Promise<void>;
   now(): number;
