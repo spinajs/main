@@ -56,11 +56,16 @@ function missingColumn(ctx: InferContext, column: string, tables: TableInfo[], a
   report(ctx, 'SQL003', severity, `Column ${column} is not declared on ${where}`);
 }
 
-/** A literal with a fraction is NUMERIC/DECIMAL in every grammar, so it comes back as the driver returns decimals. */
+const INT4_MAX = 2147483647;
+
+/**
+ * A literal with a fraction (`1.0` too) is NUMERIC/DECIMAL in every grammar, so it comes back as the driver returns
+ * decimals. node-sql-parser keeps such a literal as text and an integer as a number. An integer past int4 is int8 or
+ * NUMERIC depending on the database.
+ */
 function numberLiteral(node: SqlNode, ctx: InferContext): Typed {
-  // node-sql-parser keeps the literal as text.
-  const value = Number(node.value);
-  if (Number.isFinite(value) && !Number.isInteger(value)) return { ts: ctx.profile.families.decimal ?? 'number', nullable: false, family: 'decimal' };
+  if (typeof node.value === 'string' && node.value.includes('.')) return { ts: ctx.profile.families.decimal ?? 'number', nullable: false, family: 'decimal' };
+  if (typeof node.value === 'number' && Math.abs(node.value) > INT4_MAX) return UNKNOWN;
   return { ts: 'number', nullable: false, family: 'integer' };
 }
 

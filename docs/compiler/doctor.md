@@ -106,8 +106,11 @@ Models mapped to one table contribute the union of their columns.
 Known limits: identifier case is not modelled (names compare case-insensitively); raw rows are typed from the
 column's family and the driver's profile, then from model properties of type `number`, `string`, `boolean`, `bigint`,
 `Date` or string literal unions (anything else is `unknown`, since raw SQL bypasses value converters); a profile
-describes the driver's default options, so an app that changes them (mysql `decimalNumbers`) declares its own; for PostgreSQL and T-SQL the `?` rewrite skips `'…'`, `E'…'`,
-`$$…$$`, quoted names and comments but not a tagged `$tag$…$tag$` string; and the PostgreSQL grammar does not parse
+describes the driver's default options, so an app that changes them (mysql `decimalNumbers`) declares its own; a
+column of a CTE or subquery has no family, so `SUM`/`AVG` over it is `unknown`; when two installed drivers declare
+one profile name, the one built last wins; for PostgreSQL and T-SQL the `?` rewrite skips `'…'`, `E'…'`, `$$…$$`,
+quoted names and comments (and keeps the jsonb `?|` and `?&` operators) but not a tagged `$tag$…$tag$` string; and
+the PostgreSQL grammar does not parse
 `DELETE … USING`.
 
 ## Output formats
