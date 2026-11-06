@@ -14,6 +14,7 @@ import { strictHeaderReader } from './headers.js';
 import type { StrictHeaderOptions } from './headers.js';
 import { resolveIdempotentOptions } from './idempotency/options.js';
 import type { IdempotentOptions } from './idempotency/options.js';
+import { IdempotencyMiddleware } from './idempotency/middleware.js';
 
 
 export const CONTROLLED_DESCRIPTOR_SYMBOL = Symbol('CONTROLLER_SYMBOL');
@@ -375,6 +376,7 @@ export function Idempotent(options?: IdempotentOptions): MethodDecorator {
       throw new InvalidArgument('@Idempotent goes on a route method, not on a controller');
     }
     route.Idempotency = resolved;
+    route.Middlewares.push({ Type: IdempotencyMiddleware, Options: [resolved] });
   }) as MethodDecorator;
 }
 

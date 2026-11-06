@@ -107,7 +107,3 @@ routes (see [Transactions](../idempotency/README.md#transactions)).
 The lease is renewed while the route runs, but http has no abort signal an action could observe. If a renewal fails
 long enough for the lease to end during a slow action (a lost database connection, a paused process), another
 replica may claim the key and run the action a second time while the first one is still running.
-
-`createIdempotencyGate` is the gate of the controller chain. Used alone in a plain express route, it does not see a
-crash of the route (`crash: true`): only the controller chain records route errors for it, so such a crash answers
-500 and releases the key.
