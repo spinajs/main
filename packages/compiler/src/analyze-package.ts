@@ -18,6 +18,7 @@ import { extractMigrations } from './extractors/migrations.js';
 import { extractSchedules } from './extractors/schedules.js';
 import { extractCommands } from './extractors/commands.js';
 import { extractQueueMessages } from './extractors/queue.js';
+import { extractWorkflows } from './extractors/workflows.js';
 import { extractSqlQueries } from './extractors/sql.js';
 import { extractSqlDialects } from './extractors/sql-dialects.js';
 import { checkNPlusOne } from './extractors/n-plus-one.js';
@@ -118,6 +119,7 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   const migrations = scanned('migrations', extractMigrations);
   const schedules = scanned('schedules', extractSchedules);
   const commands = scanned('commands', extractCommands);
+  const workflows = run(extractWorkflows);
   discovered?.requireDirs(controllers.length + socketControllers.length + migrations.length + schedules.length + commands.length);
   const marked = <T extends ScannedEntry>(section: DirSection, entries: T[]): T[] => (discovered ? discovered.filter(section, entries) : entries);
 
@@ -149,6 +151,7 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
     commands: marked('commands', commands),
     ...(discovered?.scanFiles.length ? { scanFiles: discovered.scanFiles } : {}),
     queueMessages: run(extractQueueMessages),
+    ...(workflows.length ? { workflows } : {}),
     ...(sqlQueries.length ? { sqlQueries } : {}),
     ...(sqlDialects.length ? { sqlDialects } : {}),
     schemas: Object.fromEntries([...Object.entries(ctx.schemas), ...ctx.schemaRegistry].sort(([a], [b]) => compareCodeUnits(a, b))),
