@@ -2,6 +2,7 @@ import type { Diagnostic, ModelIndex, SqlDialectProfile } from '@spinajs/manifes
 import { RawQuery } from '../builders/raw.js';
 import type { IColumnDescriptor } from '../interfaces.js';
 import { familiesOf, reportsNullability } from './families.js';
+import { foldTargetTables } from './target.js';
 import type { DiffOptions, LiveExtras, LiveTableExtras, SchemaChange, TargetColumn, TargetTable } from './types.js';
 
 interface DiffContext {
@@ -186,15 +187,11 @@ function diffTable(table: TargetTable, columns: IColumnDescriptor[], extras: Liv
   return [...out, ...diffIndexes(table, columns, extras, ctx)];
 }
 
-function liveColumns(live: Map<string, IColumnDescriptor[]>, name: string, ctx: DiffContext): IColumnDescriptor[] | undefined {
-  const exact = live.get(name);
-  if (exact || ctx.fold === FOLD_NONE) return exact;
-  return [...live].find(([key]) => ctx.fold(key) === ctx.fold(name))?.[1];
-}
+const keyedBy = <T>(map: Map<string, T>, fold: (name: string) => string): Map<string, T> => new Map([...map].map(([name, value]) => [fold(name), value]));
 
 function droppedTables(target: TargetTable[], live: Map<string, IColumnDescriptor[]>, ctx: DiffContext): SchemaChange[] {
   return [...ctx.base.values()]
-    .filter((b) => liveColumns(live, b.name, ctx) && !target.some((t) => ctx.fold(t.name) === ctx.fold(b.name)))
+    .filter((b) => live.has(ctx.fold(b.name)) && !target.some((t) => ctx.fold(t.name) === ctx.fold(b.name)))
     .map((b): SchemaChange => ({ kind: 'dropTable', table: b.name, detail: { table: b.name }, destructive: true, reason: `${b.name} is mapped by no model since --base` }));
 }
 
@@ -202,20 +199,24 @@ function droppedTables(target: TargetTable[], live: Map<string, IColumnDescripto
  * What it takes to bring `live` to `target` (D10). Only columns the models declare are added or altered; a column no model
  * declares is `unmanaged` and dropped only under the D19 rule 3 conditions. Diagnostics go to `options.diagnostics`.
  */
-export function diffSchema(target: TargetTable[], live: Map<string, IColumnDescriptor[]>, extras: LiveExtras = new Map(), options: DiffOptions = {}): SchemaChange[] {
+export function diffSchema(models: TargetTable[], liveTables: Map<string, IColumnDescriptor[]>, liveExtras: LiveExtras = new Map(), options: DiffOptions = {}): SchemaChange[] {
   const fold = options.dialect?.caseInsensitiveIdentifiers ? FOLD_CASE : FOLD_NONE;
+  const diagnostics = options.diagnostics ?? [];
+  const target = foldTargetTables(models, fold, diagnostics);
+  const live = keyedBy(liveTables, fold);
+  const extras = keyedBy(liveExtras, fold);
   const ctx: DiffContext = {
     dialect: options.dialect,
-    diagnostics: options.diagnostics ?? [],
+    diagnostics,
     prune: new Set((options.prune ?? []).map(fold)),
-    base: new Map((options.base ?? []).map((t) => [fold(t.name), t])),
+    base: new Map(foldTargetTables(options.base ?? [], fold).map((t) => [fold(t.name), t])),
     noted: new Set(),
     fold,
   };
   const changes: SchemaChange[] = [];
   for (const table of target) {
-    const columns = liveColumns(live, table.name, ctx);
-    if (columns) changes.push(...diffTable(table, columns, extras.get(table.name), ctx));
+    const columns = live.get(fold(table.name));
+    if (columns) changes.push(...diffTable(table, columns, extras.get(fold(table.name)), ctx));
     else changes.push({ kind: 'createTable', table: table.name, detail: table, destructive: false });
   }
   return [...changes, ...droppedTables(target, live, ctx)];

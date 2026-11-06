@@ -130,26 +130,30 @@ for (const connection of ['pglite', 'sqlite'] as const) {
       );
     });
 
-    it('matches a model column to a live column of another case only where the dialect folds case', async () => {
-      await driver.schema().createTable('rt8_people', (table) => {
+    const caseTable = async (name: string): Promise<ModelEntry[]> => {
+      await driver.schema().createTable(name, (table) => {
         table.int('Id').primaryKey().autoIncrement();
         table.text('Name');
       });
-      const models = [model('Person', 'rt8_people', [id(), col('name', { family: 'text', inferred: true })])];
+      return [model('Person', name, [id(), col('name', { family: 'text', inferred: true })])];
+    };
+    const unmanaged = (d: Diffed): string[] => d.changes.flatMap((c) => (c.kind === 'unmanaged' ? [c.detail.column] : []));
+
+    (connection === 'sqlite' ? it : it.skip)('sqlite: a model column "name" matches the live "Name", nothing is planned', async () => {
+      const first = await diff(driver, await caseTable('rt8_people'));
+      expect(kinds(first), 'sqlite actionable changes').to.deep.equal([]);
+      expect(unmanaged(first), 'sqlite unmanaged columns').to.deep.equal([]);
+    });
+
+    (connection === 'pglite' ? it : it.skip)('pglite: "name" and "Name" are two columns, because the driver quotes names', async () => {
+      const models = await caseTable('rt8_pg_people');
       const first = await diff(driver, models);
-      const unmanaged = (d: Diffed): string[] => d.changes.flatMap((c) => (c.kind === 'unmanaged' ? [c.detail.column] : []));
-      if (connection === 'sqlite') {
-        expect(kinds(first)).to.deep.equal([]);
-        expect(unmanaged(first)).to.deep.equal([]);
-        return;
-      }
-      // postgres folds only unquoted names and the driver quotes, so name and Name are two columns
-      expect(kinds(first)).to.deep.equal(['addColumn rt8_people']);
-      expect(unmanaged(first)).to.deep.equal(['Name']);
+      expect(kinds(first), 'pglite actionable changes').to.deep.equal(['addColumn rt8_pg_people']);
+      expect(unmanaged(first), 'pglite unmanaged columns').to.deep.equal(['Name']);
       await apply(driver, first.changes, 'CaseSplit');
       const second = await diff(driver, models);
-      expect(kinds(second)).to.deep.equal([]);
-      expect(unmanaged(second)).to.deep.equal(['Name']);
+      expect(kinds(second), 'pglite after apply').to.deep.equal([]);
+      expect(unmanaged(second), 'pglite unmanaged after apply').to.deep.equal(['Name']);
     });
 
     it('creates one table from two models mapped to it', async () => {

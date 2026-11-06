@@ -1,4 +1,4 @@
-import type { ColumnFamily, ColumnSqlSpec, Diagnostic, Manifest, ModelColumn, ModelEntry, ModelIndex } from '@spinajs/manifest';
+import type { ColumnFamily, ColumnSqlSpec, Diagnostic, Manifest, ModelColumn, ModelEntry, ModelIndex, SourceRef } from '@spinajs/manifest';
 import type { TargetColumn, TargetTable } from './types.js';
 
 const TS_FAMILIES: Partial<Record<string, ColumnFamily>> = { number: 'integer', string: 'text', boolean: 'boolean', Date: 'datetime', DateTime: 'datetime', Uint8Array: 'binary', Buffer: 'binary' };
@@ -27,17 +27,18 @@ function mergeSpecs(a: ColumnSqlSpec, b: ColumnSqlSpec): ColumnSqlSpec | undefin
   return canonical(a) === canonical(b) ? a : undefined;
 }
 
-function mergeColumn(table: TargetTable, model: ModelEntry, column: ModelColumn, diagnostics: Diagnostic[]): void {
-  const incoming: TargetColumn = { name: column.name, sql: columnSpecOf(column), nullable: column.nullable && !column.primary, primary: column.primary };
-  const existing = table.columns.find((c) => c.name === column.name);
+const exactName = (name: string): string => name;
+
+function mergeTargetColumn(table: TargetTable, incoming: TargetColumn, source: SourceRef | undefined, diagnostics: Diagnostic[], fold: (name: string) => string): void {
+  const existing = table.columns.find((c) => fold(c.name) === fold(incoming.name));
   if (!existing) {
     table.columns.push(incoming);
     return;
   }
   const merged = mergeSpecs(existing.sql, incoming.sql);
   if (!merged) {
-    const message = `column ${table.name}.${column.name} is declared with different specs by ${table.models.join(', ')}: ${canonical(existing.sql)} and ${canonical(incoming.sql)}`;
-    diagnostics.push({ code: 'MIG001', severity: 'error', message, source: model.source });
+    const message = `column ${table.name}.${incoming.name} is declared with different specs by ${table.models.join(', ')}: ${canonical(existing.sql)} and ${canonical(incoming.sql)}`;
+    diagnostics.push({ code: 'MIG001', severity: 'error', message, source });
     return;
   }
   existing.sql = merged;
@@ -45,12 +46,36 @@ function mergeColumn(table: TargetTable, model: ModelEntry, column: ModelColumn,
   existing.primary = existing.primary || incoming.primary;
 }
 
-const sameIndex = (a: ModelIndex, b: ModelIndex): boolean => a.unique === b.unique && a.columns.join('\0') === b.columns.join('\0');
+function mergeColumn(table: TargetTable, model: ModelEntry, column: ModelColumn, diagnostics: Diagnostic[]): void {
+  const incoming: TargetColumn = { name: column.name, sql: columnSpecOf(column), nullable: column.nullable && !column.primary, primary: column.primary };
+  mergeTargetColumn(table, incoming, model.source, diagnostics, exactName);
+}
+
+const sameIndex = (a: ModelIndex, b: ModelIndex, fold = exactName): boolean => a.unique === b.unique && a.columns.map(fold).join('\0') === b.columns.map(fold).join('\0');
 
 function addIndexes(table: TargetTable, model: ModelEntry): void {
   for (const index of model.indexes ?? []) {
     if (!table.indexes.some((i) => sameIndex(i, index))) table.indexes.push(index);
   }
+}
+
+/**
+ * Tables and columns whose names are equal under `fold` become one, with the spelling of the first, by the rules `buildTargetSchema`
+ * merges models with. For a dialect that compares identifiers ignoring case, which `buildTargetSchema` does not know.
+ */
+export function foldTargetTables(tables: TargetTable[], fold: (name: string) => string, diagnostics: Diagnostic[] = []): TargetTable[] {
+  const out = new Map<string, TargetTable>();
+  for (const table of tables) {
+    const key = fold(table.name);
+    const into = out.get(key) ?? { ...table, columns: [], indexes: [], foreignKeys: [], models: [] };
+    out.set(key, into);
+    into.models.push(...table.models);
+    into.exhaustive = into.exhaustive || table.exhaustive;
+    for (const column of table.columns) mergeTargetColumn(into, { ...column, sql: { ...column.sql } }, undefined, diagnostics, fold);
+    for (const index of table.indexes) if (!into.indexes.some((i) => sameIndex(i, index, fold))) into.indexes.push(index);
+    for (const fk of table.foreignKeys) if (!into.foreignKeys.some((f) => fold(f.column) === fold(fk.column))) into.foreignKeys.push(fk);
+  }
+  return [...out.values()];
 }
 
 /** The owning side only: a belongsTo to a model on the same connection. S1 (A3) always records its foreign key and leaves out a primary key that is the target's. */

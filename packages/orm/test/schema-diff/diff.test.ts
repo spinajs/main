@@ -199,6 +199,29 @@ describe('diffSchema', () => {
       expect(summary(gone)).to.deep.equal(['!dropTable posts (posts is mapped by no model since --base)']);
     });
 
+    it('reads the live extras of a table by its folded name too', () => {
+      const models = [model('Post', 'posts', [id(), col('Title', { family: 'text', inferred: true })], { indexes: [{ columns: ['Title'], unique: false }] })];
+      const columns = new Map([['POSTS', [LIVE_ID, live('Title', 'text')]]]);
+      const extras = new Map([['POSTS', { hasRows: true, indexes: [{ name: 'ix', columns: ['Title'], unique: false, primary: false }] }]]);
+      expect(summary(diffSchema(target(...models), columns, extras, options(FOLDING)))).to.deep.equal([]);
+    });
+
+    it('merges model columns and tables whose names differ only in case', () => {
+      const merged = target(model('A', 'Users', [id(), col('name', { family: 'text', inferred: true })]), model('B', 'users', [id(), col('Name', { family: 'text', length: 50 })]));
+      expect(merged.map((t) => t.name)).to.deep.equal(['Users', 'users']);
+      const changes = diffSchema(merged, new Map(), new Map(), options(FOLDING));
+      expect(changes.map((c) => c.kind)).to.deep.equal(['createTable']);
+      const created = changes[0];
+      expect(created.kind === 'createTable' ? created.detail.columns.map((c) => `${c.name}:${c.sql.length ?? ''}`) : []).to.deep.equal(['Id:', 'name:50']);
+      expect(diffSchema(merged, new Map(), new Map(), options(EXACT)).map((c) => c.kind)).to.deep.equal(['createTable', 'createTable']);
+    });
+
+    it('reports conflicting specs of case-only twins as MIG001', () => {
+      const diagnostics: Diagnostic[] = [];
+      diffSchema(target(model('A', 'users', [id(), col('name', { family: 'text', length: 10 })]), model('B', 'users', [id(), col('Name', { family: 'text', length: 20 })])), new Map(), new Map(), { dialect: FOLDING, diagnostics });
+      expect(diagnostics.map((d) => d.code)).to.deep.equal(['MIG001']);
+    });
+
     it('matches the columns of an index ignoring case', () => {
       const models = [model('Post', 'posts', [id(), col('Title', { family: 'text', inferred: true })], { indexes: [{ columns: ['Title'], unique: false }] })];
       const extras = { hasRows: true, indexes: [{ name: 'ix', columns: ['Title'.toLowerCase()], unique: false, primary: false }] };
