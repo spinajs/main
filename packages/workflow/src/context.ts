@@ -1,17 +1,21 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { computeBackoff, isRetryable, type Clock, type DbClock, type FaultInjector, type FaultPointName, type NormalizedRetry, type RetryPolicyOptions } from '@spinajs/durable';
+import { DI } from '@spinajs/di';
+import { computeBackoff, isRetryable, parseDuration, type Clock, type DbClock, type FaultInjector, type FaultPointName, type NormalizedRetry, type RetryPolicyOptions } from '@spinajs/durable';
 import { InvalidArgument, InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import type { Log } from '@spinajs/log-common';
 import type { QueueEvent, QueueJob } from '@spinajs/queue';
+import { v5 as uuidv5 } from 'uuid';
 import type { SerializedError, StepKind, StepMeta, StepStatus, WaitForEventOptions, WorkflowContext, WorkflowEvent, WorkflowStepOptions } from './contract.js';
 import { isCrash, LeaseLostError, NonDeterminismError, serializeError, WorkflowAborted, WorkflowFailure, WorkflowNestingError, WorkflowStepFailed, WorkflowStepResultTooLarge, WorkflowSuspended, WorkflowTimeout, type AbortReason } from './errors.js';
 import { nextMacrotask, ReplayGate } from './gate.js';
 import { identifierProblem } from './identifier.js';
 import type { Journal, StepRow } from './journal.js';
 import { safeStringify } from './json.js';
+import { WorkflowEventModel } from './models/WorkflowEventModel.js';
 import { normalizeRetry, unitHash } from './policy.js';
 import type { WorkflowInstanceModel } from './models/WorkflowInstanceModel.js';
 import type { RegisteredWorkflow } from './registry.js';
+import { SignalAuthorizer } from './signals.js';
 import type { InstanceStore, StepWrite } from './store.js';
 import type { WorkflowConfig } from './workflow-config.js';
 
@@ -41,7 +45,7 @@ export interface ActivationInit {
   /** A crash reached the activation: as far as the instance is concerned, this replica is dead. */
   onCrash: (err: unknown) => void;
   /** A journal row failed to commit for a reason other than a lost lease or a crash: nothing of this activation may commit after it. */
-  onJournalFailed: (err: unknown) => void;
+  onJournalFailed: (err: unknown, what?: string) => void;
   /** Arms the coarse fallback that fails a replay waiting for a recorded call that never comes; none without it. */
   timers?: Clock;
 }
@@ -72,6 +76,21 @@ interface Save {
 const MAX_NAME = 128;
 const PRIORITY: Record<Interruption['kind'], number> = { park: 0, fail: 1, timeout: 2, nondeterminism: 3 };
 const stepScope = new AsyncLocalStorage<string>();
+
+/** The uuid v5 namespace of `ctx.uuid()`; changing it changes every id a replay derives. */
+export const WORKFLOW_NAMESPACE = '6f1c2a7e-3b9d-4e84-9a0c-2d4e8b7f1a63';
+
+/** The resource is kept in its JSON form: the first run hands the authorizer what every replay reads back. */
+function waitMeta(name: string, opts: WaitForEventOptions, startedAt: number): StepMeta {
+  if (opts.permission !== undefined && (typeof opts.permission !== 'string' || opts.permission.length === 0)) throw new InvalidArgument(`waitForEvent('${name}') permission must be a non-empty string`);
+  const resource = opts.resource === undefined ? undefined : safeStringify(opts.resource);
+  if (opts.resource !== undefined && resource === undefined) throw new InvalidArgument(`waitForEvent('${name}') resource must be representable as JSON`);
+  return {
+    timeoutAt: opts.timeout === undefined ? null : startedAt + parseDuration(opts.timeout, `waitForEvent('${name}') timeout`),
+    ...(opts.permission !== undefined ? { permission: opts.permission } : {}),
+    ...(resource !== undefined ? { resource: JSON.parse(resource) as Record<string, unknown> } : {}),
+  };
+}
 
 /** Parallel operations parked at once: the instance wakes for whichever is due first and replays the others. */
 function earlierPark(a: Park, b: Park): Park {
@@ -147,16 +166,22 @@ export class ActivationContext implements WorkflowContext {
     return this.begin('step', name, (op) => this.runStep(op, fn, opts, retry));
   }
 
-  public sleep(_duration: string | number, _name?: string): Promise<void> {
-    return Promise.reject(new NotSupported('ctx.sleep()'));
+  public sleep(duration: string | number, name = 'sleep'): Promise<void> {
+    return this.begin('sleep', name, (op) => this.runSleep(op, () => this.init.clock.now() + parseDuration(duration, `sleep('${name}')`)));
   }
 
-  public sleepUntil(_at: number | Date, _name?: string): Promise<void> {
-    return Promise.reject(new NotSupported('ctx.sleepUntil()'));
+  public sleepUntil(at: number | Date, name = 'sleep'): Promise<void> {
+    return this.begin('sleep', name, (op) =>
+      this.runSleep(op, () => {
+        const ms = at instanceof Date ? at.getTime() : at;
+        if (!Number.isFinite(ms)) throw new InvalidArgument(`sleepUntil('${name}') needs a valid instant`);
+        return ms;
+      }),
+    );
   }
 
-  public waitForEvent<T = unknown>(_name: string, _opts?: WaitForEventOptions): Promise<WorkflowEvent<T> | undefined> {
-    return Promise.reject(new NotSupported('ctx.waitForEvent()'));
+  public waitForEvent<T = unknown>(name: string, opts: WaitForEventOptions = {}): Promise<WorkflowEvent<T> | undefined> {
+    return this.begin('wait', name, (op) => this.runWait<T>(op, opts));
   }
 
   public emit(_name: string, _message: QueueEvent | QueueJob): Promise<void> {
@@ -164,15 +189,26 @@ export class ActivationContext implements WorkflowContext {
   }
 
   public now(): number {
-    throw new NotSupported('ctx.now()');
+    const op = this.next('marker', 'now');
+    if (this.init.journal.get(op.key)?.Status === 'succeeded') return this.init.journal.value(op.key) as number;
+    const value = this.init.clock.now();
+    this.recordMarker(op, value);
+    return value;
   }
 
+  /** Derived, not random: a run that repeats before its marker commits produces the same id. */
   public uuid(): string {
-    throw new NotSupported('ctx.uuid()');
+    const op = this.next('marker', 'uuid');
+    const value = uuidv5(`${this.instanceId}:${op.key}`, WORKFLOW_NAMESPACE);
+    if (!this.init.journal.get(op.key)) this.recordMarker(op, value);
+    return value;
   }
 
   public random(): number {
-    throw new NotSupported('ctx.random()');
+    const op = this.next('marker', 'random');
+    const value = unitHash(`${this.instanceId}:${op.key}`);
+    if (!this.init.journal.get(op.key)) this.recordMarker(op, value);
+    return value;
   }
 
   public fail(reason: string, details?: unknown): never {
@@ -263,18 +299,18 @@ export class ActivationContext implements WorkflowContext {
   }
 
   /** A journal write that failed leaves a hole a replay would fill differently (D3): no later write of this activation may commit. */
-  protected abandonJournal(err: unknown): void {
+  protected abandonJournal(err: unknown, what?: string): void {
     if (this.journalFailed) return;
     this.journalFailed = true;
     this.gate.abort(new WorkflowAborted('journal-failed'));
-    this.init.onJournalFailed(err);
+    this.init.onJournalFailed(err, what);
   }
 
   /** Amendment 20: a journal row that failed for any reason but a crash or a lost lease abandons the activation. */
-  protected journalWriteFailed(err: unknown): unknown {
+  protected journalWriteFailed(err: unknown, what?: string): unknown {
     if (isCrash(err)) this.crash(err);
     if (isCrash(err) || err instanceof WorkflowAborted) return err;
-    this.abandonJournal(err);
+    this.abandonJournal(err, what);
     return new WorkflowAborted('journal-failed');
   }
 
@@ -400,6 +436,110 @@ export class ActivationContext implements WorkflowContext {
     return new WorkflowSuspended();
   }
 
+  /** The wake time is computed once, on the database clock; every replay reads it back from the row. */
+  protected async runSleep(op: Op, target: () => number): Promise<void> {
+    const { journal, clock } = this.init;
+    const rec = journal.get(op.key);
+    if (rec?.Status === 'succeeded') return this.released(op);
+    const wakeAt = rec?.Meta?.wakeAt ?? target();
+    const startedAt = clock.now();
+    if (clock.now() >= wakeAt) {
+      await this.record(op, { status: 'succeeded', attempt: 1, startedAt, meta: { wakeAt }, finished: true });
+      return this.gate.live(op.order);
+    }
+    if (rec) {
+      // as a not-yet-due retry does: siblings called in the same turn take their keys before the park
+      await new Promise<void>((resolve) => nextMacrotask(resolve));
+    } else {
+      await this.record(op, { status: 'pending', attempt: 1, startedAt, meta: { wakeAt } });
+      await this.fault('workflow.after-journal', op.key);
+    }
+    this.interrupt({ kind: 'park', park: { status: 'sleeping', wakeAt, waitingFor: null } });
+    throw new WorkflowSuspended() as unknown;
+  }
+
+  /**
+   * Markers are synchronous: the row is queued, and every later journal write of this activation commits after it.
+   * A failed write abandons the activation (D3): `run()` already holds a value a replay would compute anew.
+   */
+  protected recordMarker(op: Op, value: unknown): void {
+    const startedAt = this.init.clock.now();
+    void this.track(
+      this.enqueueWrite(() => this.saveStep(op, { status: 'succeeded', attempt: 1, startedAt, result: { value }, finished: true })).catch((err: unknown) => {
+        this.journalWriteFailed(err);
+      }),
+    );
+  }
+
+  /** The first run records the timeout and permission; replays honour the recorded ones, whatever `opts` say now. */
+  protected async runWait<T>(op: Op, opts: WaitForEventOptions): Promise<WorkflowEvent<T> | undefined> {
+    const { journal, clock } = this.init;
+    const rec = journal.get(op.key);
+    if (rec?.Status === 'succeeded') {
+      await this.released(op);
+      return (journal.value(op.key) ?? undefined) as WorkflowEvent<T> | undefined;
+    }
+    const startedAt = clock.now();
+    const meta = rec?.Meta ?? waitMeta(op.name, opts, startedAt);
+    if (!rec) {
+      await this.record(op, { status: 'pending', attempt: 1, startedAt, meta });
+      await this.fault('workflow.after-journal', op.key);
+    }
+    const event = await this.consume<T>(op, meta, startedAt);
+    const timeoutAt = meta.timeoutAt ?? null;
+    if (event === undefined && timeoutAt !== null && clock.now() >= timeoutAt) await this.record(op, { status: 'succeeded', attempt: 1, startedAt, finished: true });
+    else if (event === undefined) {
+      this.interrupt({ kind: 'park', park: { status: 'waiting', wakeAt: timeoutAt, waitingFor: op.name } });
+      throw new WorkflowSuspended() as unknown;
+    }
+    await this.gate.live(op.order);
+    return event;
+  }
+
+  /**
+   * Oldest pending event first (insert order); the conditional consume under the fence lets only one activation take an event. A
+   * permissioned wait asks the SignalAuthorizer at consumption time and rejects what it denies (D7).
+   */
+  protected async consume<T>(op: Op, meta: StepMeta, startedAt: number): Promise<WorkflowEvent<T> | undefined> {
+    const pending = await WorkflowEventModel.where({ InstanceId: this.instanceId, Name: op.name, State: 'pending' }).onPrimary().orderBy('Id');
+    for (const e of pending) {
+      if (meta.permission !== undefined && !(await this.authorized(e, meta.permission, meta.resource))) {
+        await this.rejectEvent(e.Id);
+        continue;
+      }
+      const event: WorkflowEvent<T> = { name: e.Name, payload: e.Payload as T, receivedAt: Number(e.ReceivedAt), ...(e.Principal ? { principal: e.Principal } : {}) };
+      const take = async (): Promise<boolean> => (await WorkflowEventModel.update({ State: 'consumed', ConsumedByKey: op.key }).where({ Id: e.Id, State: 'pending' })).RowsAffected === 1;
+      if (await this.record(op, { status: 'succeeded', attempt: 1, startedAt, result: { value: event }, finished: true }, take)) return event;
+    }
+    return undefined;
+  }
+
+  /** An authorizer that fails decides nothing: the event stays pending and a later activation asks again. Only `true` allows. */
+  protected async authorized(e: WorkflowEventModel, permission: string, resource: Record<string, unknown> | undefined): Promise<boolean> {
+    try {
+      const authorizer = await DI.resolve(SignalAuthorizer);
+      return (await authorizer.authorize(e.Principal ?? undefined, permission, resource, { instanceId: this.instanceId, workflow: this.workflow, event: e.Name })) === true;
+    } catch (err) {
+      throw this.journalWriteFailed(err, `the signal authorizer failed for event '${e.Name}'`);
+    }
+  }
+
+  /** Fenced and conditional on 'pending', like a consume. */
+  protected rejectEvent(eventId: number | string): Promise<unknown> {
+    const { store, clock, epoch } = this.init;
+    const reject = async (): Promise<unknown> => await WorkflowEventModel.update({ State: 'rejected' }).where({ Id: eventId, State: 'pending' });
+    return this.enqueueWrite(() => this.guarded(() => store.fenced(this.instanceId, epoch, clock.now(), reject))).catch((err: unknown) => {
+      throw this.journalWriteFailed(err);
+    });
+  }
+
+  /** A blocking operation's journal row, queued behind earlier writes; a failed write is not the operation's failure. */
+  protected record(op: Op, s: Save, claim?: () => Promise<boolean>): Promise<StepRow | null> {
+    return this.enqueueWrite(() => this.saveStep(op, s, claim)).catch((err: unknown) => {
+      throw this.journalWriteFailed(err);
+    });
+  }
+
   protected retryPolicy(own: RetryPolicyOptions | undefined): NormalizedRetry {
     return normalizeRetry(own ?? this.init.definition.options.retry ?? this.init.config.retry, `workflow '${this.workflow}'`);
   }
@@ -433,7 +573,8 @@ export class ActivationContext implements WorkflowContext {
     }
   }
 
-  protected async saveStep(op: Op, s: Save): Promise<StepRow> {
+  /** `claim` runs under the fence before the row: when it returns false nothing is journaled and null comes back. */
+  protected async saveStep(op: Op, s: Save, claim?: () => Promise<boolean>): Promise<StepRow | null> {
     if (this.crashed) throw new WorkflowAborted('crashed');
     if (this.journalFailed) throw new WorkflowAborted('journal-failed');
     await this.fault('workflow.before-journal', op.key);
@@ -443,14 +584,15 @@ export class ActivationContext implements WorkflowContext {
     const kept = s.meta === undefined ? journal.get(op.key)?.Meta : s.meta;
     const row = await this.guarded(() => {
       const now = clock.now();
-      return store.fenced(this.instanceId, epoch, now, () => {
+      return store.fenced(this.instanceId, epoch, now, async () => {
+        if (claim && !(await claim())) return null;
         // Taken under the row lock the fence UPDATE holds until commit, so the order is the commit order.
         const meta: StepMeta = { ...kept, after: op.after, ...(final ? { order: journal.nextOrder() } : {}) };
         op.order = meta.order;
         return store.saveStep(journal.get(op.key), this.stepWrite(op, { ...s, meta }, now));
       });
     });
-    journal.record(row);
+    if (row) journal.record(row);
     return row;
   }
 }
