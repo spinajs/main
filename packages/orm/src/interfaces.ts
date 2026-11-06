@@ -1448,16 +1448,16 @@ export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<
 export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T>, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IQueryBuilder, IBuilder<T> {
   get Relations(): IOrmRelation[];
 
-  min<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, MinMaxValue<Unbox<T>, C>>>>;
+  min<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, MinMaxValue<Unbox<T>, C> | null>>>;
   min(column: ColumnRef<Unbox<T>>, as?: string): this;
-  max<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, MinMaxValue<Unbox<T>, C>>>>;
+  max<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, MinMaxValue<Unbox<T>, C> | null>>>;
   max(column: ColumnRef<Unbox<T>>, as?: string): this;
   // The column stays optional: `count(maybe)` with `maybe: string | undefined` compiled before typed columns.
   count<A extends string = 'count'>(column?: ColumnRef<Unbox<T>>, as?: A): StrictAliasNarrowed<this, T, A, Reproject<Unbox<T>, Record<A, AggregateValue>>>;
   selectCount(column?: ColumnRef<Unbox<T>>, as?: string): Promise<number>;
-  sum<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue>>>;
+  sum<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue | null>>>;
   sum(column: ColumnRef<Unbox<T>>, as?: string): this;
-  avg<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue>>>;
+  avg<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue | null>>>;
   avg(column: ColumnRef<Unbox<T>>, as?: string): this;
   /** `condition` as the boolean column `alias` (`CASE WHEN ... THEN 1 ELSE 0 END`). */
   selectCondition(alias: string, condition: WhereFunction<T>): this;

@@ -46,7 +46,7 @@ Prefer declaring the column on the model when the model owns it.
 
 `populate('Relation')` with a literal relation name narrows the result: a to-one relation has `Populated: true` and a `Value` typed as the related model, and a to-many relation has `Populated: true`. `populate('a.b')` narrows `a`. The callback's `this` is a query on the related model.
 
-How far `Value` narrows depends on how the model declares the relation. A required property (`Team: SingleRelation<Team>`) says the model guarantees the row, so `Value` is `Team`. An optional property (`Owner?: SingleRelation<User>`) allows a missing row, and a missing row leaves `Value` undefined (the LEFT JOIN finds nothing), so `Value` is `User | undefined`.
+How far `Value` narrows depends on how the model declares the relation. A required property (`Team: SingleRelation<Team>`) says the model guarantees the row, so `Value` is `Team`. An optional property (`Owner?: SingleRelation<User>`), or one typed `SingleRelation<User> | undefined` or `| null`, allows a missing row, and a missing row leaves `Value` undefined (the LEFT JOIN finds nothing), so `Value` is `User | undefined`.
 
 ```ts
 const user = await User.where('Id', 1).populate('Team').populate('Owner').first();
@@ -75,11 +75,11 @@ In strict mode the row type follows the select list:
 | `columns(['Id', 'Email'])` | `{ Id, Email }`, replacing earlier selects |
 | `count()`, `count('Id')` | `{ count: AggregateValue }`, replacing the select list |
 | `count('Id', 'total')` | `{ total: AggregateValue }` |
-| `min/max('Id', 'top')` | adds `{ top: <column type> }`; a `DateTime` or `Date` column gives `Date \| string \| number` |
-| `sum/avg('Id', 's')` | adds `{ s: AggregateValue }` |
+| `min/max('Id', 'top')` | adds `{ top: <column type> \| null }`; a `DateTime` or `Date` column gives `Date \| string \| number \| null` |
+| `sum/avg('Id', 's')` | adds `{ s: AggregateValue \| null }` |
 | `select('*')`, `select(raw)`, an aggregate without alias, an alias held in a `string` | unchanged |
 
-`AggregateValue` is `number | string`: postgres returns COUNT, and SUM/AVG of exact numbers, as strings, and no converter runs on an alias. Convert it with `Number(...)` where you need a number. For the same reason `min`/`max` of a date column return the driver's raw value, not a luxon `DateTime`.
+`AggregateValue` is `number | string`: postgres returns COUNT, and SUM/AVG of exact numbers, as strings, and no converter runs on an alias. Convert it with `Number(...)` where you need a number. For the same reason `min`/`max` of a date column return the driver's raw value, not a luxon `DateTime`. `MIN`, `MAX`, `SUM` and `AVG` over zero rows return `NULL`, so their aliases include `null`; `COUNT` never does.
 
 `where`, `orderBy` and the rest keep accepting every column of the model after a projection. Loose mode never narrows a projection, because loose code reads unselected fields of hydrated models.
 

@@ -1,5 +1,5 @@
 import { rel } from '@spinajs/orm';
-import type { AggregateValue, SelectQueryBuilder, ISelectQueryBuilder, IColumnsBuilder } from '@spinajs/orm';
+import type { AggregateValue, MinMaxValue, SelectQueryBuilder, ISelectQueryBuilder, IColumnsBuilder } from '@spinajs/orm';
 import { assertType } from '../assert.js';
 import type { Equal } from '../assert.js';
 import { Team, User } from '../models.js';
@@ -40,13 +40,16 @@ export async function aggregatesStrict(): Promise<void> {
   const plain = await User.query().count().first();
   assertType<Equal<typeof plain.count, AggregateValue>>();
   const extremes = await User.query().max('Id', 'top').min('CreatedAt', 'first').max('Email', 'last').min('IsActive', 'any');
-  assertType<Equal<(typeof extremes)[number]['top'], number>>();
-  assertType<Equal<(typeof extremes)[number]['first'], Date | string | number>>();
-  assertType<Equal<(typeof extremes)[number]['last'], string>>();
-  assertType<Equal<(typeof extremes)[number]['any'], boolean>>();
+  // MIN/MAX/SUM/AVG over zero rows are NULL; COUNT never is
+  assertType<Equal<(typeof extremes)[number]['top'], number | null>>();
+  assertType<Equal<(typeof extremes)[number]['first'], Date | string | number | null>>();
+  assertType<Equal<(typeof extremes)[number]['last'], string | null>>();
+  assertType<Equal<(typeof extremes)[number]['any'], boolean | null>>();
+  assertType<Equal<MinMaxValue<User, 'DeletedAt'>, Date | string | number | null>>();
   const sums = await User.query().select('IsActive').sum('Id', 'ids').avg('Id', 'mean').groupBy('IsActive');
   assertType<Equal<(typeof sums)[number]['IsActive'], boolean>>();
-  assertType<Equal<(typeof sums)[number]['mean'], AggregateValue>>();
+  assertType<Equal<(typeof sums)[number]['mean'], AggregateValue | null>>();
+  assertType<Equal<(typeof sums)[number]['ids'], AggregateValue | null>>();
   assertType<Equal<AggregateValue, number | string>>();
   // @ts-expect-error count() replaces the select list
   void (await User.query().select('Id').count().first()).Id;

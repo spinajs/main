@@ -80,7 +80,7 @@ export type StrictAliasNarrowed<B, T, A extends string, R> = OrmStrict extends t
 /** `count`, `sum` and `avg` under an alias: postgres returns COUNT and SUM/AVG of exact numbers as strings, and no converter runs on an alias. */
 export type AggregateValue = number | string;
 /** `min`/`max` under an alias: no converter runs on it, so a date column comes back in the driver's raw form. */
-export type MinMaxValue<M, C> = ColumnTypeOf<M, C> extends infer V ? (NonNullable<V> extends Date | { toJSDate(): Date } ? Date | string | number : V) : never;
+export type MinMaxValue<M, C> = ColumnTypeOf<M, C> extends infer V ? (NonNullable<V> extends Date | { toJSDate(): Date } ? Date | string | number | Extract<V, null | undefined> : V) : never;
 
 type ProjectionBase<M> = [ProjectionSource<M>] extends [never] ? Projected<M> : M;
 /** Adds `Added` to the projection of `M` (`select` after `select` accumulates). */
@@ -97,7 +97,7 @@ export type Populated<R, Optional = false> = R extends SingleRelation<infer U, a
 export type RelationTarget<M, K> = K extends keyof SourceRow<M> ? (NonNullable<SourceRow<M>[K]> extends SingleRelation<infer U, any> ? U : NonNullable<SourceRow<M>[K]> extends Relation<infer U, any, any> ? U : unknown) : unknown;
 // `populate('a.b')` narrows `a` only; deeper levels keep their declared type.
 export type WithPopulated<M, P extends string> = unknown extends M ? M : M & { [K in Head<P> & keyof SourceRow<M>]-?: Populated<NonNullable<SourceRow<M>[K]>, IsOptional<SourceRow<M>, K>> };
-type IsOptional<M, K extends keyof M> = Partial<Pick<M, K>> extends Pick<M, K> ? true : false;
+type IsOptional<M, K extends keyof M> = Partial<Pick<M, K>> extends Pick<M, K> ? true : [Extract<M[K], null | undefined>] extends [never] ? false : true;
 
 /** A relation name the legacy populate forms accept: any string in loose mode, a known relation in strict mode. */
 export type PopulateName<M> = OrmStrict extends true ? PopulatePath<M> | RelationLiteral : string;

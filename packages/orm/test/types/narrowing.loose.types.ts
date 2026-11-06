@@ -49,5 +49,10 @@ export async function populateLoose(dynamic: string): Promise<void> {
   const owned = await User.query().populate('Owner').first();
   assertType<Equal<typeof owned.Owner.Value, User | undefined>>();
   assertType<Equal<typeof owned.Owner.Populated, true>>();
-  void [withMeta, returned, owned];
+  const unsure = await User.query().populate('Maybe').populate('Nul').first();
+  assertType<Equal<typeof unsure.Maybe.Value, User | undefined>>();
+  assertType<Equal<typeof unsure.Maybe.Populated, true>>();
+  assertType<Equal<typeof unsure.Nul.Value, User | undefined>>();
+  assertType<Equal<typeof unsure.Nul.Populated, true>>();
+  void [withMeta, returned, owned, unsure];
 }

@@ -29,9 +29,7 @@ import { WhereBuilder } from './where.js';
 
 /** A select builder whose row type changed; the model's query scopes stay on it. */
 export type SelectNarrowed<B, T, R> = SelectQueryBuilder<Rebox<T, R>> & ScopesOf<B>;
-/** Class counterpart of StrictNarrowed, so a class-typed chain keeps the class (mergeRelations, mergeStatements, ...). */
-export type StrictSelectNarrowed<B, T, R> = OrmStrict extends true ? SelectNarrowed<B, T, R> : B;
-/** Class counterpart of StrictAliasNarrowed. */
+/** Class counterpart of StrictAliasNarrowed, so a class-typed chain keeps the class (mergeRelations, mergeStatements, ...). */
 export type StrictSelectAliasNarrowed<B, T, A extends string, R> = OrmStrict extends true ? (string extends A ? B : SelectNarrowed<B, T, R>) : B;
 
 export interface SelectQueryBuilder<T> extends ITypedColumnsBuilder<T>, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder { }
@@ -468,14 +466,14 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this;
   }
 
-  public min<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, MinMaxValue<Unbox<T>, C>>>>;
+  public min<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, MinMaxValue<Unbox<T>, C> | null>>>;
   public min(column: ColumnRef<Unbox<T>>, as?: string): this;
   public min(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.MIN, as, this._tableAlias]));
     return this;
   }
 
-  public max<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, MinMaxValue<Unbox<T>, C>>>>;
+  public max<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, MinMaxValue<Unbox<T>, C> | null>>>;
   public max(column: ColumnRef<Unbox<T>>, as?: string): this;
   public max(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.MAX, as, this._tableAlias]));
@@ -504,14 +502,14 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       .then((x) => Number(x?.[a] ?? 0));
   }
 
-  public sum<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue>>>;
+  public sum<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue | null>>>;
   public sum(column: ColumnRef<Unbox<T>>, as?: string): this;
   public sum(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.SUM, as, this._tableAlias]));
     return this;
   }
 
-  public avg<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue>>>;
+  public avg<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue | null>>>;
   public avg(column: ColumnRef<Unbox<T>>, as?: string): this;
   public avg(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.AVG, as, this._tableAlias]));
