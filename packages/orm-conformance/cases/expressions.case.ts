@@ -17,6 +17,12 @@ export const EXPRESSION_CASES = [
     },
   }),
   defineCase({
+    name: 'epoch-millis-driver',
+    seed: BASE,
+    order: 'ordered',
+    run: async ({ driver }) => ({ near: Math.abs((await driver.epochMillis()) - Date.now()) < 5000 }),
+  }),
+  defineCase({
     name: 'concat',
     seed: BASE,
     order: 'unordered',

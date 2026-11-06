@@ -227,6 +227,8 @@ export interface MigrationEntry { id: string; className: string; connection: str
 export interface ScheduleEntry { name: string; className: string; options: Record<string, unknown>; mountedBy?: MountedBy; exported?: NotExported; source: SourceRef }
 export interface CliCommandEntry { name: string; className: string; description?: string; options: { flags: string; description?: string }[]; arguments: { name: string; description?: string }[]; parent?: string; mountedBy?: MountedBy; source: SourceRef }
 export interface QueueMessageEntry { className: string; kind: 'job' | 'event'; payload: TypeRef; options: Record<string, unknown>; source: SourceRef }
+/** A `@Workflow` class. A signal named `'*'` is a `waitForEvent` whose name is not a literal. */
+export interface WorkflowEntry { name: string; version: number; className: string; signals: { name: string; permission?: string }[]; mountedBy?: MountedBy; exported?: NotExported; source: SourceRef }
 
 /** A column of a row type: `ts` is the TypeScript type text without `null`/`undefined`. */
 export interface SqlRowColumn { name: string; ts: string; nullable: boolean }
@@ -266,6 +268,14 @@ export interface SqlDialectProfile {
   avg: Partial<Record<ColumnFamily, string>>;
   /** A comparison, `TRUE` or `FALSE` in a select list. */
   predicates: string;
+  /** Families a live native type (lower case, size dropped) can hold; `migrate-diff` does not compare a type not listed. */
+  nativeTypes?: { [nativeType: string]: ColumnFamily[] };
+  /** Families whose live NOT NULL says nothing about the model. */
+  untrustedNullability?: ColumnFamily[];
+  /** The database compares unquoted identifiers ignoring case, so `migrate-diff` matches table and column names that way. */
+  caseInsensitiveIdentifiers?: boolean;
+  /** A text column's declared length is not enforced (sqlite stores it as TEXT), so re-stating one loses nothing. */
+  unboundedText?: boolean;
 }
 
 /** `drivers`: the `@Injectable` tokens of the class that declares the profile. */
@@ -290,6 +300,8 @@ export interface ManifestFragment {
   classProperties?: ClassPropertiesEntry[];
   configModules: ConfigModuleEntry[]; configUsages: ConfigUsageEntry[];
   models: ModelEntry[]; migrations: MigrationEntry[]; schedules: ScheduleEntry[]; commands: CliCommandEntry[]; queueMessages: QueueMessageEntry[];
+  /** Omitted when there are none. */
+  workflows?: WorkflowEntry[];
   /** Omitted when there are none; only an app built with its dirs has any. */
   scanFiles?: ScanFile[];
   /** Omitted when the package has no `sql` template. */

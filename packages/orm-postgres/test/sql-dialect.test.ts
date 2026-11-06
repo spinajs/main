@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { sqlDialectOf } from '@spinajs/orm';
+import { familiesOf, sqlDialectOf } from '@spinajs/orm';
 import { POSTGRES_SQL_DIALECT, PostgresOrmDriver, toDriverStatement } from '../src/index.js';
 
 describe('postgres SQL dialect profile', function () {
@@ -23,5 +23,15 @@ describe('postgres SQL dialect profile', function () {
   it('sends ? as $n and keeps the jsonb operators, as the dollar style says', () => {
     expect(POSTGRES_SQL_DIALECT.placeholders).to.equal('dollar');
     expect(toDriverStatement('SELECT a FROM t WHERE a = ? AND b ?| ?', [1, 2])).to.equal('SELECT a FROM t WHERE a = $1 AND b ?| $2');
+  });
+
+  it('maps the native types tableInfo() reports to column families', () => {
+    expect(familiesOf('VARCHAR(255)', POSTGRES_SQL_DIALECT)).to.deep.equal(['text', 'enum']);
+    expect(familiesOf('int4', POSTGRES_SQL_DIALECT)).to.deep.equal(['integer']);
+  });
+
+  it('declares how migrate-diff compares names and text lengths', () => {
+    expect(POSTGRES_SQL_DIALECT.caseInsensitiveIdentifiers).to.equal(undefined);
+    expect(POSTGRES_SQL_DIALECT.unboundedText).to.equal(undefined);
   });
 });

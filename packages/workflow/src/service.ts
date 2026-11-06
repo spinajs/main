@@ -1,13 +1,16 @@
 import { Autoinject, DI, Injectable, Singleton, type Constructor } from '@spinajs/di';
 import { DbClock } from '@spinajs/durable';
-import { InvalidArgument, NotSupported } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { UniqueViolation } from '@spinajs/orm';
 import { v4 as uuidv4 } from 'uuid';
-import type { StartOptions, WorkflowInstanceView, WorkflowStatus } from './contract.js';
-import { WorkflowIdConflict, WorkflowStartConflict } from './errors.js';
-import { identifierProblem } from './identifier.js';
+import { isTerminal, type SerializedError, type StartOptions, type WorkflowInstanceView, type WorkflowStatus } from './contract.js';
+import { WorkflowIdConflict, WorkflowNotFound, WorkflowStartConflict } from './errors.js';
+import { missingVersions } from './health.js';
+import { eventNameProblem, identifierProblem } from './identifier.js';
 import { safeStringify } from './json.js';
+import { WorkflowEventModel } from './models/WorkflowEventModel.js';
 import { WorkflowInstanceModel } from './models/WorkflowInstanceModel.js';
+import { WorkflowStepModel } from './models/WorkflowStepModel.js';
 import { WorkflowRegistry, type WorkflowDefinition } from './registry.js';
 import { workflowDriver } from './sql.js';
 
@@ -35,7 +38,7 @@ export abstract class WorkflowService {
   public abstract start<TInput>(workflow: string | Constructor<WorkflowDefinition<TInput>>, input: TInput, opts?: StartOptions): Promise<{ id: string; created: boolean }>;
   public abstract signal(instanceId: string, name: string, payload: unknown, opts?: SignalOptions): Promise<{ accepted: boolean }>;
   public abstract cancel(instanceId: string, reason?: string): Promise<void>;
-  /** failed → running, from the failed step. */
+  /** failed → running from the failed step; compensation-failed → compensating from the failed compensation, keeping the failure it undoes. */
   public abstract retry(instanceId: string): Promise<void>;
   public abstract get(instanceId: string): Promise<WorkflowInstanceView | undefined>;
   public abstract list(filter: ListFilter): Promise<WorkflowInstanceView[]>;
@@ -63,12 +66,38 @@ export function toView(r: WorkflowInstanceModel): WorkflowInstanceView {
 }
 
 const MAX_ID = 128;
+const MAX_SIGNAL_NAME = 128;
+const MAX_DEDUP_KEY = 128;
+const MAX_PRINCIPAL = 200;
+const MAX_REASON = 64;
+const CANCELLABLE: WorkflowStatus[] = ['running', 'sleeping', 'waiting'];
+const MAX_PAGE = 500;
+const DEFAULT_PAGE = 50;
+const RETRIED_KINDS = new Set(['step', 'emit']);
 
-function inputColumn(input: unknown): string | null {
-  if (input === null || input === undefined) return null;
-  const text = safeStringify(input);
-  if (text === undefined) throw new InvalidArgument('workflow input must be representable as JSON');
+/**
+ * Failed step and emit rows that no later recorded call saw. A failure the workflow caught and handled was delivered
+ * before a recorded call was made (`Meta.after >= order`); it stays failed and replays as the recorded rejection.
+ */
+function unobservedFailures(rows: WorkflowStepModel[]): WorkflowStepModel[] {
+  const seen = rows.reduce((max, r) => (r.Kind === 'compensate' ? max : Math.max(max, r.Meta?.after ?? -1)), -1);
+  return rows.filter((r) => r.Status === 'failed' && RETRIED_KINDS.has(r.Kind) && !(r.Meta?.order !== undefined && seen >= r.Meta.order));
+}
+
+function jsonText(value: unknown, what: string): string | null {
+  if (value === null || value === undefined) return null;
+  const text = safeStringify(value);
+  if (text === undefined) throw new InvalidArgument(`${what} must be representable as JSON`);
   return text;
+}
+
+function checkSignal(name: string, opts: SignalOptions): void {
+  const problem = identifierProblem(name, MAX_SIGNAL_NAME) ?? eventNameProblem(name);
+  if (problem) throw new InvalidArgument(`signal name ${problem}`);
+  const dedup = opts.dedupKey === undefined ? undefined : identifierProblem(opts.dedupKey, MAX_DEDUP_KEY);
+  if (dedup) throw new InvalidArgument(`signal dedupKey ${dedup}`);
+  // UTF-16 units, never fewer than the code points varchar(200) counts
+  if (opts.principal !== undefined && opts.principal.length > MAX_PRINCIPAL) throw new InvalidArgument(`signal principal must be at most ${MAX_PRINCIPAL} characters`);
 }
 
 @Singleton()
@@ -84,7 +113,7 @@ export class DefaultWorkflowService extends WorkflowService {
     const id = opts.id ?? uuidv4();
     const problem = identifierProblem(id, MAX_ID);
     if (problem) throw new InvalidArgument(`workflow instance id ${problem}`);
-    const inputText = inputColumn(input);
+    const inputText = jsonText(input, 'workflow input');
     const now = await this.now();
     const driver = await workflowDriver();
     try {
@@ -125,24 +154,104 @@ export class DefaultWorkflowService extends WorkflowService {
     return row ? toView(row) : undefined;
   }
 
-  public signal(): Promise<{ accepted: boolean }> {
-    return Promise.reject(new NotSupported('WorkflowService.signal()'));
+  /** D7: buffered until a wait consumes it; the conditional flip wakes an instance that waits for exactly this name. */
+  public async signal(instanceId: string, name: string, payload: unknown, opts: SignalOptions = {}): Promise<{ accepted: boolean }> {
+    checkSignal(name, opts);
+    const payloadText = jsonText(payload, 'signal payload');
+    // an empty principal is no principal: the authorizer sees `undefined` either way
+    const principal = opts.principal === undefined || opts.principal === '' ? null : opts.principal;
+    const now = await this.now();
+    const driver = await workflowDriver();
+    return driver.transaction(async () => {
+      const status = await this.lockedStatus(instanceId);
+      if (status === undefined) throw new WorkflowNotFound(instanceId);
+      if (isTerminal(status)) return { accepted: false };
+      try {
+        // a savepoint: on Postgres a failed INSERT would abort the whole transaction
+        await driver.transaction(() =>
+          WorkflowEventModel.create({
+            InstanceId: instanceId,
+            Name: name,
+            Payload: payloadText,
+            Principal: principal,
+            DedupKey: opts.dedupKey ?? null,
+            State: 'pending',
+            ConsumedByKey: null,
+            ReceivedAt: now,
+          }),
+        );
+      } catch (err) {
+        if (opts.dedupKey !== undefined && (await WorkflowEventModel.where({ InstanceId: instanceId, DedupKey: opts.dedupKey }).onPrimary().first())) return { accepted: false };
+        throw err;
+      }
+      const wake = { Status: 'running' as const, WakeAt: null, WaitingFor: null, UpdatedAt: now };
+      const r = await WorkflowInstanceModel.update(wake).where({ Id: instanceId, Status: 'waiting', WaitingFor: name });
+      if (r.RowsAffected === 0 && (await this.waitPending(instanceId, name))) await WorkflowInstanceModel.update(wake).where({ Id: instanceId, Status: 'waiting', WaitingFor: '*' });
+      return { accepted: true };
+    });
   }
 
-  public cancel(): Promise<void> {
-    return Promise.reject(new NotSupported('WorkflowService.cancel()'));
+  /** WakeAt = now makes a parked instance due at once; a compensating or finished instance is left alone. */
+  public async cancel(instanceId: string, reason = 'cancelled'): Promise<void> {
+    const now = await this.now();
+    // varchar(64) counts code points; cutting UTF-16 units could leave a lone surrogate, which has no UTF-8 encoding
+    const stored = Array.from(reason).slice(0, MAX_REASON).join('');
+    const r = await WorkflowInstanceModel.update({ CancelRequested: true, Reason: stored, WakeAt: now, UpdatedAt: now })
+      .where('Id', instanceId)
+      .whereIn('Status', CANCELLABLE);
+    if (r.RowsAffected === 1) return;
+    if (!(await WorkflowInstanceModel.where('Id', instanceId).onPrimary().first())) throw new WorkflowNotFound(instanceId);
   }
 
-  public retry(): Promise<void> {
-    return Promise.reject(new NotSupported('WorkflowService.retry()'));
+  public async retry(instanceId: string): Promise<void> {
+    const row = await WorkflowInstanceModel.where('Id', instanceId).onPrimary().first();
+    if (!row) throw new WorkflowNotFound(instanceId);
+    if (row.Status !== 'failed') throw new InvalidOperation(`workflow instance '${instanceId}' is ${row.Status}; only a failed instance can be retried`);
+    if (row.Reason === 'timeout') throw new InvalidOperation(`workflow instance '${instanceId}' passed its deadline; a retry would fail it again at once`);
+    const now = await this.now();
+    const driver = await workflowDriver();
+    const compensation = row.Reason === 'compensation-failed';
+    const details = (row.Error?.details ?? {}) as { original?: SerializedError | null; originalReason?: string | null };
+    // a failed pass resumes with the failure it compensates for; CancelRequested still tells it to end cancelled
+    const patch: Partial<WorkflowInstanceModel> = compensation
+      ? { Status: 'compensating', Reason: details.originalReason ?? null, Error: details.original ?? null }
+      : { Status: 'running', Reason: null, Error: null, CancelRequested: false };
+    await driver.transaction(async () => {
+      const r = await WorkflowInstanceModel.update({ ...patch, WakeAt: null, WaitingFor: null, FinishedAt: null, UpdatedAt: now }).where({ Id: instanceId, Status: 'failed' });
+      if (r.RowsAffected !== 1) throw new InvalidOperation(`workflow instance '${instanceId}' changed while it was being retried`);
+      const rows = await WorkflowStepModel.where('InstanceId', instanceId);
+      // a retried pass leaves the step failure it undoes alone
+      for (const step of compensation ? rows.filter((s) => s.Kind === 'compensate' && s.Status === 'failed') : unobservedFailures(rows)) {
+        // a fresh attempt budget and no stale backoff; Meta.after keeps the journal causal for the replay
+        const after = step.Meta?.after;
+        await WorkflowStepModel.update({ Status: 'retrying', Attempt: 0, Meta: after === undefined ? null : { after } }).where('Id', step.Id);
+      }
+    });
   }
 
-  public list(): Promise<WorkflowInstanceView[]> {
-    return Promise.reject(new NotSupported('WorkflowService.list()'));
+  public async list(filter: ListFilter): Promise<WorkflowInstanceView[]> {
+    const query = WorkflowInstanceModel.query();
+    if (filter.workflow !== undefined) query.where('Workflow', filter.workflow);
+    if (filter.status?.length) query.whereIn('Status', filter.status);
+    if (filter.after !== undefined) query.where('Id', '>', filter.after);
+    const limit = Number.isFinite(filter.limit) ? Math.floor(filter.limit!) : DEFAULT_PAGE;
+    const rows = await query.orderBy('Id').take(Math.min(Math.max(limit, 1), MAX_PAGE));
+    return rows.map(toView);
   }
 
-  public health(): Promise<{ missingVersions: MissingVersion[] }> {
-    return Promise.reject(new NotSupported('WorkflowService.health()'));
+  public async health(): Promise<{ missingVersions: MissingVersion[] }> {
+    return { missingVersions: await missingVersions(await this.registry()) };
+  }
+
+  /** `'*'` parks wait for several names; only a pending wait of this name may wake one (keys `wait:<name>#n`). */
+  protected async waitPending(instanceId: string, name: string): Promise<boolean> {
+    const row = await WorkflowStepModel.where({ InstanceId: instanceId, Kind: 'wait', Status: 'pending' }).where('Key', '>=', `wait:${name}#`).where('Key', '<', `wait:${name}$`).onPrimary().first();
+    return row !== undefined;
+  }
+
+  /** Locked until the signal commits, so it is ordered against the activation's fenced status write. */
+  protected async lockedStatus(id: string): Promise<WorkflowStatus | undefined> {
+    return (await WorkflowInstanceModel.where('Id', id).forUpdate().first())?.Status;
   }
 
   /**
