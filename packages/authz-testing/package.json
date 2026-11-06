@@ -51,11 +51,13 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
     "@spinajs/authz": "3.0.23",
+    "@spinajs/authz-ir": "3.0.23",
     "@spinajs/configuration": "3.0.23",
     "@spinajs/di": "3.0.23",
     "@spinajs/log-common": "3.0.23",
     "@spinajs/util": "3.0.23",
-    "fast-check": "^4.10.2"
+    "fast-check": "^4.10.2",
+    "js-yaml": "^4.1.0"
   },
   "devDependencies": {
     "@spinajs/authn": "3.0.23",

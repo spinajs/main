@@ -91,7 +91,8 @@ export abstract class BaseController extends AsyncService implements IController
   public async resolve() {
     await super.resolve();
 
-    if (!this.Descriptor) {
+    const descriptor = this.Descriptor;
+    if (!descriptor) {
       this._log.warn({ controller: this.constructor.name }, 'Controller ${controller} does not have descriptor. If its abstract or base class ignore this message.');
       return;
     }
@@ -101,41 +102,47 @@ export abstract class BaseController extends AsyncService implements IController
     const configErrorHandlers = await resolveConfigErrorHandlers(this._cfg, this._container);
     const controller = this.constructor.name;
     const lineage = classLineage(this.constructor, ownSourceFile);
-    this._routes = await routesWithRuntimeTypes({ container: this._container, controller, lineage, routes: this.Descriptor.Routes, mountPath: () => this.BasePath, log: this._log });
+    this._routes = await routesWithRuntimeTypes({ container: this._container, controller, lineage, routes: descriptor.Routes, mountPath: () => this.BasePath, log: this._log });
+
+    const prefix = this._cfg.get<string>('http.controllers.route.prefix');
+    // Read at the first route: a controller with no routes never reads its configured path, and an unknown route type still fails first.
+    let basePath: string | undefined;
+    let handleError: Express.ErrorRequestHandler | undefined;
 
     for (const [, route] of this._routes) {
       // Fail fast: an unknown route type means the route decorator never set a
       // valid express method — mounting the rest of the controller while
       // silently dropping this route would hide the bug.
       if (route.InternalType === 'unknown') {
-        throw new RouteRegistrationException(`Unknown route type for ${this.constructor.name}::${String(route.Method)}`);
+        throw new RouteRegistrationException(`Unknown route type for ${controller}::${String(route.Method)}`);
       }
 
-      const path = buildRoutePath(this.BasePath, route, this._cfg.get('http.controllers.route.prefix'));
+      basePath ??= this.BasePath;
+      const path = buildRoutePath(basePath, route, prefix);
 
-      const middlewares = await resolveRouteMiddlewares(this.Descriptor, route, this._container);
-      const policies = await resolveRoutePolicies(this.Descriptor, route, this._container, this._cfg, this._log, this.constructor.name, path);
+      const middlewares = await resolveRouteMiddlewares(descriptor, route, this._container);
+      const policies = await resolveRoutePolicies(descriptor, route, this._container, this._cfg, this._log, controller, path);
       const enabledMiddlewares = middlewares.filter((m) => m.isEnabled(route, this));
 
-      this._log.trace({ httpMethod: route.Type.toUpperCase(), controller: this.constructor.name, method: route.Method, path }, 'Registering route ${httpMethod} ${controller}::${method} at ${path}');
+      this._log.trace({ httpMethod: route.Type.toUpperCase(), controller, method: route.Method, path }, 'Registering route ${httpMethod} ${controller}::${method} at ${path}');
 
-      const errorHandlers = [...(route.ErrorHandlers ?? []), ...(this.Descriptor.ErrorHandlers ?? []), ...configErrorHandlers];
-      const derived = derivedValidatorsOf({ container: this._container, controller, lineage, route, mountPath: this.BasePath, log: this._log });
+      const errorHandlers = [...(route.ErrorHandlers ?? []), ...(descriptor.ErrorHandlers ?? []), ...configErrorHandlers];
+      const derived = derivedValidatorsOf({ container: this._container, controller, lineage, route, mountPath: basePath, log: this._log });
 
       const idempotency = await createRouteIdempotencyGate(route, path, this._container, this._log);
 
       const handlers: (Express.RequestHandler | Express.ErrorRequestHandler)[] = [
-        createPolicyGate(policies, route, this, this._log),
+        createPolicyGate(policies, route, this, this._log, basePath),
         ...(idempotency ? [idempotency] : []),
         ...enabledMiddlewares.map((m) => wrapMiddlewareAction(m, m.onBefore.bind(m), route, this, 'middleware')),
         createActionHandler(this as ControllerActionHost, route, enabledMiddlewares, this._actionLocalStorage, derived),
         ...enabledMiddlewares.map((m) => wrapMiddlewareAction(m, m.onAfter.bind(m), route, this, 'after')),
         ...(idempotency ? [recordIdempotentRouteError] : []),
         createOnErrorHandler(errorHandlers, route, this, this._container, this._log),
-        __handle_response__(this._container, { controller: this.constructor.name, handler: String(route.Method) }),
+        __handle_response__(this._container, { controller, handler: String(route.Method) }),
         // again: a crash raised by the response or by an error handler skips the first recorder
         ...(idempotency ? [recordIdempotentRouteError] : []),
-        __handle_error__(this._container),
+        (handleError ??= __handle_error__(this._container)),
       ];
 
       (this._router as any)[route.InternalType as string](path, handlers);

@@ -387,6 +387,24 @@ describe('app-basic boots from its manifest', function () {
     expect(explainRequired.socketCommands).to.include('bound.ping');
   });
 
+  it('serves a route the controller inherits from an abstract generic base', () => {
+    expect(required.responses.article).to.deep.equal({ status: 200, body: { id: 7, title: 'article 7' } });
+    expect(discovered.responses.article).to.deep.equal(required.responses.article);
+  });
+
+  it('validates an inherited route body against the type the subclass binds', () => {
+    expect(required.validation.articleInvalid.status).to.equal(400);
+    const [first] = (required.validation.articleInvalid.body as { errors: Record<string, unknown>[] }).errors;
+    expect(first).to.include({ instancePath: '/title', keyword: 'type' });
+    // the unbound base schema rejected every non-empty body, so only a passing valid body proves the bound type
+    expect(required.validation.articleValid).to.deep.equal({ status: 200, body: { id: 2, title: 'news' } });
+  });
+
+  it('lists the inherited routes on the concrete controller of the manifest it booted from', () => {
+    const articles = manifest.controllers.find((c) => c.className === 'ArticlesController')!;
+    expect(articles.routes.map((r) => r.fullPath)).to.deep.equal(['/articles/:id', '/articles/add']);
+  });
+
   it('lists no abstract controller base', () => {
     expect(required.controllers).to.not.include.members(['UploadController']);
     expect(required.controllers.filter((c) => /Base$/.test(c))).to.deep.equal([]);

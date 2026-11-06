@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { createProgramFromTsconfig, createContext, extractControllers } from '../../src/index.js';
 import { duplicateRoute } from '../../src/doctor/rules/duplicate-route.js';
-import { fixture, controller, route, src } from './fixture.js';
+import { fixture, controller, route, service, src } from './fixture.js';
 
 const ctx = { cwd: '/fixture', fileExists: () => true, fragmentMtime: () => undefined, libMtime: () => undefined };
 
@@ -53,5 +53,25 @@ describe('HTTP001 duplicate-route', () => {
     expect(duplicateRoute.run(m, ctx)).to.deep.equal([
       { code: 'HTTP001', severity: 'error', message: 'Duplicate route GET /users/list: Users.list and Users.all', source: src('src/users.ts', 9) },
     ]);
+  });
+  describe('a subclass that inherits the routes of the controller it is registered over', () => {
+    const pkg = controller({ id: '@x/users:ProfilesController', className: 'ProfilesController', basePath: 'profiles', source: src('src/profiles.ts', 1, '@x/users'), routes: [route({ handler: 'get', fullPath: '/profiles/:id', source: src('src/profiles.ts', 8, '@x/users') })] });
+    const app = controller({ className: 'AppProfilesController', basePath: 'profiles', bases: ['@x/users:ProfilesController'], source: src('src/controllers/profiles.ts', 4), routes: [route({ handler: 'get', fullPath: '/profiles/:id', inheritedFrom: '@x/users:ProfilesController', source: src('src/profiles.ts', 8, '@x/users') })] });
+
+    it('is no duplicate: the runtime mounts only the subclass', () => {
+      const m = fixture({ controllers: [pkg, app], services: [service({ className: 'AppProfilesController', registeredAs: ['ProfilesController'] })] });
+      expect(duplicateRoute.run(m, ctx)).to.deep.equal([]);
+    });
+
+    it('is a duplicate when the subclass is not registered over the base', () => {
+      expect(duplicateRoute.run(fixture({ controllers: [pkg, app] }), ctx)).to.deep.equal([
+        {
+          code: 'HTTP001',
+          severity: 'error',
+          message: 'Duplicate route GET /profiles/:id: ProfilesController.get and AppProfilesController.get (inherited from @x/users:ProfilesController)',
+          source: src('src/controllers/profiles.ts', 4),
+        },
+      ]);
+    });
   });
 });

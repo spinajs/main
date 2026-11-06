@@ -7,6 +7,10 @@ import { fixture, controller, route, src } from './fixture.js';
 
 const ctx = { cwd: '/fixture', fileExists: () => true, fragmentMtime: () => undefined, libMtime: () => undefined };
 
+const BASE = 'app:BaseCrud';
+const inBase = src('src/crud/base-crud.ts', 10);
+const articles = src('src/controllers/articles.ts', 2);
+
 const body = (name: string, schema: string | undefined, wire: ParamEntry['wire']): ParamEntry => ({ index: 0, name, kind: 'FromBody', runtimeType: { text: 'Dto', ...(schema ? { schema } : {}) }, required: true, ...(wire ? { wire } : {}) });
 
 describe('HTTP003 double-slash-path', () => {
@@ -18,6 +22,13 @@ describe('HTTP003 double-slash-path', () => {
       ['HTTP003', 'warning', "RootController.bare is mounted at ///bare, not /bare: @spinajs/http keeps the slashes of @BasePath and the route path as written. Under @BasePath('/'), give the route an explicit path."],
       ['HTTP003', 'warning', "LeadingSlashBaseController.x is mounted at //lead/x, not /lead/x: @spinajs/http keeps the slashes of @BasePath and the route path as written. Remove the outer slashes from @BasePath ('/lead')."],
     ]);
+  });
+
+  it('reports an inherited route at the subclass, naming the base', () => {
+    const m = fixture({ controllers: [controller({ className: 'Articles', basePath: 'articles', source: articles, routes: [route({ handler: 'list', path: '/list', fullPath: '/articles//list', inheritedFrom: BASE, source: inBase })] })] });
+    const [d] = doubleSlashPath.run(m, ctx);
+    expect(d.message).to.match(/^Articles\.list \(inherited from app:BaseCrud\) is mounted at \/articles\/\/list/);
+    expect(d.source).to.deep.equal(articles);
   });
 
   it('leaves clean paths alone', () => {
@@ -62,6 +73,21 @@ describe('HTTP004 shadowed-route', () => {
     ]);
   });
 
+  it('reports an inherited route at the subclass, naming the base', () => {
+    const m = fixture({
+      controllers: [controller({ className: 'Articles', source: articles, routes: [route({ handler: 'get', fullPath: '/articles/:id', inheritedFrom: BASE, source: inBase }), route({ handler: 'stats', fullPath: '/articles/stats', inheritedFrom: BASE, source: inBase })] })],
+    });
+    expect(shadowedRoute.run(m, ctx)).to.deep.equal([
+      {
+        code: 'HTTP004',
+        severity: 'warning',
+        message:
+          'Articles.stats (inherited from app:BaseCrud) (GET /articles/stats) is never reached: Articles.get (inherited from app:BaseCrud) (/articles/:id) is declared first and matches the same requests. Declare Articles.stats (inherited from app:BaseCrud) first.',
+        source: articles,
+      },
+    ]);
+  });
+
   it('accepts the literal route first, other segment counts and other controllers', () => {
     const m = fixture({
       controllers: [
@@ -102,6 +128,13 @@ describe('HTTP005 ambiguous-body', () => {
     expect(ambiguousBody.run(m, ctx).map((d) => d.message)).to.deep.equal([
       "Mail.model binds @AsModel() email to the whole body, but Dto has a property 'email': a body carrying it binds body.email instead. Rename the parameter.",
     ]);
+  });
+
+  it('reports an inherited route at the subclass, naming the base', () => {
+    const m = fixture({ schemas, controllers: [controller({ className: 'Articles', source: articles, routes: [route({ handler: 'send', inheritedFrom: BASE, params: [body('email', 'spinajs/app/EmailDto', { in: 'body', shape: 'whole' })], source: inBase })] })] });
+    const [d] = ambiguousBody.run(m, ctx);
+    expect(d.message).to.match(/^Articles\.send \(inherited from app:BaseCrud\) binds @Body\(\) email/);
+    expect(d.source).to.deep.equal(articles);
   });
 
   it('accepts other names, field bodies and bodies without a schema', () => {

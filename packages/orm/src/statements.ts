@@ -1,10 +1,11 @@
-import { IJoinStatementOptions } from './interfaces.js';
+import type { IJoinStatementOptions } from './interfaces.js';
 import type { SelectQueryBuilder, WhereBuilder, RawQuery, QueryBuilder } from './builders.js';
 import { ColumnMethods, SqlOperator, WhereBoolean } from './enums.js';
-import { NewInstance, Container, Class, Constructor, Inject, IContainer } from '@spinajs/di';
+import { NewInstance, Container, Inject } from '@spinajs/di';
+import type { Class, Constructor, IContainer } from '@spinajs/di';
 import _ from 'lodash';
-import { IColumnDescriptor } from './interfaces.js';
-import { ModelBase } from './model.js';
+import type { IColumnDescriptor } from './interfaces.js';
+import type { ModelBase } from './model.js';
 import { Lazy } from '@spinajs/util';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { extractModelDescriptor } from './descriptor.js';
