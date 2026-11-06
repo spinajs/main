@@ -2,7 +2,8 @@ import { Log } from '@spinajs/log-common';
 /* eslint-disable prettier/prettier */
 import { IColumnDescriptor, IDriverOptions, IPoolOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ModelToSqlConverter, NowExpression, ObjectToSqlConverter } from './interfaces.js';
 import { SyncService, IContainer, DI, Container, Autoinject } from '@spinajs/di';
-import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TruncateTableQueryBuilder, Builder, RawQuery } from './builders.js';
+import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TruncateTableQueryBuilder, Builder, RawQuery, SessionSettingsQueryBuilder } from './builders.js';
+import { ConnectionSessionSettings, SessionSettings } from './session-settings.js';
 import { Int64ValueConverter, JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, UniversalValueConverter, UuidConverter } from './converters.js';
 import { InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import { OrmException } from './exceptions.js';
@@ -528,13 +529,45 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
       }
     }
 
-    const run = () => this._runOutermost(cb, options);
+    return this._outermost(cb, options);
+  }
+
+  private async _outermost<R>(cb: TransactionCallback<R>, options?: ITransactionOptions, settings?: SessionSettings): Promise<R> {
+    const run = () => this._runOutermost(cb, options, settings);
     // The queue slot is released before the afterCommit callbacks run, so a callback can open a
     // transaction of its own instead of waiting for the slot its own transaction still holds.
     const { result, afterCommit } = this.supportedFeatures().concurrentTransactions === false ? await this._enqueueOutermost(run) : await run();
 
     await this._runAfterCommit(afterCommit);
     return result;
+  }
+
+  /** The merged {@link ConnectionSessionSettings} of the current async path, later providers winning; `undefined` when none apply. */
+  protected sessionSettings(): Promise<SessionSettings | undefined> {
+    return this._mergeSessionSettings(this._sessionSettingsProviders());
+  }
+
+  private _sessionSettingsProviders(): ConnectionSessionSettings[] {
+    // Drivers built outside DI (test doubles) have no container until resolve() runs.
+    return this.Container?.resolve(Array.ofType(ConnectionSessionSettings)) ?? [];
+  }
+
+  private async _mergeSessionSettings(providers: readonly ConnectionSessionSettings[]): Promise<SessionSettings | undefined> {
+    const merged: Record<string, string> = {};
+    for (const p of providers) Object.assign(merged, (await p.settings(this)) ?? {});
+    return Object.keys(merged).length === 0 ? undefined : merged;
+  }
+
+  /**
+   * Drivers route every statement through this. Outside a transaction, statements that carry session settings run in a
+   * transaction of their own: the settings are transaction-local, so they never stay on a pooled connection.
+   * Without providers `run` starts synchronously, so a driver's own statement ordering is unchanged.
+   */
+  protected withSessionSettings<R>(run: () => Promise<R>): Promise<R> {
+    if (this.TransactionStorage.getStore() !== undefined) return run();
+    const providers = this._sessionSettingsProviders();
+    if (providers.length === 0) return run();
+    return this._mergeSessionSettings(providers).then((settings) => (settings === undefined ? run() : this._outermost(run, undefined, settings)));
   }
 
   private _outermostQueue: Promise<unknown> = Promise.resolve();
@@ -545,13 +578,22 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
     return turn;
   }
 
-  private async _runOutermost<R>(cb: TransactionCallback<R>, options?: ITransactionOptions): Promise<{ result: R; afterCommit: (() => void | Promise<void>)[] }> {
+  private async _runOutermost<R>(cb: TransactionCallback<R>, options?: ITransactionOptions, known?: SessionSettings): Promise<{ result: R; afterCommit: (() => void | Promise<void>)[] }> {
+    // Computed before BEGIN: a provider may run queries of its own, which must not wait for this transaction's connection.
+    const settings = known ?? (await this.sessionSettings());
+    const apply = settings === undefined ? undefined : this.Container.resolve(SessionSettingsQueryBuilder, [this, settings]);
+    // A dialect without session settings throws here, before a transaction is opened for nothing.
+    apply?.toDB();
+
     const ctx = await this._begin(options);
     ctx.depth = 0;
 
     let result: R;
     try {
-      result = await this.TransactionStorage.run(ctx, () => cb(this));
+      result = await this.TransactionStorage.run(ctx, async () => {
+        if (apply !== undefined) await this.execute(apply);
+        return cb(this);
+      });
       await this._commit(ctx);
     } catch (err) {
       // swallow a rollback failure so it cannot mask whatever actually went wrong
