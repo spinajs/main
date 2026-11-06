@@ -260,6 +260,14 @@ describe('inherited routes', () => {
     expect(okSchema(doc.paths!['/tags/{id}']!.get)).to.include('"#/components/schemas/TagDto"');
   });
 
+  it('documents a class @Access of the subclass on an inherited operation', () => {
+    const sub = entry('app:ArticlesController', 'ArticlesController', 'articles', [getById('/articles/:id', 'spinajs/app/ArticleDto', 'app:BaseCrud')], ['app:BaseCrud']);
+    const doc = manifestToOpenApi(withControllers([{ ...sub, access: ['article:read'] }]), options);
+    const op = doc.paths!['/articles/{id}']!.get! as Record<string, unknown>;
+    expect(op['x-authz-permission']).to.deep.equal(['article:read']);
+    expect(op['x-authz-resource']).to.deep.equal({ type: 'article' });
+  });
+
   it('documents only the subclass of a controller it is registered over', () => {
     const pkg = entry('@x/users:ProfilesController', 'ProfilesController', 'profiles', [getById('/profiles/:id', 'spinajs/app/ProfileDto')]);
     const app = entry('app:AppProfilesController', 'AppProfilesController', 'profiles', [getById('/profiles/:id', 'spinajs/app/ProfileDto', '@x/users:ProfilesController')], ['@x/users:ProfilesController']);
