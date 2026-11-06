@@ -6,7 +6,7 @@ import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
 import { ResolveType } from './enums.js';
 import { getTypeName, isAsyncService, isChainArray, isFactory, isTypedArray, isPromise } from './helpers.js';
 import { isToken, Token } from './token.js';
-import { ChildOptions, ContainerCacheStats, ContainerSnapshot, IBind, IContainer, IDisposeOptions, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service, ResolveChainResult } from './interfaces.js';
+import { ChildOptions, ContainerCacheStats, ContainerDescription, ContainerSnapshot, IBind, IContainer, IDisposeOptions, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service, ResolveChainResult } from './interfaces.js';
 import { Class, Factory, ResolveResult } from './types.js';
 import { EventEmitter } from './events.js';
 import { Binder } from './binder.js';
@@ -15,6 +15,7 @@ import { ContainerCache } from './container-cache.js';
 import _ from 'lodash';
 import { ResolveException, RestoreIncomplete, ServiceNotFound } from './exceptions.js';
 import { noteBoundSingle, PROPERTY_TYPE_RESOLVER } from './property-type.js';
+import { describeContainer } from './describe.js';
 
 const MAX_RESTORE_GENERATIONS = 5;
 // restore() gives up on resolutions that keep starting ( a poller, a reconnect loop ) after these. Counts, not a time
@@ -1080,7 +1081,7 @@ export class Container extends EventEmitter implements IContainer {
     }
   }
 
-  public extractDescriptor(type: Class<unknown>) {
+  public extractDescriptor(type: Class<unknown>, options?: { record?: boolean }) {
     const descriptor: IInjectDescriptor<unknown> = {
       inject: [],
       resolver: ResolveType.Singleton,
@@ -1130,14 +1131,22 @@ export class Container extends EventEmitter implements IContainer {
     // and add them first
     const constructorInject = descriptor.inject.filter((x) => x.autoinjectKey === '');
     const rest = descriptor.inject.filter((x) => x.autoinjectKey !== '');
-    descriptor.inject = [...constructorInject, ...uniqueBy(rest, (x) => x.autoinjectKey)].map((x) => (x.pendingType ? this.pendingInjection(x, pendingOwners.get(x)!) : x));
+    descriptor.inject = [...constructorInject, ...uniqueBy(rest, (x) => x.autoinjectKey)].map((x) => (x.pendingType ? this.pendingInjection(x, pendingOwners.get(x)!, options?.record !== false) : x));
 
     return descriptor;
   }
 
+  public describe(): ContainerDescription {
+    return describeContainer(this);
+  }
+
   /** A property whose type the build did not record: typed by the registered {@link PROPERTY_TYPE_RESOLVER}, else unresolvable. */
-  private pendingInjection(pending: IToInject<unknown>, owner: Class<unknown>): IToInject<unknown> {
+  private pendingInjection(pending: IToInject<unknown>, owner: Class<unknown>, record: boolean): IToInject<unknown> {
     const { property, explicit, bind } = pending.pendingType!;
+    if (!record) {
+      if (explicit) return bind(explicit, false);
+      throw new ResolveException(`cannot read ${owner.name}.${String(property)}: the decorator names no type and the build emits no decorator metadata`);
+    }
     const resolver = this.get(PROPERTY_TYPE_RESOLVER);
     const declared = resolver?.typeOf(owner, String(property), this);
     if (explicit && !declared) noteBoundSingle(owner, String(property));

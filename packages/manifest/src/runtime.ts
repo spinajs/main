@@ -1,9 +1,10 @@
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
+import { existingRealpathOf } from './realpath.js';
 import { hashManifest } from './hash.js';
 import { loadsFromManifest } from './mounted.js';
-import { readManifestObject } from './read.js';
+import { assertManifestVersion, readManifestObject } from './read.js';
 import type { Manifest, MountedBy, SourceRef } from './types.js';
 
 /** DI key the runtime manifest is registered under. */
@@ -17,7 +18,11 @@ export interface ManifestRuntimeOptions {
   mode: ManifestMode;
   /** Receives the stale-manifest fallback notice in `prefer` mode; defaults to console.warn. */
   warn?: (message: string) => void;
+  /** Checks the manifest against its JSON Schema even when its hash matches; `SPINAJS_MANIFEST_VALIDATE=1` does the same. */
+  validate?: boolean;
 }
+
+const forcedValidation = (options: ManifestRuntimeOptions): boolean => options.validate === true || /^(1|true)$/i.test(process.env.SPINAJS_MANIFEST_VALIDATE ?? '');
 
 export class ManifestMissing extends Error {
   constructor(message: string) {
@@ -29,6 +34,9 @@ export class ManifestMissing extends Error {
 /**
  * Reads the manifest named by `options.path` (relative paths against `cwd`). `off` never reads,
  * `prefer` tolerates a missing file, `require` throws ManifestMissing.
+ *
+ * A file whose hash matches is what `spinajs build` wrote and checked against the schema, so only an edited or stale one
+ * is checked again, unless `validate` forces it.
  */
 export function loadRuntimeManifest(options: ManifestRuntimeOptions, cwd = process.cwd()): Manifest | undefined {
   if (!MODES.includes(options.mode)) {
@@ -46,8 +54,16 @@ export function loadRuntimeManifest(options: ManifestRuntimeOptions, cwd = proce
     return undefined;
   }
 
-  const manifest = readManifestObject(JSON.parse(readFileSync(file, 'utf8')), file);
-  if (hashManifest(manifest) !== manifest.hash) {
+  const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'));
+  assertManifestVersion(parsed, file);
+  const manifest = parsed as Manifest;
+  const intact = hashManifest(manifest) === manifest.hash;
+  // app.root is outside the hash, and appRootOf would quietly fall back to cwd for a non-string one.
+  const rootIsString = typeof (parsed as { app?: { root?: unknown } }).app?.root === 'string';
+  if (!intact || !rootIsString || forcedValidation(options)) {
+    readManifestObject(parsed, file);
+  }
+  if (!intact) {
     const message = `${file} is stale or edited: hash mismatch, run spinajs build`;
     if (options.mode === 'require') {
       throw new Error(message);
@@ -58,13 +74,42 @@ export function loadRuntimeManifest(options: ManifestRuntimeOptions, cwd = proce
   return manifest;
 }
 
+interface Probes {
+  found: Map<string, string>;
+  realDirs: Map<string, string>;
+}
+
+// Per manifest object, so a reloaded or another manifest starts empty. Only what was found is kept: a package that is
+// missing, or a lookup that throws, is probed again on the next call.
+const PROBES = new WeakMap<Manifest, Probes>();
+
+function probesOf(manifest: Manifest): Probes {
+  let probes = PROBES.get(manifest);
+  if (!probes) {
+    probes = { found: new Map(), realDirs: new Map() };
+    PROBES.set(manifest, probes);
+  }
+  return probes;
+}
+
+function found(manifest: Manifest, key: string, probe: () => string): string {
+  const { found: cache } = probesOf(manifest);
+  let value = cache.get(key);
+  if (value === undefined) {
+    value = probe();
+    cache.set(key, value);
+  }
+  return value;
+}
+
 /** Root of the app itself. SPINAJS_MANIFEST_ROOT re-bases a manifest built elsewhere (bundle, container image). */
 export function appRootOf(manifest: Manifest, cwd: string): string {
   const override = process.env.SPINAJS_MANIFEST_ROOT;
   if (override) {
     return resolve(override);
   }
-  return existsSync(manifest.app.root) ? manifest.app.root : resolve(cwd);
+  const { root } = manifest.app;
+  return found(manifest, `app\0${root}\0${cwd}`, () => (existsSync(root) ? root : resolve(cwd)));
 }
 
 /**
@@ -136,6 +181,10 @@ export function packageRootOf(name: string, manifest: Manifest, cwd: string): st
   }
 
   const appRoot = appRootOf(manifest, cwd);
+  return found(manifest, `package\0${appRoot}\0${process.env.SPINAJS_PACKAGE_ROOTS ?? ''}\0${name}\0${listed.entry}`, () => locatePackageRoot(name, listed.entry, appRoot));
+}
+
+function locatePackageRoot(name: string, entryFile: string, appRoot: string): string {
   const installed = mappedPackageRoot(name, appRoot) ?? installedPackageRoot(appRoot, name);
   if (installed) {
     return installed;
@@ -147,9 +196,9 @@ export function packageRootOf(name: string, manifest: Manifest, cwd: string): st
   } catch {
     // Package without `package.json` in its exports: peel `listed.entry` (e.g. `lib/index.js`) off the resolved main.
     const entry = require.resolve(name);
-    const suffix = `${sep}${listed.entry.split('/').join(sep)}`;
+    const suffix = `${sep}${entryFile.split('/').join(sep)}`;
     if (!entry.endsWith(suffix)) {
-      throw new ManifestMissing(`cannot locate the root of package ${name}: resolved entry ${entry} does not end with ${listed.entry}`);
+      throw new ManifestMissing(`cannot locate the root of package ${name}: resolved entry ${entry} does not end with ${entryFile}`);
     }
     return entry.slice(0, entry.length - suffix.length);
   }
@@ -188,9 +237,8 @@ function directDependenciesOf(appRoot: string): string[] {
   }
 }
 
-const stemOf = (path: string): string => (existsSync(path) ? realpathSync(path) : path).replace(/\.[mc]?[jt]s$/, '');
-
 function isOwnFile(entry: { source: SourceRef }, file: string, manifest: Manifest, cwd: string): boolean {
+  const stemOf = (path: string): string => (existingRealpathOf(path, probesOf(manifest).realDirs) ?? path).replace(/\.[mc]?[jt]s$/, '');
   try {
     const own = stemOf(resolve(file));
     const written = [manifestFileFor(entry, manifest, cwd), join(packageRootOf(entry.source.package, manifest, cwd), entry.source.file)];
@@ -216,6 +264,28 @@ export function ownEntries<T extends { mountedBy?: MountedBy; source: SourceRef 
   const matching = matches ? candidates.filter(matches) : candidates;
   const loaded = matching.filter(loadsFromManifest);
   return loaded.length > 0 ? loaded : matching;
+}
+
+const leavesRoot = (rel: string): boolean => rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+
+/**
+ * True when `path` lies below `root` and every part from `root` down to it exists and is not a link: its real path is
+ * then the root's real path plus the same parts, so it cannot leave the root. Checked on every call, never cached: a
+ * part resolved once can be swapped for a link later.
+ */
+function isPlainlyUnder(root: string, path: string): boolean {
+  const rel = relative(root, path);
+  if (rel === '' || leavesRoot(rel)) return false;
+  let at = root;
+  for (const part of rel.split(sep)) {
+    at = join(at, part);
+    try {
+      if (lstatSync(at).isSymbolicLink()) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**
@@ -245,9 +315,11 @@ export function manifestFileFor(entry: { source: SourceRef }, manifest: Manifest
   }
 
   const result = resolve(root, outDir, inside.replace(/\.[mc]?ts$/, '.js'));
+  if (isPlainlyUnder(root, result)) {
+    return result;
+  }
   const found = existsSync(result);
-  const rel = relative(found ? realpathSync(root) : resolve(root), found ? realpathSync(result) : result);
-  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+  if (leavesRoot(relative(found ? realpathSync(root) : resolve(root), found ? realpathSync(result) : result))) {
     throw escapes('path', result);
   }
   return result;

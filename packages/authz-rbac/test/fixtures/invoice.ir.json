@@ -1,0 +1,235 @@
+{
+  "caveats": {},
+  "combine": {
+    "default": {
+      "algorithm": "deny-overrides"
+    }
+  },
+  "opaque": [],
+  "permissions": {
+    "invoice:approve": {
+      "list": false,
+      "relation": "can_invoice_approve",
+      "source": {
+        "origin": "config:authz.rbac.roles"
+      },
+      "type": "invoice"
+    },
+    "invoice:read": {
+      "list": true,
+      "relation": "rbac_invoice_read",
+      "source": {
+        "origin": "config:authz.rbac.roles"
+      },
+      "type": "invoice"
+    }
+  },
+  "principal": {
+    "ancestry": "parent",
+    "ceiling": true,
+    "delegation": true,
+    "roles": {
+      "accountant": [
+        {
+          "relation": "accountant",
+          "type": "org"
+        }
+      ],
+      "clerk": [
+        {
+          "relation": "clerk",
+          "type": "$global"
+        }
+      ]
+    }
+  },
+  "types": {
+    "$global": {
+      "permissions": {
+        "accountant": {
+          "priority": []
+        },
+        "can_invoice_approve": {
+          "priority": []
+        },
+        "can_invoice_read": {
+          "priority": []
+        }
+      },
+      "relations": {
+        "clerk": {
+          "allowed": [
+            "user"
+          ],
+          "source": {
+            "kind": "tuples",
+            "store": "authz_assignment"
+          }
+        }
+      }
+    },
+    "invoice": {
+      "permissions": {
+        "accountant": {
+          "tupleToUserset": {
+            "computed": "accountant",
+            "tupleset": "parent"
+          }
+        },
+        "can_invoice_approve": {
+          "tupleToUserset": {
+            "computed": "can_invoice_approve",
+            "tupleset": "parent"
+          }
+        },
+        "can_invoice_read": {
+          "tupleToUserset": {
+            "computed": "can_invoice_read",
+            "tupleset": "parent"
+          }
+        },
+        "clerk": {
+          "tupleToUserset": {
+            "computed": "clerk",
+            "tupleset": "parent"
+          }
+        },
+        "rbac_invoice_read": {
+          "union": [
+            {
+              "computed": "can_invoice_read"
+            },
+            {
+              "intersection": [
+                {
+                  "computed": "clerk"
+                },
+                {
+                  "computed": "owner"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "relations": {
+        "owner": {
+          "allowed": [
+            "user"
+          ],
+          "source": {
+            "column": "author_id",
+            "kind": "column",
+            "model": "Invoice"
+          }
+        },
+        "parent": {
+          "allowed": [
+            "project"
+          ],
+          "source": {
+            "column": "project_id",
+            "kind": "column",
+            "model": "Invoice"
+          }
+        }
+      }
+    },
+    "org": {
+      "permissions": {
+        "can_invoice_approve": {
+          "union": [
+            {
+              "computed": "accountant"
+            },
+            {
+              "tupleToUserset": {
+                "computed": "can_invoice_approve",
+                "tupleset": "parent"
+              }
+            }
+          ]
+        },
+        "can_invoice_read": {
+          "union": [
+            {
+              "computed": "accountant"
+            },
+            {
+              "tupleToUserset": {
+                "computed": "can_invoice_read",
+                "tupleset": "parent"
+              }
+            }
+          ]
+        },
+        "clerk": {
+          "tupleToUserset": {
+            "computed": "clerk",
+            "tupleset": "parent"
+          }
+        }
+      },
+      "relations": {
+        "accountant": {
+          "allowed": [
+            "user"
+          ],
+          "source": {
+            "kind": "tuples",
+            "store": "authz_assignment"
+          }
+        },
+        "parent": {
+          "allowed": [
+            "$global"
+          ],
+          "source": {
+            "kind": "ancestor",
+            "via": "$global"
+          }
+        }
+      }
+    },
+    "project": {
+      "permissions": {
+        "accountant": {
+          "tupleToUserset": {
+            "computed": "accountant",
+            "tupleset": "parent"
+          }
+        },
+        "can_invoice_approve": {
+          "tupleToUserset": {
+            "computed": "can_invoice_approve",
+            "tupleset": "parent"
+          }
+        },
+        "can_invoice_read": {
+          "tupleToUserset": {
+            "computed": "can_invoice_read",
+            "tupleset": "parent"
+          }
+        },
+        "clerk": {
+          "tupleToUserset": {
+            "computed": "clerk",
+            "tupleset": "parent"
+          }
+        }
+      },
+      "relations": {
+        "parent": {
+          "allowed": [
+            "org"
+          ],
+          "source": {
+            "kind": "ancestor",
+            "via": "adapter"
+          }
+        }
+      }
+    }
+  },
+  "version": 1
+}
