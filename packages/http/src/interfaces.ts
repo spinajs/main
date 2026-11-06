@@ -10,6 +10,7 @@ import { IPerfScope } from '@spinajs/log';
 import type { ProxyTrust } from './middlewares/RealIp.js';
 import type { IBodyLimitRule } from './body-limits.js';
 import type { ErrorClass, ErrorStage, OnErrorHandler } from './errors/on-error.js';
+import type { CapturedJsonReply } from './response-capture.js';
 
 /**
  * Accept header enum
@@ -860,11 +861,45 @@ export interface IController {
   BasePath: string;
 }
 
+export type MiddlewareStage = 'outer' | 'inner';
+
+/** What an around middleware gets for one request. */
+export interface IRouteInvocation {
+  readonly req: express.Request;
+  readonly res: express.Response;
+  /** The request's own store: the same object as `req.storage` and the action's AsyncLocalStorage context. */
+  readonly storage: IActionLocalStoregeContext;
+  readonly route: IRoute;
+  readonly controller: IController;
+  /** `http:<METHOD> <mounted path>` */
+  readonly path: string;
+}
+
+/** How the rest of the route chain answered, as `proceed()` resolves it. */
+export interface IRouteOutcome {
+  /** The JSON reply as sent, or null when the answer was not a JSON reply. */
+  readonly reply: CapturedJsonReply | null;
+  /** The error the chain raised, when the error handlers answered it; the reply is that error's answer. */
+  readonly error?: unknown;
+}
+
 /**
  * Middlewares are classes that can change request object or perform specific task before & after route execution
  * eg. route parameter logging / headers check etc.
+ *
+ * State is shared, never copied: every hook, the action and the error handlers see the same `req`, `res` and
+ * `req.storage` for the whole request. Typed per-request state goes on `req.storage` (declaration merging on
+ * {@link IActionLocalStoregeContext}), untyped per-response state on `res.locals`. What an around middleware writes
+ * before `proceed()` is visible downstream; after `proceed()` resolves it sees what the chain wrote. Hooks run outside
+ * the action's AsyncLocalStorage context, so a service called from a hook gets `req` or `storage` passed in.
  */
 export abstract class RouteMiddleware {
+  /**
+   * 'outer' runs right after the policy gate, before every 'inner' middleware; within a stage, declaration order.
+   * Unset means 'inner'. Optional, so a class that `implements RouteMiddleware` still compiles.
+   */
+  public readonly Stage?: MiddlewareStage;
+
   /**
    * Inform, if middleware is enabled for given action
    */
@@ -889,6 +924,35 @@ export abstract class RouteMiddleware {
    * Its express middleware func
    */
   public abstract onAfter(req: express.Request, res: express.Response, route: IRoute, controller: IController): Promise<void>;
+
+  /**
+   * Called once when the route is mounted, for enabled middlewares only, with the mounted path. A throw fails the
+   * registration with RouteRegistrationException.
+   */
+  public onRegister?(route: IRoute, path: string, controller: IController): Promise<void> | void;
+
+  /**
+   * Wraps everything after this middleware: the later middlewares, the action, the error handlers and the response.
+   * `proceed()` runs that chain once and settles when the response finished; it rejects with RouteClientGone when the
+   * client went away first. Not calling it ends the chain: the middleware must then answer `res` itself. A throw
+   * before `proceed()` goes to the route's error handlers.
+   */
+  public onAround?(invocation: IRouteInvocation, proceed: () => Promise<IRouteOutcome>): Promise<void>;
+}
+
+/** Base of a middleware that only wraps the route: no-op before/after hooks, enabled on every route. */
+export abstract class AroundMiddleware extends RouteMiddleware {
+  public isEnabled(_route: IRoute, _controller: IController): boolean {
+    return true;
+  }
+
+  public async onBefore(_req: express.Request, _res: express.Response, _route: IRoute, _controller: IController): Promise<void> {}
+
+  public async onResponse(_response: Response, _route: IRoute, _controller: IController): Promise<void> {}
+
+  public async onAfter(_req: express.Request, _res: express.Response, _route: IRoute, _controller: IController): Promise<void> {}
+
+  public abstract override onAround(invocation: IRouteInvocation, proceed: () => Promise<IRouteOutcome>): Promise<void>;
 }
 
 /**
