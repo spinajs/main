@@ -1,8 +1,10 @@
-import { Container, NewInstance, Constructor } from '@spinajs/di';
+import { Container, NewInstance } from '@spinajs/di';
+import type { Constructor } from '@spinajs/di';
 import { use } from 'typescript-mix';
 import { QueryMethod, WhereBoolean } from '../enums.js';
-import { DeleteQueryCompiler, ICompilerOutput, IQueryLimit, QueryContext, IUpdateResult, IDeleteQueryBuilder } from '../interfaces.js';
-import { IQueryStatement } from '../statements.js';
+import { DeleteQueryCompiler, QueryContext } from '../interfaces.js';
+import type { ICompilerOutput, IQueryLimit, IUpdateResult, IDeleteQueryBuilder } from '../interfaces.js';
+import type { IQueryStatement } from '../statements.js';
 import type { OrmDriver } from '../driver.js';
 import { assertNarrowed } from './internal.js';
 import { QueryBuilder } from './base.js';

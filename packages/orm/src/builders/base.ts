@@ -1,12 +1,15 @@
-import { Container, Inject, NewInstance, Constructor, IContainer, DI } from '@spinajs/di';
+import { Container, Inject, NewInstance, DI } from '@spinajs/di';
+import type { Constructor, IContainer } from '@spinajs/di';
 import { ORM_MODEL_FACTORY } from '../tokens.js';
 import { InvalidArgument, MethodNotImplemented } from '@spinajs/exceptions';
-import { QueryMethod } from '../enums.js';
-import { ICompilerOutput, IQueryBuilder, QueryContext, IBuilderMiddleware, QueryMiddleware, IBuilder } from '../interfaces.js';
+import type { QueryMethod } from '../enums.js';
+import { QueryContext, QueryMiddleware } from '../interfaces.js';
+import type { ICompilerOutput, IQueryBuilder, IBuilderMiddleware, IBuilder } from '../interfaces.js';
 import type { OrmDriver } from '../driver.js';
-import { ModelBase } from '../model.js';
+import type { ModelBase } from '../model.js';
 import { isNullOrWhitespace } from '@spinajs/util';
-import { executeRecorded, SchemaTouch } from '../schema-touches.js';
+import { executeRecorded } from '../schema-touches.js';
+import type { SchemaTouch } from '../schema-touches.js';
 
 /** Stable: Array.prototype.sort keeps the DI order of equal keys. A non-finite order counts as 0. */
 function sortQueryMiddlewares(list: QueryMiddleware[]): QueryMiddleware[] {

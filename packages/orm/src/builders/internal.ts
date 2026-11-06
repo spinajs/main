@@ -1,7 +1,9 @@
 import { InvalidArgument } from '@spinajs/exceptions';
 import { OrmException } from '../exceptions.js';
-import { ISort } from '../interfaces.js';
-import { IQueryStatement } from '../statements.js';
+import { QueryMethod } from '../enums.js';
+import type { ISelectQueryBuilder, ISort } from '../interfaces.js';
+import type { IQueryStatement } from '../statements.js';
+import { QueryBuilder } from './base.js';
 
 /**
  * A `Relation.column` sort is compiled on the relation query, so the owner keeps an empty-column
@@ -27,4 +29,10 @@ export function assertOneOf<T extends string>(value: T, allowed: readonly string
   }
 
   return value;
+}
+
+// where.ts tells a select sub-query from a value list with this: importing builders/select.ts
+// there would close a cycle, select.ts passes WhereBuilder to @use().
+export function isSelectQuery(value: unknown): value is ISelectQueryBuilder {
+  return value instanceof QueryBuilder && (value as unknown as { _method: QueryMethod })._method === QueryMethod.SELECT;
 }

@@ -1,5 +1,6 @@
 import { Container, Inject, NewInstance } from '@spinajs/di';
-import { ICompilerOutput, QueryContext, SessionSettingsQueryCompiler } from '../interfaces.js';
+import { QueryContext, SessionSettingsQueryCompiler } from '../interfaces.js';
+import type { ICompilerOutput } from '../interfaces.js';
 import type { OrmDriver } from '../driver.js';
 import { QueryBuilder } from './base.js';
 

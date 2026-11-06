@@ -1,8 +1,9 @@
 import { Container, Inject, NewInstance } from '@spinajs/di';
 import { ColumnType } from '../../enums.js';
-import { ICompilerOutput, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, QueryContext, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler } from '../../interfaces.js';
+import { TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, QueryContext, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler } from '../../interfaces.js';
+import type { ICompilerOutput } from '../../interfaces.js';
 import type { OrmDriver } from '../../driver.js';
-import { SchemaTouch } from '../../schema-touches.js';
+import type { SchemaTouch } from '../../schema-touches.js';
 import { QueryBuilder } from '../base.js';
 import { SelectQueryBuilder } from '../select.js';
 import { ForeignKeyBuilder } from './foreign-key.js';

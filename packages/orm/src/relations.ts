@@ -1,17 +1,20 @@
 /* eslint-disable prettier/prettier */
 import { InvalidOperation } from '@spinajs/exceptions';
-import { IRelationDescriptor, IModelDescriptor, RelationType, ForwardRefFunction, ISelectQueryBuilder, IColumnDescriptor } from './interfaces.js';
+import { RelationType } from './interfaces.js';
+import type { IRelationDescriptor, IModelDescriptor, ForwardRefFunction, ISelectQueryBuilder, IColumnDescriptor } from './interfaces.js';
 import type { IQueryStatement } from './statements.js';
-import { NewInstance, DI, Constructor, Inject, Container } from '@spinajs/di';
+import { NewInstance, DI, Inject, Container } from '@spinajs/di';
+import type { Constructor } from '@spinajs/di';
 
 import { BelongsToPopulateDataMiddleware, BelongsToRelationRecursiveMiddleware, BelongsToRelationResultTransformMiddleware, DiscriminationMapMiddleware, HasManyRelationMiddleware, HasManyToManyRelationMiddleware, QueryRelationMiddleware, VirtualRelationMiddleware } from './middlewares.js';
-import { ModelBase } from './model.js';
+import type { ModelBase } from './model.js';
 import type { Orm } from './orm.js';
 import { Orm as OrmClass } from './orm.js';
 import type { OrmDriver } from './driver.js';
-import _ from 'lodash';
+import type _ from 'lodash';
 import { JoinMethod } from './enums.js';
 import { extractModelDescriptor } from './descriptor.js';
+import { registerRelation } from './relation-registry.js';
 
 
 /**
@@ -430,3 +433,10 @@ export class ManyToManyRelation extends NativeOrmRelation {
     this._compiled = true;
   }
 }
+
+registerRelation('recursive', BelongsToRecursiveRelation);
+registerRelation(RelationType.One, BelongsToRelation);
+registerRelation(RelationType.Many, OneToManyRelation);
+registerRelation(RelationType.ManyToMany, ManyToManyRelation);
+registerRelation(RelationType.Query, QueryRelation);
+registerRelation(RelationType.Virtual, VirtualRelation);

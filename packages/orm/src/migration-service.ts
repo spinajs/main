@@ -1,11 +1,13 @@
-import { NewInstance, Class } from '@spinajs/di';
+import { NewInstance } from '@spinajs/di';
+import type { Class } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
-import { DateTime } from 'luxon';
+import type { DateTime } from 'luxon';
 import { createHash } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { TableQueryBuilder } from './builders.js';
 import type { OrmDriver } from './driver.js';
-import { MigrationTransactionMode, OrmMigration } from './interfaces.js';
+import { MigrationTransactionMode } from './interfaces.js';
+import type { OrmMigration } from './interfaces.js';
 import { OrmException } from './exceptions.js';
 import { runMigrationUp } from './schema-touches.js';
 

@@ -1,9 +1,9 @@
 import { NewInstance } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { OrmNotFoundException } from '../exceptions.js';
-import { ICompilerOutput, ILimitBuilder, IQueryLimit } from '../interfaces.js';
+import type { ICompilerOutput, ILimitBuilder, IQueryLimit } from '../interfaces.js';
 import { _check_arg, _positive } from '@spinajs/util';
-import { SelectQueryBuilder } from './select.js';
+import type { SelectQueryBuilder } from './select.js';
 
 @NewInstance()
 export class LimitBuilder<T> implements ILimitBuilder<T> {

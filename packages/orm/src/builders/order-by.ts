@@ -2,10 +2,11 @@ import { NewInstance } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import _ from 'lodash';
 import { SortOrder } from '../enums.js';
-import { IOrderByBuilder, ISort, RelationType } from '../interfaces.js';
+import { RelationType } from '../interfaces.js';
+import type { IOrderByBuilder, ISort } from '../interfaces.js';
 import { extractModelDescriptor } from '../descriptor.js';
-import { IRelationSort } from './internal.js';
-import { SelectQueryBuilder } from './select.js';
+import type { IRelationSort } from './internal.js';
+import type { SelectQueryBuilder } from './select.js';
 
 /**
  * The sort direction a caller meant. Case is not the caller's business - `asc` off a query string

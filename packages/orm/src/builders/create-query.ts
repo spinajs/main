@@ -1,12 +1,13 @@
-import { DI, Class } from '@spinajs/di';
+import { DI } from '@spinajs/di';
+import type { Class } from '@spinajs/di';
 import { MODELS } from '../tokens.js';
 import { OrmConnectionMissing, OrmNotResolved } from '../exceptions.js';
-import { QueryScope } from '../interfaces.js';
+import type { QueryScope } from '../interfaces.js';
 import type { OrmDriver } from '../driver.js';
-import { ModelBase } from '../model.js';
+import type { ModelBase } from '../model.js';
 import { DiscriminationMapMiddleware } from '../discrimination-middleware.js';
 import { extractModelDescriptor } from '../descriptor.js';
-import { QueryBuilder } from './base.js';
+import type { QueryBuilder } from './base.js';
 import { SelectQueryBuilder } from './select.js';
 import { DeleteQueryBuilder } from './delete.js';
 import { UpdateQueryBuilder } from './update.js';

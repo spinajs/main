@@ -1,18 +1,21 @@
-import { Container, NewInstance, Constructor } from '@spinajs/di';
+import { NewInstance } from '@spinajs/di';
+import type { Container, Constructor } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { OrmException } from '../exceptions.js';
 import _ from 'lodash';
 import { WhereBoolean, SqlOperator } from '../enums.js';
 import type { Op } from '../enums.js';
-import { IWhereBuilder, ISelectQueryBuilder, IRelationDescriptor } from '../interfaces.js';
-import { BetweenStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, StartsWithStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, Wrap, LazyQueryStatement, ColumnCompareStatement, OuterColumn } from '../statements.js';
-import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from '../types.js';
-import { ModelBase } from '../model.js';
+import type { IWhereBuilder, ISelectQueryBuilder, IRelationDescriptor } from '../interfaces.js';
+import { BetweenStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, StartsWithStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, Wrap, LazyQueryStatement, ColumnCompareStatement } from '../statements.js';
+import type { IQueryStatement, OuterColumn } from '../statements.js';
+import type { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from '../types.js';
+import type { ModelBase } from '../model.js';
 import { Lazy } from '@spinajs/util';
 import { ExistsRelationHandler } from '../existsRelationHandlers.js';
 import { RawQuery } from './raw.js';
-import { QueryBuilder } from './base.js';
-import { SelectQueryBuilder } from './select.js';
+import type { QueryBuilder } from './base.js';
+import type { SelectQueryBuilder } from './select.js';
+import { isSelectQuery } from './internal.js';
 
 function isWhereOperator(val: any) {
   return _.isString(val) && Object.values(SqlOperator).includes((val as any).toLowerCase());
@@ -308,7 +311,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereIn(column: string | Wrap, val: any[] | ISelectQueryBuilder): this {
-    if (val instanceof SelectQueryBuilder) {
+    if (isSelectQuery(val)) {
       if (column instanceof Wrap) {
         throw new InvalidArgument('whereIn(): a wrapped column takes a list of values, not a sub-query');
       }
@@ -332,7 +335,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereNotIn(column: string | Wrap, val: any[] | ISelectQueryBuilder): this {
-    if (val instanceof SelectQueryBuilder) {
+    if (isSelectQuery(val)) {
       if (column instanceof Wrap) {
         throw new InvalidArgument('whereNotIn(): a wrapped column takes a list of values, not a sub-query');
       }

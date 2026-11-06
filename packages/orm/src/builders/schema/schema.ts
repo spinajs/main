@@ -1,7 +1,8 @@
 import { Container, Inject, NewInstance } from '@spinajs/di';
-import { ICompilerOutput, RawSchemaQueryCompiler } from '../../interfaces.js';
+import { RawSchemaQueryCompiler } from '../../interfaces.js';
+import type { ICompilerOutput } from '../../interfaces.js';
 import type { OrmDriver } from '../../driver.js';
-import { SchemaTouch } from '../../schema-touches.js';
+import type { SchemaTouch } from '../../schema-touches.js';
 import { RawQuery } from '../raw.js';
 import { QueryBuilder } from '../base.js';
 import { TableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryBuilder, DropTableQueryBuilder, TableExistsQueryBuilder } from './table.js';

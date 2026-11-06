@@ -1,7 +1,8 @@
 import { Container, Inject, NewInstance } from '@spinajs/di';
-import { ICompilerOutput, QueryContext, IndexQueryCompiler } from '../../interfaces.js';
+import { QueryContext, IndexQueryCompiler } from '../../interfaces.js';
+import type { ICompilerOutput } from '../../interfaces.js';
 import type { OrmDriver } from '../../driver.js';
-import { SchemaTouch } from '../../schema-touches.js';
+import type { SchemaTouch } from '../../schema-touches.js';
 import { Builder } from '../base.js';
 
 @NewInstance()

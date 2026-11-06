@@ -1,4 +1,5 @@
-import { Container, Inject, NewInstance, IContainer } from '@spinajs/di';
+import { Container, Inject, NewInstance } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { ColumnType } from '../../enums.js';
 import { DefaultValueBuilder, ColumnAlterationType } from '../../interfaces.js';

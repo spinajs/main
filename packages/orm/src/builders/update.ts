@@ -1,9 +1,11 @@
-import { Container, NewInstance, Constructor } from '@spinajs/di';
+import { Container, NewInstance } from '@spinajs/di';
+import type { Constructor } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { use } from 'typescript-mix';
 import { QueryMethod, WhereBoolean } from '../enums.js';
-import { ICompilerOutput, UpdateQueryCompiler, QueryContext, IUpdateResult, IUpdateQueryBuilder } from '../interfaces.js';
-import { IQueryStatement } from '../statements.js';
+import { UpdateQueryCompiler, QueryContext } from '../interfaces.js';
+import type { ICompilerOutput, IUpdateResult, IUpdateQueryBuilder } from '../interfaces.js';
+import type { IQueryStatement } from '../statements.js';
 import type { OrmDriver } from '../driver.js';
 import { isNullOrWhitespace } from '@spinajs/util';
 import { assertNarrowed } from './internal.js';

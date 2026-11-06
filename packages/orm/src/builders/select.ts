@@ -1,16 +1,20 @@
-import { Constructor, IContainer, Injectable, isConstructor } from '@spinajs/di';
+import { Injectable, isConstructor } from '@spinajs/di';
+import type { Constructor, IContainer } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { use } from 'typescript-mix';
 import { ColumnMethods, QueryMethod, WhereBoolean, SqlOperator } from '../enums.js';
-import { IColumnsBuilder, ICompilerOutput, ILimitBuilder, IOrderByBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, QueryContext, IJoinBuilder, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, IGroupByBuilder, BooleanValueConverter } from '../interfaces.js';
-import { ColumnMethodStatement, ColumnStatement, IQueryStatement, WhereStatement, ColumnRawStatement, ColumnConditionStatement } from '../statements.js';
-import { WhereFunction } from '../types.js';
+import { SelectQueryCompiler, QueryContext, RelationType, BooleanValueConverter } from '../interfaces.js';
+import type { IColumnsBuilder, ICompilerOutput, ILimitBuilder, IOrderByBuilder, IQueryLimit, ISort, IWhereBuilder, IJoinBuilder, IBuilderMiddleware, IWithRecursiveBuilder, IGroupByBuilder } from '../interfaces.js';
+import { ColumnMethodStatement, WhereStatement, ColumnRawStatement, ColumnConditionStatement } from '../statements.js';
+import type { ColumnStatement, IQueryStatement } from '../statements.js';
+import type { WhereFunction } from '../types.js';
 import type { OrmDriver } from '../driver.js';
-import { ModelBase } from '../model.js';
-import { BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation, QueryRelation, VirtualRelation } from '../relations.js';
+import type { ModelBase } from '../model.js';
+import type { IOrmRelation } from '../relations.js';
+import { relationOf } from '../relation-registry.js';
 import { isNullOrWhitespace } from '@spinajs/util';
 import { extractModelDescriptor } from '../descriptor.js';
-import { IRelationSort } from './internal.js';
+import type { IRelationSort } from './internal.js';
 import { QueryBuilder } from './base.js';
 import { LimitBuilder } from './limit.js';
 import { OrderByBuilder } from './order-by.js';
@@ -270,25 +274,21 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       }
 
       if (rDescriptor.Recursive) {
-        relInstance = this._container.resolve<BelongsToRecursiveRelation>(BelongsToRecursiveRelation, [this, rDescriptor, this._owner]);
+        relInstance = this._container.resolve<IOrmRelation>(relationOf('recursive'), [this, rDescriptor, this._owner]);
       } else {
         switch (rDescriptor.Type) {
           case RelationType.One:
             // if parent relation is one to many we dont set parent relation
             // couse its new query to not mess with column aliases and hydrator
-            relInstance = this._container.resolve<BelongsToRelation>(BelongsToRelation, [this, rDescriptor, this._owner instanceof OneToManyRelation ? null : this._owner]);
+            relInstance = this._container.resolve<IOrmRelation>(relationOf(RelationType.One), [this, rDescriptor, this._owner instanceof relationOf(RelationType.Many) ? null : this._owner]);
             break;
           case RelationType.Query:
-            relInstance = this._container.resolve<QueryRelation>(QueryRelation, [this, rDescriptor, this._owner]);
-            break;
           case RelationType.Virtual:
-            relInstance = this._container.resolve<VirtualRelation>(VirtualRelation, [this, rDescriptor, this._owner]);
-            break;
           case RelationType.Many:
-            relInstance = this._container.resolve<OneToManyRelation>(OneToManyRelation, [this, rDescriptor, this._owner]);
+            relInstance = this._container.resolve<IOrmRelation>(relationOf(rDescriptor.Type), [this, rDescriptor, this._owner]);
             break;
           case RelationType.ManyToMany:
-            relInstance = this._container.resolve<ManyToManyRelation>(ManyToManyRelation, [this, rDescriptor, null]);
+            relInstance = this._container.resolve<IOrmRelation>(relationOf(RelationType.ManyToMany), [this, rDescriptor, null]);
             break;
         }
       }

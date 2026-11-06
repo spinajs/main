@@ -1,11 +1,12 @@
 import { Container, Inject, NewInstance } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
-import { ICompilerOutput, QueryContext, DropEventQueryCompiler, EventQueryCompiler } from '../../interfaces.js';
+import { QueryContext, DropEventQueryCompiler, EventQueryCompiler } from '../../interfaces.js';
+import type { ICompilerOutput } from '../../interfaces.js';
 import type { OrmDriver } from '../../driver.js';
-import { DateTime } from 'luxon';
-import { SchemaTouch } from '../../schema-touches.js';
+import type { DateTime } from 'luxon';
+import type { SchemaTouch } from '../../schema-touches.js';
 import { assertOneOf } from '../internal.js';
-import { RawQuery } from '../raw.js';
+import type { RawQuery } from '../raw.js';
 import { QueryBuilder } from '../base.js';
 
 export type EventIntervalUnit = 'YEAR' | 'QUARTER' | 'MONTH' | 'WEEK' | 'DAY' | 'HOUR' | 'MINUTE' | 'SECOND';

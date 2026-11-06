@@ -1,5 +1,5 @@
 import { Exception, ResourceDuplicated } from '@spinajs/exceptions';
-import { IDriverOptions } from './interfaces.js';
+import type { IDriverOptions } from './interfaces.js';
 
 /**
  * Exception thrown when functionality is not supported

@@ -1,11 +1,13 @@
-import { Container, NewInstance, Constructor } from '@spinajs/di';
+import { Container, NewInstance } from '@spinajs/di';
+import type { Constructor } from '@spinajs/di';
 import { NotSupported } from '@spinajs/exceptions';
 import { OrmException } from '../exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { QueryMethod } from '../enums.js';
-import { IColumnsBuilder, ICompilerOutput, InsertQueryCompiler, QueryContext, IUpdateResult } from '../interfaces.js';
-import { ColumnStatement } from '../statements.js';
+import { InsertQueryCompiler, QueryContext } from '../interfaces.js';
+import type { IColumnsBuilder, ICompilerOutput, IUpdateResult } from '../interfaces.js';
+import type { ColumnStatement } from '../statements.js';
 import type { OrmDriver } from '../driver.js';
 import { extractModelDescriptor } from '../descriptor.js';
 import { RawQuery } from './raw.js';

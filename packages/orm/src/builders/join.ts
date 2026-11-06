@@ -1,10 +1,13 @@
-import { Container, NewInstance, Constructor, isConstructor } from '@spinajs/di';
+import { Container, NewInstance, isConstructor } from '@spinajs/di';
+import type { Constructor } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import _ from 'lodash';
 import { JoinMethod } from '../enums.js';
-import { IWhereBuilder, IJoinBuilder, RelationType, ISelectQueryBuilder, IJoinStatementOptions } from '../interfaces.js';
-import { IQueryStatement, JoinStatement } from '../statements.js';
-import { ModelBase } from '../model.js';
+import { RelationType } from '../interfaces.js';
+import type { IWhereBuilder, IJoinBuilder, ISelectQueryBuilder, IJoinStatementOptions } from '../interfaces.js';
+import { JoinStatement } from '../statements.js';
+import type { IQueryStatement } from '../statements.js';
+import type { ModelBase } from '../model.js';
 import { extractModelDescriptor } from '../descriptor.js';
 import { RawQuery } from './raw.js';
 
