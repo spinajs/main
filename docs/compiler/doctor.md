@@ -37,6 +37,9 @@ spinajs doctor --manifest dist/app.manifest.json
 | SOCK004 | warning | the contract named in `@SocketController(prefix, { contract })` cannot be resolved: it is not a `defineContract()` variable of this package and no dependency with a manifest fragment exports it, so the controller is left unbound |
 | SOCK005 | error | two `defineContract` declarations share one contract id |
 | SOCK006 | warning | a `$data` pointer in a contract payload schema names no property, or an optional one: Ajv then skips the rule without an error |
+| WF001 | error | two `@Workflow` classes declare the same name and version |
+| WF002 | warning | a workflow waits for a signal with a `permission`, but no `SignalAuthorizer` other than `DenyAllSignalAuthorizer` is registered: every such signal is rejected |
+| WF003 | info | a workflow has more than three registered versions; remove the ones no instance runs on |
 | SQL001 | error | an `sql` template that does not parse in the dialect of its connection |
 | SQL002 | error | an `sql` template reads a table no model maps |
 | SQL003 | error / warning | an `sql` template reads a column no model declares: an error when the table's model is `columns: 'exhaustive'`, a warning on a partial model (the column may exist unmanaged) |
