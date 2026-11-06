@@ -57,7 +57,7 @@ export async function renameInEnglish(id: number, name: string): Promise<void> {
 }
 ```
 
-Import `@spinajs/intl-orm` once at startup. The import registers the models, the migration, `IntlQueryMiddleware` and `DbTranslationSource`, and patches `SelectQueryBuilder.prototype`.
+Import `@spinajs/intl-orm` once at startup. The import registers the models, the migration, `IntlQueryMiddleware` and `DbTranslationSource`, and `IntlQueryExtension`, which `Orm.resolve()` installs as `translate()` on `SelectQueryBuilder`.
 
 ## Related packages
 

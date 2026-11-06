@@ -8,11 +8,14 @@ The `validation` configuration key holds the options of the Ajv instance inside 
 2. Importing `@spinajs/validation` registers its configuration schema (`$id` `spinajs/validation.configuration.schema.json`, module `validation`) with `registerConfigurationSchemaAtImport()`. A value outside the allowed set throws `InvalidConfiguration` at boot.
 3. `DataValidator.Options` receives the whole `validation` object through `@Config('validation')`.
 4. `DataValidator.resolve()` builds the Ajv options: a `logger` that forwards Ajv messages to the `validation` logger, then every key of `validation` except `strict` (see [Strict schema ids](#strict-schema-ids)), then `$data: true` and `verbose: true`, which always win.
-5. It builds two Ajv instances from these options: `Validator`, and `StrictValidator` with `coerceTypes: false`. Every schema is added to both.
+5. It builds the `Validator` Ajv instance from these options. `StrictValidator`, the same with `coerceTypes: false`, is built the first time a [strict schema id](#strict-schema-ids) is validated, with every schema added so far; every schema added later goes to both.
 6. It registers three Ajv plugins on each instance:
    - `ajv-merge-patch`: the `$merge` and `$patch` keywords;
    - `ajv-formats`: `email`, `date`, `date-time`, `uri`, `uuid`, `ipv4` and the other standard formats;
    - `ajv-keywords`: `transform`, `instanceof`, `range`, `uniqueItemProperties` and the other extra keywords.
+
+   `ajv-merge-patch` and `ajv-keywords` are installed, together, when the first schema that names one of their keywords is added or compiled: installing them compiles their meta-schemas, which an app that uses none of them does not need at boot. A `createAjv()` override that adds a macro or code keyword or a vocabulary, or defines or removes a plugin keyword, installs them first; see [Customizing the validator](08-customizing-the-validator.md#important-behaviour).
+7. Each schema of a [schema source](05-schema-sources.md) is checked against the JSON Schema meta-schema once; a schema that fails is logged and skipped. `addSchema()` checks the schema it is given as Ajv does.
 
 ## Configuration
 
@@ -51,7 +54,7 @@ export default {
 | --- | --- | --- | --- | --- |
 | Validation configuration schema | Value `'__configurationSchema__'` in the root container, registered at import | The schema exported as `default` from `schemas/validation.js` | none | Not replaceable from outside; options outside it pass unchecked |
 | Ajv instance | `DataValidator.Validator` (protected), built in `resolve()` | Ajv 8 with the three plugins above | none | Subclass `DataValidator` to add formats, keywords or vocabularies; see [Customizing the validator](08-customizing-the-validator.md) |
-| Strict Ajv instance | `DataValidator.StrictValidator` (protected), built in `resolve()` with `coerceTypes: false` | Ajv 8 with the three plugins above | none | Used for [strict schema ids](#strict-schema-ids); override `createAjv()` so your formats and keywords reach both instances |
+| Strict Ajv instance | `DataValidator.StrictValidator` (protected), built on first access with `coerceTypes: false` | Ajv 8 with the three plugins above | none | Used for [strict schema ids](#strict-schema-ids); override `createAjv()` so your formats and keywords reach both instances |
 | Default strict prefixes | `DEFAULT_STRICT_ID_PREFIXES`, exported constant | `['authn.', 'authz.']` | | Used when `validation.strict` is not an object with `idPrefixes` |
 
 The package entry also exports the default config object as its `default` export, so bundlers that inline modules still see the defaults.
