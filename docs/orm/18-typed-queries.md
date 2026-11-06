@@ -28,6 +28,8 @@ It is a declaration file, so `tsc` never copies it to `lib/`. Your package's con
 
 A column is a property the model class declares that is not a function or a relation. Members of `ModelBase` (`PrimaryKeyValue`, `IsDirty`, ...) are not columns. A builder without a model (`driver.select()`, `ISelectQueryBuilder<any>`), and a model that declares no columns, accept any name in both modes.
 
+The model statics are typed the same way: `User.where('Email', x)` checks the column and value, and the builder passed to `User.first(cb)`, `last`, `newest`, `oldest` and `count` is typed with the model instance.
+
 ## `col()`: columns the type cannot see
 
 `col('name')` passes a name through unchecked. Use it for a column the model does not declare (one another package added to the table), a name computed at runtime, or a column of a joined table you do not qualify.
