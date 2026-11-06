@@ -22,6 +22,7 @@ export const byDepth = (a: AncestorRow, b: AncestorRow): number => a.depth - b.d
 /** The table rows of each ref (as resource), by resourceKey, nearest first. */
 export async function readAncestors(refs: readonly ResourceRef[]): Promise<Map<string, AncestorRow[]>> {
   const out = new Map<string, AncestorRow[]>();
+  // spinajs-orm-ignore ORM102: one whereIn query per resource type in refs
   for (const [type, ids] of groupIds(refs)) {
     for (const row of await selectFrom(AncestorRecord).where('resource_type', type).whereIn('resource_id', ids)) {
       const key = resourceKey({ type: row.resource_type, id: row.resource_id });

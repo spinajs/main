@@ -37,6 +37,7 @@ export class DbNonceStore extends NonceStore {
 
     const t = instant(nowMs);
     const expires = instant(expiresMs);
+    // spinajs-orm-ignore ORM102: bounded retry of the insert/update race, at most MAX_TRIES passes
     for (let i = 0; i < MAX_TRIES; i++) {
       try {
         await AuthnNonce.insert({ k: key, expires_at: expires });

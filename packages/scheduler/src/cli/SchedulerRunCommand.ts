@@ -137,6 +137,7 @@ export class SchedulerRunCommand extends SchedulerCommand {
     const db = DI.resolve(DbClock);
     const timers = DI.resolve(Clock);
     const tick = this.config().tick;
+    // spinajs-orm-ignore ORM102: polling, re-reads the one run each tick until it ends or the signal aborts
     while (!signal.aborted) {
       await scheduler.idle();
       const run = await RunModel.where('Id', runId).first();
