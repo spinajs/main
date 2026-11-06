@@ -112,6 +112,12 @@ export const manifestSchema: Record<string, any> = {
             "$ref": "#/definitions/ModelSqlQuery"
           }
         },
+        "sqlDialects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SqlDialectEntry"
+          }
+        },
         "schemas": {
           "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"
         },
@@ -1601,6 +1607,116 @@ export const manifestSchema: Record<string, any> = {
         "nullable"
       ]
     },
+    "SqlDialectEntry": {
+      "type": "object",
+      "properties": {
+        "drivers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "profile": {
+          "$ref": "#/definitions/SqlDialectProfile"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "drivers",
+        "profile",
+        "source"
+      ]
+    },
+    "SqlDialectProfile": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "grammar": {
+          "type": "string"
+        },
+        "placeholders": {
+          "type": "string",
+          "enum": [
+            "question",
+            "dollar",
+            "at-p0"
+          ]
+        },
+        "families": {
+          "$ref": "#/definitions/Partial%3CRecord%3CColumnFamily%2Cstring%3E%3E"
+        },
+        "count": {
+          "type": "string"
+        },
+        "sum": {
+          "$ref": "#/definitions/Partial%3CRecord%3CColumnFamily%2Cstring%3E%3E"
+        },
+        "avg": {
+          "$ref": "#/definitions/Partial%3CRecord%3CColumnFamily%2Cstring%3E%3E"
+        },
+        "predicates": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "grammar",
+        "placeholders",
+        "families",
+        "count",
+        "sum",
+        "avg",
+        "predicates"
+      ]
+    },
+    "Partial<Record<ColumnFamily,string>>": {
+      "type": "object",
+      "properties": {
+        "integer": {
+          "type": "string"
+        },
+        "bigint": {
+          "type": "string"
+        },
+        "decimal": {
+          "type": "string"
+        },
+        "float": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "boolean": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "datetime": {
+          "type": "string"
+        },
+        "time": {
+          "type": "string"
+        },
+        "json": {
+          "type": "string"
+        },
+        "binary": {
+          "type": "string"
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "enum": {
+          "type": "string"
+        }
+      }
+    },
     "Diagnostic": {
       "type": "object",
       "properties": {
@@ -1764,6 +1880,12 @@ export const manifestSchema: Record<string, any> = {
           "type": "array",
           "items": {
             "$ref": "#/definitions/ModelSqlQuery"
+          }
+        },
+        "sqlDialects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SqlDialectEntry"
           }
         },
         "schemas": {
