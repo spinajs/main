@@ -59,6 +59,7 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
   const socketControllerBases = collect((f) => f.socketControllerBases ?? []);
   const classProperties = collect((f) => f.classProperties ?? []);
   const sqlQueries = collect((f) => f.sqlQueries ?? []);
+  const sqlDialects = plain((f) => f.sqlDialects ?? []);
 
   const manifest: Manifest = {
     manifestVersion: MANIFEST_VERSION,
@@ -82,6 +83,7 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
     ...(app.scanFiles?.length ? { scanFiles: app.scanFiles } : {}),
     queueMessages: plain((f) => f.queueMessages),
     ...(sqlQueries.length ? { sqlQueries } : {}),
+    ...(sqlDialects.length ? { sqlDialects } : {}),
     schemas,
     diagnostics,
     ...(meta.buildEnv ? { buildEnv: meta.buildEnv } : {}),

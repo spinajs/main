@@ -248,6 +248,29 @@ export interface ModelSqlQuery {
   source: SourceRef;
 }
 
+/**
+ * What a database driver hands back to raw SQL, declared by the driver with `@SqlDialect`. `families`: the TS type of a
+ * column of that family when it is not the model's type. `sum`/`avg`: by the argument's family; a family not listed is
+ * `unknown`. `'unknown'` anywhere: the driver's answer depends on more than this profile knows.
+ */
+export interface SqlDialectProfile {
+  /** What an app writes in `package.json#spinajs.orm.dialects`. */
+  name: string;
+  /** The `database` option of node-sql-parser. */
+  grammar: string;
+  /** How the driver sends the `?` of the `sql` tag: unchanged, `$1..` or `@p0..`. */
+  placeholders: 'question' | 'dollar' | 'at-p0';
+  families: Partial<Record<ColumnFamily, string>>;
+  count: string;
+  sum: Partial<Record<ColumnFamily, string>>;
+  avg: Partial<Record<ColumnFamily, string>>;
+  /** A comparison, `TRUE` or `FALSE` in a select list. */
+  predicates: string;
+}
+
+/** `drivers`: the `@Injectable` tokens of the class that declares the profile. */
+export interface SqlDialectEntry { drivers: string[]; profile: SqlDialectProfile; source: SourceRef }
+
 export interface Diagnostic { code: string; severity: 'error' | 'warning' | 'info'; message: string; source?: SourceRef }
 
 export interface ManifestFragment {
@@ -271,6 +294,8 @@ export interface ManifestFragment {
   scanFiles?: ScanFile[];
   /** Omitted when the package has no `sql` template. */
   sqlQueries?: ModelSqlQuery[];
+  /** Omitted when the package declares no SQL dialect. */
+  sqlDialects?: SqlDialectEntry[];
   schemas: Record<string, unknown>;   // $id → JSON Schema
   diagnostics: Diagnostic[];
 }
