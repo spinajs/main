@@ -486,6 +486,37 @@ the `<table>__history` table and its triggers; see [Schema builder](09-schema-bu
 
 <!-- TODO(docs-hook): verify how a history model is declared and populated end to end; HistoricalModel does not extend ModelBase and @Historical sets no RelationClass. -->
 
+## Column SQL specs, indexes and partial models
+
+A plain class field is a column. `@Column(spec)` adds what the SQL type is, for the manifest and `migrate-diff`;
+queries and hydration do not read it.
+
+```ts
+@Model('authors', { columns: 'exhaustive' })
+@Index(['Email'], { unique: true, name: 'authors_email_unique' })
+@Index(['LastName', 'FirstName'])
+export class Author extends ModelBase<Author> {
+  @Primary() public Id: number;                                   // integer, autoIncrement (inferred)
+  @Column({ family: 'text', length: 320 }) public Email: string;  // exact spec
+  public LastName: string | null;                                 // text (inferred)
+}
+```
+
+A column whose `@Column` does not state `family` (or that has no `@Column` at all) gets a type family from its
+TypeScript type and is marked `inferred`; the other members of the spec (`length`, `unique`, `default`, …) are
+always what the decorator states. `number` → `integer`, `bigint` → `bigint`, `string` and string literal unions →
+`text`, `boolean` → `boolean`, `Date`/`DateTime` → `datetime`, `Uint8Array`/`Buffer` → `binary`, and anything else →
+`json`. Decorators override the type: `@Json` → `json`, `@Int64` → `bigint`, `@Uuid` or
+`@Primary({ generated: 'uuid' })` → `uuid`, `@Bool` → `boolean`, and
+`@DateTime`/`@CreatedAt`/`@UpdatedAt`/`@SoftDelete`/`@Archived` → `datetime`. An integer `@Primary()` with
+generation `auto` is `autoIncrement`. Inference never produces `enum`; state it with
+`@Column({ family: 'enum', enumValues: [...] })`. `migrate-diff` and `diffManifest` compare an inferred family
+loosely: a change of an inferred family is never breaking on its own.
+
+Models are partial by default: a table may have columns no model declares (D19). `@Model(table, { columns: 'exhaustive' })`
+says the model declares every column, so `migrate-diff` may drop the others and the SQL doctor reports an undeclared
+column as an error instead of a warning.
+
 ## Related
 
 - [Connections](01-connections.md): `@Connection()`, the `db.Connections` names and the `default` alias.

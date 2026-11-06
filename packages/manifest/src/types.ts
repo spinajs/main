@@ -164,10 +164,62 @@ export interface SocketContractEntry { id: string; /** Name the `defineContract`
 export interface ConfigModuleEntry { module: string; schemaId: string; defaultsFile?: string; source: SourceRef }
 export interface ConfigUsageEntry { path: string; source: SourceRef }   // every @Config('x.y') / config.get('x.y') literal
 
+/** D8 type families. `migrate-diff` compares an inferred column by family only. `enum` is never inferred; only `@Column({ family: 'enum' })` produces it. */
+export type ColumnFamily = 'integer' | 'bigint' | 'decimal' | 'float' | 'text' | 'boolean' | 'date' | 'datetime' | 'time' | 'json' | 'binary' | 'uuid' | 'enum';
+
+/**
+ * `default`: a literal, or `{ raw }` SQL such as `CURRENT_TIMESTAMP`. `inferred`: the family was not stated (no `@Column`,
+ * or one without `family`) and comes from the TypeScript type; the other members are always what the decorator states.
+ */
+export interface ColumnSqlSpec {
+  family: ColumnFamily;
+  nativeType?: string;
+  length?: number;
+  precision?: number;
+  scale?: number;
+  unsigned?: boolean;
+  default?: string | number | boolean | null | { raw: string };
+  autoIncrement?: boolean;
+  unique?: boolean;
+  enumValues?: string[];
+  version?: boolean;
+  inferred?: boolean;
+}
+
+export interface ModelIndex { name?: string; columns: string[]; unique: boolean }
+
+export interface ModelColumn {
+  name: string;
+  type: TypeRef;
+  primary: boolean;
+  nullable: boolean;
+  /** Absent in fragments older than the field. */
+  sql?: ColumnSqlSpec;
+}
+
+/**
+ * Join columns as the decorator states them or the runtime defaults them to a name. An absent `primaryKey` is the primary
+ * key of the target (`belongsTo`, `forwardBelongsTo`) or of the owner (`hasMany`, `hasManyToMany`); an absent `foreignKey`
+ * of a `hasManyToMany` is the target's primary key.
+ */
+export interface ModelRelation {
+  name: string;
+  kind: 'belongsTo' | 'hasMany' | 'hasManyToMany' | 'forwardBelongsTo';
+  target: string;
+  foreignKey?: string;
+  primaryKey?: string;
+  junction?: { model: string; sourceKey: string; targetKey: string };
+}
+
 export interface ModelEntry {
   id: string; className: string; tableName: string; connection?: string;
-  columns: { name: string; type: TypeRef; primary: boolean; nullable: boolean }[];  // declared via decorators / class fields only
-  relations: { name: string; kind: 'belongsTo' | 'hasMany' | 'hasManyToMany' | 'forwardBelongsTo'; target: string }[];
+  columns: ModelColumn[];  // declared via decorators / class fields only
+  relations: ModelRelation[];
+  indexes?: ModelIndex[];
+  /** The `@Version` column. */
+  version?: string;
+  /** `@Model(table, { columns: 'exhaustive' })`: the model declares every column of its table (D19). */
+  exhaustive?: true;
   accessResource: boolean;
   source: SourceRef;
 }
