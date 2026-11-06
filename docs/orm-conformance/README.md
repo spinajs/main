@@ -41,3 +41,10 @@ reason that starts `PGlite PostgreSQL version <v> vs CI 16.6:` (`<v>` is PGlite'
 GitHub issue that tracks it; `"pending"` until it is opened. The test `every accepted divergence links an opened issue`
 fails on a pending entry only with `ORM_CONFORMANCE_REQUIRE_ISSUES=1`, which the `conformance` job sets; a plain
 `npm test` prints the pending count and passes. A listed divergence that agrees again fails everywhere: remove its entry.
+
+## CI
+
+`.github/workflows/orm-conformance.yml`: the `conformance` job runs on pull requests (sqlite, PGlite, postgres 16.6,
+mysql 8.4); `mssql-nightly` runs on a schedule (from `master`) and by `workflow_dispatch`, and is not a required check.
+GitHub runs a `schedule` trigger only on the default branch, so until `v4` is the default branch the nightly job runs
+only when dispatched.

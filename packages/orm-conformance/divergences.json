@@ -1,1 +1,6 @@
-[]
+[
+  { "case": "order-nulls-asc", "target": "sqlite", "reason": "sqlite sorts NULL first in ascending order; PostgreSQL sorts it last", "issue": "pending" },
+  { "case": "like-case", "target": "sqlite", "reason": "sqlite LIKE ignores ASCII case, so 'a%' matches Ann; PostgreSQL LIKE is case-sensitive and matches no name", "issue": "pending" },
+  { "case": "date-only", "target": "sqlite", "reason": "sqlite has no date type and its schema builder declares a date column TEXT, so the column keeps the whole UTC instant (2026-05-31T10:30Z); PostgreSQL DATE keeps the calendar day of the value in its own zone (2026-06-01)", "issue": "pending" },
+  { "case": "where-datetime-range", "target": "sqlite", "reason": "sqlite compares datetime text as text, so a value stored as 'YYYY-MM-DD HH:MM:SS' (sqlite's own format, used by the seed) sorts before the driver's ISO 'YYYY-MM-DDTHH:MM:SSZ' bound of the same day; PostgreSQL compares instants", "issue": "pending" }
+]
