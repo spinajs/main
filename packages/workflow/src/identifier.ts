@@ -11,3 +11,8 @@ export function identifierProblem(value: string, max: number): string | undefine
   if (/\p{Cs}/u.test(value)) return 'must not contain unpaired surrogates';
   return undefined;
 }
+
+/** `*` is the park's several-names marker and `#` ends the name in a wait key: neither may be part of an event name. */
+export function eventNameProblem(value: string): string | undefined {
+  return /[#*]/.test(value) ? `must not contain '#' or '*', got ${JSON.stringify(value.slice(0, 40))}` : undefined;
+}
