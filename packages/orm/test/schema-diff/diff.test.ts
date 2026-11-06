@@ -239,5 +239,29 @@ describe('diffSchema', () => {
       ]);
       expect(run(models, columns, { hasRows: true }, options(EXACT)).changes[0]).to.equal('!alterColumn posts (posts.Title: NULL allowed, length not compared; re-stated as 200)');
     });
+
+    it('warns MIG006 when altering a column rebuilds a table that a live or a created table references', () => {
+      const REBUILDS = profile('sqlite', NATIVE, { alterColumnRebuildsTable: true });
+      const models = [
+        model('User', 'users', [id(), col('Name', { family: 'text' }, { nullable: true }), col('ParentId', { family: 'integer', inferred: true })]),
+        model('Post', 'posts', [id(), col('OwnerId', { family: 'integer', inferred: true })]),
+        model('Comment', 'comments', [id(), col('UserId', { family: 'integer', inferred: true })], { relations: [{ name: 'User', kind: 'belongsTo', target: 'User', foreignKey: 'UserId' }] }),
+      ];
+      const columns = new Map([
+        ['users', [LIVE_ID, live('Name', 'text'), live('ParentId', 'integer')]],
+        ['posts', [LIVE_ID, live('OwnerId', 'integer')]],
+      ]);
+      const extras = new Map<string, LiveTableExtras>([
+        ['users', { hasRows: true, foreignKeys: [{ name: 'self', column: 'ParentId', table: 'users', references: 'Id' }] }],
+        ['posts', { hasRows: true, foreignKeys: [{ name: 'fk', column: 'OwnerId', table: 'users', references: 'Id' }] }],
+      ]);
+      const check = (dialect: SqlDialectProfile): string[] => {
+        const diagnostics: Diagnostic[] = [];
+        diffSchema(target(...models), columns, extras, { dialect, diagnostics });
+        return codes(diagnostics).filter((d) => d.startsWith('MIG006'));
+      };
+      expect(check(REBUILDS)).to.deep.equal(['MIG006 altering a column of users rebuilds the table, which fails while foreign keys are enforced: it is referenced by posts, comments']);
+      expect(check(EXACT)).to.deep.equal([]);
+    });
   });
 });

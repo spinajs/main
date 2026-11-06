@@ -36,6 +36,7 @@ A live column reports a native type (`int4`, `nvarchar`, `TEXT`). Which families
 | `untrustedNullability` | Families whose live `NOT NULL` says nothing about the model; sqlite lists `boolean` |
 | `caseInsensitiveIdentifiers` | The database compares unquoted identifiers ignoring case, so table and column names match ignoring case (`Id` and `id` are one column) and the generated code keeps the model's spelling; sqlite, mysql and mssql set it. Postgres and PGlite do not: the drivers quote names there, so `name` and `Name` are two columns |
 | `unboundedText` | A text column's declared length is not enforced, so re-stating one on a modify is not `DESTRUCTIVE`; sqlite sets it. A `binary` length still is |
+| `alterColumnRebuildsTable` | A column is altered by rebuilding its table, which fails while foreign keys are enforced and another table references it (`MIG006`); sqlite sets it |
 
 A type the profile does not list is not compared (`MIG003`), and without a profile no type is compared. A third-party driver adds the members that hold for its database to its own profile; the shipped drivers (`@spinajs/orm-postgres`, `-pglite`, `-sqlite`, `-mysql`, `-mssql`) list the types their schema builder creates.
 
@@ -60,6 +61,7 @@ const changes = diffSchema(target, columns, extras, { dialect: sqlDialectOf(Sqli
 | `MIG003` | info | An aspect was not compared (no lengths, no index or foreign-key introspection, unknown type or dialect) |
 | `MIG004` | warning | An unmanaged column is `NOT NULL` without a default |
 | `MIG005` | info | A declared foreign key is missing on an existing table |
+| `MIG006` | warning | A column change rebuilds a table that a live or a created table references, which fails while foreign keys are enforced |
 
 ## Generating the migration
 
@@ -98,4 +100,8 @@ On a driver that reports no length (mysql), a modify of a text column whose spec
 
 Other limits of a modify:
 - A `uuid` column is re-stated as `binary(16)`: the schema builder has no other uuid type outside `createTable`, so on postgres a modify re-types a native `uuid` column to `bytea`. Review such a step before running it.
-- sqlite modifies a column by rebuilding the table, and refuses to do so while `PRAGMA foreign_keys` is on and another table references it. Alter such a table in a hand-written migration.
+- sqlite modifies a column by rebuilding the table, and refuses to do so while `PRAGMA foreign_keys` is on and another table references it; `diffSchema` warns `MIG006` for it. Alter such a table in a hand-written migration.
+
+## Running or printing the steps
+
+`runStep(driver, step)` runs one planned step (`planMigration(changes)[i].step`) on a driver, as the generated `up()` would. `renderSql(changes, driver, { allowDestructive })` returns the DDL those steps compile to on the driver's dialect without writing to the database: the steps run on a copy of the driver that records each statement, answers every query with no rows, and runs a transaction body without opening a transaction. `DESTRUCTIVE` steps are left out unless `allowDestructive` is set. A step that needs the live table to compile (a sqlite column change, which rebuilds the table) yields one `-- <kind> <table> is not compiled offline: <driver error>` line instead. `spinajs migrate-diff --sql` prints this list; the command is described in [Generating migrations](../orm-cli/09-generating-migrations.md).

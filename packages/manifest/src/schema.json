@@ -1733,6 +1733,9 @@
         },
         "unboundedText": {
           "type": "boolean"
+        },
+        "alterColumnRebuildsTable": {
+          "type": "boolean"
         }
       },
       "required": [

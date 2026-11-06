@@ -195,6 +195,20 @@ function droppedTables(target: TargetTable[], live: Map<string, IColumnDescripto
     .map((b): SchemaChange => ({ kind: 'dropTable', table: b.name, detail: { table: b.name }, destructive: true, reason: `${b.name} is mapped by no model since --base` }));
 }
 
+/** MIG006: the driver alters a column by rebuilding the table, which it refuses while foreign keys are enforced and another table references it. */
+function noteRebuilds(changes: SchemaChange[], liveExtras: LiveExtras, ctx: DiffContext): void {
+  if (!ctx.dialect?.alterColumnRebuildsTable) return;
+  const references = [
+    ...[...liveExtras].flatMap(([from, extras]) => (extras.foreignKeys ?? []).map((fk) => ({ from, to: fk.table }))),
+    ...changes.flatMap((c) => (c.kind === 'createTable' ? c.detail.foreignKeys.map((fk) => ({ from: c.table, to: fk.table })) : [])),
+  ];
+  for (const table of new Set(changes.filter((c) => c.kind === 'alterColumn').map((c) => c.table))) {
+    const referrers = new Set(references.filter((r) => ctx.fold(r.to) === ctx.fold(table) && ctx.fold(r.from) !== ctx.fold(table)).map((r) => r.from));
+    if (referrers.size === 0) continue;
+    note(ctx, 'MIG006', `altering a column of ${table} rebuilds the table, which fails while foreign keys are enforced: it is referenced by ${[...referrers].join(', ')}`, 'warning');
+  }
+}
+
 /**
  * What it takes to bring `live` to `target` (D10). Only columns the models declare are added or altered; a column no model
  * declares is `unmanaged` and dropped only under the D19 rule 3 conditions. Diagnostics go to `options.diagnostics`.
@@ -219,5 +233,6 @@ export function diffSchema(models: TargetTable[], liveTables: Map<string, IColum
     if (columns) changes.push(...diffTable(table, columns, extras.get(fold(table.name)), ctx));
     else changes.push({ kind: 'createTable', table: table.name, detail: table, destructive: false });
   }
+  noteRebuilds(changes, liveExtras, ctx);
   return [...changes, ...droppedTables(target, live, ctx)];
 }

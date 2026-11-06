@@ -1734,6 +1734,9 @@ export const manifestSchema: Record<string, any> = {
         },
         "unboundedText": {
           "type": "boolean"
+        },
+        "alterColumnRebuildsTable": {
+          "type": "boolean"
         }
       },
       "required": [

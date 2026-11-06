@@ -39,5 +39,6 @@ describe('sqlite SQL dialect profile', function () {
   it('declares how migrate-diff compares names and text lengths', () => {
     expect(SQLITE_SQL_DIALECT.caseInsensitiveIdentifiers).to.equal(true);
     expect(SQLITE_SQL_DIALECT.unboundedText).to.equal(true);
+    expect(SQLITE_SQL_DIALECT.alterColumnRebuildsTable).to.equal(true);
   });
 });
