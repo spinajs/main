@@ -1,7 +1,7 @@
 import { Log } from '@spinajs/log-common';
 /* eslint-disable prettier/prettier */
 import { ModelToSqlConverter, NowExpression, ObjectToSqlConverter } from './interfaces.js';
-import type { IColumnDescriptor, IDriverOptions, IPoolOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions } from './interfaces.js';
+import type { ICompilerOutput, IColumnDescriptor, IDriverOptions, IPoolOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions } from './interfaces.js';
 import { SyncService, DI, Container, Autoinject } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TruncateTableQueryBuilder, RawQuery, SessionSettingsQueryBuilder } from './builders.js';
@@ -10,7 +10,7 @@ import { ConnectionSessionSettings } from './session-settings.js';
 import type { SessionSettings } from './session-settings.js';
 import { Int64ValueConverter, JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, UniversalValueConverter, UuidConverter } from './converters.js';
 import { InvalidOperation, NotSupported } from '@spinajs/exceptions';
-import { OrmException } from './exceptions.js';
+import { OrmException, StreamNotSupported } from './exceptions.js';
 import { SqlExpressions } from './expressions.js';
 import { AsyncLocalStorage } from 'async_hooks';
 import { backoffDelay, ConnectionState, delay, isRetryableErrorCode } from './resilience.js';
@@ -106,6 +106,14 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    */
   //public abstract execute(stmt: string | object, params: any[], context: QueryContext): Promise<any[] | any>;
   public abstract execute(builder: Builder<any>): Promise<any[] | any>;
+
+  /**
+   * The rows of one compiled select, read from a server-side cursor. Drivers that set `supportedFeatures().streaming`
+   * override it; `SelectQueryBuilder.stream()` pages by keyset on the others.
+   */
+  public executeStream(_compiled: ICompilerOutput, _options: { batchSize: number }): AsyncIterable<unknown> {
+    throw new StreamNotSupported(`driver ${this.Options.Driver} cannot stream rows`);
+  }
 
   /**
    * Checks if database is avaible

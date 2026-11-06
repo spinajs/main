@@ -111,6 +111,11 @@ export class Builder<T = any> implements IBuilder<T> {
     const wrap = this._driver.CurrentTransaction === undefined && this._queryMiddlewares.some((m) => m.transactional?.(this as unknown as QueryBuilder) === true);
     const result = wrap ? await this._driver.transaction(() => this._executeWithQueryMiddlewares()) : await this._executeWithQueryMiddlewares();
 
+    return this._materialize(result);
+  }
+
+  /** Result middlewares, hydration and post-hydration middlewares over one driver result. `stream()` runs it once per batch. */
+  protected async _materialize(result: T): Promise<T> {
     // Snapshot the pipeline once, *after* the driver call: compiling the query is what
     // registers the relation middlewares (the driver calls `toDB()`), so this is the first
     // point at which the list is complete. Everything below runs against this immutable copy,

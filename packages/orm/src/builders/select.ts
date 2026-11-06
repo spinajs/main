@@ -2,9 +2,9 @@ import { Injectable, isConstructor } from '@spinajs/di';
 import type { Constructor, IContainer } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { use } from 'typescript-mix';
-import { ColumnMethods, QueryMethod, WhereBoolean, SqlOperator } from '../enums.js';
+import { ColumnMethods, QueryMethod, WhereBoolean, SqlOperator, SortOrder } from '../enums.js';
 import { SelectQueryCompiler, QueryContext, RelationType, BooleanValueConverter } from '../interfaces.js';
-import type { RowLockMode, ICompilerOutput, ILimitBuilder, IQueryLimit, ISort, IWhereBuilder, IJoinBuilder, IBuilderMiddleware, IWithRecursiveBuilder, ITypedColumnsBuilder } from '../interfaces.js';
+import type { IModelDescriptor, IStreamOptions, RowLockMode, ICompilerOutput, ILimitBuilder, IQueryLimit, ISort, IWhereBuilder, IJoinBuilder, IBuilderMiddleware, IWithRecursiveBuilder, ITypedColumnsBuilder } from '../interfaces.js';
 import { ColumnMethodStatement, WhereStatement, ColumnRawStatement, ColumnConditionStatement } from '../statements.js';
 import type { ColumnStatement, IQueryStatement } from '../statements.js';
 import type { Unbox, WhereFunction } from '../types.js';
@@ -15,8 +15,12 @@ import type { IOrmRelation } from '../relations.js';
 import { relationOf } from '../relation-registry.js';
 import { isNullOrWhitespace } from '@spinajs/util';
 import { extractModelDescriptor } from '../descriptor.js';
+import { StreamNotSupported } from '../exceptions.js';
+import { applyKeysetPredicate, assertKeysetNotNull, keysetColumns, keysetOfSorts, keysetValues } from '../keyset.js';
+import { hasPk } from '../primary-keys.js';
+import { executeRecorded } from '../schema-touches.js';
 import type { IRelationSort } from './internal.js';
-import { runCloneHooks } from './internal.js';
+import { executionCopy, runCloneHooks } from './internal.js';
 import type { BuilderState } from '../extensions.js';
 import { QueryBuilder } from './base.js';
 import { LimitBuilder } from './limit.js';
@@ -33,6 +37,8 @@ export type SelectNarrowed<B, T, R> = SelectQueryBuilder<Rebox<T, R>> & ScopesOf
 export type StrictSelectAliasNarrowed<B, T, A extends string, R> = OrmStrict extends true ? (string extends A ? B : SelectNarrowed<B, T, R>) : B;
 
 export interface SelectQueryBuilder<T> extends ITypedColumnsBuilder<T>, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder { }
+
+const DEFAULT_STREAM_BATCH = 500;
 
 /** Reads the driver's value of a selectCondition() column as a boolean. */
 class BooleanColumnMiddleware implements IBuilderMiddleware<any> {
@@ -581,6 +587,110 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     }
 
     return res !== undefined && res !== null;
+  }
+
+  public stream(options: IStreamOptions = {}): AsyncIterable<Unbox<T>> {
+    const batchSize = options.batchSize ?? DEFAULT_STREAM_BATCH;
+    if (!Number.isSafeInteger(batchSize) || batchSize < 1) {
+      throw new InvalidArgument(`batchSize must be a positive integer, got ${String(batchSize)}`);
+    }
+
+    return this._streamRows(batchSize) as AsyncIterable<Unbox<T>>;
+  }
+
+  protected async *_streamRows(batchSize: number): AsyncGenerator<unknown> {
+    if (this._first) {
+      throw new InvalidOperation('stream() cannot follow first() or takeFirst()');
+    }
+
+    if (this._driver.CurrentTransaction === undefined && !this._wantsTransaction() && this._driver.supportedFeatures().streaming === true) {
+      yield* this._streamFromCursor(batchSize);
+      return;
+    }
+
+    // a cursor would hold the transaction's connection, and the per-batch populate or any statement in the loop body
+    // would queue behind it for ever; a page is a whole statement, so the connection is free between pages
+    yield* this._streamByKeyset(batchSize);
+  }
+
+  /** Same test as `Builder._run`: a query middleware (authz-orm's row filter) that needs a transaction gets one per page. */
+  private _wantsTransaction(): boolean {
+    return this._queryMiddlewares.some((m) => m.transactional?.(this) === true);
+  }
+
+  protected async *_streamFromCursor(batchSize: number): AsyncGenerator<unknown> {
+    for (const middleware of this._queryMiddlewares) {
+      await middleware.beforeQueryExecution(this);
+    }
+
+    const compiled = this.toDB();
+    // recorded like `_run`, so the migration tool's dry run sees the tables a stream reads
+    const rows = await executeRecorded(this._driver, () => this.schemaTouches(), () => Promise.resolve(this._driver.executeStream(compiled, { batchSize })));
+    let batch: unknown[] = [];
+
+    for await (const row of rows) {
+      batch.push(row);
+      if (batch.length === batchSize) {
+        yield* await this._streamBatch(batch);
+        batch = [];
+      }
+    }
+
+    if (batch.length !== 0) {
+      yield* await this._streamBatch(batch);
+    }
+  }
+
+  private async _streamBatch(rows: unknown[]): Promise<unknown[]> {
+    for (const middleware of this._queryMiddlewares) {
+      await middleware.afterQueryExecution?.(this, rows);
+    }
+
+    return (await this._materialize(rows as unknown as T)) as unknown as unknown[];
+  }
+
+  /** Each page is an execution copy of this query, run the normal way, past the last row of the page before. */
+  protected async *_streamByKeyset(batchSize: number): AsyncGenerator<unknown> {
+    const descriptor = extractModelDescriptor(this._model);
+    // compiles the relations, which merges a populated relation's order into this one, and fills every copy's middlewares
+    this.toDB();
+    const sorts = this.getSorts();
+    this._assertKeysetPageable(sorts, descriptor);
+
+    const columns = keysetColumns(keysetOfSorts(sorts), descriptor);
+    assertKeysetNotNull(columns, descriptor);
+
+    let last: unknown[] | undefined;
+    for (;;) {
+      const page = executionCopy(this);
+      for (const tieBreaker of columns.slice(sorts.length)) {
+        page.order(tieBreaker.column, SortOrder.ASC);
+      }
+      if (last) {
+        applyKeysetPredicate(page, columns, last, 'after');
+      }
+      page.take(batchSize);
+
+      const rows = (await page) as unknown as unknown[];
+      yield* rows;
+
+      if (rows.length < batchSize) {
+        return;
+      }
+      last = keysetValues(columns, rows.at(-1));
+    }
+  }
+
+  private _assertKeysetPageable(sorts: ISort[], descriptor: IModelDescriptor | null | undefined): asserts descriptor is IModelDescriptor {
+    if (sorts.length === 0 || !descriptor || !hasPk(descriptor)) {
+      const why = this._driver.CurrentTransaction !== undefined ? 'inside a transaction stream() pages by keyset' : `driver ${String(this._driver.Options.Driver)} has no cursor; stream() pages by keyset instead`;
+      throw new StreamNotSupported(`${why}, which needs order() on a model with a primary key`);
+    }
+
+    const { limit = -1, offset = -1 } = this._limit;
+    if (limit > 0 || offset > 0 || (this._sorts as IRelationSort[]).some((s) => s.tableAlias !== undefined || s.awaits !== undefined)) {
+      throw new StreamNotSupported('stream() pages by keyset here and cannot keep take(), skip() or an order by a relation column');
+    }
   }
 
   /**

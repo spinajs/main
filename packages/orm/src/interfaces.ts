@@ -79,6 +79,9 @@ export interface ISupportedFeature {
 
   /** Has a JSON column type of its own, rather than storing `json()` columns as text. Unset reads as false. */
   nativeJson?: boolean;
+
+  /** `executeStream` reads from a server-side cursor. Unset reads as false: `stream()` then pages by keyset. */
+  streaming?: boolean;
 }
 
 export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> {
@@ -1517,12 +1520,23 @@ export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T
    */
   all(): Promise<T>;
 
+  /**
+   * The rows of the query, hydrated and populated one batch at a time. Leaving the loop early releases the cursor.
+   * A driver without a cursor pages by keyset instead, which needs an `order()` and a primary key.
+   */
+  stream(options?: IStreamOptions): AsyncIterable<Unbox<T>>;
+
   mergeBuilder(builder: ISelectQueryBuilder, includeStatements?: boolean): void;
 }
 
 export interface ICompilerOutput {
   expression: string | null;
   bindings: any[] | null;
+}
+
+export interface IStreamOptions {
+  /** Rows hydrated, and relations populated, per round. Default 500. */
+  batchSize?: number;
 }
 
 export interface IQueryCompiler {

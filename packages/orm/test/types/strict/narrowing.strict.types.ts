@@ -103,3 +103,17 @@ export async function populateNamesStrict(dynamic: string, anyQuery: ISelectQuer
   // @ts-expect-error a column is no relation
   User.query().populate('Email');
 }
+
+export async function streamStrict(): Promise<void> {
+  for await (const row of User.query().select('Id').stream()) {
+    assertType<Equal<typeof row.Id, number>>();
+    // @ts-expect-error an unselected column is not on the row
+    void row.Name;
+  }
+  for await (const _user of User.query().select('Id').populate('Team').stream()) {
+    assertType<Equal<typeof _user.Team.Value, Team>>();
+  }
+  for await (const _row of User.all().count('Id', 'total').stream({ batchSize: 100 })) {
+    assertType<Equal<typeof _row.total, AggregateValue>>();
+  }
+}
