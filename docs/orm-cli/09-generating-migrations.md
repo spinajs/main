@@ -16,7 +16,7 @@ spinajs migrate-diff AddEmailVerified --connection default
 | `-o, --out` | Directory for the file; default `./src/migrations` |
 | `-p, --prune` | `table.column,…` of undeclared columns to drop (`DESTRUCTIVE`) |
 | `--allow-destructive` | Write `DESTRUCTIVE` steps as code; without it they are comments |
-| `--sql` | Print the DDL for the connection's dialect instead of writing a file. A step the dialect only runs against the live table (sqlite column changes) prints as a `--` line |
+| `--sql` | Print the DDL for the connection's dialect instead of writing a file. A step the dialect only runs against the live table (sqlite column changes; the recorder answers no rows) prints as a `--` line, and so does a `DESTRUCTIVE` step without `--allow-destructive` |
 | `--check` | Write nothing; print the changes and exit 1 when there are any. Use it in CI to catch "model changed, no migration" |
 
-stdout carries the result (the file path, the DDL, or the change list); diagnostics (`MIG001`–`MIG006`) go to stderr. `MIG001` stops the command with exit code 1. `MIG006` warns that a generated sqlite column change would fail while foreign keys are enforced, before the migration runs. The command connects like the other migration commands (`OrmMigrator` without its boot pass), so it works while tables are still missing.
+stdout carries the result (the file path, the DDL, or the change list); diagnostics (`MIG001`–`MIG006`) go to stderr. `MIG001` stops the command with exit code 1. `MIG006` warns that a generated sqlite column change would fail while foreign keys are enforced, before the migration runs. It checks only the tables a model or `--base` maps; for a referencing table no model maps, the driver's `NotSupported` error when the step runs is the backstop. The command connects like the other migration commands (`OrmMigrator` without its boot pass), so it works while tables are still missing.

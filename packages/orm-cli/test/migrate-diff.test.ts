@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { META_OPTION, type IOption } from '@spinajs/cli';
 import { Bootstrapper, DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { MANIFEST_VERSION, type ColumnSqlSpec, type Manifest, type ModelColumn, type ModelEntry } from '@spinajs/manifest';
@@ -178,7 +179,43 @@ describe('migrate-diff', function () {
       const { out: lines } = await capture(() => command.execute(undefined, { connection, manifest, out, sql: true }));
       expect(lines.join('\n')).to.include('CREATE TABLE').and.to.include(keyword);
       expect(existsSync(out)).to.equal(false);
+      const driver = (await DI.resolve(Orm)).Connections.get(connection);
+      if (!driver) throw new Error(`no ${connection} connection`);
+      expect((await introspectSchema(driver, [`cli_sql_${connection}`])).columns.has(`cli_sql_${connection}`)).to.equal(false);
     }
+  });
+
+  it('--allow-destructive writes a DESTRUCTIVE step as code instead of a comment', async () => {
+    const driver = await pg();
+    await driver.schema().createTable('cli_drop', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.text('Old');
+    });
+    const manifest = writeManifest('m', [model('Drop', 'cli_drop', [id()])]);
+    const run = async (allowDestructive: boolean): Promise<{ source: string; err: string[] }> => {
+      const out = join(dir, String(allowDestructive));
+      const { err } = await capture(() => command.execute(undefined, { connection: 'pg', manifest, prune: 'cli_drop.Old', out, allowDestructive }));
+      return { source: readFileSync(join(out, readdirSync(out)[0]), 'utf8'), err };
+    };
+    const commented = await run(false);
+    expect(commented.source).to.match(/^ {4}\/\/ {3}table\.dropColumn\('Old'\);$/m);
+    expect(commented.err).to.deep.equal(['commented out: DESTRUCTIVE dropColumn cli_drop: --prune cli_drop.Old']);
+    const written = await run(true);
+    expect(written.source).to.match(/^ {6}table\.dropColumn\('Old'\);$/m);
+    expect(written.err).to.deep.equal(['written: DESTRUCTIVE dropColumn cli_drop: --prune cli_drop.Old']);
+  });
+
+  it('requires a value after --manifest, --base, --out and --prune', () => {
+    const flags = (Reflect.getMetadata(META_OPTION, MigrateDiffCommand) as IOption[]).map((o) => o.flags);
+    expect(flags.filter((f) => f.includes('['))).to.deep.equal(['-c, --connection [connection]']);
+  });
+
+  it('prints a name holding a line break on one line', async () => {
+    const created = await capture(() => command.execute(undefined, { connection: 'pg', manifest: writeManifest('m', [model('Odd', 'cli_odd\nx', [id()])]), check: true }));
+    expect(created.out).to.deep.equal(['createTable cli_odd x']);
+    const conflict = writeManifest('c', [model('A', 'cli_odd\ny', [col('Email', { family: 'text', length: 10 })]), model('B', 'cli_odd\ny', [col('Email', { family: 'text', length: 20 })])]);
+    const { err } = await capture(() => command.execute(undefined, { connection: 'pg', manifest: conflict, check: true }));
+    expect(err).to.deep.equal(['error MIG001: column cli_odd y.Email is declared with different specs by A, B: {"family":"text","length":10} and {"family":"text","length":20}']);
   });
 
   it('stops on MIG001 with exit code 1 and writes nothing', async () => {
@@ -221,7 +258,7 @@ describe('migrate-diff', function () {
     const manifest = writeManifest('m', [model('Parent', 'cli_parent', [id(), col('Name', { family: 'text' })], { connection: 'lite' }), model('Child', 'cli_child', [id(), col('ParentId', { family: 'integer', inferred: true })], { connection: 'lite' })]);
     const { out, err } = await capture(() => command.execute(undefined, { connection: 'lite', manifest, check: true }));
     expect(out).to.deep.equal(['alterColumn cli_parent: cli_parent.Name: NOT NULL']);
-    expect(err).to.deep.equal(['warning MIG006: altering a column of cli_parent rebuilds the table, which fails while foreign keys are enforced: it is referenced by cli_child']);
+    expect(err).to.deep.equal(['warning MIG006: altering a column of cli_parent rebuilds the table when that step runs, which fails while foreign keys are enforced: it is referenced by cli_child']);
   });
 
   it('refuses an invalid name and an unknown connection', async () => {

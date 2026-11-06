@@ -61,7 +61,7 @@ const changes = diffSchema(target, columns, extras, { dialect: sqlDialectOf(Sqli
 | `MIG003` | info | An aspect was not compared (no lengths, no index or foreign-key introspection, unknown type or dialect) |
 | `MIG004` | warning | An unmanaged column is `NOT NULL` without a default |
 | `MIG005` | info | A declared foreign key is missing on an existing table |
-| `MIG006` | warning | A column change rebuilds a table that a live or a created table references, which fails while foreign keys are enforced |
+| `MIG006` | warning | A column change rebuilds a table that a live or a created table references, which fails while foreign keys are enforced. Only tables a model or `--base` maps are checked; a referencing table no model maps is not, and the driver's own `NotSupported` stops that step when it runs |
 
 ## Generating the migration
 
@@ -104,4 +104,4 @@ Other limits of a modify:
 
 ## Running or printing the steps
 
-`runStep(driver, step)` runs one planned step (`planMigration(changes)[i].step`) on a driver, as the generated `up()` would. `renderSql(changes, driver, { allowDestructive })` returns the DDL those steps compile to on the driver's dialect without writing to the database: the steps run on a copy of the driver that records each statement, answers every query with no rows, and runs a transaction body without opening a transaction. `DESTRUCTIVE` steps are left out unless `allowDestructive` is set. A step that needs the live table to compile (a sqlite column change, which rebuilds the table) yields one `-- <kind> <table> is not compiled offline: <driver error>` line instead. `spinajs migrate-diff --sql` prints this list; the command is described in [Generating migrations](../orm-cli/09-generating-migrations.md).
+`runStep(driver, step)` runs one planned step (`planMigration(changes)[i].step`) on a driver, as the generated `up()` would. `renderSql(changes, driver, { allowDestructive })` returns the DDL those steps compile to on the driver's dialect without writing to the database: the steps run on a copy of the driver that records each statement, answers every query with no rows, and runs a transaction body without opening a transaction. A `DESTRUCTIVE` step is left out unless `allowDestructive` is set, as one `-- DESTRUCTIVE <kind> <table>: <reason> (left out; pass --allow-destructive)` line. A step that needs the live table to compile (a sqlite column change, which rebuilds the table and reads its definition, while the recorder answers no rows) yields one `-- <kind> <table> is not compiled offline: <driver error>` line instead. Statements carry no trailing `;`. The driver must send its DDL through `executeOnDb` and open transactions through `transaction()`; `renderSql` refuses a driver without `executeOnDb` with `NotSupported`. `spinajs migrate-diff --sql` prints this list; the command is described in [Generating migrations](../orm-cli/09-generating-migrations.md).

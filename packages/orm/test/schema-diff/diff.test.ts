@@ -260,7 +260,7 @@ describe('diffSchema', () => {
         diffSchema(target(...models), columns, extras, { dialect, diagnostics });
         return codes(diagnostics).filter((d) => d.startsWith('MIG006'));
       };
-      expect(check(REBUILDS)).to.deep.equal(['MIG006 altering a column of users rebuilds the table, which fails while foreign keys are enforced: it is referenced by posts, comments']);
+      expect(check(REBUILDS)).to.deep.equal(['MIG006 altering a column of users rebuilds the table when that step runs, which fails while foreign keys are enforced: it is referenced by posts, comments']);
       expect(check(EXACT)).to.deep.equal([]);
     });
   });

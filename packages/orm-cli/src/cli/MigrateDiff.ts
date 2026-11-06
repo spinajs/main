@@ -29,15 +29,17 @@ const print = (line: string): void => {
 const report = (line: string): void => {
   process.stderr.write(`${line}\n`);
 };
-const describeChange = (c: SchemaChange): string => `${c.destructive ? 'DESTRUCTIVE ' : ''}${c.kind} ${c.table}${c.reason ? `: ${c.reason}` : ''}`;
+// a line terminator in a live or model name would split one entry into lines a script reads as two
+const oneLine = (text: string): string => text.replace(/[\r\n\p{Zl}\p{Zp}]/gu, ' ');
+const describeChange = (c: SchemaChange): string => oneLine(`${c.destructive ? 'DESTRUCTIVE ' : ''}${c.kind} ${c.table}${c.reason ? `: ${c.reason}` : ''}`);
 
 @Command('migrate-diff', 'Writes a migration that brings a database to the schema the models declare')
 @Argument('name', false, `migration name prefix, letters and digits, default ${DEFAULT_NAME}`)
 @Option('-c, --connection [connection]', false, 'connection to compare, default "default"')
-@Option('-m, --manifest [path]', false, `app manifest, default ${DEFAULT_MANIFEST}`)
-@Option('-b, --base [path]', false, 'manifest the database was last generated from; a column only it declares is dropped')
-@Option('-o, --out [dir]', false, `directory the migration is written to, default ${DEFAULT_MIGRATION_DIR}`)
-@Option('-p, --prune [columns]', false, 'comma-separated table.column list of undeclared columns to drop')
+@Option('-m, --manifest <path>', false, `app manifest, default ${DEFAULT_MANIFEST}`)
+@Option('-b, --base <path>', false, 'manifest the database was last generated from; a column only it declares is dropped')
+@Option('-o, --out <dir>', false, `directory the migration is written to, default ${DEFAULT_MIGRATION_DIR}`)
+@Option('-p, --prune <columns>', false, 'comma-separated table.column list of undeclared columns to drop')
 @Option('--allow-destructive', false, 'write DESTRUCTIVE steps as code instead of comments')
 @Option('--sql', false, "print the DDL for the connection's dialect instead of writing a file")
 @Option('--check', false, 'write nothing; exit 1 when the database differs from the models')
@@ -50,7 +52,7 @@ export class MigrateDiffCommand extends CliCommand {
 
     const diagnostics: Diagnostic[] = [];
     const { driver, changes } = await this.diff(connection, options, diagnostics);
-    diagnostics.forEach((d) => report(`${d.severity} ${d.code}: ${d.message}`));
+    diagnostics.forEach((d) => report(oneLine(`${d.severity} ${d.code}: ${d.message}`)));
     if (diagnostics.some((d) => d.severity === 'error')) {
       process.exitCode = 1;
       return;
@@ -79,7 +81,7 @@ export class MigrateDiffCommand extends CliCommand {
     const orm = await DI.resolve(Orm);
     const driver = orm.Connections.get(connection);
     if (!driver) throw new InvalidArgument(`Unknown connection "${connection}": it is not in db.Connections, db.Aliases or db.DefaultConnection`);
-    // a model names a connection, an alias of it, or nothing ('default'); every name that reaches this driver is its
+    // a model names a connection, an alias of it, or nothing ('default'); so every name that resolves to this driver counts
     const names = [...orm.Connections].filter(([, d]) => d === driver).map(([n]) => n);
     const target = buildTargetSchema(await readManifest(options.manifest ?? DEFAULT_MANIFEST), names, diagnostics);
     const base = options.base ? buildTargetSchema(await readManifest(options.base), names) : undefined;
