@@ -19,6 +19,7 @@ import { extractSchedules } from './extractors/schedules.js';
 import { extractCommands } from './extractors/commands.js';
 import { extractQueueMessages } from './extractors/queue.js';
 import { extractSqlQueries } from './extractors/sql.js';
+import { extractSqlDialects } from './extractors/sql-dialects.js';
 import { declaredDirsOf, isUnderDeclaredDirs, type DirSection } from './extractors/declared-dirs.js';
 import { discoveredBy, type AppDirs, type ScannedEntry } from './extractors/effective-dirs.js';
 
@@ -120,6 +121,7 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   const marked = <T extends ScannedEntry>(section: DirSection, entries: T[]): T[] => (discovered ? discovered.filter(section, entries) : entries);
 
   const sqlQueries = run(extractSqlQueries);
+  const sqlDialects = run(extractSqlDialects);
   const fragment: ManifestFragment = {
     manifestVersion: MANIFEST_VERSION,
     package: {
@@ -146,6 +148,7 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
     ...(discovered?.scanFiles.length ? { scanFiles: discovered.scanFiles } : {}),
     queueMessages: run(extractQueueMessages),
     ...(sqlQueries.length ? { sqlQueries } : {}),
+    ...(sqlDialects.length ? { sqlDialects } : {}),
     schemas: Object.fromEntries([...Object.entries(ctx.schemas), ...ctx.schemaRegistry].sort(([a], [b]) => compareCodeUnits(a, b))),
     diagnostics: sortDiagnostics(ctx.diagnostics),
   };

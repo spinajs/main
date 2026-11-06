@@ -15,6 +15,7 @@ export * from './extractors/schedules.js';
 export * from './extractors/commands.js';
 export * from './extractors/queue.js';
 export * from './extractors/sql.js';
+export * from './extractors/sql-dialects.js';
 export { NoAppDirs } from './extractors/effective-dirs.js';
 export type { AppDirs, EffectiveDirs } from './extractors/effective-dirs.js';
 export * from './doctor/index.js';
