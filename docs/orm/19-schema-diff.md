@@ -58,3 +58,25 @@ const changes = diffSchema(target, columns, extras, { dialect: sqlDialectOf(Sqli
 | `MIG003` | info | An aspect was not compared (no lengths, no index or foreign-key introspection, unknown type or dialect) |
 | `MIG004` | warning | An unmanaged column is `NOT NULL` without a default |
 | `MIG005` | info | A declared foreign key is missing on an existing table |
+
+## Generating the migration
+
+`generateMigration(changes, { name, connection, allowDestructive, now })` writes a `@Migration` class named `<name>_yyyy_MM_dd_HH_mm_ss` over the schema builder, so the existing runner, checksum and lock run it:
+
+```ts
+@Migration('default')
+export class SchemaDiff_2026_11_03_10_20_30 extends OrmMigration {
+  public async up(connection: OrmDriver): Promise<void> {
+    await connection.schema().alterTable('users', (table) => {
+      table.dateTime('EmailVerifiedAt');
+    });
+    // DESTRUCTIVE: users.Legacy was removed from the models since --base (pass --allow-destructive to run it)
+    // await connection.schema().alterTable('users', (table) => {
+    //   table.dropColumn('Legacy');
+    // });
+  }
+  …
+}
+```
+
+Tables are created before the tables that reference them, then columns are added, altered, indexed, and dropped. `down()` reverses created tables, added columns and added indexes. A `DESTRUCTIVE` step stays a comment unless `allowDestructive` is set. `introspectSchema(driver, tables)` reads `tableInfo()`, the driver's `tableIndexes()`/`tableForeignKeys()` where it has them, and whether each table has rows.
