@@ -1348,6 +1348,27 @@ export interface IGroupByBuilder {
 }
 
 /**
+ * Column methods of a select over its row type. `IColumnsBuilder`, `IOrderByBuilder` and `IGroupByBuilder`
+ * carry no row type, so they are re-declared here. Each method keeps an overload with the base shape,
+ * which keeps a select builder assignable to the untyped interfaces.
+ */
+export interface ITypedColumnsBuilder<T> extends IColumnsBuilder, IOrderByBuilder, IGroupByBuilder {
+  columns(names: ColumnRef<Unbox<T>>[]): this;
+
+  select(column: '*'): this;
+  select(column: ColumnRef<Unbox<T>>, alias?: string): this;
+  select(rawQuery: RawQuery): this;
+  select(columns: Map<string, string>): this;
+
+  orderBy(column: ColumnRef<Unbox<T>>): this;
+  orderByDescending(column: ColumnRef<Unbox<T>>): this;
+  order(column: ColumnRef<Unbox<T>>, direction?: SortOrder): this;
+  order(sort: Partial<ISort> | Array<Partial<ISort> | null | undefined> | null | undefined): this;
+
+  groupBy(expression: RawQuery | ColumnRef<Unbox<T>>): this;
+}
+
+/**
  * Dummy abstract class for allowing to add extensions for builder via declaration merging & mixins
  */
 //@ts-ignore
@@ -1416,22 +1437,22 @@ export interface IBuilder<T> extends PromiseLike<T> {
 
 export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> {
   /** Adds `column = column + by` to the SET list; calls on one column add up. */
-  increment(column: string, by?: number): this;
+  increment(column: ColumnRef<Unbox<T>>, by?: number): this;
 }
 
 export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> { }
 
-export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder, IQueryBuilder, IBuilder<T> {
+export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T>, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IQueryBuilder, IBuilder<T> {
   get Relations(): IOrmRelation[];
 
-  min(column: string, as?: string): this;
-  max(column: string, as?: string): this;
+  min(column: ColumnRef<Unbox<T>>, as?: string): this;
+  max(column: ColumnRef<Unbox<T>>, as?: string): this;
   count(): this;
-  count(column: string, as?: string): this;
+  count(column: ColumnRef<Unbox<T>>, as?: string): this;
   selectCount(): Promise<number>;
-  selectCount(column: string, as?: string): Promise<number>;
-  sum(column: string, as?: string): this;
-  avg(column: string, as?: string): this;
+  selectCount(column: ColumnRef<Unbox<T>>, as?: string): Promise<number>;
+  sum(column: ColumnRef<Unbox<T>>, as?: string): this;
+  avg(column: ColumnRef<Unbox<T>>, as?: string): this;
   /** `condition` as the boolean column `alias` (`CASE WHEN ... THEN 1 ELSE 0 END`). */
   selectCondition(alias: string, condition: WhereFunction<T>): this;
   setAlias(alias: string): this;

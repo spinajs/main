@@ -1,4 +1,4 @@
-import { col, RawQuery, SqlOperator } from '@spinajs/orm';
+import { col, RawQuery, SortOrder, SqlOperator } from '@spinajs/orm';
 import type { ISelectQueryBuilder, ModelBase } from '@spinajs/orm';
 import { Upload, User } from '../models.js';
 
@@ -47,4 +47,29 @@ export async function whereStrict(): Promise<void> {
   User.destroy().where('Nmae', 1);
   // @ts-expect-error unknown column after a scope
   Upload.query().ofSession('s').where('sesion_id', 's');
+}
+
+export async function columnsStrict(): Promise<void> {
+  await User.query().select('Id').select('Email', 'Mail').columns(['Id', 'Email']).select('*').select(new RawQuery('1 AS one'));
+  await User.query().orderBy('CreatedAt').orderByDescending('users.Id').order('Email', SortOrder.ASC).groupBy('IsActive').groupBy(new RawQuery('1'));
+  await User.query().min('Id', 'low').max('Id').sum('Id', 'total').avg('Id').count('Id');
+  await User.query().selectCount('Id');
+  await User.update({ Email: 'x' }).increment('Id');
+
+  // @ts-expect-error unknown column in select
+  User.query().select('Nope');
+  // @ts-expect-error unknown column in columns
+  User.query().columns(['Id', 'Nope']);
+  // @ts-expect-error unknown column in orderBy
+  User.query().orderBy('Nmae');
+  // @ts-expect-error unknown column in order
+  User.query().order('Nmae', SortOrder.ASC);
+  // @ts-expect-error unknown column in groupBy
+  User.query().groupBy('Nmae');
+  // @ts-expect-error unknown column in an aggregate
+  User.query().max('Nmae', 'm');
+  // @ts-expect-error unknown column in increment
+  User.update({ Email: 'x' }).increment('Idd');
+  // @ts-expect-error a relation is no column
+  User.query().select('Team');
 }

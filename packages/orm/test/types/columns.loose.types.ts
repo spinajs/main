@@ -1,6 +1,8 @@
-import { col, RawQuery, SqlOperator, Wrapper } from '@spinajs/orm';
+import { col, RawQuery, SortOrder, SqlOperator, Wrapper } from '@spinajs/orm';
 import type { ISelectQueryBuilder } from '@spinajs/orm';
 import { Upload, User } from './models.js';
+import { assertType } from './assert.js';
+import type { Equal } from './assert.js';
 
 declare const dynamic: string;
 declare const anyQuery: ISelectQueryBuilder<any>;
@@ -20,4 +22,14 @@ export async function whereLoose(): Promise<void> {
   await User.destroy().where('Id', 'not a number');
   await User.update({ Email: 'x' }).where(dynamic, 1);
   await User.query().where(col('legacy_column'), 1);
+}
+
+export async function columnsLoose(): Promise<void> {
+  await User.query().select(dynamic).select('Nope', 'alias').columns([dynamic, 'x']).orderBy(dynamic).orderByDescending('Nope');
+  await User.query().order(dynamic, SortOrder.DESC).order({ column: 'x', order: SortOrder.ASC }).groupBy(dynamic).groupBy(new RawQuery('1'));
+  await User.query().min(dynamic).max('Nope', 'm').sum(dynamic, 's').avg(dynamic).count(dynamic, 'c').selectCount(dynamic);
+  await User.query().select(new RawQuery('COUNT(*) AS c')).select(new Map([['Id', 'i']])).select('*');
+  await User.update({ Email: 'x' }).increment(dynamic, 2);
+  const _all = await User.query().select('Id');
+  assertType<Equal<typeof _all, User[]>>();
 }
