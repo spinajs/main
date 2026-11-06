@@ -1,5 +1,6 @@
 import type { Diagnostic, Manifest, ParamEntry } from '@spinajs/manifest';
 import { diagnostic, type DoctorRule } from '../rule.js';
+import { reportedAt, routeName } from './inherited.js';
 
 interface ObjectSchema {
   $ref?: string;
@@ -36,8 +37,8 @@ export const ambiguousBody: DoctorRule = {
             diagnostic(
               'HTTP005',
               'warning',
-              `${c.className}.${r.handler} binds ${DECORATOR[p.kind]} ${p.name} to the whole body, but ${p.runtimeType.text} has a property '${p.name}': a body carrying it binds body.${p.name} instead. Rename the parameter.`,
-              r.source,
+              `${routeName(c, r)} binds ${DECORATOR[p.kind]} ${p.name} to the whole body, but ${p.runtimeType.text} has a property '${p.name}': a body carrying it binds body.${p.name} instead. Rename the parameter.`,
+              reportedAt(c, r),
             ),
           );
         }

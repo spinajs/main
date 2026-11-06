@@ -509,6 +509,24 @@ export class ArchiveOrders_2026_10_05_09_00_00 extends OrmMigration {
 }
 ```
 
+## Reading indexes and foreign keys
+
+Drivers that can read their catalog implement two optional methods next to `tableInfo()`:
+
+```ts
+const indexes = await driver.tableIndexes?.('posts');      // LiveIndex[]
+const keys = await driver.tableForeignKeys?.('posts');     // LiveForeignKey[]
+```
+
+- `LiveIndex { name, columns, unique, primary }`: every index of the table, sorted by name, columns in key order.
+  The primary key is one of them, with `primary: true`.
+- `LiveForeignKey { name, column, table, references, onDelete?, onUpdate? }`: one entry per column of a foreign
+  key, in key order; actions are spelled `NO ACTION`, `RESTRICT`, `CASCADE`, `SET NULL` or `SET DEFAULT`.
+
+sqlite, PostgreSQL (and PGlite), MySQL and SQL Server implement both. A driver without them leaves the methods
+undefined, so check before calling. Index names that the server generates (a primary key's, a unique column's) differ
+per dialect.
+
 ## Related
 
 - [Migrations](10-migrations.md): where schema statements run, and how they are tracked, locked and wrapped in transactions.

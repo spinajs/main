@@ -25,4 +25,15 @@ describe('HTTP002 route-without-policy', () => {
       { code: 'HTTP002', severity: 'error', message: 'Open.leak is a route with no @Access, @Policy, @AllowAnonymous or @Public on it or on its class.', source: src('src/open.ts', 5) },
     ]);
   });
+  it('reports an unguarded inherited route at the subclass, naming the base', () => {
+    const m = fixture({ controllers: [controller({ className: 'AppUploads', source: src('src/controllers/uploads.ts', 3), routes: [route({ handler: 'create', inheritedFrom: '@spinajs/upload:UploadController', source: { file: 'src/http/upload-controller.ts', line: 70, col: 3, package: '@spinajs/upload' } })] })] });
+    const [d] = routeWithoutPolicy.run(m, ctx);
+    expect(d.message).to.equal('AppUploads.create (inherited from @spinajs/upload:UploadController) is a route with no @Access, @Policy, @AllowAnonymous or @Public on it or on its class.');
+    expect(d.source).to.deep.equal(src('src/controllers/uploads.ts', 3));
+  });
+
+  it('is satisfied by a class guard the subclass inherits', () => {
+    const m = fixture({ controllers: [controller({ className: 'Articles', policies: [[{ type: 'AccessPolicy', options: ['class'] }]], access: ['crud:use'], bases: ['app:BaseCrud'], routes: [route({ handler: 'get', inheritedFrom: 'app:BaseCrud' })] })] });
+    expect(routeWithoutPolicy.run(m, ctx)).to.deep.equal([]);
+  });
 });

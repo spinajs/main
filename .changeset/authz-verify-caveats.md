@@ -1,0 +1,5 @@
+---
+"@spinajs/authz-verify": minor
+---
+
+The bounded engine reads caveats. Caveat rewrites and conditional tuples encode their condition over one request context: integer and real comparisons, string equality and `in` lists (strings interned as integers, so no string theory is needed), booleans, timestamps as epoch milliseconds and `{ ref }` operands. Pattern operators (`like`, `glob`, `wildcard`), `ipaddress` parameters and condition functions stay uninterpreted and are listed as opaque; the reference evaluator decides them on every model. A counterexample now carries the request context, and `minimize(ir, scenario, expected)` drops tuples and context values one at a time while the evaluator still gives exactly the same answers, so every bounded counterexample is 1-minimal. `renderScenario(ir, name, counterexample)` writes it as a native `.authz.yaml` scenario (policy hash, tuples, context, one check per permission with the evaluator's answer). A model the evaluator rejects now makes a later "no model" answer `unknown`, since blocking that model may have hidden a real one.
