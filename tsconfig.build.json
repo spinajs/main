@@ -360,6 +360,9 @@
     },
     {
       "path": "packages/openapi/tsconfig.build.json"
+    },
+    {
+      "path": "packages/simulation/tsconfig.build.json"
     }
   ]
 }
