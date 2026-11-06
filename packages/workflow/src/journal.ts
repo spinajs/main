@@ -121,6 +121,15 @@ export class Journal {
     else this.values.delete(row.Key);
   }
 
+  /** Puts back the row `key` had before a write whose transaction then failed to commit. */
+  public restore(key: string, previous: StepRow | undefined): void {
+    const current = this.byKey.get(key);
+    if (current && current.Kind !== 'compensate') this.bySeq.delete(current.Seq);
+    this.byKey.delete(key);
+    this.values.delete(key);
+    if (previous) this.record(previous);
+  }
+
   public rows(): StepRow[] {
     return [...this.byKey.values()].sort((a, b) => a.Seq - b.Seq);
   }

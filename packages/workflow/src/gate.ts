@@ -3,7 +3,7 @@ import { NonDeterminismError } from './errors.js';
 import type { StepRow } from './journal.js';
 
 // Captured at load: a fake-timer library installed later (sinon.useFakeTimers in an app's tests) must not stall replays.
-const nextMacrotask = setImmediate;
+export const nextMacrotask = setImmediate;
 
 interface Waiter {
   resolve(): void;

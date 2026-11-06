@@ -5,6 +5,7 @@ import { ListFromFiles, SCAN_GLOB } from '@spinajs/reflection';
 import type { WorkflowContext, WorkflowOptions } from './contract.js';
 import { DuplicateWorkflowDefinition, WorkflowNotRegistered } from './errors.js';
 import { identifierProblem } from './identifier.js';
+import { normalizeRetry } from './policy.js';
 
 export abstract class WorkflowDefinition<TInput = unknown, TResult = unknown> {
   public abstract run(ctx: WorkflowContext<TInput>): Promise<TResult>;
@@ -47,6 +48,7 @@ function normalize(d: WorkflowDeclaration): RegisteredWorkflow {
   if (!Number.isInteger(version) || version < 1) {
     throw new InvalidArgument(`workflow '${d.name}': version must be an integer >= 1, got ${version}`);
   }
+  if (d.options.retry) normalizeRetry(d.options.retry, `workflow '${d.name}'`);
   const timeoutMs = d.options.timeout === undefined ? null : parseDuration(d.options.timeout, `workflow '${d.name}' timeout`);
   return { name: d.name, version, options: d.options, target: d.target, timeoutMs };
 }
