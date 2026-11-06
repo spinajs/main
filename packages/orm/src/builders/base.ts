@@ -10,6 +10,7 @@ import type { ModelBase } from '../model.js';
 import { isNullOrWhitespace } from '@spinajs/util';
 import { executeRecorded } from '../schema-touches.js';
 import type { SchemaTouch } from '../schema-touches.js';
+import type { BuilderState } from '../extensions.js';
 
 /** Stable: Array.prototype.sort keeps the DI order of equal keys. A non-finite order counts as 0. */
 function sortQueryMiddlewares(list: QueryMiddleware[]): QueryMiddleware[] {
@@ -306,5 +307,10 @@ export class QueryBuilder<T = any> extends Builder<T> implements IQueryBuilder {
 
   public from(table: string, alias?: string): this {
     return this.setTable(table, alias);
+  }
+
+  /** What a query extension method may read from the builder. */
+  public state(): Readonly<BuilderState> {
+    return { model: this._model, relations: [], container: this._container, owner: undefined, connection: this._driver };
   }
 }
