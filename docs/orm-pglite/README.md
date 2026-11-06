@@ -39,6 +39,7 @@ Importing `@spinajs/orm-pglite` registers the driver under `orm-driver-pglite`.
   concurrent commit) needs a server.
 - **No reconnect.** A failed statement is never retried on a new connection: that would be an empty database.
 - **A newer PostgreSQL**: PGlite 0.5.10 runs PostgreSQL 18.6, while the CI server runs 16.6.
+- **Its own SQL dialect profile.** The driver declares `pglite` (`PGLITE_SQL_DIALECT`), which types raw rows exactly as the `postgresql` profile does. An app that uses PGlite in tests and postgres in production should leave `package.json#spinajs.orm.dialects` unset, or set it per connection.
 
 ## Snapshots
 

@@ -50,7 +50,7 @@ export class WorkflowSuspended {
   public readonly name = 'WorkflowSuspended';
 }
 
-export type AbortReason = 'lease-lost' | 'cancelled' | 'shutdown' | 'crashed' | 'journal-failed';
+export type AbortReason = 'lease-lost' | 'cancelled' | 'shutdown' | 'crashed' | 'journal-failed' | 'timeout';
 
 /** What a durable operation throws once the activation's signal has aborted. */
 export class WorkflowAborted extends Error {
@@ -116,4 +116,19 @@ export function serializeError(err: unknown, step?: string): SerializedError {
     if (json !== undefined) out.details = JSON.parse(json) as unknown;
   }
   return out;
+}
+
+/** Retried like any other compensation failure, so the compensation must be idempotent. */
+export class WorkflowCompensationTimeout extends Error {
+  constructor(step: string, timeoutMs: number) {
+    super(`the compensation of step '${step}' ran longer than workflow.compensationTimeout (${timeoutMs} ms)`);
+    this.name = 'WorkflowCompensationTimeout';
+  }
+}
+
+export class WorkflowTimeout extends NonRetryableError {
+  constructor(workflow: string, timeoutMs: number) {
+    super(`workflow '${workflow}' passed its timeout of ${timeoutMs} ms`);
+    this.name = 'WorkflowTimeout';
+  }
 }
