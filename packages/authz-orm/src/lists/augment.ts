@@ -34,6 +34,7 @@ declare module '@spinajs/orm' {
     /** Only rows that are one of `ref` or descend from one (authz_resource_ancestor); narrows, does not authorize. */
     within(ref: ResourceRef | readonly ResourceRef[]): this;
     withAccess(permissions: readonly Permission[], opts?: WithAccessOptions): this;
+    withFields(permission: Permission, opts?: WithAccessOptions): this;
   }
   interface IUpdateQueryBuilder<T> {
     accessible(permission: Permission, opts?: AccessibleOptions): this;
@@ -129,6 +130,14 @@ function withAccess(this: object, permissions: readonly Permission[], opts?: Wit
   return this;
 }
 
+function withFields(this: object, permission: Permission, opts?: WithAccessOptions): object {
+  const what = `.withFields(${JSON.stringify(permission)})`;
+  requireResource(this, what);
+  if (!isPermission(permission)) throw new AuthzConfigError(`${what}: not a permission name`);
+  setMarks(this, { ...(marksOf(this) ?? {}), withFields: permission, ...envOf(opts, what) });
+  return this;
+}
+
 // One methods object for the three builders; the extension bases are per builder.
 const authzMethods: QueryExtension['methods'] = { accessible, unscoped, within };
 
@@ -159,9 +168,9 @@ export class AuthzDeleteExtension extends DeleteQueryExtension {
   public readonly methods = authzMethods;
 }
 
-/** `.withAccess()`, select builders only. */
+/** `.withAccess()` and `.withFields()`, select builders only. */
 @Injectable(SelectQueryExtension)
 export class AuthzAccessFieldsExtension extends SelectQueryExtension {
   public readonly name = 'authz-orm:withAccess';
-  public readonly methods: QueryExtension['methods'] = { withAccess };
+  public readonly methods: QueryExtension['methods'] = { withAccess, withFields };
 }

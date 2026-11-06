@@ -4,7 +4,8 @@ import type { Int64Mode } from './converters.js';
 import { DI, declaredPropertyType, getInheritedDescriptor, notePendingProperty } from '@spinajs/di';
 import type { Constructor, IContainer } from '@spinajs/di';
 import { RelationType, BooleanValueConverter, DatetimeValueConverter, SetValueConverter } from './interfaces.js';
-import type { IModelDescriptor, IMigrationDescriptor, IMigrationOptions, IRelationDescriptor, IDiscriminationEntry, ISelectQueryBuilder, IColumnDescriptor, IPrimaryKeyOptions, OrphanPolicy } from './interfaces.js';
+import type { IModelDescriptor, IMigrationDescriptor, IMigrationOptions, IRelationDescriptor, IDiscriminationEntry, ISelectQueryBuilder, IColumnDescriptor, IPrimaryKeyOptions, OrphanPolicy, ColumnSpec, ModelOptions } from './interfaces.js';
+import type { ModelIndex } from '@spinajs/manifest';
 import 'reflect-metadata';
 import type { ModelBase } from './model.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
@@ -225,11 +226,14 @@ export function Connection(name: string) {
  *
  * @param name - table name in database that is referred by this model
  */
-export function Model(tableName: string) {
+export function Model(tableName: string, options?: ModelOptions) {
   return extractDecoratorDescriptor((model: IModelDescriptor, target: any) => {
     DI.register(target).asToken(MODELS);
     model.TableName = tableName;
     model.Name = target.name;
+    if (options?.columns) {
+      model.ColumnsMode = options.columns;
+    }
   });
 }
 
@@ -335,6 +339,31 @@ export function Primary(options?: IPrimaryKeyOptions) {
 
     model.PrimaryKeyGeneration.set(propertyKey, options?.generated ?? 'auto');
   });
+}
+
+/**
+ * States the SQL type of a column for the manifest and `migrate-diff`. A column without it is still a column: its type
+ * family is inferred from the TypeScript type.
+ */
+export function Column(spec: ColumnSpec = {}): PropertyDecorator {
+  const decorator: PropertyDecorator = extractDecoratorPropertyDescriptor((model: IModelDescriptor, _: any, propertyKey: string) => {
+    // Copy on write: an inherited map is shared with the parent model's descriptor.
+    model.ColumnSpecs = new Map(model.ColumnSpecs ?? []).set(propertyKey, { ...spec });
+  });
+  return decorator;
+}
+
+/** Declares an index over `columns` for the manifest and `migrate-diff`. */
+export function Index(columns: string[], options: { name?: string; unique?: boolean } = {}): ClassDecorator {
+  if (columns.length === 0) {
+    throw new InvalidArgument('@Index needs at least one column');
+  }
+
+  const decorator: ClassDecorator = extractDecoratorDescriptor((model: IModelDescriptor) => {
+    const index: ModelIndex = { ...(options.name ? { name: options.name } : {}), columns: [...columns], unique: options.unique === true };
+    model.Indexes = new Map(model.Indexes ?? []).set(options.name ?? columns.join(','), index);
+  });
+  return decorator;
 }
 
 /**

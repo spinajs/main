@@ -25,10 +25,10 @@ describe('authz-orm query extensions', () => {
     expect([new AuthzSelectExtension().name, new AuthzUpdateExtension().name, new AuthzDeleteExtension().name]).to.deep.equal(['authz-orm', 'authz-orm', 'authz-orm']);
   });
 
-  it('add withAccess to select builders only', () => {
+  it('add withAccess and withFields to select builders only', () => {
     const extension = new AuthzAccessFieldsExtension();
     expect(extension).to.be.instanceOf(SelectQueryExtension);
-    expect(Object.keys(extension.methods)).to.deep.equal(['withAccess']);
+    expect(Object.keys(extension.methods)).to.deep.equal(['withAccess', 'withFields']);
   });
 
   it('copy the access marks onto a clone', () => {

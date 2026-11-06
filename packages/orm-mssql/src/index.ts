@@ -112,7 +112,11 @@ export class MsSqlOrmDriver extends SqlDriver {
     super(Object.assign({ AliasSeparator: '#' }, options));
   }
 
-  public async executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
+  public executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
+    return this.withSessionSettings(() => this.runQuery(stmt, params, context));
+  }
+
+  private async runQuery(stmt: string, params: any[], context: QueryContext): Promise<any> {
     let finalQuery = stmt.replaceAll('`', '');
 
     // Check if we're inside a transaction context and use that request.
