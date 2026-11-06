@@ -260,6 +260,9 @@
       "path": "packages/eslint-plugin-authz/tsconfig.build.json"
     },
     {
+      "path": "packages/eslint-plugin-orm/tsconfig.build.json"
+    },
+    {
       "path": "packages/authz-orm/tsconfig.build.json"
     },
     {
