@@ -1,5 +1,5 @@
 import { ColumnType } from './enums.js';
-import { IColumnDescriptor, IModelDescriptor } from './interfaces.js';
+import type { IColumnDescriptor, IModelDescriptor } from './interfaces.js';
 
 /**
  * SQL column type → JSON-schema shape; unlisted types fall back to `string`.

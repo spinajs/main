@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { parsePrincipalSubjectKey, parseRbacPlanArgs, rbacPlanArgs } from '../../src/index.js';
+import { RbacAssignmentTerm, parsePrincipalSubjectKey, parseRbacPlanArgs, rbacPlanArgs } from '../../src/index.js';
 import type { RbacAssignmentPlanArgs } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -27,5 +27,14 @@ describe('rbac.assignment args', () => {
     expect(parsePrincipalSubjectKey('user:%2A')).to.deep.equal({ type: 'user', id: '*' });
     expect(parsePrincipalSubjectKey('user:*')).to.equal(undefined);
     expect(parsePrincipalSubjectKey('team:t1#member')).to.equal(undefined);
+  });
+
+  it('atoms: one term per role entry, each canonical, so a row matching the same atoms holds the same roles', () => {
+    const a = args({ subjects: ['user:alice', 'team:t1#member'], roles: [{ role: 'viewer' }, { role: 'editor', scopeTypes: ['org'] }], global: true });
+    expect(new RbacAssignmentTerm().atoms(JSON.parse(JSON.stringify(a)))).to.deep.equal([
+      { subjects: a.subjects, roles: [{ role: 'editor', scopeTypes: ['org'] }], global: true },
+      { subjects: a.subjects, roles: [{ role: 'viewer' }], global: true },
+    ]);
+    expect(new RbacAssignmentTerm().atoms(args())).to.deep.equal([args()]);
   });
 });

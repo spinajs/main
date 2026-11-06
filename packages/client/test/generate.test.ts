@@ -74,6 +74,32 @@ describe('generateClient', () => {
     expect(output).to.include('events: { message: ChatMessage };');
   });
 
+  it('types a field-filtered route and command result as Redacted<T> (G16)', async () => {
+    const m = structuredClone(manifest);
+    m.controllers.find((c) => c.className === 'UsersController')!.routes.find((r) => r.fullPath === '/users/:id')!.middlewares.push({ type: 'AuthzFieldsMiddleware', options: [] });
+    Object.assign(m.socketControllers.find((c) => c.prefix === 'chat')!.commands.find((c) => c.name === 'history')!, { access: ['chat:read'], fields: 'filter' });
+    const redacted = await generateClient({ manifest: m });
+    expect(redacted).to.include('get(id: number): Promise<Redacted<UserDto>>;');
+    expect(redacted).to.include('history: [{ since: string }, AsyncIterable<Redacted<ChatMessage>>]');
+    expect(redacted).to.include("import { createClient, type ClientDefinition, type ClientOptions, type Redacted } from '@spinajs/client/runtime';");
+    expect(typecheck(redacted)).to.deep.equal([]);
+    expect(output).to.not.include('Redacted');
+  });
+
+  it('Redacted<T> makes every property optional and possibly undefined, element-wise for lists', () => {
+    const source = [
+      "import type { Redacted } from '@spinajs/client/runtime';",
+      'type User = { id: number; email: string };',
+      'const a: Redacted<User> = {};',
+      'const b: Redacted<User[]> = [{ id: undefined }];',
+      'const c: Redacted<string> = "x";',
+      '// @ts-expect-error a redacted property is still typed',
+      "const d: Redacted<User> = { id: 'x' };",
+      'export { a, b, c, d };',
+    ].join('\n');
+    expect(typecheck(source)).to.deep.equal([]);
+  });
+
   it('honours moduleName and includeSocket', async () => {
     const custom = await generateClient({ manifest, moduleName: './runtime.js', includeSocket: false });
     expect(custom).to.include("from './runtime.js';");
@@ -246,6 +272,20 @@ describe('generateClient', () => {
       expect(out).to.include("odd(): Promise<'a\\rb' | 'c\\u2028d' | 'e\\'f\\\\g'>;");
       expect(typecheck(out)).to.deep.equal([]);
     });
+  });
+
+  it('gives a controller whose routes are all inherited a client typed with what it binds', async () => {
+    const create = { ...route('create', 'post', '/uploads', [param(0, 'body', 'FromBody', { in: 'body', shape: 'whole' }, 'CreateFileDto', 'spinajs/app/CreateFileDto')], { text: 'void' }), inheritedFrom: '@spinajs/upload:UploadController' };
+    const out = await generateClient({
+      manifest: {
+        ...manifest,
+        schemas: { ...manifest.schemas, 'spinajs/app/CreateFileDto': { $id: 'spinajs/app/CreateFileDto', type: 'object', properties: { name: { type: 'string' } }, required: ['name'], additionalProperties: false } },
+        controllers: [...manifest.controllers, { id: 'app:AppUploads', className: 'AppUploads', basePath: 'uploads', bases: ['@spinajs/upload:UploadController'], policies: [], middlewares: [], routes: [create], source }],
+      },
+    });
+    expect(out).to.include('appUploads: {');
+    expect(out).to.include('create(body: CreateFileDto): Promise<void>;');
+    expect(typecheck(out)).to.deep.equal([]);
   });
 });
 

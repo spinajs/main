@@ -1,8 +1,7 @@
 import { DI } from '@spinajs/di';
-import { QueryContext } from '@spinajs/orm';
+import { IdentifierQuoter, QueryContext } from '@spinajs/orm';
 import '@spinajs/orm-mysql';
 import '@spinajs/orm-postgres';
-import { quoteFor, sqlDialect } from '../../src/index.js';
 import { bootDb } from '../support/env.js';
 import { describeRowLease, LEASE_TABLE } from '../support/row-lease-cases.js';
 
@@ -45,7 +44,8 @@ for (const target of TARGETS) {
       const driver = await bootDb([{ ...target.connection, Name: 'default' }]);
       await driver.executeOnDb(`DROP TABLE IF EXISTS ${LEASE_TABLE}`, [], QueryContext.Schema);
       // quoted: Postgres folds unquoted identifiers to lower case, the query builder quotes them
-      const q = quoteFor(sqlDialect(driver.Options.Driver, 'test table'));
+      const quoter = driver.Container.resolve(IdentifierQuoter);
+      const q = (id: string) => quoter.quote(id);
       await driver.executeOnDb(`CREATE TABLE ${LEASE_TABLE} (${q('Id')} VARCHAR(64) PRIMARY KEY, ${q('Status')} VARCHAR(32), ${q('ClaimedBy')} VARCHAR(64), ${q('ClaimedUntil')} BIGINT, ${q('ClaimEpoch')} INTEGER NOT NULL DEFAULT 0)`, [], QueryContext.Schema);
       return driver;
     });

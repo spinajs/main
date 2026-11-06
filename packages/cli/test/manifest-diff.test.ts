@@ -64,6 +64,17 @@ describe('manifest:diff', () => {
     expect(process.exitCode).to.equal(1);
   });
 
+  it('warns when the head was built by a different compiler than the base', async () => {
+    const manifest = JSON.parse(readFileSync(fixture, 'utf8')) as Manifest;
+    writeFileSync(head, JSON.stringify({ ...manifest, compilerVersion: '9.9.9' }));
+    const markdown = new Captured();
+    await markdown.execute(fixture, head, { format: 'markdown' });
+    expect(markdown.output).to.include('> **Warning:** base and head were built by different compilers (@spinajs/compiler unrecorded and 9.9.9)');
+    const json = new Captured();
+    await json.execute(fixture, head, { format: 'json' });
+    expect((JSON.parse(json.output) as { warnings: string[] }).warnings).to.have.length(1);
+  });
+
   it('keeps a zero exit code when nothing is breaking', async () => {
     await new Captured().execute(fixture, fixture, { format: 'markdown', failOn: 'breaking' });
     expect(process.exitCode).to.equal(undefined);
