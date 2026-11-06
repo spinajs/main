@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
-import { Orm, QueryContext } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 import {
   EpochMsConverter,
   ErrorGroupModel,
@@ -208,12 +208,8 @@ describe('scheduler models', () => {
   });
 
   it('seeds the journal position counter', async () => {
-    const orm = await DI.resolve(Orm);
-    const rows = (await (
-      orm.Connections.get('default') as unknown as {
-        executeOnDb(s: string, p: unknown[], c: QueryContext): Promise<unknown>;
-      }
-    ).executeOnDb('SELECT "Id", "LastPos" FROM "__scheduler_journal_pos"', [], QueryContext.Select)) as Array<{
+    const driver = (await DI.resolve(Orm)).Connections.get('default')!;
+    const rows = (await driver.select().from('__scheduler_journal_pos').columns(['Id', 'LastPos'])) as Array<{
       Id: number;
       LastPos: number;
     }>;

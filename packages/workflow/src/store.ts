@@ -6,7 +6,7 @@ import type { StepRow } from './journal.js';
 import { jsonColumn } from './models/converters.js';
 import { WorkflowInstanceModel } from './models/WorkflowInstanceModel.js';
 import { WorkflowStepModel } from './models/WorkflowStepModel.js';
-import type { RawSqlDriver } from './sql.js';
+import type { OrmDriver } from '@spinajs/orm';
 
 export interface StepWrite {
   instanceId: string;
@@ -29,7 +29,7 @@ export interface StepWrite {
  * row, so its late writes are discarded instead of overwriting the new owner's progress (semantic 5).
  */
 export class InstanceStore {
-  constructor(public readonly driver: RawSqlDriver, public readonly lease: RowLease, public readonly owner: string) {}
+  constructor(public readonly driver: OrmDriver, public readonly lease: RowLease, public readonly owner: string) {}
 
   public target(instanceId: string): RowLeaseTarget {
     return { table: '__workflow', key: { Id: instanceId } };
