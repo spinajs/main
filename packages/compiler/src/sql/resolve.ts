@@ -1,9 +1,12 @@
-import type { Manifest, SqlRowColumn } from '@spinajs/manifest';
+import type { ColumnFamily, Manifest, ModelColumn, SqlDialectProfile, SqlRowColumn } from '@spinajs/manifest';
 import type { SqlNode } from './parse.js';
+
+/** A column as raw SQL returns it; `family` picks the type of SUM and AVG over it. */
+export interface TypedColumn extends SqlRowColumn { family?: ColumnFamily }
 
 export interface TableInfo {
   name: string;
-  columns: Map<string, SqlRowColumn>;
+  columns: Map<string, TypedColumn>;
   /** Some model on the table is `@Model(t, { columns: 'exhaustive' })`, so an undeclared column is an error, not a gap. */
   exhaustive: boolean;
 }
@@ -12,7 +15,7 @@ export interface TableInfo {
 export interface Source {
   alias: string;
   table?: TableInfo;
-  columns?: Map<string, SqlRowColumn>;
+  columns?: Map<string, TypedColumn>;
   /** The outer side of a join can produce NULL in every column. */
   nullable: boolean;
 }
@@ -23,7 +26,7 @@ export interface Scope {
 }
 
 export type Lookup =
-  | { kind: 'found'; column: SqlRowColumn; source: Source }
+  | { kind: 'found'; column: TypedColumn; source: Source }
   | { kind: 'opaque' }
   | { kind: 'missing'; tables: TableInfo[]; alias?: string }
   | { kind: 'ambiguous'; sources: Source[] };
@@ -38,15 +41,24 @@ export function rowType(text: string): string {
   return PORTABLE.test(text) || STRING_LITERALS.test(text) ? text : 'unknown';
 }
 
-const indexes = new WeakMap<Manifest, Map<string, Map<string, TableInfo>>>();
+/** A fragment older than `ModelColumn.sql` still says boolean, bigint or Date through the TS type. */
+const TS_FAMILIES: Readonly<Record<string, ColumnFamily>> = { boolean: 'boolean', bigint: 'bigint', Date: 'datetime' };
 
-function indexModels(models: Manifest['models']): Map<string, TableInfo> {
+export function columnRowType(column: ModelColumn, profile: SqlDialectProfile): TypedColumn {
+  const family = column.sql?.family ?? TS_FAMILIES[column.type.text];
+  const raw = family ? profile.families[family] : undefined;
+  return { name: column.name, ts: raw ?? rowType(column.type.text), nullable: column.nullable, ...(family ? { family } : {}) };
+}
+
+const indexes = new WeakMap<Manifest, WeakMap<SqlDialectProfile, Map<string, Map<string, TableInfo>>>>();
+
+function indexModels(models: Manifest['models'], profile: SqlDialectProfile): Map<string, TableInfo> {
   const tables = new Map<string, TableInfo>();
   for (const model of models) {
-    const table = tables.get(nameKey(model.tableName)) ?? { name: model.tableName, columns: new Map<string, SqlRowColumn>(), exhaustive: false };
+    const table = tables.get(nameKey(model.tableName)) ?? { name: model.tableName, columns: new Map<string, TypedColumn>(), exhaustive: false };
     table.exhaustive = table.exhaustive || model.exhaustive === true;
     for (const c of model.columns) {
-      if (!table.columns.has(nameKey(c.name))) table.columns.set(nameKey(c.name), { name: c.name, ts: rowType(c.type.text), nullable: c.nullable });
+      if (!table.columns.has(nameKey(c.name))) table.columns.set(nameKey(c.name), columnRowType(c, profile));
     }
     tables.set(nameKey(model.tableName), table);
   }
@@ -58,14 +70,16 @@ function indexModels(models: Manifest['models']): Map<string, TableInfo> {
  * With a `connection`, the models of that connection (A17); every model when the query names none or no model is on it,
  * which keeps `db.Aliases` from causing false SQL002.
  */
-export function schemaIndex(manifest: Manifest, connection?: string): Map<string, TableInfo> {
-  const byConnection = indexes.get(manifest) ?? new Map<string, Map<string, TableInfo>>();
-  indexes.set(manifest, byConnection);
+export function schemaIndex(manifest: Manifest, connection: string | undefined, profile: SqlDialectProfile): Map<string, TableInfo> {
+  const byProfile = indexes.get(manifest) ?? new WeakMap<SqlDialectProfile, Map<string, Map<string, TableInfo>>>();
+  indexes.set(manifest, byProfile);
+  const byConnection = byProfile.get(profile) ?? new Map<string, Map<string, TableInfo>>();
+  byProfile.set(profile, byConnection);
   const key = connection ?? '';
   const cached = byConnection.get(key);
   if (cached) return cached;
   const scoped = connection ? manifest.models.filter((m) => m.connection === connection) : [];
-  const tables = indexModels(scoped.length > 0 ? scoped : manifest.models);
+  const tables = indexModels(scoped.length > 0 ? scoped : manifest.models, profile);
   byConnection.set(key, tables);
   return tables;
 }
@@ -87,7 +101,7 @@ export function nameOf(value: unknown): string | undefined {
   return node.name !== undefined ? nameOf(node.name) : undefined;
 }
 
-function columnsOf(source: Source): Map<string, SqlRowColumn> | undefined {
+function columnsOf(source: Source): Map<string, TypedColumn> | undefined {
   return source.table ? source.table.columns : source.columns;
 }
 

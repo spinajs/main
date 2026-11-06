@@ -1,13 +1,11 @@
 import NodeSqlParser from 'node-sql-parser';
-import type { SqlDialect } from './dialects.js';
+import type { SqlDialectProfile } from '@spinajs/manifest';
 
 /** One node of the parser's AST; its shape differs per grammar, so it is read field by field. */
 export type SqlNode = Record<string, unknown>;
 
 /** `valuesRow`: the grammar rejected an INSERT whose VALUES row (1-based) has more or fewer values than the column list. */
 export type ParseResult = { ok: true; statements: SqlNode[] } | { ok: false; message: string; valuesRow?: number };
-
-const DATABASES: Readonly<Record<SqlDialect, string>> = { postgresql: 'PostgresQL', mysql: 'MySQL', sqlite: 'Sqlite', transactsql: 'TransactSQL' };
 
 const CLOSERS: Readonly<Record<string, string>> = { "'": "'", '"': '"', '`': '`', '[': ']' };
 
@@ -17,8 +15,8 @@ const spanEnd = (text: string, open: string, close: string, start: number): numb
 };
 
 /**
- * End of the quoted name, string literal or comment that starts at `start`, or `start` when none does. Only PostgreSQL and
- * T-SQL text gets here (`bindParameters` returns mysql and sqlite text unchanged), so MySQL's `\'` escape is not handled;
+ * End of the quoted name, string literal or comment that starts at `start`, or `start` when none does. Only `dollar` and
+ * `at-p0` text gets here (`bindParameters` returns `question` text unchanged), so MySQL's `\'` escape is not handled;
  * PostgreSQL's `E'…'` escape string is, and so is the untagged `$$…$$` string. A tagged `$tag$…$tag$` is not.
  */
 function literalEnd(text: string, start: number): number {
@@ -39,9 +37,12 @@ function literalEnd(text: string, start: number): number {
   return text.length;
 }
 
-/** The `sql` tag binds `?`. The PostgreSQL and T-SQL grammars accept only `$n` and `@pn`, which is how those drivers send it. */
-export function bindParameters(text: string, dialect: SqlDialect): string {
-  if (dialect === 'mysql' || dialect === 'sqlite') return text;
+/** `?|` and `?&` are jsonb operators; `?||` is a placeholder before `||`. The postgres driver's `toDriverStatement` reads them the same way. */
+const isJsonbOperator = (text: string, i: number): boolean => text.startsWith('?&', i) || (text.startsWith('?|', i) && text[i + 2] !== '|');
+
+/** The text as the driver sends it, which is the form its grammar accepts. */
+export function bindParameters(text: string, style: SqlDialectProfile['placeholders']): string {
+  if (style === 'question') return text;
   let out = '';
   let n = 0;
   for (let i = 0; i < text.length; ) {
@@ -49,15 +50,14 @@ export function bindParameters(text: string, dialect: SqlDialect): string {
     if (end > i) {
       out += text.slice(i, end);
       i = end;
-      continue;
-    }
-    if (text[i] === '?') {
-      n += 1;
-      out += dialect === 'postgresql' ? `$${n}` : `@p${n}`;
+    } else if (style === 'dollar' && isJsonbOperator(text, i)) {
+      out += text.slice(i, i + 2);
+      i += 2;
     } else {
-      out += text[i];
+      out += text[i] !== '?' ? text[i] : style === 'dollar' ? `$${n + 1}` : `@p${n}`;
+      if (text[i] === '?') n += 1;
+      i += 1;
     }
-    i += 1;
   }
   return out;
 }
@@ -75,9 +75,9 @@ const VALUE_COUNT = /column count doesn't match value count at row (\d+)/;
 // node-sql-parser is CommonJS without named ESM exports, so `import { Parser }` fails at runtime.
 const parser = new NodeSqlParser.Parser();
 
-export function parseSql(text: string, dialect: SqlDialect): ParseResult {
+export function parseSql(text: string, profile: SqlDialectProfile): ParseResult {
   try {
-    const ast = parser.astify(bindParameters(text, dialect), { database: DATABASES[dialect] }) as unknown;
+    const ast = parser.astify(bindParameters(text, profile.placeholders), { database: profile.grammar }) as unknown;
     return { ok: true, statements: (Array.isArray(ast) ? ast : [ast]) as SqlNode[] };
   } catch (err) {
     const count = VALUE_COUNT.exec(String((err as { message?: unknown }).message));

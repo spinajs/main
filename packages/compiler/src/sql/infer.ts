@@ -1,4 +1,4 @@
-import type { Diagnostic, SqlRowColumn } from '@spinajs/manifest';
+import type { ColumnFamily, Diagnostic, SqlDialectProfile, SqlRowColumn } from '@spinajs/manifest';
 import type { SqlNode } from './parse.js';
 import { asArray, asNode, lookupColumn, nameKey, nameOf, type Scope, type Source, type TableInfo } from './resolve.js';
 
@@ -15,17 +15,15 @@ export interface InferContext {
   usedTables: Set<string>;
   /** The query binds an array to a `?`, which expands to several values, so VALUES row lengths prove nothing (SQL006 is skipped). */
   listParameters: boolean;
+  profile: SqlDialectProfile;
 }
 
-interface Typed { ts: string; nullable: boolean }
+interface Typed { ts: string; nullable: boolean; family?: ColumnFamily }
 
 const UNKNOWN: Typed = { ts: 'unknown', nullable: true };
 const LITERALS: Readonly<Record<string, Typed>> = {
-  number: { ts: 'number', nullable: false },
   single_quote_string: { ts: 'string', nullable: false },
   string: { ts: 'string', nullable: false },
-  bool: { ts: 'boolean', nullable: false },
-  boolean: { ts: 'boolean', nullable: false },
   null: UNKNOWN,
 };
 const PREDICATES = new Set(['=', '!=', '<>', '<', '<=', '>', '>=', 'AND', 'OR', 'LIKE', 'NOT LIKE', 'ILIKE', 'IN', 'NOT IN', 'IS', 'IS NOT', 'BETWEEN', 'NOT BETWEEN']);
@@ -58,6 +56,14 @@ function missingColumn(ctx: InferContext, column: string, tables: TableInfo[], a
   report(ctx, 'SQL003', severity, `Column ${column} is not declared on ${where}`);
 }
 
+/** A literal with a fraction is NUMERIC/DECIMAL in every grammar, so it comes back as the driver returns decimals. */
+function numberLiteral(node: SqlNode, ctx: InferContext): Typed {
+  // node-sql-parser keeps the literal as text.
+  const value = Number(node.value);
+  if (Number.isFinite(value) && !Number.isInteger(value)) return { ts: ctx.profile.families.decimal ?? 'number', nullable: false, family: 'decimal' };
+  return { ts: 'number', nullable: false, family: 'integer' };
+}
+
 function columnType(node: SqlNode, scope: Scope, ctx: InferContext): Typed {
   const column = nameOf(node.column);
   // T-SQL parameters (`@p1`) parse as column references.
@@ -68,7 +74,8 @@ function columnType(node: SqlNode, scope: Scope, ctx: InferContext): Typed {
   if (found.kind === 'ambiguous') report(ctx, 'SQL004', 'error', `Column ${column} is ambiguous: ${found.sources.map((s) => s.alias).join(', ')} have it`);
   if (found.kind !== 'found') return UNKNOWN;
   if (found.source.table) ctx.used.push({ table: found.source.table.name, column: found.column.name });
-  return { ts: found.column.ts, nullable: found.column.nullable || found.source.nullable };
+  const family = found.column.family;
+  return { ts: found.column.ts, nullable: found.column.nullable || found.source.nullable, ...(family ? { family } : {}) };
 }
 
 function argsOf(node: SqlNode): unknown[] {
@@ -80,9 +87,13 @@ function argsOf(node: SqlNode): unknown[] {
 function aggregateType(node: SqlNode, scope: Scope, ctx: InferContext): Typed {
   const name = String(node.name).toUpperCase();
   const args = argsOf(node).map((a) => typeOf(a, scope, ctx));
-  if (name === 'COUNT') return { ts: 'number', nullable: false };
-  if (name === 'SUM' || name === 'AVG') return { ts: 'number', nullable: true };
-  if ((name === 'MIN' || name === 'MAX') && args.length === 1) return { ts: args[0].ts, nullable: true };
+  if (name === 'COUNT') return { ts: ctx.profile.count, nullable: false };
+  const family = args.length === 1 ? args[0].family : undefined;
+  if (name === 'SUM' || name === 'AVG') {
+    const byFamily = name === 'SUM' ? ctx.profile.sum : ctx.profile.avg;
+    return { ts: (family && byFamily[family]) || 'unknown', nullable: true };
+  }
+  if ((name === 'MIN' || name === 'MAX') && args.length === 1) return { ...args[0], nullable: true };
   return UNKNOWN;
 }
 
@@ -115,7 +126,7 @@ function binaryType(node: SqlNode, scope: Scope, ctx: InferContext): Typed {
   const left = typeOf(node.left, scope, ctx);
   const right = typeOf(node.right, scope, ctx);
   const operator = String(node.operator).toUpperCase();
-  if (PREDICATES.has(operator)) return { ts: 'boolean', nullable: left.nullable || right.nullable };
+  if (PREDICATES.has(operator)) return { ts: ctx.profile.predicates, nullable: left.nullable || right.nullable };
   if (ARITHMETIC.has(operator) && left.ts === 'number' && right.ts === 'number') return { ts: 'number', nullable: left.nullable || right.nullable };
   return UNKNOWN;
 }
@@ -139,6 +150,8 @@ export function typeOf(value: unknown, scope: Scope, ctx: InferContext): Typed {
   }
   const type = String(node.type);
   if (Object.prototype.hasOwnProperty.call(LITERALS, type)) return LITERALS[type];
+  if (type === 'number') return numberLiteral(node, ctx);
+  if (type === 'bool' || type === 'boolean') return { ts: ctx.profile.predicates, nullable: false };
   if (type === 'column_ref') return columnType(node, scope, ctx);
   if (type === 'aggr_func') return aggregateType(node, scope, ctx);
   if (type === 'function') return functionType(node, scope, ctx);
@@ -198,7 +211,7 @@ function starColumns(node: SqlNode, scope: Scope): InferredRow | 'unknown' {
     const known = source.table ? source.table.columns : source.columns;
     if (!known) return 'unknown';
     open = open || (!!source.table && !source.table.exhaustive);
-    for (const c of known.values()) columns.push({ ...c, nullable: c.nullable || source.nullable });
+    for (const c of known.values()) columns.push({ name: c.name, ts: c.ts, nullable: c.nullable || source.nullable });
   }
   return { columns, open };
 }

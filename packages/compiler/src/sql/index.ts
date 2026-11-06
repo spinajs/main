@@ -1,11 +1,11 @@
-import type { Diagnostic, Manifest, ModelSqlQuery, SqlRowColumn } from '@spinajs/manifest';
+import type { Diagnostic, Manifest, ModelSqlQuery, SqlDialectProfile, SqlRowColumn } from '@spinajs/manifest';
 import { statementRow, type InferContext, type InferredRow } from './infer.js';
-import type { SqlDialect } from './dialects.js';
 import { parseSql } from './parse.js';
 import { isSqlStatement, SQL_IGNORE_MARKER } from './render.js';
 import { schemaIndex } from './resolve.js';
 
-export { SQL_DIALECTS, dialectOfDriver, isSqlDialect, readSqlDialects, type SqlDialect } from './dialects.js';
+export { GENERIC_SQL_DIALECT, findSqlDialect, readSqlDialects, resolveSqlDialect } from './dialects.js';
+export type { SqlDialectProfile } from '@spinajs/manifest';
 export { bindParameters, parseSql, type ParseResult, type SqlNode } from './parse.js';
 export { isSqlStatement, renderSqlTemplate, SQL_IGNORE_MARKER } from './render.js';
 
@@ -38,17 +38,17 @@ const declaredRowDifferences = (query: ModelSqlQuery, row: InferredRow | 'unknow
   query.declaredColumns && row !== 'unknown' ? rowDifferences(query.declaredColumns, row) : [];
 
 /** Checks one `sql` template against the models of `manifest`. A fragment, a dynamic query or one marked `-- spinajs-sql-ignore` is not checked. */
-export function analyzeSql(query: ModelSqlQuery, manifest: Manifest, dialect: SqlDialect): SqlAnalysis {
+export function analyzeSql(query: ModelSqlQuery, manifest: Manifest, profile: SqlDialectProfile): SqlAnalysis {
   if (query.dynamic || !isSqlStatement(query.text) || query.text.includes(SQL_IGNORE_MARKER)) return UNCHECKED;
   const at = (code: string, severity: Diagnostic['severity'], message: string): Diagnostic => ({ code, severity, message, source: query.source });
   const listParameters = (query.lists?.length ?? 0) > 0;
-  const parsed = parseSql(query.text, dialect);
-  if (!parsed.ok && parsed.valuesRow === undefined) return { ...UNCHECKED, problems: [at('SQL001', 'error', `SQL does not parse as ${dialect}: ${parsed.message}`)] };
+  const parsed = parseSql(query.text, profile);
+  if (!parsed.ok && parsed.valuesRow === undefined) return { ...UNCHECKED, problems: [at('SQL001', 'error', `SQL does not parse as ${profile.name}: ${parsed.message}`)] };
   // The grammar rejected the VALUES row itself (A6 fallback). An array bound to one placeholder expands to several values, so the count it saw proves nothing.
   if (!parsed.ok && listParameters) return UNCHECKED;
   if (!parsed.ok) return { ...UNCHECKED, problems: [at('SQL006', 'error', `INSERT column list and VALUES row ${parsed.valuesRow} differ in length`)] };
 
-  const ctx: InferContext = { tables: schemaIndex(manifest, query.connection), ctes: new Map(), problems: [], used: [], usedTables: new Set(), listParameters };
+  const ctx: InferContext = { tables: schemaIndex(manifest, query.connection, profile), ctes: new Map(), problems: [], used: [], usedTables: new Set(), listParameters, profile };
   const rows = parsed.statements.map((s) => statementRow(s, ctx, undefined));
   const row: InferredRow | 'unknown' = rows.length === 1 ? rows[0] : 'unknown';
   const problems = ctx.problems.map((p) => at(p.code, p.severity, p.message));
