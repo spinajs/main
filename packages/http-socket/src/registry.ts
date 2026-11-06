@@ -105,18 +105,6 @@ export class SocketHandlerRegistry {
       throw new InvalidOperation(`Socket ${handler.Kind} ${fullName} ( ${controllerName}::${String(handler.Method)} ) is not a valid socket ${handler.Kind} name: at most ${MAX_NAME_LENGTH} characters of ${NAME_PATTERN.source}`);
     }
 
-    if (handler.Kind === 'command' && isAsyncGenerator(controller, handler.Method)) {
-      // its queue place would be released when the generator is returned, long before the stream ends
-      if (handler.Options.ordered) {
-        throw new InvalidOperation(`Socket command ${fullName} ( ${controllerName}::${String(handler.Method)} ) is ordered and replies with a stream; ordered commands cannot stream`);
-      }
-
-      // a stream reply is never stored, so a resend would run it again
-      if (handler.Options.idempotent) {
-        throw new InvalidOperation(`Socket command ${fullName} ( ${controllerName}::${String(handler.Method)} ) is idempotent and replies with a stream; idempotent commands cannot stream`);
-      }
-    }
-
     // http's resolver reads only Policies and Method, so the socket descriptors pass structurally
     const policies = await resolveRoutePolicies({ Policies: descriptor.Policies } as unknown as IControllerDescriptor, { Policies: handler.Policies, Method: handler.Method } as unknown as IRoute, this.Container, this.Cfg, this.Log, controllerName, fullName);
 

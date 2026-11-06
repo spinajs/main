@@ -1,6 +1,6 @@
 import { Autoinject, Injectable } from '@spinajs/di';
 import { SocketException } from '@spinajs/http-socket-common';
-import { ISocketCommandContext, ISocketIdempotencyClaim, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
+import { IRegisteredHandler, ISocketCommandContext, ISocketIdempotencyClaim, ISocketStageRegistration, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
 import { SocketIdempotency } from '../idempotency.js';
 
 /**
@@ -15,6 +15,13 @@ export class IdempotencyStage extends SocketCommandStage {
 
   public get Order(): number {
     return STAGE_ORDER.Idempotency;
+  }
+
+  public onRegister(handler: IRegisteredHandler, registration: ISocketStageRegistration): void {
+    // a stream reply is never stored, so a resend would run it again
+    if (handler.descriptor.Options.idempotent) {
+      registration.refuseStream('idempotent');
+    }
   }
 
   public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
@@ -32,7 +39,7 @@ export class IdempotencyStage extends SocketCommandStage {
       throw new SocketException('failed_precondition', `command ${name} is not idempotent, so it cannot take an idempotencyKey`);
     }
 
-    const begun = await this.Idempotency.begin(this.Idempotency.scope(ctx.connection, key), name, ctx.signal);
+    const begun = await this.Idempotency.begin(this.Idempotency.scope(ctx.connection, key), name, ctx.signal, () => ctx.handlerStarted);
 
     if ('reply' in begun) {
       if (begun.reply.ok) {
@@ -43,6 +50,9 @@ export class IdempotencyStage extends SocketCommandStage {
 
     const claim = begun.claim;
     ctx.idempotency = claim;
+    // a replay or a join runs nothing here, so only a claim's handler may commit during the drain
+    ctx.drainGrace = true;
+    ctx.addOutcomeRecorder(claim);
     // the handler stops instead of running on while another instance runs the command again
     const leaseLost = () => ctx.abort(new SocketException('unavailable', `command ${name} lost the lease of its idempotency key to another server instance`));
     claim.lease?.addEventListener('abort', leaseLost, { once: true });

@@ -371,7 +371,8 @@ export class SocketIdempotency {
     return (await this.leases.peek(scoped))?.state === 'done';
   }
 
-  public async begin(scoped: string, name: string, signal: AbortSignal): Promise<{ reply: IdempotentReply } | { claim: ISocketIdempotencyClaim }> {
+  /** `handlerStarted` tells the claim when its handler started, as `start()` does for a caller that drives it by hand. */
+  public async begin(scoped: string, name: string, signal: AbortSignal, handlerStarted?: () => boolean): Promise<{ reply: IdempotentReply } | { claim: ISocketIdempotencyClaim }> {
     await this.syncClock();
     let lookedAgain = false;
 
@@ -379,7 +380,7 @@ export class SocketIdempotency {
       const held = await this.leases.acquire(scoped, { namespace: 'socket' });
 
       if (held.state === 'claimed') {
-        return { claim: this.claim(scoped, name, signal, held.handle) };
+        return { claim: this.claim(scoped, name, signal, held.handle, handlerStarted) };
       }
 
       if (held.state === 'done') {
@@ -430,7 +431,7 @@ export class SocketIdempotency {
     }
   }
 
-  protected claim(scoped: string, name: string, signal: AbortSignal, handle: IdempotencyHandle): ISocketIdempotencyClaim {
+  protected claim(scoped: string, name: string, signal: AbortSignal, handle: IdempotencyHandle, handlerStarted?: () => boolean): ISocketIdempotencyClaim {
     let publish!: (reply: IdempotentReply | null) => void;
     const mine = new Promise<IdempotentReply | null>((resolve) => (publish = resolve));
     this.local.set(scoped, mine);
@@ -438,6 +439,7 @@ export class SocketIdempotency {
     let answer: Promise<IdempotentReply | null> | null = null;
     let detached = false;
     let started = false;
+    const isStarted = () => started || handlerStarted?.() === true;
 
     // a released key can be claimed again before this cleanup runs: never drop the newer claim's entry
     const forget = () => {
@@ -447,7 +449,7 @@ export class SocketIdempotency {
     };
 
     const finish = (outcome: CommandOutcome): Promise<IdempotentReply | null> =>
-      (answer ??= this.record(handle, name, signal, outcome, started).then(
+      (answer ??= this.record(handle, name, signal, outcome, isStarted()).then(
         (reply) => {
           forget();
           publish(reply);
@@ -476,7 +478,7 @@ export class SocketIdempotency {
     return {
       lease: handle.signal,
       get started() {
-        return started;
+        return isStarted();
       },
       start: () => {
         started = true;

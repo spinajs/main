@@ -206,6 +206,7 @@ describe('SocketIdempotency on a leased store', () => {
       connection: { principal: { type: 'user', id: '7' }, clientId: 'c' },
       signal: controller.signal,
       abort: (reason: SocketException) => controller.abort(reason),
+      addOutcomeRecorder: () => undefined,
     } as unknown as ISocketCommandContext;
 
     const handler = new Promise((_resolve, reject) => controller.signal.addEventListener('abort', () => reject(controller.signal.reason as Error)));
