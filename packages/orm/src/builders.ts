@@ -7,7 +7,7 @@ import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
 import type { Op } from './enums.js';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, CreateViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, BooleanValueConverter } from './interfaces.js';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, CreateViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, BooleanValueConverter, SessionSettingsQueryCompiler } from './interfaces.js';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, StartsWithStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement, ColumnCompareStatement, OuterColumn, ColumnConditionStatement } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import type { OrmDriver } from './driver.js';
@@ -3320,6 +3320,23 @@ export class DropEventQueryBuilder extends QueryBuilder {
 
   public toDB(): ICompilerOutput {
     return this._container.resolve<DropEventQueryCompiler>(DropEventQueryCompiler, [this]).compile();
+  }
+}
+
+@NewInstance()
+@Inject(Container)
+export class SessionSettingsQueryBuilder extends QueryBuilder {
+  constructor(
+    container: Container,
+    driver: OrmDriver,
+    public readonly Settings: Readonly<Record<string, string>>,
+  ) {
+    super(container, driver);
+    this.QueryContext = QueryContext.Transaction;
+  }
+
+  public toDB(): ICompilerOutput {
+    return this._container.resolve<SessionSettingsQueryCompiler>(SessionSettingsQueryCompiler, [this]).compile();
   }
 }
 

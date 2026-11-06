@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { PostgresSqlExpressions } from './expressions.js';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { ConnectionSessionSettings, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, InStatement, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, RawQuery, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, DatetimeValueConverter, JsonValueConverter, NowExpression, JoinStatement, DateTimeWrapper, SqlExpressions, IndexQueryCompiler } from '@spinajs/orm';
+import { SessionSettingsQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, InStatement, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, RawQuery, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, DatetimeValueConverter, JsonValueConverter, NowExpression, JoinStatement, DateTimeWrapper, SqlExpressions, IndexQueryCompiler } from '@spinajs/orm';
 import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import pg from 'pg';
-import { PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler, PostgresCreateViewCompiler, PostgresIndexQueryCompiler } from './compilers.js';
+import { PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler, PostgresCreateViewCompiler, PostgresIndexQueryCompiler, PostgresSessionSettingsCompiler } from './compilers.js';
 import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier, PostgresInStatement, PostgresLiteralQuoter, PostgresNowExpression, PostgresJoinStatement, PostgresDateTimeWrapper } from './statements.js';
 import { mapPostgresError } from './errors.js';
 import { ITableColumnInfo, IConstraintInfo } from './types.js';
@@ -193,7 +193,7 @@ export class PostgresOrmDriver extends SqlDriver {
     // Reads and writes are both retried: `withReconnect` only re-runs on transport
     // failures, where the statement provably never reached the server.
     const bound = this.toDriverParams(params);
-    return this.withReconnect(() => this._executeOnDbOnce(stmt, bound, context));
+    return this.withSessionSettings(() => this.withReconnect(() => this._executeOnDbOnce(stmt, bound, context)));
   }
 
   protected isRetryableError(err: unknown): boolean {
@@ -242,13 +242,12 @@ export class PostgresOrmDriver extends SqlDriver {
           throw Object.assign(new Error('postgres pool is not connected'), { code: '08003' });
         }
 
-        const settings = await this.sessionSettings();
         const acquireStart = process.hrtime.bigint();
         const client = await this.Pool.connect();
         this.observeAcquireSeconds(Number(process.hrtime.bigint() - acquireStart) / 1e9);
 
         try {
-          result = settings.length === 0 ? await client.query(finalQuery, params) : await this.withSettings(client, settings, () => client.query(finalQuery, params));
+          result = await client.query(finalQuery, params);
         } finally {
           client.release();
         }
@@ -328,6 +327,7 @@ export class PostgresOrmDriver extends SqlDriver {
     // Table references carry no database prefix in postgres — see PostgresTableAliasCompiler.
     this.Container.register(PostgresTableAliasCompiler).as(TableAliasCompiler);
     this.Container.register(PostgresCreateViewCompiler).as(CreateViewCompiler);
+    this.Container.register(PostgresSessionSettingsCompiler).as(SessionSettingsQueryCompiler);
     this.Container.register(PostgresLiteralQuoter).as(LiteralQuoter);
     this.Container.register(PostgresDatetimeValueConverter).as(DatetimeValueConverter);
     this.Container.register(PostgresJsonValueConverter).as(JsonValueConverter);
@@ -540,39 +540,9 @@ export class PostgresOrmDriver extends SqlDriver {
         await connection.query(`SET TRANSACTION ISOLATION LEVEL ${options.isolation}`);
       }
 
-      await this.applySettings(connection, await this.sessionSettings());
-
       return { connection, depth: 0 };
     } catch (err) {
       connection.release();
-      throw err;
-    }
-  }
-
-  /** The merged ConnectionSessionSettings of the current async path. */
-  protected async sessionSettings(): Promise<[string, string][]> {
-    const providers = (this.Container.resolve(Array.ofType(ConnectionSessionSettings)) as unknown as ConnectionSessionSettings[] | undefined) ?? [];
-    const merged: Record<string, string> = {};
-    for (const p of providers) Object.assign(merged, (await p.settings(this)) ?? {});
-    return Object.entries(merged);
-  }
-
-  private async applySettings(client: pg.PoolClient, settings: readonly [string, string][]): Promise<void> {
-    if (settings.length === 0) return;
-    const calls = settings.map((_, i) => `set_config($${2 * i + 1}, $${2 * i + 2}, true)`).join(', ');
-    await client.query(`SELECT ${calls}`, settings.flat());
-  }
-
-  /** One statement in a transaction of its own, so transaction-local settings never stay on the pooled connection. */
-  private async withSettings(client: pg.PoolClient, settings: readonly [string, string][], run: () => Promise<pg.QueryResult>): Promise<pg.QueryResult> {
-    await client.query('BEGIN');
-    try {
-      await this.applySettings(client, settings);
-      const result = await run();
-      await client.query('COMMIT');
-      return result;
-    } catch (err) {
-      await client.query('ROLLBACK').catch(() => undefined);
       throw err;
     }
   }
