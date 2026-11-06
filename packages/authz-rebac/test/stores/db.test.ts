@@ -2,6 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 import { AUTHZ_CONNECTION, AuthzConfigError } from '@spinajs/authz';
 import { MIGRATION_DESCRIPTION_SYMBOL } from '@spinajs/orm';
+import type { OrmDriver, QueryContext } from '@spinajs/orm';
 
 import { fakeModelInitContext } from '@spinajs/authz-testing';
 
@@ -12,6 +13,25 @@ import { tupleStoreContract } from '../support/store-contract.js';
 import { NAMESPACES, PERMISSIONS, PERMISSION_INPUTS, d1, ref, set, tuple, user } from '../support/world.js';
 
 const expect = chai.expect;
+
+type Executor = { executeOnDb(stmt: string, params: unknown[], context: QueryContext): Promise<unknown> };
+
+/** The SELECT statements `driver` runs during `work`. */
+async function selectsDuring(driver: OrmDriver, work: () => Promise<unknown>): Promise<string[]> {
+  const target = driver as unknown as Executor;
+  const original = target.executeOnDb.bind(target);
+  const selects: string[] = [];
+  target.executeOnDb = (stmt, params, context) => {
+    if (/^\s*select\b/i.test(stmt)) selects.push(stmt);
+    return original(stmt, params, context);
+  };
+  try {
+    await work();
+  } finally {
+    target.executeOnDb = original;
+  }
+  return selects;
+}
 
 describe('authz-rebac: AuthzRebac migration', () => {
   it('runs on the connection alias authz', () => {
@@ -65,6 +85,21 @@ describe('authz-rebac: DbTupleStore (sqlite)', function () {
       expect(await store.writeIn({ driver: tx }, [tuple(d1, 'viewer', user('alice'))], [tuple(d1, 'viewer', user('nobody'))], user('admin'))).to.deep.equal({ added: 0, removed: 0 });
     });
     expect(await store.read(d1, 'viewer')).to.deep.equal([tuple(d1, 'viewer', user('alice'))]);
+  });
+
+  it('writeIn reads the stored keys once per side, not once per tuple, and keeps remove-then-add and duplicates', async () => {
+    const store = new DbTupleStore();
+    const viewer = (name: string) => tuple(d1, 'viewer', user(name));
+    await store.write(['a', 'b', 'c'].map(viewer), [], user('admin'));
+    let counts: unknown;
+    const selects = await selectsDuring(db.driver, () =>
+      db.driver.transaction(async (tx) => {
+        counts = await store.writeIn({ driver: tx }, ['a', 'b', 'c', 'd', 'd', 'e', 'f'].map(viewer), ['a', 'a', 'b', 'nobody'].map(viewer), user('admin'));
+      }),
+    );
+    expect(counts).to.deep.equal({ added: 5, removed: 2 });
+    expect(selects).to.have.length(2);
+    expect((await store.read(d1, 'viewer')).map((t) => (t.subject as { id: string }).id).sort()).to.deep.equal(['a', 'b', 'c', 'd', 'e', 'f']);
   });
 
   it('writeIn refuses a handle that is no transaction', async () => {

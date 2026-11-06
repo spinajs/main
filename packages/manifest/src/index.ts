@@ -12,3 +12,4 @@ export * from './route-path.js';
 export * from './inheritance.js';
 export * from './socket-contract.js';
 export * from './runtime-types.js';
+export * from './realpath.js';

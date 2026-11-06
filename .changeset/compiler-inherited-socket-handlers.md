@@ -1,0 +1,7 @@
+---
+"@spinajs/compiler": minor
+---
+
+A socket controller's manifest entry now lists the commands, events and `@FromDI()` arguments it inherits, with the payload and result types its subclass binds, and records `bases`, `inheritedFrom` and `payloadIndex`. AsyncAPI, the generated client and `manifest:diff` see inherited socket handlers.
+
+A command and an event record `payloadIndex` (the `@Payload` argument), and an event records its method as `handler`, on an entry that has `bases` and on an abstract or undecorated base. A concrete socket controller that inherits nothing records neither, so a manifest without socket inheritance keeps its bytes and its hash; only a manifest with socket inheritance, or with an abstract socket base that has handlers, gets a new hash on rebuild. A base read from a dependency's fragment is re-typed through these fields; a command or event from a fragment built before this release, or from a concrete controller that inherits nothing, keeps the payload type its package recorded, and only its result is re-typed. After a rebuild, the payload of an inherited generic handler (`CrudSocket<T>` bound to `Hello`) is validated against the bound type. Before, the payload was checked against the schema derived from the unbound `T`: a bare or constrained `T` derives `{}`, which accepts any value, while a type built from it, such as `Partial<T>` (a closed empty object that rejects every non-empty payload) or `{ data: T }` (a closed object), rejected valid payloads.

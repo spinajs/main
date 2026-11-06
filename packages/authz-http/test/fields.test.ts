@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
+import { attachRowFields, authzStorage } from '@spinajs/authz';
 import type { DecisionRequest } from '@spinajs/authz';
 import { BaseController, BasePath, BasePolicy, Body, BodyField, FormField, Get, Ok, Patch, Policy, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
@@ -25,6 +26,8 @@ const votes = (req: DecisionRequest): ScriptedVote => {
   if (req.permission === 'user:update') return { permitWhen: { op: 'true' }, fields: { write: script.write } };
   return { permitWhen: { op: 'true' } };
 };
+
+let rowsFlag: boolean | undefined;
 
 class Passes extends BasePolicy {
   public isEnabled() {
@@ -51,6 +54,13 @@ class FieldRoutes extends BaseController {
   @Access('user:read', { domain: D, fields: 'filter' })
   public list() {
     return new Ok([structuredClone(ROW), Promise.resolve(structuredClone(ROW))]);
+  }
+
+  @Get('rows')
+  @Access('user:read', { domain: D, fields: 'filter-rows' })
+  public rows() {
+    rowsFlag = authzStorage().getStore()?.AuthzRowFields;
+    return new Ok([attachRowFields(structuredClone(ROW), ['id', 'salary', 'Password']), structuredClone(ROW)]);
   }
 
   @Patch('users/:id')
@@ -189,6 +199,18 @@ describe('field filters (B17 http)', function () {
 
       expect(res.body).to.have.length(2);
       for (const row of res.body) expect(row).to.not.have.property('salary');
+    });
+
+    it("fields: 'filter-rows' filters each row by its own field set, minus neverRead, and asks authz-orm for row sets", async () => {
+      rowsFlag = undefined;
+      const res = await app.request().get('/fld/rows').set('x-user', 'alice');
+
+      expect(res.status).to.eq(200);
+      expect(res.body).to.deep.eq([
+        { id: 'u1', salary: 9 },
+        { id: 'u1', name: 'N', email: 'e@example.com', address: { city: 'C' } },
+      ]);
+      expect(rowsFlag).to.eq(true);
     });
 
     it("leaves the response alone without fields: 'filter'", async () => {

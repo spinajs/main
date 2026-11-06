@@ -9,12 +9,18 @@ import { extractServices, mergeById } from './extractors/services.js';
 import { extractValues } from './extractors/values.js';
 import { extractConfigModules, extractConfigUsages } from './extractors/config.js';
 import { extractControllerBases, extractControllers } from './extractors/controllers.js';
+import { withInheritedRoutes } from './extractors/inherited-routes.js';
+import { withInheritedHandlers, withoutRetypingHints } from './extractors/inherited-sockets.js';
+import { dependencyBases } from './dependency-bases.js';
 import { extractSocketContracts, extractSocketControllerBases, extractSocketControllers } from './extractors/socket.js';
 import { extractModels } from './extractors/models.js';
 import { extractMigrations } from './extractors/migrations.js';
 import { extractSchedules } from './extractors/schedules.js';
 import { extractCommands } from './extractors/commands.js';
 import { extractQueueMessages } from './extractors/queue.js';
+import { extractSqlQueries } from './extractors/sql.js';
+import { extractSqlDialects } from './extractors/sql-dialects.js';
+import { checkNPlusOne } from './extractors/n-plus-one.js';
 import { declaredDirsOf, isUnderDeclaredDirs, type DirSection } from './extractors/declared-dirs.js';
 import { discoveredBy, type AppDirs, type ScannedEntry } from './extractors/effective-dirs.js';
 
@@ -97,10 +103,15 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   const isListed = (section: DirSection, entry: { source: SourceRef }): boolean => !declared || isUnderDeclaredDirs(entry.source.file, section, declared);
   const scanned = <T extends ScannedEntry>(section: DirSection, extractor: Extractor<T>): T[] => run(extractor).filter((e) => isListed(section, e));
   // A package's class outside its declared dirs is only a base; an app's class outside its dirs is flagged by `marked`.
-  const allControllers = run(extractControllers);
-  const controllerBases = sortBySource([...run(extractControllerBases), ...allControllers.filter((c) => !isListed('controllers', c))]);
-  const allSocketControllers = run(extractSocketControllers);
-  const socketControllerBases = sortBySource([...run(extractSocketControllerBases), ...allSocketControllers.filter((c) => !isListed('socketControllers', c))]);
+  const external = dependencyBases(ctx);
+  const ownControllers = run(extractControllers);
+  const effective = withInheritedRoutes([...ownControllers, ...run(extractControllerBases)], ctx, external);
+  const allControllers = effective.slice(0, ownControllers.length);
+  const controllerBases = sortBySource([...effective.slice(ownControllers.length), ...allControllers.filter((c) => !isListed('controllers', c))]);
+  const ownSockets = run(extractSocketControllers);
+  const effectiveSockets = withInheritedHandlers([...ownSockets, ...run(extractSocketControllerBases)], ctx, external);
+  const allSocketControllers = effectiveSockets.slice(0, ownSockets.length).map(withoutRetypingHints);
+  const socketControllerBases = sortBySource([...effectiveSockets.slice(ownSockets.length), ...allSocketControllers.filter((c) => !isListed('socketControllers', c))]);
   const classProperties = run(extractClassProperties);
   const controllers = allControllers.filter((c) => isListed('controllers', c));
   const socketControllers = allSocketControllers.filter((c) => isListed('socketControllers', c));
@@ -110,6 +121,9 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   discovered?.requireDirs(controllers.length + socketControllers.length + migrations.length + schedules.length + commands.length);
   const marked = <T extends ScannedEntry>(section: DirSection, entries: T[]): T[] => (discovered ? discovered.filter(section, entries) : entries);
 
+  const sqlQueries = run(extractSqlQueries);
+  const sqlDialects = run(extractSqlDialects);
+  for (const file of files) checkNPlusOne(ctx, file);
   const fragment: ManifestFragment = {
     manifestVersion: MANIFEST_VERSION,
     package: {
@@ -135,6 +149,8 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
     commands: marked('commands', commands),
     ...(discovered?.scanFiles.length ? { scanFiles: discovered.scanFiles } : {}),
     queueMessages: run(extractQueueMessages),
+    ...(sqlQueries.length ? { sqlQueries } : {}),
+    ...(sqlDialects.length ? { sqlDialects } : {}),
     schemas: Object.fromEntries([...Object.entries(ctx.schemas), ...ctx.schemaRegistry].sort(([a], [b]) => compareCodeUnits(a, b))),
     diagnostics: sortDiagnostics(ctx.diagnostics),
   };
