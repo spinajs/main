@@ -11,6 +11,7 @@ import type { IdempotencyClaim, IdempotencyHandle, IdempotencyHeld, StoredReply 
 import { SocketException } from '@spinajs/http-socket-common';
 import type { CommandOutcome, IdempotentReply, ISocketIdempotencyClaim, ISocketIdempotencyConfig } from './interfaces.js';
 import type { SocketConnection } from './connection.js';
+import { isOutcomeUnknownAfter, outcomeUnknownAfter } from './context.js';
 import { SocketErrorMapper } from './errors.js';
 import { untilAborted } from './limits.js';
 import { isStreamResult } from './stream.js';
@@ -277,17 +278,7 @@ function AutoinjectSocketIdempotencyStore(): PropertyDecorator {
 /** Retry hint when a wrapped 3.x store, which has no lease, holds the key on another instance; a leased store answers with the rest of the lease. */
 export const ELSEWHERE_RETRY_AFTER_MS = 1_000;
 
-const OUTCOME_UNKNOWN = new WeakSet<object>();
-
-/**
- * Marks an abort reason after which a started handler's outcome is unknown ( shutdown ): it may have committed and then
- * thrown the reason, so its key stays claimed instead of being released for a retry that would run it again. On a leased
- * store another instance takes the key over once the lease ends.
- */
-export function outcomeUnknownAfter<T extends object>(reason: T): T {
-  OUTCOME_UNKNOWN.add(reason);
-  return reason;
-}
+export { outcomeUnknownAfter };
 
 /**
  * The value as socket.io sends it, so the live reply and every replay are the same payload: a toJSON
@@ -529,7 +520,7 @@ export class SocketIdempotency {
 
     // the call's own deadline, cancel, disconnect or shutdown: the command produced no outcome
     if (isAbortOf(outcome.error, signal)) {
-      if (started && OUTCOME_UNKNOWN.has(signal.reason as object)) {
+      if (started && isOutcomeUnknownAfter(signal.reason)) {
         this.Log.warn({ command: name }, 'Socket command ${command}: aborted by shutdown after its handler started; its idempotency key stays claimed until its lease ends, as it may have committed');
         await handle.abandon();
         return null;
