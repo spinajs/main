@@ -1,5 +1,7 @@
 import { MsSqlSqlExpressions } from './expressions.js';
-import { DatetimeValueConverter, DefaultValueBuilder, NowExpression, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, TextWrapper, ServerResponseMapper, DbServerResponse, AlterTableQueryCompiler, AlterColumnQueryCompiler, SqlExpressions } from '@spinajs/orm';
+import { DatetimeValueConverter, DefaultValueBuilder, NowExpression, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, TextWrapper, ServerResponseMapper, DbServerResponse, AlterTableQueryCompiler, AlterColumnQueryCompiler, SqlExpressions, SqlDialect } from '@spinajs/orm';
+import { MSSQL_SQL_DIALECT } from './sql-dialect.js';
+export { MSSQL_SQL_DIALECT } from './sql-dialect.js';
 /* eslint-disable security/detect-object-injection */
 import { Injectable, NewInstance } from '@spinajs/di';
 
@@ -93,6 +95,7 @@ export class MsSqlServerResponseMapper extends ServerResponseMapper {
   }
 }
 
+@SqlDialect(MSSQL_SQL_DIALECT)
 @Injectable('orm-driver-mssql')
 @NewInstance()
 export class MsSqlOrmDriver extends SqlDriver {
