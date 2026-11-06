@@ -6,7 +6,7 @@ import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { principalKey } from '@spinajs/authz';
 import { Clock, DbClock, DurableSystemClock, FaultInjector, parseDuration } from '@spinajs/durable';
-import { IdempotencyLeases, IdempotencyService, IdempotencyStore as LeasedIdempotencyStore, OrmIdempotencyStore, idempotencyKey } from '@spinajs/idempotency';
+import { IdempotencyLeases, IdempotencyService, IdempotencyStore as LeasedIdempotencyStore, OrmIdempotencyStore, idempotencyKey, isCrash } from '@spinajs/idempotency';
 import type { IdempotencyClaim, IdempotencyHandle, IdempotencyHeld, StoredReply } from '@spinajs/idempotency';
 import { SocketException } from '@spinajs/http-socket-common';
 import type { CommandOutcome, IdempotentReply, ISocketIdempotencyClaim, ISocketIdempotencyConfig } from './interfaces.js';
@@ -22,9 +22,6 @@ const DEFAULT_MAX_ENTRIES = 100_000;
 const DEFAULT_LEASE = '30s';
 // An instance built with `new` ( tests, a hand-wired server ) has no injected clock.
 const SYSTEM_CLOCK = new DurableSystemClock();
-
-/** Crash contract: an error with `crash: true` stands for a dead process, which writes and releases nothing. */
-const isCrash = (error: unknown): boolean => (error as { crash?: unknown } | null | undefined)?.crash === true;
 
 export type IdempotencyRecord = { readonly state: 'running' } | { readonly state: 'done'; readonly reply: IdempotentReply };
 
