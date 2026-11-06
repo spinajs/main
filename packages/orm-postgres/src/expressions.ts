@@ -32,7 +32,9 @@ export class PostgresSqlExpressions extends SqlExpressions {
   }
 
   public ago(amount: number, unit: IntervalUnit): string {
-    return `CURRENT_TIMESTAMP - make_interval(${MAKE_INTERVAL_ARGUMENTS[unit]} => ${amount})`;
+    const checked = this.checkedInterval(amount, unit);
+
+    return `(CURRENT_TIMESTAMP - make_interval(${MAKE_INTERVAL_ARGUMENTS[checked.unit]} => ${checked.amount}))`;
   }
 
   public rowLock(mode: RowLockMode): string {

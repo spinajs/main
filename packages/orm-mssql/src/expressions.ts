@@ -29,6 +29,8 @@ export class MsSqlSqlExpressions extends SqlExpressions {
   }
 
   public ago(amount: number, unit: IntervalUnit): string {
-    return `DATEADD(${unit}, -${amount}, SYSDATETIMEOFFSET())`;
+    const checked = this.checkedInterval(amount, unit);
+
+    return `(DATEADD(${checked.unit}, -${checked.amount}, SYSDATETIMEOFFSET()))`;
   }
 }

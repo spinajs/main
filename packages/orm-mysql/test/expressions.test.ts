@@ -32,10 +32,10 @@ describe('mysql sql expressions', function () {
   });
 
   it('ago() subtracts an INTERVAL from UTC_TIMESTAMP(3), the clock of now()', () => {
-    expect(expressions.ago(7, 'day')).to.eq('UTC_TIMESTAMP(3) - INTERVAL 7 DAY');
-    expect(driver.ago(30, 'second').Query).to.eq('UTC_TIMESTAMP(3) - INTERVAL 30 SECOND');
-    expect(driver.ago(5, 'minute').Query).to.eq('UTC_TIMESTAMP(3) - INTERVAL 5 MINUTE');
-    expect(driver.ago(2, 'hour').Query).to.eq('UTC_TIMESTAMP(3) - INTERVAL 2 HOUR');
+    expect(expressions.ago(7, 'day')).to.eq('(UTC_TIMESTAMP(3) - INTERVAL 7 DAY)');
+    expect(driver.ago(30, 'second').Query).to.eq('(UTC_TIMESTAMP(3) - INTERVAL 30 SECOND)');
+    expect(driver.ago(5, 'minute').Query).to.eq('(UTC_TIMESTAMP(3) - INTERVAL 5 MINUTE)');
+    expect(driver.ago(2, 'hour').Query).to.eq('(UTC_TIMESTAMP(3) - INTERVAL 2 HOUR)');
   });
 
   it('locks selected rows after the LIMIT', () => {

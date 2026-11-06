@@ -30,7 +30,9 @@ export class MySqlSqlExpressions extends SqlExpressions {
 
   // UTC_TIMESTAMP, as MySqlNowExpression: the driver writes datetimes in UTC
   public ago(amount: number, unit: IntervalUnit): string {
-    return `UTC_TIMESTAMP(3) - INTERVAL ${amount} ${unit.toUpperCase()}`;
+    const checked = this.checkedInterval(amount, unit);
+
+    return `(UTC_TIMESTAMP(3) - INTERVAL ${checked.amount} ${checked.unit.toUpperCase()})`;
   }
 
   // LOCK IN SHARE MODE, not FOR SHARE: MariaDB and MySQL 5.7 only know the former

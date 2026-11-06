@@ -30,7 +30,9 @@ export class SqliteSqlExpressions extends SqlExpressions {
 
   // the text SqliteNowExpression and the ISO datetime converter write, so the columns compare as text
   public ago(amount: number, unit: IntervalUnit): string {
-    return `strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-${amount} ${unit}s')`;
+    const checked = this.checkedInterval(amount, unit);
+
+    return `(strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-${checked.amount} ${checked.unit}s'))`;
   }
 
   public rowLock(): string {

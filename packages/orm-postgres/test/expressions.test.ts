@@ -32,10 +32,10 @@ describe('postgres sql expressions', function () {
   });
 
   it('ago() subtracts a make_interval from CURRENT_TIMESTAMP, the clock of now()', () => {
-    expect(expressions.ago(7, 'day')).to.eq('CURRENT_TIMESTAMP - make_interval(days => 7)');
-    expect(driver.ago(30, 'second').Query).to.eq('CURRENT_TIMESTAMP - make_interval(secs => 30)');
-    expect(driver.ago(5, 'minute').Query).to.eq('CURRENT_TIMESTAMP - make_interval(mins => 5)');
-    expect(driver.ago(2, 'hour').Query).to.eq('CURRENT_TIMESTAMP - make_interval(hours => 2)');
+    expect(expressions.ago(7, 'day')).to.eq('(CURRENT_TIMESTAMP - make_interval(days => 7))');
+    expect(driver.ago(30, 'second').Query).to.eq('(CURRENT_TIMESTAMP - make_interval(secs => 30))');
+    expect(driver.ago(5, 'minute').Query).to.eq('(CURRENT_TIMESTAMP - make_interval(mins => 5))');
+    expect(driver.ago(2, 'hour').Query).to.eq('(CURRENT_TIMESTAMP - make_interval(hours => 2))');
   });
 
   it('compares a column with a || of literals and an outer column', () => {

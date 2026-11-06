@@ -277,7 +277,11 @@ export class ConcatExpression {
   constructor(public readonly Parts: readonly ConcatPart[]) {}
 }
 
-/** `whereColumn('Key', '>=', concat('wait:', outer('Name'), '#'))`: the right side of `whereColumn()` as joined text. */
+/**
+ * `whereColumn('Key', '>=', concat('wait:', outer('Name'), '#'))`: the right side of `whereColumn()` as joined text.
+ * A string or number part is always a bound value, never a column; reference a column with `outer()` or a `Wrap`.
+ * On PostgreSQL a `concat()` of only value parts needs a cast (the parameter types are unknown); use at least one column part.
+ */
 export function concat(...parts: ConcatPart[]): ConcatExpression {
   if (parts.length === 0) {
     throw new InvalidArgument('concat(): at least one part is required');

@@ -37,7 +37,7 @@ describe('mysql events', function () {
       .createEvent('__task_delete_old_entries', (event) => event.every(1, 'DAY').do(driver.del().from('__task_history').where('CreatedAt', '<', driver.ago(7, 'day'))))
       .toDB();
 
-    expect(result.expression?.split('\n').at(-1)).to.eq('DO DELETE FROM `__task_history` WHERE `CreatedAt` < UTC_TIMESTAMP(3) - INTERVAL 7 DAY');
+    expect(result.expression?.split('\n').at(-1)).to.eq('DO DELETE FROM `__task_history` WHERE `CreatedAt` < (UTC_TIMESTAMP(3) - INTERVAL 7 DAY)');
     expect(result.bindings ?? []).to.deep.eq([]);
   });
 

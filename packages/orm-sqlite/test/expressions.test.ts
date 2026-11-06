@@ -46,10 +46,10 @@ describe('sqlite sql expressions', function () {
   });
 
   it('ago() is the current instant less the amount, in the text format of now()', () => {
-    expect(driver().Container.resolve(SqlExpressions).ago(7, 'day')).to.eq("strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-7 days')");
-    expect(driver().ago(30, 'second').Query).to.eq("strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 seconds')");
-    expect(driver().ago(5, 'minute').Query).to.eq("strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-5 minutes')");
-    expect(driver().ago(0, 'hour').Query).to.eq("strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-0 hours')");
+    expect(driver().Container.resolve(SqlExpressions).ago(7, 'day')).to.eq("(strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-7 days'))");
+    expect(driver().ago(30, 'second').Query).to.eq("(strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 seconds'))");
+    expect(driver().ago(5, 'minute').Query).to.eq("(strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-5 minutes'))");
+    expect(driver().ago(0, 'hour').Query).to.eq("(strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-0 hours'))");
   });
 
   it('ago() matches a row older than the cutoff and not a newer one', async () => {
@@ -72,10 +72,14 @@ describe('sqlite sql expressions', function () {
   });
 
   it('ago() refuses an amount that is not a non-negative integer', () => {
-    for (const amount of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    for (const amount of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 1e21]) {
       expect(() => driver().ago(amount, 'day')).to.throw(InvalidArgument, 'ago(): amount must be a non-negative integer');
     }
     expect(() => driver().ago(1, 'week' as never)).to.throw(InvalidArgument, 'ago(): unit must be one of second, minute, hour, day');
+  });
+
+  it('SqlExpressions.ago() validates for a direct caller', () => {
+    expect(() => driver().Container.resolve(SqlExpressions).ago(-1, 'day')).to.throw(InvalidArgument, 'ago(): amount must be a non-negative integer');
   });
 
   it('adds no clause for a row lock: a write transaction locks the whole database', () => {

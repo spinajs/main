@@ -9,9 +9,9 @@ import type { Builder } from './builders.js';
 import { ConnectionSessionSettings } from './session-settings.js';
 import type { SessionSettings } from './session-settings.js';
 import { Int64ValueConverter, JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, UniversalValueConverter, UuidConverter } from './converters.js';
-import { InvalidArgument, InvalidOperation, NotSupported } from '@spinajs/exceptions';
+import { InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import { OrmException } from './exceptions.js';
-import { INTERVAL_UNITS, SqlExpressions } from './expressions.js';
+import { SqlExpressions } from './expressions.js';
 import type { IntervalUnit } from './expressions.js';
 import { AsyncLocalStorage } from 'async_hooks';
 import { backoffDelay, ConnectionState, delay, isRetryableErrorCode } from './resilience.js';
@@ -450,16 +450,10 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
 
   /**
    * The database's current instant less `amount` units: `where('CreatedAt', '<', driver.ago(7, 'day'))`. Like `now()`,
-   * the database computes it when the statement runs, so an event body re-evaluates it on every run.
+   * computed by the database like `now()` (on PostgreSQL that is the start of the transaction), so an event body
+   * re-evaluates it on every run. Validated by `SqlExpressions.ago()`.
    */
   public ago(amount: number, unit: IntervalUnit): RawQuery {
-    if (!Number.isInteger(amount) || amount < 0) {
-      throw new InvalidArgument(`ago(): amount must be a non-negative integer, got ${amount}`);
-    }
-    if (!INTERVAL_UNITS.includes(unit)) {
-      throw new InvalidArgument(`ago(): unit must be one of ${INTERVAL_UNITS.join(', ')}, got ${String(unit)}`);
-    }
-
     return RawQuery.create(this.Container.resolve(SqlExpressions).ago(amount, unit));
   }
 
