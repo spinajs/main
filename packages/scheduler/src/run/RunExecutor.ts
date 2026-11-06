@@ -4,7 +4,7 @@ import { Log, Logger } from '@spinajs/log-common';
 import type { QueueJob } from '@spinajs/queue';
 import type { AbortReason, RunStatus, StructuredError } from '../contract.js';
 import { emitMessage, runJobId, ScheduledJobPayload } from '../emit/emit.js';
-import { QueueJobFailedError, RunAbortedError } from '../errors.js';
+import { isCrashError, QueueJobFailedError, RunAbortedError } from '../errors.js';
 import { resolveSchedulerConfig, ScheduleDefinition, SchedulerConfig } from '../interfaces.js';
 import { defined } from '../models/converters.js';
 import { RunAttemptModel } from '../models/RunAttemptModel.js';
@@ -408,6 +408,8 @@ export class RunExecutor {
     ctx: RunContext,
     outcome: ExecutionOutcome,
   ): Promise<void> {
+    // a crashed process writes nothing more: the run stays `running` and its leases expire on their own
+    if (outcome.kind === 'error' && isCrashError(outcome.error)) return;
     const now = this.Clock.now();
 
     if (outcome.kind === 'aborted' && outcome.reason === 'lease-lost') {

@@ -87,6 +87,10 @@ migration when it is imported. Import `@spinajs/tasks` (or your `@Task` files)
 before the ORM boots; a `@Task` file first imported through
 `system.dirs.schedules` comes too late for the migration.
 
+**Inline runs.** `SchedulerService.runInline(schedule, fn, opts?)` runs `fn` now, in
+the calling process, as a `manual` run of `schedule`, and returns or rethrows its
+result. See [Inline runs](../../docs/scheduler/README.md#inline-runs).
+
 ## Inside a run: `RunContext`
 
 | Member | Use |

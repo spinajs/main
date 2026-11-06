@@ -5,7 +5,7 @@ import { parseSpec } from '../time/spec.js';
 import { ScheduleValidationError } from '../errors.js';
 import { ScheduledTask } from '../ScheduledTask.js';
 import type { ScheduleDeclaration } from '../decorators.js';
-import type { TaskMethodLookup } from '../tasks/task-methods.js';
+import { isTaskMethodAdapter, type TaskMethodLookup } from '../tasks/task-methods.js';
 import type {
   ConfigScheduleEntry,
   MisfirePolicy,
@@ -20,6 +20,8 @@ export interface BuildDefinitionsInput {
   /** Adapters for `@Task` methods with this task name; consulted only when no `@Schedule` class has the name. */
   findTaskMethods?: TaskMethodLookup;
   validateParamsSchema: (schema: object) => string | null;
+  /** A `@Schedule` took the name of a `@Task` method's schedule (class names of both). */
+  onShadowed?: (name: string, kept: string, dropped: string) => void;
 }
 
 const SPEC_KEYS = ['cron', 'every', 'at', 'manual'] as const;
@@ -113,10 +115,16 @@ export function buildDefinitions(input: BuildDefinitionsInput): ScheduleDefiniti
       continue;
     }
     const existing = candidates.get(d.name);
-    if (existing) {
+    // a @Schedule wins over the manual schedule a @Task of the same name registers, so 3.x apps still boot
+    if (existing && isTaskMethodAdapter(d.target)) {
+      input.onShadowed?.(d.name, existing.target.name, d.target.name);
+      continue;
+    }
+    if (existing && !isTaskMethodAdapter(existing.target)) {
       problems.push(`duplicate schedule name '${d.name}' (${existing.target.name} and ${d.target.name})`);
       continue;
     }
+    if (existing) input.onShadowed?.(d.name, d.target.name, existing.target.name);
     candidates.set(d.name, { options: d.options, target: d.target, source: d.source ?? 'decorator' });
     if (!byClass.has(d.target.name)) byClass.set(d.target.name, d);
   }
@@ -132,7 +140,8 @@ export function buildDefinitions(input: BuildDefinitionsInput): ScheduleDefiniti
 
     const base = candidates.get(name);
     let target = base?.target;
-    let baseOptions = base?.options ?? {};
+    // a @Task's own schedule options (overlap from taskStacking) describe its direct calls, not timed runs
+    let baseOptions = base && !isTaskMethodAdapter(base.target) ? base.options : {};
     if (task) {
       const t = byClass.get(task);
       const methods = t ? [] : input.findTaskMethods?.(task) ?? [];
