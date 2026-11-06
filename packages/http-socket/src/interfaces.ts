@@ -393,8 +393,9 @@ export abstract class SocketCommandStage {
   public abstract execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown>;
 
   /**
-   * Called once for every registered command by SocketHandlerRegistry.build(), in ascending Order, after its policies
-   * resolved and before socket.io attaches. A throw fails the build with an InvalidOperation naming the stage and the
+   * Called once for every registered command by SocketHandlerRegistry.build(), in ascending Order, once every controller
+   * registered ( names unique, policies resolved, contract and payload validators attached ) and before socket.io
+   * attaches. A throw fails the build with an InvalidOperation naming the stage and the
    * command. Not called for events or hooks: stages never run for them.
    */
   public onRegister?(handler: IRegisteredHandler, registration: ISocketStageRegistration): void | Promise<void>;

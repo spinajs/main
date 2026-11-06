@@ -293,6 +293,18 @@ export class HookSocket extends BaseSocketController {
 }
 
 /** Registered only by the test that needs it. */
+export class HookDupOne extends BaseSocketController {
+  @Command('hook.dup')
+  public async one(): Promise<void> {}
+}
+
+/** Registered only by the test that needs it. */
+export class HookDupTwo extends BaseSocketController {
+  @Command('hook.dup')
+  public async two(): Promise<void> {}
+}
+
+/** Registered only by the test that needs it. */
 export class HookGenStream extends BaseSocketController {
   @Command('hook-gen.feed')
   public async *feed() {
@@ -336,6 +348,23 @@ describe('socket command stage hooks', function () {
       expect(err.message).to.equal('Socket command hook.echo ( HookSocket::echo ): stage HookInnerStage refused the registration: no audit sink configured');
       expect((err.cause as Error).message).to.equal('no audit sink configured');
       expect(host!.Http.listenerCount('upgrade')).to.equal(0);
+    });
+
+    it('calls no onRegister when a command is declared twice', async () => {
+      DI.register(HookDupOne).as(BaseSocketController);
+      DI.register(HookDupTwo).as(BaseSocketController);
+      try {
+        const err = await startServer().then(
+          () => expect.fail('the server started'),
+          (e: unknown) => e as InvalidOperation,
+        );
+
+        expect(err.message).to.match(/hook\.dup is declared twice/);
+        expect(hookProbe.registered).to.deep.equal([]);
+      } finally {
+        DI.unregister(HookDupOne);
+        DI.unregister(HookDupTwo);
+      }
     });
 
     it('refuses an async generator under refuseStream, in the words of the highest Order', async () => {
