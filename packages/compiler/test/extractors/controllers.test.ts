@@ -18,6 +18,7 @@ describe('extractControllers', () => {
   it('GET :id with path and query params, Access, doc', () => {
     const r = route('get');
     expect(r).to.deep.include({ method: 'get', path: ':id', fullPath: '/users/:id', access: ['user:read'], policies: [[{ type: 'AccessPolicy', options: ['route'] }]] });
+    expect(r.middlewares).to.deep.equal([{ type: 'AuthzFieldsMiddleware', options: [] }]);
     expect(r.params).to.deep.equal([
       { index: 0, name: 'id', kind: 'FromParams', runtimeType: { text: 'number', schema: 'spinajs/pkg-basic/UsersController_get_id', ref: { package: 'global', file: '', export: 'Number' } }, required: true, wire: { in: 'path', name: 'id', shape: 'value' } },
       { index: 1, name: 'verbose', kind: 'FromQuery', runtimeType: { text: 'boolean', schema: 'spinajs/pkg-basic/UsersController_get_verbose', ref: { package: 'global', file: '', export: 'Boolean' } }, required: false, wire: { in: 'query', name: 'verbose', shape: 'value' } },

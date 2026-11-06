@@ -49,7 +49,8 @@ export class ManifestControllerMetadata extends ControllerMetadataProvider {
 
   /**
    * The compiler records every decorated argument, inherited routes included; a handler's undecorated argument has no
-   * entry: it keeps the name the handler declares.
+   * entry: it keeps the name the handler declares. A manifest built before inherited routes were flattened has no
+   * inherited route on the entry, so such a route gets `[]` and keeps the handler's declared names too.
    */
   public parameters(controller: ClassInfo<BaseController>, method: string): Promise<string[]> {
     const route = this.entry(controller)?.routes.find((r) => r.handler === method);

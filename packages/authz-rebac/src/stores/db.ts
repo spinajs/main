@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { AUTHZ_CONNECTION, AuthzConfigError, principalKey } from '@spinajs/authz';
-import type { AuthzTx, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
+import { AUTHZ_CONNECTION, AuthzConfigError, changeLog, principalKey } from '@spinajs/authz';
+import type { AuthzTx, ChangeEntry, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
+// Registers DbChangeLog and its migration: the tuple writes below append to it.
+import '@spinajs/authz-orm/changelog';
 import { Connection, ConnectionMismatch, DateTime as DateTimeColumn, Model, ModelBase, NotAnOrmDriver, OrmConnectionMissing, OrmNotResolved, Primary, TransactionRequired, UniqueViolation, modelDriver, requireModelTransaction } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 // A value import: @DateTime() reads the property's design type.
@@ -124,6 +126,11 @@ export class DbTupleStore extends TupleStore {
   readonly name: string = 'db';
   private readonly schemas = new Set<() => NamespaceSchema>();
 
+  constructor() {
+    super();
+    changeLog().track('tuple');
+  }
+
   /**
    * `write` then refuses a tuple these namespaces cannot hold, as `AuthzAdmin` does for `tuple.write`; RebacModel.init binds
    * its own. Returns the unbinding.
@@ -176,16 +183,17 @@ export class DbTupleStore extends TupleStore {
     const removes = remove.map((t, i) => checked(t, `remove[${i}]`, actor));
     if (principalKey(actor).length > TUPLE_COLUMN_WIDTHS.created_by) throw new AuthzConfigError(`DbTupleStore: the actor key is longer than the created_by column (${TUPLE_COLUMN_WIDTHS.created_by})`);
     requireTupleTransaction(tx, 'DbTupleStore.writeIn');
-    let removed = 0;
+    const changes: ChangeEntry[] = [];
+    const change = (op: 'add' | 'remove', tuple: Tuple, key: string) => changes.push({ kind: 'tuple', op, key, payload: tuple, actor: principalKey(actor), at: now });
     const toRemove = await storedKeys(removes.map(hashOf));
     for (const t of removes) {
       const key = hashOf(t);
       if (!toRemove.has(key)) continue;
       await TupleRecord.destroy().where('tuple_key', key);
       toRemove.delete(key);
-      removed++;
+      change('remove', t, key);
     }
-    let added = 0;
+    const removed = changes.length;
     // Read after the removals, so a tuple removed and re-added in one call is inserted again.
     const stored = await storedKeys(adds.map(hashOf));
     for (const t of adds) {
@@ -193,14 +201,15 @@ export class DbTupleStore extends TupleStore {
       if (stored.has(row.tuple_key)) continue;
       try {
         await TupleRecord.insert(row);
-        added++;
+        change('add', t, row.tuple_key);
       } catch (err) {
         // Another transaction stored the same tuple meanwhile: it is there, which is what was asked.
         if (!(err instanceof UniqueViolation)) throw err;
       }
       stored.add(row.tuple_key);
     }
-    return { added, removed };
+    await changeLog().append(changes);
+    return { added: changes.length - removed, removed };
   }
 
   async find(query: TupleQuery, page?: TuplePage): Promise<{ readonly items: readonly Tuple[]; readonly total: number }> {
