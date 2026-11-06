@@ -2,7 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const SRC = /^packages\/([^/]+)\/src\//;
+// packages/studio-ui is outside the changesets group (owner decision OD2): its notes live in its CHANGELOG.md.
+const SRC = /^packages\/(?!studio-ui\/)([^/]+)\/src\//;
 const CHANGESET = /^\.changeset\/(?!README\.md$)[^/]+\.md$/;
 
 /** A "private": true package is never published ( .changeset/config.json ignores it ), so its src needs no changeset. */

@@ -238,3 +238,4 @@ packages/*/src/**/*.map
 !packages/hooks/src/spinajs-config.d.ts
 !packages/*/src/views/**/*.js
 !packages/*/src/static/**
+packages/studio-ui/dist/
