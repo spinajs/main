@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import http from 'node:http';
 import { EventEmitter } from 'node:events';
 import { Intl } from '@spinajs/intl';
+import { NewInstance } from '@spinajs/di';
 import { CodedHttpException, UnexpectedServerError } from '@spinajs/exceptions';
 import type { Log } from '@spinajs/log';
 import type { TestApp } from '@spinajs/testing';
@@ -97,19 +98,16 @@ class LateProceed extends AroundMiddleware {
   }
 }
 
-class NestA extends AroundMiddleware {
-  public async onAround(_inv: IRouteInvocation, proceed: () => Promise<IRouteOutcome>) {
-    calls.push('A');
-    const outcome = await proceed();
-    calls.push(`A:after:${outcome.reply?.status}`);
+@NewInstance()
+class Nest extends AroundMiddleware {
+  constructor(private readonly label: string) {
+    super();
   }
-}
 
-class NestB extends AroundMiddleware {
   public async onAround(_inv: IRouteInvocation, proceed: () => Promise<IRouteOutcome>) {
-    calls.push('B');
+    calls.push(this.label);
     const outcome = await proceed();
-    calls.push(`B:after:${outcome.reply?.status}`);
+    calls.push(`${this.label}:after:${outcome.reply?.status}`);
   }
 }
 
@@ -230,10 +228,10 @@ class AroundController extends BaseController {
 }
 
 @BasePath('nest')
-@Middleware(NestA)
+@Middleware(Nest, 'A')
 class NestController extends BaseController {
   @Get()
-  @Middleware(NestB)
+  @Middleware(Nest, 'B')
   public probe() {
     calls.push('action');
     return new Ok({});
@@ -380,18 +378,11 @@ describe('Around middlewares', function () {
       expect(state).to.deep.include({ onErrorX: 'from-storage', onErrorY: 'from-locals' });
     });
 
-    it('shows the outer middleware what the action wrote, after proceed() resolved', async () => {
+    it('shows the outer middleware what the action wrote, through the request store itself', async () => {
       await req().get('around/ok').set('Accept', 'application/json');
       await settled.promise;
 
-      expect(state.upstreamZ).to.eq('from-action');
-    });
-
-    it('hands the request store itself as invocation.storage', async () => {
-      await req().get('around/ok').set('Accept', 'application/json');
-      await settled.promise;
-
-      expect(state.sameStorage).to.eq(true);
+      expect(state).to.deep.include({ upstreamZ: 'from-action', sameStorage: true });
     });
   });
 });
