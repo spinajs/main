@@ -1728,6 +1728,12 @@ export const manifestSchema: Record<string, any> = {
           "items": {
             "$ref": "#/definitions/ColumnFamily"
           }
+        },
+        "caseInsensitiveIdentifiers": {
+          "type": "boolean"
+        },
+        "unboundedText": {
+          "type": "boolean"
         }
       },
       "required": [
