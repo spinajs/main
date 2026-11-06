@@ -1,7 +1,7 @@
 // Call sites from packages/scheduler/src and packages/authz-rbac/src, with their models cut down to the
 // columns these queries read. They compile unchanged in loose and in strict mode.
 import { ModelBase, outer } from '@spinajs/orm';
-import type { ISelectQueryBuilder, IWhereBuilder } from '@spinajs/orm';
+import type { ISelectQueryBuilder, IWhereBuilder, Relation } from '@spinajs/orm';
 import type { DateTime } from 'luxon';
 
 type RunStatus = 'queued' | 'running' | 'retrying' | 'emitted' | 'succeeded' | 'failed' | 'cancelled';
@@ -102,4 +102,32 @@ export async function authzCallSites(domain: string, now: DateTime, role: string
   q.where('scope_type', rowType).whereColumn('scope_id', '=', outer(rowId));
   q.whereColumn('scope_type', '=', outer('ancestor_type')).whereColumn('scope_id', '=', outer('ancestor_id'));
   await MembershipRecord.query().whereIn(column, unique);
+}
+
+// Call sites from packages/users/src and packages/users-http/src.
+class MetaRow extends ModelBase<MetaRow> {
+  public Key: string;
+  public Value: string;
+  public user_id: number;
+}
+
+class UserRow extends ModelBase<UserRow> {
+  public Id: number;
+  public Uuid: string;
+  public Login: string;
+  public Email: string;
+  public DeletedAt: DateTime | null;
+  public Metadata: Relation<MetaRow, UserRow>;
+}
+
+export async function usersCallSites(login: string, uuid: string, ids: string[], withMetadata: boolean): Promise<UserRow | undefined> {
+  for (const column of ['Uuid', 'Login', 'Email'] as const) {
+    const found = await UserRow.query().where(column, login).populate('Metadata').first();
+    if (found && !found.DeletedAt) return found;
+  }
+  await UserRow.query().where('Uuid', uuid).populate('Metadata').firstOrFail();
+  await UserRow.query().whereIn('Uuid', ids).populate('Metadata');
+  await UserRow.query().withDeleted().where('Uuid', uuid).populate('Metadata').first();
+  const query = UserRow.query().where('Uuid', uuid);
+  return (await (withMetadata ? query.populate('Metadata') : query).first()) ?? undefined;
 }

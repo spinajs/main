@@ -357,7 +357,7 @@
   "queryOf",
   "quoterOf",
   "referentialRule",
-  "renderStep",
+  "rel",
   "reportsNullability",
   "requireModelConnection",
   "requireModelTransaction",

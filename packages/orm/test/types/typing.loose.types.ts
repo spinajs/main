@@ -5,8 +5,8 @@ import type { Equal } from './assert.js';
 import type { Team, User } from './models.js';
 
 assertType<Equal<OrmStrict, false>>();
-assertType<Equal<ColumnName<User>, 'Id' | 'Email' | 'Name' | 'IsActive' | 'CreatedAt'>>();
-assertType<Equal<RelationName<User>, 'Metadata' | 'Team' | 'Owner'>>();
+assertType<Equal<ColumnName<User>, 'Id' | 'Email' | 'Name' | 'IsActive' | 'CreatedAt' | 'DeletedAt'>>();
+assertType<Equal<RelationName<User>, 'Metadata' | 'Team' | 'Owner' | 'Maybe' | 'Nul'>>();
 assertType<Equal<ColumnName<any>, string>>();
 assertType<Equal<ColumnName<unknown>, string>>();
 assertType<Equal<ColumnName<ModelBase>, string>>();

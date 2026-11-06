@@ -14,7 +14,7 @@ import { MethodNotImplemented } from '@spinajs/exceptions';
 import type { DateTime } from 'luxon';
 import type { Relation } from './relation-objects.js';
 import type { Lazy } from '@spinajs/util';
-import type { ColumnRef, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue } from './typing.js';
+import type { AggregateValue, ColumnName, ColumnRef, ColumnTypeOf, Head, MinMaxValue, StrictAliasNarrowed, Narrowed, PickColumns, PopulateName, PopulatePath, PopulateTree, Project, RelationTarget, Reproject, StrictNarrowed, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue, WithPopulated } from './typing.js';
 // imported, deliberately NOT re-exported: `index.ts` does `export *` on both this file and
 // `resilience.js`, and exporting the same name from both is an ambiguous re-export.
 import type { IConnectionResilienceOptions } from './resilience.js';
@@ -1353,9 +1353,12 @@ export interface IGroupByBuilder {
  * assignable to the untyped interfaces.
  */
 export interface ITypedColumnsBuilder<T> extends IColumnsBuilder, IOrderByBuilder, IGroupByBuilder {
+  columns<C extends ColumnName<Unbox<T>>>(names: C[]): StrictNarrowed<this, T, Reproject<Unbox<T>, PickColumns<Unbox<T>, C>>>;
   columns(names: ColumnRef<Unbox<T>>[]): this;
 
   select(column: '*'): this;
+  select<C extends ColumnName<Unbox<T>>>(column: C): StrictNarrowed<this, T, Project<Unbox<T>, PickColumns<Unbox<T>, C>>>;
+  select<C extends ColumnName<Unbox<T>>, A extends string>(column: C, alias: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, ColumnTypeOf<Unbox<T>, C>>>>;
   select(column: ColumnRef<Unbox<T>>, alias?: string): this;
   select(rawQuery: RawQuery): this;
   select(columns: Map<string, string>): this;
@@ -1445,12 +1448,16 @@ export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<
 export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T>, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IQueryBuilder, IBuilder<T> {
   get Relations(): IOrmRelation[];
 
+  min<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, MinMaxValue<Unbox<T>, C> | null>>>;
   min(column: ColumnRef<Unbox<T>>, as?: string): this;
+  max<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, MinMaxValue<Unbox<T>, C> | null>>>;
   max(column: ColumnRef<Unbox<T>>, as?: string): this;
   // The column stays optional: `count(maybe)` with `maybe: string | undefined` compiled before typed columns.
-  count(column?: ColumnRef<Unbox<T>>, as?: string): this;
+  count<A extends string = 'count'>(column?: ColumnRef<Unbox<T>>, as?: A): StrictAliasNarrowed<this, T, A, Reproject<Unbox<T>, Record<A, AggregateValue>>>;
   selectCount(column?: ColumnRef<Unbox<T>>, as?: string): Promise<number>;
+  sum<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue | null>>>;
   sum(column: ColumnRef<Unbox<T>>, as?: string): this;
+  avg<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue | null>>>;
   avg(column: ColumnRef<Unbox<T>>, as?: string): this;
   /** `condition` as the boolean column `alias` (`CASE WHEN ... THEN 1 ELSE 0 END`). */
   selectCondition(alias: string, condition: WhereFunction<T>): this;
@@ -1500,9 +1507,10 @@ export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T
 
   // A nullish relation is a no-op, so routes with an optional `include` param
   // can pass it straight through.
+  populate<P extends PopulatePath<Unbox<T>>>(relation: P, callback?: (this: ISelectQueryBuilder<RelationTarget<Unbox<T>, Head<P>>[]>, relation: IOrmRelation) => void): Narrowed<this, T, WithPopulated<Unbox<T>, P>>;
   populate<_R = this>(relation: Constructor<ModelBase>): this;
-  populate<R = this>(relation?: string | string[] | null, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
-  populate<R = this>(relation: {}, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
+  populate<R = this>(relation?: PopulateName<Unbox<T>> | PopulateName<Unbox<T>>[] | null, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
+  populate<R = this>(relation: PopulateTree<Unbox<T>>, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
   asRaw<T>(): Promise<T>;
   /**
    * Returns all records. Its for type castin when using with scopes mostly.

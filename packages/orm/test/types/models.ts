@@ -27,9 +27,12 @@ export class User extends ModelBase<User> {
   public Name?: string | null;
   public IsActive: boolean;
   public CreatedAt: DateTime;
+  public DeletedAt: DateTime | null;
   public Metadata: Relation<UserMetadata, User>;
   public Team: SingleRelation<Team>;
   public Owner?: SingleRelation<User>;
+  public Maybe: SingleRelation<User> | undefined;
+  public Nul: SingleRelation<User> | null;
 }
 
 // The `upload` package style: snake_case columns and a scope generic over the builder.

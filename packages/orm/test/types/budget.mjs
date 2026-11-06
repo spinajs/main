@@ -27,7 +27,8 @@ const GROWTH = 1.2;
 const MODES = { loose: [], strict: [join(HERE, 'strict/orm-strict.d.ts')] };
 // Measured once by hand (Task 4 Step 4); not part of the workload.
 const NOTES =
-  'bench.types.ts leaves out class-to-interface assignability (const i: ISelectQueryBuilder<User[]> = User.all()): in strict mode it costs 7078 instantiations, once per program.';
+  'bench.types.ts leaves out class-to-interface assignability (const i: ISelectQueryBuilder<User[]> = User.all()): in strict mode it costs 7078 instantiations, once per program.' +
+  ' Most of the bench is one structural ISelectQueryBuilder<A> to ISelectQueryBuilder<B> comparison (a query scope after populate): the variance of T cannot be measured, so TypeScript compares the builders member by member and caches it per (model, populated-relation set) pair.';
 
 function instantiations(files) {
   writeFileSync(TEMP_CONFIG, JSON.stringify({ extends: './tsconfig.json', include: [], files }));
