@@ -1,4 +1,4 @@
-import type { Clock, TimerHandle } from '../time/clock.js';
+import type { Clock, TimerHandle } from './clock.js';
 
 export interface HeartbeatOptions {
   timers: Clock;
@@ -7,12 +7,12 @@ export interface HeartbeatOptions {
   intervalMs: number;
   /** Lease renewal period when nothing is dirty (leaseTtl / 3). */
   renewEveryMs: number;
-  /** This long without a successful renewal means the lease is gone: another replica may reap the run. */
+  /** This long without a successful renewal means the lease is gone: another holder may take it over. */
   leaseTtlMs: number;
   /** When the lease was taken (database time); defaults to construction. The loss clock and renewal period count from it. */
   leaseStartedAt?: number;
   needsFlush: () => boolean;
-  /** Typically `LeaseStore.renewRun(run.Id, run.Attempt, scheduleLease, now, ctx.snapshot())`. */
+  /** The lease's renew call; `ok: false` means the lease is lost. */
   renew: () => Promise<{ ok: boolean; cancelRequested: boolean }>;
   /** Called at most once; the heartbeat stops renewing afterwards. */
   onLost: () => void;

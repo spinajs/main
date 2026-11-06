@@ -4,7 +4,6 @@ import { Log, Logger } from '@spinajs/log-common';
 import type { StructuredError } from '../contract.js';
 import { ErrorGroupModel } from '../models/ErrorGroupModel.js';
 import { computeFingerprint } from './fingerprint.js';
-import { counterSql } from '../store/raw-sql.js';
 
 const MAX_SAMPLE = 2000;
 const MAX_NAME = 128;
@@ -30,30 +29,16 @@ export class ErrorTracker {
     const fingerprint = computeFingerprint(schedule, error);
     const sampleMessage = error.message.slice(0, MAX_SAMPLE);
     const sampleStack = error.stack ?? null;
-    const sql = await counterSql();
-    const q = sql.quote;
-    const latest = ['LastSeen', 'LastRunId', 'SampleMessage', 'SampleStack'].map((c) => `${q(c)} = ?`);
-    const set = [`${q('Count')} = ${q('Count')} + 1`, ...latest].join(', ');
-    const group = `${q('Schedule')} = ? AND ${q('Fingerprint')} = ?`;
-    const values = [now, runId, sampleMessage, sampleStack];
-    const table = q('__scheduler_error');
+    const latest = { LastSeen: now, LastRunId: runId, SampleMessage: sampleMessage, SampleStack: sampleStack };
 
     // spinajs-orm-ignore ORM102: bounded retry of the update/insert race, at most MAX_TRIES passes
     for (let i = 0; i < MAX_TRIES; i++) {
       // `ignored` stays ignored and `open` stays open
-      const bumped = await sql.update(`UPDATE ${table} SET ${set} WHERE ${group} AND ${q('Status')} <> ?`, [
-        ...values,
-        schedule,
-        fingerprint,
-        'resolved',
-      ]);
-      if (bumped > 0) return { fingerprint, regressed: false };
+      const bumped = await ErrorGroupModel.update(latest).increment('Count').where('Schedule', schedule).where('Fingerprint', fingerprint).where('Status', '<>', 'resolved');
+      if (bumped.RowsAffected > 0) return { fingerprint, regressed: false };
 
-      const reopened = await sql.update(
-        `UPDATE ${table} SET ${set}, ${q('Status')} = ? WHERE ${group} AND ${q('Status')} = ?`,
-        [...values, 'open', schedule, fingerprint, 'resolved'],
-      );
-      if (reopened > 0) return { fingerprint, regressed: true };
+      const reopened = await ErrorGroupModel.update({ ...latest, Status: 'open' }).increment('Count').where('Schedule', schedule).where('Fingerprint', fingerprint).where('Status', 'resolved');
+      if (reopened.RowsAffected > 0) return { fingerprint, regressed: true };
 
       try {
         await ErrorGroupModel.create({

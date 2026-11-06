@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import type { Constructor } from '@spinajs/di';
-import { parseDuration } from '../time/duration.js';
+import { parseDuration, type NormalizedRetry } from '@spinajs/durable';
 import { parseSpec } from '../time/spec.js';
 import { ScheduleValidationError } from '../errors.js';
 import { ScheduledTask } from '../ScheduledTask.js';
@@ -9,7 +9,6 @@ import type { TaskMethodLookup } from '../tasks/task-methods.js';
 import type {
   ConfigScheduleEntry,
   MisfirePolicy,
-  NormalizedRetry,
   ScheduleDefinition,
   ScheduleOptions,
 } from '../interfaces.js';

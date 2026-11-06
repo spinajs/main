@@ -1,5 +1,5 @@
 import FakeTimers from '@sinonjs/fake-timers';
-import { Clock, DbTimeSource, TimerHandle } from '../time/clock.js';
+import { Clock, DbTimeSource, TimerHandle } from '../clock.js';
 
 type FakeTimerClock = ReturnType<typeof FakeTimers.createClock>;
 

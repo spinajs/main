@@ -1,13 +1,5 @@
 import type { AbortReason } from './contract.js';
 
-/** Throw from task code to fail the run without automatic retries. */
-export class NonRetryableError extends Error {
-  constructor(message?: string, public readonly inner?: unknown) {
-    super(message);
-    this.name = 'NonRetryableError';
-  }
-}
-
 export class RunAbortedError extends Error {
   constructor(public readonly reason: AbortReason) {
     super(`Run aborted: ${reason}`);

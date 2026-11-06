@@ -27,7 +27,7 @@ export abstract class Clock {
 
 /** Not `SystemClock`: DI caches by class name, and the authz package registers a `SystemClock` of its own. */
 @Injectable(Clock)
-export class SchedulerSystemClock extends Clock {
+export class DurableSystemClock extends Clock {
   public now(): number {
     return Date.now();
   }

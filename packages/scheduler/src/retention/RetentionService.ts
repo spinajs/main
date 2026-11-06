@@ -8,7 +8,7 @@ import { RunAttemptModel } from '../models/RunAttemptModel.js';
 import { RunLogModel } from '../models/RunLogModel.js';
 import { RunModel } from '../models/RunModel.js';
 import { RunStepModel } from '../models/RunStepModel.js';
-import { parseDuration } from '../time/duration.js';
+import { parseDuration } from '@spinajs/durable';
 
 export interface PurgeResult {
   runs: number;

@@ -1,7 +1,7 @@
 import { CronTime } from 'cron';
 import { DateTime, IANAZone } from 'luxon';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { parseDuration } from './duration.js';
+import { parseDuration } from '@spinajs/durable';
 import type { ScheduleSpecInfo } from '../contract.js';
 
 export type ScheduleSpec =

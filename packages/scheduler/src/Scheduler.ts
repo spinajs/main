@@ -21,7 +21,7 @@ import { SchedulerSignals } from './signals.js';
 import { DefinitionSync } from './store/DefinitionSync.js';
 import { LeaseStore, OccurrenceInput, RunExpiry } from './store/LeaseStore.js';
 import { defaultReplicaId } from './store/replica.js';
-import { Clock, DbClock, TimerHandle } from './time/clock.js';
+import { Clock, DbClock, TimerHandle } from '@spinajs/durable';
 import { fireTime } from './time/occurrences.js';
 import { nextOccurrence } from './time/spec.js';
 import { toStructuredError } from './tracking/structured.js';

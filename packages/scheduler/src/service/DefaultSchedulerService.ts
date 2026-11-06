@@ -57,7 +57,7 @@ import { activeSchedulers } from '../Scheduler.js';
 import { SchedulerSignals } from '../signals.js';
 import { DefinitionSync } from '../store/DefinitionSync.js';
 import { LeaseStore } from '../store/LeaseStore.js';
-import { Clock, DbClock, TimerHandle } from '../time/clock.js';
+import { Clock, DbClock, TimerHandle } from '@spinajs/durable';
 import { fireTime } from '../time/occurrences.js';
 import { ERROR_GROUP_STATUSES } from './statuses.js';
 import { nextOccurrence } from '../time/spec.js';

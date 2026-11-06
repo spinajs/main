@@ -13,7 +13,7 @@ import { collect, parseParams } from '../cli-support/params.js';
 import { SchedulerCommand } from '../cli-support/SchedulerCommand.js';
 import { RunModel } from '../models/RunModel.js';
 import { Scheduler } from '../Scheduler.js';
-import { Clock, DbClock } from '../time/clock.js';
+import { Clock, DbClock } from '@spinajs/durable';
 
 interface RunCommandOptions {
   params?: string;

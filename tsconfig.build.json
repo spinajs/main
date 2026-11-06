@@ -200,6 +200,9 @@
       "path": "packages/tasks/tsconfig.build.json"
     },
     {
+      "path": "packages/durable/tsconfig.build.json"
+    },
+    {
       "path": "packages/scheduler/tsconfig.build.json"
     },
     {
