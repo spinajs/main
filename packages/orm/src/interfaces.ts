@@ -1579,6 +1579,12 @@ export abstract class DropEventQueryCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput;
 }
 
+/** Sets transaction-local session settings; a dialect without them registers one that throws `NotSupported`. */
+@NewInstance()
+export abstract class SessionSettingsQueryCompiler implements IQueryCompiler {
+  public abstract compile(): ICompilerOutput;
+}
+
 @NewInstance()
 export abstract class AlterTableQueryCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput[];
