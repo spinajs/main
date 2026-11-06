@@ -1,6 +1,7 @@
 import type { Diagnostic, RouteEntry } from '@spinajs/manifest';
 import { diagnostic, type DoctorRule } from '../rule.js';
 import { routeMatchKey } from './route-key.js';
+import { reportedAt, routeName } from './inherited.js';
 
 const segments = (r: RouteEntry): string[] => routeMatchKey(r.fullPath).split('/');
 
@@ -35,13 +36,13 @@ export const shadowedRoute: DoctorRule = {
       c.routes.forEach((later, index) => {
         const earlier = c.routes.slice(0, index).find((r) => shadows(r, later));
         if (!earlier) return;
-        const name = `${c.className}.${later.handler}`;
+        const name = routeName(c, later);
         out.push(
           diagnostic(
             'HTTP004',
             'warning',
-            `${name} (${later.method.toUpperCase()} ${later.fullPath}) is never reached: ${c.className}.${earlier.handler} (${earlier.method === later.method ? '' : 'GET '}${earlier.fullPath}) is declared first and matches the same requests. Declare ${name} first.`,
-            later.source,
+            `${name} (${later.method.toUpperCase()} ${later.fullPath}) is never reached: ${routeName(c, earlier)} (${earlier.method === later.method ? '' : 'GET '}${earlier.fullPath}) is declared first and matches the same requests. Declare ${name} first.`,
+            reportedAt(c, later),
           ),
         );
       });

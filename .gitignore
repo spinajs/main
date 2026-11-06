@@ -60,6 +60,7 @@ jspm_packages/
 
 # build info from compilation
 tsconfig.tsbuildinfo
+packages/orm/test/types/.budget.tsconfig.json
 
 # doc ( generated typedoc output, per package )
 packages/*/api-docs/
@@ -131,6 +132,7 @@ graphify-out/
 !/docs/configuration-fs-protocol/
 !/docs/configuration-http/
 !/docs/di/
+!/docs/durable/
 !/docs/electron/
 !/docs/email/
 !/docs/email-smtp-transport/
@@ -139,6 +141,7 @@ graphify-out/
 !/docs/email-verification-orm/
 !/docs/email-verification-redis/
 !/docs/eslint-plugin-authz/
+!/docs/eslint-plugin-orm/
 !/docs/exceptions/
 !/docs/fs/
 !/docs/fs-ftp/
@@ -165,9 +168,11 @@ graphify-out/
 !/docs/openapi/
 !/docs/orm/
 !/docs/orm-cli/
+!/docs/orm-conformance/
 !/docs/orm-http/
 !/docs/orm-mssql/
 !/docs/orm-mysql/
+!/docs/orm-pglite/
 !/docs/orm-postgres/
 !/docs/orm-sql/
 !/docs/orm-sqlite/
@@ -201,6 +206,7 @@ graphify-out/
 !/docs/templates-puppeteer/
 !/docs/templates-xlsx/
 !/docs/testing/
+!/docs/testing-orm/
 !/docs/threading/
 !/docs/upload/
 !/docs/users/
@@ -235,3 +241,4 @@ packages/*/src/**/*.map
 !packages/hooks/src/spinajs-config.d.ts
 !packages/*/src/views/**/*.js
 !packages/*/src/static/**
+packages/studio-ui/dist/

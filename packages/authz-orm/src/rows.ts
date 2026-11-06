@@ -28,6 +28,7 @@ export async function findRows(refs: readonly ResourceRef[]): Promise<Map<string
   }
   await runWithPrincipal(SYSTEM, async () => {
     for (const [type, ids] of byType) {
+      // spinajs-orm-ignore ORM102: one whereIn query per model class registered for the type
       for (const cls of classesOf(type)) {
         const entry = entryOf(cls)!;
         const wanted = [...ids].filter((id) => !out.has(resourceKey({ type, id })));

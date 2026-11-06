@@ -1,5 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
+import * as sinon from 'sinon';
+import { Ajv as AjvClass } from 'ajv';
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration, registerManifest, registerManifestSettings } from '@spinajs/configuration';
 import { MANIFEST_VERSION, type Manifest } from '@spinajs/manifest';
@@ -193,6 +195,19 @@ describe('manifest schemas', function () {
       expect(() => validators.validator('spinajs/app/UsesBad', { coerce: false })).to.throw(/^schema spinajs\/app\/UsesBad references spinajs\/app\/Bad, which is not a valid JSON Schema$/);
       expect(() => validators.validator('spinajs/app/UsesUsesBad', { coerce: false, openRoot: true })).to.throw(/^schema spinajs\/app\/UsesUsesBad references spinajs\/app\/Bad, which is not a valid JSON Schema$/);
     });
+  });
+
+  it('checks each manifest schema against the meta-schema once per Ajv instance', () => {
+    const manifest = manifestOf({ 'spinajs/app/Once': closed({ a: { type: 'string' } }), 'spinajs/app/Twice': closed({ b: { type: 'number' } }) });
+    const validateSchema = sinon.spy(AjvClass.prototype, 'validateSchema');
+    try {
+      manifestValidatorOf(manifest).validator('spinajs/app/Once', { coerce: false });
+      const checks = (id: string) => validateSchema.getCalls().filter((c) => (c.args[0] as { $id?: string })?.$id === manifestSchemaKey(id)).length;
+      expect(checks('spinajs/app/Once')).to.equal(1);
+      expect(checks('spinajs/app/Twice')).to.equal(1);
+    } finally {
+      validateSchema.restore();
+    }
   });
 
   describe('ManifestSchemaSource', () => {

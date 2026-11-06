@@ -13,7 +13,7 @@ import { ScheduleRegistry } from '../registry/ScheduleRegistry.js';
 import { journalAttemptEnd } from '../run/end.js';
 import { RunEventWriter } from '../run/RunEventWriter.js';
 import { RunFinalizer } from '../run/RunFinalizer.js';
-import { parseDuration } from '../time/duration.js';
+import { parseDuration } from '@spinajs/durable';
 import { jsonValue, toStructuredError } from '../tracking/structured.js';
 
 export const SCHEDULER_JOB_NAMESPACE = '5f0c5c2e-8f52-4a39-9d55-0b6f2c6f9a41';

@@ -106,6 +106,28 @@ void main();
 
 Controllers in the directories listed in `system.dirs.controllers` are found and mounted on their own; `UsersController` above is a controller declared next to the entry for brevity.
 
+### Compile cache
+
+Node can keep the compiled code of every module it loads on disk and reuse it on the next start, which saves part of the module loading of a boot. It caches only what it compiles after the cache is turned on, so start the app through a launcher that turns it on and then imports the entry, and await the boot in the entry (`await main();`) instead of `void main();`:
+
+```ts
+// start.ts: run with `node lib/start.js`
+import { enableCompileCache, flushCompileCache } from '@spinajs/util/compile-cache';
+
+enableCompileCache();
+await import('./main.js');
+flushCompileCache();
+```
+
+- The cache lives in a per-user dir: `$XDG_CACHE_HOME/spinajs/compile-cache`, else `~/.cache/spinajs/compile-cache`, and `%LOCALAPPDATA%\spinajs\compile-cache` on Windows. On POSIX the dirs are created with mode `0700`, and the cache stays off when one of them, from the cache root down, belongs to another user or can be written by the group or others, and when a dir above the cache root, up to `/`, belongs to neither root nor the app's user or can be written by the group or others (so never below `/tmp`). On Windows nothing is checked: the profile's ACL keeps `%LOCALAPPDATA%` private, so it must point at a per-user dir. Node trusts what it finds in the cache, so a dir anyone else can write to would let them supply the code of the app's modules. Do not call Node's `module.enableCompileCache()` without a dir: its default is `<os temp dir>/node-compile-cache`, which every user shares on Linux.
+- `NODE_COMPILE_CACHE=<dir>` puts the cache in a dir the app owns instead (Node turns it on at start-up and the helper leaves it alone); make sure only the app's user can write to it. `NODE_DISABLE_COMPILE_CACHE=1` turns it off. A cache dir that cannot be created, as in a container with a read-only home, leaves it off without a message; the app starts as usual.
+- Node keys entries by file content and Node version, so a changed file is compiled again.
+- Node writes the cache when the process exits, which a server stopped by a signal never does. `flushCompileCache()` after the import writes it once the app listens. The first start with an empty cache writes every entry there, so its first requests wait for that write; later starts only read.
+- A container starts with an empty cache unless its image has one: set `NODE_COMPILE_CACHE` to a dir in the image and start the app once while building the image. Without that, every container start compiles everything again and gets none of the saving.
+- `enableCompileCache` and `flushCompileCache` do nothing on a Node version without the API (`module.enableCompileCache` came in 22.1, `module.flushCompileCache` in 22.10).
+
+The `spinajs` bin and the bundle of `@spinajs/http-socket-example` start this way.
+
 ## Related packages
 
 - [`@spinajs/di`](../di/README.md): every service on these pages is registered, resolved and replaced here.

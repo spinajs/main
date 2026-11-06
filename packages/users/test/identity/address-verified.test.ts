@@ -3,6 +3,9 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { DefaultQueueService } from '@spinajs/queue';
 import { IdentityAddressVerifier } from '@spinajs/authn/contracts';
+import { Orm } from '@spinajs/orm';
+import { PgliteOrmDriver } from '@spinajs/orm-pglite';
+import { createTestDatabase, type TestDatabase } from '@spinajs/testing-orm';
 
 import { UserAddressVerifier, UserIdentityStore } from '../../src/index.js';
 import { bootUsersDb, registerUsersTestHost, seedUser, storedUser } from '../support/users-db.js';
@@ -13,20 +16,33 @@ describe('users: the verified address (FEAT-2)', function () {
   this.timeout(30000);
 
   let store: UserIdentityStore;
+  let database: TestDatabase;
 
+  // The other users suites run on sqlite; this one gets a fresh schema of the shared PGlite instance per test.
   before(() => {
     registerUsersTestHost();
+    DI.register(PgliteOrmDriver).as('orm-driver-pglite');
   });
 
   beforeEach(async () => {
-    await bootUsersDb();
+    database = await createTestDatabase({ connection: 'sqlite' });
+    await bootUsersDb((config) => {
+      const connections = config.get<Array<{ Name: string }>>('db.Connections', []);
+      config.set(
+        'db.Connections',
+        connections.map((c) => (c.Name === 'sqlite' ? { ...database.config } : c)),
+      );
+    });
     sinon.stub(DefaultQueueService.prototype, 'emit').resolves(undefined);
     store = new UserIdentityStore();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     sinon.restore();
+    // The suites only drop the Orm from the cache; disconnecting it lets go of the shared PGlite instance.
+    await DI.get(Orm)?.dispose();
     DI.clearCache();
+    await database.dispose();
   });
 
   it('UserAddressVerifier is the registered IdentityAddressVerifier', async () => {

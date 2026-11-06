@@ -2,7 +2,8 @@ import _ from 'lodash';
 import { DateTime } from 'luxon';
 import { OrmException } from './exceptions.js';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { IUniversalConverterOptions, ModelToSqlConverter, RelationType, ValueConverter, ObjectToSqlConverter, IColumnDescriptor, IModelDescriptor } from './interfaces.js';
+import { ModelToSqlConverter, RelationType, ValueConverter, ObjectToSqlConverter } from './interfaces.js';
+import type { IUniversalConverterOptions, IColumnDescriptor, IModelDescriptor } from './interfaces.js';
 import { ModelBase } from './model.js';
 
 /**

@@ -3,7 +3,7 @@ import { Autoinject, Injectable, Singleton } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import type { RunEvent, RunEventListener, SubscribeOptions, SubscribeTarget, Unsubscribe } from '../contract.js';
 import { RunLogModel } from '../models/RunLogModel.js';
-import { Clock } from '../time/clock.js';
+import { Clock } from '@spinajs/durable';
 import { toRunEvent } from './events.js';
 import { LatestProgress, ProgressSeen } from './LatestProgress.js';
 
