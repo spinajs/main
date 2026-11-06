@@ -35,4 +35,9 @@ describe('sqlite SQL dialect profile', function () {
     expect(reportsNullability(SQLITE_SQL_DIALECT, 'boolean')).to.equal(false);
     expect(reportsNullability(SQLITE_SQL_DIALECT, 'text')).to.equal(true);
   });
+
+  it('declares how migrate-diff compares names and text lengths', () => {
+    expect(SQLITE_SQL_DIALECT.caseInsensitiveIdentifiers).to.equal(true);
+    expect(SQLITE_SQL_DIALECT.unboundedText).to.equal(true);
+  });
 });

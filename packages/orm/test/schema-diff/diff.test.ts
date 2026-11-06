@@ -1,5 +1,6 @@
 import { expect } from 'chai';
 import type { Diagnostic, ModelColumn, ModelEntry, SqlDialectProfile } from '@spinajs/manifest';
+import { RawQuery } from '../../src/builders/raw.js';
 import type { IColumnDescriptor } from '../../src/interfaces.js';
 import { diffSchema } from '../../src/schema-diff/diff.js';
 import { buildTargetSchema } from '../../src/schema-diff/target.js';
@@ -76,6 +77,26 @@ describe('diffSchema', () => {
     expect(run(models, sqlite, { hasRows: true }, { dialect: SQLITE })).to.deep.equal({ changes: [], diagnostics: ['MIG003 lengths of posts not compared: the driver reports none'] });
   });
 
+  it('marks a modify that re-states a precision or a length it never compared as destructive (Q16)', () => {
+    const models = [posts(col('Price', { family: 'decimal', precision: 10, scale: 2 }, { nullable: true }), col('Rate', { family: 'decimal' }, { nullable: true }))];
+    expect(run(models, [pk, title, live('Price', 'numeric'), live('Rate', 'numeric')]).changes).to.deep.equal([
+      '!alterColumn posts (posts.Price: NULL allowed, precision not compared; re-stated as (10,2))',
+      "!alterColumn posts (posts.Rate: NULL allowed, precision not compared; re-stated as the driver's default)",
+    ]);
+    const sqlite = [model('Post', 'posts', [id(), col('Code', { family: 'text', length: 50 }, { nullable: true })])];
+    expect(run(sqlite, [live('Id', 'INTEGER', { PrimaryKey: true }), live('Code', 'TEXT')], { hasRows: true }, { dialect: SQLITE }).changes).to.deep.equal(['!alterColumn posts (posts.Code: NULL allowed, length not compared; re-stated as 50)']);
+  });
+
+  it('marks a modify destructive when a converter turned the live default into an object it cannot re-state (Q16)', () => {
+    const models = [posts(col('Opens', { family: 'text' }, { nullable: true }))];
+    const opens = (DefaultValue: unknown): IColumnDescriptor => live('Opens', 'text', { DefaultValue });
+    expect(run(models, [pk, title, opens({ some: 'object' })]).changes).to.deep.equal(['!alterColumn posts (posts.Opens: NULL allowed, live default not re-statable)']);
+    expect(run(models, [pk, title, opens('08:00')]).changes).to.deep.equal(['alterColumn posts (posts.Opens: NULL allowed)']);
+    expect(run(models, [pk, title, opens(RawQuery.create('CURRENT_TIME'))]).changes).to.deep.equal(['alterColumn posts (posts.Opens: NULL allowed)']);
+    const stated = [posts(col('Opens', { family: 'text', default: '08:00' }, { nullable: true }))];
+    expect(run(stated, [pk, title, opens({ some: 'object' })]).changes).to.deep.equal(['alterColumn posts (posts.Opens: NULL allowed)']);
+  });
+
   it('compares the nullability of explicit columns only, and never of a sqlite boolean', () => {
     const models = [posts(col('Body', { family: 'text' }, { nullable: true }), col('Flag', { family: 'text' }), col('Note', { family: 'text', inferred: true }, { nullable: true }), col('Tag', { family: 'text', default: 'x' }))];
     expect(run(models, [pk, title, live('Body', 'text'), live('Flag', 'text', { Nullable: true }), live('Note', 'text'), live('Tag', 'text', { Nullable: true, DefaultValue: 'x' })]).changes).to.deep.equal([
@@ -149,5 +170,74 @@ describe('diffSchema', () => {
   it('notes MIG003 for an unknown native type and for an unknown dialect', () => {
     expect(run([posts()], [pk, live('Title', 'citext')]).diagnostics).to.deep.equal(['MIG003 type of posts.Title not compared: citext is not a known postgresql type']);
     expect(run([posts()], [pk, title], { hasRows: true }, { dialect: undefined }).diagnostics).to.deep.equal(['MIG003 types of posts not compared: the dialect of the driver is unknown']);
+  });
+
+  describe('dialect flags', () => {
+    const NATIVE = { integer: ['integer' as const], text: ['text' as const], blob: ['binary' as const] };
+    const FOLDING = profile('sqlite', NATIVE, { caseInsensitiveIdentifiers: true, unboundedText: true });
+    const EXACT = profile('sqlite', NATIVE);
+    const LIVE_ID = live('Id', 'integer', { PrimaryKey: true, AutoIncrement: true });
+    const options = (dialect: SqlDialectProfile): DiffOptions => ({ dialect });
+
+    it('matches column names ignoring case when the dialect says so', () => {
+      const columns = [live('ID', 'integer', { PrimaryKey: true, AutoIncrement: true }), live('TITLE', 'text')];
+      expect(run([posts()], columns, { hasRows: false }, options(FOLDING))).to.deep.equal({ changes: [], diagnostics: [] });
+      expect(run([posts()], columns, { hasRows: false }, options(EXACT)).changes).to.deep.equal(['addColumn posts', 'addColumn posts', 'unmanaged posts', 'unmanaged posts']);
+    });
+
+    it('still shows a real rename as add plus unmanaged', () => {
+      const columns = [LIVE_ID, live('Heading', 'text')];
+      expect(run([posts()], columns, { hasRows: false }, options(FOLDING)).changes).to.deep.equal(['addColumn posts', 'unmanaged posts']);
+    });
+
+    it('matches table names ignoring case, live and --base', () => {
+      const columns = new Map([['POSTS', [LIVE_ID, live('title', 'text')]]]);
+      const base = target(model('Post', 'Posts', [id(), col('Title', { family: 'text', inferred: true })]));
+      expect(summary(diffSchema(target(posts()), columns, new Map(), { dialect: FOLDING, base }))).to.deep.equal([]);
+      expect(summary(diffSchema(target(posts()), columns, new Map(), options(EXACT)))).to.deep.equal(['createTable posts']);
+      const gone = diffSchema(target(model('User', 'users', [id()])), new Map([['users', [LIVE_ID]], ['POSTS', [LIVE_ID]]]), new Map(), { dialect: FOLDING, base: target(model('User', 'users', [id()]), posts()) });
+      expect(summary(gone)).to.deep.equal(['!dropTable posts (posts is mapped by no model since --base)']);
+    });
+
+    it('reads the live extras of a table by its folded name too', () => {
+      const models = [model('Post', 'posts', [id(), col('Title', { family: 'text', inferred: true })], { indexes: [{ columns: ['Title'], unique: false }] })];
+      const columns = new Map([['POSTS', [LIVE_ID, live('Title', 'text')]]]);
+      const extras = new Map([['POSTS', { hasRows: true, indexes: [{ name: 'ix', columns: ['Title'], unique: false, primary: false }] }]]);
+      expect(summary(diffSchema(target(...models), columns, extras, options(FOLDING)))).to.deep.equal([]);
+    });
+
+    it('merges model columns and tables whose names differ only in case', () => {
+      const merged = target(model('A', 'Users', [id(), col('name', { family: 'text', inferred: true })]), model('B', 'users', [id(), col('Name', { family: 'text', length: 50 })]));
+      expect(merged.map((t) => t.name)).to.deep.equal(['Users', 'users']);
+      const changes = diffSchema(merged, new Map(), new Map(), options(FOLDING));
+      expect(changes.map((c) => c.kind)).to.deep.equal(['createTable']);
+      const created = changes[0];
+      expect(created.kind === 'createTable' ? created.detail.columns.map((c) => `${c.name}:${c.sql.length ?? ''}`) : []).to.deep.equal(['Id:', 'name:50']);
+      expect(diffSchema(merged, new Map(), new Map(), options(EXACT)).map((c) => c.kind)).to.deep.equal(['createTable', 'createTable']);
+    });
+
+    it('reports conflicting specs of case-only twins as MIG001', () => {
+      const diagnostics: Diagnostic[] = [];
+      diffSchema(target(model('A', 'users', [id(), col('name', { family: 'text', length: 10 })]), model('B', 'users', [id(), col('Name', { family: 'text', length: 20 })])), new Map(), new Map(), { dialect: FOLDING, diagnostics });
+      expect(diagnostics.map((d) => d.code)).to.deep.equal(['MIG001']);
+    });
+
+    it('matches the columns of an index ignoring case', () => {
+      const models = [model('Post', 'posts', [id(), col('Title', { family: 'text', inferred: true })], { indexes: [{ columns: ['Title'], unique: false }] })];
+      const extras = { hasRows: true, indexes: [{ name: 'ix', columns: ['Title'.toLowerCase()], unique: false, primary: false }] };
+      const columns = [LIVE_ID, live('Title', 'text')];
+      expect(run(models, columns, extras, options(FOLDING)).changes).to.deep.equal([]);
+      expect(run(models, columns, extras, options(EXACT)).changes).to.deep.equal(['addIndex posts']);
+    });
+
+    it('does not call a re-stated text length destructive on an unbounded-text dialect, but keeps binary', () => {
+      const models = [model('Post', 'posts', [id(), col('Title', { family: 'text', length: 200 }, { nullable: true }), col('Raw', { family: 'binary', length: 16 }, { nullable: true })])];
+      const columns = [LIVE_ID, live('Title', 'text'), live('Raw', 'blob')];
+      expect(run(models, columns, { hasRows: true }, options(FOLDING)).changes).to.deep.equal([
+        'alterColumn posts (posts.Title: NULL allowed)',
+        '!alterColumn posts (posts.Raw: NULL allowed, length not compared; re-stated as 16)',
+      ]);
+      expect(run(models, columns, { hasRows: true }, options(EXACT)).changes[0]).to.equal('!alterColumn posts (posts.Title: NULL allowed, length not compared; re-stated as 200)');
+    });
   });
 });

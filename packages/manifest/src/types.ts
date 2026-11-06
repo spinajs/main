@@ -272,6 +272,10 @@ export interface SqlDialectProfile {
   nativeTypes?: { [nativeType: string]: ColumnFamily[] };
   /** Families whose live NOT NULL says nothing about the model. */
   untrustedNullability?: ColumnFamily[];
+  /** The database compares unquoted identifiers ignoring case, so `migrate-diff` matches table and column names that way. */
+  caseInsensitiveIdentifiers?: boolean;
+  /** A text column's declared length is not enforced (sqlite stores it as TEXT), so re-stating one loses nothing. */
+  unboundedText?: boolean;
 }
 
 /** `drivers`: the `@Injectable` tokens of the class that declares the profile. */

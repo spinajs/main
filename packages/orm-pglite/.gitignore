@@ -64,3 +64,6 @@ tsconfig.tsbuildinfo
 docs
 
 lib
+
+# migrate-diff round trip output
+test/.tmp-migrate-diff/

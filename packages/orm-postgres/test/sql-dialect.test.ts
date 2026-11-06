@@ -29,4 +29,9 @@ describe('postgres SQL dialect profile', function () {
     expect(familiesOf('VARCHAR(255)', POSTGRES_SQL_DIALECT)).to.deep.equal(['text', 'enum']);
     expect(familiesOf('int4', POSTGRES_SQL_DIALECT)).to.deep.equal(['integer']);
   });
+
+  it('declares how migrate-diff compares names and text lengths', () => {
+    expect(POSTGRES_SQL_DIALECT.caseInsensitiveIdentifiers).to.equal(undefined);
+    expect(POSTGRES_SQL_DIALECT.unboundedText).to.equal(undefined);
+  });
 });

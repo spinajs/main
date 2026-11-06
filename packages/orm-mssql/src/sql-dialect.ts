@@ -16,4 +16,5 @@ export const MSSQL_SQL_DIALECT: SqlDialectProfile = {
     date: ['date'], datetime: ['datetime'], datetime2: ['datetime'], datetimeoffset: ['datetime'], time: ['time'],
     binary: ['binary', 'uuid'], varbinary: ['binary', 'uuid'], uniqueidentifier: ['uuid'],
   },
+  caseInsensitiveIdentifiers: true,
 };

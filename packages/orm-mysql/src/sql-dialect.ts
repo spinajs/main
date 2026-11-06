@@ -19,4 +19,5 @@ export const MYSQL_SQL_DIALECT: SqlDialectProfile = {
     enum: ['enum'], date: ['date'], datetime: ['datetime'], timestamp: ['datetime'], time: ['time'], json: ['json'],
     binary: ['binary', 'uuid'], varbinary: ['binary', 'uuid'], blob: ['binary'], tinyblob: ['binary'], mediumblob: ['binary'], longblob: ['binary'],
   },
+  caseInsensitiveIdentifiers: true,
 };
