@@ -100,7 +100,14 @@ export class Journal {
 
   /** Recorded operations this run has not asked for: left over at the end of `run()`, the code changed. */
   public unvisited(): string[] {
-    return this.rows().flatMap((r) => (r.Kind === 'compensate' || this.visited.has(r.Key) ? [] : [r.Key]));
+    // a pending sleep or wait handed run() no result; a branch cut off by a park may simply not have reached it again
+    const silent = (r: StepRow): boolean => r.Status === 'pending' && (r.Kind === 'sleep' || r.Kind === 'wait');
+    return this.rows().flatMap((r) => (r.Kind === 'compensate' || silent(r) || this.visited.has(r.Key) ? [] : [r.Key]));
+  }
+
+  /** Succeeded steps registered with a `compensate`: the set a compensation pass must undo in full. */
+  public compensable(): string[] {
+    return this.rows().flatMap((r) => (r.Kind === 'step' && r.Status === 'succeeded' && r.Meta?.compensate === true ? [r.Key] : []));
   }
 
   public nextOrder(): number {

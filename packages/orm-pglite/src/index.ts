@@ -1,15 +1,17 @@
 import { readFile } from 'node:fs/promises';
 import { PGlite, type PGliteOptions } from '@electric-sql/pglite';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { ConnectionState, OrmException, type ISupportedFeature, type OrmDriver } from '@spinajs/orm';
+import { ConnectionState, OrmException, SqlDialect, type ISupportedFeature, type OrmDriver } from '@spinajs/orm';
 import { PostgresOrmDriver, pgEscapeIdentifier } from '@spinajs/orm-postgres';
 import type pg from 'pg';
 
 import { PglitePool, PglitePoolView, pgCompatibleParsers } from './pool-adapter.js';
 import { acquireSharedPglite } from './shared.js';
+import { PGLITE_SQL_DIALECT } from './sql-dialect.js';
 
 export * from './pool-adapter.js';
 export * from './shared.js';
+export { PGLITE_SQL_DIALECT } from './sql-dialect.js';
 
 /** `Options` of a PGlite connection entry. */
 export interface IPgliteDriverOptions {
@@ -27,6 +29,7 @@ export interface IPgliteDriverOptions {
  * The postgres driver over an in-process PGlite: every compiler and converter of `PostgresOrmDriver` runs unchanged,
  * against one session. `Filename` is a data directory to keep the database in; unset or `:memory:`, it lives in memory.
  */
+@SqlDialect(PGLITE_SQL_DIALECT)
 @Injectable('orm-driver-pglite')
 @NewInstance()
 export class PgliteOrmDriver extends PostgresOrmDriver {
