@@ -2,7 +2,7 @@
 import { NewInstance, Inject, Container, IContainer, Autoinject } from '@spinajs/di';
 import { NotSupported } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log';
-import { ICompilerOutput, RawQuery, OnDuplicateQueryBuilder, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, LimitQueryCompiler, LimitBuilder, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, IdentifierQuoter, ColumnQueryCompiler, TableAliasCompiler, CreateViewQueryBuilder } from '@spinajs/orm';
+import { ICompilerOutput, SessionSettingsQueryBuilder, SessionSettingsQueryCompiler, RawQuery, OnDuplicateQueryBuilder, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, LimitQueryCompiler, LimitBuilder, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, IdentifierQuoter, ColumnQueryCompiler, TableAliasCompiler, CreateViewQueryBuilder } from '@spinajs/orm';
 import { SqlInsertQueryCompiler, SqlColumnQueryCompiler, SqlAlterColumnQueryCompiler, SqlOnDuplicateQueryCompiler, SqlDefaultValueBuilder, escapeStringLiteral, assertCharsetName, SqlCreateViewQueryCompiler, SqlIndexQueryCompiler } from '@spinajs/orm-sql';
 import _ from 'lodash';
 import { PostgresNowExpression } from './statements.js';
@@ -468,5 +468,21 @@ export class PostgresCreateViewCompiler extends SqlCreateViewQueryCompiler {
 export class PostgresIndexQueryCompiler extends SqlIndexQueryCompiler {
   protected _drop(): string {
     return `DROP INDEX ${this.Quoter.quote(this._builder.Name)}`;
+  }
+}
+
+/** `set_config(name, value, true)`: the value lasts until the transaction ends. */
+@NewInstance()
+export class PostgresSessionSettingsCompiler extends SessionSettingsQueryCompiler {
+  constructor(protected builder: SessionSettingsQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput {
+    const settings = Object.entries(this.builder.Settings);
+    return {
+      expression: `SELECT ${settings.map(() => 'set_config(?, ?, true)').join(', ')}`,
+      bindings: settings.flat(),
+    };
   }
 }

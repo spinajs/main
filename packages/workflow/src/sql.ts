@@ -1,7 +1,7 @@
 import { DI } from '@spinajs/di';
 import type { RawSqlDriver } from '@spinajs/durable';
 import { InvalidOperation } from '@spinajs/exceptions';
-import { Orm, QueryContext, SelectQueryBuilder, type OrmDriver } from '@spinajs/orm';
+import { IdentifierQuoter, Orm, QueryContext, SelectQueryBuilder, type OrmDriver } from '@spinajs/orm';
 import { WORKFLOW_CONNECTION } from './workflow-config.js';
 
 export type { RawSqlDriver } from '@spinajs/durable';
@@ -32,7 +32,8 @@ export async function workflowDriver(): Promise<RawSqlDriver> {
 
 /** The tables were created with quoted mixed-case names, which Postgres would fold when unquoted. */
 export function quoter(driver: OrmDriver): (identifier: string) => string {
-  return driver.Options.Driver.toLowerCase().includes('mysql') ? (id) => `\`${id}\`` : (id) => `"${id}"`;
+  const identifiers = driver.Container.resolve(IdentifierQuoter);
+  return (id) => identifiers.quote(id);
 }
 
 /** Never put a literal `?` in `sql`: the Postgres driver turns every `?` into a placeholder. */

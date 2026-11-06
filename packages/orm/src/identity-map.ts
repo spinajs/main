@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
-import { Constructor } from '@spinajs/di';
+import type { Constructor } from '@spinajs/di';
 import { extractModelDescriptor } from './descriptor.js';
-import { IIdentityMap } from './interfaces.js';
+import type { IIdentityMap } from './interfaces.js';
 import type { ModelBase } from './model.js';
 
 /**

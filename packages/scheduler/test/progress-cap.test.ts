@@ -1,5 +1,6 @@
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
+import { modelDriver, type QueryContext } from '@spinajs/orm';
 import {
   appendJournalRow,
   FakeClock,
@@ -15,6 +16,7 @@ import { bootTestEnv, waitFor } from './support/env.js';
 import { getRun, queuedRun } from './support/fixtures.js';
 
 type Progress = Extract<RunEvent, { type: 'progress' }>;
+type Executor = { executeOnDb(stmt: string, params: unknown[], context: QueryContext): Promise<unknown> };
 const progressOf = (events: RunEvent[]) => events.filter((e): e is Progress => e.type === 'progress');
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
 
@@ -198,6 +200,43 @@ describe('latest progress after the per-run cap', () => {
       ['load', cursor, 0],
       ['process', cursor, 0],
     ]);
+  });
+
+  it('reads the steps of every capped run of a schedule in one query', async () => {
+    await cappedRun();
+    const first = run;
+    await clock.advance(1);
+    await cappedRun();
+    await RunStepModel.create({
+      RunId: run.Id,
+      Attempt: 2,
+      Seq: 3,
+      Name: 'other-attempt',
+      Status: 'running',
+      Weight: 1,
+      StartedAt: clock.now(),
+      Progress: 50,
+    });
+    const driver = modelDriver(RunStepModel) as unknown as Executor;
+    const original = driver.executeOnDb.bind(driver);
+    const stepSelects: string[] = [];
+    driver.executeOnDb = (stmt, params, context) => {
+      if (/^\s*select\b/i.test(stmt) && stmt.includes('__scheduler_run_step')) stepSelects.push(stmt);
+      return original(stmt, params, context);
+    };
+    let events: RunEvent[];
+    try {
+      events = await DI.resolve(LatestProgress).synthesize({ schedule: 'import' }, new ProgressSeen(), 7);
+    } finally {
+      driver.executeOnDb = original;
+    }
+    expect(progressOf(events).map((e) => [e.runId, e.step, e.stepProgress])).to.deep.eq([
+      [first.Id, 'load', 100],
+      [first.Id, 'process', 80],
+      [run.Id, 'load', 100],
+      [run.Id, 'process', 80],
+    ]);
+    expect(stepSelects).to.have.length(1);
   });
 
   it('gives a live-only schedule stream the latest progress on its first poll', async () => {

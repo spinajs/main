@@ -19,4 +19,16 @@ export class SqliteSqlExpressions extends SqlExpressions {
   public equalsExactly(left: string, right: SqlFragment): SqlFragment {
     return { sql: `${left} = ${right.sql}`, bindings: [...right.bindings] };
   }
+
+  public epochMillis(): string {
+    return "CAST(ROUND((julianday('now') - 2440587.5) * 86400000) AS INTEGER)";
+  }
+
+  public concat(...parts: string[]): string {
+    return parts.join(' || ');
+  }
+
+  public rowLock(): string {
+    return '';
+  }
 }

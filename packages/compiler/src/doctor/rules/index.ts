@@ -15,6 +15,7 @@ import { fragmentStale } from './fragment-stale.js';
 import { modelsWithoutAccessResource } from './models-without-access-resource.js';
 import { explicitSchemaDrift } from './explicit-schema-drift.js';
 import { socketContract } from './socket-contract.js';
+import { sqlAmbiguousColumn, sqlDynamic, sqlInsertValueCount, sqlNoDialect, sqlParseError, sqlRowMismatch, sqlUnknownColumn, sqlUnknownTable } from './sql-queries.js';
 
 export const DEFAULT_RULES: DoctorRule[] = [
   unresolvedInjection,
@@ -33,6 +34,14 @@ export const DEFAULT_RULES: DoctorRule[] = [
   modelsWithoutAccessResource,
   explicitSchemaDrift,
   socketContract,
+  sqlParseError,
+  sqlUnknownTable,
+  sqlUnknownColumn,
+  sqlAmbiguousColumn,
+  sqlRowMismatch,
+  sqlInsertValueCount,
+  sqlDynamic,
+  sqlNoDialect,
 ];
 
 export {
@@ -52,4 +61,12 @@ export {
   modelsWithoutAccessResource,
   explicitSchemaDrift,
   socketContract,
+  sqlParseError,
+  sqlUnknownTable,
+  sqlUnknownColumn,
+  sqlAmbiguousColumn,
+  sqlRowMismatch,
+  sqlInsertValueCount,
+  sqlDynamic,
+  sqlNoDialect,
 };
