@@ -77,7 +77,8 @@ function lengthChange(table: string, column: TargetColumn, current: IColumnDescr
 
 function nullChange(column: TargetColumn, current: IColumnDescriptor, extras: LiveTableExtras | undefined, ctx: DiffContext): Finding | undefined {
   if (column.sql.inferred || column.primary || column.nullable === current.Nullable || !reportsNullability(ctx.dialect, column.sql.family)) return undefined;
-  return { reason: column.nullable ? 'NULL allowed' : 'NOT NULL', destructive: failsOnRows(column, extras) };
+  // A default does not backfill existing NULLs, so SET NOT NULL fails on a table with rows whatever the default.
+  return { reason: column.nullable ? 'NULL allowed' : 'NOT NULL', destructive: !column.nullable && extras?.hasRows !== false };
 }
 
 function alterColumn(table: TargetTable, column: TargetColumn, current: IColumnDescriptor, extras: LiveTableExtras | undefined, ctx: DiffContext): SchemaChange | undefined {

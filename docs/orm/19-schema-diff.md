@@ -40,7 +40,9 @@ A type the profile does not list is not compared (`MIG003`), and without a profi
 ## API
 
 ```ts
+import type { Diagnostic } from '@spinajs/manifest';
 import { buildTargetSchema, diffSchema, sqlDialectOf } from '@spinajs/orm';
+import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
 const diagnostics: Diagnostic[] = [];
 const target = buildTargetSchema(manifest, ['default'], diagnostics);                     // MIG001

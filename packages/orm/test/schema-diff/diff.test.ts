@@ -77,10 +77,11 @@ describe('diffSchema', () => {
   });
 
   it('compares the nullability of explicit columns only, and never of a sqlite boolean', () => {
-    const models = [posts(col('Body', { family: 'text' }, { nullable: true }), col('Flag', { family: 'text' }), col('Note', { family: 'text', inferred: true }, { nullable: true }))];
-    expect(run(models, [pk, title, live('Body', 'text'), live('Flag', 'text', { Nullable: true }), live('Note', 'text')]).changes).to.deep.equal([
+    const models = [posts(col('Body', { family: 'text' }, { nullable: true }), col('Flag', { family: 'text' }), col('Note', { family: 'text', inferred: true }, { nullable: true }), col('Tag', { family: 'text', default: 'x' }))];
+    expect(run(models, [pk, title, live('Body', 'text'), live('Flag', 'text', { Nullable: true }), live('Note', 'text'), live('Tag', 'text', { Nullable: true, DefaultValue: 'x' })]).changes).to.deep.equal([
       'alterColumn posts (posts.Body: NULL allowed)',
       '!alterColumn posts (posts.Flag: NOT NULL)',
+      '!alterColumn posts (posts.Tag: NOT NULL)',
     ]);
     const sqlite = [model('Post', 'posts', [id(), col('Done', { family: 'boolean' }, { nullable: true })])];
     expect(run(sqlite, [live('Id', 'INTEGER', { PrimaryKey: true }), live('Done', 'BOOLEAN')], { hasRows: true }, { dialect: SQLITE }).changes).to.deep.equal([]);
