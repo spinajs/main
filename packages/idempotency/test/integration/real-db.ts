@@ -1,6 +1,6 @@
 import '@spinajs/orm-mysql';
 import '@spinajs/orm-postgres';
-import { MigrationTransactionMode, Orm, QueryContext } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import type { TestApp } from '@spinajs/testing';
 import { bootIdempotencyApp, sqlite } from '../support/app.js';
@@ -42,8 +42,6 @@ export const REAL_DB_TARGETS: RealDbTarget[] = [
 
 const MIGRATIONS_TABLE = 'idempotency_it_migrations';
 
-type RawDriver = OrmDriver & { executeOnDb(sql: string, bindings: unknown[], context: QueryContext): Promise<unknown> };
-
 const realConnection = (target: RealDbTarget, migrate: boolean): Record<string, unknown> => ({
   ...target.connection,
   Name: 'it',
@@ -54,9 +52,9 @@ const realConnection = (target: RealDbTarget, migrate: boolean): Record<string, 
 export async function bootRealDb(target: RealDbTarget): Promise<TestApp> {
   // While cleaning up, the model stays on SQLite: MySQL refuses to describe a model whose table is missing.
   const cleanup = await bootIdempotencyApp({ db: { DefaultConnection: 'sqlite', Connections: [realConnection(target, false), sqlite('sqlite')], Aliases: { idempotency: 'default' } } });
-  const driver = (await cleanup.resolve(Orm)).Connections.get('it') as RawDriver;
+  const driver = (await cleanup.resolve(Orm)).Connections.get('it') as OrmDriver;
   for (const table of ['__idempotency', MIGRATIONS_TABLE]) {
-    await driver.executeOnDb(`DROP TABLE IF EXISTS ${table}`, [], QueryContext.Schema);
+    await driver.schema().dropTable(table).ifExists();
   }
   await cleanup.dispose();
 
