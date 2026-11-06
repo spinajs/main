@@ -291,6 +291,7 @@
   "buildTargetSchema",
   "bumpVersionRow",
   "captureSourceFile",
+  "col",
   "columnKind",
   "columnSpecOf",
   "compareByName",
