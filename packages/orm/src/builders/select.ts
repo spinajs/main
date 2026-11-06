@@ -4,7 +4,7 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { use } from 'typescript-mix';
 import { ColumnMethods, QueryMethod, WhereBoolean, SqlOperator } from '../enums.js';
 import { SelectQueryCompiler, QueryContext, RelationType, BooleanValueConverter } from '../interfaces.js';
-import type { IColumnsBuilder, ICompilerOutput, ILimitBuilder, IOrderByBuilder, IQueryLimit, ISort, IWhereBuilder, IJoinBuilder, IBuilderMiddleware, IWithRecursiveBuilder, IGroupByBuilder } from '../interfaces.js';
+import type { RowLockMode, IColumnsBuilder, ICompilerOutput, ILimitBuilder, IOrderByBuilder, IQueryLimit, ISort, IWhereBuilder, IJoinBuilder, IBuilderMiddleware, IWithRecursiveBuilder, IGroupByBuilder } from '../interfaces.js';
 import { ColumnMethodStatement, WhereStatement, ColumnRawStatement, ColumnConditionStatement } from '../statements.js';
 import type { ColumnStatement, IQueryStatement } from '../statements.js';
 import type { WhereFunction } from '../types.js';
@@ -61,6 +61,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
    * column query props
    */
   protected _distinct: boolean;
+  protected _rowLock: RowLockMode | undefined;
   protected _columns: IQueryStatement[] = [];
 
   /**
@@ -147,6 +148,20 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
   public get IsDistinct() {
     return this._distinct;
+  }
+
+  public get RowLock(): RowLockMode | undefined {
+    return this._rowLock;
+  }
+
+  public forUpdate(): this {
+    this._rowLock = 'update';
+    return this;
+  }
+
+  public forShare(): this {
+    this._rowLock = 'share';
+    return this;
   }
 
   public get Relations(): IOrmRelation[] {
@@ -248,6 +263,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._orderable = [...this._orderable];
     builder._boolean = this._boolean;
     builder._distinct = this._distinct;
+    builder._rowLock = this._rowLock;
     builder._cteStatement = this._cteStatement ? this._cteStatement.clone(builder) : undefined;
     builder._first = this._first;
     builder._nonSelect = this._nonSelect;
