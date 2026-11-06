@@ -2,6 +2,8 @@ import { expect } from 'chai';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
+import { defaultSqlDriver } from '@spinajs/durable';
+import sinon from 'sinon';
 import { appendJournalRow, RunEvent, RunEventHub, RunEventWriter, RunLogModel } from '../src/index.js';
 import { bootTestEnv, waitFor } from './support/env.js';
 import type { FakeClock } from '../src/index.js';
@@ -255,5 +257,19 @@ describe('run event journal', () => {
     await writer.write(A, 1, { type: 'status', status: 'running', reason: null });
     writer.forget('run-a');
     expect((await writer.write(A, 2, { type: 'status', status: 'running', reason: null }))!.seq).to.eq(2);
+  });
+
+  describe('on a driver with concurrent transactions', () => {
+    afterEach(() => sinon.restore());
+
+    it('assigns contiguous unique positions through the transaction path', async () => {
+      const driver = await defaultSqlDriver('scheduler');
+      const original = driver.supportedFeatures.bind(driver);
+      sinon.stub(driver, 'supportedFeatures').callsFake(() => ({ ...original(), concurrentTransactions: true }));
+      // sqlite has one shared handle, so outermost transactions cannot overlap
+      const positions: number[] = [];
+      for (const seq of [1, 2, 3, 4, 5]) positions.push((await remote(A, seq)).Pos);
+      expect(positions).to.deep.eq([1, 2, 3, 4, 5]);
+    });
   });
 });
