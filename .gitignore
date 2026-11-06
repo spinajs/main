@@ -168,6 +168,7 @@ graphify-out/
 !/docs/orm-http/
 !/docs/orm-mssql/
 !/docs/orm-mysql/
+!/docs/orm-pglite/
 !/docs/orm-postgres/
 !/docs/orm-sql/
 !/docs/orm-sqlite/
@@ -201,6 +202,7 @@ graphify-out/
 !/docs/templates-puppeteer/
 !/docs/templates-xlsx/
 !/docs/testing/
+!/docs/testing-orm/
 !/docs/threading/
 !/docs/upload/
 !/docs/users/
