@@ -164,7 +164,7 @@ describe('emit mode status mirroring', () => {
   it('mirrors the legacy error status as failed', async () => {
     const run = await emitOnce();
     await waitFor(async () => (await jobStatus(run.JobId!)) === 'success');
-    await JobModel.update({ Status: 'error', LastError: 'legacy failure' }).where('JobId', run.JobId!);
+    await JobModel.update({ Status: 'error', LastError: 'legacy failure' }).where('JobId', run.JobId);
     await s.tickOnce();
     expect(await RunModel.where('Id', run.Id).first()).to.include({ Status: 'failed', Reason: 'queue' });
   });
@@ -173,7 +173,7 @@ describe('emit mode status mirroring', () => {
     const run = await emitOnce();
     // let the consumer finish first so its last write cannot overwrite the simulated state
     await waitFor(async () => (await jobStatus(run.JobId!)) === 'success');
-    await JobModel.update({ Status: 'retrying', Attempt: 1, MaxAttempts: 3, Progress: 40 }).where('JobId', run.JobId!);
+    await JobModel.update({ Status: 'retrying', Attempt: 1, MaxAttempts: 3, Progress: 40 }).where('JobId', run.JobId);
     await s.tickOnce();
     expect(await RunModel.where('Id', run.Id).first()).to.include({
       Status: 'emitted',
@@ -183,7 +183,7 @@ describe('emit mode status mirroring', () => {
     });
 
     // back to executing without a message of its own: the key comes back, not the stale retry text
-    await JobModel.update({ Status: 'executing', Progress: 60 }).where('JobId', run.JobId!);
+    await JobModel.update({ Status: 'executing', Progress: 60 }).where('JobId', run.JobId);
     await s.tickOnce();
     expect(await getRun(run.Id)).to.include({
       Status: 'emitted',
@@ -191,7 +191,7 @@ describe('emit mode status mirroring', () => {
       Progress: 60,
     });
 
-    await JobModel.update({ Status: 'dead', LastError: 'gave up' }).where('JobId', run.JobId!);
+    await JobModel.update({ Status: 'dead', LastError: 'gave up' }).where('JobId', run.JobId);
     await s.tickOnce();
     expect(await getRun(run.Id)).to.include({ Status: 'dead', Message: `queue job dead (${KEY})` });
   });
@@ -236,7 +236,7 @@ describe('emit mode status mirroring', () => {
     const mirror = DI.resolve(EmitMirror) as unknown as MirrorSteps;
     // two replicas that both read the run while it was still emitted
     const [first, second] = [await getRun(run.Id), await getRun(run.Id)];
-    const job = await JobModel.where('JobId', run.JobId!).first();
+    const job = await JobModel.where('JobId', run.JobId).first();
     const now = clock.now();
     expect([
       await mirror.finishJob(first, job, 'dead', now),
