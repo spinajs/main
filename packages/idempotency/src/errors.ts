@@ -31,3 +31,16 @@ export class IdempotencyOutcomeUnknown extends Error {
     this.name = 'IdempotencyOutcomeUnknown';
   }
 }
+
+/**
+ * A claim made inside a transaction lost a deadlock or a serialization check (MySQL 1213, Postgres 40001 / 40P01).
+ * The database rolled the surrounding transaction back: retry the whole transaction, not just the claim.
+ */
+export class IdempotencyClaimConflict extends Error {
+  public readonly retryable = true;
+
+  constructor(public readonly key: string, cause: unknown) {
+    super(`idempotency key ${key}: the claim lost a lock or serialization conflict, so the database rolled the surrounding transaction back; retry that transaction`, { cause });
+    this.name = 'IdempotencyClaimConflict';
+  }
+}

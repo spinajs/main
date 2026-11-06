@@ -105,6 +105,29 @@ export function describeIdempotencyStoreConformance(name: string, factory: () =>
       assert.deepEqual(await store.peek('k', T0), { state: 'running', leaseUntil: T0 + LEASE });
     });
 
+    it('keeps keys that differ only by case or accent apart', async (store) => {
+      for (const key of ['Key-A', 'key-a', 'Kéy-A']) {
+        await claimed(store, key, T0);
+      }
+    });
+
+    it('rejects a key or a fingerprint longer than 64 characters before storing anything', async (store) => {
+      await assert.rejects(store.claim('k'.repeat(65), at(T0)), InvalidArgument);
+      await assert.rejects(store.claim('k', at(T0, 'f'.repeat(65))), InvalidArgument);
+      assert.equal(await store.peek('k', T0), undefined);
+      await claimed(store, 'k'.repeat(64), T0, 'f'.repeat(64));
+    });
+
+    // MySQL's binary collation pads with spaces, so 'k' and 'k ' would be one key there and two elsewhere
+    it('rejects a key with surrounding whitespace or a control character', async (store) => {
+      for (const key of ['k ', ' k', 'k\t', 'k\n', 'a\u0000b', 'a\u007fb']) {
+        await assert.rejects(store.claim(key, at(T0)), InvalidArgument, JSON.stringify(key));
+      }
+      assert.equal(await store.peek('k', T0), undefined);
+      await claimed(store, 'k', T0);
+      await claimed(store, 'k k', T0);
+    });
+
     it('stores no fingerprint when the claim had none', async (store) => {
       const token = await claimed(store, 'k', T0);
       await store.complete('k', token, REPLY, TTL, T0);

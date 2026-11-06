@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { fitsColumn, plainKey, positive } from './guards.js';
 import { IdempotencyStore } from './store.js';
 import type { IdempotencyClaim, IdempotencyClaimOptions, IdempotencyHeld, StoredReply } from './interfaces.js';
 
@@ -17,12 +18,6 @@ const DEFAULT_MAX_ENTRIES = 100_000;
 
 // The JSON round trip the ORM store's column makes: a Date reads back as a string, undefined keys are gone.
 const copy = (reply: StoredReply): StoredReply => JSON.parse(JSON.stringify(reply)) as StoredReply;
-
-function positive(name: string, ms: number): void {
-  if (!(Number.isFinite(ms) && ms > 0)) {
-    throw new InvalidArgument(`${name} must be a finite number above 0, got ${ms}`);
-  }
-}
 
 /** Process memory: one replica, lost on restart. `maxEntries` caps completed keys; expired ones go first, then the oldest completion. */
 @Injectable(IdempotencyStore)
@@ -45,6 +40,8 @@ export class MemoryIdempotencyStore extends IdempotencyStore {
 
   public async claim(key: string, opts: IdempotencyClaimOptions): Promise<IdempotencyClaim> {
     positive('leaseMs', opts.leaseMs);
+    plainKey(key);
+    fitsColumn('fingerprint', opts.fingerprint);
     const held = this.held(key, opts.now);
     if (held) {
       return held;
