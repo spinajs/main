@@ -266,6 +266,10 @@ export interface SqlDialectProfile {
   avg: Partial<Record<ColumnFamily, string>>;
   /** A comparison, `TRUE` or `FALSE` in a select list. */
   predicates: string;
+  /** Families a live native type (lower case, size dropped) can hold; `migrate-diff` does not compare a type not listed. */
+  nativeTypes?: Partial<Record<string, ColumnFamily[]>>;
+  /** Families whose live NOT NULL says nothing about the model. */
+  untrustedNullability?: ColumnFamily[];
 }
 
 /** `drivers`: the `@Injectable` tokens of the class that declares the profile. */

@@ -53,6 +53,7 @@ export * from './fp.js';
 export * from './bootstrap.js';
 export * from './configuration-schema.js';
 export * from './metadata.js';
+export * from './schema-diff/index.js';
 
 // NOTE: metadata.js is not exported from index to avoid circular dependency issues
 // Import directly from './metadata.js' if needed.
