@@ -197,6 +197,17 @@ for (const connection of ['pglite', 'sqlite'] as const) {
       expect((await driver.tableIndexes!('rt8_logs')).filter((i) => !i.primary)).to.deep.equal([]);
     });
 
+    it('drops a table no model maps since --base only as DESTRUCTIVE', async () => {
+      const kept = model('Kept', 'rt10_kept', [id()]);
+      const v1 = [kept, model('Gone', 'rt10_gone', [id(), col('Name', { family: 'text', inferred: true }, { nullable: true })])];
+      await apply(driver, (await diff(driver, v1)).changes, 'TableCreate');
+      const dropped = await diff(driver, [kept], { base: v1 });
+      expect(kinds(dropped)).to.deep.equal(['!dropTable rt10_gone']);
+      await apply(driver, dropped.changes, 'TableDrop', true);
+      expect(kinds(await diff(driver, [kept], { base: v1 }))).to.deep.equal([]);
+      expect(await driver.tableInfo('rt10_gone')).to.equal(null);
+    });
+
     it('modifies a referenced table: in place on postgres; sqlite refuses the rebuild while foreign keys are enforced', async () => {
       const member = model('Member', 'rt9_members', [id(), col('TeamId', { family: 'integer', inferred: true })], { relations: [{ name: 'Team', kind: 'belongsTo', target: 'Team', foreignKey: 'TeamId' }] });
       const v1 = [model('Team', 'rt9_teams', [id(), col('Name', { family: 'text' })]), member];
