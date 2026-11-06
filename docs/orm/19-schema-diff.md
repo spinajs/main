@@ -34,8 +34,10 @@ A live column reports a native type (`int4`, `nvarchar`, `TEXT`). Which families
 |---|---|
 | `nativeTypes` | Native type, lower case and without its size, to the families it can hold, such as `{ varchar: ['text', 'enum'], int4: ['integer'] }` |
 | `untrustedNullability` | Families whose live `NOT NULL` says nothing about the model; sqlite lists `boolean` |
+| `caseInsensitiveIdentifiers` | The database compares unquoted identifiers ignoring case, so table and column names match ignoring case (`Id` and `id` are one column) and the generated code keeps the model's spelling; sqlite, mysql and mssql set it. Postgres and PGlite do not: the drivers quote names there, so `name` and `Name` are two columns |
+| `unboundedText` | A text column's declared length is not enforced, so re-stating one on a modify is not `DESTRUCTIVE`; sqlite sets it. A `binary` length still is |
 
-A type the profile does not list is not compared (`MIG003`), and without a profile no type is compared. A third-party driver adds both members to its own profile; the shipped drivers (`@spinajs/orm-postgres`, `-pglite`, `-sqlite`, `-mysql`, `-mssql`) list the types their schema builder creates.
+A type the profile does not list is not compared (`MIG003`), and without a profile no type is compared. A third-party driver adds the members that hold for its database to its own profile; the shipped drivers (`@spinajs/orm-postgres`, `-pglite`, `-sqlite`, `-mysql`, `-mssql`) list the types their schema builder creates.
 
 ## API
 
@@ -89,10 +91,10 @@ A `modify()` re-states the whole column, so it keeps what the spec does not stat
 
 An aspect the driver does not report cannot be kept, so re-stating it makes the change `DESTRUCTIVE`:
 - the precision of a `decimal` (`precision not compared; re-stated as (10,2)`, or `as the driver's default` without one);
-- an explicit length on sqlite or mysql (`length not compared; re-stated as 50`);
+- an explicit text length on mysql, or a binary length on sqlite or mysql (`length not compared; re-stated as 50`); sqlite stores text as `TEXT`, so its profile's `unboundedText` skips the text case;
 - a live default that a value converter turned into an object, such as a `TimeSpan` (`live default not re-statable`).
 
-On a driver that reports no length (mysql), a modify of a text column whose spec states no length rewrites `VARCHAR(n)` as `TEXT`, and an index on that column can then fail. Give such a column an explicit `length`. A per-dialect flag for unbounded text types is an open question.
+On a driver that reports no length (mysql), a modify of a text column whose spec states no length rewrites `VARCHAR(n)` as `TEXT`, and an index on that column can then fail. Give such a column an explicit `length`.
 
 Other limits of a modify:
 - A `uuid` column is re-stated as `binary(16)`: the schema builder has no other uuid type outside `createTable`, so on postgres a modify re-types a native `uuid` column to `bytea`. Review such a step before running it.

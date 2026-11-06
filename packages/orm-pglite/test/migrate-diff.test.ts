@@ -99,9 +99,8 @@ for (const connection of ['pglite', 'sqlite'] as const) {
         }),
       ];
       const changed = await diff(driver, v2);
-      // sqlite reports no length, so the modify re-states one it never compared (Q16)
-      const alter = connection === 'pglite' ? 'alterColumn rt2_articles' : '!alterColumn rt2_articles';
-      expect(kinds(changed)).to.deep.equal([alter, 'addColumn rt2_articles', 'addIndex rt2_articles', 'addIndex rt2_articles']);
+      // sqlite stores text as TEXT, so the length it never compared is not a loss (unboundedText)
+      expect(kinds(changed)).to.deep.equal(['alterColumn rt2_articles', 'addColumn rt2_articles', 'addIndex rt2_articles', 'addIndex rt2_articles']);
       const altered = changed.changes.find((c) => c.kind === 'alterColumn');
       const lengths = changed.diagnostics.map((d) => d.message).filter((m) => m.startsWith('lengths of rt2_articles'));
       if (connection === 'pglite') {
@@ -109,10 +108,10 @@ for (const connection of ['pglite', 'sqlite'] as const) {
         expect(altered?.reason).to.equal('rt2_articles.Title: length 100 → 200, NULL allowed');
         expect(lengths).to.deep.equal([]);
       } else {
-        expect(altered?.reason).to.equal('rt2_articles.Title: NULL allowed, length not compared; re-stated as 200');
+        expect(altered?.reason).to.equal('rt2_articles.Title: NULL allowed');
         expect(lengths).to.deep.equal(['lengths of rt2_articles not compared: the driver reports none']);
       }
-      await apply(driver, changed.changes, 'EvolveChange', connection === 'sqlite');
+      await apply(driver, changed.changes, 'EvolveChange');
       expect(kinds(await diff(driver, v2))).to.deep.equal([]);
     });
 
@@ -129,6 +128,32 @@ for (const connection of ['pglite', 'sqlite'] as const) {
       expect(result.diagnostics.find((d) => d.code === 'MIG004')?.message).to.equal(
         'column rt3_accounts.Mandatory is NOT NULL without a default and no model declares it: inserts through Account fail; declare it on a model or give it a default',
       );
+    });
+
+    const caseTable = async (name: string): Promise<ModelEntry[]> => {
+      await driver.schema().createTable(name, (table) => {
+        table.int('Id').primaryKey().autoIncrement();
+        table.text('Name');
+      });
+      return [model('Person', name, [id(), col('name', { family: 'text', inferred: true })])];
+    };
+    const unmanaged = (d: Diffed): string[] => d.changes.flatMap((c) => (c.kind === 'unmanaged' ? [c.detail.column] : []));
+
+    (connection === 'sqlite' ? it : it.skip)('sqlite: a model column "name" matches the live "Name", nothing is planned', async () => {
+      const first = await diff(driver, await caseTable('rt8_people'));
+      expect(kinds(first), 'sqlite actionable changes').to.deep.equal([]);
+      expect(unmanaged(first), 'sqlite unmanaged columns').to.deep.equal([]);
+    });
+
+    (connection === 'pglite' ? it : it.skip)('pglite: "name" and "Name" are two columns, because the driver quotes names', async () => {
+      const models = await caseTable('rt8_pg_people');
+      const first = await diff(driver, models);
+      expect(kinds(first), 'pglite actionable changes').to.deep.equal(['addColumn rt8_pg_people']);
+      expect(unmanaged(first), 'pglite unmanaged columns').to.deep.equal(['Name']);
+      await apply(driver, first.changes, 'CaseSplit');
+      const second = await diff(driver, models);
+      expect(kinds(second), 'pglite after apply').to.deep.equal([]);
+      expect(unmanaged(second), 'pglite unmanaged after apply').to.deep.equal(['Name']);
     });
 
     it('creates one table from two models mapped to it', async () => {
