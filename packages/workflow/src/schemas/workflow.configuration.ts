@@ -13,6 +13,7 @@ export const WORKFLOW_CONFIGURATION_SCHEMA = {
     shutdownGrace: { type: 'integer', minimum: 0 },
     maxStepResultBytes: { type: 'integer', minimum: 0 },
     compensateOnCancel: { type: 'boolean' },
+    compensationTimeout: { type: 'integer', minimum: 1 },
     retry: {
       type: 'object',
       required: ['attempts'],
