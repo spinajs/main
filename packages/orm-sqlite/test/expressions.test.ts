@@ -42,4 +42,9 @@ describe('sqlite sql expressions', function () {
     expect(sql).to.eq("? || 'b' || ?");
     expect(row.v).to.eq('abc');
   });
+
+  it('adds no clause for a row lock: a write transaction locks the whole database', () => {
+    const plain = driver().select().from('t').where('Id', 1).toDB().expression;
+    expect(driver().select().from('t').where('Id', 1).forUpdate().toDB().expression).to.eq(plain);
+  });
 });

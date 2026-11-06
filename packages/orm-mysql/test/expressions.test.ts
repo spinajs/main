@@ -10,10 +10,11 @@ import { MySqlOrmDriver } from '../src/index.js';
 describe('mysql sql expressions', function () {
   this.timeout(15000);
 
+  let driver: MySqlOrmDriver;
   let expressions: SqlExpressions;
 
   beforeEach(async () => {
-    const driver = await DI.resolve(MySqlOrmDriver, [{ Name: 'mysql-expr-test', Driver: 'orm-driver-mysql' } as any]);
+    driver = await DI.resolve(MySqlOrmDriver, [{ Name: 'mysql-expr-test', Driver: 'orm-driver-mysql' } as any]);
     expressions = driver.Container.resolve(SqlExpressions);
   });
 
@@ -28,5 +29,14 @@ describe('mysql sql expressions', function () {
   it('concatenates with CONCAT', () => {
     expect(expressions.concat('?', '`Name`', '?')).to.eq('CONCAT(?, `Name`, ?)');
     expect(expressions.concat('`Name`')).to.eq('`Name`');
+  });
+
+  it('locks selected rows after the LIMIT', () => {
+    expect(driver.select().from('t').where('Id', 1).take(1).forUpdate().toDB().expression).to.match(/LIMIT .+ FOR UPDATE$/);
+    expect(driver.select().from('t').where('Id', 1).forShare().toDB().expression).to.match(/ LOCK IN SHARE MODE$/);
+  });
+
+  it('keeps the lock on a clone', () => {
+    expect(driver.select().from('t').forUpdate().clone().toDB().expression).to.match(/ FOR UPDATE$/);
   });
 });

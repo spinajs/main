@@ -1,6 +1,6 @@
 import { NotSupported } from '@spinajs/exceptions';
 
-import type { SqlFragment } from './interfaces.js';
+import type { RowLockMode, SqlFragment } from './interfaces.js';
 
 /**
  * SQL that the dialects spell differently, for code that writes raw SQL. Resolve it from the
@@ -38,6 +38,11 @@ export class SqlExpressions {
   /** The text of `parts` joined; each part is SQL without bindings or a `?` placeholder. */
   public concat(..._parts: string[]): string {
     throw this.unsupported('concat');
+  }
+
+  /** The clause after a SELECT that locks the rows it reads, without a leading space; empty where the database has no row locks. */
+  public rowLock(_mode: RowLockMode): string {
+    throw this.unsupported('rowLock');
   }
 
   protected unsupported(name: string): NotSupported {

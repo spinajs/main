@@ -27,4 +27,8 @@ export class SqliteSqlExpressions extends SqlExpressions {
   public concat(...parts: string[]): string {
     return parts.join(' || ');
   }
+
+  public rowLock(): string {
+    return '';
+  }
 }

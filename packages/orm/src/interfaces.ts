@@ -1436,6 +1436,11 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
   setAlias(alias: string): this;
   setTable(table: string, alias?: string): this;
   distinct(): this;
+  /** Locks the rows read until the transaction ends (`SELECT ... FOR UPDATE`). */
+  forUpdate(): this;
+  /** Takes a shared lock on the rows read until the transaction ends; it also sees rows committed after the snapshot. */
+  forShare(): this;
+  get RowLock(): RowLockMode | undefined;
   clone(): this;
 
   /**
@@ -2032,6 +2037,8 @@ export interface ITransactionContext {
   /** Callbacks queued by `OrmDriver.afterCommit`, run after the outermost commit. Owned by `OrmDriver`. */
   afterCommit?: (() => void | Promise<void>)[];
 }
+export type RowLockMode = 'update' | 'share';
+
 /** SQL text with its `?` bindings, built by the `sql` tagged template. `R` is the row the statement returns; only the type checker reads it. */
 export interface SqlFragment<R = unknown> {
   readonly sql: string;

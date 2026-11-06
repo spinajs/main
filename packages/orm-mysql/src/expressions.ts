@@ -1,5 +1,5 @@
 import { SqlExpressions } from '@spinajs/orm';
-import type { SqlFragment } from '@spinajs/orm';
+import type { RowLockMode, SqlFragment } from '@spinajs/orm';
 
 export class MySqlSqlExpressions extends SqlExpressions {
   public castText(expression: string, length?: number): string {
@@ -26,5 +26,10 @@ export class MySqlSqlExpressions extends SqlExpressions {
 
   public concat(...parts: string[]): string {
     return parts.length === 1 ? parts[0] : `CONCAT(${parts.join(', ')})`;
+  }
+
+  // LOCK IN SHARE MODE, not FOR SHARE: MariaDB and MySQL 5.7 only know the former
+  public rowLock(mode: RowLockMode): string {
+    return mode === 'update' ? 'FOR UPDATE' : 'LOCK IN SHARE MODE';
   }
 }

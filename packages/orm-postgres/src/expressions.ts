@@ -1,5 +1,5 @@
 import { SqlExpressions } from '@spinajs/orm';
-import type { SqlFragment } from '@spinajs/orm';
+import type { RowLockMode, SqlFragment } from '@spinajs/orm';
 
 export class PostgresSqlExpressions extends SqlExpressions {
   public castText(expression: string): string {
@@ -27,5 +27,9 @@ export class PostgresSqlExpressions extends SqlExpressions {
 
   public concat(...parts: string[]): string {
     return parts.join(' || ');
+  }
+
+  public rowLock(mode: RowLockMode): string {
+    return mode === 'update' ? 'FOR UPDATE' : 'FOR SHARE';
   }
 }
