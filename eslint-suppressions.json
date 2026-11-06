@@ -6483,7 +6483,7 @@
   },
   "packages/orm/src/builders/select.ts": {
     "@typescript-eslint/no-empty-object-type": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/no-misused-promises": {
       "count": 1
@@ -6509,9 +6509,6 @@
       "count": 4
     },
     "@typescript-eslint/no-unsafe-declaration-merging": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
@@ -6667,10 +6664,10 @@
       "count": 1
     },
     "@typescript-eslint/no-empty-object-type": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/no-redundant-type-constituents": {
-      "count": 6
+      "count": 3
     },
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -7364,7 +7361,7 @@
       "count": 1
     },
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 10
+      "count": 9
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 4
@@ -8222,7 +8219,7 @@
   },
   "packages/users-http/src/services/AccountGuard.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 6
+      "count": 4
     }
   },
   "packages/users-http/src/services/credential-admin.ts": {
@@ -8267,7 +8264,7 @@
   },
   "packages/users-http/test/sr-metadata-guard.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 3
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 1
@@ -8278,7 +8275,7 @@
   },
   "packages/users-http/test/support/admin-world.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 3
+      "count": 2
     }
   },
   "packages/users-http/test/support/authz-host.ts": {
@@ -8340,9 +8337,6 @@
     }
   },
   "packages/users-http/test/v3/admin-access.test.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
     "@typescript-eslint/no-unsafe-call": {
       "count": 1
     },
@@ -8400,7 +8394,7 @@
   },
   "packages/users-http/test/v3/lifecycle-guard.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 6
@@ -8496,11 +8490,6 @@
   },
   "packages/users/src/exceptions.ts": {
     "@typescript-eslint/no-redundant-type-constituents": {
-      "count": 1
-    }
-  },
-  "packages/users/src/identity/account-status.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
   },

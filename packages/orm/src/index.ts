@@ -30,6 +30,7 @@ export * from './migration-runner.js';
 export * from './discrimination-middleware.js';
 export * from './orm.js';
 export * from './types.js';
+export * from './typing.js';
 export * from './hydrators.js';
 export * from './dehydrators.js';
 export * from './snapshot.js';
@@ -53,6 +54,7 @@ export * from './fp.js';
 export * from './bootstrap.js';
 export * from './configuration-schema.js';
 export * from './metadata.js';
+export * from './schema-diff/index.js';
 
 // NOTE: metadata.js is not exported from index to avoid circular dependency issues
 // Import directly from './metadata.js' if needed.
