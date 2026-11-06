@@ -5,6 +5,9 @@ import { Factory, Class } from './types.js';
 import { isToken } from './token.js';
 // re-exported from @spinajs/util to keep a single implementation across the framework
 export { isPromise } from '@spinajs/util';
+
+const constructable = new WeakMap<object, boolean>();
+
 /**
  * Checks if value is constructable type.
  * Checks for [[Construct]] internal function in object.
@@ -12,13 +15,23 @@ export { isPromise } from '@spinajs/util';
  * @param value - value to test
  */
 export function isConstructor(value: any): value is Class<unknown> {
-  try {
-    Reflect.construct(String, [], value);
-  } catch (e) {
+  if (typeof value !== 'function') {
     return false;
   }
 
-  return true;
+  // The probe throws for every non-constructor, and the container asks about the same factories on every resolve.
+  let known = constructable.get(value);
+  if (known === undefined) {
+    try {
+      Reflect.construct(String, [], value);
+      known = true;
+    } catch {
+      known = false;
+    }
+    constructable.set(value, known);
+  }
+
+  return known;
 }
 
 /**

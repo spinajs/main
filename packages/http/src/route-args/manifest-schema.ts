@@ -60,6 +60,24 @@ export function classLineage(type: unknown, fileOf: (type: object) => string | u
   return lineage;
 }
 
+const byClassName = new WeakMap<Manifest, Map<string, ControllerEntry[]>>();
+
+/** Controllers, then controller bases, by class name, in manifest order: every route of every controller looks one up. */
+function controllersByClassName(manifest: Manifest): Map<string, ControllerEntry[]> {
+  let index = byClassName.get(manifest);
+  if (!index) {
+    index = new Map();
+    for (const entry of [...manifest.controllers, ...(manifest.controllerBases ?? [])]) {
+      const { className } = entry;
+      const named = index.get(className);
+      if (named) named.push(entry);
+      else index.set(className, [entry]);
+    }
+    byClassName.set(manifest, index);
+  }
+  return index;
+}
+
 /**
  * The runtime knows a controller by class name, source file, handler and mount path; the class name alone may be taken
  * twice. A subclass serves its bases' routes, and a base lists them under its own mount path, so there only the declared
@@ -67,13 +85,12 @@ export function classLineage(type: unknown, fileOf: (type: object) => string | u
  */
 export function routeEntryOf(manifest: Manifest, lineage: readonly LineageClass[], route: IRoute, mountPath: string): RouteEntry | undefined {
   const handler = String(route.Method);
-  const listed = [...manifest.controllers, ...(manifest.controllerBases ?? [])];
   const fullPath = servedPath(routeFullPath(mountPath, route.Path, handler));
 
   for (const [depth, { name, file }] of lineage.entries()) {
     const served = (r: RouteEntry): boolean => (depth === 0 ? r.fullPath === fullPath : r.path === route.Path);
     const routesOf = (c: ControllerEntry): RouteEntry[] => c.routes.filter((r) => r.handler === handler);
-    const named = listed.filter((c) => c.className === name && routesOf(c).length > 0);
+    const named = (controllersByClassName(manifest).get(name) ?? []).filter((c) => routesOf(c).length > 0);
     if (named.length === 0) continue;
 
     const candidates = ownEntries(named, { file, matches: (c) => routesOf(c).some(served) }, manifest).flatMap(routesOf);

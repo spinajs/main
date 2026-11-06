@@ -1,5 +1,5 @@
 import { Container, DI, Inject, Injectable, NewInstance } from '@spinajs/di';
-import { SelectQueryBuilder as SQB, extractModelDescriptor, IModelDescriptor, ModelBase, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware, IOrmRelation, BelongsToRelation, ISelectQueryBuilder, NativeOrmRelation } from '@spinajs/orm';
+import { SelectQueryBuilder as SQB, extractModelDescriptor, IModelDescriptor, ModelBase, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware, IOrmRelation, BelongsToRelation, ISelectQueryBuilder, NativeOrmRelation, SelectQueryExtension } from '@spinajs/orm';
 import type { IModelStatic } from '@spinajs/orm';
 import type { Constructor } from '@spinajs/di';
 import { TranslationSource, guessLanguage, defaultLanguage, IIntlAsyncStorage } from '@spinajs/intl';
@@ -132,38 +132,46 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
   }
 }
 
-(SQB.prototype as any)['translate'] = function (this: SelectQueryBuilder, lang: string) {
-  /**
-   * Cannot translate query that cames from translation middleware  !
-   */
-  if (this.Owner !== null && this.Owner instanceof IntlModelRelation) {
-    return this;
+/** `translate(lang)` of select builders, installed by {@link IntlQueryExtension}; exported so a replacing extension can delegate to it. */
+export function translateQuery(this: QueryBuilder, lang: string): QueryBuilder {
+  const query = this as SelectQueryBuilder & { translated?: boolean };
+  const { model, relations, container, owner } = query.state();
+
+  // Cannot translate a query that came from the translation middleware.
+  if (owner instanceof IntlModelRelation) {
+    return query;
   }
 
-  if (!this.Model || (this as any).translated) {
-    return this;
+  if (!model || query.translated) {
+    return query;
   }
 
-  (this as any).translated = true;
-  const descriptor = extractModelDescriptor(this._model);
+  query.translated = true;
+  const descriptor = extractModelDescriptor(model);
 
   // execute(), not executeOnQuery(): the latter runs the callback on this builder, not on the relation query
-  this._relations.forEach((r) => {
+  relations.forEach((r) => {
     r.execute(function () {
-      (this as any).translate(lang);
+      this.translate(lang);
     });
   });
 
   // a model without @Translate columns has no intl_resources rows and no setLanguage(),
   // but its relations may still need translating
   if (descriptor?.Columns.some((c) => c.Translate)) {
-    const relInstance = this._container.resolve(IntlModelRelation, [lang, this, descriptor, this._owner]);
+    const relInstance = container.resolve(IntlModelRelation, [lang, query, descriptor, owner]);
     relInstance.execute();
-    this._relations.push(relInstance);
+    relations.push(relInstance);
   }
 
-  return this;
-};
+  return query;
+}
+
+@Injectable(SelectQueryExtension)
+export class IntlQueryExtension extends SelectQueryExtension {
+  public readonly name = 'intl-orm';
+  public readonly methods: SelectQueryExtension['methods'] = { translate: translateQuery };
+}
 
 function noTranslateInAsyncStore(): boolean {
   // if async storage is avaible ( node env)

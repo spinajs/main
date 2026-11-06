@@ -1,6 +1,6 @@
 import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { AuthzConfigError, AuthzDomains, DefaultAuthzDomains, authzStorage, compileFieldGlobs, filterObject, subtractFieldGlobs } from '@spinajs/authz';
+import { AuthzConfigError, AuthzDomains, DefaultAuthzDomains, authzStorage, compileFieldGlobs, filterObject, redact, subtractFieldGlobs } from '@spinajs/authz';
 import type { Decision } from '@spinajs/authz';
 import { BadRequest } from '@spinajs/exceptions';
 import { isPlainObject } from '@spinajs/util';
@@ -21,6 +21,7 @@ export interface DecisionFields {
   readonly read: readonly string[];
   readonly write: readonly string[];
   readonly writeMode: 'strip' | 'reject';
+  readonly neverRead: readonly string[];
 }
 
 /**
@@ -33,7 +34,7 @@ export function decisionFields(authz: unknown, domains: AuthzDomains, decision: 
   if (!(domains instanceof DefaultAuthzDomains)) throw new AuthzConfigError('field filtering needs the host AuthzDomains to read the domain fields config');
   const { neverRead, writeMode } = domainConfig(authz, domains, domain).fields;
   const without = (globs: readonly string[]) => (neverRead.length === 0 ? globs : subtractFieldGlobs(globs, neverRead));
-  return { read: without(decision?.fields.read ?? ['*']), write: without(decision?.fields.write ?? ['*']), writeMode };
+  return { read: without(decision?.fields.read ?? ['*']), write: without(decision?.fields.write ?? ['*']), writeMode, neverRead };
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
@@ -98,7 +99,9 @@ export class AuthzInputFieldFilter extends ArgInputFilter {
 
 function readable(authz: unknown, domains: AuthzDomains, data: unknown, decision: Decision | undefined, domain: string | undefined): unknown {
   if ((!decision && domain === undefined) || !isObject(data)) return data;
-  return filterObject(decisionFields(authz, domains, decision, decision?.domain ?? domain).read, data);
+  // read is already without neverRead; a row's own set is not, so redact() subtracts it once more.
+  const { read, neverRead } = decisionFields(authz, domains, decision, decision?.domain ?? domain);
+  return redact(data, { read, neverRead });
 }
 
 /** `x-data-transform: authz-fields`: the response data limited to what the route's decision lets the caller read. */
@@ -131,10 +134,16 @@ export class AuthzFieldsMiddleware extends RouteMiddleware {
 
   public isEnabled(route: IRoute, controller: IController): boolean {
     const access = routeAccess(controller, route.Method);
-    return (access.route ?? access.controller)?.options.fields === 'filter';
+    const fields = (access.route ?? access.controller)?.options.fields;
+    return fields === 'filter' || fields === 'filter-rows';
   }
 
-  public async onBefore(): Promise<void> {}
+  // The action runs in an AsyncLocalStorage over req.storage, where authz-orm reads the flag.
+  public async onBefore(req: express.Request, _res: express.Response, route: IRoute, controller: IController): Promise<void> {
+    const access = routeAccess(controller, route.Method);
+    const storage = (req as Request).storage;
+    if (storage && (access.route ?? access.controller)?.options.fields === 'filter-rows') storage.AuthzRowFields = true;
+  }
 
   // http calls this without awaiting it, so the data is replaced before the first await.
   public async onResponse(response: Response, route: IRoute, controller: IController): Promise<void> {

@@ -1,16 +1,18 @@
 /* eslint-disable prettier/prettier */
 import { DateTime } from 'luxon';
 import _ from 'lodash';
-import { Class } from '@spinajs/di';
-import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, QueryBuilder, UpdateQueryBuilder } from './builders.js';
+import type { Class } from '@spinajs/di';
+import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder } from './builders.js';
+import type { QueryBuilder } from './builders.js';
 import { extractModelDescriptor } from './descriptor.js';
 import type { OrmDriver } from './driver.js';
 import type { ModelBase } from './model.js';
 import { OrmException } from './exceptions.js';
-import { ISaveOptions, ISaveResult, OrphanPolicy, ServerResponseMapper } from './interfaces.js';
+import { OrphanPolicy, ServerResponseMapper } from './interfaces.js';
+import type { ISaveOptions, ISaveResult } from './interfaces.js';
 import { assertAssignedKeys, generateClientSideKeys, pkColumns, pkGeneration, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
-import { ISortedPlan } from './subject-sorter.js';
-import { IJunctionDelta, IOrphanDelta, Subject } from './subject.js';
+import type { ISortedPlan } from './subject-sorter.js';
+import type { IJunctionDelta, IOrphanDelta, Subject } from './subject.js';
 
 /** Rows per batched statement when the caller does not say. */
 export const DEFAULT_SAVE_CHUNK = 100;

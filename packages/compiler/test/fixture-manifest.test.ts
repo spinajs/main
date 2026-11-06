@@ -24,9 +24,18 @@ describe('app-basic manifest fixture', () => {
     ]);
   });
 
+  it('lists the routes ArticlesController inherits, typed with what it binds', () => {
+    const articles = manifest().controllers.find((c) => c.className === 'ArticlesController')!;
+    expect(articles.routes.map((r) => `${r.method} ${r.fullPath} <${r.inheritedFrom}`)).to.deep.equal(['get /articles/:id <app-basic:BaseCrudController', 'post /articles/add <app-basic:BaseCrudController']);
+    expect(articles.routes[0].returnType).to.deep.equal({ text: 'ArticleDto', schema: 'spinajs/app-basic/ArticleDto' });
+    expect(articles.routes[1].params[0].runtimeType).to.deep.include({ text: 'CreateArticleDto', schema: 'spinajs/app-basic/CreateArticleDto' });
+    expect(articles.allowAnonymous).to.equal(true);
+    expect(manifest().controllerBases?.map((c) => c.className)).to.deep.equal(['BaseCrudController']);
+  });
+
   it('carries derived schemas for every DTO', () => {
     const { schemas } = manifest();
-    for (const id of ['UserDto', 'CreateUserDto', 'ValidationProblem', 'ListQuery', 'ChatMessage', 'SendMailJob', 'UserCreated']) {
+    for (const id of ['UserDto', 'CreateUserDto', 'ValidationProblem', 'ListQuery', 'ChatMessage', 'SendMailJob', 'UserCreated', 'ArticleDto', 'CreateArticleDto']) {
       expect(schemas, id).to.have.property(`spinajs/app-basic/${id}`);
     }
   });
