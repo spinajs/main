@@ -13,7 +13,7 @@ import { RunStepModel } from '../models/RunStepModel.js';
 import { automaticRetry, decideAfterFailure } from '../policy/retry.js';
 import { SchedulerSignals } from '../signals.js';
 import { LeaseStore } from '../store/LeaseStore.js';
-import { Clock, DbClock, Heartbeat } from '@spinajs/durable';
+import { Clock, DbClock, FaultInjector, Heartbeat } from '@spinajs/durable';
 import { jsonValue, toStructuredError } from '../tracking/structured.js';
 import type { ExecutionOutcome } from './outcome.js';
 import { RunContext } from './RunContext.js';
@@ -54,6 +54,9 @@ export class RunExecutor {
 
   @Autoinject(Clock)
   protected Timers: Clock;
+
+  @Autoinject(FaultInjector)
+  protected Faults: FaultInjector;
 
   @Autoinject(RunEventWriter)
   protected Events: RunEventWriter;
@@ -107,6 +110,7 @@ export class RunExecutor {
       leaseStartedAt: run.LeaseUntil !== null ? run.LeaseUntil - this.Leases.LeaseTtl : startedAt,
       needsFlush: () => ctx.dirty,
       renew: async () => {
+        await this.Faults.point('scheduler.lease-renew', { runId: run.Id, attempt: run.Attempt });
         const r = await this.Leases.renewRun(run.Id, run.Attempt, scheduleLease, this.Clock.now(), ctx.snapshot());
         if (r.ok) ctx.markFlushed();
         return r;
