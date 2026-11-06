@@ -1,5 +1,5 @@
 import { rel } from '@spinajs/orm';
-import type { AggregateValue, MinMaxValue, SelectQueryBuilder, ISelectQueryBuilder, IColumnsBuilder } from '@spinajs/orm';
+import type { AggregateValue, ICompilerOutput, MinMaxValue, SelectQueryBuilder, ISelectQueryBuilder, IColumnsBuilder } from '@spinajs/orm';
 import { assertType } from '../assert.js';
 import type { Equal } from '../assert.js';
 import { Team, User } from '../models.js';
@@ -102,4 +102,17 @@ export async function populateNamesStrict(dynamic: string, anyQuery: ISelectQuer
   User.query().populate({ Metdata: {} });
   // @ts-expect-error a column is no relation
   User.query().populate('Email');
+}
+
+export function untypedStrict(raw: SelectQueryBuilder<unknown>, anyRows: SelectQueryBuilder<any>): void {
+  // a builder without a model has no row to narrow, so it stays the class (`toDB()` returns one output)
+  const one: ICompilerOutput = raw.select('id').columns(['id']).count('id', 'c').max('id', 'top').toDB();
+  const other: ICompilerOutput = anyRows.select('id', 'alias').sum('id', 's').toDB();
+  void [one, other];
+}
+
+export async function objectWhereAfterProjectionStrict(): Promise<void> {
+  // the object form of where checks the model's columns, not the projection
+  await User.query().columns(['Id']).where({ Email: 'a' }).orWhere({ IsActive: true }).andWhere({ Name: null });
+  await User.query().select('Id').whereObject({ Email: 'a' });
 }

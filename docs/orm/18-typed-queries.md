@@ -83,7 +83,7 @@ In strict mode the row type follows the select list:
 
 `AggregateValue` is `number | string`: postgres returns COUNT, and SUM/AVG of exact numbers, as strings, and no converter runs on an alias. Convert it with `Number(...)` where you need a number. For the same reason `min`/`max` of a date column return the driver's raw value, not a luxon `DateTime`. `MIN`, `MAX`, `SUM` and `AVG` over zero rows return `NULL`, so their aliases include `null`; `COUNT` never does.
 
-`where`, `orderBy` and the rest keep accepting every column of the model after a projection. Loose mode never narrows a projection, because loose code reads unselected fields of hydrated models.
+`where` (including its object form), `orderBy` and the rest keep accepting every column of the model after a projection. A builder without a model (`driver.select()`, `ISelectQueryBuilder<any>`) is never narrowed and keeps its own type. Loose mode never narrows a projection, because loose code reads unselected fields of hydrated models.
 
 ## Important behaviour
 

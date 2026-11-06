@@ -30,7 +30,7 @@ import { WhereBuilder } from './where.js';
 /** A select builder whose row type changed; the model's query scopes stay on it. */
 export type SelectNarrowed<B, T, R> = SelectQueryBuilder<Rebox<T, R>> & ScopesOf<B>;
 /** Class counterpart of StrictAliasNarrowed, so a class-typed chain keeps the class (mergeRelations, mergeStatements, ...). */
-export type StrictSelectAliasNarrowed<B, T, A extends string, R> = OrmStrict extends true ? (string extends A ? B : SelectNarrowed<B, T, R>) : B;
+export type StrictSelectAliasNarrowed<B, T, A extends string, R> = OrmStrict extends true ? (string extends A ? B : unknown extends T ? B : SelectNarrowed<B, T, R>) : B;
 
 export interface SelectQueryBuilder<T> extends ITypedColumnsBuilder<T>, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder { }
 
