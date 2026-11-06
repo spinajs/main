@@ -12,9 +12,11 @@ import { Log } from '@spinajs/log';
 import { Configuration } from '@spinajs/configuration';
 import { RouteArgs } from './route-args/index.js';
 import { withDerivedValidators, type DerivedArgValidators } from './route-args/manifest-schema.js';
-import { Request as sRequest, Response, IController, IControllerDescriptor, IPolicyDescriptor, IPolicyGroup, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext } from './interfaces.js';
+import { Request as sRequest, Response, IController, IControllerDescriptor, IPolicyDescriptor, IPolicyGroup, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, IOnErrorDescriptor } from './interfaces.js';
 import { RouteRegistrationException } from './exceptions.js';
-import { markStage } from './errors/on-error.js';
+import { createOnErrorHandler, markStage } from './errors/on-error.js';
+import { __handle_response__ } from './response.js';
+import { createAroundHandler, recordRouteError, wrapsRoute } from './around.js';
 
 /**
  * Controller shape needed by the route wiring helpers: the IController
@@ -281,6 +283,69 @@ export function createActionHandler(
   });
 
   return actionHandler as Express.RequestHandler;
+}
+
+export interface IRouteChainOptions {
+  controller: ControllerActionHost;
+  route: IRoute;
+  /** The mounted express path. */
+  path: string;
+  basePath: string;
+  /** Every resolved middleware of the route, enabled or not. */
+  middlewares: RouteMiddleware[];
+  policies: IResolvedRoutePolicies;
+  errorHandlers: readonly IOnErrorDescriptor[];
+  storage: AsyncLocalStorage<IActionLocalStoregeContext>;
+  derived?: DerivedArgValidators;
+  container: IContainer;
+  log: Log;
+  handleError: Express.ErrorRequestHandler;
+}
+
+/**
+ * Calls `onRegister` of the enabled middlewares, then assembles the route's handler chain:
+ *
+ * policy gate → each 'outer' middleware (its around handler, then onBefore) → each 'inner' one, the same way →
+ * action → onAfter of every middleware, inner first → [error recorder] → error handlers → response →
+ * [error recorder] → __handle_error__
+ *
+ * The recorders are mounted only when a middleware has `onAround`; they give its `proceed()` the chain's error.
+ */
+export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(Express.RequestHandler | Express.ErrorRequestHandler)[]> {
+  const { controller, route, log } = options;
+  const enabled = options.middlewares.filter((m) => m.isEnabled(route, controller));
+  const name = `http:${String(route.Type).toUpperCase()} ${options.path}`;
+
+  for (const m of enabled) {
+    if (!m.onRegister) {
+      continue;
+    }
+    try {
+      await m.onRegister(route, options.path, controller);
+    } catch (err) {
+      throw new RouteRegistrationException(`Middleware ${m.constructor.name} refused the registration of route ${name}: ${(err as Error)?.message ?? String(err)}`, err);
+    }
+  }
+
+  const outer = enabled.filter((m) => m.Stage === 'outer');
+  const inner = enabled.filter((m) => m.Stage !== 'outer');
+  const unwinding = [...inner, ...outer];
+  const recorder = enabled.some(wrapsRoute) ? [recordRouteError] : [];
+
+  return [
+    createPolicyGate(options.policies, route, controller, log, options.basePath),
+    ...[...outer, ...inner].flatMap((m) => [
+      ...(wrapsRoute(m) ? [createAroundHandler(m, route, controller, name, log)] : []),
+      wrapMiddlewareAction(m, m.onBefore.bind(m), route, controller, 'middleware'),
+    ]),
+    createActionHandler(controller, route, unwinding, options.storage, options.derived),
+    ...unwinding.map((m) => wrapMiddlewareAction(m, m.onAfter.bind(m), route, controller, 'after')),
+    ...recorder,
+    createOnErrorHandler(options.errorHandlers, route, controller, options.container, log),
+    __handle_response__(options.container, { controller: controller.constructor.name, handler: String(route.Method) }),
+    ...recorder,
+    options.handleError,
+  ];
 }
 
 /**

@@ -10,12 +10,11 @@ import { configuredMountPath, controllerMountPath } from '@spinajs/manifest';
 import { IController, IControllerDescriptor, IActionLocalStoregeContext, IRoute } from './interfaces.js';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
 import { RouteRegistrationException } from './exceptions.js';
-import { __handle_response__ } from './response.js';
 import { __handle_error__ } from './error.js';
-import { createOnErrorHandler, resolveConfigErrorHandlers } from './errors/on-error.js';
+import { resolveConfigErrorHandlers } from './errors/on-error.js';
 import { classLineage, derivedValidatorsOf } from './route-args/manifest-schema.js';
 import { routesWithRuntimeTypes } from './manifest-runtime-types.js';
-import { buildRoutePath, resolveRouteMiddlewares, resolveRoutePolicies, createPolicyGate, createActionHandler, wrapMiddlewareAction, ControllerActionHost } from './route-builder.js';
+import { buildRoutePath, buildRouteHandlers, resolveRouteMiddlewares, resolveRoutePolicies, ControllerActionHost } from './route-builder.js';
 
 // Own metadata only: an undecorated class would report the file of the base whose descriptor it reads.
 const ownSourceFile = (type: object): string | undefined => (Reflect.getOwnMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, (type as { prototype: object }).prototype) as IControllerDescriptor | undefined)?.SourceFile;
@@ -121,22 +120,26 @@ export abstract class BaseController extends AsyncService implements IController
 
       const middlewares = await resolveRouteMiddlewares(descriptor, route, this._container);
       const policies = await resolveRoutePolicies(descriptor, route, this._container, this._cfg, this._log, controller, path);
-      const enabledMiddlewares = middlewares.filter((m) => m.isEnabled(route, this));
 
       this._log.trace({ httpMethod: route.Type.toUpperCase(), controller, method: route.Method, path }, 'Registering route ${httpMethod} ${controller}::${method} at ${path}');
 
       const errorHandlers = [...(route.ErrorHandlers ?? []), ...(descriptor.ErrorHandlers ?? []), ...configErrorHandlers];
       const derived = derivedValidatorsOf({ container: this._container, controller, lineage, route, mountPath: basePath, log: this._log });
 
-      const handlers: (Express.RequestHandler | Express.ErrorRequestHandler)[] = [
-        createPolicyGate(policies, route, this, this._log, basePath),
-        ...enabledMiddlewares.map((m) => wrapMiddlewareAction(m, m.onBefore.bind(m), route, this, 'middleware')),
-        createActionHandler(this as ControllerActionHost, route, enabledMiddlewares, this._actionLocalStorage, derived),
-        ...enabledMiddlewares.map((m) => wrapMiddlewareAction(m, m.onAfter.bind(m), route, this, 'after')),
-        createOnErrorHandler(errorHandlers, route, this, this._container, this._log),
-        __handle_response__(this._container, { controller, handler: String(route.Method) }),
-        (handleError ??= __handle_error__(this._container)),
-      ];
+      const handlers = await buildRouteHandlers({
+        controller: this as ControllerActionHost,
+        route,
+        path,
+        basePath,
+        middlewares,
+        policies,
+        errorHandlers,
+        storage: this._actionLocalStorage,
+        derived,
+        container: this._container,
+        log: this._log,
+        handleError: (handleError ??= __handle_error__(this._container)),
+      });
 
       (this._router as any)[route.InternalType as string](path, handlers);
     }
