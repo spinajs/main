@@ -2,6 +2,7 @@ import { existsSync, statSync } from 'node:fs';
 import { isAbsolute, join, dirname } from 'node:path';
 import { appRootOf, packageRootOf, type Manifest, type Diagnostic } from '@spinajs/manifest';
 import { compareCodeUnits } from '../sort.js';
+import { readSqlDialects } from '../sql/dialects.js';
 import { DEFAULT_RULES } from './rules/index.js';
 import { diagnostic, type DoctorContext, type DoctorRule } from './rule.js';
 
@@ -53,6 +54,7 @@ export function createDoctorContext(manifest: Manifest, options: { cwd: string; 
       return underApp;
     }
   };
+  const sqlDialects = readSqlDialects(appRootOf(manifest, options.cwd));
   return {
     cwd: options.cwd,
     config: options.config,
@@ -63,5 +65,6 @@ export function createDoctorContext(manifest: Manifest, options: { cwd: string; 
       const fragment = fragmentPath(name);
       return mtime(fragment && join(dirname(fragment), 'index.js'));
     },
+    ...(Object.keys(sqlDialects).length > 0 ? { sqlDialects } : {}),
   };
 }

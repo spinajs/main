@@ -17,9 +17,13 @@ export class ManifestValidationError extends Error {
   }
 }
 
-function check<T>(value: unknown, file: string, validate: (v: unknown) => string[]): T {
+export function assertManifestVersion(value: unknown, file: string): void {
   const version = (value as { manifestVersion?: unknown } | null)?.manifestVersion;
   if (version !== MANIFEST_VERSION) throw new ManifestVersionError(version, file);
+}
+
+function check<T>(value: unknown, file: string, validate: (v: unknown) => string[]): T {
+  assertManifestVersion(value, file);
 
   const errors = validate(value);
   if (errors.length) throw new ManifestValidationError(errors, file);
