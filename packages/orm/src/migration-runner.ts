@@ -1,14 +1,16 @@
-import { Class, ClassInfo } from '@spinajs/di';
+import type { Class, ClassInfo } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { DateTime } from 'luxon';
 import type { OrmDriver } from './driver.js';
-import { OrmMigration } from './interfaces.js';
+import type { OrmMigration } from './interfaces.js';
 import { MIGRATION_FILE_REGEXP } from './symbols.js';
 import { extractMigrationDescriptor, extractModelDescriptor } from './descriptor.js';
 import { OrmException } from './exceptions.js';
-import { DefaultMigrationService, IMigrationStatusEntry, IMigrationUnit, MigrationResolveAction, OrmMigrationService } from './migration-service.js';
+import { DefaultMigrationService } from './migration-service.js';
+import type { IMigrationStatusEntry, IMigrationUnit, MigrationResolveAction, OrmMigrationService } from './migration-service.js';
 import type { ModelBase } from './model.js';
-import { recordSchemaTouches, SchemaTouches, touchAllTables } from './schema-touches.js';
+import { recordSchemaTouches, touchAllTables } from './schema-touches.js';
+import type { SchemaTouches } from './schema-touches.js';
 
 /**
  * Re-exported from `./symbols.js` ( a leaf module ) rather than defined here, so this module can

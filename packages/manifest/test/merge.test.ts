@@ -26,6 +26,14 @@ describe('mergeFragments', () => {
     expect(build('production').hash).to.not.equal(build('development').hash);
   });
 
+  it('records the compiler version, which the hash leaves out like generatedAt', () => {
+    const build = (compilerVersion: string | undefined) => mergeFragments(fragment('app'), [], { ...meta(['app']), compilerVersion });
+    expect(build(undefined)).to.not.have.property('compilerVersion');
+    expect(build('4.0.0').compilerVersion).to.equal('4.0.0');
+    expect(build('4.0.0').hash).to.equal(build(undefined).hash);
+    expect(build('4.1.0').hash).to.equal(build('4.0.0').hash);
+  });
+
   it('prefixes ids with package names and concatenates arrays', () => {
     const app = fragment('app', { services: [service('app', 'A')] });
     const dep = fragment('dep', { services: [service('dep', 'B')] });

@@ -1,4 +1,4 @@
-import { AuthzAdminFailure, GLOBAL, principalKey } from '@spinajs/authz';
+import { AuthzAdminFailure, GLOBAL, changeLog, principalKey } from '@spinajs/authz';
 import type { AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import type { AssignmentSubject, RuleDef } from '../contracts.js';
 import { Autoinject, Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
@@ -63,6 +63,7 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
 
   constructor(protected readonly container: IContainer) {
     super();
+    changeLog().track('rule');
   }
 
   /**
@@ -96,7 +97,8 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
     const { id, expires_at, ...columns } = rows.rule;
     const values = { ...columns, expires_at: toDateTime(expires_at) };
 
-    if (await this.existingRule(id)) {
+    const existed = (await this.existingRule(id)) !== undefined;
+    if (existed) {
       await RuleRecord.update(recordValues<RuleRecord>(values)).where('id', id);
       await RuleSubjectRecord.destroy().where('rule_id', id);
     } else {
@@ -110,6 +112,7 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
 
     await RuleSubjectRecord.insert(rows.subjects.map((s) => ({ ...s })));
     await bumpVersion(tx, this.domain(), where);
+    await this.logChanges([{ kind: 'rule', op: existed ? 'put' : 'add', key: id, payload: { ...rule, source: 'db' }, actor: principalKey(actor) }]);
   }
 
   /** What the columns cannot hold, refused before the batch transaction ({@link toRuleRows}). */
@@ -133,6 +136,7 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
     await RuleSubjectRecord.destroy().where('rule_id', id);
     await RuleRecord.destroy().where('id', id);
     await bumpVersion(tx, this.domain(), where);
+    await this.logChanges([{ kind: 'rule', op: 'remove', key: id, payload: rule }]);
     return rule;
   }
 
@@ -166,6 +170,9 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
     if (subjectRows.length > 0) await RuleSubjectRecord.destroy().where(setAtScope).where('subject_role', '!=', '');
 
     await bumpVersion(tx, this.domain(), where);
+    // A rule that lost a subject entry changed: log it as it reads now.
+    const narrowed = subjectRows.length === 0 ? [] : await this.rulesOf(await RuleRecord.query().whereIn('id', [...new Set(subjectRows.map((s) => s.rule_id))]).orderBy('id'));
+    await this.logChanges([...rules.map((r) => ({ kind: 'rule' as const, op: 'remove' as const, key: r.id, payload: r })), ...narrowed.map((r) => ({ kind: 'rule' as const, op: 'put' as const, key: r.id, payload: r }))]);
     return {
       rules,
       subjects: subjectRows.map((s) => ({ ruleId: s.rule_id, list: s.list as RuleSubjectList, subject: subjectFromColumns(s.subject_type, s.subject_id, s.subject_role) })),

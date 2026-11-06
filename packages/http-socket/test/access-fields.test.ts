@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { Socket as ClientSocket } from 'socket.io-client';
 import { DI } from '@spinajs/di';
 import { BasePolicy } from '@spinajs/http';
-import { AuthzDomains, AuthzService } from '@spinajs/authz';
+import { AuthzDomains, AuthzService, attachRowFields, authzStorage } from '@spinajs/authz';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, SocketController, SocketPolicy } from '../src/decorators.js';
 import { SocketAccess, SocketAccessPolicy } from '../src/access.js';
@@ -60,6 +60,25 @@ export class AccessFieldsSocket extends BaseSocketController {
   @SocketPolicy(AcfAllow)
   public async alt() {
     return { ...ACF_NOTE };
+  }
+}
+
+export const acfRows: { flag?: boolean } = {};
+
+@SocketController('acfr')
+export class AccessFieldsRowsSocket extends BaseSocketController {
+  @Command('list')
+  @SocketAccess('note:read', { fields: 'filter-rows' })
+  public async list() {
+    acfRows.flag = authzStorage().getStore()?.AuthzRowFields;
+    return [attachRowFields({ ...ACF_NOTE }, ['id', 'body', 'Password']), { ...ACF_NOTE, id: 'n2' }];
+  }
+
+  @Command('rows')
+  @SocketAccess('note:read', { fields: 'filter-rows' })
+  public async *rows() {
+    yield attachRowFields({ ...ACF_NOTE }, ['body']);
+    yield { ...ACF_NOTE, id: 'n2' };
   }
 }
 
@@ -214,6 +233,23 @@ describe("@SocketAccess fields: 'filter' (G4)", function () {
       { id: 'n2', title: 't' },
     ]);
     expect(stream.end).to.not.equal(null);
+  });
+
+  it("fields: 'filter-rows' keeps each row's own field set, minus fields.neverRead, and asks authz-orm for row sets", async () => {
+    acfRows.flag = undefined;
+    expect(resultOf(await command(alice, 'acfr.list'))).to.deep.equal([
+      { id: 'n1', body: 'b' },
+      { id: 'n2', title: 't' },
+    ]);
+    expect(acfRows.flag).to.equal(true);
+  });
+
+  it("fields: 'filter-rows' filters each chunk of a stream reply by its own field set", async () => {
+    const stream = rawStream(alice, 'acfr.rows', null, 8);
+
+    await stream.reply;
+    await stream.finished;
+    expect(stream.chunks.map((c) => c.data)).to.deep.equal([{ body: 'b' }, { id: 'n2', title: 't' }]);
   });
 
   it("sends the result as the handler returned it without fields: 'filter'", async () => {

@@ -118,6 +118,8 @@ Type, nullability and default come from the builder alone, as with MySQL's `MODI
 | `createTable(...).trackHistory()` | `TableQueryCompiler` | `SqliteTableQueryCompiler` | throws `NotSupported('sqlite driver does not support history tables, ...')` |
 | `driver.index()` | `IndexQueryCompiler` | `SqliteIndexQueryCompiler` | `CREATE [UNIQUE] INDEX ...`; after `drop()`, `` DROP INDEX `name` `` with no table, as index names are schema-wide |
 
+`tableIndexes()` reads `PRAGMA index_list`/`index_info`. An `INTEGER PRIMARY KEY` is the rowid and has no index of its own, so it is reported as an index named `PRIMARY`. `tableForeignKeys()` reads `PRAGMA foreign_key_list`; sqlite keeps no constraint names, so they are reported as `fk_<table>_<id>`.
+
 ## Configuration
 
 No keys of its own. Migrations that run this DDL are configured under `db.Connections[].Migration`; see [Migrations](../orm/10-migrations.md).
