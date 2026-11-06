@@ -1,5 +1,6 @@
-import { _check_arg, _non_empty, _non_nil } from '@spinajs/util';
-import { IRelationDescriptor } from './interfaces.js';
+import { _check_arg, _non_empty } from '@spinajs/util';
+import type { _non_nil } from '@spinajs/util';
+import type { IRelationDescriptor } from './interfaces.js';
 import { ModelBase } from './model.js';
 import { Primary, UniversalConverter } from './decorators.js';
 import { OneToManyRelationList } from './relation-objects.js';

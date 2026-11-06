@@ -18,8 +18,8 @@ export interface RememberedBatch {
 export abstract class AuthzAdminBackend {
   /** Commits when fn resolves, rolls back when it rejects (the rejection propagates). */
   abstract transaction<T>(domain: string, fn: (tx: AuthzTx) => Promise<T>): Promise<T>;
-  /** Inside fn: bump authz_version(domain). */
-  abstract bumpVersion(domain: string, tx: AuthzTx): Promise<void>;
+  /** Inside fn: bump authz_version(domain); the new version when the backend can tell it, which results carry as a consistency token. */
+  abstract bumpVersion(domain: string, tx: AuthzTx): Promise<number | void>;
   /** What a committed batch stored under (domain, actorKey, key), unless older than its expiry. */
   abstract recall(domain: string, actorKey: string, key: string, now: Date): Promise<RememberedBatch | undefined>;
   /** Inside fn: store it; 'exists' when another batch stored the key first (the caller rolls back and recalls). */
@@ -74,12 +74,13 @@ export class MemoryAuthzAdminBackend extends AuthzAdminBackend {
     return run;
   }
 
-  async bumpVersion(domain: string, tx: AuthzTx): Promise<void> {
+  async bumpVersion(domain: string, tx: AuthzTx): Promise<number> {
     const undo = memoryTx(tx);
     const had = this.versions.has(domain);
     const before = this.versions.get(domain) ?? 0;
     this.versions.set(domain, before + 1);
     undo.onRollback(() => (had ? this.versions.set(domain, before) : this.versions.delete(domain)));
+    return before + 1;
   }
 
   /** The domain's version: the number of committed batches. */

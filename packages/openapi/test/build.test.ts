@@ -56,7 +56,7 @@ describe('manifestToOpenApi', () => {
 
   it('prefixes every path with basePath', () => {
     const prefixed = manifestToOpenApi(manifest, { ...options, basePath: '/api' });
-    expect(Object.keys(prefixed.paths!)).to.deep.equal(['/api/health/get', '/api/users/{id}', '/api/users/{id}/avatar', '/api/users/create', '/api/users/list']);
+    expect(Object.keys(prefixed.paths!)).to.deep.equal(['/api/articles/{id}', '/api/articles/add', '/api/health/get', '/api/users/{id}', '/api/users/{id}/avatar', '/api/users/create', '/api/users/list']);
   });
 
   it('turns a union return type into a union of component refs', () => {
@@ -109,7 +109,7 @@ describe('manifestToOpenApi', () => {
 
   it('slugifies manifest ids and disambiguates collisions', () => {
     expect(slugify('spinajs/app-basic/UserDto')).to.equal('UserDto');
-    expect(doc.components!.schemas).to.have.keys(['CreateUserDto', 'HealthController_get_Response', 'ListQuery', 'ProblemDetails', 'UserDto', 'ValidationProblem']);
+    expect(doc.components!.schemas).to.have.keys(['ArticleDto', 'CreateArticleDto', 'CreateUserDto', 'HealthController_get_Response', 'ListQuery', 'ProblemDetails', 'UserDto', 'ValidationProblem']);
 
     const registry = createComponentRegistry({ 'spinajs/a/Item': { type: 'object' }, 'spinajs/b/Item': { type: 'object' } });
     expect(registry.ref('spinajs/a/Item')).to.equal('#/components/schemas/Item');
