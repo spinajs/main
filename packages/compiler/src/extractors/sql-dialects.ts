@@ -3,7 +3,7 @@ import type { SqlDialectEntry, SqlDialectProfile } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
 import { findDecorator, literalValue } from '../decorators.js';
 
-const PLACEHOLDERS = ['question', 'dollar', 'at-p0'];
+const PLACEHOLDERS: readonly string[] = ['question', 'dollar', 'at-p0'] satisfies readonly SqlDialectProfile['placeholders'][];
 const STRINGS = ['name', 'grammar', 'count', 'predicates'] as const;
 const MAPS = ['families', 'sum', 'avg'] as const;
 
@@ -22,7 +22,9 @@ function entryOf(node: ts.ClassDeclaration & { name: ts.Identifier }, ctx: Extra
   const decorator = findDecorator(node, 'SqlDialect');
   if (!decorator) return undefined;
   const profile = literalValue(decorator.args[0], ctx);
-  const drivers = (findDecorator(node, 'Injectable')?.args ?? []).map((a) => literalValue(a, ctx)).filter((t): t is string => typeof t === 'string');
+  // `literalValue` turns a class reference into its name, which no `Connections[].Driver` string can name.
+  const tokens = (findDecorator(node, 'Injectable')?.args ?? []).filter((a) => (ctx.checker.getTypeAtLocation(a).flags & ts.TypeFlags.StringLike) !== 0);
+  const drivers = tokens.map((a) => literalValue(a, ctx)).filter((t): t is string => typeof t === 'string');
   const problem = profileProblem(profile) ?? (drivers.length === 0 ? 'the class has no @Injectable string token' : undefined);
   if (problem) {
     ctx.warn('CMP010', `@SqlDialect on ${node.name.text} is not recorded: ${problem}`, decorator.node);

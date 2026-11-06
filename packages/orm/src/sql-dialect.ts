@@ -10,7 +10,7 @@ const PROFILE = Symbol.for('spinajs:orm:sql-dialect');
  */
 export function SqlDialect(profile: SqlDialectProfile): ClassDecorator {
   return (target) => {
-    Object.defineProperty(target, PROFILE, { value: profile, enumerable: false });
+    Object.defineProperty(target, PROFILE, { value: profile, enumerable: false, configurable: true });
   };
 }
 

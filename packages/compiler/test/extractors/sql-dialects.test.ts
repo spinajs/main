@@ -24,6 +24,7 @@ describe('extractSqlDialects', () => {
     expect(ctx.diagnostics.filter((d) => d.code === 'CMP010').map((d) => `${d.severity} ${d.message}`)).to.deep.equal([
       'warning @SqlDialect on BrokenDriver is not recorded: placeholders must be one of question, dollar, at-p0',
       'warning @SqlDialect on UnregisteredDriver is not recorded: the class has no @Injectable string token',
+      'warning @SqlDialect on ClassTokenDriver is not recorded: the class has no @Injectable string token',
     ]);
   });
 });

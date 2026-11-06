@@ -18,3 +18,7 @@ export class BrokenDriver {}
 
 @SqlDialect(PROFILE)
 export class UnregisteredDriver {}
+
+@SqlDialect(PROFILE)
+@Injectable(FixtureDriver)
+export class ClassTokenDriver {}
