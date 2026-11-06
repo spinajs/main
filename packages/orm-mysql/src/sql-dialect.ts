@@ -13,4 +13,11 @@ export const MYSQL_SQL_DIALECT: SqlDialectProfile = {
   sum: { integer: 'string', bigint: 'string', decimal: 'string', float: 'number' },
   avg: { integer: 'string', bigint: 'string', decimal: 'string', float: 'number' },
   predicates: 'number',
+  nativeTypes: {
+    int: ['integer'], smallint: ['integer'], mediumint: ['integer'], tinyint: ['integer', 'boolean'], bigint: ['bigint'], decimal: ['decimal'],
+    float: ['float'], double: ['float'], varchar: ['text'], char: ['text'], text: ['text'], tinytext: ['text'], mediumtext: ['text'], longtext: ['text'],
+    enum: ['enum'], date: ['date'], datetime: ['datetime'], timestamp: ['datetime'], time: ['time'], json: ['json'],
+    binary: ['binary', 'uuid'], varbinary: ['binary', 'uuid'], blob: ['binary'], tinyblob: ['binary'], mediumblob: ['binary'], longblob: ['binary'],
+  },
+  caseInsensitiveIdentifiers: true,
 };

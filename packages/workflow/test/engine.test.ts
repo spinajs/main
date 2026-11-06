@@ -181,14 +181,17 @@ describe('WorkflowEngine.tick', () => {
     expect([(await instance('a-unreg')).Status, (await instance('b-reg')).Status]).to.deep.equal(['waiting', 'completed']);
   });
 
-  it('correlates the signalled-wait EXISTS with the outer instance row', async () => {
+  it("correlates the signalled-wait EXISTS with the outer instance row, and a '*' wait's key range with its event", async () => {
     await boot();
     const probe = await DI.resolve(SignalledQueryEngine, [{ replicaId: 'r1' }]);
     const { expression, bindings } = probe.compiled(T0, 'eng-noop', 3);
     expect(expression).to.contain(
-      'AND EXISTS ( SELECT * FROM `__workflow_event` WHERE `State` = ? AND `__workflow_event`.`InstanceId` = `__workflow`.`Id` AND `__workflow_event`.`Name` = `__workflow`.`WaitingFor` ) ORDER BY `UpdatedAt` ASC LIMIT ?',
+      'AND ( EXISTS ( SELECT * FROM `__workflow_event` WHERE `State` = ? AND `__workflow_event`.`InstanceId` = `__workflow`.`Id` AND `__workflow_event`.`Name` = `__workflow`.`WaitingFor` ) ' +
+        'OR ( `WaitingFor` = ? AND EXISTS ( SELECT * FROM `__workflow_event` WHERE `State` = ? AND `__workflow_event`.`InstanceId` = `__workflow`.`Id` ' +
+        'AND EXISTS ( SELECT * FROM `__workflow_step` WHERE `__workflow_step`.`InstanceId` = `__workflow`.`Id` AND `Kind` = ? AND `Status` = ? ' +
+        'AND `__workflow_step`.`Key` >= ? || `__workflow_event`.`Name` || ? AND `__workflow_step`.`Key` < ? || `__workflow_event`.`Name` || ? ) ) ) ) ORDER BY `UpdatedAt` ASC LIMIT ?',
     );
-    expect(bindings).to.deep.equal(['waiting', T0, 'eng-noop', 1, 'pending', 3]);
+    expect(bindings).to.deep.equal(['waiting', T0, 'eng-noop', 1, 'pending', '*', 'pending', 'wait', 'pending', 'wait:', '#', 'wait:', '$', 3]);
   });
 
   it('leaves an instance alone while another replica holds a valid lease', async () => {
