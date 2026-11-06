@@ -18,7 +18,7 @@ export class UsersController extends BaseController {
    * @response 404 not found
    */
   @Get(':id')
-  @Access('user:read')
+  @Access('user:read', { fields: 'filter-rows' })
   public async get(@Param() id: number, @Query() verbose?: boolean): Promise<Ok<UserDto>> {
     return new Ok({ id, name: String(verbose) });
   }

@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./",
+    "outDir": "./lib",
+    "module": "node16",
+    "moduleResolution": "node16"
+  },
+  "include": ["src/**/*", "cases/**/*", "test/**/*"],
+  "references": [
+    { "path": "../configuration/tsconfig.json" },
+    { "path": "../di/tsconfig.json" },
+    { "path": "../log/tsconfig.json" },
+    { "path": "../orm/tsconfig.json" },
+    { "path": "../orm-mssql/tsconfig.json" },
+    { "path": "../orm-mysql/tsconfig.json" },
+    { "path": "../orm-pglite/tsconfig.json" },
+    { "path": "../orm-postgres/tsconfig.json" },
+    { "path": "../orm-sqlite/tsconfig.json" },
+    { "path": "../testing/tsconfig.json" }
+  ]
+}

@@ -1,0 +1,1 @@
+{ "name": "inherited-lib", "version": "1.0.0", "type": "module", "main": "lib/index.js", "types": "lib/crud.d.ts" }

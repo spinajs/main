@@ -6,6 +6,7 @@ import _ from 'lodash';
 import { randomBytes } from 'node:crypto';
 import pg from 'pg';
 import { PostgresOrmDriver } from '../../src/index.js';
+import { PGLITE, PGLITE_DRIVER, pgliteDriver, pgliteSkip } from './pglite-mode.js';
 
 export const PG_SERVER = {
   Host: process.env.ORM_TEST_POSTGRES_HOST ?? '127.0.0.1',
@@ -24,6 +25,10 @@ export interface PgTestDb {
 const pgRequired = () => process.env.ORM_TEST_POSTGRES_REQUIRED === '1' || process.env.ORM_TEST_REQUIRE_PG === '1' || process.env.L2_REQUIRE_PG === '1';
 
 export async function adminQuery(sql: string): Promise<void> {
+  if (PGLITE) {
+    throw new Error('adminQuery needs a PostgreSQL server; list the suite in PGLITE_SKIPS (ORM_TEST_POSTGRES_DRIVER=pglite)');
+  }
+
   const client = new pg.Client({ host: PG_SERVER.Host, port: PG_SERVER.Port, user: PG_SERVER.User, password: PG_SERVER.Password, database: 'test', connectionTimeoutMillis: 3000 });
   await client.connect();
 
@@ -36,6 +41,15 @@ export async function adminQuery(sql: string): Promise<void> {
 
 /** Call from a `before()` hook: skips the suite when Postgres is down, fails it under ORM_TEST_REQUIRE_PG=1. */
 export async function requirePostgres(ctx: Mocha.Context): Promise<void> {
+  if (PGLITE) {
+    const reason = pgliteSkip(ctx.test?.parent?.fullTitle());
+    if (reason) {
+      console.warn(`      suite skipped under PGlite: ${reason}`);
+      ctx.skip();
+    }
+    return;
+  }
+
   try {
     await adminQuery('SELECT 1');
   } catch (err) {
@@ -56,7 +70,9 @@ export async function requirePostgres(ctx: Mocha.Context): Promise<void> {
  */
 export async function bootPostgres(suite: string): Promise<PgTestDb> {
   const name = `orm_${suite}_${randomBytes(4).toString('hex')}`;
-  await adminQuery(`CREATE DATABASE "${name}"`);
+  if (!PGLITE) {
+    await adminQuery(`CREATE DATABASE "${name}"`);
+  }
 
   class PgSupportConf extends FrameworkConfiguration {
     public async resolve(): Promise<void> {
@@ -73,7 +89,7 @@ export async function bootPostgres(suite: string): Promise<PgTestDb> {
             // Every suite creates its own table after the boot, in a database that never has the other suites' tables.
             StrictTableCheck: false,
             Migration: { Startup: false },
-            Connections: [{ Driver: 'orm-driver-postgres', Name: 'pg', ...PG_SERVER, Database: name, Migration: { OnStartup: false } }],
+            Connections: [PGLITE ? { Driver: PGLITE_DRIVER, Name: 'pg', Migration: { OnStartup: false } } : { Driver: 'orm-driver-postgres', Name: 'pg', ...PG_SERVER, Database: name, Migration: { OnStartup: false } }],
           },
         },
         (target: unknown, source: unknown) => (Array.isArray(target) ? target.concat(source) : undefined),
@@ -83,7 +99,11 @@ export async function bootPostgres(suite: string): Promise<PgTestDb> {
 
   DI.clearCache();
   DI.register(PgSupportConf).as(Configuration);
-  DI.register(PostgresOrmDriver).as('orm-driver-postgres');
+  if (PGLITE) {
+    DI.register(await pgliteDriver()).as(PGLITE_DRIVER);
+  } else {
+    DI.register(PostgresOrmDriver).as('orm-driver-postgres');
+  }
 
   const orm = await DI.resolve(Orm);
   const driver = orm.Connections.get('pg') as PostgresOrmDriver;
@@ -98,7 +118,9 @@ export async function bootPostgres(suite: string): Promise<PgTestDb> {
       // DI resolves the last registration of a token; left registered, this configuration
       // would point the next suite at a dropped database.
       DI.unregister(PgSupportConf);
-      await adminQuery(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+      if (!PGLITE) {
+        await adminQuery(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+      }
     },
   };
 }

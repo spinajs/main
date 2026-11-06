@@ -2,7 +2,7 @@ export const SCHEDULER_PACKAGE = '@spinajs/scheduler';
 export { Clock, DbClock, DbTimeSource, parseDuration, computeBackoff, isRetryable, NonRetryableError, Heartbeat } from '@spinajs/durable';
 export type { RetryPolicyOptions, NormalizedRetry, TimerHandle } from '@spinajs/durable';
 export { DurableSystemClock as SchedulerSystemClock } from '@spinajs/durable';
-export { dbNowSql, SqlDbTimeSource } from '@spinajs/durable';
+export { SqlDbTimeSource } from '@spinajs/durable';
 export type { HeartbeatOptions } from '@spinajs/durable';
 export { FakeClock, FakeDbTimeSource } from '@spinajs/durable/testing';
 export * from './contract.js';
