@@ -70,6 +70,24 @@ describe('inheritController', () => {
     expect(merged.middlewares).to.deep.equal([{ type: 'AuthzFieldsMiddleware', options: [] }]);
   });
 
+  it('carries every field of an overridden route it does not merge', () => {
+    const inherited = { ...route('get', ':id'), future: { kept: true } } as RouteEntry;
+    const override: RouteOverride = { handler: 'get', params: [], policies: [], middlewares: [], source: src('src/Sub.ts', 4) };
+    const merged = inheritController(controller('Base', { routes: [inherited] }), controller('Sub'), [override]);
+    expect(merged.routes[0]).to.deep.include({ future: { kept: true } });
+  });
+
+  it('keeps the base runtime type of an index the override decorates again, and takes the rest from the override', () => {
+    const param = (kind: string, exportName: string, text: string): RouteEntry['params'][number] => ({
+      index: 0, name: 'id', kind, required: true, wire: { in: 'none', shape: 'whole' }, runtimeType: { text, ref: { package: 'app', file: 'src/a.ts', export: exportName } },
+    });
+    const ancestor = controller('Base', { routes: [route('get', ':id', { params: [param('FromParams', 'BaseId', 'BaseId')] })] });
+    const override: RouteOverride = { handler: 'get', params: [param('FromQuery', 'SubId', 'SubId')], policies: [], middlewares: [], source: src('src/Sub.ts', 4) };
+    const [merged] = inheritController(ancestor, controller('Sub'), [override]).routes[0].params;
+    expect(merged.kind).to.equal('FromQuery');
+    expect(merged.runtimeType).to.deep.equal({ text: 'SubId', ref: { package: 'app', file: 'src/a.ts', export: 'BaseId' } });
+  });
+
   it('chains bases nearest first and keeps the first declarer as the origin', () => {
     const mid = { ...inheritController(base, controller('Mid'), []), id: 'app:Mid' };
     const merged = inheritController(mid, controller('Leaf'), []);

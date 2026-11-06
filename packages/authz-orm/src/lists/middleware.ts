@@ -1,4 +1,4 @@
-import { AccessDenied, FALSE, authz, currentPrincipal } from '@spinajs/authz';
+import { AccessDenied, FALSE, authz, authzStorage, currentPrincipal } from '@spinajs/authz';
 import type { AuthzService, Decision, DenyReason, Permission, Principal, ResourceType } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
 import { QueryMiddleware, SelectQueryBuilder, WhereBuilder } from '@spinajs/orm';
@@ -12,6 +12,7 @@ import { entryOf } from '../registry.js';
 import type { ResourceEntry } from '../registry.js';
 import { AccessFieldMiddleware, accessColumn, accessField } from './access-field.js';
 import { applyWithin, planFilter } from './render.js';
+import { RowFieldsMiddleware, fieldConditions, fieldsColumn } from './row-fields.js';
 import { planRow } from './row.js';
 
 type Where = IWhereBuilder<unknown>;
@@ -72,7 +73,7 @@ export class AccessListMiddleware extends QueryMiddleware {
     const domain = ormDomain();
     const principal = currentPrincipal();
     if (marks.unscoped !== undefined) auditUnscoped(domain, principal, marks.unscoped, entry.type);
-    if (marks.accessible === undefined && marks.withAccess === undefined && marks.within === undefined) return;
+    if (marks.accessible === undefined && marks.withAccess === undefined && marks.within === undefined && marks.withFields === undefined) return;
     const run: ListRun = { domain, principal, service: authz(domain), entry, marks };
     const row = planRow(query, entry);
     const filters: ((where: Where) => void)[] = [];
@@ -86,6 +87,7 @@ export class AccessListMiddleware extends QueryMiddleware {
     for (const refs of marks.within ?? []) filters.push((where) => applyWithin(where, refs, row));
     // Every condition is compiled before the first change to the query.
     const access = marks.withAccess !== undefined && query instanceof SelectQueryBuilder ? await this.accessConditions(query, run, row) : undefined;
+    const fields = query instanceof SelectQueryBuilder ? await this.fieldConditions(query, run, row) : undefined;
     // One restrict: the caller's where becomes one group, ANDed with the plan and every .within().
     if (filters.length > 0) {
       restrict(query, (where) => {
@@ -97,6 +99,28 @@ export class AccessListMiddleware extends QueryMiddleware {
       });
     }
     if (access !== undefined) this.withAccess(query as SelectQueryBuilder, run, access);
+    if (fields !== undefined) this.withFields(query as SelectQueryBuilder, fields);
+  }
+
+  /** `.withFields(p)`, or `.accessible(p)` under a `fields: 'filter-rows'` route (AuthzRowFields): one condition per plan atom. */
+  protected async fieldConditions(query: SelectQueryBuilder, run: ListRun, row: PlanRow): Promise<{ conditions: Where[]; middleware: RowFieldsMiddleware } | undefined> {
+    const permission = run.marks.withFields ?? (authzStorage().getStore()?.AuthzRowFields === true ? run.marks.accessible : undefined);
+    if (permission === undefined) return undefined;
+    const plan = await run.service.accessPlan(run.principal, permission, run.entry.type, run.marks.env);
+    const applies = plan.kind === 'filter' ? fieldConditions(plan, row) : [];
+    const conditions = applies.map((apply) => detached(query, apply));
+    const request = { service: run.service, principal: run.principal, permission, type: run.entry.type, idColumn: run.entry.idColumn, ...(plan.kind === 'none' ? { none: true } : {}) };
+    return { conditions, middleware: new RowFieldsMiddleware(conditions.length, request) };
+  }
+
+  protected withFields(query: SelectQueryBuilder, fields: { conditions: readonly Where[]; middleware: RowFieldsMiddleware }): void {
+    if (query.getColumns().length === 0) query.select('*');
+    for (const [i, condition] of fields.conditions.entries()) {
+      query.selectCondition(fieldsColumn(i), function () {
+        this.Statements.push(...condition.Statements);
+      });
+    }
+    query.middleware(fields.middleware);
   }
 
   /** One condition per `.withAccess()` permission, in order. */

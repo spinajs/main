@@ -2,11 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { UnexpectedServerError } from '@spinajs/exceptions';
-import { quoteFor, sqlDialect } from '@spinajs/durable';
-import type { RawSqlDriver } from '@spinajs/durable';
-import { InsertBehaviour, Orm, QueryContext } from '@spinajs/orm';
+import { InsertBehaviour, Orm } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
-import { IDEMPOTENCY_TABLE } from './connection.js';
 import { IdempotencyClaimConflict } from './errors.js';
 import { fitsColumn, plainKey, positive } from './guards.js';
 import { IdempotencyKeyModel } from './models/IdempotencyKeyModel.js';
@@ -35,9 +32,6 @@ interface IKeyRow {
   Reply: StoredReply | string | null;
   ExpiresAt: number | string | null;
 }
-
-const q = quoteFor('mysql');
-const LOCKING_READ = `SELECT ${['Fingerprint', 'State', 'LeaseUntil', 'Reply', 'ExpiresAt'].map(q).join(', ')} FROM ${q(IDEMPOTENCY_TABLE)} WHERE ${q('Key')} = ? LOCK IN SHARE MODE`;
 
 // MySQL deadlock (errno 1213), Postgres serialization failure and deadlock: the database rolled the transaction back
 const CONFLICT_CODES: unknown[] = ['ER_LOCK_DEADLOCK', '40001', '40P01'];
@@ -76,9 +70,9 @@ function held(row: IKeyRow | undefined, now: number): IdempotencyHeld | undefine
  * The claim is an ignore-on-duplicate insert, so a taken key never fails a statement.
  *
  * The ORM cannot run a statement beside the transaction open on the connection, so a claim made inside one joins it:
- * the claim commits or rolls back with that transaction, and other callers wait on the row until then. On MySQL the
- * read after an ignored insert is then a locking read (LOCK IN SHARE MODE, which MySQL 5.7 and MariaDB know too),
- * because a REPEATABLE READ snapshot misses the row that refused the insert; it holds the row until the transaction ends.
+ * the claim commits or rolls back with that transaction, and other callers wait on the row until then. The read after
+ * an ignored insert is then a shared-lock read (`forShare()`), because a REPEATABLE READ snapshot misses the row that
+ * refused the insert; it holds the row until the transaction ends.
  * Concurrent claims in transactions can still deadlock on MySQL, and Postgres refuses one in REPEATABLE READ or
  * SERIALIZABLE after a concurrent commit; the database then rolls the transaction back, and `claim` throws
  * IdempotencyClaimConflict.
@@ -151,14 +145,10 @@ export class OrmIdempotencyStore extends IdempotencyStore {
     return held(row, now);
   }
 
+  // A locking read sees a claim committed after this transaction's snapshot (InnoDB REPEATABLE READ)
   protected async current(key: string, now: number): Promise<IdempotencyHeld | undefined> {
     const query = IdempotencyKeyModel.where('Key', key);
-    const driver = query.Driver as RawSqlDriver;
-    if (driver.CurrentTransaction && sqlDialect(driver.Options.Driver, 'locking claim read', 'idempotency') === 'mysql') {
-      const [row] = (await driver.executeOnDb(LOCKING_READ, [key], QueryContext.Select)) as IKeyRow[];
-      return held(row, now);
-    }
-    const [row] = await onPrimary(query);
+    const [row] = await (query.Driver.CurrentTransaction ? query.forShare() : onPrimary(query));
     return held(row, now);
   }
 

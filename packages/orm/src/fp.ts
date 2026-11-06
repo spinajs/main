@@ -1,6 +1,6 @@
-import { Constructor } from '@spinajs/di';
-import { InsertBehaviour } from './interfaces.js';
-import { ModelBase } from './model.js';
+import type { Constructor } from '@spinajs/di';
+import type { InsertBehaviour } from './interfaces.js';
+import type { ModelBase } from './model.js';
 import { deleteModel, getEntity, insertModel, insertOrUpdateModel, updateModel } from './helpers.js';
 
 /**

@@ -6,7 +6,9 @@ import { Injectable, NewInstance } from '@spinajs/di';
 // emit the same query twice. QueryBuilder / TransactionCallback / ITransaction are gone with
 // the old `{ commit, rollback }` transaction shape this branch replaced. ConnectionState /
 // IPoolMetrics are orm-infra's connection-resilience + pool-telemetry work.
-import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, TableCloneQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler, CreateViewCompiler, LiteralQuoter, InsertQueryCompiler, NowExpression, TextWrapper, SqlExpressions } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, TableCloneQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler, CreateViewCompiler, LiteralQuoter, InsertQueryCompiler, NowExpression, TextWrapper, SqlExpressions, LiveForeignKey, LiveIndex, groupIndexColumns, referentialRule, SqlDialect } from '@spinajs/orm';
+import { MYSQL_SQL_DIALECT } from './sql-dialect.js';
+export { MYSQL_SQL_DIALECT } from './sql-dialect.js';
 import { BacktickIdentifierQuoter, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler, SqlDefaultValueBuilder, SqlDropEventQueryCompiler, SqlEventQueryCompiler, SqlLimitQueryCompiler, SqlOnDuplicateQueryCompiler, SqlTableCloneQueryCompiler, SqlTableHistoryQueryCompiler, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 import { OkPacket, PoolConnection, PoolOptions } from 'mysql2';
@@ -81,6 +83,7 @@ export class MysqlServerResponseMapper extends ServerResponseMapper {
   }
 }
 
+@SqlDialect(MYSQL_SQL_DIALECT)
 @Injectable('orm-driver-mysql')
 @NewInstance()
 export class MySqlOrmDriver extends SqlDriver {
@@ -122,7 +125,7 @@ export class MySqlOrmDriver extends SqlDriver {
     // Reads and writes are both retried: `withReconnect` only re-runs on transport failures,
     // where the statement provably never reached the server.
     const bound = this.toDriverParams(params);
-    return this.withReconnect(() => this._executeOnDbOnce(stmt, bound, context));
+    return this.withSessionSettings(() => this.withReconnect(() => this._executeOnDbOnce(stmt, bound, context)));
   }
 
   /**
@@ -557,6 +560,42 @@ export class MySqlOrmDriver extends SqlDriver {
     });
   }
 
+  public async tableIndexes(name: string, schema?: string): Promise<LiveIndex[]> {
+    const rows = (await this.executeOnDb(
+      `SELECT INDEX_NAME AS name, COLUMN_NAME AS col, NON_UNIQUE AS non_unique
+       FROM INFORMATION_SCHEMA.STATISTICS
+       WHERE TABLE_NAME = ? AND TABLE_SCHEMA = ?
+       ORDER BY INDEX_NAME, SEQ_IN_INDEX`,
+      [name, this.introspectedSchema(schema)],
+      QueryContext.Select,
+    )) as Array<{ name: string; col: string | null; non_unique: number | string }>;
+
+    // A functional index part has no column name.
+    return groupIndexColumns(rows.flatMap((r) => (r.col === null ? [] : [{ name: r.name, column: r.col, unique: Number(r.non_unique) === 0, primary: r.name === 'PRIMARY' }])));
+  }
+
+  public async tableForeignKeys(name: string, schema?: string): Promise<LiveForeignKey[]> {
+    const rows = (await this.executeOnDb(
+      `SELECT k.CONSTRAINT_NAME AS name, k.COLUMN_NAME AS col, k.REFERENCED_TABLE_NAME AS ref_table, k.REFERENCED_COLUMN_NAME AS ref_col, r.DELETE_RULE AS on_delete, r.UPDATE_RULE AS on_update
+       FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE k
+       JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS r ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME
+       WHERE k.TABLE_NAME = ? AND k.TABLE_SCHEMA = ? AND k.REFERENCED_TABLE_NAME IS NOT NULL
+       ORDER BY k.CONSTRAINT_NAME, k.ORDINAL_POSITION`,
+      [name, this.introspectedSchema(schema)],
+      QueryContext.Select,
+    )) as Array<{ name: string; col: string; ref_table: string; ref_col: string; on_delete: string; on_update: string }>;
+
+    return rows.map((r) => ({ name: r.name, column: r.col, table: r.ref_table, references: r.ref_col, onDelete: referentialRule(r.on_delete), onUpdate: referentialRule(r.on_update) }));
+  }
+
+  private introspectedSchema(schema?: string): string {
+    const dbSchema = schema ?? this.Options.Database;
+    if (!dbSchema) {
+      throw new OrmException('Cannot read indexes or foreign keys: no schema/database configured for this connection ( pass a schema or set Options.Database )');
+    }
+    return dbSchema;
+  }
+
   /**
    * Pulls the pooled connection out of a transaction context. The base class only ever hands
    * us contexts this driver's own `_begin` produced, so the cast is safe.
@@ -642,6 +681,7 @@ export class MySqlOrmDriver extends SqlDriver {
   }
 }
 
+@SqlDialect(MYSQL_SQL_DIALECT)
 @Injectable('orm-driver-mysql-ssh')
 @NewInstance()
 export class MySqlSSHOrmDriver extends MySqlOrmDriver {
