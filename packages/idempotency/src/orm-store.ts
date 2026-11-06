@@ -73,7 +73,7 @@ function held(row: IKeyRow | undefined, now: number): IdempotencyHeld | undefine
  * the claim commits or rolls back with that transaction, and other callers wait on the row until then. The read after
  * an ignored insert is then a shared-lock read (`forShare()`), because a REPEATABLE READ snapshot misses the row that
  * refused the insert; it holds the row until the transaction ends.
- * Concurrent claims in transactions can still deadlock on MySQL, and Postgres refuses one in REPEATABLE READ or
+ * Concurrent claims in transactions can still deadlock on MySQL and Postgres, and Postgres refuses one in REPEATABLE READ or
  * SERIALIZABLE after a concurrent commit; the database then rolls the transaction back, and `claim` throws
  * IdempotencyClaimConflict.
  */
