@@ -89,7 +89,10 @@ A `modify()` re-states the whole column, so it keeps what the spec does not stat
 
 An aspect the driver does not report cannot be kept, so re-stating it makes the change `DESTRUCTIVE`:
 - the precision of a `decimal` (`precision not compared; re-stated as (10,2)`, or `as the driver's default` without one);
-- an explicit length on sqlite or mysql (`length not compared; re-stated as 50`).
+- an explicit length on sqlite or mysql (`length not compared; re-stated as 50`);
+- a live default that a value converter turned into an object, such as a `TimeSpan` (`live default not re-statable`).
+
+On a driver that reports no length (mysql), a modify of a text column whose spec states no length rewrites `VARCHAR(n)` as `TEXT`, and an index on that column can then fail. Give such a column an explicit `length`. A per-dialect flag for unbounded text types is an open question.
 
 Other limits of a modify:
 - A `uuid` column is re-stated as `binary(16)`: the schema builder has no other uuid type outside `createTable`, so on postgres a modify re-types a native `uuid` column to `bytea`. Review such a step before running it.

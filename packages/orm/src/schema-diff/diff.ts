@@ -1,4 +1,5 @@
 import type { Diagnostic, ModelIndex, SqlDialectProfile } from '@spinajs/manifest';
+import { RawQuery } from '../builders/raw.js';
 import type { IColumnDescriptor } from '../interfaces.js';
 import { familiesOf, reportsNullability } from './families.js';
 import type { DiffOptions, LiveExtras, LiveTableExtras, SchemaChange, TargetColumn, TargetTable } from './types.js';
@@ -91,7 +92,15 @@ function restated(column: TargetColumn, current: IColumnDescriptor): Finding[] {
   if ((sql.family === 'text' || sql.family === 'binary') && sql.length !== undefined && current.MaxLength <= 0) {
     out.push({ reason: `length not compared; re-stated as ${sql.length}`, destructive: true });
   }
+  if (sql.default === undefined && !restatableDefault(current.DefaultValue)) {
+    out.push({ reason: 'live default not re-statable', destructive: true });
+  }
   return out;
+}
+
+/** What the codegen can write back on a modify; a converter may have made the live default an object (a `TimeSpan`). */
+function restatableDefault(value: unknown): boolean {
+  return value === null || value === undefined || value instanceof RawQuery || ['string', 'number', 'boolean'].includes(typeof value);
 }
 
 function alterColumn(table: TargetTable, column: TargetColumn, current: IColumnDescriptor, extras: LiveTableExtras | undefined, ctx: DiffContext): SchemaChange | undefined {
