@@ -12,7 +12,7 @@ Every client command passes an ordered chain of `SocketCommandStage`s before its
 2. `SocketDispatcher.execute()` runs the stages in ascending `Order` inside the call's AsyncLocalStorage store. Each stage calls `next()` to continue.
 3. After the last stage, the handler runs with the arguments the arguments stage built.
 4. The result becomes the reply: `undefined` answers `null`; an async iterable answers `{ stream: true }` and becomes a [stream reply](06-stream-replies.md). A thrown error becomes an error reply through `SocketErrorMapper`.
-5. An abort (deadline, cancel, disconnect, shutdown) answers the client at once. Before the handler started, the chain stops at its next step: `next()` rejects with `SocketClientGone`, and no later stage and no handler runs. After the handler started, the chain keeps running, and keeps its in-flight slot and queue place, until the handler settles.
+5. An abort (deadline, cancel, disconnect, shutdown) answers the client at once. Before the handler started, the chain stops: `next()` rejects with `SocketClientGone`, also when a later stage was waiting for the connect hooks, an idempotency join or its place in the ordering queue, and no later stage and no handler runs. A command queued behind an `ordered` predecessor stops only when its turn comes, and keeps its in-flight slot until then. After the handler started, the chain keeps running, and keeps its in-flight slot and queue place, until the handler settles. The exception is an `ordered` command whose handler still runs `http.socket.ordering.abortGraceMs` after the abort: it is cut loose and gives both back.
 
 | Order | `STAGE_ORDER` key | Stage | What it does | Refusal |
 | --- | --- | --- | --- | --- |
@@ -67,10 +67,11 @@ What a stage sees depends on where it sits:
 | What happens | `next()` |
 | --- | --- |
 | The handler returned or threw | Resolves with its raw result (an async iterable for a stream, binary, a `toJSON` class) or rejects with its error. |
-| An abort came before the handler started | Rejects with `SocketClientGone`, `beforeHandler: true`. No later stage and no handler ran. |
+| An abort came before the handler started | Rejects with `SocketClientGone`, `beforeHandler: true`, also when a later stage was waiting on the abort (connect hooks, an idempotency join, the ordering queue). No later stage and no handler ran. Behind an `ordered` predecessor it rejects only when the command's turn comes. |
 | An abort came after the handler started | Settles with the handler's real result or error. `ctx.handlerStarted` is `true`. The client has its answer already, so what the stage returns is not sent. |
+| An `ordered` command's handler still runs `http.socket.ordering.abortGraceMs` after the abort (cut loose) | In a stage before 550: rejects with the abort reason itself, not `SocketClientGone` and not the real result. `ctx.handlerStarted` is `true`. The ordering stage gives up the queue place, and the late result is dropped. Stages after the ordering stage still get the real outcome. |
 
-`SocketClientGone` is a `SocketException` with the code, message and retry hint of the abort reason (`cancelled`, `deadline_exceeded`, `unavailable`), which is also its `cause`. Rethrown, it answers as the abort did.
+`SocketClientGone` is a `SocketException` with the code, message and retry hint of the abort reason (`cancelled`, `deadline_exceeded`, `unavailable`), which is also its `cause`. Rethrown, it answers as the abort did. A custom stage that compared the rejection with `ctx.signal.reason` should check `err instanceof SocketClientGone` instead, and read `err.cause` for the reason.
 
 ```ts sample
 import { Autoinject, Injectable } from '@spinajs/di';
@@ -106,7 +107,7 @@ export class MaintenanceStage extends SocketCommandStage {
 
 ### `onRegister`
 
-`onRegister(handler, registration)` is optional. It runs once per command, when `SocketHandlerRegistry.build()` registers the command: in ascending `Order`, after the command's policies resolved and before socket.io attaches. It never runs for events or hooks, because stages never run for them. Check configuration or load an optional dependency there. A throw fails the build with `InvalidOperation`, which names the stage and the command: `Socket command audit.export ( AuditSocket::export ): stage AuditSinkStage refused the registration: no audit sink configured`. The original error is its `cause`.
+`onRegister(handler, registration)` is optional. It runs once per command, when `SocketHandlerRegistry.build()` has registered every controller: in ascending `Order`, after the names were checked for duplicates, the policies resolved and the contract and payload validators were attached, and before socket.io attaches. It never runs for events or hooks, because stages never run for them. Check configuration or load an optional dependency there. A throw fails the build with `InvalidOperation`, which names the stage and the command: `Socket command audit.export ( AuditSocket::export ): stage AuditSinkStage refused the registration: no audit sink configured`. The original error is its `cause`.
 
 `registration.refuseStream(what)` declares that the command cannot reply with a stream while this stage applies:
 
@@ -234,8 +235,8 @@ DI.register(TenantDispatcher).as(SocketDispatcher);
 - `Array.ofType` leaves `@NewInstance()` classes out of its result: a stage marked `@NewInstance()` never runs.
 - Stages with the same `Order` run in registration order.
 - Every `cmd` frame costs a rate token when it arrives, including frames without an ack, malformed frames and duplicate ids.
-- An abort answers the client at once. A command whose handler started holds its in-flight slot until the handler settles, so cancel-and-resend cannot run unbounded handlers.
-- `onRegister` runs after the command's policies resolved: a command whose policies fail to resolve reports that error first.
+- An abort answers the client at once, but the in-flight slot comes back only when the chain settles. A command whose handler started holds it until the handler settles, so cancel-and-resend cannot run unbounded handlers. A command queued behind an `ordered` predecessor holds it until its turn comes. A cut-loose `ordered` command gives it back after `http.socket.ordering.abortGraceMs`.
+- `onRegister` runs after every controller registered: an invalid name, a duplicate, a policy that fails to resolve or a contract problem fails the build first, and then no `onRegister` runs.
 - A client `deadline` of `0` or below aborts the call as `deadline_exceeded` before the handler runs; a `timeoutMs` of `0` or below is ignored.
 - The deadline is the earliest of the client's `deadline` and the command's `timeoutMs`, both counted from `receivedAt`. Deadlines above 2^31-1 ms are reached in several timer steps.
 - A handler reached without `ctx.handler` or `ctx.args` answers `internal` ("a built-in stage is missing"): keep `LookupStage` and `ArgumentsStage`, or set those fields yourself.
