@@ -14,6 +14,7 @@ export * from './extractors/migrations.js';
 export * from './extractors/schedules.js';
 export * from './extractors/commands.js';
 export * from './extractors/queue.js';
+export * from './extractors/sql.js';
 export * from './flow/index.js';
 export * from './extractors/n-plus-one.js';
 export { NoAppDirs } from './extractors/effective-dirs.js';
