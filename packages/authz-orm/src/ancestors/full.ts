@@ -19,6 +19,7 @@ async function loadParents(driver: OrmDriver, types: readonly ResourceType[]): P
     const refs: ResourceRef[] = [];
     ofType.set(type, refs);
     const tables = new Set<string>();
+    // spinajs-orm-ignore ORM102: one query per distinct class table of the type; the tables differ, so they cannot share a select
     for (const cls of classesOf(type)) {
       const entry = entryOf(cls)!;
       const table = tableOf(cls);

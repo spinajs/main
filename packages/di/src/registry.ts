@@ -77,6 +77,13 @@ export class Registry {
     }
   }
 
+  /** This registry's own registrations by key, in registration order; ancestors are not included. */
+  public *entries(): IterableIterator<[string, readonly unknown[]]> {
+    for (const [key, list] of this.registry) {
+      yield [key, [...list]];
+    }
+  }
+
   /**
    * True when this registry ( not an ancestor ) holds an entry for `service`.
    */

@@ -1,6 +1,7 @@
 import { Configuration, normalizeEnvironment } from '@spinajs/configuration-common';
 import { effectiveManifestOf } from '@spinajs/configuration';
-import { Autoinject, Class, ClassInfo, Container, IContainer, Injectable } from '@spinajs/di';
+import { Autoinject, Container, Injectable } from '@spinajs/di';
+import type { Class, ClassInfo, IContainer } from '@spinajs/di';
 import { ManifestMissing, matchesMigrationGlob } from '@spinajs/manifest';
 import { inScanOrder, listFromManifest } from '@spinajs/reflection';
 import { OrmMigration } from './interfaces.js';

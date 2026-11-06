@@ -4,9 +4,9 @@ import { userPrincipal } from '@spinajs/authz-testing';
 import { AuthzConfigError } from '@spinajs/authz';
 import type { AuthzAdminQuery, AuthzCommand, AuthzCommandOf } from '@spinajs/authz';
 
-import { RebacScopeForgetter, RebacTupleHandler, RebacTupleReader } from '../../src/index.js';
+import { RebacExpandReader, RebacScopeForgetter, RebacTupleHandler, RebacTupleReader } from '../../src/index.js';
 import type { TupleDeleteCommand, TupleWriteCommand, TuplesAdminQuery } from '../../src/index.js';
-import { d1, d2, ref, set, tuple, user } from '../support/world.js';
+import { TUPLES, d1, d2, ref, set, tuple, user } from '../support/world.js';
 import { AuthzAdminFailure, failure, installHost, ok, rebacDomain, remove, resetHost, uninstallHost, write } from './support.js';
 import type { RebacDomain } from './support.js';
 
@@ -157,9 +157,45 @@ describe('authz-rebac: tuple commands through AuthzAdmin', function () {
     });
   });
 
+  describe('the tuples.expand and tuples.subjects queries', () => {
+    beforeEach(async () => {
+      await resetHost();
+      d = await rebacDomain('test', { tuples: TUPLES });
+    });
+
+    it('answers from the RebacModel of the domain', async () => {
+      expect(await d.admin.list(alice, { kind: 'tuples.subjects', scope: d1, relation: 'view', subjectType: 'user' })).to.deep.equal({ items: [user('alice'), user('olga')], total: 2 });
+      const tree = await d.admin.list(alice, { kind: 'tuples.expand', scope: d1, relation: 'viewer' });
+      expect(tree).to.deep.equal({ items: [{ kind: 'tuples', object: d1, relation: 'viewer', subjects: [set('group', 'eng', 'member')] }], total: 1 });
+    });
+
+    it('checks authz:tuples.expand.read and authz:tuples.subjects.read at the scope', async () => {
+      expect((await d.admin.list(bob, { kind: 'tuples.expand', scope: d1, relation: 'read' })).total).to.equal(1);
+      let error: unknown;
+      await d.admin.list(bob, { kind: 'tuples.subjects', scope: d2, relation: 'read', subjectType: 'user' }).catch((e: unknown) => (error = e));
+      expect((error as AuthzAdminFailure).code).to.equal('forbidden');
+      expect((await d.admin.list(alice, { kind: 'tuples.subjects', scope: d2, relation: 'read', subjectType: 'user' })).items).to.deep.equal([user('carol'), user('frank')]);
+    });
+
+    it('refuses a malformed query, an unknown name and a list cut short by maxDepth', async () => {
+      const code = (q: unknown): Promise<string> => d.admin.list(alice, q as AuthzAdminQuery).then(
+        () => 'none',
+        (e: unknown) => (e as AuthzAdminFailure).code,
+      );
+      expect(await code({ kind: 'tuples.expand', scope: { type: 'doc' }, relation: 'read' })).to.equal('invalid_query');
+      expect(await code({ kind: 'tuples.subjects', scope: d1, relation: 'read' })).to.equal('invalid_query');
+      expect(await code({ kind: 'tuples.expand', scope: d1, relation: 'nope' })).to.equal('not_found');
+      const shallow = await rebacDomain('shallow', { tuples: TUPLES, limit: { maxDepth: 1 } });
+      let error: unknown;
+      await shallow.admin.list(alice, { kind: 'tuples.subjects', scope: d2, relation: 'read', subjectType: 'user' }).catch((e: unknown) => (error = e));
+      expect((error as AuthzAdminFailure).code).to.equal('limit_exceeded');
+    });
+  });
+
   it('registers the handler, the reader and the forgetter in root DI', () => {
     expect(new RebacTupleHandler().kinds).to.deep.equal(['tuple.write', 'tuple.delete']);
     expect(new RebacTupleReader().kinds).to.deep.equal(['tuples']);
+    expect(new RebacExpandReader().kinds).to.deep.equal(['tuples.expand', 'tuples.subjects']);
     expect(new RebacScopeForgetter()).to.be.instanceOf(RebacScopeForgetter);
   });
 });
