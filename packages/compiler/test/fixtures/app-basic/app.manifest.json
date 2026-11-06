@@ -73,6 +73,110 @@
       }
     },
     {
+      "id": "app-basic:ArticlesController",
+      "className": "ArticlesController",
+      "basePath": "articles",
+      "mountPath": "articles",
+      "policies": [],
+      "middlewares": [],
+      "allowAnonymous": true,
+      "routes": [
+        {
+          "method": "get",
+          "path": ":id",
+          "handler": "read",
+          "fullPath": "/articles/:id",
+          "params": [
+            {
+              "index": 0,
+              "name": "id",
+              "kind": "FromParams",
+              "runtimeType": {
+                "text": "number",
+                "ref": {
+                  "package": "global",
+                  "file": "",
+                  "export": "Number"
+                },
+                "schema": "spinajs/app-basic/ArticlesController_read_id"
+              },
+              "required": true,
+              "wire": {
+                "in": "path",
+                "name": "id",
+                "shape": "value"
+              }
+            }
+          ],
+          "returnType": {
+            "text": "ArticleDto",
+            "schema": "spinajs/app-basic/ArticleDto"
+          },
+          "policies": [],
+          "middlewares": [],
+          "doc": {
+            "description": "Read one item."
+          },
+          "source": {
+            "file": "src/crud/base-crud.ts",
+            "line": 5,
+            "col": 3,
+            "package": "app-basic"
+          },
+          "inheritedFrom": "app-basic:BaseCrudController"
+        },
+        {
+          "method": "post",
+          "path": "",
+          "handler": "add",
+          "fullPath": "/articles/add",
+          "params": [
+            {
+              "index": 0,
+              "name": "body",
+              "kind": "FromBody",
+              "runtimeType": {
+                "text": "CreateArticleDto",
+                "ref": {
+                  "package": "global",
+                  "file": "",
+                  "export": "Object"
+                },
+                "schema": "spinajs/app-basic/CreateArticleDto"
+              },
+              "required": true,
+              "wire": {
+                "in": "body",
+                "shape": "whole"
+              }
+            }
+          ],
+          "returnType": {
+            "text": "ArticleDto",
+            "schema": "spinajs/app-basic/ArticleDto"
+          },
+          "policies": [],
+          "middlewares": [],
+          "source": {
+            "file": "src/crud/base-crud.ts",
+            "line": 10,
+            "col": 3,
+            "package": "app-basic"
+          },
+          "inheritedFrom": "app-basic:BaseCrudController"
+        }
+      ],
+      "source": {
+        "file": "src/controllers/articles.ts",
+        "line": 9,
+        "col": 1,
+        "package": "app-basic"
+      },
+      "bases": [
+        "app-basic:BaseCrudController"
+      ]
+    },
+    {
       "id": "app-basic:UsersController",
       "className": "UsersController",
       "basePath": "users",
@@ -376,6 +480,106 @@
     }
   ],
   "socketContracts": [],
+  "controllerBases": [
+    {
+      "id": "app-basic:BaseCrudController",
+      "className": "BaseCrudController",
+      "basePath": null,
+      "mountPath": "basecrudcontroller",
+      "policies": [],
+      "middlewares": [],
+      "routes": [
+        {
+          "method": "get",
+          "path": ":id",
+          "handler": "read",
+          "fullPath": "/basecrudcontroller/:id",
+          "params": [
+            {
+              "index": 0,
+              "name": "id",
+              "kind": "FromParams",
+              "runtimeType": {
+                "text": "number",
+                "schema": "spinajs/app-basic/BaseCrudController_read_id",
+                "ref": {
+                  "package": "global",
+                  "file": "",
+                  "export": "Number"
+                }
+              },
+              "required": true,
+              "wire": {
+                "in": "path",
+                "name": "id",
+                "shape": "value"
+              }
+            }
+          ],
+          "returnType": {
+            "text": "T",
+            "schema": "spinajs/app-basic/BaseCrudController_read_Response"
+          },
+          "policies": [],
+          "middlewares": [],
+          "doc": {
+            "description": "Read one item."
+          },
+          "source": {
+            "file": "src/crud/base-crud.ts",
+            "line": 5,
+            "col": 3,
+            "package": "app-basic"
+          }
+        },
+        {
+          "method": "post",
+          "path": "",
+          "handler": "add",
+          "fullPath": "/basecrudcontroller/add",
+          "params": [
+            {
+              "index": 0,
+              "name": "body",
+              "kind": "FromBody",
+              "runtimeType": {
+                "text": "NonNullable<C>",
+                "schema": "spinajs/app-basic/BaseCrudController_add_body",
+                "ref": {
+                  "package": "global",
+                  "file": "",
+                  "export": "Object"
+                }
+              },
+              "required": true,
+              "wire": {
+                "in": "body",
+                "shape": "whole"
+              }
+            }
+          ],
+          "returnType": {
+            "text": "T",
+            "schema": "spinajs/app-basic/BaseCrudController_add_Response"
+          },
+          "policies": [],
+          "middlewares": [],
+          "source": {
+            "file": "src/crud/base-crud.ts",
+            "line": 10,
+            "col": 3,
+            "package": "app-basic"
+          }
+        }
+      ],
+      "source": {
+        "file": "src/crud/base-crud.ts",
+        "line": 3,
+        "col": 1,
+        "package": "app-basic"
+      }
+    }
+  ],
   "configModules": [
     {
       "module": "app",
@@ -468,6 +672,47 @@
     }
   ],
   "schemas": {
+    "spinajs/app-basic/ArticleDto": {
+      "$id": "spinajs/app-basic/ArticleDto",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "number"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/app-basic/ArticlesController_read_id": {
+      "$id": "spinajs/app-basic/ArticlesController_read_id",
+      "type": "number"
+    },
+    "spinajs/app-basic/BaseCrudController_add_Response": {
+      "$id": "spinajs/app-basic/BaseCrudController_add_Response"
+    },
+    "spinajs/app-basic/BaseCrudController_add_body": {
+      "$id": "spinajs/app-basic/BaseCrudController_add_body",
+      "allOf": [
+        {},
+        {
+          "type": "object",
+          "additionalProperties": false
+        }
+      ]
+    },
+    "spinajs/app-basic/BaseCrudController_read_Response": {
+      "$id": "spinajs/app-basic/BaseCrudController_read_Response"
+    },
+    "spinajs/app-basic/BaseCrudController_read_id": {
+      "$id": "spinajs/app-basic/BaseCrudController_read_id",
+      "type": "number"
+    },
     "spinajs/app-basic/ChatMessage": {
       "$id": "spinajs/app-basic/ChatMessage",
       "type": "object",
@@ -521,6 +766,19 @@
       },
       "required": [
         "id"
+      ],
+      "additionalProperties": false
+    },
+    "spinajs/app-basic/CreateArticleDto": {
+      "$id": "spinajs/app-basic/CreateArticleDto",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
       ],
       "additionalProperties": false
     },
@@ -674,7 +932,41 @@
       }
     }
   },
-  "diagnostics": [],
-  "generatedAt": "2026-10-30T23:11:12.754Z",
-  "hash": "e8c022b23448e14475f69d3729820cfbaea3f5b1db9cb43d4a0d1c760eae2f21"
+  "diagnostics": [
+    {
+      "code": "SCH001",
+      "severity": "info",
+      "message": "type parameter T has no schema of its own; a subclass that binds it records its own type, and elsewhere it is emitted as {}",
+      "source": {
+        "file": "src/crud/base-crud.ts",
+        "line": 5,
+        "col": 3,
+        "package": "app-basic"
+      }
+    },
+    {
+      "code": "SCH001",
+      "severity": "info",
+      "message": "type parameter T has no schema of its own; a subclass that binds it records its own type, and elsewhere it is emitted as {}",
+      "source": {
+        "file": "src/crud/base-crud.ts",
+        "line": 10,
+        "col": 3,
+        "package": "app-basic"
+      }
+    },
+    {
+      "code": "SCH001",
+      "severity": "info",
+      "message": "type parameter C has no schema of its own; a subclass that binds it records its own type, and elsewhere it is emitted as {}",
+      "source": {
+        "file": "src/crud/base-crud.ts",
+        "line": 11,
+        "col": 20,
+        "package": "app-basic"
+      }
+    }
+  ],
+  "generatedAt": "2026-11-02T20:48:08.957Z",
+  "hash": "47f7521612321fc90ebb904d6c0db1aaf014b826ecb98bfdf0121c9bc87f8d29"
 }

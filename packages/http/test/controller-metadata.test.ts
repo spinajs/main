@@ -90,6 +90,13 @@ describe('ControllerMetadataProvider', function () {
     expect(doc.methods.query.responses).to.deep.equal({ '404': { description: 'not here' } });
   });
 
+  it('the manifest provider answers the recorded names of a route the controller inherits', async () => {
+    const inherited: ControllerEntry = { ...entry, bases: ['test-app:MetadataBase'], routes: entry.routes.map((r) => ({ ...r, inheritedFrom: 'test-app:MetadataBase' })) };
+    app = await httpApp({ register: withManifest(testManifest({ root: process.cwd(), controllers: [inherited] }), 'require') });
+    const provider = await app.resolve(ManifestControllerMetadata);
+    expect(await provider.parameters(classInfo(MetadataParamsController), 'query')).to.deep.equal(['first', 'second']);
+  });
+
   it('the manifest provider does not support a controller the manifest lacks', async () => {
     const booted = await boot('prefer');
     const provider = await booted.resolve(ManifestControllerMetadata);

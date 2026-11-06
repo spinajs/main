@@ -3,8 +3,8 @@ import { Injectable, Singleton } from '@spinajs/di';
 import { Wrapper } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
 
-import { PlanTermCompiler, RELATION_COLUMN_OP, RELATION_OWNER_OP, RELATION_SELF_OP } from '../plan/index.js';
-import type { PlanRow } from '../plan/index.js';
+import { PlanTermCompiler, RELATION_COLUMN_OP, RELATION_OWNER_OP, RELATION_SELF_OP, sessionPrincipalsMatch } from '../plan/index.js';
+import type { PlanRow, RlsSqlContext } from '../plan/index.js';
 
 type Where = IWhereBuilder<unknown>;
 type Columns = { readonly column: string; readonly typeColumn?: string };
@@ -61,6 +61,12 @@ function principalsMatch(where: Where, { column, typeColumn }: Columns, principa
   }
 }
 
+function sessionColumns(ctx: RlsSqlContext, name: string, decorator: string): Columns {
+  const rel = ctx.relation(name);
+  if (rel === undefined) throw new AuthzConfigError(`authz-orm: RLS: resource type '${ctx.type}' has no ${name} column (${decorator})`);
+  return rel;
+}
+
 /** The row's owner is one of the principals (design §5). */
 @Singleton()
 @Injectable(PlanTermCompiler)
@@ -69,6 +75,10 @@ export class RelationOwnerTerm extends PlanTermCompiler {
 
   apply(args: unknown, where: IWhereBuilder<unknown>, row: PlanRow): void {
     principalsMatch(where, columnsOf(row, 'owner'), principalsOf(args, this.op));
+  }
+
+  renderSql(_args: unknown, ctx: RlsSqlContext): string {
+    return sessionPrincipalsMatch(ctx, sessionColumns(ctx, 'owner', '@Owner()'));
   }
 }
 
@@ -80,6 +90,10 @@ export class RelationSelfTerm extends PlanTermCompiler {
 
   apply(args: unknown, where: IWhereBuilder<unknown>, row: PlanRow): void {
     idIn(where, columnsOf(row, 'self').column, userIds(principalsOf(args, this.op)));
+  }
+
+  renderSql(_args: unknown, ctx: RlsSqlContext): string {
+    return sessionPrincipalsMatch(ctx, { column: sessionColumns(ctx, 'self', '@Self()').column });
   }
 }
 
@@ -95,5 +109,11 @@ export class RelationColumnTerm extends PlanTermCompiler {
     const columns = relation === 'owner' || relation === 'self' ? undefined : row.relation(relation);
     if (columns === undefined) throw new AuthzConfigError(`authz-orm: ${this.op}: resource type '${row.type}' has no column relation '${relation}' (@Relation('${relation}'))`);
     principalsMatch(where, columns, principalsOf(args, this.op));
+  }
+
+  renderSql(args: unknown, ctx: RlsSqlContext): string {
+    const relation = (args as { relation?: unknown } | null)?.relation;
+    if (typeof relation !== 'string' || relation === '' || relation === 'owner' || relation === 'self') throw new AuthzConfigError(`authz-orm: ${this.op} args must be { relation, principals }, got ${JSON.stringify(args)}`);
+    return sessionPrincipalsMatch(ctx, sessionColumns(ctx, relation, `@Relation('${relation}')`));
   }
 }

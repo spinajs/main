@@ -282,7 +282,7 @@ describe('authz-rbac admin commands (declared in AuthzCommandMap)', () => {
     | { readonly kind: 'rules'; readonly scope?: ResourceRef; readonly page?: DPage }
     | { readonly kind: 'holders'; readonly scope: ResourceRef; readonly permission: Permission; readonly expandSets?: boolean; readonly page?: DPage };
   type RbacKind = `${'assignment' | 'set' | 'link' | 'rule'}.${string}`;
-  type Opts = { readonly reason?: string; readonly idempotencyKey?: string; readonly dryRun?: boolean };
+  type Opts = { readonly reason?: string; readonly idempotencyKey?: string; readonly dryRun?: boolean; readonly consistency?: boolean };
 
   interface DAssignment {
     readonly id: string;

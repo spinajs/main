@@ -3,7 +3,7 @@ import { DI } from '@spinajs/di';
 import { extractModelDescriptor } from './descriptor.js';
 import { OrmDriver } from './driver.js';
 import { ConnectionMismatch, NotAnOrmDriver, OrmConnectionMissing, OrmException, OrmNotResolved, TransactionRequired } from './exceptions.js';
-import { ModelBase } from './model.js';
+import type { ModelBase } from './model.js';
 
 /** What `Orm.createConnections()` registers in the root container once the connections and aliases exist. */
 const ORM_CONNECTION = 'OrmConnection';

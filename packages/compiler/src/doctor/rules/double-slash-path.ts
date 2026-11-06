@@ -1,5 +1,6 @@
 import { controllerMountPath, type ControllerEntry, type Diagnostic, type RouteEntry } from '@spinajs/manifest';
 import { diagnostic, type DoctorRule } from '../rule.js';
+import { reportedAt, routeName } from './inherited.js';
 
 function hint(c: ControllerEntry, r: RouteEntry): string {
   if (r.path.startsWith('/') && r.path !== '/') return `Remove the leading slash from the route path ('${r.path}').`;
@@ -18,7 +19,7 @@ export const doubleSlashPath: DoctorRule = {
         if (!r.fullPath.includes('//')) continue;
         const intended = r.fullPath.replace(/\/{2,}/g, '/');
         out.push(
-          diagnostic('HTTP003', 'warning', `${c.className}.${r.handler} is mounted at ${r.fullPath}, not ${intended}: @spinajs/http keeps the slashes of @BasePath and the route path as written. ${hint(c, r)}`, r.source),
+          diagnostic('HTTP003', 'warning', `${routeName(c, r)} is mounted at ${r.fullPath}, not ${intended}: @spinajs/http keeps the slashes of @BasePath and the route path as written. ${hint(c, r)}`, reportedAt(c, r)),
         );
       }
     }
