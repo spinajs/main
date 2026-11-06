@@ -473,8 +473,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this;
   }
 
-  public count(): this;
-  public count(column: ColumnRef<Unbox<T>>, as?: string): this;
+  public count(column?: ColumnRef<Unbox<T>>, as?: string): this;
   public count(column?: string, as?: string) {
     const c = column ?? '*';
     const a = as ?? 'count';
@@ -486,13 +485,12 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this;
   }
 
-  public selectCount(): Promise<number>;
-  public selectCount(column: ColumnRef<Unbox<T>>, as?: string): Promise<number>;
+  public selectCount(column?: ColumnRef<Unbox<T>>, as?: string): Promise<number>;
   public selectCount(column?: string, as?: string) {
     const a = as ?? 'count';
 
     // postgres returns COUNT(*) as a bigint string
-    return this.count(column ?? '*', as).takeFirst()
+    return this.count(column, as).takeFirst()
       .asRaw<{ [key: string]: number | string }>()
       .then((x) => Number(x?.[a] ?? 0));
   }

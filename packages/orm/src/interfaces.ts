@@ -1349,8 +1349,8 @@ export interface IGroupByBuilder {
 
 /**
  * Column methods of a select over its row type. `IColumnsBuilder`, `IOrderByBuilder` and `IGroupByBuilder`
- * carry no row type, so they are re-declared here. Each method keeps an overload with the base shape,
- * which keeps a select builder assignable to the untyped interfaces.
+ * carry no row type, so they are re-declared here. Method parameter bivariance keeps a select builder
+ * assignable to the untyped interfaces.
  */
 export interface ITypedColumnsBuilder<T> extends IColumnsBuilder, IOrderByBuilder, IGroupByBuilder {
   columns(names: ColumnRef<Unbox<T>>[]): this;
@@ -1447,10 +1447,9 @@ export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T
 
   min(column: ColumnRef<Unbox<T>>, as?: string): this;
   max(column: ColumnRef<Unbox<T>>, as?: string): this;
-  count(): this;
-  count(column: ColumnRef<Unbox<T>>, as?: string): this;
-  selectCount(): Promise<number>;
-  selectCount(column: ColumnRef<Unbox<T>>, as?: string): Promise<number>;
+  // The column stays optional: `count(maybe)` with `maybe: string | undefined` compiled before typed columns.
+  count(column?: ColumnRef<Unbox<T>>, as?: string): this;
+  selectCount(column?: ColumnRef<Unbox<T>>, as?: string): Promise<number>;
   sum(column: ColumnRef<Unbox<T>>, as?: string): this;
   avg(column: ColumnRef<Unbox<T>>, as?: string): this;
   /** `condition` as the boolean column `alias` (`CASE WHEN ... THEN 1 ELSE 0 END`). */

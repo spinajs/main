@@ -7,6 +7,13 @@ import type { Equal } from './assert.js';
 declare const dynamic: string;
 declare const anyQuery: ISelectQueryBuilder<any>;
 declare const untyped: ISelectQueryBuilder;
+declare const maybe: string | undefined;
+
+export async function countLoose(): Promise<number> {
+  User.all().count(maybe, 'c');
+  User.all().count(undefined, 'total');
+  return User.all().selectCount(maybe);
+}
 
 // Loose mode keeps accepting everything that compiled before typed columns.
 export async function whereLoose(): Promise<void> {
