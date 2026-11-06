@@ -31,7 +31,7 @@ export interface IdempotencyHandle {
   /** false: the lease was lost, and the reply is not stored. */
   complete(reply: StoredReply, ttlMs: number): Promise<boolean>;
   release(): Promise<void>;
-  /** Stops renewing and keeps the claim: another caller takes the key over once the lease ends. */
+  /** Stops renewing and keeps the claim: another caller takes the key over once the lease ends. Rejects with a recorded crash. */
   abandon(): Promise<void>;
 }
 
@@ -117,6 +117,9 @@ export class IdempotencyLeases {
       abandon: async () => {
         state.settled = true;
         await heartbeat?.stop(leaseMs);
+        if (state.crash) {
+          throw state.crash;
+        }
       },
     };
   }
