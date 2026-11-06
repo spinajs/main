@@ -313,11 +313,71 @@ export class SqliteOrmDriver extends SqlDriver {
     });
   }
 
+  /**
+   * Steps one prepared statement a row at a time. On the writer handle, outside a transaction, the stream is an outside
+   * statement for its whole life, like a statement of `executeOnDb`: it waits for the writer gate once, before it is
+   * prepared, and `BEGIN` then waits for it to end (SQLite refuses COMMIT while a statement is in progress). The stream
+   * never waits on the gate again, or a transaction begun mid-stream and the stream would wait for each other.
+   */
+  public async *executeStreamOnDb(stmt: string, params: unknown[], _options: { batchSize: number }): AsyncGenerator<unknown> {
+    if (!this.Db) {
+      throw new Error('cannot execute sqlite statement, no db connection avaible');
+    }
+
+    const handle = this.handleFor(QueryContext.Select);
+    const release = handle === this.Db && this.TransactionStorage.getStore() === undefined ? await this.holdOutsideStatement() : () => undefined;
+    const fail = (err: unknown) => mapSqliteError(err, { Host: this.Options.Host, User: this.Options.User, Name: this.Options.Name }, stmt, params ? params.join(',') : 'none');
+
+    try {
+      const statement = await new Promise<sqlite3.Statement>((resolve, reject) => {
+        const prepared: sqlite3.Statement = handle.prepare(stmt, this.toDriverParams(params), (err: Error | null) => {
+          if (err) {
+            prepared.finalize();
+            reject(fail(err));
+            return;
+          }
+          resolve(prepared);
+        });
+      });
+
+      try {
+        for (;;) {
+          const row = await new Promise<unknown>((resolve, reject) => {
+            statement.get((err: Error | null, r: unknown) => (err ? reject(fail(err)) : resolve(r)));
+          });
+          if (row === undefined) {
+            return;
+          }
+
+          yield row;
+        }
+      } finally {
+        await new Promise<void>((resolve) => statement.finalize(() => resolve()));
+      }
+    } finally {
+      release();
+    }
+  }
+
+  /** Waits for the writer gate, then registers a statement that lives until the returned function is called. */
+  private async holdOutsideStatement(): Promise<() => void> {
+    while (this._writerGate !== null) {
+      await this._writerGate;
+    }
+
+    let release: () => void = () => undefined;
+    const lifetime = new Promise<void>((resolve) => (release = resolve));
+    const settled: Promise<boolean> = lifetime.then(() => this._outsideStatements.delete(settled));
+    this._outsideStatements.add(settled);
+
+    return release;
+  }
+
   public supportedFeatures(): ISupportedFeature {
     // insertIdIsFirstOfBatch is false: sqlite3's `lastID` is the LAST rowid the statement
     // produced, not the first. SQLite does not need it — it gets every key from RETURNING.
     // a second BEGIN on the one writer handle fails, so the core queues outermost transactions
-    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false, concurrentTransactions: false };
+    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false, concurrentTransactions: false, streaming: true };
   }
 
   public async ping(): Promise<boolean> {

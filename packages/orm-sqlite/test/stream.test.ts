@@ -1,12 +1,14 @@
 import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { Connection, HasManyRelationMiddleware, Model, ModelBase, OrmDriver, Primary, StreamNotSupported } from '@spinajs/orm';
+import { Connection, HasManyRelationMiddleware, Model, ModelBase, OrmDriver, OrmException, Primary, StreamNotSupported } from '@spinajs/orm';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import sinon from 'sinon';
+import sqlite3 from 'sqlite3';
+import type { SqliteOrmDriver } from '../src/index.js';
 import { db } from './common.js';
-import { bootUow, registerUowConnection, UowOrder } from './uowFixture.js';
+import { bootUow, registerUowConnection, rows, UowOrder } from './uowFixture.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -192,5 +194,130 @@ describe('stream() without a driver cursor', function () {
 
   it('refuses an order by a relation column', async () => {
     await expect(collect(UowOrder.select().order('Client.Name').order('Id').stream())).to.be.rejectedWith(StreamNotSupported);
+  });
+});
+
+streamSuite('native');
+
+describe('stream() on the sqlite statement cursor', function () {
+  this.timeout(60000);
+  const sandbox = sinon.createSandbox();
+
+  before(() => registerUowConnection());
+  beforeEach(async () => {
+    await bootUow();
+  });
+  afterEach(() => {
+    sandbox.restore();
+    DI.clearCache();
+  });
+
+  it('declares a cursor', () => {
+    expect(sqlite().supportedFeatures().streaming).to.eq(true);
+  });
+
+  it('finalizes the statement when the loop breaks', async () => {
+    await seedOrders(1000);
+    const finalize = sandbox.spy(sqlite3.Statement.prototype, 'finalize');
+
+    const rows = await collect(UowOrder.select().order('Id').stream({ batchSize: 100 }), 150);
+
+    expect(rows).to.have.length(150);
+    expect(finalize.calledOnce).to.eq(true);
+  });
+
+  it('rejects the loop with a driver error and finalizes the statement', async () => {
+    await seedOrders(300);
+    let steps = 0;
+    const get = sandbox.stub(sqlite3.Statement.prototype, 'get');
+    get.callsFake(function (this: sqlite3.Statement, ...args: unknown[]) {
+      steps++;
+      if (steps === 151) {
+        const callback = args.at(-1) as (this: sqlite3.Statement, err: Error | null) => void;
+        callback.call(this, new Error('disk I/O error'));
+        return this;
+      }
+      return get.wrappedMethod.apply(this, args as Parameters<sqlite3.Statement['get']>);
+    });
+    const finalize = sandbox.spy(sqlite3.Statement.prototype, 'finalize');
+    const seen: number[] = [];
+
+    const loop = async () => {
+      for await (const row of UowOrder.select().order('Id').stream({ batchSize: 100 })) {
+        seen.push(row.Id);
+      }
+    };
+
+    await expect(loop()).to.be.rejectedWith(OrmException, /disk I\/O error/);
+    expect(seen).to.have.length(100);
+    expect(finalize.calledOnce).to.eq(true);
+  });
+
+  it('streams a raw select as plain rows', async () => {
+    await seedOrders(10);
+
+    const rows = await collect(sqlite().select().from('uow_order').order('Id').stream({ batchSize: 3 }));
+
+    expect(rows).to.have.length(10);
+    expect(rows[0]).to.not.be.instanceOf(UowOrder);
+    expect((rows[0] as { Total: number }).Total).to.eq(1);
+  });
+
+  it('pages by keyset inside a transaction, populates every batch and runs statements in the loop body', async () => {
+    await seedOrders(250);
+    await sqlite()
+      .insert()
+      .into('uow_order_item')
+      .values([
+        { Sku: 'A', Qty: 1, order_id: 1 },
+        { Sku: 'B', Qty: 1, order_id: 250 },
+      ]);
+    const driver = sqlite();
+    const cursor = sandbox.spy(driver as SqliteOrmDriver, 'executeStreamOnDb');
+    const populate = sandbox.spy(HasManyRelationMiddleware.prototype, 'afterHydration');
+
+    const orders = await driver.transaction(async () => {
+      await driver.insert().into('uow_order').values({ Total: 99 });
+      const seen: UowOrder[] = [];
+      for await (const order of UowOrder.select().order('Id').populate('Items').stream({ batchSize: 100 })) {
+        // a second statement on the transaction's connection, from inside the loop body
+        await driver.update().in('uow_order').update({ Total: order.Id }).where({ Id: order.Id });
+        seen.push(order);
+      }
+      return seen;
+    });
+
+    expect(orders).to.have.length(251);
+    expect(cursor.callCount).to.eq(0);
+    expect(populate.callCount).to.eq(3);
+    expect(orders[0].Items.map((i) => i.Sku)).to.deep.equal(['A']);
+    expect(orders[249].Items.map((i) => i.Sku)).to.deep.equal(['B']);
+    expect((await rows<{ Id: number; Total: number }>('uow_order')).every((r) => r.Total === r.Id)).to.eq(true);
+  });
+
+  it('makes a transaction begun between two batches wait for the stream to end', async () => {
+    await seedOrders(300);
+    const driver = sqlite();
+    const seen: number[] = [];
+    let began = false;
+    let tx: Promise<void> | undefined;
+
+    for await (const row of UowOrder.select().order('Id').stream({ batchSize: 100 })) {
+      seen.push(row.Id);
+      if (seen.length === 100) {
+        // not awaited here: BEGIN waits for the stream, and an await would make the stream wait for BEGIN
+        tx = driver.transaction(async () => {
+          began = true;
+          await driver.insert().into('uow_order').values({ Total: 0 });
+        });
+        await new Promise((resolve) => setImmediate(resolve));
+        expect(began).to.eq(false);
+      }
+    }
+
+    await tx;
+    expect(began).to.eq(true);
+    expect(seen).to.have.length(300);
+    expect(await rows('uow_order')).to.have.length(301);
   });
 });

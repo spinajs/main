@@ -174,6 +174,7 @@ describe('Sqlite - relations test', function () {
 
     expect(spy.called).to.be.true;
     expect(spy.callCount).to.eq(1);
+    sb.restore();
   });
 
   it('Static method populate on oneToMany', async () => {
