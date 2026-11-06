@@ -1,5 +1,5 @@
 import { SqlExpressions } from '@spinajs/orm';
-import type { SqlFragment } from '@spinajs/orm';
+import type { IntervalUnit, SqlFragment } from '@spinajs/orm';
 
 export class SqliteSqlExpressions extends SqlExpressions {
   public castText(expression: string): string {
@@ -26,6 +26,11 @@ export class SqliteSqlExpressions extends SqlExpressions {
 
   public concat(...parts: string[]): string {
     return parts.join(' || ');
+  }
+
+  // the text SqliteNowExpression and the ISO datetime converter write, so the columns compare as text
+  public ago(amount: number, unit: IntervalUnit): string {
+    return `strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-${amount} ${unit}s')`;
   }
 
   public rowLock(): string {

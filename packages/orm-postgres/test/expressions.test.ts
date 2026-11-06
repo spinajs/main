@@ -3,7 +3,7 @@ import 'mocha';
 import { expect } from 'chai';
 import '@spinajs/log';
 import { DI } from '@spinajs/di';
-import { SqlExpressions } from '@spinajs/orm';
+import { concat, outer, SqlExpressions } from '@spinajs/orm';
 
 import { PostgresOrmDriver } from '../src/index.js';
 
@@ -29,6 +29,20 @@ describe('postgres sql expressions', function () {
   it('concatenates with ||', () => {
     expect(expressions.concat('?', '"Name"', '?')).to.eq('? || "Name" || ?');
     expect(expressions.concat('"Name"')).to.eq('"Name"');
+  });
+
+  it('ago() subtracts a make_interval from CURRENT_TIMESTAMP, the clock of now()', () => {
+    expect(expressions.ago(7, 'day')).to.eq('CURRENT_TIMESTAMP - make_interval(days => 7)');
+    expect(driver.ago(30, 'second').Query).to.eq('CURRENT_TIMESTAMP - make_interval(secs => 30)');
+    expect(driver.ago(5, 'minute').Query).to.eq('CURRENT_TIMESTAMP - make_interval(mins => 5)');
+    expect(driver.ago(2, 'hour').Query).to.eq('CURRENT_TIMESTAMP - make_interval(hours => 2)');
+  });
+
+  it('compares a column with a || of literals and an outer column', () => {
+    const sub = driver.select().from('w', 'w').whereColumn('Key', '>=', concat('wait:', outer('Name'), '#')).whereColumn('Key', '<', concat('wait:', outer('Name'), '$'));
+    const out = driver.select().from('e', 'e').whereExist(sub).toDB();
+    expect(out.expression).to.contain('"w"."Key" >= ? || "e"."Name" || ? AND "w"."Key" < ? || "e"."Name" || ?');
+    expect(out.bindings).to.deep.eq(['wait:', '#', 'wait:', '$']);
   });
 
   it('locks selected rows after the LIMIT', () => {

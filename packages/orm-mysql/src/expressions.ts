@@ -1,5 +1,5 @@
 import { SqlExpressions } from '@spinajs/orm';
-import type { RowLockMode, SqlFragment } from '@spinajs/orm';
+import type { IntervalUnit, RowLockMode, SqlFragment } from '@spinajs/orm';
 
 export class MySqlSqlExpressions extends SqlExpressions {
   public castText(expression: string, length?: number): string {
@@ -26,6 +26,11 @@ export class MySqlSqlExpressions extends SqlExpressions {
 
   public concat(...parts: string[]): string {
     return parts.length === 1 ? parts[0] : `CONCAT(${parts.join(', ')})`;
+  }
+
+  // UTC_TIMESTAMP, as MySqlNowExpression: the driver writes datetimes in UTC
+  public ago(amount: number, unit: IntervalUnit): string {
+    return `UTC_TIMESTAMP(3) - INTERVAL ${amount} ${unit.toUpperCase()}`;
   }
 
   // LOCK IN SHARE MODE, not FOR SHARE: MariaDB and MySQL 5.7 only know the former
