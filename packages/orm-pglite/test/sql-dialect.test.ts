@@ -3,11 +3,11 @@ import * as chai from 'chai';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import type { Class } from '@spinajs/di';
 import '@spinajs/log';
-import { executeSql, Orm, sql, sqlDialectOf } from '@spinajs/orm';
+import { executeSql, familiesOf, Orm, sql, sqlDialectOf } from '@spinajs/orm';
 import { createTestApp } from '@spinajs/testing';
 
 import { PGLITE_SQL_DIALECT, PgliteOrmDriver } from '../src/index.js';
-import { toDriverStatement } from '@spinajs/orm-postgres';
+import { POSTGRES_SQL_DIALECT, toDriverStatement } from '@spinajs/orm-postgres';
 
 const expect = chai.expect;
 
@@ -58,5 +58,10 @@ describe('pglite SQL dialect profile', function () {
     } finally {
       await app.dispose();
     }
+  });
+
+  it('maps the pg catalog types tableInfo() reports to column families', () => {
+    expect(familiesOf('int8', PGLITE_SQL_DIALECT)).to.deep.equal(['bigint']);
+    expect(PGLITE_SQL_DIALECT.nativeTypes).to.deep.equal(POSTGRES_SQL_DIALECT.nativeTypes);
   });
 });

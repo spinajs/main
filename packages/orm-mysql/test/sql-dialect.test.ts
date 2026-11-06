@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { sqlDialectOf } from '@spinajs/orm';
+import { familiesOf, sqlDialectOf } from '@spinajs/orm';
 import { MYSQL_SQL_DIALECT, MySqlOrmDriver, MySqlSSHOrmDriver } from '../src/index.js';
 
 describe('mysql SQL dialect profile', function () {
@@ -19,5 +19,9 @@ describe('mysql SQL dialect profile', function () {
     expect(MYSQL_SQL_DIALECT.families.decimal).to.equal((driver.ResponseSchemaTypes.decimal as { type: string }).type);
     expect(driver.ResponseSchemaTypes).to.not.have.property('bigint');
     expect(MYSQL_SQL_DIALECT.families.bigint).to.equal('number');
+  });
+
+  it('maps the native types tableInfo() reports to column families', () => {
+    expect(familiesOf('tinyint', MYSQL_SQL_DIALECT)).to.deep.equal(['integer', 'boolean']);
   });
 });

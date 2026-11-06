@@ -1660,6 +1660,21 @@ export const manifestSchema: Record<string, any> = {
         },
         "predicates": {
           "type": "string"
+        },
+        "nativeTypes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/ColumnFamily"
+            }
+          }
+        },
+        "untrustedNullability": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ColumnFamily"
+          }
         }
       },
       "required": [
