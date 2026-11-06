@@ -14,8 +14,8 @@ describe('database time', () => {
   });
 
   it('reads the time through a driver registered under any name', async () => {
-    DI.register(SqliteOrmDriver).as('orm-driver-custom-sqlite');
-    await bootDb([{ Driver: 'orm-driver-custom-sqlite', Filename: ':memory:', Name: 'default' }]);
+    DI.register(SqliteOrmDriver).as('orm-driver-embedded');
+    await bootDb([{ Driver: 'orm-driver-embedded', Filename: ':memory:', Name: 'default' }]);
     const ms = await DI.resolve(SqlDbTimeSource).read();
     expect(Math.abs(ms - Date.now())).to.be.lessThan(5000);
   });
