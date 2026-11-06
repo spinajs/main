@@ -1,4 +1,5 @@
 import type { RetryPolicyOptions } from '@spinajs/durable';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { normalizeRetry } from './policy.js';
 
 /** The ORM connection alias of every workflow table; the package config maps it to `default`. */
@@ -14,11 +15,14 @@ export interface WorkflowConfig {
   shutdownGrace: number;
   maxStepResultBytes: number;
   compensateOnCancel: boolean;
+  /** How long one compensation may run before its signal aborts and it is retried; 3 x `leaseTtl` unless set. */
+  compensationTimeout: number;
   /** Step retry policy when neither the step nor the `@Workflow` options name one. */
   retry: RetryPolicyOptions;
 }
 
-export const WORKFLOW_DEFAULTS: WorkflowConfig = {
+/** `compensationTimeout` is left out: it follows `leaseTtl`. */
+export const WORKFLOW_DEFAULTS: Omit<WorkflowConfig, 'compensationTimeout'> = {
   enabled: true,
   tick: 1000,
   concurrency: 10,
@@ -33,5 +37,7 @@ export function resolveWorkflowConfig(raw?: Partial<WorkflowConfig> | null): Wor
   const r = raw ?? {};
   const config = { ...WORKFLOW_DEFAULTS, ...r, retry: { ...WORKFLOW_DEFAULTS.retry, ...(r.retry ?? {}) } };
   normalizeRetry(config.retry, 'workflow.retry');
-  return config;
+  const compensationTimeout = r.compensationTimeout ?? 3 * config.leaseTtl;
+  if (!Number.isInteger(compensationTimeout) || compensationTimeout < 1) throw new InvalidArgument('workflow.compensationTimeout must be an integer >= 1 (ms)');
+  return { ...config, compensationTimeout };
 }
