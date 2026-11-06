@@ -19,4 +19,13 @@ export class PostgresSqlExpressions extends SqlExpressions {
   public equalsExactly(left: string, right: SqlFragment): SqlFragment {
     return { sql: `${left} = ${right.sql}`, bindings: [...right.bindings] };
   }
+
+  // clock_timestamp(), not now(): now() is frozen at the start of the transaction
+  public epochMillis(): string {
+    return 'CAST(ROUND(EXTRACT(EPOCH FROM clock_timestamp()) * 1000) AS BIGINT)';
+  }
+
+  public concat(...parts: string[]): string {
+    return parts.join(' || ');
+  }
 }

@@ -30,6 +30,16 @@ export class SqlExpressions {
     throw this.unsupported('equalsExactly');
   }
 
+  /** The current instant in epoch milliseconds, read when the statement runs rather than when its transaction began. */
+  public epochMillis(): string {
+    throw this.unsupported('epochMillis');
+  }
+
+  /** The text of `parts` joined; each part is SQL without bindings or a `?` placeholder. */
+  public concat(..._parts: string[]): string {
+    throw this.unsupported('concat');
+  }
+
   protected unsupported(name: string): NotSupported {
     return new NotSupported(`SqlExpressions.${name} is not supported by this connection's driver`);
   }

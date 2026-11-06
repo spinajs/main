@@ -18,4 +18,13 @@ export class MySqlSqlExpressions extends SqlExpressions {
   public equalsExactly(left: string, right: SqlFragment): SqlFragment {
     return { sql: `${left} = CAST(${right.sql} AS BINARY)`, bindings: [...right.bindings] };
   }
+
+  // UTC_TIMESTAMP, not UNIX_TIMESTAMP(NOW()): mapping a session-local time back to epoch is off by an hour inside a repeated DST hour
+  public epochMillis(): string {
+    return "TIMESTAMPDIFF(MICROSECOND, '1970-01-01 00:00:00', UTC_TIMESTAMP(3)) DIV 1000";
+  }
+
+  public concat(...parts: string[]): string {
+    return parts.length === 1 ? parts[0] : `CONCAT(${parts.join(', ')})`;
+  }
 }
