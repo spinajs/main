@@ -1,5 +1,4 @@
 import { DI } from '@spinajs/di';
-import { IdentifierQuoter, QueryContext } from '@spinajs/orm';
 import '@spinajs/orm-mysql';
 import '@spinajs/orm-postgres';
 import { bootDb } from '../support/env.js';
@@ -42,11 +41,14 @@ for (const target of TARGETS) {
 
     describeRowLease(async () => {
       const driver = await bootDb([{ ...target.connection, Name: 'default' }]);
-      await driver.executeOnDb(`DROP TABLE IF EXISTS ${LEASE_TABLE}`, [], QueryContext.Schema);
-      // quoted: Postgres folds unquoted identifiers to lower case, the query builder quotes them
-      const quoter = driver.Container.resolve(IdentifierQuoter);
-      const q = (id: string) => quoter.quote(id);
-      await driver.executeOnDb(`CREATE TABLE ${LEASE_TABLE} (${q('Id')} VARCHAR(64) PRIMARY KEY, ${q('Status')} VARCHAR(32), ${q('ClaimedBy')} VARCHAR(64), ${q('ClaimedUntil')} BIGINT, ${q('ClaimEpoch')} INTEGER NOT NULL DEFAULT 0)`, [], QueryContext.Schema);
+      await driver.schema().dropTable(LEASE_TABLE).ifExists();
+      await driver.schema().createTable(LEASE_TABLE, (t) => {
+        t.string('Id', 64).primaryKey();
+        t.string('Status', 32);
+        t.string('ClaimedBy', 64);
+        t.bigint('ClaimedUntil');
+        t.int('ClaimEpoch').notNull().default().value(0);
+      });
       return driver;
     });
   });

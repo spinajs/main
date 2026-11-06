@@ -2,6 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { FaultInjector } from '@spinajs/durable';
+import type { ICompilerOutput } from '@spinajs/orm';
 import type { FakeClock } from '@spinajs/durable/testing';
 import { Workflow, WorkflowDefinition, WorkflowEngine, WorkflowInstanceModel, WorkflowService, type WorkflowContext } from '../src/index.js';
 import { engine } from './support/engine.js';
@@ -73,6 +74,12 @@ class WarningsEngine extends WorkflowEngine {
   public static warnings: string[] = [];
   protected warn(message: string): void {
     WarningsEngine.warnings.push(message);
+  }
+}
+
+class SignalledQueryEngine extends WorkflowEngine {
+  public compiled(now: number, workflow: string, limit: number): ICompilerOutput {
+    return this.signalledQuery(now, [this.Registry.find(workflow, 1)!], limit).toDB() as ICompilerOutput;
   }
 }
 
@@ -172,6 +179,16 @@ describe('WorkflowEngine.tick', () => {
     await seedEvent('b-reg', 'go');
     await (await engine()).tick();
     expect([(await instance('a-unreg')).Status, (await instance('b-reg')).Status]).to.deep.equal(['waiting', 'completed']);
+  });
+
+  it('correlates the signalled-wait EXISTS with the outer instance row', async () => {
+    await boot();
+    const probe = await DI.resolve(SignalledQueryEngine, [{ replicaId: 'r1' }]);
+    const { expression, bindings } = probe.compiled(T0, 'eng-noop', 3);
+    expect(expression).to.contain(
+      'AND EXISTS ( SELECT * FROM `__workflow_event` WHERE `State` = ? AND `__workflow_event`.`InstanceId` = `__workflow`.`Id` AND `__workflow_event`.`Name` = `__workflow`.`WaitingFor` ) ORDER BY `UpdatedAt` ASC LIMIT ?',
+    );
+    expect(bindings).to.deep.equal(['waiting', T0, 'eng-noop', 1, 'pending', 3]);
   });
 
   it('leaves an instance alone while another replica holds a valid lease', async () => {
