@@ -1,9 +1,6 @@
-import type { Diagnostic, Manifest, ModelSqlQuery } from '@spinajs/manifest';
-import { analyzeSql, dialectOfDriver, isSqlStatement, type SqlDialect } from '../../sql/index.js';
+import type { Diagnostic, Manifest, ModelSqlQuery, SqlDialectProfile } from '@spinajs/manifest';
+import { analyzeSql, GENERIC_SQL_DIALECT, isSqlStatement, resolveSqlDialect } from '../../sql/index.js';
 import { configAt, diagnostic, type DoctorContext, type DoctorRule } from '../rule.js';
-
-/** D6: without a configured dialect the generic grammar still catches unknown tables and columns. */
-const FALLBACK: SqlDialect = 'mysql';
 
 const asString = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined);
 
@@ -15,12 +12,17 @@ function configuredDriver(config: Record<string, unknown> | undefined, connectio
   return asString(found?.Driver);
 }
 
-/** The dialect of a connection: the app's package.json first, then the driver of the loaded configuration. */
-export function dialectFor(connection: string, ctx: DoctorContext): SqlDialect | undefined {
-  const declared = ctx.sqlDialects?.[connection];
-  if (declared) return declared;
-  const driver = configuredDriver(ctx.config, connection);
-  return driver ? dialectOfDriver(driver) : undefined;
+/** D6 and P3: the app's package.json, then the driver of the loaded configuration, then the only installed dialect. */
+export function dialectFor(connection: string, manifest: Manifest, ctx: DoctorContext): SqlDialectProfile | undefined {
+  return resolveSqlDialect(manifest, ctx.sqlDialects?.[connection], configuredDriver(ctx.config, connection));
+}
+
+const UNCHECKED_TAIL = 'its queries are checked with the generic mysql grammar and driver-dependent columns are typed unknown';
+
+function noDialectMessage(connection: string, declared: string | undefined): string {
+  return declared
+    ? `Connection '${connection}' names SQL dialect '${declared}', which no installed driver declares; ${UNCHECKED_TAIL}`
+    : `No SQL dialect for connection '${connection}': set package.json#spinajs.orm.dialects.${connection} in the app; ${UNCHECKED_TAIL}`;
 }
 
 const results = new WeakMap<Manifest, WeakMap<DoctorContext, Diagnostic[]>>();
@@ -41,12 +43,12 @@ function analyzeAll(manifest: Manifest, ctx: DoctorContext): Diagnostic[] {
       continue;
     }
     const connection = query.connection ?? 'default';
-    const dialect = dialectFor(connection, ctx);
+    const dialect = dialectFor(connection, manifest, ctx);
     if (!dialect && !undeclared.has(connection)) undeclared.set(connection, query);
-    out.push(...analyzeSql(query, manifest, dialect ?? FALLBACK).problems);
+    out.push(...analyzeSql(query, manifest, dialect ?? GENERIC_SQL_DIALECT).problems);
   }
   for (const [connection, query] of undeclared) {
-    out.push(diagnostic('SQL011', 'warning', `No SQL dialect for connection '${connection}': set package.json#spinajs.orm.dialects.${connection} in the app; its queries are checked with the generic mysql grammar`, query.source));
+    out.push(diagnostic('SQL011', 'warning', noDialectMessage(connection, ctx.sqlDialects?.[connection]), query.source));
   }
   byContext.set(ctx, out);
   return out;
