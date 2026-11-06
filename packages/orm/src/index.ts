@@ -30,6 +30,7 @@ export * from './migration-runner.js';
 export * from './discrimination-middleware.js';
 export * from './orm.js';
 export * from './types.js';
+export * from './typing.js';
 export * from './hydrators.js';
 export * from './dehydrators.js';
 export * from './snapshot.js';

@@ -1,4 +1,4 @@
-import type { JoinMethod, Op } from './enums.js';
+import type { JoinMethod, Op, SqlOperator } from './enums.js';
 /* eslint-disable prettier/prettier */
 import type { QueryBuilder } from './builders/base.js';
 import type { RawQuery } from './builders/raw.js';
@@ -14,6 +14,7 @@ import { MethodNotImplemented } from '@spinajs/exceptions';
 import type { DateTime } from 'luxon';
 import type { Relation } from './relation-objects.js';
 import type { Lazy } from '@spinajs/util';
+import type { ColumnRef, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue } from './typing.js';
 // imported, deliberately NOT re-exported: `index.ts` does `export *` on both this file and
 // `resilience.js`, and exporting the same name from both is an ambiguous re-export.
 import type { IConnectionResilienceOptions } from './resilience.js';
@@ -1279,46 +1280,46 @@ export interface IWhereBuilder<T> {
   where(func: WhereFunction<T>): this;
   where(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   where(func: Lazy<void>): this;
-  where(column: string, operator: Op, value: any): this;
-  where(column: string, value: any): this;
+  where<C extends WhereColumn<Unbox<T>>>(column: C, operator: Op | SqlOperator, value: WhereValue<Unbox<T>, C>): this;
+  where<C extends WhereColumn<Unbox<T>>>(column: C, value: WhereValue<Unbox<T>, C>): this;
   where(statement: Wrap): this;
-  where(column: string | boolean | WhereFunction<T> | Lazy<void> | RawQuery | Partial<ModelDataWithRelationDataSearchable<Unbox<T>>> | Wrap, operator?: Op | any, value?: any): this;
+  where(column: WhereCatchAllColumn<Unbox<T>> | boolean | WhereFunction<T> | Lazy<void> | RawQuery | Partial<ModelDataWithRelationDataSearchable<Unbox<T>>> | Wrap, operator?: WhereOperator<Op | SqlOperator>, value?: any): this;
 
   orWhere(val: boolean): this;
   orWhere(func: WhereFunction<T>): this;
   orWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   orWhere(func: Lazy<void>): this;
-  orWhere(column: string, operator: Op, value: any): this;
-  orWhere(column: string, value: any): this;
+  orWhere<C extends WhereColumn<Unbox<T>>>(column: C, operator: Op | SqlOperator, value: WhereValue<Unbox<T>, C>): this;
+  orWhere<C extends WhereColumn<Unbox<T>>>(column: C, value: WhereValue<Unbox<T>, C>): this;
   orWhere(statement: Wrap): this;
-  orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>, operator?: Op | any, value?: any): this;
+  orWhere(column: WhereCatchAllColumn<Unbox<T>> | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>, operator?: WhereOperator<Op | SqlOperator>, value?: any): this;
 
   andWhere(val: boolean): this;
   andWhere(func: WhereFunction<T>): this;
   andWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   andWhere(func: Lazy<void>): this;
-  andWhere(column: string, operator: Op, value: any): this;
-  andWhere(column: string, value: any): this;
+  andWhere<C extends WhereColumn<Unbox<T>>>(column: C, operator: Op | SqlOperator, value: WhereValue<Unbox<T>, C>): this;
+  andWhere<C extends WhereColumn<Unbox<T>>>(column: C, value: WhereValue<Unbox<T>, C>): this;
   andWhere(statement: Wrap): this;
-  andWhere(column: string | boolean | Lazy<void> | WhereFunction<T> | RawQuery | Wrap | Partial<ModelData<Unbox<T>>>, operator?: Op | any, value?: any): this;
+  andWhere(column: WhereCatchAllColumn<Unbox<T>> | boolean | Lazy<void> | WhereFunction<T> | RawQuery | Wrap | Partial<ModelData<Unbox<T>>>, operator?: WhereOperator<Op | SqlOperator>, value?: any): this;
 
   whereObject(obj: Partial<ModelData<Unbox<T>>>): this;
-  whereNotNull(column: string | Wrap): this;
-  whereNull(column: string | Wrap): this;
-  whereNot(column: string, val: unknown): this;
+  whereNotNull(column: ColumnRef<Unbox<T>> | Wrap): this;
+  whereNull(column: ColumnRef<Unbox<T>> | Wrap): this;
+  whereNot(column: ColumnRef<Unbox<T>>, val: unknown): this;
   /** `NOT ( ... )` over the group the callback builds; an empty group negates to no row. */
   whereNot(condition: WhereFunction<T>): this;
-  whereIn(column: string | Wrap, val: unknown[] | ISelectQueryBuilder): this;
-  whereNotIn(column: string | Wrap, val: unknown[] | ISelectQueryBuilder): this;
+  whereIn(column: ColumnRef<Unbox<T>> | Wrap, val: unknown[] | ISelectQueryBuilder): this;
+  whereNotIn(column: ColumnRef<Unbox<T>> | Wrap, val: unknown[] | ISelectQueryBuilder): this;
   whereExist<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this;
   whereNotExists<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this;
-  whereBetween(column: string, val: unknown[]): this;
-  whereNotBetween(column: string, val: unknown[]): this;
-  whereInSet(column: string, val: unknown[]): this;
-  whereNotInSet(column: string, val: unknown[]): this;
+  whereBetween(column: ColumnRef<Unbox<T>>, val: unknown[]): this;
+  whereNotBetween(column: ColumnRef<Unbox<T>>, val: unknown[]): this;
+  whereInSet(column: ColumnRef<Unbox<T>>, val: unknown[]): this;
+  whereNotInSet(column: ColumnRef<Unbox<T>>, val: unknown[]): this;
   /** `left <op> right` over two columns; `right` may be `outer(column)`, a column of an enclosing query. */
-  whereColumn(left: string | Wrap, operator: Op, right: string | Wrap | OuterColumn): this;
-  whereStartsWith(column: string, prefix: string): this;
+  whereColumn(left: ColumnRef<Unbox<T>> | Wrap, operator: Op, right: ColumnRef<Unbox<T>> | Wrap | OuterColumn): this;
+  whereStartsWith(column: ColumnRef<Unbox<T>>, prefix: string): this;
 
   // join-scoped conditions - land in relation JOIN ON clause instead of parent WHERE
   whereOnJoin(callback: WhereFunction<T>): this;
@@ -1344,6 +1345,27 @@ export interface IGroupByBuilder {
 
   clearGroupBy(): this;
   groupBy(expression: RawQuery | string): this;
+}
+
+/**
+ * Column methods of a select over its row type. `IColumnsBuilder`, `IOrderByBuilder` and `IGroupByBuilder`
+ * carry no row type, so they are re-declared here. Method parameter bivariance keeps a select builder
+ * assignable to the untyped interfaces.
+ */
+export interface ITypedColumnsBuilder<T> extends IColumnsBuilder, IOrderByBuilder, IGroupByBuilder {
+  columns(names: ColumnRef<Unbox<T>>[]): this;
+
+  select(column: '*'): this;
+  select(column: ColumnRef<Unbox<T>>, alias?: string): this;
+  select(rawQuery: RawQuery): this;
+  select(columns: Map<string, string>): this;
+
+  orderBy(column: ColumnRef<Unbox<T>>): this;
+  orderByDescending(column: ColumnRef<Unbox<T>>): this;
+  order(column: ColumnRef<Unbox<T>>, direction?: SortOrder): this;
+  order(sort: Partial<ISort> | Array<Partial<ISort> | null | undefined> | null | undefined): this;
+
+  groupBy(expression: RawQuery | ColumnRef<Unbox<T>>): this;
 }
 
 /**
@@ -1415,22 +1437,21 @@ export interface IBuilder<T> extends PromiseLike<T> {
 
 export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> {
   /** Adds `column = column + by` to the SET list; calls on one column add up. */
-  increment(column: string, by?: number): this;
+  increment(column: ColumnRef<Unbox<T>>, by?: number): this;
 }
 
 export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> { }
 
-export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder, IQueryBuilder, IBuilder<T> {
+export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T>, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IQueryBuilder, IBuilder<T> {
   get Relations(): IOrmRelation[];
 
-  min(column: string, as?: string): this;
-  max(column: string, as?: string): this;
-  count(): this;
-  count(column: string, as?: string): this;
-  selectCount(): Promise<number>;
-  selectCount(column: string, as?: string): Promise<number>;
-  sum(column: string, as?: string): this;
-  avg(column: string, as?: string): this;
+  min(column: ColumnRef<Unbox<T>>, as?: string): this;
+  max(column: ColumnRef<Unbox<T>>, as?: string): this;
+  // The column stays optional: `count(maybe)` with `maybe: string | undefined` compiled before typed columns.
+  count(column?: ColumnRef<Unbox<T>>, as?: string): this;
+  selectCount(column?: ColumnRef<Unbox<T>>, as?: string): Promise<number>;
+  sum(column: ColumnRef<Unbox<T>>, as?: string): this;
+  avg(column: ColumnRef<Unbox<T>>, as?: string): this;
   /** `condition` as the boolean column `alias` (`CASE WHEN ... THEN 1 ELSE 0 END`). */
   selectCondition(alias: string, condition: WhereFunction<T>): this;
   setAlias(alias: string): this;

@@ -4,10 +4,11 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { use } from 'typescript-mix';
 import { ColumnMethods, QueryMethod, WhereBoolean, SqlOperator } from '../enums.js';
 import { SelectQueryCompiler, QueryContext, RelationType, BooleanValueConverter } from '../interfaces.js';
-import type { RowLockMode, IColumnsBuilder, ICompilerOutput, ILimitBuilder, IOrderByBuilder, IQueryLimit, ISort, IWhereBuilder, IJoinBuilder, IBuilderMiddleware, IWithRecursiveBuilder, IGroupByBuilder } from '../interfaces.js';
+import type { RowLockMode, ICompilerOutput, ILimitBuilder, IQueryLimit, ISort, IWhereBuilder, IJoinBuilder, IBuilderMiddleware, IWithRecursiveBuilder, ITypedColumnsBuilder } from '../interfaces.js';
 import { ColumnMethodStatement, WhereStatement, ColumnRawStatement, ColumnConditionStatement } from '../statements.js';
 import type { ColumnStatement, IQueryStatement } from '../statements.js';
-import type { WhereFunction } from '../types.js';
+import type { Unbox, WhereFunction } from '../types.js';
+import type { ColumnRef } from '../typing.js';
 import type { OrmDriver } from '../driver.js';
 import type { ModelBase } from '../model.js';
 import type { IOrmRelation } from '../relations.js';
@@ -26,7 +27,7 @@ import { JoinBuilder } from './join.js';
 import { WithRecursiveBuilder } from './with-recursive.js';
 import { WhereBuilder } from './where.js';
 
-export interface SelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder { }
+export interface SelectQueryBuilder<T> extends ITypedColumnsBuilder<T>, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder { }
 
 /** Reads the driver's value of a selectCondition() column as a boolean. */
 class BooleanColumnMiddleware implements IBuilderMiddleware<any> {
@@ -460,16 +461,19 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this;
   }
 
+  public min(column: ColumnRef<Unbox<T>>, as?: string): this;
   public min(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.MIN, as, this._tableAlias]));
     return this;
   }
 
+  public max(column: ColumnRef<Unbox<T>>, as?: string): this;
   public max(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.MAX, as, this._tableAlias]));
     return this;
   }
 
+  public count(column?: ColumnRef<Unbox<T>>, as?: string): this;
   public count(column?: string, as?: string) {
     const c = column ?? '*';
     const a = as ?? 'count';
@@ -481,6 +485,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this;
   }
 
+  public selectCount(column?: ColumnRef<Unbox<T>>, as?: string): Promise<number>;
   public selectCount(column?: string, as?: string) {
     const a = as ?? 'count';
 
@@ -490,11 +495,13 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       .then((x) => Number(x?.[a] ?? 0));
   }
 
+  public sum(column: ColumnRef<Unbox<T>>, as?: string): this;
   public sum(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.SUM, as, this._tableAlias]));
     return this;
   }
 
+  public avg(column: ColumnRef<Unbox<T>>, as?: string): this;
   public avg(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.AVG, as, this._tableAlias]));
     return this;
