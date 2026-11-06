@@ -14,7 +14,7 @@ import { MethodNotImplemented } from '@spinajs/exceptions';
 import type { DateTime } from 'luxon';
 import type { Relation } from './relation-objects.js';
 import type { Lazy } from '@spinajs/util';
-import type { ColumnRef, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue } from './typing.js';
+import type { ColumnName, ColumnRef, ColumnTypeOf, PickColumns, Project, Reproject, StrictNarrowed, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue } from './typing.js';
 // imported, deliberately NOT re-exported: `index.ts` does `export *` on both this file and
 // `resilience.js`, and exporting the same name from both is an ambiguous re-export.
 import type { IConnectionResilienceOptions } from './resilience.js';
@@ -1353,9 +1353,12 @@ export interface IGroupByBuilder {
  * assignable to the untyped interfaces.
  */
 export interface ITypedColumnsBuilder<T> extends IColumnsBuilder, IOrderByBuilder, IGroupByBuilder {
+  columns<C extends ColumnName<Unbox<T>>>(names: C[]): StrictNarrowed<this, T, Reproject<Unbox<T>, PickColumns<Unbox<T>, C>>>;
   columns(names: ColumnRef<Unbox<T>>[]): this;
 
   select(column: '*'): this;
+  select<C extends ColumnName<Unbox<T>>>(column: C): StrictNarrowed<this, T, Project<Unbox<T>, PickColumns<Unbox<T>, C>>>;
+  select<C extends ColumnName<Unbox<T>>, A extends string>(column: C, alias: A): StrictNarrowed<this, T, Project<Unbox<T>, Record<A, ColumnTypeOf<Unbox<T>, C>>>>;
   select(column: ColumnRef<Unbox<T>>, alias?: string): this;
   select(rawQuery: RawQuery): this;
   select(columns: Map<string, string>): this;
