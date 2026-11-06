@@ -101,6 +101,11 @@ try {
     const text = await res.text();
     return { status: res.status, body: text.startsWith('{') || text.startsWith('[') ? JSON.parse(text) : text };
   };
+  const post = async (path, body) => {
+    const res = await fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const text = await res.text();
+    return { status: res.status, body: text.startsWith('{') || text.startsWith('[') ? JSON.parse(text) : text };
+  };
   result.responses = {
     health: await get('/health/get'),
     users: await get('/users/list?query=' + encodeURIComponent(JSON.stringify({ page: 1, perPage: 5 }))),
@@ -126,10 +131,15 @@ try {
     sideEffect: await get('/side-effect/get'),
     sourced: await get('/sourced/get?page=2'),
     sourcedInvalid: await get('/sourced/get?page=abc'),
+    article: await get('/articles/7'),
   };
 
   // Only with a manifest: a scan-only boot has no derived validation to prove.
-  result.validation = { users: await get('/users/list?query=' + encodeURIComponent(JSON.stringify({ page: 'abc' }))) };
+  result.validation = {
+    users: await get('/users/list?query=' + encodeURIComponent(JSON.stringify({ page: 'abc' }))),
+    articleInvalid: await post('/articles/add', { title: 42 }),
+    articleValid: await post('/articles/add', { title: 'news' }),
+  };
 
   await DI.resolve(SocketServer);
   const sockets = await DI.resolve(SocketHandlerRegistry);

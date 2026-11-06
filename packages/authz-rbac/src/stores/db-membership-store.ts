@@ -1,3 +1,4 @@
+import { changeLog } from '@spinajs/authz';
 import type { AuthzTx } from '@spinajs/authz';
 import { Autoinject, Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
@@ -32,6 +33,7 @@ export class DbMembershipStore extends withDbRbacStore(AdminMembershipStore) {
 
   constructor(protected readonly container: IContainer) {
     super();
+    changeLog().track('membership');
   }
 
   async setsOf(memberKeys: readonly string[], at: Date): Promise<readonly { setKey: string; expiresAt?: Date }[]> {
@@ -58,6 +60,7 @@ export class DbMembershipStore extends withDbRbacStore(AdminMembershipStore) {
     requireTransaction(MembershipRecord, tx, `${this.name}.replace`);
     await MembershipRecord.destroy().where('member_key', memberKey);
     await MembershipRecord.insert(rows.map((r) => recordValues<MembershipRecord>({ member_key: memberKey, set_key: r.setKey, depth: r.depth, expires_at: toDateTime(r.expiresAt) })));
+    await this.logChanges([{ kind: 'membership', op: rows.length === 0 ? 'remove' : 'put', key: memberKey, payload: rows }]);
   }
 
   /** Rows whose `column` is one of `keys`; `at` undefined keeps expired rows. */

@@ -1,7 +1,7 @@
 import { DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { AUTHZ_DEFAULTS, AuthzDomains, DefaultAuthzDomains, filterObject, readDomainConfig, subtractFieldGlobs } from '@spinajs/authz';
-import type { Decision } from '@spinajs/authz';
+import { AUTHZ_DEFAULTS, AuthzDomains, DefaultAuthzDomains, readDomainConfig, redact } from '@spinajs/authz';
+import type { Decision, RedactFieldSet } from '@spinajs/authz';
 import { IRegisteredHandler, ISocketCommandContext, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
 import { ISocketAccess, socketAccessDomain, socketAccessOf } from '../access.js';
 import { isStreamResult } from '../stream.js';
@@ -56,21 +56,21 @@ export class AccessFieldsStage extends SocketCommandStage {
 
   public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
     const access = accessOf(ctx.handler);
-    if (access?.fields !== 'filter') {
+    if (access?.fields !== 'filter' && access?.fields !== 'filter-rows') {
       return next();
     }
 
+    if (access.fields === 'filter-rows') ctx.storage.AuthzRowFields = true;
     const result = await next();
-    const read = this.readable(ctx.storage.AuthzDecision, socketAccessDomain(ctx.handler!.descriptor.Policies, ctx.handler!.controller.Descriptor?.Policies));
-    const filter = (data: unknown): unknown => (data !== null && typeof data === 'object' && !ArrayBuffer.isView(data) && !(data instanceof ArrayBuffer) ? filterObject(read, data) : data);
+    const fields = this.readable(ctx.storage.AuthzDecision, socketAccessDomain(ctx.handler!.descriptor.Policies, ctx.handler!.controller.Descriptor?.Policies));
+    const filter = (data: unknown): unknown => redact(data, fields);
 
     return isStreamResult(result) ? filtered(result, filter) : filter(result);
   }
 
-  protected readable(decision: Decision | undefined, domain: string): readonly string[] {
+  protected readable(decision: Decision | undefined, domain: string): RedactFieldSet {
     const domains = DI.get(AuthzDomains);
     const neverRead = domains instanceof DefaultAuthzDomains ? readDomainConfig(this.Authz, domains.lineage(decision?.domain ?? domain)).fields.neverRead : AUTHZ_DEFAULTS.fields.neverRead;
-    const read = decision?.fields.read ?? ['*'];
-    return neverRead.length === 0 ? read : subtractFieldGlobs(read, neverRead);
+    return { read: decision?.fields.read ?? ['*'], neverRead };
   }
 }
