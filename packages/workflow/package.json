@@ -1,0 +1,73 @@
+{
+  "name": "@spinajs/workflow",
+  "version": "3.0.23",
+  "description": "Durable workflows on the application's own database: journaled steps, timers, signals and sagas",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    }
+  },
+  "type": "module",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.build.json",
+    "rimraf": "./node_modules/rimraf/bin.js",
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
+    "test": "ts-mocha -p tsconfig.json --exit \"test/**/*.test.ts\"",
+    "coverage": "c8 npm run test",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "cd ../.. && npm run lint -- packages/workflow",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "workflow",
+    "durable",
+    "saga"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@spinajs/configuration": "3.0.23",
+    "@spinajs/di": "3.0.23",
+    "@spinajs/durable": "3.0.23",
+    "@spinajs/exceptions": "3.0.23",
+    "@spinajs/log-common": "3.0.23",
+    "@spinajs/orm": "3.0.23",
+    "@spinajs/queue": "3.0.23",
+    "@spinajs/reflection": "3.0.23",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@spinajs/log": "3.0.23",
+    "@spinajs/orm-mysql": "3.0.23",
+    "@spinajs/orm-postgres": "3.0.23",
+    "@spinajs/orm-sqlite": "3.0.23",
+    "@types/node": "^22.14.1"
+  },
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
+}
