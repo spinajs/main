@@ -13,11 +13,12 @@ A command declared `idempotent` runs once per idempotency key, however often the
    - completed: the stored reply is answered (a stored error is thrown again, with its `errorId`);
    - running on this instance: the call waits for that run's reply, or claims again if that run released the key;
    - running elsewhere: `unavailable` with `retryAfterMs` set to the rest of the claim's lease (`1000` on a 3.x store, which has no lease).
-4. When the handler settles, the claim records the outcome once:
+   On a claim the stage sets `ctx.drainGrace`, so the shutdown drain gives the handler its grace, and adds the claim as an outcome recorder (`ctx.addOutcomeRecorder`). A replay or a join does neither.
+4. When the handler settles, the claim records the outcome once. Inside an `ordered` queue place the ordering stage records it, through `ctx.recordOutcome`; otherwise the idempotency stage does:
    - a result is stored in its wire (JSON) form, and the reply is that form, so a live reply and every replay are the same payload;
    - a non-retryable error is stored;
    - a retryable error, `unauthenticated`, the call's own abort (deadline, cancel, disconnect, shutdown while queued) and a stream result release the key, so a resend runs the command again;
-   - a shutdown abort after the handler started keeps the key claimed until its lease ends, then another instance takes it over: the handler may have committed.
+   - a shutdown abort after the handler started (`ctx.handlerStarted`) keeps the key claimed until its lease ends, then another instance takes it over: the handler may have committed.
 5. A store that fails to keep a reply: the reply is still answered and the key released.
 
 `OrderingStage` (order 550):
@@ -25,8 +26,8 @@ A command declared `idempotent` runs once per idempotency key, however often the
 1. Without `ordered`, a request with `after` runs only if the store holds `after` as completed; otherwise `unavailable` with `details { after }`.
 2. With `ordered: 'connection'` the queue key is the connection id; with `ordered: 'client'` it is the principal key and `clientId`, across reconnects.
 3. In its queue place the command is skipped if it was aborted while waiting, checks `after`, and runs the rest of the pipeline. Policies and arguments therefore see what earlier commands changed.
-4. The place is held until the handler settles, even after an abort answered the client. A handler still running `ordering.abortGraceMs` after its abort is cut loose: the place is released, an error is logged, and its idempotency key stays running until it settles.
-5. The outcome is recorded before the place is released, so the next command's `after` check sees it.
+4. The place is held until the handler settles, even after an abort answered the client. A handler still running `ordering.abortGraceMs` after its abort is cut loose: the place is released, an error is logged, and `ctx.detachOutcome` leaves its recorders, so its idempotency key, running until it settles.
+5. The outcome is recorded (`ctx.recordOutcome`) before the place is released, so the next command's `after` check sees it.
 
 ```mermaid
 sequenceDiagram
@@ -83,7 +84,7 @@ A bad `idempotency` value makes `SocketServer.resolve()` throw `RangeError`.
 | `IdempotencyStore` | `IdempotencyStore`; one class picked by name from `http.socket.idempotency.service` (`@AutoinjectService`) and built with that config object; singleton | `MemoryIdempotencyStore` (process memory, LRU over completed keys) | A shared store of your own (Redis, ORM) | Extend `IdempotencyStore`, `@Injectable(IdempotencyStore)`, set `http.socket.idempotency.service` to the class name |
 | `MemoryIdempotencyStore` | registered under `IdempotencyStore` | `MemoryIdempotencyStore` | Your subclass | Override `claim()`, `complete()`, `release()`, `get()` and call `super`; register under `IdempotencyStore` with its own class name and select it in config |
 | `SocketIdempotency` | `SocketIdempotency` (self), singleton; shared by both stages | `SocketIdempotency` | Your subclass | Override `scope()` (the key scheme), `record()` (what is kept); `DI.register(Mine).as(SocketIdempotency)` |
-| `IdempotencyStage`, `OrderingStage` | `SocketCommandStage`, orders 500 and 550 | as named | Your stages | Replace as any stage; see [Command pipeline](04-command-pipeline.md#replace-a-built-in-stage) |
+| `IdempotencyStage`, `OrderingStage` | `SocketCommandStage`, orders 500 and 550 | as named | Your stages | Replace as any stage; see [Command pipeline](04-command-pipeline.md#replace-a-built-in-stage). A replacement of `IdempotencyStage` that still claims keys sets `ctx.drainGrace` and adds its claim with `ctx.addOutcomeRecorder`: the drain and the ordering queue rely on them |
 
 ### `IdempotencyStore`: a store shared by several instances
 
@@ -196,7 +197,7 @@ DI.register(TenantScopedIdempotency).as(SocketIdempotency);
 - An `after` on an `idempotent` command that is not `ordered: 'client'` gets the fence check alone, without a queue place.
 - `idempotencyKey` and `after` are 1 to 256 printable ASCII characters; anything else is a malformed request (`invalid_argument`).
 - A result JSON cannot represent (a BigInt, a cycle) answers `internal` and releases the key. A value JSON drops (a function) is answered and stored as `undefined`.
-- A stream handler cannot be `idempotent` or `ordered`; see [Stream replies](06-stream-replies.md).
+- A stream handler cannot be `idempotent` or `ordered`: both stages refuse it in `onRegister`, so an async generator fails the build and any other async-iterable result answers `failed_precondition`. See [Stream replies](06-stream-replies.md).
 - `MemoryIdempotencyStore` is per process: exactly-once across disconnects and graceful restarts, not across crashes. `maxEntries` counts completed keys only; running claims stay until they settle.
 - No store has a lease by default: a handler that never settles keeps its key running, and every resend of it waits or is refused.
 - `ordered` queues and the `after` fence are per instance; several instances need sticky sessions.
