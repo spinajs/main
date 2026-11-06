@@ -30,6 +30,8 @@
 | `Comment` | always `''` |
 | `ForeignKeyDescription`, `Converter` | always `null` |
 
+`tableIndexes()` reads `INFORMATION_SCHEMA.STATISTICS` (the primary key is the index named `PRIMARY`; functional parts are left out) and `tableForeignKeys()` reads `KEY_COLUMN_USAGE` with `REFERENTIAL_CONSTRAINTS`. MySQL creates an index for every foreign key column, so it reports indexes the other dialects do not.
+
 ### `parseColumnDefault(raw, dataType)`
 
 `INFORMATION_SCHEMA.COLUMNS.COLUMN_DEFAULT` is text, so `DEFAULT 0` on a `FLOAT` arrives as `'0'`. `parseColumnDefault()` returns a number when:

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { PostgresSqlExpressions } from './expressions.js';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { SessionSettingsQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, InStatement, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, RawQuery, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, DatetimeValueConverter, JsonValueConverter, NowExpression, JoinStatement, DateTimeWrapper, SqlExpressions, IndexQueryCompiler } from '@spinajs/orm';
+import { SessionSettingsQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, InStatement, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, RawQuery, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, DatetimeValueConverter, JsonValueConverter, NowExpression, JoinStatement, DateTimeWrapper, SqlExpressions, IndexQueryCompiler, LiveForeignKey, LiveIndex, groupIndexColumns } from '@spinajs/orm';
 import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import pg from 'pg';
 import { PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler, PostgresCreateViewCompiler, PostgresIndexQueryCompiler, PostgresSessionSettingsCompiler } from './compilers.js';
@@ -136,6 +136,15 @@ function typedLiteralDefault(text: string, udtName: string, raw: string): unknow
       return RawQuery.create(raw);
   }
 }
+
+// pg_constraint.confdeltype / confupdtype
+const PG_REFERENTIAL_ACTIONS: ReadonlyMap<string, string> = new Map([
+  ['a', 'NO ACTION'],
+  ['r', 'RESTRICT'],
+  ['c', 'CASCADE'],
+  ['n', 'SET NULL'],
+  ['d', 'SET DEFAULT'],
+]);
 
 export class PostgresServerResponseMapper extends ServerResponseMapper {
   public read(data: any, pkNames?: string[]) {
@@ -452,19 +461,12 @@ export class PostgresOrmDriver extends SqlDriver {
   }
 
   public async tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]> {
-    // Callers written against mysql semantics (orm's model bootstrap among them) pass
-    // `Options.Database` here, where database and schema are the same word. In postgres they are
-    // not: this connection IS the database, and the second argument can only usefully name a
-    // schema. Receiving our own database name therefore means "the default scope", not a schema
-    // literally called 'galaxy' — without this normalization every model descriptor came back
-    // EMPTY and inserts failed with "invalid column count".
-    const requested = schema && schema !== this.Options.Database ? schema : undefined;
-    const dbSchema = requested ?? (this.Options.Options?.Schema as string | undefined) ?? 'public';
+    const dbSchema = this.schemaOf(schema);
 
     // ORDER BY ordinal_position is not decoration: column order is part of what a table
     // descriptor means, and without it postgres is free to return rows in any order.
     const tblInfo = (await this.executeOnDb(
-      `SELECT column_name, data_type, udt_name, is_nullable, column_default, is_identity
+      `SELECT column_name, data_type, udt_name, is_nullable, column_default, is_identity, character_maximum_length
        FROM information_schema.columns
        WHERE table_name = ? AND table_schema = ?
        ORDER BY ordinal_position`,
@@ -494,7 +496,8 @@ export class PostgresOrmDriver extends SqlDriver {
         // udt_name is the concrete type ( int4, varchar, numeric ); data_type spells the
         // standard name ( "character varying" ) that nothing downstream recognises.
         Type: r.udt_name,
-        MaxLength: -1,
+        // null for every type but bounded character types; -1 is what the other drivers report for "no length"
+        MaxLength: r.character_maximum_length ?? -1,
         Comment: '',
         DefaultValue: parseColumnDefault(r.column_default, r.udt_name),
         NativeType: r.udt_name,
@@ -518,6 +521,56 @@ export class PostgresOrmDriver extends SqlDriver {
         Unique: isUnique || isPrimary,
       };
     });
+  }
+
+  /**
+   * The schema a table lookup reads. Callers written against mysql semantics ( orm's model bootstrap among them ) pass
+   * `Options.Database` as the schema, where database and schema are the same word. In postgres they are not: this
+   * connection IS the database, so our own database name means "the default scope", not a schema called so. Without
+   * this every model descriptor came back empty and inserts failed with "invalid column count".
+   */
+  protected schemaOf(schema?: string): string {
+    const requested = schema && schema !== this.Options.Database ? schema : undefined;
+    return requested ?? (this.Options.Options?.Schema as string | undefined) ?? 'public';
+  }
+
+  public async tableIndexes(name: string, schema?: string): Promise<LiveIndex[]> {
+    // An expression column of an index has attnum 0, no pg_attribute row, and drops out of the join.
+    const rows = (await this.executeOnDb(
+      `SELECT i.relname AS name, a.attname AS col, ix.indisunique AS is_unique, ix.indisprimary AS is_primary
+       FROM pg_index ix
+       JOIN pg_class t ON t.oid = ix.indrelid
+       JOIN pg_namespace ns ON ns.oid = t.relnamespace
+       JOIN pg_class i ON i.oid = ix.indexrelid
+       CROSS JOIN LATERAL unnest(ix.indkey::int2[]) WITH ORDINALITY AS k(attnum, ord)
+       JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+       WHERE t.relname = ? AND ns.nspname = ?
+       ORDER BY i.relname, k.ord`,
+      [name, this.schemaOf(schema)],
+      QueryContext.Select,
+    )) as Array<{ name: string; col: string; is_unique: boolean; is_primary: boolean }>;
+
+    return groupIndexColumns(rows.map((r) => ({ name: r.name, column: r.col, unique: r.is_unique, primary: r.is_primary })));
+  }
+
+  public async tableForeignKeys(name: string, schema?: string): Promise<LiveForeignKey[]> {
+    // pg_constraint pairs the columns of a composite key by position; information_schema cannot.
+    const rows = (await this.executeOnDb(
+      `SELECT c.conname AS name, a.attname AS col, rt.relname AS ref_table, ra.attname AS ref_col, c.confdeltype AS on_delete, c.confupdtype AS on_update
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+       JOIN pg_namespace ns ON ns.oid = t.relnamespace
+       JOIN pg_class rt ON rt.oid = c.confrelid
+       CROSS JOIN LATERAL unnest(c.conkey, c.confkey) WITH ORDINALITY AS k(attnum, refnum, ord)
+       JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+       JOIN pg_attribute ra ON ra.attrelid = c.confrelid AND ra.attnum = k.refnum
+       WHERE c.contype = 'f' AND t.relname = ? AND ns.nspname = ?
+       ORDER BY c.conname, k.ord`,
+      [name, this.schemaOf(schema)],
+      QueryContext.Select,
+    )) as Array<{ name: string; col: string; ref_table: string; ref_col: string; on_delete: string; on_update: string }>;
+
+    return rows.map((r) => ({ name: r.name, column: r.col, table: r.ref_table, references: r.ref_col, onDelete: PG_REFERENTIAL_ACTIONS.get(r.on_delete), onUpdate: PG_REFERENTIAL_ACTIONS.get(r.on_update) }));
   }
 
   /**
