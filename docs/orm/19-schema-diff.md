@@ -80,3 +80,17 @@ export class SchemaDiff_2026_11_03_10_20_30 extends OrmMigration {
 ```
 
 Tables are created before the tables that reference them, then columns are added, altered, indexed, and dropped. `down()` reverses created tables, added columns and added indexes. A `DESTRUCTIVE` step stays a comment unless `allowDestructive` is set. `introspectSchema(driver, tables)` reads `tableInfo()`, the driver's `tableIndexes()`/`tableForeignKeys()` where it has them, and whether each table has rows.
+
+A `modify()` re-states the whole column, so it keeps what the spec does not state from the live column:
+- the nullability of an inferred column;
+- the default, verbatim when the driver reports an expression (`DEFAULT CURRENT_TIMESTAMP` stays `CURRENT_TIMESTAMP`);
+- `unsigned` and `unique`;
+- the length, when the driver reports one.
+
+An aspect the driver does not report cannot be kept, so re-stating it makes the change `DESTRUCTIVE`:
+- the precision of a `decimal` (`precision not compared; re-stated as (10,2)`, or `as the driver's default` without one);
+- an explicit length on sqlite or mysql (`length not compared; re-stated as 50`).
+
+Other limits of a modify:
+- A `uuid` column is re-stated as `binary(16)`: the schema builder has no other uuid type outside `createTable`, so on postgres a modify re-types a native `uuid` column to `bytea`. Review such a step before running it.
+- sqlite modifies a column by rebuilding the table, and refuses to do so while `PRAGMA foreign_keys` is on and another table references it. Alter such a table in a hand-written migration.

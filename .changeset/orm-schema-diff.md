@@ -13,3 +13,5 @@
 `SqlDialectProfile` gains the optional `nativeTypes` (the families each live native type can hold) and `untrustedNullability`. Each shipped driver's `@SqlDialect` profile lists them, so `diffSchema` takes the dialect knowledge from the driver; a third-party driver adds its own.
 
 `introspectSchema` reads the live schema and `generateMigration` turns the changes into a `@Migration` class over the schema builder; destructive steps stay commented out unless allowed.
+
+`modify()` keeps the live default (an expression verbatim), the live length and the nullability of an inferred column; a modify that re-states a precision or a length the driver does not report is destructive. Generated string literals escape line terminators. orm-sqlite: `tableInfo()` parses `dflt_value`, so `DefaultValue` is the string or number of a literal and a `RawQuery` for an expression such as `CURRENT_TIMESTAMP`, instead of the raw SQL text; a new model no longer starts with the quoted text or `CURRENT_TIMESTAMP` as its value.

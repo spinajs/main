@@ -81,9 +81,23 @@ function nullChange(column: TargetColumn, current: IColumnDescriptor, extras: Li
   return { reason: column.nullable ? 'NULL allowed' : 'NOT NULL', destructive: !column.nullable && extras?.hasRows !== false };
 }
 
+/** A modify re-states the whole definition, so an aspect the driver does not report may change unseen. */
+function restated(column: TargetColumn, current: IColumnDescriptor): Finding[] {
+  const { sql } = column;
+  const out: Finding[] = [];
+  if (sql.family === 'decimal') {
+    out.push({ reason: `precision not compared; re-stated as ${sql.precision === undefined ? "the driver's default" : `(${sql.precision},${sql.scale ?? 0})`}`, destructive: true });
+  }
+  if ((sql.family === 'text' || sql.family === 'binary') && sql.length !== undefined && current.MaxLength <= 0) {
+    out.push({ reason: `length not compared; re-stated as ${sql.length}`, destructive: true });
+  }
+  return out;
+}
+
 function alterColumn(table: TargetTable, column: TargetColumn, current: IColumnDescriptor, extras: LiveTableExtras | undefined, ctx: DiffContext): SchemaChange | undefined {
-  const findings = [typeChange(table.name, column, current, ctx), lengthChange(table.name, column, current, ctx), nullChange(column, current, extras, ctx)].filter((f): f is Finding => f !== undefined);
-  if (findings.length === 0) return undefined;
+  const compared = [typeChange(table.name, column, current, ctx), lengthChange(table.name, column, current, ctx), nullChange(column, current, extras, ctx)].filter((f): f is Finding => f !== undefined);
+  if (compared.length === 0) return undefined;
+  const findings = [...compared, ...restated(column, current)];
   return {
     kind: 'alterColumn',
     table: table.name,

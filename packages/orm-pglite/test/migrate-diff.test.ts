@@ -1,19 +1,19 @@
 import 'mocha';
 import { expect } from 'chai';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Diagnostic, ModelEntry } from '@spinajs/manifest';
-import { buildTargetSchema, diffSchema, generateMigration, introspectSchema, isActionable, Orm, type OrmDriver, type OrmMigration, type SchemaChange } from '@spinajs/orm';
+import { buildTargetSchema, diffSchema, generateMigration, introspectSchema, isActionable, Orm, RawQuery, type OrmDriver, type OrmMigration, type SchemaChange } from '@spinajs/orm';
 import '@spinajs/log';
 import '@spinajs/orm-sqlite';
 import '../src/index.js';
 import { col, id, manifestOf, model, shopModels } from './migrate-diff.fixture.js';
 
-const TMP = resolve('test/.tmp-migrate-diff');
+const TMP = fileURLToPath(new URL('.tmp-migrate-diff/', import.meta.url));
 
 class DiffConf extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
@@ -51,7 +51,9 @@ async function apply(driver: OrmDriver, changes: SchemaChange[], name: string, a
   const { fileName, source } = generateMigration(changes, { name: `${name}${generated}`, connection: 'default', allowDestructive, now: new Date() });
   mkdirSync(TMP, { recursive: true });
   const file = join(TMP, fileName.replace(/\.ts$/, '.mjs'));
-  writeFileSync(file, ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022, experimentalDecorators: true } }).outputText);
+  const output = ts.transpileModule(source, { reportDiagnostics: true, compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022, experimentalDecorators: true } });
+  expect((output.diagnostics ?? []).map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'))).to.deep.equal([]);
+  writeFileSync(file, output.outputText);
   const exported = (await import(pathToFileURL(file).href)) as Record<string, new () => OrmMigration>;
   await new exported[fileName.replace(/\.ts$/, '')]().up(driver);
   return source;
@@ -97,7 +99,9 @@ for (const connection of ['pglite', 'sqlite'] as const) {
         }),
       ];
       const changed = await diff(driver, v2);
-      expect(kinds(changed)).to.deep.equal(['alterColumn rt2_articles', 'addColumn rt2_articles', 'addIndex rt2_articles', 'addIndex rt2_articles']);
+      // sqlite reports no length, so the modify re-states one it never compared (Q16)
+      const alter = connection === 'pglite' ? 'alterColumn rt2_articles' : '!alterColumn rt2_articles';
+      expect(kinds(changed)).to.deep.equal([alter, 'addColumn rt2_articles', 'addIndex rt2_articles', 'addIndex rt2_articles']);
       const altered = changed.changes.find((c) => c.kind === 'alterColumn');
       const lengths = changed.diagnostics.map((d) => d.message).filter((m) => m.startsWith('lengths of rt2_articles'));
       if (connection === 'pglite') {
@@ -105,10 +109,10 @@ for (const connection of ['pglite', 'sqlite'] as const) {
         expect(altered?.reason).to.equal('rt2_articles.Title: length 100 → 200, NULL allowed');
         expect(lengths).to.deep.equal([]);
       } else {
-        expect(altered?.reason).to.equal('rt2_articles.Title: NULL allowed');
+        expect(altered?.reason).to.equal('rt2_articles.Title: NULL allowed, length not compared; re-stated as 200');
         expect(lengths).to.deep.equal(['lengths of rt2_articles not compared: the driver reports none']);
       }
-      await apply(driver, changed.changes, 'EvolveChange');
+      await apply(driver, changed.changes, 'EvolveChange', connection === 'sqlite');
       expect(kinds(await diff(driver, v2))).to.deep.equal([]);
     });
 
@@ -160,6 +164,61 @@ for (const connection of ['pglite', 'sqlite'] as const) {
       expect(kinds(await diff(driver, partial, { prune: ['rt6_ledger.Legacy'] }))).to.deep.equal(['!dropColumn rt6_ledger']);
       const exhaustive = await diff(driver, [model('Ledger', 'rt6_ledger', [id()], { exhaustive: true })]);
       expect(exhaustive.changes.filter(isActionable).map((c) => c.reason)).to.deep.equal(['rt6_ledger is exhaustive and no model declares Legacy']);
+    });
+
+    it('keeps a live DEFAULT CURRENT_TIMESTAMP and DEFAULT x through a modify the spec does not state them in (Q16)', async () => {
+      await driver.schema().createTable('rt7_events', (table) => {
+        table.int('Id').primaryKey().autoIncrement();
+        table.dateTime('Seen').default().raw(RawQuery.create('CURRENT_TIMESTAMP'));
+        table.string('Code', 20).default().value('x');
+      });
+      const models = [model('Event', 'rt7_events', [id(), col('Seen', { family: 'datetime' }), col('Code', { family: 'text' })])];
+      const changed = await diff(driver, models);
+      expect(changed.changes.filter(isActionable).map((c) => c.reason)).to.deep.equal(['rt7_events.Seen: NOT NULL', 'rt7_events.Code: NOT NULL']);
+      await apply(driver, changed.changes, 'DefaultKeep');
+      const columns = (await driver.tableInfo('rt7_events')).filter((c) => c.Name !== 'Id');
+      const raw = (value: unknown): unknown => (value instanceof RawQuery ? { raw: value.Query } : value);
+      expect(columns.map((c) => [c.Name, c.Nullable, raw(c.DefaultValue), c.MaxLength])).to.deep.equal([
+        ['Seen', false, { raw: 'CURRENT_TIMESTAMP' }, -1],
+        ['Code', false, 'x', connection === 'pglite' ? 20 : -1],
+      ]);
+      expect(kinds(await diff(driver, models))).to.deep.equal([]);
+    });
+
+    it('drops an index the --base manifest had only as DESTRUCTIVE', async () => {
+      const level = col('Level', { family: 'text', inferred: true }, { nullable: true });
+      const v1 = [model('Log', 'rt8_logs', [id(), level], { indexes: [{ columns: ['Level'], unique: false }] })];
+      await apply(driver, (await diff(driver, v1)).changes, 'IndexCreate');
+      const v2 = [model('Log', 'rt8_logs', [id(), level])];
+      const removed = await diff(driver, v2, { base: v1 });
+      expect(kinds(removed)).to.deep.equal(['!dropIndex rt8_logs']);
+      await apply(driver, removed.changes, 'IndexDrop', true);
+      expect(kinds(await diff(driver, v2, { base: v1 }))).to.deep.equal([]);
+      expect((await driver.tableIndexes!('rt8_logs')).filter((i) => !i.primary)).to.deep.equal([]);
+    });
+
+    it('modifies a referenced table: in place on postgres; sqlite refuses the rebuild while foreign keys are enforced', async () => {
+      const member = model('Member', 'rt9_members', [id(), col('TeamId', { family: 'integer', inferred: true })], { relations: [{ name: 'Team', kind: 'belongsTo', target: 'Team', foreignKey: 'TeamId' }] });
+      const v1 = [model('Team', 'rt9_teams', [id(), col('Name', { family: 'text' })]), member];
+      await apply(driver, (await diff(driver, v1)).changes, 'ReferencedCreate');
+      const v2 = [model('Team', 'rt9_teams', [id(), col('Name', { family: 'text' }, { nullable: true })]), member];
+      const changed = await diff(driver, v2);
+      expect(kinds(changed)).to.deep.equal(['alterColumn rt9_teams']);
+      if (connection === 'pglite') {
+        await apply(driver, changed.changes, 'ReferencedAlter');
+        expect(kinds(await diff(driver, v2))).to.deep.equal([]);
+        return;
+      }
+      await driver.schema().raw('PRAGMA foreign_keys = ON');
+      try {
+        const error = await apply(driver, changed.changes, 'ReferencedAlter').then(
+          () => undefined,
+          (e: unknown) => e,
+        );
+        expect((error as Error | undefined)?.message).to.equal('sqlite cannot rebuild rt9_teams while foreign keys are enforced: rt9_members references it');
+      } finally {
+        await driver.schema().raw('PRAGMA foreign_keys = OFF');
+      }
     });
   });
 }

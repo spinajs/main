@@ -1,6 +1,7 @@
 import { InvalidArgument } from '@spinajs/exceptions';
 import type { ColumnFamily, ColumnSqlSpec, ModelIndex } from '@spinajs/manifest';
 import { DateTime } from 'luxon';
+import { RawQuery } from '../builders/raw.js';
 import type { IColumnDescriptor } from '../interfaces.js';
 import { indexName } from './diff.js';
 import { autoIncrementOf } from './target.js';
@@ -70,18 +71,20 @@ const TYPE_CALLS: Record<ColumnFamily, (spec: ColumnSqlSpec, mode: ColumnMode) =
   enum: (s) => ({ method: 'enum', args: [s.enumValues ?? []] }),
 };
 
-function defaultChain(value: ColumnSqlSpec['default']): ColumnCall['chain'] {
+/** `verbatim` keeps a live expression as it is: `dateTime()`/`date()` emit the dialect's own expression. */
+function defaultChain(value: ColumnSqlSpec['default'], verbatim = false): ColumnCall['chain'] {
   if (value === undefined || value === null) return [];
   if (typeof value !== 'object') return [{ name: 'default', args: [] }, { name: 'value', args: [typeof value === 'boolean' ? Number(value) : value] }];
-  const raw = value.raw.trim().toUpperCase();
+  const raw = verbatim ? '' : value.raw.trim().toUpperCase();
   if (raw === 'CURRENT_TIMESTAMP') return [{ name: 'default', args: [] }, { name: 'dateTime', args: [] }];
   if (raw === 'CURRENT_DATE') return [{ name: 'default', args: [] }, { name: 'date', args: [] }];
   return [{ name: 'default', args: [] }, { name: 'raw', args: [{ raw: value.raw }] }];
 }
 
-/** The live default as a spec default, when it is a plain value; anything else is the database's to keep. */
+/** The live default as a spec default; drivers report an expression default as a `RawQuery`. */
 function liveDefault(from: IColumnDescriptor): ColumnSqlSpec['default'] {
   const value: unknown = from.DefaultValue;
+  if (value instanceof RawQuery) return { raw: value.Query };
   return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? value : undefined;
 }
 
@@ -90,13 +93,13 @@ function liveDefault(from: IColumnDescriptor): ColumnSqlSpec['default'] {
  * state: the dialect compilers rebuild the whole definition, so an aspect left out would be dropped, not kept (D19).
  */
 export function columnCall(column: TargetColumn, mode: ColumnMode, from?: IColumnDescriptor): ColumnCall {
-  const { sql } = column;
+  const keep = mode === 'modify' ? from : undefined;
+  const sql = keep && column.sql.length === undefined && keep.MaxLength > 0 ? { ...column.sql, length: keep.MaxLength } : column.sql;
   const type = TYPE_CALLS[sql.family](sql, mode);
   const chain: ColumnCall['chain'] = [];
   const flag = (name: string, on: boolean | undefined): void => {
     if (on) chain.push({ name, args: [] });
   };
-  const keep = mode === 'modify' ? from : undefined;
   flag('modify', mode === 'modify');
   flag('primaryKey', column.primary);
   flag('autoIncrement', autoIncrementOf(column));
@@ -104,11 +107,23 @@ export function columnCall(column: TargetColumn, mode: ColumnMode, from?: IColum
   flag('notNull', keep && sql.inferred ? !keep.Nullable : !column.nullable);
   flag('unique', (sql.unique ?? keep?.Unique === true) && !column.primary);
   flag('unsigned', sql.unsigned ?? keep?.Unsigned);
-  chain.push(...defaultChain(sql.default !== undefined || !keep ? sql.default : liveDefault(keep)));
+  const kept = keep && sql.default === undefined ? liveDefault(keep) : undefined;
+  chain.push(...defaultChain(kept ?? sql.default, kept !== undefined));
   return { method: type.method, args: [column.name, ...type.args], chain };
 }
 
-const quote = (text: string): string => `'${text.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+const ESCAPES = new Map([
+  ['\\', '\\\\'],
+  ["'", "\\'"],
+  ['\n', '\\n'],
+  ['\r', '\\r'],
+]);
+
+// \p{Zl} and \p{Zp} are U+2028 and U+2029, which end a line in JavaScript source too.
+const quote = (text: string): string => `'${text.replace(/[\\'\n\r\p{Zl}\p{Zp}]/gu, (c) => ESCAPES.get(c) ?? `\\u${c.charCodeAt(0).toString(16)}`)}'`;
+
+// A line terminator in a live name would end the comment and turn the rest into code.
+const commentText = (text: string): string => text.replace(/[\r\n\p{Zl}\p{Zp}]/gu, ' ');
 
 function renderArg(arg: CallArg): string {
   if (typeof arg === 'string') return quote(arg);
@@ -196,8 +211,8 @@ export function planMigration(changes: SchemaChange[]): PlannedStep[] {
 
 function renderPlanned(planned: PlannedStep, allowDestructive: boolean): string[] {
   const lines = renderStep(planned.step);
-  if (!planned.destructive) return planned.reason ? [`// ${planned.reason}`, ...lines] : lines;
-  const marker = `// DESTRUCTIVE: ${planned.reason ?? planned.step.kind}`;
+  if (!planned.destructive) return planned.reason ? [`// ${commentText(planned.reason)}`, ...lines] : lines;
+  const marker = `// DESTRUCTIVE: ${commentText(planned.reason ?? planned.step.kind)}`;
   return allowDestructive ? [marker, ...lines] : [`${marker} (pass --allow-destructive to run it)`, ...lines.map((l) => `// ${l}`)];
 }
 
@@ -217,7 +232,7 @@ export function generateMigration(changes: SchemaChange[], options: GenerateOpti
   const up = methodBody(planned.flatMap((p) => renderPlanned(p, options.allowDestructive)));
   const undo = planned.flatMap((p) => (p.undo && (!p.destructive || options.allowDestructive) ? [p.undo] : []));
   const down = methodBody(undo.reverse().flatMap(renderStep));
-  const imports = ['Migration', 'OrmDriver', 'OrmMigration', ...(usesRaw(planned) ? ['RawQuery'] : [])];
+  const imports = ['Migration', 'type OrmDriver', 'OrmMigration', ...(usesRaw(planned) ? ['RawQuery'] : [])];
   const source = [
     `import { ${imports.join(', ')} } from '@spinajs/orm';`,
     '',

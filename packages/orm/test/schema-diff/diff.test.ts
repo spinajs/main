@@ -76,6 +76,16 @@ describe('diffSchema', () => {
     expect(run(models, sqlite, { hasRows: true }, { dialect: SQLITE })).to.deep.equal({ changes: [], diagnostics: ['MIG003 lengths of posts not compared: the driver reports none'] });
   });
 
+  it('marks a modify that re-states a precision or a length it never compared as destructive (Q16)', () => {
+    const models = [posts(col('Price', { family: 'decimal', precision: 10, scale: 2 }, { nullable: true }), col('Rate', { family: 'decimal' }, { nullable: true }))];
+    expect(run(models, [pk, title, live('Price', 'numeric'), live('Rate', 'numeric')]).changes).to.deep.equal([
+      '!alterColumn posts (posts.Price: NULL allowed, precision not compared; re-stated as (10,2))',
+      "!alterColumn posts (posts.Rate: NULL allowed, precision not compared; re-stated as the driver's default)",
+    ]);
+    const sqlite = [model('Post', 'posts', [id(), col('Code', { family: 'text', length: 50 }, { nullable: true })])];
+    expect(run(sqlite, [live('Id', 'INTEGER', { PrimaryKey: true }), live('Code', 'TEXT')], { hasRows: true }, { dialect: SQLITE }).changes).to.deep.equal(['!alterColumn posts (posts.Code: NULL allowed, length not compared; re-stated as 50)']);
+  });
+
   it('compares the nullability of explicit columns only, and never of a sqlite boolean', () => {
     const models = [posts(col('Body', { family: 'text' }, { nullable: true }), col('Flag', { family: 'text' }), col('Note', { family: 'text', inferred: true }, { nullable: true }), col('Tag', { family: 'text', default: 'x' }))];
     expect(run(models, [pk, title, live('Body', 'text'), live('Flag', 'text', { Nullable: true }), live('Note', 'text'), live('Tag', 'text', { Nullable: true, DefaultValue: 'x' })]).changes).to.deep.equal([
