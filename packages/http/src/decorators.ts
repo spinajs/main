@@ -14,6 +14,7 @@ import { strictHeaderReader } from './headers.js';
 import type { StrictHeaderOptions } from './headers.js';
 import { resolveIdempotentOptions } from './idempotency/options.js';
 import type { IdempotentOptions } from './idempotency/options.js';
+import { IdempotencyMiddleware } from './idempotency/middleware.js';
 
 
 export const CONTROLLED_DESCRIPTOR_SYMBOL = Symbol('CONTROLLER_SYMBOL');
@@ -375,6 +376,14 @@ export function Idempotent(options?: IdempotentOptions): MethodDecorator {
       throw new InvalidArgument('@Idempotent goes on a route method, not on a controller');
     }
     route.Idempotency = resolved;
+    // a second @Idempotent (or a subclass re-decorating an inherited route) must not nest another gate
+    const entry = { Type: IdempotencyMiddleware, Options: [resolved] };
+    const i = route.Middlewares.findIndex((m) => m.Type === IdempotencyMiddleware);
+    if (i >= 0) {
+      route.Middlewares[i] = entry;
+    } else {
+      route.Middlewares.push(entry);
+    }
   }) as MethodDecorator;
 }
 
