@@ -10,6 +10,8 @@ interface DiffContext {
   prune: Set<string>;
   base: Map<string, TargetTable>;
   noted: Set<string>;
+  /** Identity of a table or column name: case-folded when the dialect compares identifiers that way. */
+  fold: (name: string) => string;
 }
 
 interface Finding {
@@ -18,6 +20,9 @@ interface Finding {
 }
 
 type IndexKey = Pick<ModelIndex, 'columns' | 'unique'>;
+
+const FOLD_NONE = (name: string): string => name;
+const FOLD_CASE = (name: string): string => name.toLowerCase();
 
 function note(ctx: DiffContext, code: string, message: string, severity: Diagnostic['severity'] = 'info'): void {
   ctx.diagnostics.push({ code, severity, message });
@@ -36,7 +41,7 @@ const hasDefault = (column: IColumnDescriptor): boolean => column.DefaultValue !
 const failsOnRows = (column: TargetColumn, extras: LiveTableExtras | undefined): boolean =>
   !column.nullable && !column.primary && column.sql.default === undefined && extras?.hasRows !== false;
 
-const sameIndex = (a: IndexKey, b: IndexKey): boolean => a.unique === b.unique && a.columns.join('\0') === b.columns.join('\0');
+const sameIndex = (a: IndexKey, b: IndexKey, ctx: DiffContext): boolean => a.unique === b.unique && a.columns.map(ctx.fold).join('\0') === b.columns.map(ctx.fold).join('\0');
 
 const uniqueColumns = (table: TargetTable): ModelIndex[] => table.columns.filter((c) => c.sql.unique && !c.primary).map((c) => ({ columns: [c.name], unique: true }));
 
@@ -83,13 +88,14 @@ function nullChange(column: TargetColumn, current: IColumnDescriptor, extras: Li
 }
 
 /** A modify re-states the whole definition, so an aspect the driver does not report may change unseen. */
-function restated(column: TargetColumn, current: IColumnDescriptor): Finding[] {
+function restated(column: TargetColumn, current: IColumnDescriptor, dialect: SqlDialectProfile | undefined): Finding[] {
   const { sql } = column;
   const out: Finding[] = [];
   if (sql.family === 'decimal') {
     out.push({ reason: `precision not compared; re-stated as ${sql.precision === undefined ? "the driver's default" : `(${sql.precision},${sql.scale ?? 0})`}`, destructive: true });
   }
-  if ((sql.family === 'text' || sql.family === 'binary') && sql.length !== undefined && current.MaxLength <= 0) {
+  const lengthEnforced = sql.family === 'binary' || (sql.family === 'text' && !dialect?.unboundedText);
+  if (lengthEnforced && sql.length !== undefined && current.MaxLength <= 0) {
     out.push({ reason: `length not compared; re-stated as ${sql.length}`, destructive: true });
   }
   if (sql.default === undefined && !restatableDefault(current.DefaultValue)) {
@@ -106,7 +112,7 @@ function restatableDefault(value: unknown): boolean {
 function alterColumn(table: TargetTable, column: TargetColumn, current: IColumnDescriptor, extras: LiveTableExtras | undefined, ctx: DiffContext): SchemaChange | undefined {
   const compared = [typeChange(table.name, column, current, ctx), lengthChange(table.name, column, current, ctx), nullChange(column, current, extras, ctx)].filter((f): f is Finding => f !== undefined);
   if (compared.length === 0) return undefined;
-  const findings = [...compared, ...restated(column, current)];
+  const findings = [...compared, ...restated(column, current, ctx.dialect)];
   return {
     kind: 'alterColumn',
     table: table.name,
@@ -118,9 +124,9 @@ function alterColumn(table: TargetTable, column: TargetColumn, current: IColumnD
 
 function dropReason(table: TargetTable, name: string, ctx: DiffContext): string | undefined {
   const key = `${table.name}.${name}`;
-  if (ctx.base.get(table.name)?.columns.some((c) => c.name === name)) return `${key} was removed from the models since --base`;
+  if (ctx.base.get(ctx.fold(table.name))?.columns.some((c) => ctx.fold(c.name) === ctx.fold(name))) return `${key} was removed from the models since --base`;
   if (table.exhaustive) return `${table.name} is exhaustive and no model declares ${name}`;
-  return ctx.prune.has(key) ? `--prune ${key}` : undefined;
+  return ctx.prune.has(ctx.fold(key)) ? `--prune ${key}` : undefined;
 }
 
 function liveOnly(table: TargetTable, current: IColumnDescriptor, ctx: DiffContext): SchemaChange {
@@ -142,13 +148,13 @@ function diffIndexes(table: TargetTable, columns: IColumnDescriptor[], extras: L
   if (!extras?.indexes) {
     if (table.indexes.length > 0) once(ctx, `indexes:${table.name}`, `indexes of ${table.name} not compared: the driver has no tableIndexes()`);
     return uniqueColumns(table)
-      .filter((index) => !columns.find((c) => c.Name === index.columns[0])?.Unique)
+      .filter((index) => !columns.find((c) => ctx.fold(c.Name) === ctx.fold(index.columns[0]))?.Unique)
       .map((index) => addIndex(table, index));
   }
   const live = extras.indexes.filter((i) => !i.primary);
-  const added = wanted.filter((w) => !live.some((l) => sameIndex(l, w))).map((w) => addIndex(table, w));
-  const base = ctx.base.get(table.name);
-  const removed = base ? live.filter((l) => wantedIndexes(base).some((b) => sameIndex(b, l)) && !wanted.some((w) => sameIndex(w, l))) : [];
+  const added = wanted.filter((w) => !live.some((l) => sameIndex(l, w, ctx))).map((w) => addIndex(table, w));
+  const base = ctx.base.get(ctx.fold(table.name));
+  const removed = base ? live.filter((l) => wantedIndexes(base).some((b) => sameIndex(b, l, ctx)) && !wanted.some((w) => sameIndex(w, l, ctx))) : [];
   const dropped = removed.map((l): SchemaChange => ({ kind: 'dropIndex', table: table.name, detail: { name: l.name }, destructive: true, reason: `index ${l.name} on ${table.name} was removed from the models since --base` }));
   return [...added, ...dropped];
 }
@@ -161,7 +167,7 @@ function noteForeignKeys(table: TargetTable, extras: LiveTableExtras | undefined
     return;
   }
   for (const fk of table.foreignKeys) {
-    if (live.some((l) => l.column === fk.column && l.table === fk.table && l.references === fk.references)) continue;
+    if (live.some((l) => ctx.fold(l.column) === ctx.fold(fk.column) && ctx.fold(l.table) === ctx.fold(fk.table) && ctx.fold(l.references) === ctx.fold(fk.references))) continue;
     note(ctx, 'MIG005', `foreign key ${table.name}.${fk.column} → ${fk.table}.${fk.references} is missing; the schema builder adds foreign keys only in createTable, so add it in a hand-written migration`);
   }
 }
@@ -169,20 +175,26 @@ function noteForeignKeys(table: TargetTable, extras: LiveTableExtras | undefined
 function diffTable(table: TargetTable, columns: IColumnDescriptor[], extras: LiveTableExtras | undefined, ctx: DiffContext): SchemaChange[] {
   const out: SchemaChange[] = [];
   for (const column of table.columns) {
-    const current = columns.find((c) => c.Name === column.name);
+    const current = columns.find((c) => ctx.fold(c.Name) === ctx.fold(column.name));
     const change = current ? alterColumn(table, column, current, extras, ctx) : addColumn(table, column, extras);
     if (change) out.push(change);
   }
   for (const current of columns) {
-    if (!table.columns.some((c) => c.name === current.Name)) out.push(liveOnly(table, current, ctx));
+    if (!table.columns.some((c) => ctx.fold(c.name) === ctx.fold(current.Name))) out.push(liveOnly(table, current, ctx));
   }
   noteForeignKeys(table, extras, ctx);
   return [...out, ...diffIndexes(table, columns, extras, ctx)];
 }
 
+function liveColumns(live: Map<string, IColumnDescriptor[]>, name: string, ctx: DiffContext): IColumnDescriptor[] | undefined {
+  const exact = live.get(name);
+  if (exact || ctx.fold === FOLD_NONE) return exact;
+  return [...live].find(([key]) => ctx.fold(key) === ctx.fold(name))?.[1];
+}
+
 function droppedTables(target: TargetTable[], live: Map<string, IColumnDescriptor[]>, ctx: DiffContext): SchemaChange[] {
   return [...ctx.base.values()]
-    .filter((b) => live.has(b.name) && !target.some((t) => t.name === b.name))
+    .filter((b) => liveColumns(live, b.name, ctx) && !target.some((t) => ctx.fold(t.name) === ctx.fold(b.name)))
     .map((b): SchemaChange => ({ kind: 'dropTable', table: b.name, detail: { table: b.name }, destructive: true, reason: `${b.name} is mapped by no model since --base` }));
 }
 
@@ -191,16 +203,18 @@ function droppedTables(target: TargetTable[], live: Map<string, IColumnDescripto
  * declares is `unmanaged` and dropped only under the D19 rule 3 conditions. Diagnostics go to `options.diagnostics`.
  */
 export function diffSchema(target: TargetTable[], live: Map<string, IColumnDescriptor[]>, extras: LiveExtras = new Map(), options: DiffOptions = {}): SchemaChange[] {
+  const fold = options.dialect?.caseInsensitiveIdentifiers ? FOLD_CASE : FOLD_NONE;
   const ctx: DiffContext = {
     dialect: options.dialect,
     diagnostics: options.diagnostics ?? [],
-    prune: new Set(options.prune ?? []),
-    base: new Map((options.base ?? []).map((t) => [t.name, t])),
+    prune: new Set((options.prune ?? []).map(fold)),
+    base: new Map((options.base ?? []).map((t) => [fold(t.name), t])),
     noted: new Set(),
+    fold,
   };
   const changes: SchemaChange[] = [];
   for (const table of target) {
-    const columns = live.get(table.name);
+    const columns = liveColumns(live, table.name, ctx);
     if (columns) changes.push(...diffTable(table, columns, extras.get(table.name), ctx));
     else changes.push({ kind: 'createTable', table: table.name, detail: table, destructive: false });
   }
