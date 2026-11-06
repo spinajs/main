@@ -240,7 +240,7 @@ describe('diffSchema', () => {
       expect(run(models, columns, { hasRows: true }, options(EXACT)).changes[0]).to.equal('!alterColumn posts (posts.Title: NULL allowed, length not compared; re-stated as 200)');
     });
 
-    it('warns MIG006 when altering a column rebuilds a table that a live or a created table references', () => {
+    it('reports MIG006 as an error when altering a column rebuilds a table that a live or a created table references', () => {
       const REBUILDS = profile('sqlite', NATIVE, { alterColumnRebuildsTable: true });
       const models = [
         model('User', 'users', [id(), col('Name', { family: 'text' }, { nullable: true }), col('ParentId', { family: 'integer', inferred: true })]),
@@ -258,9 +258,9 @@ describe('diffSchema', () => {
       const check = (dialect: SqlDialectProfile): string[] => {
         const diagnostics: Diagnostic[] = [];
         diffSchema(target(...models), columns, extras, { dialect, diagnostics });
-        return codes(diagnostics).filter((d) => d.startsWith('MIG006'));
+        return diagnostics.filter((d) => d.code === 'MIG006').map((d) => `${d.severity} ${d.message}`);
       };
-      expect(check(REBUILDS)).to.deep.equal(['MIG006 altering a column of users rebuilds the table when that step runs, which fails while foreign keys are enforced: it is referenced by posts, comments']);
+      expect(check(REBUILDS)).to.deep.equal(['error altering a column of users rebuilds the table when that step runs, which fails while foreign keys are enforced: it is referenced by posts, comments']);
       expect(check(EXACT)).to.deep.equal([]);
     });
   });

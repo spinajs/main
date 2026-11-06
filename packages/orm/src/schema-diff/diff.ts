@@ -205,7 +205,7 @@ function noteRebuilds(changes: SchemaChange[], liveExtras: LiveExtras, ctx: Diff
   for (const table of new Set(changes.filter((c) => c.kind === 'alterColumn').map((c) => c.table))) {
     const referrers = new Set(references.filter((r) => ctx.fold(r.to) === ctx.fold(table) && ctx.fold(r.from) !== ctx.fold(table)).map((r) => r.from));
     if (referrers.size === 0) continue;
-    note(ctx, 'MIG006', `altering a column of ${table} rebuilds the table when that step runs, which fails while foreign keys are enforced: it is referenced by ${[...referrers].join(', ')}`, 'warning');
+    note(ctx, 'MIG006', `altering a column of ${table} rebuilds the table when that step runs, which fails while foreign keys are enforced: it is referenced by ${[...referrers].join(', ')}`, 'error');
   }
 }
 

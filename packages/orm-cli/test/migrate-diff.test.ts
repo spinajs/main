@@ -243,7 +243,7 @@ describe('migrate-diff', function () {
     ]);
   });
 
-  it('warns MIG006 before a sqlite column change that rebuilds a referenced table', async () => {
+  it('stops on MIG006 before a sqlite column change that rebuilds a referenced table', async () => {
     const lite = (await DI.resolve(Orm)).Connections.get('lite');
     if (!lite) throw new Error('no lite connection');
     await lite.schema().createTable('cli_parent', (table) => {
@@ -256,9 +256,16 @@ describe('migrate-diff', function () {
       table.foreignKey('ParentId').references('cli_parent', 'Id');
     });
     const manifest = writeManifest('m', [model('Parent', 'cli_parent', [id(), col('Name', { family: 'text' })], { connection: 'lite' }), model('Child', 'cli_child', [id(), col('ParentId', { family: 'integer', inferred: true })], { connection: 'lite' })]);
-    const { out, err } = await capture(() => command.execute(undefined, { connection: 'lite', manifest, check: true }));
-    expect(out).to.deep.equal(['alterColumn cli_parent: cli_parent.Name: NOT NULL']);
-    expect(err).to.deep.equal(['warning MIG006: altering a column of cli_parent rebuilds the table when that step runs, which fails while foreign keys are enforced: it is referenced by cli_child']);
+    const error = 'error MIG006: altering a column of cli_parent rebuilds the table when that step runs, which fails while foreign keys are enforced: it is referenced by cli_child';
+    const migrations = join(dir, 'migrations');
+    for (const options of [{ out: migrations }, { out: migrations, sql: true }, { check: true }]) {
+      process.exitCode = undefined;
+      const { out, err } = await capture(() => command.execute(undefined, { connection: 'lite', manifest, ...options }));
+      expect(out).to.deep.equal([]);
+      expect(err).to.deep.equal([error]);
+      expect(process.exitCode).to.equal(1);
+    }
+    expect(existsSync(migrations)).to.equal(false);
   });
 
   it('refuses an invalid name and an unknown connection', async () => {
