@@ -18,4 +18,6 @@ export const SQLITE_SQL_DIALECT: SqlDialectProfile = {
   },
   // CREATE TABLE renders every boolean NOT NULL.
   untrustedNullability: ['boolean'],
+  caseInsensitiveIdentifiers: true,
+  unboundedText: true,
 };

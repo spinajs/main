@@ -64,4 +64,9 @@ describe('pglite SQL dialect profile', function () {
     expect(familiesOf('int8', PGLITE_SQL_DIALECT)).to.deep.equal(['bigint']);
     expect(PGLITE_SQL_DIALECT.nativeTypes).to.deep.equal(POSTGRES_SQL_DIALECT.nativeTypes);
   });
+
+  it('declares how migrate-diff compares names and text lengths', () => {
+    expect(PGLITE_SQL_DIALECT.caseInsensitiveIdentifiers).to.equal(undefined);
+    expect(PGLITE_SQL_DIALECT.unboundedText).to.equal(undefined);
+  });
 });

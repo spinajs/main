@@ -24,4 +24,9 @@ describe('mysql SQL dialect profile', function () {
   it('maps the native types tableInfo() reports to column families', () => {
     expect(familiesOf('tinyint', MYSQL_SQL_DIALECT)).to.deep.equal(['integer', 'boolean']);
   });
+
+  it('declares how migrate-diff compares names and text lengths', () => {
+    expect(MYSQL_SQL_DIALECT.caseInsensitiveIdentifiers).to.equal(true);
+    expect(MYSQL_SQL_DIALECT.unboundedText).to.equal(undefined);
+  });
 });
