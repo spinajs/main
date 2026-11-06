@@ -6,13 +6,14 @@ import { DI, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { SocketException, WIRE_EVENTS } from '@spinajs/http-socket-common';
 import { BaseSocketController } from '../src/controller.js';
-import { Command, OnConnect, OnDisconnect, OnEvent, SocketController, SocketParameter } from '../src/decorators.js';
+import { Command, Connection, OnConnect, OnDisconnect, OnEvent, SocketController, SocketParameter } from '../src/decorators.js';
+import { SocketConnection } from '../src/connection.js';
 import { SocketClientGone, SocketCommandContext } from '../src/context.js';
 import { SocketDispatcher } from '../src/dispatcher.js';
 import { SocketErrorMapper } from '../src/errors.js';
 import { SocketHandlerRegistry } from '../src/registry.js';
 import { CommandOutcome, IConnectionRuntime, IRegisteredHandler, ISocketCallContext, ISocketCallStorage, ISocketCommandContext, ISocketOutcomeRecorder, ISocketStageRegistration, STAGE_ORDER, SocketArg, SocketCommandStage } from '../src/interfaces.js';
-import { ITestServer, TestHttpHost, command, configure, delay, errorOf, nextId, open, resultOf, startServer, waitFor } from './harness.js';
+import { ITestServer, TestHttpHost, command, configure, connect, connected, delay, errorOf, nextId, open, resultOf, startServer, waitFor } from './harness.js';
 
 interface IGate {
   promise: Promise<void>;
@@ -41,6 +42,10 @@ export const hookProbe = {
   earlyError: undefined as unknown,
   lateResult: undefined as unknown,
   handlerGate: gate(),
+  /** the connect hook of a 'hook-hold' client waits for it */
+  connectGate: gate(),
+  /** command name to what the outer stage's next() rejected with */
+  outerErrors: new Map<string, unknown>(),
   reset(): void {
     this.registered = [];
     this.refuseRegistration = null;
@@ -61,6 +66,8 @@ export const hookProbe = {
     this.earlyError = undefined;
     this.lateResult = undefined;
     this.handlerGate = gate();
+    this.connectGate = gate();
+    this.outerErrors = new Map();
   },
 };
 hookProbe.reset();
@@ -111,6 +118,14 @@ export class HookOuterStage extends SocketCommandStage {
       case 'hook.twice':
         await next();
         return next();
+      case 'hook.ready-wait':
+      case 'hook.queued':
+        try {
+          return await next();
+        } catch (err) {
+          hookProbe.outerErrors.set(ctx.request.name, err);
+          throw err;
+        }
       default:
         return next();
     }
@@ -244,14 +259,49 @@ export class HookSocket extends BaseSocketController {
     return 'twice';
   }
 
+  @Command('ready-wait')
+  public async readyWait() {
+    hookProbe.handlerRuns.push('ready-wait');
+    return 'never';
+  }
+
+  @Command('ordered-hold', { ordered: 'connection' })
+  public async orderedHold() {
+    hookProbe.handlerRuns.push('ordered-hold');
+    await hookProbe.handlerGate.promise;
+    return 'held';
+  }
+
+  @Command('queued', { ordered: 'connection' })
+  public async queued() {
+    hookProbe.handlerRuns.push('queued');
+    return 'never';
+  }
+
   @OnEvent('ping')
   public async ping(): Promise<void> {}
 
   @OnConnect()
-  public async hello(): Promise<void> {}
+  public async hello(@Connection() conn: SocketConnection): Promise<void> {
+    if (conn.clientId === 'hook-hold') {
+      await hookProbe.connectGate.promise;
+    }
+  }
 
   @OnDisconnect()
   public async bye(): Promise<void> {}
+}
+
+/** Registered only by the test that needs it. */
+export class HookDupOne extends BaseSocketController {
+  @Command('hook.dup')
+  public async one(): Promise<void> {}
+}
+
+/** Registered only by the test that needs it. */
+export class HookDupTwo extends BaseSocketController {
+  @Command('hook.dup')
+  public async two(): Promise<void> {}
 }
 
 /** Registered only by the test that needs it. */
@@ -278,7 +328,7 @@ describe('socket command stage hooks', function () {
     it('calls onRegister once per command and stage, in Order, never for events or hooks', async () => {
       t = await startServer();
 
-      const names = ['hook.echo', 'hook.state', 'hook.started', 'hook.plain', 'hook.early', 'hook.late', 'hook.grace-run', 'hook.nograce-run', 'hook.grace-waiting', 'hook.twice'];
+      const names = ['hook.echo', 'hook.state', 'hook.started', 'hook.plain', 'hook.early', 'hook.late', 'hook.grace-run', 'hook.nograce-run', 'hook.grace-waiting', 'hook.twice', 'hook.ready-wait', 'hook.ordered-hold', 'hook.queued'];
       expect([...hookProbe.registered].sort()).to.deep.equal(names.flatMap((n) => [`inner ${n}`, `outer ${n}`]).sort());
       for (const name of names) {
         expect(hookProbe.registered.indexOf(`outer ${name}`), name).to.be.lessThan(hookProbe.registered.indexOf(`inner ${name}`));
@@ -298,6 +348,23 @@ describe('socket command stage hooks', function () {
       expect(err.message).to.equal('Socket command hook.echo ( HookSocket::echo ): stage HookInnerStage refused the registration: no audit sink configured');
       expect((err.cause as Error).message).to.equal('no audit sink configured');
       expect(host!.Http.listenerCount('upgrade')).to.equal(0);
+    });
+
+    it('calls no onRegister when a command is declared twice', async () => {
+      DI.register(HookDupOne).as(BaseSocketController);
+      DI.register(HookDupTwo).as(BaseSocketController);
+      try {
+        const err = await startServer().then(
+          () => expect.fail('the server started'),
+          (e: unknown) => e as InvalidOperation,
+        );
+
+        expect(err.message).to.match(/hook\.dup is declared twice/);
+        expect(hookProbe.registered).to.deep.equal([]);
+      } finally {
+        DI.unregister(HookDupOne);
+        DI.unregister(HookDupTwo);
+      }
     });
 
     it('refuses an async generator under refuseStream, in the words of the highest Order', async () => {
@@ -392,6 +459,48 @@ describe('socket command stage hooks', function () {
       expect(hookProbe.lateResult).to.equal('real');
     });
 
+    it('rejects next() with SocketClientGone when the command is cancelled while the connect hooks run, and answers as before', async () => {
+      const held = connect(t, { auth: { clientId: 'hook-hold' } });
+      try {
+        await connected(held);
+        const id = nextId();
+        const reply = command(held, 'hook.ready-wait', undefined, { id });
+        await delay(50);
+        held.emit(WIRE_EVENTS.cancel, { id });
+
+        expect(await reply).to.deep.equal({ id, ok: false, error: new SocketException('cancelled', `command ${id} cancelled by the client`).toWire() });
+        await waitFor(() => hookProbe.outerErrors.has('hook.ready-wait'));
+        const gone = hookProbe.outerErrors.get('hook.ready-wait') as SocketClientGone;
+        expect(gone).to.be.instanceOf(SocketClientGone);
+        expect(gone.beforeHandler).to.be.true;
+        expect(gone.code).to.equal('cancelled');
+        expect(gone.cause).to.be.instanceOf(SocketException).and.not.instanceOf(SocketClientGone);
+        expect(hookProbe.handlerRuns).to.not.include('ready-wait');
+      } finally {
+        hookProbe.connectGate.open();
+        held.close();
+      }
+    });
+
+    it('rejects next() with SocketClientGone when a command queued behind an ordered predecessor is cancelled', async () => {
+      const first = command(socket, 'hook.ordered-hold');
+      await waitFor(() => hookProbe.handlerRuns.includes('ordered-hold'));
+      const id = nextId();
+      const reply = command(socket, 'hook.queued', undefined, { id });
+      await delay(50);
+      socket.emit(WIRE_EVENTS.cancel, { id });
+
+      expect(errorOf(await reply).code).to.equal('cancelled');
+      hookProbe.handlerGate.open();
+      expect(resultOf(await first)).to.equal('held');
+      await waitFor(() => hookProbe.outerErrors.has('hook.queued'));
+      const gone = hookProbe.outerErrors.get('hook.queued') as SocketClientGone;
+      expect(gone).to.be.instanceOf(SocketClientGone);
+      expect(gone.beforeHandler).to.be.true;
+      expect(gone.code).to.equal('cancelled');
+      expect(hookProbe.handlerRuns).to.not.include('queued');
+    });
+
     it('rejects a second next() call of one stage with internal', async () => {
       const error = errorOf(await command(socket, 'hook.twice'));
 
@@ -478,6 +587,25 @@ describe('socket command stage hooks', function () {
       await waitFor(() => one.settled.length === 1 && two.settled.length === 1);
       expect(one.detached).to.deep.equal([running]);
       expect(two.settled).to.deep.equal([{ result: 'late' }]);
+    });
+
+    it('detachOutcome reaches every recorder when one of them throws', () => {
+      const ctx = context();
+      const before = recorder();
+      const after = recorder();
+      ctx.addOutcomeRecorder(before.r);
+      ctx.addOutcomeRecorder({
+        settle: () => Promise.resolve(null),
+        detach: () => {
+          throw new Error('store down');
+        },
+      });
+      ctx.addOutcomeRecorder(after.r);
+      const running = Promise.resolve('late');
+
+      expect(() => ctx.detachOutcome(running)).to.not.throw();
+      expect(before.detached).to.deep.equal([running]);
+      expect(after.detached).to.deep.equal([running]);
     });
   });
 });

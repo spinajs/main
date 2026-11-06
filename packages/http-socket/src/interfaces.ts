@@ -383,15 +383,19 @@ export abstract class SocketCommandStage {
 
   /**
    * Wraps the later stages and the handler. `next()` runs them once and settles with the handler's raw result or
-   * error; a second call rejects with `internal`. It rejects with SocketClientGone when the command was aborted before
-   * its handler started; after that, an abort does not interrupt it. Not calling it ends the chain: the returned
-   * value is the result.
+   * error; a second call rejects with `internal`. When the command was aborted before its handler started, it rejects
+   * with SocketClientGone ( `beforeHandler: true`, the abort reason as `cause` ), also when a later stage was waiting
+   * ( connect hooks, an idempotency join, the ordering queue, where it rejects only when the command's turn comes ).
+   * After the handler started, an abort does not interrupt it; only an ordered command cut loose after
+   * `ordering.abortGraceMs` rejects, with the bare abort reason. Not calling it ends the chain: the returned value is
+   * the result.
    */
   public abstract execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown>;
 
   /**
-   * Called once for every registered command by SocketHandlerRegistry.build(), in ascending Order, after its policies
-   * resolved and before socket.io attaches. A throw fails the build with an InvalidOperation naming the stage and the
+   * Called once for every registered command by SocketHandlerRegistry.build(), in ascending Order, once every controller
+   * registered ( names unique, policies resolved, contract and payload validators attached ) and before socket.io
+   * attaches. A throw fails the build with an InvalidOperation naming the stage and the
    * command. Not called for events or hooks: stages never run for them.
    */
   public onRegister?(handler: IRegisteredHandler, registration: ISocketStageRegistration): void | Promise<void>;

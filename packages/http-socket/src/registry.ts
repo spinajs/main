@@ -51,6 +51,7 @@ export class SocketHandlerRegistry {
     checkPendingProperties(this.Container);
     const types = [...new Set(DI.getRegisteredTypes(BaseSocketController) ?? [])] as Array<Class<BaseSocketController>>;
     const bound: SocketContractEntry[] = [];
+    const staged: Array<[IRegisteredHandler, string]> = [];
 
     for (const type of types) {
       const controller = (await DI.resolve(type)) as BaseSocketController;
@@ -69,17 +70,24 @@ export class SocketHandlerRegistry {
         await this.add(type.name, controller, descriptor, handler);
       }
 
+      const added = [...this.commands.values()].filter((h) => !before.commands.has(h));
       const contract = this.Contracts.bind(
         type.name,
         descriptor,
-        [...this.commands.values()].filter((h) => !before.commands.has(h)),
+        added,
         [...this.events.values()].filter((h) => !before.events.has(h)),
         lineage,
       );
       if (contract) bound.push(contract);
+      staged.push(...added.map((h) => [h, type.name] as [IRegisteredHandler, string]));
     }
 
     this.Contracts.reportUnvalidated(bound);
+
+    // last, so a stage sees only unique commands that carry their contract and payload validators
+    for (const [handler, controllerName] of staged) {
+      await this.registerWithStages(handler, controllerName);
+    }
   }
 
   public command(name: string): IRegisteredHandler | undefined {
@@ -110,8 +118,6 @@ export class SocketHandlerRegistry {
 
     const registered: IRegisteredHandler = { fullName, controller, descriptor: handler, policies };
 
-    await this.registerWithStages(registered, controllerName);
-
     switch (handler.Kind) {
       case 'command':
         this.unique(this.commands, registered, controllerName);
@@ -131,10 +137,6 @@ export class SocketHandlerRegistry {
   }
 
   protected async registerWithStages(registered: IRegisteredHandler, controllerName: string): Promise<void> {
-    if (registered.descriptor.Kind !== 'command') {
-      return;
-    }
-
     const command = `Socket command ${registered.fullName} ( ${controllerName}::${String(registered.descriptor.Method)} )`;
     let refusal: string | undefined;
     const registration: ISocketStageRegistration = { refuseStream: (what) => (refusal = what) };
