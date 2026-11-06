@@ -44,11 +44,14 @@ Prefer declaring the column on the model when the model owns it.
 
 ### `populate()` (both modes)
 
-`populate('Relation')` with a literal relation name narrows the result: a to-one relation's `Value` is the related model instead of `Model | null | undefined`, and a to-many relation has `Populated: true`. `populate('a.b')` narrows `a`. The callback's `this` is a query on the related model.
+`populate('Relation')` with a literal relation name narrows the result: a to-one relation has `Populated: true` and a `Value` typed as the related model, and a to-many relation has `Populated: true`. `populate('a.b')` narrows `a`. The callback's `this` is a query on the related model.
+
+How far `Value` narrows depends on how the model declares the relation. A required property (`Team: SingleRelation<Team>`) says the model guarantees the row, so `Value` is `Team`. An optional property (`Owner?: SingleRelation<User>`) allows a missing row, and a missing row leaves `Value` undefined (the LEFT JOIN finds nothing), so `Value` is `User | undefined`.
 
 ```ts
-const user = await User.where('Id', 1).populate('Team').first();
+const user = await User.where('Id', 1).populate('Team').populate('Owner').first();
 user.Team.Value.Name; // Team, not Team | null | undefined
+user.Owner.Value?.Name; // User | undefined: the row may be missing
 ```
 
 The narrowing only adds to the type, so code that compiled before still compiles. A relation name held in a `string`, an array, an object or a model class populates as before, without narrowing.
@@ -70,11 +73,13 @@ In strict mode the row type follows the select list:
 | `select('Id')` | `{ Id }`; further `select(...)` calls add to it |
 | `select('Email', 'Mail')` | adds `{ Mail: string }` |
 | `columns(['Id', 'Email'])` | `{ Id, Email }`, replacing earlier selects |
-| `count()`, `count('Id')` | `{ count: number }`, replacing the select list |
-| `count('Id', 'total')` | `{ total: number }` |
-| `min/max('Id', 'top')` | adds `{ top: <column type> }` |
-| `sum/avg('Id', 's')` | adds `{ s: number }` |
-| `select('*')`, `select(raw)`, an aggregate without alias | unchanged |
+| `count()`, `count('Id')` | `{ count: AggregateValue }`, replacing the select list |
+| `count('Id', 'total')` | `{ total: AggregateValue }` |
+| `min/max('Id', 'top')` | adds `{ top: <column type> }`; a `DateTime` or `Date` column gives `Date \| string \| number` |
+| `sum/avg('Id', 's')` | adds `{ s: AggregateValue }` |
+| `select('*')`, `select(raw)`, an aggregate without alias, an alias held in a `string` | unchanged |
+
+`AggregateValue` is `number | string`: postgres returns COUNT, and SUM/AVG of exact numbers, as strings, and no converter runs on an alias. Convert it with `Number(...)` where you need a number. For the same reason `min`/`max` of a date column return the driver's raw value, not a luxon `DateTime`.
 
 `where`, `orderBy` and the rest keep accepting every column of the model after a projection. Loose mode never narrows a projection, because loose code reads unselected fields of hydrated models.
 
@@ -84,4 +89,5 @@ In strict mode the row type follows the select list:
 - Strict mode is types only: the same SQL runs either way.
 - A non-literal string column (`where(name, value)` with `name: string`) is an error in strict mode. Type the variable as a union of the columns it can hold, or use `col(name)`.
 - Strict projection: call a query scope declared with `this: ISelectQueryBuilder<Model[]>` **before** `select`, `columns` or an aggregate, because the projected builder no longer is an `ISelectQueryBuilder<Model[]>`.
+- Call query scopes **before** `populate()`. A scope declared with `this: ISelectQueryBuilder<Model[]>` after a populate makes TypeScript compare the narrowed builder with the whole `ISelectQueryBuilder<Model[]>`: about 20,000 type instantiations per model and relation set, against about 1,000 the other way round.
 - Strict projection: an exported function that returns a projected builder or row needs an explicit return type. Declaration files keep the narrowing types unevaluated, and a loose consumer would read them as the full model.

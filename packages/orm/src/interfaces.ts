@@ -14,7 +14,7 @@ import { MethodNotImplemented } from '@spinajs/exceptions';
 import type { DateTime } from 'luxon';
 import type { Relation } from './relation-objects.js';
 import type { Lazy } from '@spinajs/util';
-import type { ColumnName, ColumnRef, ColumnTypeOf, Head, Narrowed, PickColumns, PopulateName, PopulatePath, PopulateTree, Project, RelationTarget, Reproject, StrictNarrowed, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue, WithPopulated } from './typing.js';
+import type { AggregateValue, ColumnName, ColumnRef, ColumnTypeOf, Head, MinMaxValue, StrictAliasNarrowed, Narrowed, PickColumns, PopulateName, PopulatePath, PopulateTree, Project, RelationTarget, Reproject, StrictNarrowed, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue, WithPopulated } from './typing.js';
 // imported, deliberately NOT re-exported: `index.ts` does `export *` on both this file and
 // `resilience.js`, and exporting the same name from both is an ambiguous re-export.
 import type { IConnectionResilienceOptions } from './resilience.js';
@@ -1358,7 +1358,7 @@ export interface ITypedColumnsBuilder<T> extends IColumnsBuilder, IOrderByBuilde
 
   select(column: '*'): this;
   select<C extends ColumnName<Unbox<T>>>(column: C): StrictNarrowed<this, T, Project<Unbox<T>, PickColumns<Unbox<T>, C>>>;
-  select<C extends ColumnName<Unbox<T>>, A extends string>(column: C, alias: A): StrictNarrowed<this, T, Project<Unbox<T>, Record<A, ColumnTypeOf<Unbox<T>, C>>>>;
+  select<C extends ColumnName<Unbox<T>>, A extends string>(column: C, alias: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, ColumnTypeOf<Unbox<T>, C>>>>;
   select(column: ColumnRef<Unbox<T>>, alias?: string): this;
   select(rawQuery: RawQuery): this;
   select(columns: Map<string, string>): this;
@@ -1448,16 +1448,16 @@ export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<
 export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T>, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IQueryBuilder, IBuilder<T> {
   get Relations(): IOrmRelation[];
 
-  min<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictNarrowed<this, T, Project<Unbox<T>, Record<A, ColumnTypeOf<Unbox<T>, C>>>>;
+  min<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, MinMaxValue<Unbox<T>, C>>>>;
   min(column: ColumnRef<Unbox<T>>, as?: string): this;
-  max<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictNarrowed<this, T, Project<Unbox<T>, Record<A, ColumnTypeOf<Unbox<T>, C>>>>;
+  max<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, MinMaxValue<Unbox<T>, C>>>>;
   max(column: ColumnRef<Unbox<T>>, as?: string): this;
   // The column stays optional: `count(maybe)` with `maybe: string | undefined` compiled before typed columns.
-  count<A extends string = 'count'>(column?: ColumnRef<Unbox<T>>, as?: A): StrictNarrowed<this, T, Reproject<Unbox<T>, Record<A, number>>>;
+  count<A extends string = 'count'>(column?: ColumnRef<Unbox<T>>, as?: A): StrictAliasNarrowed<this, T, A, Reproject<Unbox<T>, Record<A, AggregateValue>>>;
   selectCount(column?: ColumnRef<Unbox<T>>, as?: string): Promise<number>;
-  sum<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictNarrowed<this, T, Project<Unbox<T>, Record<A, number>>>;
+  sum<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue>>>;
   sum(column: ColumnRef<Unbox<T>>, as?: string): this;
-  avg<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictNarrowed<this, T, Project<Unbox<T>, Record<A, number>>>;
+  avg<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue>>>;
   avg(column: ColumnRef<Unbox<T>>, as?: string): this;
   /** `condition` as the boolean column `alias` (`CASE WHEN ... THEN 1 ELSE 0 END`). */
   selectCondition(alias: string, condition: WhereFunction<T>): this;

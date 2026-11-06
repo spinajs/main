@@ -74,6 +74,13 @@ export type Rebox<T, R> = unknown extends T ? T : T extends Array<any> ? R[] : R
 export type ScopesOf<B> = Omit<B, keyof ISelectQueryBuilder<any>>;
 export type Narrowed<B, T, R> = ISelectQueryBuilder<Rebox<T, R>> & ScopesOf<B>;
 export type StrictNarrowed<B, T, R> = OrmStrict extends true ? Narrowed<B, T, R> : B;
+/** StrictNarrowed for a projection under an alias; a non-literal alias names no known column, so the row stays. */
+export type StrictAliasNarrowed<B, T, A extends string, R> = OrmStrict extends true ? (string extends A ? B : Narrowed<B, T, R>) : B;
+
+/** `count`, `sum` and `avg` under an alias: postgres returns COUNT and SUM/AVG of exact numbers as strings, and no converter runs on an alias. */
+export type AggregateValue = number | string;
+/** `min`/`max` under an alias: no converter runs on it, so a date column comes back in the driver's raw form. */
+export type MinMaxValue<M, C> = ColumnTypeOf<M, C> extends infer V ? (NonNullable<V> extends Date | { toJSDate(): Date } ? Date | string | number : V) : never;
 
 type ProjectionBase<M> = [ProjectionSource<M>] extends [never] ? Projected<M> : M;
 /** Adds `Added` to the projection of `M` (`select` after `select` accumulates). */
@@ -85,10 +92,12 @@ export type ColumnTypeOf<M, C> = C extends keyof SourceRow<M> ? SourceRow<M>[C] 
 
 export type PopulatePath<M> = RelationName<M> | `${RelationName<M>}.${string}`;
 export type Head<P extends string> = P extends `${infer H}.${string}` ? H : P;
-export type Populated<R> = R extends SingleRelation<infer U, any> ? R & { Value: U; Populated: true } : R extends Relation<any, any, any> ? R & { Populated: true } : R;
+// The model guarantees the row of a required to-one relation; an optional one leaves `Value` undefined when it is missing.
+export type Populated<R, Optional = false> = R extends SingleRelation<infer U, any> ? R & { Value: Optional extends true ? U | undefined : U; Populated: true } : R extends Relation<any, any, any> ? R & { Populated: true } : R;
 export type RelationTarget<M, K> = K extends keyof SourceRow<M> ? (NonNullable<SourceRow<M>[K]> extends SingleRelation<infer U, any> ? U : NonNullable<SourceRow<M>[K]> extends Relation<infer U, any, any> ? U : unknown) : unknown;
 // `populate('a.b')` narrows `a` only; deeper levels keep their declared type.
-export type WithPopulated<M, P extends string> = unknown extends M ? M : M & { [K in Head<P> & keyof SourceRow<M>]-?: Populated<NonNullable<SourceRow<M>[K]>> };
+export type WithPopulated<M, P extends string> = unknown extends M ? M : M & { [K in Head<P> & keyof SourceRow<M>]-?: Populated<NonNullable<SourceRow<M>[K]>, IsOptional<SourceRow<M>, K>> };
+type IsOptional<M, K extends keyof M> = Partial<Pick<M, K>> extends Pick<M, K> ? true : false;
 
 /** A relation name the legacy populate forms accept: any string in loose mode, a known relation in strict mode. */
 export type PopulateName<M> = OrmStrict extends true ? PopulatePath<M> | RelationLiteral : string;

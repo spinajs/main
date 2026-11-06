@@ -886,10 +886,10 @@ describe('Orm relations tests', () => {
 
     expect(result).to.be.not.null;
     expect(result.Owner.Value).to.be.not.null;
-    expect(result.Owner.Value.Owner).to.be.not.null;
+    expect(result.Owner.Value!.Owner).to.be.not.null;
 
     expect(result.Owner instanceof SingleRelation).to.be.true;
-    expect(result.Owner.Value.Owner instanceof SingleRelation).to.be.true;
+    expect(result.Owner.Value!.Owner instanceof SingleRelation).to.be.true;
   });
 
   it('SingleRelation.remove should destroy the related model then detach', async () => {

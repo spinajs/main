@@ -40,5 +40,14 @@ export async function populateLoose(dynamic: string): Promise<void> {
   await User.query().populate(dynamic).populate(['Metadata', 'Team']).populate({ Metadata: {} }).populate(Team).populate(null);
   // a class-typed builder can still be returned as one
   const returned: SelectQueryBuilder<User[]> = User.all().populate('Team');
-  void [withMeta, returned];
+  // on the class the callback is a class too, so class-only members stay reachable
+  await User.all().populate('Team', function () {
+    this.mergeStatements(User.all());
+  });
+  // a required relation guarantees the row; an optional one may still have none
+  assertType<Equal<typeof user.Team.Value, Team>>();
+  const owned = await User.query().populate('Owner').first();
+  assertType<Equal<typeof owned.Owner.Value, User | undefined>>();
+  assertType<Equal<typeof owned.Owner.Populated, true>>();
+  void [withMeta, returned, owned];
 }

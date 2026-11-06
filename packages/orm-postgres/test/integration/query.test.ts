@@ -96,7 +96,7 @@ describe('postgres integration - querying', function () {
 
   it('joins the owner of a belongsTo through populate', async () => {
     const pet = await PgPet.where('Name', 'Kit').populate('Owner').first();
-    expect(pet.Owner.Value.Name).to.equal('Dave');
+    expect(pet.Owner.Value!.Name).to.equal('Dave');
   });
 
   it('populates a hasMany', async () => {
