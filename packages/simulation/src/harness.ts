@@ -92,8 +92,12 @@ export class Harness {
   /** Kills every incarnation first, so parked and dead work unwinds instead of holding up dispose. */
   public async shutdown(system: SimSystem | undefined): Promise<void> {
     this.env.replicas.crashAll();
-    // node reports the rejected parks only once the microtask queue drains
-    await this.env.settle();
+    try {
+      // node reports the rejected parks only once the microtask queue drains
+      await this.env.settle();
+    } catch (error) {
+      this.report.failure ??= this.failureOf(error);
+    }
     try {
       await system?.dispose();
     } catch (error) {
