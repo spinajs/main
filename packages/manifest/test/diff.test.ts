@@ -384,14 +384,13 @@ describe('diffManifest', () => {
 
   it('orders changes by code unit regardless of input order', () => {
     const head = clone();
-    head.controllers[0].routes = [];
-    head.controllers[1].routes = [];
+    for (const c of head.controllers) c.routes = [];
     const shuffled = clone();
     shuffled.controllers.reverse();
     for (const c of shuffled.controllers) c.routes.reverse();
     const ids = (from: Manifest) => diffManifest(from, head).changes.filter((c) => c.section === 'routes').map((c) => c.id);
     expect(ids(shuffled)).to.deep.equal(ids(base));
-    expect(ids(base)).to.deep.equal(['GET /health/get', 'GET /users/:id', 'GET /users/list', 'POST /users/:id/avatar', 'POST /users/create']);
+    expect(ids(base)).to.deep.equal(['GET /articles/:id', 'GET /health/get', 'GET /users/:id', 'GET /users/list', 'POST /articles/add', 'POST /users/:id/avatar', 'POST /users/create']);
   });
 
   it('sorts by code unit, not by locale', () => {

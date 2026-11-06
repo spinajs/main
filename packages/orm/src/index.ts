@@ -19,6 +19,7 @@ export * from './converters.js';
 export * from './decorators.js';
 export * from './sql-dialect.js';
 export * from './builders.js';
+export * from './extensions.js';
 export * from './existsRelationHandlers.js';
 export * from './model.js';
 export * from './relations.js';
@@ -40,6 +41,7 @@ export * from './subject-sorter.js';
 export * from './subject-executor.js';
 export * from './unit-of-work.js';
 export * from './driver.js';
+export * from './introspection.js';
 export * from './quoting.js';
 export * from './wrappers.js';
 export * from './helpers.js';
@@ -54,3 +56,4 @@ export * from './metadata.js';
 
 // NOTE: metadata.js is not exported from index to avoid circular dependency issues
 // Import directly from './metadata.js' if needed.
+export * from './session-settings.js';

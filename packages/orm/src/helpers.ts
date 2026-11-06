@@ -1,6 +1,6 @@
-import { Constructor } from '@spinajs/di';
-import { IColumnDescriptor, InsertBehaviour, IUpdateResult } from './interfaces.js';
-import { ModelBase } from './model.js';
+import type { Constructor } from '@spinajs/di';
+import type { IColumnDescriptor, InsertBehaviour, IUpdateResult } from './interfaces.js';
+import type { ModelBase } from './model.js';
 import _ from 'lodash';
 import { NoRowsAffected } from './exceptions.js';
 

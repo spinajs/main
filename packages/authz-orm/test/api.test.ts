@@ -7,7 +7,7 @@ import type { ModelBase } from '@spinajs/orm';
 
 import * as root from '../src/index.js';
 import * as api from '../src/api.js';
-import type { AccessResourceOptions, OwnerOptions, ParentOptions, RelationOptions } from '../src/index.js';
+import type { AccessResourceDecoratorOptions, AccessResourceOptions, OwnerOptions, ParentOptions, RelationOptions } from '../src/index.js';
 
 const expect = chai.expect;
 
@@ -25,7 +25,7 @@ describe('authz-orm api', () => {
   });
 
   it('the implementations keep the frozen signatures', () => {
-    same<typeof root.AccessResource, (type: ResourceType) => ClassDecorator>(true);
+    same<typeof root.AccessResource, (type: ResourceType, opts?: AccessResourceDecoratorOptions) => ClassDecorator>(true);
     same<typeof root.Parent, (type: ResourceType, opts?: ParentOptions) => PropertyDecorator>(true);
     same<typeof root.Owner, (opts?: OwnerOptions) => PropertyDecorator>(true);
     same<typeof root.Self, () => PropertyDecorator>(true);
@@ -36,6 +36,6 @@ describe('authz-orm api', () => {
 
   it('keeps the scope attribute store and the config schema on the root', () => {
     expect(root.DbScopeAttributeStore).to.be.a('function');
-    expect(root.AUTHZ_ORM_CONFIGURATION_SCHEMA.properties).to.have.keys(['domain', 'accessField']);
+    expect(root.AUTHZ_ORM_CONFIGURATION_SCHEMA.properties).to.have.keys(['domain', 'accessField', 'rls']);
   });
 });

@@ -46,7 +46,7 @@ spinajs doctor --manifest dist/app.manifest.json
 | SQL010 | info | a dynamic `sql` statement (it interpolates a fragment or `sql.raw`), which is not checked |
 | SQL011 | warning | a connection with `sql` templates has no dialect, or names one no installed driver declares; its templates are checked with the generic mysql grammar and driver-dependent columns are typed `unknown` |
 
-The HTTP rules read the routes a controller inherits from its entry, as the runtime serves them. A report on an inherited route names the base (`AppUploads.create (inherited from @spinajs/upload:UploadController)`) and points at the subclass, the code the app can change. A subclass of a guard-less base, such as `UploadController`, fails HTTP002 unless the subclass has `@Access`, `@AllowAnonymous` or `@Public`. HTTP001 skips a controller a subclass replaces with an unconditional `DI.register(Sub).as(Base)`, as the runtime mounts only the subclass.
+The HTTP rules read the routes a controller inherits from its entry, as the runtime serves them. A report on an inherited route names the base (`AppUploads.create (inherited from @spinajs/upload:UploadController)`) and points at the subclass, the code the app can change. A subclass of a guard-less base, such as `UploadController`, fails HTTP002 unless the subclass has `@Access`, `@Policy`, `@AllowAnonymous` or `@Public`. HTTP001 skips a controller a subclass replaces with an unconditional `DI.register(Sub).as(Base)`, as the runtime mounts only the subclass.
 
 ### DI002 details
 

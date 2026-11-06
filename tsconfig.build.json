@@ -107,6 +107,15 @@
       "path": "packages/orm-postgres/tsconfig.build.json"
     },
     {
+      "path": "packages/orm-pglite/tsconfig.build.json"
+    },
+    {
+      "path": "packages/testing-orm/tsconfig.build.json"
+    },
+    {
+      "path": "packages/orm-conformance/tsconfig.build.json"
+    },
+    {
       "path": "packages/orm-sql/tsconfig.build.json"
     },
     {
@@ -278,10 +287,19 @@
       "path": "packages/authz-convert/tsconfig.build.json"
     },
     {
+      "path": "packages/authz-ir/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authz-verify/tsconfig.build.json"
+    },
+    {
       "path": "packages/teams/tsconfig.build.json"
     },
     {
       "path": "packages/teams-http/tsconfig.build.json"
+    },
+    {
+      "path": "packages/studio/tsconfig.build.json"
     },
     {
       "path": "packages/codemods/tsconfig.build.json"

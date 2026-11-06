@@ -1,8 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -30,10 +30,17 @@ function listen(child: ChildProcessWithoutNullStreams): Promise<string> {
   });
 }
 
-describe('single-file bundle', function () {
+async function cacheEntries(dir: string): Promise<number> {
+  const count = () => (existsSync(dir) ? readdirSync(dir, { recursive: true }).length : 0);
+  for (let waited = 0; waited < 5000 && count() <= 1; waited += 50) await new Promise((resolve) => setTimeout(resolve, 50));
+  return count();
+}
+
+describe('the esbuild bundle', function () {
   this.timeout(120_000);
 
   let work: string;
+  let caches: string;
   let child: ChildProcessWithoutNullStreams | undefined;
 
   before(() => {
@@ -42,6 +49,8 @@ describe('single-file bundle', function () {
     // a copy outside the repository: no node_modules in any ancestor directory
     work = mkdtempSync(join(tmpdir(), 'spinajs-bundle-'));
     cpSync(join(PACKAGE, 'dist', 'bundle'), work, { recursive: true });
+    // the cache root is not below os.tmpdir(): on Linux that is the shared /tmp, where no cache dir is accepted
+    caches = mkdtempSync(join(homedir(), '.spinajs-bundle-compile-cache-test-'));
   });
 
   afterEach(() => {
@@ -49,30 +58,40 @@ describe('single-file bundle', function () {
     child = undefined;
   });
 
-  after(() => rmSync(work, { recursive: true, force: true }));
+  after(() => {
+    rmSync(work, { recursive: true, force: true });
+    rmSync(caches, { recursive: true, force: true });
+  });
 
   it('boots from the manifest in require mode from a directory with no node_modules at all and answers /health', async () => {
     expect(existsSync(join(work, 'node_modules')), 'the bundle ships no node_modules').to.equal(false);
+    const tmp = join(work, 'tmp');
+    const cacheRoot = join(caches, 'cache');
+    mkdirSync(tmp);
+    // the per-user cache root: XDG_CACHE_HOME on POSIX, LOCALAPPDATA on Windows
+    const env: NodeJS.ProcessEnv = { ...process.env, SPINAJS_MANIFEST_MODE: 'require', PORT: '0', TMPDIR: tmp, TMP: tmp, TEMP: tmp, XDG_CACHE_HOME: cacheRoot, LOCALAPPDATA: cacheRoot };
+    delete env.NODE_COMPILE_CACHE;
+    delete env.NODE_DISABLE_COMPILE_CACHE;
     const started = Date.now();
-    child = spawn(process.execPath, [join(work, 'main.mjs')], {
-      cwd: work,
-      env: { ...process.env, SPINAJS_MANIFEST_MODE: 'require', PORT: '0' },
-    });
+    child = spawn(process.execPath, [join(work, 'main.mjs')], { cwd: work, env });
     const url = await listen(child);
     const bootMs = Date.now() - started;
+    // written once the app listens, so a server stopped by a signal still leaves it for the next start
+    expect(await cacheEntries(join(cacheRoot, 'spinajs', 'compile-cache')), 'compile cache entries').to.be.greaterThan(1);
+    expect(readdirSync(tmp), 'the shared temp dir').to.deep.equal([]);
 
     const res = await fetch(`${url}/health`);
     expect(res.status).to.equal(200);
     expect(await res.json()).to.deep.equal({ status: 'ok' });
 
-    const sizeKb = Math.round(statSync(join(work, 'main.mjs')).size / 1024);
-    console.log(`bundle: main.mjs ${sizeKb} KiB, ${readdirSync(work).length} entries, boot ${bootMs} ms`);
+    const sizeKb = Math.round(statSync(join(work, 'app.mjs')).size / 1024);
+    console.log(`bundle: app.mjs ${sizeKb} KiB, ${readdirSync(work).length} entries, boot ${bootMs} ms`);
   });
 
   it('fails closed in require mode when the manifest is missing', async () => {
     const empty = mkdtempSync(join(tmpdir(), 'spinajs-bundle-empty-'));
     try {
-      cpSync(join(work, 'main.mjs'), join(empty, 'main.mjs'));
+      for (const file of ['main.mjs', 'app.mjs']) cpSync(join(work, file), join(empty, file));
       child = spawn(process.execPath, [join(empty, 'main.mjs')], { cwd: empty, env: { ...process.env, PORT: '0' } });
       await listen(child).then(
         () => expect.fail('the bundle booted without a manifest'),

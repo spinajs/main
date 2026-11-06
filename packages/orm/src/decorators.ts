@@ -1,12 +1,16 @@
 /* eslint-disable prettier/prettier */
-import { Int64Mode, Int64ValueConverter, JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
-import { Constructor, DI, IContainer, declaredPropertyType, getInheritedDescriptor, notePendingProperty } from '@spinajs/di';
-import { IModelDescriptor, IMigrationDescriptor, IMigrationOptions, RelationType, IRelationDescriptor, IDiscriminationEntry, BooleanValueConverter, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder, IColumnDescriptor, IPrimaryKeyOptions, OrphanPolicy, ColumnSpec, ModelOptions } from './interfaces.js';
+import { Int64ValueConverter, JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
+import type { Int64Mode } from './converters.js';
+import { DI, declaredPropertyType, getInheritedDescriptor, notePendingProperty } from '@spinajs/di';
+import type { Constructor, IContainer } from '@spinajs/di';
+import { RelationType, BooleanValueConverter, DatetimeValueConverter, SetValueConverter } from './interfaces.js';
+import type { IModelDescriptor, IMigrationDescriptor, IMigrationOptions, IRelationDescriptor, IDiscriminationEntry, ISelectQueryBuilder, IColumnDescriptor, IPrimaryKeyOptions, OrphanPolicy, ColumnSpec, ModelOptions } from './interfaces.js';
 import type { ModelIndex } from '@spinajs/manifest';
 import 'reflect-metadata';
-import { ModelBase } from './model.js';
+import type { ModelBase } from './model.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { ManyQueryRelationList, Relation } from './relation-objects.js';
+import { ManyQueryRelationList } from './relation-objects.js';
+import type { Relation } from './relation-objects.js';
 import { Orm } from './orm.js';
 import { MODELS, MIGRATIONS, ORM_RELATION_HAS_MANY_FACTORY, ORM_RELATION_HAS_MANY_TO_MANY_FACTORY } from './tokens.js';
 import { MODEL_DESCTRIPTION_SYMBOL, MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
