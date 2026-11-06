@@ -4,7 +4,7 @@ import type { IContainer } from '@spinajs/di';
 import { Logger } from '@spinajs/log';
 import type { Log } from '@spinajs/log';
 import { InvalidConfiguration, registerConfigurationSchema } from '@spinajs/configuration';
-import { CodedHttpException } from '@spinajs/exceptions';
+import { CodedHttpException, InvalidArgument } from '@spinajs/exceptions';
 import { principalKey } from '@spinajs/principal';
 import type { Principal } from '@spinajs/principal';
 import type * as Idempotency from '@spinajs/idempotency';
@@ -53,6 +53,8 @@ interface IdempotencyGate {
 const ANONYMOUS = 'anonymous';
 
 const CLAIM_CONFLICT_RETRY_AFTER_S = 1;
+
+const clientGone = (res: Express.Response): boolean => res.destroyed || res.closed;
 
 /** Crash contract: an error with `crash: true` stands for a dead process, whose claim is neither stored nor released. */
 const isCrash = (error: unknown): error is Error => (error as { crash?: unknown } | null | undefined)?.crash === true;
@@ -124,12 +126,15 @@ export class IdempotencyMiddleware extends AroundMiddleware {
   }
 
   public async onRegister(route: IRoute, path: string): Promise<void> {
+    if (!this.options) {
+      throw new InvalidArgument('IdempotencyMiddleware is mounted by @Idempotent(), not by @Middleware()');
+    }
     const namespace = `http:${String(route.Type).toUpperCase()} ${path}`;
     let idempotency: typeof Idempotency;
     try {
       idempotency = await import('@spinajs/idempotency');
     } catch (err) {
-      throw new RouteRegistrationException(`${namespace} is @Idempotent, which needs the @spinajs/idempotency package installed`, err);
+      throw new RouteRegistrationException('@Idempotent needs the @spinajs/idempotency package installed', err);
     }
 
     // registerConfigurationSchemaAtImport only logs on this lazy path, where the Configuration is resolved: a wrong
@@ -140,19 +145,19 @@ export class IdempotencyMiddleware extends AroundMiddleware {
       if (!(err instanceof InvalidConfiguration)) {
         throw err;
       }
-      throw new RouteRegistrationException(`${namespace} is @Idempotent, and the idempotency configuration is invalid: ${err.message}`, err);
+      throw new RouteRegistrationException(`@Idempotent needs a valid idempotency configuration: ${err.message}`, err);
     }
 
     const service = await this._container.resolve(idempotency.IdempotencyService);
     if (service.Store instanceof idempotency.OrmIdempotencyStore && idempotency.ormModelRegistered(this._container) === false) {
       throw new RouteRegistrationException(
-        `${namespace} is @Idempotent on OrmIdempotencyStore, but the Orm resolved before @spinajs/idempotency was imported, so __idempotency has neither a model nor a migration. Add import '@spinajs/idempotency' to the app entry, before the boot`,
+        `@Idempotent on OrmIdempotencyStore: the Orm resolved before @spinajs/idempotency was imported, so __idempotency has neither a model nor a migration. Add import '@spinajs/idempotency' to the app entry, before the boot`,
       );
     }
 
     this.gate = {
       namespace,
-      ttlMs: service.ttlOf(this.options.ttl, `@Idempotent ttl of ${namespace}`),
+      ttlMs: service.ttlOf(this.options.ttl, '@Idempotent ttl'),
       service,
       inFlight: idempotency.IdempotencyInFlight,
       keyReuse: idempotency.IdempotencyKeyReuse,
@@ -167,6 +172,9 @@ export class IdempotencyMiddleware extends AroundMiddleware {
 
     if (header === undefined) {
       if (this.options.required) {
+        if (clientGone(res)) {
+          return;
+        }
         throw new CodedHttpException(400, 'idempotency.key-required', 'This route needs an Idempotency-Key header');
       }
       await proceed().catch((err: unknown) => {
@@ -179,10 +187,13 @@ export class IdempotencyMiddleware extends AroundMiddleware {
 
     const key = parseIdempotencyKey(header);
     if (key === undefined) {
+      if (clientGone(res)) {
+        return;
+      }
       throw new CodedHttpException(400, 'idempotency.key-malformed', 'The Idempotency-Key header must be one key of 1 to 255 characters, bare visible ASCII or a quoted string');
     }
 
-    if (res.destroyed || res.closed) {
+    if (clientGone(res)) {
       return;
     }
 
@@ -234,7 +245,12 @@ export class IdempotencyMiddleware extends AroundMiddleware {
         this.afterAnswer(err, gate);
         return;
       }
-      throw this.toHttpError(err, gate, res);
+      const mapped = this.toHttpError(err, gate, res);
+      // a refused claim of a client that left is expected: returning keeps around.ts from logging it as a failure
+      if (mapped !== err && clientGone(res)) {
+        return;
+      }
+      throw mapped;
     }
     if (outcome.replayed && outcome.value) {
       replay(res, outcome.value);

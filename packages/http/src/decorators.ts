@@ -376,7 +376,14 @@ export function Idempotent(options?: IdempotentOptions): MethodDecorator {
       throw new InvalidArgument('@Idempotent goes on a route method, not on a controller');
     }
     route.Idempotency = resolved;
-    route.Middlewares.push({ Type: IdempotencyMiddleware, Options: [resolved] });
+    // a second @Idempotent (or a subclass re-decorating an inherited route) must not nest another gate
+    const entry = { Type: IdempotencyMiddleware, Options: [resolved] };
+    const i = route.Middlewares.findIndex((m) => m.Type === IdempotencyMiddleware);
+    if (i >= 0) {
+      route.Middlewares[i] = entry;
+    } else {
+      route.Middlewares.push(entry);
+    }
   }) as MethodDecorator;
 }
 
