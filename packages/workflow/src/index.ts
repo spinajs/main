@@ -12,3 +12,6 @@ export * from './json.js';
 export * from './sql.js';
 export * from './registry.js';
 export * from './service.js';
+export * from './journal.js';
+export * from './store.js';
+export * from './context.js';
