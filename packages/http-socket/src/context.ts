@@ -74,7 +74,11 @@ export class SocketCommandContext implements ISocketCommandContext {
 
   public detachOutcome(running: Promise<unknown>): void {
     for (const recorder of this.recorders) {
-      recorder.detach(running);
+      try {
+        recorder.detach(running);
+      } catch {
+        // as in recordOutcome: one failing recorder must not keep the others from the outcome
+      }
     }
   }
 

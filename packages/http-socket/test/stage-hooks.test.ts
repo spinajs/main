@@ -588,5 +588,24 @@ describe('socket command stage hooks', function () {
       expect(one.detached).to.deep.equal([running]);
       expect(two.settled).to.deep.equal([{ result: 'late' }]);
     });
+
+    it('detachOutcome reaches every recorder when one of them throws', () => {
+      const ctx = context();
+      const before = recorder();
+      const after = recorder();
+      ctx.addOutcomeRecorder(before.r);
+      ctx.addOutcomeRecorder({
+        settle: () => Promise.resolve(null),
+        detach: () => {
+          throw new Error('store down');
+        },
+      });
+      ctx.addOutcomeRecorder(after.r);
+      const running = Promise.resolve('late');
+
+      expect(() => ctx.detachOutcome(running)).to.not.throw();
+      expect(before.detached).to.deep.equal([running]);
+      expect(after.detached).to.deep.equal([running]);
+    });
   });
 });
