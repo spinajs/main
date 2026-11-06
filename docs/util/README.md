@@ -18,7 +18,7 @@ Everything except the crypto helpers is exported from the package root. Import b
 import { TimeSpan, ResiliencePipelineBuilder, _check_arg, sleep } from '@spinajs/util';
 ```
 
-The crypto helpers need `node:crypto`, so they live in the Node-only subpath `@spinajs/util/crypto`; the root never loads it.
+The crypto helpers need `node:crypto`, so they live in the Node-only subpath `@spinajs/util/crypto`; the root never loads it. The compile cache helpers live in `@spinajs/util/compile-cache`, so a launcher loads them without the rest of the package.
 
 ## Features
 
@@ -38,6 +38,7 @@ The crypto helpers need `node:crypto`, so they live in the Node-only subpath `@s
 | [Collections, objects and JSON](12-collections-objects-and-json.md) | `toArray`, `chunk`, `unique`, `sortedUnique`, `groupBy`, `tryGetHash`, `deepFreeze`, `frozenCopy`, `copyPlainData`, `deepEqual`, `deepMerge`, `getOwnPath`, Map/Set/Date-aware JSON, `stableStringify` |
 | [Strings, functions and type guards](13-strings-functions-and-type-guards.md) | `trimChar`, `truncate`, `asciiLower`, `escapeHtml`, `compareCodePoints`, `quote`, `parseIsoInstant`, `toEpochMs`, `thenMaybe`, `allMaybe`, `Lazy`, `once`, `memoize`, `isPromise`, `isThenable`, `isStringArray`, `isDefined` |
 | [Async helpers, caches and graphs](14-async-helpers-caches-and-graphs.md) | `onceAsync`, `memoizeAsync`, `singleFlight`, `KeyedMutex`, `TaskTracker`, `settleWithin`, `Deadline`, `RefreshingCache`, `LruTtlCache`, `BoundedMap`, `Clock`, `ListenerSet`, `findCycle`, `reachable` |
+| [Compile cache](15-compile-cache.md) | `@spinajs/util/compile-cache`: `enableCompileCache`, `flushCompileCache` and `compileCacheDir`, Node's compile cache in a per-user dir that only this user can write |
 | [Crypto helpers](14-crypto.md) | `@spinajs/util/crypto`: `sha256`, `hmacSha256`, `taggedHash`, constant-time comparison, strict base64url/base64/base32, `randomToken`, `processSecret`, `parseKeyMaterial` |
 
 ## Quick start

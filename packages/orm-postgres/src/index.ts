@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { PostgresSqlExpressions } from './expressions.js';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, InStatement, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, RawQuery, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, DatetimeValueConverter, JsonValueConverter, NowExpression, JoinStatement, DateTimeWrapper, SqlExpressions, IndexQueryCompiler, LiveForeignKey, LiveIndex, groupIndexColumns } from '@spinajs/orm';
+import { SessionSettingsQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, InStatement, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, RawQuery, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, DatetimeValueConverter, JsonValueConverter, NowExpression, JoinStatement, DateTimeWrapper, SqlExpressions, IndexQueryCompiler, LiveForeignKey, LiveIndex, groupIndexColumns } from '@spinajs/orm';
 import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import pg from 'pg';
-import { PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler, PostgresCreateViewCompiler, PostgresIndexQueryCompiler } from './compilers.js';
+import { PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler, PostgresCreateViewCompiler, PostgresIndexQueryCompiler, PostgresSessionSettingsCompiler } from './compilers.js';
 import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier, PostgresInStatement, PostgresLiteralQuoter, PostgresNowExpression, PostgresJoinStatement, PostgresDateTimeWrapper } from './statements.js';
 import { mapPostgresError } from './errors.js';
 import { ITableColumnInfo, IConstraintInfo } from './types.js';
@@ -202,7 +202,7 @@ export class PostgresOrmDriver extends SqlDriver {
     // Reads and writes are both retried: `withReconnect` only re-runs on transport
     // failures, where the statement provably never reached the server.
     const bound = this.toDriverParams(params);
-    return this.withReconnect(() => this._executeOnDbOnce(stmt, bound, context));
+    return this.withSessionSettings(() => this.withReconnect(() => this._executeOnDbOnce(stmt, bound, context)));
   }
 
   protected isRetryableError(err: unknown): boolean {
@@ -336,6 +336,7 @@ export class PostgresOrmDriver extends SqlDriver {
     // Table references carry no database prefix in postgres — see PostgresTableAliasCompiler.
     this.Container.register(PostgresTableAliasCompiler).as(TableAliasCompiler);
     this.Container.register(PostgresCreateViewCompiler).as(CreateViewCompiler);
+    this.Container.register(PostgresSessionSettingsCompiler).as(SessionSettingsQueryCompiler);
     this.Container.register(PostgresLiteralQuoter).as(LiteralQuoter);
     this.Container.register(PostgresDatetimeValueConverter).as(DatetimeValueConverter);
     this.Container.register(PostgresJsonValueConverter).as(JsonValueConverter);

@@ -31,6 +31,10 @@ describe('inherited socket handlers', function () {
     expect(things().commands[0].payload.ref).to.deep.equal(base.commands[0].payload.ref);
   });
 
+  it("carries the base handler's access and field filter onto the subclass entry", () => {
+    expect(things().commands[0]).to.deep.include({ access: ['thing:read'], fields: 'filter-rows' });
+  });
+
   it('inherits the @FromDI arguments of the base handlers', () => {
     expect(things().diArgs?.map((a) => `${a.handler}:${a.index}`)).to.deep.equal(['save:1']);
   });
