@@ -1,7 +1,8 @@
+import { rel } from '@spinajs/orm';
 import type { SelectQueryBuilder, ISelectQueryBuilder, IColumnsBuilder } from '@spinajs/orm';
 import { assertType } from '../assert.js';
 import type { Equal } from '../assert.js';
-import { User } from '../models.js';
+import { Team, User } from '../models.js';
 
 export async function projectionStrict(): Promise<void> {
   const ids = await User.query().select('Id').select('Email', 'Mail').where('IsActive', true).orderBy('CreatedAt');
@@ -56,4 +57,33 @@ export async function aggregatesStrict(): Promise<void> {
 export function classCount(): SelectQueryBuilder<User[]> {
   // @ts-expect-error a strict aggregate changes the row type, so it is no longer a SelectQueryBuilder<User[]>
   return User.all().count();
+}
+
+export async function populateStrict(): Promise<void> {
+  const projected = await User.query().select('Id').populate('Team').first();
+  assertType<Equal<typeof projected.Id, number>>();
+  const team: Team = projected.Team.Value;
+  void team;
+  await User.query().populate('Owner').where('Owner', 1);
+  User.query().populate('Metadata', function () {
+    // @ts-expect-error unknown column of the related model inside the callback
+    this.where('Kee', 'k');
+  });
+  // @ts-expect-error an optional relation is no column
+  User.query().select('Owner');
+}
+
+export async function populateNamesStrict(dynamic: string, anyQuery: ISelectQueryBuilder<any>): Promise<void> {
+  await User.query().populate(['Metadata', 'Team.Name']).populate({ Metadata: {} }).populate(Team).populate(rel(dynamic)).populate(null);
+  await anyQuery.populate(dynamic).populate([dynamic]);
+  // @ts-expect-error misspelled relation
+  User.query().populate('Metdata');
+  // @ts-expect-error misspelled relation in an array
+  User.query().populate(['Metadata', 'Teem']);
+  // @ts-expect-error a non-literal relation needs rel()
+  User.query().populate(dynamic);
+  // @ts-expect-error misspelled relation in the object form
+  User.query().populate({ Metdata: {} });
+  // @ts-expect-error a column is no relation
+  User.query().populate('Email');
 }

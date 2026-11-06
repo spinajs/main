@@ -17,6 +17,10 @@ export interface OrmTypeRegistry {
 export type OrmStrict = OrmTypeRegistry extends { strictColumns: true } ? true : false;
 
 declare const columnLiteral: unique symbol;
+declare const relationLiteral: unique symbol;
+
+/** A relation name computed at runtime; made by {@link rel}. */
+export type RelationLiteral = string & { readonly [relationLiteral]: true };
 declare const projectedFrom: unique symbol;
 
 /** Phantom marker of a row narrowed by `select`/`columns`/aggregates; `S` is the model it was taken from. */
@@ -78,6 +82,23 @@ export type Project<M, Added> = ProjectionBase<M> & Added;
 export type Reproject<M, Added> = Projected<SourceRow<M>> & Added;
 export type PickColumns<M, C> = Pick<SourceRow<M>, C & keyof SourceRow<M>>;
 export type ColumnTypeOf<M, C> = C extends keyof SourceRow<M> ? SourceRow<M>[C] : unknown;
+
+export type PopulatePath<M> = RelationName<M> | `${RelationName<M>}.${string}`;
+export type Head<P extends string> = P extends `${infer H}.${string}` ? H : P;
+export type Populated<R> = R extends SingleRelation<infer U, any> ? R & { Value: U; Populated: true } : R extends Relation<any, any, any> ? R & { Populated: true } : R;
+export type RelationTarget<M, K> = K extends keyof SourceRow<M> ? (NonNullable<SourceRow<M>[K]> extends SingleRelation<infer U, any> ? U : NonNullable<SourceRow<M>[K]> extends Relation<infer U, any, any> ? U : unknown) : unknown;
+// `populate('a.b')` narrows `a` only; deeper levels keep their declared type.
+export type WithPopulated<M, P extends string> = unknown extends M ? M : M & { [K in Head<P> & keyof SourceRow<M>]-?: Populated<NonNullable<SourceRow<M>[K]>> };
+
+/** A relation name the legacy populate forms accept: any string in loose mode, a known relation in strict mode. */
+export type PopulateName<M> = OrmStrict extends true ? PopulatePath<M> | RelationLiteral : string;
+/** The object form `populate({ Metadata: {} })`; in strict mode its keys must be relations. */
+export type PopulateTree<M> = OrmStrict extends true ? { [K in RelationName<M>]?: unknown } : object;
+
+/** Escape hatch for a relation name computed at runtime; it is passed through unchecked. */
+export function rel(name: string): RelationLiteral {
+  return name as RelationLiteral;
+}
 
 /** Escape hatch for a column the model does not declare; it is passed through unchecked. */
 export function col(name: string): ColumnLiteral {

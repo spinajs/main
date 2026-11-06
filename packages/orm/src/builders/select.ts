@@ -4,11 +4,11 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { use } from 'typescript-mix';
 import { ColumnMethods, QueryMethod, WhereBoolean, SqlOperator } from '../enums.js';
 import { SelectQueryCompiler, QueryContext, RelationType, BooleanValueConverter } from '../interfaces.js';
-import type { RowLockMode, ICompilerOutput, ILimitBuilder, IQueryLimit, ISort, IWhereBuilder, IJoinBuilder, IBuilderMiddleware, IWithRecursiveBuilder, ITypedColumnsBuilder } from '../interfaces.js';
+import type { RowLockMode, ICompilerOutput, ILimitBuilder, IQueryLimit, ISort, IWhereBuilder, IJoinBuilder, IBuilderMiddleware, IWithRecursiveBuilder, ITypedColumnsBuilder, ISelectQueryBuilder } from '../interfaces.js';
 import { ColumnMethodStatement, WhereStatement, ColumnRawStatement, ColumnConditionStatement } from '../statements.js';
 import type { ColumnStatement, IQueryStatement } from '../statements.js';
 import type { Unbox, WhereFunction } from '../types.js';
-import type { ColumnName, ColumnRef, ColumnTypeOf, OrmStrict, Project, Rebox, Reproject, ScopesOf } from '../typing.js';
+import type { ColumnName, ColumnRef, ColumnTypeOf, Head, OrmStrict, PopulateName, PopulatePath, PopulateTree, Project, Rebox, RelationTarget, Reproject, ScopesOf, WithPopulated } from '../typing.js';
 import type { OrmDriver } from '../driver.js';
 import type { ModelBase } from '../model.js';
 import type { IOrmRelation } from '../relations.js';
@@ -333,10 +333,11 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
   // A nullish relation is a no-op, so routes with an optional `include` param
   // can pass it straight through.
+  public populate<P extends PopulatePath<Unbox<T>>>(relation: P, callback?: (this: ISelectQueryBuilder<RelationTarget<Unbox<T>, Head<P>>[]>, relation: IOrmRelation) => void): SelectNarrowed<this, T, WithPopulated<Unbox<T>, P>>;
   public populate<_R = this>(relation: Constructor<ModelBase>): this;
-  public populate<R = this>(relation?: string | string[] | null, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
-  public populate<R = this>(relation: {}, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
-  public populate<R = this>(relation?: string | string[] | Constructor<ModelBase> | {} | null, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this {
+  public populate<R = this>(relation?: PopulateName<Unbox<T>> | PopulateName<Unbox<T>>[] | null, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
+  public populate<R = this>(relation: PopulateTree<Unbox<T>>, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
+  public populate(relation?: string | string[] | Constructor<ModelBase> | {} | null, callback?: (this: any, relation: IOrmRelation) => void): any {
 
     if (!relation) {
       return this;
@@ -383,8 +384,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
     // Everything that is not a string was handled above (constructor / array /
     // object), so the remaining value is a plain relation name.
-    // The relation runs the callback on its relation query, a SelectQueryBuilder.
-    this._getRelationInstance(relation as string).execute(callback as Parameters<IOrmRelation['execute']>[0]);
+    this._getRelationInstance(relation as string).execute(callback);
 
     return this;
   }

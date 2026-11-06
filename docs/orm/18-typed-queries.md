@@ -40,8 +40,48 @@ await User.query().where(col('EmailVerifiedAt'), null);
 
 Prefer declaring the column on the model when the model owns it.
 
+## Result types
+
+### `populate()` (both modes)
+
+`populate('Relation')` with a literal relation name narrows the result: a to-one relation's `Value` is the related model instead of `Model | null | undefined`, and a to-many relation has `Populated: true`. `populate('a.b')` narrows `a`. The callback's `this` is a query on the related model.
+
+```ts
+const user = await User.where('Id', 1).populate('Team').first();
+user.Team.Value.Name; // Team, not Team | null | undefined
+```
+
+The narrowing only adds to the type, so code that compiled before still compiles. A relation name held in a `string`, an array, an object or a model class populates as before, without narrowing.
+
+In strict mode every relation name is checked: a literal, each element of an array and each key of the object form must be a relation of the model. For `'Relation.nested'`, only the first segment is checked. A name computed at runtime goes through `rel(name)`:
+
+```ts
+import { rel } from '@spinajs/orm';
+
+await User.query().populate(include.map(rel));
+```
+
+### Projections and aggregates (strict mode)
+
+In strict mode the row type follows the select list:
+
+| Call | Row |
+| --- | --- |
+| `select('Id')` | `{ Id }`; further `select(...)` calls add to it |
+| `select('Email', 'Mail')` | adds `{ Mail: string }` |
+| `columns(['Id', 'Email'])` | `{ Id, Email }`, replacing earlier selects |
+| `count()`, `count('Id')` | `{ count: number }`, replacing the select list |
+| `count('Id', 'total')` | `{ total: number }` |
+| `min/max('Id', 'top')` | adds `{ top: <column type> }` |
+| `sum/avg('Id', 's')` | adds `{ s: number }` |
+| `select('*')`, `select(raw)`, an aggregate without alias | unchanged |
+
+`where`, `orderBy` and the rest keep accepting every column of the model after a projection. Loose mode never narrows a projection, because loose code reads unselected fields of hydrated models.
+
 ## Important behaviour
 
 - Loose mode changes nothing at runtime and rejects nothing that compiled before.
 - Strict mode is types only: the same SQL runs either way.
 - A non-literal string column (`where(name, value)` with `name: string`) is an error in strict mode. Type the variable as a union of the columns it can hold, or use `col(name)`.
+- Strict projection: call a query scope declared with `this: ISelectQueryBuilder<Model[]>` **before** `select`, `columns` or an aggregate, because the projected builder no longer is an `ISelectQueryBuilder<Model[]>`.
+- Strict projection: an exported function that returns a projected builder or row needs an explicit return type. Declaration files keep the narrowing types unevaluated, and a loose consumer would read them as the full model.

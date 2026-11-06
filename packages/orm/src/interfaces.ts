@@ -14,7 +14,7 @@ import { MethodNotImplemented } from '@spinajs/exceptions';
 import type { DateTime } from 'luxon';
 import type { Relation } from './relation-objects.js';
 import type { Lazy } from '@spinajs/util';
-import type { ColumnName, ColumnRef, ColumnTypeOf, PickColumns, Project, Reproject, StrictNarrowed, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue } from './typing.js';
+import type { ColumnName, ColumnRef, ColumnTypeOf, Head, Narrowed, PickColumns, PopulateName, PopulatePath, PopulateTree, Project, RelationTarget, Reproject, StrictNarrowed, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue, WithPopulated } from './typing.js';
 // imported, deliberately NOT re-exported: `index.ts` does `export *` on both this file and
 // `resilience.js`, and exporting the same name from both is an ambiguous re-export.
 import type { IConnectionResilienceOptions } from './resilience.js';
@@ -1507,9 +1507,10 @@ export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T
 
   // A nullish relation is a no-op, so routes with an optional `include` param
   // can pass it straight through.
+  populate<P extends PopulatePath<Unbox<T>>>(relation: P, callback?: (this: ISelectQueryBuilder<RelationTarget<Unbox<T>, Head<P>>[]>, relation: IOrmRelation) => void): Narrowed<this, T, WithPopulated<Unbox<T>, P>>;
   populate<_R = this>(relation: Constructor<ModelBase>): this;
-  populate<R = this>(relation?: string | string[] | null, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
-  populate<R = this>(relation: {}, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
+  populate<R = this>(relation?: PopulateName<Unbox<T>> | PopulateName<Unbox<T>>[] | null, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
+  populate<R = this>(relation: PopulateTree<Unbox<T>>, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
   asRaw<T>(): Promise<T>;
   /**
    * Returns all records. Its for type castin when using with scopes mostly.

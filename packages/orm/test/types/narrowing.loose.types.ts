@@ -1,6 +1,7 @@
+import type { SelectQueryBuilder } from '@spinajs/orm';
 import { assertType } from './assert.js';
 import type { Equal } from './assert.js';
-import { User } from './models.js';
+import { Team, User } from './models.js';
 
 // Loose mode never removes a property: projections keep the model type.
 export async function projectionLoose(): Promise<void> {
@@ -21,4 +22,23 @@ export async function aggregatesLoose(): Promise<void> {
   const summed = await User.query().sum('Id', 's');
   assertType<Equal<typeof summed, User[]>>();
   void [counted, summed];
+}
+
+export async function populateLoose(dynamic: string): Promise<void> {
+  const user = await User.query().where('Id', 1).populate('Team').first();
+  const team: Team = user.Team.Value;
+  void team;
+  const withMeta = await User.query().populate('Metadata.user_id');
+  assertType<Equal<(typeof withMeta)[number]['Metadata']['Populated'], true>>();
+  // query scopes survive populate
+  await User.query().populate('Team').whereEmail('a');
+  // the callback queries the related model
+  await User.query().populate('Metadata', function () {
+    this.where('Key', 'k').where('Nope', 1);
+  });
+  // every other form still compiles and returns the builder unchanged
+  await User.query().populate(dynamic).populate(['Metadata', 'Team']).populate({ Metadata: {} }).populate(Team).populate(null);
+  // a class-typed builder can still be returned as one
+  const returned: SelectQueryBuilder<User[]> = User.all().populate('Team');
+  void [withMeta, returned];
 }
