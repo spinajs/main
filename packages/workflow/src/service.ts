@@ -1,5 +1,5 @@
 import { Autoinject, DI, Injectable, Singleton, type Constructor } from '@spinajs/di';
-import { DbClock, quoteFor, sqlDialect, type RawSqlDriver } from '@spinajs/durable';
+import { DbClock } from '@spinajs/durable';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { UniqueViolation } from '@spinajs/orm';
 import { v4 as uuidv4 } from 'uuid';
@@ -163,7 +163,7 @@ export class DefaultWorkflowService extends WorkflowService {
     const now = await this.now();
     const driver = await workflowDriver();
     return driver.transaction(async () => {
-      const status = await this.lockedStatus(driver, instanceId);
+      const status = await this.lockedStatus(instanceId);
       if (status === undefined) throw new WorkflowNotFound(instanceId);
       if (isTerminal(status)) return { accepted: false };
       try {
@@ -234,12 +234,8 @@ export class DefaultWorkflowService extends WorkflowService {
   }
 
   /** Locked until the signal commits, so it is ordered against the activation's fenced status write. */
-  protected async lockedStatus(driver: RawSqlDriver, id: string): Promise<WorkflowStatus | undefined> {
-    const dialect = sqlDialect(driver.Options.Driver, 'locking read', 'workflow');
-    const q = quoteFor(dialect);
-    const lock = dialect === 'sqlite' ? '' : ' FOR UPDATE';
-    const rows = await selectRows<{ Status: WorkflowStatus }>(driver, `SELECT ${q('Status')} FROM ${q('__workflow')} WHERE ${q('Id')} = ?${lock}`, [id]);
-    return rows[0]?.Status;
+  protected async lockedStatus(id: string): Promise<WorkflowStatus | undefined> {
+    return (await WorkflowInstanceModel.where('Id', id).forUpdate().first())?.Status;
   }
 
   /**
