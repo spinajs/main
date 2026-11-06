@@ -78,4 +78,27 @@ describe('publishedManifest and overridden controllers', () => {
   it('keeps both when the subclass is not registered over the base', () => {
     expect(publishedManifest(manifestWith({ controllers: [base, sub] })).controllers).to.have.length(2);
   });
+
+  it('keeps a subclass outside the dirs registered over a base the manifest loads, which serves it in the base slot', () => {
+    const published = publishedManifest(manifestWith({ controllers: [base, { ...sub, mountedBy: 'di' }], services: [registration()] }));
+    expect(published.controllers.map((c) => c.className)).to.deep.equal(['AppProfilesController']);
+  });
+
+  it('reports a permission change on a published subclass outside the dirs once, as breaking', () => {
+    const at = (access?: string[]): Manifest =>
+      manifestWith({ controllers: [base, { ...sub, mountedBy: 'di', routes: [{ ...sub.routes[0], ...(access ? { access } : {}) }] }], services: [registration()] });
+    const changes = diffManifest(at(), at(['user:read'])).changes.filter((c) => c.section === 'permissions');
+    expect(changes).to.have.length(1);
+    expect(changes[0].breaking).to.equal(true);
+  });
+
+  it('keeps out a subclass outside the dirs when the base it replaces is outside them too', () => {
+    const published = publishedManifest(manifestWith({ controllers: [{ ...base, mountedBy: 'di' }, { ...sub, mountedBy: 'di' }], services: [registration()] }));
+    expect(published.controllers).to.deep.equal([]);
+  });
+
+  it('keeps out an abandoned copy of the subclass outside the dirs when the live one is under them', () => {
+    const published = publishedManifest(manifestWith({ controllers: [base, sub, { ...sub, mountedBy: 'di' }], services: [registration()] }));
+    expect(published.controllers).to.deep.equal([sub]);
+  });
 });

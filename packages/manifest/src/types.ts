@@ -154,7 +154,7 @@ export interface ControllerEntry {
   source: SourceRef;
 }
 
-export interface SocketCommandEntry { name: string; handler: string; payload: TypeRef; result: TypeRef; /** The handler returns an async iterable; `result` describes one item */ stream?: true; options: { idempotent?: boolean; ordered?: 'connection' | 'client'; timeoutMs?: number }; access?: string[]; policies: PolicyRef[][]; /** Index of the `@Payload` argument, which a subclass re-types through generics */ payloadIndex?: number; inheritedFrom?: string; source: SourceRef }
+export interface SocketCommandEntry { name: string; handler: string; payload: TypeRef; result: TypeRef; /** The handler returns an async iterable; `result` describes one item */ stream?: true; options: { idempotent?: boolean; ordered?: 'connection' | 'client'; timeoutMs?: number }; access?: string[]; /** `@SocketAccess(…, { fields })`: the result is redacted per the decision's field set ( 'filter-rows': per row ) */ fields?: 'filter' | 'filter-rows'; policies: PolicyRef[][]; /** Index of the `@Payload` argument, which a subclass re-types through generics */ payloadIndex?: number; inheritedFrom?: string; source: SourceRef }
 /** `handler`: the method that handles the event; absent in fragments older than the field. */
 export interface SocketEventEntry { name: string; handler?: string; payload: TypeRef; payloadIndex?: number; inheritedFrom?: string }
 export interface SocketControllerEntry { id: string; className: string; prefix: string; /** `id` of the `socketContracts` entry named by `@SocketController(prefix, { contract })` */ contract?: string; commands: SocketCommandEntry[]; events: SocketEventEntry[]; /** The declared type of every `@FromDI()` parameter, hooks included; omitted when there is none. */ diArgs?: { handler: string; index: number; ref?: RuntimeTypeRef; refProblem?: string }[]; /** Ids of the ancestor entries whose handlers are merged into this one, nearest first. */ bases?: string[]; mountedBy?: MountedBy; exported?: NotExported; source: SourceRef }
@@ -164,10 +164,62 @@ export interface SocketContractEntry { id: string; /** Name the `defineContract`
 export interface ConfigModuleEntry { module: string; schemaId: string; defaultsFile?: string; source: SourceRef }
 export interface ConfigUsageEntry { path: string; source: SourceRef }   // every @Config('x.y') / config.get('x.y') literal
 
+/** D8 type families. `migrate-diff` compares an inferred column by family only. `enum` is never inferred; only `@Column({ family: 'enum' })` produces it. */
+export type ColumnFamily = 'integer' | 'bigint' | 'decimal' | 'float' | 'text' | 'boolean' | 'date' | 'datetime' | 'time' | 'json' | 'binary' | 'uuid' | 'enum';
+
+/**
+ * `default`: a literal, or `{ raw }` SQL such as `CURRENT_TIMESTAMP`. `inferred`: the family was not stated (no `@Column`,
+ * or one without `family`) and comes from the TypeScript type; the other members are always what the decorator states.
+ */
+export interface ColumnSqlSpec {
+  family: ColumnFamily;
+  nativeType?: string;
+  length?: number;
+  precision?: number;
+  scale?: number;
+  unsigned?: boolean;
+  default?: string | number | boolean | null | { raw: string };
+  autoIncrement?: boolean;
+  unique?: boolean;
+  enumValues?: string[];
+  version?: boolean;
+  inferred?: boolean;
+}
+
+export interface ModelIndex { name?: string; columns: string[]; unique: boolean }
+
+export interface ModelColumn {
+  name: string;
+  type: TypeRef;
+  primary: boolean;
+  nullable: boolean;
+  /** Absent in fragments older than the field. */
+  sql?: ColumnSqlSpec;
+}
+
+/**
+ * Join columns as the decorator states them or the runtime defaults them to a name. An absent `primaryKey` is the primary
+ * key of the target (`belongsTo`, `forwardBelongsTo`) or of the owner (`hasMany`, `hasManyToMany`); an absent `foreignKey`
+ * of a `hasManyToMany` is the target's primary key.
+ */
+export interface ModelRelation {
+  name: string;
+  kind: 'belongsTo' | 'hasMany' | 'hasManyToMany' | 'forwardBelongsTo';
+  target: string;
+  foreignKey?: string;
+  primaryKey?: string;
+  junction?: { model: string; sourceKey: string; targetKey: string };
+}
+
 export interface ModelEntry {
   id: string; className: string; tableName: string; connection?: string;
-  columns: { name: string; type: TypeRef; primary: boolean; nullable: boolean }[];  // declared via decorators / class fields only
-  relations: { name: string; kind: 'belongsTo' | 'hasMany' | 'hasManyToMany' | 'forwardBelongsTo'; target: string }[];
+  columns: ModelColumn[];  // declared via decorators / class fields only
+  relations: ModelRelation[];
+  indexes?: ModelIndex[];
+  /** The `@Version` column. */
+  version?: string;
+  /** `@Model(table, { columns: 'exhaustive' })`: the model declares every column of its table (D19). */
+  exhaustive?: true;
   accessResource: boolean;
   source: SourceRef;
 }
@@ -175,6 +227,26 @@ export interface MigrationEntry { id: string; className: string; connection: str
 export interface ScheduleEntry { name: string; className: string; options: Record<string, unknown>; mountedBy?: MountedBy; exported?: NotExported; source: SourceRef }
 export interface CliCommandEntry { name: string; className: string; description?: string; options: { flags: string; description?: string }[]; arguments: { name: string; description?: string }[]; parent?: string; mountedBy?: MountedBy; source: SourceRef }
 export interface QueueMessageEntry { className: string; kind: 'job' | 'event'; payload: TypeRef; options: Record<string, unknown>; source: SourceRef }
+
+/** A column of a row type: `ts` is the TypeScript type text without `null`/`undefined`. */
+export interface SqlRowColumn { name: string; ts: string; nullable: boolean }
+
+/**
+ * One `sql` template of `@spinajs/orm`. `text` has one `?` per interpolation. `dynamic`: it interpolates a fragment or
+ * `sql.raw`, so the text is not the statement. `declaredColumns`: the properties of `R` in `sql<R>`. `lists`: indexes of
+ * interpolations bound to an array, each of which expands to several values.
+ */
+export interface ModelSqlQuery {
+  id: string;
+  text: string;
+  placeholders: number;
+  dynamic: boolean;
+  declaredRow?: TypeRef;
+  declaredColumns?: SqlRowColumn[];
+  lists?: number[];
+  connection?: string;
+  source: SourceRef;
+}
 
 export interface Diagnostic { code: string; severity: 'error' | 'warning' | 'info'; message: string; source?: SourceRef }
 
@@ -197,6 +269,8 @@ export interface ManifestFragment {
   models: ModelEntry[]; migrations: MigrationEntry[]; schedules: ScheduleEntry[]; commands: CliCommandEntry[]; queueMessages: QueueMessageEntry[];
   /** Omitted when there are none; only an app built with its dirs has any. */
   scanFiles?: ScanFile[];
+  /** Omitted when the package has no `sql` template. */
+  sqlQueries?: ModelSqlQuery[];
   schemas: Record<string, unknown>;   // $id → JSON Schema
   diagnostics: Diagnostic[];
 }

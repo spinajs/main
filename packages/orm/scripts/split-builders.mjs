@@ -45,6 +45,7 @@ export const PLACEMENT = [
   ['schema/database', ['CreateDatabaseQueryBuilder', 'DropDatabaseQueryBuilder']],
   ['schema/event', ['EventIntervalUnit', 'EVENT_INTERVAL_UNITS', 'IEventInterval', 'eventInterval', 'EventQueryBuilder', 'DropEventQueryBuilder']],
   ['schema/schema', ['SchemaQueryBuilder', 'RawSchemaQueryBuilder']],
+  ['session-settings', ['SessionSettingsQueryBuilder']],
   ['create-query', ['_descriptor', 'createQuery']],
 ];
 

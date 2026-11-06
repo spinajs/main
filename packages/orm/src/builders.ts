@@ -20,4 +20,5 @@ export * from './builders/schema/view.js';
 export * from './builders/schema/database.js';
 export * from './builders/schema/event.js';
 export * from './builders/schema/schema.js';
+export * from './builders/session-settings.js';
 export * from './builders/create-query.js';

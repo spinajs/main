@@ -2966,6 +2966,43 @@
   },
   {
     "type": "cycle",
+    "from": "packages/orm/src/builders/session-settings.ts",
+    "to": "packages/orm/src/interfaces.ts",
+    "unresolvedTo": "../interfaces.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/orm/src/interfaces.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/orm/src/builders.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/orm/src/builders/session-settings.ts",
+        "dependencyTypes": [
+          "local",
+          "export"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
     "from": "packages/orm/src/builders/update.ts",
     "to": "packages/orm/src/builders/internal.ts",
     "unresolvedTo": "./internal.js",
