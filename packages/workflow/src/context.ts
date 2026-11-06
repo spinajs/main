@@ -35,8 +35,8 @@ export interface ActivationInit {
   log: Log;
   /** A fenced write matched no row: another replica owns the instance now. */
   onLeaseLost: () => void;
-  /** A fault point threw a crash: as far as the instance is concerned, this replica is dead. */
-  onCrash: () => void;
+  /** A crash reached the activation: as far as the instance is concerned, this replica is dead. */
+  onCrash: (err: unknown) => void;
   /** A journal row failed to commit for a reason other than a lost lease or a crash: nothing of this activation may commit after it. */
   onJournalFailed: (err: unknown) => void;
   /** Arms the coarse fallback that fails a replay waiting for a recorded call that never comes; none without it. */
@@ -91,6 +91,8 @@ export class ActivationContext implements WorkflowContext {
   /** Read by the engine whatever `run()` did with the error that came with it. */
   public interruption: Interruption | null = null;
   public crashed = false;
+  /** What crashed the activation; unset when another activation's crash took this one down. */
+  public crashError: unknown;
   protected journalFailed = false;
 
   protected seq = 0;
@@ -108,7 +110,15 @@ export class ActivationContext implements WorkflowContext {
     this.input = i.Input ?? null;
     this.signal = init.signal;
     this.gate = new ReplayGate(init.journal.rows(), init.journal.causal, (error) => this.interrupt({ kind: 'nondeterminism', error }), init.timers && { timers: init.timers, ms: init.config.leaseTtl });
-    init.signal.addEventListener('abort', () => this.gate.abort(new WorkflowAborted(this.abortReason())), { once: true });
+    init.signal.addEventListener(
+      'abort',
+      () => {
+        // a crash elsewhere on this replica (the heartbeat, another activation): no later write may commit
+        if (init.signal.reason === 'crashed') this.crashed = true;
+        this.gate.abort(new WorkflowAborted(this.abortReason()));
+      },
+      { once: true },
+    );
     this.log = init.log.child('WORKFLOW', { instanceId: i.Id, workflow: i.Workflow, version: i.Version });
   }
 
@@ -225,11 +235,13 @@ export class ActivationContext implements WorkflowContext {
     return (this.signal.reason as AbortReason | undefined) ?? 'lease-lost';
   }
 
-  protected crash(): void {
+  /** Also called by the engine for a crash from `run()` itself or from the heartbeat. */
+  public crash(err: unknown): void {
     if (this.crashed) return;
     this.crashed = true;
+    this.crashError = err;
     this.gate.abort(new WorkflowAborted('crashed'));
-    this.init.onCrash();
+    this.init.onCrash(err);
   }
 
   /** A journal write that failed leaves a hole a replay would fill differently (D3): no later write of this activation may commit. */
@@ -242,7 +254,7 @@ export class ActivationContext implements WorkflowContext {
 
   /** Amendment 20: a journal row that failed for any reason but a crash or a lost lease abandons the activation. */
   protected journalWriteFailed(err: unknown): unknown {
-    if (isCrash(err)) this.crash();
+    if (isCrash(err)) this.crash(err);
     if (isCrash(err) || err instanceof WorkflowAborted) return err;
     this.abandonJournal(err);
     return new WorkflowAborted('journal-failed');
@@ -252,7 +264,7 @@ export class ActivationContext implements WorkflowContext {
     try {
       await this.init.faults.point(name, { instanceId: this.instanceId, key });
     } catch (err) {
-      if (isCrash(err)) this.crash();
+      if (isCrash(err)) this.crash(err);
       throw err;
     }
   }
@@ -330,7 +342,7 @@ export class ActivationContext implements WorkflowContext {
   /** Returns what the step throws to `run()`. */
   protected async stepFailed<T>(op: Op, err: unknown, attempt: number, startedAt: number, _opts: WorkflowStepOptions<T>): Promise<unknown> {
     if (this.crashed || isCrash(err)) {
-      this.crash();
+      this.crash(err);
       return err;
     }
     if (err instanceof LeaseLostError || err instanceof WorkflowAborted || this.signal.aborted) return new WorkflowAborted(this.abortReason());
