@@ -3,18 +3,18 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { AST_NODE_TYPES, ASTUtils, ESLintUtils } from '@typescript-eslint/utils';
 import type { TSESLint, TSESTree } from '@typescript-eslint/utils';
 import type { Diagnostic, Manifest, ModelSqlQuery, SqlRowColumn } from '@spinajs/manifest';
-import { analyzeSql, isSqlStatement, readSqlDialects, renderSqlTemplate, SQL_IGNORE_MARKER, type SqlAnalysis, type SqlDialect } from '@spinajs/compiler/sql';
+import { analyzeSql, GENERIC_SQL_DIALECT, isSqlStatement, readSqlDialects, renderSqlTemplate, resolveSqlDialect, SQL_IGNORE_MARKER, type SqlAnalysis } from '@spinajs/compiler/sql';
 
 export interface TypedSqlOptions {
   /** The app manifest; by default the nearest `app.manifest.json` above the linted file. */
   readonly manifest?: string;
-  /** Overrides `package.json#spinajs.orm.dialects` of the app. */
-  readonly dialect?: SqlDialect;
+  /** A profile name or driver token; overrides `package.json#spinajs.orm.dialects` of the app. */
+  readonly dialect?: string;
 }
 
 export type TypedSqlMessageIds = 'sqlProblem' | 'missingRowType' | 'unknownRowType' | 'suggestRecord' | 'staleManifest';
 
-interface LoadedManifest { root: string; manifest: Manifest; dialects: Record<string, SqlDialect> }
+interface LoadedManifest { root: string; manifest: Manifest; dialects: Record<string, string> }
 
 // Only error-level problems of these codes become lint errors (Q14): a doctor warning (SQL003 on a partial model) is dropped.
 const REPORTED = new Set(['SQL002', 'SQL003', 'SQL004', 'SQL005', 'SQL006']);
@@ -99,7 +99,8 @@ function checkTemplate(context: Readonly<TSESLint.RuleContext<TypedSqlMessageIds
   // A type argument the manifest does not know (edited, or just written by --fix) is newer than the manifest: SQL005 against the recorded row would be wrong (A13).
   const typeArgument = node.typeArguments?.params[0];
   const checked = typeArgument && !sameRowType(context.sourceCode.getText(typeArgument), query.declaredRow?.text) ? { ...query, declaredRow: undefined, declaredColumns: undefined } : query;
-  const analysis = analyzeSql(checked, app.manifest, options.dialect ?? app.dialects[query.connection ?? 'default'] ?? 'mysql');
+  const declared = options.dialect ?? app.dialects[query.connection ?? 'default'];
+  const analysis = analyzeSql(checked, app.manifest, resolveSqlDialect(app.manifest, declared) ?? GENERIC_SQL_DIALECT);
   const problems = analysis.problems.filter(isReported);
   reportProblems(context, node, analysis, problems);
   if (!node.typeArguments && problems.length === 0) reportMissingType(context, node, analysis);
@@ -122,7 +123,7 @@ export const typedSql = createRule<[TypedSqlOptions], TypedSqlMessageIds>({
     schema: [
       {
         type: 'object',
-        properties: { manifest: { type: 'string', minLength: 1 }, dialect: { type: 'string', enum: ['postgresql', 'mysql', 'sqlite', 'transactsql'] } },
+        properties: { manifest: { type: 'string', minLength: 1 }, dialect: { type: 'string', minLength: 1 } },
         additionalProperties: false,
       },
     ],

@@ -41,5 +41,7 @@ file until `spinajs build` runs again. A template whose type argument the manife
 its `package.json` is not checked.
 
 Options: `manifest` (path to the manifest, relative to the ESLint working directory; set it when the manifest is not
-above the linted files, as in a monorepo lint from the root) and `dialect` (`postgresql`, `mysql`, `sqlite`,
-`transactsql`; default from `package.json#spinajs.orm.dialects` of the app, else `mysql`).
+above the linted files, as in a monorepo lint from the root) and `dialect` (the name or driver token of a
+dialect an installed driver declares, such as `postgresql` or `orm-driver-postgres`; default from
+`package.json#spinajs.orm.dialects` of the app, else the only dialect in the manifest, else a generic grammar that types
+driver-dependent columns `unknown`).

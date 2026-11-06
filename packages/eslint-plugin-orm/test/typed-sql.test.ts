@@ -27,6 +27,13 @@ ruleTester.run('typed-sql', typedSql, {
   ],
   invalid: [
     {
+      // pg returns COUNT (int8) as a string.
+      filename,
+      code: at(11, 'sql`SELECT COUNT(*) AS n FROM users`'),
+      output: at(11, 'sql<{ n: string }>`SELECT COUNT(*) AS n FROM users`'),
+      errors: [{ messageId: 'missingRowType', data: { row: '{ n: string }' } }],
+    },
+    {
       filename,
       code: at(2, 'sql`SELECT Id, Email FROM users`'),
       output: at(2, 'sql<{ Id: number; Email: string }>`SELECT Id, Email FROM users`'),

@@ -1,10 +1,11 @@
 import 'mocha';
 import { expect } from 'chai';
-import type { Manifest, ModelColumn, ModelEntry, ModelSqlQuery, SqlRowColumn } from '@spinajs/manifest';
-import { analyzeSql, type SqlDialect } from '../../src/sql/index.js';
+import type { ColumnFamily, Manifest, ModelColumn, ModelEntry, ModelSqlQuery, SqlDialectProfile, SqlRowColumn } from '@spinajs/manifest';
+import { analyzeSql, GENERIC_SQL_DIALECT } from '../../src/sql/index.js';
+import { MSSQL, MYSQL, PG, SQLITE } from './profiles.js';
 
 const source = { file: 'src/queries.ts', line: 7, col: 3, package: 'app' };
-const col = (name: string, text: string, nullable = false): ModelColumn => ({ name, type: { text }, primary: name === 'Id', nullable });
+const col = (name: string, text: string, nullable = false, family?: ColumnFamily): ModelColumn => ({ name, type: { text }, primary: name === 'Id', nullable, ...(family ? { sql: { family } } : {}) });
 const model = (className: string, tableName: string, columns: ModelColumn[], exhaustive = false, connection?: string): ModelEntry => ({
   id: `app:${className}`, className, tableName, columns, relations: [], accessResource: false, ...(exhaustive ? { exhaustive: true as const } : {}), ...(connection ? { connection } : {}), source,
 });
@@ -12,7 +13,8 @@ const model = (className: string, tableName: string, columns: ModelColumn[], exh
 const manifest = {
   models: [
     model('User', 'users', [col('Id', 'number'), col('Email', 'string'), col('Name', 'string', true), col('CreatedAt', 'DateTime'), col('Role', '"admin" | "user"')]),
-    model('Post', 'posts', [col('Id', 'number'), col('user_id', 'number'), col('Title', 'string'), col('Body', 'string', true)]),
+    model('Post', 'posts', [col('Id', 'number', false, 'integer'), col('user_id', 'number'), col('Title', 'string'), col('Body', 'string', true)]),
+    model('Event', 'events', [col('Id', 'number', false, 'integer'), col('Total', 'number', false, 'decimal'), col('Big', 'bigint', false, 'bigint'), col('Active', 'boolean', false, 'boolean'), col('SeenAt', 'Date', true, 'datetime'), col('Ratio', 'number', false, 'float')]),
     model('Tag', 'tags', [col('Id', 'number'), col('Name', 'string')], true),
     // A second `users` table on another connection (A17): only `Id` is declared there.
     model('UserMirror', 'users', [col('Id', 'number')], false, 'reports'),
@@ -22,7 +24,7 @@ const manifest = {
 const query = (text: string, extra: Partial<ModelSqlQuery> = {}): ModelSqlQuery => ({ id: 'src/queries.ts:7:3', text, placeholders: 0, dynamic: false, source, ...extra });
 const c = (name: string, ts: string, nullable = false): SqlRowColumn => ({ name, ts, nullable });
 
-interface Case { name: string; text: string; dialect?: SqlDialect; extra?: Partial<ModelSqlQuery>; row?: SqlRowColumn[] | 'unknown'; problems?: string[] }
+interface Case { name: string; text: string; profile?: SqlDialectProfile; extra?: Partial<ModelSqlQuery>; row?: SqlRowColumn[] | 'unknown'; problems?: string[] }
 
 const USER_ROW = [c('Id', 'number'), c('Email', 'string'), c('Name', 'string', true), c('CreatedAt', 'unknown'), c('Role', '"admin" | "user"')];
 
@@ -34,8 +36,10 @@ const CASES: Case[] = [
   { name: 'inner join', text: 'SELECT u.Email, p.Title FROM users u JOIN posts p ON p.user_id = u.Id', row: [c('Email', 'string'), c('Title', 'string')] },
   { name: 'LEFT JOIN makes the right side nullable', text: 'SELECT u.Email, p.Title FROM users u LEFT JOIN posts p ON p.user_id = u.Id', row: [c('Email', 'string'), c('Title', 'string', true)] },
   { name: 'RIGHT JOIN makes the left side nullable', text: 'SELECT u.Email, p.Title FROM users u RIGHT JOIN posts p ON p.user_id = u.Id', row: [c('Email', 'string', true), c('Title', 'string')] },
-  { name: 'COUNT is a non-null number', text: 'SELECT COUNT(*) AS n FROM users', row: [c('n', 'number')] },
-  { name: 'SUM is a nullable number', text: 'SELECT SUM(Id) AS total FROM posts', row: [c('total', 'number', true)] },
+  { name: 'COUNT is a non-null string on pg (int8)', text: 'SELECT COUNT(*) AS n FROM users', row: [c('n', 'string')] },
+  { name: 'COUNT is a non-null number on mysql', profile: MYSQL, text: 'SELECT COUNT(*) AS n FROM users', row: [c('n', 'number')] },
+  { name: 'SUM of an integer column is a nullable string on pg', text: 'SELECT SUM(Id) AS total FROM posts', row: [c('total', 'string', true)] },
+  { name: 'SUM of an integer column is a nullable number on sqlite', profile: SQLITE, text: 'SELECT SUM(Id) AS total FROM posts', row: [c('total', 'number', true)] },
   { name: 'MAX keeps the argument type', text: 'SELECT MAX(Email) AS last FROM users', row: [c('last', 'string', true)] },
   { name: 'CASE with ELSE', text: "SELECT CASE WHEN Id > 1 THEN 'big' ELSE 'small' END AS size FROM users", row: [c('size', 'string')] },
   { name: 'CASE without ELSE is nullable', text: 'SELECT CASE WHEN Id > 1 THEN 1 END AS big FROM users', row: [c('big', 'number', true)] },
@@ -63,14 +67,29 @@ const CASES: Case[] = [
   { name: 'a dynamic query is not checked', text: 'SELECT Nmae FROM usrs', extra: { dynamic: true }, row: 'unknown', problems: [] },
   { name: 'a fragment is not a statement', text: 'Nmae = ? AND Id > 1', row: 'unknown', problems: [] },
   { name: 'the ignore comment', text: 'SELECT Nmae FROM users -- spinajs-sql-ignore', row: 'unknown', problems: [] },
-  { name: 'mysql backticks and ?', dialect: 'mysql', text: 'SELECT `Id`, Email FROM users WHERE Id = ?', row: [c('Id', 'number'), c('Email', 'string')] },
-  { name: 'sqlite LIMIT', dialect: 'sqlite', text: 'SELECT Id FROM users WHERE Email = ? LIMIT 1', row: [c('Id', 'number')] },
-  { name: 'transactsql TOP and brackets', dialect: 'transactsql', text: 'SELECT TOP 1 [Id] FROM [users] WHERE Email = ?', row: [c('Id', 'number')] },
+  { name: 'mysql backticks and ?', profile: MYSQL, text: 'SELECT `Id`, Email FROM users WHERE Id = ?', row: [c('Id', 'number'), c('Email', 'string')] },
+  { name: 'sqlite LIMIT', profile: SQLITE, text: 'SELECT Id FROM users WHERE Email = ? LIMIT 1', row: [c('Id', 'number')] },
+  { name: 'transactsql TOP and brackets', profile: MSSQL, text: 'SELECT TOP 1 [Id] FROM [users] WHERE Email = ?', row: [c('Id', 'number')] },
+  { name: 'AVG of a float column is a number on pg', text: 'SELECT AVG(Ratio) AS r FROM events', row: [c('r', 'number', true)] },
+  { name: 'AVG of a decimal column is a string on mysql', profile: MYSQL, text: 'SELECT AVG(Total) AS r FROM events', row: [c('r', 'string', true)] },
+  { name: 'SUM of a column without a family is unknown', text: 'SELECT SUM(user_id) AS s FROM posts', row: [c('s', 'unknown', true)] },
+  { name: 'families on pg', text: 'SELECT Total, Big, Active, SeenAt FROM events', row: [c('Total', 'string'), c('Big', 'string'), c('Active', 'boolean'), c('SeenAt', 'Date', true)] },
+  { name: 'families on mysql', profile: MYSQL, text: 'SELECT Total, Big, Active, SeenAt FROM events', row: [c('Total', 'string'), c('Big', 'number'), c('Active', 'number'), c('SeenAt', 'Date', true)] },
+  { name: 'families on sqlite', profile: SQLITE, text: 'SELECT Total, Big, Active, SeenAt FROM events', row: [c('Total', 'number'), c('Big', 'number'), c('Active', 'number'), c('SeenAt', 'string', true)] },
+  { name: 'families on mssql', profile: MSSQL, text: 'SELECT Total, Big, Active, SeenAt FROM events', row: [c('Total', 'number'), c('Big', 'string'), c('Active', 'boolean'), c('SeenAt', 'unknown', true)] },
+  { name: 'the generic dialect types driver-dependent columns unknown', profile: GENERIC_SQL_DIALECT, text: 'SELECT COUNT(*) AS n, Total, Active FROM events', row: [c('n', 'unknown'), c('Total', 'unknown'), c('Active', 'unknown')] },
+  { name: 'a comparison is a boolean on pg', text: 'SELECT Id = 1 AS same FROM users', row: [c('same', 'boolean')] },
+  { name: 'a comparison is 0 or 1 on mysql', profile: MYSQL, text: 'SELECT Id = 1 AS same FROM users', row: [c('same', 'number')] },
+  { name: 'a decimal literal is a string on pg', text: 'SELECT 1.5 AS x FROM users', row: [c('x', 'string')] },
+  { name: 'a decimal literal is a number on sqlite', profile: SQLITE, text: 'SELECT 1.5 AS x FROM users', row: [c('x', 'number')] },
+  { name: 'a decimal literal with a zero fraction is a string on pg', text: 'SELECT 1.0 AS x FROM users', row: [c('x', 'string')] },
+  { name: 'an integer literal past int4 is unknown', text: 'SELECT 9999999999 AS x FROM users', row: [c('x', 'unknown', true)] },
+  { name: 'an int4 literal is a number', text: 'SELECT 42 AS x FROM users', row: [c('x', 'number')] },
   { name: 'correlated EXISTS subquery', text: 'SELECT Email FROM users u WHERE EXISTS (SELECT 1 FROM posts p WHERE p.user_id = u.Id)', row: [c('Email', 'string')] },
   { name: 'IN subquery is checked', text: 'SELECT Email FROM users WHERE Id IN (SELECT author_id FROM posts)', problems: ['SQL003 warning Column author_id is not declared on posts'] },
   { name: 'an unnamed expression makes the row unknown', text: 'SELECT Id + 1 FROM users', row: 'unknown' },
   { name: 'ORDER BY an output alias', text: 'SELECT Email AS e FROM users ORDER BY e', problems: [] },
-  { name: 'GROUP BY and HAVING', text: 'SELECT user_id, COUNT(*) AS n FROM posts GROUP BY user_id HAVING COUNT(*) > 1', row: [c('user_id', 'number'), c('n', 'number')] },
+  { name: 'GROUP BY and HAVING', text: 'SELECT user_id, COUNT(*) AS n FROM posts GROUP BY user_id HAVING COUNT(*) > 1', row: [c('user_id', 'number'), c('n', 'string')] },
   { name: 'UNION takes the first row and checks both', text: 'SELECT Id FROM users UNION SELECT Nope FROM posts', row: [c('Id', 'number')], problems: ['SQL003 warning Column Nope is not declared on posts'] },
   { name: 'a ? inside a string literal is not a parameter', text: "SELECT Id FROM users WHERE Email LIKE '%?%' AND Id = ?", row: [c('Id', 'number')] },
   { name: 'a connection scopes the tables to its models (A17)', text: 'SELECT Email FROM users', extra: { connection: 'reports' }, problems: ['SQL003 warning Column Email is not declared on users'] },
@@ -81,7 +100,7 @@ const CASES: Case[] = [
 describe('analyzeSql', () => {
   for (const t of CASES) {
     it(t.name, () => {
-      const analysis = analyzeSql(query(t.text, t.extra), manifest, t.dialect ?? 'postgresql');
+      const analysis = analyzeSql(query(t.text, t.extra), manifest, t.profile ?? PG);
       if (t.row !== undefined) expect(analysis.row).to.deep.equal(t.row);
       expect(analysis.problems.map((p) => `${p.code} ${p.severity} ${p.message}`)).to.deep.equal(t.problems ?? []);
       for (const p of analysis.problems) expect(p.source).to.deep.equal(source);
@@ -89,7 +108,7 @@ describe('analyzeSql', () => {
   }
 
   it('lists the tables and columns a query reads', () => {
-    const analysis = analyzeSql(query('SELECT u.Email, p.Title FROM users u JOIN posts p ON p.user_id = u.Id'), manifest, 'postgresql');
+    const analysis = analyzeSql(query('SELECT u.Email, p.Title FROM users u JOIN posts p ON p.user_id = u.Id'), manifest, PG);
     expect(analysis.tables).to.deep.equal(['users', 'posts']);
     expect(analysis.columns).to.deep.equal([
       { table: 'posts', column: 'user_id' },

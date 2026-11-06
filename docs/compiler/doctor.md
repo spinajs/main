@@ -44,7 +44,7 @@ spinajs doctor --manifest dist/app.manifest.json
 | SQL005 | error | the row declared as `sql<R>` differs from the row the query returns (names, types, nullability) |
 | SQL006 | error | an INSERT whose VALUES row has more or fewer values than its column list |
 | SQL010 | info | a dynamic `sql` statement (it interpolates a fragment or `sql.raw`), which is not checked |
-| SQL011 | warning | a connection with `sql` templates has no dialect; its templates are checked with the generic mysql grammar |
+| SQL011 | warning | a connection with `sql` templates has no dialect, or names one no installed driver declares; its templates are checked with the generic mysql grammar and driver-dependent columns are typed `unknown` |
 
 The HTTP rules read the routes a controller inherits from its entry, as the runtime serves them. A report on an inherited route names the base (`AppUploads.create (inherited from @spinajs/upload:UploadController)`) and points at the subclass, the code the app can change. A subclass of a guard-less base, such as `UploadController`, fails HTTP002 unless the subclass has `@Access`, `@Policy`, `@AllowAnonymous` or `@Public`. HTTP001 skips a controller a subclass replaces with an unconditional `DI.register(Sub).as(Base)`, as the runtime mounts only the subclass.
 
@@ -88,9 +88,12 @@ The dialect of a connection is set in the app's `package.json`:
 { "spinajs": { "orm": { "dialects": { "default": "postgresql", "reports": "mysql" } } } }
 ```
 
-Values are `postgresql`, `mysql`, `sqlite` and `transactsql`. With `--config`, a connection the file does not name takes
-the dialect of its driver (`db.Connections[].Driver`, through `db.Aliases` and `db.DefaultConnection`); otherwise
-SQL011 is reported once per connection.
+Each ORM driver declares its dialect with `@SqlDialect` (`postgresql` for `@spinajs/orm-postgres`, `mysql`, `sqlite`,
+`transactsql`), and `spinajs build` records it in the app manifest. A value is such a name or a driver token
+(`orm-driver-postgres`). Without one, a connection takes the dialect of its driver with `--config`
+(`db.Connections[].Driver`, through `db.Aliases` and `db.DefaultConnection`), else the only dialect installed; otherwise
+SQL011 is reported once per connection. The dialect decides the grammar and how raw rows are typed: pg returns `COUNT`,
+`bigint` and `numeric` as strings, mysql returns booleans and comparisons as `0`/`1`, sqlite returns dates as text.
 
 Only DML is checked: `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `REPLACE` and `WITH`. A template that is not a whole
 statement (`sql\`a = ${x}\`` built to be spliced in), and a DDL, `VALUES`, `MERGE`, `EXPLAIN` or `SHOW` template, is
@@ -100,10 +103,14 @@ A query passed to `executeSql(…, { connection })` resolves its tables against 
 model is on it, or the template names no connection, against every model of the app whatever its connection.
 Models mapped to one table contribute the union of their columns.
 
-Known limits: identifier case is not modelled (names compare case-insensitively); raw rows are typed only for model
-properties of type `number`, `string`, `boolean`, `bigint`, `Date` or string literal unions (anything else is
-`unknown`, since raw SQL bypasses value converters); for PostgreSQL and T-SQL the `?` rewrite skips `'…'`, `E'…'`,
-`$$…$$`, quoted names and comments but not a tagged `$tag$…$tag$` string; and the PostgreSQL grammar does not parse
+Known limits: identifier case is not modelled (names compare case-insensitively); raw rows are typed from the
+column's family and the driver's profile, then from model properties of type `number`, `string`, `boolean`, `bigint`,
+`Date` or string literal unions (anything else is `unknown`, since raw SQL bypasses value converters); a profile
+describes the driver's default options, so an app that changes them (mysql `decimalNumbers`) declares its own; a
+column of a CTE or subquery has no family, so `SUM`/`AVG` over it is `unknown`; when two installed drivers declare
+one profile name, the one built last wins; for PostgreSQL and T-SQL the `?` rewrite skips `'…'`, `E'…'`, `$$…$$`,
+quoted names and comments (and keeps the jsonb `?|` and `?&` operators) but not a tagged `$tag$…$tag$` string; and
+the PostgreSQL grammar does not parse
 `DELETE … USING`.
 
 ## Output formats
