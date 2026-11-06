@@ -12,6 +12,7 @@ import 'mocha';
 import pg from 'pg';
 
 import { PostgresOrmDriver, pgEscapeIdentifier, toPositionalParameters } from '../../src/index.js';
+import { PGLITE, PGLITE_DRIVER, pgliteDriver, pgliteSkip, secondSessionError } from './pglite-mode.js';
 
 export const PG = {
   Host: process.env.ORM_TEST_POSTGRES_HOST ?? '127.0.0.1',
@@ -48,6 +49,11 @@ export interface IPgSuite {
 }
 
 export function reachable(): Promise<boolean> {
+  // Under PGlite no suite may touch a server that happens to run on this machine.
+  if (PGLITE) {
+    return Promise.resolve(false);
+  }
+
   return new Promise((resolve) => {
     const socket = net.createConnection({ host: PG.Host, port: PG.Port });
     const done = (ok: boolean) => {
@@ -97,6 +103,18 @@ async function ensureDatabase(): Promise<void> {
 // per suite would leave the container resolving the first suite's configuration ever after.
 let current: { schema: string; options: IPgSuiteOptions };
 
+function suiteConnection(schema: string, options: IPgSuiteOptions): Record<string, unknown> {
+  const common = {
+    Name: CONNECTION,
+    Pool: { Max: 4, IdleTimeout: 5000, AcquireTimeout: 5000, ...options.pool },
+    ...(options.resilience ? { Resilience: options.resilience } : {}),
+    Options: { Schema: schema },
+    Migration: { Table: 'orm_migrations', OnStartup: true },
+  };
+
+  return PGLITE ? { Driver: PGLITE_DRIVER, ...common } : { Driver: 'orm-driver-postgres', Host: PG.Host, Port: PG.Port, User: PG.User, Password: PG.Password, Database: PG.Database, ...common };
+}
+
 class PgIntegrationConf extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
     await super.resolve();
@@ -111,21 +129,7 @@ class PgIntegrationConf extends FrameworkConfiguration {
         },
         db: {
           Migration: { Startup: false },
-          Connections: [
-            {
-              Driver: 'orm-driver-postgres',
-              Name: CONNECTION,
-              Host: PG.Host,
-              Port: PG.Port,
-              User: PG.User,
-              Password: PG.Password,
-              Database: PG.Database,
-              Pool: { Max: 4, IdleTimeout: 5000, AcquireTimeout: 5000, ...options.pool },
-              ...(options.resilience ? { Resilience: options.resilience } : {}),
-              Options: { Schema: schema },
-              Migration: { Table: 'orm_migrations', OnStartup: true },
-            },
-          ],
+          Connections: [suiteConnection(schema, options)],
         },
       },
       (target: any, source: any) => (_.isArray(target) ? target.concat(source) : undefined),
@@ -134,7 +138,13 @@ class PgIntegrationConf extends FrameworkConfiguration {
 }
 
 export async function openSuite(ctx: Mocha.Context, options: IPgSuiteOptions): Promise<IPgSuite> {
-  if (!(await reachable())) {
+  if (PGLITE) {
+    const reason = pgliteSkip(ctx.test?.parent?.fullTitle());
+    if (reason) {
+      console.warn(`      suite skipped under PGlite: ${reason}`);
+      ctx.skip();
+    }
+  } else if (!(await reachable())) {
     if (REQUIRED) {
       throw new Error(`ORM_TEST_POSTGRES_REQUIRED=1 but PostgreSQL at ${PG.Host}:${PG.Port} is unreachable`);
     }
@@ -142,14 +152,20 @@ export async function openSuite(ctx: Mocha.Context, options: IPgSuiteOptions): P
     ctx.skip();
   }
 
-  await ensureDatabase();
   const schema = `it_${options.name}_${process.pid}_${randomBytes(3).toString('hex')}`.toLowerCase();
-  await withClient(PG.Database, (c) => c.query(`CREATE SCHEMA ${pgEscapeIdentifier(schema)}`));
+  if (!PGLITE) {
+    await ensureDatabase();
+    await withClient(PG.Database, (c) => c.query(`CREATE SCHEMA ${pgEscapeIdentifier(schema)}`));
+  }
 
   current = { schema, options };
   DI.clearCache();
   DI.register(PgIntegrationConf).as(Configuration);
-  DI.register(PostgresOrmDriver).as('orm-driver-postgres');
+  if (PGLITE) {
+    DI.register(await pgliteDriver()).as(PGLITE_DRIVER);
+  } else {
+    DI.register(PostgresOrmDriver).as('orm-driver-postgres');
+  }
 
   const migrator = (await DI.resolve(Orm)).Migrator;
   const orm = DI.get(Orm)!;
@@ -164,17 +180,22 @@ export async function openSuite(ctx: Mocha.Context, options: IPgSuiteOptions): P
     driver,
     raw: (sql: string, params: unknown[] = []) => driver.executeOnDb(sql, params as any[], QueryContext.Select),
     external: <T>(sql: string, params: unknown[] = []) =>
-      withClient(PG.Database, async (c) => {
-        await c.query(`SET search_path TO ${pgEscapeIdentifier(schema)}`);
-        const { rows }: { rows: unknown } = await c.query(toPositionalParameters(sql), params as any[]);
-        return rows as T;
-      }),
+      PGLITE
+        ? Promise.reject<T>(secondSessionError())
+        : withClient(PG.Database, async (c) => {
+            await c.query(`SET search_path TO ${pgEscapeIdentifier(schema)}`);
+            const { rows }: { rows: unknown } = await c.query(toPositionalParameters(sql), params as any[]);
+            return rows as T;
+          }),
     reset: async (...tables: string[]) => {
       await driver.executeOnDb(`TRUNCATE TABLE ${tables.map((t) => pgEscapeIdentifier(t)).join(', ')} RESTART IDENTITY CASCADE`, [], QueryContext.Schema);
     },
     close: async () => {
       await orm.dispose();
       DI.clearCache();
+      if (PGLITE) {
+        return;
+      }
       if (KEEP_SCHEMA) {
         console.warn(`      kept schema ${schema} (ORM_TEST_POSTGRES_KEEP_SCHEMA=1)`);
         return;
