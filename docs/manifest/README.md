@@ -200,3 +200,11 @@ that defaults to a primary key is left out: it is the primary key of the target 
 `diffManifest` has a `models` section keyed `<connection>:<table>` over the union of the models on that table. A
 removed table or column, a column made NOT NULL, an explicit family change, or a smaller length, precision or scale
 is breaking.
+
+## SQL queries
+
+`sqlQueries[]` (`ModelSqlQuery`) lists every `sql` template of `@spinajs/orm` in the package: `text` with one `?` per
+interpolation, `placeholders`, `dynamic` (it interpolates a fragment or `sql.raw`), the declared row of `sql<R>` as
+`declaredRow` and `declaredColumns`, `lists` (interpolations bound to an array) and `connection` when the template is
+passed straight to `executeSql(…, { connection })`. Merged ids are `<package>:<file>:<line>:<col>`. The section is
+omitted when no package has a template.
