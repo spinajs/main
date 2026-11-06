@@ -1,9 +1,12 @@
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { hashManifest, mergeFragments, readFragment, type Manifest } from '@spinajs/manifest';
 import { analyzePackage } from './analyze-package.js';
 import type { AppDirs } from './extractors/effective-dirs.js';
 import { locateFragments } from './fragments.js';
+
+// `src/` under ts-node and `lib/` once built both sit one level below the package root.
+const COMPILER_VERSION = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
 
 /** `NoAppDirs` from `requireAppDirs` is thrown before anything is written. */
 export interface BuildAppOptions extends Partial<AppDirs> {
@@ -31,6 +34,7 @@ export async function buildAppManifest(options: BuildAppOptions): Promise<{ mani
     generatedAt: new Date().toISOString(),
     buildEnv: options.buildEnv,
     schemaDerivation: options.schemaDerivation === false ? false : undefined,
+    compilerVersion: COMPILER_VERSION,
   });
   const manifest: Manifest = { ...merged, hash: hashManifest(merged) };
 

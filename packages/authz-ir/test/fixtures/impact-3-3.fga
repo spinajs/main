@@ -1,0 +1,45 @@
+model
+  schema 1.1
+
+type user # spina:implicit
+type global # spina:$global
+  relations
+    define accountant: [user] # spina:rewrite {"rewrite":{"priority":[]}}
+    define can_invoice_approve: [user] # spina:rewrite {"rewrite":{"priority":[]}}
+    define can_invoice_read: [user] # spina:rewrite {"rewrite":{"priority":[]}}
+    define clerk: [user] # spina:tuples {"store":"authz_assignment"}
+type invoice
+  relations
+    define abac_deny_invoice_update: [user:* with abac_frozen_invoices] # spina:rewrite {"rewrite":{"caveat":"abac_frozen_invoices","of":{"intersection":[]}}}
+    define accountant: accountant from parent
+    define can_invoice_approve: can_invoice_approve from parent
+    define can_invoice_read: can_invoice_read from parent
+    define clerk: clerk from parent
+    define owner: [user] # spina:column {"column":"author_id","model":"Invoice"}
+    define parent: [project] # spina:column {"column":"project_id","model":"Invoice"}
+    define perm_invoice_update: [user] # spina:rewrite {"rewrite":{"priority":[]}}
+    define rbac_invoice_read: can_invoice_read or (clerk and owner)
+type org
+  relations
+    define accountant: [user] # spina:tuples {"store":"authz_assignment"}
+    define can_invoice_approve: accountant or can_invoice_approve from parent
+    define can_invoice_read: accountant or can_invoice_read from parent
+    define clerk: clerk from parent
+    define parent: [global] # spina:ancestor {"via":"$global"}
+type project
+  relations
+    define accountant: accountant from parent
+    define can_invoice_approve: can_invoice_approve from parent
+    define can_invoice_read: can_invoice_read from parent
+    define clerk: clerk from parent
+    define parent: [org] # spina:ancestor {"via":"adapter"}
+
+# spina:caveat abac_frozen_invoices {"expr":{"attr":"resource.status","eq":"frozen"},"params":{"resource.status":"string"}}
+condition abac_frozen_invoices(resource_status: string) {
+  resource_status == "frozen"
+}
+
+# spina:ir {"combine":{"default":{"algorithm":"deny-overrides"}},"opaque":[],"principal":{"ancestry":"parent","ceiling":true,"delegation":true,"roles":{"accountant":[{"relation":"accountant","type":"org"}],"clerk":[{"relation":"clerk","type":"$global"}]}}}
+# spina:permission invoice:approve {"list":false,"relation":"can_invoice_approve","source":{"origin":"config:authz.rbac.roles"},"type":"invoice"}
+# spina:permission invoice:read {"list":true,"relation":"rbac_invoice_read","source":{"origin":"config:authz.rbac.roles"},"type":"invoice"}
+# spina:permission invoice:update {"list":false,"relation":"perm_invoice_update","source":{"origin":"config:authz.abac.policies"},"type":"invoice"}

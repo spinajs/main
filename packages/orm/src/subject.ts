@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { IModelDescriptor, IRelationDescriptor, OrphanPolicy } from './interfaces.js';
+import type { IModelDescriptor, IRelationDescriptor, OrphanPolicy } from './interfaces.js';
 import type { ModelBase } from './model.js';
 
 /**
