@@ -546,8 +546,15 @@ export class SocketDispatcher extends AsyncService {
         return Promise.reject(new SocketException('internal', `next() called twice by ${stage.constructor.name}`));
       }
       called = true;
-      return this.next(ctx, index + 1);
+      return this.next(ctx, index + 1).catch((err: unknown) => {
+        throw this.goneBeforeHandler(ctx, err);
+      });
     });
+  }
+
+  /** A later stage that waited on the signal ( ready, the ordering queue, an idempotency join ) throws the bare reason. */
+  protected goneBeforeHandler(ctx: SocketCommandContext, err: unknown): unknown {
+    return ctx.signal.aborted && err === ctx.signal.reason && !ctx.handlerStarted ? new SocketClientGone({ beforeHandler: true }, err as SocketException) : err;
   }
 
   protected async invoke(ctx: SocketCommandContext): Promise<unknown> {
