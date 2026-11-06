@@ -3,7 +3,7 @@ import 'mocha';
 import { expect } from 'chai';
 import '@spinajs/log';
 import { DI } from '@spinajs/di';
-import { SqlExpressions } from '@spinajs/orm';
+import { QueryContext, SqlExpressions } from '@spinajs/orm';
 
 import { MySqlOrmDriver } from '../src/index.js';
 
@@ -24,6 +24,17 @@ describe('mysql sql expressions', function () {
 
   it('reads epoch milliseconds from UTC_TIMESTAMP, whatever the session zone', () => {
     expect(expressions.epochMillis()).to.eq("TIMESTAMPDIFF(MICROSECOND, '1970-01-01 00:00:00', UTC_TIMESTAMP(3)) DIV 1000");
+  });
+
+  it('reads the database time with one select of that expression', async () => {
+    const calls: unknown[][] = [];
+    driver.executeOnDb = async (...args: unknown[]) => {
+      calls.push(args);
+      return [{ ms: '1767225600123' }];
+    };
+
+    expect(await driver.epochMillis()).to.eq(1767225600123);
+    expect(calls).to.deep.eq([["SELECT TIMESTAMPDIFF(MICROSECOND, '1970-01-01 00:00:00', UTC_TIMESTAMP(3)) DIV 1000 AS ms", [], QueryContext.Select]]);
   });
 
   it('concatenates with CONCAT', () => {

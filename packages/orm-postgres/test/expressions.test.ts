@@ -3,7 +3,7 @@ import 'mocha';
 import { expect } from 'chai';
 import '@spinajs/log';
 import { DI } from '@spinajs/di';
-import { SqlExpressions } from '@spinajs/orm';
+import { QueryContext, SqlExpressions } from '@spinajs/orm';
 
 import { PostgresOrmDriver } from '../src/index.js';
 
@@ -24,6 +24,17 @@ describe('postgres sql expressions', function () {
 
   it('reads epoch milliseconds from clock_timestamp, not the transaction start', () => {
     expect(expressions.epochMillis()).to.eq('CAST(ROUND(EXTRACT(EPOCH FROM clock_timestamp()) * 1000) AS BIGINT)');
+  });
+
+  it('reads the database time with one select of that expression', async () => {
+    const calls: unknown[][] = [];
+    driver.executeOnDb = async (...args: unknown[]) => {
+      calls.push(args);
+      return [{ ms: '1767225600123' }];
+    };
+
+    expect(await driver.epochMillis()).to.eq(1767225600123);
+    expect(calls).to.deep.eq([['SELECT CAST(ROUND(EXTRACT(EPOCH FROM clock_timestamp()) * 1000) AS BIGINT) AS ms', [], QueryContext.Select]]);
   });
 
   it('concatenates with ||', () => {

@@ -453,6 +453,14 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
   }
 
   /**
+   * The database's current instant in epoch milliseconds, read when the statement runs rather than when its transaction
+   * began. Drivers implement it; the default throws `NotSupported`.
+   */
+  public async epochMillis(): Promise<number> {
+    throw new NotSupported(`driver ${this.Options.Driver} cannot read the database time`);
+  }
+
+  /**
    * Creates index query builder associated with this connection.
    * This can be use to create table indexes
    */
