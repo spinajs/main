@@ -1,6 +1,6 @@
 import { RawQuery } from '../builders/raw.js';
 import type { AlterTableQueryBuilder, TableQueryBuilder } from '../builders/schema/table.js';
-import type { OrmDriver } from '../driver.js';
+import type { OrmDriver, TransactionCallback } from '../driver.js';
 import { planMigration, type CallArg, type ColumnCall, type MigrationStep } from './codegen.js';
 import type { SchemaChange } from './types.js';
 
@@ -54,6 +54,8 @@ export async function renderSql(changes: SchemaChange[], driver: OrmDriver, opti
     recorded.push(statement.trim());
     return Promise.resolve([]);
   };
+  // a driver's transaction() sends BEGIN past executeOnDb (sqlite's column rebuild opens one)
+  recorder.transaction = <R>(cb: TransactionCallback<R>): Promise<R> => cb(recorder);
   for (const planned of planMigration(changes)) {
     if (planned.destructive && !options.allowDestructive) continue;
     recorded = [];
@@ -61,7 +63,9 @@ export async function renderSql(changes: SchemaChange[], driver: OrmDriver, opti
       await runStep(recorder, planned.step);
       statements.push(...recorded);
     } catch (err) {
-      statements.push(`-- ${planned.step.kind} ${planned.step.table} is not compiled offline: ${err instanceof Error ? err.message : String(err)}`);
+      const line = `-- ${planned.step.kind} ${planned.step.table} is not compiled offline: ${err instanceof Error ? err.message : String(err)}`;
+      // a line terminator in a name or in the message would end the comment and turn the rest into SQL
+      statements.push(line.replace(/[\r\n\p{Zl}\p{Zp}]/gu, ' '));
     }
   }
   return statements;
