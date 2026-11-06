@@ -48,6 +48,8 @@ interface IdempotencyGate {
   /** Thrown by the route run when the client went away before the reply: the service keeps the claim. */
   outcomeUnknown: new (message: string) => Error;
   fingerprint: (data: string | Uint8Array) => string;
+  /** Crash contract: an error with `crash: true` stands for a dead process, whose claim is neither stored nor released. */
+  isCrash: (error: unknown) => boolean;
 }
 
 const ANONYMOUS = 'anonymous';
@@ -55,9 +57,6 @@ const ANONYMOUS = 'anonymous';
 const CLAIM_CONFLICT_RETRY_AFTER_S = 1;
 
 const clientGone = (res: Express.Response): boolean => res.destroyed || res.closed;
-
-/** Crash contract: an error with `crash: true` stands for a dead process, whose claim is neither stored nor released. */
-const isCrash = (error: unknown): error is Error => (error as { crash?: unknown } | null | undefined)?.crash === true;
 
 function principalOf(req: Express.Request): string {
   const principal = ((req as Request).storage as { Principal?: Principal } | undefined)?.Principal;
@@ -164,6 +163,7 @@ export class IdempotencyMiddleware extends AroundMiddleware {
       claimConflict: idempotency.IdempotencyClaimConflict,
       outcomeUnknown: idempotency.IdempotencyOutcomeUnknown,
       fingerprint: idempotency.fingerprintOf,
+      isCrash: idempotency.isCrash,
     };
   }
 
@@ -225,7 +225,7 @@ export class IdempotencyMiddleware extends AroundMiddleware {
         }
         throw err;
       }
-      if (isCrash(outcome.error)) {
+      if (gate.isCrash(outcome.error)) {
         throw outcome.error;
       }
       return outcome.reply;
@@ -294,7 +294,7 @@ export class IdempotencyMiddleware extends AroundMiddleware {
       this._log.warn({ route: gate.namespace }, 'Idempotent route ${route}: the client went away during the claim; the route did not run and its key is released');
     } else if (err instanceof gate.outcomeUnknown) {
       this._log.warn({ route: gate.namespace }, 'Idempotent route ${route}: the client went away before the reply; its key stays claimed until the lease ends');
-    } else if (isCrash(err)) {
+    } else if (gate.isCrash(err)) {
       this._log.warn({ route: gate.namespace }, 'Idempotent route ${route} crashed; its key stays claimed until the lease ends');
     } else {
       this._log.error({ error: err, route: gate.namespace }, 'Idempotent route ${route}: recording its reply failed after it answered');
