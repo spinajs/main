@@ -198,7 +198,7 @@ describe('ORM intl tests', function () {
     expect(result).to.be.not.null;
     expect(result).to.be.an('array');
 
-    expect(result![0]!.Owner.Value!.Text).to.eq('owner hello');
+    expect(result![0]!.Owner.Value.Text).to.eq('owner hello');
   });
 
   it('Should translate belongsTo relation nested automatically', async () => {
@@ -219,8 +219,8 @@ describe('ORM intl tests', function () {
     expect(result).to.be.not.null;
     expect(result).to.be.an('array');
 
-    expect(result![0]!.Owner.Value!.Text).to.eq('owner hello');
-    expect(result![0]!.Owner.Value!.Owner.Value!.Text).to.eq('owner2 hello');
+    expect(result![0]!.Owner.Value.Text).to.eq('owner hello');
+    expect(result![0]!.Owner.Value.Owner.Value!.Text).to.eq('owner2 hello');
   });
 
   it('Should load translations for entity', async () => {
