@@ -5,7 +5,7 @@ import { AsyncService, Autoinject, DI, Injectable, PerInstanceCheck, type IInsta
 import { Clock, DbClock, FaultInjector, Heartbeat, RowLease } from '@spinajs/durable';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
-import { SqlExpressions, type IWhereBuilder, type OrmDriver } from '@spinajs/orm';
+import { IdentifierQuoter, outer, qualifierOf, RawQuery, SqlExpressions, type ISelectQueryBuilder, type IWhereBuilder, type OrmDriver } from '@spinajs/orm';
 import { ActivationContext, type CompensationResult, type Park } from './context.js';
 import type { SerializedError } from './contract.js';
 import { isCrash, LeaseLostError, NonDeterminismError, serializeError, type AbortReason } from './errors.js';
@@ -13,9 +13,11 @@ import { missingVersions } from './health.js';
 import { identifierProblem } from './identifier.js';
 import { Journal } from './journal.js';
 import { safeStringify } from './json.js';
+import { WorkflowEventModel } from './models/WorkflowEventModel.js';
 import { WorkflowInstanceModel } from './models/WorkflowInstanceModel.js';
+import { WorkflowStepModel } from './models/WorkflowStepModel.js';
 import { WorkflowRegistry, type RegisteredWorkflow } from './registry.js';
-import { quoter, selectRows, workflowDriver } from './sql.js';
+import { workflowDriver } from './sql.js';
 import { InstanceStore } from './store.js';
 import { resolveWorkflowConfig, type WorkflowConfig } from './workflow-config.js';
 
@@ -59,6 +61,18 @@ function leaseFree(now: number) {
   return function (this: IWhereBuilder<unknown>) {
     this.whereNull('ClaimedBy').orWhere('ClaimedUntil', '<', now);
   };
+}
+
+/**
+ * `step.Key` within the wait keys of `event.Name`. The builder cannot compare a column with an expression, so this is
+ * the one raw predicate (D1a); its qualifiers are read from the two queries, as the builder's own statements read them.
+ */
+function waitKeyRange(driver: OrmDriver, step: ISelectQueryBuilder<unknown>, event: ISelectQueryBuilder<unknown>): RawQuery {
+  const quoter = driver.Container.resolve(IdentifierQuoter);
+  const expressions = driver.Container.resolve(SqlExpressions);
+  const key = `${quoter.quote(qualifierOf(step))}.${quoter.quote('Key')}`;
+  const name = `${quoter.quote(qualifierOf(event))}.${quoter.quote('Name')}`;
+  return RawQuery.create(`${key} >= ${expressions.concat('?', name, '?')} AND ${key} < ${expressions.concat('?', name, '?')}`, ['wait:', '#', 'wait:', '$']);
 }
 
 function registeredVersions(defs: RegisteredWorkflow[]) {
@@ -230,24 +244,28 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
 
   /** Waiting instances with a pending event of the name they wait for: the signal landed while they were being parked. */
   protected async signalledInstances(now: number, defs: RegisteredWorkflow[], limit: number): Promise<WorkflowInstanceModel[]> {
-    const driver = this.store.driver;
-    const q = quoter(driver);
-    const expressions = driver.Container.resolve(SqlExpressions);
-    const cat = (...parts: string[]): string => expressions.concat(...parts);
+    return await this.signalledQuery(now, defs, limit);
+  }
+
+  protected signalledQuery(now: number, defs: RegisteredWorkflow[], limit: number): ISelectQueryBuilder<WorkflowInstanceModel[]> {
+    const named = WorkflowEventModel.query().where('State', 'pending').whereColumn('InstanceId', '=', outer('Id')).whereColumn('Name', '=', outer('WaitingFor'));
+    // '*' waits for several names: an event counts only if a wait of its name is pending (the exact-collation key range)
+    const anyName = WorkflowEventModel.query().where('State', 'pending').whereColumn('InstanceId', '=', outer('Id'));
+    const pendingWait = WorkflowStepModel.query().whereColumn('InstanceId', '=', outer('Id', 2)).where('Kind', 'wait').where('Status', 'pending');
+    anyName.whereExist(pendingWait.where(waitKeyRange(this.store.driver, pendingWait, anyName)));
     // filtered before the LIMIT: unregistered versions must not take the reserved slots
-    const versions = defs.map(() => `(w.${q('Workflow')} = ? AND w.${q('Version')} = ?)`).join(' OR ');
-    const rows = await selectRows<{ id: string }>(
-      driver,
-      `SELECT w.${q('Id')} AS id FROM ${q('__workflow')} w WHERE w.${q('Status')} = ? AND (w.${q('ClaimedBy')} IS NULL OR w.${q('ClaimedUntil')} < ?) AND (${versions}) ` +
-        `AND EXISTS (SELECT 1 FROM ${q('__workflow_event')} e WHERE e.${q('InstanceId')} = w.${q('Id')} AND e.${q('State')} = ? AND (e.${q('Name')} = w.${q('WaitingFor')} OR (w.${q('WaitingFor')} = ? ` +
-        // '*' waits for several names: an event counts only if a wait of its name is pending (the exact-collation key range)
-        `AND EXISTS (SELECT 1 FROM ${q('__workflow_step')} s WHERE s.${q('InstanceId')} = w.${q('Id')} AND s.${q('Kind')} = ? AND s.${q('Status')} = ? ` +
-        `AND s.${q('Key')} >= ${cat('?', `e.${q('Name')}`, '?')} AND s.${q('Key')} < ${cat('?', `e.${q('Name')}`, '?')})))) ` +
-        `ORDER BY w.${q('UpdatedAt')} LIMIT ${Math.floor(limit)}`,
-      ['waiting', now, ...defs.flatMap((d) => [d.name, d.version]), 'pending', '*', 'wait', 'pending', 'wait:', '#', 'wait:', '$'],
-    );
-    const ids = rows.map((r) => r.id);
-    return ids.length === 0 ? [] : await WorkflowInstanceModel.query().onPrimary().whereIn('Id', ids).take(limit);
+    return WorkflowInstanceModel.query()
+      .onPrimary()
+      .where('Status', 'waiting')
+      .where(leaseFree(now))
+      .where(registeredVersions(defs))
+      .where(function () {
+        this.whereExist(named).orWhere(function () {
+          this.where('WaitingFor', '*').whereExist(anyName);
+        });
+      })
+      .orderBy('UpdatedAt')
+      .take(limit);
   }
 
   /** Rejects only with a crash; any other error of the engine's own is logged. */

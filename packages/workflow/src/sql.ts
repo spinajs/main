@@ -1,10 +1,7 @@
 import { DI } from '@spinajs/di';
-import type { RawSqlDriver } from '@spinajs/durable';
 import { InvalidOperation } from '@spinajs/exceptions';
-import { IdentifierQuoter, Orm, QueryContext, SelectQueryBuilder, type OrmDriver } from '@spinajs/orm';
+import { Orm, SelectQueryBuilder, type OrmDriver } from '@spinajs/orm';
 import { WORKFLOW_CONNECTION } from './workflow-config.js';
-
-export type { RawSqlDriver } from '@spinajs/durable';
 
 /**
  * Bet 3 O10 (`v4-o-10-replicas`) adds `onPrimary()` to `SelectQueryBuilder`, which routes the select to the primary
@@ -24,19 +21,8 @@ if (typeof selectPrototype.onPrimary !== 'function') {
   };
 }
 
-export async function workflowDriver(): Promise<RawSqlDriver> {
+export async function workflowDriver(): Promise<OrmDriver> {
   const driver = (await DI.resolve(Orm)).Connections.get(WORKFLOW_CONNECTION);
   if (!driver) throw new InvalidOperation(`workflow: ORM connection '${WORKFLOW_CONNECTION}' not found; map it with db.Aliases.workflow`);
-  return driver as RawSqlDriver;
-}
-
-/** The tables were created with quoted mixed-case names, which Postgres would fold when unquoted. */
-export function quoter(driver: OrmDriver): (identifier: string) => string {
-  const identifiers = driver.Container.resolve(IdentifierQuoter);
-  return (id) => identifiers.quote(id);
-}
-
-/** Never put a literal `?` in `sql`: the Postgres driver turns every `?` into a placeholder. */
-export async function selectRows<T>(driver: RawSqlDriver, sql: string, params: unknown[]): Promise<T[]> {
-  return (await driver.executeOnDb(sql, params, QueryContext.Select)) as T[];
+  return driver;
 }
