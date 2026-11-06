@@ -53,12 +53,15 @@
     "@spinajs/log-common": "3.0.23",
     "@spinajs/manifest": "3.0.23",
     "@spinajs/reflection": "3.0.23",
+    "@spinajs/util": "3.0.23",
     "commander": "10.0.0",
     "reflect-metadata": "^0.1.13"
   },
   "devDependencies": {
     "@types/node": "^18.11.18",
     "@spinajs/asyncapi": "3.0.23",
+    "@spinajs/authz-ir": "3.0.23",
+    "@spinajs/authz-verify": "3.0.23",
     "@spinajs/compiler": "3.0.23",
     "@spinajs/codemods": "3.0.23",
     "@spinajs/client": "3.0.23",
@@ -68,6 +71,8 @@
   "types": "./lib/index.d.ts",
   "peerDependencies": {
     "@spinajs/asyncapi": "3.0.23",
+    "@spinajs/authz-ir": "3.0.23",
+    "@spinajs/authz-verify": "3.0.23",
     "@spinajs/compiler": "3.0.23",
     "@spinajs/codemods": "3.0.23",
     "@spinajs/client": "3.0.23",
@@ -75,6 +80,12 @@
   },
   "peerDependenciesMeta": {
     "@spinajs/asyncapi": {
+      "optional": true
+    },
+    "@spinajs/authz-ir": {
+      "optional": true
+    },
+    "@spinajs/authz-verify": {
       "optional": true
     },
     "@spinajs/compiler": {

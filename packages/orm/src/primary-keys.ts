@@ -1,9 +1,10 @@
 /* eslint-disable prettier/prettier */
 import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
-import { SortOrder, SqlOperator } from './enums.js';
+import { SqlOperator } from './enums.js';
+import type { SortOrder } from './enums.js';
 import { OrmException } from './exceptions.js';
-import { IModelDescriptor, IOrderByBuilder, IWhereBuilder, PrimaryKeyGeneration } from './interfaces.js';
+import type { IModelDescriptor, IOrderByBuilder, IWhereBuilder, PrimaryKeyGeneration } from './interfaces.js';
 
 /**
  * Separator used when flattening a composite key into one string. NUL never appears in an
