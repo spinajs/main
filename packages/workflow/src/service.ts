@@ -1,13 +1,15 @@
 import { Autoinject, DI, Injectable, Singleton, type Constructor } from '@spinajs/di';
 import { DbClock } from '@spinajs/durable';
-import { InvalidArgument, NotSupported } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import { UniqueViolation } from '@spinajs/orm';
 import { v4 as uuidv4 } from 'uuid';
 import type { StartOptions, WorkflowInstanceView, WorkflowStatus } from './contract.js';
-import { WorkflowIdConflict, WorkflowStartConflict } from './errors.js';
+import { WorkflowIdConflict, WorkflowNotFound, WorkflowStartConflict } from './errors.js';
+import { missingVersions } from './health.js';
 import { identifierProblem } from './identifier.js';
 import { safeStringify } from './json.js';
 import { WorkflowInstanceModel } from './models/WorkflowInstanceModel.js';
+import { WorkflowStepModel } from './models/WorkflowStepModel.js';
 import { WorkflowRegistry, type WorkflowDefinition } from './registry.js';
 import { workflowDriver } from './sql.js';
 
@@ -63,6 +65,20 @@ export function toView(r: WorkflowInstanceModel): WorkflowInstanceView {
 }
 
 const MAX_ID = 128;
+const MAX_REASON = 64;
+const CANCELLABLE: WorkflowStatus[] = ['running', 'sleeping', 'waiting'];
+const MAX_PAGE = 500;
+const DEFAULT_PAGE = 50;
+const RETRIED_KINDS = new Set(['step', 'emit']);
+
+/**
+ * Failed step and emit rows that no later recorded call saw. A failure the workflow caught and handled was delivered
+ * before a recorded call was made (`Meta.after >= order`); it stays failed and replays as the recorded rejection.
+ */
+function unobservedFailures(rows: WorkflowStepModel[]): WorkflowStepModel[] {
+  const seen = rows.reduce((max, r) => (r.Kind === 'compensate' ? max : Math.max(max, r.Meta?.after ?? -1)), -1);
+  return rows.filter((r) => r.Status === 'failed' && RETRIED_KINDS.has(r.Kind) && !(r.Meta?.order !== undefined && seen >= r.Meta.order));
+}
 
 function inputColumn(input: unknown): string | null {
   if (input === null || input === undefined) return null;
@@ -129,20 +145,48 @@ export class DefaultWorkflowService extends WorkflowService {
     return Promise.reject(new NotSupported('WorkflowService.signal()'));
   }
 
-  public cancel(): Promise<void> {
-    return Promise.reject(new NotSupported('WorkflowService.cancel()'));
+  /** WakeAt = now makes a parked instance due at once; a compensating or finished instance is left alone. */
+  public async cancel(instanceId: string, reason = 'cancelled'): Promise<void> {
+    const now = await this.now();
+    // varchar(64) counts code points; cutting UTF-16 units could leave a lone surrogate, which has no UTF-8 encoding
+    const stored = Array.from(reason).slice(0, MAX_REASON).join('');
+    const r = await WorkflowInstanceModel.update({ CancelRequested: true, Reason: stored, WakeAt: now, UpdatedAt: now })
+      .where('Id', instanceId)
+      .whereIn('Status', CANCELLABLE);
+    if (r.RowsAffected === 1) return;
+    if (!(await WorkflowInstanceModel.where('Id', instanceId).onPrimary().first())) throw new WorkflowNotFound(instanceId);
   }
 
-  public retry(): Promise<void> {
-    return Promise.reject(new NotSupported('WorkflowService.retry()'));
+  public async retry(instanceId: string): Promise<void> {
+    const row = await WorkflowInstanceModel.where('Id', instanceId).onPrimary().first();
+    if (!row) throw new WorkflowNotFound(instanceId);
+    if (row.Status !== 'failed') throw new InvalidOperation(`workflow instance '${instanceId}' is ${row.Status}; only a failed instance can be retried`);
+    if (row.Reason === 'timeout') throw new InvalidOperation(`workflow instance '${instanceId}' passed its deadline; a retry would fail it again at once`);
+    const now = await this.now();
+    const driver = await workflowDriver();
+    await driver.transaction(async () => {
+      const r = await WorkflowInstanceModel.update({ Status: 'running', Reason: null, Error: null, WakeAt: null, WaitingFor: null, CancelRequested: false, FinishedAt: null, UpdatedAt: now }).where({ Id: instanceId, Status: 'failed' });
+      if (r.RowsAffected !== 1) throw new InvalidOperation(`workflow instance '${instanceId}' changed while it was being retried`);
+      for (const step of unobservedFailures(await WorkflowStepModel.where('InstanceId', instanceId))) {
+        // a fresh attempt budget and no stale backoff; Meta.after keeps the journal causal for the replay
+        const after = step.Meta?.after;
+        await WorkflowStepModel.update({ Status: 'retrying', Attempt: 0, Meta: after === undefined ? null : { after } }).where('Id', step.Id);
+      }
+    });
   }
 
-  public list(): Promise<WorkflowInstanceView[]> {
-    return Promise.reject(new NotSupported('WorkflowService.list()'));
+  public async list(filter: ListFilter): Promise<WorkflowInstanceView[]> {
+    const query = WorkflowInstanceModel.query();
+    if (filter.workflow !== undefined) query.where('Workflow', filter.workflow);
+    if (filter.status?.length) query.whereIn('Status', filter.status);
+    if (filter.after !== undefined) query.where('Id', '>', filter.after);
+    const limit = Number.isFinite(filter.limit) ? Math.floor(filter.limit!) : DEFAULT_PAGE;
+    const rows = await query.orderBy('Id').take(Math.min(Math.max(limit, 1), MAX_PAGE));
+    return rows.map(toView);
   }
 
-  public health(): Promise<{ missingVersions: MissingVersion[] }> {
-    return Promise.reject(new NotSupported('WorkflowService.health()'));
+  public async health(): Promise<{ missingVersions: MissingVersion[] }> {
+    return { missingVersions: await missingVersions(await this.registry()) };
   }
 
   /**
