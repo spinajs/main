@@ -8,16 +8,16 @@ A command declared `idempotent` runs once per idempotency key, however often the
 
 1. A request without `idempotencyKey` continues; with `after` but no key it answers `invalid_argument`.
 2. A key on a command that is not `idempotent` answers `failed_precondition`: the client would believe it is deduplicated.
-3. `SocketIdempotency.begin()` claims the scoped key `principalKey:clientId:key` (each part URI-encoded) in the `IdempotencyStore`:
+3. `SocketIdempotency.begin()` claims the scoped key in the store (see [Idempotency storage](04-command-pipeline.md#idempotency-storage)): `idempotencyKey({ namespace: 'socket', principal: JSON.stringify([principalKey, clientId]) }, key)`, or `principalKey:clientId:key` (each part URI-encoded) on a 3.x store:
    - free: the command runs under the claim;
    - completed: the stored reply is answered (a stored error is thrown again, with its `errorId`);
    - running on this instance: the call waits for that run's reply, or claims again if that run released the key;
-   - running elsewhere: `unavailable` with `retryAfterMs: 1000`.
+   - running elsewhere: `unavailable` with `retryAfterMs` set to the rest of the claim's lease (`1000` on a 3.x store, which has no lease).
 4. When the handler settles, the claim records the outcome once:
    - a result is stored in its wire (JSON) form, and the reply is that form, so a live reply and every replay are the same payload;
    - a non-retryable error is stored;
    - a retryable error, `unauthenticated`, the call's own abort (deadline, cancel, disconnect, shutdown while queued) and a stream result release the key, so a resend runs the command again;
-   - a shutdown abort after the handler started keeps the key running: the handler may have committed.
+   - a shutdown abort after the handler started keeps the key claimed until its lease ends, then another instance takes it over: the handler may have committed.
 5. A store that fails to keep a reply: the reply is still answered and the key released.
 
 `OrderingStage` (order 550):
@@ -59,9 +59,10 @@ sequenceDiagram
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `http.socket.idempotency.service` | string | `'MemoryIdempotencyStore'` | name of a class registered under `IdempotencyStore` | The store; this whole object is its first constructor argument |
+| `http.socket.idempotency.service` | string \| null | `'MemoryIdempotencyStore'` | name of a class registered under `IdempotencyStore` of `@spinajs/idempotency` or of this package; `null` | The store; this whole object is its first constructor argument. `null`: the store of `IdempotencyService` (`idempotency.store`) |
 | `http.socket.idempotency.ttlMs` | number | `600000` | (0, 2^31-1] | How long a completed key replays its reply |
-| `http.socket.idempotency.maxEntries` | integer | `100000` | above 0 | `MemoryIdempotencyStore`: completed keys kept; least recently used go first |
+| `http.socket.idempotency.maxEntries` | integer | `100000` | above 0 | `MemoryIdempotencyStore`: completed keys kept; expired ones go first, then the oldest |
+| `http.socket.idempotency.lease` | duration string or ms | not set: `idempotency.lease` (`30s`) | above 0 | Lease of a running claim, renewed while the handler runs |
 | `http.socket.ordering.abortGraceMs` | number | `30000` | (0, 2^31-1] | How long an aborted `ordered` command whose handler still runs keeps its queue place |
 
 ```ts
@@ -85,6 +86,8 @@ A bad `idempotency` value makes `SocketServer.resolve()` throw `RangeError`.
 | `IdempotencyStage`, `OrderingStage` | `SocketCommandStage`, orders 500 and 550 | as named | Your stages | Replace as any stage; see [Command pipeline](04-command-pipeline.md#replace-a-built-in-stage) |
 
 ### `IdempotencyStore`: a store shared by several instances
+
+This is the deprecated 3.x contract of this package. It still works, wrapped by `fromLegacySocketStore`, but its claims have no lease. A new store extends `IdempotencyStore` of `@spinajs/idempotency`, or names `OrmIdempotencyStore`.
 
 The contract:
 

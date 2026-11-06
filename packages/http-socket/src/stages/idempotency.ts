@@ -1,6 +1,6 @@
 import { Autoinject, Injectable } from '@spinajs/di';
 import { SocketException } from '@spinajs/http-socket-common';
-import { ISocketCommandContext, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
+import { ISocketCommandContext, ISocketIdempotencyClaim, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
 import { SocketIdempotency } from '../idempotency.js';
 
 /**
@@ -43,7 +43,17 @@ export class IdempotencyStage extends SocketCommandStage {
 
     const claim = begun.claim;
     ctx.idempotency = claim;
+    // the handler stops instead of running on while another instance runs the command again
+    const leaseLost = () => ctx.abort(new SocketException('unavailable', `command ${name} lost the lease of its idempotency key to another server instance`));
+    claim.lease?.addEventListener('abort', leaseLost, { once: true });
+    try {
+      return await this.run(claim, next);
+    } finally {
+      claim.lease?.removeEventListener('abort', leaseLost);
+    }
+  }
 
+  protected async run(claim: ISocketIdempotencyClaim, next: () => Promise<unknown>): Promise<unknown> {
     let result: unknown;
     try {
       result = await next();

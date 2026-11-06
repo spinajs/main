@@ -217,6 +217,42 @@ export class AuditStage extends SocketCommandStage {
 }
 ```
 
+## Idempotency storage
+
+Idempotent commands (`@Command(name, { idempotent: true })`) keep their replies through `@spinajs/idempotency`.
+`http.socket.idempotency.service` names the store, built with the whole `http.socket.idempotency` object as in 3.x:
+
+| `service` | Store |
+|---|---|
+| `MemoryIdempotencyStore` (the shipped default) | `@spinajs/idempotency`'s memory store, one process; `maxEntries` caps completed keys |
+| `OrmIdempotencyStore` | `__idempotency` on the `idempotency` connection, shared by every instance |
+| `null` | the store of `IdempotencyService`, `idempotency.store` (see `docs/idempotency/README.md`) |
+| a class of your own | an `IdempotencyStore` of `@spinajs/idempotency`, or a 3.x store of this package |
+
+A running claim is a lease, renewed while the handler runs: `http.socket.idempotency.lease`, or `idempotency.lease`
+(default `30s`) when it is not set. When a shutdown aborts a handler that already started, its key stays claimed, because the handler may have
+committed. Another instance takes the key over once the lease ends, and a resend meanwhile is told to retry after the
+rest of the lease. 3.x tracked no lease, so such a key used to stay running until something released it.
+A handler whose lease is lost (a renewal was refused because another instance took the key over) is aborted with
+`unavailable`, so it stops instead of running alongside the other instance's run. An error carrying `crash: true`
+stands for a dead process: its key is neither stored nor released, and its lease ends on its own.
+
+Stores keep replies as JSON. Binary parts of a reply (a `Buffer`, a typed array, an `ArrayBuffer`) are stored
+base64-encoded beside it and replay as binary; a `Buffer` replays as a `Uint8Array`. Base64 makes them about a third
+larger in the store. A stored reply that cannot be read back answers the final `failed_precondition`: the command
+already ran once, and the store cannot free a completed key.
+
+A claim that loses a lock or serialization conflict on the database (`IdempotencyClaimConflict`) answers `unavailable`,
+which the client retries.
+
+http-socket depends on `@spinajs/idempotency`, and importing that package registers the `__idempotency` model and
+migration (connection `idempotency`, an alias of `default`). So a socket app with a database gets the `__idempotency`
+table even when it keeps the memory store.
+
+A 3.x store (a class extending this package's deprecated `IdempotencyStore`) still works. It is wrapped by
+`fromLegacySocketStore`, keeps the 3.x key format, and its running claims never expire. Move it to `IdempotencyStore`
+of `@spinajs/idempotency` and run `describeIdempotencyStoreConformance` from `@spinajs/idempotency/testing` against it.
+
 ## Related
 
 - [Limits](13-limits.md): the size, rate and in-flight stages in detail.
