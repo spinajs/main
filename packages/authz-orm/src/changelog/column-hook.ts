@@ -60,6 +60,7 @@ async function readValues(driver: OrmDriver, work: Work, ids: readonly string[])
   const out = new Map<string, Record<string, unknown>>();
   const names = [...new Set([work.entry.idColumn, ...work.columns.flatMap((c) => (c.typeColumn ? [c.column, c.typeColumn] : [c.column]))])];
   const values = ids.map((id) => idLookup(work.model, work.entry.idColumn, id)).filter((v) => v !== undefined);
+  // spinajs-orm-ignore ORM102: deliberate batching, one query per IN_CHUNK ids
   for (let i = 0; i < values.length; i += IN_CHUNK) {
     const rows = (await driver.select().from(tableOf(work.model)).columns(names).whereIn(work.entry.idColumn, values.slice(i, i + IN_CHUNK))) as Record<string, unknown>[];
     for (const row of rows) {
