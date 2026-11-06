@@ -35,7 +35,7 @@ export class HealthTracker {
     now: number,
   ): Promise<FailureRecord> {
     const counted = await ScheduleModel.update({ UpdatedAt: now }).increment('ConsecutiveFailures').where('Name', schedule);
-    if (counted.RowsAffected === 0) return { consecutive: 0, paused: false };
+    if (!counted.RowsAffected) return { consecutive: 0, paused: false };
 
     let paused = false;
     if (pauseAfterFailures) {
