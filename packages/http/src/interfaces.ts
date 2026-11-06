@@ -934,7 +934,9 @@ export abstract class RouteMiddleware {
   /**
    * Wraps everything after this middleware: the later middlewares, the action, the error handlers and the response.
    * `proceed()` runs that chain once and settles when the response finished; it rejects with RouteClientGone when the
-   * client went away first. Not calling it ends the chain: the middleware must then answer `res` itself. A throw
+   * client went away first. Not calling it ends the chain: the middleware must then answer `res` itself,
+   * and the answer must be sent, or its sending awaited (`res.once('finish')` after `sendFile`/`pipe`), before the returned
+   * promise settles; otherwise the request is answered 500. A throw
    * before `proceed()` goes to the route's error handlers.
    */
   public onAround?(invocation: IRouteInvocation, proceed: () => Promise<IRouteOutcome>): Promise<void>;
