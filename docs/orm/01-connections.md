@@ -138,6 +138,7 @@ this.Config = _.merge(this.Config, {
 | `tableInfo(name, schema?)` | Abstract. Returns the table's `IColumnDescriptor[]`. `findColumn(columns, name)` from `@spinajs/orm` picks one: the exact name, else the only one equal ignoring case, with `Name` spelled as the table spells it. |
 | `select<T>()`, `insert()`, `update<T>()`, `del<T>()`, `truncate(table)` | Query builders bound to this connection. See [Query builder](05-query-builder.md). |
 | `now()` | A `RawQuery` holding the database's current instant, from the dialect's `NowExpression`: `where('ExpiresAt', '>', driver.now())`. See [Query builder](05-query-builder.md#filtering). |
+| `epochMillis()` | The database's current instant in epoch milliseconds, read when the statement runs, not when the transaction began. Runs inside the transaction in scope. Every SQL driver implements it from its `SqlExpressions.epochMillis()`; the base driver throws `NotSupported`. |
 | `schema()`, `index()` | Schema and index builders. See [Schema builder](09-schema-builder.md). |
 | `transaction(cb, options?)`, `afterCommit(cb)` | Transactions; `cb` is a `TransactionCallback<R>`: `(driver: OrmDriver) => Promise<R>`. See [Transactions](08-transactions.md). |
 | `lockTableShared(table)` | Keeps other writers off `table` until the transaction in scope ends; readers go on. Throws `InvalidOperation` outside a transaction, `NotSupported` on a driver that does not implement it. See [Transactions](08-transactions.md#shared-table-lock). |
