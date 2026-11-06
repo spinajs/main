@@ -26,6 +26,17 @@ describe('postgres sql expressions', function () {
     expect(expressions.epochMillis()).to.eq('CAST(ROUND(EXTRACT(EPOCH FROM clock_timestamp()) * 1000) AS BIGINT)');
   });
 
+  it('reads the database time with one select of that expression', async () => {
+    const calls: unknown[][] = [];
+    driver.executeOnDb = async (...args: unknown[]) => {
+      calls.push(args);
+      return [{ ms: '1767225600123' }];
+    };
+
+    expect(await driver.epochMillis()).to.eq(1767225600123);
+    expect(calls).to.deep.eq([['SELECT CAST(ROUND(EXTRACT(EPOCH FROM clock_timestamp()) * 1000) AS BIGINT) AS ms', [], QueryContext.Select]]);
+  });
+
   it('concatenates with ||', () => {
     expect(expressions.concat('?', '"Name"', '?')).to.eq('? || "Name" || ?');
     expect(expressions.concat('"Name"')).to.eq('"Name"');

@@ -37,6 +37,13 @@ describe('sqlite sql expressions', function () {
     expect(Math.abs(Number(row.ms) - Date.now())).to.be.lessThan(5000);
   });
 
+  it('reads the database time through the driver, inside a transaction too', async () => {
+    expect(Math.abs((await driver().epochMillis()) - Date.now())).to.be.lessThan(5000);
+
+    const inTransaction = await driver().transaction(async (d) => d.epochMillis());
+    expect(Math.abs(inTransaction - Date.now())).to.be.lessThan(5000);
+  });
+
   it('concatenates with ||', async () => {
     const sql = driver().Container.resolve(SqlExpressions).concat('?', "'b'", '?');
     const [row] = (await driver().executeOnDb(`SELECT ${sql} AS v`, ['a', 'c'], QueryContext.Select)) as Array<{ v: string }>;
