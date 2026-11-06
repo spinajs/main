@@ -27,7 +27,10 @@
       "path": "../queue/tsconfig.json"
     },
     {
-      "path": "../threading/tsconfig.json"
+      "path": "../scheduler/tsconfig.json"
+    },
+    {
+      "path": "../configuration/tsconfig.json"
     }
   ]
 }

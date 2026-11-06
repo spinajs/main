@@ -46,9 +46,6 @@
     },
     {
       "path": "../validation/tsconfig.build.json"
-    },
-    {
-      "path": "../tasks/tsconfig.build.json"
     }
   ]
 }

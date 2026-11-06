@@ -1,4 +1,8 @@
 const cli = {
+  tasks: {
+    // 5.0 flips this to false: run history lives in __scheduler_run only
+    legacyHistory: true,
+  },
   queue: {
     routing: {
       // task module events - inform when task fails or succeeds

@@ -1,6 +1,8 @@
 # `@spinajs/tasks`
 
-Bookkeeping for recurring background work: the `@Task()` method decorator logs each run, records it in the `__tasks` table, optionally guards it with a mutex, and emits `TaskSuccess` / `TaskFailed` queue events. It does not schedule tasks.
+> **Deprecated.** A compatibility shim over [`@spinajs/scheduler`](../scheduler/README.md), removed in 5.0. Use `@Schedule` classes and `SchedulerService.runInline()`.
+
+The `@Task()` method decorator runs each call as a `manual` scheduler run under the schedule lease, records it in `__scheduler_run` (and in the legacy `__tasks` / `__task_history` tables while `tasks.legacyHistory` is on), and emits `TaskSuccess` / `TaskFailed` queue events.
 
 ## Documentation
 

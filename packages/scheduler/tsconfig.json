@@ -60,9 +60,6 @@
       "path": "../validation/tsconfig.json"
     },
     {
-      "path": "../tasks/tsconfig.json"
-    },
-    {
       "path": "../threading/tsconfig.json"
     },
     {

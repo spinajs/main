@@ -19,8 +19,8 @@ npm install @spinajs/scheduler
 
 The package ships its migration (`Scheduler_2026_10_15_00_00_00`, connection
 `default`), its default configuration and its CLI commands. `@spinajs/queue` (events,
-emit mode) and `@spinajs/telemetry-common` (metrics) are regular dependencies;
-`@spinajs/tasks` is an optional peer, needed only to schedule `@Task` methods.
+emit mode) and `@spinajs/telemetry-common` (metrics) are regular dependencies.
+The deprecated `@spinajs/tasks` depends on this package, not the other way round.
 
 ## Declare a schedule
 
@@ -190,7 +190,8 @@ capped at 99 until success).
 
 ## Scheduling a `@Task` method
 
-A configuration entry can name a `@Task` from `@spinajs/tasks` (optional peer):
+Every `@Task` from `@spinajs/tasks` is a `manual` schedule named after the task, and a
+configuration entry can name it in `task`:
 
 ```ts
 schedules: [{ name: 'digest', task: 'send-digest', cron: '0 8 * * *', retry: { attempts: 3 } }]
@@ -198,13 +199,13 @@ schedules: [{ name: 'digest', task: 'send-digest', cron: '0 8 * * *', retry: { a
 
 The run is tracked like any other (status, attempts, errors, retries; steps and
 progress through `currentRunContext()`), and the task's `__task_history` row is
-still written, once per attempt. Manual-run params come from
-`currentRunContext()!.params`; the method is called without arguments. An instance
-method's class is resolved through DI. The scheduler calls the method without the
-`@Task` mutex: its lease already guarantees one runner, so a direct call of the
-decorated method elsewhere is not excluded against a scheduled run; trigger it with
-`scheduler:run` instead. A `@Schedule` class with the same name as a `@Task` wins.
-Config form only; the definition shows the task as `Task:<name>`.
+still written, once per attempt, while `tasks.legacyHistory` is on. Manual-run params
+come from `currentRunContext()!.params`; the method is called without arguments. An
+instance method's class is resolved through DI. A direct call of the decorated method
+is an inline run of the task's own schedule, so it is excluded against runs of that
+schedule, not against runs of a config entry with another name. A config entry does
+not inherit the `@Task`'s `overlap`. A `@Schedule` with the same name as a `@Task`
+wins, with a warning. The definition shows the task as `Task:<name>`.
 
 ## CLI
 
