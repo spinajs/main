@@ -10,7 +10,7 @@ import type { TestApp } from '@spinajs/testing';
 import type express from 'express';
 
 import { appPort, httpApp, req } from './common.js';
-import { AroundMiddleware, BaseController, BasePath, Controllers, Get, HttpServer, Middleware, Ok, OnError, Req, RouteClientGone, RouteMiddleware, RouteRegistrationException, Unauthorized, buildRouteHandlers } from '../src/index.js';
+import { AroundMiddleware, BaseController, BasePath, Controllers, Get, HttpServer, Middleware, Ok, OnError, Req, Response, RouteClientGone, RouteMiddleware, RouteRegistrationException, Unauthorized, buildRouteHandlers } from '../src/index.js';
 import type { ControllerActionHost, IActionLocalStoregeContext, IController, IRoute, IRouteChainOptions, IRouteInvocation, IRouteOutcome, MiddlewareStage, Request } from '../src/index.js';
 import { createAroundHandler } from '../src/around.js';
 
@@ -40,6 +40,13 @@ class Crash extends Error {
 class Plain extends Error {}
 class Mapped extends Error {}
 class Handled extends Error {}
+class Boom extends Error {}
+
+class ExplodingReply extends Ok {
+  public override async execute(): ReturnType<Response['execute']> {
+    throw new Boom('response step');
+  }
+}
 
 class InnerProbe extends RouteMiddleware {
   public isEnabled() {
@@ -186,6 +193,12 @@ class AroundController extends BaseController {
 
   @Get()
   @Middleware(Observer)
+  public explodingReply() {
+    return new ExplodingReply({});
+  }
+
+  @Get()
+  @Middleware(Observer)
   @OnError(Crash, () => new Mapped('mapped'))
   public crash() {
     throw new Crash('dead');
@@ -306,6 +319,14 @@ describe('Around middlewares', function () {
     expect(res.status).to.eq(404);
     expect(outcome.reply?.status).to.eq(404);
     expect(outcome.error).to.be.instanceOf(CodedHttpException);
+  });
+
+  it('records an error thrown by the response step itself', async () => {
+    const res = await req().get('around/explodingReply').set('Accept', 'application/json');
+    const outcome = (await settled.promise) as IRouteOutcome;
+
+    expect(res.status).to.eq(500);
+    expect(outcome.error).to.be.instanceOf(Boom);
   });
 
   it('keeps a crash: true error recorded when an error handler turns it into another error', async () => {

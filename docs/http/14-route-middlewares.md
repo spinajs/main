@@ -60,7 +60,7 @@ Members:
 | `onBefore(req, res, route, controller): Promise<void>` | Before the action. |
 | `onResponse(response, route, controller): Promise<void>` | With the `Response` the action returned; not called when the action returned something else. |
 | `onAfter(req, res, route, controller): Promise<void>` | After the action, before the answer is sent. |
-| `Stage: 'outer' \| 'inner'` | Where the middleware runs in the chain; `'inner'` by default. See [Around middlewares](#around-middlewares). |
+| `Stage?: 'outer' \| 'inner'` | Where the middleware runs in the chain; unset means `'inner'`. See [Around middlewares](#around-middlewares). |
 | `onRegister?(route, path, controller)` | Optional. Called once when the route is mounted, with the mounted path. |
 | `onAround?(invocation, proceed): Promise<void>` | Optional. Wraps the rest of the chain. |
 
@@ -115,8 +115,8 @@ export class CatalogController extends BaseController {
 
 `onAround(invocation, proceed)` wraps everything after the middleware: the later middlewares, the action, the error handlers and the response. `AroundMiddleware` is a base class for a middleware that needs only `onAround`: it has no-op `onBefore`, `onResponse` and `onAfter`, and `isEnabled()` returns `true`.
 
-- `proceed()` runs the rest of the chain and settles when the response finished. It can be called once; a second call rejects.
-- Not calling `proceed()` ends the chain, and the middleware answers `res` itself. A middleware that neither proceeds nor answers gets a 500.
+- `proceed()` runs the rest of the chain and settles when the response finished. It can be called once: a second call rejects, and so does a call after `onAround` settled, for example from a timer.
+- Not calling `proceed()` ends the chain, and the middleware answers `res` itself. A middleware that neither proceeds nor answers gets a 500. The answer must be sent, or its sending awaited, before the `onAround` promise settles, for example `await new Promise((r) => res.once('finish', r))` after `sendFile` or `pipe`; otherwise the request is answered 500.
 - A throw before `proceed()` goes to the route's error handlers. A throw after it is logged on the `http` logger, because the chain has already run.
 - Around middlewares nest in chain order: the `proceed()` of the first one includes the second one.
 
