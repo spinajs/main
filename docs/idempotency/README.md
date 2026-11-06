@@ -65,7 +65,7 @@ A claim is a lease of `idempotency.lease` (default `30s`), renewed every third o
 of a claim checks its token, so a replica that lost its lease can never store a reply over the new holder's. An error
 that carries `crash: true` (a simulated dead process) stops the renewal and is rethrown by `run`; nothing is written
 or released for it, and the key frees itself when its lease ends. `isCrash(error)` is that check; a transport that
-records outcomes itself (the `@spinajs/http-socket` idempotency stage) uses it too.
+records outcomes itself (the `@spinajs/http-socket` idempotency stage, the `@spinajs/http` `IdempotencyMiddleware`) uses it too.
 
 ## Stores
 

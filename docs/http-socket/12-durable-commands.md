@@ -26,7 +26,7 @@ A command declared `idempotent` runs once per idempotency key, however often the
 1. Without `ordered`, a request with `after` runs only if the store holds `after` as completed; otherwise `unavailable` with `details { after }`.
 2. With `ordered: 'connection'` the queue key is the connection id; with `ordered: 'client'` it is the principal key and `clientId`, across reconnects.
 3. In its queue place the command is skipped if it was aborted while waiting, checks `after`, and runs the rest of the pipeline. Policies and arguments therefore see what earlier commands changed.
-4. The place is held until the handler settles, even after an abort answered the client. A handler still running `ordering.abortGraceMs` after its abort is cut loose: the place is released, an error is logged, and `ctx.detachOutcome` leaves its recorders, so its idempotency key, running until it settles.
+4. The place is held until the handler settles, even after an abort answered the client. A handler still running `ordering.abortGraceMs` after its abort is cut loose: the place is released, an error is logged, and `ctx.detachOutcome` leaves its recorders, and so its idempotency key, running until the handler settles.
 5. The outcome is recorded (`ctx.recordOutcome`) before the place is released, so the next command's `after` check sees it.
 
 ```mermaid
@@ -84,7 +84,7 @@ A bad `idempotency` value makes `SocketServer.resolve()` throw `RangeError`.
 | `IdempotencyStore` | `IdempotencyStore`; one class picked by name from `http.socket.idempotency.service` (`@AutoinjectService`) and built with that config object; singleton | `MemoryIdempotencyStore` (process memory, LRU over completed keys) | A shared store of your own (Redis, ORM) | Extend `IdempotencyStore`, `@Injectable(IdempotencyStore)`, set `http.socket.idempotency.service` to the class name |
 | `MemoryIdempotencyStore` | registered under `IdempotencyStore` | `MemoryIdempotencyStore` | Your subclass | Override `claim()`, `complete()`, `release()`, `get()` and call `super`; register under `IdempotencyStore` with its own class name and select it in config |
 | `SocketIdempotency` | `SocketIdempotency` (self), singleton; shared by both stages | `SocketIdempotency` | Your subclass | Override `scope()` (the key scheme), `record()` (what is kept); `DI.register(Mine).as(SocketIdempotency)` |
-| `IdempotencyStage`, `OrderingStage` | `SocketCommandStage`, orders 500 and 550 | as named | Your stages | Replace as any stage; see [Command pipeline](04-command-pipeline.md#replace-a-built-in-stage). A replacement of `IdempotencyStage` that still claims keys sets `ctx.drainGrace` and adds its claim with `ctx.addOutcomeRecorder`: the drain and the ordering queue rely on them |
+| `IdempotencyStage`, `OrderingStage` | `SocketCommandStage`, orders 500 and 550 | as named | Your stages | Replace as any stage; see [Command pipeline](04-command-pipeline.md#replace-a-built-in-stage). A replacement of `IdempotencyStage` that still claims keys sets `ctx.drainGrace` and adds its claim with `ctx.addOutcomeRecorder`: the drain and the ordering queue rely on them. A replacement (not a subclass) of either stage also calls `refuseStream` in `onRegister`, and a replacement `OrderingStage` settles the recorders with `ctx.recordOutcome` / `ctx.detachOutcome`: those checks live only in the stages |
 
 ### `IdempotencyStore`: a store shared by several instances
 
