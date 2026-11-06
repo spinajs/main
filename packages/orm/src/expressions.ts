@@ -1,6 +1,9 @@
-import { NotSupported } from '@spinajs/exceptions';
+import { InvalidArgument, NotSupported } from '@spinajs/exceptions';
 
 import type { RowLockMode, SqlFragment } from './interfaces.js';
+
+export const INTERVAL_UNITS = ['second', 'minute', 'hour', 'day'] as const;
+export type IntervalUnit = (typeof INTERVAL_UNITS)[number];
 
 /**
  * SQL that the dialects spell differently, for code that writes raw SQL. Resolve it from the
@@ -40,9 +43,30 @@ export class SqlExpressions {
     throw this.unsupported('concat');
   }
 
+  /**
+   * The current instant of the driver's `NowExpression` less `amount` units, in parentheses so it splices into larger
+   * expressions. Computed by the database like `now()`; on PostgreSQL that is the start of the transaction.
+   * `amount` is a non-negative safe integer, written into the SQL.
+   */
+  public ago(_amount: number, _unit: IntervalUnit): string {
+    throw this.unsupported('ago');
+  }
+
   /** The clause after a SELECT that locks the rows it reads, without a leading space; empty where the database has no row locks. */
   public rowLock(_mode: RowLockMode): string {
     throw this.unsupported('rowLock');
+  }
+
+  /** Validates the arguments of `ago()` before they are written into SQL. */
+  protected checkedInterval(amount: number, unit: IntervalUnit): { amount: number; unit: IntervalUnit } {
+    if (!Number.isSafeInteger(amount) || amount < 0) {
+      throw new InvalidArgument(`ago(): amount must be a non-negative integer, got ${amount}`);
+    }
+    if (!INTERVAL_UNITS.includes(unit)) {
+      throw new InvalidArgument(`ago(): unit must be one of ${INTERVAL_UNITS.join(', ')}, got ${String(unit)}`);
+    }
+
+    return { amount, unit };
   }
 
   protected unsupported(name: string): NotSupported {

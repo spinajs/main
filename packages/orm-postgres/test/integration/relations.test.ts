@@ -64,7 +64,7 @@ describe('postgres integration - relations', function () {
     await seed();
     const order = await PgOrder.where({ Id: 1 }).populate('Client').first();
 
-    expect(order.Client.Value!.Name).to.equal('acme');
+    expect(order.Client.Value.Name).to.equal('acme');
   });
 
   it('populates a hasMany', async () => {

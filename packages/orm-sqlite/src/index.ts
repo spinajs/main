@@ -22,7 +22,7 @@ export * from './expressions.js';
 // orm-foundation; ConnectionState / IPoolMetrics are the connection-resilience additions from
 // orm-infra. QueryBuilder / TransactionCallback / ITransaction went with the old
 // `{ commit, rollback }` shape.
-import { ORM_DB_VALUE_CONVERTERS, DatetimeValueConverter, IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, InStatement, StartsWithStatement, backoffDelay, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, NowExpression, SqlExpressions, IndexQueryCompiler, Builder, AlterTableQueryBuilder, AlterColumnQueryBuilder, ColumnAlterationType, LiveForeignKey, LiveIndex, compareByName, referentialRule, SqlDialect } from '@spinajs/orm';
+import { ORM_DB_VALUE_CONVERTERS, DatetimeValueConverter, IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, InStatement, StartsWithStatement, backoffDelay, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, NowExpression, SqlExpressions, IndexQueryCompiler, Builder, AlterTableQueryBuilder, AlterColumnQueryBuilder, ColumnAlterationType, LiveForeignKey, LiveIndex, compareByName, referentialRule, SqlDialect, RawQuery } from '@spinajs/orm';
 import { SQLITE_SQL_DIALECT } from './sql-dialect.js';
 export { SQLITE_SQL_DIALECT } from './sql-dialect.js';
 import sqlite3 from 'sqlite3';
@@ -62,6 +62,21 @@ export class SqliteServerResponseMapper extends ServerResponseMapper {
 }
 
 const quoteSqliteIdentifier = (identifier: string) => `"${identifier.replace(/"/g, '""')}"`;
+
+const QUOTED_DEFAULT = /^'((?:[^']|'')*)'$/;
+const NUMERIC_DEFAULT = /^[+-]?\d+(\.\d+)?$/;
+
+/** `dflt_value` is the default's SQL text: a literal becomes its value, anything else ( CURRENT_TIMESTAMP, an expression ) a RawQuery. */
+function parseSqliteDefault(sql: unknown): unknown {
+  if (typeof sql !== 'string') return sql ?? null;
+  if (/^NULL$/i.test(sql)) return null;
+  const quoted = QUOTED_DEFAULT.exec(sql);
+  if (quoted) return quoted[1].replace(/''/g, "'");
+  if (!NUMERIC_DEFAULT.test(sql)) return RawQuery.create(sql);
+  const value = Number(sql);
+  // an int64 default past 2^53 keeps its digits
+  return Number.isInteger(value) && !Number.isSafeInteger(value) ? sql : value;
+}
 
 @SqlDialect(SQLITE_SQL_DIALECT)
 @Injectable('orm-driver-sqlite')
@@ -627,11 +642,12 @@ export class SqliteOrmDriver extends SqlDriver {
     return tblInfo.map((r: ITableInfo) => {
       const fk = foreignKeys.find((i) => i.from === r.name);
       const converter = converters.get(r.type.toLocaleLowerCase());
+      const value = parseSqliteDefault(r.dflt_value);
       return {
         Type: r.type,
         MaxLength: -1,
         Comment: '',
-        DefaultValue: converter ? this.Container.resolve<ValueConverter>(converter).fromDB(r.dflt_value) : r.dflt_value,
+        DefaultValue: converter && value !== null && !(value instanceof RawQuery) ? this.Container.resolve<ValueConverter>(converter).fromDB(value) : value,
         NativeType: r.type,
         Unsigned: false,
         Nullable: r.notnull === 0,
