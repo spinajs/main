@@ -79,15 +79,10 @@ export function rebacListSupport(schema: NamespaceSchema, permission: Permission
 type Ids = ReadonlySet<string>;
 
 /**
- * Design §6.2: the rewrite of the mapped name as a condition on the row, with every subject set and
- * tuple-to-userset target expanded from the principal's side, at most maxDepth hops deep, so the plan
- * names exactly the rows a check finds a proof for within the limit.
+ * The ids of the objects of `t` whose `name` holds `principal`, expanded from the principal's side with at most
+ * `budget` tuple hops: the list plan's subject sets and arrow targets, and the userset keys of an RLS session.
  */
-export async function rebacListPlan(input: RebacListPlanInput): Promise<ModelListPlan> {
-  const { schema, store, principal, permission, type, maxDepth } = input;
-  const support = rebacListSupport(schema, permission, type);
-  if (support !== true) throw new Error(support.reason);
-  const target = schema.targets.get(permission)!;
+export function rebacHolders(schema: NamespaceSchema, store: TupleStore, principal: PrincipalRef): (t: ResourceType, name: string, budget: number) => Promise<Ids> {
   const memo = new Map<string, Promise<Ids>>();
 
   const holders = (t: ResourceType, name: string, budget: number): Promise<Ids> => {
@@ -146,6 +141,20 @@ export async function rebacListPlan(input: RebacListPlanInput): Promise<ModelLis
         throw new Error(`rebac: an exclusion on ${t} cannot be planned`);
     }
   };
+  return holders;
+}
+
+/**
+ * Design §6.2: the rewrite of the mapped name as a condition on the row, with every subject set and
+ * tuple-to-userset target expanded from the principal's side, at most maxDepth hops deep, so the plan
+ * names exactly the rows a check finds a proof for within the limit.
+ */
+export async function rebacListPlan(input: RebacListPlanInput): Promise<ModelListPlan> {
+  const { schema, store, principal, permission, type, maxDepth } = input;
+  const support = rebacListSupport(schema, permission, type);
+  if (support !== true) throw new Error(support.reason);
+  const target = schema.targets.get(permission)!;
+  const holders = rebacHolders(schema, store, principal);
 
   const leaf = (relation: string, subjects: readonly string[]): RebacPlanExpr | undefined => (subjects.length === 0 ? undefined : { tuples: { relation, subjects: [...new Set(subjects)].sort() } });
 

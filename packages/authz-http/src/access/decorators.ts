@@ -59,7 +59,7 @@ export function Access(permission: Permission | readonly Permission[], opts?: Ac
     groups.push(group);
 
     const middlewares = route ? route.Middlewares : controller.Middlewares;
-    if (rule.options.fields === 'filter' && !middlewares.some((m) => m.Type === AuthzFieldsMiddleware)) {
+    if ((rule.options.fields === 'filter' || rule.options.fields === 'filter-rows') && !middlewares.some((m) => m.Type === AuthzFieldsMiddleware)) {
       middlewares.push({ Type: AuthzFieldsMiddleware, Options: [] });
     }
   }) as ClassDecorator & MethodDecorator;

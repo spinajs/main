@@ -1,0 +1,41 @@
+model
+  schema 1.1
+
+type global # spina:$global
+  relations
+    define admin: [user] # spina:tuples {"store":"authz_assignment"}
+type doc
+  relations
+    define banned: [user]
+    define edit: owner or editor
+    define editor: [user, user with office_hours]
+    define owner: [user] # spina:column {"column":"author_id","model":"Doc"}
+    define parent: [folder] # spina:column {"column":"folder_id","model":"Doc"}
+    define publish: [user] # spina:rewrite {"rewrite":{"caveat":"not_frozen","of":{"computed":"edit"}}}
+    define view: (edit or view from parent) but not banned
+type folder
+  relations
+    define owner: [user]
+    define parent: [global] # spina:ancestor {"via":"folder"}
+    define view: viewer or owner or admin from parent
+    define viewer: [user, group#member, user:*]
+type group
+  relations
+    define member: [user, group#member]
+type user
+
+# spina:caveat not_frozen {"expr":{"not":{"attr":"resource.status","eq":"frozen"}},"params":{"resource.status":"string"}}
+condition not_frozen(resource_status: string) {
+  !(resource_status == "frozen")
+}
+
+# spina:caveat office_hours {"expr":{"all":[{"attr":"env.hour","gte":9},{"attr":"env.hour","lt":17}]},"params":{"env.hour":"int"}}
+condition office_hours(env_hour: int) {
+  (env_hour >= 9) && (env_hour < 17)
+}
+
+# spina:ir {"combine":{"default":{"algorithm":"deny-overrides"}},"opaque":[],"principal":{"ancestry":"parent","ceiling":true,"delegation":true,"roles":{"admin":[{"relation":"admin","type":"$global"}]}}}
+# spina:permission doc:publish {"list":false,"relation":"publish","source":{"origin":"config:authz.rebac.permissions"},"type":"doc"}
+# spina:permission doc:read {"list":true,"relation":"view","source":{"origin":"config:authz.rebac.permissions"},"type":"doc"}
+# spina:permission doc:update {"list":false,"relation":"edit","source":{"origin":"config:authz.rebac.permissions"},"type":"doc"}
+# spina:permission folder:read {"list":true,"relation":"view","source":{"origin":"config:authz.rebac.permissions"},"type":"folder"}

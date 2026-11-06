@@ -106,6 +106,12 @@ export const manifestSchema: Record<string, any> = {
             "$ref": "#/definitions/ScanFile"
           }
         },
+        "sqlQueries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ModelSqlQuery"
+          }
+        },
         "schemas": {
           "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"
         },
@@ -912,6 +918,13 @@ export const manifestSchema: Record<string, any> = {
             "type": "string"
           }
         },
+        "fields": {
+          "type": "string",
+          "enum": [
+            "filter",
+            "filter-rows"
+          ]
+        },
         "policies": {
           "type": "array",
           "items": {
@@ -1107,56 +1120,27 @@ export const manifestSchema: Record<string, any> = {
         "columns": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "type": {
-                "$ref": "#/definitions/TypeRef"
-              },
-              "primary": {
-                "type": "boolean"
-              },
-              "nullable": {
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "name",
-              "type",
-              "primary",
-              "nullable"
-            ]
+            "$ref": "#/definitions/ModelColumn"
           }
         },
         "relations": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "belongsTo",
-                  "hasMany",
-                  "hasManyToMany",
-                  "forwardBelongsTo"
-                ]
-              },
-              "target": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "kind",
-              "target"
-            ]
+            "$ref": "#/definitions/ModelRelation"
           }
+        },
+        "indexes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ModelIndex"
+          }
+        },
+        "version": {
+          "type": "string"
+        },
+        "exhaustive": {
+          "type": "boolean",
+          "const": true
         },
         "accessResource": {
           "type": "boolean"
@@ -1173,6 +1157,192 @@ export const manifestSchema: Record<string, any> = {
         "relations",
         "accessResource",
         "source"
+      ]
+    },
+    "ModelColumn": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/definitions/TypeRef"
+        },
+        "primary": {
+          "type": "boolean"
+        },
+        "nullable": {
+          "type": "boolean"
+        },
+        "sql": {
+          "$ref": "#/definitions/ColumnSqlSpec"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "primary",
+        "nullable"
+      ]
+    },
+    "ColumnSqlSpec": {
+      "type": "object",
+      "properties": {
+        "family": {
+          "$ref": "#/definitions/ColumnFamily"
+        },
+        "nativeType": {
+          "type": "string"
+        },
+        "length": {
+          "type": "number"
+        },
+        "precision": {
+          "type": "number"
+        },
+        "scale": {
+          "type": "number"
+        },
+        "unsigned": {
+          "type": "boolean"
+        },
+        "default": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "raw": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "raw"
+              ]
+            }
+          ]
+        },
+        "autoIncrement": {
+          "type": "boolean"
+        },
+        "unique": {
+          "type": "boolean"
+        },
+        "enumValues": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "version": {
+          "type": "boolean"
+        },
+        "inferred": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "family"
+      ]
+    },
+    "ColumnFamily": {
+      "type": "string",
+      "enum": [
+        "integer",
+        "bigint",
+        "decimal",
+        "float",
+        "text",
+        "boolean",
+        "date",
+        "datetime",
+        "time",
+        "json",
+        "binary",
+        "uuid",
+        "enum"
+      ]
+    },
+    "ModelRelation": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "belongsTo",
+            "hasMany",
+            "hasManyToMany",
+            "forwardBelongsTo"
+          ]
+        },
+        "target": {
+          "type": "string"
+        },
+        "foreignKey": {
+          "type": "string"
+        },
+        "primaryKey": {
+          "type": "string"
+        },
+        "junction": {
+          "type": "object",
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "sourceKey": {
+              "type": "string"
+            },
+            "targetKey": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "model",
+            "sourceKey",
+            "targetKey"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "target"
+      ]
+    },
+    "ModelIndex": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unique": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "columns",
+        "unique"
       ]
     },
     "MigrationEntry": {
@@ -1367,6 +1537,70 @@ export const manifestSchema: Record<string, any> = {
         "migrations"
       ]
     },
+    "ModelSqlQuery": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "placeholders": {
+          "type": "number"
+        },
+        "dynamic": {
+          "type": "boolean"
+        },
+        "declaredRow": {
+          "$ref": "#/definitions/TypeRef"
+        },
+        "declaredColumns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SqlRowColumn"
+          }
+        },
+        "lists": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "connection": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "placeholders",
+        "dynamic",
+        "source"
+      ]
+    },
+    "SqlRowColumn": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "ts": {
+          "type": "string"
+        },
+        "nullable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "ts",
+        "nullable"
+      ]
+    },
     "Diagnostic": {
       "type": "object",
       "properties": {
@@ -1524,6 +1758,12 @@ export const manifestSchema: Record<string, any> = {
           "type": "array",
           "items": {
             "$ref": "#/definitions/ScanFile"
+          }
+        },
+        "sqlQueries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ModelSqlQuery"
           }
         },
         "schemas": {
