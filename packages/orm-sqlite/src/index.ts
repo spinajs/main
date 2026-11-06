@@ -129,19 +129,23 @@ export class SqliteOrmDriver extends SqlDriver {
     };
   }
 
+  public executeOnDb(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
+    return this.withSessionSettings(() => this.gatedStatement(stmt, params, queryContext));
+  }
+
   /**
    * Holds a writer-handle statement from outside the open transaction's async path until that
    * transaction ends: on the one writer handle it would otherwise run inside the transaction and
    * commit or roll back with it. The ones it lets through are tracked, so the next `BEGIN` waits
    * for them.
    */
-  public executeOnDb(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
+  private gatedStatement(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
     if (this.TransactionStorage.getStore() !== undefined || !this.usesWriter(queryContext)) {
       return this.runStatement(stmt, params, queryContext);
     }
 
     if (this._writerGate !== null) {
-      return this._writerGate.then(() => this.executeOnDb(stmt, params, queryContext));
+      return this._writerGate.then(() => this.gatedStatement(stmt, params, queryContext));
     }
 
     const running = this.runStatement(stmt, params, queryContext);
