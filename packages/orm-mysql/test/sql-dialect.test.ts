@@ -1,0 +1,23 @@
+import 'mocha';
+import { expect } from 'chai';
+import { DI } from '@spinajs/di';
+import { sqlDialectOf } from '@spinajs/orm';
+import { MYSQL_SQL_DIALECT, MySqlOrmDriver, MySqlSSHOrmDriver } from '../src/index.js';
+
+describe('mysql SQL dialect profile', function () {
+  this.timeout(15000);
+
+  afterEach(() => DI.clearCache());
+
+  it('is declared on both driver classes', () => {
+    expect(sqlDialectOf(MySqlOrmDriver)).to.equal(MYSQL_SQL_DIALECT);
+    expect(sqlDialectOf(MySqlSSHOrmDriver)).to.equal(MYSQL_SQL_DIALECT);
+  });
+
+  it('agrees with the response schema types of the driver: DECIMAL is a string, BIGINT is not listed', async () => {
+    const driver = await DI.resolve(MySqlOrmDriver, [{ Name: 'mysql-profile-test', Driver: 'orm-driver-mysql' } as any]);
+    expect(MYSQL_SQL_DIALECT.families.decimal).to.equal((driver.ResponseSchemaTypes.decimal as { type: string }).type);
+    expect(driver.ResponseSchemaTypes).to.not.have.property('bigint');
+    expect(MYSQL_SQL_DIALECT.families.bigint).to.equal('number');
+  });
+});

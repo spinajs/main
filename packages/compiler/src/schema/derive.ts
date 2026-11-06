@@ -173,6 +173,10 @@ function unsupported(ctx: DeriveContext, type: ts.Type): JsonSchema {
     diagnose(ctx, 'SCH001', 'info', 'object type has no properties to validate');
     return { type: 'object' };
   }
+  if (type.flags & ts.TypeFlags.TypeParameter) {
+    diagnose(ctx, 'SCH001', 'info', `type parameter ${text} has no schema of its own; a subclass that binds it records its own type, and elsewhere it is emitted as {}`);
+    return {};
+  }
   diagnose(ctx, 'SCH001', 'warning', `unsupported type ${text}, emitted as {}`);
   return {};
 }

@@ -10,7 +10,7 @@ At import time, before any bootstrapper runs:
 | --- | --- |
 | `index.ts` | `FromDbModel`, `AsDbModel` under their class names (`@Injectable()`), `OrmHttpBootstrapper` under `Bootstrapper` |
 | `route-arg.ts` | `FilterModelRouteArg` under its class name |
-| `builders.ts` | `SelectQueryBuilder.prototype.filter`, by direct prototype assignment |
+| `builders.ts` | `FilterQueryExtension` under `SelectQueryExtension`; `Orm.resolve()` installs its `filter()` on `SelectQueryBuilder` |
 | `response-methods/OrmNotFound.ts` | `OrmNotFound` under `Response` and in the http error map for `OrmNotFoundException` |
 
 Then, during application start:

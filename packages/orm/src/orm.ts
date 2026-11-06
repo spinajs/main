@@ -1,11 +1,14 @@
-import { BooleanValueConverter, DatetimeValueConverter, IValueConverter, TimeValueConverter } from './interfaces.js';
+import { BooleanValueConverter, DatetimeValueConverter, TimeValueConverter } from './interfaces.js';
+import type { IValueConverter } from './interfaces.js';
 import { checkPendingProperties } from '@spinajs/configuration';
 import { Configuration, normalizeEnvironment } from '@spinajs/configuration-common';
-import { AsyncService, ClassInfo, Autoinject, Container, Class, DI, IContainer } from '@spinajs/di';
+import { AsyncService, Autoinject, Container, DI } from '@spinajs/di';
+import type { ClassInfo, Class, IContainer } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import _ from 'lodash';
-import { IColumnDescriptor, IDriverOptions, IModelDescriptor, OrmMigration } from './interfaces.js';
-import { ModelBase, MODEL_STATIC_MIXINS, updateModelDescriptor } from './model.js';
+import type { IColumnDescriptor, IDriverOptions, IModelDescriptor, OrmMigration } from './interfaces.js';
+import { MODEL_STATIC_MIXINS, updateModelDescriptor } from './model.js';
+import type { ModelBase } from './model.js';
 import type { OrmDriver } from './driver.js';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { OrmException } from './exceptions.js';
@@ -13,10 +16,12 @@ import { DateTime } from 'luxon';
 import { extractModelDescriptor, extractOwnMigrationDescriptor } from './descriptor.js';
 import { buildModelJsonSchema } from './schema.js';
 import { TimeSpan } from '@spinajs/util';
-import { IMigrationUpOptions, MIGRATION_FILE_REGEXP, MigrationRunner } from './migration-runner.js';
+import { MIGRATION_FILE_REGEXP, MigrationRunner } from './migration-runner.js';
+import type { IMigrationUpOptions } from './migration-runner.js';
 import { MIGRATION_DI_SOURCE, mergeMigrationEnv, resolveMigrationEnv } from './migration-environment.js';
 import { MigrationSource } from './migration-sources.js';
 import { MODELS, ORM_DB_VALUE_CONVERTERS } from './tokens.js';
+import { installQueryExtensions, resolveQueryExtensions } from './extension-install.js';
 
 /**
  * Used to exclude sensitive data to others. eg. removed password field from cfg
@@ -228,6 +233,9 @@ export class Orm extends AsyncService {
 
   public async resolve(): Promise<void> {
     await super.resolve();
+
+    // Before any connection opens, so a colliding extension fails the boot with nothing to close.
+    installQueryExtensions(await resolveQueryExtensions(this.Container));
 
     await this.createConnections();
 

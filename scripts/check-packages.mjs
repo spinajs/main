@@ -17,6 +17,7 @@ import { publint } from 'publint';
 import { formatMessage } from 'publint/utils';
 import { manifestInFiles } from './manifest-field.mjs';
 import { testGlobProblems } from './test-globs.mjs';
+import { isCkitWorkspace } from './ckit-workspaces.mjs';
 import { typesVersionsGaps } from './types-versions.mjs';
 
 const PACKAGES_DIR = resolve(process.cwd(), 'packages');
@@ -46,7 +47,9 @@ for (const { name, dir, pkg } of workspaces) {
   }
 }
 
-const packages = workspaces.filter(({ pkg }) => pkg.private !== true);
+// A ckit app ships a dist/ that only the pipeline with ckit access can build and publish (E13).
+for (const { pkg } of workspaces.filter(({ pkg }) => isCkitWorkspace(pkg))) console.log(`- ${pkg.name} skipped: ckit app, checked where ckit is linked`);
+const packages = workspaces.filter(({ pkg }) => pkg.private !== true && !isCkitWorkspace(pkg));
 
 for (const { name, dir, pkg } of packages) {
   const problems = [];
