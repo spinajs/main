@@ -1448,12 +1448,16 @@ export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<
 export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T>, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IQueryBuilder, IBuilder<T> {
   get Relations(): IOrmRelation[];
 
+  min<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictNarrowed<this, T, Project<Unbox<T>, Record<A, ColumnTypeOf<Unbox<T>, C>>>>;
   min(column: ColumnRef<Unbox<T>>, as?: string): this;
+  max<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictNarrowed<this, T, Project<Unbox<T>, Record<A, ColumnTypeOf<Unbox<T>, C>>>>;
   max(column: ColumnRef<Unbox<T>>, as?: string): this;
   // The column stays optional: `count(maybe)` with `maybe: string | undefined` compiled before typed columns.
-  count(column?: ColumnRef<Unbox<T>>, as?: string): this;
+  count<A extends string = 'count'>(column?: ColumnRef<Unbox<T>>, as?: A): StrictNarrowed<this, T, Reproject<Unbox<T>, Record<A, number>>>;
   selectCount(column?: ColumnRef<Unbox<T>>, as?: string): Promise<number>;
+  sum<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictNarrowed<this, T, Project<Unbox<T>, Record<A, number>>>;
   sum(column: ColumnRef<Unbox<T>>, as?: string): this;
+  avg<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictNarrowed<this, T, Project<Unbox<T>, Record<A, number>>>;
   avg(column: ColumnRef<Unbox<T>>, as?: string): this;
   /** `condition` as the boolean column `alias` (`CASE WHEN ... THEN 1 ELSE 0 END`). */
   selectCondition(alias: string, condition: WhereFunction<T>): this;

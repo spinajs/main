@@ -32,3 +32,28 @@ export async function projectionStrict(): Promise<void> {
   const asColumns: IColumnsBuilder = User.query();
   void [one, star, asInterface, asColumns];
 }
+
+export async function aggregatesStrict(): Promise<void> {
+  const total = await User.query().count('Id', 'total').first();
+  assertType<Equal<typeof total.total, number>>();
+  const plain = await User.query().count().first();
+  assertType<Equal<typeof plain.count, number>>();
+  const extremes = await User.query().max('Id', 'top').min('CreatedAt', 'first');
+  assertType<Equal<(typeof extremes)[number]['top'], number>>();
+  const sums = await User.query().select('IsActive').sum('Id', 'ids').avg('Id', 'mean').groupBy('IsActive');
+  assertType<Equal<(typeof sums)[number]['IsActive'], boolean>>();
+  assertType<Equal<(typeof sums)[number]['mean'], number>>();
+  // @ts-expect-error count() replaces the select list
+  void (await User.query().select('Id').count().first()).Id;
+  // without an alias the column name of an aggregate is unknown, so the row is unchanged
+  const unaliased = await User.query().max('Id');
+  assertType<Equal<typeof unaliased, User[]>>();
+  // on the class the narrowed builder is still the class, so class-only members survive
+  User.all().count('Id', 'total').mergeStatements(User.all());
+  void [total, plain, extremes, sums, unaliased];
+}
+
+export function classCount(): SelectQueryBuilder<User[]> {
+  // @ts-expect-error a strict aggregate changes the row type, so it is no longer a SelectQueryBuilder<User[]>
+  return User.all().count();
+}

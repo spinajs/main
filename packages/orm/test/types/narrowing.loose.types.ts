@@ -14,3 +14,11 @@ export async function projectionLoose(): Promise<void> {
   void readsAll.Email;
   void [selected, listed, counted];
 }
+
+export async function aggregatesLoose(): Promise<void> {
+  const counted = await User.query().count('Id', 'total');
+  assertType<Equal<typeof counted, User[]>>();
+  const summed = await User.query().sum('Id', 's');
+  assertType<Equal<typeof summed, User[]>>();
+  void [counted, summed];
+}
