@@ -38,6 +38,7 @@ export class ErrorTracker {
     const values = [now, runId, sampleMessage, sampleStack];
     const table = q('__scheduler_error');
 
+    // spinajs-orm-ignore ORM102: bounded retry of the update/insert race, at most MAX_TRIES passes
     for (let i = 0; i < MAX_TRIES; i++) {
       // `ignored` stays ignored and `open` stays open
       const bumped = await sql.update(`UPDATE ${table} SET ${set} WHERE ${group} AND ${q('Status')} <> ?`, [

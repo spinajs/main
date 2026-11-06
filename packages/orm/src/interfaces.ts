@@ -1,23 +1,26 @@
-import { JoinMethod, Op } from './enums.js';
+import type { JoinMethod, Op } from './enums.js';
 /* eslint-disable prettier/prettier */
-import { QueryBuilder, RawQuery } from './builders.js';
-import { SortOrder, WhereBoolean } from './enums.js';
-import { IQueryStatement, OuterColumn, Wrap } from './statements.js';
-import { ModelData, ModelDataWithRelationData, ModelDataWithRelationDataSearchable, PartialArray, PickRelations, Unbox, WhereFunction } from './types.js';
-import { IOrmRelation } from './relations.js';
+import type { QueryBuilder } from './builders/base.js';
+import type { RawQuery } from './builders/raw.js';
+import type { SortOrder, WhereBoolean } from './enums.js';
+import type { IQueryStatement, OuterColumn, Wrap } from './statements.js';
+import type { ModelData, ModelDataWithRelationData, ModelDataWithRelationDataSearchable, PartialArray, PickRelations, Unbox, WhereFunction } from './types.js';
+import type { IOrmRelation } from './relations.js';
 import type { OrmDriver } from './driver.js';
-import { NewInstance, Constructor, Singleton, IContainer } from '@spinajs/di';
-import { ModelBase } from './model.js';
+import { NewInstance, Singleton } from '@spinajs/di';
+import type { Constructor, IContainer } from '@spinajs/di';
+import type { ModelBase } from './model.js';
 import { MethodNotImplemented } from '@spinajs/exceptions';
-import { DateTime } from 'luxon';
-import { Relation } from './relation-objects.js';
-import { Lazy } from '@spinajs/util';
+import type { DateTime } from 'luxon';
+import type { Relation } from './relation-objects.js';
+import type { Lazy } from '@spinajs/util';
 // imported, deliberately NOT re-exported: `index.ts` does `export *` on both this file and
 // `resilience.js`, and exporting the same name from both is an ambiguous re-export.
-import { IConnectionResilienceOptions } from './resilience.js';
+import type { IConnectionResilienceOptions } from './resilience.js';
 // Type-only: `snapshot.ts` imports IModelDescriptor from here, so a value import would close
 // the cycle. Keep this import type-only.
 import type { IModelChange, IModelSnapshot } from './snapshot.js';
+import type { ColumnSqlSpec, ModelIndex } from '@spinajs/manifest';
 
 export enum QueryContext {
   Insert,
@@ -510,6 +513,14 @@ export interface IPrimaryKeyOptions {
   generated?: PrimaryKeyGeneration;
 }
 
+/** `@Model` options. `columns: 'exhaustive'`: the model declares every column of its table, so tooling may drop the others (D19). */
+export interface ModelOptions {
+  columns?: 'partial' | 'exhaustive';
+}
+
+/** What `@Column` states about a column: the manifest's `ColumnSqlSpec` without the analyzer's `inferred`. */
+export type ColumnSpec = Partial<Omit<ColumnSqlSpec, 'inferred'>>;
+
 export interface IModelDescriptor {
   /**
    * Primary key column names, in declaration order. Empty when the model has no @Primary().
@@ -608,6 +619,15 @@ export interface IModelDescriptor {
    * Holds relation names as well as column names.
    */
   Hidden: string[];
+
+  /** `@Column` specs by property. Schema tooling reads them; queries and hydration do not. */
+  ColumnSpecs?: Map<string, ColumnSpec>;
+
+  /** `@Index` declarations, keyed by name or by the comma-joined column list. */
+  Indexes?: Map<string, ModelIndex>;
+
+  /** From `@Model(table, { columns })`; absent means `'partial'`. */
+  ColumnsMode?: 'partial' | 'exhaustive';
 }
 
 export interface IDiscriminationMap {
@@ -1416,6 +1436,11 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
   setAlias(alias: string): this;
   setTable(table: string, alias?: string): this;
   distinct(): this;
+  /** Locks the rows read until the transaction ends (`SELECT ... FOR UPDATE`). */
+  forUpdate(): this;
+  /** Takes a shared lock on the rows read until the transaction ends; it also sees rows committed after the snapshot. */
+  forShare(): this;
+  get RowLock(): RowLockMode | undefined;
   clone(): this;
 
   /**
@@ -1576,6 +1601,12 @@ export abstract class EventQueryCompiler implements IQueryCompiler {
 
 @NewInstance()
 export abstract class DropEventQueryCompiler implements IQueryCompiler {
+  public abstract compile(): ICompilerOutput;
+}
+
+/** Sets transaction-local session settings; a dialect without them registers one that throws `NotSupported`. */
+@NewInstance()
+export abstract class SessionSettingsQueryCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput;
 }
 
@@ -2006,10 +2037,13 @@ export interface ITransactionContext {
   /** Callbacks queued by `OrmDriver.afterCommit`, run after the outermost commit. Owned by `OrmDriver`. */
   afterCommit?: (() => void | Promise<void>)[];
 }
-/** SQL text with its `?` bindings, built by the `sql` tagged template. */
-export interface SqlFragment {
+export type RowLockMode = 'update' | 'share';
+
+/** SQL text with its `?` bindings, built by the `sql` tagged template. `R` is the row the statement returns; only the type checker reads it. */
+export interface SqlFragment<R = unknown> {
   readonly sql: string;
   readonly bindings: readonly unknown[];
+  readonly __row?: R;
 }
 
 /** Options of `deleteChunked`. */

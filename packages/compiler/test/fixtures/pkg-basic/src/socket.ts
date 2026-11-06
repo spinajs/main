@@ -10,7 +10,7 @@ export class Ping { public at: number }
 @SocketPolicy(AdminPolicy)
 export class DocsSocket extends BaseSocketController {
   @Command('open', { idempotent: true, ordered: 'client', timeoutMs: 5000 })
-  @SocketAccess('doc:read')
+  @SocketAccess('doc:read', { fields: 'filter-rows' })
   public async open(@Payload() payload: OpenDoc): Promise<DocOpened> { return { id: payload.id, title: '' }; }
 
   @Command()

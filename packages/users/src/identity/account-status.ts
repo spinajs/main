@@ -26,6 +26,7 @@ export class UserAccountStatusSource extends AccountStatusSource {
     }
 
     const ids = [...uuids];
+    // spinajs-orm-ignore ORM102: deliberate batching, one query per LOOKUP_CHUNK uuids
     for (let i = 0; i < ids.length; i += LOOKUP_CHUNK) {
       // The ban and the invite marker live in the metadata; a row read without it would pass as in service.
       const rows = (await User.query()

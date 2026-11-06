@@ -73,7 +73,7 @@ describe('authz-http pinned shapes', () => {
     yes<Equal<Shape<PrincipalSource>, { readonly name: string; readonly order: number; authenticate(req: Request): Promise<Principal | null> }>>();
     yes<Equal<LinkPrincipalSource['name'], 'link'>>();
     yes<Equal<LinkPrincipalSource['order'], 110>>();
-    yes<Equal<AccessOptions, { resource?: ResourceExtractor; also?: readonly Class<BasePolicy>[]; domain?: string; subject?: 'load' | 'none'; conditional?: 'load' | 'action'; fields?: 'filter' | 'none' }>>();
+    yes<Equal<AccessOptions, { resource?: ResourceExtractor; also?: readonly Class<BasePolicy>[]; domain?: string; subject?: 'load' | 'none'; conditional?: 'load' | 'action'; fields?: 'filter' | 'filter-rows' | 'none' }>>();
     yes<Equal<ResourceExtractor, (req: Request) => ResourceRef | object | Promise<ResourceRef | object>>>();
     yes<Equal<typeof Access, (permission: Permission | readonly Permission[], opts?: AccessOptions) => ClassDecorator & MethodDecorator>>();
     yes<Equal<typeof AllowAnonymous, () => ClassDecorator & MethodDecorator>>();

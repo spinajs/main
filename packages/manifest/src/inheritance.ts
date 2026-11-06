@@ -8,6 +8,7 @@ const FIELDS_MIDDLEWARE = 'AuthzFieldsMiddleware';
 export interface RouteOverride {
   handler: string;
   route?: RouteEntry;
+  /** The redeclared method's decorated params, also when `route` is set (`route.params` is not read). Merged by index. */
   params: ParamEntry[];
   policies: PolicyRef[][];
   middlewares: RouteEntry['middlewares'];
@@ -35,9 +36,19 @@ export function inheritMiddlewares(inherited: RouteEntry['middlewares'], own: Ro
 const mountPathOf = (basePath: string | null, basePathConfig: string | undefined, className: string): string =>
   basePathConfig && basePath ? configuredMountPath(basePath) : controllerMountPath(basePath, className);
 
+// `Parameter()` decorating an index again patches its kind, options and schemas but keeps the base's `RuntimeType`.
+function redecorated(base: ParamEntry, own: ParamEntry): ParamEntry {
+  const { ref: _ownRef, refProblem: _ownProblem, ...contract } = own.runtimeType;
+  const { ref, refProblem } = base.runtimeType;
+  return { ...own, runtimeType: { ...contract, ...(ref ? { ref } : {}), ...(refProblem !== undefined ? { refProblem } : {}) } };
+}
+
 function mergeParams(inherited: ParamEntry[], own: ParamEntry[]): ParamEntry[] {
   const byIndex = new Map(inherited.map((p) => [p.index, p]));
-  for (const p of own) byIndex.set(p.index, p);
+  for (const p of own) {
+    const base = byIndex.get(p.index);
+    byIndex.set(p.index, base ? redecorated(base, p) : p);
+  }
   return [...byIndex.values()].sort((a, b) => a.index - b.index);
 }
 
@@ -47,10 +58,9 @@ function overriddenRoute(inherited: RouteEntry, override: RouteOverride): RouteE
   const reason = override.public ?? inherited.public;
   const doc = override.doc ?? inherited.doc;
   return {
+    ...inherited,
     method: declared?.method ?? inherited.method,
     path: declared?.path ?? inherited.path,
-    handler: inherited.handler,
-    fullPath: inherited.fullPath,
     params: mergeParams(inherited.params, override.params),
     returnType: declared?.returnType ?? inherited.returnType,
     policies: inheritPolicies(inherited.policies, override.policies),

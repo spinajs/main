@@ -1,5 +1,6 @@
 import type { Diagnostic, RouteEntry } from '@spinajs/manifest';
 import { diagnostic, type DoctorRule } from '../rule.js';
+import { reportedAt, routeName } from './inherited.js';
 
 type Guardable = Pick<RouteEntry, 'policies' | 'access' | 'allowAnonymous' | 'public'>;
 
@@ -14,7 +15,7 @@ export const routeWithoutPolicy: DoctorRule = {
       if (guarded(c)) continue;
       for (const r of c.routes) {
         if (guarded(r)) continue;
-        out.push(diagnostic('HTTP002', 'error', `${c.className}.${r.handler} is a route with no @Access, @Policy, @AllowAnonymous or @Public on it or on its class.`, r.source));
+        out.push(diagnostic('HTTP002', 'error', `${routeName(c, r)} is a route with no @Access, @Policy, @AllowAnonymous or @Public on it or on its class.`, reportedAt(c, r)));
       }
     }
     return out;
