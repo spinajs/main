@@ -33,6 +33,7 @@ Pick the driver package for your database.
 | [Observability and resilience](13-observability-and-resilience.md) | Pool metrics, connection state and retry with backoff |
 | [Discrimination maps](14-discrimination-maps.md) | Hydrates rows of one table into different model subclasses by a discriminator column |
 | [Metadata models](15-metadata-models.md) | Key-value metadata attached to a model through a relation |
+| [Schema diff](19-schema-diff.md) | Compares the schema the models declare with a live database: partial models, unmanaged columns, what is compared, `MIG0xx` codes |
 
 ## Quick start
 
