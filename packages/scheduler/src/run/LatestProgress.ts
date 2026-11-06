@@ -85,6 +85,9 @@ export class LatestProgress {
       ? await query.where('Id', target.runId)
       : await query.where('Schedule', target.schedule).orderBy('CreatedAt');
     const out: RunEvent[] = [];
+    if (runs.length === 0) return out;
+    const runIds = runs.map((r) => r.Id);
+    const steps = await RunStepModel.query().whereIn('RunId', runIds).orderBy('Seq');
 
     for (const run of runs) {
       const base = {
@@ -98,7 +101,7 @@ export class LatestProgress {
       };
       // step names may repeat: the last row per name wins and takes its place in the order
       const latest = new Map<string, RunStepModel>();
-      for (const s of await RunStepModel.where('RunId', run.Id).where('Attempt', run.Attempt).orderBy('Seq')) {
+      for (const s of steps.filter((step) => step.RunId === run.Id && step.Attempt === run.Attempt)) {
         latest.delete(s.Name);
         latest.set(s.Name, s);
       }

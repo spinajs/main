@@ -2,10 +2,10 @@ import { randomBytes } from 'node:crypto';
 import { hostname } from 'node:os';
 import { Config } from '@spinajs/configuration';
 import { AsyncService, Autoinject, DI, Injectable, PerInstanceCheck, type IInstanceCheck } from '@spinajs/di';
-import { Clock, DbClock, FaultInjector, Heartbeat, quoteFor, RowLease, sqlDialect } from '@spinajs/durable';
+import { Clock, DbClock, FaultInjector, Heartbeat, RowLease } from '@spinajs/durable';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
-import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
+import { SqlExpressions, type IWhereBuilder, type OrmDriver } from '@spinajs/orm';
 import { ActivationContext, type CompensationResult, type Park } from './context.js';
 import type { SerializedError } from './contract.js';
 import { isCrash, LeaseLostError, NonDeterminismError, serializeError, type AbortReason } from './errors.js';
@@ -15,7 +15,7 @@ import { Journal } from './journal.js';
 import { safeStringify } from './json.js';
 import { WorkflowInstanceModel } from './models/WorkflowInstanceModel.js';
 import { WorkflowRegistry, type RegisteredWorkflow } from './registry.js';
-import { selectRows, workflowDriver } from './sql.js';
+import { quoter, selectRows, workflowDriver } from './sql.js';
 import { InstanceStore } from './store.js';
 import { resolveWorkflowConfig, type WorkflowConfig } from './workflow-config.js';
 
@@ -231,9 +231,9 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
   /** Waiting instances with a pending event of the name they wait for: the signal landed while they were being parked. */
   protected async signalledInstances(now: number, defs: RegisteredWorkflow[], limit: number): Promise<WorkflowInstanceModel[]> {
     const driver = this.store.driver;
-    const dialect = sqlDialect(driver.Options.Driver, 'due scan', 'workflow');
-    const q = quoteFor(dialect);
-    const cat = (...parts: string[]): string => (dialect === 'mysql' ? `CONCAT(${parts.join(', ')})` : parts.join(' || '));
+    const q = quoter(driver);
+    const expressions = driver.Container.resolve(SqlExpressions);
+    const cat = (...parts: string[]): string => expressions.concat(...parts);
     // filtered before the LIMIT: unregistered versions must not take the reserved slots
     const versions = defs.map(() => `(w.${q('Workflow')} = ? AND w.${q('Version')} = ?)`).join(' OR ');
     const rows = await selectRows<{ id: string }>(

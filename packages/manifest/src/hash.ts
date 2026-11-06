@@ -16,6 +16,6 @@ export function canonicalize(value: unknown): string {
 
 export function hashManifest(manifest: Manifest): string {
   return createHash('sha256')
-    .update(canonicalize({ ...manifest, app: { ...manifest.app, root: '' }, hash: '', generatedAt: '' }))
+    .update(canonicalize({ ...manifest, app: { ...manifest.app, root: '' }, hash: '', generatedAt: '', compilerVersion: undefined }))
     .digest('hex');
 }

@@ -1,11 +1,13 @@
 /* eslint-disable prettier/prettier */
-import { Constructor, DI } from '@spinajs/di';
+import { DI } from '@spinajs/di';
+import type { Constructor } from '@spinajs/di';
 import { createQuery, SelectQueryBuilder } from './builders.js';
 import { extractModelDescriptor } from './descriptor.js';
 import type { OrmDriver } from './driver.js';
 import { OrmException } from './exceptions.js';
 import { IdentityMap } from './identity-map.js';
-import { IIdentityMap, IModelDescriptor, ISaveOptions, ISaveResult, RelationType } from './interfaces.js';
+import { RelationType } from './interfaces.js';
+import type { IIdentityMap, IModelDescriptor, ISaveOptions, ISaveResult } from './interfaces.js';
 import type { ModelBase } from './model.js';
 import { pkKeyString, whereAnyPk } from './primary-keys.js';
 import { snapshotEquals, snapshotFromRow } from './snapshot.js';

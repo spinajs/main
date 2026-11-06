@@ -1,0 +1,69 @@
+{
+  "name": "@spinajs/orm-pglite",
+  "version": "3.0.23",
+  "description": "In-process PostgreSQL for @spinajs/orm: the postgres driver over PGlite",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    }
+  },
+  "type": "module",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.build.json",
+    "rimraf": "./node_modules/rimraf/bin.js",
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
+    "test": "ts-mocha -p tsconfig.json \"test/**/*.test.ts\"",
+    "coverage": "c8 npm run test",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "cd ../.. && npm run lint -- packages/orm-pglite"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "orm",
+    "postgres",
+    "pglite",
+    "testing"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@electric-sql/pglite": "~0.5.10",
+    "@spinajs/di": "3.0.23",
+    "@spinajs/orm": "3.0.23",
+    "@spinajs/orm-postgres": "3.0.23",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@spinajs/configuration": "3.0.23",
+    "@spinajs/log": "3.0.23",
+    "@spinajs/testing": "3.0.23",
+    "@types/pg": "^8.11.10",
+    "chai": "^4.3.7",
+    "chai-as-promised": "^7.1.1"
+  },
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
+}

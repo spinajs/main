@@ -47,6 +47,7 @@ export class RetentionService {
     const errorsBefore = now - parseDuration(retention.errors, 'scheduler.retention.errors');
 
     let runs = 0;
+    // spinajs-orm-ignore ORM102: deliberate batching, each pass deletes one batchSize page until none is left
     for (;;) {
       const batch = await RunModel.query()
         .whereIn('Status', [...TERMINAL_RUN_STATUSES])

@@ -10,6 +10,10 @@ import type { ModelInitContext } from '../contracts/model.js';
 import { RelationResolver, ResourceAdapter, ScopeAttributeStore, ScopeResolver } from '../contracts/adapter.js';
 import type { ScopeAttributeSchema } from '../contracts/adapter.js';
 import { AuthzAdmin } from '../contracts/admin.js';
+import { DecisionTap } from '../contracts/tap.js';
+import { DecisionLog, DecisionTraceContext, PolicyHashSource } from '../contracts/decision-log.js';
+import { DecisionLogTap } from './decision-log-tap.js';
+import { isProduction } from './env.js';
 import { AuthzDomains, AuthzService, ChangeBus, DecisionAudit, DecisionCache } from '../contracts/service.js';
 import type { AccessSummary, AuthzChange, CheckInput } from '../contracts/service.js';
 import { SYSTEM, UNATTENDED } from '../contracts/principal.js';
@@ -26,7 +30,7 @@ import type { PermissionInput } from '../engine/registry.js';
 import { validateBoot } from '../engine/validate.js';
 import type { PermissionRefDecl, RelationRefDecl, ScopeRefDecl } from '../engine/validate.js';
 import { configAt, readDomainConfig } from './config/domain-config.js';
-import { AUTHZ_AUDIT_SERVICE_KEY, AUTHZ_BUS_SERVICE_KEY } from './config/defaults.js';
+import { AUTHZ_AUDIT_SERVICE_KEY, AUTHZ_BUS_SERVICE_KEY, AUTHZ_DECISION_LOG_SERVICE_KEY } from './config/defaults.js';
 import type { DomainConfig } from './config/domain-config.js';
 import { collectContributions } from './contributor.js';
 import type { AuthzContribution } from './contributor.js';
@@ -74,6 +78,7 @@ interface Booted {
   /** Set only when `authz.hooks.check` is on, so a check without it never touches Hooks. */
   readonly hooks: Hooks | undefined;
   readonly cache: DecisionCache | undefined;
+  readonly decisionLog: DecisionLogTap | undefined;
   readonly unsubscribe: (() => void) | undefined;
   /** Root only: the AccessChangeRouter subscription. */
   readonly stopPush: (() => void) | undefined;
@@ -106,6 +111,9 @@ export class DefaultAuthzService extends AuthzService {
   /** The whole authz tree: domain names may contain dots, so a domain's section is indexed (configAt), never read by a dotted path. */
   @Config('authz')
   protected Config: unknown;
+
+  @Config('configuration.isProduction')
+  protected IsProduction: boolean | undefined;
 
   constructor(private readonly container: IContainer) {
     super();
@@ -253,6 +261,7 @@ export class DefaultAuthzService extends AuthzService {
       this.log.error({ error: thrownError(e), domain: s.name }, 'Authz domain ${domain}: stopping the access push router failed');
     }
     s.domains.detach(s.name, this);
+    await s.decisionLog?.flush();
     await this.release(s.used, []);
   }
 
@@ -386,6 +395,9 @@ export class DefaultAuthzService extends AuthzService {
     const chainRelations = await chain(RelationResolver);
     const chainFilters = await chain(NativeFilter);
     const combinators = await chain(Combinator);
+    const taps = await chain(DecisionTap);
+    const decisionLog = await this.decisionLogTap(container, cfg, name, where);
+    if (decisionLog) taps.push(decisionLog);
 
     // Registered under AuthorizationModel means available; only a `models` list activates. The ancestors' lists come
     // from their boots, so their models are neither resolved nor initialised again here.
@@ -508,6 +520,7 @@ export class DefaultAuthzService extends AuthzService {
       ...(conditions ? { conditions } : {}),
       ...(cache ? { cache } : {}),
       ...(audit ? { audit } : {}),
+      ...(taps.length > 0 ? { taps } : {}),
       clock: now,
       log: this.log,
       config: {
@@ -542,9 +555,21 @@ export class DefaultAuthzService extends AuthzService {
       admin,
       hooks,
       cache,
+      decisionLog,
       unsubscribe: this.bootSubscription,
       stopPush,
     });
+  }
+
+  /** A DecisionLogTap while authz.decisionLog.mode is not off and a DecisionLog is registered; without one no tap records reads. */
+  private async decisionLogTap(container: IContainer, cfg: DomainConfig, domain: string, where: string): Promise<DecisionLogTap | undefined> {
+    const c = cfg.decisionLog;
+    if (c.mode === 'off') return undefined;
+    const sink = await pickNamed(container, DecisionLog, c.service, AUTHZ_DECISION_LOG_SERVICE_KEY, where);
+    if (!sink) return undefined;
+    const policy = await container.resolveOptional(PolicyHashSource);
+    const trace = await container.resolveOptional(DecisionTraceContext);
+    return new DecisionLogTap({ domain, sink, mode: c.mode, allowSampleRate: c.allowSampleRate, captureInputs: c.captureInputs ?? !isProduction(this.IsProduction), batch: c.batch, ...(policy ? { policy } : {}), ...(trace ? { trace } : {}), log: this.log });
   }
 
   private async initModel(where: string, domain: string, container: IContainer, model: AuthorizationModel, registry: PermissionRegistryImpl, register: (defs: readonly PermissionInput[], source: string) => readonly PermissionInput[], fresh: AuthorizationModel[]): Promise<ModelInit> {

@@ -1,5 +1,7 @@
 import { MsSqlSqlExpressions } from './expressions.js';
-import { DatetimeValueConverter, DefaultValueBuilder, NowExpression, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, TextWrapper, ServerResponseMapper, DbServerResponse, AlterTableQueryCompiler, AlterColumnQueryCompiler, SqlExpressions } from '@spinajs/orm';
+import { DatetimeValueConverter, DefaultValueBuilder, NowExpression, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, TextWrapper, ServerResponseMapper, DbServerResponse, AlterTableQueryCompiler, AlterColumnQueryCompiler, SqlExpressions, LiveForeignKey, LiveIndex, groupIndexColumns, referentialRule, SqlDialect } from '@spinajs/orm';
+import { MSSQL_SQL_DIALECT } from './sql-dialect.js';
+export { MSSQL_SQL_DIALECT } from './sql-dialect.js';
 /* eslint-disable security/detect-object-injection */
 import { Injectable, NewInstance } from '@spinajs/di';
 
@@ -93,6 +95,7 @@ export class MsSqlServerResponseMapper extends ServerResponseMapper {
   }
 }
 
+@SqlDialect(MSSQL_SQL_DIALECT)
 @Injectable('orm-driver-mssql')
 @NewInstance()
 export class MsSqlOrmDriver extends SqlDriver {
@@ -112,7 +115,11 @@ export class MsSqlOrmDriver extends SqlDriver {
     super(Object.assign({ AliasSeparator: '#' }, options));
   }
 
-  public async executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
+  public executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
+    return this.withSessionSettings(() => this.runQuery(stmt, params, context));
+  }
+
+  private async runQuery(stmt: string, params: any[], context: QueryContext): Promise<any> {
     let finalQuery = stmt.replaceAll('`', '');
 
     // Check if we're inside a transaction context and use that request.
@@ -340,6 +347,47 @@ export class MsSqlOrmDriver extends SqlDriver {
         Unique: sUnique,
       } as unknown as IColumnDescriptor;
     });
+  }
+
+  /** @param _schema - the database ( catalog ), as `tableInfo` takes it; the catalog views read the connection's own. */
+  public async tableIndexes(name: string, _schema?: string): Promise<LiveIndex[]> {
+    const rows = (await this.executeOnDb(
+      `SELECT i.name AS name, c.name AS col, i.is_unique AS is_unique, i.is_primary_key AS is_primary
+       FROM sys.indexes i
+       JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+       JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+       JOIN sys.tables t ON t.object_id = i.object_id
+       JOIN sys.schemas s ON s.schema_id = t.schema_id
+       WHERE t.name = ? AND s.name = ? AND i.type > 0 AND ic.is_included_column = 0
+       ORDER BY i.name, ic.key_ordinal`,
+      [name, this.tableSchema()],
+      QueryContext.Select,
+    )) as Array<{ name: string; col: string; is_unique: boolean; is_primary: boolean }>;
+
+    return groupIndexColumns(rows.map((r) => ({ name: r.name, column: r.col, unique: Boolean(r.is_unique), primary: Boolean(r.is_primary) })));
+  }
+
+  public async tableForeignKeys(name: string, _schema?: string): Promise<LiveForeignKey[]> {
+    const rows = (await this.executeOnDb(
+      `SELECT fk.name AS name, pc.name AS col, rt.name AS ref_table, rc.name AS ref_col, fk.delete_referential_action_desc AS on_delete, fk.update_referential_action_desc AS on_update
+       FROM sys.foreign_keys fk
+       JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
+       JOIN sys.tables t ON t.object_id = fk.parent_object_id
+       JOIN sys.schemas s ON s.schema_id = t.schema_id
+       JOIN sys.columns pc ON pc.object_id = fkc.parent_object_id AND pc.column_id = fkc.parent_column_id
+       JOIN sys.tables rt ON rt.object_id = fkc.referenced_object_id
+       JOIN sys.columns rc ON rc.object_id = fkc.referenced_object_id AND rc.column_id = fkc.referenced_column_id
+       WHERE t.name = ? AND s.name = ?
+       ORDER BY fk.name, fkc.constraint_column_id`,
+      [name, this.tableSchema()],
+      QueryContext.Select,
+    )) as Array<{ name: string; col: string; ref_table: string; ref_col: string; on_delete: string; on_update: string }>;
+
+    return rows.map((r) => ({ name: r.name, column: r.col, table: r.ref_table, references: r.ref_col, onDelete: referentialRule(r.on_delete), onUpdate: referentialRule(r.on_update) }));
+  }
+
+  private tableSchema(): string {
+    return (this.Options.Options as { Schema?: string } | undefined)?.Schema ?? 'dbo';
   }
 
   private msSqlCtx(ctx: ITransactionContext): IMsSqlTransactionContext {

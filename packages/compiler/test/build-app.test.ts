@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import { cpSync, mkdirSync, rmSync, symlinkSync, writeFileSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { analyzePackage, buildAppManifest, locateFragments } from '../src/index.js';
+import { hashManifest } from '@spinajs/manifest';
 
 const OUT_DIR = 'test/fixtures/.tmp-out';
 // Built @spinajs/* dependencies carry fragments too; these tests pin only the fixture packages.
@@ -32,7 +33,7 @@ describe('buildAppManifest', () => {
     expect(manifest.app).to.deep.include({ name: 'app-basic', version: '0.1.0', outDir: 'lib' });
     expect(ownPackage(manifest.packages).map((p) => [p.name, p.outDir])).to.deep.equal([['pkg-basic', 'lib']]);
     expect(ownPackage(manifest.packages)[0].configFiles).to.deep.equal(['config/basic.js', 'config/basic.production.js', 'config/nested/extra.js']);
-    expect(own(manifest.controllers).map((c) => c.id)).to.deep.equal(['pkg-basic:UsersController', 'app-basic:HealthController', 'app-basic:UsersController']);
+    expect(own(manifest.controllers).map((c) => c.id)).to.deep.equal(['pkg-basic:UsersController', 'app-basic:HealthController', 'app-basic:ArticlesController', 'app-basic:UsersController']);
     const health = manifest.controllers.find((c) => c.id === 'app-basic:HealthController');
     expect(health?.routes[0].fullPath).to.equal('/health/get');
     expect(ownPackage(manifest.packages)[0].fragment).to.equal('node_modules/pkg-basic/lib/manifest.fragment.json');
@@ -84,6 +85,13 @@ describe('buildAppManifest', () => {
     expect(manifest.diagnostics.filter((d) => d.severity === 'error')).to.deep.equal([]);
     const owners = manifest.configModules.filter((c) => c.module === 'hooks');
     expect(owners.length).to.be.at.most(1);
+  });
+
+  it('records the compiler version that built it, outside the hash', async () => {
+    const { manifest } = await buildAppManifest(APP);
+    const { version } = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string };
+    expect(manifest.compilerVersion).to.equal(version);
+    expect(hashManifest({ ...manifest, compilerVersion: '0.0.0' })).to.equal(manifest.hash);
   });
 
   it('is deterministic across runs except generatedAt', async () => {
