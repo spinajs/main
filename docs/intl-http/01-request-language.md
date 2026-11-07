@@ -43,7 +43,7 @@ sequenceDiagram
 
 ## Configuration
 
-The keys belong to `@spinajs/intl`; its config file ships the defaults.
+`intl.queryParameter`, `intl.defaultLocale` and `intl.locales` belong to `@spinajs/intl`, whose config file ships their defaults. `intl.http.vary` belongs to this package: its schema (`INTL_HTTP_CONFIGURATION_SCHEMA`) gives the default, and no config file ships it.
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |

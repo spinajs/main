@@ -6,7 +6,7 @@ import type { TestApp } from '@spinajs/testing';
 
 import { httpApp, req, TestConfiguration } from './common.js';
 import type * as express from 'express';
-import { BaseController, BasePath, CacheControl, Controllers, Get, HttpServer, Middleware, NO_STORE, NoStore, NotFound, Ok, Post, Redirect, Res } from '../src/index.js';
+import { BaseController, BasePath, CacheControl, Controllers, FileResponse, Get, HttpServer, Middleware, NO_STORE, NoStore, NotFound, Ok, Post, Redirect, Res, ZipResponse } from '../src/index.js';
 
 class CacheControlFailure extends Error {}
 
@@ -75,6 +75,11 @@ class CacheControlController extends BaseController {
   @Get()
   public lateFailure() {
     return new Ok(Promise.reject(new CacheControlFailure('late')));
+  }
+
+  @Get()
+  public fileWithCookie() {
+    return new FileResponse({ provider: 'test', path: 'test.txt', filename: 'test.txt' }, { Coockies: [{ Name: 'sid', Value: 'abc', Options: {} }] });
   }
 }
 
@@ -181,6 +186,20 @@ describe('CacheControl and NoStore route middlewares', function () {
       expect(headerOf(shared, 'cache-control')).to.eq('private, max-age=300');
     });
 
+    it('downgrades a file reply that sets a cookie to private', async () => {
+      const res = await req().get('cache-control/fileWithCookie');
+      expect(res.status).to.eq(200);
+      expect(headerOf(res, 'cache-control')).to.eq('private, max-age=300');
+    });
+
+    it('sends the status a hook set on a Redirect', async () => {
+      const redirect = new Redirect('/x', 302);
+      redirect.statusCode = 301;
+      const sent: unknown[] = [];
+      await redirect.execute({} as express.Request, { setHeader: () => undefined, cookie: () => undefined, redirect: (...args: unknown[]) => sent.push(...args) } as unknown as express.Response);
+      expect(sent).to.deep.eq([301, '/x']);
+    });
+
     it('leaves a redirect alone unless redirects is set', async () => {
       const moved = await req().get('cache-control/moved').redirects(0).ok(() => true);
       expect(moved.status).to.eq(302);
@@ -284,6 +303,15 @@ describe('CacheControl and NoStore route middlewares', function () {
     expect(thrownBy(() => new CacheControl(1.5))).to.be.instanceOf(InvalidArgument);
     expect(thrownBy(() => new CacheControl(10, { staleWhileRevalidate: -1 }))).to.be.instanceOf(InvalidArgument);
     expect(thrownBy(() => new CacheControl(10, { public: true, private: true }))).to.be.instanceOf(InvalidArgument);
+  });
+
+  it('File, Zip and Redirect replies show their own cookies and headers to the hooks', () => {
+    const options = () => ({ Coockies: [{ Name: 'sid', Value: 'abc', Options: {} }], Headers: [{ Name: 'X-Own', Value: '1' }] });
+    for (const response of [new FileResponse({ path: 'a.txt' }, options()), new ZipResponse({ path: 'a' }, options()), new Redirect('/x', 302, options())]) {
+      expect(response.cookies.map((c) => c.Name), response.constructor.name).to.deep.eq(['sid']);
+      expect(response.headers.map((h) => h.Name), response.constructor.name).to.deep.eq(['X-Own']);
+    }
+
   });
 
   it('exports one frozen NO_STORE header for per-answer use', () => {

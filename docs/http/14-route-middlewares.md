@@ -415,7 +415,7 @@ export class SearchController extends BaseController {
 | Reply | `Cache-Control` |
 | --- | --- |
 | 2xx or 304 | `max-age=<maxAge>` and the options below |
-| 2xx or 304 to a request with `Authorization`, or one that sets a cookie (`IResponseOptions.Coockies` or `res.cookie()`) | `private, max-age=<maxAge>`, even with `public: true`: a shared cache must not hand one client's answer or cookie to another |
+| 2xx or 304 to a request with `Authorization`, or one that sets a cookie (`IResponseOptions.Coockies`, or `res.cookie()` before `CacheControl`'s `onAfter`; a cookie a later `onAfter`, such as a server middleware's, sets is not seen) | `private, max-age=<maxAge>`, even with `public: true`: a shared cache must not hand one client's answer or cookie to another |
 | other 3xx | none, unless `redirects: true`: a redirect to a login page must not be kept for everyone |
 | an error reply, or 400 and above | `no-store`, so a cache never keeps a failure |
 | a reply that fails while it is sent (eg. its data rejects) | none: the error reply the failure is answered with drops the headers the `onAfter` hooks set for the failed reply |
@@ -460,7 +460,7 @@ export class ProductsController extends BaseController {
 }
 ```
 
-Both are registered as `RouteMiddleware`: `http.routes.middlewares: ['NoStore']` marks every route, `{ service: 'CacheControl', options: [60] }` every GET route (with the `private` downgrade above, it is safe on routes that answer per user). `CacheControl` is `@NewInstance()`, so each declaration keeps its own options.
+Both are registered as `RouteMiddleware`: `http.routes.middlewares: ['NoStore']` marks every route, `{ service: 'CacheControl', options: [60] }` every GET route. The `private` downgrade only sees `Authorization` and cookies set on the reply: a per-user reply authenticated by a session cookie the request carries, with no `no-store` from the authentication (authn-http sets one), goes out `max-age=60`, and a shared cache may keep it. Declare `private: true` or `NoStore` on routes that answer per user. `CacheControl` is `@NewInstance()`, so each declaration keeps its own options.
 
 For one answer only, put the exported `NO_STORE` header (`{ Name: 'Cache-Control', Value: 'no-store' }`) in its `IResponseOptions.Headers`: `new Ok(body, { Headers: [NO_STORE] })`.
 
@@ -474,7 +474,7 @@ For one answer only, put the exported `NO_STORE` header (`{ Name: 'Cache-Control
 | `sunset: Date` | `Sunset: <HTTP-date>` (RFC 8594): when the route stops answering |
 | `link: string` | `Link: <link>; rel="deprecation"` (RFC 9745): a page about the deprecation and the way off it |
 
-A missing `since` (RFC 9745 defines the header as a date only), an invalid `Date`, a `sunset` before `since`, or a `link` that is empty or holds spaces or angle brackets throws `InvalidArgument` at the decorator, so the module fails at import. A `Link` the answer set itself is kept: the deprecation link joins it. With `@Deprecated` on both the controller and a route, the route's declaration replaces the controller's on that route; the same holds for a subclass of `DeprecationMiddleware` mounted with `@Middleware`. Mounted by name (`http.routes.middlewares`), `DeprecationMiddleware` needs its options too: `{ service: 'DeprecationMiddleware', options: [{ since }] }`.
+A missing `since` (RFC 9745 defines the header as a date only), an invalid `Date`, a `sunset` before `since`, or a `link` that is empty or holds spaces or angle brackets throws `InvalidArgument` at the decorator, so the module fails at import. A `Link` the answer set itself is kept: the deprecation link joins it. A reply that fails while it is sent (its data rejects) is answered with an error reply that carries none of these headers: the reply pipeline drops what the `onAfter` hooks set for the failed reply. With `@Deprecated` on both the controller and a route, the route's declaration replaces the controller's on that route; the same holds for a subclass of `DeprecationMiddleware` mounted with `@Middleware`, and for a class registered in its place with `DI.register(Mine).as(DeprecationMiddleware)`. Mounted by name (`http.routes.middlewares`), `DeprecationMiddleware` needs its options too: `{ service: 'DeprecationMiddleware', options: [{ since }] }`.
 
 ```ts sample
 import { BaseController, BasePath, Deprecated, Get, Ok } from '@spinajs/http';

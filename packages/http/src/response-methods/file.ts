@@ -20,8 +20,9 @@ export class ZipResponse extends Response {
    * it will send file with 200 OK, if not exists 404 NOT FOUND.
    * Always an attachment: `disposition` and `headers` are `FileResponse` only.
    */
+  // the base keeps responseOptions too, so `cookies`, `headers` and `setHeader()` of an onAfter hook see and change them
   constructor(protected Options: Omit<IFileResponseOptions, 'disposition' | 'headers'>, protected responseOptions?: IResponseOptions) {
-    super(null);
+    super(null, responseOptions);
 
     // The payload is always a zip archive — default to application/zip rather
     // than deriving from the (original) download filename, which would mislabel
@@ -44,8 +45,8 @@ export class ZipResponse extends Response {
     return new Promise((resolve, reject) => {
       const encodedFilename = encodeURIComponent(this.Options.filename ?? `${basename(this.Options.path)}.zip`);
 
-      _setCoockies(res, this.responseOptions);
-      _setHeaders(res, this.responseOptions);
+      _setCoockies(res, this.options);
+      _setHeaders(res, this.options);
 
       res.setHeader('Content-Type', this.Options.mimeType || 'application/zip');
       res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);
@@ -77,7 +78,7 @@ export class FileResponse extends Response {
    * Single byte ranges, `ETag` / `Last-Modified` validators, 304, 412, 416 and HEAD come from Express' `res.sendFile`.
    */
   constructor(protected Options: IFileResponseOptions, protected responseOptions?: IResponseOptions) {
-    super(null);
+    super(null, responseOptions);
 
     // Do NOT default the mime type here. When the caller doesn't specify one we
     // let res.sendFile derive it from the actual file, which yields the correct
@@ -113,8 +114,8 @@ export class FileResponse extends Response {
     await this.wholeFileForLongSuffix(req, file);
 
     return new Promise((resolve, reject) => {
-      _setCoockies(res, this.responseOptions);
-      _setHeaders(res, this.responseOptions);
+      _setCoockies(res, this.options);
+      _setHeaders(res, this.options);
 
       const headersBeforeFile = res.getHeaders();
 
