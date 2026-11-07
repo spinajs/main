@@ -117,6 +117,7 @@ export class ReportController extends BaseController {
 
 - Each route counts apart: the key is the route's method and mounted path, the limit, the window and the client (`ip:<address>` or `principal:<type>:<id>`). A `ThrottleMiddleware` rule covering the same path counts on its own key; a request then pays both.
 - It is an `'outer'` route middleware: it runs after the policy gate and before the route's other middlewares, the argument extraction and the action. A request a policy refuses is not counted.
+- Other `'outer'` middlewares, such as `@Idempotent()`, share its stage, and there the bottom decorator runs first. With `@Idempotent()` below `@RateLimit`, a retry the idempotency key answers (a 409 while the first request runs, a replayed reply) is answered before the limit counts it and carries no `X-RateLimit-*` headers. Put `@RateLimit` below `@Idempotent()` to count every attempt.
 - Wrong arguments (a non-integer or negative `limit`, a window that is not a positive number, an unknown `by`) or an `http.throttle.ipv6Prefix` outside 16..128 fail the route registration with `RouteRegistrationException`.
 - A store that throws fails the request closed, as for `ThrottleMiddleware`.
 - With two limits on a route, the `X-RateLimit-*` headers are those of the top-most `@RateLimit`: decorators apply bottom-up, so the one nearest the method runs first and the top-most one last.
