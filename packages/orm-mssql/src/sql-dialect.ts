@@ -17,4 +17,6 @@ export const MSSQL_SQL_DIALECT: SqlDialectProfile = {
     binary: ['binary', 'uuid'], varbinary: ['binary', 'uuid'], uniqueidentifier: ['uuid'],
   },
   caseInsensitiveIdentifiers: true,
+  // tableInfo() reads Unique from UNIQUE constraints only
+  uniquePrimaryKey: 'none',
 };

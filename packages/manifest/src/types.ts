@@ -278,6 +278,13 @@ export interface SqlDialectProfile {
   unboundedText?: boolean;
   /** Altering a column rebuilds the table, which fails while foreign keys are enforced and another table references it. */
   alterColumnRebuildsTable?: boolean;
+  /**
+   * Which primary key columns `tableInfo()` reports `Unique`, the columns an untargeted `onDuplicate()` conflicts on: `all`
+   * (default), `none`, or `indexed`: only a single-column key a unique index backs, which a key of the `rowidType` is not.
+   */
+  uniquePrimaryKey?: 'all' | 'none' | 'indexed';
+  /** The native type that makes a single-column primary key the table's rowid, which no index backs. */
+  rowidType?: string;
 }
 
 /** `drivers`: the `@Injectable` tokens of the class that declares the profile. */

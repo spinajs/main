@@ -43,8 +43,17 @@ export function manifestModelEntry(manifest: Manifest, className: string, tableN
   return entries[0];
 }
 
-/** The model's column descriptors from the manifest alone, shaped as a driver's `tableInfo()` shapes them. */
-export function manifestColumns(entry: ModelEntry): IColumnDescriptor[] {
+function uniqueKey(entry: ModelEntry, sql: ColumnSqlSpec, dialect: SqlDialectProfile | undefined): boolean {
+  const rule = dialect?.uniquePrimaryKey ?? 'all';
+  if (rule !== 'indexed') return rule === 'all';
+  if (entry.columns.filter((c) => c.primary).length !== 1) return false;
+  const rowid = dialect?.rowidType;
+  if (rowid === undefined) return true;
+  return sql.nativeType !== undefined ? sql.nativeType.toLowerCase() !== rowid : !familiesOf(rowid, dialect)?.includes(sql.family);
+}
+
+/** The model's column descriptors from the manifest alone, shaped as `dialect`'s driver's `tableInfo()` shapes them. */
+export function manifestColumns(entry: ModelEntry, dialect?: SqlDialectProfile): IColumnDescriptor[] {
   return entry.columns.map((column) => {
     const sql = columnSpecOf(column);
     const native = sql.nativeType ?? FAMILY_TYPES[sql.family];
@@ -61,7 +70,7 @@ export function manifestColumns(entry: ModelEntry): IColumnDescriptor[] {
       AutoIncrement: autoIncrementOf({ sql, primary: column.primary }),
       Converter: null,
       Schema: undefined,
-      Unique: column.primary || sql.unique === true,
+      Unique: (column.primary && uniqueKey(entry, sql, dialect)) || sql.unique === true,
       Uuid: false,
       Ignore: false,
       Aggregate: false,

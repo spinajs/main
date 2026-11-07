@@ -62,6 +62,23 @@ describe('manifest model source', () => {
     expect(manifestColumns(entry).map((c) => c.NativeType)).to.deep.equal(['int', 'bigint', 'decimal', 'float', 'string', 'boolean', 'date', 'time', 'dateTime', 'json', 'binary', 'uuid', 'enum']);
   });
 
+  it('flags a primary key column Unique as the dialect profile says tableInfo() does', () => {
+    const unique = (entry: typeof account, profile?: SqlDialectProfile) => manifestColumns(entry, profile).filter((c) => c.Unique).map((c) => c.Name);
+    const sqliteLike = dialect({ integer: ['integer', 'bigint'], text: ['text'] }, { uniquePrimaryKey: 'indexed', rowidType: 'integer' });
+    const textKey = model('Tag', 'tags', [col('Code', { family: 'text' }, { primary: true })]);
+    const intKey = model('Row', 'rows', [col('Id', { family: 'integer', nativeType: 'int' }, { primary: true })]);
+    const composite = model('Code', 'codes', [col('TenantId', { family: 'integer' }, { primary: true }), col('Code', { family: 'text' }, { primary: true })]);
+    expect(unique(account)).to.deep.equal(['Id', 'Ref']);
+    expect(unique(account, POSTGRES)).to.deep.equal(['Id', 'Ref']);
+    expect(unique(account, sqliteLike)).to.deep.equal(['Ref']);
+    expect(unique(textKey, sqliteLike)).to.deep.equal(['Code']);
+    // only INTEGER is the rowid; an INT key has an index
+    expect(unique(intKey, sqliteLike)).to.deep.equal(['Id']);
+    expect(unique(composite, sqliteLike)).to.deep.equal([]);
+    expect(unique(composite, POSTGRES)).to.deep.equal(['TenantId', 'Code']);
+    expect(unique(account, { ...POSTGRES, uniquePrimaryKey: 'none' })).to.deep.equal(['Ref']);
+  });
+
   it('reports a declared column missing from the table and a family mismatch, never an undeclared column', () => {
     const drift = columnDrift(account, [live('Id', 'int4'), live('Name', 'varchar'), live('Active', 'int4'), live('Seen', 'timestamptz'), live('Ref', 'bytea'), live('Legacy', 'text')], POSTGRES, 'default');
     expect(drift.map((d) => [d.kind, d.message])).to.deep.equal([

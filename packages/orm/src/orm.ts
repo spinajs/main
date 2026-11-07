@@ -191,6 +191,7 @@ export class Orm extends AsyncService {
 
         const converters = connection.Container.get(ORM_DB_VALUE_CONVERTERS);
         const entry = manifest ? this.manifestEntryOf(manifest, m.name, descriptor.TableName) : undefined;
+        const dialect = sqlDialectOf(connection.constructor as abstract new (...args: never[]) => unknown);
 
         updateModelDescriptor(m.type, (d) => {
           d.Driver = connection;
@@ -202,7 +203,7 @@ export class Orm extends AsyncService {
             // Rebuilt from the declarations on every read: merging into the previous read would keep the columns a
             // migration dropped or renamed, and the converters their old types mapped to.
             // D9: with the manifest as the source, tableInfo() only feeds the drift check below
-            d.Columns = entry ? mergeColumns(declaredColumns(m.type, d), manifestColumns(entry), DECORATOR_FLAGS) : mergeColumns(declaredColumns(m.type, d), columns);
+            d.Columns = entry ? mergeColumns(declaredColumns(m.type, d), manifestColumns(entry, dialect), DECORATOR_FLAGS) : mergeColumns(declaredColumns(m.type, d), columns);
 
             /**
              * Add coverters to columns set by decorators
@@ -246,11 +247,11 @@ export class Orm extends AsyncService {
             d.ResponseSchema = buildModelJsonSchema(d, 'response');
           });
 
-          const drift = entry ? columnDrift(entry, columns, sqlDialectOf(connection.constructor as abstract new (...args: never[]) => unknown), descriptor.Connection!) : [];
+          const drift = entry ? columnDrift(entry, columns, dialect, descriptor.Connection!) : [];
           if (drift.length > 0) this.Drift.set(m.type, drift);
         } else {
           updateModelDescriptor(m.type, (d) => {
-            d.Columns = entry ? mergeColumns(declaredColumns(m.type, d), manifestColumns(entry), DECORATOR_FLAGS) : declaredColumns(m.type, d);
+            d.Columns = entry ? mergeColumns(declaredColumns(m.type, d), manifestColumns(entry, dialect), DECORATOR_FLAGS) : declaredColumns(m.type, d);
           });
 
           const missingTable = { model: m.name, table: descriptor.TableName, connection: descriptor.Connection!, target: connection.Options.Name };

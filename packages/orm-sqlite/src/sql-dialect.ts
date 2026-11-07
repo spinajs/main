@@ -21,4 +21,7 @@ export const SQLITE_SQL_DIALECT: SqlDialectProfile = {
   caseInsensitiveIdentifiers: true,
   unboundedText: true,
   alterColumnRebuildsTable: true,
+  // a key's autoindex covers all of its columns; an INTEGER PRIMARY KEY is the rowid and has none
+  uniquePrimaryKey: 'indexed',
+  rowidType: 'integer',
 };

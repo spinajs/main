@@ -21,4 +21,8 @@ describe('mssql SQL dialect profile', () => {
     expect(MSSQL_SQL_DIALECT.caseInsensitiveIdentifiers).to.equal(true);
     expect(MSSQL_SQL_DIALECT.unboundedText).to.equal(undefined);
   });
+
+  it('flags no primary key column Unique under the manifest source, as tableInfo() does not', () => {
+    expect(MSSQL_SQL_DIALECT.uniquePrimaryKey).to.equal('none');
+  });
 });
