@@ -16,6 +16,7 @@ import { globalRouteMiddlewareDescriptors } from './global-route-middlewares.js'
 import { classLineage, derivedValidatorsOf } from './route-args/manifest-schema.js';
 import { routesWithRuntimeTypes } from './manifest-runtime-types.js';
 import { buildRoutePath, buildRouteHandlers, resolveRouteMiddlewares, resolveRoutePolicies, ControllerActionHost } from './route-builder.js';
+import { RouteIndex } from './route-index.js';
 
 // Own metadata only: an undecorated class would report the file of the base whose descriptor it reads.
 const ownSourceFile = (type: object): string | undefined => (Reflect.getOwnMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, (type as { prototype: object }).prototype) as IControllerDescriptor | undefined)?.SourceFile;
@@ -44,6 +45,10 @@ export abstract class BaseController extends AsyncService implements IController
 
   @Autoinject(Configuration)
   protected _cfg!: Configuration;
+
+  // Optional: a controller built with `new` (a unit test) has no container to inject it.
+  @Autoinject(RouteIndex)
+  protected _routeIndex?: RouteIndex;
 
   /**
    * Express router with middleware stack
@@ -97,6 +102,7 @@ export abstract class BaseController extends AsyncService implements IController
     }
 
     this._router = Express.Router();
+    this._routeIndex?.remove(this);
 
     const configErrorHandlers = await resolveConfigErrorHandlers(this._cfg, this._container);
     const globalMiddlewares = globalRouteMiddlewareDescriptors(this._cfg, this._container);
@@ -144,6 +150,7 @@ export abstract class BaseController extends AsyncService implements IController
       });
 
       (this._router as any)[route.InternalType as string](path, handlers);
+      this._routeIndex?.add(this, route, path);
     }
   }
 }

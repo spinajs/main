@@ -19,6 +19,7 @@ import { __handle_response__ } from './response.js';
 import { errorReplyFactory } from './error.js';
 import { createAroundHandler, recordRouteError, wrapsRoute } from './around.js';
 import { answerEarly, answeredEarly, beginRoute, enterMiddleware, routeContextOf, setErrorReply } from './reply-pipeline.js';
+import { routeChainName } from './route-index.js';
 import type { ErrorReplier } from './reply-pipeline.js';
 
 /**
@@ -206,10 +207,8 @@ export function createPolicyGate(policies: IResolvedRoutePolicies, route: IRoute
   };
 }
 
-const chainName = (route: IRoute, path: string) => `http:${String(route.Type).toUpperCase()} ${path}`;
-
 const contextOf = (req: Express.Request, res: Express.Response, route: IRoute, controller: IController, path: string): IRouteInvocation =>
-  routeContextOf(res) ?? { req, res, storage: (req as sRequest).storage, route, controller, path: chainName(route, path) };
+  routeContextOf(res) ?? { req, res, storage: (req as sRequest).storage, route, controller, path: routeChainName(route, path) };
 
 const isResponse = (value: unknown): value is Response => typeof (value as Response | null | undefined)?.execute === 'function';
 
@@ -344,7 +343,7 @@ function refuseOnResponse(middlewares: readonly RouteMiddleware[], route: string
  */
 export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(Express.RequestHandler | Express.ErrorRequestHandler)[]> {
   const { controller, route, log } = options;
-  const name = chainName(route, options.path);
+  const name = routeChainName(route, options.path);
   refuseOnResponse(options.middlewares, name);
   const enabled = options.middlewares.filter((m) => m.isEnabled(route, controller));
 

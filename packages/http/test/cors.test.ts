@@ -3,9 +3,12 @@ import { expect } from 'chai';
 import chai from 'chai';
 import chaiHttp from 'chai-http';
 import sinon from 'sinon';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { DI } from '@spinajs/di';
 import { InvalidOption } from '@spinajs/exceptions';
 
-import { CorsMiddleware, parseOrigin } from '../src/middlewares/Cors.js';
+import { BaseController, BasePath, Get, Post, RouteIndex, buildRoutePath } from '../src/index.js';
+import { Cors, CorsMiddleware, parseOrigin } from '../src/middlewares/Cors.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 import { serverApp } from './support/server-app.js';
@@ -40,11 +43,12 @@ const acHeaders = (res: { header: Record<string, string> }) => Object.keys(res.h
 describe('CorsMiddleware (A31)', () => {
   afterEach(disposeTestApps);
 
-  it('A31 without http.cors installs no middleware and warns', async () => {
+  it('A31 without http.cors sends no CORS headers outside @Cors routes, and warns', async () => {
     for (const cors of [undefined, null, false, true]) {
       const { mw, warn } = await middleware(cors);
-      expect(mw.isEnabled(), String(cors)).to.eq(false);
+      expect(mw.isEnabled(), String(cors)).to.eq(true);
       expect(warn.calledOnce).to.eq(true);
+      expect(acHeaders(await simple(cors, PARTNER)), String(cors)).to.deep.eq([]);
     }
   });
 
@@ -218,5 +222,156 @@ describe('parseOrigin', () => {
       'http://a b', 'http://app:port', 'data:text/plain,x', undefined, null, 1, ['https://a.example'],
     ];
     for (const value of values) expect(parseOrigin(value), String(value)).to.eq(undefined);
+  });
+});
+
+const SHOP = 'https://shop.example.test';
+
+const noopLog = { trace: () => {}, debug: () => {}, info: () => {}, warn: () => {}, error: () => {}, fatal: () => {}, security: () => {}, success: () => {} };
+
+@BasePath('api')
+class CorsRoutesController extends BaseController {
+  @Cors({ origins: [SHOP], maxAge: 600 })
+  @Post('orders')
+  public createOrder() {
+    return null;
+  }
+
+  @Get('orders')
+  public listOrders() {
+    return null;
+  }
+
+  @Cors({ origins: ['*'] })
+  @Get('public')
+  public open() {
+    return null;
+  }
+
+  @Cors({ origins: [SHOP], credentials: false })
+  @Get('anonymous')
+  public anonymous() {
+    return null;
+  }
+
+  @Cors({ origins: [] })
+  @Get('closed')
+  public closed() {
+    return null;
+  }
+}
+
+@Cors({ origins: [SHOP] })
+@BasePath('shop')
+class ShopController extends BaseController {
+  @Get('cart')
+  public cart() {
+    return null;
+  }
+
+  @Cors({ origins: [PARTNER] })
+  @Get('partner')
+  public partner() {
+    return null;
+  }
+}
+
+function indexed(...types: (new () => BaseController)[]): RouteIndex {
+  const index = new RouteIndex();
+  for (const type of types) {
+    const c = new type();
+    for (const [name, value] of Object.entries({ _cfg: { get: (_p: string, fallback?: unknown) => fallback }, _log: noopLog, _container: DI, _actionLocalStorage: new AsyncLocalStorage() })) {
+      Object.defineProperty(c, name, { value });
+    }
+    for (const [, route] of c.Descriptor.Routes) index.add(c, route, buildRoutePath(c.BasePath, route));
+  }
+  return index;
+}
+
+async function routedApp(cors: unknown) {
+  const routes = indexed(CorsRoutesController, ShopController);
+  const { mw } = await middleware(cors);
+  Object.defineProperty(mw, 'Routes', { value: routes });
+  return serverApp(
+    mw,
+    (_req, res) => {
+      res.json({ reached: true });
+    },
+    routes,
+  );
+}
+
+const ask = async (cors: unknown, method: 'get' | 'post', path: string, origin: string) => chai.request(await routedApp(cors))[method](path).set('Origin', origin);
+const askPreflight = async (cors: unknown, path: string, origin: string, method = 'POST') =>
+  chai.request(await routedApp(cors)).options(path).set('Origin', origin).set('Access-Control-Request-Method', method);
+
+describe('@Cors per route', () => {
+  afterEach(disposeTestApps);
+
+  const GLOBAL = { origins: [PARTNER], exposedHeaders: ['x-request-id'] };
+
+  it("the route's origins replace http.cors.origins for that route", async () => {
+    const shop = await ask(GLOBAL, 'post', '/api/orders', SHOP);
+    expect(shop.header['access-control-allow-origin']).to.eq(SHOP);
+    expect(shop.header['access-control-allow-credentials']).to.eq('true');
+    expect(shop.header['access-control-expose-headers']).to.eq('x-request-id');
+    expect(shop.header['vary']).to.match(/origin/i);
+    expect(acHeaders(await ask(GLOBAL, 'post', '/api/orders', PARTNER))).to.deep.eq([]);
+  });
+
+  it('a route without @Cors, and another method on the same path, keep the global policy', async () => {
+    expect((await ask(GLOBAL, 'get', '/api/orders', PARTNER)).header['access-control-allow-origin']).to.eq(PARTNER);
+    expect(acHeaders(await ask(GLOBAL, 'get', '/api/orders', SHOP))).to.deep.eq([]);
+    expect((await ask(GLOBAL, 'get', '/nowhere', PARTNER)).header['access-control-allow-origin']).to.eq(PARTNER);
+  });
+
+  it("a preflight is answered by the policy of the route its Access-Control-Request-Method names, with the route's max age", async () => {
+    const res = await askPreflight(GLOBAL, '/api/orders', SHOP);
+    expect(res.status).to.eq(204);
+    expect(res.header['access-control-allow-origin']).to.eq(SHOP);
+    expect(res.header['access-control-max-age']).to.eq('600');
+    const partner = await askPreflight(GLOBAL, '/api/orders', PARTNER);
+    expect(partner.status).to.not.eq(204);
+    expect(acHeaders(partner)).to.deep.eq([]);
+
+    const get = await askPreflight(GLOBAL, '/API/orders/', PARTNER, 'GET');
+    expect(get.status).to.eq(204);
+    expect(get.header['access-control-allow-origin']).to.eq(PARTNER);
+    expect(get.header['access-control-max-age']).to.eq(undefined);
+    expect(acHeaders(await askPreflight(GLOBAL, '/api/orders', SHOP, 'GET'))).to.deep.eq([]);
+  });
+
+  it("'*' answers any origin without credentials; credentials: false echoes without them", async () => {
+    const open = await ask(GLOBAL, 'get', '/api/public', EVIL);
+    expect(open.header['access-control-allow-origin']).to.eq('*');
+    expect(open.header['access-control-allow-credentials']).to.eq(undefined);
+    const anonymous = await ask(GLOBAL, 'get', '/api/anonymous', SHOP);
+    expect(anonymous.header['access-control-allow-origin']).to.eq(SHOP);
+    expect(anonymous.header['access-control-allow-credentials']).to.eq(undefined);
+  });
+
+  it('an empty origins list takes the route out of CORS', async () => {
+    expect(acHeaders(await ask(GLOBAL, 'get', '/api/closed', PARTNER))).to.deep.eq([]);
+    expect(acHeaders(await askPreflight(GLOBAL, '/api/closed', PARTNER, 'GET'))).to.deep.eq([]);
+  });
+
+  it('on a controller it applies to every route; a route-level @Cors wins', async () => {
+    expect((await ask(GLOBAL, 'get', '/shop/cart', SHOP)).header['access-control-allow-origin']).to.eq(SHOP);
+    expect(acHeaders(await ask(GLOBAL, 'get', '/shop/cart', PARTNER))).to.deep.eq([]);
+    expect((await ask(GLOBAL, 'get', '/shop/partner', PARTNER)).header['access-control-allow-origin']).to.eq(PARTNER);
+    expect(acHeaders(await ask(GLOBAL, 'get', '/shop/partner', SHOP))).to.deep.eq([]);
+  });
+
+  it('works without http.cors: only @Cors routes answer cross-origin', async () => {
+    const res = await askPreflight(undefined, '/api/orders', SHOP);
+    expect(res.status).to.eq(204);
+    expect(res.header['access-control-allow-origin']).to.eq(SHOP);
+    expect(acHeaders(await ask(undefined, 'get', '/api/orders', SHOP))).to.deep.eq([]);
+  });
+
+  it('refuses options that are not a policy when the class is declared', () => {
+    for (const options of [{ origins: ['shop.example.test'] }, { origins: 'https://a.example' }, { origins: [SHOP], maxAge: -1 }, { origins: [SHOP], maxAge: 1.5 }]) {
+      expect(() => Cors(options as never), JSON.stringify(options)).to.throw(InvalidOption, '@Cors');
+    }
   });
 });

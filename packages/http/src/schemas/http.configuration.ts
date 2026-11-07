@@ -49,7 +49,7 @@ export const HTTP_CONFIGURATION_SCHEMA = {
         { const: null },
         { type: 'boolean' },
       ],
-      description: 'Absent or falsy: no CORS middleware. Origins are listed as scheme://host[:port] or the one entry *.',
+      description: 'Absent or falsy: only routes marked @Cors get CORS headers. Origins are listed as scheme://host[:port] or the one entry *.',
     },
     bodyLimits: {
       type: 'array',

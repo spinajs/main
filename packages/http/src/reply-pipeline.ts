@@ -6,6 +6,7 @@ import { UnexpectedServerError } from '@spinajs/exceptions';
 import type { HttpMiddleware, IActionLocalStoregeContext, IMiddlewareContext, IReplyContext, IRouteInvocation, Request, Response, ResponseFunction } from './interfaces.js';
 import { markStage, noteRouteError } from './errors/on-error.js';
 import { excludeFromCapture, responseCaptureOf } from './response-capture.js';
+import type { IRouteMatch, RouteIndex } from './route-index.js';
 
 /** The reply an error gets, and the error that reply answers (an error handler may have replaced the original). */
 export interface IErrorReply {
@@ -55,6 +56,8 @@ interface IReplyState {
   /** The one context every server hook of the request gets; with the route fields once a route matched. */
   server?: IMiddlewareContext;
   routedServer?: IMiddlewareContext;
+  /** Where the server hooks' context looks up the route before routing. */
+  routes?: RouteIndex;
 }
 
 const STATE = Symbol('replyPipeline');
@@ -126,20 +129,46 @@ export function answeredErrorOf(res: express.Response): unknown {
   return (res.locals as Record<symbol, IReplyState | undefined> | undefined)?.[STATE]?.answered?.error;
 }
 
+/** Called by HttpServer's first handler: the server hooks of the request get the route `routes` matches. */
+export function lookUpRoutesIn(res: express.Response, routes: RouteIndex): void {
+  stateOf(res).routes = routes;
+}
+
 /** The context of the server hooks of this request, made once. */
 export function serverContextOf(req: express.Request, res: express.Response): IMiddlewareContext {
   const state = stateOf(res);
-  return (state.server ??= { req, res, storage: (req as Request).storage });
+  return (state.server ??= state.routes ? preRoutedContext(req, res, state.routes) : { req, res, storage: (req as Request).storage });
 }
 
-// A server middleware is entered before routing; its onAfter and onFinish still get the route the request matched.
+// Looked up on the first read: most requests have no server middleware asking. Own enumerable getters, so a spread copies the match.
+function preRoutedContext(req: express.Request, res: express.Response, routes: RouteIndex): IMiddlewareContext {
+  let match: IRouteMatch | undefined | null = null;
+  const matched = () => (match === null ? (match = routes.match(req.method, req.path)) : match);
+  return {
+    req,
+    res,
+    storage: (req as Request).storage,
+    get route() {
+      return matched()?.route;
+    },
+    get controller() {
+      return matched()?.controller;
+    },
+    get path() {
+      return matched()?.path;
+    },
+  };
+}
+
+// The route the router matched replaces the pre-routing match in the server onAfter and onFinish hooks.
 function hookContext(state: IReplyState, entry: IEntered): IMiddlewareContext {
   if (entry.scope !== 'server' || !state.route) {
     return entry.context;
   }
   const { route, controller, path } = state.route.context;
   if (state.routedServer?.route !== route) {
-    state.routedServer = { ...entry.context, route, controller, path };
+    const { req, res, storage } = entry.context;
+    state.routedServer = { req, res, storage, route, controller, path };
   }
   return state.routedServer;
 }

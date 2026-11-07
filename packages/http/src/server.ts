@@ -17,9 +17,10 @@ import type { IActionLocalStoregeContext, Response } from './interfaces.js';
 import { createBodyLimitMiddleware } from './body-limits.js';
 import { missingDefaultMiddlewares } from './default-middlewares.js';
 import { __handle_error__ } from './error.js';
-import { sendReply } from './reply-pipeline.js';
+import { lookUpRoutesIn, sendReply } from './reply-pipeline.js';
 import type { ErrorReplier } from './reply-pipeline.js';
 import { globalErrorReplier, refuseRemovedHooks, serverMiddlewareHandlers } from './server-middlewares.js';
+import { RouteIndex } from './route-index.js';
 import { NotFoundMiddleware } from './middlewares/NotFound.js';
 import { ErrorHandlerMiddleware } from './middlewares/ErrorHandler.js';
 import './transformers/index.js';
@@ -44,6 +45,10 @@ export class HttpServer extends AsyncService {
 
   @Autoinject(ServerMiddleware)
   protected Middlewares!: ServerMiddleware[];
+
+  /** The routes the controllers registered; server middlewares get the match before routing. */
+  @Autoinject(RouteIndex)
+  protected Routes!: RouteIndex;
 
   @Config('http')
   protected HttpConfig!: IHttpServerConfiguration;
@@ -152,7 +157,12 @@ export class HttpServer extends AsyncService {
     }
 
     // first, so a body limit or body parser failure is answered with the request storage in place
-    this.use(createRequestStorage);
+    const routes = this.Routes;
+    this.use((req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
+      (req as Request).storage = {} as IActionLocalStoregeContext;
+      lookUpRoutesIn(res, routes);
+      next();
+    });
 
     const bodyLimits = createBodyLimitMiddleware(this.HttpConfig.bodyLimits ?? []);
     if (bodyLimits) {
@@ -441,11 +451,6 @@ export class HttpServer extends AsyncService {
   public use(middleware: RequestHandler | ErrorRequestHandler | ((req: Request, res: Express.Response, next: Express.NextFunction) => void)): void {
     this.Express.use(middleware as RequestHandler | ErrorRequestHandler);
   }
-}
-
-function createRequestStorage(req: Express.Request, _res: Express.Response, next: Express.NextFunction): void {
-  (req as Request).storage = {} as IActionLocalStoregeContext;
-  next();
 }
 
 const isResponse = (value: unknown): value is Response => typeof (value as Response | null | undefined)?.execute === 'function';
