@@ -81,9 +81,10 @@ describe('RowQueue', () => {
     queue.push(1);
     let settled = false;
 
-    const discarded = queue.discard().then(() => {
+    const discarded = (async () => {
+      await queue.discard();
       settled = true;
-    });
+    })();
     expect(source.resumes).to.eq(1);
 
     queue.push(2);
