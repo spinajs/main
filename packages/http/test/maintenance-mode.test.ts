@@ -120,7 +120,7 @@ describe('MaintenanceMode', () => {
   it('is always mounted: shutdown answers do not depend on http.maintenance.enabled', async () => {
     const { mw } = await middleware({ enabled: false });
     expect(mw.isEnabled()).to.eq(true);
-    expect(mw.Order).to.eq(-0.5);
+    expect(mw.Order).to.eq(2.5);
   });
 
   it('the schema refuses a negative retryAfter and an allow entry without a leading slash', async () => {
@@ -181,7 +181,7 @@ describe('MaintenanceMode in HttpServer', function () {
     await app.dispose();
   });
 
-  it('is registered and answers 503 after enable()', async () => {
+  it('is registered and answers 503 with a request id after enable()', async () => {
     const mw = DI.get(MaintenanceMode)!;
     const port = appPort();
     mw.enable();
@@ -189,6 +189,8 @@ describe('MaintenanceMode in HttpServer', function () {
       const res = await chai.request(`http://localhost:${port}`).get('/maint/fast').set('Accept', 'application/json');
       expect(res.status).to.eq(503);
       expect(errorOf(res).code).to.eq('maintenance');
+      // after RequestId (Order 1): the refusal can be correlated
+      expect(header(res, 'x-request-id')).to.be.a('string');
     } finally {
       mw.disable();
     }
@@ -218,6 +220,7 @@ describe('MaintenanceMode in HttpServer', function () {
       expect(second).to.match(/^HTTP\/1\.1 503 /);
       expect(second.toLowerCase()).to.include('connection: close');
       expect(second).to.include('"code":"shutting_down"');
+      expect(second.toLowerCase()).to.include('x-request-id:');
     } finally {
       connection.destroy();
     }
