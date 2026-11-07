@@ -68,6 +68,14 @@ A config path is covered when it equals a declared module or starts with `<modul
 (`authn.oidc`), so the match is by prefix on whole segments, not on the first segment alone. The `system` and
 `app` roots are filled by the configuration itself and are never reported. Each distinct path is reported once.
 
+### CFG004 details
+
+The registered `RouteMiddleware` types are the manifest's services whose `registeredAs` includes `RouteMiddleware`, from the
+app and every dependency with a fragment. Like DI001, the rule cannot see a type registered only at runtime
+(`DI.register(X).as(RouteMiddleware)` in code) or by a dependency without a manifest fragment: such a name is reported although
+the app boots. A class entry (`[MyAudit]` in a JS config) is not checked: the runtime accepts any `RouteMiddleware` subclass
+without registration.
+
 ### SOCK001-SOCK006 details
 
 A contract id is the literal argument of `defineContract('<id>')`, kept as written across packages, else `<package>:<VARIABLE>`. The rules compare
