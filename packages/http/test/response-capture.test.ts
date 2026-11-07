@@ -6,8 +6,9 @@ import { Log } from '@spinajs/log-common';
 import type { TestApp } from '@spinajs/testing';
 import { DI } from '@spinajs/di';
 import { httpApp, req, TestConfiguration } from './common.js';
-import { BaseController, BasePath, BufferResponse, CodedHttpException, Controllers, Created, Get, HttpServer, Middleware, Ok, Post, RouteMiddleware, attachResponseCapture } from '../src/index.js';
+import { BaseController, BasePath, BufferResponse, CodedHttpException, Controllers, Created, Get, HttpServer, Middleware, Ok, Post, RouteMiddleware } from '../src/index.js';
 import type { CapturedJsonReply, IMiddlewareContext, IReplyContext } from '../src/index.js';
+import { attachResponseCapture } from '../src/response-capture.js';
 
 const captured: CapturedJsonReply[] = [];
 
