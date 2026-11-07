@@ -40,7 +40,7 @@ export class ServerTiming extends ServerMiddleware {
     storage.serverTiming = storage.serverTiming ?? [];
   }
 
-  public async onAfter({ res, storage }: IReplyContext): Promise<void> {
+  public onAfter({ res, storage }: IReplyContext): void {
     const started = (res.locals as Record<symbol, number | undefined>)[STARTED];
     if (started === undefined) {
       return;

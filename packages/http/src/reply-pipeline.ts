@@ -5,7 +5,7 @@ import { Log } from '@spinajs/log';
 import { UnexpectedServerError } from '@spinajs/exceptions';
 import type { HttpMiddleware, IActionLocalStoregeContext, IMiddlewareContext, IReplyContext, IRouteInvocation, Request, Response, ResponseFunction } from './interfaces.js';
 import { markStage, noteRouteError } from './errors/on-error.js';
-import { excludeFromCapture } from './response-capture.js';
+import { excludeFromCapture, responseCaptureOf } from './response-capture.js';
 
 /** The reply an error gets, and the error that reply answers (an error handler may have replaced the original). */
 export interface IErrorReply {
@@ -229,8 +229,10 @@ export async function sendReply(req: express.Request, res: express.Response, res
 
   const pending = (state.pending ??= innerFirst(state.entered, 'onAfter'));
   if (!res.headersSent && pending.length > 0) {
-    let own = headerNamesOf(current);
-    const written = watchHeaderWrites(res);
+    // only a captured reply needs to know which of its headers are the route's own
+    const captured = responseCaptureOf(res) !== undefined;
+    let own = captured ? headerNamesOf(current) : undefined;
+    const watch = watchHeaderWrites(res);
     // the hooks of one scope share one base context, so they share one reply context, updated between them
     let ctx: (IReplyContext & { error?: unknown }) | undefined;
     let ctxBase: IMiddlewareContext | undefined;
@@ -255,31 +257,31 @@ export async function sendReply(req: express.Request, res: express.Response, res
           }
           if (replyCtx.response !== current) {
             current = replyCtx.response;
-            own = headerNamesOf(current);
+            own = captured ? headerNamesOf(current) : undefined;
           }
         } catch (err) {
           // headers the hooks set for the reply that failed must not go out with the error reply; those the error
           // handlers set are its own, so they are not watched
           const turned = await turnIntoErrorReply(req, res, state, entry, err, options, async (makeReply) => {
-            written.restore();
-            written.paused = true;
+            restoreWatched(res, watch);
+            watch.paused = true;
             try {
               return await makeReply();
             } finally {
-              written.paused = false;
+              watch.paused = false;
             }
           });
           if (turned) {
             current = turned.response;
-            own = headerNamesOf(current);
+            own = captured ? headerNamesOf(current) : undefined;
             error = turned.error;
           }
         }
       }
     } finally {
-      written.stop();
+      stopWatching(res, watch);
     }
-    keepHeadersSetByHooks(res, written.names, current, own);
+    keepHeadersSetByHooks(res, watch.names, current, own);
   }
 
   if (error !== undefined) {
@@ -303,80 +305,100 @@ function headerNamesOf(response: Response): Set<string> {
 }
 
 interface IHeaderWatch {
-  readonly names: Set<string>;
+  readonly setHeader: express.Response['setHeader'];
+  /** Lower-case names of the headers set on `res` while watched, and the value each had before its first write. */
+  readonly names: string[];
+  readonly previous: unknown[];
   paused: boolean;
-  /** Puts back the value each watched header had before its first watched write, and forgets the writes. */
-  restore(): void;
-  stop(): void;
+}
+
+const WATCH = Symbol('headerWatch');
+
+type Watched = express.Response & { [WATCH]?: IHeaderWatch };
+
+// One function for every request, reading the watch from `res`: no closure is made per reply.
+function watchedSetHeader(this: Watched, name: string, value: number | string | readonly string[]): express.Response {
+  const watch = this[WATCH]!;
+  if (!watch.paused) {
+    const key = name.toLowerCase();
+    if (!watch.names.includes(key)) {
+      watch.names.push(key);
+      watch.previous.push(this.getHeader(key));
+    }
+  }
+  return watch.setHeader.call(this, name, value) as express.Response;
 }
 
 /**
- * Records the names of the headers set on `res` until `stop()`; express's `set`, `header`, `append` and `cookie` all
- * end in `setHeader`. The wrapper is removed by assignment, never `delete`: a deleted property puts `res` into
- * dictionary mode, which slows every later property access on it and Node's write path for every response.
+ * Records the headers set on `res` until `stopWatching()`; express's `set`, `header`, `append` and `cookie` all end in
+ * `setHeader`. `setHeader` is put back by assignment, never `delete`: a deleted property puts `res` into dictionary
+ * mode, which slows every later property access on it and Node's write path for every response.
  */
-function watchHeaderWrites(res: express.Response): IHeaderWatch {
-  const names = new Set<string>();
-  const previous = new Map<string, unknown>();
-  const setHeader = res.setHeader;
-  const watch: IHeaderWatch = {
-    names,
-    paused: false,
-    restore: () => {
-      for (const [name, value] of previous) {
-        if (value === undefined) {
-          res.removeHeader(name);
-        } else {
-          setHeader.call(res, name, value as string | number | readonly string[]);
-        }
-      }
-      previous.clear();
-      names.clear();
-    },
-    stop: () => {
-      res.setHeader = setHeader;
-    },
-  };
-  res.setHeader = function (this: express.Response, name: string, value: number | string | readonly string[]) {
-    if (!watch.paused) {
-      const key = name.toLowerCase();
-      if (!names.has(key)) {
-        names.add(key);
-        previous.set(key, this.getHeader(key));
-      }
-    }
-    return setHeader.call(this, name, value);
-  } as express.Response['setHeader'];
+function watchHeaderWrites(res: Watched): IHeaderWatch {
+  const watch: IHeaderWatch = { setHeader: res.setHeader, names: [], previous: [], paused: false };
+  res[WATCH] = watch;
+  res.setHeader = watchedSetHeader as express.Response['setHeader'];
   return watch;
+}
+
+function stopWatching(res: Watched, watch: IHeaderWatch): void {
+  res.setHeader = watch.setHeader;
+  res[WATCH] = undefined;
+}
+
+/** Puts back the value each watched header had before its first watched write, and forgets the writes. */
+function restoreWatched(res: express.Response, watch: IHeaderWatch): void {
+  watch.names.forEach((name, i) => {
+    const value = watch.previous[i];
+    if (value === undefined) {
+      res.removeHeader(name);
+    } else {
+      watch.setHeader.call(res, name, value as string | number | readonly string[]);
+    }
+  });
+  watch.names.length = 0;
+  watch.previous.length = 0;
 }
 
 /**
  * `execute()` sets the response's own headers (`IResponseOptions.Headers`) on `res` and would overwrite a header a hook
- * set on `res`: the hooks' headers join the response's, so they win. The names the hooks added are kept out of a
- * response capture: an idempotent replay restores the route's own headers only.
+ * set on `res` under the same name: those hook headers join the response's, so they win. With a response capture
+ * (`own` given), the names the hooks added are kept out of it: an idempotent replay restores the route's own headers
+ * only.
  */
-function keepHeadersSetByHooks(res: express.Response, written: Set<string>, response: Response, own: Set<string>): void {
+function keepHeadersSetByHooks(res: express.Response, written: readonly string[], response: Response, own: Set<string> | undefined): void {
   if (typeof response.setHeader !== 'function') {
     return;
   }
-  let added: Set<string> | undefined;
-  for (const name of written) {
-    const value = res.getHeader(name);
-    // res.cookie() appends, so the response's own cookies never overwrite a hook's
-    if (name !== 'set-cookie' && value !== undefined) {
-      response.setHeader(name, value as string | number | readonly string[]);
+  const headers = response.headers;
+  if (headers.length > 0) {
+    for (const name of written) {
+      // res.cookie() appends, so the response's own cookies never overwrite a hook's
+      if (name === 'set-cookie' || !headers.some((h) => h.Name.toLowerCase() === name)) {
+        continue;
+      }
+      const value = res.getHeader(name);
+      if (value !== undefined) {
+        response.setHeader(name, value as string | number | readonly string[]);
+      }
     }
+  }
+  if (!own) {
+    return;
+  }
+  const added = new Set<string>();
+  for (const name of written) {
     if (!own.has(name)) {
-      (added ??= new Set()).add(name);
+      added.add(name);
     }
   }
   for (const h of response.headers) {
     const name = h.Name.toLowerCase();
     if (!own.has(name)) {
-      (added ??= new Set()).add(name);
+      added.add(name);
     }
   }
-  if (added) {
+  if (added.size > 0) {
     excludeFromCapture(res, added);
   }
 }
