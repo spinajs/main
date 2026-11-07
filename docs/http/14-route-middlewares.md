@@ -108,6 +108,7 @@ When the headers are already sent as the reply pipeline starts, because an actio
 | `@Middleware(type, ...options)` | class or method | `type`: a `RouteMiddleware` class; `options`: constructor arguments | Adds the middleware to the controller (class) or the route (method). |
 | `@Accepts(types)` | class or method | `HttpAcceptHeaders` flags, eg. `HttpAcceptHeaders.JSON \| HttpAcceptHeaders.HTML` | Adds `AcceptsMiddleware`, which refuses the request with `ExpectedResponseUnacceptable`, answered as `NotAcceptable` (406), when the `Accept` header allows none of `types`. |
 | `@Consumes(...types)` | class or method | media types as `req.is()` takes them: `'application/json'`, `'text/*'`, `'json'` | Adds `ConsumesMiddleware`, which refuses a request with a body of none of `types` with `UnsupportedMediaTypeException`, answered as `UnsupportedMediaType` (415). See [`@Consumes`](#consumes). |
+| `@NoCompression()` | class or method | none | Adds `NoCompressionMiddleware`, which keeps the `Compression` server middleware off the replies. See [`@NoCompression`](#nocompression). |
 | `@Deprecated(options?)` | class or method | `{ since?: Date, sunset?: Date, link?: string }` | Adds `DeprecationMiddleware`, which sets `Deprecation`, `Sunset` and `Link: rel="deprecation"` on every reply. See [Built-in: `@Deprecated`](#built-in-deprecated). |
 
 ### `@Accepts`
@@ -150,6 +151,23 @@ export class ImportsController extends BaseController {
   }
 }
 // POST /imports with Content-Type: text/plain -> 415 { detail: 'the request body must be application/json' }
+```
+
+### `@NoCompression`
+
+`@NoCompression()` sends the replies of the route, or of every route of the controller, uncompressed whatever `Accept-Encoding` asks: its `onBefore` marks the response, and the `Compression` server middleware's filter, asked when the headers go out, leaves a marked response alone. Use it for a body that is already compressed (an archive, an image), one the client reads as it streams, or one that mixes a secret with input the client controls, where compression would leak the secret through the length (BREACH). An answer the chain gives before the middleware's `onBefore` ran, such as the policy gate's refusal, is still compressed.
+
+```ts sample
+import { BaseController, BasePath, Get, NoCompression, Ok } from '@spinajs/http';
+
+@BasePath('exports')
+export class ExportsController extends BaseController {
+  @Get('report')
+  @NoCompression()
+  public report() {
+    return new Ok({ rows: [] });
+  }
+}
 ```
 
 ## Global route middlewares
@@ -203,7 +221,7 @@ export default { http: { routes: { middlewares } } };
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, resolved per route the same way | none | `RouteTiming`, `CacheControl`, `NoStore`, `AcceptsMiddleware` (mounted by `@Accepts`), `ConsumesMiddleware` (mounted by `@Consumes`), `DeprecationMiddleware` (mounted by `@Deprecated`) | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
+| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, resolved per route the same way | none | `RouteTiming`, `CacheControl`, `NoStore`, `AcceptsMiddleware` (mounted by `@Accepts`), `ConsumesMiddleware` (mounted by `@Consumes`), `NoCompressionMiddleware` (mounted by `@NoCompression`), `DeprecationMiddleware` (mounted by `@Deprecated`) | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
 | `HttpMiddleware` (abstract, extends `AsyncService`) | none: the base class of `RouteMiddleware` | none | none | Not extended directly: it declares the hooks `onBefore`, `onAfter`, `onFinish` and `onAround` with their contexts. A middleware that needs async setup overrides `resolve()`. |
 | `sendReply(req, res, response, options?)` | function | the reply pipeline | none | Sends a `Response` through the `onAfter` hooks of the entered middlewares. An `onAround` that answers without `proceed()` uses it so the outer middlewares see its answer. |
 
