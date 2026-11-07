@@ -6,14 +6,16 @@ import sinon from 'sinon';
 import { once } from 'node:events';
 import http from 'node:http';
 import { DI } from '@spinajs/di';
+// registers the idempotency stores and schema before the boot
+import '@spinajs/idempotency';
 import { Intl } from '@spinajs/intl';
 import { Log } from '@spinajs/log';
 import type { TestApp } from '@spinajs/testing';
 import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 import { appPort, httpApp, req, TestConfiguration } from './common.js';
-import { BaseController, BasePath, Controllers, Deadline, DeadlineMiddleware, Get, HttpServer, Ok, Req, RequestDeadline } from '../src/index.js';
-import type { IActionLocalStoregeContext, Request } from '../src/index.js';
+import { BaseController, BasePath, ConcurrencyLimit, Controllers, Deadline, DeadlineMiddleware, Get, HttpServer, Idempotent, Middleware, Ok, Post, Req, RequestDeadline, RouteMiddleware, ServerMiddleware } from '../src/index.js';
+import type { IActionLocalStoregeContext, IMiddlewareContext, Request } from '../src/index.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import { serverApp } from './support/server-app.js';
 
@@ -157,6 +159,22 @@ describe('@Deadline', () => {
 
 let lateReplied = false;
 let lateThrown = false;
+const counts = { idempotent: 0, routeBefore: 0, afterSlowServer: 0 };
+
+/** Holds requests to `/deadline/slow-server` past the deadline, after RequestDeadline started it. */
+class SlowServerMiddleware extends ServerMiddleware {
+  public Order = 3.5;
+
+  public async onBefore({ req }: IMiddlewareContext): Promise<void> {
+    if (req.path.includes('slow-server')) await sleep(600);
+  }
+}
+
+class CountingRouteMiddleware extends RouteMiddleware {
+  public onBefore(): void {
+    counts.routeBefore++;
+  }
+}
 
 @BasePath('deadline')
 class DeadlineController extends BaseController {
@@ -183,6 +201,21 @@ class DeadlineController extends BaseController {
     }
   }
 
+  @Post()
+  @Idempotent()
+  public async charge() {
+    counts.idempotent++;
+    await sleep(900);
+    return new Ok({ charged: counts.idempotent });
+  }
+
+  @Get('slow-server')
+  @Middleware(CountingRouteMiddleware)
+  public slowServer() {
+    counts.afterSlowServer++;
+    return new Ok({});
+  }
+
   @Get()
   public remaining(@Req() req: Request) {
     return new Ok({ remaining: req.storage.deadline! - Date.now() });
@@ -204,7 +237,10 @@ class DeadlineController extends BaseController {
 class DeadlineConfiguration extends TestConfiguration {
   public async resolve(): Promise<void> {
     await super.resolve();
-    (this.Config as { http: Record<string, unknown> }).http.deadline = { enabled: true, ms: 300 };
+    const config = this.Config as { http: Record<string, unknown>; idempotency?: unknown };
+    config.http.deadline = { enabled: true, ms: 300 };
+    config.http.concurrency = { enabled: true, max: 100 };
+    config.idempotency = { store: 'MemoryIdempotencyStore', lease: '30s', sweepBatch: 500, sweepEvery: '5m' };
   }
 }
 
@@ -216,7 +252,10 @@ describe('RequestDeadline in HttpServer', function () {
   before(async () => {
     app = await httpApp({
       configuration: DeadlineConfiguration,
-      register: (c) => c.register(DeadlineController).as(BaseController),
+      register: (c) => {
+        c.register(DeadlineController).as(BaseController);
+        c.register(SlowServerMiddleware).as(ServerMiddleware);
+      },
       resolve: [Intl, Controllers],
     });
     await (await app.resolve(HttpServer)).start();
@@ -271,6 +310,37 @@ describe('RequestDeadline in HttpServer', function () {
   it('@Deadline shortens the server deadline but never lengthens it', async () => {
     expect(remaining(await get('deadline/shorter'))).to.be.within(1, 100);
     expect(remaining(await get('deadline/longer'))).to.be.within(1, 300);
+  });
+
+  it('keeps the idempotency claim after a 504: a retry with the same key does not run the action again', async () => {
+    counts.idempotent = 0;
+    const post = () => req().post('deadline/charge').set({ Accept: 'application/json', 'Idempotency-Key': 'deadline-k1' });
+
+    expect((await post()).status).to.eq(504);
+    const retry = await post();
+    expect(retry.status).to.eq(409);
+    await sleep(1000);
+    expect((await post()).status).to.eq(409);
+    expect(counts.idempotent).to.eq(1);
+  });
+
+  it('stops the chain after a 504 that fired during a slow server onBefore', async () => {
+    counts.routeBefore = 0;
+    counts.afterSlowServer = 0;
+    const error = sinon.spy(DI.resolve(Log, ['http']), 'error');
+
+    const res = await get('deadline/slow-server');
+    expect(res.status).to.eq(504);
+    await sleep(700);
+
+    expect(counts).to.include({ routeBefore: 0, afterSlowServer: 0 });
+    expect(error.args.map((a) => String(a[1] ?? a[0]))).to.deep.eq([]);
+  });
+
+  it('frees the ConcurrencyLimit slot of a request answered 504', async () => {
+    const limit = DI.get(ConcurrencyLimit)!;
+    expect((await get('deadline/late')).status).to.eq(504);
+    await until(() => limit.InFlight === 0);
   });
 
   it('the server keeps serving after deadlines fired', async () => {

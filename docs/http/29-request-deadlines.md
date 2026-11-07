@@ -2,7 +2,7 @@
 
 `RequestDeadline` gives every request a deadline. When it passes, the request's `AbortSignal` aborts, and a request nothing was sent for yet is answered 504, so a client is not left waiting on a stuck database or upstream call. `@Deadline(ms)` gives a route a shorter one.
 
-It is off by default. When on, it runs at Order -0.3: after `MaintenanceMode` (-0.5) and `ConcurrencyLimit` (-0.4), before everything else, so the deadline covers the whole request.
+It is off by default. When on, it runs at Order -0.3: after CORS (-1), before every other shipped server middleware, so the deadline covers them, routing and the action. Raw `http.middlewares` handlers (the body and cookie parsers, unless your version mounts them as server middlewares) run before every server middleware: reading the body is not covered.
 
 The action is never stopped by force: JavaScript cannot interrupt it. It stops early only when it passes `req.storage.signal` to its I/O (`fetch`, a database query, a timer), which then rejects once the signal aborts.
 
@@ -15,7 +15,8 @@ Per request:
 3. When the timer fires:
    - the signal aborts with a `DOMException` named `TimeoutError`;
    - when no reply has started yet, a warning is logged and the request is answered 504 with `{ error: { code: 'deadline_exceeded', message: 'The request took too long' } }`, through the reply pipeline: the `onAfter` hooks of the entered middlewares see it, with the `TimeoutError` as `ctx.error`;
-   - once that 504 went out, a later reply of the request is dropped: the action's `Response`, an error reply, a 404. An error the action throws afterwards is logged at debug level, not as an error. An action not started yet is skipped.
+   - from then on, the rest of the chain steps aside as after an early answer: the server middlewares not reached yet, the route's middlewares and the action do not run, and a server `onBefore` still running stops the chain when it resolves. A reply made later anyway (the action's `Response`, an error reply) is dropped, and an error the action throws afterwards is logged at debug level, not as an error;
+   - a route `onAround` waiting on `proceed()` gets `RouteAnsweredInPlace`, a `RouteClientGone` with `beforeRoute: false`: the route may still be running, so its outcome is unknown. An `@Idempotent` gate therefore keeps its claim until the lease ends, as for a client that went away: a retry with the same key gets 409 instead of running the action a second time. A server `onAround` gets the 504 as its outcome.
 4. `onFinish` clears the timer. When the client went away first (`aborted`), the signal aborts with an `AbortError`.
 
 A reply that started before the deadline (the action's reply in its `onAfter` hooks, a streamed file) is left alone; only the signal aborts.
@@ -59,8 +60,9 @@ Set it below the timeout of the proxy in front of the app, so the client gets th
 
 ## Important behaviour
 
-- Server middlewares at a lower Order than -0.3 (CORS, `MaintenanceMode`, `ConcurrencyLimit`) run before the deadline starts; their own work is not covered.
-- `RequestId` and the other server middlewares above -0.3 have run by the time the deadline fires, so the 504 carries `x-request-id` and is access-logged.
+- CORS (-1) and server middlewares of your own below -0.3 run before the deadline starts; their own work is not covered.
+- `RequestId` and `AccessLog` have run by the time the deadline fires, so the 504 carries `x-request-id` and is access-logged.
+- A route `onAround` that does not catch `RouteClientGone` around `proceed()` is logged as failed when a 504 answered for its route.
 - A slot of `ConcurrencyLimit` is freed when the 504 finished, even while the action still runs. Pass the signal to the action's I/O, or the work goes on unseen.
 - Work the action starts in the background and should outlive the request must not take `req.storage.signal`.
 

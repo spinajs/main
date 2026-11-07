@@ -249,13 +249,14 @@ export function repliedInPlace(res: express.Response): boolean {
 
 /**
  * Sends `response` in place of the reply still to come (a deadline answer): every later `sendReply()` of the request
- * is dropped, so an action answering late does not write to a response already sent. Callers check `replyStarted()`
- * first.
+ * is dropped, so an action answering late does not write to a response already sent, and the rest of the chain steps
+ * aside as after an early answer. Callers check `replyStarted()` first.
  */
 export function sendReplyInPlace(req: express.Request, res: express.Response, response: Response, options: ISendReplyOptions = {}): Promise<void> {
   const state = stateOf(res);
   state.final = true;
   state.started = true;
+  state.early = response;
   return send(req, res, state, response, options);
 }
 

@@ -268,7 +268,7 @@ export function createEntryHandler(middleware: RouteMiddleware, route: IRoute, c
  */
 export function createActionHandler(controller: ControllerActionHost, route: IRoute, storage: AsyncLocalStorage<IActionLocalStoregeContext>, derived?: DerivedArgValidators): Express.RequestHandler {
   const actionHandler = async (req: sRequest, res: Express.Response, next: Express.NextFunction) => {
-    if (answeredEarly(res) || repliedInPlace(res)) {
+    if (answeredEarly(res)) {
       next();
       return;
     }
@@ -377,6 +377,10 @@ export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(
     };
 
   const entry: Express.RequestHandler = (req, res, next) => {
+    // answered in place before routing (a deadline during a slow server onBefore): no part of the route runs
+    if (repliedInPlace(res)) {
+      return;
+    }
     beginRoute(res, {
       context: { req, res, storage: (req as sRequest).storage, route, controller, path: name },
       storage: options.storage,
