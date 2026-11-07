@@ -1,5 +1,5 @@
 import * as express from 'express';
-import { HTTP_STATUS_CODE, IResponseOptions, Response } from '../interfaces.js';
+import { HTTP_STATUS_CODE, ICookie, IResponseOptions, Response } from '../interfaces.js';
 import { _setCoockies, _setHeaders } from '../responses.js';
 
 /**
@@ -21,6 +21,11 @@ export class Redirect extends Response {
 
     this.url = url;
     this.status = status;
+    this._errorCode = status;
+  }
+
+  public override get cookies(): readonly ICookie[] {
+    return this.responseOptions?.Coockies ?? [];
   }
 
   public async execute(_req: express.Request, res: express.Response) {

@@ -1,13 +1,16 @@
 import { Injectable, NewInstance } from '@spinajs/di';
+import type { ClassInfo } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { Middleware } from '../decorators.js';
+import { CONTROLLED_DESCRIPTOR_SYMBOL, Middleware } from '../decorators.js';
 import { RouteMiddleware } from '../interfaces.js';
-import type { IController, IReplyContext, IRoute } from '../interfaces.js';
+import type { IController, IControllerDescriptor, IMiddlewareDescriptor, IReplyContext, IRoute } from '../interfaces.js';
+import type { BaseController } from '../base-controller.js';
+import type { IControllerDocumentation } from '../controller-documentation.js';
 import { overriddenByRoute } from './route-declaration.js';
 
 export interface IDeprecationOptions {
-  /** When the route was deprecated: `Deprecation: @<unix seconds>`; without it `Deprecation: true`. */
-  since?: Date;
+  /** When the route was deprecated: `Deprecation: @<unix seconds>` (RFC 9745 allows a date only). */
+  since: Date;
   /** When the route stops answering: `Sunset: <HTTP-date>` (RFC 8594). */
   sunset?: Date;
   /** A page about the deprecation: `Link: <link>; rel="deprecation"`. */
@@ -27,25 +30,28 @@ function validDate(name: string, value: unknown): Date {
   return value;
 }
 
-function deprecationHeaders(options: IDeprecationOptions): IDeprecationHeaders {
-  const since = options.since === undefined ? undefined : validDate('since', options.since);
+function deprecationHeaders(options: IDeprecationOptions | undefined): IDeprecationHeaders {
+  if (options?.since === undefined) {
+    throw new InvalidArgument('@Deprecated needs since: the date the route was deprecated');
+  }
+  const since = validDate('since', options.since);
   const sunset = options.sunset === undefined ? undefined : validDate('sunset', options.sunset);
-  if (since && sunset && sunset.getTime() < since.getTime()) {
+  if (sunset && sunset.getTime() < since.getTime()) {
     throw new InvalidArgument('@Deprecated sunset must not be before since');
   }
   if (options.link !== undefined && (typeof options.link !== 'string' || options.link.trim() === '' || /[<>\s]/.test(options.link))) {
     throw new InvalidArgument('@Deprecated link must be a URI without spaces or angle brackets');
   }
   return {
-    deprecation: since ? `@${Math.floor(since.getTime() / 1000)}` : 'true',
+    deprecation: `@${Math.floor(since.getTime() / 1000)}`,
     ...(sunset ? { sunset: sunset.toUTCString() } : {}),
     ...(options.link !== undefined ? { link: `<${options.link}>; rel="deprecation"` } : {}),
   };
 }
 
 /**
- * Marks every reply of the route, error replies included, as deprecated: `Deprecation` (RFC 9745), `Sunset` (RFC 8594)
- * and `Link: <link>; rel="deprecation"`, each when given. Mounted by {@link Deprecated}; a route's own declaration
+ * Marks every reply of the route, error replies included, as deprecated: `Deprecation` (RFC 9745), and `Sunset`
+ * (RFC 8594) and `Link: <link>; rel="deprecation"` when given. Mounted by {@link Deprecated}; a route's own declaration
  * replaces the controller's.
  */
 @NewInstance()
@@ -53,13 +59,13 @@ function deprecationHeaders(options: IDeprecationOptions): IDeprecationHeaders {
 export class DeprecationMiddleware extends RouteMiddleware {
   protected readonly headers: IDeprecationHeaders;
 
-  constructor(protected readonly options: IDeprecationOptions = {}) {
+  constructor(protected readonly options: IDeprecationOptions) {
     super();
     this.headers = deprecationHeaders(options);
   }
 
   public override isEnabled(route: IRoute, _controller: IController): boolean {
-    return !overriddenByRoute(route, DeprecationMiddleware, this.options);
+    return !overriddenByRoute(route, this.constructor as typeof DeprecationMiddleware, this.options);
   }
 
   public onAfter({ res, response }: IReplyContext): void {
@@ -89,7 +95,32 @@ export class DeprecationMiddleware extends RouteMiddleware {
  * public list() { ... }
  * ```
  */
-export function Deprecated(options: IDeprecationOptions = {}) {
+export function Deprecated(options: IDeprecationOptions) {
   deprecationHeaders(options);
-  return Middleware(DeprecationMiddleware, options);
+  // a copy per declaration: one options object shared by a class and a route would defeat the route's override
+  return Middleware(DeprecationMiddleware, { ...options });
+}
+
+const deprecates = (m: IMiddlewareDescriptor): boolean => m.Type === DeprecationMiddleware || m.Type.prototype instanceof DeprecationMiddleware;
+
+/**
+ * Marks `deprecated` the documented routes whose middlewares, or whose controller's, include a DeprecationMiddleware
+ * (`@Deprecated` or `@Middleware`, inherited ones included). The controller metadata providers apply it, so the
+ * runtime documentation says what the route answers even when the compiler or the JSDoc did not record it.
+ */
+export function withDeprecatedRoutes(controller: ClassInfo<BaseController>, doc: IControllerDocumentation): IControllerDocumentation {
+  const prototype = (controller.type as { prototype?: object } | undefined)?.prototype;
+  const descriptor = (controller.instance?.Descriptor ?? (prototype ? Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, prototype) : undefined)) as IControllerDescriptor | undefined;
+  if (!descriptor) {
+    return doc;
+  }
+  const wholeController = descriptor.Middlewares.some(deprecates);
+  const methods = { ...doc.methods };
+  for (const [name, route] of descriptor.Routes) {
+    if (wholeController || route.Middlewares.some(deprecates)) {
+      const key = String(name);
+      methods[key] = { ...(methods[key] ?? { params: {} }), deprecated: true };
+    }
+  }
+  return { ...doc, methods };
 }
