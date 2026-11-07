@@ -4,7 +4,7 @@ import { expect } from 'chai';
 import { Bootstrapper, DI } from '@spinajs/di';
 import { fsService } from '@spinajs/fs';
 import { Configuration } from '@spinajs/configuration';
-import { Controllers, HttpServer } from '@spinajs/http';
+import { Controllers, HttpServer, Ok } from '@spinajs/http';
 import type { IMiddlewareContext, Request } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Intl } from '@spinajs/intl';
@@ -153,6 +153,41 @@ describe('http & controller tests', function () {
     it('adds to a Vary set before it', async () => {
       const response = await req().get('responses/testVaryOrigin').set('Accept', 'application/json').send();
       expect(varyOf(response).slice(0, 3)).to.deep.eq(['Origin', 'Cookie', 'X-Lang']);
+    });
+
+    it('answers a value that is no language tag without Content-Language, never with a 500', async () => {
+      for (const lang of ['%C4%85%C4%99', 'a%0D%0Ab']) {
+        const response = await req().get(`responses/testLangFromParam?lang=${lang}`).set('Accept', 'application/json').send();
+        expect(response, lang).to.have.status(200);
+        expect(headerOf(response, 'content-language'), lang).to.be.undefined;
+        expect(varyOf(response), lang).to.include.members(['Cookie', 'X-Lang']);
+      }
+    });
+
+    it('answers pt_BR as the language tag pt-BR', async () => {
+      const response = await req().get('responses/testLangFromParam?lang=pt_BR').set('Accept', 'application/json').send();
+      expect(headerOf(response, 'content-language')).to.eq('pt-BR');
+    });
+
+    it('sets no Vary with intl.http.vary false, Content-Language still', async () => {
+      const mw = await DI.resolve(IntlHttpMiddleware);
+      const set: Record<string, string> = {};
+      const res = { hasHeader: (n: string) => n in set, setHeader: (n: string, v: string) => (set[n] = v), vary: (v: string) => (set['Vary'] = v) };
+      Object.defineProperty(mw, 'Vary', { value: false, configurable: true });
+      try {
+        mw.onAfter({ req: {} as never, res: res as never, storage: { language: 'en' } as never, response: new Ok({}) });
+      } finally {
+        Object.defineProperty(mw, 'Vary', { value: true, configurable: true });
+      }
+      expect(set).to.deep.eq({ 'Content-Language': 'en' });
+    });
+
+    it("leaves the answer's own Vary: * alone", async () => {
+      const mw = await DI.resolve(IntlHttpMiddleware);
+      const response = new Ok({}, { Headers: [{ Name: 'Vary', Value: '*' }] });
+      const res = { hasHeader: () => false, setHeader: () => undefined, vary: () => expect.fail('added to Vary: *') };
+      mw.onAfter({ req: {} as never, res: res as never, storage: { language: 'en' } as never, response });
+      expect(response.headers.find((h) => h.Name === 'Vary')?.Value).to.eq('*');
     });
 
     it("joins the answer's own Vary", async () => {

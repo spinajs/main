@@ -4,7 +4,8 @@ import { Intl } from '@spinajs/intl';
 import { InvalidArgument } from '@spinajs/exceptions';
 import type { TestApp } from '@spinajs/testing';
 
-import { httpApp, req } from './common.js';
+import * as http from 'node:http';
+import { appPort, httpApp, req } from './common.js';
 import { BaseController, BasePath, Consumes, Controllers, Get, HttpServer, Ok, Post, Req } from '../src/index.js';
 import type * as express from 'express';
 
@@ -26,6 +27,18 @@ class ConsumesController extends BaseController {
   public read() {
     return new Ok({ ok: true });
   }
+}
+
+function chunked(path: string, chunks: string[]): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const request = http.request({ host: 'localhost', port: appPort(), method: 'POST', path, headers: { 'Transfer-Encoding': 'chunked', Accept: 'application/json' } }, (res) => {
+      res.resume();
+      res.on('end', () => resolve(res.statusCode ?? 0));
+    });
+    request.on('error', reject);
+    for (const c of chunks) request.write(c);
+    request.end();
+  });
 }
 
 function thrownBy(fn: () => unknown): unknown {
@@ -85,6 +98,11 @@ describe('@Consumes ( ConsumesMiddleware )', function () {
   it('answers 415 to a body without a Content-Type', async () => {
     const res = await req().post('consumes/json').set('Content-Type', '').send(Buffer.from('raw'));
     expect(res).to.have.status(415);
+  });
+
+  it('answers 415 to a chunked body without a Content-Type, an empty one too', async () => {
+    expect(await chunked('/consumes/json', ['abc'])).to.eq(415);
+    expect(await chunked('/consumes/json', [])).to.eq(415);
   });
 
   it('leaves a body-less GET alone', async () => {
