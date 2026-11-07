@@ -11,7 +11,7 @@
    3. increments the in-flight gauge;
    4. subscribes to the response `finish` and `close` events;
    5. calls `next()`, even when a step above threw.
-3. On `finish`, `onFinish(req, res)`:
+3. On `finish`, `record(req, res)`:
    1. computes the duration in ms from the stored start;
    2. reads the label set: `method`, `route` from `routeLabel(req)`, `status` from `res.statusCode`;
    3. decrements the in-flight gauge first;
@@ -59,7 +59,7 @@ export default {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Request middleware | `ServerMiddleware` list, registered by `@Injectable(ServerMiddleware)` at import; a new instance per resolve, read once when `HttpServer` resolves | `TelemetryMiddleware` | your subclass | Override `routeLabel()`, `onFinish()` or `ensureMetrics()`; register the subclass and `DI.unregister(TelemetryMiddleware)`. See [Customizing the request middleware](04-customizing-the-request-middleware.md) |
+| Request middleware | `ServerMiddleware` list, registered by `@Injectable(ServerMiddleware)` at import; a new instance per resolve, read once when `HttpServer` resolves | `TelemetryMiddleware` | your subclass | Override `routeLabel()`, `record()` or `ensureMetrics()`; register the subclass and `DI.unregister(TelemetryMiddleware)`. See [Customizing the request middleware](04-customizing-the-request-middleware.md) |
 | Statistics store | `TelemetryStore`, `@Singleton()`, injected with `@Autoinject(TelemetryStore)` | `TelemetryStore` | your subclass | See [Request statistics](05-request-statistics.md) |
 
 ## Important behaviour

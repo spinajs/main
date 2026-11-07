@@ -5,7 +5,8 @@ import { InvalidOption } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log';
 
 import { FIELD_NAME_PATTERN } from '../headers.js';
-import { ServerMiddleware, Request as sRequest } from '../interfaces.js';
+import { HTTP_STATUS_CODE, Response, ServerMiddleware } from '../interfaces.js';
+import type { IMiddlewareContext } from '../interfaces.js';
 
 const ALLOWED_METHODS = 'GET,HEAD,PUT,PATCH,POST,DELETE';
 
@@ -45,6 +46,39 @@ const withoutProxyHeaders = (list: string | undefined, keep: (name: string) => b
 // RFC 9110 field-name: anything else in Access-Control-Request-Headers names no header and is not echoed back.
 const isFieldName = (name: string): boolean => FIELD_NAME_PATTERN.test(name);
 
+/** What a request's Origin gets: `Access-Control-Allow-Origin: <allowOrigin>`, and credentials when `credentials`. */
+export interface CorsAllowance {
+  readonly allowOrigin: string;
+  readonly credentials: boolean;
+}
+
+interface ICorsPolicy {
+  readonly any: boolean;
+  readonly listed: ReadonlySet<string>;
+  readonly exposed?: string;
+  readonly allowed?: string;
+}
+
+/** The answer to an allowed preflight: 204 without a body, with the CORS headers already set on `res`. */
+class PreflightResponse extends Response<null> {
+  protected _errorCode = HTTP_STATUS_CODE.NO_CONTENT;
+  protected _template = '';
+
+  constructor() {
+    super(null);
+  }
+
+  public execute(_req: express.Request, res: express.Response): Promise<void> {
+    res.statusCode = this.statusCode;
+    for (const header of this.headers) {
+      res.setHeader(header.Name, header.Value);
+    }
+    res.setHeader('Content-Length', '0');
+    res.end();
+    return Promise.resolve();
+  }
+}
+
 /**
  * CORS by rule A31: only listed origins get CORS headers.
  *
@@ -61,7 +95,7 @@ const isFieldName = (name: string): boolean => FIELD_NAME_PATTERN.test(name);
  *                             `Forwarded` and `X-Forwarded-*` are never allowed.
  *
  * A request from an origin that is not allowed proceeds without CORS headers; the browser then refuses to share
- * the response.
+ * the response. An allowed preflight is answered 204 here, through the reply pipeline.
  */
 @Injectable(ServerMiddleware)
 export class CorsMiddleware extends ServerMiddleware {
@@ -71,14 +105,68 @@ export class CorsMiddleware extends ServerMiddleware {
   @Logger('http')
   protected Log!: Log;
 
+  private policy?: ICorsPolicy | null;
+
   constructor() {
     super();
-    // Must run early — preflight needs to short-circuit before any business
-    // middleware. Sit just after RequestStorage (-2) and ResponseTime (-1).
+    // early, so a preflight is answered before any business middleware runs
     this.Order = -1;
   }
 
-  public before(): ((req: sRequest, res: express.Response, next: express.NextFunction) => void) | null {
+  public async resolve(): Promise<void> {
+    this.corsPolicy();
+    await super.resolve();
+  }
+
+  /** Off without origins in `http.cors.origins`. */
+  public isEnabled(): boolean {
+    return this.corsPolicy() !== null;
+  }
+
+  /**
+   * What `origin` (the request's Origin header, as sent) gets, or undefined for no CORS headers. By default a listed
+   * origin is echoed with credentials, and any other gets '*' when `http.cors.origins` holds '*'. Override it to allow
+   * origins by a rule.
+   */
+  protected allowance(origin: string): CorsAllowance | undefined {
+    const policy = this.corsPolicy();
+    // Browsers send the serialized origin, the form the listed entries were normalised to.
+    if (policy?.listed.has(origin)) return { allowOrigin: origin, credentials: true };
+    return policy?.any ? { allowOrigin: '*', credentials: false } : undefined;
+  }
+
+  public onBefore({ req, res }: IMiddlewareContext): Response | undefined {
+    const policy = this.corsPolicy();
+    if (!policy) return undefined;
+    if (policy.listed.size > 0) res.vary('Origin');
+
+    const origin = req.headers.origin;
+    const allowance = typeof origin === 'string' ? this.allowance(origin) : undefined;
+    if (!allowance) return undefined;
+
+    res.setHeader('Access-Control-Allow-Origin', allowance.allowOrigin);
+    if (allowance.credentials) res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+    if (req.method === 'OPTIONS' && req.headers['access-control-request-method'] !== undefined) {
+      res.setHeader('Access-Control-Allow-Methods', ALLOWED_METHODS);
+      const requested = req.headers['access-control-request-headers'];
+      if (policy.allowed) {
+        res.setHeader('Access-Control-Allow-Headers', policy.allowed);
+      } else if (requested) {
+        res.vary('Access-Control-Request-Headers');
+        const echoed = withoutProxyHeaders(requested, isFieldName);
+        if (echoed) res.setHeader('Access-Control-Allow-Headers', echoed);
+      }
+      return new PreflightResponse();
+    }
+
+    if (policy.exposed) res.setHeader('Access-Control-Expose-Headers', policy.exposed);
+    return undefined;
+  }
+
+  private corsPolicy(): ICorsPolicy | null {
+    if (this.policy !== undefined) return this.policy;
+
     // true passes the schema (no CORS, as false does) and has no origins to read.
     const cfg = typeof this.Cors === 'object' ? this.Cors : null;
     const raw = cfg?.origins ?? [];
@@ -93,45 +181,10 @@ export class CorsMiddleware extends ServerMiddleware {
 
     if (!any && listed.size === 0) {
       this.Log.warn(`http.cors.origins is not set or empty: no CORS headers are sent, so browsers allow only same-origin requests. List the origins your browser clients use in http.cors.origins.`);
-      return null;
+      this.policy = null;
+    } else {
+      this.policy = { any, listed, exposed: headerList(cfg?.exposedHeaders), allowed: withoutProxyHeaders(headerList(cfg?.allowedHeaders)) };
     }
-
-    const exposed = headerList(cfg?.exposedHeaders);
-    const allowed = withoutProxyHeaders(headerList(cfg?.allowedHeaders));
-
-    return (req: sRequest, res: express.Response, next: express.NextFunction) => {
-      if (listed.size > 0) res.vary('Origin');
-
-      const origin = req.headers.origin;
-      // Browsers send the serialized origin, the form the listed entries were normalised to.
-      const explicit = typeof origin === 'string' && listed.has(origin);
-      if (typeof origin !== 'string' || (!explicit && !any)) return next();
-
-      res.setHeader('Access-Control-Allow-Origin', explicit ? origin : '*');
-      if (explicit) res.setHeader('Access-Control-Allow-Credentials', 'true');
-
-      if (req.method === 'OPTIONS' && req.headers['access-control-request-method'] !== undefined) {
-        res.setHeader('Access-Control-Allow-Methods', ALLOWED_METHODS);
-        const requested = req.headers['access-control-request-headers'];
-        if (allowed) {
-          res.setHeader('Access-Control-Allow-Headers', allowed);
-        } else if (requested) {
-          res.vary('Access-Control-Request-Headers');
-          const echoed = withoutProxyHeaders(requested, isFieldName);
-          if (echoed) res.setHeader('Access-Control-Allow-Headers', echoed);
-        }
-        res.statusCode = 204;
-        res.setHeader('Content-Length', '0');
-        res.end();
-        return;
-      }
-
-      if (exposed) res.setHeader('Access-Control-Expose-Headers', exposed);
-      next();
-    };
-  }
-
-  public after(): null {
-    return null;
+    return this.policy;
   }
 }

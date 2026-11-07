@@ -22,7 +22,7 @@ Both steps must happen after both modules are imported (decorators register at i
 | Member | Default | Override to |
 | --- | --- | --- |
 | `routeLabel(req)` | matched route path, else the raw path | collapse unmatched paths, strip versions, group routes |
-| `onFinish(req, res)` | records the metrics and calls `Store.record()` | add a metric, skip some responses; call `super.onFinish()` |
+| `record(req, res)` | records the metrics and calls `Store.record()` | add a metric, skip some responses; call `super.record()` |
 | `before()` | returns the timing handler | skip requests entirely; wrap `super.before()` |
 | `ensureMetrics()` | defines the three series once per instance | define extra series; call `super.ensureMetrics()` first |
 | `Prefix` (field) | `DEFAULT_PREFIX` (`'http'`) | a value other than `'http'` wins over `telemetry.prefix` |
@@ -92,11 +92,11 @@ DI.unregister(TelemetryMiddleware);
   - both call `defineMetrics()` with the same prefix, which removes and recreates the series. One instance keeps references to deregistered metric objects, so which `routeLabel()` reaches the rendered histogram depends on middleware order.
 - `DI.unregister()` does not touch the cache. Run it before `HttpServer` is resolved; a middleware list already mounted keeps running.
 - A `Prefix` other than `'http'` in a subclass wins over `telemetry.prefix`. Set it only in a subclass that replaces the base registration.
-- `before()` and `onFinish()` must never throw out; the base class guards its own code, and your additions need the same `try`/`catch`.
+- `before()` and `record()` must never throw out; the base class guards its own code, and your additions need the same `try`/`catch`.
 
 ## Best practices
 
-- Keep `super.onFinish()` in an override, or the store and the series stop updating.
+- Keep `super.record()` in an override, or the store and the series stop updating.
 - Return a fixed vocabulary from `routeLabel()`; the same label also keys the per-route JSON view.
 - Put the subclass and the `DI.unregister()` call in one module and import it from your app entry, so the order of the two steps is fixed.
 
@@ -135,8 +135,8 @@ export class ThrottleAwareTelemetry extends TelemetryMiddleware {
     this.throttled ??= this.metrics.defineMetrics('http', [{ name: 'throttled_total', help: 'Responses answered 429', type: 'counter', labelNames: ['route'] }])['throttled_total'] as Counter<string>;
   }
 
-  protected onFinish(req: Request, res: express.Response): void {
-    super.onFinish(req, res);
+  protected record(req: Request, res: express.Response): void {
+    super.record(req, res);
     try {
       if (res.statusCode === 429) this.throttled?.inc({ route: this.routeLabel(req) });
     } catch (err) {
