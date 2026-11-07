@@ -13,6 +13,7 @@ import { appPort, httpApp, req } from './common.js';
 import { BaseController, BasePath, Controllers, Get, HttpServer, Middleware, Ok, OnError, Req, Response, RouteClientGone, RouteMiddleware, RouteRegistrationException, Unauthorized, buildRouteHandlers } from '../src/index.js';
 import type { ControllerActionHost, IActionLocalStoregeContext, IController, IMiddlewareContext, IRoute, IRouteChainOptions, IRouteInvocation, IRouteOutcome, MiddlewareStage, Request } from '../src/index.js';
 import { createAroundHandler } from '../src/around.js';
+import { createBeforeHandler } from '../src/route-builder.js';
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -540,6 +541,41 @@ describe('Around middleware registration', () => {
     expect(error).to.be.instanceOf(RouteRegistrationException);
     for (const part of ['FailingRegister', 'http:GET /x/probe', 'missing peer']) expect((error as Error).message).to.contain(part);
   });
+
+  class Redaction extends RouteMiddleware {
+    public onResponse(_response: Response) {}
+  }
+
+  class InheritedRedaction extends Redaction {
+    public async onBefore() {}
+  }
+
+  class Unrelated extends RouteMiddleware {
+    public onResponseTime() {}
+
+    public async onBefore() {}
+  }
+
+  const registrationError = async (m: RouteMiddleware) => {
+    try {
+      await buildRouteHandlers(chain([m]));
+    } catch (err) {
+      return err;
+    }
+    return undefined;
+  };
+
+  it('fails the route registration of a middleware that still defines the removed onResponse, own or inherited', async () => {
+    for (const m of [new Redaction(), new InheritedRedaction()]) {
+      const error = await registrationError(m);
+      expect(error, m.constructor.name).to.be.instanceOf(RouteRegistrationException);
+      for (const part of [m.constructor.name, 'onResponse', 'onAfter(ctx)', 'ctx.response', 'http:GET /x/probe']) expect((error as Error).message).to.contain(part);
+    }
+  });
+
+  it('builds a middleware whose method only starts with onResponse', async () => {
+    expect(await registrationError(new Unrelated())).to.eq(undefined);
+  });
 });
 
 describe('Route middleware hooks', () => {
@@ -587,5 +623,21 @@ describe('Route middleware hooks', () => {
 
   it('enables a middleware on every route unless it says otherwise', () => {
     expect(new NoHooks().isEnabled({} as IRoute, {} as never)).to.eq(true);
+  });
+
+  it('refuses an onBefore answer that is not a Response, naming the middleware', async () => {
+    class NotAnAnswer extends RouteMiddleware {
+      public async onBefore() {
+        return { status: 204 } as unknown as Response;
+      }
+    }
+    const res = { locals: {} } as express.Response;
+    const handler = createBeforeHandler(new NotAnAnswer(), { Method: 'probe', Type: 'get' } as unknown as IRoute, {} as IController, '/x/probe');
+
+    const error = await new Promise<unknown>((resolve) => handler({} as express.Request, res, resolve));
+
+    expect(error).to.be.instanceOf(UnexpectedServerError);
+    expect((error as Error).message).to.contain('NotAnAnswer.onBefore');
+    expect(res.locals.response).to.eq(undefined);
   });
 });

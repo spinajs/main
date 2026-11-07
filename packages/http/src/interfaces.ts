@@ -924,7 +924,7 @@ export abstract class HttpMiddleware extends AsyncService {
    */
   public onAfter?(ctx: IReplyContext): Promise<void>;
 
-  /** Once the response finished, or the client went away (`aborted`). A throw is logged. */
+  /** Once the response finished, or the client went away (`aborted`); not awaited by the next one. A throw is logged. */
   public onFinish?(ctx: IFinishContext): void | Promise<void>;
 
   /**
@@ -945,8 +945,8 @@ export abstract class HttpMiddleware extends AsyncService {
  */
 export abstract class RouteMiddleware extends HttpMiddleware {
   /**
-   * 'outer' runs right after the policy gate, before every 'inner' middleware; within a stage, declaration order.
-   * Unset means 'inner'.
+   * 'outer' runs right after the policy gate, before every 'inner' middleware; within a stage, the global ones
+   * (`http.routes.middlewares`) first, then the controller's and the route's in declaration order. Unset means 'inner'.
    */
   public readonly Stage?: MiddlewareStage;
 
