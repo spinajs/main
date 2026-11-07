@@ -53,7 +53,7 @@ malformed or repeated header is refused with 400 `idempotency.key-malformed`.
 | Situation | Answer |
 |---|---|
 | first request with a key | the route runs; a 2xx or 4xx JSON reply is stored |
-| repeat within `ttl` | the stored status, headers (see below) and body, plus `Idempotent-Replayed: true` |
+| repeat within `ttl` | the stored status, headers (see below) and body, plus `Idempotent-Replayed: true`; for an authenticated principal without running the policies (see [Replays before the policies](#replays-before-the-policies)) |
 | repeat while the first still runs | 409 `idempotency.in-flight` with `Retry-After` (seconds) |
 | repeat with a different body or URL, while the first runs or after it | 422 `idempotency.key-reuse` |
 | a claim inside a database transaction lost a deadlock or serialization check | 409 `idempotency.claim-conflict` with `Retry-After: 1` |
@@ -65,7 +65,9 @@ malformed or repeated header is refused with 400 `idempotency.key-malformed`.
 | reply that is not JSON (HTML, XML, text, file, stream, redirect) | not stored, a warning is logged, the key is released |
 
 All the errors are problem+json. A replay is answered by the gate itself: the action and the inner route middlewares do
-not run for it. The outer middlewares entered before the gate (global and controller ones, and route ones written below
+not run for it. A replay of an authenticated principal is answered before the policy gate, and only the `'beforePolicy'`
+route middlewares and the server middlewares see it (see
+[Middlewares on an early replay](#middlewares-on-an-early-replay)). Otherwise the outer middlewares entered before the gate (global and controller ones, and route ones written below
 `@Idempotent`, since decorators apply bottom-up) run for it: their `onAfter` gets a `ReplayedResponse`, whose `data` is
 the stored body they already shaped on the first answer. The entered server middlewares' `onAfter` run on it too, after
 the route's: `x-response-time`, `Server-Timing` and `X-Access-Epoch` are set on a replay as on any reply. A hook that changes data checks
@@ -84,6 +86,66 @@ the route started, the route does not run either.
 | `Set-Cookie`, also when the route set it through `IResponseOptions.Headers` | never |
 | `Connection`, `Keep-Alive`, `Transfer-Encoding`, `Trailer`, `Upgrade`, `Content-Length`, `Date` | never; the replay's own send sets those it needs |
 | headers set by middlewares (an `onAfter` hook included), server middlewares or `res.setHeader` in the action | no; server middlewares that run before the route (CORS, helmet) set theirs on the replay again, and an outer route or server `onAfter` that runs on the replay sets its own again |
+
+## Replays before the policies
+
+Policies judge the current state. Once a request committed (a delete, a state change such as "submit" guarded by
+`status == 'draft'`), a policy refuses its resend with 403 or 404. A client whose first response was lost would then
+be told that its successful operation failed, which is the failure an idempotency key exists to prevent. So for an
+authenticated principal, a repeat of a completed key is replayed before the [policy gate](13-policies.md):
+
+```text
+'beforePolicy' middlewares → replay check → policy gate → outer and inner middlewares → claim → action
+```
+
+The check replays only when all of these hold:
+
+- the caller is an authenticated principal (`req.storage.Principal`), which the Authn and Principal server middlewares
+  verify again on every request, before routing;
+- that principal has a completed record of the key on this route;
+- the request has the record's fingerprint: method, URL and, with `fingerprint: 'body'`, the body.
+
+The stored reply is then sent as a `ReplayedResponse` through the reply pipeline. Neither the policies nor the action
+run. In every other case the request goes on to the policies and the claim, as before:
+
+| Situation | Answer |
+|---|---|
+| anonymous caller | the policies run first: all anonymous callers share one scope, so their repeats are judged by the policies |
+| no record, or the record expired | the policies, then the claim |
+| key in flight | the policies, then the claim: 409 `idempotency.in-flight`; a retry after the first run completed is replayed |
+| a different request on the key | the policies, then the claim: 422 `idempotency.key-reuse` |
+| record stored without a fingerprint | the policies, then the claim |
+| the store fails on the check | a warning is logged; the policies, then the claim |
+| a `'beforePolicy'` middleware answered | the policies judge that answer, as on any route |
+
+The claim stays after the policies, so a 401 or 403 is still never stored. The check reads the principal as it is
+before the gate: an app that signs the caller in inside a policy, not in a server middleware, gets its replays after
+the policies.
+
+### Why the policies may be skipped
+
+On any other route the policies always run, even after a `'beforePolicy'` middleware answered
+([Stage](14-route-middlewares.md#stage)). This replay is the single exception, and it holds because of three facts:
+
+- the same principal: the key's scope includes the principal, verified again before routing, so a replay never
+  crosses principals;
+- the same request: the fingerprint binds the key to the method, the URL and the body that were authorized the first
+  time;
+- nothing executes: the client gets the reply it was already given, or would have been given, for that request.
+
+Two consequences follow:
+
+- Policies that do not depend on the principal, such as an IP allowlist, MFA step-up freshness or a tenant header,
+  are not evaluated again on a replay. The replayed reply is the one they admitted the first time.
+- A principal whose permission was revoked within `ttl` still gets the reply it was owed. That is the standard
+  semantics of idempotency keys (the IETF Idempotency-Key draft, Stripe). Keep `ttl` short on routes where this matters.
+
+### Middlewares on an early replay
+
+A replay before the policies is an early answer: only the middlewares entered before the check see it. Those are the
+server middlewares and the route's `'beforePolicy'` middlewares; the shipped [`Audit`](30-audit.md) records it. The
+`'outer'` and `'inner'` route middlewares are not entered, so their `onAfter` does not run and they set no header on
+it. A middleware that must see every replay belongs in the `'beforePolicy'` stage or among the server middlewares.
 
 ## Scope
 

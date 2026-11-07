@@ -45,6 +45,10 @@ const outcome = await idempotency.run(
 `running` with `retryAfterMs`, or `claimed` with an `IdempotencyHandle` that the caller completes, releases or
 abandons itself. Use it when the claim and the settle happen in different places, as in a pipeline.
 
+`peek(scope, key)` reads a key without claiming it: `done` with the reply and the fingerprint, `running` with
+`leaseUntil`, or `undefined` for a free or expired key. `@spinajs/http` uses it to replay a completed key before the
+policies run.
+
 ## Transactions
 
 Run `IdempotencyService.run` outside business transactions. A claim made inside a transaction joins it: it commits or

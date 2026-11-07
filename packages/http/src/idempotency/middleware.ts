@@ -11,7 +11,8 @@ import type { Principal } from '@spinajs/principal';
 import type * as Idempotency from '@spinajs/idempotency';
 import { Response, RouteMiddleware } from '../interfaces.js';
 import type { ResponseFunction } from '../interfaces.js';
-import { sendReply } from '../reply-pipeline.js';
+import { REPLAY_BEFORE_POLICY, sendReply } from '../reply-pipeline.js';
+import type { IReplaysBeforePolicy } from '../reply-pipeline.js';
 import { _setHeaders } from '../responses.js';
 import type { IRoute, IRouteInvocation, IRouteOutcome, MiddlewareStage, Request } from '../interfaces.js';
 import { RouteClientGone, RouteRegistrationException } from '../exceptions.js';
@@ -37,6 +38,7 @@ interface IdempotencyGateService {
     fn: (signal: AbortSignal) => Promise<T>,
     opts: { fingerprint?: string; ttl: string | number; toReply(value: T): StoredReply | undefined; fromReply(reply: StoredReply): T },
   ): Promise<{ replayed: boolean; value: T }>;
+  peek(scope: { namespace: string; principal?: string }, key: string): Promise<{ state: 'running' | 'done'; reply?: StoredReply; fingerprint?: string } | undefined>;
 }
 
 /** What onRegister takes from @spinajs/idempotency for the route. */
@@ -141,7 +143,7 @@ export class ReplayedResponse extends Response<unknown> {
  */
 @Injectable()
 @NewInstance()
-export class IdempotencyMiddleware extends RouteMiddleware {
+export class IdempotencyMiddleware extends RouteMiddleware implements IReplaysBeforePolicy {
   // a replay is the middleware's own answer: no other route middleware and no action runs for it
   public override readonly Stage: MiddlewareStage = 'outer';
 
@@ -240,11 +242,44 @@ export class IdempotencyMiddleware extends RouteMiddleware {
     }
   }
 
-  /** Claims the key, then runs the route once or replays its reply; a refused claim reaches the error handlers. */
-  protected async claimAndRun(gate: IdempotencyGate, key: string, req: Express.Request, res: Express.Response, proceed: () => Promise<IRouteOutcome>): Promise<void> {
+  /**
+   * Runs before the policy gate: the stored reply of a completed key, when the caller is an authenticated principal and
+   * the request has the stored fingerprint, so a resend of a committed operation is not refused by policies that now
+   * see the changed state. Anything else (an anonymous caller, who shares one scope; no record; a key in flight; another
+   * request; a failing store) answers undefined and goes through the policies and the claim.
+   */
+  public async [REPLAY_BEFORE_POLICY]({ req }: IRouteInvocation): Promise<Response | undefined> {
+    const gate = this.gate;
+    const key = parseIdempotencyKey(req.headers[IDEMPOTENCY_KEY_HEADER]);
+    const principal = principalOf(req);
+    if (!gate || key === undefined || principal === ANONYMOUS) {
+      return undefined;
+    }
+
+    let held: Awaited<ReturnType<IdempotencyGateService['peek']>>;
+    try {
+      held = await gate.service.peek({ namespace: gate.namespace, principal }, key);
+    } catch (error) {
+      this._log.warn({ error, route: gate.namespace }, 'Idempotent route ${route}: reading its key before the policies failed; the policies and the claim run');
+      return undefined;
+    }
+
+    // a record without a fingerprint (written before fingerprints) is left to the claim, after the policies
+    if (held?.state !== 'done' || held.reply?.kind !== 'http' || held.fingerprint === undefined || held.fingerprint !== this.fingerprintOf(req, gate)) {
+      return undefined;
+    }
+    return new ReplayedResponse(held.reply.body as CapturedJsonReply);
+  }
+
+  protected fingerprintOf(req: Express.Request, gate: IdempotencyGate): string {
     // the target is part of the fingerprint: the namespace holds the route template, not the resource
     const target = Buffer.from(`${req.method} ${req.originalUrl}\n`);
-    const fingerprint = gate.fingerprint(this.options.fingerprint === 'body' ? Buffer.concat([target, Buffer.from(bodyBytes(req))]) : target);
+    return gate.fingerprint(this.options.fingerprint === 'body' ? Buffer.concat([target, Buffer.from(bodyBytes(req))]) : target);
+  }
+
+  /** Claims the key, then runs the route once or replays its reply; a refused claim reaches the error handlers. */
+  protected async claimAndRun(gate: IdempotencyGate, key: string, req: Express.Request, res: Express.Response, proceed: () => Promise<IRouteOutcome>): Promise<void> {
+    const fingerprint = this.fingerprintOf(req, gate);
     let continued = false;
     const route = async (): Promise<CapturedJsonReply | null> => {
       continued = true;
