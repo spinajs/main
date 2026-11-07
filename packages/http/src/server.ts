@@ -134,7 +134,7 @@ export class HttpServer extends AsyncService {
     await super.resolve();
 
     this.Express = Express();
-    // stable: equal Orders keep the DI registration order
+    // Stable, but equal Orders keep the order the list finished resolving in, which is not always registration order.
     this.Middlewares = this.Middlewares.sort((a, b) => {
       return a.Order - b.Order;
     });

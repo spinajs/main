@@ -125,8 +125,9 @@ export function requestOrigin(req: { headers: express.Request['headers']; socket
 }
 
 /**
- * Writes `req.storage.realIp`: the client address through `http.trustProxy` only; without it, the socket address. Also
- * writes the trust it used to `req.storage.proxyTrust`, so later middlewares need not parse the setting again.
+ * Writes `req.storage.realIp`, the one client address of the app: through `http.trustProxy`, or the trust a subclass
+ * registered over RealIp resolves ({@link RealIp.proxyTrust}); without one, the socket address. Also writes the trust it
+ * used to `req.storage.proxyTrust`, so later middlewares need not parse the setting again.
  */
 @Injectable(ServerMiddleware)
 export class RealIp extends ServerMiddleware {

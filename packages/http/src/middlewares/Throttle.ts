@@ -98,7 +98,7 @@ const underPath = (path: string, prefix: string): boolean => {
  * Per-ip, per-route rate limiting. Complements ( does NOT replace ) the
  * authn throttle, the real per-account and per-IP login limiter - this one caps
  * request volume from one address before any handler runs. The address is
- * `req.storage.realIp` ( `http.trustProxy` only ), else the socket address.
+ * `req.storage.realIp` ( see RealIp ), else the socket address.
  *
  * Config:
  *   http.throttle.enabled   (boolean, default false)

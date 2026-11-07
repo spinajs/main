@@ -16,7 +16,7 @@ Import the package in the app entry, **before** anything resolves `Controllers` 
 
 | Feature | What it does |
 | --- | --- |
-| [Request authentication](01-request-authentication.md) | `ClientIp` and `AuthnMiddleware`: restore the session cookie, extract credentials, resolve `req.storage.AuthnPrincipal`. |
+| [Request authentication](01-request-authentication.md) | `AuthnRealIp`, `ClientIp` and `AuthnMiddleware`: one client address for authn and every limiter; restore the session cookie, extract credentials, resolve `req.storage.AuthnPrincipal`. |
 | [Credential extractors](02-credential-extractors.md) | Turn `Authorization`, `x-api-key` and signature headers into credentials; add your own. |
 | [Principal resolvers](03-principal-resolvers.md) | Turn credentials or a session into a principal, in order; add your own. |
 | [CSRF origin guard](04-csrf-origin-guard.md) | `CsrfOriginGuard`: the `@spinajs/http` CSRF guard plus the session cookie: refuses cross-origin unsafe requests from browsers on every route, and boots only with a CSRF defence for a `SameSite=None` session cookie. |

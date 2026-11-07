@@ -94,6 +94,25 @@ describe('AuthnIpThrottleMiddleware answers a throttled client itself', () => {
     expect(calls).to.deep.eq([]);
   });
 
+  it('keys an IPv6 client by authn.throttle.ipv6Prefix, else http.throttle.ipv6Prefix', async () => {
+    const keyOf = async (values: Record<string, unknown>) => {
+      const keys: string[] = [];
+      const throttle = Object.assign(Object.create(AuthnThrottle.prototype) as AuthnThrottle, {
+        attempt: async (k: { value: string }[]) => {
+          keys.push(k[0].value);
+          return { allowed: true as const };
+        },
+      });
+      const mw = readingFrom(new AuthnIpThrottleMiddleware('login', (s) => new Answer(s), 'count'), fakeContainer(values));
+      Object.assign(mw, { Container: { resolve: async () => throttle } as unknown as IContainer });
+      await mw.onBefore(ctxOf('2001:db8:0:ff::1'));
+      return keys[0];
+    };
+    expect(await keyOf({})).to.eq('2001:db8:0:ff::/64');
+    expect(await keyOf({ 'http.throttle.ipv6Prefix': 56 })).to.eq('2001:db8::/56');
+    expect(await keyOf({ 'http.throttle.ipv6Prefix': 56, 'authn.throttle.ipv6Prefix': 64 })).to.eq('2001:db8:0:ff::/64');
+  });
+
   it('@IpThrottle adds no middleware-stage error handler: nothing is thrown to answer', () => {
     for (const [controller, method] of GATED) {
       const handlers = routeOf(controller, method).ErrorHandlers ?? [];

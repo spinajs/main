@@ -34,7 +34,7 @@ export const HTTP_CONFIGURATION_SCHEMA = {
       ],
       default: null,
       description:
-        'Proxies in front of the app whose X-Forwarded-For counts (RealIp, and authn ClientIp when authn.http.trustProxy is null): a hop count, or addresses, CIDRs and the names loopback, linklocal and uniquelocal (an array, or a comma-separated string). null or 0: no proxy. true coerces to one hop and false to none, never to trust-all. The first X-Forwarded-Proto and -Host value from a trusted proxy counts too, so that proxy must overwrite both headers.',
+        'Proxies in front of the app whose X-Forwarded-For counts (RealIp, the client address of every limiter; with @spinajs/authn-http a set authn.http.trustProxy wins): a hop count, or addresses, CIDRs and the names loopback, linklocal and uniquelocal (an array, or a comma-separated string). null or 0: no proxy. true coerces to one hop and false to none, never to trust-all. The first X-Forwarded-Proto and -Host value from a trusted proxy counts too, so that proxy must overwrite both headers.',
     },
     cors: {
       anyOf: [
