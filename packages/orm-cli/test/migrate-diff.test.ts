@@ -317,6 +317,20 @@ describe('migrate-diff', function () {
     expect(out).to.deep.equal([]);
   });
 
+  it('never drops a table the filter left out while a current model maps it, whoever mapped it in --base', async () => {
+    const jobs = (pkg: string): ModelEntry => model('Job', 'cli_pkgc_jobs', [id()], { id: `${pkg}:Job`, source: { file: 'src/models.ts', line: 1, col: 1, package: pkg } });
+    const base = writeManifest('base', [jobs('app')], ['@acme/jobs']);
+    const manifest = writeManifest('m', [jobs('@acme/jobs')], ['@acme/jobs']);
+    const driver = await pg();
+    await driver.schema().createTable('cli_pkgc_jobs', (t) => {
+      t.int('Id').primaryKey().autoIncrement();
+    });
+    for (const filter of [{ excludePackage: '@acme/jobs' }, { package: 'app' }]) {
+      const { out } = await capture(() => command.execute(undefined, { connection: 'pg', manifest, base, check: true, ...filter }));
+      expect(out, JSON.stringify(filter)).to.deep.equal([]);
+    }
+  });
+
   it('refuses an invalid name and an unknown connection', async () => {
     expect(await thrownBy(() => command.execute('Bad_Name', {}))).to.be.instanceOf(InvalidArgument);
     const error = await thrownBy(() => command.execute(undefined, { connection: 'nope', manifest: writeManifest('m', []) }));

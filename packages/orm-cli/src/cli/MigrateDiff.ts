@@ -117,9 +117,12 @@ export class MigrateDiffCommand extends CliCommand {
     const names = [...orm.Connections].filter(([, d]) => d === driver).map(([n]) => n);
     const manifest = await readManifest(options.manifest ?? DEFAULT_MANIFEST);
     const filter = packageFilterOf(manifest, options);
-    const target = countedTables(manifest, buildTargetSchema(manifest, names, diagnostics), filter);
+    const declared = buildTargetSchema(manifest, names, diagnostics);
+    const target = countedTables(manifest, declared, filter);
+    // a table the filter left out is still mapped by a current model, so --base must not read its absence as a removal
+    const filteredOut = new Set(declared.filter((t) => !target.includes(t)).map((t) => t.name));
     const baseManifest = options.base ? await readManifest(options.base) : undefined;
-    const base = baseManifest ? countedTables(baseManifest, buildTargetSchema(baseManifest, names), filter) : undefined;
+    const base = baseManifest ? countedTables(baseManifest, buildTargetSchema(baseManifest, names), filter).filter((t) => !filteredOut.has(t.name)) : undefined;
     const live = await introspectSchema(driver, [...new Set([...target, ...(base ?? [])].map((t) => t.name))]);
     const prune = list(options.prune);
     return { driver, changes: diffSchema(target, live.columns, live.extras, { base, prune, dialect: live.dialect, foreignKeysEnforced: live.foreignKeysEnforced, allowDestructive: options.allowDestructive, diagnostics }) };
