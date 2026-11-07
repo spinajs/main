@@ -2,23 +2,28 @@ import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
 import { createHmac } from 'node:crypto';
+import http from 'node:http';
 import express from 'express';
 import cookieParser from 'cookie-parser';
+import { Forbidden } from '@spinajs/exceptions';
 import { Intl } from '@spinajs/intl';
 import { FrameworkLogger } from '@spinajs/log';
 import type { TestApp } from '@spinajs/testing';
 
-import { httpApp, req, TestConfiguration } from './common.js';
+import { appPort, httpApp, req, TestConfiguration } from './common.js';
 import {
   BaseController,
   BasePath,
   BodyLimits,
+  configuredCookieParser,
   Controllers,
   CookieParserMiddleware,
   defaultMiddlewares,
   HttpServer,
   JsonBodyParser,
+  limitsBeforeMiddlewares,
   Ok,
+  parsersHeldBy,
   Post,
   Req,
   ServerMiddleware,
@@ -54,6 +59,24 @@ interface IEcho {
 
 const echo = (res: { body: unknown }) => res.body as IEcho;
 
+/** A POST sent with Transfer-Encoding: chunked, so no Content-Length tells the size up front. */
+function chunked(path: string, type: string, body: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const request = http.request(
+      { host: 'localhost', port: appPort(), path, method: 'POST', headers: { 'Content-Type': type, 'Transfer-Encoding': 'chunked', Accept: 'application/json' } },
+      (response) => {
+        response.resume();
+        response.on('end', () => resolve(response.statusCode ?? 0));
+      },
+    );
+    request.on('error', reject);
+    request.write(body.slice(0, 10));
+    request.end(body.slice(10));
+  });
+}
+
+const BIG_JSON = JSON.stringify({ pad: 'x'.repeat(2048) });
+
 class CookieProbe extends ServerMiddleware {
   public Order = 0.75;
 
@@ -78,6 +101,16 @@ class BodyProbeAfter extends ServerMiddleware {
   }
 }
 
+/** Reads the body below BodyLimits (3.4) when asked to, as a misplaced app parser would. */
+class EarlyReader extends ServerMiddleware {
+  public Order = 3.1;
+
+  public handler(): express.RequestHandler {
+    const read = express.text({ type: '*/*' });
+    return (req, res, next) => (req.headers['x-read-early'] ? read(req, res, next) : next());
+  }
+}
+
 /** Entered before the parsers: its onFinish sees every reply, the parser failures included. */
 class FinishCounter extends ServerMiddleware {
   public Order = 2.5;
@@ -93,6 +126,11 @@ class ParsersController extends BaseController {
   public echo(@Req() request: Request) {
     const r = request as Request & { rawBody?: Buffer };
     return new Ok({ body: r.body ?? null, raw: r.rawBody?.length ?? null, cookies: r.cookies ?? null, signed: r.signedCookies ?? null });
+  }
+
+  @Post('echo/roomy')
+  public roomy(@Req() request: Request) {
+    return this.echo(request);
   }
 
   @Post()
@@ -138,10 +176,21 @@ describe('Body and cookie parsers as server middlewares', function () {
       {
         middlewares: defaultMiddlewares(),
         cors: { origins: [PARTNER] },
-        bodyLimits: [{ path: '/parsers/limited', limit: '8b' }],
-        bodyParsers: { json: { limit: '1kb' } },
+        bodyLimits: [
+          { path: '/parsers/limited', limit: '8b' },
+          { path: '/parsers/echo/roomy', limit: '512b' },
+        ],
+        bodyParsers: {
+          json: {
+            limit: '1kb',
+            verify: (request: Request) => {
+              if (request.headers['x-forbid-body']) throw new Forbidden('webhook signature mismatch');
+            },
+          },
+          text: { type: ['application/xml', 'text/plain'] },
+        },
       },
-      [CookieProbe, BodyProbeBefore, BodyProbeAfter, FinishCounter],
+      [CookieProbe, BodyProbeBefore, BodyProbeAfter, FinishCounter, EarlyReader],
     );
   });
 
@@ -236,6 +285,41 @@ describe('Body and cookie parsers as server middlewares', function () {
     expect(finished).to.deep.eq([{ path: '/parsers/limited', status: 413 }]);
   });
 
+  it('answers a chunked body over its http.bodyLimits limit 413', async () => {
+    expect(await chunked('/parsers/limited', 'application/json', BIG_JSON)).to.eq(413);
+  });
+
+  it('limits every type http.bodyParsers parses, a wider text type included', async () => {
+    expect(await chunked('/parsers/echo/roomy', 'text/plain', 'y'.repeat(4096))).to.eq(413);
+
+    const small = await req().post('parsers/echo/roomy').set('Accept', 'application/json').set('Content-Type', 'text/plain').send('hello');
+    expect(small.status).to.eq(200);
+    expect(echo(small).body).to.eq('hello');
+  });
+
+  it('runs the http.bodyParsers.json verify under a limited path, and keeps the raw bytes', async () => {
+    const refused = await req().post('parsers/echo/roomy').set('Accept', 'application/json').set('x-forbid-body', '1').send({ a: 1 });
+    expect(refused.status).to.eq(403);
+
+    const ok = await req().post('parsers/echo/roomy').set('Accept', 'application/json').send({ a: 1 });
+    expect(echo(ok).body).to.deep.eq({ a: 1 });
+    expect(echo(ok).raw).to.eq(JSON.stringify({ a: 1 }).length);
+  });
+
+  it('refuses 413 a body under a limited path that a server middleware read before the limit, warning once', async () => {
+    const warn = sinon.spy(FrameworkLogger.prototype, 'warn');
+    try {
+      const first = await req().post('parsers/limited').set('x-read-early', '1').set('Content-Type', 'text/plain').send('abc');
+      const second = await req().post('parsers/limited').set('x-read-early', '1').set('Content-Type', 'text/plain').send('abc');
+
+      expect(first.status).to.eq(413);
+      expect(second.status).to.eq(413);
+      expect(warn.getCalls().filter((c) => /before http\.bodyLimits/.test(JSON.stringify(c.args)))).to.have.length(1);
+    } finally {
+      warn.restore();
+    }
+  });
+
   it('answers a JSON body over http.bodyParsers.json.limit 413', async () => {
     const res = await req().post('parsers/echo').set('Origin', PARTNER).set('Accept', 'application/json').send({ pad: 'x'.repeat(2048) });
 
@@ -327,5 +411,69 @@ describe('Body and cookie parsers: a 3.x http.middlewares list that still holds 
 
     const big = await req().post('parsers/limited').set('Accept', 'application/json').send({ pad: 'x'.repeat(2048) });
     expect(big.status).to.eq(413);
+  });
+});
+
+describe('Body and cookie parsers: http.middlewares handlers the name check cannot see', function () {
+  this.timeout(15000);
+
+  let app: TestApp;
+  let warn: sinon.SinonSpy;
+
+  before(async () => {
+    warn = sinon.spy(FrameworkLogger.prototype, 'warn');
+    const json = express.json();
+    const wrapped: express.RequestHandler = (request, res, next) => json(request, res, next);
+    app = await boot({
+      middlewares: [...defaultMiddlewares(), wrapped, [express.urlencoded({ extended: true })]],
+      bodyLimits: [{ path: '/parsers/limited', limit: '64b' }],
+    });
+  });
+
+  after(async () => {
+    sinon.restore();
+    await app.dispose();
+  });
+
+  it('mounts http.bodyLimits before a list holding a handler it did not ship: a chunked body over a rule answers 413', async () => {
+    expect(await chunked('/parsers/limited', 'application/json', BIG_JSON)).to.eq(413);
+  });
+
+  it('recognises a parser inside a nested array, not a wrapped one', async () => {
+    const all = await mounted(app);
+    const enabled = (type: new () => ServerMiddleware) => all.find((m) => m instanceof type)!.isEnabled();
+
+    expect(enabled(UrlencodedBodyParser)).to.eq(false);
+    expect(enabled(JsonBodyParser)).to.eq(true);
+    expect(enabled(BodyLimits)).to.eq(false);
+  });
+
+  it('warns once per built-in that steps aside, however often isEnabled() is asked', async () => {
+    const all = await mounted(app);
+    all.forEach((m) => m.isEnabled());
+
+    expect(warn.getCalls().filter((c) => /http\.bodyParsers/.test(JSON.stringify(c.args)))).to.have.length(1);
+  });
+});
+
+describe('Body and cookie parsers: http.middlewares detection', () => {
+  const mine: express.RequestHandler = (_req, _res, next) => next();
+
+  it('does not take an app function named cookieParser for the cookie parser', () => {
+    function cookieParser(_req: unknown, _res: unknown, next: () => void) {
+      next();
+    }
+    expect([...parsersHeldBy([cookieParser]).keys()]).to.deep.eq([]);
+  });
+
+  it('recognises express, cookie-parser and the 3.x configuredCookieParser handlers', () => {
+    expect([...parsersHeldBy([express.json(), express.urlencoded(), express.text(), configuredCookieParser]).keys()]).to.deep.eq(['json', 'urlencoded', 'text', 'cookies']);
+  });
+
+  it('puts the limits before http.middlewares only for a handler the package did not ship', () => {
+    expect(limitsBeforeMiddlewares(defaultMiddlewares())).to.eq(false);
+    expect(limitsBeforeMiddlewares([...defaultMiddlewares(), configuredCookieParser])).to.eq(false);
+    expect(limitsBeforeMiddlewares([...defaultMiddlewares(), mine])).to.eq(true);
+    expect(limitsBeforeMiddlewares([[mine]])).to.eq(true);
   });
 });
