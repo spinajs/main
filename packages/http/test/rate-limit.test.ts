@@ -9,8 +9,8 @@ import type { TestApp } from '@spinajs/testing';
 import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 import { httpApp, req, TestConfiguration } from './common.js';
-import { BaseController, BasePath, Controllers, Get, HttpServer, MemoryThrottleStore, Ok, Post, RateLimit, RateLimitMiddleware, RawJsonResponse, ThrottleMiddleware, ThrottleStore } from '../src/index.js';
-import type { IController, IRateLimitOptions, IRoute, IThrottleRule } from '../src/index.js';
+import { BaseController, BasePath, CONTROLLED_DESCRIPTOR_SYMBOL, Controllers, Get, HttpServer, MemoryThrottleStore, Ok, Post, RateLimit, RateLimitMiddleware, RawJsonResponse, ThrottleMiddleware, ThrottleStore, rateLimitSchema, resolveRouteMiddlewares } from '../src/index.js';
+import type { IController, IControllerDescriptor, IRateLimitOptions, IRoute, IThrottleRule } from '../src/index.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import { globalRouteMiddlewareDescriptors } from '../src/global-route-middlewares.js';
 
@@ -123,6 +123,49 @@ class RateLimitConfiguration extends TestConfiguration {
   }
 }
 
+@BasePath('rate-limited-off')
+@RateLimit(1, 60)
+class RateLimitOffController extends BaseController {
+  @Post()
+  @RateLimit({ config: false })
+  public callback() {
+    return new Ok({ ok: true });
+  }
+
+  @Post()
+  public login() {
+    return new Ok({ ok: true });
+  }
+
+  @Post()
+  @RateLimit({ config: false })
+  public free() {
+    return new Ok({ ok: true });
+  }
+}
+
+@BasePath('rate-limited-floor')
+class RateLimitFloorController extends BaseController {
+  @Post()
+  @RateLimit({ config: false })
+  public callback() {
+    return new Ok({ ok: true });
+  }
+
+  @Post()
+  public other() {
+    return new Ok({ ok: true });
+  }
+}
+
+class RateLimitFloorConfiguration extends TestConfiguration {
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    const http = (this.Config as Record<string, Record<string, unknown>>).http;
+    http.routes = { ...(http.routes as object), middlewares: [{ service: 'RateLimitMiddleware', options: [1, 60] }] };
+  }
+}
+
 class BrokenStore extends ThrottleStore {
   public increment(): Promise<never> {
     return Promise.reject(new Error('store down'));
@@ -189,6 +232,43 @@ describe('RateLimitMiddleware', () => {
 
     it('keys ip by default', async () => {
       expect(new RateLimitMiddleware(1, 60).by).to.eq('ip');
+    });
+  });
+
+  describe('declared unlimited: { config: false }', () => {
+    const descriptorOf = (type: object) => Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, (type as { prototype: object }).prototype) as IControllerDescriptor;
+    const enabledLimits = async (type: object, method: string, globals: { Type: typeof RateLimitMiddleware; Options: unknown[] }[]) => {
+      const descriptor = descriptorOf(type);
+      const route = descriptor.Routes.get(method)!;
+      const { container } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: {} });
+      const resolved = await resolveRouteMiddlewares(descriptor, route, container, globals);
+      return resolved.filter((m) => m instanceof RateLimitMiddleware && m.isEnabled(route, CONTROLLER)).map((m) => (m as RateLimitMiddleware).limit);
+    };
+    const FLOOR = [{ Type: RateLimitMiddleware, Options: [1, 60] }];
+
+    it('is not mounted and drops the global floor and the controller limit on its route only', async () => {
+      expect(await enabledLimits(RateLimitOffController, 'callback', FLOOR)).to.deep.eq([]);
+      expect(await enabledLimits(RateLimitOffController, 'login', FLOOR), 'the controller limit replaces the floor').to.deep.eq([1]);
+      expect(await enabledLimits(RateLimitFloorController, 'callback', FLOOR)).to.deep.eq([]);
+      expect(await enabledLimits(RateLimitFloorController, 'other', FLOOR), 'the floor').to.deep.eq([1]);
+    });
+
+    it('takes no other option, and config must be a string or false', async () => {
+      expect((await makeObjectMiddleware({ config: false })).isEnabled(ROUTE, CONTROLLER)).to.eq(false);
+      for (const options of [{ config: false, limit: 5 }, { config: false, default: { limit: 1, windowSeconds: 1 } }, { config: false, headers: false }, { config: true }] as unknown as IRateLimitOptions[]) {
+        const error = await registrationError(await makeObjectMiddleware(options));
+        expect(error, JSON.stringify(options)).to.be.instanceOf(InvalidArgument);
+      }
+    });
+  });
+
+  describe('rateLimitSchema', () => {
+    it('describes false or settings over the default, refusing unknown and out-of-range settings', () => {
+      const schema = rateLimitSchema({ limit: 30, windowSeconds: 60, by: 'ip' }, 'POST /x') as { default: unknown; anyOf: { enum?: unknown[]; propertyNames?: unknown; properties?: Record<string, unknown> }[] };
+      expect(schema.default).to.deep.eq({ limit: 30, windowSeconds: 60, by: 'ip' });
+      expect(schema.anyOf[0]).to.deep.eq({ enum: [false] });
+      expect(schema.anyOf[1].propertyNames).to.deep.eq({ enum: ['limit', 'windowSeconds', 'by'] });
+      expect(schema.anyOf[1].properties).to.deep.eq({ limit: { type: 'integer', minimum: 0 }, windowSeconds: { type: 'number', exclusiveMinimum: 0 }, by: { enum: ['ip', 'principal'] } });
     });
   });
 
@@ -535,6 +615,41 @@ describe('RateLimitMiddleware', () => {
         const res = await req().post('rate-limited-options/unlimited');
         expect(res.status).to.eq(200);
         expect(res.header['x-ratelimit-limit']).to.eq(undefined);
+      }
+    });
+  });
+
+  describe('declared unlimited on a route, under a global floor and a controller limit', function () {
+    this.timeout(15000);
+    let app: TestApp;
+
+    before(async () => {
+      app = await httpApp({
+        configuration: RateLimitFloorConfiguration,
+        register: (c) => {
+          c.register(RateLimitOffController).as(BaseController);
+          c.register(RateLimitFloorController).as(BaseController);
+        },
+        resolve: [Intl, Controllers],
+      });
+      await (await app.resolve(HttpServer)).start();
+    });
+
+    after(async () => {
+      await app.dispose();
+    });
+
+    it('a route with { config: false } is never limited; its neighbours keep the floor or the controller limit', async () => {
+      for (const path of ['rate-limited-off/callback', 'rate-limited-off/free', 'rate-limited-floor/callback']) {
+        for (let i = 0; i < 3; i++) {
+          const res = await req().post(path);
+          expect(res.status, `${path} ${i + 1}`).to.eq(200);
+          expect(res.header['x-ratelimit-limit']).to.eq(undefined);
+        }
+      }
+      for (const path of ['rate-limited-off/login', 'rate-limited-floor/other']) {
+        expect((await req().post(path)).status, path).to.eq(200);
+        expect((await req().post(path)).status, path).to.eq(429);
       }
     });
   });
