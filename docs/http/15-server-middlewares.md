@@ -43,8 +43,6 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`: its `onBefore
 | Class | `Order` | Exported | Hooks | Configuration | Effect |
 | --- | --- | --- | --- | --- | --- |
 | `CorsMiddleware` | -1 | yes | onBefore | `http.cors` | CORS headers; answers an allowed preflight 204. See [CORS](16-cors.md). |
-| `MaintenanceMode` | -0.5 | yes | onBefore | `http.maintenance.*` | 503 during maintenance (but allowed paths) and, with `Connection: close`, while the server is closing; see [Maintenance mode](27-maintenance-mode.md). Always mounted. |
-| `ConcurrencyLimit` | -0.4 | yes | onBefore, onFinish | `http.concurrency.*` | Load shedding: 503 with `Retry-After` over `max` requests in flight; see [Concurrency limit](28-concurrency-limit.md). |
 | `RequestDeadline` | -0.3 | yes | onBefore, onFinish | `http.deadline.*` | `req.storage.signal` and `deadline`; 504 when nothing was sent by the deadline; see [Request deadlines](29-request-deadlines.md). |
 | `Compression` | 0 | yes | handler | `http.compression.*` | gzip/brotli via `compression`. |
 | `RequestId` | 1 | as `RequestIdMiddleware` | onBefore | | `req.storage.requestId`, `x-request-id` and `traceparent` headers. |
@@ -54,6 +52,8 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`: its `onBefore
 | `ServerTiming` | 2 | yes | onBefore, onAfter | `http.serverTiming.enabled` | `Server-Timing` header. |
 | `SlowRequestWarning` | 2 | yes | onBefore, onFinish | `http.slowRequest.*` | Warns about slow requests; ignores aborted ones. |
 | `PerfRollup` | 2 | yes | onBefore, onFinish | `http.perf.enabled` | Per-request perf rollup. |
+| `MaintenanceMode` | 2.5 | yes | onBefore | `http.maintenance.*` | 503 during maintenance (but allowed paths) and, with `Connection: close`, while the server is closing; see [Maintenance mode](27-maintenance-mode.md). Always mounted. |
+| `ConcurrencyLimit` | 2.6 | yes | onBefore, onFinish | `http.concurrency.*` | Load shedding: 503 with `Retry-After` over `max` requests in flight; see [Concurrency limit](28-concurrency-limit.md). |
 | `ThrottleMiddleware` | 3 | yes | onBefore | `http.throttle.*` | Rate limits; see [Throttling](18-throttling.md). |
 | `CsrfGuard` | 4 | yes | onBefore | `http.csrf.*` | Refuses cross-origin unsafe browser requests; see [CSRF guard](23-csrf-guard.md). Off when a subclass such as `CsrfOriginGuard` is registered. |
 | `RequestStorage` | -2 | yes | | | Deprecated and not registered: `HttpServer` creates `req.storage` itself. Removed in the next major. |
@@ -104,7 +104,7 @@ Choose `Order` by what you need: above 1 for `req.storage.requestId` and `realIp
 
 ### `ServerMiddleware`: custom implementation
 
-Refuse writes during a database migration while reads go on. It needs nothing from `req.storage`, so it runs right after `MaintenanceMode` (Order -0.5) and before `ConcurrencyLimit` (-0.4), so a refused write takes no slot. Its 503 goes through the reply pipeline, so CORS headers and the `onAfter` of the middlewares entered before it still apply:
+Refuse writes during a database migration while reads go on. It runs right after `MaintenanceMode` (Order 2.5), with the request id and the access log in place, and before `ConcurrencyLimit` (2.6), so a refused write takes no slot. Its 503 goes through the reply pipeline, so CORS headers and the `onAfter` of the middlewares entered before it still apply:
 
 ```ts sample
 import { Injectable } from '@spinajs/di';
@@ -120,7 +120,7 @@ export class ReadOnlyMode extends ServerMiddleware {
 
   constructor() {
     super();
-    this.Order = -0.45;
+    this.Order = 2.55;
   }
 
   public isEnabled() {

@@ -31,14 +31,16 @@ interface ILifecycleSource {
 }
 
 /**
- * Answers 503 instead of the application, at Order -0.5 (after CORS, before everything else):
+ * Answers 503 instead of the application, at Order 2.5: after CORS, the request id and the access log, so the 503 is
+ * readable by browsers, correlated and logged; before throttling, CSRF, authentication and routing.
  *
  * - while `HttpServer` is closing, every request, with `Connection: close`, so a request arriving on a kept-alive
  *   connection during a graceful shutdown is refused and the client reconnects (to another instance);
  * - during maintenance (`http.maintenance.enabled`, or `enable()` at runtime), every request but the `allow`ed path
  *   prefixes, with `Retry-After`.
  *
- * Always mounted, so `isEnabled()` is `true` whatever the configuration says.
+ * Always mounted, so `isEnabled()` is `true` whatever the configuration says. `http.maintenance` is read once, at the
+ * first request; switch maintenance at runtime with `enable()` and `disable()`.
  *
  * Config:
  *   http.maintenance.enabled     (default false)
@@ -55,6 +57,7 @@ export class MaintenanceMode extends ServerMiddleware {
   protected Container!: IContainer;
 
   private override?: boolean;
+  private settings?: IMaintenanceConfiguration;
   private server?: ILifecycleSource;
 
   // the server is not injected: this middleware is resolved while HttpServer resolves
@@ -64,12 +67,12 @@ export class MaintenanceMode extends ServerMiddleware {
 
   constructor() {
     super();
-    this.Order = -0.5;
+    this.Order = 2.5;
   }
 
   /** Whether requests are answered with the maintenance 503: `enable()`/`disable()`, else `http.maintenance.enabled`. */
   public get Active(): boolean {
-    return this.override ?? this.Maintenance?.enabled === true;
+    return this.override ?? this.config().enabled === true;
   }
 
   public enable(): void {
@@ -106,15 +109,20 @@ export class MaintenanceMode extends ServerMiddleware {
       return undefined;
     }
 
-    const cfg = this.Maintenance;
-    if (cfg?.allow?.some((prefix) => underPath(req.path, prefix))) {
+    const cfg = this.config();
+    if (cfg.allow?.some((prefix) => underPath(req.path, prefix))) {
       return undefined;
     }
 
     return new RawJsonResponse(
       HTTP_STATUS_CODE.SERVICE_UNAVAILABLE,
-      { error: { code: 'maintenance', message: cfg?.message ?? MAINTENANCE_MESSAGE } },
-      { Headers: [{ Name: 'Retry-After', Value: String(cfg?.retryAfter ?? 60) }] },
+      { error: { code: 'maintenance', message: cfg.message ?? MAINTENANCE_MESSAGE } },
+      { Headers: [{ Name: 'Retry-After', Value: String(cfg.retryAfter ?? 60) }] },
     );
+  }
+
+  // always mounted: the @Config getter would resolve the section on every request of every app
+  private config(): IMaintenanceConfiguration {
+    return (this.settings ??= this.Maintenance ?? {});
   }
 }

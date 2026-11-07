@@ -5,7 +5,7 @@
 - **Maintenance.** While `http.maintenance.enabled` is set, or after `enable()` at runtime, every request gets a 503 with `Retry-After`, except the path prefixes you allow (health checks, an admin API).
 - **Graceful shutdown.** While `HttpServer` is closing, every request gets a 503 with `Connection: close`. `stop()` stops accepting connections, but a client on a kept-alive connection can still send a request while the in-flight ones finish; it gets this answer, and its connection is closed, so it reconnects to another instance.
 
-It is always mounted, at Order -0.5: after CORS (-1), so browsers can read the 503, and before everything else.
+It is always mounted, at Order 2.5: after CORS (-1), so browsers can read the 503, and after `RequestId`, `RealIp` (1) and `AccessLog` (2), so the 503 carries `x-request-id` and is logged; before throttling (3), CSRF (4), authentication (5) and routing.
 
 ## How it works
 
@@ -16,7 +16,7 @@ Per request (`onBefore`, synchronous):
 3. `req.path` under one of `http.maintenance.allow` (a prefix on a segment boundary, case-insensitive: `/health` covers `/health/live`, not `/healthy`): the request goes on.
 4. Else: returns a 503 with `Retry-After: <http.maintenance.retryAfter>` and `{ error: { code: 'maintenance', message } }`.
 
-The 503 goes through the reply pipeline like every early answer: the `onAfter` of the server middlewares entered before it (CORS headers are set in `onBefore`, so they are there) see it.
+The 503 goes through the reply pipeline like every early answer: the `onAfter` of the server middlewares entered before it (CORS, `ResponseTime`, `ServerTiming`) see it, and the entered ones get `onFinish` (`AccessLog`, metrics).
 
 The middleware learns the server's state from the `http.server.listening` and `http.server.closing` events `HttpServer` emits on the DI container; it does not inject `HttpServer`, which resolves it.
 
@@ -60,7 +60,9 @@ Members:
 - The runtime switch lives in this process. Behind a load balancer, switch every instance, or use the configuration.
 - The shutdown answer does not depend on `http.maintenance`: it is sent while `HttpServer.State` is `Closing`, from `stop()` until the last connection closed.
 - Static files are served after the server middlewares, so they get the 503 too unless their route is allowed.
-- `RequestId` (Order 1) has not run yet: the 503 has no `x-request-id`, and `AccessLog` (Order 2) does not log it.
+- `http.maintenance` is read once, at the first request; a configuration changed later does not switch maintenance. Use `enable()` and `disable()`.
+- It follows the server that last emitted `http.server.listening` or `http.server.closing` on its container: run one `HttpServer` per container.
+- Raw `http.middlewares` handlers (the body and cookie parsers, unless your version mounts them as server middlewares) run before every server middleware, so a request body is read before the 503.
 
 ## Examples
 
