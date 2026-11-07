@@ -2,7 +2,7 @@ import type express from 'express';
 
 export interface CapturedJsonReply {
   status: number;
-  /** Lower-case names; only those a replay restores. */
+  /** Lower-case names; only those a replay restores: REPLAYED_HEADERS and the route's own IResponseOptions.Headers. */
   headers: Record<string, string>;
   /** The JSON text sent, or null for an empty body. */
   body: string | null;
@@ -35,13 +35,20 @@ function jsonText(res: express.Response, model: unknown): string | null {
   return app?.get('json escape') ? text.replace(/[<>&]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`) : text;
 }
 
-/** Read after res.json(), when the status and headers are final. */
-export function capturedJsonReply(res: express.Response, model: unknown): CapturedJsonReply {
+// A replay must not hand out the first answer's cookies; the rest describe the connection or the bytes of one
+// sending, which the replay's own send sets again.
+const NEVER_CAPTURED = new Set(['set-cookie', 'connection', 'keep-alive', 'transfer-encoding', 'trailer', 'upgrade', 'content-length', 'date']);
+
+/**
+ * Read after res.json(), when the status and headers are final. `routeHeaders` are the names the route set through
+ * IResponseOptions.Headers.
+ */
+export function capturedJsonReply(res: express.Response, model: unknown, routeHeaders: readonly string[] = []): CapturedJsonReply {
   const headers: Record<string, string> = {};
-  for (const name of REPLAYED_HEADERS) {
+  for (const name of new Set([...REPLAYED_HEADERS, ...routeHeaders.map((n) => n.toLowerCase())])) {
     const value = res.getHeader(name);
-    if (value !== undefined) {
-      headers[name] = String(value);
+    if (value !== undefined && !NEVER_CAPTURED.has(name)) {
+      headers[name] = Array.isArray(value) ? value.join(', ') : String(value);
     }
   }
   return { status: res.statusCode, headers, body: model === undefined || model === null ? null : jsonText(res, model) };

@@ -8,6 +8,6 @@ describe('the @spinajs/http root', () => {
   });
 
   it('exports the around middleware API', () => {
-    for (const name of ['AroundMiddleware', 'RouteClientGone', 'buildRouteHandlers']) expect(http, name).to.have.property(name);
+    for (const name of ['AroundMiddleware', 'RouteClientGone', 'buildRouteHandlers', 'IdempotencyMiddleware']) expect(http, name).to.have.property(name);
   });
 });
