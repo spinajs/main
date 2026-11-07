@@ -284,7 +284,8 @@ updateModelDescriptor(Invoice, (d) => {
   nothing.
 - `@Ignore()` stops writes, not reads: a query that returns a column with the property's name
   (`select *` on a table that has one) still hydrates it. Changing an `@Ignore()` property does not
-  make the model dirty, so `update()` and `save()` write nothing for it alone.
+  make the model dirty, so `update()` and `save()` write nothing for it alone. A new instance gets no
+  table default for it, and `refresh()` keeps its value when the row has no such column.
 - `model.archive()` does not check that `@Archived()` was declared. Call it only on models that
   declare it.
 - A model that never got `@Model()` is not in `Orm.Models`. Its static methods (`get`, `where`,

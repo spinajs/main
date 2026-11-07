@@ -141,6 +141,18 @@ describe('sqlite @Ignore() property', function () {
     expect(raw).to.deep.equal({ Name: 'b', Scratch: 'stored' });
   });
 
+  it('keeps an ignored property with no column across refresh(), and reloads one the table has', async () => {
+    const row = await IgnoreRow.create({ Name: 'a', Scratch: 'temp' });
+    await row.refresh();
+    expect(row.Scratch).to.equal('temp');
+
+    await run("INSERT INTO ignore_present (Id, Name, Scratch) VALUES (1, 'a', 'stored')");
+    const present = await IgnorePresent.get(1);
+    present.Scratch = 'changed';
+    await present.refresh();
+    expect(present.Scratch).to.equal('stored');
+  });
+
   it('populates a relation to the model without selecting the property', async () => {
     const row = await IgnoreRow.create({ Name: 'a' });
     await IgnoreOwner.insert({ row_id: row.Id });

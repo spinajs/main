@@ -999,7 +999,14 @@ export class ModelBase<M = unknown> implements IModelBase {
 
     model = await this.fresh();
 
+    const returned = model as unknown as Record<string, unknown>;
     for (const c of this.ModelDescriptor!.Columns) {
+      // An ignored property the row did not return is in-memory state only; setDefaults() leaves
+      // it unset, so undefined means "not returned".
+      if (c.Ignore && returned[c.Name] === undefined) {
+        continue;
+      }
+
       (this as any)[c.Name] = (model as any)[c.Name];
     }
 
@@ -1017,6 +1024,10 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   protected setDefaults() {
     this.ModelDescriptor!.Columns?.forEach((c) => {
+      if (c.Ignore) {
+        return;
+      }
+
       if (c.Uuid) {
         (this as any)[c.Name] = uuidv4();
       } else if (c.DefaultValue instanceof RawQuery) {

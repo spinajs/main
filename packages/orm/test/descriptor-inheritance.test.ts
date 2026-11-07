@@ -5,6 +5,7 @@ import { Ignore, Uuid, DiscriminationMap, BelongsTo, Recursive, Primary } from '
 import { extractModelDescriptor } from '../src/descriptor.js';
 import { ModelBase } from '../src/model.js';
 import { IColumnDescriptor } from '../src/interfaces.js';
+import { InvalidArgument } from '@spinajs/exceptions';
 
 const expect = chai.expect;
 
@@ -109,6 +110,21 @@ describe('@Ignore() on a primary key', () => {
       }
       return IgnoredAbove;
     }).to.throw(message);
+  });
+
+  it('throws on a child @Primary() over a property the parent ignores', () => {
+    class IgnoringParent extends ModelBase {
+      @Ignore()
+      public Id: number;
+    }
+
+    expect(() => {
+      class KeyingChild extends IgnoringParent {
+        @Primary()
+        public Id: number;
+      }
+      return KeyingChild;
+    }).to.throw(InvalidArgument, message);
   });
 
   it('throws on a primary key inherited from the parent model', () => {
