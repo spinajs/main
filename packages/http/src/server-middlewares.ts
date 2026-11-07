@@ -1,14 +1,12 @@
 import type express from 'express';
-import { DI } from '@spinajs/di';
-import { Log } from '@spinajs/log';
-import { UnexpectedServerError } from '@spinajs/exceptions';
+import type { Log } from '@spinajs/log';
+import { InvalidOperation, UnexpectedServerError } from '@spinajs/exceptions';
 
-import { ServerMiddleware } from './interfaces.js';
-import type { HttpMiddleware, IMiddlewareContext, LegacyServerHandler, Request, Response } from './interfaces.js';
+import type { HttpMiddleware, IMiddlewareContext, Request, Response, ServerMiddleware } from './interfaces.js';
 import { createServerAroundHandler } from './around.js';
 import { enterMiddleware, sendReply } from './reply-pipeline.js';
 import type { ErrorReplier } from './reply-pipeline.js';
-import { ErrorHandlerMiddleware } from './middlewares/ErrorHandler.js';
+import type { ErrorHandlerMiddleware } from './middlewares/ErrorHandler.js';
 
 export interface IServerMountOptions {
   readonly log: Log;
@@ -16,9 +14,16 @@ export interface IServerMountOptions {
   readonly errorReply: (req: express.Request) => ErrorReplier;
 }
 
-/** Whether the middleware still uses the deprecated `before()`/`after()`: it is then mounted through them only. */
-export function isLegacyServerMiddleware(m: ServerMiddleware): boolean {
-  return m.before !== ServerMiddleware.prototype.before || m.after !== ServerMiddleware.prototype.after;
+/**
+ * A 3.x `before()` or `after()` left on a server middleware, or on a NotFoundMiddleware or ErrorHandlerMiddleware
+ * replacement, would be silently ignored; for an authentication middleware that means requests served unauthenticated.
+ */
+export function refuseRemovedHooks(m: object): void {
+  const removed = ['before', 'after'].filter((name) => typeof (m as Record<string, unknown>)[name] === 'function');
+  if (removed.length === 0) return;
+  throw new InvalidOperation(
+    `${m.constructor.name} defines ${removed.map((name) => `${name}()`).join(' and ')}, removed in @spinajs/http 4.0: implement onBefore, onAfter, onFinish, onAround or handler() (a NotFoundMiddleware or ErrorHandlerMiddleware replacement: reply())`,
+  );
 }
 
 /** The reply a request no route answered gets for `error`, made by the (replaceable) `ErrorHandlerMiddleware`. */
@@ -103,30 +108,3 @@ export function serverMiddlewareHandlers(m: ServerMiddleware, options: IServerMo
     ...(!around && typeof m.onBefore !== 'function' && entersOnReach(m) ? [createServerEntryHandler(m)] : []),
   ];
 }
-
-function inSequence(handlers: express.RequestHandler[], name: string): LegacyServerHandler {
-  return named((req: express.Request, res: express.Response, next: express.NextFunction) => {
-    let i = 0;
-    const step = (err?: unknown) => {
-      const handler = handlers[i++];
-      if (err !== undefined || !handler) {
-        next(err);
-        return;
-      }
-      void handler(req, res, step);
-    };
-    step();
-  }, name) as LegacyServerHandler;
-}
-
-// The deprecated base before(): a subclass still mounted through before() keeps getting its hooks from super.before().
-(ServerMiddleware as unknown as Record<symbol, (m: ServerMiddleware) => LegacyServerHandler>)[Symbol.for('@spinajs/http.serverHooksHandler')] = (m) =>
-  inSequence(
-    serverMiddlewareHandlers(m, {
-      get log() {
-        return DI.resolve(Log, ['http']);
-      },
-      errorReply: (req) => (error) => globalErrorReplier(DI.resolve(ErrorHandlerMiddleware), req)(error),
-    }),
-    m.constructor.name,
-  );

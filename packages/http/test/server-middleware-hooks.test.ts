@@ -1,11 +1,9 @@
 import 'mocha';
 import { expect } from 'chai';
 import http from 'node:http';
-import sinon from 'sinon';
-import { Forbidden } from '@spinajs/exceptions';
+import { Forbidden, InvalidOperation } from '@spinajs/exceptions';
 import { Intl } from '@spinajs/intl';
-import { FrameworkLogger } from '@spinajs/log';
-import type { TestApp } from '@spinajs/testing';
+import type { TestApp, TestAppOptions } from '@spinajs/testing';
 import type express from 'express';
 
 import { appPort, httpApp, req, TestConfiguration } from './common.js';
@@ -123,24 +121,6 @@ class SrvDisabled extends ServerMiddleware {
 
   public onFinish(): void {
     calls.push('disabled:finish');
-  }
-}
-
-class LegacyServer extends ServerMiddleware {
-  public Order = 27;
-
-  public before() {
-    return (_req: Request, _res: express.Response, next: express.NextFunction) => {
-      calls.push('legacy:before');
-      next();
-    };
-  }
-
-  public after() {
-    return (_req: Request, _res: express.Response, next: express.NextFunction) => {
-      calls.push('legacy:after');
-      next();
-    };
   }
 }
 
@@ -276,7 +256,7 @@ function rawGet(path: string, headers: Record<string, string>): Promise<{ status
 
 const header = (res: { header: unknown }, name: string) => (res.header as Record<string, string | undefined>)[name];
 
-const BEFORE_ALL = ['early:before', 'a:before', 'tie1:before', 'tie2:before', 'b:before', 'handler', 'legacy:before', 'answer:before'];
+const BEFORE_ALL = ['early:before', 'a:before', 'tie1:before', 'tie2:before', 'b:before', 'handler', 'answer:before'];
 const afterAll = (status: number, error: string) => [`answer:after:${status}:${error}`, `b:after:${status}:${error}`, `tie2:after:${status}:${error}`, `tie1:after:${status}:${error}`, `a:after:${status}:${error}`, `early:after:${status}:${error}`];
 const FINISH_ALL = ['answer:finish:false', 'b:finish:false', 'tie2:finish:false', 'tie1:finish:false', 'a:finish:false', 'early:finish:false'];
 
@@ -284,16 +264,13 @@ describe('Server middleware hooks', function () {
   this.timeout(15000);
 
   let app: TestApp;
-  let warn: sinon.SinonSpy;
 
   before(async () => {
-    // Controllers resolves HttpServer, which mounts the server middlewares, while the app is created
-    warn = sinon.spy(FrameworkLogger.prototype, 'warn');
     app = await httpApp({
       configuration: ServerHooksConfiguration,
       register: (c) => {
         c.register(ServerHooksController).as(BaseController);
-        for (const type of [EarlyRec, SrvA, TieFirst, TieSecond, SrvB, SrvHandler, SrvDisabled, LegacyServer, SrvAnswer, SrvThrow, SrvAround]) {
+        for (const type of [EarlyRec, SrvA, TieFirst, TieSecond, SrvB, SrvHandler, SrvDisabled, SrvAnswer, SrvThrow, SrvAround]) {
           c.register(type).as(ServerMiddleware);
         }
         c.register(CustomNotFound).as(NotFoundMiddleware);
@@ -301,7 +278,6 @@ describe('Server middleware hooks', function () {
       },
       resolve: [Intl, Controllers],
     });
-    warn.restore();
     await (await app.resolve(HttpServer)).start();
   });
 
@@ -345,7 +321,7 @@ describe('Server middleware hooks', function () {
     await until(() => calls.includes('early:finish:false'));
 
     expect(res.status).to.eq(404);
-    expect(calls).to.deep.eq([...BEFORE_ALL, 'legacy:after', ...afterAll(404, 'ResourceNotFound'), ...FINISH_ALL]);
+    expect(calls).to.deep.eq([...BEFORE_ALL, ...afterAll(404, 'ResourceNotFound'), ...FINISH_ALL]);
     expect(header(res, 'x-server-after')).to.eq('answer, b, tie2, tie1, a, early');
     expect(header(res, 'x-error-handler')).to.eq('custom');
   });
@@ -415,15 +391,6 @@ describe('Server middleware hooks', function () {
 
     expect(calls).to.not.include('disabled');
     expect(calls).to.not.include('disabled:finish');
-  });
-
-  it('mounts a legacy before()/after() middleware and warns once that they are deprecated', () => {
-    const warnings = warn.getCalls().filter((c) => (c.args[0] as { middleware?: string } | undefined)?.middleware === 'LegacyServer');
-
-    expect(warnings).to.have.length(1);
-    const message = String(warnings[0].args[1]);
-    expect(message).to.contain('deprecated');
-    expect(message).to.contain('onBefore');
   });
 
   it('gives a body parser failure the request storage', async () => {
@@ -517,5 +484,59 @@ describe('Server middleware hooks: aborted requests', () => {
     mw.onFinish({ ...ctx, aborted: false });
 
     expect(lines).to.have.length(1);
+  });
+});
+
+describe('Server middleware hooks: the removed before()/after()', function () {
+  this.timeout(15000);
+
+  class StillBefore extends ServerMiddleware {
+    public Order = 1;
+
+    public before() {
+      return (_req: Request, _res: express.Response, next: express.NextFunction) => next();
+    }
+  }
+
+  class StillAfter extends ServerMiddleware {
+    public Order = 1;
+
+    public after() {
+      return null;
+    }
+  }
+
+  class StillAfterNotFound extends NotFoundMiddleware {
+    public after() {
+      return null;
+    }
+  }
+
+  async function bootError(register: NonNullable<TestAppOptions['register']>): Promise<unknown> {
+    const app = await httpApp({ register });
+    try {
+      return await app.resolve(HttpServer).then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+    } finally {
+      await app.dispose();
+    }
+  }
+
+  it('fails the boot for a server middleware that still defines before() or after(), naming it', async () => {
+    for (const type of [StillBefore, StillAfter]) {
+      const err = await bootError((c) => c.register(type).as(ServerMiddleware));
+      expect(err, type.name).to.be.instanceOf(InvalidOperation);
+      expect((err as Error).message).to.contain(type.name);
+      expect((err as Error).message).to.contain('onBefore');
+    }
+  });
+
+  it('fails the boot for a NotFoundMiddleware replacement that still defines after()', async () => {
+    const err = await bootError((c) => c.register(StillAfterNotFound).as(NotFoundMiddleware));
+    expect(err).to.be.instanceOf(InvalidOperation);
+    expect((err as Error).message).to.contain('StillAfterNotFound');
+    expect((err as Error).message).to.contain('reply()');
   });
 });
