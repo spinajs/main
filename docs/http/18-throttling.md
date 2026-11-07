@@ -86,7 +86,7 @@ The counters are per process unless you register a shared `ThrottleStore`. Behin
 
 ## Per-route limits: `@RateLimit`
 
-`@RateLimit(limit, windowSeconds, by = 'ip')` mounts `RateLimitMiddleware` on a route, or on every route of a controller. It counts requests in a fixed window in the registered `ThrottleStore`, sets the same `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset` headers as `ThrottleMiddleware`, and over the limit sets `Retry-After` and answers the same 429 body. No `http.throttle.enabled` is needed.
+`@RateLimit(limit, windowSeconds, by = 'ip')`, or `@RateLimit(options)` (see [the options form](#the-options-form-configured-limits-answer-headers-key)), mounts `RateLimitMiddleware` on a route, or on every route of a controller. It counts requests in a fixed window in the registered `ThrottleStore`, sets the same `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset` headers as `ThrottleMiddleware`, and over the limit sets `Retry-After` and answers the same 429 body. No `http.throttle.enabled` is needed.
 
 | Argument | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -118,10 +118,78 @@ export class ReportController extends BaseController {
 - Each route counts apart: the key is the route's method and mounted path, the limit, the window and the client (`ip:<address>` or `principal:<type>:<id>`). A `ThrottleMiddleware` rule covering the same path counts on its own key; a request then pays both.
 - It is an `'outer'` route middleware: it runs after the policy gate and before the route's other middlewares, the argument extraction and the action. A request a policy refuses is not counted.
 - Other `'outer'` middlewares, such as `@Idempotent()`, share its stage, and there the bottom decorator runs first. With `@Idempotent()` below `@RateLimit`, a retry the idempotency key answers (a 409 while the first request runs, a replayed reply) is answered before the limit counts it and carries no `X-RateLimit-*` headers. Put `@RateLimit` below `@Idempotent()` to count every attempt.
-- Wrong arguments (a non-integer or negative `limit`, a window that is not a positive number, an unknown `by`) or an `http.throttle.ipv6Prefix` outside 16..128 fail the route registration with `RouteRegistrationException`.
+- Wrong arguments (a non-integer or negative `limit`, a window that is not a positive number, an unknown `by`) or an `http.throttle.ipv6Prefix` outside 16..128 fail the route registration with `RouteRegistrationException`. With the options form, wrong options in code fail it with `InvalidArgument`, a wrong configured value with `InvalidOption` naming the key; both are wrapped in `RouteRegistrationException`.
 - A store that throws fails the request closed, as for `ThrottleMiddleware`.
 - With two limits on a route, the `X-RateLimit-*` headers are those of the top-most `@RateLimit`: decorators apply bottom-up, so the one nearest the method runs first and the top-most one last.
 - `RateLimitMiddleware` is registered as `RouteMiddleware`: `http.routes.middlewares: [{ service: 'RateLimitMiddleware', options: [600, 60] }]` gives every route its own counter of 600 requests a minute per address. A route that declares its own `@RateLimit` (on the route or its controller) drops this global entry: a middleware type is mounted once per route, and the route's declaration wins, so the floor and the route's limit do not stack. With `MemoryThrottleStore` a floor keeps one key per route and client network (swept every 10,000 increments); with a shared store it adds one store round trip to every route.
+
+### The options form: configured limits, `answer`, `headers`, `key`
+
+`@RateLimit(options)` takes an `IRateLimitOptions` object. A library route uses it to ship a limit the app can change or turn off, and to keep the throttled answer the route already documents.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `config` | `string` | none | Configuration key read once, when the route is mounted. Its value is `{ limit?, windowSeconds?, by? }`, merged over `default`, or `false`: the middleware is not mounted on the route at all. An unset key uses `default`. |
+| `default` | `IRateLimitSettings` | required with `config` | `{ limit, windowSeconds, by? }` used when the key is not set (or when there is no `config`). |
+| `limit`, `windowSeconds`, `by` | as in the positional form | | Inline settings, without `config`. Combined with `config` they are refused. |
+| `answer` | `(retryAfterSeconds: number) => Response` | the 429 above | The throttled answer. It sets its own headers, such as `Retry-After`. A closed route (`limit: 0`) passes `windowSeconds`. |
+| `headers` | `boolean` | `true` | `false`: no `X-RateLimit-*` headers on any response of the route, and no `Retry-After` set by the middleware; the answer decides. Without an `answer`, the 429 then carries `Retry-After` itself. |
+| `key` | `(ctx: IMiddlewareContext) => string \| undefined` | none | A counting key of its own per request, such as a session handle; `undefined` or `''` counts by `by`. It is stored as `key:<value>` under the route's key, so it never shares a counter with an address or a principal. Hash secrets: the value is written to the store in clear. |
+
+```ts sample
+import { createHash } from 'node:crypto';
+import { BaseController, BasePath, Ok, Post, RateLimit, RawJsonResponse } from '@spinajs/http';
+
+// The route's own throttled answer: the same 401 as any other failed sign-in.
+const throttledSignIn = (retryAfterSeconds: number) =>
+  new RawJsonResponse(401, { error: { code: 'E_SIGN_IN_FAILED' } }, { Headers: [{ Name: 'Retry-After', Value: String(retryAfterSeconds) }] });
+
+@BasePath('sign-in')
+export class SignInController extends BaseController {
+  @Post()
+  @RateLimit({
+    config: 'app.rateLimit.signIn',
+    default: { limit: 30, windowSeconds: 60 },
+    answer: throttledSignIn,
+    // X-RateLimit-* would tell a throttled client from a wrong password
+    headers: false,
+  })
+  public password() {
+    return new Ok();
+  }
+
+  @Post()
+  @RateLimit({
+    limit: 5,
+    windowSeconds: 300,
+    key: ({ req }) => {
+      const pending = req.get('x-pending-sign-in');
+      return pending ? createHash('sha256').update(pending).digest('hex') : undefined;
+    },
+  })
+  public code() {
+    return new Ok();
+  }
+}
+```
+
+The app then overrides the shipped numbers, or turns the limit off:
+
+```ts
+export default {
+  app: {
+    rateLimit: {
+      signIn: { limit: 10 }, // windowSeconds and by from the default
+      // signIn: false,      // no limit on the route
+    },
+  },
+};
+```
+
+- The numbers are read once, when the route is mounted; a change needs a restart.
+- The store key is the same as in the positional form, `rate:<METHOD> <path>:<limit>/<window>:<subject>`: changed numbers start fresh windows.
+- `RateLimitMiddleware`'s `limit`, `windowSeconds` and `by` hold the effective settings once the route is mounted.
+- In `http.routes.middlewares` the options form is `options: [{ limit: 600, windowSeconds: 60 }]`; `answer` and `key` need code, so they only come from a decorator or a subclass.
 
 ## Services and extension points
 
@@ -129,7 +197,7 @@ export class ReportController extends BaseController {
 | --- | --- | --- | --- | --- |
 | `ThrottleStore` (abstract) | Class `ThrottleStore`, autoinjected into `ThrottleMiddleware` and `RateLimitMiddleware`; singleton | `MemoryThrottleStore` (`@Injectable(ThrottleStore)`) | none shipped | Register your store with `@Injectable(ThrottleStore)` (or `DI.register(Mine).as(ThrottleStore)`) before `HttpServer` resolves; the last registration wins. |
 | `ThrottleMiddleware` | `ServerMiddleware` list, Order 3 | `ThrottleMiddleware` | | Subclass and `DI.register(Mine).as(ThrottleMiddleware)` before `HttpServer` resolves; override `onBefore(ctx)`, calling `super.onBefore(ctx)` for the configured rules. |
-| `RateLimitMiddleware` | `RouteMiddleware`, `@NewInstance()` (one per route), mounted by `@RateLimit` | `RateLimitMiddleware` | | Subclass and mount it with `@Middleware(Mine, limit, windowSeconds, by)`, or `DI.register(Mine).as(RateLimitMiddleware)` before `Controllers` resolves. |
+| `RateLimitMiddleware` | `RouteMiddleware`, `@NewInstance()` (one per route), mounted by `@RateLimit` | `RateLimitMiddleware` | | Subclass and mount it with `@Middleware(Mine, limit, windowSeconds, by)` or `@Middleware(Mine, options)`, or `DI.register(Mine).as(RateLimitMiddleware)` before `Controllers` resolves. |
 
 Members:
 

@@ -2,14 +2,15 @@ import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
 import { DI } from '@spinajs/di';
-import type { Configuration } from '@spinajs/configuration';
+import { Configuration } from '@spinajs/configuration';
+import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
 import { Intl } from '@spinajs/intl';
 import type { TestApp } from '@spinajs/testing';
 import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 import { httpApp, req, TestConfiguration } from './common.js';
-import { BaseController, BasePath, Controllers, Get, HttpServer, MemoryThrottleStore, Ok, Post, RateLimit, RateLimitMiddleware, ThrottleMiddleware, ThrottleStore } from '../src/index.js';
-import type { IRoute, IThrottleRule } from '../src/index.js';
+import { BaseController, BasePath, Controllers, Get, HttpServer, MemoryThrottleStore, Ok, Post, RateLimit, RateLimitMiddleware, RawJsonResponse, ThrottleMiddleware, ThrottleStore } from '../src/index.js';
+import type { IController, IRateLimitOptions, IRoute, IThrottleRule } from '../src/index.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import { globalRouteMiddlewareDescriptors } from '../src/global-route-middlewares.js';
 
@@ -29,6 +30,25 @@ async function makeMiddleware(options: { limit: number; windowSeconds: number; b
   Object.defineProperty(mw, 'Store', { value: store ?? new MemoryThrottleStore() });
   return mw;
 }
+
+async function makeObjectMiddleware(options: IRateLimitOptions, config: Record<string, unknown> = {}, store?: ThrottleStore): Promise<RateLimitMiddleware> {
+  const { container } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config });
+  const mw = readingFrom(new RateLimitMiddleware(options), container);
+  Object.defineProperty(mw, 'Store', { value: store ?? new MemoryThrottleStore() });
+  Object.defineProperty(mw, 'Configuration', { value: await container.resolve(Configuration) });
+  return mw;
+}
+
+async function registrationError(mw: RateLimitMiddleware): Promise<Error | undefined> {
+  try {
+    await mw.onRegister(ROUTE, '/auth/login');
+  } catch (err) {
+    return err as Error;
+  }
+  return undefined;
+}
+
+const CONTROLLER = {} as IController;
 
 async function registered(mw: RateLimitMiddleware, path = '/auth/login', route: IRoute = ROUTE): Promise<RateLimitMiddleware> {
   await mw.onRegister(route, path);
@@ -76,6 +96,30 @@ class RateLimitedController extends BaseController {
   @Get()
   public free() {
     return new Ok({ ok: true });
+  }
+}
+
+const uniformAnswer = (retryAfterSeconds: number) => new RawJsonResponse(401, { error: 'uniform' }, { Headers: [{ Name: 'Retry-After', Value: String(retryAfterSeconds) }] });
+
+@BasePath('rate-limited-options')
+class RateLimitOptionsController extends BaseController {
+  @Post()
+  @RateLimit({ config: 'test.rateLimit.tight', default: { limit: 5, windowSeconds: 60 }, answer: uniformAnswer, headers: false })
+  public login() {
+    return new Ok({ ok: true });
+  }
+
+  @Post()
+  @RateLimit({ config: 'test.rateLimit.off', default: { limit: 1, windowSeconds: 60 } })
+  public unlimited() {
+    return new Ok({ ok: true });
+  }
+}
+
+class RateLimitConfiguration extends TestConfiguration {
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    (this.Config as Record<string, unknown>).test = { rateLimit: { tight: { limit: 1 }, off: false } };
   }
 }
 
@@ -145,6 +189,149 @@ describe('RateLimitMiddleware', () => {
 
     it('keys ip by default', async () => {
       expect(new RateLimitMiddleware(1, 60).by).to.eq('ip');
+    });
+  });
+
+  describe('the options object', () => {
+    it('takes inline numbers and counts on the key the positional form uses', async () => {
+      const store = new MemoryThrottleStore();
+      const increment = sinon.spy(store, 'increment');
+      const mw = await registered(await makeObjectMiddleware({ limit: 1, windowSeconds: 60 }, {}, store));
+
+      expect(mw.by).to.eq('ip');
+      expect((await run(mw)).passed).to.eq(true);
+      const limited = await run(mw);
+      expect(limited.status).to.eq(429);
+      expect(limited.headers['X-RateLimit-Limit']).to.eq('1');
+      expect(Number(limited.headers['Retry-After'])).to.be.within(1, 60);
+      expect(increment.firstCall.args).to.deep.eq(['rate:POST /auth/login:1/60:ip:1.2.3.4', 60]);
+    });
+
+    it('reads the numbers from config over the default, the default when the key is unset', async () => {
+      const store = new MemoryThrottleStore();
+      const increment = sinon.spy(store, 'increment');
+      const options = { config: 'http.test.rateLimit.login', default: { limit: 5, windowSeconds: 60 } };
+      const configured = await registered(await makeObjectMiddleware(options, { http: { test: { rateLimit: { login: { limit: 1, by: 'principal' } } } } }, store));
+      const unset = await registered(await makeObjectMiddleware(options, {}, store));
+
+      expect([configured.limit, configured.windowSeconds, configured.by]).to.deep.eq([1, 60, 'principal']);
+      expect([unset.limit, unset.windowSeconds, unset.by]).to.deep.eq([5, 60, 'ip']);
+      expect((await run(configured)).passed).to.eq(true);
+      expect((await run(configured)).status).to.eq(429);
+      // changed numbers count on a key of their own, so a new limit starts a fresh window
+      expect(increment.firstCall.args[0]).to.eq('rate:POST /auth/login:1/60:ip:1.2.3.4');
+      expect((await run(unset)).headers['X-RateLimit-Limit']).to.eq('5');
+    });
+
+    it('is not mounted when the config key is false, and does nothing if registered anyway', async () => {
+      const store = new MemoryThrottleStore();
+      const increment = sinon.spy(store, 'increment');
+      const mw = await makeObjectMiddleware({ config: 'http.test.rateLimit.login', default: { limit: 1, windowSeconds: 60 } }, { http: { test: { rateLimit: { login: false } } } }, store);
+
+      expect(mw.isEnabled(ROUTE, CONTROLLER)).to.eq(false);
+      await mw.onRegister(ROUTE, '/auth/login');
+      for (let i = 0; i < 3; i++) expect(await run(mw)).to.deep.eq({ passed: true, headers: {} });
+      expect(increment.called).to.eq(false);
+    });
+
+    it('refuses a config value it cannot enforce with InvalidOption naming the key', async () => {
+      const bad: [unknown, string][] = [
+        [{ limit: 'x' }, 'http.test.rateLimit.login.limit'],
+        [{ limit: -1 }, 'http.test.rateLimit.login.limit'],
+        [{ windowSeconds: 0 }, 'http.test.rateLimit.login.windowSeconds'],
+        [{ by: 'session' }, 'http.test.rateLimit.login.by'],
+        [{ limt: 1 }, 'http.test.rateLimit.login'],
+        [5, 'http.test.rateLimit.login'],
+        [true, 'http.test.rateLimit.login'],
+      ];
+      for (const [value, key] of bad) {
+        const mw = await makeObjectMiddleware({ config: 'http.test.rateLimit.login', default: { limit: 1, windowSeconds: 60 } }, { http: { test: { rateLimit: { login: value } } } });
+        expect(mw.isEnabled(ROUTE, CONTROLLER), JSON.stringify(value)).to.eq(true);
+        const error = await registrationError(mw);
+        expect(error, JSON.stringify(value)).to.be.instanceOf(InvalidOption);
+        expect(error?.message, JSON.stringify(value)).to.contain(key);
+      }
+    });
+
+    it('refuses options it cannot enforce with InvalidArgument', async () => {
+      const bad: [IRateLimitOptions, string][] = [
+        [{ config: 'http.test.rateLimit.login' }, 'default'],
+        [{ config: 'http.test.rateLimit.login', default: { limit: 1, windowSeconds: 0 } }, 'windowSeconds'],
+        [{ limit: 1 }, 'windowSeconds'],
+        [{ windowSeconds: 60 }, 'limit'],
+        [{ limit: 1, windowSeconds: 60, by: 'session' as 'ip' }, 'by'],
+      ];
+      for (const [options, name] of bad) {
+        const error = await registrationError(await makeObjectMiddleware(options));
+        expect(error, JSON.stringify(options)).to.be.instanceOf(InvalidArgument);
+        expect(error?.message, JSON.stringify(options)).to.contain(name);
+      }
+    });
+
+    it('answers with `answer` and, with headers: false, sets no X-RateLimit-* and no Retry-After of its own', async () => {
+      const answer = sinon.spy(uniformAnswer);
+      const mw = await registered(await makeObjectMiddleware({ limit: 1, windowSeconds: 60, answer, headers: false }));
+
+      expect(await run(mw)).to.deep.eq({ passed: true, headers: {} });
+      const limited = await run(mw);
+      expect(limited.headers).to.deep.eq({});
+      expect(limited.status).to.eq(401);
+      expect(limited.body).to.deep.eq({ error: 'uniform' });
+      expect(answer.calledOnce).to.eq(true);
+      expect(answer.firstCall.args[0]).to.be.within(1, 60);
+      expect(answer.firstCall.returnValue.headers).to.deep.eq([{ Name: 'Retry-After', Value: String(answer.firstCall.args[0]) }]);
+    });
+
+    it('keeps its headers with an answer unless told otherwise', async () => {
+      const mw = await registered(await makeObjectMiddleware({ limit: 1, windowSeconds: 60, answer: uniformAnswer }));
+
+      await run(mw);
+      const limited = await run(mw);
+      expect(limited.status).to.eq(401);
+      expect(limited.headers['X-RateLimit-Limit']).to.eq('1');
+      expect(Number(limited.headers['Retry-After'])).to.be.within(1, 60);
+    });
+
+    it('with headers: false and no answer, answers the 429 that carries its own Retry-After', async () => {
+      const mw = await registered(await makeObjectMiddleware({ limit: 1, windowSeconds: 60, headers: false }));
+
+      await run(mw);
+      const res = { set: sinon.spy() };
+      const limited = await mw.onBefore({ req: { socket: {} } as never, res: res as never, storage: { realIp: '1.2.3.4' } as never });
+      expect(res.set.called).to.eq(false);
+      expect(limited!.statusCode).to.eq(429);
+      expect(JSON.stringify(limited!.data)).to.eq(JSON.stringify({ error: { code: 'E_TOO_MANY_REQUESTS', message: 'Too many requests, try again later' } }));
+      expect(Number(limited!.headers.find((h) => h.Name === 'Retry-After')?.Value)).to.be.within(1, 60);
+    });
+
+    it('answers a closed route (limit 0) with `answer`, counting nothing', async () => {
+      const store = new MemoryThrottleStore();
+      const increment = sinon.spy(store, 'increment');
+      const mw = await registered(await makeObjectMiddleware({ limit: 0, windowSeconds: 60, answer: uniformAnswer, headers: false }, {}, store));
+
+      const closed = await run(mw);
+      expect(closed.status).to.eq(401);
+      expect(closed.headers).to.deep.eq({});
+      expect(increment.called).to.eq(false);
+    });
+
+    it('counts on the key(ctx) of the request, under the route key, and falls back to `by` when it gives none', async () => {
+      const store = new MemoryThrottleStore();
+      const increment = sinon.spy(store, 'increment');
+      const key = sinon.spy((ctx: { storage: { session?: string } }) => ctx.storage.session);
+      const mw = await registered(await makeObjectMiddleware({ limit: 1, windowSeconds: 60, key: key as unknown as IRateLimitOptions['key'] }, {}, store));
+
+      expect((await run(mw, { realIp: '1.1.1.1', session: 's1' })).passed).to.eq(true);
+      expect((await run(mw, { realIp: '2.2.2.2', session: 's1' })).status).to.eq(429);
+      expect((await run(mw, { realIp: '1.1.1.1', session: 's2' })).passed).to.eq(true);
+      expect((await run(mw, { realIp: '1.1.1.1' })).passed).to.eq(true);
+      expect((await run(mw, { realIp: '1.1.1.1' })).status).to.eq(429);
+      // a key that looks like an address subject is still not that address's counter
+      expect((await run(mw, { realIp: '3.3.3.3', session: 'ip:4.4.4.4' })).passed).to.eq(true);
+      expect((await run(mw, { realIp: '4.4.4.4' })).passed).to.eq(true);
+
+      expect(increment.firstCall.args[0]).to.eq('rate:POST /auth/login:1/60:key:s1');
+      expect(key.firstCall.args[0]).to.have.keys('req', 'res', 'storage');
     });
   });
 
@@ -291,6 +478,44 @@ describe('RateLimitMiddleware', () => {
         const free = await req().get('rate-limited/free');
         expect(free.status).to.eq(200);
         expect(free.header['x-ratelimit-limit']).to.eq(undefined);
+      }
+    });
+  });
+
+  describe('the options object on a route', function () {
+    this.timeout(15000);
+    let app: TestApp;
+
+    before(async () => {
+      app = await httpApp({
+        configuration: RateLimitConfiguration,
+        register: (c) => c.register(RateLimitOptionsController).as(BaseController),
+        resolve: [Intl, Controllers],
+      });
+      await (await app.resolve(HttpServer)).start();
+    });
+
+    after(async () => {
+      await app.dispose();
+    });
+
+    it('limits by the configured numbers with the route answer and no X-RateLimit-* headers; a config false mounts nothing', async () => {
+      const first = await req().post('rate-limited-options/login');
+      expect(first.status).to.eq(200);
+      expect(first.header['x-ratelimit-limit']).to.eq(undefined);
+
+      const limited = await req().post('rate-limited-options/login');
+      expect(limited.status).to.eq(401);
+      expect(limited.body).to.deep.eq({ error: 'uniform' });
+      expect(Number(limited.header['retry-after'])).to.be.within(1, 60);
+      expect(limited.header['x-ratelimit-limit']).to.eq(undefined);
+      expect(limited.header['x-ratelimit-remaining']).to.eq(undefined);
+
+      // the suite's afterEach disposes the app, so the route whose config key is false is checked here
+      for (let i = 0; i < 3; i++) {
+        const res = await req().post('rate-limited-options/unlimited');
+        expect(res.status).to.eq(200);
+        expect(res.header['x-ratelimit-limit']).to.eq(undefined);
       }
     });
   });
