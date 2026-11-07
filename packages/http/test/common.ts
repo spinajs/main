@@ -6,13 +6,12 @@ import { createTestApp } from '@spinajs/testing';
 import type { TestApp, TestAppOptions } from '@spinajs/testing';
 import { Forbidden } from '@spinajs/exceptions';
 import chai from 'chai';
-import { Controllers, HttpServer } from '../src/index.js';
+import { Controllers, defaultMiddlewares, HttpServer } from '../src/index.js';
 import { join, normalize, resolve } from 'path';
 import _ from 'lodash';
 import chaiHttp from 'chai-http';
 import chaiAsPromised from 'chai-as-promised';
 
-import helmet from 'helmet';
 
 import chaiSubset from 'chai-subset';
 import chaiLike from 'chai-like';
@@ -126,7 +125,7 @@ export class TestConfiguration extends FrameworkConfiguration {
 
         port: 0,
         cookie: { secret: TEST_COOKIE_SECRET },
-        middlewares: [(helmet as any)()],
+        middlewares: defaultMiddlewares(),
         bodyParsers: {
           json: {
             verify: (req: any) => {

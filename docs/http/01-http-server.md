@@ -82,13 +82,15 @@ The parsers are [server middlewares](15-server-middlewares.md) mounted through `
 | --- | --- | --- | --- | --- |
 | `CookieParserMiddleware` | 0.5 | `cookies` | secret from `http.cookie.secret` | signed cookies (see [Cookies](20-cookies.md)); before `IntlHttpMiddleware` (Order 1), which reads the language cookie |
 | `BodyLimits` | 3.4 | none: `http.bodyLimits` | no rules: not mounted | [per-path limits](04-route-arguments.md#body-size-limits) |
-| `JsonBodyParser` | 3.5 | `json` | `limit: '5mb'`; the raw bytes go to `req.rawBody` | feeds [`@RawBody()`](04-route-arguments.md); your `verify` runs after the raw bytes are stored |
+| `JsonBodyParser` | 3.5 | `json` | `limit: '5mb'`; the raw bytes go to `req.rawBody` | feeds [`@RawBody()`](04-route-arguments.md); your `verify` runs after the raw bytes are stored, under `http.bodyLimits` paths too |
 | `UrlencodedBodyParser` | 3.5 | `urlencoded` | `extended: true` | form posts |
 | `TextBodyParser` | 3.5 | `text` | types `application/xml`, `text/xml`, `application/*+xml`, `limit: '5mb'` | feeds [`@FromXml()`](04-route-arguments.md) |
 
 Each key takes `enabled` (default `true`; `false` mounts nothing) and the options of `express.json()`, `express.urlencoded()`, `express.text()` or `cookie-parser`; your keys merge over the defaults. A parser limit answers 413 with `EntityTooLargeException`, as `http.bodyLimits` does. A server middleware below Order 3.5 sees no `req.body`; one below 0.5 sees no `req.cookies`.
 
-A 3.x `http.middlewares` list that still holds `express.json()`, `express.urlencoded()`, `express.text()`, `cookieParser(...)` or `configuredCookieParser` keeps working: the matching built-in recognises the handler by its function name (`jsonParser`, `urlencodedParser`, `textParser`, `cookieParser`, `configuredCookieParser`), is not mounted, and logs one warning. Such a list parses before every server middleware, so its failures get no request id or CORS headers; with a body parser in that list, `http.bodyLimits` is mounted before the list, as in 3.x. Move the options to `http.bodyParsers` and drop the handlers.
+A 3.x `http.middlewares` list that still holds `express.json()`, `express.urlencoded()`, `express.text()`, `cookieParser(...)` or `configuredCookieParser` keeps parsing with them: the matching built-in recognises that handler (express's and cookie-parser's own handlers, also inside a nested array, and the tagged `configuredCookieParser`; not a parser wrapped in a function of yours, nor a function of yours that only shares the name), is not mounted, and logs one warning. The other built-ins stay on: a 3.x list holding only `express.json()` now also gets the form, XML-text and cookie parsers; switch off the ones you do not want with `enabled: false`. Such a list parses before every server middleware, so its failures get no request id or CORS headers. Move the options to `http.bodyParsers` and drop the handlers.
+
+`http.bodyLimits` goes before `http.middlewares` whenever that list holds a handler the package did not ship (anything but `defaultMiddlewares()` and `configuredCookieParser`), since such a handler might read the body; its 413 then has no request id or CORS headers. With only the shipped handlers, `BodyLimits` runs at 3.4. A body something read before the limit (a server middleware below 3.4, say) answers 413 under a rule's path, with one warning: its size can no longer be bounded.
 
 ```ts
 // config/http.ts in your app

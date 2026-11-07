@@ -1,6 +1,8 @@
 import type { RequestHandler } from 'express';
 import helmet from 'helmet';
 
+import { configuredCookieParser } from './cookie.js';
+
 // A registered symbol, so two copies of the package tag handlers alike.
 const SHIPPED = Symbol.for('@spinajs/http.shippedMiddleware');
 
@@ -10,6 +12,14 @@ function shipped(name: string, handler: RequestHandler): RequestHandler {
   (handler as ShippedHandler)[SHIPPED] = name;
   return handler;
 }
+
+/** The name `@spinajs/http` tagged a handler it ships with, or undefined for any other handler. */
+export function shippedHandlerName(handler: unknown): string | undefined {
+  return typeof handler === 'function' ? (handler as ShippedHandler)[SHIPPED] : undefined;
+}
+
+// The 3.x shipped cookie parser: a list holding it reads no body, and CookieParserMiddleware steps aside for it.
+shipped('cookie parser', configuredCookieParser);
 
 // ts-node's type check rejects calling the default import that the build accepts.
 const securityHeaders = helmet as unknown as (options: { referrerPolicy: { policy: string } }) => RequestHandler;

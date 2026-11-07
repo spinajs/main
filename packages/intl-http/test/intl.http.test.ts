@@ -68,6 +68,12 @@ describe('http & controller tests', function () {
     expect(s.args[0][0]).to.eq('en');
   });
 
+  it('reads the language from a cookie: the built-in cookie parser (Order 0.5) runs before IntlHttpMiddleware (Order 1)', async () => {
+    const response = await req().get('responses/testPugIntl').set('Accept', 'text/html').set('Cookie', 'lang=en').send();
+    expect(response).to.have.status(200);
+    expect(response.text).to.contain('<p>hello world</p>');
+  });
+
   it('Query param should be ok with allowed languages', async () => {
     const s = sinon.spy(TestResponses.prototype, 'testLangAllowedLanguages');
 

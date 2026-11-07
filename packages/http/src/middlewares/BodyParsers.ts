@@ -8,60 +8,71 @@ import { ServerMiddleware } from '../interfaces.js';
 import { createBodyLimitMiddleware } from '../body-limits.js';
 import type { IBodyLimitRule } from '../body-limits.js';
 import { EntityTooLargeException } from '../exceptions.js';
+import { shippedHandlerName } from '../default-middlewares.js';
+import { effectiveParserOptions, jsonParser, textParser, urlencodedParser } from '../body-parser-options.js';
+import type {
+  BodyParserKind,
+  CookieParserOptions,
+  IBodyParsersConfiguration,
+  JsonBodyParserOptions,
+  TextBodyParserOptions,
+  UrlencodedBodyParserOptions,
+} from '../body-parser-options.js';
 
-export type BodyParserKind = 'json' | 'urlencoded' | 'text' | 'cookies';
+export type {
+  BodyParserKind,
+  CookieParserOptions,
+  IBodyParsersConfiguration,
+  JsonBodyParserOptions,
+  TextBodyParserOptions,
+  UrlencodedBodyParserOptions,
+} from '../body-parser-options.js';
 
-interface IParserSwitch {
-  /** Default true. */
-  enabled?: boolean;
+// The source text of the handlers express.json() / .urlencoded() / .text() and cookie-parser return is the same
+// for every call, whatever the options; a function of the app that only shares the name does not match.
+const PARSER_SOURCES = new Map<string, BodyParserKind>([
+  [express.json().toString(), 'json'],
+  [express.urlencoded().toString(), 'urlencoded'],
+  [express.text().toString(), 'text'],
+  [cookieParser().toString(), 'cookies'],
+]);
+
+function handlersOf(list: readonly unknown[] | undefined): unknown[] {
+  return (list ?? []).flatMap((entry) => (Array.isArray(entry) ? handlersOf(entry) : [entry]));
 }
 
-export type JsonBodyParserOptions = IParserSwitch & NonNullable<Parameters<typeof express.json>[0]>;
-export type UrlencodedBodyParserOptions = IParserSwitch & NonNullable<Parameters<typeof express.urlencoded>[0]>;
-export type TextBodyParserOptions = IParserSwitch & NonNullable<Parameters<typeof express.text>[0]>;
-export type CookieParserOptions = IParserSwitch & cookieParser.CookieParseOptions;
-
-/** `http.bodyParsers`: options of the built-in parsers, passed on to express / cookie-parser. */
-export interface IBodyParsersConfiguration {
-  json?: JsonBodyParserOptions;
-  urlencoded?: UrlencodedBodyParserOptions;
-  text?: TextBodyParserOptions;
-  cookies?: CookieParserOptions;
-}
-
-// The function names of the handlers express.json() / .urlencoded() / .text() and cookie-parser return, and of the
-// cookie parser 3.x shipped in http.middlewares.
-const HANDLER_NAMES: Record<string, BodyParserKind> = {
-  jsonParser: 'json',
-  urlencodedParser: 'urlencoded',
-  textParser: 'text',
-  cookieParser: 'cookies',
-  configuredCookieParser: 'cookies',
-};
-
-/** The parsers an `http.middlewares` list mounts itself, by kind, with the handler's function name. */
+/**
+ * The parsers an `http.middlewares` list (nested arrays included) mounts itself, by kind, with the handler's name:
+ * express's and cookie-parser's own handlers, and the `configuredCookieParser` 3.x shipped. A parser wrapped in
+ * another function is not recognised.
+ */
 export function parsersHeldBy(list: readonly unknown[] | undefined): Map<BodyParserKind, string> {
   const held = new Map<BodyParserKind, string>();
-  for (const handler of list ?? []) {
-    const name = typeof handler === 'function' ? handler.name : undefined;
-    const kind = name ? HANDLER_NAMES[name] : undefined;
-    if (kind && !held.has(kind)) held.set(kind, name!);
+  for (const handler of handlersOf(list)) {
+    if (typeof handler !== 'function') continue;
+    const kind = shippedHandlerName(handler) === 'cookie parser' ? 'cookies' : PARSER_SOURCES.get(handler.toString());
+    if (kind && !held.has(kind)) held.set(kind, handler.name || 'anonymous');
   }
   return held;
 }
 
-/** Whether `http.middlewares` parses bodies itself, so `http.bodyLimits` must run before it, as in 3.x. */
-export function holdsBodyParser(list: readonly unknown[] | undefined): boolean {
-  const held = parsersHeldBy(list);
-  return held.has('json') || held.has('urlencoded') || held.has('text');
+/**
+ * Whether `http.bodyLimits` must run before `http.middlewares`: the list holds a handler `@spinajs/http` did not
+ * ship (only helmet and `configuredCookieParser` are tagged), which might read the body.
+ */
+export function limitsBeforeMiddlewares(list: readonly unknown[] | undefined): boolean {
+  return handlersOf(list).some((handler) => shippedHandlerName(handler) === undefined);
 }
 
 const isTooLarge = (err: unknown): boolean => (err as { type?: string } | null)?.type === 'entity.too.large';
 
-abstract class BuiltInParser<O extends IParserSwitch> extends ServerMiddleware {
-  protected abstract readonly Kind: BodyParserKind;
+const named = (handler: express.RequestHandler, name: string): express.RequestHandler => {
+  Object.defineProperty(handler, 'name', { value: name });
+  return handler;
+};
 
-  protected abstract readonly Defaults: O;
+abstract class BuiltInParser<O extends { enabled?: boolean }> extends ServerMiddleware {
+  protected abstract readonly Kind: BodyParserKind;
 
   @Config('http.bodyParsers', { defaultValue: {} })
   protected ParsersConfig!: IBodyParsersConfiguration;
@@ -72,16 +83,23 @@ abstract class BuiltInParser<O extends IParserSwitch> extends ServerMiddleware {
   @Logger('http')
   protected Log!: Log;
 
+  private enabled?: boolean;
+
   constructor() {
     super();
     this.Order = 3.5;
   }
 
   protected get Options(): O {
-    return { ...this.Defaults, ...((this.ParsersConfig?.[this.Kind] ?? {}) as O) };
+    return effectiveParserOptions(this.ParsersConfig, this.Kind) as O;
   }
 
   public isEnabled(): boolean {
+    this.enabled ??= this.decideEnabled();
+    return this.enabled;
+  }
+
+  private decideEnabled(): boolean {
     if (this.Options.enabled === false) {
       return false;
     }
@@ -97,12 +115,14 @@ abstract class BuiltInParser<O extends IParserSwitch> extends ServerMiddleware {
     return true;
   }
 
-  protected abstract parser(options: Omit<O, 'enabled'>): express.RequestHandler;
+  protected abstract parser(options: O): express.RequestHandler;
 
   public handler(): express.RequestHandler {
-    const { enabled: _enabled, ...options } = this.Options;
-    const parse = this.parser(options);
-    return (req, res, next) => parse(req, res, (err?: unknown) => next(isTooLarge(err) ? new EntityTooLargeException('request body is too large') : err));
+    const parse = this.parser(this.Options);
+    return named(
+      (req, res, next) => parse(req, res, (err?: unknown) => next(isTooLarge(err) ? new EntityTooLargeException('request body is too large') : err)),
+      this.constructor.name,
+    );
   }
 }
 
@@ -111,17 +131,8 @@ abstract class BuiltInParser<O extends IParserSwitch> extends ServerMiddleware {
 export class JsonBodyParser extends BuiltInParser<JsonBodyParserOptions> {
   protected readonly Kind = 'json';
 
-  protected readonly Defaults: JsonBodyParserOptions = { limit: '5mb' };
-
   protected parser(options: JsonBodyParserOptions): express.RequestHandler {
-    return express.json({
-      ...options,
-      // @RawBody() and webhook signature checks need the unmodified bytes
-      verify: (req, res, buf, encoding) => {
-        (req as typeof req & { rawBody?: Buffer }).rawBody = buf;
-        options.verify?.(req, res, buf, encoding);
-      },
-    });
+    return jsonParser(options);
   }
 }
 
@@ -130,10 +141,8 @@ export class JsonBodyParser extends BuiltInParser<JsonBodyParserOptions> {
 export class UrlencodedBodyParser extends BuiltInParser<UrlencodedBodyParserOptions> {
   protected readonly Kind = 'urlencoded';
 
-  protected readonly Defaults: UrlencodedBodyParserOptions = { extended: true };
-
   protected parser(options: UrlencodedBodyParserOptions): express.RequestHandler {
-    return express.urlencoded(options);
+    return urlencodedParser(options);
   }
 }
 
@@ -142,10 +151,8 @@ export class UrlencodedBodyParser extends BuiltInParser<UrlencodedBodyParserOpti
 export class TextBodyParser extends BuiltInParser<TextBodyParserOptions> {
   protected readonly Kind = 'text';
 
-  protected readonly Defaults: TextBodyParserOptions = { type: ['application/xml', 'text/xml', 'application/*+xml'], limit: '5mb' };
-
   protected parser(options: TextBodyParserOptions): express.RequestHandler {
-    return express.text(options);
+    return textParser(options);
   }
 }
 
@@ -157,8 +164,6 @@ export class TextBodyParser extends BuiltInParser<TextBodyParserOptions> {
 export class CookieParserMiddleware extends BuiltInParser<CookieParserOptions> {
   protected readonly Kind = 'cookies';
 
-  protected readonly Defaults: CookieParserOptions = {};
-
   @Config('http.cookie.secret')
   protected Secret?: string;
 
@@ -167,23 +172,29 @@ export class CookieParserMiddleware extends BuiltInParser<CookieParserOptions> {
     this.Order = 0.5;
   }
 
-  protected parser(options: CookieParserOptions): express.RequestHandler {
+  protected parser({ enabled: _enabled, ...options }: CookieParserOptions): express.RequestHandler {
     return cookieParser(this.Secret, options);
   }
 }
 
 /**
  * `http.bodyLimits` at Order 3.4, just before the body parsers: a request under a rule's path is parsed here with that
- * limit and the parsers skip it. When `http.middlewares` still holds a body parser, `HttpServer` mounts the limits
- * before that list instead, as in 3.x.
+ * limit and the `http.bodyParsers` options, and the parsers skip it. A body something read earlier answers 413. When
+ * `http.middlewares` holds a handler the package did not ship, `HttpServer` mounts the limits before that list instead.
  */
 @Injectable(ServerMiddleware)
 export class BodyLimits extends ServerMiddleware {
   @Config('http.bodyLimits', { defaultValue: [] })
   protected Rules!: IBodyLimitRule[];
 
+  @Config('http.bodyParsers', { defaultValue: {} })
+  protected ParsersConfig!: IBodyParsersConfiguration;
+
   @Config('http.middlewares', { defaultValue: [] })
   protected RawMiddlewares!: unknown[];
+
+  @Logger('http')
+  protected Log!: Log;
 
   constructor() {
     super();
@@ -191,10 +202,18 @@ export class BodyLimits extends ServerMiddleware {
   }
 
   public isEnabled(): boolean {
-    return (this.Rules ?? []).length > 0 && !holdsBodyParser(this.RawMiddlewares);
+    return (this.Rules ?? []).length > 0 && !limitsBeforeMiddlewares(this.RawMiddlewares);
   }
 
   public handler(): express.RequestHandler | null {
-    return createBodyLimitMiddleware(this.Rules ?? []);
+    const limits = createBodyLimitMiddleware(this.Rules ?? [], {
+      parsers: this.ParsersConfig,
+      onReadEarly: (req) =>
+        this.Log.warn(
+          { path: req.path },
+          'A server middleware below Order 3.4 read the body of ${path} before http.bodyLimits could check it; such requests answer 413. Leave body parsing to http.bodyParsers.',
+        ),
+    });
+    return limits && named(limits, this.constructor.name);
   }
 }

@@ -32,7 +32,7 @@ import './middlewares/Compression.js';
 import './middlewares/Cors.js';
 import './middlewares/SlowRequestWarning.js';
 import './middlewares/ServerTiming.js';
-import { holdsBodyParser } from './middlewares/BodyParsers.js';
+import { limitsBeforeMiddlewares } from './middlewares/BodyParsers.js';
 
 @Injectable()
 @Inject(Templates)
@@ -155,9 +155,9 @@ export class HttpServer extends AsyncService {
     // first, so a failure of an http.middlewares handler is answered with the request storage in place
     this.use(createRequestStorage);
 
-    // A 3.x list that parses bodies itself: the limits must read the body before it does. Otherwise BodyLimits mounts them.
-    if (holdsBodyParser(this.HttpConfig.middlewares)) {
-      const bodyLimits = createBodyLimitMiddleware(this.HttpConfig.bodyLimits ?? []);
+    // A handler of the app's own might read the body: the limits must come before it. Otherwise BodyLimits mounts them.
+    if (limitsBeforeMiddlewares(this.HttpConfig.middlewares)) {
+      const bodyLimits = createBodyLimitMiddleware(this.HttpConfig.bodyLimits ?? [], { parsers: this.HttpConfig.bodyParsers });
       if (bodyLimits) {
         this.Log.info({ rules: this.HttpConfig.bodyLimits!.length }, 'Using per-path body limits ( ${rules} rules ) before http.middlewares');
         this.use(bodyLimits);

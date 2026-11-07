@@ -69,6 +69,8 @@ export const HTTP_CONFIGURATION_SCHEMA = {
     bodyParsers: {
       type: 'object',
       default: {},
+      // propertyNames, not additionalProperties: the configuration's removeAdditional would drop a misspelt key silently
+      propertyNames: { enum: ['json', 'urlencoded', 'text', 'cookies'] },
       description:
         'The built-in parser server middlewares: json (JsonBodyParser, limit 5mb), urlencoded (UrlencodedBodyParser), text (TextBodyParser, XML types, limit 5mb), all at Order 3.5, and cookies (CookieParserMiddleware, Order 0.5, signed with http.cookie.secret). Each takes enabled (default true) and the options of its express or cookie-parser function.',
       properties: Object.fromEntries(
