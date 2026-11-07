@@ -10,7 +10,7 @@ import { configurationViolations, createTestApp, disposeTestApps } from '@spinaj
 import { OidcController } from '../src/controllers/OidcController.js';
 import { OidcLogin } from '../src/login.js';
 import type { OidcLoginDeps } from '../src/login.js';
-import { AUTHN_OIDC_CONFIGURATION_SCHEMA, AUTHN_OIDC_RATE_LIMITS } from '../src/options/schema.js';
+import { AUTHN_OIDC_CONFIGURATION_SCHEMA, AUTHN_OIDC_RATE_LIMITS, AUTHN_OIDC_SESSION_RATE_LIMITS } from '../src/options/schema.js';
 import { OidcThrottledResponse, oidcThrottled } from '../src/rate-limits.js';
 
 const ROUTES = [
@@ -99,7 +99,7 @@ describe('the shipped rate limits of the OIDC routes', () => {
     it('the schema fills the defaults, takes false and refuses unknown names and settings', async function () {
       this.timeout(20000);
       const { config } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [AUTHN_OIDC_CONFIGURATION_SCHEMA], config: {} });
-      expect(config.get('authn.oidc.rateLimit')).to.deep.eq(AUTHN_OIDC_RATE_LIMITS);
+      expect(config.get('authn.oidc.rateLimit')).to.deep.eq({ ...AUTHN_OIDC_RATE_LIMITS, ...AUTHN_OIDC_SESSION_RATE_LIMITS });
       const bad = (rateLimit: unknown) => configurationViolations({ schemas: [AUTHN_OIDC_CONFIGURATION_SCHEMA], config: { authn: { oidc: { rateLimit } } } });
       expect(await bad({ begin: false, callback: { limit: 300 } })).to.deep.eq([]);
       expect(await bad({ backchannelLogout: { limit: 10 } })).to.not.deep.eq([]);
