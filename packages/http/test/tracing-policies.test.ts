@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { Intl } from '@spinajs/intl';
-import { Forbidden } from '@spinajs/exceptions';
+import { BadRequest, Forbidden } from '@spinajs/exceptions';
 import type { TestApp } from '@spinajs/testing';
 import { SpanStatusCode } from '@opentelemetry/api';
 import { useInMemorySpans } from '@spinajs/tracing/testing';
@@ -45,6 +45,11 @@ class GuardedController extends BaseController {
   @Get()
   public broken() {
     throw new Error('broken');
+  }
+
+  @Get()
+  public invalid() {
+    throw new BadRequest('invalid input');
   }
 }
 
@@ -103,6 +108,15 @@ describe('route and policy spans', function () {
 
     const [route] = spans.byName('route GuardedController.broken');
     expect(route.status).to.deep.eq({ code: SpanStatusCode.ERROR, message: 'broken' });
+    expect(route.events.map((e) => e.name)).to.deep.eq(['exception']);
+  });
+
+  it('records a 4xx the action throws on the route span without ERROR', async () => {
+    expect((await req().get('tracing-t3/invalid')).status).to.eq(400);
+    await spans.waitFor('GET /tracing-t3/invalid');
+
+    const [route] = spans.byName('route GuardedController.invalid');
+    expect(route.status.code).to.eq(SpanStatusCode.UNSET);
     expect(route.events.map((e) => e.name)).to.deep.eq(['exception']);
   });
 });

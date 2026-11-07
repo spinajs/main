@@ -10,6 +10,7 @@ import { DI, IContainer } from '@spinajs/di';
 import { AuthenticationFailed, UnexpectedServerError } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log';
 import { context, trace } from '@opentelemetry/api';
+import type { Span } from '@opentelemetry/api';
 import { SpinaAttr, markSpanError, tracer, withSpan } from '@spinajs/tracing';
 import { Configuration } from '@spinajs/configuration';
 import { RouteArgs } from './route-args/index.js';
@@ -18,7 +19,7 @@ import { Request as sRequest, IController, IControllerDescriptor, IPolicyDescrip
 import { RouteRegistrationException } from './exceptions.js';
 import { createOnErrorHandler, markStage, runErrorHandlers, stageOf } from './errors/on-error.js';
 import { __handle_response__ } from './response.js';
-import { errorReplyFactory } from './error.js';
+import { answeredAsServerError, errorReplyFactory } from './error.js';
 import { createAroundHandler, recordRouteError, wrapsRoute } from './around.js';
 import { answerEarly, answeredEarly, beginRoute, enterMiddleware, routeContextOf, setErrorReply } from './reply-pipeline.js';
 import type { ErrorReplier } from './reply-pipeline.js';
@@ -299,8 +300,7 @@ export function createActionHandler(controller: ControllerActionHost, route: IRo
         try {
           result = await context.with(trace.setSpan(parent, span), () => invokeAction(controller, route, req, res, next, derived));
         } catch (err) {
-          markSpanError(span, err);
-          span.end();
+          endFailedRouteSpan(span, err);
           next(err);
           return;
         }
@@ -317,6 +317,18 @@ export function createActionHandler(controller: ControllerActionHost, route: IRo
   };
 
   return named(actionHandler as Express.RequestHandler, controller.constructor.name);
+}
+
+// semconv, as for the server span: an error answered with a 4xx (a refusal, a validation failure) is not a span error
+function endFailedRouteSpan(span: Span, err: unknown): void {
+  const status = (err as { status?: unknown } | null)?.status;
+  const serverError = typeof status === 'number' && Number.isInteger(status) ? status >= 500 : answeredAsServerError(err);
+  if (serverError) {
+    markSpanError(span, err);
+  } else {
+    span.recordException(err instanceof Error ? err : new Error(String(err)));
+  }
+  span.end();
 }
 
 async function invokeAction(controller: ControllerActionHost, route: IRoute, req: sRequest, res: Express.Response, next: Express.NextFunction, derived: DerivedArgValidators | undefined): Promise<unknown> {
