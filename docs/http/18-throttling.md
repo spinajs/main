@@ -2,7 +2,9 @@
 
 `ThrottleMiddleware` caps how many requests one client address may send to a path in a fixed time window, before any route code runs. Rules match by path prefix and HTTP method; a request over the limit gets 429 with `Retry-After`. Counters live in a `ThrottleStore`: in process memory by default, or in a shared store you provide for several instances.
 
-It is off by default. It does **not** replace the login throttle of `@spinajs/authn`, which limits per account and per IP on the login flow itself.
+It is off by default. For a limit on one route, declared next to the route, use [`@RateLimit`](#per-route-limits-ratelimit): it counts in the same `ThrottleStore` and answers the same 429.
+
+`ThrottleMiddleware` does **not** replace the login throttle of `@spinajs/authn`, which limits per account and per IP on the login flow itself.
 
 ## How it works
 
@@ -82,12 +84,51 @@ export default {
 
 The counters are per process unless you register a shared `ThrottleStore`. Behind a proxy set `http.trustProxy`, or every client shares the proxy's address.
 
+## Per-route limits: `@RateLimit`
+
+`@RateLimit(limit, windowSeconds, by = 'ip')` mounts `RateLimitMiddleware` on a route, or on every route of a controller. It counts requests in a fixed window in the registered `ThrottleStore`, sets the same `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset` headers as `ThrottleMiddleware`, and over the limit sets `Retry-After` and answers the same 429 body. No `http.throttle.enabled` is needed.
+
+| Argument | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `limit` | `integer` | required | Requests allowed per window; `0` refuses every request. |
+| `windowSeconds` | `number` | required | Window length, > 0. |
+| `by` | `'ip' | 'principal'` | `'ip'` | `'ip'`: per client address, an IPv6 address per `http.throttle.ipv6Prefix` network, as `ThrottleMiddleware` counts. `'principal'`: per authenticated principal (`req.storage.Principal` from `@spinajs/authz-http`, else `req.storage.AuthnPrincipal`); an anonymous request is counted per address. |
+
+```ts sample
+import { BaseController, BasePath, Ok, Post, RateLimit } from '@spinajs/http';
+
+@BasePath('reports')
+export class ReportController extends BaseController {
+  // A burst and a sustained limit count apart.
+  @Post()
+  @RateLimit(5, 60, 'principal')
+  @RateLimit(50, 3600, 'principal')
+  public generate() {
+    return new Ok({ queued: true });
+  }
+
+  @Post()
+  @RateLimit(10, 600)
+  public contact() {
+    return new Ok();
+  }
+}
+```
+
+- Each route counts apart: the key is the route's method and mounted path, the limit, the window and the client (`ip:<address>` or `principal:<type>:<id>`). A `ThrottleMiddleware` rule covering the same path counts on its own key; a request then pays both.
+- It is an `'outer'` route middleware: it runs after the policy gate and before the route's other middlewares, the argument extraction and the action. A request a policy refuses is not counted.
+- Wrong arguments (a non-integer or negative `limit`, a window that is not a positive number, an unknown `by`) or an `http.throttle.ipv6Prefix` outside 16..128 fail the route registration with `RouteRegistrationException`.
+- A store that throws fails the request closed, as for `ThrottleMiddleware`.
+- With two limits on a route, the `X-RateLimit-*` headers are those of the one that ran last (the inner one).
+- `RateLimitMiddleware` is registered as `RouteMiddleware`: `http.routes.middlewares: [{ service: 'RateLimitMiddleware', options: [600, 60] }]` gives every route its own counter of 600 requests a minute per address.
+
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `ThrottleStore` (abstract) | Class `ThrottleStore`, autoinjected into `ThrottleMiddleware`; singleton | `MemoryThrottleStore` (`@Injectable(ThrottleStore)`) | none shipped | Register your store with `@Injectable(ThrottleStore)` (or `DI.register(Mine).as(ThrottleStore)`) before `HttpServer` resolves; the last registration wins. |
+| `ThrottleStore` (abstract) | Class `ThrottleStore`, autoinjected into `ThrottleMiddleware` and `RateLimitMiddleware`; singleton | `MemoryThrottleStore` (`@Injectable(ThrottleStore)`) | none shipped | Register your store with `@Injectable(ThrottleStore)` (or `DI.register(Mine).as(ThrottleStore)`) before `HttpServer` resolves; the last registration wins. |
 | `ThrottleMiddleware` | `ServerMiddleware` list, Order 3 | `ThrottleMiddleware` | | Subclass and `DI.register(Mine).as(ThrottleMiddleware)` before `HttpServer` resolves; override `onBefore(ctx)`, calling `super.onBefore(ctx)` for the configured rules. |
+| `RateLimitMiddleware` | `RouteMiddleware`, `@NewInstance()` (one per route), mounted by `@RateLimit` | `RateLimitMiddleware` | | Subclass and mount it with `@Middleware(Mine, limit, windowSeconds, by)`, or `DI.register(Mine).as(RateLimitMiddleware)` before `Controllers` resolves. |
 
 Members:
 
@@ -139,7 +180,7 @@ export class RedisThrottleStore extends ThrottleStore {
 
 ## Important behaviour
 
-- Off by default; enabling it with no rules logs a warning and does nothing.
+- `ThrottleMiddleware` is off by default; enabling it with no rules logs a warning and does nothing. `@RateLimit` needs no configuration.
 - The first matching rule wins: a broad rule listed first shadows the specific ones after it.
 - Path matching is case-insensitive and on segment boundaries: `/auth` covers `/auth/login` but not `/authority`.
 - The path includes `http.controllers.route.prefix`; write it in the rule.
@@ -151,6 +192,8 @@ export class RedisThrottleStore extends ThrottleStore {
 ## Best practices
 
 - Throttle the unauthenticated surface (login, password reset, sign-up) with low limits and long windows.
+- Prefer `@RateLimit` for a limit that belongs to one route: it follows the route when `@BasePath` or `http.controllers.route.prefix` moves it, where a path rule would stop matching.
+- Count by `'principal'` on authenticated, expensive routes, so clients behind one NAT do not share a limit.
 - Put specific rules before broad ones.
 - Use a shared store whenever more than one instance serves traffic.
 

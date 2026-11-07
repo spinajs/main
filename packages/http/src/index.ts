@@ -54,6 +54,7 @@ export * from './middlewares/SlowRequestWarning.js';
 export * from './middlewares/ServerTiming.js';
 export * from './middlewares/PerfRollup.js';
 export * from './middlewares/Throttle.js';
+export * from './middlewares/RateLimit.js';
 export * from './middlewares/ResponseTime.js';
 export * from './middlewares/RouteTiming.js';
 export * from './middlewares/ReqStorage.js';

@@ -35,7 +35,7 @@ The decorators read TypeScript metadata. Set `experimentalDecorators`, `emitDeco
 | [Server middlewares](15-server-middlewares.md) | `ServerMiddleware`, `Order` and the hooks: the request timeline, the shipped middlewares, the 404 and error tail, adding or replacing one |
 | [CORS](16-cors.md) | `CorsMiddleware`: allowed origins, credentials, preflight, header lists |
 | [Client IP and trusted proxies](17-client-ip-and-trust-proxy.md) | `RealIp`, `http.trustProxy`, `parseTrustProxy`, `parseTrustProxyOverride`, `requestProxyTrust`, `trustedClientAddress`, `requestOrigin` |
-| [Throttling](18-throttling.md) | `ThrottleMiddleware` and the `ThrottleStore` seam: per-IP, per-path rate limits |
+| [Throttling](18-throttling.md) | `ThrottleMiddleware`, `@RateLimit` and the `ThrottleStore` seam: per-path and per-route rate limits, per IP or per principal |
 | [Request storage and tracing](19-request-storage-and-tracing.md) | `req.storage`, `AsyncLocalStorage`, request id and `traceparent`, access log, timing headers, slow-request warnings, perf rollups |
 | [Cookies](20-cookies.md) | Signed cookies, `http.cookie.*`, `@Cookie`, setting cookies on a response |
 | [Controller cache and CLI](21-controller-cache-and-cli.md) | `DefaultControllerCache`, JSDoc tag extractors, `spinajs http:controllers:cache` |
