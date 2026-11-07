@@ -37,7 +37,7 @@ const INDEX_VALUES = [
   'OidcStrategy', 'appPathOrNull', 'atHashOf', 'authorizationUrl', 'checkedRequestOrigin', 'clearFlowCookie', 'codeChallengeOf', 'decodeFlow', 'discoveryUrlOf', 'encodeFlow',
   'exchangeCode', 'fetchUserinfo', 'flowCookie', 'flowCookieName', 'flowIsLive', 'flowSecrets', 'hasRequiredClaims', 'mapClaims', 'newFlow', 'providerNamesOf',
   'rawClaims', 'readClaim', 'registerOidcStrategies', 'requestOrigin', 'resolveEndpoints', 'resolveIssuer', 'sessionBindingOf', 'sha256hex',
-  'stateClaim', 'validateIdToken', 'buildOidcOptions',
+  'stateClaim', 'validateIdToken', 'buildOidcOptions', 'AUTHN_OIDC_RATE_LIMITS', 'OidcRateLimit', 'OidcThrottledResponse', 'isNavigation', 'oidcFailure', 'oidcThrottled',
 ].sort();
 
 const secret: OidcSecretRef = { secret: 'env://OIDC_CORP_SECRET' };

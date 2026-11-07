@@ -1,0 +1,41 @@
+import type * as express from 'express';
+import { DI } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
+import { RateLimit, Response } from '@spinajs/http';
+import type { ResponseFunction } from '@spinajs/http';
+import { appEnvOf } from '@spinajs/authn-session';
+
+import { isNavigation, oidcFailure } from './login.js';
+import type { OidcAnswer } from './login.js';
+import { OidcResponse } from './oidc-response.js';
+import { AUTHN_OIDC_RATE_LIMITS } from './options/schema.js';
+
+export type AuthnOidcRateLimitName = keyof typeof AUTHN_OIDC_RATE_LIMITS;
+
+/**
+ * A rate-limited begin or callback gets the one failure answer of the OIDC routes (D3) with Retry-After, as a
+ * throttled login at the callback does. Whether the request is a navigation is known only once it is answered.
+ */
+export class OidcThrottledResponse extends Response {
+  constructor(public readonly retryAfterSeconds: number) {
+    super(null);
+  }
+
+  // The config as the base Response reads http.AcceptHeaders: an answer given by a middleware has no container of its own.
+  public answerFor(req: { get(name: string): string | undefined }, config: Configuration | null | undefined = DI.get(Configuration)): OidcAnswer {
+    const failurePath = config?.get<string>('authn.oidc.redirects.failure') ?? '/';
+    const env = config ? appEnvOf(config) : undefined;
+    return oidcFailure(isNavigation(req.get('sec-fetch-mode'), req.get('accept')), failurePath, env, this.retryAfterSeconds);
+  }
+
+  public async execute(req: express.Request, res: express.Response): Promise<ResponseFunction | void> {
+    return new OidcResponse(this.answerFor(req)).execute(req, res);
+  }
+}
+
+export const oidcThrottled = (retryAfterSeconds: number): OidcThrottledResponse => new OidcThrottledResponse(retryAfterSeconds);
+
+/** The shipped `@RateLimit` of an anonymous OIDC route: the route's failure answer and no `X-RateLimit-*` header. */
+export function OidcRateLimit(name: AuthnOidcRateLimitName): ReturnType<typeof RateLimit> {
+  return RateLimit({ config: `authn.oidc.rateLimit.${name}`, default: AUTHN_OIDC_RATE_LIMITS[name], answer: oidcThrottled, headers: false });
+}

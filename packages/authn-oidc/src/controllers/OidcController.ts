@@ -1,4 +1,3 @@
-import type * as express from 'express';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
@@ -9,16 +8,18 @@ import type { AuthnContext, SessionHandle } from '@spinajs/authn/contracts';
 import { AuthnSession, proxyTrustOf, publicOriginOf } from '@spinajs/authn-http';
 import { sessionCookie } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
-import { BaseController, BasePath, Body, CsrfExempt, Del, Get, Header, OnError, Param, Post, Response, Unauthorized, _setCoockies, _setHeaders, isTrustedPeer } from '@spinajs/http';
-import type { ErrorContext, ICookie, Request, ResponseFunction } from '@spinajs/http';
+import { BaseController, BasePath, Body, CsrfExempt, Del, Get, Header, OnError, Param, Post, isTrustedPeer } from '@spinajs/http';
+import type { ErrorContext, Request } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { Hooks } from '@spinajs/hooks';
 import { ValidationFailed } from '@spinajs/validation';
 
-import { OidcLogin } from '../login.js';
+import { OidcLogin, isNavigation } from '../login.js';
+import { OidcRateLimit } from '../rate-limits.js';
+import { OidcResponse } from '../oidc-response.js';
 import { OIDC_LOGOUT_INVALID, OidcBackchannelLogout } from '../token/logout-token.js';
-import type { OidcAnswer, OidcRequest } from '../login.js';
+import type { OidcRequest } from '../login.js';
 import { OidcAccountLinks } from '../links.js';
 import { OidcProviders } from '../providers.js';
 import { OIDC_ORIGIN_HEADER_MAX, checkedRequestOrigin } from '../origin.js';
@@ -32,39 +33,10 @@ import type { OidcConnection } from '../args.js';
 import '../logout-extension.js';
 import '../bootstrap.js';
 
+export { OidcResponse };
+
 const ROUTE_PREFIX = 'auth/oidc';
 const FORM = 'application/x-www-form-urlencoded';
-
-/** Maps an OidcAnswer to express; a 401 goes through Unauthorized, as the login route's, so A02's bodies match. */
-export class OidcResponse extends Response {
-  constructor(protected readonly answer: OidcAnswer) {
-    super(null);
-  }
-
-  public async execute(req: express.Request, res: express.Response): Promise<ResponseFunction | void> {
-    const a = this.answer;
-    const cookies = a.cookies as unknown as ICookie[];
-    const headers = Object.entries({ 'cache-control': 'no-store', ...a.headers }).map(([Name, Value]) => ({ Name, Value }));
-    if (a.status === 401) {
-      // Unauthorized answers a function the server calls with req and res; hand it back unchanged.
-      return new Unauthorized(a.body ?? null, { Coockies: cookies, Headers: headers }).execute(req, res);
-    }
-    _setCoockies(res, { Coockies: cookies });
-    _setHeaders(res, { Headers: headers });
-    if (a.location !== undefined) {
-      // express encodes the URL; the target is an app path or the provider's authorization URL.
-      res.redirect(a.status, a.location);
-    } else if (a.html !== undefined) {
-      res.status(a.status).type('html').send(a.html);
-    } else if (a.body !== undefined) {
-      res.status(a.status).json(a.body);
-    } else {
-      res.status(a.status).end();
-    }
-  }
-}
-
-const isNavigation = (fetchMode: string | undefined, accept: string | undefined): boolean => fetchMode === 'navigate' || /\btext\/html\b/i.test(accept ?? '');
 
 /** The first value of `name` in a Cookie header, as cookie-parser takes it. */
 function cookieOf(header: string | undefined, name: string): string | undefined {
@@ -154,6 +126,7 @@ export class OidcController extends BaseController {
   protected Hooks: Hooks;
 
   @Get(':provider')
+  @OidcRateLimit('begin')
   public async begin(
     @Param(PROVIDER) provider: string,
     @QueryObject() query: OidcBeginQuery,
@@ -174,6 +147,7 @@ export class OidcController extends BaseController {
   }
 
   @Get(':provider/callback')
+  @OidcRateLimit('callback')
   public async callback(
     @Param(PROVIDER) provider: string,
     @QueryObject() query: OidcCallbackQueryDto,
