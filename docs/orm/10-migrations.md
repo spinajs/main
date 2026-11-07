@@ -685,3 +685,4 @@ await orm.reloadTableInfo({ models: touched.models });
 - [Model API](03-model-api.md): the model statics `data()` seeds with.
 - [`@spinajs/orm-mysql` migrations](../orm-mysql/06-schema-views-and-events.md#migrations): non-transactional DDL on MySQL.
 - [`@spinajs/orm-sqlite`](../orm-sqlite/README.md), [`@spinajs/orm-mssql`](../orm-mssql/README.md): dialect limits that affect `up()` and `down()`.
+- To write a migration from the difference between your models and a database, see `spinajs migrate-diff` in [orm-cli: generating migrations](../orm-cli/09-generating-migrations.md) and the rules in [schema diff](19-schema-diff.md).
