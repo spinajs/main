@@ -137,9 +137,9 @@ export class TelemetryMiddleware extends ServerMiddleware {
 
   /**
    * Do the end-of-request accounting. Called from the response `finish` event,
-   * never from `after()`.
+   * never from `after()`. Not named `onFinish`: that is the `ServerMiddleware` hook, with another signature.
    */
-  protected onFinish(req: sRequest, res: express.Response): void {
+  protected record(req: sRequest, res: express.Response): void {
     try {
       const start = (req.storage as any)?.[START_KEY] as bigint | undefined;
       const durationMs = start !== undefined ? Number(process.hrtime.bigint() - start) / 1e6 : 0;
@@ -183,7 +183,7 @@ export class TelemetryMiddleware extends ServerMiddleware {
         res.on('finish', () => {
           if (settled) return;
           settled = true;
-          this.onFinish(req, res);
+          this.record(req, res);
         });
 
         res.on('close', () => {
@@ -209,7 +209,7 @@ export class TelemetryMiddleware extends ServerMiddleware {
 
   /**
    * Nothing to do after the controllers — express does not run this for a
-   * matched route. See {@link onFinish}.
+   * matched route. See {@link record}.
    */
   public after(): null {
     return null;

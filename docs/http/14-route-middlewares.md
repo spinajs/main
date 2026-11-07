@@ -45,8 +45,8 @@ Every hook is optional; a middleware implements only those it needs.
 | --- | --- | --- | --- |
 | `isEnabled(route, controller): boolean` | once per route, at startup | the route and the controller | keep the middleware off this route; `true` unless overridden |
 | `onRegister?(route, path, controller)` | once per route, when it is mounted | the route, the mounted path and the controller | check configuration, load an optional dependency; a throw fails the registration |
-| `onBefore?(ctx): Promise<void \| Response>` | before the action, in chain order | `IMiddlewareContext` | change `req`, set headers, throw to refuse, return a `Response` to answer |
-| `onAfter?(ctx): Promise<void>` | in the reply pipeline, before the reply is sent | `IReplyContext` | read or change the reply: `ctx.response`, its `data`, the headers on `ctx.res`; read `ctx.error` |
+| `onBefore?(ctx): void \| Response \| Promise<void \| Response>` | before the action, in chain order | `IMiddlewareContext` | change `req`, set headers, throw to refuse, return a `Response` to answer |
+| `onAfter?(ctx): void \| Promise<void>` | in the reply pipeline, before the reply is sent | `IReplyContext` | read or change the reply: `ctx.response`, its `data`, the headers on `ctx.res`; read `ctx.error` |
 | `onFinish?(ctx): void \| Promise<void>` | once the response finished or the client went away | `IFinishContext` | log, record metrics; a throw is logged on the `http` logger |
 | `onAround?(invocation, proceed): Promise<void>` | wraps the rest of the chain | `IRouteInvocation` and `proceed` | see [Around middlewares](#around-middlewares) |
 
@@ -59,7 +59,7 @@ Every hook is optional; a middleware implements only those it needs.
 | `IFinishContext` | `IMiddlewareContext` plus `aborted: boolean` (`true` when the client went away before the response finished) |
 | `IRouteInvocation` | `IMiddlewareContext` with `route`, `controller` and `path` always set |
 
-A route middleware's hooks get the route fields set. The fields are optional on `IMiddlewareContext` because the same base class, `HttpMiddleware`, will carry server middlewares, which run before routing.
+A route middleware's hooks get the route fields set. The fields are optional on `IMiddlewareContext` because the same base class, `HttpMiddleware`, carries [server middlewares](15-server-middlewares.md), whose `onBefore` and `onAround` run before routing.
 
 ### Answering in `onBefore`
 
@@ -186,8 +186,8 @@ export default { http: { routes: { middlewares } } };
 | `isEnabled(route, controller): boolean` | Whether the middleware runs on this route. Called once at startup. Returns `true` unless overridden. |
 | `Stage?: 'outer' \| 'inner'` | Where the middleware runs in the chain; unset means `'inner'`. See [Stage](#stage). |
 | `onRegister?(route, path, controller)` | Called once when the route is mounted, with the mounted path. |
-| `onBefore?(ctx): Promise<void \| Response>` | Before the action. A returned `Response` answers. |
-| `onAfter?(ctx): Promise<void>` | On every reply, before it is sent: `ctx.response`, `ctx.error`. |
+| `onBefore?(ctx): void \| Response \| Promise<void \| Response>` | Before the action. A returned `Response` answers. |
+| `onAfter?(ctx): void \| Promise<void>` | On every reply, before it is sent: `ctx.response`, `ctx.error`. |
 | `onFinish?(ctx): void \| Promise<void>` | After the response finished, or the client went away (`ctx.aborted`). |
 | `onAround?(invocation, proceed): Promise<void>` | Wraps the rest of the chain. See [Around middlewares](#around-middlewares). |
 
@@ -344,7 +344,7 @@ export class SearchController extends BaseController {
 - `onBefore` and `onAfter` hooks are awaited one after another. A rejected `onBefore` goes to the route's error handlers; a rejected `onAfter` turns the reply into an error reply. `onFinish` hooks are started in order without waiting for each other, so a slow async `onFinish` (an audit write) does not hold back the others; a rejected one is logged.
 - `onAfter` may replace `ctx.response` with another `Response`, or change the reply in place: `ctx.response.data` (the data `execute()` sends), `ctx.response.statusCode`, `ctx.response.setHeader(name, value)`. The hooks that run after it, a response capture (`@Idempotent`) and the client get the change; headers a hook adds are not captured.
 - An error raised after the headers were sent (an action wrote `res`, then threw) gets no error reply: it is logged on the `http` logger, and a reply cut short drops the connection, as Express does.
-- `onFinish` runs exactly once per request, after `finish`, or after `close` when the client went away (`ctx.aborted: true`).
+- `onFinish` runs exactly once per request, after `finish`, or after `close` when the client went away (`ctx.aborted: true`). A streamed reply (SSE, a pipe) the client closed is `aborted` too, although its status and headers were sent: `ctx.res.headersSent` is then `true`.
 - A singleton middleware resolved with different options keeps the first ones; use `@NewInstance()` for configurable middlewares. This holds across a global entry and a `@Middleware` of the same class too.
 
 ## Migrating from the positional hooks

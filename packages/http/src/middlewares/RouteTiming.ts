@@ -36,7 +36,7 @@ export class RouteTiming extends RouteMiddleware {
     const dur = Math.round((performance.now() - started) * 100) / 100;
     const entries = storage?.serverTiming;
 
-    // ServerTiming, when enabled, sets the whole header as the response ends and would drop an appended value
+    // ServerTiming, when enabled, sets the whole header in its onAfter, which runs after this one, and would drop an appended value
     if (entries) {
       entries.push({ name: 'route', dur });
     } else {

@@ -315,19 +315,6 @@ export interface IResponseOptions {
   StatusCode?: HTTP_STATUS_CODE;
 }
 
-export abstract class ServerMiddleware extends AsyncService {
-  public Order!: number;
-
-  public abstract before(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null;
-  /**
-   * Returns the handler attached to the Express stack after controllers
-   * during HttpServer.start(). May be a regular 3-arg request handler OR a
-   * 4-arg Express error handler — the latter is needed to wire the global
-   * error middleware (see ErrorHandlerMiddleware) through the same lifecycle.
-   */
-  public abstract after(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | express.ErrorRequestHandler | null;
-}
-
 /**
  * HTTP response statuses
  */
@@ -864,8 +851,8 @@ export interface IController {
 export type MiddlewareStage = 'outer' | 'inner';
 
 /**
- * What every middleware hook gets. `route`, `controller` and `path` are set for a route middleware; a middleware that
- * runs before routing has none.
+ * What every middleware hook gets. `route`, `controller` and `path` are set for a route middleware. A server middleware
+ * has none in `onBefore` and `onAround`; in `onAfter` and `onFinish` it has them when the request matched a route.
  */
 export interface IMiddlewareContext {
   readonly req: express.Request;
@@ -914,15 +901,18 @@ export interface IRouteOutcome {
  * State is shared, never copied: every hook sees the same `req`, `res` and `storage` for the whole request.
  */
 export abstract class HttpMiddleware extends AsyncService {
-  /** Before the handler. Returning a `Response` answers the request: nothing after this middleware runs; `onAfter` and `onFinish` still do. */
-  public onBefore?(ctx: IMiddlewareContext): Promise<void | Response>;
+  /**
+   * Before the handler. Returning a `Response` answers the request: nothing after this middleware runs; `onAfter` and
+   * `onFinish` still do. May return synchronously: a server middleware chain then goes on in the same tick.
+   */
+  public onBefore?(ctx: IMiddlewareContext): void | Response | Promise<void | Response>;
 
   /**
    * In the reply pipeline, for every framework reply (success, error, early answer, replay), before it is sent; inner
    * (last entered) first. Not called when the headers are already sent. A throw turns the reply into the error reply
-   * for that error.
+   * for that error. May return synchronously: the pipeline then goes on without a tick.
    */
-  public onAfter?(ctx: IReplyContext): Promise<void>;
+  public onAfter?(ctx: IReplyContext): void | Promise<void>;
 
   /** Once the response finished, or the client went away (`aborted`); not awaited by the next one. A throw is logged. */
   public onFinish?(ctx: IFinishContext): void | Promise<void>;
@@ -933,9 +923,9 @@ export abstract class HttpMiddleware extends AsyncService {
    * client went away first. Not calling it ends the chain: the middleware must then answer, with `sendReply()` (the
    * entered middlewares' `onAfter` see the answer) or on `res` itself, and the answer must be sent, or its sending
    * awaited, before the returned promise settles; otherwise the request is answered 500. A throw before `proceed()`
-   * goes to the route's error handlers.
+   * goes to the route's error handlers (a server middleware's to the global error answer).
    */
-  public onAround?(invocation: IRouteInvocation, proceed: () => Promise<IRouteOutcome>): Promise<void>;
+  public onAround?(invocation: IMiddlewareContext, proceed: () => Promise<IRouteOutcome>): Promise<void>;
 }
 
 /**
@@ -960,6 +950,51 @@ export abstract class RouteMiddleware extends HttpMiddleware {
    * registration with RouteRegistrationException.
    */
   public onRegister?(route: IRoute, path: string, controller: IController): Promise<void> | void;
+
+  public onAround?(invocation: IRouteInvocation, proceed: () => Promise<IRouteOutcome>): Promise<void>;
+}
+
+/** A handler of the deprecated `before()`/`after()` server middleware contract. */
+export type LegacyServerHandler = (req: Request, res: express.Response, next: express.NextFunction) => void;
+
+// Filled by server-middlewares.ts: importing it here would close an import cycle through the reply pipeline.
+const SERVER_HOOKS_HANDLER = Symbol.for('@spinajs/http.serverHooksHandler');
+
+/**
+ * A middleware of every request, mounted by `HttpServer` before static files and routing, in ascending `Order` (ties in
+ * DI registration order). Its `onAfter` and `onFinish` run after the route's, in the exact reverse of the order it was
+ * entered in. `onBefore` and `onAround` get no route; `onAfter` and `onFinish` get it when the request matched one.
+ * Static files and replies an action wrote to `res` itself get `onFinish` only.
+ */
+export abstract class ServerMiddleware extends HttpMiddleware {
+  public Order!: number;
+
+  /** Called once, when `HttpServer` mounts the middleware: false mounts nothing. Settings are parsed here or in `resolve()`, never per request. */
+  public isEnabled(): boolean {
+    return true;
+  }
+
+  /** A third-party Express handler (compression) mounted at `Order` in place of `onBefore`/`onAround`; null mounts the hooks. */
+  public handler?(): express.RequestHandler | null;
+
+  /**
+   * @deprecated Implement the hooks; `before()` and `after()` are removed in the next major. A subclass that overrides
+   * `before()` or `after()` is mounted the old way: `before()` at its `Order`, `after()` after routing, and its hooks are
+   * not used. This base implementation returns the middleware's hooks as one Express handler, or null when
+   * `isEnabled()` is false, so a subclass calling `super.before()` keeps working.
+   */
+  public before(): LegacyServerHandler | null {
+    const hooksHandler = (ServerMiddleware as unknown as Record<symbol, ((m: ServerMiddleware) => LegacyServerHandler) | undefined>)[SERVER_HOOKS_HANDLER];
+    if (!hooksHandler) {
+      throw new Error('ServerMiddleware.before() needs @spinajs/http fully loaded: import it from the package root');
+    }
+    return this.isEnabled() ? hooksHandler(this) : null;
+  }
+
+  /** @deprecated See {@link before}. A handler mounted after routing, before the 404 and the global error answer. */
+  public after(): LegacyServerHandler | express.ErrorRequestHandler | null {
+    return null;
+  }
 }
 
 /**
