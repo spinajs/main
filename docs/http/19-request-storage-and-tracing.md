@@ -7,7 +7,7 @@ Every request carries `req.storage`, a per-request object that the server middle
 Per request, the server middlewares fill `req.storage` in `Order`:
 
 1. `HttpServer`'s first handler, before `http.bodyLimits` and `http.middlewares`, sets `req.storage = {}`. (`RequestStorage` is a deprecated class, no longer registered as a server middleware.)
-2. `TracingMiddleware` (Order -3) starts the OpenTelemetry SERVER span in `onAround`, as a child of an inbound `traceparent`, and runs the rest of the request with it active. Its `onFinish` names it `<METHOD> <route path>` (`http.route`) when a route matched, sets `http.response.status_code`, ERROR on a 5xx or an aborted request (`error.type`), and ends it.
+2. `TracingMiddleware` (Order -3) starts the OpenTelemetry SERVER span in `onAround`, as a child of an inbound `traceparent`, and runs the rest of the request with it active. Its `onFinish`, when the request finishes, names it `<METHOD> <route path>` (`http.route`) if a route matched, sets `http.response.status_code`, and ends it. ERROR on a 5xx (`error.type` is the status, with an `exception` event for the error the reply answers) and on a client that left before the status line went out (`error.type` `aborted`, no status code). A streamed reply the client closed after its status line keeps that status and gets `spina.http.aborted: true`. A method outside the standard ones is recorded as `_OTHER` (`http.request.method_original` keeps it) and the span is named `HTTP`. A failure to start the span is logged and the request runs untraced.
 3. `RequestId` (Order 1) sets `requestId` (UUID v4) and the `x-request-id` response header, `traceId` and `spanId` from the active span (without one, it continues the inbound `traceparent` or starts a trace), and the outbound `traceparent` response header.
 4. `RealIp` (Order 1) sets `realIp`; see [Client IP](17-client-ip-and-trust-proxy.md).
 5. `ResponseTime` (Order 2) sets `responseStart` in `onBefore`; its `onAfter`, when the reply is ready, sets `responseEnd`, `responseTime` (ms) and the `x-response-time` header.
@@ -112,6 +112,7 @@ export class InvoiceRepository {
 - `Server-Timing` is on by default and reveals internal timings to every client.
 - The access log redacts query values (`/a?token=x` → `/a?token=[redacted]`); paths are logged as they are. Keep secrets out of paths.
 - Every request gets a new `requestId`; an inbound `x-request-id` is not reused.
+- A request refused by `http.bodyLimits` or a body parser of `http.middlewares` (a 413, a malformed JSON 400) is answered before every server middleware: it gets no server span and no `x-request-id`.
 
 ## Best practices
 

@@ -1,6 +1,7 @@
 export const SpinaAttr = {
   PrincipalId: 'spina.principal.id',
   PrincipalActor: 'spina.principal.actor',
+  HttpAborted: 'spina.http.aborted',
   Controller: 'spina.route.controller',
   Action: 'spina.route.action',
   Policy: 'spina.policy.name',

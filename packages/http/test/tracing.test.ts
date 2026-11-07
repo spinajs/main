@@ -11,7 +11,7 @@ import type { InMemorySpans } from '@spinajs/tracing/testing';
 import { LogLevel, createLogMessageObject } from '@spinajs/log';
 
 import { appPort, httpApp, req } from './common.js';
-import { BaseController, BasePath, Controllers, Get, HttpServer, Ok } from '../src/index.js';
+import { BaseController, BasePath, Controllers, Get, HttpServer, Middleware, Ok, RouteMiddleware, SseResponse } from '../src/index.js';
 
 const INBOUND_TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736';
 const INBOUND_SPAN_ID = '00f067aa0ba902b7';
@@ -22,6 +22,16 @@ const ITEM_SPAN = 'GET /tracing-t2/x/:id';
 interface ItemBody {
   active?: TraceIds;
   log: { traceId?: string; spanId?: string };
+}
+
+class Refuse extends RouteMiddleware {
+  public isEnabled(): boolean {
+    return true;
+  }
+
+  public onBefore(): void {
+    throw new Error('middleware boom');
+  }
 }
 
 @BasePath('tracing-t2')
@@ -41,6 +51,20 @@ class TracedController extends BaseController {
   public async slow() {
     await new Promise((resolve) => setTimeout(resolve, 300));
     return new Ok({});
+  }
+
+  @Get()
+  @Middleware(Refuse)
+  public refused() {
+    return new Ok({});
+  }
+
+  @Get()
+  public stream() {
+    return new SseResponse(async (stream) => {
+      stream.send({ event: 'tick', data: {} });
+      await new Promise<void>((resolve) => stream.onClose(resolve));
+    });
   }
 }
 
@@ -88,6 +112,29 @@ describe('HTTP server span', function () {
       const server = await spans.waitFor('GET /tracing-t2/boom');
       expect(server.status.code).to.eq(SpanStatusCode.ERROR);
       expect(server.attributes).to.include({ 'http.response.status_code': 500, 'error.type': '500' });
+      expect(server.events.map((e) => [e.name, e.attributes?.['exception.message']])).to.deep.eq([['exception', 'boom']]);
+    });
+
+    it('records the exception of a 500 raised outside the action', async () => {
+      expect((await req().get('tracing-t2/refused')).status).to.eq(500);
+
+      const server = await spans.waitFor('GET /tracing-t2/refused');
+      expect(server.status.code).to.eq(SpanStatusCode.ERROR);
+      expect(server.events.map((e) => e.attributes?.['exception.message'])).to.deep.eq(['middleware boom']);
+    });
+
+    it('records an uncommon method as _OTHER and names the span HTTP', async () => {
+      await new Promise<void>((resolve, reject) => {
+        const request = http.request({ host: 'localhost', port: appPort(), path: '/tracing-t2/nowhere', method: 'PURGE' }, (res) => {
+          res.resume();
+          res.on('end', resolve);
+        });
+        request.on('error', reject);
+        request.end();
+      });
+
+      const server = await spans.waitFor('HTTP');
+      expect(server.attributes).to.include({ 'http.request.method': '_OTHER', 'http.request.method_original': 'PURGE' });
     });
 
     it('keeps the method as the name of a request no route matched', async () => {
@@ -109,6 +156,25 @@ describe('HTTP server span', function () {
       expect(server.attributes).to.include({ 'error.type': 'aborted' });
       expect(server.attributes).to.not.have.property('http.response.status_code');
       expect(server.status.code).to.eq(SpanStatusCode.ERROR);
+    });
+
+    it('keeps the sent status of a streamed reply the client closed and marks it aborted, not ERROR', async () => {
+      await new Promise<void>((resolve, reject) => {
+        const request = http.request({ host: 'localhost', port: appPort(), path: '/tracing-t2/stream', method: 'GET' }, (res) => {
+          res.once('data', () => {
+            request.destroy();
+            resolve();
+          });
+        });
+        request.on('error', () => {});
+        request.on('timeout', reject);
+        request.end();
+      });
+
+      const server = await spans.waitFor('GET /tracing-t2/stream');
+      expect(server.attributes).to.include({ 'http.response.status_code': 200, 'spina.http.aborted': true });
+      expect(server.attributes).to.not.have.property('error.type');
+      expect(server.status.code).to.eq(SpanStatusCode.UNSET);
     });
 
     it('continues an inbound traceparent and echoes the server span', async () => {
